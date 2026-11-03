@@ -6,16 +6,16 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>disable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <!-- not "Basalt": the engine is basalt.exe, and a shared name invites stopping the wrong process -->
+    <!-- not "TaDaMoo": the engine is basalt.exe, and a shared name invites stopping the wrong process -->
     <AssemblyName>TaDaMoo</AssemblyName>
-    <AssemblyTitle>Basalt Win+GUI</AssemblyTitle>
+    <AssemblyTitle>TaDaMoo Win+GUI</AssemblyTitle>
     <RootNamespace>TaDaMooDesktop</RootNamespace>
     <ApplicationIcon>tadamoo.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <SelfContained>false</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <Product>Basalt Win+GUI</Product>
-    <Description>Basalt Win+GUI: the window, the tray icon and the start of the local server</Description>
+    <Product>TaDaMoo Win+GUI</Product>
+    <Description>TaDaMoo Win+GUI: the window, the tray icon and the start of the local server</Description>
   </PropertyGroup>
 
   <ItemGroup>

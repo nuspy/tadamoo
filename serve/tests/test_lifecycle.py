@@ -152,7 +152,7 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual(self.request("/metrics")[1]["live"]["state"], "idle")
 
     def test_discover_chat_unload_and_stream_reload(self):
-        self.assertEqual(self.request("/api/health")[1]["service"], "basalt")
+        self.assertEqual(self.request("/api/health")[1]["service"], "tadamoo")
         self.assertFalse(self.request("/v1/status")[1]["loaded"])
         self.assertEqual(self.request("/v1/models")[1]["data"][0]["status"]["value"], "unloaded")
         self.assertTrue(self.request("/props")[1]["models_autoload"])

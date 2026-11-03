@@ -633,7 +633,7 @@ The server speaks the OpenAI and the Anthropic APIs at `http://127.0.0.1:<port>`
 | `POST /v1/messages/count_tokens` | Anthropic token count: the same prompt `/v1/messages` would read, not run |
 | `GET /v1/models` | the served model and every other model of the models folders it could serve (OpenAI or Anthropic shape) |
 | `GET /v1/models/{id}` | one of them |
-| `GET /health` | `{"service": "basalt", "loaded": true, ...}` once the model is in; `"standby": true` while a server started by the app waits for the Loader |
+| `GET /health` | `{"service": "tadamoo", "loaded": true, ...}` once the model is in; `"standby": true` while a server started by the app waits for the Loader |
 
 **Start it for agents** with `.\Avvia-TaDaMoo.ps1 -server` (it returns once the model is loaded; add `-riusa` in
 unattended scripts) and stop it with `.\Ferma-TaDaMoo.ps1`. `tadamoo.pid` holds the PID, port and profile of a server
@@ -662,11 +662,11 @@ from the loaded model: OpenAI `{"error": {"code": "model_not_found", ...}}`, Ant
 # OpenAI shape
 curl http://127.0.0.1:7232/v1/models
 # {"object": "list", "data": [
-#   {"id": "Qwen3.8 Flash Next Uncensored", "object": "model", "created": 1791904651, "owned_by": "basalt",
+#   {"id": "Qwen3.8 Flash Next Uncensored", "object": "model", "created": 1791904651, "owned_by": "tadamoo",
 #    "display_name": "Qwen3.8 Flash Next Uncensored", "status": {"value": "loaded"}, "meta": {"n_ctx": 131702},
 #    "context_length": 131702, "architecture": {"input_modalities": ["text"], "output_modalities": ["text"]},
 #    "path": "D:/Modelli/Qwen3.8-Flash-Next-Uncensored-IQ3_XXS.basalt"},
-#   {"id": "OrcaRouter-IQ3_XXS", "object": "model", "created": 1791904651, "owned_by": "basalt",
+#   {"id": "OrcaRouter-IQ3_XXS", "object": "model", "created": 1791904651, "owned_by": "tadamoo",
 #    "display_name": "OrcaRouter", "status": {"value": "unloaded"}, "context_length": 262144,
 #    "meta": {"n_ctx_train": 262144}, "quant": "IQ3_XXS", "path": "D:/Modelli/OrcaRouter-IQ3_XXS.basalt", ...}]}
 
@@ -710,15 +710,15 @@ any endpoint closes the thinking after N tokens and lets the model answer.
 
 ```sh
 curl http://127.0.0.1:7232/v1/chat/completions -H "Content-Type: application/json" -d '{
-  "model": "basalt", "messages": [{"role": "user", "content": "Say hello in three languages."}],
+  "model": "tadamoo", "messages": [{"role": "user", "content": "Say hello in three languages."}],
   "max_tokens": 512, "reasoning_effort": "low"}'
 
 curl -N http://127.0.0.1:7232/v1/messages -H "Content-Type: application/json" -H "anthropic-version: 2023-06-01" -d '{
-  "model": "basalt", "max_tokens": 1024, "stream": true,
+  "model": "tadamoo", "max_tokens": 1024, "stream": true,
   "messages": [{"role": "user", "content": "Write a haiku about basalt."}]}'
 
 curl http://127.0.0.1:7232/v1/responses -H "Content-Type: application/json" -d '{
-  "model": "basalt", "input": "What is 17 * 23?", "reasoning": {"effort": "none"}}'
+  "model": "tadamoo", "input": "What is 17 * 23?", "reasoning": {"effort": "none"}}'
 ```
 
 (In PowerShell use `curl.exe` and put the JSON in a file: `-d "@body.json"`.)

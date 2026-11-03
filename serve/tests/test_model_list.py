@@ -94,7 +94,7 @@ class Http(unittest.TestCase):
         self.assertEqual([m["id"] for m in data], [SERVED, "Orca-IQ3_XXS", "Qwen3.8-Flash-Next-IQ4_NL"])
         self.assertEqual([m["status"]["value"] for m in data], ["loaded", "unloaded", "unloaded"])
         served, orca, iq4 = data
-        self.assertEqual((served["meta"]["n_ctx"], served["context_length"], served["owned_by"]), (8192, 8192, "basalt"))
+        self.assertEqual((served["meta"]["n_ctx"], served["context_length"], served["owned_by"]), (8192, 8192, "tadamoo"))
         self.assertEqual(served["path"], self.svc.settings_info["model"])      # bound to 127.0.0.1: the paths
         self.assertEqual(iq4["path"], "D:/Modelli/Qwen3.8-Flash-Next-IQ4_NL.basalt")
         self.assertEqual((iq4["context_length"], iq4["meta"], iq4["display_name"]),

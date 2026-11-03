@@ -664,7 +664,7 @@ Il server parla le API di OpenAI e di Anthropic a `http://127.0.0.1:<porta>` (po
 | `POST /v1/messages/count_tokens` | conteggio dei token di Anthropic: lo stesso prompt che leggerebbe `/v1/messages`, senza eseguirlo |
 | `GET /v1/models` | il modello servito e ogni altro modello delle cartelle dei modelli che potrebbe servire (forma OpenAI o Anthropic) |
 | `GET /v1/models/{id}` | uno di questi |
-| `GET /health` | `{"service": "basalt", "loaded": true, ...}` quando il modello è caricato; `"standby": true` mentre un server avviato dall'app aspetta il Loader |
+| `GET /health` | `{"service": "tadamoo", "loaded": true, ...}` quando il modello è caricato; `"standby": true` mentre un server avviato dall'app aspetta il Loader |
 
 **Avviarlo per gli agenti**: `.\Avvia-TaDaMoo.ps1 -server` (torna quando il modello è caricato; negli script senza
 nessuno davanti aggiungi `-riusa`), fermarlo con `.\Ferma-TaDaMoo.ps1`. `tadamoo.pid` contiene PID, porta e profilo di un
@@ -694,11 +694,11 @@ caricato: OpenAI `{"error": {"code": "model_not_found", ...}}`, Anthropic
 # forma OpenAI
 curl http://127.0.0.1:7232/v1/models
 # {"object": "list", "data": [
-#   {"id": "Qwen3.8 Flash Next Uncensored", "object": "model", "created": 1791904651, "owned_by": "basalt",
+#   {"id": "Qwen3.8 Flash Next Uncensored", "object": "model", "created": 1791904651, "owned_by": "tadamoo",
 #    "display_name": "Qwen3.8 Flash Next Uncensored", "status": {"value": "loaded"}, "meta": {"n_ctx": 131702},
 #    "context_length": 131702, "architecture": {"input_modalities": ["text"], "output_modalities": ["text"]},
 #    "path": "D:/Modelli/Qwen3.8-Flash-Next-Uncensored-IQ3_XXS.basalt"},
-#   {"id": "OrcaRouter-IQ3_XXS", "object": "model", "created": 1791904651, "owned_by": "basalt",
+#   {"id": "OrcaRouter-IQ3_XXS", "object": "model", "created": 1791904651, "owned_by": "tadamoo",
 #    "display_name": "OrcaRouter", "status": {"value": "unloaded"}, "context_length": 262144,
 #    "meta": {"n_ctx_train": 262144}, "quant": "IQ3_XXS", "path": "D:/Modelli/OrcaRouter-IQ3_XXS.basalt", ...}]}
 
@@ -744,15 +744,15 @@ rispondere il modello.
 
 ```sh
 curl http://127.0.0.1:7232/v1/chat/completions -H "Content-Type: application/json" -d '{
-  "model": "basalt", "messages": [{"role": "user", "content": "Saluta in tre lingue."}],
+  "model": "tadamoo", "messages": [{"role": "user", "content": "Saluta in tre lingue."}],
   "max_tokens": 512, "reasoning_effort": "low"}'
 
 curl -N http://127.0.0.1:7232/v1/messages -H "Content-Type: application/json" -H "anthropic-version: 2023-06-01" -d '{
-  "model": "basalt", "max_tokens": 1024, "stream": true,
+  "model": "tadamoo", "max_tokens": 1024, "stream": true,
   "messages": [{"role": "user", "content": "Scrivi un haiku sul basalto."}]}'
 
 curl http://127.0.0.1:7232/v1/responses -H "Content-Type: application/json" -d '{
-  "model": "basalt", "input": "Quanto fa 17 * 23?", "reasoning": {"effort": "none"}}'
+  "model": "tadamoo", "input": "Quanto fa 17 * 23?", "reasoning": {"effort": "none"}}'
 ```
 
 (In PowerShell usa `curl.exe` e metti il JSON in un file: `-d "@corpo.json"`.)

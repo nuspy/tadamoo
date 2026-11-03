@@ -24,7 +24,7 @@ from pathlib import Path
 
 REFRESH_S = 30.0                  # a listing older than this is scanned again, on a thread
 FIRST_WAIT_S = 5.0                # how long the first GET /v1/models waits for the first scan
-OWNER = "basalt"
+OWNER = "tadamoo"
 STARTED = int(time.time())        # the "created" of a model whose file cannot be read
 
 

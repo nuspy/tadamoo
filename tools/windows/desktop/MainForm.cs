@@ -1,10 +1,10 @@
-// The window of "Basalt Win+GUI": the server's own web UI in WebView2 (or the browser when WebView2 is missing). On
+// The window of "TaDaMoo Win+GUI": the server's own web UI in WebView2 (or the browser when WebView2 is missing). On
 // opening, the app starts the server without loading a model (--standby) and shows its Loader: the models folders (the
 // folder dialog is this
 // app's, asked for by the page), the model list, profiles, every value, the memory and speed prediction, the
 // configuration wizard and Load. A Load of another model ends the server with exit code 75 and the app starts it again
 // with that model. The native start panel (model, profile, VRAM, port, check, Avvia / Avvia solo server) is only the
-// fallback when the web server cannot start, with the reason and the log. Closing the window only hides it: Basalt
+// fallback when the web server cannot start, with the reason and the log. Closing the window only hides it: TaDaMoo
 // keeps running behind the notification-area icon, whose menu opens it again, reloads with other settings, starts the
 // server alone for agents or turns everything off.
 using System.Diagnostics;
@@ -58,7 +58,7 @@ sealed class MainForm : Form
     int checkSeq;
     public const int RelaunchExitCode = 75;   // the server saved another model: start it again (serve/config.py)
     public int ExitCode { get; private set; }
-    // per user: %BASALT_DATA% or %APPDATA%\BasaltPannello\desktop.json (the last model, the tray tip), next to the
+    // per user: %TADAMOO_DATA% or %APPDATA%\TaDaMoo\desktop.json (the last model, the tray tip), next to the
     // server's profiles.json and models.json (serve/userdata.py); never in the repository
     readonly string statePath;
     readonly List<string> report = new();
@@ -74,10 +74,10 @@ sealed class MainForm : Form
         MinimumSize = new Size(420, 520);
         Size = new Size(1360, 900);
         StartPosition = FormStartPosition.CenterScreen;
-        cfgPath = opt.ConfigFile != null ? Path.GetFullPath(opt.ConfigFile) : Path.Combine(opt.Repo, "basalt_config.json");
-        string data = Environment.GetEnvironmentVariable("BASALT_DATA");
+        cfgPath = opt.ConfigFile != null ? Path.GetFullPath(opt.ConfigFile) : Path.Combine(opt.Repo, "tadamoo_config.json");
+        string data = Environment.GetEnvironmentVariable("TADAMOO_DATA");
         statePath = opt.TestMock ? Path.Combine(Path.GetTempPath(), "tadamoo-desktop-test", "desktop.json")
-                  : Path.Combine(string.IsNullOrEmpty(data) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BasaltPannello") : data, "desktop.json");
+                  : Path.Combine(string.IsNullOrEmpty(data) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TaDaMoo") : data, "desktop.json");
         LoadWindow();
         Resize += (_, _) => { if (WindowState != FormWindowState.Minimized) lastState = WindowState; };
         ResizeEnd += (_, _) => SaveWindow();
@@ -159,7 +159,7 @@ sealed class MainForm : Form
         // the buttons stay in sight at the bottom of the window while the panel above scrolls
         startBar.Controls.AddRange(new Control[] { go, headless, quit });
         start.VisibleChanged += (_, _) => startBar.Visible = start.Visible;
-        start.Controls.Add(L(Tr.T("«Avvia solo server» avvia il server senza finestra né icona (per gli agenti); si ferma con Ferma-Basalt.ps1 --port N.", "“Start server only” starts the server without window or icon (for agents); Ferma-Basalt.ps1 --port N stops it."), 10f, Fg2));
+        start.Controls.Add(L(Tr.T("«Avvia solo server» avvia il server senza finestra né icona (per gli agenti); si ferma con Ferma-TaDaMoo.ps1 --port N.", "“Start server only” starts the server without window or icon (for agents); Ferma-TaDaMoo.ps1 --port N stops it."), 10f, Fg2));
         for (int i = 0; i < start.Controls.Count; i++) start.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         WrapLabels(start);
         foreach (var c in new Control[] { profiles, modelBox, port, reserve }) { c.BackColor = Panel; c.ForeColor = Fg; }
@@ -343,7 +343,7 @@ sealed class MainForm : Form
         if (e.TryGetProperty("mtp", out var mtp) && mtp.ValueKind == JsonValueKind.String) parts.Add(mtp.GetString() == "present" ? Tr.T("drafter MTP", "MTP drafter") : mtp.GetString() == "source" ? Tr.T("MTP da mtp-qwen", "MTP from mtp-qwen") : Tr.T("MTP da scaricare", "MTP to download"));
         if (e.TryGetProperty("vision", out var vis) && vis.ValueKind == JsonValueKind.True) parts.Add(Tr.T("visione", "vision"));
         string why = e.GetProperty("reason").GetProperty(Tr.Code).GetString();
-        string extra = st == "convert" ? Tr.T("\nDa convertire: avvia Basalt Win+GUI con un modello pronto e usa «Carica modello» → Converti, oppure Avvia-Basalt.ps1 --model \"<file gguf>\" -converti.", "\nTo convert: start Basalt Win+GUI with a ready model and use the Loader → Converti, or Avvia-Basalt.ps1 --model \"<gguf file>\" -converti.") : "";
+        string extra = st == "convert" ? Tr.T("\nDa convertire: avvia TaDaMoo Win+GUI con un modello pronto e usa «Carica modello» → Converti, oppure Avvia-TaDaMoo.ps1 --model \"<file gguf>\" -converti.", "\nTo convert: start TaDaMoo Win+GUI with a ready model and use the Loader → Converti, or Avvia-TaDaMoo.ps1 --model \"<gguf file>\" -converti.") : "";
         int inc = modelBox.Tag is int n ? n : 0;
         modelInfo.ForeColor = st == "ready" ? Fg2 : Bad;
         modelInfo.Text = string.Join(" · ", parts) + "\n" + why + extra + (inc > 0 ? Tr.T($"\n({inc} file non compatibili nelle cartelle: l'elenco completo è in «Carica modello».)", $"\n({inc} files not compatible in the folders: the full list is in the Loader.)") : "");
@@ -363,10 +363,10 @@ sealed class MainForm : Form
         ShowModelInfo();
     }
 
-    // ------------------------------------------------------------------ per-user state (%APPDATA%\BasaltPannello)
+    // ------------------------------------------------------------------ per-user state (%APPDATA%\TaDaMoo)
     string ReadState(string key)
     {
-        foreach (var p in new[] { statePath, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Basalt", "desktop.json") })
+        foreach (var p in new[] { statePath, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TaDaMoo", "desktop.json") })
         {
             try
             {
@@ -625,7 +625,7 @@ sealed class MainForm : Form
         string verdict = code switch
         {
             0 => Tr.T("\n\nOK: si può avviare.", "\n\nOK: it can start."),
-            4 => Tr.T("\n\nNon si avvia: il motore di Basalt gira solo su GPU NVIDIA Blackwell (RTX 50, RTX PRO 6000, B200).", "\n\nIt does not start: the Basalt engine runs only on NVIDIA Blackwell GPUs (RTX 50, RTX PRO 6000, B200)."),
+            4 => Tr.T("\n\nNon si avvia: il motore Basalt-Plus gira solo su GPU NVIDIA Blackwell (RTX 50, RTX PRO 6000, B200).", "\n\nIt does not start: the Basalt-Plus engine runs only on NVIDIA Blackwell GPUs (RTX 50, RTX PRO 6000, B200)."),
             _ => Tr.T("\n\nNon si avvia: la memoria non basta senza usare il file di paging. Scegli un altro profilo, lascia libera meno VRAM o chiudi altri programmi.", "\n\nIt does not start: the memory is not enough without the page file. Choose another profile, leave less VRAM free or close other programs."),
         };
         check.Text = string.Join("\n", lines) + verdict;
@@ -697,7 +697,7 @@ sealed class MainForm : Form
         go.Enabled = headless.Enabled = false;
         check.Text = Tr.T($"Avvio il solo server «{name}» sulla porta {p}…", $"Starting the server alone “{name}” on port {p}…");
         var psi = new ProcessStartInfo("powershell.exe") { WorkingDirectory = opt.Repo, UseShellExecute = false, CreateNoWindow = true };
-        var args = new List<string> { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(opt.Repo, "Avvia-Basalt.ps1"), "-server", "--lang", Tr.Code, "--config", name, "--port", p.ToString(),
+        var args = new List<string> { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(opt.Repo, "Avvia-TaDaMoo.ps1"), "-server", "--lang", Tr.Code, "--config", name, "--port", p.ToString(),
                                       "--vram-libera", reserve.Value.ToString(System.Globalization.CultureInfo.InvariantCulture), "--file", cfgPath };
         if (SelectedReady) { args.Add("--model"); args.Add(SelectedModelPath); WriteState("last_model", SelectedModelPath); }
         foreach (var a in args) psi.ArgumentList.Add(a);
@@ -705,7 +705,7 @@ sealed class MainForm : Form
         await proc.WaitForExitAsync();
         if (proc.ExitCode == 0)
         {
-            MessageBox.Show(this, Tr.T($"Server avviato sulla porta {p} senza finestra.\nIndirizzo: http://127.0.0.1:{p}/\nPer fermarlo: Ferma-Basalt.ps1 --port {p}", $"Server started on port {p} without a window.\nAddress: http://127.0.0.1:{p}/\nTo stop it: Ferma-Basalt.ps1 --port {p}"), Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, Tr.T($"Server avviato sulla porta {p} senza finestra.\nIndirizzo: http://127.0.0.1:{p}/\nPer fermarlo: Ferma-TaDaMoo.ps1 --port {p}", $"Server started on port {p} without a window.\nAddress: http://127.0.0.1:{p}/\nTo stop it: Ferma-TaDaMoo.ps1 --port {p}"), Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
             exiting = true; Close();
         }
         else { check.Text = Tr.T("Il solo server non è partito: vedi logs\\basalt-serve.log.", "The server alone did not start: see logs\\basalt-serve.log."); check.ForeColor = Bad; go.Enabled = headless.Enabled = true; }
@@ -881,8 +881,8 @@ sealed class MainForm : Form
             try
             {
                 if (opt.TestNoWebView) throw new WebView2RuntimeNotFoundException("test");
-                string data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Basalt", opt.TestMock ? "WebView2-test" : "WebView2");
-                // the page speaks the user's language (Tr.Code: --lang, BASALT_LANG, the Settings choice, Windows')
+                string data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TaDaMoo", opt.TestMock ? "WebView2-test" : "WebView2");
+                // the page speaks the user's language (Tr.Code: --lang, TADAMOO_LANG, the Settings choice, Windows')
                 var env = await CoreWebView2Environment.CreateAsync(null, data, new CoreWebView2EnvironmentOptions { Language = Tr.Code == "it" ? "it-IT" : "en-US" });
                 await web.EnsureCoreWebView2Async(env);
                 web.CoreWebView2.Settings.AreDevToolsEnabled = opt.TestMock;
@@ -962,12 +962,12 @@ sealed class MainForm : Form
         }
     }
 
-    /// <summary>Tray: start the server alone for agents (Avvia-Basalt.ps1 -server, detached) in place of this app's,
+    /// <summary>Tray: start the server alone for agents (Avvia-TaDaMoo.ps1 -server, detached) in place of this app's,
     /// with the default profile, then close the app.</summary>
     async Task HeadlessFromTray()
     {
         int p = serverPort != 0 ? serverPort : WebPort();
-        if (MessageBox.Show(this, Tr.T($"Avviare il solo server sulla porta {p}, senza finestra né icona, con il profilo predefinito?\n\nIl server di questa app si chiude e il modello si carica di nuovo dal server per gli agenti. Per fermarlo: Ferma-Basalt.ps1 --port {p}", $"Start the server alone on port {p}, without window or icon, with the default profile?\n\nThis app's server closes and the model loads again in the server for agents. To stop it: Ferma-Basalt.ps1 --port {p}"),
+        if (MessageBox.Show(this, Tr.T($"Avviare il solo server sulla porta {p}, senza finestra né icona, con il profilo predefinito?\n\nIl server di questa app si chiude e il modello si carica di nuovo dal server per gli agenti. Per fermarlo: Ferma-TaDaMoo.ps1 --port {p}", $"Start the server alone on port {p}, without window or icon, with the default profile?\n\nThis app's server closes and the model loads again in the server for agents. To stop it: Ferma-TaDaMoo.ps1 --port {p}"),
                 Program.AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
         if (ours)
         {
@@ -979,11 +979,11 @@ sealed class MainForm : Form
             try { File.Delete(Path.Combine(opt.Repo, "basalt.pid")); } catch { }
         }
         var psi = new ProcessStartInfo("powershell.exe") { WorkingDirectory = opt.Repo, UseShellExecute = false, CreateNoWindow = true };
-        foreach (var a in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(opt.Repo, "Avvia-Basalt.ps1"), "-server", "--lang", Tr.Code, "--port", p.ToString(), "--file", cfgPath })
+        foreach (var a in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(opt.Repo, "Avvia-TaDaMoo.ps1"), "-server", "--lang", Tr.Code, "--port", p.ToString(), "--file", cfgPath })
             psi.ArgumentList.Add(a);
         using var proc = Process.Start(psi);
         await proc.WaitForExitAsync();
-        MessageBox.Show(proc.ExitCode == 0 ? Tr.T($"Server avviato sulla porta {p} senza finestra.\nIndirizzo: http://127.0.0.1:{p}/\nPer fermarlo: Ferma-Basalt.ps1 --port {p}", $"Server started on port {p} without a window.\nAddress: http://127.0.0.1:{p}/\nTo stop it: Ferma-Basalt.ps1 --port {p}")
+        MessageBox.Show(proc.ExitCode == 0 ? Tr.T($"Server avviato sulla porta {p} senza finestra.\nIndirizzo: http://127.0.0.1:{p}/\nPer fermarlo: Ferma-TaDaMoo.ps1 --port {p}", $"Server started on port {p} without a window.\nAddress: http://127.0.0.1:{p}/\nTo stop it: Ferma-TaDaMoo.ps1 --port {p}")
                                            : Tr.T("Il solo server non è partito: vedi logs\\basalt-serve.log.", "The server alone did not start: see logs\\basalt-serve.log."), Program.AppName, MessageBoxButtons.OK,
                         proc.ExitCode == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Error);
         exiting = true;
@@ -1111,7 +1111,7 @@ sealed class MainForm : Form
     async Task StopExternal(int p)
     {
         var psi = new ProcessStartInfo("powershell.exe") { WorkingDirectory = opt.Repo, UseShellExecute = false, CreateNoWindow = true };
-        foreach (var a in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(opt.Repo, "Ferma-Basalt.ps1"), "--lang", Tr.Code, "--port", p.ToString() })
+        foreach (var a in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(opt.Repo, "Ferma-TaDaMoo.ps1"), "--lang", Tr.Code, "--port", p.ToString() })
             psi.ArgumentList.Add(a);
         using var proc = Process.Start(psi);
         await proc.WaitForExitAsync();
@@ -1142,7 +1142,7 @@ sealed class MainForm : Form
         bool down = serverPort == 0 || Native.GetJson($"http://127.0.0.1:{serverPort}/health") == null;
         report.Add($"turned off: server down={down}, RAM available {before:0.0} -> {after:0.0} GiB");
         string text = down ? Tr.T($"{Program.AppName} è spento. RAM disponibile: {after:0.0} GiB (liberati {Math.Max(0, after - before):0.0} GiB).", $"{Program.AppName} is off. RAM available: {after:0.0} GiB ({Math.Max(0, after - before):0.0} GiB freed).")
-                           : Tr.T("Il server risponde ancora: fermalo con Ferma-Basalt.ps1.", "The server still answers: stop it with Ferma-Basalt.ps1.");
+                           : Tr.T("Il server risponde ancora: fermalo con Ferma-TaDaMoo.ps1.", "The server still answers: stop it with Ferma-TaDaMoo.ps1.");
         if (opt.Screenshot != null)
             File.WriteAllLines(Path.ChangeExtension(opt.Screenshot, ".txt"), report);
         else
@@ -1162,15 +1162,15 @@ sealed class MainForm : Form
             cfgPath = Path.Combine(dir, "mock_config.json");
             File.WriteAllText(cfgPath, "{\"server\": {\"port\": 7288, \"vision\": \"dynamic\", \"listen-first\": true}}");
         }
-        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("BASALT_CACHE")))
-            Environment.SetEnvironmentVariable("BASALT_CACHE", Path.Combine(dir, "cache"));
-        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("BASALT_DATA")))
-            Environment.SetEnvironmentVariable("BASALT_DATA", Path.Combine(dir, "data"));
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TADAMOO_CACHE")))
+            Environment.SetEnvironmentVariable("TADAMOO_CACHE", Path.Combine(dir, "cache"));
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TADAMOO_DATA")))
+            Environment.SetEnvironmentVariable("TADAMOO_DATA", Path.Combine(dir, "data"));
         if (opt.TestFolderPrompt)                          // the folders are not set yet: the prompt comes first
-            try { File.Delete(Path.Combine(Environment.GetEnvironmentVariable("BASALT_DATA"), "models.json")); File.Delete(statePath); } catch { }
-        Environment.SetEnvironmentVariable("BASALT_FAKE_SYSTEM", "{\"ram_total\": 137438953472, \"ram_available\": 118111600640, \"commit_limit\": 154618822656, \"commit_used\": 21474836480, \"vram_total\": 34359738368, \"vram_free\": 32212254720}");
-        Environment.SetEnvironmentVariable("BASALT_FAKE_GPU", "{\"name\": \"NVIDIA GeForce RTX 5090\", \"cc\": [12, 0], \"vram_total\": 34359738368, \"vram_free\": 32212254720, \"processes\": [{\"pid\": 11, \"name\": \"dwm.exe\"}]}");
-        Environment.SetEnvironmentVariable("BASALT_FAKE_SYSTEM_OK", "1");
+            try { File.Delete(Path.Combine(Environment.GetEnvironmentVariable("TADAMOO_DATA"), "models.json")); File.Delete(statePath); } catch { }
+        Environment.SetEnvironmentVariable("TADAMOO_FAKE_SYSTEM", "{\"ram_total\": 137438953472, \"ram_available\": 118111600640, \"commit_limit\": 154618822656, \"commit_used\": 21474836480, \"vram_total\": 34359738368, \"vram_free\": 32212254720}");
+        Environment.SetEnvironmentVariable("TADAMOO_FAKE_GPU", "{\"name\": \"NVIDIA GeForce RTX 5090\", \"cc\": [12, 0], \"vram_total\": 34359738368, \"vram_free\": 32212254720, \"processes\": [{\"pid\": 11, \"name\": \"dwm.exe\"}]}");
+        Environment.SetEnvironmentVariable("TADAMOO_FAKE_SYSTEM_OK", "1");
         port.Value = opt.Port != 0 ? opt.Port : WebPort();
     }
 
