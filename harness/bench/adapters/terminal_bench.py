@@ -188,6 +188,24 @@ def trial_result(data: Optional[Mapping[str, Any]], trial_dir: Optional[Path], c
 
 # -- the adapter --------------------------------------------------------------------------------------------------------
 
+MAX_TIME_SCALE = 10.0
+
+
+def time_scale_of(settings: Mapping[str, Any]) -> float:
+    """How many times the task's agent time a run allows (1 is the official limit). Only a larger time is allowed: a run with more time is not
+    comparable with the board and is labelled so."""
+    value = settings.get("time_scale")
+    if value in (None, ""):
+        return 1.0
+    try:
+        scale = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"time_scale is a number from 1 to {MAX_TIME_SCALE:g}; not {value!r}") from None
+    if not 1.0 <= scale <= MAX_TIME_SCALE:
+        raise ValueError(f"time_scale is a number from 1 to {MAX_TIME_SCALE:g}; not {value!r}")
+    return scale
+
+
 class TerminalBenchAdapter:
     id = ID
     SETTINGS = {"subset": ("smoke", "easy5", "dev", "full"), "trials": "k attempts per task (5 for full)", "agent": ("basalt", "oracle")}
@@ -200,6 +218,7 @@ class TerminalBenchAdapter:
         subset = str(settings.get("subset") or "smoke")
         trials = int(settings.get("trials") or (FULL_TRIALS if subset == "full" else 1))
         guidance_of(settings)                                        # a name that is not guidance is refused before the first trial
+        time_scale_of(settings)
         return [(task, rep) for task in select_tasks(source_of(bench_dir), subset, settings) for rep in range(1, trials + 1)]
 
     def _agent(self, settings: Mapping[str, Any]) -> str:
@@ -219,7 +238,10 @@ class TerminalBenchAdapter:
             argv += ["-a", "oracle"]
         else:
             agent_file = ctx.trial_dir / "agent-settings.json"
-            budget = max(REPORT_MARGIN_S, read_task_meta(task_dir)["agent_timeout"] - REPORT_MARGIN_S)
+            scale = time_scale_of(settings)
+            budget = max(REPORT_MARGIN_S, read_task_meta(task_dir)["agent_timeout"] * scale - REPORT_MARGIN_S)
+            if scale != 1.0:
+                argv += ["--agent-timeout-multiplier", f"{scale:g}"]
             agent_file.write_text(json.dumps({"endpoint": endpoint, "overrides": agent_overrides(settings), "guidance": guidance_of(settings), "arm": "harness",
                                               "max_seconds": budget}), encoding="utf-8")
             argv += ["-a", AGENT_PATH, "--ak", f"settings_file={agent_file.as_posix()}"]
@@ -247,7 +269,7 @@ class TerminalBenchAdapter:
         meta = read_task_meta(task_dir)
         self.fetch_image(meta["docker_image"], ctx)
         argv, jobs, job = self.command(key, ctx, task_dir, endpoint)
-        limit = meta["agent_timeout"] + meta["verifier_timeout"] + meta["build_timeout"] + EXTRA_WAIT_S
+        limit = meta["agent_timeout"] * time_scale_of(ctx.settings) + meta["verifier_timeout"] + meta["build_timeout"] + EXTRA_WAIT_S
         log = ctx.trial_dir / "harbor.log"
         started = lambda: jobs.exists() or (log.exists() and log.stat().st_size > 0)
         for attempt in range(START_TRIES):
