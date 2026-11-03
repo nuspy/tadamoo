@@ -1,4 +1,4 @@
-"""The Settings page's routes for the search online: its settings, and the capabilities Basalt installed."""
+"""The Settings page's routes for the search online: its settings, and the capabilities TaDaMoo installed."""
 import json
 import sys
 import urllib.error

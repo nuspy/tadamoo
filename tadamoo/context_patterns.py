@@ -1,6 +1,6 @@
 """Context patterns: six ways to shape what the model reads, each switched on or off with a strategy to choose.
 
-Applies to Basalt's own functions (the Chat and the agent's loop); other programs that use the server pass only `policy` and
+Applies to TaDaMoo's own functions (the Chat and the agent's loop); other programs that use the server pass only `policy` and
 `threshold` and get nothing more. The order is fixed: injection, rewriting, pruning, summarizing; versioning wraps them all and
 a branch is an operation on a conversation, not a transformation. Everything is off at the start except what already happened
 before this existed (the oldest tool results are masked once the context fills up).

@@ -51,7 +51,7 @@ The same rules in every summary prompt (`compacted.KEEP_RULES`): compress only w
 
 ## Where the layers can disagree
 
-- **Switching one off in the middle.** The record of the conversation is Basalt's; the proxy only changes what goes out. With its folding off (the default) there is nothing to undo. If it is turned on and then off, the next request is the conversation as Basalt holds it, and a compaction is due at once if it no longer fits.
-- **The proxy restarts or dies.** The request goes direct with the conversation as Basalt holds it; the same rule.
+- **Switching one off in the middle.** The record of the conversation is TaDaMoo's; the proxy only changes what goes out. With its folding off (the default) there is nothing to undo. If it is turned on and then off, the next request is the conversation as TaDaMoo holds it, and a compaction is due at once if it no longer fits.
+- **The proxy restarts or dies.** The request goes direct with the conversation as TaDaMoo holds it; the same rule.
 - **The technical session is off.** Summaries are written in an ordinary slot and a text larger than the window loses its middle, as before `tadamoo/digest.py`.
-- **Not measured yet.** Which summary is better (Basalt's, the proxy's, a mix), what *N* and the 4000 characters should be, and how much of the cache each layer costs are open questions for experiment E9 ([experiments](experiments.md)).
+- **Not measured yet.** Which summary is better (TaDaMoo's, the proxy's, a mix), what *N* and the 4000 characters should be, and how much of the cache each layer costs are open questions for experiment E9 ([experiments](experiments.md)).

@@ -214,7 +214,7 @@ class LocalEngines:
             return None
         if not self._cli_serves_this_address(cli):
             # L'API nativa non risponde e il server di LM Studio non è questo indirizzo: è un altro
-            # programma (Basalt, un llama-server…). `lms ps` descriverebbe la memoria di LM Studio,
+            # programma (TaDaMoo, un llama-server…). `lms ps` descriverebbe la memoria di LM Studio,
             # che non c'entra: «non so» (None), mai «nessun modello» — che autorizzerebbe a caricarne uno.
             return None
         data = _lms_json(cli, ["ps"], _LMS_QUICK_TIMEOUT)

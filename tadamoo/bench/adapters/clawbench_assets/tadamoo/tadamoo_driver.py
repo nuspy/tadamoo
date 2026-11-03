@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Runs the Basalt harness on one ClawBench task inside the benchmark's container.
+"""Runs the TaDaMoo harness on one ClawBench task inside the benchmark's container.
 
 ClawBench starts a browser in the container and hands the task over in the environment: INSTRUCTION, TIME_LIMIT_S, BASE_URL (the local model server),
 CLAWBENCH_BROWSER_CDP_URL (the browser's debugging address). The harness drives that browser through `--browser-cdp-url` and works from the page, the personal

@@ -180,7 +180,7 @@ def test_an_agent_timeout_is_graded_but_an_environment_failure_is_not(tmp_path):
     assert ctx_overflow.passed is False
     broken, _ = one(tmp_path / "c", reward=None, exception=("SandboxBuildFailedError", "docker build failed"))
     assert broken.passed is None and not broken.valid and broken.facts["class"] == "environment_problem"
-    crashed, _ = one(tmp_path / "d", reward=0.0, exception=("AgentUnavailableError", "cannot reach the Basalt server"))
+    crashed, _ = one(tmp_path / "d", reward=0.0, exception=("AgentUnavailableError", "cannot reach the TaDaMoo server"))
     assert crashed.passed is None                                  # a reward next to an exception that is not the agent's is not taken
     silent, _ = one(tmp_path / "e", reward=None)
     assert silent.passed is None and "no reward" in silent.error
@@ -410,7 +410,7 @@ def test_a_dead_model_server_is_not_graded_as_the_agent_failing(harbor_stub, tmp
     root = tmp_path / "container"
     root.mkdir()
     agent = module.TadamooAgent(logs_dir=tmp_path / "agent", settings_file=str(agent_settings_file(tmp_path)))
-    agent.client_factory = lambda endpoint: Scripted(RuntimeError("cannot reach the Basalt server at http://127.0.0.1:7232: refused"))
+    agent.client_factory = lambda endpoint: Scripted(RuntimeError("cannot reach the TaDaMoo server at http://127.0.0.1:7232: refused"))
     with pytest.raises(RuntimeError, match="AgentUnavailableError"):
         asyncio.run(agent.run("t", FakeEnvironment(root), Context()))
 

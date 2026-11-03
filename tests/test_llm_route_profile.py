@@ -69,7 +69,7 @@ def test_the_cache_marks_can_be_turned_off_in_the_record(world):  # noqa: F811
     reg.save(data)
     reg.assign_checked("eval", pid)
     RoutedClient("eval", reg, local, ledger).chat_completion(MSG, tools=TOOLS, max_tokens=100)
-    assert cloud.requests[0]["body"]["system"] == "Sei Basalt." and "cache_control" not in str(cloud.requests[0]["body"])
+    assert cloud.requests[0]["body"]["system"] == "Sei TaDaMoo." and "cache_control" not in str(cloud.requests[0]["body"])
 
 
 def test_an_openai_compatible_route_keeps_its_limit_and_a_route_to_the_loaded_model_changes_nothing(world):  # noqa: F811

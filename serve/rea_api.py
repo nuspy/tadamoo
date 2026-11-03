@@ -1,6 +1,6 @@
 """Reverse engineering with REA (the rea-agents add-on): the switch in the Agent tab, the programs REA can use and their installers.
 
-Turning it on registers REA's MCP server (the add-on's Node.js running `rea.mjs mcp`) and copies REA's skill into Basalt's own
+Turning it on registers REA's MCP server (the add-on's Node.js running `rea.mjs mcp`) and copies REA's skill into TaDaMoo's own
 capability store, where both are born approved. Turning it off removes exactly those two things. `rea setup` is never run: it
 rewrites the configuration of other coding agents. A program is installed only when the person presses its button, with the
 command shown on the page; the command comes from the table below, never from the request.
@@ -253,7 +253,7 @@ def register(views: Optional[List[Dict[str, Any]]] = None) -> None:
     from tadamoo.discovery.installed import InstalledStore
     add = _addon()
     if not (add["node"] and add["rea"]):
-        raise ReaError("The REA add-on is not installed with this copy of Basalt.", "no_addon", 404)
+        raise ReaError("The REA add-on is not installed with this copy of TaDaMoo.", "no_addon", 404)
     store = InstalledStore(_capdir())
     existing = store.get(MCP_ID)
     if existing is not None and existing.get("source") != SOURCE:
@@ -270,7 +270,7 @@ def register(views: Optional[List[Dict[str, Any]]] = None) -> None:
     if add["skill"]:
         target = _skill_dir()
         shutil.copytree(add["skill"], target, dirs_exist_ok=True)
-        (target / MARKER).write_text("added by Basalt for the REA switch; removed when it is turned off\n", encoding="utf-8")
+        (target / MARKER).write_text("added by TaDaMoo for the REA switch; removed when it is turned off\n", encoding="utf-8")
 
 
 def unregister() -> None:

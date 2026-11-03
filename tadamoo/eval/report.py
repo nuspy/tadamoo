@@ -117,7 +117,7 @@ def generate_eval_report(
     limit = env.get("gpu_power_limit_w")
     s = summarize(results)
     lines = [
-        "# Basalt harness evaluation",
+        "# TaDaMoo harness evaluation",
         "",
         "> Development A/B only. A number from an agent's run is not a headline result; those come from the maintainer's own runs.",
         "> A difference smaller than about 3 points between two runs is noise until it is repeated.",

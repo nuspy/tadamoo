@@ -308,9 +308,9 @@ def test_the_reports_of_the_official_harness_are_read_as_it_means_them(tmp_path,
 def test_a_dead_model_server_leaves_the_trial_unjudged(tmp_path):
     repo = make_repo(tmp_path)
     ev = FakeEval("resolved")
-    a, box, _log = adapter_with(repo, ev, Scripted(RuntimeError("cannot reach the Basalt server at http://127.0.0.1:7232: refused")))
+    a, box, _log = adapter_with(repo, ev, Scripted(RuntimeError("cannot reach the TaDaMoo server at http://127.0.0.1:7232: refused")))
     res = a.run_trial(("proj__proj-002", 1), trial_ctx(tmp_path, {"subset": "dev-baseline"}))
-    assert res.passed is None and "cannot reach the Basalt server" in res.error and ev.calls == [] and box["c"].removed
+    assert res.passed is None and "cannot reach the TaDaMoo server" in res.error and ev.calls == [] and box["c"].removed
 
 
 @needs_bash

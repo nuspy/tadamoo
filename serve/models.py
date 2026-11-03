@@ -3,7 +3,7 @@
 The owner names one or more folders (kept next to the load profiles, in the user's data folder: models.json).
 Every .basalt and .gguf file under them is described from its header alone - the .basalt 64 KiB table with its meta
 and experts.layout sections, the GGUF key/value block and tensor directory; no weights are read - cached by path,
-size and modification time, and given a status for Basalt:
+size and modification time, and given a status for Basalt-Plus:
 
   ready         a .basalt file the engine can open (magic, version, size); "Verifica" checks every section's SHA-256
   convert       a GGUF set the converter and the engine support: Qwen3.8-Flash-Next's geometry (qwen4exp), every
@@ -785,8 +785,8 @@ def _basalt_reason(info: dict) -> dict:
     if e == "magic":
         return _say("Non è un file .basalt (intestazione sconosciuta).", "Not a .basalt file (unknown header).")
     if e == "version":
-        return _say(f"File .basalt di versione {info.get('version')}: questo Basalt legge la versione {info.get('want')}.",
-                    f".basalt version {info.get('version')}: this Basalt reads version {info.get('want')}.")
+        return _say(f"File .basalt di versione {info.get('version')}: questo Basalt-Plus legge la versione {info.get('want')}.",
+                    f".basalt version {info.get('version')}: this Basalt-Plus reads version {info.get('want')}.")
     if e == "truncated":
         return _say(f"File incompleto: {gb(info.get('size'))} di {gb(info.get('want'))} GB (copia o conversione "
                     "interrotta?).", f"Incomplete file: {gb(info.get('size'))} of {gb(info.get('want'))} GB (an "
@@ -878,8 +878,8 @@ def _classify(group: dict, mtp_sources: list[str]) -> dict:
                   f"Incomplete file (an interrupted download?): {', '.join(cut)}.")
     arch = first.get("arch")
     if arch != GEOMETRY["arch"]:
-        return no(f"Architettura «{arch or '?'}»: Basalt esegue solo Qwen3.8-Flash-Next (qwen4exp).",
-                  f"Architecture “{arch or '?'}”: Basalt runs only Qwen3.8-Flash-Next (qwen4exp).")
+        return no(f"Architettura «{arch or '?'}»: Basalt-Plus esegue solo Qwen3.8-Flash-Next (qwen4exp).",
+                  f"Architecture “{arch or '?'}”: Basalt-Plus runs only Qwen3.8-Flash-Next (qwen4exp).")
     unknown = sum(i.get("unknown_count") or 0 for i in infos)
     if unknown:
         what = ", ".join(u for i in infos for u in i.get("unknown") or [])[:200]
@@ -988,8 +988,8 @@ def _attach(models: list, extras: list) -> None:
                     m.pop("vision_problem", None)
         else:
             x["reason"] = _say(f"File del drafter MTP{f' di «{owner}»' if owner else ''}: non è un modello da solo; "
-                               "Basalt usa il drafter MTP originale di Qwen.",
-                               f"MTP drafter file{f' of “{owner}”' if owner else ''}: not a model on its own; Basalt "
+                               "Basalt-Plus usa il drafter MTP originale di Qwen.",
+                               f"MTP drafter file{f' of “{owner}”' if owner else ''}: not a model on its own; Basalt-Plus "
                                "uses Qwen's original MTP drafter.")
     for m in models:
         if m["kind"] == "gguf" and m.get("status") == "convert":
@@ -1165,7 +1165,7 @@ PROFILE_DIR = "expert-profiles"         # in the user data folder: <model>.bin, 
 def profile_candidates(model: dict) -> list[Path]:
     """Where a conversion looks for the model's expert profile, first match wins: <model>.expert-profile.bin and
     expert-profile.bin beside the GGUF, then expert-profiles/<model>.bin in the user data folder (<model>: the .basalt
-    name without its extension). Each is a Basalt profile (--expert-profile-save's file) or Strata's
+    name without its extension). Each is a Basalt-Plus profile (--expert-profile-save's file) or Strata's
     data/expert-profile.bin for the same model."""
     from serve import userdata
     stem = Path(out_name(model)).stem

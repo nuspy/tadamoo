@@ -19,17 +19,17 @@ The proxy is one extra local process (about 100 MB of RAM), started by the serve
 
 The process is started with: no self-update, no update or advisory check, `BILI_STRICT_PORT=1`, `ACP_MODEL_CONTEXT_LIMIT` set to the loaded model's context (the proxy restarts when it changes by more than 10%). Its log is `billion-context/proxy.log` in the user data folder.
 
-## Working with Basalt's own compaction
+## Working with TaDaMoo's own compaction
 
-Chat settings > When the context is full (`serve/chatctx.py`) is not replaced. It acts first, in the browser, before a message is sent: at 80% of the context it summarizes the older turns (policy `compact`), or drops them (`rolling`), or stops (`stop`). The proxy is configured (`proxy-config.json`, written at each start) to start working above that: `compress.maxContextLimit` 90% and `emergencyThresholdPercent` 97%. So a chat that Basalt keeps below 80% is passed through unchanged, and a conversation that still grows, typically the agent's with its large tool outputs, meets the proxy. Setting the Basalt policy to `stop` leaves compression to the proxy alone.
+Chat settings > When the context is full (`serve/chatctx.py`) is not replaced. It acts first, in the browser, before a message is sent: at 80% of the context it summarizes the older turns (policy `compact`), or drops them (`rolling`), or stops (`stop`). The proxy is configured (`proxy-config.json`, written at each start) to start working above that: `compress.maxContextLimit` 90% and `emergencyThresholdPercent` 97%. So a chat that TaDaMoo keeps below 80% is passed through unchanged, and a conversation that still grows, typically the agent's with its large tool outputs, meets the proxy. Setting the TaDaMoo policy to `stop` leaves compression to the proxy alone.
 
 ## What it does by default: keep aside, not summarise
 
-Two kinds of summary stacked on each other lose more than one, so by default the proxy does not fold old turns itself. Its configuration leaves out the tools and nudges that ask the model to fold (`compress.injectTool` and `compress.injectNudge` false); it keeps what does not rewrite the conversation: large tool outputs stored aside behind a pointer, and the emergency cut near the limit. The only summaries are Basalt's, written from the original text ([context](context-layers.md)). Chat settings > Billion Context > *Let the model fold old turns itself* (`"compress": true` in `billion-context.json`) turns the proxy's own folding back on; the process restarts when it changes. Which of the two summarises better is measured, not assumed (experiment E9 in [experiments](experiments.md)).
+Two kinds of summary stacked on each other lose more than one, so by default the proxy does not fold old turns itself. Its configuration leaves out the tools and nudges that ask the model to fold (`compress.injectTool` and `compress.injectNudge` false); it keeps what does not rewrite the conversation: large tool outputs stored aside behind a pointer, and the emergency cut near the limit. The only summaries are TaDaMoo's, written from the original text ([context](context-layers.md)). Chat settings > Billion Context > *Let the model fold old turns itself* (`"compress": true` in `billion-context.json`) turns the proxy's own folding back on; the process restarts when it changes. Which of the two summarises better is measured, not assumed (experiment E9 in [experiments](experiments.md)).
 
 ## Known limits
 
 - The proxy adds a short system note and its own tools to each request it relays (a few hundred tokens). In a streamed request it answers the model's calls to them itself and may show a short status line in the reply.
-- Compression is model-driven: the proxy asks the model to compress; a small model may ignore it. Basalt's own compaction is the guarantee.
-- The proxy hangs on `/v1/messages/count_tokens`; Basalt does not call it.
+- Compression is model-driven: the proxy asks the model to compress; a small model may ignore it. TaDaMoo's own compaction is the guarantee.
+- The proxy hangs on `/v1/messages/count_tokens`; TaDaMoo does not call it.
 - The security monitor (Monitor > Security) may list the proxy's `node` loopback connections.

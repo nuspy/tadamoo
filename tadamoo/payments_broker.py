@@ -519,14 +519,14 @@ def register_payment_tool(registry: Any, broker: PaymentsBroker, permissions: An
             if on_authorized:
                 on_authorized(entry, result["payment_id"], result.get("site", ""))
             out["pay_with"] = {f: "{{vault:%s.%s}}" % (entry, f) for f in ("holder", "number", "expiry", "cvc")}
-            out["note"] = ("Basalt approved this amount. Put the values above in the merchant's payment form exactly as written; they are filled in for you. "
+            out["note"] = ("TaDaMoo approved this amount. Put the values above in the merchant's payment form exactly as written; they are filled in for you. "
                            "This tool charges nothing by itself: the payment is made when the form is sent.")
         elif entry and card.get("credential") == "vault_login":
             out["sign_in_with"] = {f: "{{vault:%s.%s}}" % (entry, f) for f in ("username", "password")}
-            out["note"] = ("Basalt approved this amount. Sign in with the values above; if a code is asked, write {{vault:%s.totp}}. "
+            out["note"] = ("TaDaMoo approved this amount. Sign in with the values above; if a code is asked, write {{vault:%s.totp}}. "
                            "This tool charges nothing by itself." % entry)
         else:
-            out["note"] = "Basalt approved the amount; this payment system has no card or login in the vault, so nothing was charged."
+            out["note"] = "TaDaMoo approved the amount; this payment system has no card or login in the vault, so nothing was charged."
         return out
 
     registry.register(

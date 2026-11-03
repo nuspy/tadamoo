@@ -1,6 +1,6 @@
 """GET /v1/models and GET /v1/models/{id}: the model this server serves, and every other model it could serve from the
 models folders (the Loader's scan, serve/models.py: the .basalt files that are "ready"; a GGUF to convert or a file
-Basalt cannot run is not listed), in the OpenAI shape or, for an Anthropic client, in Anthropic's.
+Basalt-Plus cannot run is not listed), in the OpenAI shape or, for an Anthropic client, in Anthropic's.
 
 Each model has a stable id: the served name (--alias, else the file's own name) for the one the server runs, the
 file's name without .basalt for the others (with a short hash after it when two folders hold the same file name). The

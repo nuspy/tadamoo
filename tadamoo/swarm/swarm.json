@@ -1,6 +1,6 @@
 {
   "_schema": "1.0",
-  "description": "Swarm blueprints. Members share the stable prefix anchor to leverage Basalt prefix caching.",
+  "description": "Swarm blueprints. Members share the stable prefix anchor to leverage Basalt-Plus prefix caching.",
   "swarms": [
     {
       "id": "search_and_synthesize",

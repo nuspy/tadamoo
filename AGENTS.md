@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Basalt is a local inference engine for the Qwen3.8-Flash-Next mixture-of-experts model, built for NVIDIA Blackwell (sm_120) on Linux and Windows x64. It runs on an NVIDIA Blackwell GPU, optionally with a second GPU as a peer expert tier, and system RAM holding the rest. It is a fork of Strata (MIT): the C++/CUDA engine is in `src/` and `include/`, and the Python server with an OpenAI- and Anthropic-compatible API is in `serve/`.
+Basalt-Plus is a local inference engine for the Qwen3.8-Flash-Next mixture-of-experts model, built for NVIDIA Blackwell (sm_120) on Linux and Windows x64. It runs on an NVIDIA Blackwell GPU, optionally with a second GPU as a peer expert tier, and system RAM holding the rest. It is a fork of Strata (MIT): the C++/CUDA engine is in `src/` and `include/`, and the Python server with an OpenAI- and Anthropic-compatible API is in `serve/`.
 
 ## Working rules
 
@@ -18,4 +18,4 @@ Basalt is a local inference engine for the Qwen3.8-Flash-Next mixture-of-experts
 - **Quality gate:** PPL/KLD against the Q8_0 reference, through the decode path (`basalt-bench --quality`). Byte identity with old output is not required, but say whenever numerics change. Bitwise-neutral refactors need only the greedy-identity check.
 - **Keep `docs/precision/` current.** Any engine change that can alter precision (weight formats, activation or accumulation types, KV/state formats, reduction order, decode or MTP paths) updates the page that covers it in the same change, with fresh numbers where it quotes them.
 - **Docs:** no file over 300 lines; split a longer topic into a folder of files; keep docs short, stateless and free of duplication.
-- **Basalt's own kernels are the reference.** Parity tests compare a changed kernel against the current one and against a plain CPU reference; Strata's original kernels are not kept as oracles. Every new kernel gets a parity test (random inputs + real geometry) and a microbench line.
+- **Basalt-Plus's own kernels are the reference.** Parity tests compare a changed kernel against the current one and against a plain CPU reference; Strata's original kernels are not kept as oracles. Every new kernel gets a parity test (random inputs + real geometry) and a microbench line.

@@ -139,7 +139,7 @@ def test_signing_in_asks_for_everything_the_specification_requires(parts, world)
     q = sign_in(oauth, world)
     assert q["response_type"] == "code" and q["client_id"] == "cid-1" and q["redirect_uri"] == REDIRECT
     assert q["code_challenge_method"] == "S256" and q["resource"] == world.url and q["scope"] == "mcp.read" and len(q["state"]) >= 20
-    assert world.registered == [{"client_name": "Basalt", "redirect_uris": [REDIRECT], "grant_types": ["authorization_code", "refresh_token"],
+    assert world.registered == [{"client_name": "TaDaMoo", "redirect_uris": [REDIRECT], "grant_types": ["authorization_code", "refresh_token"],
                                  "response_types": ["code"], "token_endpoint_auth_method": "none"}]
     assert world.last_token_request["resource"] == world.url and world.last_token_request["client_id"] == "cid-1"
     assert oauth.signed_in() and oauth.access_token() == "AT1"

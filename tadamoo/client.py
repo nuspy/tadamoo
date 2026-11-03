@@ -1,4 +1,4 @@
-"""HTTP Client for Basalt inference server.
+"""HTTP Client for TaDaMoo inference server.
 
 Provides OpenAI-compatible chat completions, extraction and formatting of reasoning
 content, and server/telemetry metrics retrieval.
@@ -149,7 +149,7 @@ def _collect_stream(resp: Any, on_delta: Callable[[str, str], None]) -> Dict[str
 
 
 class TadamooClient:
-    """Client for local Basalt server."""
+    """Client for local TaDaMoo server."""
 
     def __init__(self, base_url: str = "http://127.0.0.1:7232", api_key: Optional[str] = None) -> None:
         self.base_url = base_url.rstrip("/")
@@ -218,7 +218,7 @@ class TadamooClient:
                 detail = ""
             raise TadamooError(e.code, detail or f"HTTP {e.code}") from None
         except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
-            raise TadamooError(0, f"cannot reach the Basalt server at {self.base_url}: {e}") from None
+            raise TadamooError(0, f"cannot reach the TaDaMoo server at {self.base_url}: {e}") from None
 
     def chat_completion(
         self,
@@ -283,5 +283,5 @@ class TadamooClient:
                 if reset and not shown[0] and attempt + 1 < RESET_TRIES:     # the connection was closed under the request: nothing came back yet
                     time.sleep(1.0 + attempt)
                     continue
-                raise TadamooError(0, f"cannot reach the Basalt server at {self.base_url}: {e}") from None
-        raise TadamooError(0, f"cannot reach the Basalt server at {self.base_url}")
+                raise TadamooError(0, f"cannot reach the TaDaMoo server at {self.base_url}: {e}") from None
+        raise TadamooError(0, f"cannot reach the TaDaMoo server at {self.base_url}")

@@ -1,5 +1,5 @@
 @echo off
-rem tadamoo-agent: the Basalt agent from any folder (python -m tadamoo with this folder's Python and packages).
+rem tadamoo-agent: the TaDaMoo agent from any folder (python -m tadamoo with this folder's Python and packages).
 rem   tadamoo-agent -p "fix the failing test" --workspace D:\work\proj --json
 rem   tadamoo-agent acp --workspace D:\work\proj        the same agent for an editor that speaks ACP over stdio
 rem   tadamoo-agent --help

@@ -1,4 +1,4 @@
-"""Proactive Dual-Process Planner package for Basalt Harness.
+"""Proactive Dual-Process Planner package for TaDaMoo Harness.
 
 PlanDAG workflow graphs, the plan insight card, System 1 triage of incoming events (Jev, with consent
 and pseudonymized names), System 2 re-planning with the local model, and the bridge a plan view talks to.

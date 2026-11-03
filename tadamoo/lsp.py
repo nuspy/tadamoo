@@ -85,7 +85,7 @@ class LspClient:
                                               "diagnostic": {"dynamicRegistration": False}, "definition": {"linkSupport": False},
                                               "references": {}, "hover": {"contentFormat": ["plaintext"]}},
                              "workspace": {"workspaceFolders": True, "configuration": True}},
-            "clientInfo": {"name": "Basalt"}})
+            "clientInfo": {"name": "TaDaMoo"}})
         self.capabilities = (result or {}).get("capabilities") or {}
         self.notify("initialized", {})
 

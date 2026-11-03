@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Usage emitter of the Basalt harness: the driver already writes /data/usage.jsonl from the harness's own token counts, so this only makes sure the file
+"""Usage emitter of the TaDaMoo harness: the driver already writes /data/usage.jsonl from the harness's own token counts, so this only makes sure the file
 exists and, when the driver died before writing it, rebuilds one line from /data/basalt-result.json. No price is looked up: the model is local."""
 from __future__ import annotations
 

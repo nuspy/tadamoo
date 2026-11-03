@@ -154,7 +154,7 @@ class WalletApi:
         return {"value": value}
 
     def backup(self, req: Dict[str, Any]) -> Dict[str, Any]:
-        """The vault as a file to keep, under a passphrase the person chooses; it opens on any PC with Basalt."""
+        """The vault as a file to keep, under a passphrase the person chooses; it opens on any PC with TaDaMoo."""
         import base64
         import time
         try:

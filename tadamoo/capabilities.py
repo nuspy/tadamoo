@@ -181,7 +181,7 @@ def mcp_spec_sha(command: str, args: List[str], url: str = "") -> str:
 
 
 def installed_entries(root: Path) -> List[Found]:
-    """What Basalt installed on the person's choice (tadamoo/discovery): the servers listed in installed.json and the skills in the skills folder."""
+    """What TaDaMoo installed on the person's choice (tadamoo/discovery): the servers listed in installed.json and the skills in the skills folder."""
     out: List[Found] = []
     data = _load_json(root / "installed.json")
     for rec in ((data.get("items") if isinstance(data, dict) else None) or {}).values():
@@ -295,7 +295,7 @@ class CapabilityIndex:
         self.dir.mkdir(parents=True, exist_ok=True)
         self.workspace, self.home, self.appdata = Path(workspace), home, appdata
         self.online_hint = False                          # set when find_online_capability is offered: find_capability then points to it
-        self.vault_dir: Optional[Path] = None             # where the keys a server installed by Basalt asks for are read from, when it starts
+        self.vault_dir: Optional[Path] = None             # where the keys a server installed by TaDaMoo asks for are read from, when it starts
         self._lock = threading.RLock()
         self.entries: List[Dict[str, Any]] = []
         self._raw: Dict[str, List[str]] = {}

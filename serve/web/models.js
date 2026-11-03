@@ -1,5 +1,5 @@
 "use strict";
-/* Models: the models folders and every model under them with its status for Basalt (GET /api/models). The Loader
+/* Models: the models folders and every model under them with its status for Basalt-Plus (GET /api/models). The Loader
    picks the model to load (verify, convert); Settings holds the app's choices: the folders and the default server
    model. Until the folders are set the Loader asks for them first. A conversion opens a dialog that states the
    new file's size and the disk's free space; it starts only from that plan (its token). */

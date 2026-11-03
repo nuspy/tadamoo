@@ -1,6 +1,6 @@
 """The Providers page's side of llmswitch: which provider each internal function uses, and the providers themselves.
 
-Everything here is about Basalt's own functions (the Chat, the agent's loop, the planner, the judges). What other programs see
+Everything here is about TaDaMoo's own functions (the Chat, the agent's loop, the planner, the judges). What other programs see
 of this server does not change: it is the loaded model. Keys are write-only: the page can send one and is told only that there
 is one. All changes come from this PC and the server's own page (the handler checks).
 """

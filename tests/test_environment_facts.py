@@ -82,7 +82,7 @@ def test_the_built_agent_has_the_environment_block_after_the_core(tmp_path):
     plain = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "d"), use_memory=False, use_checkpoints=False), client=Model())
     prompt = plain.agent.system_prompt
     assert "# Environment\nThe system is " in prompt and f"The working folder is {ws.resolve()}" in prompt
-    assert prompt.index("# Environment") > prompt.index("You are Basalt")
+    assert prompt.index("# Environment") > prompt.index("You are TaDaMoo")
     assert "write_output_file" not in prompt
     with_files = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "d2"), use_memory=False, use_checkpoints=False,
                                          attachments_dir=str(tmp_path / "att"), outputs_dir=str(tmp_path / "out"), run_id="s1"), client=Model())

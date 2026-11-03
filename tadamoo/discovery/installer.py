@@ -14,7 +14,7 @@ and the commands below are fixed in this file.
 * A remote server: nothing is downloaded; its address is recorded.
 * A skill: only its folder, from the commit that was shown, file by file; each file's git hash is checked against the tree.
 
-No install script of any package runs unless the person allowed scripts for that install. Registering writes the entry into the capability system as installed by Basalt; the entry's hash (the start command, the
+No install script of any package runs unless the person allowed scripts for that install. Registering writes the entry into the capability system as installed by TaDaMoo; the entry's hash (the start command, the
 address, or the text of the skill) is checked to be the one that was shown.
 """
 from __future__ import annotations
@@ -62,7 +62,7 @@ class IntegrityError(InstallError):
 
 
 class AlreadyInstalled(InstallError):
-    """Basalt already installed this one; an update replaces it."""
+    """TaDaMoo already installed this one; an update replaces it."""
 
 
 @dataclass
@@ -133,20 +133,20 @@ class Installer:
 
     def install(self, candidate_id: str, *, allow_scripts: bool = False, anyway: bool = False, update: bool = False) -> Dict[str, Any]:
         """Installs a candidate. `allow_scripts` lets the package's install scripts run (npm) or a source build (PyPI); `anyway` goes on when the
-        hash differs from the registry's, recording the difference; `update` replaces a version Basalt installed (the old one comes back if the new fails)."""
+        hash differs from the registry's, recording the difference; `update` replaces a version TaDaMoo installed (the old one comes back if the new fails)."""
         c = self.store.get(candidate_id)
         if c is None:
             raise UnknownCandidate("No such candidate: only one the search just returned can be installed.")
         if bad := c.check():
             raise InstallError(f"It cannot be installed: {bad}.")
         if not c.installable:
-            raise InstallError(f"It cannot be installed: {c.problem or 'it needs something Basalt cannot give'}.")
+            raise InstallError(f"It cannot be installed: {c.problem or 'it needs something TaDaMoo cannot give'}.")
         if why := self.missing(c):
             raise InstallError(why)
         entry_id = f"{c.kind}:{c.name}"
         old = self.records.get(entry_id)
         if old is not None and not update:
-            raise AlreadyInstalled(f"{entry_id} is already installed by Basalt. Update it to get this version.")
+            raise AlreadyInstalled(f"{entry_id} is already installed by TaDaMoo. Update it to get this version.")
         if old is None and self.index is not None and self.index.get(entry_id) is not None:
             raise InstallError(f"There is already a capability called {entry_id} on this PC.")
         aside = self._set_aside(old) if old is not None else None
@@ -167,7 +167,7 @@ class Installer:
         if folder:
             target = (self.root / folder).resolve()
             if target.parent.parent != self.root.resolve() or target.parent.name not in ("mcp", "skills"):
-                raise InstallError("The folder recorded is not one Basalt makes; nothing was changed.")
+                raise InstallError("The folder recorded is not one TaDaMoo makes; nothing was changed.")
             if target.exists():
                 aside = target.with_name(target.name + ".previous")
                 if aside.exists():
@@ -355,7 +355,7 @@ class Installer:
         return self.records.listing()
 
     def remove(self, entry_id: str) -> bool:
-        """Deletes what an install put on disk, and forgets the record. False if Basalt did not install it."""
+        """Deletes what an install put on disk, and forgets the record. False if TaDaMoo did not install it."""
         record = self.records.get(entry_id)
         if record is None:
             return False
@@ -364,7 +364,7 @@ class Installer:
             target = (self.root / folder).resolve()
             base = self.root.resolve()
             if target.parent.parent != base or target.parent.name not in ("mcp", "skills"):
-                raise InstallError("The folder recorded is not one Basalt makes; nothing was deleted.")
+                raise InstallError("The folder recorded is not one TaDaMoo makes; nothing was deleted.")
             if target.exists():
                 _forget(target)
         self.records.delete(entry_id)

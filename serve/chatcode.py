@@ -32,12 +32,12 @@ MAX_DESCRIPTION_CHARS = 700
 COMMENT_CHARS = 100
 
 TEXTS = {
-    "en": {"pointer": "[Code removed from this message to save room. {what} The original ({lines} lines) is saved as {path} in the Basalt data folder; if you "
+    "en": {"pointer": "[Code removed from this message to save room. {what} The original ({lines} lines) is saved as {path} in the TaDaMoo data folder; if you "
                       "need its exact lines, ask the person to send it again.]",
            "outline": "{lang} code of {lines} lines", "classes": "it defines the classes {names}", "functions": "the functions {names}",
            "comment": "it starts with the comment \"{text}\"", "none": "it defines no function or class"},
     "it": {"pointer": "[Codice tolto da questo messaggio per risparmiare spazio. {what} L'originale ({lines} righe) è salvato come {path} nella cartella dati di "
-                      "Basalt; se ti servono le righe esatte, chiedi alla persona di rimandarlo.]",
+                      "TaDaMoo; se ti servono le righe esatte, chiedi alla persona di rimandarlo.]",
            "outline": "Codice {lang} di {lines} righe", "classes": "definisce le classi {names}", "functions": "le funzioni {names}",
            "comment": "inizia con il commento \"{text}\"", "none": "non definisce funzioni né classi"},
 }

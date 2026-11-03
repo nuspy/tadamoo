@@ -56,7 +56,7 @@ def test_the_results_are_the_titles_addresses_and_snippets_without_the_adverts(d
     assert hits[0]["title"] == "Kyiv news today" and hits[0]["snippet"] == "The latest from the front and the talks."
     assert hits[1]["title"] == "Second page"
     path, agent = Fake.seen[0]
-    assert path == "/html/?q=Ukraine+2026" and "Basalt" in agent
+    assert path == "/html/?q=Ukraine+2026" and "TaDaMoo" in agent
     assert len(duckduckgo_search("x", 1, base=ddg, allow_private=True)) == 1
 
 

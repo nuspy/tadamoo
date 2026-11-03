@@ -1,6 +1,6 @@
-"""llama-server (llama.cpp) as a second engine the Loader can run beside Basalt's own, mostly to hold a small model for the technical session.
+"""llama-server (llama.cpp) as a second engine the Loader can run beside Basalt-Plus's own, mostly to hold a small model for the technical session.
 
-  LlamaCpp.find()          the llama-server programs on this PC: the saved path, TADAMOO_LLAMA_SERVER, Basalt's own folders, PATH, a few usual folders
+  LlamaCpp.find()          the llama-server programs on this PC: the saved path, TADAMOO_LLAMA_SERVER, TaDaMoo's own folders, PATH, a few usual folders
   LlamaCpp.set_path(p)     remember a program the person points to ("" forgets it)
   LlamaCpp.status()        found / version / state (stopped, starting, ready, error, external) / health / saved settings / update plan
   LlamaCpp.start(cfg)      run it on 127.0.0.1 with a GGUF; the settings are remembered; LlamaCpp.stop() ends what this server started

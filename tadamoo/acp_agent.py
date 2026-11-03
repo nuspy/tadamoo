@@ -1,4 +1,4 @@
-"""Agent Client Protocol agent over stdio, so an editor (Zed, JetBrains, ...) can drive Basalt.
+"""Agent Client Protocol agent over stdio, so an editor (Zed, JetBrains, ...) can drive TaDaMoo.
 
 The editor is the client: it starts this process, sends `initialize`, `session/new` and
 `session/prompt`, and may send `session/cancel` at any moment. While a prompt runs the agent reports
@@ -51,8 +51,8 @@ MODES = [
 ]
 INVALID_PARAMS, METHOD_NOT_FOUND, INVALID_REQUEST, PARSE_ERROR, SERVER_ERROR = -32602, -32601, -32600, -32700, -32000
 AUTH_REQUIRED = -32000
-AUTH_METHOD = {"id": "tadamoo_api_key", "name": "Basalt API key",
-               "description": "The Basalt server wants an API key. Start this agent with TADAMOO_API_KEY set (or --api-key), then authenticate."}
+AUTH_METHOD = {"id": "tadamoo_api_key", "name": "TaDaMoo API key",
+               "description": "The TaDaMoo server wants an API key. Start this agent with TADAMOO_API_KEY set (or --api-key), then authenticate."}
 SESSION_ID = re.compile(r"acp_[0-9a-f]{12}")
 SESSIONS_FOLDER = "acp_sessions"
 REPLAY_OUTPUT = 4000
@@ -160,7 +160,7 @@ class ACPAgentServer:
                                           "promptCapabilities": {"image": False, "audio": False, "embeddedContext": True},
                                           "mcpCapabilities": {"http": True, "sse": False}},
                     "authMethods": [AUTH_METHOD] if self.key_needed else [],
-                    "agentInfo": {"name": "basalt", "title": "Basalt Agent", "version": "1.0"},
+                    "agentInfo": {"name": "basalt", "title": "TaDaMoo Agent", "version": "1.0"},
                 })
             elif method == "authenticate":
                 self._reply(req_id, self._authenticate(params))
@@ -205,16 +205,16 @@ class ACPAgentServer:
 
     def _need_key(self) -> None:
         if self.key_needed:
-            raise _AuthRequired("Authentication required: the Basalt server wants an API key. Start this agent with TADAMOO_API_KEY set, then authenticate.")
+            raise _AuthRequired("Authentication required: the TaDaMoo server wants an API key. Start this agent with TADAMOO_API_KEY set, then authenticate.")
 
     def _authenticate(self, params: Dict[str, Any]) -> Dict[str, Any]:
         if params.get("methodId") != AUTH_METHOD["id"]:
             raise ValueError("unknown authentication method")
         status = self._status(self.api_key)
         if status is None:
-            raise RuntimeError(f"cannot reach the Basalt server at {self.endpoint}")
+            raise RuntimeError(f"cannot reach the TaDaMoo server at {self.endpoint}")
         if not self.api_key or status in (401, 403):
-            raise _AuthRequired("The Basalt server did not accept the API key (TADAMOO_API_KEY is not set or is wrong).")
+            raise _AuthRequired("The TaDaMoo server did not accept the API key (TADAMOO_API_KEY is not set or is wrong).")
         self.key_needed = False
         return {}
 
@@ -514,7 +514,7 @@ class ACPAgentServer:
 
 def server_from_args(argv: Optional[List[str]] = None, **kw: Any) -> ACPAgentServer:
     """The server the command line asks for: it takes the options every way of running the agent takes (tadamoo/stack.py)."""
-    parser = argparse.ArgumentParser(prog="python -m tadamoo.acp_agent", description="Basalt as an ACP agent on stdio")
+    parser = argparse.ArgumentParser(prog="python -m tadamoo.acp_agent", description="TaDaMoo as an ACP agent on stdio")
     add_agent_arguments(parser)
     args = parser.parse_args(argv)
     return ACPAgentServer(workspace_dir=str(Path(args.workspace).resolve()), endpoint=args.endpoint, api_key=args.api_key, max_turns=args.max_turns,

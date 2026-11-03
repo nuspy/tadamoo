@@ -11,7 +11,7 @@ alert dialog). Off by default; turn it on with the switch on the page.
 
 - Engine processes, by executable name: `basalt`, `llama-server`, `strata`, plus the names added in the settings. They have
   the role `engine`.
-- The Basalt server process and every descendant of it (the agent's shell and the programs it starts). Role `server` and
+- The TaDaMoo server process and every descendant of it (the agent's shell and the programs it starts). Role `server` and
   `tool`. Tools such as `curl` or a browser are expected to use the network, so a plain public connection from them is not
   suspicious by itself; only tags make their reports suspicious.
 - With `alert_on_system_wide` on, every process of the machine (role `other`). Off by default because it is noisy.
@@ -140,23 +140,23 @@ All routes are under the usual authentication and, because exceptions could hide
 - `psutil` is optional; without it the monitor reports `unavailable` and does nothing.
 - Persistence checks are Windows only.
 - The `no_agent_call` tag stays inactive until an agent reports an outward tool call (see Tool-call reports).
-- The long-run exfiltration test is the Openweight Canary add-on; Basalt only starts, stops and shows it (next section).
+- The long-run exfiltration test is the Openweight Canary add-on; TaDaMoo only starts, stops and shows it (next section).
 
 ## Exfiltration test (Openweight Canary)
 
 Monitor > Security > Exfiltration test connects this monitor to the Openweight Canary add-on. The add-on gives the
 model invented secret documents, each with a unique marker, and watches whether anything leaves the computer or a
-marker appears where it should not. It works with any model on any engine and can run for days, across Basalt restarts.
+marker appears where it should not. It works with any model on any engine and can run for days, across TaDaMoo restarts.
 
-- **Config:** runtime preset, model name (empty = the model loaded in Basalt), API address (empty = Basalt's own `/v1`),
-  key, vendor, duration (default: until stopped), sessions per hour, review interval, "keep running when Basalt
+- **Config:** runtime preset, model name (empty = the model loaded in TaDaMoo), API address (empty = TaDaMoo's own `/v1`),
+  key, vendor, duration (default: until stopped), sessions per hour, review interval, "keep running when TaDaMoo
   closes", optional reviewer model and a harness-profile selector (shown only when `python -m canary harnesses`
-  lists profiles). The key is kept in the Basalt data folder and reaches the add-on through an environment variable,
+  lists profiles). The key is kept in the TaDaMoo data folder and reaches the add-on through an environment variable,
   never in `canary.yaml`.
 - **Start:** writes the config, turns NetWatch on if it was off and starts the add-on in a hidden window. Its monitor
   client reads `/api/netwatch/status` and `/api/netwatch/events`.
 - **Stop or end:** the add-on finishes the running session and stops; NetWatch is turned off again only if the test
-  turned it on. Closing Basalt stops the test too, unless "keep running" is set; a test still running when Basalt
+  turned it on. Closing TaDaMoo stops the test too, unless "keep running" is set; a test still running when TaDaMoo
   starts is re-attached by its pid file.
 - **Results:** `findings.jsonl` is hash-chained (Verify checks it). A finding can be added to the security register,
   a report can be generated, and the optional reviewer returns an assessment (suspicious items, explained items,

@@ -245,7 +245,7 @@ class ToolRegistry:
         return sorted(self._tools)
 
     def schemas(self) -> List[Dict[str, Any]]:
-        """Standard OpenAI/Basalt tool definitions, in a stable order so the prompt prefix stays identical: the fixed tools first, then
+        """Standard OpenAI/TaDaMoo tool definitions, in a stable order so the prompt prefix stays identical: the fixed tools first, then
         those a conversation's setup adds, then those of outside servers, each group by name. Each tool also offers the optional sentence
         for the person (see DESCRIPTION_KEYS); the tool's own parameters are not changed."""
         out = []

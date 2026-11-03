@@ -35,7 +35,7 @@ and the internet the first time (Python installer from python.org, wheels from P
 ## What the installed program looks like
 
 * Folder: `C:\Program Files\Tadamoo\BasaltWinGUI`. The `.ifp` has one entry, the folder `dist\stage\BasaltWinGUI`.
-* Shortcuts **Basalt** (desktop and Start menu) start `tools\windows\desktop\publish\BasaltWinGUI.exe`, the app the user
+* Shortcuts **TaDaMoo** (desktop and Start menu) start `tools\windows\desktop\publish\BasaltWinGUI.exe`, the app the user
   runs. It is self-contained (.NET included). `Avvia-TaDaMoo.ps1` and `Ferma-TaDaMoo.ps1` stay in the folder because the
   app calls them for "server only" and "stop"; the user does not start them.
 * After the files are copied, InstallForge runs `tools\windows\desktop\publish\BasaltSetup.exe` (also self-contained, it

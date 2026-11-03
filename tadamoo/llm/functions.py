@@ -1,4 +1,4 @@
-"""The functions inside Basalt that use a language model, and what each of them needs from its provider.
+"""The functions inside TaDaMoo that use a language model, and what each of them needs from its provider.
 
 Only these internal functions can be pointed at another provider. What other applications see of this server stays the
 loaded model, whatever is chosen here (see `docs/harness.md`). A function names a kind of work:
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-LOCAL = ""                                         # no provider assigned: the model loaded in Basalt, as always
+LOCAL = ""                                         # no provider assigned: the model loaded in TaDaMoo, as always
 
 FUNCTIONS: Dict[str, Dict[str, Any]] = {
     "chat": {"label": "Chat", "kind": "chat", "data": "personal", "tools": False},

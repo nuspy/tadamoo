@@ -1,5 +1,5 @@
 "use strict";
-/* Download: the models Basalt can run, to download from Hugging Face (GET /api/models/catalog). Each card says what the
+/* Download: the models Basalt-Plus can run, to download from Hugging Face (GET /api/models/catalog). Each card says what the
    file is and how it differs from the base model; “Download…” opens the full description, the plan (files, size,
    disk, access), the license to accept and starts the job (POST /api/models/download-plan | download, GET
    /api/models/download). A gated repository needs a Hugging Face token: a small assistant explains how to get it and
@@ -8,9 +8,9 @@
 (() => {
   const S = {
     en: {
-      title: "Download models", count: "{0} available", intro: "Qwen3.8-Flash-Next in the versions that run on Basalt, to download from Hugging Face. Ready files load as they are; GGUF files are converted here after the download. Every file is checked against its SHA-256, and an interrupted download continues where it stopped.",
+      title: "Download models", count: "{0} available", intro: "Qwen3.8-Flash-Next in the versions that run on Basalt-Plus, to download from Hugging Face. Ready files load as they are; GGUF files are converted here after the download. Every file is checked against its SHA-256, and an interrupted download continues where it stopped.",
       show: "Show", f: { all: "All", ready: "Ready to use (.basalt)", convert: "GGUF to convert", uncensored: "Uncensored", base: "Base model", coder: "Coder", swift: "Swift 1.5", unsloth: "Unsloth", no: "Not compatible" },
-      ready: "Ready to use", convert: "To convert", untested: "Not tried in Basalt", unc: "Uncensored", gate: "Needs a Hugging Face token", here: "On this PC", no: "Not compatible",
+      ready: "Ready to use", convert: "To convert", untested: "Not tried in Basalt-Plus", unc: "Uncensored", gate: "Needs a Hugging Face token", here: "On this PC", no: "Not compatible",
       details: "Details", fidelity: "How close to the full model", page: "Model page on Hugging Face", get: "Download…", why: "Why not",
       lic: "License: {0}", size: "{0} GB",
       foot: "Reviewed {0}. Sizes are for the files at the pinned revision; the figures come from the source named in each description and are not comparable between sources.",
@@ -26,17 +26,17 @@
       doneConv: "Downloaded to {0}. It is in the list as “To convert”: press Convert… in the model list above.", doneReady: "Downloaded to {0}. It is ready: choose it in the model list above.",
       stopped: "Stopped. The partial files stay and the download continues from them.",
       err: { network: "No answer from Hugging Face: check the connection.", token: "Hugging Face refuses the token.", terms: "The terms of this repository have not been accepted yet.", hash: "A file did not match its SHA-256 and was discarded.", disk: "The disk is full.", missing_file: "A file is no longer on Hugging Face.", redirect: "Hugging Face sent the download to an address that is not http or https; it was stopped.", io: "The file could not be written." },
-      hfTitle: "Hugging Face access", hfIntro: "This repository is gated: Hugging Face asks for a free account, for you to accept its terms, and for a token. Follow the steps; nothing is saved by Basalt unless you set it yourself.",
+      hfTitle: "Hugging Face access", hfIntro: "This repository is gated: Hugging Face asks for a free account, for you to accept its terms, and for a token. Follow the steps; nothing is saved by TaDaMoo unless you set it yourself.",
       s1: "Create a free account (or sign in)", s1b: "Open huggingface.co/join", s2: "Accept the terms on the model's page", s2b: "Open the model page",
       s3: "Create a read-only token", s3b: "Open the token settings", s3h: "Choose “Create new token”, type Read, and copy the token (it starts with hf_).",
-      s4: "Give the token to Basalt", s4a: "Paste it here (kept in memory until the server stops, never saved)", tokenLbl: "Token", use: "Use this token", forget: "Forget the pasted token",
+      s4: "Give the token to TaDaMoo", s4a: "Paste it here (kept in memory until the server stops, never saved)", tokenLbl: "Token", use: "Use this token", forget: "Forget the pasted token",
       s4b: "Or set it once for every start, in PowerShell:", s4c: "Or log in with Hugging Face's own tool (it needs its package first):", copy: "Copy", copied: "Copied",
       close: "Close", checkNow: "Check again", bad: "Hugging Face does not accept this token.", saved: "Token accepted: account {0}.",
     },
     it: {
-      title: "Scarica modelli", count: "{0} disponibili", intro: "Qwen3.8-Flash-Next nelle versioni che girano su Basalt, da scaricare da Hugging Face. I file pronti si caricano così come sono; i GGUF si convertono qui dopo il download. Ogni file è controllato con il suo SHA-256 e un download interrotto riprende da dove si è fermato.",
+      title: "Scarica modelli", count: "{0} disponibili", intro: "Qwen3.8-Flash-Next nelle versioni che girano su Basalt-Plus, da scaricare da Hugging Face. I file pronti si caricano così come sono; i GGUF si convertono qui dopo il download. Ogni file è controllato con il suo SHA-256 e un download interrotto riprende da dove si è fermato.",
       show: "Mostra", f: { all: "Tutti", ready: "Pronti all'uso (.basalt)", convert: "GGUF da convertire", uncensored: "Uncensored", base: "Modello base", coder: "Coder", swift: "Swift 1.5", unsloth: "Unsloth", no: "Non compatibili" },
-      ready: "Pronto all'uso", convert: "Da convertire", untested: "Non provato con Basalt", unc: "Uncensored", gate: "Serve un token Hugging Face", here: "Su questo PC", no: "Non compatibile",
+      ready: "Pronto all'uso", convert: "Da convertire", untested: "Non provato con Basalt-Plus", unc: "Uncensored", gate: "Serve un token Hugging Face", here: "Su questo PC", no: "Non compatibile",
       details: "Dettagli", fidelity: "Quanto è vicino al modello pieno", page: "Pagina del modello su Hugging Face", get: "Scarica…", why: "Perché no",
       lic: "Licenza: {0}", size: "{0} GB",
       foot: "Rivisto il {0}. Le dimensioni sono quelle dei file alla revisione fissata; le misure vengono dalla fonte indicata in ogni descrizione e non sono confrontabili tra fonti diverse.",
@@ -52,10 +52,10 @@
       doneConv: "Scaricato in {0}. È nell'elenco come «Da convertire»: premi Converti… nell'elenco dei modelli qui sopra.", doneReady: "Scaricato in {0}. È pronto: sceglilo nell'elenco dei modelli qui sopra.",
       stopped: "Fermato. I file parziali restano e il download continua da lì.",
       err: { network: "Nessuna risposta da Hugging Face: controlla la connessione.", token: "Hugging Face rifiuta il token.", terms: "I termini di questo repository non sono ancora stati accettati.", hash: "Un file non corrispondeva al suo SHA-256 ed è stato scartato.", disk: "Il disco è pieno.", missing_file: "Un file non è più su Hugging Face.", redirect: "Hugging Face ha mandato il download a un indirizzo che non è http né https: è stato fermato.", io: "Non è stato possibile scrivere il file." },
-      hfTitle: "Accesso a Hugging Face", hfIntro: "Questo repository è ad accesso controllato: Hugging Face chiede un account gratuito, che tu ne accetti i termini e un token. Segui i passi; Basalt non salva nulla a meno che non lo imposti tu.",
+      hfTitle: "Accesso a Hugging Face", hfIntro: "Questo repository è ad accesso controllato: Hugging Face chiede un account gratuito, che tu ne accetti i termini e un token. Segui i passi; TaDaMoo non salva nulla a meno che non lo imposti tu.",
       s1: "Crea un account gratuito (o accedi)", s1b: "Apri huggingface.co/join", s2: "Accetta i termini nella pagina del modello", s2b: "Apri la pagina del modello",
       s3: "Crea un token di sola lettura", s3b: "Apri le impostazioni dei token", s3h: "Scegli «Create new token», tipo Read, e copia il token (inizia con hf_).",
-      s4: "Dai il token a Basalt", s4a: "Incollalo qui (resta in memoria finché il server non si ferma, non viene mai salvato)", tokenLbl: "Token", use: "Usa questo token", forget: "Dimentica il token incollato",
+      s4: "Dai il token a TaDaMoo", s4a: "Incollalo qui (resta in memoria finché il server non si ferma, non viene mai salvato)", tokenLbl: "Token", use: "Usa questo token", forget: "Dimentica il token incollato",
       s4b: "Oppure impostalo una volta per ogni avvio, in PowerShell:", s4c: "Oppure accedi con lo strumento di Hugging Face (prima serve il suo pacchetto):", copy: "Copia", copied: "Copiato",
       close: "Chiudi", checkNow: "Controlla di nuovo", bad: "Hugging Face non accetta questo token.", saved: "Token accettato: account {0}.",
     },

@@ -10,11 +10,11 @@ DIALOG_TEXTS: Dict[str, Dict[str, str]] = {
     "it": {
         "waiver": (
             "Stai per togliere la tua conferma ai pagamenti automatici di questo sistema di pagamento, fino a un massimo che "
-            "scegli tu. Sotto quel massimo Basalt non filtra importi né beneficiari. Un sito o un'email manipolati possono "
+            "scegli tu. Sotto quel massimo TaDaMoo non filtra importi né beneficiari. Un sito o un'email manipolati possono "
             "far spendere all'agente fino a quel massimo senza che nessuno lo fermi. Scegli una cifra che sei disposto a "
             "perdere. Per continuare scrivi, o incolla, la dichiarazione qui sotto."),
         "release": (
-            "Dichiaro di sapere che gli autori e i distributori di Basalt non rispondono delle conseguenze dei pagamenti "
+            "Dichiaro di sapere che gli autori e i distributori di TaDaMoo non rispondono delle conseguenze dei pagamenti "
             "eseguiti in autonomia dall'applicazione, nei limiti consentiti dalla legge."),
         "acceptance": (
             "Accetto integralmente la responsabilità dell'uso del livello 4 per questo sistema di pagamento. La rinuncia è "
@@ -23,11 +23,11 @@ DIALOG_TEXTS: Dict[str, Dict[str, str]] = {
     "en": {
         "waiver": (
             "You are about to remove your confirmation of automatic payments for this payment system, up to a maximum you "
-            "choose. Below that maximum Basalt does not filter amounts or recipients. A manipulated site or email can make "
+            "choose. Below that maximum TaDaMoo does not filter amounts or recipients. A manipulated site or email can make "
             "the agent spend up to that maximum with nobody stopping it. Choose an amount you are willing to lose. To "
             "continue, type or paste the declaration below."),
         "release": (
-            "I understand that the authors and distributors of Basalt are not liable for the consequences of payments the "
+            "I understand that the authors and distributors of TaDaMoo are not liable for the consequences of payments the "
             "application makes on its own, to the extent the law allows."),
         "acceptance": (
             "I fully accept responsibility for using level 4 with this payment system. The waiver is personal, tied to this "

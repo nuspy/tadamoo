@@ -40,7 +40,7 @@ from tadamoo.tools import create_standard_tool_registry
 from tadamoo.tools.registry import TOOL_CALL_NOTE
 
 SYSTEM_CORE = (
-    "You are Basalt, an autonomous coding agent working inside one workspace folder. "
+    "You are TaDaMoo, an autonomous coding agent working inside one workspace folder. "
     "Use the tools to read, change and test files; answer without a tool call when the work is done. "
     "When asked to look something up or to explain a situation, read the sources themselves: open the articles, not only a headline or a feed, "
     "and say which pages you read and which you could not. "
@@ -124,7 +124,7 @@ DEFAULT_MEMORY_MIN_SCORE, DEFAULT_MEMORY_NOTES, DEFAULT_MEMORY_BUDGET = 1.5, 4, 
 def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, permission_mode: str = "default") -> None:
     """The options every way of running the agent takes (the Chat's process, the command line, the editor): what it can reach and how."""
     parser.add_argument("--workspace", default=".", help="folder the agent works in")
-    parser.add_argument("--endpoint", default="http://127.0.0.1:7232", help="Basalt server address")
+    parser.add_argument("--endpoint", default="http://127.0.0.1:7232", help="TaDaMoo server address")
     parser.add_argument("--api-key", default=os.environ.get("TADAMOO_API_KEY"), help="server API key (or TADAMOO_API_KEY)")
     parser.add_argument("--max-turns", type=int, default=max_turns, help="most model turns in one answer (default and below 1: no limit)")
     parser.add_argument("--max-failed-attempts", type=int, default=0, metavar="N", help="failed calls and failed checks one request may use up before it is stopped as failed (default and below 1: no limit)")
@@ -564,7 +564,7 @@ def _offer_capabilities(cfg: AgentConfig, workspace: Path, registry: Any, builde
             return self.hub.call("s", tool, arguments)
 
     def hub_for(name: str, command: List[str]) -> Any:
-        return Server(name, command, env=getattr(command, "env", None))      # the keys of a server Basalt installed come from the vault at this moment
+        return Server(name, command, env=getattr(command, "env", None))      # the keys of a server TaDaMoo installed come from the vault at this moment
 
     index.vault_dir = Path(cfg.vault_dir) if cfg.vault_dir else None
     register_capability_tools(registry, index, hub_factory=hub_for)

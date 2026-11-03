@@ -2,7 +2,7 @@
 /* Settings > Capabilities and visual analysis: the skills, plugins and MCP servers found on this PC as a tree (usable unless the person
    turns them off), and the choice for visual analysis. Also here: the settings of the search online (which sources are asked, the
    minimum score and the weights, whether the best candidate above the minimum is installed without asking), the install requests the
-   agent queued (the person installs one candidate or rejects the request), and the list of what Basalt installed, with Remove.
+   agent queued (the person installs one candidate or rejects the request), and the list of what TaDaMoo installed, with Remove.
    Everything the server says is put in the page as text. */
 (() => {
   const body = document.getElementById("st-caps-body");

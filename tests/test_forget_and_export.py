@@ -122,15 +122,15 @@ def test_keeping_a_conversation_out_drops_its_pieces_and_waiting_messages_but_no
 
 def test_the_export_is_one_markdown_file_per_note_with_front_matter_and_an_index(tmp_path):
     memory = make(tmp_path)
-    a = memory.add("long", "identity", "Is an engineer: works on \"Basalt\"", origin="said", conversation="c1", source="proj")
-    memory.add("long", "identity", "Is an engineer: works on \"Basalt\"", origin="said", conversation="c2")
+    a = memory.add("long", "identity", "Is an engineer: works on \"TaDaMoo\"", origin="said", conversation="c1", source="proj")
+    memory.add("long", "identity", "Is an engineer: works on \"TaDaMoo\"", origin="said", conversation="c2")
     b = memory.add("short", "topics", "Is comparing two e-bikes")
     out = tmp_path / "vault"
     got = export_markdown(memory, out)
     assert got == {"folder": str(out), "notes": 2, "long": 1, "short": 1}
     text = (out / "long" / file_name(a)).read_text(encoding="utf-8")
     lines = text.split("\n")
-    assert lines[0] == "---" and lines.index("---", 1) > 1 and text.rstrip().endswith('Is an engineer: works on "Basalt"')
+    assert lines[0] == "---" and lines.index("---", 1) > 1 and text.rstrip().endswith('Is an engineer: works on "TaDaMoo"')
     front = dict(l.split(": ", 1) for l in lines[1:lines.index("---", 1)])
     assert front["kind"] == "long" and front["section"] == "identity" and front["id"] == json.dumps(a["id"]) and front["created"] == time.strftime("%Y-%m-%d", time.localtime(1_800_000_000.0))
     assert front["source_conversation"] == '"c1"' and front["conversations"] == '["c1", "c2"]' and front["tags"] == '["identity"]' and front["project"] == '"proj"'

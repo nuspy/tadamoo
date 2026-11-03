@@ -21,19 +21,19 @@ forward pass. 100 chunks, base PPL 3.286070, 400 W:
 | Pack | Engine | PPL | KLD mean | KLD median | KLD p99 | Same top-1 |
 |---|---|---|---|---|---|---|
 | GSQ-RCO IQ3_S | llama.cpp | 3.3728 | 0.1526 | 0.0340 | 1.750 | 87.20% |
-| GSQ-RCO IQ3_S | Basalt | 3.3723 | 0.15264 | – | – | 87.16% |
+| GSQ-RCO IQ3_S | Basalt-Plus | 3.3723 | 0.15264 | – | – | 87.16% |
 | GSQ-RCO IQ3_XXS | llama.cpp | 3.4675 | 0.2428 | 0.0596 | 2.607 | 84.05% |
-| GSQ-RCO IQ3_XXS | Basalt | 3.4678 | 0.2433 | – | – | – |
+| GSQ-RCO IQ3_XXS | Basalt-Plus | 3.4678 | 0.2433 | – | – | – |
 
-At 20 chunks (Basalt: the README table; llama.cpp: its running value at chunk 20):
+At 20 chunks (Basalt-Plus: the README table; llama.cpp: its running value at chunk 20):
 
-| Pack | Basalt KLD / top-1 | llama.cpp KLD / top-1 |
+| Pack | Basalt-Plus KLD / top-1 | llama.cpp KLD / top-1 |
 |---|---|---|
 | GSQ-RCO IQ3_S | 0.177 / 89.4% | 0.1753 / 89.22% |
 | GSQ-RCO IQ3_XXS | 0.277 / 86.8% | 0.2780 / 86.65% |
 | UD-Q4_K_XL | 0.068 / 93.0% | 0.0579 / 93.96% |
 
-NVFP4 and UD-Q4_K_XL in Basalt only (same harness and base, T 3, int8 KV, `--resident-experts`, expert tiers pinned (`--adapt-swaps 0 --peer-adapt-swaps 0`), 400 W; a
+NVFP4 and UD-Q4_K_XL in Basalt-Plus only (same harness and base, T 3, int8 KV, `--resident-experts`, expert tiers pinned (`--adapt-swaps 0 --peer-adapt-swaps 0`), 400 W; a
 development measurement):
 
 | Pack | Chunks | PPL | KLD mean | KLD median | KLD p99 | Same top-1 |
@@ -61,27 +61,27 @@ is UD-Q4_K_XL at 20 chunks (0.068 vs 0.0579), explained in the next section.
 
 ## Why Q8_0 against Q8_0 is not zero
 
-The Basalt Q8_0 pack scores KLD 0.0456 and top-1 95.6% (4 chunks, fp16 KV) against the stock llama.cpp Q8_0 base. This
+The Basalt-Plus Q8_0 pack scores KLD 0.0456 and top-1 95.6% (4 chunks, fp16 KV) against the stock llama.cpp Q8_0 base. This
 is mostly the base's own noise. llama.cpp quantizes the activations of its Q8_0 matmuls. In the hyper-connection read
 (down projection 10240 → 320, then up) the sum has cancellation, so Q8_0 quantization of the input (0.2 to 0.4% per
-element) becomes about 1% in the mixed stream at layer 0. Basalt's hc read uses fp32 activations and matches the exact
+element) becomes about 1% in the mixed stream at layer 0. Basalt-Plus's hc read uses fp32 activations and matches the exact
 math to 1e-5.
 
 At layer 0, computed in numpy from llama.cpp's own hc_norm output and the GGUF Q8_0 hc weights, against an fp64 result
-with no activation quantization: Basalt's mixed stream has relative error 0.00000 and llama.cpp's 1.06%. llama.cpp
+with no activation quantization: Basalt-Plus's mixed stream has relative error 0.00000 and llama.cpp's 1.06%. llama.cpp
 against an emulation of Q8_0 activation quantization differs by 0.009%.
 
 With the hc read cast to F32 in llama.cpp (a local patch), 4 chunks, 400 W:
 
 | Comparison | KLD mean | Same top-1 |
 |---|---|---|
-| Basalt Q8_0 vs stock base | 0.0456 | 95.6% |
-| Basalt Q8_0 vs F32-hc base | 0.0233 | 97.16% |
+| Basalt-Plus Q8_0 vs stock base | 0.0456 | 95.6% |
+| Basalt-Plus Q8_0 vs F32-hc base | 0.0233 | 97.16% |
 | llama.cpp Q8_0 with F32 hc vs stock base | 0.0436 | 96.0% |
 | llama.cpp with ssm_alpha/beta activation quantization also removed vs F32-hc base | 0.0241 | 96.86% |
 
-Basalt's 0.0233 is the level of two independent implementations of this model (0.0241 between two llama.cpp variants).
-The stock base's hc noise lifts every pack's KLD by about 0.01 to 0.02 (Basalt, 4 chunks):
+Basalt-Plus's 0.0233 is the level of two independent implementations of this model (0.0241 between two llama.cpp variants).
+The stock base's hc noise lifts every pack's KLD by about 0.01 to 0.02 (Basalt-Plus, 4 chunks):
 
 | Pack | Stock base | F32-hc base |
 |---|---|---|

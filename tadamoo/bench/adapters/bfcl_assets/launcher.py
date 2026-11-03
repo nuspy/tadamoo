@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 
 def register(mapping, config_class, handler_class, registry_name: str, served_name: str) -> None:
     mapping[registry_name] = config_class(
-        model_name=served_name, display_name=f"{served_name} (served by Basalt, FC)", url="", org="local", license="n/a", model_handler=handler_class,
+        model_name=served_name, display_name=f"{served_name} (served by TaDaMoo, FC)", url="", org="local", license="n/a", model_handler=handler_class,
         input_price=None, output_price=None, is_fc_model=True, underscore_to_dot=True)
 
 

@@ -188,7 +188,7 @@ ROOT = Path(__file__).resolve().parent.parent
 def test_python_dash_m_harness_has_a_subcommand_for_the_editors_agent():
     import subprocess
     out = subprocess.run([sys.executable, "-m", "harness", "acp", "--help"], cwd=ROOT, capture_output=True, text=True, timeout=60)
-    assert out.returncode == 0 and "Basalt as an ACP agent" in out.stdout and "--capabilities" in out.stdout and "--vault-dir" in out.stdout
+    assert out.returncode == 0 and "TaDaMoo as an ACP agent" in out.stdout and "--capabilities" in out.stdout and "--vault-dir" in out.stdout
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="the launcher is a .cmd file")

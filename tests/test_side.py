@@ -22,7 +22,7 @@ from test_llm_client import Cloud, Local, MSG
 
 
 class FakeServer:
-    """A Basalt server's status route, with or without a technical session; counts the questions."""
+    """A TaDaMoo server's status route, with or without a technical session; counts the questions."""
 
     def __init__(self, side_slot):
         self.asked = 0

@@ -1,4 +1,4 @@
-"""Tests never touch the user's own Basalt data (profiles, journals, plans, the control secret): they get a folder of their own.
+"""Tests never touch the user's own TaDaMoo data (profiles, journals, plans, the control secret): they get a folder of their own.
 
 The folder is set before any test module is imported, because the server reads it when its modules load."""
 import atexit

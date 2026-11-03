@@ -81,7 +81,7 @@ def make(tmp_path, client, **kw):
 
 
 def test_two_messages_in_a_row_the_second_sees_the_first(tmp_path):
-    client = Scripted(say("Mi chiamo Basalt."), say("Hai detto di chiederti il nome."))
+    client = Scripted(say("Mi chiamo TaDaMoo."), say("Hai detto di chiederti il nome."))
     session, ev, store, built = make(tmp_path, client)
     session.send("m1", "Come ti chiami?")
     ev.wait("done")

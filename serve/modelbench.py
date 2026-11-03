@@ -229,7 +229,7 @@ METRICS = [
 
 # Published figures of the official packs (README, `basalt-bench --quality` against a Q8_0 reference; speed from docs/precision.md at 400 W).
 # They are shown as references, with their source, and are never mixed into a measured number.
-PUBLISHED_SOURCE = "Basalt README and docs/precision.md"
+PUBLISHED_SOURCE = "Basalt-Plus README and docs/precision.md"
 PUBLISHED = [
     {"id": "pub-iq1_m-coder", "name": "GSQ-RCO Coder IQ1_M", "quant": "IQ1_M", "size_gib": 57.4, "experts_gib": 23.4, "kld": 1.03, "top1_pct": 69.0},
     {"id": "pub-q2_0", "name": "GSQ-RCO Q2_0", "quant": "Q2_0", "size_gib": 64.9, "experts_gib": 31.6, "ppl": 2.971, "kld": 0.486, "top1_pct": 80.6},

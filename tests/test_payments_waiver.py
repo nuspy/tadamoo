@@ -99,7 +99,7 @@ def test_amount_parsing():
 
 def test_a_system_must_say_what_it_pays_with_and_a_vault_credential_names_its_entry():
     for kind in ("password", "password_totp", "anything_else"):
-        assert any("choose what Basalt pays with" in p for p in system(credential_kind=kind).problems())
+        assert any("choose what TaDaMoo pays with" in p for p in system(credential_kind=kind).problems())
     assert system().problems() == []
     assert any("vault entry" in p for p in system(credential_kind="vault_card").problems())
     assert system(credential_kind="vault_card", vault_entry="trip").problems() == []
@@ -351,7 +351,7 @@ def test_a_failing_notification_does_not_undo_the_payment(broker):
 
 
 def test_register_rejects_an_ineligible_system(broker):
-    with pytest.raises(ValueError, match="choose what Basalt pays with"):
+    with pytest.raises(ValueError, match="choose what TaDaMoo pays with"):
         broker.register_system(system(system_id="bank", credential_kind="password_totp"))
 
 

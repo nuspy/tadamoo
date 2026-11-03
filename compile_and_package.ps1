@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    One command that does everything: builds Basalt Win+GUI, stages the program folder, builds the setup, updates the
+    One command that does everything: builds TaDaMoo Win+GUI, stages the program folder, builds the setup, updates the
     app on this PC and raises the version. Run it as it is: .\compile_and_package.ps1
 
 .DESCRIPTION
@@ -388,7 +388,7 @@ try {
 
     # ------------------------------------------------------------------ notes in the package
     @"
-Basalt Win+GUI $ReleaseLabel
+TaDaMoo Win+GUI $ReleaseLabel
 built $(Get-Date -Format 'yyyy-MM-dd HH:mm') from $commit$(if ($changed.Count) { " (+$($changed.Count) uncommitted tracked file(s))" })
 
 Bundled third-party files that are not part of the repository:
@@ -423,10 +423,10 @@ The setup\ folder is removed by the installer once everything is in place. The Q
 <InstallForgeProject>
   <Metadata productVersion="1.6.1" projectFileVersion="2.0"/>
   <ProductInformation>
-    <Name>Basalt Windows+GUI</Name>
+    <Name>TaDaMoo Windows+GUI</Name>
     <Version>1.0</Version>
     <CompanyName>Tadamoo</CompanyName>
-    <WebURI>https://github.com/nuspy/basalt_win-GUI</WebURI>
+    <WebURI>https://github.com/nuspy/tadamoo</WebURI>
   </ProductInformation>
   <InstallerConfiguration>
     <Prerequisites>
@@ -478,7 +478,7 @@ The setup\ folder is removed by the installer once everything is in place. The Q
     <CustomDisplayIcon isEnabled="false" iconFilePath="&lt;InstallPath&gt;\"/>
   </UninstallerConfiguration>
   <VisualUpdateConfiguration isPackaged="false">
-    <ProductName>Basalt Win+GUI</ProductName>
+    <ProductName>TaDaMoo Win+GUI</ProductName>
     <ProductVersion>&lt;AppVersion&gt;</ProductVersion>
     <Language>0</Language>
     <UpdateScriptURIs>
@@ -533,9 +533,9 @@ The setup\ folder is removed by the installer once everything is in place. The Q
     $appExe = "$AppRel\tools\windows\desktop\publish\BasaltWinGUI.exe"
     $icon = Join-Path $Root 'tools\windows\desktop\basalt.ico'             # a path on this PC, as InstallForge stores it
     foreach ($def in @(
-            @{ destination = 'Desktop'; name = 'Basalt'; targetFile = $appExe },
-            @{ destination = 'Startmenu'; name = 'Basalt'; targetFile = $appExe },
-            @{ destination = 'Startmenu'; name = 'Uninstall Basalt'; targetFile = '<InstallPath>\Uninstall.exe' })) {
+            @{ destination = 'Desktop'; name = 'TaDaMoo'; targetFile = $appExe },
+            @{ destination = 'Startmenu'; name = 'TaDaMoo'; targetFile = $appExe },
+            @{ destination = 'Startmenu'; name = 'Uninstall TaDaMoo'; targetFile = '<InstallPath>\Uninstall.exe' })) {
         $def.commandLineArguments = ''; $def.iconFilePath = $icon; $def.iconIndex = '0'
         [void]$sc.AppendChild((New-El 'Shortcut' $def ''))
     }

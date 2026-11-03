@@ -1,7 +1,7 @@
 ﻿<#
 .SYNOPSIS
-    Avvia Basalt Win+GUI: di norma apre l'app (BasaltWinGUI.exe, l'interfaccia principale), oppure il server con il
-    browser, oppure il solo server per gli agenti. / Starts Basalt Win+GUI: the app by default (BasaltWinGUI.exe, the
+    Avvia TaDaMoo Win+GUI: di norma apre l'app (BasaltWinGUI.exe, l'interfaccia principale), oppure il server con il
+    browser, oppure il solo server per gli agenti. / Starts TaDaMoo Win+GUI: the app by default (BasaltWinGUI.exe, the
     main interface), or the server with the browser, or the server alone for agents.
 
 .DESCRIPTION
@@ -19,7 +19,7 @@
       -server   il solo server, staccato dalla finestra, senza app né browser: lo script ritorna quando il modello è
                 carico (o se non parte). Serve agli agenti; si ferma con Ferma-TaDaMoo.ps1 --port N.
 
-    Se un server Basalt Win+GUI di questa cartella è già acceso non ne avvia un altro: con -gui apre l'app (che
+    Se un server TaDaMoo Win+GUI di questa cartella è già acceso non ne avvia un altro: con -gui apre l'app (che
     chiede se collegarsi o cambiare modello), con -browser apre il browser su quel server. Con -server confronta i
     parametri di caricamento chiesti (risolti come per un avvio nuovo: senza --config il profilo predefinito) con
     quelli del server acceso: se sono gli stessi si collega e ritorna; se cambiano li elenca e chiede, in una
@@ -216,15 +216,15 @@ function Get-Ascoltatore([int]$Porta) {
 }
 
 function Get-ServerAccesi {
-    # le porte su cui ascolta un server Basalt di questa cartella: il server Python (serve.server) avviato da bin\basalt.exe
-    # o con il venv di qui, e la porta di tadamoo.pid se risponde come Basalt
+    # le porte su cui ascolta un server TaDaMoo di questa cartella: il server Python (serve.server) avviato da bin\basalt.exe
+    # o con il venv di qui, e la porta di tadamoo.pid se risponde come TaDaMoo
     $bin = (Join-Path $Radice 'bin').ToLowerInvariant()
     $qui = $Radice.ToLowerInvariant()
     $porte = @()
     foreach ($c in @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue)) {
         $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($c.OwningProcess)" -ErrorAction SilentlyContinue
         if (-not ($p -and $p.CommandLine -and $p.CommandLine -match 'serve\.server')) { continue }
-        # un server di prova (motore finto, o configurazione in una cartella temporanea) non è "Basalt già acceso":
+        # un server di prova (motore finto, o configurazione in una cartella temporanea) non è "TaDaMoo già acceso":
         # lo si guarda solo se lo chiede TADAMOO_SCAN_MOCK=1 (i test)
         if ($env:TADAMOO_SCAN_MOCK -ne '1') {
             $tmp = [System.IO.Path]::GetTempPath().TrimEnd('\').ToLowerInvariant()
@@ -287,13 +287,13 @@ function Test-Desktop {
 
 function Chiedi-Riavvio([string]$Elenco) {
     # 'riusa', 'riavvia' o $null (nessuna risposta entro $AttesaRispostaS secondi, o nessuno a cui chiedere)
-    $domanda = T "Basalt Win+GUI è già acceso, con parametri di caricamento diversi da quelli chiesti:" `
-                 "Basalt Win+GUI is already running, with loading parameters different from the ones asked for:"
+    $domanda = T "TaDaMoo Win+GUI è già acceso, con parametri di caricamento diversi da quelli chiesti:" `
+                 "TaDaMoo Win+GUI is already running, with loading parameters different from the ones asked for:"
     if (Test-Desktop) {
         Add-Type -AssemblyName System.Windows.Forms, System.Drawing
         [System.Windows.Forms.Application]::EnableVisualStyles()
         $f = New-Object System.Windows.Forms.Form
-        $f.Text = 'Basalt Win+GUI'; $f.TopMost = $true; $f.StartPosition = 'CenterScreen'; $f.FormBorderStyle = 'FixedDialog'
+        $f.Text = 'TaDaMoo Win+GUI'; $f.TopMost = $true; $f.StartPosition = 'CenterScreen'; $f.FormBorderStyle = 'FixedDialog'
         $f.MaximizeBox = $false; $f.MinimizeBox = $false; $f.AutoSize = $true; $f.AutoSizeMode = 'GrowAndShrink'
         $f.Font = New-Object System.Drawing.Font('Segoe UI', 11)
         $ico = Join-Path $Radice 'tools\windows\desktop\basalt.ico'
@@ -348,9 +348,9 @@ $exeApp = Join-Path $Radice 'tools\windows\desktop\publish\BasaltWinGUI.exe'
 $exeVecchio = Join-Path $Radice 'tools\windows\desktop\publish\TaDaMoo.exe'   # il nome di prima
 if (-not (Test-Path $exeApp) -and (Test-Path $exeVecchio)) { $exeApp = $exeVecchio }
 if ($Gui -and -not (Test-Path $exeApp)) {
-    Scrivi (T "L'app Basalt Win+GUI non è ancora stata costruita ($exeApp)." "The Basalt Win+GUI app is not built yet ($exeApp).") Yellow
+    Scrivi (T "L'app TaDaMoo Win+GUI non è ancora stata costruita ($exeApp)." "The TaDaMoo Win+GUI app is not built yet ($exeApp).") Yellow
     Scrivi "  $(T 'Per costruirla (serve il .NET 8 SDK):' 'To build it (the .NET 8 SDK is needed):')  dotnet publish tools\windows\desktop -c Release -o tools\windows\desktop\publish" Yellow
-    Scrivi "  $(T 'Intanto apro Basalt Win+GUI nel browser (-browser).' 'Meanwhile Basalt Win+GUI opens in the browser (-browser).')" Yellow
+    Scrivi "  $(T 'Intanto apro TaDaMoo Win+GUI nel browser (-browser).' 'Meanwhile TaDaMoo Win+GUI opens in the browser (-browser).')" Yellow
     $Gui = $false
     $Browser = $true
 }
@@ -370,9 +370,9 @@ if ($Gui) {
         try { $srv0 = (Get-Content -Raw -Encoding UTF8 $cfgPath | ConvertFrom-Json).server; if ($srv0 -and $srv0.PSObject.Properties['port']) { $porta = [int]$srv0.port } } catch { }
     }
     $mostra = ($argApp | ForEach-Object { if ($_ -match '\s') { """$_""" } else { $_ } }) -join ' '
-    Scrivi "Basalt Win+GUI - app $(if ($Prova) { T '(PROVA: non parte nulla)' '(DRY RUN: nothing starts)' })" Cyan
+    Scrivi "TaDaMoo Win+GUI - app $(if ($Prova) { T '(PROVA: non parte nulla)' '(DRY RUN: nothing starts)' })" Cyan
     Scrivi "  app:        $exeApp $mostra"
-    if ($accesi.Count) { Scrivi "  $(T "Basalt Win+GUI è già acceso sulla porta ${porta}: l'app chiede se collegarsi o cambiare modello." "Basalt Win+GUI is already running on port ${porta}: the app asks whether to connect or change the model.")" Yellow }
+    if ($accesi.Count) { Scrivi "  $(T "TaDaMoo Win+GUI è già acceso sulla porta ${porta}: l'app chiede se collegarsi o cambiare modello." "TaDaMoo Win+GUI is already running on port ${porta}: the app asks whether to connect or change the model.")" Yellow }
     Scrivi "  $(T 'indirizzo: ' 'address:   ') http://127.0.0.1:$porta/  $(T '(il browser non si apre: l''indirizzo resta disponibile)' '(the browser does not open: the address stays available)')"
     Scrivi "  $(T 'L''app avvia il server senza caricare il modello e mostra il Loader; si chiude dall''icona vicino all''orologio (Spegni).' 'The app starts the server without loading the model and shows the Loader; it closes from the icon near the clock (Spegni).')"
     if ($Prova) { Scrivi (T 'PROVA completata: nessun processo avviato.' 'DRY RUN done: no process started.') Green; Esci 0 }
@@ -430,7 +430,7 @@ if ($accesi.Count) {
     }
 }
 if ($accesi.Count) {
-    Scrivi (T 'Basalt Win+GUI è già acceso: mi collego a quello, non ne avvio un altro.' 'Basalt Win+GUI is already running: connecting to it, no other is started.') Yellow
+    Scrivi (T 'TaDaMoo Win+GUI è già acceso: mi collego a quello, non ne avvio un altro.' 'TaDaMoo Win+GUI is already running: connecting to it, no other is started.') Yellow
     Scrivi "  $(T 'indirizzo: ' 'address:   ') $url"
     $carico = if ($s.Salute.loaded) { T 'caricato' 'loaded' } else { T 'non ancora caricato' 'not loaded yet' }
     Scrivi "  $(T 'modello:   ' 'model:     ') $($s.Salute.model) ($(T 'contesto' 'context') $($s.Salute.max_context) token, $carico)"
@@ -447,7 +447,7 @@ if ($accesi.Count) {
         } catch { }
     }
     if ($imp -and $imp.PSObject.Properties['model'] -and $imp.model) { Scrivi "  file:       $($imp.model)" }
-    if ($accesi.Count -gt 1) { Scrivi "  $(T 'altri server Basalt Win+GUI accesi sulle porte' 'other Basalt Win+GUI servers running on ports'): $(($accesi | Select-Object -Skip 1 | ForEach-Object { $_.Porta }) -join ', ')" }
+    if ($accesi.Count -gt 1) { Scrivi "  $(T 'altri server TaDaMoo Win+GUI accesi sulle porte' 'other TaDaMoo Win+GUI servers running on ports'): $(($accesi | Select-Object -Skip 1 | ForEach-Object { $_.Porta }) -join ', ')" }
     if (-not $Server) {
         if ($Config) { Scrivi "  $(T "(il profilo «$Config» non è stato applicato: per cambiarlo usa il Loader o Ferma-TaDaMoo.ps1 e poi riavvia)" "(the profile “$Config” was not applied: to change it use the Loader, or Ferma-TaDaMoo.ps1 and then start again)")" DarkYellow }
         if ($Model) {
@@ -534,14 +534,14 @@ $log = Join-Path $logDir 'tadamoo-serve.log'
 $pidFile = Join-Path $Radice 'tadamoo.pid'
 $modo = if ($Server) { 'server' } elseif ($PerApp) { 'per-app' } else { 'browser' }
 
-Scrivi "Basalt Win+GUI - $(T 'avvio' 'start') -$modo $(if ($Prova) { T '(PROVA: non parte nulla)' '(DRY RUN: nothing starts)' })" Cyan
+Scrivi "TaDaMoo Win+GUI - $(T 'avvio' 'start') -$modo $(if ($Prova) { T '(PROVA: non parte nulla)' '(DRY RUN: nothing starts)' })" Cyan
 Scrivi "  $(T 'profilo:        ' 'profile:        ') $Config"
 Scrivi "  $(T 'configurazione: ' 'config file:    ') $cfgPath$(if ($Prova) { T ' (in prova: una copia)' ' (dry run: a copy)' })"
 Scrivi "  $(T 'modello:        ' 'model:          ') $modello ($fonte)"
 Scrivi "  $(T 'indirizzo:      ' 'address:        ') $url"
 
 $asc = Get-Ascoltatore $porta
-if ($asc) { Scrivi (T "La porta $porta è occupata da $($asc.Name) (PID $($asc.ProcessId)): non avvio Basalt Win+GUI (--port N per un'altra)." "Port $porta is taken by $($asc.Name) (PID $($asc.ProcessId)): Basalt Win+GUI is not started (--port N for another).") Red; Esci 1 }
+if ($asc) { Scrivi (T "La porta $porta è occupata da $($asc.Name) (PID $($asc.ProcessId)): non avvio TaDaMoo Win+GUI (--port N per un'altra)." "Port $porta is taken by $($asc.Name) (PID $($asc.ProcessId)): TaDaMoo Win+GUI is not started (--port N for another).") Red; Esci 1 }
 if ((Test-Path $pidFile) -and -not $env:TADAMOO_SCAN_PORTS) {               # con TADAMOO_SCAN_PORTS può essere di un altro server
     if (-not $Prova) { Remove-Item $pidFile -ErrorAction SilentlyContinue }   # di un avvio finito male
     Scrivi "  $(T '(tadamoo.pid di un avvio precedente: rimosso)' '(tadamoo.pid of an earlier start: removed)')" DarkGray
@@ -563,13 +563,13 @@ $ck = Invoke-Py @('-m', 'serve.loader', 'check', '--config', $usato, '--gpu', "$
 $ck.Righe | Select-Object -SkipLast 1 | ForEach-Object { Scrivi $_ $(if ($_ -match '^  (Non entra|Manca|La tabella|GPU NON|Does not fit|Not enough|The PLE table|UNSUPPORTED GPU)') { 'Red' } elseif ($_ -match '^  (Attenzione|Warning)') { 'Yellow' } else { 'Gray' }) }
 $memOk = $ck.Codice -eq 0
 if ($ck.Codice -eq 2) { Scrivi "  $(T 'configurazione non leggibile' 'the config file cannot be read')" Red; Esci 1 }
-if ($ck.Codice -eq 4) { Scrivi (T 'Basalt Win+GUI NON viene avviato: il motore non gira su questa GPU (servono GPU NVIDIA Blackwell).' 'Basalt Win+GUI is NOT started: the engine does not run on this GPU (NVIDIA Blackwell GPUs are needed).') Red; Esci 1 }
+if ($ck.Codice -eq 4) { Scrivi (T 'TaDaMoo Win+GUI NON viene avviato: il motore non gira su questa GPU (servono GPU NVIDIA Blackwell).' 'TaDaMoo Win+GUI is NOT started: the engine does not run on this GPU (NVIDIA Blackwell GPUs are needed).') Red; Esci 1 }
 if ($memOk) { Scrivi '  OK' Green }
 if ($Prova) { Remove-Item $usato -ErrorAction SilentlyContinue; Remove-Item "$usato.bak" -ErrorAction SilentlyContinue }
 
 if (-not $memOk -and -not $Prova) {
     Scrivi ''
-    Scrivi (T 'Basalt Win+GUI NON viene avviato: la memoria non basta senza usare il file di paging (scegli un altro profilo nel Loader o chiudi altri programmi).' 'Basalt Win+GUI is NOT started: the memory is not enough without the page file (choose another profile in the Loader or close other programs).') Red
+    Scrivi (T 'TaDaMoo Win+GUI NON viene avviato: la memoria non basta senza usare il file di paging (scegli un altro profilo nel Loader o chiudi altri programmi).' 'TaDaMoo Win+GUI is NOT started: the memory is not enough without the page file (choose another profile in the Loader or close other programs).') Red
     Esci 1
 }
 
@@ -647,7 +647,7 @@ try {
         $codice = [BasaltLauncher]::ExitCode()
         if ($codice -eq $RiavvioModello -and $legato) {
             Mostra-Log
-            Scrivi (T 'Il Loader ha scelto un altro modello: riavvio Basalt Win+GUI con quello (la pagina si ricollega da sola).' 'The Loader chose another model: Basalt Win+GUI starts again with it (the page reconnects by itself).') Cyan
+            Scrivi (T 'Il Loader ha scelto un altro modello: riavvio TaDaMoo Win+GUI con quello (la pagina si ricollega da sola).' 'The Loader chose another model: TaDaMoo Win+GUI starts again with it (the page reconnects by itself).') Cyan
             $lettore.Dispose()
             $idServer = Avvia-Server
             $lettore = Apri-Log
@@ -695,7 +695,7 @@ try {
 } finally {
     if ($legato -and [BasaltLauncher]::ExitCode() -eq -1) {
         # Ctrl+C: il server l'ha ricevuto anche lui e si ferma da solo (QUIT al motore); poi il job chiude il resto
-        Scrivi (T 'Arresto di Basalt Win+GUI in corso...' 'Stopping Basalt Win+GUI...') Yellow
+        Scrivi (T 'Arresto di TaDaMoo Win+GUI in corso...' 'Stopping TaDaMoo Win+GUI...') Yellow
         $limite = (Get-Date).AddSeconds(45)
         while ([BasaltLauncher]::ExitCode() -eq -1 -and (Get-Date) -lt $limite) {
             Mostra-Log
@@ -709,7 +709,7 @@ try {
     if ($fine) {
         Remove-Item $pidFile -ErrorAction SilentlyContinue
         $dopo = Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory
-        Scrivi (T "Basalt Win+GUI fermato. RAM disponibile ora: $(GiB ([double]$dopo.AvailableBytes))." "Basalt Win+GUI stopped. RAM available now: $(GiB ([double]$dopo.AvailableBytes)).") Cyan
+        Scrivi (T "TaDaMoo Win+GUI fermato. RAM disponibile ora: $(GiB ([double]$dopo.AvailableBytes))." "TaDaMoo Win+GUI stopped. RAM available now: $(GiB ([double]$dopo.AvailableBytes)).") Cyan
     }
 }
 if ($fine -and [BasaltLauncher]::ExitCode() -ne 0) { Esci 1 }

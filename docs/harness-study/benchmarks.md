@@ -112,7 +112,7 @@ folder of the user data folder (`benchmarks/<id>/`), with their licence kept bes
 
 ## Decisions of the owner (1 November)
 
-First: Terminal-Bench 2.0, SWE-bench Verified (a subset), ClawBench, BFCL v4 and tau3-bench. Benchmark code and data stay outside the repository and are imported automatically at the current version or branch, with the commit recorded in each run. Every benchmark runs only on Basalt with Qwen3.8-Flash-Next IQ4_XS: never another model, never a cloud API, so a judge or a simulated user that is a cloud model in the official setup is replaced by this model (or the judge-free mode) and the score is labelled not comparable with the board. Docker and WSL2 are prepared step by step.
+First: Terminal-Bench 2.0, SWE-bench Verified (a subset), ClawBench, BFCL v4 and tau3-bench. Benchmark code and data stay outside the repository and are imported automatically at the current version or branch, with the commit recorded in each run. Every benchmark runs only on Basalt-Plus with Qwen3.8-Flash-Next IQ4_XS: never another model, never a cloud API, so a judge or a simulated user that is a cloud model in the official setup is replaced by this model (or the judge-free mode) and the score is labelled not comparable with the board. Docker and WSL2 are prepared step by step.
 
 ## Questions for the owner (answered above)
 
