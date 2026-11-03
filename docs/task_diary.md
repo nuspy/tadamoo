@@ -10,6 +10,9 @@ Ultimo aggiornamento: 1 novembre 2026, mattina. Si aggiorna a ogni task nuovo ri
 - In una versione futura l'installazione sarà solo dell'Harness, e durante l'installazione si chiederà se installare anche il motore Basalt-Plus. Per ora non si fa. Intanto si separa bene l'Harness dal motore e dal loader.
 - La priorità adesso sono i benchmark. Il livello di ragionamento scelto in automatico per ogni passo non è ancora fatto: oggi il livello è uno per tutta la sessione, con un solo ritocco automatico (dopo una risposta vuota la chiamata dopo scende di un livello).
 
+- Benchmark Terminal-Bench, decisioni del 3 novembre sera: la mini prova ha la priorità sulla GPU, i turni di LTX Studio entrano nell'ordine senza fermarla; la prova breve è di 7 compiti (6 medi e 1 difficile, scelti a sorte con seme 20261103 tra quelli mai visti), senza ritoccare le regole per i singoli compiti (niente overfitting). Il tempo scaduto resta un fallimento nella cifra ufficiale; per la stima interna si rifanno i compiti falliti per tempo con un limite più largo e si conta solo ciò che passa davvero. Raman-fitting non ha scritto il file dei risultati in nessuna delle due prove.
+- Da fare dopo la mini prova: confronto dello stesso compito difficile (raman-fitting, il grafene) con Qwen3.8-Flash-Next e con il Qwen3.8 da 27 miliardi con 3 attivi (serve il file e un motore che lo esegua: Basalt esegue solo l'architettura Flash-Next); verifica con Opus 5.5 via API su un compito non superato (costo e chiave da confermare con te, e il codice oggi rifiuta modelli non locali).
+
 ## Decisioni tue su E9 e sulla compattazione (1 novembre, sera)
 
 - Le sessioni tecniche sono usa e getta (una o due chiamate): non compattano mai; se si riempiono, si apre una sessione nuova e si ripete la domanda. La compattazione riguarda solo le sessioni normali, chat e agente di codice.
