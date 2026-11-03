@@ -1,26 +1,31 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/basalt-lockup-dark.png">
-    <img src="assets/basalt-lockup-light.png" alt="TaDaMoo" width="480">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/tadamoo-lockup-dark.png">
+    <img src="assets/tadamoo-lockup-light.png" alt="TaDaMoo" width="480">
   </picture>
 </p>
 
-# TaDaMoo Win+GUI: questo fork
+# TaDaMoo: harness per agenti AI (Win+GUI)
 
 [English](README.md) · *Italiano*
 
-**TaDaMoo Win+GUI** è un fork di **[Basalt](https://github.com/jesdga95/basalt)** di jesdga95 (licenza MIT), che a sua
-volta è un fork di **[Strata](https://github.com/Niko1221/Strata)** di Niko1221 (licenza MIT). Il motore, il formato
-`.basalt`, il convertitore e il server vengono da Basalt; le note di copyright dei due progetti e del codice che
-includono (ggml, llama.cpp e altri) sono in [LICENSE](LICENSE) e [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES). I file
-del modello derivano da Qwen3.8-Flash-Next e sono sotto la
+**TaDaMoo** è un harness per agenti AI con un'app nativa per Windows. Gira su **Basalt-Plus**, il suo motore di inferenza
+locale per il modello mixture-of-experts Qwen3.8-Flash-Next su GPU NVIDIA Blackwell. Sito: **[tadamoo.com](https://tadamoo.com)**
+· Contatto: [a.taini@gmail.com](mailto:a.taini@gmail.com) · Repository: [github.com/nuspy/tadamoo](https://github.com/nuspy/tadamoo).
+
+**Basalt-Plus** è un fork di **[Basalt](https://github.com/jesdga95/basalt)** di jesdga95 (licenza MIT), che a sua volta è
+un fork di **[Strata](https://github.com/Niko1221/Strata)** di Niko1221 (licenza MIT). Il motore, il formato `.basalt`, il
+convertitore e il server vengono da Basalt; le note di copyright dei due progetti e del codice che includono (ggml,
+llama.cpp e altri) sono in [LICENSE](LICENSE) e [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES). I file del modello derivano
+da Qwen3.8-Flash-Next e sono sotto la
 [Qwen Community License 1.0](https://huggingface.co/Qwen/Qwen3.8-Flash-Next/blob/main/LICENSE), non sotto MIT.
 
-Cosa aggiunge questo fork: un port nativo del motore per **Windows 10/11** (il codice per Linux è invariato) e quello
-che serve per usarlo su un desktop: un'app nativa che si apre sul Loader web, che prevede memoria e velocità prima di
-caricare; una configurazione guidata che trova i valori migliori per ogni PC; i profili di caricamento; una libreria
-dei modelli che li trova, li verifica e li converte; gli script di avvio e arresto. Il README originale di Basalt, in
-inglese, è in fondo a [README.md](README.md#upstream-basalt-readme).
+Cosa aggiungono TaDaMoo e Basalt-Plus rispetto a Basalt: un port nativo del motore per **Windows 10/11** (il codice per
+Linux è invariato) e quello che serve per usarlo su un desktop: un'app nativa che si apre sul Loader web, che prevede
+memoria e velocità prima di caricare; una configurazione guidata che trova i valori migliori per ogni PC; i profili di
+caricamento; una libreria dei modelli che li trova, li verifica e li converte; l'harness per agenti con chat, planner e
+benchmark; gli script di avvio e arresto. Il README originale di Basalt, in inglese, è in fondo a
+[README.md](README.md#upstream-basalt-readme).
 
 ## Differenze dalla base
 
@@ -45,7 +50,7 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
   passano; l'altro richiede una CPU con AVX-512).
 
 **2. Un'interfaccia grafica avanzata (la base aveva solo le pagine Monitor e Hardware)**
-- **TaDaMoo Win+GUI** (`BasaltWinGUI.exe`): un'app desktop (finestra WebView2, icona nell'area di notifica, istanza
+- **TaDaMoo Win+GUI** (`TaDaMoo.exe`): un'app desktop (finestra WebView2, icona nell'area di notifica, istanza
   unica) che avvia il server e apre l'interfaccia web; la stessa interfaccia funziona in qualunque browser, in inglese o
   italiano, anche sul telefono.
 - **Chat** con i valori di campionamento del modello, preset, un indicatore del contesto e politiche di contesto
@@ -144,7 +149,7 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
   bloccate secondo il budget di memoria condivisa di WDDM, letture non bufferizzate con una I/O completion port, la
   topologia della CPU con i core performance per primi sui processori ibridi, `basalt serve` in un job object che si
   chiude con lui. `--no-pdl` lancia ogni kernel senza il lancio dipendente programmatico, se un driver si comporta male.
-- **L'app, BasaltWinGUI.exe («TaDaMoo Win+GUI»), è l'interfaccia principale.** Avvia il server senza caricare un
+- **L'app, TaDaMoo.exe («TaDaMoo Win+GUI»), è l'interfaccia principale.** Avvia il server senza caricare un
   modello e si apre sul Loader web nella sua finestra (WebView2): app e browser hanno esattamente le stesse
   impostazioni; un'icona vicino all'orologio tiene acceso TaDaMoo Win+GUI quando la finestra è chiusa.
 - **Interfaccia web** (`/`, in inglese o in italiano, vedi [Lingua](#lingua)): Chat, Monitor, Hardware, **Carica
@@ -201,7 +206,7 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
   successivi.
 - **Cartelle dei dati**: le impostazioni in `%APPDATA%\TaDaMoo\` (copiate una volta da `~\.cache\tadamoo`, mai
   spostate).
-- **Nome**: l'app si chiama **TaDaMoo Win+GUI** (`BasaltWinGUI.exe`, icona nuova); motore, API, file e script tengono i
+- **Nome**: l'app si chiama **TaDaMoo Win+GUI** (`TaDaMoo.exe`, icona nuova); motore, API, file e script tengono i
   loro nomi.
 - **`-server` con un server già acceso** chiede se riusarlo o riavviarlo (`-riusa`, `-riavvia`, 60 s, senza risposta
   si riusa).
@@ -412,7 +417,7 @@ Ogni opzione si accetta con uno o due trattini e in maiuscolo o minuscolo (`-gui
 
 | opzione | significato |
 |---|---|
-| *(nessuna)* = `-gui` | apre `BasaltWinGUI.exe` passandogli `--config`, `--model`, `--port` e `--vram-libera`; il browser **non** si apre, l'indirizzo si stampa e resta disponibile. Senza l'app compilata lo script dice come compilarla e usa `-browser` |
+| *(nessuna)* = `-gui` | apre `TaDaMoo.exe` passandogli `--config`, `--model`, `--port` e `--vram-libera`; il browser **non** si apre, l'indirizzo si stampa e resta disponibile. Senza l'app compilata lo script dice come compilarla e usa `-browser` |
 | `-browser` | il server legato a questa finestra (Ctrl+C o chiudere la finestra ferma server e motore e libera la RAM), l'interfaccia aperta nel browser |
 | `-server` | il server da solo, staccato, senza app né browser; lo script torna quando `/health` dice che il modello è caricato. Per gli agenti; lo ferma `Ferma-TaDaMoo.ps1` |
 | `--config "<profilo>"` | il profilo di caricamento; senza, il profilo predefinito (sotto) |
@@ -461,7 +466,7 @@ Linux; ogni opzione è nel README originale, [Settings](README.md#settings---con
 
 ### L'app
 
-`tools\windows\desktop\publish\BasaltWinGUI.exe` (finestra e icona: «TaDaMoo Win+GUI»; il nome del file è diverso da
+`tools\windows\desktop\publish\TaDaMoo.exe` (finestra e icona: «TaDaMoo Win+GUI»; il nome del file è diverso da
 quello del motore, `basalt.exe`, di proposito; le stesse opzioni dello script: `--config`, `--model`, `--port`,
 `--vram-libera`, `--file`, `--lang`). All'apertura avvia il server nel suo job (finisce con l'app) **senza caricare un
 modello** e mostra il **Loader** web:

@@ -1200,7 +1200,7 @@ rename and code actions, and servers that need settings of their own.
 
 ## The web pages
 
-The pages are what `BasaltWinGUI.exe` shows in its window. They are built for windows from 1024 pixels up to about 3600
+The pages are what `TaDaMoo.exe` shows in its window. They are built for windows from 1024 pixels up to about 3600
 wide, not for phones.
 
 - **Interface size**: automatic on very wide windows (zoom 1.25 from 2400 pixels up to 2 from 5000), or a fixed

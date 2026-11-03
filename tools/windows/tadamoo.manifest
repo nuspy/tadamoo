@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<!-- tools/windows/basalt.manifest - embedded in the Windows executables (CMakeLists.txt).
+<!-- tools/windows/tadamoo.manifest - embedded in the Windows executables (CMakeLists.txt).
      activeCodePage UTF-8: argv, fopen and every narrow ("A") Win32 call take UTF-8, so a model path with non-ASCII
      characters reaches the engine as the server sent it (Windows 10 1903+; older versions keep the ANSI code page).
      longPathAware: paths past MAX_PATH when the system allows them. -->

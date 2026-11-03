@@ -1,10 +1,10 @@
-// BasaltSetup.exe: the step the installer runs once the files are copied. It makes the installed folder ready to use
+// TaDaMooSetup.exe: the step the installer runs once the files are copied. It makes the installed folder ready to use
 // with nothing done by hand: finds a Python the packages support (or installs the bundled one), creates .venv, installs
 // requirements.txt (from the bundled wheels, else from the internet), checks that the server imports, and sets the few
 // write permissions the program needs inside its folder. It needs no Python and no .NET of its own: it is published
-// self-contained next to BasaltWinGUI.exe, so it runs on a PC that has neither.
+// self-contained next to TaDaMoo.exe, so it runs on a PC that has neither.
 //
-//   BasaltSetup.exe [--root DIR] [--lang it|en] [--no-ui] [--dry-run] [--keep-files]
+//   TaDaMooSetup.exe [--root DIR] [--lang it|en] [--no-ui] [--dry-run] [--keep-files]
 //
 // --root      the installed folder (default: found above this exe, the folder that holds Avvia-TaDaMoo.ps1)
 // --dry-run   says what it would do and changes nothing (no window)
@@ -18,7 +18,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Win32;
 
-namespace BasaltSetup;
+namespace TaDaMooSetup;
 
 static class Program
 {
@@ -76,7 +76,7 @@ sealed class Options
                 case "--dry-run": o.DryRun = true; break;
                 case "--keep-files": o.KeepFiles = true; break;
                 case "--test-no-admin-check": o.TestNoAdminCheck = true; break;
-                default: o.Error = $"? {args[i]}\nBasaltSetup.exe [--root DIR] [--lang it|en] [--no-ui] [--dry-run] [--keep-files]"; break;
+                default: o.Error = $"? {args[i]}\nTaDaMooSetup.exe [--root DIR] [--lang it|en] [--no-ui] [--dry-run] [--keep-files]"; break;
             }
         }
         if (o.Root == null) o.Root = FindRoot(AppContext.BaseDirectory);

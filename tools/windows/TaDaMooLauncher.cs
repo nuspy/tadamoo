@@ -12,7 +12,7 @@ using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 
-public static class BasaltLauncher
+public static class TaDaMooLauncher
 {
     [StructLayout(LayoutKind.Sequential)]
     struct SECURITY_ATTRIBUTES { public int nLength; public IntPtr lpSecurityDescriptor; public bool bInheritHandle; }

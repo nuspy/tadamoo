@@ -1,25 +1,30 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/basalt-lockup-dark.png">
-    <img src="assets/basalt-lockup-light.png" alt="TaDaMoo" width="480">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/tadamoo-lockup-dark.png">
+    <img src="assets/tadamoo-lockup-light.png" alt="TaDaMoo" width="480">
   </picture>
 </p>
 
-# TaDaMoo Win+GUI: this fork
+# TaDaMoo: AI agent harness (Win+GUI)
 
 *English* · [Italiano](README.it.md)
 
-**TaDaMoo Win+GUI** is a fork of **[Basalt](https://github.com/jesdga95/basalt)** by jesdga95 (MIT license), which is itself
+**TaDaMoo** is an AI agent harness with a native Windows app. It runs on **Basalt-Plus**, its own local inference engine
+for the Qwen3.8-Flash-Next mixture-of-experts model on NVIDIA Blackwell GPUs. Website: **[tadamoo.com](https://tadamoo.com)**
+· Contact: [a.taini@gmail.com](mailto:a.taini@gmail.com) · Repository: [github.com/nuspy/tadamoo](https://github.com/nuspy/tadamoo).
+
+**Basalt-Plus** is a fork of **[Basalt](https://github.com/jesdga95/basalt)** by jesdga95 (MIT license), which is itself
 a fork of **[Strata](https://github.com/Niko1221/Strata)** by Niko1221 (MIT license). The engine, the `.basalt` model
 format, the converter and the server come from Basalt; the copyright notices of both projects and of the code they
 include (ggml, llama.cpp and others) are kept in [LICENSE](LICENSE) and [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES).
 The model files are derived from Qwen3.8-Flash-Next and are under the
 [Qwen Community License 1.0](https://huggingface.co/Qwen/Qwen3.8-Flash-Next/blob/main/LICENSE), not under MIT.
 
-What this fork adds: a native **Windows 10/11** port of the engine (the Linux code paths are unchanged), and the
-pieces that make it usable on a desktop: a native app that opens on a web Loader which predicts memory and speed
-before loading, a configuration wizard that finds the best values for each PC, load profiles, a model library that
-finds, verifies and converts models, and start/stop scripts. The upstream README follows below this section, unchanged.
+What TaDaMoo and Basalt-Plus add on top of Basalt: a native **Windows 10/11** port of the engine (the Linux code paths
+are unchanged), and the pieces that make it usable on a desktop: a native app that opens on a web Loader which predicts
+memory and speed before loading, a configuration wizard that finds the best values for each PC, load profiles, a model
+library that finds, verifies and converts models, the agent harness with its chat, planner and benchmarks, and
+start/stop scripts. The upstream README follows below this section, unchanged.
 
 ## Differences from the base Basalt
 
@@ -41,7 +46,7 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
   needs an AVX-512 CPU).
 
 **2. An advanced graphical interface (the base only had the Monitor and Hardware pages)**
-- **TaDaMoo Win+GUI** (`BasaltWinGUI.exe`): a desktop app (WebView2 window, tray icon, single instance) that starts the
+- **TaDaMoo Win+GUI** (`TaDaMoo.exe`): a desktop app (WebView2 window, tray icon, single instance) that starts the
   server and opens the web UI; the same UI works in any browser, English or Italian, on phones too.
 - **Chat** with the model's own sampling values, presets, a context meter and context policies (stop, slide or have the
   model compact), structured output; **Settings** for the app's preferences, beside the base's Monitor and Hardware.
@@ -137,7 +142,7 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
   an I/O completion port, the CPU pool's topology from `GetLogicalProcessorInformationEx` with performance cores
   first on hybrid processors, `basalt serve` in a kill-on-close job object. `--no-pdl` launches every kernel without
   programmatic dependent launch, should a driver misbehave.
-- **The app, BasaltWinGUI.exe ("TaDaMoo Win+GUI"), is the main interface.** It starts the server without loading a
+- **The app, TaDaMoo.exe ("TaDaMoo Win+GUI"), is the main interface.** It starts the server without loading a
   model and opens on the web Loader in its own window (WebView2), so the app and the browser have exactly the same
   settings; a tray icon keeps TaDaMoo Win+GUI running when the window is closed.
 - **Web UI** (`/`, English or Italian, see [Language](#language)): Chat, Monitor, Hardware, the **Loader** (*Carica
@@ -189,7 +194,7 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
   a secondary one (about 0.4 GB) or none; what other programs use is shown, not added.
 - **Measured memory**: the RAM and commit a real load took are kept per model and added to later plans.
 - **Data folders**: settings in `%APPDATA%\TaDaMoo\` (copied once from `~\.cache\tadamoo`, never moved).
-- **Name**: the app is **TaDaMoo Win+GUI** (`BasaltWinGUI.exe`, new icon); the engine, API, files and scripts keep their
+- **Name**: the app is **TaDaMoo Win+GUI** (`TaDaMoo.exe`, new icon); the engine, API, files and scripts keep their
   names.
 - **`-server` with a server already running** asks whether to reuse it or restart it (`-riusa`, `-riavvia`, 60 s, no
   answer = reuse).
@@ -394,7 +399,7 @@ Every option is accepted with one or two dashes and in any case (`-gui`, `--gui`
 
 | option | meaning |
 |---|---|
-| *(none)* = `-gui` | opens `BasaltWinGUI.exe`, passing it `--config`, `--model`, `--port` and `--vram-libera`; the browser does **not** open, the address is printed and stays available. Without the built app the script says how to build it and uses `-browser` |
+| *(none)* = `-gui` | opens `TaDaMoo.exe`, passing it `--config`, `--model`, `--port` and `--vram-libera`; the browser does **not** open, the address is printed and stays available. Without the built app the script says how to build it and uses `-browser` |
 | `-browser` | the server tied to this window (Ctrl+C or closing the window stops server and engine, and frees the RAM), the web UI opened in the browser |
 | `-server` | the server alone, detached, no app and no browser; the script returns when `/health` says the model is loaded. For agents; `Ferma-TaDaMoo.ps1` stops it |
 | `--config "<profile>"` | the load profile; without it, the default profile (below) |
@@ -442,7 +447,7 @@ Linux; every option is in [Settings](#settings---config) below and in `python -m
 
 ### The app
 
-`tools\windows\desktop\publish\BasaltWinGUI.exe` (window and tray: "TaDaMoo Win+GUI"; the file name differs from the
+`tools\windows\desktop\publish\TaDaMoo.exe` (window and tray: "TaDaMoo Win+GUI"; the file name differs from the
 engine's `basalt.exe` on purpose; the
 same options as the script: `--config`, `--model`, `--port`, `--vram-libera`, `--file`). On opening it starts the
 server in its own job (it ends with the app) **without loading a model** and shows the web **Loader**:

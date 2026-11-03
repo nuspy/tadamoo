@@ -235,7 +235,7 @@ def test_prefill(s: Session, say) -> Optional[float]:
 
 
 def test_image(s: Session, say) -> List[dict]:
-    path = ROOT / "assets" / "basalt-lockup-dark.png"
+    path = ROOT / "assets" / "tadamoo-lockup-dark.png"
     if not path.is_file():
         return []
     img = base64.b64encode(path.read_bytes()).decode()

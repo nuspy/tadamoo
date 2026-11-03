@@ -7,10 +7,10 @@
     <Nullable>disable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- not "Basalt": the engine is basalt.exe, and a shared name invites stopping the wrong process -->
-    <AssemblyName>BasaltWinGUI</AssemblyName>
+    <AssemblyName>TaDaMoo</AssemblyName>
     <AssemblyTitle>Basalt Win+GUI</AssemblyTitle>
-    <RootNamespace>BasaltDesktop</RootNamespace>
-    <ApplicationIcon>basalt.ico</ApplicationIcon>
+    <RootNamespace>TaDaMooDesktop</RootNamespace>
+    <ApplicationIcon>tadamoo.ico</ApplicationIcon>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <SelfContained>false</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -19,8 +19,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\BasaltLauncher.cs" Link="BasaltLauncher.cs" />
-    <EmbeddedResource Include="basalt.ico" />
+    <Compile Include="..\TaDaMooLauncher.cs" Link="TaDaMooLauncher.cs" />
+    <EmbeddedResource Include="tadamoo.ico" />
   </ItemGroup>
 
   <ItemGroup>

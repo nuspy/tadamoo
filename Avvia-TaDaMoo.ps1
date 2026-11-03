@@ -1,14 +1,14 @@
 ﻿<#
 .SYNOPSIS
-    Avvia TaDaMoo Win+GUI: di norma apre l'app (BasaltWinGUI.exe, l'interfaccia principale), oppure il server con il
-    browser, oppure il solo server per gli agenti. / Starts TaDaMoo Win+GUI: the app by default (BasaltWinGUI.exe, the
+    Avvia TaDaMoo Win+GUI: di norma apre l'app (TaDaMoo.exe, l'interfaccia principale), oppure il server con il
+    browser, oppure il solo server per gli agenti. / Starts TaDaMoo Win+GUI: the app by default (TaDaMoo.exe, the
     main interface), or the server with the browser, or the server alone for agents.
 
 .DESCRIPTION
     Tre modi, con gli stessi nomi di Avvia-Strata.ps1 (ogni opzione si scrive con uno o due trattini, maiuscole o
     minuscole come si vuole):
 
-      -gui      (il modo predefinito, senza opzioni) apre l'app BasaltWinGUI.exe passandole --config, --model,
+      -gui      (il modo predefinito, senza opzioni) apre l'app TaDaMoo.exe passandole --config, --model,
                 --port, --vram-libera e --lang. L'app avvia il server senza caricare il modello e mostra il Loader:
                 cartelle dei modelli, profili, tutti i valori, la previsione di memoria e velocità, la configurazione
                 guidata, Carica. Il browser NON si apre, ma l'indirizzo resta disponibile e viene stampato. Se l'app
@@ -296,7 +296,7 @@ function Chiedi-Riavvio([string]$Elenco) {
         $f.Text = 'TaDaMoo Win+GUI'; $f.TopMost = $true; $f.StartPosition = 'CenterScreen'; $f.FormBorderStyle = 'FixedDialog'
         $f.MaximizeBox = $false; $f.MinimizeBox = $false; $f.AutoSize = $true; $f.AutoSizeMode = 'GrowAndShrink'
         $f.Font = New-Object System.Drawing.Font('Segoe UI', 11)
-        $ico = Join-Path $Radice 'tools\windows\desktop\basalt.ico'
+        $ico = Join-Path $Radice 'tools\windows\desktop\tadamoo.ico'
         if (Test-Path $ico) { try { $f.Icon = New-Object System.Drawing.Icon($ico) } catch { } }
         $tab = New-Object System.Windows.Forms.TableLayoutPanel
         $tab.AutoSize = $true; $tab.ColumnCount = 1; $tab.Padding = New-Object System.Windows.Forms.Padding(16)
@@ -344,7 +344,7 @@ $cfgPath = if ([System.IO.Path]::IsPathRooted($File)) { $File } else { Join-Path
 $accesi = @(Get-ServerAccesi)
 
 # ------------------------------------------------------------------ -gui: l'app
-$exeApp = Join-Path $Radice 'tools\windows\desktop\publish\BasaltWinGUI.exe'
+$exeApp = Join-Path $Radice 'tools\windows\desktop\publish\TaDaMoo.exe'
 $exeVecchio = Join-Path $Radice 'tools\windows\desktop\publish\TaDaMoo.exe'   # il nome di prima
 if (-not (Test-Path $exeApp) -and (Test-Path $exeVecchio)) { $exeApp = $exeVecchio }
 if ($Gui -and -not (Test-Path $exeApp)) {
@@ -549,7 +549,7 @@ if ((Test-Path $pidFile) -and -not $env:TADAMOO_SCAN_PORTS) {               # co
 
 # ------------------------------------------------------------------ file necessari
 $mancano = @()
-foreach ($f in @($exe, $modello, (Join-Path $Radice 'tools\windows\BasaltLauncher.cs'))) {
+foreach ($f in @($exe, $modello, (Join-Path $Radice 'tools\windows\TaDaMooLauncher.cs'))) {
     if (-not (Test-Path $f)) { $mancano += $f }
 }
 if ($mancano) { Scrivi (T 'Mancano questi file:' 'These files are missing:') Red; $mancano | ForEach-Object { Scrivi "  $_" Red }; Esci 1 }
@@ -590,7 +590,7 @@ Scrivi "  $(T 'modo:        ' 'mode:        ') $modoTesto"
 Scrivi "  $(T 'log server:  ' 'server log:  ') $log"
 Scrivi "  $(T 'log motore:  ' 'engine log:  ') $cache\<$(T 'modello' 'model')>\engine.log"
 
-Add-Type -Path (Join-Path $Radice 'tools\windows\BasaltLauncher.cs')    # verifica anche in prova che compili
+Add-Type -Path (Join-Path $Radice 'tools\windows\TaDaMooLauncher.cs')    # verifica anche in prova che compili
 
 if ($Prova) {
     Scrivi ''
@@ -609,7 +609,7 @@ $env:PATH = (Join-Path $venv 'Scripts') + ';' + $env:PATH
 New-Item -ItemType Directory -Force $logDir | Out-Null
 function Avvia-Server {
     if (Test-Path $log) { Move-Item -Force $log "$log.1" }                            # il log dell'avvio precedente
-    $id = [BasaltLauncher]::Start($exe, $cmdLine, $Radice, $log, $legato)
+    $id = [TaDaMooLauncher]::Start($exe, $cmdLine, $Radice, $log, $legato)
     $proc = Get-Process -Id $id
     @{ pid = $id; start = $proc.StartTime.ToString('o'); mode = $modo; port = $porta; profile = $Config; log = $log } |
         ConvertTo-Json | Set-Content -Encoding UTF8 $pidFile
@@ -644,7 +644,7 @@ function Mostra-Log {
 try {
     while ($true) {
         Mostra-Log
-        $codice = [BasaltLauncher]::ExitCode()
+        $codice = [TaDaMooLauncher]::ExitCode()
         if ($codice -eq $RiavvioModello -and $legato) {
             Mostra-Log
             Scrivi (T 'Il Loader ha scelto un altro modello: riavvio TaDaMoo Win+GUI con quello (la pagina si ricollega da sola).' 'The Loader chose another model: TaDaMoo Win+GUI starts again with it (the page reconnects by itself).') Cyan
@@ -685,7 +685,7 @@ try {
                 }
             } elseif (((Get-Date) - $t0).TotalSeconds -gt $AttesaMaxS) {
                 Scrivi (T "Il server non risponde dopo $AttesaMaxS s: lo fermo." "The server does not answer after $AttesaMaxS s: stopping it.") Red
-                [BasaltLauncher]::KillAll()
+                [TaDaMooLauncher]::KillAll()
                 $fine = $true
                 break
             }
@@ -693,16 +693,16 @@ try {
         Start-Sleep -Milliseconds 300
     }
 } finally {
-    if ($legato -and [BasaltLauncher]::ExitCode() -eq -1) {
+    if ($legato -and [TaDaMooLauncher]::ExitCode() -eq -1) {
         # Ctrl+C: il server l'ha ricevuto anche lui e si ferma da solo (QUIT al motore); poi il job chiude il resto
         Scrivi (T 'Arresto di TaDaMoo Win+GUI in corso...' 'Stopping TaDaMoo Win+GUI...') Yellow
         $limite = (Get-Date).AddSeconds(45)
-        while ([BasaltLauncher]::ExitCode() -eq -1 -and (Get-Date) -lt $limite) {
+        while ([TaDaMooLauncher]::ExitCode() -eq -1 -and (Get-Date) -lt $limite) {
             Mostra-Log
-            [void][BasaltLauncher]::Wait(300)
+            [void][TaDaMooLauncher]::Wait(300)
         }
-        [BasaltLauncher]::KillAll()
-        [void][BasaltLauncher]::Wait(10000)
+        [TaDaMooLauncher]::KillAll()
+        [void][TaDaMooLauncher]::Wait(10000)
         $fine = $true
     }
     $lettore.Dispose()
@@ -712,5 +712,5 @@ try {
         Scrivi (T "TaDaMoo Win+GUI fermato. RAM disponibile ora: $(GiB ([double]$dopo.AvailableBytes))." "TaDaMoo Win+GUI stopped. RAM available now: $(GiB ([double]$dopo.AvailableBytes)).") Cyan
     }
 }
-if ($fine -and [BasaltLauncher]::ExitCode() -ne 0) { Esci 1 }
+if ($fine -and [TaDaMooLauncher]::ExitCode() -ne 0) { Esci 1 }
 Esci 0

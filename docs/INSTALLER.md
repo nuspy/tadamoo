@@ -23,8 +23,8 @@ used before. The numbers and the names used are in `VERSION` at the repository r
 file name, the InstallForge version (`<version>.<subversion>`), the app's window title, tray tip and file properties, and
 the `VERSION` file inside the installed folder all show it.
 
-Everything is written under `dist\` (ignored by git): `stage\BasaltWinGUI\` (the program as installed),
-`Basalt-WinGUI.ifp`, `Basalt-WinGUI-<release>-setup.exe`, `SHA256SUMS.txt` and `cache\`. The app in
+Everything is written under `dist\` (ignored by git): `stage\TaDaMoo\` (the program as installed),
+`TaDaMoo-WinGUI.ifp`, `TaDaMoo-WinGUI-<release>-setup.exe`, `SHA256SUMS.txt` and `cache\`. The app in
 `tools\windows\desktop\publish\` is updated too (when the app is open it is left as it is, with a warning, and the next
 run updates it).
 
@@ -34,11 +34,11 @@ and the internet the first time (Python installer from python.org, wheels from P
 
 ## What the installed program looks like
 
-* Folder: `C:\Program Files\Tadamoo\BasaltWinGUI`. The `.ifp` has one entry, the folder `dist\stage\BasaltWinGUI`.
-* Shortcuts **TaDaMoo** (desktop and Start menu) start `tools\windows\desktop\publish\BasaltWinGUI.exe`, the app the user
+* Folder: `C:\Program Files\Tadamoo\TaDaMoo`. The `.ifp` has one entry, the folder `dist\stage\TaDaMoo`.
+* Shortcuts **TaDaMoo** (desktop and Start menu) start `tools\windows\desktop\publish\TaDaMoo.exe`, the app the user
   runs. It is self-contained (.NET included). `Avvia-TaDaMoo.ps1` and `Ferma-TaDaMoo.ps1` stay in the folder because the
   app calls them for "server only" and "stop"; the user does not start them.
-* After the files are copied, InstallForge runs `tools\windows\desktop\publish\BasaltSetup.exe` (also self-contained, it
+* After the files are copied, InstallForge runs `tools\windows\desktop\publish\TaDaMooSetup.exe` (also self-contained, it
   needs no Python). It:
   1. looks for a 64-bit Python 3.10-3.14 with `venv` and `pip` (registry, then `PATH`; the Microsoft Store stub is not
      one), preferring the bundled version, then one outside a user profile;
@@ -58,7 +58,7 @@ and the internet the first time (Python installer from python.org, wheels from P
 
 ## The `.ifp` file
 
-If `dist\Basalt-WinGUI.ifp` exists the script **updates** it: version, install folder, command, shortcuts, finish page,
+If `dist\TaDaMoo-WinGUI.ifp` exists the script **updates** it: version, install folder, command, shortcuts, finish page,
 and the build paths. Everything else is kept, including what you changed in InstallForge (images, texts, languages,
 the license page). Delete it to have it created again.
 

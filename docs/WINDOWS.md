@@ -155,13 +155,13 @@ best on this CPU (`--pool-workers 15`: the 7 P-cores and the first 8 E-cores); n
 
 `Avvia-TaDaMoo.ps1` and `Ferma-TaDaMoo.ps1` (repository root; messages in English, or Italian with `--lang it`,
 `TADAMOO_LANG=it` or the language chosen in the web page's Settings, see `serve/lang.py`) start and stop TaDaMoo Win+GUI with
-`tadamoo_config.json` beside them (machine-specific and not tracked; `tools/windows/basalt_config.example.json` shows
+`tadamoo_config.json` beside them (machine-specific and not tracked; `tools/windows/tadamoo_config.example.json` shows
 its shape for a 3-bit file on a 32 GB card). Paths are relative to the scripts' folder, so they work from any
 directory and from Explorer (right click, "Run with PowerShell"), with Windows PowerShell 5.1 or PowerShell 7. Both
 take their options only by name (`PositionalBinding = $false`): `--port 7232` never lands in another parameter. The
 option names are Strata's (`Avvia-Strata.ps1`), each with one or two dashes and in any case.
 
-* **Three modes.** `-gui` (the default, no option) opens `tools\windows\desktop\publish\BasaltWinGUI.exe` (an older `TaDaMoo.exe` is used when it is the
+* **Three modes.** `-gui` (the default, no option) opens `tools\windows\desktop\publish\TaDaMoo.exe` (an older `TaDaMoo.exe` is used when it is the
   only one built) with
   `--config`, `--model`, `--port`, `--vram-libera` and `--file`, prints the address and does not open the browser;
   when the app is not built it prints `dotnet publish tools\windows\desktop -c Release -o tools\windows\desktop\publish`
@@ -199,7 +199,7 @@ option names are Strata's (`Avvia-Strata.ps1`), each with one or two dashes and 
   `"listen-first": true` in the config makes the server answer while the model loads (the Monitor shows Loading).
 * With `-browser` the server is tied to the script's window: it shares the console (Ctrl+C reaches it and it stops the
   engine cleanly) and it runs in a job object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` whose only handle belongs to
-  PowerShell (`tools/windows/BasaltLauncher.cs`, compiled by the script with `Add-Type`). However PowerShell ends -
+  PowerShell (`tools/windows/TaDaMooLauncher.cs`, compiled by the script with `Add-Type`). However PowerShell ends -
   Ctrl+C, the window's X, Task Manager - Windows closes that handle and the whole tree goes: `basalt.exe serve`, the
   Python server (in `basalt.exe`'s own kill-on-close job) and the engine and vision sidecar (in
   `serve/util/winjob.py`'s). The process is created suspended and joins the job before it runs, so nothing escapes.
@@ -268,8 +268,8 @@ header scan `models-scan.json`, the job logs `models-jobs\`, and per model the u
   "Machine Default". Every real load also records the RAM and commit it really took against its plan, per model
   (`calibration\<model>.json`), and later plans add what was above.
 * **The desktop app** `tools\windows\desktop` (`dotnet publish -c Release -o publish`, .NET 8, WebView2) builds
-  `BasaltWinGUI.exe` (window title, tray and dialogs "TaDaMoo Win+GUI"; the file name differs from the engine's
-  `basalt.exe` on purpose; the icon `basalt.ico` is also the web page's favicon; options
+  `TaDaMoo.exe` (window title, tray and dialogs "TaDaMoo Win+GUI"; the file name differs from the engine's
+  `basalt.exe` on purpose; the icon `tadamoo.ico` is also the web page's favicon; options
   `--config`, `--model`, `--port`, `--vram-libera`, `--file`, `--lang it|en`, as the script; its texts and WebView2's
   language follow `--lang` > `TADAMOO_LANG` > `prefs.json` > English, never the Windows display language). It starts `bin\basalt.exe serve --config
   tadamoo_config.json --standby --relaunch-on-model-change` in its kill-on-close job without a console window (a new

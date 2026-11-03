@@ -14,7 +14,7 @@ using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
-namespace BasaltDesktop;
+namespace TaDaMooDesktop;
 
 sealed class MainForm : Form
 {
@@ -76,7 +76,7 @@ sealed class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         cfgPath = opt.ConfigFile != null ? Path.GetFullPath(opt.ConfigFile) : Path.Combine(opt.Repo, "basalt_config.json");
         string data = Environment.GetEnvironmentVariable("BASALT_DATA");
-        statePath = opt.TestMock ? Path.Combine(Path.GetTempPath(), "basalt-desktop-test", "desktop.json")
+        statePath = opt.TestMock ? Path.Combine(Path.GetTempPath(), "tadamoo-desktop-test", "desktop.json")
                   : Path.Combine(string.IsNullOrEmpty(data) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BasaltPannello") : data, "desktop.json");
         LoadWindow();
         Resize += (_, _) => { if (WindowState != FormWindowState.Minimized) lastState = WindowState; };
@@ -105,7 +105,7 @@ sealed class MainForm : Form
 
     static Icon LoadIcon()
     {
-        using var s = typeof(MainForm).Assembly.GetManifestResourceStream("BasaltDesktop.basalt.ico");
+        using var s = typeof(MainForm).Assembly.GetManifestResourceStream("TaDaMooDesktop.tadamoo.ico");
         return s != null ? new Icon(s) : SystemIcons.Application;
     }
 
@@ -484,7 +484,7 @@ sealed class MainForm : Form
                                   : $"\"{exe}\" serve --config \"{cfgPath}\" --port {p}{mode}";
         string logDir = Path.Combine(opt.Repo, "logs");
         Directory.CreateDirectory(logDir);
-        string log = Path.Combine(logDir, opt.TestMock ? "basalt-app-test.log" : "basalt-serve.log");
+        string log = Path.Combine(logDir, opt.TestMock ? "tadamoo-app-test.log" : "basalt-serve.log");
         try { if (File.Exists(log)) File.Move(log, log + ".1", true); } catch { }
         foreach (var v in new[] { "CL", "_CL_" }) Environment.SetEnvironmentVariable(v, null);
         Environment.SetEnvironmentVariable("PYTHONUTF8", "1");
@@ -492,7 +492,7 @@ sealed class MainForm : Form
         Environment.SetEnvironmentVariable("VIRTUAL_ENV", Path.Combine(opt.Repo, ".venv"));
         try
         {
-            int pid = BasaltLauncher.Start(exe, cmd, opt.Repo, log, true, true);
+            int pid = TaDaMooLauncher.Start(exe, cmd, opt.Repo, log, true, true);
             ours = true;
             report.Add($"started pid {pid} on port {p} ({(standby ? "standby" : "loading")})");
             if (!opt.TestMock)
@@ -512,7 +512,7 @@ sealed class MainForm : Form
         poll.Stop();
         web.Visible = false;
         start.Visible = true;
-        string log = Path.Combine(opt.Repo, "logs", opt.TestMock ? "basalt-app-test.log" : "basalt-serve.log");
+        string log = Path.Combine(opt.Repo, "logs", opt.TestMock ? "tadamoo-app-test.log" : "basalt-serve.log");
         string tail = "";
         try { using var s = new FileStream(log, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete); using var r = new StreamReader(s); tail = string.Join("\n", r.ReadToEnd().Split('\n').TakeLast(10)); } catch { }
         fallbackReason = Tr.T("Il server web non è partito: ", "The web server did not start: ") + reason + (tail.Trim().Length > 0 ? Tr.T("\n\nUltime righe del log (", "\n\nThe log's last lines (") + log + "):\n" + tail.TrimEnd() : "");
@@ -674,7 +674,7 @@ sealed class MainForm : Form
         Environment.SetEnvironmentVariable("VIRTUAL_ENV", Path.Combine(opt.Repo, ".venv"));
         try
         {
-            int pid = BasaltLauncher.Start(exe, cmd, opt.Repo, log, true, true);
+            int pid = TaDaMooLauncher.Start(exe, cmd, opt.Repo, log, true, true);
             ours = true;
             report.Add($"started pid {pid} on port {p}");
             File.WriteAllText(Path.Combine(opt.Repo, "basalt.pid"), JsonSerializer.Serialize(new
@@ -794,7 +794,7 @@ sealed class MainForm : Form
         string target;
         if (opt.TestMock)
         {
-            target = Path.Combine(Path.GetTempPath(), "basalt-desktop-test", "saved", name);
+            target = Path.Combine(Path.GetTempPath(), "tadamoo-desktop-test", "saved", name);
             Directory.CreateDirectory(Path.GetDirectoryName(target));
         }
         else
@@ -851,7 +851,7 @@ sealed class MainForm : Form
         string target;
         if (opt.TestMock)
         {
-            target = Path.Combine(Path.GetTempPath(), "basalt-desktop-test", "saved", name);
+            target = Path.Combine(Path.GetTempPath(), "tadamoo-desktop-test", "saved", name);
             Directory.CreateDirectory(Path.GetDirectoryName(target));
         }
         else
@@ -933,7 +933,7 @@ sealed class MainForm : Form
     /// again with the new model after exit code 75; the native panel with the reason after any other end.</summary>
     void WatchServer()
     {
-        long code = ours ? BasaltLauncher.ExitCode() : -1;
+        long code = ours ? TaDaMooLauncher.ExitCode() : -1;
         if (ours && code == RelaunchExitCode && !exiting)
         {
             poll.Stop();
@@ -973,8 +973,8 @@ sealed class MainForm : Form
         {
             Native.UnloadServer(p);
             exiting = true;                                // this app's server ends on purpose
-            BasaltLauncher.KillAll();
-            BasaltLauncher.Wait(15000);
+            TaDaMooLauncher.KillAll();
+            TaDaMooLauncher.Wait(15000);
             ours = false;
             try { File.Delete(Path.Combine(opt.Repo, "basalt.pid")); } catch { }
         }
@@ -1131,8 +1131,8 @@ sealed class MainForm : Form
             Native.UnloadServer(serverPort);
             if (ours)
             {
-                BasaltLauncher.KillAll();
-                BasaltLauncher.Wait(15000);
+                TaDaMooLauncher.KillAll();
+                TaDaMooLauncher.Wait(15000);
                 try { File.Delete(Path.Combine(opt.Repo, "basalt.pid")); } catch { }
             }
             else StopExternal(serverPort).GetAwaiter().GetResult();
@@ -1155,7 +1155,7 @@ sealed class MainForm : Form
     void PrepareMock()
     {
         // the mock server: a scratch config, demo memory readings, nothing of the real model touched
-        string dir = Path.Combine(Path.GetTempPath(), "basalt-desktop-test");
+        string dir = Path.Combine(Path.GetTempPath(), "tadamoo-desktop-test");
         Directory.CreateDirectory(dir);
         if (opt.ConfigFile == null)
         {
