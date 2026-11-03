@@ -258,7 +258,7 @@ def test_the_baseline_arm_edits_in_the_container_and_the_official_harness_grades
     assert box["c"].removed and "return 2" in (ctx.trial_dir / "model.patch").read_text()
     call_ = ev.calls[0]
     assert call_["args"][:4] == ["/bin/swebench", "eval", "instance.json", "-p"] and call_["args"][call_["args"].index("-i") + 1] == "proj__proj-002"
-    assert json.loads(call_["patch"])["model_patch"].count("+    return 2") == 1 and json.loads(call_["patch"])["model_name_or_path"] == "basalt-baseline"
+    assert json.loads(call_["patch"])["model_patch"].count("+    return 2") == 1 and json.loads(call_["patch"])["model_name_or_path"] == "tadamoo-baseline"
     assert json.loads((call_["cwd"] / "instance.json").read_text())[0]["instance_id"] == "proj__proj-002"
     assert res.verifier_output_path.endswith("proj__proj-002/test_output.txt") and res.trajectory_path == "trials/t/trajectory.jsonl"
     prompt = client.sent[0][1]["content"]

@@ -1,11 +1,11 @@
-"""Every third-party package that harness/ or serve/ imports is in a requirements file, so an installed copy does not stop on a missing module."""
+"""Every third-party package that tadamoo/ or serve/ imports is in a requirements file, so an installed copy does not stop on a missing module."""
 import ast
 import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REQUIREMENT_FILES = (ROOT / "requirements.txt", ROOT / "harness" / "requirements.txt")
+REQUIREMENT_FILES = (ROOT / "requirements.txt", ROOT / "tadamoo" / "requirements.txt")
 # the distribution that provides an import name when the two differ
 DISTRIBUTION = {"PIL": "pillow", "yaml": "pyyaml", "fitz": "pymupdf"}
 # imported only inside a try block or a function, with a plain message when absent (not installed by default)
@@ -23,7 +23,7 @@ OPTIONAL = {
 }
 # modules of this repository that the code reaches through sys.path (tools/ is added at run time)
 # (the personal skills' runtime folder holds tadamoo_skill, which a skill's script imports from the process that runs it)
-LOCAL_FOLDERS = (ROOT, ROOT / "tools", ROOT / "tools" / "convert", ROOT / "harness" / "personal_skills" / "runtime", ROOT / "harness" / "sandbox" / "guard")
+LOCAL_FOLDERS = (ROOT, ROOT / "tools", ROOT / "tools" / "convert", ROOT / "tadamoo" / "personal_skills" / "runtime", ROOT / "tadamoo" / "sandbox" / "guard")
 
 
 def required():
@@ -44,9 +44,9 @@ def local_names():
 
 
 def imported():
-    """Import name -> the files that import it, for every non-test file of harness/ and serve/."""
+    """Import name -> the files that import it, for every non-test file of tadamoo/ and serve/."""
     found = {}
-    for top in ("harness", "serve"):
+    for top in ("tadamoo", "serve"):
         for path in (ROOT / top).rglob("*.py"):
             if "tests" in path.parts or "__pycache__" in path.parts:
                 continue

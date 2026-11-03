@@ -293,7 +293,7 @@ class SweBenchAdapter:
         trajectory = TrajectoryRecorder(ctx.trial_dir / "trajectory.jsonl")
         patch, outcome, fault = "", AgentOutcome(), ""
         make = self.container_factory or (lambda image, name: DockerContainer(image, name, self.runner))
-        container = make(image_of(instance), f"basalt-swe-{slug(iid).lower()[:60]}-{uuid.uuid4().hex[:6]}")
+        container = make(image_of(instance), f"tadamoo-swe-{slug(iid).lower()[:60]}-{uuid.uuid4().hex[:6]}")
         done, cancel = threading.Event(), threading.Event()
         watch_stop(ctx.should_stop, cancel, done)
         try:
@@ -350,7 +350,7 @@ class SweBenchAdapter:
             res.passed, res.verifier_output_path, res.facts["empty_patch"] = False, ctx.relative(note), True
             return res
         (eval_dir / "instance.json").write_text(json.dumps([instance], default=str), encoding="utf-8")
-        model = f"basalt-{arm}"
+        model = f"tadamoo-{arm}"
         (eval_dir / "predictions.jsonl").write_text(json.dumps({"instance_id": iid, "model_name_or_path": model, "model_patch": patch}) + "\n", encoding="utf-8")
         timeout = int(ctx.settings.get("eval_timeout_s") or EVAL_TIMEOUT_S)
         argv = eval_argv(ctx.settings, self.which) + ["eval", "instance.json", "-p", "predictions.jsonl", "-r", f"{model}-{rep}", "-i", iid, "-j", "1", "-t", str(timeout)]

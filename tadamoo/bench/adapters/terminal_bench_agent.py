@@ -87,7 +87,7 @@ class TadamooAgent(BaseAgent):
         return
 
     def _drive(self, instruction: str, exec_fn: Any, cancel: threading.Event, trajectory: TrajectoryRecorder, finished: threading.Event) -> AgentOutcome:
-        work = Path(tempfile.mkdtemp(prefix="basalt-tb-"))             # outside the mounted logs folder: the agent in the container cannot read its own audit files
+        work = Path(tempfile.mkdtemp(prefix="tadamoo-tb-"))             # outside the mounted logs folder: the agent in the container cannot read its own audit files
         try:
             where = exec_fn("pwd", 30)
             cwd = where.stdout.strip() if where.rc == 0 and where.stdout.strip() else "the container's default folder"

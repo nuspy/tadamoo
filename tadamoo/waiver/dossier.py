@@ -58,7 +58,7 @@ def os_identity() -> Dict[str, Any]:
 def application_hashes(root: Path) -> Dict[str, Any]:
     """The program that was running: the hash of each source file of the agent and the server, and the version written beside them."""
     files: Dict[str, str] = {}
-    folders = [root / name for name in ("harness", "serve") if (root / name).is_dir()] or [root]
+    folders = [root / name for name in ("tadamoo", "serve") if (root / name).is_dir()] or [root]
     for folder in folders:
         for p in sorted(folder.rglob("*.py")):
             if "__pycache__" not in p.parts and "tests" not in p.parts:

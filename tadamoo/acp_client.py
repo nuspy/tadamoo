@@ -199,7 +199,7 @@ class AcpClient:
         result = self.request("initialize", {
             "protocolVersion": PROTOCOL_VERSION,
             "clientCapabilities": {"fs": {"readTextFile": False, "writeTextFile": False}, "terminal": False},
-            "clientInfo": {"name": "basalt", "title": "TaDaMoo", "version": "1.0"}})
+            "clientInfo": {"name": "tadamoo", "title": "TaDaMoo", "version": "1.0"}})
         version = result.get("protocolVersion")
         if not isinstance(version, int) or version < 1 or version > PROTOCOL_VERSION:
             raise AcpError(f"The agent speaks ACP protocol version {version!r}; this client speaks {PROTOCOL_VERSION}.")

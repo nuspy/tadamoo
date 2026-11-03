@@ -47,7 +47,7 @@ def groups(records: List[Dict[str, Any]], min_count: int = MIN_COUNT) -> List[Di
 
 
 class Told:
-    """The signatures the person was already told about, in the project's `.basalt` folder."""
+    """The signatures the person was already told about, in the project's `.tadamoo` folder."""
 
     def __init__(self, project_dir: "str | Path") -> None:
         self.path = Path(project_dir) / PROJECT_FOLDER / FILE

@@ -464,7 +464,7 @@ def test_e9_artifact_reads_count_the_calls_that_go_to_the_saved_copies():
             self.tool_calls = calls
     back = chr(92)
     turns = [Turn(Call(path=".tadamoo/artifacts/read_file_ab.txt"), Call(path="pkg/mod_001.py")),
-             Turn(Call(command="python -c open('.basalt" + back + "artifacts" + back + "x.txt')"), Call(pattern="x", path=".tadamoo/artifacts"))]
+             Turn(Call(command="python -c open('.tadamoo" + back + "artifacts" + back + "x.txt')"), Call(pattern="x", path=".tadamoo/artifacts"))]
     assert e9_context.artifact_reads(turns) == 3
 
 

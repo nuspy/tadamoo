@@ -120,7 +120,7 @@ def fetch_url(url: str, timeout: float = 10.0, max_bytes: int = MAX_FEED_BYTES) 
     parts = urllib.parse.urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise SourceError("a feed address starts with http:// or https://")
-    req = urllib.request.Request(url, headers={"User-Agent": "basalt-planner", "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml"})
+    req = urllib.request.Request(url, headers={"User-Agent": "tadamoo-planner", "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = resp.read(max_bytes + 1)

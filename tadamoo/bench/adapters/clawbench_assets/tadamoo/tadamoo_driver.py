@@ -7,7 +7,7 @@ files in /my-info and the files it writes. The shell and every tool that reaches
 requests in the browser only.
 
 Files left in /data for ClawBench: agent-messages.jsonl (the trajectory, one event per line in the format of tadamoo/bench/analysis.py), usage.jsonl (tokens)
-and basalt-result.json (the harness's own result)."""
+and tadamoo-result.json (the harness's own result)."""
 from __future__ import annotations
 
 import json
@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
-HOME = Path(os.environ.get("TADAMOO_HOME", "/opt/basalt"))
+HOME = Path(os.environ.get("TADAMOO_HOME", "/opt/tadamoo"))
 DATA = Path(os.environ.get("TADAMOO_DATA", "/data"))
 WORKSPACE = Path(os.environ.get("TADAMOO_WORKSPACE", "/root/workspace"))
 DENIED = ("group:shell", "group:web", "group:agents", "group:mcp", "group:phone")
@@ -63,7 +63,7 @@ def write_usage(path: Path, tokens: Mapping[str, Any], model: str, turns: int) -
     prompt, completion = int(tokens.get("prompt") or 0), int(tokens.get("completion") or 0)
     rows = []
     if prompt or completion:
-        rows.append({"type": "usage", "call_id": "basalt-total", "model": model, "input_tokens": prompt, "output_tokens": completion,
+        rows.append({"type": "usage", "call_id": "tadamoo-total", "model": model, "input_tokens": prompt, "output_tokens": completion,
                      "cache_read_tokens": int(tokens.get("cached") or 0), "turns": turns})
     path.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
 
@@ -107,7 +107,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     finally:
         recorder.close()
     result["seconds"] = round(time.monotonic() - started, 1)
-    (DATA / "basalt-result.json").write_text(json.dumps({k: v for k, v in result.items() if k != "changes"}, indent=2, default=str), encoding="utf-8")
+    (DATA / "tadamoo-result.json").write_text(json.dumps({k: v for k, v in result.items() if k != "changes"}, indent=2, default=str), encoding="utf-8")
     write_usage(DATA / "usage.jsonl", result.get("tokens") or {}, model, int(result.get("turns_count") or 0))
     return code
 

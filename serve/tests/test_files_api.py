@@ -40,7 +40,7 @@ class UnitTest(unittest.TestCase):
 
     def test_a_folder_lists_folders_first_with_the_agents_own_and_git_included(self):
         got = self.api.list(str(self.site))
-        self.assertEqual([(e["name"], e["dir"]) for e in got["entries"]], [(".tadamoo", True), (".git", True), ("src", True), ("readme.md", False)])
+        self.assertEqual([(e["name"], e["dir"]) for e in got["entries"]], [(".git", True), (".tadamoo", True), ("src", True), ("readme.md", False)])
         self.assertEqual(self.api.list(str(self.site / "src"))["entries"][0]["size"], 9)
         self.assertEqual(self.api.file(str(self.site / ".tadamoo" / "secret"))[1], "secret")
 

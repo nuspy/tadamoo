@@ -1,14 +1,14 @@
 """ClawBench (TIGER-AI-Lab): a browser agent does everyday tasks on live websites inside a container; a request interceptor catches the final request and
 a judge reads its body.
 
-One trial is one `clawbench-run` of one case with one harness. Our harness is added to the imported ClawBench as a harness registry entry named `basalt`
-(`clawbench_assets/`): the files go into the imported tree before the first trial, together with a copy of our `harness/` package and the few `serve/`
+One trial is one `clawbench-run` of one case with one harness. Our harness is added to the imported ClawBench as a harness registry entry named `tadamoo`
+(`clawbench_assets/`): the files go into the imported tree before the first trial, together with a copy of our `tadamoo/` package and the few `serve/`
 modules it imports, and ClawBench builds the image and starts the container. Inside, `tadamoo_driver.py` runs our headless agent against the container's
 browser through `--browser-cdp-url`, so the page, the recorder and the interceptor are ClawBench's own. The model is the served local one, reached from the
 container as `host.docker.internal`; the judge, when asked for, is the same local model reached from the host.
 
 Settings read: `subset` (smoke, lite, v1, v2), `trials` (1; ClawBench scores one run per task), `judge` ('local': the served model judges the intercepted request
-and the score is provisional; 'none': ClawBench's judge-free mode, where a pass is the interception), `harness` ('basalt', 'null' or 'random-click'; smoke
+and the score is provisional; 'none': ClawBench's judge-free mode, where a pass is the interception), `harness` ('tadamoo', 'null' or 'random-click'; smoke
 runs the two baselines), `tasks` (explicit case folder names), `limit` (the first N cases). Timeouts are the case's own and are never changed.
 
 Smoke: the `null` harness (takes no action) and the `random-click` harness (clicks at random) on the first two Lite cases, judge-free. They prove Docker, the
@@ -31,7 +31,7 @@ from .containerkit import local_endpoint
 from .proc import LongRunner, long_runner
 
 ID = "clawbench"
-OWN_HARNESS = "basalt"
+OWN_HARNESS = "tadamoo"
 BASELINES = ("null", "random-click")
 HARNESSES = (OWN_HARNESS,) + BASELINES
 SUITES = {"smoke": "v1-lite", "lite": "v1-lite", "v1": "v1", "v2": "v2"}
@@ -39,9 +39,9 @@ SMOKE_CASES = 2
 CASE_ALLOWANCE_S = 1800.0           # image build, the judge and the container's own start and stop, on top of the case's time limit
 ASSETS = Path(__file__).resolve().parent / "clawbench_assets"
 REPO_ROOT = Path(__file__).resolve().parents[3]
-PAYLOAD = ("harness", "serve")
+PAYLOAD = ("tadamoo", "serve")
 HARNESS_DIR = Path("src") / "clawbench" / "runtime" / "harnesses"
-BEGIN, END = "  # basalt-begin", "  # basalt-end"
+BEGIN, END = "  # tadamoo-begin", "  # tadamoo-end"
 NOT_THE_MODEL = {"infra_failure", "api_or_credit", "task_data", "build_instruction"}
 STOP_NAMES = {"time_limit_exceeded": "timeout", "agent_idle": "gave_up", "vnc_disconnected": "gave_up", "agent_exited": "final", "eval_matched": "final"}
 EVENT_TYPES = {"tool_call", "tool_result", "plan", "stop", "compaction", "assistant", "error"}
@@ -112,11 +112,11 @@ def patch_registry(yaml_path: Path, entry: str) -> None:
         return
     names = [h.get("name") for h in (yaml.safe_load(text) or {}).get("harnesses", [])]
     if OWN_HARNESS not in names:
-        raise RuntimeError("ClawBench's harness registry does not list the basalt harness after it was added")
+        raise RuntimeError("ClawBench's harness registry does not list the tadamoo harness after it was added")
 
 
 def install_harness(source: Path, repo_root: Path = REPO_ROOT, assets: Path = ASSETS) -> Path:
-    """Copies the harness registry entry, its scripts and the payload (our `harness/` package and the `serve/` modules it imports) into the imported
+    """Copies the harness registry entry, its scripts and the payload (our `tadamoo/` package and the `serve/` modules it imports) into the imported
     ClawBench. Returns the harness's folder. Safe to run again: what was copied before is replaced."""
     harnesses = Path(source) / HARNESS_DIR
     if not (harnesses / "harnesses.yaml").is_file():
@@ -233,7 +233,7 @@ def trial_result(run: Optional[Path], harness: str, judge_mode: str, ctx: TrialC
                              "failure_category": meta.get("failure_category"), "infra_flags": meta.get("infra_flags") or [],
                              "output_dir": ctx.relative(run), "judge_match": judge.get("match") if judge else None, "baseline": baseline})
     category = str(meta.get("failure_category") or "")
-    if not baseline and (category in NOT_THE_MODEL or category.startswith("browser_runtime") or stop_reason in ("basalt_failed", "chrome_cdp_timeout")):
+    if not baseline and (category in NOT_THE_MODEL or category.startswith("browser_runtime") or stop_reason in ("tadamoo_failed", "chrome_cdp_timeout")):
         res.error = f"{category or stop_reason}: {clip(meta.get('failure_reason') or interception.get('stop_description') or '')}"
         res.facts["class"] = "environment_problem"
         return res

@@ -196,7 +196,7 @@ class AgentRunner:
             run_id = secrets.token_hex(3)
             log_path = self._log_path(run_id)
             log_path.parent.mkdir(parents=True, exist_ok=True)
-            command = [self.python, "-m", "harness", f"--prompt={goal.strip()}", "--workspace", str(path), "--endpoint", self.endpoint,
+            command = [self.python, "-m", "tadamoo", f"--prompt={goal.strip()}", "--workspace", str(path), "--endpoint", self.endpoint,
                        "--permission-mode", mode, "--max-turns", str(max_turns), "--progress", "--result-file", str(self._result_path(run_id)),
                        "--run-id", run_id, "--ask-server",
                        "--pid-file", str(self._pid_path(run_id))]

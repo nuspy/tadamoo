@@ -4,7 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-GUARD = Path(__file__).resolve().parent.parent / "harness" / "sandbox" / "guard"
+GUARD = Path(__file__).resolve().parent.parent / "tadamoo" / "sandbox" / "guard"
 
 
 def run_guarded(tmp_path, code):
