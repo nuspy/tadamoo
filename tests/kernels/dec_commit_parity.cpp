@@ -14,14 +14,15 @@
 // pending it touches nothing.  With --bench: the finisher's cost with nothing pending and its drain of what is left.
 // --lazy: gdn_commit_lazy against the commit kernel (bit for bit) and a CPU reference (within rounding), for n_keep 1..8:
 // one launch owing every layer, one launch per layer with and without further items, a stop word turned mid-launch, two
-// epochs in a row, nothing owed before the first epoch or after an epoch is done, and the read-ahead (waiting, never
-// waiting, every entry on CUDA0).  With --bench: its throughput against the commit kernel, the cost of a launch with
-// nothing owed and the read-ahead's rate.
+// epochs in a row, nothing owed before the first epoch or after an epoch is done, and the read-ahead (waiting for the
+// pool or the peers, never waiting, every entry on CUDA0).  With --bench: its throughput against the commit kernel, the
+// cost of a launch with nothing owed and the read-ahead's rate.
 #include "basalt/kernels/native_qsa_indexer.hpp"
 #include "basalt/kernels/qsa.hpp"
 #include "basalt/kernels/rope_scaling.hpp"
 #include "basalt/kernels/verify_kernels.hpp"
 #include "basalt/kernels/ngram.hpp"
+#include "basalt/kernels/wait_abort.hpp"
 
 #include <cuda_runtime.h>
 
@@ -922,7 +923,8 @@ bool lazy_tests(cudaStream_t s) {
         CK(cudaMemcpy(ids, hid.data(), 80 * 4, cudaMemcpyHostToDevice));
         cudaStream_t o;
         CK(cudaStreamCreateWithFlags(&o, cudaStreamNonBlocking));
-        for (int form = 0; form < 3; ++form) {   // 0: waiting, then turned; 1: never waiting; 2: every entry on CUDA0
+        for (int form = 0; form < 4; ++form) {   // 0: waiting for the pool, then turned; 1: never waiting; 2: every entry
+                                                 // on CUDA0; 3: waiting for the peers' rows, then turned
             std::vector<unsigned long long> hp(512, form == 2 ? 1ull : 0ull);
             CK(cudaMemcpy(ptab, hp.data(), 512 * 8, cudaMemcpyHostToDevice));
             GdnLazyPf pf;
@@ -930,7 +932,7 @@ bool lazy_tests(cudaStream_t s) {
             pf.ids = ids; pf.n_ids = 80; pf.n_expert = 512; pf.ptab = ptab;
             const uint32_t ring = 5;
             reset();
-            const uint32_t w0 = form == 1 ? ring : (ring | 0x80000000u);
+            const uint32_t w0 = form == 1 ? ring : form == 3 ? (ring | 0x40000000u) : (ring | 0x80000000u);
             CK(cudaMemcpy(z.stop, &w0, 4, cudaMemcpyHostToDevice));
             lazy_begin(z, s);
             for (int i = 0; i < NL; ++i) gdn_commit_lazy(lazy_args(z), z.ctl, i + 1, z.stop, ring, s, 170, &pf);
@@ -1009,6 +1011,7 @@ void lazy_bench(cudaStream_t s) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    wait_abort_init();   // the finisher's bounded waits report through it
     const std::string mode = argc > 1 ? argv[1] : "";
     cudaStream_t s;
     CK(cudaStreamCreateWithFlags(&s, cudaStreamNonBlocking));
