@@ -11,18 +11,18 @@ from serve import loader, models, profiles, userdata
 
 class Where(unittest.TestCase):
     def test_the_variable_wins(self):
-        with mock.patch.dict(os.environ, {"BASALT_DATA": "X:/somewhere"}):
+        with mock.patch.dict(os.environ, {"TADAMOO_DATA": "X:/somewhere"}):
             self.assertEqual(userdata.user_data_dir(), Path("X:/somewhere"))
 
     def test_the_platform_folders(self):
         d = userdata.default_dir
         self.assertEqual(Path(d("nt", "win32", {"APPDATA": "C:/Users/u/AppData/Roaming"}, "C:/Users/u")),
-                         Path("C:/Users/u/AppData/Roaming/BasaltPannello"))
-        self.assertEqual(Path(d("nt", "win32", {}, "C:/Users/u")), Path("C:/Users/u/AppData/Roaming/BasaltPannello"))
+                         Path("C:/Users/u/AppData/Roaming/TaDaMoo"))
+        self.assertEqual(Path(d("nt", "win32", {}, "C:/Users/u")), Path("C:/Users/u/AppData/Roaming/TaDaMoo"))
         self.assertEqual(d("posix", "linux", {}, "/home/u"), "/home/u/.local/share/basalt")
         self.assertEqual(d("posix", "linux", {"XDG_DATA_HOME": "/xdg"}, "/home/u"), "/xdg/basalt")
         self.assertEqual(d("posix", "darwin", {}, "/Users/u"), "/Users/u/Library/Application Support/Basalt")
-        self.assertEqual(d("nt", "win32", {"BASALT_DATA": "D:/b", "APPDATA": "C:/x"}, "C:/Users/u"), "D:/b")
+        self.assertEqual(d("nt", "win32", {"TADAMOO_DATA": "D:/b", "APPDATA": "C:/x"}, "C:/Users/u"), "D:/b")
 
     def test_no_machine_path_in_the_code(self):
         text = Path(userdata.__file__).read_text(encoding="utf-8")
@@ -43,7 +43,7 @@ class Migration(unittest.TestCase):
                                                 encoding="utf-8")
         (self.cache / "0123456789abcdef" / "calibration.json").write_text('{"runs": {}}', encoding="utf-8")
         (self.cache / "models-scan.json").write_text("{}", encoding="utf-8")
-        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": str(self.cache), "BASALT_DATA": str(self.data)})
+        self.env = mock.patch.dict(os.environ, {"TADAMOO_CACHE": str(self.cache), "TADAMOO_DATA": str(self.data)})
         self.env.start()
         userdata._checked.clear()
 
@@ -84,7 +84,7 @@ class Migration(unittest.TestCase):
 
     def test_nothing_to_copy(self):
         empty = Path(self.tmp.name) / "empty"
-        with mock.patch.dict(os.environ, {"BASALT_CACHE": str(empty)}):
+        with mock.patch.dict(os.environ, {"TADAMOO_CACHE": str(empty)}):
             self.assertEqual(userdata.migrate(), [])
             self.assertTrue((self.data / userdata.MARKER).is_file())
 

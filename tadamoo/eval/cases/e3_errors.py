@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List
 
-from tadamoo.client import BasaltClient
+from tadamoo.client import TadamooClient
 from tadamoo.session import BACKOFF_S
 
 from .agentrun import close_quietly, open_session
@@ -42,7 +42,7 @@ RULE = Rule(
          "classifier on remains the owner's decision; the numbers say what it buys and what it risks.")
 
 
-class ShortTimeoutClient(BasaltClient):
+class ShortTimeoutClient(TadamooClient):
     """The real client with a short time limit, so a stalled request ends as a timeout in milliseconds."""
 
     def chat_completion(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:

@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List
 
-from tadamoo.client import BasaltError, extract_reasoning_and_content
+from tadamoo.client import TadamooError, extract_reasoning_and_content
 from tadamoo.personal_skills.runner import Handlers, RunResult, run
 
 AI_SYSTEM = ("You are one step of a program. Do exactly what the text asks and answer with the result only: no greeting, no explanation, "
@@ -67,7 +67,7 @@ class SkillRun:
                 answer = extract_reasoning_and_content((resp.get("choices") or [{}])[0].get("message") or {})[1].strip()
                 self.agent.total_tokens += int((resp.get("usage") or {}).get("total_tokens") or 0)
                 break
-            except BasaltError:                                # waited for like the conversation's own calls: the last wait repeats until the person stops it
+            except TadamooError:                                # waited for like the conversation's own calls: the last wait repeats until the person stops it
                 waits = self.session.waits
                 wait = waits[min(attempt, len(waits) - 1)]
                 attempt += 1

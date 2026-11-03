@@ -1,6 +1,6 @@
 """A personal skill's script, looked at before it is saved or run.
 
-A skill is written in Python and does its work through four calls of the harness (`from basalt_skill import tool, ai, ask, say`), so that
+A skill is written in Python and does its work through four calls of the harness (`from tadamoo_skill import tool, ai, ask, say`), so that
 every action it takes through them goes through the permissions, the hooks and the audit record like the agent's own. The script itself runs
 as a program of the person: it may import any module and use files, programs and the network."""
 from __future__ import annotations

@@ -77,8 +77,8 @@ def test_wiki_tools_pass_the_limit_and_the_size_as_asked(wiki):
 
 
 def test_wikibridge_environment_configuration(monkeypatch, wiki):
-    monkeypatch.setenv("BASALT_WIKIBRIDGE_URL", wiki.url)
-    monkeypatch.setenv("BASALT_WIKIBRIDGE_KEY", "k3y")
+    monkeypatch.setenv("TADAMOO_WIKIBRIDGE_URL", wiki.url)
+    monkeypatch.setenv("TADAMOO_WIKIBRIDGE_KEY", "k3y")
     assert WikiBridgeClient.from_environment().is_available()
 
 

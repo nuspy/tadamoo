@@ -162,7 +162,7 @@ class Activate(Base):
         self.assertEqual(json.loads(raw)["data"][0]["id"], "qwen3.8-flash-next")
         sent = json.loads(self.get("/v1/status")[1])
         self.assertEqual(sent["args"][sent["args"].index("--max-context") + 1], "8192")
-        run = json.loads((Path(os.environ["BASALT_DATA"]) / "strata-run" / "run.json").read_text(encoding="utf-8"))
+        run = json.loads((Path(os.environ["TADAMOO_DATA"]) / "strata-run" / "run.json").read_text(encoding="utf-8"))
         self.assertNotIn("api_key", run)
         self.assertEqual(run["host"], "127.0.0.1")
         self.assertEqual(Path(run["cwd"]), self.rootp / "bin" / "strata")
@@ -231,7 +231,7 @@ class Activate(Base):
         c = connect(self.port)
         try:
             c.request("POST", "/api/control/load", body=b"{}",
-                      headers={"Content-Type": "application/json", "X-Basalt-Control": "control-secret"})
+                      headers={"Content-Type": "application/json", "X-Tadamoo-Control": "control-secret"})
             r = c.getresponse()
             self.assertEqual((r.status, json.loads(r.read())["status"]), (200, "loaded"))
         finally:

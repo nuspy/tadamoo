@@ -181,8 +181,8 @@ def _linux_memory() -> dict | None:
 
 def system_now(gpu_index: int = 0) -> dict:
     """RAM, commit and VRAM of this PC now, in bytes; a value that cannot be read is None."""
-    fake = os.environ.get("BASALT_FAKE_SYSTEM")
-    if fake and os.environ.get("BASALT_FAKE_SYSTEM_OK") == "1":       # the mock server's demo readings
+    fake = os.environ.get("TADAMOO_FAKE_SYSTEM")
+    if fake and os.environ.get("TADAMOO_FAKE_SYSTEM_OK") == "1":       # the mock server's demo readings
         return {k: int(v) for k, v in json.loads(fake).items()}
     mem = (_windows_memory() if os.name == "nt" else _linux_memory()) or {}
     out = {"ram_total": mem.get("ram_total"), "ram_available": mem.get("ram_available"),

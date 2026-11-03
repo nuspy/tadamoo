@@ -1,4 +1,4 @@
-"""What a personal skill's script imports: `from basalt_skill import tool, ai, ask, say`.
+"""What a personal skill's script imports: `from tadamoo_skill import tool, ai, ask, say`.
 
 The script runs in a process of its own; each of these calls is a line of JSON to the harness, which does the work (through the permissions,
 the hooks and the audit record) and answers. `print` is kept too: what it writes is shown as the skill's output."""

@@ -41,7 +41,7 @@ def agents_dir(config: Any = None) -> Path:
         from serve.userdata import user_data_dir
         return user_data_dir()
     except Exception:                      # the harness also runs without the server package
-        return Path.home() / ".basalt"
+        return Path.home() / ".tadamoo"
 
 
 def read_agents(directory: Path, filename: str, required: str) -> Dict[str, Dict[str, Any]]:

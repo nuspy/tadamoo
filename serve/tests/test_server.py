@@ -2143,7 +2143,7 @@ class OwnPage(unittest.TestCase):
         cls.httpd.server_close()
 
     def req(self, path, body, headers=None, raw=None):
-        secret = {"X-Basalt-Control": self.svc.control_token} if path.startswith("/api/") else {}
+        secret = {"X-Tadamoo-Control": self.svc.control_token} if path.startswith("/api/") else {}
         h = {"Content-Type": "application/json", **secret, **(headers or {})}
         r = urllib.request.Request(self.base + path, data=raw if raw is not None else json.dumps(body).encode(), headers=h)
         try:
@@ -2157,7 +2157,7 @@ class OwnPage(unittest.TestCase):
         for headers, raw in (({"Content-Type": "text/plain"}, b"{}"), ({"Origin": "http://evil.example"}, None), ({"Origin": "http://127.0.0.1:1"}, None)):
             code, _ = self.req("/api/control/load", {}, headers, raw=raw)
             self.assertEqual(code, 200, headers)
-        code, _ = self.req("/api/control/load", {}, {"X-Basalt-Control": "wrong"})
+        code, _ = self.req("/api/control/load", {}, {"X-Tadamoo-Control": "wrong"})
         self.assertEqual(code, 403)
 
     def test_they_need_the_key_when_one_is_set(self):
@@ -2490,7 +2490,7 @@ class SharingTheGpu(unittest.TestCase):
         self.httpd.server_close()
 
     def req(self, path, body=None):
-        secret = {"X-Basalt-Control": self.svc.control_token} if path.startswith("/api/") else {}
+        secret = {"X-Tadamoo-Control": self.svc.control_token} if path.startswith("/api/") else {}
         r = urllib.request.Request(self.base + path, data=None if body is None else json.dumps(body).encode(),
                                    headers={"Content-Type": "application/json", **secret}, method="GET" if body is None else "POST")
         try:

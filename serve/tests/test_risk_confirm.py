@@ -17,9 +17,9 @@ const ctx = vm.createContext({ window: win, document: doc, T: win.T, console });
 vm.runInContext(fs.readFileSync(process.argv[1], "utf8"), ctx);
 (async () => {
   const out = {};
-  win.basaltAutoMode = () => true;
+  win.tadamooAutoMode = () => true;
   out.auto = await win.riskConfirm(["x"]);
-  win.basaltAutoMode = () => false;
+  win.tadamooAutoMode = () => false;
   try { await win.riskConfirm(["x"]); out.other = "no dialog"; } catch (e) { out.other = "dialog built"; }
   out.shown = shown;
   console.log(JSON.stringify(out));

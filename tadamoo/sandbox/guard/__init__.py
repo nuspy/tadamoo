@@ -1,4 +1,4 @@
-"""The guard for programs the agent's commands start: see basalt_guard.py for what it covers and what it does not."""
+"""The guard for programs the agent's commands start: see tadamoo_guard.py for what it covers and what it does not."""
 from __future__ import annotations
 
 import os
@@ -15,7 +15,7 @@ def environment(places: Iterable[str], base: str = "") -> Dict[str, str]:
     if not found:
         return {}
     path = str(HERE) + (os.pathsep + base if base else "")
-    return {"BASALT_GUARD": os.pathsep.join(found), "PYTHONPATH": path}
+    return {"TADAMOO_GUARD": os.pathsep.join(found), "PYTHONPATH": path}
 
 
 def deno_flags(places: Iterable[str]) -> List[str]:

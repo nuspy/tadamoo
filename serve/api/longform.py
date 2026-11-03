@@ -21,7 +21,7 @@ from serve.util.text import IM_END
 
 
 class ServiceClient:
-    """The `chat_completion` of tadamoo.client.BasaltClient, answered in this process by the loaded model."""
+    """The `chat_completion` of tadamoo.client.TadamooClient, answered in this process by the loaded model."""
 
     def __init__(self, svc: Service, sampling: dict, cancel: threading.Event) -> None:
         self.svc, self.sampling, self.cancel = svc, sampling, cancel

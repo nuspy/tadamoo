@@ -262,8 +262,8 @@ def offer_search(registry: Any, secrets: Any = None, hub: Any = None, environ: O
         own.update(hub_backends(hub))
     for provider, fn in discover_providers(secrets, environ).items():
         own.setdefault(provider, fn)
-    if str((environ if environ is not None else os.environ).get("BASALT_WEB_SEARCH", "")).lower() != "off":
-        own.setdefault("duckduckgo", duckduckgo_search)      # the engine of the person's choice when none is set; BASALT_WEB_SEARCH=off removes it
+    if str((environ if environ is not None else os.environ).get("TADAMOO_WEB_SEARCH", "")).lower() != "off":
+        own.setdefault("duckduckgo", duckduckgo_search)      # the engine of the person's choice when none is set; TADAMOO_WEB_SEARCH=off removes it
     ready = sorted(set(own) | set(_SEARCH_BACKENDS))
     if not ready:
         return []

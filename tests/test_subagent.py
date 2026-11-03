@@ -126,8 +126,8 @@ def test_without_a_turn_limit_it_goes_on_past_twenty_turns(ws, tmp_path):
 
 
 def test_a_model_error_comes_back_as_an_incomplete_result(ws, tmp_path):
-    from tadamoo.client import BasaltError
-    client = ScriptedClient(BasaltError(503, "engine is down"))
+    from tadamoo.client import TadamooError
+    client = ScriptedClient(TadamooError(503, "engine is down"))
     _, runner, _, _ = build(ws, client, tmp_path)
     out = runner.run("anything")
     assert out["status"] == "incomplete" and "engine is down" in out["summary"] and out["error"]

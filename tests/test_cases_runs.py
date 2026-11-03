@@ -220,18 +220,18 @@ def test_the_scripted_server_serves_text_errors_and_streams():
     import urllib.error
     import urllib.request
 
-    from tadamoo.client import BasaltClient, BasaltError
+    from tadamoo.client import TadamooClient, TadamooError
     from tadamoo.eval.cases.scripted_server import ScriptedServer
     with ScriptedServer([{"error": 429, "message": "slow down"}, {"ok": "hello there"}, {"ok": "streamed text"}]) as srv:
-        client = BasaltClient(srv.url)
-        with pytest.raises(BasaltError) as e:
+        client = TadamooClient(srv.url)
+        with pytest.raises(TadamooError) as e:
             client.chat_completion([{"role": "user", "content": "hi"}])
         assert e.value.status == 429 and "slow down" in str(e.value)
         assert client.chat_completion([{"role": "user", "content": "hi"}])["choices"][0]["message"]["content"] == "hello there"
         pieces = []
         out = client.chat_completion([{"role": "user", "content": "hi"}], on_delta=lambda k, t: pieces.append(t))
         assert "".join(pieces) == "streamed text" and out["usage"]["prompt_tokens"] == 50
-        with pytest.raises(BasaltError) as spent:
+        with pytest.raises(TadamooError) as spent:
             client.chat_completion([{"role": "user", "content": "hi"}])
         assert spent.value.status == 500 and srv.count() == 4
 
@@ -463,8 +463,8 @@ def test_e9_artifact_reads_count_the_calls_that_go_to_the_saved_copies():
         def __init__(self, *calls):
             self.tool_calls = calls
     back = chr(92)
-    turns = [Turn(Call(path=".basalt/artifacts/read_file_ab.txt"), Call(path="pkg/mod_001.py")),
-             Turn(Call(command="python -c open('.basalt" + back + "artifacts" + back + "x.txt')"), Call(pattern="x", path=".basalt/artifacts"))]
+    turns = [Turn(Call(path=".tadamoo/artifacts/read_file_ab.txt"), Call(path="pkg/mod_001.py")),
+             Turn(Call(command="python -c open('.basalt" + back + "artifacts" + back + "x.txt')"), Call(pattern="x", path=".tadamoo/artifacts"))]
     assert e9_context.artifact_reads(turns) == 3
 
 

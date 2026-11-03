@@ -20,7 +20,7 @@ def stub_command(die_times=1):
 
 @pytest.fixture(autouse=True)
 def own_data_folder(tmp_path, monkeypatch):
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))          # the person's limits.json is not read
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))          # the person's limits.json is not read
 
 
 @pytest.fixture

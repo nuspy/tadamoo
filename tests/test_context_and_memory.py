@@ -195,7 +195,7 @@ def test_memory_update_and_validation(tmp_path: Path):
 
 
 def test_memory_path_is_per_workspace_and_outside_it(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
     a, b = tmp_path / "proj_a", tmp_path / "proj_b"
     a.mkdir()
     b.mkdir()

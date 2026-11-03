@@ -119,10 +119,10 @@ class WindowsCredentials:
 
 def default_store(fallback_dir: Optional[Path] = None) -> CredentialStore:
     """The Windows credential manager where there is one; else a private file next to the registry (also when
-    BASALT_CREDENTIALS=file: the tests use it so that they never touch the person's own credentials)."""
-    if os.name == "nt" and os.environ.get("BASALT_CREDENTIALS") != "file":
+    TADAMOO_CREDENTIALS=file: the tests use it so that they never touch the person's own credentials)."""
+    if os.name == "nt" and os.environ.get("TADAMOO_CREDENTIALS") != "file":
         try:
             return WindowsCredentials()
         except (OSError, AttributeError):
             pass
-    return FileCredentials((fallback_dir or Path.home() / ".basalt") / "llm_credentials.json")
+    return FileCredentials((fallback_dir or Path.home() / ".tadamoo") / "llm_credentials.json")

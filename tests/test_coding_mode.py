@@ -80,15 +80,15 @@ def test_ask_cannot_write_or_run_and_the_refusal_names_what_it_can_use(tmp_path)
 
 
 def test_plan_writes_only_plans_and_a_path_out_of_the_folder_is_not_one(tmp_path):
-    (tmp_path / ".basalt" / "plans").mkdir(parents=True)
+    (tmp_path / ".tadamoo" / "plans").mkdir(parents=True)
     p = policy(tmp_path, PLAN)
-    assert p.check("write_file", {"path": ".basalt/plans/step1.md"}) == "" and p.check("edit_file", {"path": ".basalt\\plans\\step1.md"}) == ""
-    assert p.check("write_file", {"path": str(tmp_path / ".basalt" / "plans" / "x.md")}) == ""        # an absolute path inside the folder is the same
-    for bad in ("src/app.py", ".basalt/plans/sub/x.md", ".basalt/plans/x.py", "../escape.md", ".basalt/plans/../../x.md", "plans.md"):
+    assert p.check("write_file", {"path": ".tadamoo/plans/step1.md"}) == "" and p.check("edit_file", {"path": ".tadamoo\\plans\\step1.md"}) == ""
+    assert p.check("write_file", {"path": str(tmp_path / ".tadamoo" / "plans" / "x.md")}) == ""        # an absolute path inside the folder is the same
+    for bad in ("src/app.py", ".tadamoo/plans/sub/x.md", ".tadamoo/plans/x.py", "../escape.md", ".tadamoo/plans/../../x.md", "plans.md"):
         text = p.check("write_file", {"path": bad})
-        assert ".basalt/plans/*.md" in text and "outside" in text, bad
+        assert ".tadamoo/plans/*.md" in text and "outside" in text, bad
     assert "shell_command" not in roles.ROLES[PLAN].tools                                               # no commands in a planning role
-    assert p.check("shell_command", {"command": "ls"}) and "You may write only .basalt/plans/*.md." in p.note()
+    assert p.check("shell_command", {"command": "ls"}) and "You may write only .tadamoo/plans/*.md." in p.note()
 
 
 def test_build_and_debug_edit_and_run_and_orchestrate_hands_work_to_subagents(tmp_path):
@@ -158,13 +158,13 @@ def test_a_call_outside_the_role_is_refused_with_the_tools_it_has_and_runs_nothi
 def test_the_plan_role_can_write_a_plan_and_nothing_else(tmp_path):
     ws = tmp_path / "ws"
     ws.mkdir()
-    client = Scripted(call("write_file", path=".basalt/plans/p.md", content="# plan\n"), call("write_file", path="app.py", content="x = 1\n"), say("done"))
+    client = Scripted(call("write_file", path=".tadamoo/plans/p.md", content="# plan\n"), call("write_file", path="app.py", content="x = 1\n"), say("done"))
     built = agent(tmp_path, client=client, role=PLAN)
     try:
         run(built, "plan it")
-        assert (ws / ".basalt" / "plans" / "p.md").read_text(encoding="utf-8") == "# plan\n" and not (ws / "app.py").exists()
+        assert (ws / ".tadamoo" / "plans" / "p.md").read_text(encoding="utf-8") == "# plan\n" and not (ws / "app.py").exists()
         outcomes = [m["content"] for m in built.agent.messages if m.get("role") == "tool"]
-        assert "may change only .basalt/plans/*.md" in outcomes[1]
+        assert "may change only .tadamoo/plans/*.md" in outcomes[1]
     finally:
         built.close()
 
@@ -382,7 +382,7 @@ def test_nothing_is_accepted_until_the_person_says_so_and_a_project_file_cannot_
     folder, prefs = project
     view = prefs.view(folder)
     assert [c["state"] for c in view["checks"]] == ["none", "none"] and prefs.effective(folder) == {"safe": [], "checks": []} and prefs.flags(folder) == ["--offer-checks"]
-    put(folder, ".basalt/project.json", json.dumps({"accepted": [{"command": "npm test", "digest": "x"}], "own": ["rm -rf /"]}))
+    put(folder, ".tadamoo/project.json", json.dumps({"accepted": [{"command": "npm test", "digest": "x"}], "own": ["rm -rf /"]}))
     put(folder, "coding.json", json.dumps({"projects": {}}))
     assert prefs.effective(folder) == {"safe": [], "checks": []}                                  # the file in the project is not read
 
@@ -528,7 +528,7 @@ def test_new_accepted_checks_reach_the_gate_of_a_running_conversation(tmp_path):
 
 @pytest.fixture
 def api(tmp_path, monkeypatch, start_server):  # noqa: F811
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
     url = start_server([answer("x")])
 
     def call(method, path, body=None):

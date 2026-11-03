@@ -3,7 +3,7 @@ from tadamoo import side_uses
 
 
 def test_it_is_on_by_default_and_turning_it_off_turns_every_use_off(tmp_path, monkeypatch):
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path))
     side_uses.reset()
     assert side_uses.session_on() and side_uses.enabled("triage") and side_uses.enabled("inject_screen")
     side_uses.set_session(False)
@@ -14,7 +14,7 @@ def test_it_is_on_by_default_and_turning_it_off_turns_every_use_off(tmp_path, mo
 
 
 def test_reset_all_keeps_the_master_switch_and_a_bad_value_is_refused(tmp_path, monkeypatch):
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path))
     side_uses.set_session(False)
     side_uses.reset()
     assert not side_uses.session_on()

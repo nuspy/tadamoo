@@ -18,11 +18,11 @@ import urllib.error
 import urllib.request
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from tadamoo.client import BasaltError
+from tadamoo.client import TadamooError
 from tadamoo import control_secret
 
 
-class QwenNotReady(BasaltError):
+class QwenNotReady(TadamooError):
     def __init__(self, message: str) -> None:
         super().__init__(409, message)
 

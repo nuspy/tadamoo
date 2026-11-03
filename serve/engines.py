@@ -63,7 +63,7 @@ FAMILIES: dict[str, dict] = {
                    "controls": ("max_context", "expert_cache", "vram_reserve", "parallel")},
 }
 ENGINES["strata"]["capabilities"] = {c: any(f["capabilities"][c] for f in FAMILIES.values()) for c in CAPABILITIES}
-BASALT_CONTROLS = ("max_context", "kv", "spec", "expert_cache", "vram_reserve", "parallel")
+TADAMOO_CONTROLS = ("max_context", "kv", "spec", "expert_cache", "vram_reserve", "parallel")
 
 TABS: list[dict] = [
     {"id": "qwen", "engine": "basalt", "label": "Qwen Loader", "builtin": True, "shows_on": ("nvidia_blackwell",)},
@@ -186,7 +186,7 @@ def controls(engine_id: str, family: str | None = None) -> tuple[str, ...]:
     """The Loader controls this engine supports: Basalt's all; Strata's those of the model family (all families'
     when none is given)."""
     if engine_id == "basalt":
-        return BASALT_CONTROLS
+        return TADAMOO_CONTROLS
     if family:
         return FAMILIES[family]["controls"]
     return tuple(dict.fromkeys(c for f in FAMILIES.values() for c in f["controls"]))

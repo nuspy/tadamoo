@@ -64,7 +64,7 @@ class Base(unittest.TestCase):
         base = Path(self.tmp.name)
         self.data = base / "data"
         self.addons = make_addons(base / "addons")
-        patch = mock.patch.dict(os.environ, {"BASALT_DATA": str(self.data), "BASALT_ADDONS": str(self.addons)})
+        patch = mock.patch.dict(os.environ, {"TADAMOO_DATA": str(self.data), "TADAMOO_ADDONS": str(self.addons)})
         patch.start()
         self.addCleanup(patch.stop)
         self.host = FakeHost(results={"--version": (0, "v24.22.1\n")})
@@ -130,7 +130,7 @@ class SwitchTests(Base):
 
     def test_without_the_add_on_it_cannot_be_turned_on(self):
         gone = Path(self.tmp.name) / "nowhere"
-        with mock.patch.dict(os.environ, {"BASALT_ADDONS": str(gone)}), mock.patch.object(rea_api.addons, "_ROOT", gone), \
+        with mock.patch.dict(os.environ, {"TADAMOO_ADDONS": str(gone)}), mock.patch.object(rea_api.addons, "_ROOT", gone), \
                 mock.patch.object(rea_api.addons, "_DEV", gone), mock.patch.object(rea_api.addons, "_MAIN_DEV", gone):
             self.assertFalse(rea_api.status()["addon"]["present"])
             with self.assertRaises(rea_api.ReaError) as ctx:

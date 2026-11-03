@@ -3,31 +3,31 @@
     Ferma Basalt Win+GUI (server e motore) e controlla che la RAM sia tornata libera.
 
 .DESCRIPTION
-    Funziona con ogni modo di Avvia-Basalt.ps1: il solo server (-server), quello legato a una finestra (-browser, che
+    Funziona con ogni modo di Avvia-TaDaMoo.ps1: il solo server (-server), quello legato a una finestra (-browser, che
     allora si chiude da sola) e quello dell'app (l'app se ne accorge e torna al Loader). Trova il server da
-    basalt.pid, o dalla porta di basalt_config.json; prima chiede al server di scaricare il modello (il motore riceve
+    tadamoo.pid, o dalla porta di tadamoo_config.json; prima chiede al server di scaricare il modello (il motore riceve
     QUIT e libera RAM e VRAM in modo pulito), poi termina l'albero dei processi (basalt.exe serve -> Python ->
-    motore) e verifica che non resti nulla. Le opzioni si scrivono con uno o due trattini, come in Avvia-Basalt.ps1.
+    motore) e verifica che non resti nulla. Le opzioni si scrivono con uno o due trattini, come in Avvia-TaDaMoo.ps1.
 
 .PARAMETER Port
     Ferma solo il server su questa porta (--port N): gli altri server Basalt Win+GUI restano accesi.
 
 .PARAMETER File
-    Il file di configurazione da cui leggere la porta (predefinito: basalt_config.json accanto allo script).
+    Il file di configurazione da cui leggere la porta (predefinito: tadamoo_config.json accanto allo script).
 
 .PARAMETER Lang
-    La lingua dei messaggi (--lang it|en); altrimenti BASALT_LANG, quella scelta nell'interfaccia, l'inglese.
-    The messages' language (--lang it|en); else BASALT_LANG, the one chosen in the interface, English.
+    La lingua dei messaggi (--lang it|en); altrimenti TADAMOO_LANG, quella scelta nell'interfaccia, l'inglese.
+    The messages' language (--lang it|en); else TADAMOO_LANG, the one chosen in the interface, English.
 
 .EXAMPLE
-    .\Ferma-Basalt.ps1
+    .\Ferma-TaDaMoo.ps1
 .EXAMPLE
-    .\Ferma-Basalt.ps1 --port 7240
+    .\Ferma-TaDaMoo.ps1 --port 7240
 #>
 [CmdletBinding(PositionalBinding = $false)]   # --port / --file go to $Altri, never to a parameter by position
 param(
     [int]$Port = 0,
-    [Alias('Config')][string]$File = 'basalt_config.json',      # -Config: il nome vecchio di -File
+    [Alias('Config')][string]$File = 'tadamoo_config.json',      # -Config: il nome vecchio di -File
     [string]$Lang = '',
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$Altri = @()
 )
@@ -39,15 +39,15 @@ for ($i = 0; $i -lt $Altri.Count; $i++) {          # -port N, --port N, --port=N
     if ($nome -eq 'port' -and $v -match '^\d+$') { $Port = [int]$v }
     elseif ($nome -in 'file', 'config' -and $v) { $File = $v }
     elseif ($nome -eq 'lang' -and $v) { $Lang = $v }
-    else { Write-Host "Argomento sconosciuto o senza valore / unknown argument or no value: $a (Ferma-Basalt.ps1 [--port N] [--file <config>] [--lang it|en])" -ForegroundColor Red; exit 1 }
+    else { Write-Host "Argomento sconosciuto o senza valore / unknown argument or no value: $a (Ferma-TaDaMoo.ps1 [--port N] [--file <config>] [--lang it|en])" -ForegroundColor Red; exit 1 }
 }
 $Config = $File
-# la lingua: --lang > BASALT_LANG > scelta nell'interfaccia (prefs.json) > inglese
+# la lingua: --lang > TADAMOO_LANG > scelta nell'interfaccia (prefs.json) > inglese
 $Lingua = 'en'
-$dati = if ($env:BASALT_DATA) { $env:BASALT_DATA } else { Join-Path $env:APPDATA 'BasaltPannello' }
+$dati = if ($env:TADAMOO_DATA) { $env:TADAMOO_DATA } else { Join-Path $env:APPDATA 'TaDaMoo' }
 $scelta = $null
 try { $scelta = (Get-Content -Raw -Encoding UTF8 -ErrorAction Stop (Join-Path $dati 'prefs.json') | ConvertFrom-Json).lang } catch { }
-foreach ($l in @($Lang, $env:BASALT_LANG, $scelta)) {
+foreach ($l in @($Lang, $env:TADAMOO_LANG, $scelta)) {
     if ($l -and ([string]$l).ToLowerInvariant() -in 'it', 'en') { $Lingua = ([string]$l).ToLowerInvariant(); break }
 }
 function T([string]$It, [string]$En) { if ($Lingua -eq 'it') { $It } else { $En } }
@@ -58,7 +58,7 @@ $ErrorActionPreference = 'Stop'
 
 $Radice = $PSScriptRoot
 $GiB = [double](1GB)
-$pidFile = Join-Path $Radice 'basalt.pid'
+$pidFile = Join-Path $Radice 'tadamoo.pid'
 $binDir = (Join-Path $Radice 'bin').ToLowerInvariant()
 
 function Scrivi([string]$Testo, [string]$Colore = 'Gray') { Write-Host $Testo -ForegroundColor $Colore }
@@ -77,7 +77,7 @@ function Esci([int]$Codice) {
     exit $Codice
 }
 
-function Get-ProcessiBasalt {
+function Get-ProcessiTaDaMoo {
     # i processi di questa installazione: basalt.exe (serve e motore), basalt-vision.exe, il server Python
     Get-CimInstance Win32_Process | Where-Object {
         (($_.Name -in @('basalt.exe', 'basalt-vision.exe')) -and $_.ExecutablePath -and
@@ -133,9 +133,9 @@ function Get-Albero([int]$Capo) {
 if ($Port) {                                    # solo il server di questa porta e i suoi processi
     if (-not $capo) { Scrivi (T "Nessun server Basalt Win+GUI sulla porta $Port." "No Basalt Win+GUI server on port $Port.") Green; Esci 0 }
     $albero = @(Get-Albero $capo | ForEach-Object { [int]$_.ProcessId })
-    function Get-ProcessiBasalt { Get-CimInstance Win32_Process | Where-Object { $albero -contains [int]$_.ProcessId } }
+    function Get-ProcessiTaDaMoo { Get-CimInstance Win32_Process | Where-Object { $albero -contains [int]$_.ProcessId } }
 }
-$tutti = @(Get-ProcessiBasalt)
+$tutti = @(Get-ProcessiTaDaMoo)
 if (-not $capo -and $tutti.Count -eq 0) {
     Scrivi (T 'Basalt Win+GUI non è in esecuzione.' 'Basalt Win+GUI is not running.') Green
     Remove-Item $pidFile -ErrorAction SilentlyContinue
@@ -149,13 +149,13 @@ Scrivi (T "Fermo Basalt Win+GUI$chi. RAM disponibile ora: $(GiB $prima)." "Stopp
 # ------------------------------------------------------------------ 1. il motore esce in modo pulito
 try {
     # il server scrive il suo segreto di controllo nella cartella dei dati: senza, nessun client può scaricare il modello
-    $datiDir = if ($env:BASALT_DATA) { $env:BASALT_DATA } else { Join-Path $env:APPDATA 'BasaltPannello' }
+    $datiDir = if ($env:TADAMOO_DATA) { $env:TADAMOO_DATA } else { Join-Path $env:APPDATA 'TaDaMoo' }
     $segreto = (Get-Content -Raw -ErrorAction Stop (Join-Path $datiDir "control-$porta.token")).Trim()
     $req = [System.Net.HttpWebRequest]::Create("http://${hostIp}:$porta/api/control/unload")
     $req.Proxy = $null
     $req.Method = 'POST'
     $req.ContentType = 'application/json'
-    $req.Headers.Add('X-Basalt-Control', $segreto)
+    $req.Headers.Add('X-Tadamoo-Control', $segreto)
     $req.Timeout = 90000                        # QUIT al motore: fino a 20 s, poi terminate
     $corpo = [System.Text.Encoding]::UTF8.GetBytes('{}')
     $req.ContentLength = $corpo.Length
@@ -172,19 +172,19 @@ try {
 if ($capo) { & taskkill.exe /PID $capo /T /F 2>&1 | ForEach-Object { Scrivi "  $_" DarkGray } }
 $limite = (Get-Date).AddSeconds(30)
 do {
-    $resto = @(Get-ProcessiBasalt)
+    $resto = @(Get-ProcessiTaDaMoo)
     if ($resto.Count -eq 0) { break }
     foreach ($r in $resto) { try { Stop-Process -Id $r.ProcessId -Force -ErrorAction Stop } catch { } }
     Start-Sleep -Milliseconds 500
 } while ((Get-Date) -lt $limite)
 
-$resto = @(Get-ProcessiBasalt)
+$resto = @(Get-ProcessiTaDaMoo)
 if ($resto.Count -gt 0) {
     Scrivi (T 'Restano processi di Basalt Win+GUI:' 'Basalt Win+GUI processes are left:') Red
     $resto | ForEach-Object { Scrivi "  PID $($_.ProcessId) $($_.Name)" Red }
     Esci 1
 }
-if (-not $Port -or $modo) { Remove-Item $pidFile -ErrorAction SilentlyContinue }   # basalt.pid era di questo server
+if (-not $Port -or $modo) { Remove-Item $pidFile -ErrorAction SilentlyContinue }   # tadamoo.pid era di questo server
 
 # ------------------------------------------------------------------ 3. la RAM torna libera
 $dopo = Disponibile

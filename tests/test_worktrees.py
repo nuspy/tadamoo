@@ -49,8 +49,8 @@ def test_what_the_task_changed_is_listed_with_its_diff_and_the_agents_own_folder
     (d / "a.txt").write_text("one\nTWO\n", encoding="utf-8")
     (d / "new.txt").write_text("fresh\n", encoding="utf-8")
     (d / "gone.txt").unlink()
-    (d / ".basalt" / "artifacts").mkdir(parents=True)
-    (d / ".basalt" / "artifacts" / "x.txt").write_text("big output", encoding="utf-8")
+    (d / ".tadamoo" / "artifacts").mkdir(parents=True)
+    (d / ".tadamoo" / "artifacts" / "x.txt").write_text("big output", encoding="utf-8")
     got = {c["path"]: c["status"] for c in wt.changes(info)}
     assert got == {"a.txt": "modified", "new.txt": "added", "gone.txt": "deleted"}
     assert "+TWO" in wt.diff(info, "a.txt") and "-two" in wt.diff(info, "a.txt") and "+fresh" in wt.diff(info, "new.txt")

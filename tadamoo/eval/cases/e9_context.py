@@ -66,12 +66,12 @@ def carry_of(repo: lt.Repo, messages: List[Dict[str, Any]]) -> float:
 
 
 def artifact_reads(turns: List[Any]) -> int:
-    """Calls that went to the saved copies of earlier results (`.basalt/artifacts`) instead of the files themselves."""
+    """Calls that went to the saved copies of earlier results (`.tadamoo/artifacts`) instead of the files themselves."""
     found = 0
     for turn in turns:
         for call in turn.tool_calls:
             args = call.arguments if isinstance(call.arguments, dict) else {}
-            found += any(".basalt/artifacts" in str(v).replace("\\", "/") for v in args.values())
+            found += any(".tadamoo/artifacts" in str(v).replace("\\", "/") for v in args.values())
     return found
 
 

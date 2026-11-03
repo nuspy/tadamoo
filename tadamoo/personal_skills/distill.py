@@ -299,7 +299,7 @@ SCRIPT_RULES = '''Write a Python program that does the same job again, with the 
 
 Rules:
 - Define `def main(params):` and return the result the person wanted, as text (the final answer of the last request).
-- `from basalt_skill import tool, ai, ask, say`. `tool("name", argument=value, ...)` runs a tool and returns its answer as text, and raises
+- `from tadamoo_skill import tool, ai, ask, say`. `tool("name", argument=value, ...)` runs a tool and returns its answer as text, and raises
   ToolError if it is refused or fails. `ai("prompt with {inputs}", inputs=...)` asks the model; `ask("question", ["option", ...])` asks the
   person; `say("text")` tells how it is going. `params.name` holds each parameter (dates are datetime.date, moments datetime.datetime, lists lists).
 - Repeat the recorded tool calls in the same order with the same arguments, replacing each <<params.x>> by params.x. Do not call tools

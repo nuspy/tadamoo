@@ -6,7 +6,7 @@ Code: `serve/llamacpp.py` (the manager), `serve/llamacpp_api.py` (the routes), `
 
 ## The program
 
-Looked for, in this order: the path saved in the page, `BASALT_LLAMA_SERVER`, the folder an update installed into, `bin/llama-server` and `bin/llama.cpp/` of the install, `PATH`, a few usual folders. The first found is used; the others are listed. The version is the line `llama-server --version` prints, asked once per program.
+Looked for, in this order: the path saved in the page, `TADAMOO_LLAMA_SERVER`, the folder an update installed into, `bin/llama-server` and `bin/llama.cpp/` of the install, `PATH`, a few usual folders. The first found is used; the others are listed. The version is the line `llama-server --version` prints, asked once per program.
 
 ## Running it
 

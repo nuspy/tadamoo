@@ -3,7 +3,7 @@
 A request has a signature: its meaningful words (common words dropped, accents and case folded), the first few of them, sorted, so the same
 request in a different word order or with the filler words changed has the same one. From the project's `outcomes.jsonl`, a signature seen at
 least `MIN_COUNT` times, each time done in at least `MIN_STEPS` steps, is a candidate. The person is told once per signature (kept in
-`<project>/.basalt/repeats.json`). Nothing here calls a model."""
+`<project>/.tadamoo/repeats.json`). Nothing here calls a model."""
 from __future__ import annotations
 
 import json

@@ -13,7 +13,7 @@
   const SCALES = ["auto", "100", "125", "150", "175", "200"];
   const autoScale = w => (w >= 5000 ? 2 : w >= 3800 ? 1.75 : w >= 3000 ? 1.5 : w >= 2400 ? 1.25 : 1);
   function scaleValue() {
-    const pref = store.get("basalt.scale", "auto");
+    const pref = store.get("tadamoo.scale", "auto");
     return pref === "auto" || !SCALES.includes(pref) ? autoScale(window.innerWidth) : Number(pref) / 100;
   }
   function applyScale() {
@@ -35,8 +35,8 @@
       o.textContent = v === "auto" ? T("ui.scale.auto") : v + "%";
       return o;
     }));
-    select.value = SCALES.includes(store.get("basalt.scale", "auto")) ? store.get("basalt.scale", "auto") : "auto";
-    select.addEventListener("change", () => { store.set("basalt.scale", select.value); applyScale(); });
+    select.value = SCALES.includes(store.get("tadamoo.scale", "auto")) ? store.get("tadamoo.scale", "auto") : "auto";
+    select.addEventListener("change", () => { store.set("tadamoo.scale", select.value); applyScale(); });
   }
 
   /* ---- views: shortcuts Alt+1..7 follow the tab order ---- */

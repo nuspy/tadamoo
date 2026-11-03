@@ -130,7 +130,7 @@ const ctx = { window: win, document: { getElementById: () => null }, LANG: 'en',
 vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), ctx);
 const sel = JSON.parse(process.argv[3]);
-win.BasaltChat.prepare(sel, 'My title').then(out => console.log(JSON.stringify({ out, calls })));
+win.TadamooChat.prepare(sel, 'My title').then(out => console.log(JSON.stringify({ out, calls })));
 """
 
 SNAP = {

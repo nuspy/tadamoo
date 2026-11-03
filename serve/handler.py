@@ -108,8 +108,8 @@ def _plans_service(svc: Service, port: int):
     global _PLANS
     if _PLANS is None:
         _PLANS = plans_mod.PlanService(userdata.path("planner"))
-    from tadamoo.client import BasaltClient
-    _PLANS.client_factory = lambda: BasaltClient(base_url=f"http://127.0.0.1:{port}", api_key=svc.api_key or None)
+    from tadamoo.client import TadamooClient
+    _PLANS.client_factory = lambda: TadamooClient(base_url=f"http://127.0.0.1:{port}", api_key=svc.api_key or None)
     if _LLM is not None:
         _PLANS.registry = _LLM.registry
     return _PLANS
@@ -151,7 +151,7 @@ from serve.api.cache_slot import check_cache_slot
 BODY_MAX = 256 << 20                        # the most a JSON request body may hold (read into memory)
 CONTROL_BODY_MAX = 64 << 10                 # the unused body of the control routes
 CONTROL_PATHS = ("/api/control/load", "/api/control/unload")   # not part of the interfaces other applications use
-CONTROL_HEADER = "X-Basalt-Control"
+CONTROL_HEADER = "X-Tadamoo-Control"
 API_PATHS = ("/v1/chat/completions", "/v1/responses", "/v1/messages")      # the requests the request log records
 REQLOG_CHARS_MAX = 64 << 20                 # the most one GET /api/reqlog answer may hold
 
@@ -1082,7 +1082,7 @@ def make_handler(svc: Service, remote: bool = False):
 
         def _control_cookie(self) -> str:
             """One cookie name for each port: cookies are shared by every port of an address, and each server has its own secret."""
-            return f"basalt_control_{self.server.server_address[1]}"
+            return f"tadamoo_control_{self.server.server_address[1]}"
 
         def _write_secret(self) -> bool:
             """Whatever /api/* changes needs the server's secret, in the header (programs) or in the cookie the page got when it
@@ -1661,7 +1661,7 @@ def make_handler(svc: Service, remote: bool = False):
             if level not in MASK_LEVELS:
                 self._json(400, {"error": {"type": "invalid_request_error", "message": "mask: " + " or ".join(MASK_LEVELS)}})
                 return
-            mask = ExportMask(level, clean_words(query.get("hide", [""])[0]), known=[svc.api_key or "", os.environ.get("BASALT_API_KEY", "")],
+            mask = ExportMask(level, clean_words(query.get("hide", [""])[0]), known=[svc.api_key or "", os.environ.get("TADAMOO_API_KEY", "")],
                               vault_mask=Vault(userdata.path("vault")).mask)
             name = f"basalt-requests-{time.strftime('%Y%m%d-%H%M%S')}." + ("log" if fmt == "text" else "jsonl")
             self.send_response(200)
@@ -2196,9 +2196,9 @@ def make_handler(svc: Service, remote: bool = False):
             """Learns from what the person wrote, in the background; it also keeps its queue across restarts, so it starts with the conversations."""
             global _MEM_WORKER
             if _MEM_WORKER is None:
-                from tadamoo.client import BasaltClient
+                from tadamoo.client import TadamooClient
                 endpoint = f"http://127.0.0.1:{self.server.server_address[1]}"
-                worker = MemoryWorker(self._personal(), lambda: BasaltClient(base_url=endpoint, api_key=svc.api_key or None),
+                worker = MemoryWorker(self._personal(), lambda: TadamooClient(base_url=endpoint, api_key=svc.api_key or None),
                                       lambda: gpu_free(svc, mine=worker.extractor.last))
                 _MEM_WORKER = worker
                 worker.start()
@@ -2214,10 +2214,10 @@ def make_handler(svc: Service, remote: bool = False):
         def _card_worker(self):
             global _CARDS
             if _CARDS is None:
-                from tadamoo.client import BasaltClient
+                from tadamoo.client import TadamooClient
                 from serve.card_worker import BACKFILL_QUIET_S, CardWorker
                 endpoint = f"http://127.0.0.1:{self.server.server_address[1]}"
-                worker = CardWorker(self._past(), lambda: BasaltClient(base_url=endpoint, api_key=svc.api_key or None),
+                worker = CardWorker(self._past(), lambda: TadamooClient(base_url=endpoint, api_key=svc.api_key or None),
                                     lambda: gpu_free(svc, quiet_s=BACKFILL_QUIET_S, mine=worker.last))
                 _CARDS = worker
                 worker.start()
@@ -2421,7 +2421,7 @@ def make_handler(svc: Service, remote: bool = False):
             self.send_response(200)
             self.send_header("Content-Type", out.content_type)
             self.send_header("Content-Disposition", export_api.disposition(out.name))
-            self.send_header("X-Basalt-Filename", urllib.parse.quote(out.name, safe=""))
+            self.send_header("X-Tadamoo-Filename", urllib.parse.quote(out.name, safe=""))
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(out.data)))

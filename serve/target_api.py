@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from tadamoo import target as tg
-from tadamoo.client import BasaltClient
+from tadamoo.client import TadamooClient
 from serve.agent_runs import RunError
 from serve.tasks import TaskJournal, _write_json
 
@@ -118,7 +118,7 @@ class TargetManager:
                  llm_factory: Optional[Callable[[], tg.StructuredLLM]] = None, conversation: Optional[Callable[[str], Any]] = None,
                  waits: Tuple[float, ...] = tg.MODEL_WAITS) -> None:
         self.sessions, self.tasks, self.changes, self.waits = sessions, tasks, changes, waits
-        self.llm_factory = llm_factory or (lambda: tg.StructuredLLM(BasaltClient(base_url=sessions.endpoint, api_key=sessions.api_key or None)))
+        self.llm_factory = llm_factory or (lambda: tg.StructuredLLM(TadamooClient(base_url=sessions.endpoint, api_key=sessions.api_key or None)))
         self.conversation = conversation or (lambda sid: SessionConversation(sessions, sid, changes))
         self._lock = threading.RLock()
         self._targets: Dict[str, List[Dict[str, Any]]] = {}

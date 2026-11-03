@@ -6,7 +6,7 @@ import pytest
 
 from tadamoo.agent_loop import (AgentLoop, CANCELLED, DEGENERATE, EMPTY, FINAL, LENGTH, MAX_CONTINUATIONS, answer_text)
 from tadamoo.audit import AuditLedger
-from tadamoo.client import BasaltClient, _collect_stream
+from tadamoo.client import TadamooClient, _collect_stream
 from tadamoo.eval.report import generate_eval_report, summarize
 from tadamoo.eval.runner import EvalResult, Trial
 from tadamoo.tools import create_standard_tool_registry
@@ -317,7 +317,7 @@ def test_the_client_leaves_temperature_and_max_tokens_out_of_the_request_unless_
         return Resp()
 
     monkeypatch.setattr("tadamoo.client.open_url", lambda req, timeout=0: fake_open(req, timeout))
-    client = BasaltClient("http://x")
+    client = TadamooClient("http://x")
     client.chat_completion([{"role": "user", "content": "hi"}])
     client.chat_completion([{"role": "user", "content": "hi"}], temperature=0.0, max_tokens=5)
     assert "temperature" not in seen[0] and "max_tokens" not in seen[0]

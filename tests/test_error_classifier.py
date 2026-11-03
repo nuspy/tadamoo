@@ -3,7 +3,7 @@ is retried."""
 import pytest
 
 from tadamoo import error_classifier as ec
-from tadamoo.client import BasaltError
+from tadamoo.client import TadamooError
 from tadamoo.session import parse_args
 from tadamoo.stack import AgentConfig, agent_settings
 from test_session import Scripted, make, say
@@ -29,7 +29,7 @@ def test_the_classifier_is_on_unless_turned_off():
 
 
 def test_with_it_off_a_refused_request_is_retried(tmp_path):
-    client = Scripted(BasaltError(400, "malformed request"), say("Ok now."))
+    client = Scripted(TadamooError(400, "malformed request"), say("Ok now."))
     session, ev, store, built = make(tmp_path, client, classify_errors=False)
     session.send("t1", "hello")
     ev.wait("done")
@@ -38,7 +38,7 @@ def test_with_it_off_a_refused_request_is_retried(tmp_path):
 
 
 def test_by_default_a_request_the_server_will_always_refuse_ends_the_turn_with_the_error(tmp_path):
-    client = Scripted(BasaltError(400, "malformed request: tools[0]"), say("never"))
+    client = Scripted(TadamooError(400, "malformed request: tools[0]"), say("never"))
     session, ev, store, built = make(tmp_path, client)
     session.send("t1", "hello")
     done = ev.wait("done")
@@ -47,7 +47,7 @@ def test_by_default_a_request_the_server_will_always_refuse_ends_the_turn_with_t
 
 
 def test_by_default_a_busy_or_loading_server_is_still_waited_for(tmp_path):
-    client = Scripted(BasaltError(503, "no model is loaded yet"), BasaltError(0, "cannot reach"), BasaltError(400, "the prompt is over the context"), say("Fine."))
+    client = Scripted(TadamooError(503, "no model is loaded yet"), TadamooError(0, "cannot reach"), TadamooError(400, "the prompt is over the context"), say("Fine."))
     session, ev, store, built = make(tmp_path, client)
     session.send("t1", "hello")
     done = ev.wait("done")

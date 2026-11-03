@@ -36,7 +36,7 @@ and the internet the first time (Python installer from python.org, wheels from P
 
 * Folder: `C:\Program Files\Tadamoo\BasaltWinGUI`. The `.ifp` has one entry, the folder `dist\stage\BasaltWinGUI`.
 * Shortcuts **Basalt** (desktop and Start menu) start `tools\windows\desktop\publish\BasaltWinGUI.exe`, the app the user
-  runs. It is self-contained (.NET included). `Avvia-Basalt.ps1` and `Ferma-Basalt.ps1` stay in the folder because the
+  runs. It is self-contained (.NET included). `Avvia-TaDaMoo.ps1` and `Ferma-TaDaMoo.ps1` stay in the folder because the
   app calls them for "server only" and "stop"; the user does not start them.
 * After the files are copied, InstallForge runs `tools\windows\desktop\publish\BasaltSetup.exe` (also self-contained, it
   needs no Python). It:
@@ -47,11 +47,11 @@ and the internet the first time (Python installer from python.org, wheels from P
   3. creates `.venv` and installs `requirements.txt` from `setup\wheels` (no internet); if the wheels do not fit the
      Python found, from the internet;
   4. checks that the packages and `serve.server` import;
-  5. creates `logs\` writable for users and lets users **create** files in the folder root (`basalt.pid`,
-     `basalt_config.json`); programs, scripts and libraries stay read-only for users;
+  5. creates `logs\` writable for users and lets users **create** files in the folder root (`tadamoo.pid`,
+     `tadamoo_config.json`); programs, scripts and libraries stay read-only for users;
   6. precompiles `serve\` (the folder is not writable afterwards), then removes `setup\`.
   Its log is `setup.log` in the installed folder. It shows a small progress window.
-* User data (profiles, model folders, preferences) stays in `%APPDATA%\BasaltPannello`, as in a working copy.
+* User data (profiles, model folders, preferences) stays in `%APPDATA%\TaDaMoo`, as in a working copy.
 * The setup is not code-signed: SmartScreen asks for confirmation. InstallForge supports signing (`BuildConfiguration`).
 * The installer asks for administrator rights (InstallForge always does). The app is not started at the end of the
   setup, so that it does not run elevated.

@@ -277,8 +277,8 @@ class SweBenchAdapter:
     def _client(self, endpoint: str) -> Any:
         if self.client_factory:
             return self.client_factory(endpoint)
-        from tadamoo.client import BasaltClient
-        return BasaltClient(base_url=endpoint)
+        from tadamoo.client import TadamooClient
+        return TadamooClient(base_url=endpoint)
 
     def run_trial(self, key: Key, ctx: TrialContext) -> TrialResult:
         iid, rep = str(key[0]), int(key[1])

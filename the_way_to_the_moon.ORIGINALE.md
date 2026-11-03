@@ -240,7 +240,7 @@ Per consentire all'utente di continuare la sessione avviata su PC direttamente d
 
 #### Elevazione UAC all'Avvio
 - Nel manifest di Windows (`tools/windows/basalt.manifest`) o nel bootstrapper `Program.cs`:
-  - Flag configurabile nel file di configurazione `basalt_config.json`: `"run_as_admin": true`.
+  - Flag configurabile nel file di configurazione `tadamoo_config.json`: `"run_as_admin": true`.
   - All'avvio, l'eseguibile verifica lo stato di integrità del token di Windows:
     ```csharp
     var identity = WindowsIdentity.GetCurrent();
@@ -288,7 +288,7 @@ classDiagram
     PlatformServiceManager <|-- LinuxSystemdServiceManager
 ```
 
-- **Windows**: Automatizza l'interazione con `nssm.exe` collocato in `tools/windows/`, configurando `AppDirectory`, redirect di stdout/stderr su `logs/basalt-service.log` e policy di riavvio in caso di crash.
+- **Windows**: Automatizza l'interazione con `nssm.exe` collocato in `tools/windows/`, configurando `AppDirectory`, redirect di stdout/stderr su `logs/tadamoo-service.log` e policy di riavvio in caso di crash.
 - **Linux**: Genera dinamicamente il file `/etc/systemd/system/basalt.service` con direttive `Restart=always`, `After=network.target` e comandi `systemctl`.
 - **UI nella GUI**: Nel tab *Settings*, un pannello unificato consente con un click di installare, avviare o rimuovere il servizio di sistema, visualizzandone lo stato (Active/Stopped/Failed).
 

@@ -16,7 +16,7 @@ from typing import Any, Callable, Dict, List, Optional
 from tadamoo.agent_loop import AgentLoop, local_now
 from tadamoo.audit import AuditLedger
 from tadamoo.checkpoints import CheckpointManager
-from tadamoo.client import BasaltClient
+from tadamoo.client import TadamooClient
 from tadamoo.compaction import DEFAULT_THRESHOLD as DEFAULT_COMPACTION_THRESHOLD, MAX_THRESHOLD as MAX_COMPACTION_THRESHOLD, MIN_THRESHOLD as MIN_COMPACTION_THRESHOLD, Compaction, SummaryCut
 from tadamoo.context import FILE_TOOLS, ContextBuilder, ContextManager, TokenJuiceCompactor, available_budget
 from tadamoo.context_patterns import PatternContext, Snapshots, normalize_config
@@ -125,7 +125,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     """The options every way of running the agent takes (the Chat's process, the command line, the editor): what it can reach and how."""
     parser.add_argument("--workspace", default=".", help="folder the agent works in")
     parser.add_argument("--endpoint", default="http://127.0.0.1:7232", help="Basalt server address")
-    parser.add_argument("--api-key", default=os.environ.get("BASALT_API_KEY"), help="server API key (or BASALT_API_KEY)")
+    parser.add_argument("--api-key", default=os.environ.get("TADAMOO_API_KEY"), help="server API key (or TADAMOO_API_KEY)")
     parser.add_argument("--max-turns", type=int, default=max_turns, help="most model turns in one answer (default and below 1: no limit)")
     parser.add_argument("--max-failed-attempts", type=int, default=0, metavar="N", help="failed calls and failed checks one request may use up before it is stopped as failed (default and below 1: no limit)")
     parser.add_argument("--permission-mode", choices=["plan", "read_only", "default", "auto"], default=permission_mode)
@@ -160,8 +160,8 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--page-files", action="store_true", help="the answers are read in a page that turns links to files into buttons that save them")
     parser.add_argument("--lsp", action="store_true", help="offer diagnostics, go_to_definition and find_references when a language server is found")
     parser.add_argument("--council", action="store_true", help="offer ask_council when a council is set up on the Providers page")
-    parser.add_argument("--wiki", action="store_true", help="offer the wikibridge tools (the address is --wiki-url or BASALT_WIKIBRIDGE_URL; the key BASALT_WIKIBRIDGE_KEY)")
-    parser.add_argument("--wiki-url", default="", help="the wikibridge address (default: BASALT_WIKIBRIDGE_URL, else http://127.0.0.1:8775)")
+    parser.add_argument("--wiki", action="store_true", help="offer the wikibridge tools (the address is --wiki-url or TADAMOO_WIKIBRIDGE_URL; the key TADAMOO_WIKIBRIDGE_KEY)")
+    parser.add_argument("--wiki-url", default="", help="the wikibridge address (default: TADAMOO_WIKIBRIDGE_URL, else http://127.0.0.1:8775)")
     parser.add_argument("--wiki-project", default="", help="wikibridge project slug used when a call names none")
     parser.add_argument("--reference", default=None, metavar="DIR", help="folder of .md and .txt reference documents")
     parser.add_argument("--reference-strategy", choices=["auto", "cag", "rag", "none"], default="auto",
@@ -204,7 +204,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--attachments-dir", default="", help="where the conversation's attached files are kept (with --outputs-dir: the tools for them)")
     parser.add_argument("--outputs-dir", default="", help="where the files the agent makes for the person are kept")
     parser.add_argument("--hooks", default="", metavar="FILE", help="a hooks file (default: hooks.json in the user data folder)")
-    parser.add_argument("--workspace-hooks", action="store_true", help="also run the hooks in the workspace's .basalt/hooks.json (they can name commands)")
+    parser.add_argument("--workspace-hooks", action="store_true", help="also run the hooks in the workspace's .tadamoo/hooks.json (they can name commands)")
     parser.add_argument("--after-plan", choices=["default", "auto"], default="default",
                         help="the mode the run goes on in when you approve a plan made in plan mode")
     parser.add_argument("--tool-timeout", action="append", default=[], metavar="[NAME=]SECONDS",
@@ -262,7 +262,7 @@ def data_dir_for(workspace: Path) -> Path:
         from serve.userdata import user_data_dir
         base = user_data_dir()
     except Exception:  # the harness also runs without the server package
-        base = Path.home() / ".basalt"
+        base = Path.home() / ".tadamoo"
     return base / "harness" / hashlib.sha1(str(workspace).lower().encode("utf-8")).hexdigest()[:16]
 
 
@@ -311,7 +311,7 @@ class AgentConfig:
     reference_docs: Dict[str, str] = field(default_factory=dict)   # path -> text of reference documents
     reference_strategy: str = "auto"   # auto, cag (a fixed block at the start), rag (searched passages) or none
     wiki: bool = False                 # offer the wikibridge tools (the key from the environment)
-    wiki_url: str = ""                 # the wikibridge address; empty: BASALT_WIKIBRIDGE_URL, else the usual local one
+    wiki_url: str = ""                 # the wikibridge address; empty: TADAMOO_WIKIBRIDGE_URL, else the usual local one
     memory_min_score: float = DEFAULT_MEMORY_MIN_SCORE     # the points a project note must score from the words it shares with a request to be added to it
     memory_notes: int = DEFAULT_MEMORY_NOTES               # most project notes added to a request
     memory_budget_tokens: int = DEFAULT_MEMORY_BUDGET      # most tokens those notes may take
@@ -357,7 +357,7 @@ class AgentConfig:
     tool_timeouts: Dict[str, float] = field(default_factory=dict)      # a limit for one tool; 0 for none
     hooks_file: str = ""                # the person's hooks (tadamoo/hooks.py); empty: hooks.json in the user data folder
     after_plan: str = "default"         # the mode a plan approved in plan mode goes on in: default (ask before risky actions) or auto
-    workspace_hooks: bool = False       # also run the hooks in the workspace's .basalt/hooks.json (a folder under work can name commands: the person opts in)
+    workspace_hooks: bool = False       # also run the hooks in the workspace's .tadamoo/hooks.json (a folder under work can name commands: the person opts in)
     confirm: Optional[Callable[[str, Dict[str, Any]], bool]] = None
 
 
@@ -594,9 +594,9 @@ def _hook_files(cfg: AgentConfig, workspace: Path) -> List[Path]:
             from serve.userdata import user_data_dir
             files = [user_data_dir() / "hooks.json"]
         except Exception:
-            files = [Path.home() / ".basalt" / "hooks.json"]
+            files = [Path.home() / ".tadamoo" / "hooks.json"]
     if cfg.workspace_hooks:
-        files.append(workspace / ".basalt" / "hooks.json")
+        files.append(workspace / ".tadamoo" / "hooks.json")
     return files
 
 
@@ -608,10 +608,10 @@ def _capabilities_directory(cfg: "AgentConfig") -> Path:
         from serve.userdata import user_data_dir
         return user_data_dir() / "capabilities"
     except Exception:
-        return Path.home() / ".basalt" / "capabilities"
+        return Path.home() / ".tadamoo" / "capabilities"
 
 
-def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summarizer: Optional[Any] = None, technical: Optional[Any] = None) -> BuiltAgent:
+def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summarizer: Optional[Any] = None, technical: Optional[Any] = None) -> BuiltAgent:
     if cfg.permission_mode not in PERMISSION_MODES:
         raise ValueError(f"permission mode must be one of {sorted(PERMISSION_MODES)}")
     workspace = Path(cfg.workspace).resolve()
@@ -619,7 +619,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         raise FileNotFoundError(f"workspace folder not found: {workspace}")
     data = Path(cfg.data_dir) if cfg.data_dir else data_dir_for(workspace)
     data.mkdir(parents=True, exist_ok=True)
-    side_use(client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key))      # the short calls ask this server for its technical session
+    side_use(client or TadamooClient(base_url=cfg.endpoint, api_key=cfg.api_key))      # the short calls ask this server for its technical session
 
     secrets = SecretsBroker.from_environment(cfg.secret_names, cfg.secret_hosts)
     if cfg.vault_dir:
@@ -678,7 +678,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         hooks.sources.append(str(path))
     checkpoints = CheckpointManager(workspace, storage_dir=data / "checkpoints") if cfg.use_checkpoints else None
 
-    compactor = TokenJuiceCompactor(workspace / ".basalt" / "artifacts", display_dir=".basalt/artifacts")
+    compactor = TokenJuiceCompactor(workspace / ".tadamoo" / "artifacts", display_dir=".tadamoo/artifacts")
     def reserve_for(window: int) -> int:
         return max(cfg.max_output_tokens, min(ANSWER_RESERVE_TOKENS, window // 4))
 
@@ -797,11 +797,11 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
     if cfg.council:
         from tadamoo.council import offer_council
         from tadamoo.llm import client_for as routed_for, registry as llm_registry
-        here = getattr(client, "local", None) or client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key)
+        here = getattr(client, "local", None) or client or TadamooClient(base_url=cfg.endpoint, api_key=cfg.api_key)
         offer_council(registry, lambda function: routed_for(function, here), llm_registry())
     capability_index = None
     if cfg.capabilities:
-        capability_index = _offer_capabilities(cfg, workspace, registry, builder, sandbox, client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key))
+        capability_index = _offer_capabilities(cfg, workspace, registry, builder, sandbox, client or TadamooClient(base_url=cfg.endpoint, api_key=cfg.api_key))
 
     mcp_hub = None
     if cfg.mcp_servers:
@@ -832,7 +832,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
         register_past_tools(registry, PastIndex(cfg.past_index), local=lambda: getattr(client, "stays_local", lambda: True)())
     cancel = threading.Event()
     from tadamoo.tools.extra import register_extra_tools        # run_code, subagents and, when listed in the user data folder, ACP and A2A agents
-    register_extra_tools(registry, cfg, workspace=workspace, sandbox=sandbox, client=client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key),
+    register_extra_tools(registry, cfg, workspace=workspace, sandbox=sandbox, client=client or TadamooClient(base_url=cfg.endpoint, api_key=cfg.api_key),
                          permissions=permissions, hooks=hooks, audit=audit, checkpoints=checkpoints, secrets=secrets,
                          output_filter=compactor.as_filter(), cancel=cancel, capabilities=capability_index)
     for name in OWN_TIME_LIMIT:
@@ -867,7 +867,7 @@ def build_agent(cfg: AgentConfig, client: Optional[BasaltClient] = None, summari
             max_tokens=cfg.max_total_tokens, max_seconds=cfg.max_seconds, absent=awareness.absent_features(present),
             lessons=""))
     agent = AgentLoop(
-        client=client or BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key),
+        client=client or TadamooClient(base_url=cfg.endpoint, api_key=cfg.api_key),
         tool_registry=registry,
         gate=make_gate(cfg.project_checks),
         role=role,

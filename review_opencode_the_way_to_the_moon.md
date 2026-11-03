@@ -87,7 +87,7 @@
   * In [`tadamoo/tools/__init__.py`](file:///E:/Projects/basalt/tadamoo/tools/__init__.py#L15), linea 15: `from ..context import mask_output` — `mask_output` **non esiste** in `context.py`. L'intero pacchetto `tadamoo.tools` non può essere importato.
 * **Nome del dizionario strumenti sbagliato**:
   * In `tadamoo/tools/__init__.py` il dizionario è dichiarato come `TOOL_BY_NAME`.
-  * In [`tadamoo/headless.py`](file:///E:/Projects/basalt/tadamoo/headless.py#L19), linea 19: `from .tools import TOOL_REGISTRY`. `TOOL_REGISTRY` non esiste, causando `ImportError` al lancio di `basalt-agent`.
+  * In [`tadamoo/headless.py`](file:///E:/Projects/basalt/tadamoo/headless.py#L19), linea 19: `from .tools import TOOL_REGISTRY`. `TOOL_REGISTRY` non esiste, causando `ImportError` al lancio di `tadamoo-agent`.
 
 ---
 
@@ -123,7 +123,7 @@
     
     Anziché bloccare le autorizzazioni o azzerare il cap, imposta `self.spent = 0.0`, il che **consente all'agente di spendere di nuovo l'intero budget**!
 * **Vault dei segreti in chiaro**:
-  * In [`tadamoo/secrets_broker.py`](file:///E:/Projects/basalt/tadamoo/secrets_broker.py#L26), i segreti vengono scritti in file di testo in chiaro non cifrati in `~/.basalt/secrets/`. Il protocollo di broker cifrato e isolato descritto in §4.8 non esiste.
+  * In [`tadamoo/secrets_broker.py`](file:///E:/Projects/basalt/tadamoo/secrets_broker.py#L26), i segreti vengono scritti in file di testo in chiaro non cifrati in `~/.tadamoo/secrets/`. Il protocollo di broker cifrato e isolato descritto in §4.8 non esiste.
 
 ---
 
@@ -182,7 +182,7 @@
 
 ### Fase 4 — Interoperabilità (Richiesto: M)
 
-* **Requisiti documento**: Client MCP (stdio + Streamable HTTP) con rilevamento, OAuth, deferral dei tool. Agente ACP su stdio compatibile con Zed/JetBrains e supporto `diff`. Entry point `basalt-agent -p` headless con output JSON.
+* **Requisiti documento**: Client MCP (stdio + Streamable HTTP) con rilevamento, OAuth, deferral dei tool. Agente ACP su stdio compatibile con Zed/JetBrains e supporto `diff`. Entry point `tadamoo-agent -p` headless con output JSON.
 * **Cosa c'è nel codice**: Client MCP bloccato su `readline()` a causa della mancanza dell'`id` JSON-RPC. `acp_agent.py` è un mock scollegato dall'agente che inoltra solo una chat singola a HTTP. `headless.py` non si importa (`TOOL_REGISTRY` inesistente).
 
 ### Fase 5 — Interfaccia Grafica e Canvas (Richiesto: L)

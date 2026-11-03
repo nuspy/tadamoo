@@ -257,7 +257,7 @@ def run_process(tmp_path, monkeypatch, fake, answers, need="extract tables from 
     home = tmp_path / "home"
     (tmp_path / "data" / "capabilities").mkdir(parents=True)
     (tmp_path / "data" / "capabilities" / "discovery.json").write_text(json.dumps({"base_urls": fake.bases}), encoding="utf-8")
-    for var, value in (("BASALT_DATA", tmp_path / "data"), ("HOME", home), ("USERPROFILE", home), ("APPDATA", tmp_path / "appdata")):
+    for var, value in (("TADAMOO_DATA", tmp_path / "data"), ("HOME", home), ("USERPROFILE", home), ("APPDATA", tmp_path / "appdata")):
         monkeypatch.setenv(var, str(value))
     runner = Runner()
     real_which = shutil.which

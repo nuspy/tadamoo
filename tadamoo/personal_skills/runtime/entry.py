@@ -1,6 +1,6 @@
 """Runs a personal skill's script: `python -I entry.py <script> <context.json>`.
 
-The context holds the parameters. The harness is on the other end of the pipes: see basalt_skill.py."""
+The context holds the parameters. The harness is on the other end of the pipes: see tadamoo_skill.py."""
 import json
 import os
 import sys
@@ -8,7 +8,7 @@ import traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import basalt_skill as sdk  # noqa: E402
+import tadamoo_skill as sdk  # noqa: E402
 
 
 class _Printer:

@@ -63,7 +63,7 @@ class PrivateAddress(BrowserError):
 
 
 def find_browser(explicit: str = "") -> Optional[str]:
-    for path in (explicit, os.environ.get("BASALT_BROWSER", "")):
+    for path in (explicit, os.environ.get("TADAMOO_BROWSER", "")):
         if path and Path(path).is_file():
             return path
     for path in CANDIDATES:
@@ -527,7 +527,7 @@ class Browser:
             return
         exe = find_browser(self.executable)
         if not exe:
-            raise BrowserError("no Edge or Chrome was found on this PC (set BASALT_BROWSER to its program)")
+            raise BrowserError("no Edge or Chrome was found on this PC (set TADAMOO_BROWSER to its program)")
         if self.persistent:
             self.lock = ProfileLock(self.profile_dir)
             if not self.lock.acquire():                               # another conversation, or the window the person signs in with, has it

@@ -167,7 +167,7 @@ try {
         $wanted = (Join-Path $Cuda 'bin\nvcc.exe') -replace '\\', '/'
         if ($builtWith -and ($builtWith -replace '\\', '/') -ne $wanted) {
             $inUse = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith((Join-Path $Root 'bin'), [StringComparison]::OrdinalIgnoreCase) })
-            if ($inUse.Count) { throw ('the build was made with {0} and this run uses {1}, so the engine is built again, but it is running ({2}): stop the server (Ferma-Basalt.ps1) and run this again' -f $builtWith, $wanted, (($inUse | ForEach-Object { "$($_.ProcessName) $($_.Id)" }) -join ', ')) }
+            if ($inUse.Count) { throw ('the build was made with {0} and this run uses {1}, so the engine is built again, but it is running ({2}): stop the server (Ferma-TaDaMoo.ps1) and run this again' -f $builtWith, $wanted, (($inUse | ForEach-Object { "$($_.ProcessName) $($_.Id)" }) -join ', ')) }
             Info "the build folder was made with ${builtWith}: removed, the engine is built again with ${wanted}"
             Remove-Item -Recurse -Force (Join-Path $Root 'build-win')
         }
@@ -184,7 +184,7 @@ try {
         } else {
             $targets = @([regex]::Matches($plan, 'Linking \S+ executable (\S+)') | ForEach-Object { $_.Groups[1].Value })
             $inUse = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path } | Where-Object { $own = $_.Path; $targets | Where-Object { [string]::Equals($_, $own, [StringComparison]::OrdinalIgnoreCase) } })
-            if ($inUse.Count) { throw ('the engine has to be rebuilt ({0}) but it is running ({1}): stop the server (Ferma-Basalt.ps1) and run this again' -f (($targets | ForEach-Object { Split-Path $_ -Leaf }) -join ', '), (($inUse | ForEach-Object { "$($_.ProcessName) $($_.Id)" }) -join ', ')) }
+            if ($inUse.Count) { throw ('the engine has to be rebuilt ({0}) but it is running ({1}): stop the server (Ferma-TaDaMoo.ps1) and run this again' -f (($targets | ForEach-Object { Split-Path $_ -Leaf }) -join ', '), (($inUse | ForEach-Object { "$($_.ProcessName) $($_.Id)" }) -join ', ')) }
             (Get-Process -Id $PID).PriorityClass = 'BelowNormal'
             Run cmake @('--build', 'build-win', '--parallel', '4')
         }

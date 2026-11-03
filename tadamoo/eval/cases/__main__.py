@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-from tadamoo.client import BasaltClient
+from tadamoo.client import TadamooClient
 from tadamoo.eval.report import k_warning
 from tadamoo.eval.runner import collect_environment
 
@@ -77,7 +77,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     extra = {key: value for key, value in (("window", args.window), ("deadline_s", args.deadline_s)) if value is not None}
     environment = {}
     if exp.needs_model:
-        client = BasaltClient(base_url=args.endpoint, api_key=args.api_key)
+        client = TadamooClient(base_url=args.endpoint, api_key=args.api_key)
         env = collect_environment(client, args.endpoint, gpu_power_limit_w=args.gpu_power_limit_w)
         environment = {"Model": env.get("model"), "Hardware": ", ".join(g.get("name", "GPU") for g in env.get("gpus") or []) or "not recorded",
                        "Harness": f"{env.get('harness_version')}, commit {env.get('harness_commit')}" + (" (uncommitted changes)" if env.get("harness_dirty") else ""),

@@ -3,7 +3,7 @@ from tadamoo.personal_skills.authoring import ai_calls, register_authoring_tool
 from tadamoo.personal_skills.store import PersonalSkills
 from tadamoo.tools.registry import ToolRegistry
 
-GOOD = "from basalt_skill import tool, ai\n\ndef main(params):\n    text = tool('read_file', path=params.file)\n    return ai('summarise', text)\n"
+GOOD = "from tadamoo_skill import tool, ai\n\ndef main(params):\n    text = tool('read_file', path=params.file)\n    return ai('summarise', text)\n"
 
 
 def make(tmp_path):

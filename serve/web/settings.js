@@ -33,14 +33,14 @@
       if (document.activeElement !== share) share.value = String(Math.round((s.value ?? s.default ?? 0.15) * 100));
     } catch (e) { /* the controls keep what they show */ }
     let skip = false;
-    try { skip = localStorage.getItem("basalt.wizard.skip") === "1"; } catch (e) { skip = false; }
+    try { skip = localStorage.getItem("tadamoo.wizard.skip") === "1"; } catch (e) { skip = false; }
     $("#st-wizard").checked = !skip;
   }
   $("#st-lang").addEventListener("change", async e => {
     const v = e.target.value;
     try { await postPrefs({ lang: v === "auto" ? null : v }); }
     catch (err) { msg($("#st-lang-msg"), err.message, "err"); return; }
-    try { localStorage.removeItem("basalt.lang"); } catch (err) { /* nothing kept here */ }
+    try { localStorage.removeItem("tadamoo.lang"); } catch (err) { /* nothing kept here */ }
     msg($("#st-lang-msg"), T("st.lang.saved"), "ok");
     setTimeout(() => location.reload(), 600);
   });
@@ -63,9 +63,9 @@
     } catch (err) { msg(out, T("st.share.fail", err.message), "err"); }
   });
 
-  /* the configuration wizard at start (BasaltWizard.offer reads the same key) */
+  /* the configuration wizard at start (TadamooWizard.offer reads the same key) */
   $("#st-wizard").addEventListener("change", e => {
-    try { localStorage.setItem("basalt.wizard.skip", e.target.checked ? "0" : "1"); } catch (err) { /* asked again */ }
+    try { localStorage.setItem("tadamoo.wizard.skip", e.target.checked ? "0" : "1"); } catch (err) { /* asked again */ }
   });
 
   document.addEventListener("basalt:view", e => { if (e.detail === "settings") refresh(); });

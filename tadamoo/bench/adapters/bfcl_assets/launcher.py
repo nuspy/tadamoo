@@ -24,8 +24,8 @@ def check_local(base_url: str, allowed_host: str) -> None:
 
 
 def main() -> None:
-    registry_name, served = os.environ["BASALT_BFCL_REGISTRY"], os.environ["BASALT_BFCL_MODEL"]
-    check_local(os.environ.get("OPENAI_BASE_URL", ""), os.environ.get("BASALT_BFCL_HOST", ""))
+    registry_name, served = os.environ["TADAMOO_BFCL_REGISTRY"], os.environ["TADAMOO_BFCL_MODEL"]
+    check_local(os.environ.get("OPENAI_BASE_URL", ""), os.environ.get("TADAMOO_BFCL_HOST", ""))
     from bfcl_eval.constants import model_config
     from bfcl_eval.model_handler.api_inference.openai_completion import OpenAICompletionsHandler
     register(model_config.MODEL_CONFIG_MAPPING, model_config.ModelConfig, OpenAICompletionsHandler, registry_name, served)

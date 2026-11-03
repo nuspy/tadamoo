@@ -18,7 +18,7 @@ from test_agent_gui_api import Api, wait_for  # noqa: E402
 
 
 def registry(folder):
-    return json.loads((Path(folder) / ".basalt" / "project.json").read_text(encoding="utf-8"))
+    return json.loads((Path(folder) / ".tadamoo" / "project.json").read_text(encoding="utf-8"))
 
 
 def test_adding_a_folder_writes_its_registry_and_a_gitignore_and_lists_it(tmp_path):
@@ -28,7 +28,7 @@ def test_adding_a_folder_writes_its_registry_and_a_gitignore_and_lists_it(tmp_pa
     project = store.add(str(folder))
     assert project["name"] == "site" and project["exists"] is True
     assert registry(folder)["basalt_project"] == 1 and registry(folder)["conversations"] == []
-    assert (folder / ".basalt" / ".gitignore").read_text(encoding="utf-8").strip() == "artifacts/"
+    assert (folder / ".tadamoo" / ".gitignore").read_text(encoding="utf-8").strip() == "artifacts/"
     assert [p["path"] for p in ProjectStore(tmp_path / "j").list()] == [str(folder.resolve())]       # kept between runs
     store.add(str(folder))                                                                                # again: still one
     assert len(store.list()) == 1
@@ -67,7 +67,7 @@ def test_removing_a_folder_forgets_it_and_leaves_its_files_and_registry(tmp_path
     assert store.remove(str(folder)) is True
     assert store.remove(str(folder)) is False
     assert store.list() == []
-    assert (folder / ".basalt" / "project.json").is_file()
+    assert (folder / ".tadamoo" / "project.json").is_file()
     store.sync(str(folder), [{"id": "x", "workspace": str(folder), "state": "idle"}])                    # no longer known: not rewritten
     assert registry(folder)["conversations"] == []
 

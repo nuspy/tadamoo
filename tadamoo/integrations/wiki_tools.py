@@ -26,7 +26,7 @@ def register_wiki_tools(registry: ToolRegistry, client: WikiBridgeClient, defaul
 
     def unreachable() -> RuntimeError:
         return RuntimeError(f"{client.last_error or 'wikibridge did not answer at ' + client.base_url}. Check that wikibridge is running and that its address "
-                            "is right (Settings, Memories, Wiki) and, if it asks for one, its key (BASALT_WIKIBRIDGE_KEY).")
+                            "is right (Settings, Memories, Wiki) and, if it asks for one, its key (TADAMOO_WIKIBRIDGE_KEY).")
 
     def wiki_search(query: str, project: str = "", limit: int = 5) -> List[Dict[str, Any]]:
         hits = client.search(project_of(project or None), query, limit=max(1, int(limit)))

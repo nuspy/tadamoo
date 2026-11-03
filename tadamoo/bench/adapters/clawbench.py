@@ -3,7 +3,7 @@ a judge reads its body.
 
 One trial is one `clawbench-run` of one case with one harness. Our harness is added to the imported ClawBench as a harness registry entry named `basalt`
 (`clawbench_assets/`): the files go into the imported tree before the first trial, together with a copy of our `harness/` package and the few `serve/`
-modules it imports, and ClawBench builds the image and starts the container. Inside, `basalt_driver.py` runs our headless agent against the container's
+modules it imports, and ClawBench builds the image and starts the container. Inside, `tadamoo_driver.py` runs our headless agent against the container's
 browser through `--browser-cdp-url`, so the page, the recorder and the interceptor are ClawBench's own. The model is the served local one, reached from the
 container as `host.docker.internal`; the judge, when asked for, is the same local model reached from the host.
 

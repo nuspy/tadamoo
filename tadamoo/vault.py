@@ -266,12 +266,12 @@ class Vault:
         return entry["fields"][field]
 
     def environment(self) -> Dict[str, str]:
-        """Every stored value as an environment variable, BASALT_VAULT_<ENTRY>_<FIELD>, for code the person let run free on this PC."""
+        """Every stored value as an environment variable, TADAMOO_VAULT_<ENTRY>_<FIELD>, for code the person let run free on this PC."""
         out: Dict[str, str] = {}
         for entry_id, entry in self._read().items():
             for field, value in entry["fields"].items():
                 if isinstance(value, str) and value:
-                    out["BASALT_VAULT_" + re.sub(r"[^A-Z0-9]+", "_", f"{entry_id}_{field}".upper()).strip("_")] = value
+                    out["TADAMOO_VAULT_" + re.sub(r"[^A-Z0-9]+", "_", f"{entry_id}_{field}".upper()).strip("_")] = value
         return out
 
     def login_facts(self) -> List[Dict[str, Any]]:

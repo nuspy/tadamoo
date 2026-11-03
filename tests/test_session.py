@@ -9,7 +9,7 @@ import time
 import pytest
 
 from tadamoo import agent_loop as al
-from tadamoo.client import BasaltError
+from tadamoo.client import TadamooError
 from tadamoo.session import UNAVAILABLE_NOTE, Session, SessionStore, approving_value, main, question_source, unattended_confirm
 from tadamoo.stack import AgentConfig, build_agent
 from tadamoo.tools.registry import EffectClass
@@ -217,7 +217,7 @@ def test_after_a_cancel_the_next_message_runs(tmp_path):
 
 
 def test_a_busy_server_is_retried_with_waits_and_the_turn_ends_well(tmp_path):
-    client = Scripted(BasaltError(503, "busy"), BasaltError(0, "cannot reach"), say("Fatto."))
+    client = Scripted(TadamooError(503, "busy"), TadamooError(0, "cannot reach"), say("Fatto."))
     session, ev, *_ = make(tmp_path, client)
     session.send("m1", "ciao")
     done = ev.wait("done")
@@ -228,7 +228,7 @@ def test_a_busy_server_is_retried_with_waits_and_the_turn_ends_well(tmp_path):
 
 
 def test_a_model_error_of_any_kind_never_blocks_it_is_retried_and_the_event_says_what_is_waited_for(tmp_path):
-    client = Scripted(BasaltError(400, "the prompt is over the context"), say("Ora sì."))
+    client = Scripted(TadamooError(400, "the prompt is over the context"), say("Ora sì."))
     session, ev, *_ = make(tmp_path, client)
     session.send("m1", "enorme")
     assert ev.wait("done")["final"] == "Ora sì."
@@ -238,7 +238,7 @@ def test_a_model_error_of_any_kind_never_blocks_it_is_retried_and_the_event_says
 
 
 def test_a_model_that_is_not_loaded_is_loaded_by_the_session_and_attended_auto_does_not_block(tmp_path):
-    client = Scripted(BasaltError(503, "no model is loaded yet"), say("Carico."))
+    client = Scripted(TadamooError(503, "no model is loaded yet"), say("Carico."))
     session, ev, *_ = make(tmp_path, client, health=lambda: {"reachable": True, "loaded": False, "loading": False, "auto_load": False})
     session.endpoint = "http://127.0.0.1:1"
     loads = []
@@ -250,7 +250,7 @@ def test_a_model_that_is_not_loaded_is_loaded_by_the_session_and_attended_auto_d
 
 
 def test_a_load_the_loader_refuses_is_said_in_the_event_and_the_retries_go_on(tmp_path):
-    client = Scripted(BasaltError(503, "no model is loaded yet"), BasaltError(503, "no model is loaded yet"), say("Eccomi."))
+    client = Scripted(TadamooError(503, "no model is loaded yet"), TadamooError(503, "no model is loaded yet"), say("Eccomi."))
     session, ev, *_ = make(tmp_path, client, health=lambda: {"reachable": True, "loaded": False, "loading": False, "auto_load": False})
     session.endpoint = "http://127.0.0.1:1"
 
@@ -264,7 +264,7 @@ def test_a_load_the_loader_refuses_is_said_in_the_event_and_the_retries_go_on(tm
 
 
 def test_a_server_that_loads_by_itself_is_not_asked_to_load(tmp_path):
-    client = Scripted(BasaltError(503, "no model is loaded yet"), say("Ok."))
+    client = Scripted(TadamooError(503, "no model is loaded yet"), say("Ok."))
     session, ev, *_ = make(tmp_path, client, health=lambda: {"reachable": True, "loaded": False, "loading": False, "auto_load": True})
     session.endpoint = "http://127.0.0.1:1"
     session.load_model = lambda wait_s: pytest.fail("loaded by the session")
@@ -273,7 +273,7 @@ def test_a_server_that_loads_by_itself_is_not_asked_to_load(tmp_path):
 
 
 def test_retries_never_run_out_and_the_last_wait_is_repeated(tmp_path):
-    client = Scripted(*[BasaltError(503, "busy")] * 7, say("Finalmente."))
+    client = Scripted(*[TadamooError(503, "busy")] * 7, say("Finalmente."))
     session, ev, *_ = make(tmp_path, client, waits=(0, 0, 0))
     session.send("m1", "ciao")
     assert ev.wait("done")["final"] == "Finalmente."
@@ -288,7 +288,7 @@ def test_the_waits_grow_up_to_a_few_minutes_and_stay_there():
 
 
 def test_a_model_the_server_will_not_load_is_retried_and_the_facts_are_in_the_event(tmp_path):
-    client = Scripted(BasaltError(503, "no model loaded"), say("Ora è carico."))
+    client = Scripted(TadamooError(503, "no model loaded"), say("Ora è carico."))
     session, ev, *_ = make(tmp_path, client, health=lambda: {"reachable": True, "loaded": False, "loading": False, "auto_load": False})
     session.send("m1", "ciao")
     assert ev.wait("done")["final"] == "Ora è carico."
@@ -336,19 +336,19 @@ def test_an_action_that_cannot_be_undone_is_not_run_again_by_the_harness_after_a
 
 
 def test_no_secret_reaches_the_history_file(tmp_path, monkeypatch):
-    monkeypatch.setenv("BASALT_TEST_SECRET", "s3cr3t-value-123")
+    monkeypatch.setenv("TADAMOO_TEST_SECRET", "s3cr3t-value-123")
     client = Scripted(say("ok"))
     ws = tmp_path / "ws"
     ws.mkdir()
     built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False,
-                                    secret_names=["BASALT_TEST_SECRET"]), client=client)
+                                    secret_names=["TADAMOO_TEST_SECRET"]), client=client)
     events = Events()
     store = SessionStore(tmp_path / "hist", redact=built.agent.secrets.mask_secrets)
     session = Session(built, store, events, session_id="s1", sleep=lambda s: None)
     session.send("m1", "la chiave è s3cr3t-value-123, non scriverla")
     events.wait("done")
     text = (tmp_path / "hist" / "history.json").read_text(encoding="utf-8")
-    assert "s3cr3t-value-123" not in text and "[REDACTED:BASALT_TEST_SECRET]" in text
+    assert "s3cr3t-value-123" not in text and "[REDACTED:TADAMOO_TEST_SECRET]" in text
 
 
 class Feed:

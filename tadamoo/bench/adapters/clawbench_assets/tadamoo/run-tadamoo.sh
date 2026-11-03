@@ -3,7 +3,7 @@ set -e
 
 # Run-time script of the Basalt harness: waits for the browser, runs the harness against it, watches the time and the interceptor, and leaves the files
 # ClawBench collects (/data/agent-messages.jsonl, /data/usage.jsonl, /data/.stop-reason).
-/setup-basalt.sh || { mkdir -p /data; echo "basalt_failed" > /data/.stop-reason; exit 1; }
+/setup-tadamoo.sh || { mkdir -p /data; echo "basalt_failed" > /data/.stop-reason; exit 1; }
 
 mkdir -p /data /root/workspace
 : > /data/agent-messages.jsonl
@@ -24,7 +24,7 @@ for i in $(seq 1 30); do
 done
 
 cd /root/workspace
-python3 /basalt_driver.py > /tmp/basalt-stdout.log 2> /tmp/basalt-stderr.log &
+python3 /tadamoo_driver.py > /tmp/basalt-stdout.log 2> /tmp/basalt-stderr.log &
 AGENT_PID=$!
 sleep 3
 if ! kill -0 $AGENT_PID 2>/dev/null && [ ! -s /data/usage.jsonl ] && ! grep -q '"type": "stop"' /data/agent-messages.jsonl 2>/dev/null; then

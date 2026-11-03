@@ -13,7 +13,7 @@ class SideUsesApiTest(base.PlansApiBase):
     @classmethod
     def setUpClass(cls):
         cls.data = tempfile.TemporaryDirectory()
-        cls.env = mock.patch.dict(os.environ, {"BASALT_DATA": cls.data.name})
+        cls.env = mock.patch.dict(os.environ, {"TADAMOO_DATA": cls.data.name})
         cls.env.start()
         super().setUpClass()
 

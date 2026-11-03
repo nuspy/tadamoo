@@ -78,13 +78,13 @@ UNTESTED_NOTE = {
 # ---- who measured what ---------------------------------------------------------------------------------------
 # Basalt's own table: next-token agreement with Q8_0 through the decode path, 20 pieces of 512 tokens of wikitext-2
 # (README.md, "Quality"); KLD against Q8_0.
-BASALT_Q8 = {"q2_0": (80.6, 0.486), "iq3_xxs": (86.8, 0.277), "iq3_s": (89.4, 0.177), "ud-q2_k_xl": (84.3, 0.323),
+TADAMOO_Q8 = {"q2_0": (80.6, 0.486), "iq3_xxs": (86.8, 0.277), "iq3_s": (89.4, 0.177), "ud-q2_k_xl": (84.3, 0.323),
              "ud-iq3_xxs": (87.0, 0.244), "ud-q3_k_xl": (89.3, 0.160), "ud-q4_k_xl": (93.0, 0.068),
              "coder": (69.0, 1.03)}
 
 
 def _basalt(key: str) -> dict:
-    top, kld = BASALT_Q8[key]
+    top, kld = TADAMOO_Q8[key]
     return {"en": f"{top:g}% of the next tokens equal Q8_0's (Basalt's own measurement on wikitext-2; KLD {kld:g})",
             "it": f"{str(top).replace('.', ',')}% dei token successivi uguali a Q8_0 (misura di Basalt su wikitext-2; "
                   f"KLD {str(kld).replace('.', ',')})",

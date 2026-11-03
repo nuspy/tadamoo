@@ -9,7 +9,7 @@ from typing import Any, Dict, List
 
 from .store import PersonalSkills, SkillError
 
-GUIDE = ("A skill is a Python script: from basalt_skill import tool, ai, ask, say; def main(params): ... . Do everything that can be done by code with "
+GUIDE = ("A skill is a Python script: from tadamoo_skill import tool, ai, ask, say; def main(params): ... . Do everything that can be done by code with "
          "code and with tool(...) calls (read files, run programs, filter, count, format). Use ai(...) only where the language itself has to be understood "
          "(summarising, judging, writing); each ai() call costs model time on every run.")
 

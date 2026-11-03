@@ -384,7 +384,7 @@ Per consentire all'utente di continuare la sessione avviata su PC direttamente d
 
 #### Elevazione UAC all'Avvio
 - **[REV] Principio del minimo privilegio.** Un'app che gira **sempre** come amministratore moltiplica il danno di qualunque errore o prompt injection (§4.8). Raccomandazione: **default `run_as_admin: false`**; l'app resta non elevata e ricorre a un **piccolo helper elevato** solo per operazioni puntuali (installare/rimuovere il servizio, regole del firewall). L'elevazione completa resta un'opzione esplicita.
-- Nel manifest di Windows (`tools/windows/basalt.manifest`) o nel bootstrapper `Program.cs`, flag in `basalt_config.json`: `"run_as_admin": false`. Con il flag attivo, all'avvio:
+- Nel manifest di Windows (`tools/windows/basalt.manifest`) o nel bootstrapper `Program.cs`, flag in `tadamoo_config.json`: `"run_as_admin": false`. Con il flag attivo, all'avvio:
   ```csharp
   var identity = WindowsIdentity.GetCurrent();
   var principal = new WindowsPrincipal(identity);
@@ -430,7 +430,7 @@ classDiagram
     PlatformServiceManager <|-- LinuxSystemdServiceManager
 ```
 
-- **Windows**: **[REV]** NSSM è una scelta valida ma è un binario di terzi da distribuire e mantenere (non è oggi in `tools/windows/`); alternative: servizio nativo (`sc`/pywin32) o WinSW. Qualunque sia la scelta: `AppDirectory`, redirect di stdout/stderr su `logs/basalt-service.log`, riavvio dopo crash. **Attenzione**: un servizio gira in sessione 0 (nessuna finestra, nessun WebView2): il **server** può essere servizio, la **GUI** resta un processo utente che vi si collega. Va verificato che l'arresto del servizio liberi la memoria GPU come il job object con chiusura automatica già usato oggi.
+- **Windows**: **[REV]** NSSM è una scelta valida ma è un binario di terzi da distribuire e mantenere (non è oggi in `tools/windows/`); alternative: servizio nativo (`sc`/pywin32) o WinSW. Qualunque sia la scelta: `AppDirectory`, redirect di stdout/stderr su `logs/tadamoo-service.log`, riavvio dopo crash. **Attenzione**: un servizio gira in sessione 0 (nessuna finestra, nessun WebView2): il **server** può essere servizio, la **GUI** resta un processo utente che vi si collega. Va verificato che l'arresto del servizio liberi la memoria GPU come il job object con chiusura automatica già usato oggi.
 - **Linux**: genera `basalt.service` con `Restart=always`, `After=network.target`.
 - **UI nella GUI**: nel tab *Settings*, un pannello per installare, avviare o rimuovere il servizio, con lo stato (Active/Stopped/Failed).
 
@@ -880,7 +880,7 @@ Nel testo originale ricorrono **zero volte**: hook, checkpoint/rewind, plan mode
 | **`AGENTS.md`** (+ lettura di `CLAUDE.md`/`GEMINI.md`) | Standard aperto | §4.13 | Alta |
 | **Skill (agentskills.io)** | Hermes, Claude Code, Codex | §4.7/§4.9 | Alta |
 | **Subagenti** | Claude Code, Codex, Goose, Hermes | Su una GPU i subagenti competono per gli slot e dividono il contesto: **prima misurare** (§4.23) | Media |
-| **Modalità headless / SDK** | `claude -p` e SDK, `codex exec`, `gemini -p`, SDK OpenCode | `basalt-agent -p "..."` con uscita JSON, codici di uscita, per CI e per essere pilotato da altri: **è anche la base per ACP e per i test di §4.21** | Alta |
+| **Modalità headless / SDK** | `claude -p` e SDK, `codex exec`, `gemini -p`, SDK OpenCode | `tadamoo-agent -p "..."` con uscita JSON, codici di uscita, per CI e per essere pilotato da altri: **è anche la base per ACP e per i test di §4.21** | Alta |
 | **Worktree paralleli** | Claude Code | Sessioni parallele su copie isolate del repo | Media |
 | **Sessioni: riprendi / fork** | Claude Code, OpenCode | Già implicito nel DAG di §4.3 | Media |
 | **Ricerca differita degli strumenti MCP** | Claude Code | §4.7 | Media |
@@ -972,7 +972,7 @@ flowchart TD
         CANVAS["Vista a grafo / lineare (Web / WebView2)"]
         DIFF["Artefatti e Diff Viewer"]
         IDE["IDE via ACP (stdio)"]
-        CLI["Headless / SDK (basalt-agent -p)"]
+        CLI["Headless / SDK (tadamoo-agent -p)"]
     end
 
     subgraph Harness_Tier ["Basalt Harness (processo Python separato)"]
@@ -1106,7 +1106,7 @@ E:\projects\basalt\
 │   ├── payments_broker.py       # broker dei pagamenti: massimale rigido, rinunce attive, registro (§4.8.5)
 │   ├── waiver/                  # livello 4: dialog di rinuncia, fascicolo di prova, schede dei sistemi di pagamento (§4.8.4)
 │   ├── acp_agent.py             # Basalt come Agente ACP su stdio (D1)
-│   ├── headless.py              # basalt-agent -p, SDK, uscita JSON
+│   ├── headless.py              # tadamoo-agent -p, SDK, uscita JSON
 │   ├── eval/                    # insieme di valutazione, runner, report (Fase 0)
 │   └── integrations/wikibridge_client.py   # client con contratto, configurabile
 │
@@ -1148,7 +1148,7 @@ flowchart LR
 - [ ] **Fase 1 — Ciclo agentico minimo (L)**
   - `agent_loop.py`: intercetta i `<tool_call>` di Qwen, **valida contro lo schema** con messaggio di riparazione (riuso di `repair.py`), esegue, reinietta `role: "tool"`, rilevatore di cicli, limiti di iterazioni e di budget, annullamento.
   - Strumenti minimi: lettura/scrittura file, ricerca, shell, con **classi di effetto**.
-  - `headless.py` (`basalt-agent -p`, uscita JSON).
+  - `headless.py` (`tadamoo-agent -p`, uscita JSON).
   - *Accettazione*: supera il tasso di successo del tool calling misurato in Fase 0 sulle prove di riferimento; nessun deadlock; test con motore finto.
 
 - [ ] **Fase 2 — Sicurezza e controllo (XL)**

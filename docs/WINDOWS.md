@@ -153,15 +153,15 @@ best on this CPU (`--pool-workers 15`: the 7 P-cores and the first 8 E-cores); n
 
 ## Starting and stopping with the PowerShell scripts
 
-`Avvia-Basalt.ps1` and `Ferma-Basalt.ps1` (repository root; messages in English, or Italian with `--lang it`,
-`BASALT_LANG=it` or the language chosen in the web page's Settings, see `serve/lang.py`) start and stop Basalt Win+GUI with
-`basalt_config.json` beside them (machine-specific and not tracked; `tools/windows/basalt_config.example.json` shows
+`Avvia-TaDaMoo.ps1` and `Ferma-TaDaMoo.ps1` (repository root; messages in English, or Italian with `--lang it`,
+`TADAMOO_LANG=it` or the language chosen in the web page's Settings, see `serve/lang.py`) start and stop Basalt Win+GUI with
+`tadamoo_config.json` beside them (machine-specific and not tracked; `tools/windows/basalt_config.example.json` shows
 its shape for a 3-bit file on a 32 GB card). Paths are relative to the scripts' folder, so they work from any
 directory and from Explorer (right click, "Run with PowerShell"), with Windows PowerShell 5.1 or PowerShell 7. Both
 take their options only by name (`PositionalBinding = $false`): `--port 7232` never lands in another parameter. The
 option names are Strata's (`Avvia-Strata.ps1`), each with one or two dashes and in any case.
 
-* **Three modes.** `-gui` (the default, no option) opens `tools\windows\desktop\publish\BasaltWinGUI.exe` (an older `BasaltPannello.exe` is used when it is the
+* **Three modes.** `-gui` (the default, no option) opens `tools\windows\desktop\publish\BasaltWinGUI.exe` (an older `TaDaMoo.exe` is used when it is the
   only one built) with
   `--config`, `--model`, `--port`, `--vram-libera` and `--file`, prints the address and does not open the browser;
   when the app is not built it prints `dotnet publish tools\windows\desktop -c Release -o tools\windows\desktop\publish`
@@ -175,7 +175,7 @@ option names are Strata's (`Avvia-Strata.ps1`), each with one or two dashes and 
   script says how to convert it; `-converti` shows the plan, asks and converts); a "Non compatibile" file is refused
   with the reason. `--vram-libera GB` (or `--vram-reserve-mib N`) overrides the profile's VRAM reserve.
   `python -m serve.loader check` exits 4 on a GPU the engine is not built for (not Blackwell): the start is refused.
-* **A server already running** (the listening `serve.server` processes of this repository and `basalt.pid`, confirmed
+* **A server already running** (the listening `serve.server` processes of this repository and `tadamoo.pid`, confirmed
   by `/health` answering `"service": "basalt"`, on any port): `-gui` opens the app, which asks "Connect to the running
   server" or "Change model"; `-browser` opens the browser on it. `-server` resolves the parameters asked for as for a
   new start and compares them with the running server's (`python -m serve.profiles compare --url URL [--profile P]
@@ -183,19 +183,19 @@ option names are Strata's (`Avvia-Strata.ps1`), each with one or two dashes and 
   values come from `/api/settings`, "Valori sicuri" from the server's own `/api/loader`). The same: it prints its
   address, settings and model and exits 0. Different: it lists the differences and asks "Reuse the running server" or
   "Restart with the new parameters" in a topmost WinForms dialog (a desktop session, not session 0), else at the
-  console (R / S, or R / A in Italian), else nobody is asked. No answer within 60 s (`BASALT_ASK_TIMEOUT_S`) or nobody
+  console (R / S, or R / A in Italian), else nobody is asked. No answer within 60 s (`TADAMOO_ASK_TIMEOUT_S`) or nobody
   to ask means reuse: a server is never stopped without an answer. `-riusa` / `-riavvia` answer in advance; restarting
-  runs `Ferma-Basalt.ps1 --port N` (that server's tree only) and starts on the same port. `BASALT_NO_DIALOG=1` skips
-  the window (tests); `BASALT_SCAN_PORTS=7280-7289` (tests) limits the search to those ports, so a test never sees,
-  asks or stops a real server, and leaves `basalt.pid` alone.
-* Otherwise `-browser` and `-server` write the load profile into `basalt_config.json` (the default profile when
+  runs `Ferma-TaDaMoo.ps1 --port N` (that server's tree only) and starts on the same port. `TADAMOO_NO_DIALOG=1` skips
+  the window (tests); `TADAMOO_SCAN_PORTS=7280-7289` (tests) limits the search to those ports, so a test never sees,
+  asks or stops a real server, and leaves `tadamoo.pid` alone.
+* Otherwise `-browser` and `-server` write the load profile into `tadamoo_config.json` (the default profile when
   `--config` is not given: the one made default in the Loader, else Machine Default, else Valori sicuri; the previous
   file stays as `.bak`; an unknown name lists the profiles and exits 1) and check memory with the Loader's own plan
   (`python -m serve.loader check`): VRAM, RAM and commit, keeping this PC's share of the RAM and of the commit limit
   free (15% unless the wizard set another) and counting the VRAM the engine allocates in the commit, because WDDM
   charges it there. When something is short it says what and exits 1: nothing relies on the page file growing. It then
-  clears `CL`/`_CL_`, puts the venv first on `PATH`, starts `bin\basalt.exe serve --config basalt_config.json
-  [--port N]` at normal priority with its output in `logs\basalt-serve.log` and shows that log live.
+  clears `CL`/`_CL_`, puts the venv first on `PATH`, starts `bin\basalt.exe serve --config tadamoo_config.json
+  [--port N]` at normal priority with its output in `logs\tadamoo-serve.log` and shows that log live.
   `"listen-first": true` in the config makes the server answer while the model loads (the Monitor shows Loading).
 * With `-browser` the server is tied to the script's window: it shares the console (Ctrl+C reaches it and it stops the
   engine cleanly) and it runs in a job object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` whose only handle belongs to
@@ -205,10 +205,10 @@ option names are Strata's (`Avvia-Strata.ps1`), each with one or two dashes and 
   `serve/util/winjob.py`'s). The process is created suspended and joins the job before it runs, so nothing escapes.
   It runs with `--relaunch-on-model-change`: when the Loader loads another model the server saves it and exits with
   code 75, and the script starts it again with that model (the page reconnects by itself).
-* `-server` starts the server detached in a hidden console (no job of the script's); `basalt.pid` records it (PID,
+* `-server` starts the server detached in a hidden console (no job of the script's); `tadamoo.pid` records it (PID,
   start time, port, profile). `-prova` runs every check (on a copy of the config) and prints the command without
   starting anything.
-* `Ferma-Basalt.ps1 [--port N] [--file FILE]` finds the server from `basalt.pid` (PID and start time) or from the port,
+* `Ferma-TaDaMoo.ps1 [--port N] [--file FILE]` finds the server from `tadamoo.pid` (PID and start time) or from the port,
   asks it to unload the model (`POST /api/control/unload`, with the secret the server wrote to `control-<port>.token` in
   its data folder when it runs with `--control-secret`: the engine gets QUIT and frees RAM and VRAM),
   ends the process tree,
@@ -217,18 +217,18 @@ option names are Strata's (`Avvia-Strata.ps1`), each with one or two dashes and 
   its children, or by full path under this `bin\`, never by name alone.
 
 With `--control-secret` (off by default), every change through `/api/*` (settings, profiles, models, plans, tasks, the agent, providers) needs that same secret, not the API key alone: the
-page receives it as an `HttpOnly`, `SameSite=Strict` cookie (`basalt_control_<port>`) when it loads `/`, and a program on this PC sends it in
-`X-Basalt-Control` (the harness reads it from `control-<port>.token`). A page of another site, or a program that only reaches the port, changes
+page receives it as an `HttpOnly`, `SameSite=Strict` cookie (`tadamoo_control_<port>`) when it loads `/`, and a program on this PC sends it in
+`X-Tadamoo-Control` (the harness reads it from `control-<port>.token`). A page of another site, or a program that only reaches the port, changes
 nothing. Reading stays open, `/v1/*` is as it was and `/v1/vram` stays open for programs that lend VRAM. This keeps out what does not look for the
 secret; a program of the same Windows user that reads the file can still use it, as it could the control routes before. The secret is new at every
 start: a page that held the old one fetches itself again and sends the change once more.
 
 ### Where the settings live
 
-The user's settings are in the user data folder (`serve/userdata.py`): `%APPDATA%\BasaltPannello\` (or
-`%BASALT_DATA%`): `profiles.json`, `models.json`, `machine.json` (the wizard's answers), `calibration\<model>.json`,
+The user's settings are in the user data folder (`serve/userdata.py`): `%APPDATA%\TaDaMoo\` (or
+`%TADAMOO_DATA%`): `profiles.json`, `models.json`, `machine.json` (the wizard's answers), `calibration\<model>.json`,
 `prefs.json` (the language: `python -m serve.lang set it|en|auto`, or Settings in the web page) and the app's
-`desktop.json`. What can be rebuilt stays in `%USERPROFILE%\.cache\basalt\` (or `%BASALT_CACHE%`): the
+`desktop.json`. What can be rebuilt stays in `%USERPROFILE%\.cache\tadamoo\` (or `%TADAMOO_CACHE%`): the
 header scan `models-scan.json`, the job logs `models-jobs\`, and per model the unpacked tokenizer and vision files and
 `engine.log`. The first use copies (never moves) the settings that earlier versions kept in the cache folder.
 
@@ -271,8 +271,8 @@ header scan `models-scan.json`, the job logs `models-jobs\`, and per model the u
   `BasaltWinGUI.exe` (window title, tray and dialogs "Basalt Win+GUI"; the file name differs from the engine's
   `basalt.exe` on purpose; the icon `basalt.ico` is also the web page's favicon; options
   `--config`, `--model`, `--port`, `--vram-libera`, `--file`, `--lang it|en`, as the script; its texts and WebView2's
-  language follow `--lang` > `BASALT_LANG` > `prefs.json` > English, never the Windows display language). It starts `bin\basalt.exe serve --config
-  basalt_config.json --standby --relaunch-on-model-change` in its kill-on-close job without a console window (a new
+  language follow `--lang` > `TADAMOO_LANG` > `prefs.json` > English, never the Windows display language). It starts `bin\basalt.exe serve --config
+  tadamoo_config.json --standby --relaunch-on-model-change` in its kill-on-close job without a console window (a new
   installation gets a config file without a model) and opens the web Loader in its window: the command line's profile,
   model and VRAM reach the page as `?profile=`, `?model=`, `?reserve=`, and `?wizard=1` offers the wizard while no
   Machine Default exists. The folder fields have "Sfoglia…": the page asks the app for the Windows folder dialog
@@ -285,7 +285,7 @@ header scan `models-scan.json`, the job logs `models-jobs\`, and per model the u
   `desktop.json` and used at the next start; a place that no screen shows any more falls back to the centre); the icon's menu has Open, Reload with other settings… (the Loader), Start
   the server alone (for agents)… and Turn off (unload, end the job, report the RAM freed). A second start brings the
   first window to the front; when a Basalt server already runs it offers "Connect to the running server" or "Change
-  model" (stops only that server's tree with `Ferma-Basalt.ps1 --port N`, then opens the Loader). Hidden test
+  model" (stops only that server's tree with `Ferma-TaDaMoo.ps1 --port N`, then opens the Loader). Hidden test
   options: `--test-mock` (the mock engine on port 7288), `--test-screenshot FILE`, `--test-exit`, `--test-no-wizard`,
   `--test-fallback`, `--test-folder-prompt [--test-models-dir DIR]`, `--test-no-webview`, `--test-window` (with `--test-mock`: keep
   the window's place and size in the test state file).
@@ -295,18 +295,18 @@ header scan `models-scan.json`, the job logs `models-jobs\`, and per model the u
 ```powershell
 # start without window, tray icon or browser; returns when the model is loaded (exit 1: memory short, bad profile,
 # no model chosen, a GGUF still to convert, or a GPU the engine does not support)
-powershell -ExecutionPolicy Bypass -File .\Avvia-Basalt.ps1 -server --model "D:\Models\Qwen3.8-Flash-Next-IQ3_XXS.basalt" --config "Machine Default" --port 7240
+powershell -ExecutionPolicy Bypass -File .\Avvia-TaDaMoo.ps1 -server --model "D:\Models\Qwen3.8-Flash-Next-IQ3_XXS.basalt" --config "Machine Default" --port 7240
 # the best values for this PC, without questions, saved as Machine Default
 .\.venv\Scripts\python.exe -m serve.loader wizard --monitor none --save --json
 # which model would start, and why (exit 0 ready, 5 to convert, 6 not usable, 7 none chosen)
-.\.venv\Scripts\python.exe -m serve.models resolve --profile "Machine Default" --config .\basalt_config.json
+.\.venv\Scripts\python.exe -m serve.models resolve --profile "Machine Default" --config .\tadamoo_config.json
 # already running? the same parameters attach and print the port; different ones ask (add -riusa or -riavvia to
-# answer in advance; with nobody to ask the running server is reused); or read the port from basalt.pid
-Get-Content .\basalt.pid | ConvertFrom-Json | Select-Object port, pid, profile
+# answer in advance; with nobody to ask the running server is reused); or read the port from tadamoo.pid
+Get-Content .\tadamoo.pid | ConvertFrom-Json | Select-Object port, pid, profile
 # ready? "loaded": true once the model is in (with listen-first the server answers while it loads)
 Invoke-RestMethod http://127.0.0.1:7240/health
 # stop only that server
-powershell -ExecutionPolicy Bypass -File .\Ferma-Basalt.ps1 --port 7240
+powershell -ExecutionPolicy Bypass -File .\Ferma-TaDaMoo.ps1 --port 7240
 ```
 
 The API is OpenAI- and Anthropic-compatible at `http://127.0.0.1:<port>/v1` (`/v1/chat/completions`, `/v1/responses`,
@@ -320,7 +320,7 @@ the LOGS tab (`GET /api/reqlog`; `--request-log off` turns it off, see the [READ
 
 **ExecutionPolicy.** "Run with PowerShell" from Explorer sets the policy to Bypass for that process only. From a
 terminal, the default `RemoteSigned` runs these local scripts; if the policy is `Restricted` (or the files were
-downloaded and are blocked), use `powershell -ExecutionPolicy Bypass -File .\Avvia-Basalt.ps1`, or once
+downloaded and are blocked), use `powershell -ExecutionPolicy Bypass -File .\Avvia-TaDaMoo.ps1`, or once
 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` (and `Unblock-File .\*.ps1` for downloaded copies). The scripts
 are UTF-8 with a BOM so that Windows PowerShell 5.1 reads the accented messages correctly.
 

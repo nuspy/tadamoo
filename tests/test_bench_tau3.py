@@ -82,8 +82,8 @@ class FakeTau2:
         if how == "infra":
             sim["reward_info"] = None
         (save / "results.json").write_text(json.dumps({"info": {}, "tasks": [], "simulations": [sim]}))
-        if self.repairs and "BASALT_TAU_REPAIRS_LOG" in env:
-            Path(env["BASALT_TAU_REPAIRS_LOG"]).write_text("\n".join(json.dumps({"repaired": ["arguments"]}) for _ in range(self.repairs)))
+        if self.repairs and "TADAMOO_TAU_REPAIRS_LOG" in env:
+            Path(env["TADAMOO_TAU_REPAIRS_LOG"]).write_text("\n".join(json.dumps({"repaired": ["arguments"]}) for _ in range(self.repairs)))
         return Result(0, "done", "")
 
 
@@ -129,7 +129,7 @@ def test_every_model_in_the_command_is_the_local_one_and_the_environment_has_no_
     judge = json.loads(args[args.index("--communicate-judge") + 1])
     assert judge == {"model": "openai/Qwen3.8-Flash-Next", "model_args": {"api_base": "http://127.0.0.1:7232/v1", "api_key": "local"}} and "--communicate-scorer" not in args
     assert env["OPENAI_API_KEY"] == "local" and env["OPENAI_API_BASE"] == "http://127.0.0.1:7232/v1" and "ANTHROPIC_API_KEY" not in env and env["KEEP"] == "1"
-    assert env["BASALT_TAU_MODEL"] == "Qwen3.8-Flash-Next" and env["BASALT_TAU_REPAIR"] == "1" and env["BASALT_REPO"] == str(tau3.REPO_ROOT)
+    assert env["TADAMOO_TAU_MODEL"] == "Qwen3.8-Flash-Next" and env["TADAMOO_TAU_REPAIR"] == "1" and env["TADAMOO_REPO"] == str(tau3.REPO_ROOT)
     assert fake.calls[0]["timeout"] == tau3.TRIAL_TIMEOUT_S and res.passed is True
 
 
@@ -140,7 +140,7 @@ def test_the_judge_free_setting_uses_the_substring_match_and_banking_installs_it
     args, env = fake.calls[0]["args"], fake.calls[0]["env"]
     assert args[args.index("--domain") + 1] == "banking_knowledge" and args[args.index("--extra") + 1] == "knowledge" and args.index("--extra") < args.index("python")
     assert args[args.index("--communicate-scorer") + 1] == "substring" and "--communicate-judge" not in args
-    assert args[args.index("--max-steps") + 1] == "80" and args[args.index("--timeout") + 1] == "900.0" and env["BASALT_TAU_REPAIR"] == "0"
+    assert args[args.index("--max-steps") + 1] == "80" and args[args.index("--timeout") + 1] == "900.0" and env["TADAMOO_TAU_REPAIR"] == "0"
     res = a.run_trial(("airline", "0", 1), ctx_for(checkout, tmp_path / "run", "c", {"subset": "airline", "judge": "openai"}))
     assert res.passed is None and "not allowed" in res.error
 
@@ -287,7 +287,7 @@ def test_the_launcher_wraps_taus_one_completion_function_and_starts_its_cli(monk
         monkeypatch.setitem(sys.modules, name, module)
     for parent, child in (("tau2", "utils"), ("tau2", "evaluator"), ("tau2.utils", "llm_utils"), ("tau2.evaluator", "evaluator_nl_assertions"), ("tau2", "cli")):
         setattr(sys.modules[parent], child, sys.modules[parent + "." + child])
-    for k, v in {"BASALT_TAU_BASE_URL": "http://127.0.0.1:7232/v1", "BASALT_TAU_MODEL": "Qwen", "BASALT_TAU_HOST": "127.0.0.1", "BASALT_REPO": str(tau3.REPO_ROOT)}.items():
+    for k, v in {"TADAMOO_TAU_BASE_URL": "http://127.0.0.1:7232/v1", "TADAMOO_TAU_MODEL": "Qwen", "TADAMOO_TAU_HOST": "127.0.0.1", "TADAMOO_REPO": str(tau3.REPO_ROOT)}.items():
         monkeypatch.setenv(k, v)
     mod.main()
     assert started == [True] and nl.DEFAULT_LLM_NL_ASSERTIONS == "openai/Qwen" and nl.DEFAULT_LLM_NL_ASSERTIONS_ARGS == {}

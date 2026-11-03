@@ -20,7 +20,7 @@ from typing import Any, Callable, Dict, List, Optional
 from tadamoo.audit import AuditLedger
 from tadamoo.checkpoints import CheckpointManager, call_paths
 from tadamoo.review import call_lines as review_lines
-from tadamoo.client import BasaltClient, BasaltError, StreamCancelled, extract_reasoning_and_content
+from tadamoo.client import TadamooClient, TadamooError, StreamCancelled, extract_reasoning_and_content
 from tadamoo.context import ContextManager, fence_untrusted, wire_messages
 from tadamoo.continuation import cut_point, join_continuation
 from tadamoo.gate import VerifyGate, event_data, read_result
@@ -216,7 +216,7 @@ class _Completion:
 class AgentLoop:
     def __init__(
         self,
-        client: BasaltClient,
+        client: TadamooClient,
         tool_registry: ToolRegistry,
         max_turns: int = 15,
         system_prompt: str = "You are a helpful coding assistant equipped with tools.",
@@ -875,9 +875,9 @@ class AgentLoop:
             except StreamCancelled:                     # the person stopped the answer while it was being written
                 self.stop_reason = CANCELLED
                 break
-            except (BasaltError, KeyError, IndexError, TypeError) as exc:
+            except (TadamooError, KeyError, IndexError, TypeError) as exc:
                 self.stop_reason, self.error = ERROR, str(exc) or type(exc).__name__
-                self.error_status = exc.status if isinstance(exc, BasaltError) else None
+                self.error_status = exc.status if isinstance(exc, TadamooError) else None
                 break
             msg, finish = done.message, done.finish
             reasoning, content = extract_reasoning_and_content(msg)
@@ -1118,7 +1118,7 @@ class AgentLoop:
                 done = self._complete()
                 self._reached = True
                 return done
-            except BasaltError as exc:
+            except TadamooError as exc:
                 if exc.status != 0 or not self._reached or self._out_of_budget(started):
                     raise
                 wait = min(UNREACHABLE_WAIT_MAX, UNREACHABLE_WAIT_FIRST * 2 ** waits)

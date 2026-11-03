@@ -11,7 +11,7 @@ _MAIN_DEV = Path(r"E:\Projects\basalt\dist\stage\BasaltWinGUI\addons")
 
 def addons_dir() -> Path | None:
     """The folder with node/, billion-context/, rea-agents/, openweight-canary/, or None when not installed."""
-    for cand in (os.environ.get("BASALT_ADDONS"), _ROOT / "addons", _DEV, _MAIN_DEV):
+    for cand in (os.environ.get("TADAMOO_ADDONS"), _ROOT / "addons", _DEV, _MAIN_DEV):
         if cand and (Path(cand) / "addons.json").is_file():
             return Path(cand)
     return None

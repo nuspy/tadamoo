@@ -246,7 +246,7 @@ def main() -> int:
         facts = dict(loader.DEMO_FACTS)
     if a.mock_engine:
         import os
-        os.environ["BASALT_FAKE_SYSTEM_OK"] = "1"        # BASALT_FAKE_SYSTEM: demo memory readings for the mock
+        os.environ["TADAMOO_FAKE_SYSTEM_OK"] = "1"        # TADAMOO_FAKE_SYSTEM: demo memory readings for the mock
     svc.supervisor = supervisor.Supervisor(svc, sys.argv[1:], mock=bool(a.mock_engine), facts=facts)
     svc.model_catalog = model_list.Catalog()            # GET /v1/models lists the folders' other models too
     svc.model_catalog.items()                           # the first scan starts now, on a thread

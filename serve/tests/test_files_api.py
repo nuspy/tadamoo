@@ -21,11 +21,11 @@ class UnitTest(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.site = self.root / "site"
         (self.site / "src").mkdir(parents=True)
-        (self.site / ".basalt").mkdir()
+        (self.site / ".tadamoo").mkdir()
         (self.site / ".git").mkdir()
         (self.site / "src" / "app.py").write_bytes(b"print(1)" + bytes([10]))
         (self.site / "readme.md").write_bytes(b"hi")
-        (self.site / ".basalt" / "secret").write_bytes(b"s")
+        (self.site / ".tadamoo" / "secret").write_bytes(b"s")
         (self.root / "outside.txt").write_bytes(b"o")
         self.api = FilesApi(lambda: [("site", self.site), ("gone", self.root / "missing")])
 
@@ -40,9 +40,9 @@ class UnitTest(unittest.TestCase):
 
     def test_a_folder_lists_folders_first_with_the_agents_own_and_git_included(self):
         got = self.api.list(str(self.site))
-        self.assertEqual([(e["name"], e["dir"]) for e in got["entries"]], [(".basalt", True), (".git", True), ("src", True), ("readme.md", False)])
+        self.assertEqual([(e["name"], e["dir"]) for e in got["entries"]], [(".tadamoo", True), (".git", True), ("src", True), ("readme.md", False)])
         self.assertEqual(self.api.list(str(self.site / "src"))["entries"][0]["size"], 9)
-        self.assertEqual(self.api.file(str(self.site / ".basalt" / "secret"))[1], "secret")
+        self.assertEqual(self.api.file(str(self.site / ".tadamoo" / "secret"))[1], "secret")
 
     def test_any_path_is_listed_or_read_and_a_folder_is_not_cut(self):
         self.assertEqual({e["name"] for e in self.api.list(str(self.root))["entries"]}, {"site", "outside.txt"})
@@ -79,7 +79,7 @@ class RouteTest(base.PlansApiBase):
             self.assertEqual((code, "shared" in names), (200, True))                       # the Chat's folder too, once it exists
             path = next(r["path"] for r in roots["roots"] if r["name"] == "shared")
             code, listing = self.call("GET", "/api/files/list?path=" + urllib.parse.quote(path))
-            self.assertEqual((code, [e["name"] for e in listing["entries"]]), (200, [".basalt", "docs"]))
+            self.assertEqual((code, [e["name"] for e in listing["entries"]]), (200, [".tadamoo", "docs"]))
             inner = listing["entries"][1]["path"]
             code, listing = self.call("GET", "/api/files/list?path=" + urllib.parse.quote(inner))
             file_path = listing["entries"][0]["path"]

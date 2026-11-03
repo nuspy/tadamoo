@@ -1366,7 +1366,7 @@
   // the Chat links to a plan it touched: the id waits in the session storage until this view opens
   function wanted() {
     let id = "";
-    try { id = sessionStorage.getItem("basalt.openplan") || ""; sessionStorage.removeItem("basalt.openplan"); } catch (e) { /* no link */ }
+    try { id = sessionStorage.getItem("tadamoo.openplan") || ""; sessionStorage.removeItem("tadamoo.openplan"); } catch (e) { /* no link */ }
     return id;
   }
   async function enter() {

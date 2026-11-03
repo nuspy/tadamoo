@@ -38,7 +38,7 @@ def test_the_hint_comes_once_when_the_third_long_run_is_logged(tmp_path):
         hints.append(repeats.hint_after(log, saved))
     assert hints[:2] == [None, None] and hints[3:] == [None, None]
     assert hints[2]["count"] == 3 and hints[2]["steps_avg"] == 10.0 and hints[2]["request"].startswith("Update the weekly")
-    assert json.loads((tmp_path / ".basalt" / "repeats.json").read_text(encoding="utf-8"))["told"] == [hints[2]["signature"]]
+    assert json.loads((tmp_path / ".tadamoo" / "repeats.json").read_text(encoding="utf-8"))["told"] == [hints[2]["signature"]]
 
 
 def test_a_short_or_unfinished_run_never_raises_the_hint_and_other_requests_have_their_own(tmp_path):
@@ -52,8 +52,8 @@ def test_a_short_or_unfinished_run_never_raises_the_hint_and_other_requests_have
 
 
 def test_a_damaged_state_file_is_the_same_as_none(tmp_path):
-    (tmp_path / ".basalt").mkdir()
-    (tmp_path / ".basalt" / "repeats.json").write_text("{not json", encoding="utf-8")
+    (tmp_path / ".tadamoo").mkdir()
+    (tmp_path / ".tadamoo" / "repeats.json").write_text("{not json", encoding="utf-8")
     log = OutcomeLog(tmp_path)
     got = [repeats.hint_after(log, log.append(record())) for _ in range(3)]
     assert got[2] is not None

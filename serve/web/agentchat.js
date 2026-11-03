@@ -5,7 +5,7 @@
    Everything the agent or a tool wrote enters the page through text nodes; the Markdown of its answers goes through the
    same safe renderer as the model-only chat. */
 (() => {
-  const MODE_KEY = "basalt.chatmode", LAST_KEYS = { chat: "basalt.chat.session", agent: "basalt.agent.session" }, PROJECT_KEY = "basalt.agent.project";
+  const MODE_KEY = "tadamoo.chatmode", LAST_KEYS = { chat: "tadamoo.chat.session", agent: "tadamoo.agent.session" }, PROJECT_KEY = "tadamoo.agent.project";
   const MODES = ["agent", "ask", "direct"];
   const FAST_MS = 350, SLOW_MS = 3000, SHOWN_OUTPUT = 1500, EXPLAIN_MAX = 300;
   /* what an action is called when the model gave no sentence for it: a phrase by tool name (ch.act.*), else a generic one */
@@ -145,7 +145,7 @@
   modeSel.onchange = () => { mode = modeSel.value; keep(MODE_KEY, mode); if (sid) forget(); applyMode(); };
 
   /* ---- the column of conversations: the earlier ones to open again or delete, the favourites kept apart and above the rest ---- */
-  const convs = $("#convs"), CV_KEY = "basalt.chat.convs";
+  const convs = $("#convs"), CV_KEY = "tadamoo.chat.convs";
   let known = [];                                                              // what the server lists, newest first
   const when = ts => (ts ? new Date(ts * 1000).toLocaleString(LANG === "it" ? "it-IT" : "en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "");
   function setColumn(open) {
@@ -578,7 +578,7 @@
   /* ---- drawing ---- */
   const planIdOf = b => (b.args && b.args.plan_id) || ((b.output.match(/Plan ([A-Za-z0-9_-]+):/) || [])[1]) || "";
   function openPlan(id) {
-    try { sessionStorage.setItem("basalt.openplan", id); } catch (e) { /* the view opens anyway */ }
+    try { sessionStorage.setItem("tadamoo.openplan", id); } catch (e) { /* the view opens anyway */ }
     location.hash = "plans";
   }
   function askQuestion(b) {                                                    // the harness's question, in the language of the page
@@ -919,7 +919,7 @@
         branchBtn.prepend(icon(BRANCH_ICON));
         const save = btn(T("sf.btn"), "ghost savefile", () => {
           const text = answerText(it);
-          if (text && window.BasaltSave) window.BasaltSave.message(save, { text, time: it.ts || 0, turn: items.indexOf(it) + 1 });     // only on the person's click
+          if (text && window.TadamooSave) window.TadamooSave.message(save, { text, time: it.ts || 0, turn: items.indexOf(it) + 1 });     // only on the person's click
         });
         save.title = T("sf.tip");
         it.actsEl.append(copyButton(() => answerText(it)), save, branchBtn);
@@ -1147,7 +1147,7 @@
   }
 
   /* ---- what a new conversation may do without asking: its mode and the rules that let a kind of command run ---- */
-  const PERM_KEY = "basalt.chat.perm", ALLOW_KEY = "basalt.chat.allow";
+  const PERM_KEY = "tadamoo.chat.perm", ALLOW_KEY = "tadamoo.chat.allow";
   const permRadios = [...document.querySelectorAll('input[name="cs-perm"]')], allowBox = $("#cs-allow"), autoRisk = $("#cs-auto-risk");
   const permMode = () => (permRadios.find(r => r.checked) || {}).value || "default";
   const PERM_CYCLE = ["default", "plan", "read_only", "auto"];                // the order Shift+Tab goes through
@@ -1163,7 +1163,7 @@
     chip.setAttribute("aria-label", T("ch.chip", T("ag.mode." + m)));
     chip.title = T("ag.mode." + m + ".d");
   }
-  window.basaltAutoMode = () => permNow() === "auto";                         // the risk questions of other settings answer yes by themselves while this is on
+  window.tadamooAutoMode = () => permNow() === "auto";                         // the risk questions of other settings answer yes by themselves while this is on
   async function setPerm(m) {                                                // false when the server did not take it
     if (sid) {
       const r = await api("POST", `/${sid}/mode`, { mode: m });

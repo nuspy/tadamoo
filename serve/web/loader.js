@@ -242,11 +242,11 @@
   const rxStored = () => { try { return JSON.parse(localStorage.getItem(rxKey()) || "null"); } catch (e) { return null; } };
   const rxRead = name => { const e = el(name); return e.type === "checkbox" ? e.checked : e.value.trim(); };
   const rxWrite = (name, v) => { const e = el(name); if (e.type === "checkbox") e.checked = !!v; else e.value = v == null ? "" : String(v); };
-  const rxCurrent = () => Object.fromEntries(BasaltRelaxed.NAMES.map(n => [n, rxRead(n)]));
+  const rxCurrent = () => Object.fromEntries(TadamooRelaxed.NAMES.map(n => [n, rxRead(n)]));
   let rxUndo = null;
   function rxResync() {                               // the form was filled (a reload, a profile): is what was set still there?
     const stored = el(RX).value ? rxStored() : null;
-    rxUndo = stored && BasaltRelaxed.holds(rxCurrent(), stored) ? stored : null;
+    rxUndo = stored && TadamooRelaxed.holds(rxCurrent(), stored) ? stored : null;
     if (!rxUndo) rxStore(null);
     rxNote(null);
   }
@@ -254,11 +254,11 @@
     const on = !!el(RX).value;
     let gave = null;
     if (on && !rxUndo) {
-      rxUndo = BasaltRelaxed.enter(rxCurrent());
+      rxUndo = TadamooRelaxed.enter(rxCurrent());
       Object.entries(rxUndo.set).forEach(([n, v]) => rxWrite(n, v));
       rxStore(Object.keys(rxUndo.set).length ? rxUndo : null);
     } else if (!on && rxUndo) {
-      const r = BasaltRelaxed.leave(rxCurrent(), rxUndo);
+      const r = TadamooRelaxed.leave(rxCurrent(), rxUndo);
       Object.entries(r.restore).forEach(([n, v]) => rxWrite(n, v));
       gave = { restored: Object.keys(r.restore), kept: r.kept, before: rxUndo.before };
       rxUndo = null;
@@ -424,7 +424,7 @@
     reserveLive(p, "#lf-rsv-live");
     showStatus();
   }
-  const modelNow = () => (window.BasaltModels && BasaltModels.selected()) || null;
+  const modelNow = () => (window.TadamooModels && TadamooModels.selected()) || null;
   // on a phone the prediction is far below the fields: a summary bar stays at the bottom while editing
   function sticky(p) {
     const ok = k => !(p.problems || []).some(x => x.code === k || (k === "ram" && x.code === "ple_ram"));
@@ -479,8 +479,8 @@
     const { r, j } = await post("api/loader/load", body);
     if (r.status === 422 && j.plan) { renderSide(target, j.plan, mode); return; }
     if (!r.ok) { say(T("ld.phase.failed", (j.error && j.error.message) || `HTTP ${r.status}`), "err"); return; }
-    if ((j.notes || []).includes("model_restart")) { say(T("ld.model.relaunch", BasaltModels.name(j.model)), "ok"); waitRestart(); return; }
-    if ((j.notes || []).includes("model_on_restart")) { say(T("ld.model.restart", BasaltModels.name(j.model)), "ok"); return; }
+    if ((j.notes || []).includes("model_restart")) { say(T("ld.model.relaunch", TadamooModels.name(j.model)), "ok"); waitRestart(); return; }
+    if ((j.notes || []).includes("model_on_restart")) { say(T("ld.model.restart", TadamooModels.name(j.model)), "ok"); return; }
     if ((j.notes || []).includes("port_on_restart")) say(T("ld.port.note"));
     INFO.status = { phase: "waiting" };
     watch();
@@ -545,7 +545,7 @@
     return `${p.name}${tags.length ? ` (${tags.join(", ")})` : ""} — ${parts.join(" · ")}`;
   }
   function headlessCmd(name) {
-    return `powershell -ExecutionPolicy Bypass -File Avvia-Basalt.ps1 -server --config "${name.replace(/"/g, "")}"`;
+    return `powershell -ExecutionPolicy Bypass -File Avvia-TaDaMoo.ps1 -server --config "${name.replace(/"/g, "")}"`;
   }
   function profileBar(target) {
     const box = $(target);
@@ -588,7 +588,7 @@
     const fail = j => pfSay(box, (j.error && j.error.message) || "error", "err");
     if (act === "use" && prof) {
       writeForm(prof.values); syncMtp();
-      if (prof.model) BasaltModels.select(prof.model);
+      if (prof.model) TadamooModels.select(prof.model);
       replan(); pfSay(box, T("ld.profile.used", name), "ok"); return;
     }
     if (act === "safe") {
@@ -596,7 +596,7 @@
       syncMtp(); replan(); $("#ld-safe-why").open = true; pfSay(box, T("ld.safe.done"), "ok"); return;
     }
     if (act === "machine") { applyMachine(box); return; }
-    if (act === "wizard") { if (window.BasaltWizard) BasaltWizard.open(); return; }
+    if (act === "wizard") { if (window.TadamooWizard) TadamooWizard.open(); return; }
     if (act === "copy") {
       const t = box.querySelector("[data-pf-cmd]").textContent;
       if (navigator.clipboard) navigator.clipboard.writeText(t).then(() => pfSay(box, T("ld.headless.copied"), "ok"), () => {});
@@ -620,7 +620,7 @@
     const md = PROF && PROF.load.find(p => p.name === PROF.machine);
     if (!md) { pfSay(box, T("ld.machine.none"), "err"); return; }
     writeForm(md.values); syncMtp();
-    if (md.model && window.BasaltModels) BasaltModels.select(md.model);
+    if (md.model && window.TadamooModels) TadamooModels.select(md.model);
     const sel = box.querySelector("select"); if (sel) sel.value = md.name;
     formTouched = true;
     replan(); pfSay(box, T("ld.machine.done"), "ok");
@@ -704,7 +704,7 @@
     const gw = INFO.gpu_warning && (INFO.gpu_warning[LANG] || INFO.gpu_warning.en);
     $("#ld-gpu").hidden = !gw; $("#ld-gpu").textContent = gw || "";
     $("#ld-standby").hidden = !INFO.standby;
-    if (window.BasaltModels) await BasaltModels.refresh();
+    if (window.TadamooModels) await TadamooModels.refresh();
     visionChoices();
     defaults();
     const reason = INFO.editable ? "" : T("ld.ro." + (INFO.reason || "no_config"));
@@ -735,12 +735,12 @@
     if (startDone || !INFO) return;
     startDone = true;
     const prof = START.get("profile"), model = START.get("model"), reserve = START.get("reserve");
-    if (model && window.BasaltModels) BasaltModels.select(model);
+    if (model && window.TadamooModels) TadamooModels.select(model);
     const name = prof || (INFO.standby && PROF ? PROF.default : null);
     const p = name && PROF ? PROF.load.find(x => x.name === name) : null;
     if (p) {
       writeForm(p.values);
-      if (p.model && !model && window.BasaltModels) BasaltModels.select(p.model);
+      if (p.model && !model && window.TadamooModels) TadamooModels.select(p.model);
       const sel = $("#ld-prof select"); if (sel) sel.value = p.name;
       formTouched = true;
     }
@@ -748,8 +748,8 @@
       el("engine.vram-reserve-mib").value = String(Number(reserve)); syncReserve("lf", el("engine.vram-reserve-mib")); formTouched = true;
     }
     if (p || model || reserve) replan();
-    if (START.get("wizard") === "1" && window.BasaltWizard) BasaltWizard.offer();
-    if (START.get("wizard") === "resume" && window.BasaltWizard) BasaltWizard.resume();
+    if (START.get("wizard") === "1" && window.TadamooWizard) TadamooWizard.offer();
+    if (START.get("wizard") === "resume" && window.TadamooWizard) TadamooWizard.resume();
     if ([...START.keys()].length) history.replaceState(null, "", location.pathname + location.hash);
   }
 
@@ -763,7 +763,7 @@
   };
   $("#ld-form").addEventListener("input", formInput);
   $("#ld-form").addEventListener("change", formInput);
-  if (window.BasaltModels) BasaltModels.onChange(() => {
+  if (window.TadamooModels) TadamooModels.onChange(() => {
     if (viewOn === "loader") { replan(); refreshProfiles(); }
   });
   $("#ld-form").onsubmit = e => e.preventDefault();

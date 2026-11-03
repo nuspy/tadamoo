@@ -1739,10 +1739,10 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     if args.ask_only:                                             # answers without tools: nothing that reaches outside is built
         settings.update(capabilities=False, lsp=False, vault_dir="", payments_dir="", browser=False, wiki=False, phone=False)
     cfg = AgentConfig(**settings, confirm=confirm, run_id=sid, snapshot_dir=str(history / "snapshots"))
-    from tadamoo.client import BasaltClient
+    from tadamoo.client import TadamooClient
     from tadamoo.llm import client_for, judge_for
     from tadamoo.llm.judge import router_judge
-    here = BasaltClient(base_url=cfg.endpoint, api_key=cfg.api_key)          # the model loaded in this Basalt
+    here = TadamooClient(base_url=cfg.endpoint, api_key=cfg.api_key)          # the model loaded in this Basalt
     try:
         built = build_agent(cfg, client=client_for("executor", here), summarizer=client_for("compaction", here), technical=client_for("technical", here))
     except Exception as exc:

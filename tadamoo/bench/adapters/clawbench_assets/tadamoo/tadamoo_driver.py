@@ -17,9 +17,9 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
-HOME = Path(os.environ.get("BASALT_HOME", "/opt/basalt"))
-DATA = Path(os.environ.get("BASALT_DATA", "/data"))
-WORKSPACE = Path(os.environ.get("BASALT_WORKSPACE", "/root/workspace"))
+HOME = Path(os.environ.get("TADAMOO_HOME", "/opt/basalt"))
+DATA = Path(os.environ.get("TADAMOO_DATA", "/data"))
+WORKSPACE = Path(os.environ.get("TADAMOO_WORKSPACE", "/root/workspace"))
 DENIED = ("group:shell", "group:web", "group:agents", "group:mcp", "group:phone")
 STOP_NAMES = {"time_limit_exceeded": "timeout", "agent_idle": "gave_up", "eval_matched": "final"}     # the run script's reasons, in the words of analysis.py
 FINISH_NOTE = ("\n\nCOMPLETION NOTE:\nWhen you have clicked Send, Submit, Place order or the final button the task names, give a brief final answer and stop. "

@@ -21,7 +21,7 @@ the model file's sampling defaults. For what a setting does to speed, memory and
 ## How settings are given
 
 ```sh
-bin/basalt serve --config basalt_config.json [options]
+bin/basalt serve --config tadamoo_config.json [options]
 bin/basalt serve MODEL.basalt [--python PY] [options]
 ```
 
@@ -190,7 +190,7 @@ plain decoding would give.
 | `parallel` | server | integer 1..8 | 1 | Serve N requests at once in batch slots; further requests wait their turn. `max-context` is shared: each slot holds `max-context / N` tokens. The slots' KV cache comes out of the expert cache. Sets the engine's `batch`. |
 | `slot-full-context` | server | switch | off | With `parallel`, give every slot the whole `max-context` instead of an equal share. Costs N times the KV cache. |
 | `side-slot` | server | `0` or tokens from 4096 (`true`: 30000) | 30000 | The technical session (`0`: off): one more slot of that many tokens for the harness's short calls (a request with `cache_slot: "side"`), so they never wait behind a conversation or overwrite its cache. Sets the engine's `batch` to `parallel + 1` (at most 8 in all) and `side-context` to this value. Costs the KV cache and state of that many tokens; while it is on `end_turn_bias`, `logit_bias` and relaxed drafting are unavailable. Left off, with the reason in the log, when the setup cannot hold it. See [running](../running.md#the-technical-session---side-slot-tokens). |
-| `control-secret` | server | switch | off | Ask for a secret on the changes made through `/api/*` and `/api/control/*`; the page receives it as a cookie, programs send it in `X-Basalt-Control`. The Loader sets it (Server group) and saves it in this file. |
+| `control-secret` | server | switch | off | Ask for a secret on the changes made through `/api/*` and `/api/control/*`; the page receives it as a cookie, programs send it in `X-Tadamoo-Control`. The Loader sets it (Server group) and saves it in this file. |
 | `control-secret-value` | server | text, letters, digits and signs, up to 200 | empty | With `control-secret`, the text used as the secret instead of a random one made at each start. Kept in this file as written; the Loader never shows it again. |
 | `batch` / `slots` | engine | integer 2..8 | off | The engine flag `parallel` sets. Use `parallel`; setting both is an error. |
 | `side-context` | engine | integer tokens | 0 (off) | The engine flag `side-slot` sets: the last `batch` slot holds this many tokens (at most `max-context`) and keeps no conversation checkpoints. Use `side-slot`; setting both is an error. |

@@ -7,8 +7,8 @@ import pytest
 from tadamoo.integrations.call_api_client import CallAPICallClient, build_greeting, has_ai_disclosure
 
 pytestmark = pytest.mark.skipif(
-    os.environ.get("BASALT_LIVE_CALLS") != "1",
-    reason="real phone calls need the user's explicit authorization (BASALT_LIVE_CALLS=1)",
+    os.environ.get("TADAMOO_LIVE_CALLS") != "1",
+    reason="real phone calls need the user's explicit authorization (TADAMOO_LIVE_CALLS=1)",
 )
 
 
@@ -19,9 +19,9 @@ def client():
 
 @pytest.fixture
 def number():
-    value = os.environ.get("BASALT_LIVE_CALL_NUMBER")
+    value = os.environ.get("TADAMOO_LIVE_CALL_NUMBER")
     if not value:
-        pytest.skip("BASALT_LIVE_CALL_NUMBER is not set")
+        pytest.skip("TADAMOO_LIVE_CALL_NUMBER is not set")
     return value
 
 

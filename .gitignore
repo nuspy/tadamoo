@@ -14,9 +14,9 @@ __pycache__/
 /mtp/
 /.ccache/
 .DS_Store
-/basalt_config.json
-/basalt_config.json.bak
-/basalt.pid
+/tadamoo_config.json
+/tadamoo_config.json.bak
+/tadamoo.pid
 /tools/windows/desktop/bin/
 /tools/windows/desktop/obj/
 /tools/windows/desktop/publish/

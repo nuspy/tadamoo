@@ -6,7 +6,7 @@ wraps it so that, whatever model name a setting or a default names, the request 
 placeholder key; nothing can reach a cloud provider. The judge-model constant of the assertion judge is set to the same name so the saved run says what was used.
 
 With repair on (the default), a tool call the model wrote slightly wrong gets the repairs of our harness (tadamoo/tools/repair.py): arguments that are almost
-JSON are read, and a tool name one slip away from a real one is corrected. Each repair is written as a line to the file in BASALT_TAU_REPAIRS_LOG; BASALT_REPO is the repository the repair file is read from."""
+JSON are read, and a tool name one slip away from a real one is corrected. Each repair is written as a line to the file in TADAMOO_TAU_REPAIRS_LOG; TADAMOO_REPO is the repository the repair file is read from."""
 from __future__ import annotations
 
 import json
@@ -20,7 +20,7 @@ DROPPED = ("reasoning_effort",)           # settings meant for a cloud model; th
 def check_local(base_url: str, allowed_host: str) -> None:
     host = urlparse(base_url).hostname or ""
     if host not in ("127.0.0.1", "localhost", "::1") and host != allowed_host:
-        raise SystemExit(f"BASALT_TAU_BASE_URL points to {host or base_url!r}, not to the local engine; benchmarks run only with the served model")
+        raise SystemExit(f"TADAMOO_TAU_BASE_URL points to {host or base_url!r}, not to the local engine; benchmarks run only with the served model")
 
 
 def load_repair(repo: str):
@@ -82,11 +82,11 @@ def local_completion(real, base_url: str, served: str, repair=None, log_path: st
 
 
 def main() -> None:
-    base_url, served = os.environ["BASALT_TAU_BASE_URL"], os.environ["BASALT_TAU_MODEL"]
-    check_local(base_url, os.environ.get("BASALT_TAU_HOST", ""))
-    repair = load_repair(os.environ.get("BASALT_REPO", "")) if os.environ.get("BASALT_TAU_REPAIR", "1") != "0" else None
+    base_url, served = os.environ["TADAMOO_TAU_BASE_URL"], os.environ["TADAMOO_TAU_MODEL"]
+    check_local(base_url, os.environ.get("TADAMOO_TAU_HOST", ""))
+    repair = load_repair(os.environ.get("TADAMOO_REPO", "")) if os.environ.get("TADAMOO_TAU_REPAIR", "1") != "0" else None
     from tau2.utils import llm_utils
-    llm_utils.completion = local_completion(llm_utils.completion, base_url, served, repair, os.environ.get("BASALT_TAU_REPAIRS_LOG", ""))
+    llm_utils.completion = local_completion(llm_utils.completion, base_url, served, repair, os.environ.get("TADAMOO_TAU_REPAIRS_LOG", ""))
     from tau2.evaluator import evaluator_nl_assertions
     evaluator_nl_assertions.DEFAULT_LLM_NL_ASSERTIONS = "openai/" + served
     evaluator_nl_assertions.DEFAULT_LLM_NL_ASSERTIONS_ARGS = {}

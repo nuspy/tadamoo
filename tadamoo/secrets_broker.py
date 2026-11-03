@@ -156,7 +156,7 @@ class SecretsBroker:
 
     def environment(self) -> Dict[str, str]:
         """The values this broker holds, and the vault's, as environment variables for code the person let run free on this PC."""
-        env = {"BASALT_SECRET_" + re.sub(r"[^A-Z0-9]+", "_", k.upper()).strip("_"): v for k, v in self._secrets.items() if v}
+        env = {"TADAMOO_SECRET_" + re.sub(r"[^A-Z0-9]+", "_", k.upper()).strip("_"): v for k, v in self._secrets.items() if v}
         if self.vault is not None:
             env.update(self.vault.environment())
         return env

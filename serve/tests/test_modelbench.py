@@ -42,7 +42,7 @@ class Isolated(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.root = Path(self.dir.name)
-        patch = mock.patch.dict(os.environ, {"BASALT_DATA": str(self.root / "data"), "BASALT_CACHE": str(self.root / "cache")})
+        patch = mock.patch.dict(os.environ, {"TADAMOO_DATA": str(self.root / "data"), "TADAMOO_CACHE": str(self.root / "cache")})
         patch.start()
         self.addCleanup(patch.stop)
         self.addCleanup(self.dir.cleanup)

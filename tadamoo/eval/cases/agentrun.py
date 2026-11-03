@@ -17,7 +17,7 @@ from tadamoo.session import Session, SessionStore
 from tadamoo.stack import AgentConfig, BuiltAgent, build_agent
 
 FIXED_NOW = datetime(2026, 10, 30, 10, 0)                  # a Friday: the clock of the experiments that read dates
-SKIP_DIRS = {".basalt", "__pycache__", ".git", ".pytest_cache"}
+SKIP_DIRS = {".tadamoo", "__pycache__", ".git", ".pytest_cache"}
 
 
 class CountingClient:

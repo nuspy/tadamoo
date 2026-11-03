@@ -30,7 +30,7 @@ FAST = {"engine.max-context": 65536, "engine.kv": "int8", "engine.spec": 7, "ser
 class Store(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": self.dir.name, "BASALT_DATA": self.dir.name})
+        self.env = mock.patch.dict(os.environ, {"TADAMOO_CACHE": self.dir.name, "TADAMOO_DATA": self.dir.name})
         self.env.start()
 
     def tearDown(self):
@@ -119,7 +119,7 @@ class Store(unittest.TestCase):
         self.assertEqual([p["name"] for p in profiles.listing()["inference"]], ["P"])
 
     def test_apply_writes_the_config_and_keeps_a_backup(self):
-        cfg = os.path.join(self.dir.name, "basalt_config.json")
+        cfg = os.path.join(self.dir.name, "tadamoo_config.json")
         original = {"server": {"model": "m.basalt", "port": 7232}, "engine": {"kv": "fp16", "resident-experts": True}}
         Path(cfg).write_text(json.dumps(original), encoding="utf-8")
         profiles.change({"action": "save", "name": "Veloce", "values": FAST})
@@ -142,7 +142,7 @@ class Store(unittest.TestCase):
 class OverHttp(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": self.dir.name, "BASALT_DATA": self.dir.name})
+        self.env = mock.patch.dict(os.environ, {"TADAMOO_CACHE": self.dir.name, "TADAMOO_DATA": self.dir.name})
         self.env.start()
         tok = ByteTokenizer()
         self.svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))

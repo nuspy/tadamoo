@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from tadamoo.agent_loop import AgentLoop, answer_text
-from tadamoo.client import BasaltClient
+from tadamoo.client import TadamooClient
 from tadamoo.prompt_blocks import instruction_blocks
 from tadamoo.stack import AgentConfig, build_agent
 from tadamoo.tools.registry import EffectClass, ToolRegistry
@@ -88,7 +88,7 @@ def dummy_registry(task: Task) -> ToolRegistry:
 class EvalRunner:
     def __init__(
         self,
-        client: Optional[BasaltClient] = None,
+        client: Optional[TadamooClient] = None,
         client_factory: Optional[ClientFactory] = None,
         temperature: Optional[float] = 0.6,
         seed_base: int = 1000,
@@ -252,7 +252,7 @@ class EvalRunner:
         return out
 
 
-def collect_environment(client: Optional[BasaltClient] = None, endpoint: str = "", repo_root: Optional[Path] = None,
+def collect_environment(client: Optional[TadamooClient] = None, endpoint: str = "", repo_root: Optional[Path] = None,
                         gpu_power_limit_w: Optional[float] = None) -> Dict[str, Any]:
     """What a result must say about where it was produced: harness version, model, hardware, power limit."""
     root = repo_root or Path(__file__).resolve().parents[2]

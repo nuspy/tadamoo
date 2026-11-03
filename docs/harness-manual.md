@@ -37,7 +37,7 @@ Four ways to use it, all with the same abilities:
 |---|---|
 | **Chat** tab, *With tools* | you want a conversation: ask, correct, go on tomorrow. The main way. |
 | **Agent** tab | you work on a folder of yours over several conversations, with its edits to keep or undo. |
-| `python -m tadamoo` / `basalt-agent` | you want it in a script, with exit codes and JSON. |
+| `python -m tadamoo` / `tadamoo-agent` | you want it in a script, with exit codes and JSON. |
 | `python -m tadamoo acp` | you want it as the agent of an editor that speaks the Agent Client Protocol. |
 
 ## 2. Before you start
@@ -45,8 +45,8 @@ Four ways to use it, all with the same abilities:
 1. **A model must be loaded.** If none is, a notice under the top bar says so and opens *Models*; load one there.
 2. **Python and the packages** are those of the repository's `.venv` (see the README, *Requirements*). The app starts the server for
    you; the agent's processes are started by the server.
-3. **Where things are kept.** In the user data folder (`%APPDATA%\BasaltPannello\`): conversations, memory (`memory\`), the audit log,
-   checkpoints, approvals, your `hooks.json`. Never in your project. The only thing the agent writes in a project is `.basalt\artifacts`.
+3. **Where things are kept.** In the user data folder (`%APPDATA%\TaDaMoo\`): conversations, memory (`memory\`), the audit log,
+   checkpoints, approvals, your `hooks.json`. Never in your project. The only thing the agent writes in a project is `.tadamoo\artifacts`.
 4. **Keep the API key private.** If the server has an `--api-key`, the pages and the agent use it; never open the server beyond
    127.0.0.1 without one.
 
@@ -273,7 +273,7 @@ you the address and the number to call.
   untrusted data); `auto` picks by size. They apply to the conversations that start after you save.
 - **The wiki.** *Settings → Memories → Wiki (wikibridge)* turns on `wiki_search`, `wiki_page` and `wiki_context` in the Chat and the Agent,
   with the address of the service (default `http://127.0.0.1:8775`) and a project; a plan step that asks the wiki uses them. *Check the
-  connection* tells the address tried and, if it did not answer, why. A key, if the service asks for one, is `BASALT_WIKIBRIDGE_KEY`.
+  connection* tells the address tried and, if it did not answer, why. A key, if the service asks for one, is `TADAMOO_WIKIBRIDGE_KEY`.
 - **Cache.** The start of the prompt is kept byte-identical from turn to turn so the server reuses its cache. That is why notes and
   plan summaries come after your message, never in the system block.
 
@@ -388,8 +388,8 @@ limited to the folder; a sandbox for them is not there yet.
 
 ```powershell
 python -m tadamoo -p "fix the failing test in calc.py" --workspace D:\work\proj --json
-basalt-agent -p "fix the failing test" --workspace D:\work\proj      # basalt-agent.cmd: from any folder
-basalt-agent acp --workspace D:\work\proj                             # for an editor that speaks ACP over stdio
+tadamoo-agent -p "fix the failing test" --workspace D:\work\proj      # tadamoo-agent.cmd: from any folder
+tadamoo-agent acp --workspace D:\work\proj                             # for an editor that speaks ACP over stdio
 ```
 
 Common options (all of them are in [harness.md](harness.md#running-the-agent)):
@@ -419,7 +419,7 @@ editor puts to you. Plan mode asks the editor to approve the plan, with a button
 ## 15. Hooks
 
 Hooks run on events and can block a tool call. Put them in `hooks.json` in the user data folder (or the file given with `--hooks`);
-`.basalt\hooks.json` of a project is read only with `--workspace-hooks`, because a folder under work should not name commands by itself.
+`.tadamoo\hooks.json` of a project is read only with `--workspace-hooks`, because a folder under work should not name commands by itself.
 
 ```json
 {"hooks": [
@@ -495,7 +495,7 @@ its time unless you set a *time limit* in seconds in the editor. Read the script
 | "Nobody can confirm in this run" | a run in `plan`, `read_only` or `default` mode, with no one to ask, met something that needs a question | use `auto` (the headless default), `--interactive`, or an `--allow` rule |
 | A command still asks although a rule allows it | a statement of it is not covered by a rule, or it is built at run time (`$(...)`) | allow each program it uses |
 | A tool was stopped after one hour | the default time limit | `tool_timeout_s` in `limits.json`, or `--tool-timeout NAME=SECONDS` |
-| The search says it needs a check | DuckDuckGo limits automatic searches | wait, set another engine, or `BASALT_WEB_SEARCH=off` |
+| The search says it needs a check | DuckDuckGo limits automatic searches | wait, set another engine, or `TADAMOO_WEB_SEARCH=off` |
 | A slash command stays in the box | the name is unknown | `/help`; start with a space to send it as text |
 | A page was refused | it is on this PC or your network | allow it in the browser settings, if you mean to |
 | Every payment asks you | the limit is 0 until you set it | the Wallet view |

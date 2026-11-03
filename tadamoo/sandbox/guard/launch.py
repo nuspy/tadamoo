@@ -6,9 +6,9 @@ import traceback
 
 here = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, here)
-import basalt_guard  # noqa: E402
+import tadamoo_guard  # noqa: E402
 
-basalt_guard.install()
+tadamoo_guard.install()
 sys.path.remove(here)
 script = sys.argv[1]
 sys.argv = [script]

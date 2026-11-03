@@ -120,7 +120,7 @@ class Experiment:
 @dataclass
 class Context:
     """What a trial may use besides its arm and task."""
-    client: Any = None                                   # the model (a BasaltClient, or a scripted one in the tests)
+    client: Any = None                                   # the model (a TadamooClient, or a scripted one in the tests)
     endpoint: str = ""
     api_key: Optional[str] = None
     power_limit_w: Optional[float] = None

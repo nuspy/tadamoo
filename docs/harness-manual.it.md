@@ -37,7 +37,7 @@ Quattro modi di usarlo, tutti con le stesse capacità:
 |---|---|
 | Scheda **Chat**, *Con strumenti* | vuoi una conversazione: chiedere, correggere, riprendere domani. Il modo principale. |
 | Scheda **Agente** | vuoi un lavoro in una cartella che indichi, con un registro e una via per tornare indietro. |
-| `python -m tadamoo` / `basalt-agent` | lo vuoi in uno script, con codici di uscita e JSON. |
+| `python -m tadamoo` / `tadamoo-agent` | lo vuoi in uno script, con codici di uscita e JSON. |
 | `python -m tadamoo acp` | lo vuoi come agente di un editor che parla l'Agent Client Protocol. |
 
 ## 2. Prima di cominciare
@@ -45,9 +45,9 @@ Quattro modi di usarlo, tutti con le stesse capacità:
 1. **Serve un modello caricato.** Se non c'è, un avviso sotto la barra in alto lo dice e apre *Modelli*; caricane uno lì.
 2. **Python e i pacchetti** sono quelli del `.venv` del repository (vedi il README, *Requisiti*). L'app avvia il server per te; i
    processi dell'agente li avvia il server.
-3. **Dove sta tutto.** Nella cartella dati dell'utente (`%APPDATA%\BasaltPannello\`): conversazioni, memoria (`memory\`), registro di
+3. **Dove sta tutto.** Nella cartella dati dell'utente (`%APPDATA%\TaDaMoo\`): conversazioni, memoria (`memory\`), registro di
    audit, checkpoint, approvazioni, il tuo `hooks.json`. Mai nel tuo progetto. L'unica cosa che l'agente scrive in un progetto è
-   `.basalt\artifacts`.
+   `.tadamoo\artifacts`.
 4. **Tieni privata la chiave API.** Se il server ha un `--api-key`, le pagine e l'agente la usano; non aprire mai il server oltre
    127.0.0.1 senza una.
 
@@ -285,7 +285,7 @@ nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare
   passaggi arrivano come dati non fidati); `auto` sceglie in base alla dimensione. Valgono per le conversazioni che iniziano dopo il salvataggio.
 - **La wiki.** *Impostazioni → Memorie → Wiki (wikibridge)* attiva `wiki_search`, `wiki_page` e `wiki_context` nella Chat e nell'Agente, con
   l'indirizzo del servizio (predefinito `http://127.0.0.1:8775`) e un progetto; un passo di piano che interroga la wiki li usa.
-  *Verifica la connessione* dice l'indirizzo provato e, se non ha risposto, perché. Una chiave, se il servizio la chiede, è `BASALT_WIKIBRIDGE_KEY`.
+  *Verifica la connessione* dice l'indirizzo provato e, se non ha risposto, perché. Una chiave, se il servizio la chiede, è `TADAMOO_WIKIBRIDGE_KEY`.
 - **Cache.** L'inizio del prompt resta identico byte per byte da un turno all'altro, così il server riusa la sua cache. Per questo gli
   appunti e i riassunti dei piani stanno dopo il tuo messaggio, mai nel blocco di sistema.
 
@@ -408,8 +408,8 @@ comandi che esegue non sono limitati alla cartella; un sandbox per loro non c'è
 
 ```powershell
 python -m tadamoo -p "correggi il test che fallisce in calc.py" --workspace D:\work\proj --json
-basalt-agent -p "correggi il test che fallisce" --workspace D:\work\proj      # basalt-agent.cmd: da qualunque cartella
-basalt-agent acp --workspace D:\work\proj                                      # per un editor che parla ACP su stdio
+tadamoo-agent -p "correggi il test che fallisce" --workspace D:\work\proj      # tadamoo-agent.cmd: da qualunque cartella
+tadamoo-agent acp --workspace D:\work\proj                                      # per un editor che parla ACP su stdio
 ```
 
 Opzioni comuni (tutte sono in [harness.md](harness.md#running-the-agent)):
@@ -441,7 +441,7 @@ proseguire.
 ## 15. Gli hook
 
 Gli hook girano su eventi e possono bloccare una chiamata di strumento. Mettili in `hooks.json` nella cartella dati dell'utente (o nel
-file dato con `--hooks`); il `.basalt\hooks.json` di un progetto si legge solo con `--workspace-hooks`, perché una cartella in lavorazione
+file dato con `--hooks`); il `.tadamoo\hooks.json` di un progetto si legge solo con `--workspace-hooks`, perché una cartella in lavorazione
 non deve nominare comandi da sola.
 
 ```json
@@ -520,7 +520,7 @@ o *domani* viene ricalcolata a ogni esecuzione. La modalità e le regole del job
 | «Nobody can confirm in this run» | un'esecuzione in modalità `plan`, `read_only` o `default`, senza nessuno a cui chiedere, ha incontrato qualcosa che richiede una domanda | usa `auto` (il default senza interfaccia), `--interactive`, o una regola `--allow` |
 | Un comando è stato rifiutato anche se una regola lo permette | il comando ne concatena o reindirizza un altro | un solo comando semplice per chiamata |
 | Uno strumento si è fermato dopo un'ora | il limite di tempo predefinito | `tool_timeout_s` in `limits.json`, o `--tool-timeout NOME=SECONDI` |
-| La ricerca dice che serve un controllo | DuckDuckGo limita le ricerche automatiche | aspetta, imposta un altro motore, o `BASALT_WEB_SEARCH=off` |
+| La ricerca dice che serve un controllo | DuckDuckGo limita le ricerche automatiche | aspetta, imposta un altro motore, o `TADAMOO_WEB_SEARCH=off` |
 | Un comando con la barra resta nel campo | il nome è sconosciuto | `/help`; inizia con uno spazio per inviarlo come testo |
 | Una pagina è stata rifiutata | è su questo PC o sulla tua rete | permettila nelle impostazioni del browser, se vuoi |
 | Ogni pagamento ti chiede | il limite è 0 finché non lo imposti | la vista Portafoglio |

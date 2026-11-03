@@ -43,7 +43,7 @@ def data_dir() -> Path:
         from serve.userdata import user_data_dir
         return user_data_dir()
     except Exception:
-        return Path.home() / ".basalt"
+        return Path.home() / ".tadamoo"
 
 
 LOOPBACK = ("127.0.0.1", "localhost", "::1")

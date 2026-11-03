@@ -35,7 +35,7 @@ TOKEN = "ghp_0123456789abcdefghijklmnopqrstuvwxyzAB"
 @pytest.fixture(autouse=True)
 def _clean(monkeypatch):
     clear_backends()
-    monkeypatch.setenv("BASALT_WEB_SEARCH", "off")
+    monkeypatch.setenv("TADAMOO_WEB_SEARCH", "off")
     yield
     clear_backends()
 

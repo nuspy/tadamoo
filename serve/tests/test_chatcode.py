@@ -47,7 +47,7 @@ def count(messages):
 class CodeAbstract(unittest.TestCase):
     def setUp(self):
         self.data = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"BASALT_DATA": self.data.name})
+        self.env = mock.patch.dict(os.environ, {"TADAMOO_DATA": self.data.name})
         self.env.start()
         side_uses.reset()
 

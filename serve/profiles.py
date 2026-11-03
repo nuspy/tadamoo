@@ -6,7 +6,7 @@ profile is the one chosen (Make default), else "Machine Default" once the config
 Valori sicuri; a client's chat follows "Machine Default" the same way until it picks another preset.
 
     python -m serve.profiles list
-    python -m serve.profiles apply NAME --config basalt_config.json [--model FILE.basalt]   # write NAME into the file
+    python -m serve.profiles apply NAME --config tadamoo_config.json [--model FILE.basalt]   # write NAME into the file
     python -m serve.profiles default
 """
 from __future__ import annotations
@@ -441,7 +441,7 @@ def _get_json(url: str):
 
 def compare_with_server(url: str, profile: str | None, model: str | None, config: str | None,
                         reserve_mib: int | None = None, port: int | None = None) -> dict:
-    """What `Avvia-Basalt.ps1 -server` would load (resolved as a new start: the profile, else the default one; the
+    """What `Avvia-TaDaMoo.ps1 -server` would load (resolved as a new start: the profile, else the default one; the
     model by --model > profile > default server model > config file) against the server answering at `url`. Valori
     sicuri is the server's own computation (it knows the memory its engine gives back)."""
     from serve import models

@@ -15,7 +15,7 @@ conversation (the selector in the Agent tab, `--role`, the `role` field when a c
 | role | tools | writes | instructions in short |
 |---|---|---|---|
 | `build` (the coding role, shown as Developer) | read, search, `edit_file`, `write_file`, `shell_command`, memory, skills, LSP | anywhere in the folder | look first, change in small steps, run the project's checks, report what they showed |
-| `plan` | read tools, `edit_file`, `write_file` | only `.basalt/plans/*.md` | no changes to the project; at most three questions; a plan file, a checklist, a summary |
+| `plan` | read tools, `edit_file`, `write_file` | only `.tadamoo/plans/*.md` | no changes to the project; at most three questions; a plan file, a checklist, a summary |
 | `ask` | read tools | nothing | answer about the project with file and line for each claim |
 | `debug` | the same as `build` | anywhere in the folder | run the failure, list at most four causes, narrow to one or two, confirm, fix, run again |
 | `orchestrate` | read tools, `spawn_subagent` | nothing | hand each part to a subagent with the file and the check, then verify what comes back |
@@ -66,7 +66,7 @@ card shows it. Each suggestion has a digest of the command and that text.
 The card "Project checks" in the Agent tab lists them and the person accepts them one by one, with two choices for each: **run without
 asking** and **run before an answer ends** (the verify gate). Nothing is accepted by default and nothing from a project file approves
 anything: the acceptance is saved in `coding.json` in the user data folder, keyed by the folder, with the command and its digest
-(`serve/coding_prefs.py`); a file `.basalt/project.json` or anything else in the project is never read for it. Only a command the folder
+(`serve/coding_prefs.py`); a file `.tadamoo/project.json` or anything else in the project is never read for it. Only a command the folder
 suggests now can be accepted. An accepted command counts only while the folder still suggests the same command with the same digest: if the
 project changes the script behind `npm test`, the card shows "Changed since you accepted it" and the command asks again, and a command the
 folder no longer has is dropped.

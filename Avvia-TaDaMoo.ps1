@@ -17,7 +17,7 @@
                 finestra fermano server e motore e liberano la RAM (un Job Object di Windows chiude tutto anche se
                 PowerShell viene terminato di colpo).
       -server   il solo server, staccato dalla finestra, senza app né browser: lo script ritorna quando il modello è
-                carico (o se non parte). Serve agli agenti; si ferma con Ferma-Basalt.ps1 --port N.
+                carico (o se non parte). Serve agli agenti; si ferma con Ferma-TaDaMoo.ps1 --port N.
 
     Se un server Basalt Win+GUI di questa cartella è già acceso non ne avvia un altro: con -gui apre l'app (che
     chiede se collegarsi o cambiare modello), con -browser apre il browser su quel server. Con -server confronta i
@@ -27,23 +27,23 @@
     -riusa e -riavvia rispondono in anticipo (per gli agenti); senza risposta entro 60 secondi, o senza nessuno a
     cui chiedere, il server avviato viene riusato: nessun server viene fermato senza una risposta.
 
-    Con -browser e -server lo script scrive in basalt_config.json i valori del profilo scelto (il file precedente
-    resta in basalt_config.json.bak) e controlla con gli stessi calcoli del Loader che VRAM, RAM e memoria
+    Con -browser e -server lo script scrive in tadamoo_config.json i valori del profilo scelto (il file precedente
+    resta in tadamoo_config.json.bak) e controlla con gli stessi calcoli del Loader che VRAM, RAM e memoria
     impegnabile (commit) bastino lasciando libera la parte di RAM e di commit scelta per gli altri programmi (15% se
     non è stata cambiata), senza far crescere il file di paging.
 
-    La lingua dei messaggi: --lang it|en, altrimenti BASALT_LANG, altrimenti quella scelta nell'interfaccia
-    (Impostazioni), altrimenti l'inglese. The messages' language: --lang it|en, else BASALT_LANG, else the one chosen
+    La lingua dei messaggi: --lang it|en, altrimenti TADAMOO_LANG, altrimenti quella scelta nell'interfaccia
+    (Impostazioni), altrimenti l'inglese. The messages' language: --lang it|en, else TADAMOO_LANG, else the one chosen
     in the interface (Settings), else English. English help: README.md.
 
 .EXAMPLE
-    .\Avvia-Basalt.ps1
+    .\Avvia-TaDaMoo.ps1
 .EXAMPLE
-    .\Avvia-Basalt.ps1 -prova
+    .\Avvia-TaDaMoo.ps1 -prova
 .EXAMPLE
-    .\Avvia-Basalt.ps1 -browser --config "Valori sicuri" --port 7240
+    .\Avvia-TaDaMoo.ps1 -browser --config "Valori sicuri" --port 7240
 .EXAMPLE
-    .\Avvia-Basalt.ps1 -server --model "D:\Modelli\Qwen3.8-Flash-Next-IQ3_XXS.basalt" --vram-libera 2 -riusa
+    .\Avvia-TaDaMoo.ps1 -server --model "D:\Modelli\Qwen3.8-Flash-Next-IQ3_XXS.basalt" --vram-libera 2 -riusa
 #>
 [CmdletBinding(PositionalBinding = $false)]   # --port / --model / --config go to $Altri, never to a parameter by position
 param(
@@ -60,7 +60,7 @@ param(
     [switch]$Riusa,
     [switch]$Riavvia,
     [string]$Lang = '',
-    [string]$File = 'basalt_config.json',
+    [string]$File = 'tadamoo_config.json',
     # interno: il server legato al chiamante, senza interfaccia (per un programma che lo avvia e lo ferma)
     [switch]$PerApp,
     # nomi vecchi, ancora accettati: -Sfondo e -SoloServer ora sono -server
@@ -78,7 +78,7 @@ $GiB = [double](1GB)
 $AttesaMaxS = 600         # 10 minuti per la prima risposta HTTP
 $AttesaCaricoS = 1800     # -server: 30 minuti perché il modello sia carico
 $AttesaRispostaS = 60     # -server con un server già acceso: il tempo per rispondere, poi lo si riusa
-if ($env:BASALT_ASK_TIMEOUT_S -match '^\d+$') { $AttesaRispostaS = [int]$env:BASALT_ASK_TIMEOUT_S }
+if ($env:TADAMOO_ASK_TIMEOUT_S -match '^\d+$') { $AttesaRispostaS = [int]$env:TADAMOO_ASK_TIMEOUT_S }
 $RiavvioModello = 75      # codice d'uscita del server quando il Loader ha scelto un altro modello: si riavvia
 
 function Scrivi([string]$Testo, [string]$Colore = 'Gray') { Write-Host $Testo -ForegroundColor $Colore }
@@ -98,10 +98,10 @@ function Esci([int]$Codice) {
     exit $Codice
 }
 
-# ------------------------------------------------------------------ la lingua: --lang > BASALT_LANG > scelta nell'interfaccia > inglese
+# ------------------------------------------------------------------ la lingua: --lang > TADAMOO_LANG > scelta nell'interfaccia > inglese
 function Get-Lingua([string]$Data) {
-    foreach ($l in @($Data, $env:BASALT_LANG)) { if ($l -and $l.ToLowerInvariant() -in 'it', 'en') { return $l.ToLowerInvariant() } }
-    $dati = if ($env:BASALT_DATA) { $env:BASALT_DATA } else { Join-Path $env:APPDATA 'BasaltPannello' }
+    foreach ($l in @($Data, $env:TADAMOO_LANG)) { if ($l -and $l.ToLowerInvariant() -in 'it', 'en') { return $l.ToLowerInvariant() } }
+    $dati = if ($env:TADAMOO_DATA) { $env:TADAMOO_DATA } else { Join-Path $env:APPDATA 'TaDaMoo' }
     try {
         $p = Get-Content -Raw -Encoding UTF8 (Join-Path $dati 'prefs.json') | ConvertFrom-Json
         if ($p.PSObject.Properties['lang'] -and $p.lang -in 'it', 'en') { return [string]$p.lang }
@@ -115,10 +115,10 @@ for ($i = 0; $i -lt $Altri.Count; $i++) {                  # --lang prima di tut
     elseif ($x -like 'lang=*') { $langArg = $x.Substring(5) }
 }
 $Lingua = Get-Lingua $langArg
-if ($langArg) { $env:BASALT_LANG = $Lingua }               # --lang: i comandi Python e il server la seguono
+if ($langArg) { $env:TADAMOO_LANG = $Lingua }               # --lang: i comandi Python e il server la seguono
 function T([string]$It, [string]$En) { if ($Lingua -eq 'it') { $It } else { $En } }
-$Uso = T 'uso: Avvia-Basalt.ps1 [-gui | -browser | -server] [--config "<profilo>"] [--model "<file .basalt>"] [--port N] [--vram-libera GB] [-riusa | -riavvia] [-converti] [-prova] [--lang it|en] [-file <configurazione>]' `
-         'usage: Avvia-Basalt.ps1 [-gui | -browser | -server] [--config "<profile>"] [--model "<.basalt file>"] [--port N] [--vram-libera GB] [-riusa | -riavvia] [-converti] [-prova] [--lang it|en] [-file <config file>]'
+$Uso = T 'uso: Avvia-TaDaMoo.ps1 [-gui | -browser | -server] [--config "<profilo>"] [--model "<file .basalt>"] [--port N] [--vram-libera GB] [-riusa | -riavvia] [-converti] [-prova] [--lang it|en] [-file <configurazione>]' `
+         'usage: Avvia-TaDaMoo.ps1 [-gui | -browser | -server] [--config "<profile>"] [--model "<.basalt file>"] [--port N] [--vram-libera GB] [-riusa | -riavvia] [-converti] [-prova] [--lang it|en] [-file <config file>]'
 
 # ------------------------------------------------------------------ le opzioni: -nome o --nome, --nome valore o --nome=valore
 for ($i = 0; $i -lt $Altri.Count; $i++) {
@@ -217,7 +217,7 @@ function Get-Ascoltatore([int]$Porta) {
 
 function Get-ServerAccesi {
     # le porte su cui ascolta un server Basalt di questa cartella: il server Python (serve.server) avviato da bin\basalt.exe
-    # o con il venv di qui, e la porta di basalt.pid se risponde come Basalt
+    # o con il venv di qui, e la porta di tadamoo.pid se risponde come Basalt
     $bin = (Join-Path $Radice 'bin').ToLowerInvariant()
     $qui = $Radice.ToLowerInvariant()
     $porte = @()
@@ -225,8 +225,8 @@ function Get-ServerAccesi {
         $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($c.OwningProcess)" -ErrorAction SilentlyContinue
         if (-not ($p -and $p.CommandLine -and $p.CommandLine -match 'serve\.server')) { continue }
         # un server di prova (motore finto, o configurazione in una cartella temporanea) non è "Basalt già acceso":
-        # lo si guarda solo se lo chiede BASALT_SCAN_MOCK=1 (i test)
-        if ($env:BASALT_SCAN_MOCK -ne '1') {
+        # lo si guarda solo se lo chiede TADAMOO_SCAN_MOCK=1 (i test)
+        if ($env:TADAMOO_SCAN_MOCK -ne '1') {
             $tmp = [System.IO.Path]::GetTempPath().TrimEnd('\').ToLowerInvariant()
             $cl = $p.CommandLine.ToLowerInvariant()
             if ($cl -match '--mock-engine' -or $cl.Contains($tmp) -or $cl -match '\\temp\\') { continue }
@@ -239,14 +239,14 @@ function Get-ServerAccesi {
             $porte += [int]$c.LocalPort
         }
     }
-    $pidFile = Join-Path $Radice 'basalt.pid'
+    $pidFile = Join-Path $Radice 'tadamoo.pid'
     if (Test-Path $pidFile) {
         try { $info = Get-Content -Raw $pidFile | ConvertFrom-Json; if ($info.PSObject.Properties['port']) { $porte += [int]$info.port } } catch { }
     }
-    # BASALT_SCAN_PORTS (per i test: "7280-7289" o "7283,7285"): si guardano solo quelle porte, mai le altre
-    if ($env:BASALT_SCAN_PORTS) {
+    # TADAMOO_SCAN_PORTS (per i test: "7280-7289" o "7283,7285"): si guardano solo quelle porte, mai le altre
+    if ($env:TADAMOO_SCAN_PORTS) {
         $ammesse = @()
-        foreach ($pezzo in ($env:BASALT_SCAN_PORTS -split ',')) {
+        foreach ($pezzo in ($env:TADAMOO_SCAN_PORTS -split ',')) {
             if ($pezzo.Trim() -match '^(\d+)(?:-(\d+))?$') {
                 $da = [int]$Matches[1]; $a = if ($Matches[2]) { [int]$Matches[2] } else { $da }
                 $ammesse += $da..$a
@@ -258,7 +258,7 @@ function Get-ServerAccesi {
     foreach ($porta in ($porte | Sort-Object -Unique)) {
         $h = Get-Json "http://127.0.0.1:$porta/health"
         if ($h -and $h.service -eq 'basalt') {
-            if ($env:BASALT_SCAN_MOCK -ne '1' -and $h.PSObject.Properties['mock'] -and $h.mock) { continue }   # un server di prova
+            if ($env:TADAMOO_SCAN_MOCK -ne '1' -and $h.PSObject.Properties['mock'] -and $h.mock) { continue }   # un server di prova
             $accesi += [pscustomobject]@{ Porta = $porta; Salute = $h }
         }
     }
@@ -280,8 +280,8 @@ function Say($Coppia) { if ($Lingua -eq 'it') { [string]$Coppia.it } else { [str
 
 # ------------------------------------------------------------------ -server con un server già acceso: riusarlo o riavviarlo?
 function Test-Desktop {
-    # una sessione con il desktop (non la 0 dei servizi) e senza BASALT_NO_DIALOG: si può mostrare una finestra
-    if ($env:BASALT_NO_DIALOG -eq '1') { return $false }
+    # una sessione con il desktop (non la 0 dei servizi) e senza TADAMOO_NO_DIALOG: si può mostrare una finestra
+    if ($env:TADAMOO_NO_DIALOG -eq '1') { return $false }
     try { return [Environment]::UserInteractive -and (Get-Process -Id $PID).SessionId -ne 0 } catch { return $false }
 }
 
@@ -345,7 +345,7 @@ $accesi = @(Get-ServerAccesi)
 
 # ------------------------------------------------------------------ -gui: l'app
 $exeApp = Join-Path $Radice 'tools\windows\desktop\publish\BasaltWinGUI.exe'
-$exeVecchio = Join-Path $Radice 'tools\windows\desktop\publish\BasaltPannello.exe'   # il nome di prima
+$exeVecchio = Join-Path $Radice 'tools\windows\desktop\publish\TaDaMoo.exe'   # il nome di prima
 if (-not (Test-Path $exeApp) -and (Test-Path $exeVecchio)) { $exeApp = $exeVecchio }
 if ($Gui -and -not (Test-Path $exeApp)) {
     Scrivi (T "L'app Basalt Win+GUI non è ancora stata costruita ($exeApp)." "The Basalt Win+GUI app is not built yet ($exeApp).") Yellow
@@ -361,7 +361,7 @@ if ($Gui) {
     if ($Port) { $argApp += @('--port', "$Port") }
     if ($RiservaMib -ge 0) { $argApp += @('--vram-libera', ([double]$RiservaMib / 1024).ToString([Globalization.CultureInfo]::InvariantCulture)) }
     if ($langArg) { $argApp += @('--lang', $Lingua) }
-    if ($File -ne 'basalt_config.json') { $argApp += @('--file', $cfgPath) }
+    if ($File -ne 'tadamoo_config.json') { $argApp += @('--file', $cfgPath) }
     if ($Converti) { Scrivi "  $(T '(-converti vale con -browser e -server: nell''app la conversione è nel Loader, «Converti…»)' '(-converti applies to -browser and -server: in the app the conversion is in the Loader, “Converti…”)')" DarkYellow }
     $porta = 7232
     if ($accesi.Count) { $porta = $accesi[0].Porta }
@@ -417,12 +417,12 @@ if ($accesi.Count) {
             Scrivi "$(T 'Non riesco a confrontare i parametri con il server acceso; lo riuso' 'Cannot compare the parameters with the running server; it is reused'): $($cmp.Righe -join ' ')" DarkYellow
         }
         if ($decisione -eq 'riavvia' -and $Prova) {
-            Scrivi (T "PROVA: fermerei solo il server sulla porta $($s.Porta) (Ferma-Basalt.ps1 --port $($s.Porta)) e lo riavvierei con i nuovi parametri." "DRY RUN: only the server on port $($s.Porta) would be stopped (Ferma-Basalt.ps1 --port $($s.Porta)) and started again with the new parameters.") Yellow
+            Scrivi (T "PROVA: fermerei solo il server sulla porta $($s.Porta) (Ferma-TaDaMoo.ps1 --port $($s.Porta)) e lo riavvierei con i nuovi parametri." "DRY RUN: only the server on port $($s.Porta) would be stopped (Ferma-TaDaMoo.ps1 --port $($s.Porta)) and started again with the new parameters.") Yellow
             Esci 0
         }
         if ($decisione -eq 'riavvia') {
             Scrivi (T "Fermo solo il server sulla porta $($s.Porta)..." "Stopping only the server on port $($s.Porta)...") Cyan
-            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Radice 'Ferma-Basalt.ps1') --port "$($s.Porta)" --lang $Lingua
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Radice 'Ferma-TaDaMoo.ps1') --port "$($s.Porta)" --lang $Lingua
             if ($LASTEXITCODE -ne 0) { Scrivi (T 'Il server non si è fermato: non ne avvio un altro.' 'The server did not stop: no other is started.') Red; Esci 1 }
             if (-not $Port) { $Port = [int]$s.Porta }        # di nuovo sulla stessa porta, se non è stata chiesta un'altra
             $accesi = @()
@@ -439,7 +439,7 @@ if ($accesi.Count) {
         Scrivi "  $(T 'impostazioni in uso' 'settings in use'): kv $($r.'engine.kv'), spec $($r.'engine.spec'), $(T 'cache esperti' 'expert cache') $($r.'engine.expert-cache'), slot $($r.'server.parallel')"
         if ($imp.config) { Scrivi "  $(T 'configurazione' 'config file'): $($imp.config)" }
     }
-    $pidFile0 = Join-Path $Radice 'basalt.pid'
+    $pidFile0 = Join-Path $Radice 'tadamoo.pid'
     if (Test-Path $pidFile0) {
         try {
             $info0 = Get-Content -Raw $pidFile0 | ConvertFrom-Json
@@ -449,11 +449,11 @@ if ($accesi.Count) {
     if ($imp -and $imp.PSObject.Properties['model'] -and $imp.model) { Scrivi "  file:       $($imp.model)" }
     if ($accesi.Count -gt 1) { Scrivi "  $(T 'altri server Basalt Win+GUI accesi sulle porte' 'other Basalt Win+GUI servers running on ports'): $(($accesi | Select-Object -Skip 1 | ForEach-Object { $_.Porta }) -join ', ')" }
     if (-not $Server) {
-        if ($Config) { Scrivi "  $(T "(il profilo «$Config» non è stato applicato: per cambiarlo usa il Loader o Ferma-Basalt.ps1 e poi riavvia)" "(the profile “$Config” was not applied: to change it use the Loader, or Ferma-Basalt.ps1 and then start again)")" DarkYellow }
+        if ($Config) { Scrivi "  $(T "(il profilo «$Config» non è stato applicato: per cambiarlo usa il Loader o Ferma-TaDaMoo.ps1 e poi riavvia)" "(the profile “$Config” was not applied: to change it use the Loader, or Ferma-TaDaMoo.ps1 and then start again)")" DarkYellow }
         if ($Model) {
             $inUso = if ($imp -and $imp.PSObject.Properties['model']) { [string]$imp.model } else { '' }
             if (-not $inUso -or ([System.IO.Path]::GetFullPath($Model) -ne [System.IO.Path]::GetFullPath($inUso))) {
-                Scrivi "  $(T "(il modello «$Model» NON è stato caricato: questo server serve un altro modello. Per cambiarlo: Ferma-Basalt.ps1 --port $($s.Porta), poi di nuovo Avvia-Basalt.ps1 --model ...)" "(the model “$Model” was NOT loaded: this server serves another model. To change it: Ferma-Basalt.ps1 --port $($s.Porta), then Avvia-Basalt.ps1 --model ... again)")" DarkYellow
+                Scrivi "  $(T "(il modello «$Model» NON è stato caricato: questo server serve un altro modello. Per cambiarlo: Ferma-TaDaMoo.ps1 --port $($s.Porta), poi di nuovo Avvia-TaDaMoo.ps1 --model ...)" "(the model “$Model” was NOT loaded: this server serves another model. To change it: Ferma-TaDaMoo.ps1 --port $($s.Porta), then Avvia-TaDaMoo.ps1 --model ... again)")" DarkYellow
             }
         }
     }
@@ -472,7 +472,7 @@ if ($nomi -notcontains $Config) {
     $nomi | ForEach-Object { Scrivi "  $_" }
     Esci 1
 }
-# in prova si lavora su una copia: basalt_config.json resta com'è
+# in prova si lavora su una copia: tadamoo_config.json resta com'è
 $usato = $cfgPath
 if ($Prova) {
     $usato = Join-Path ([System.IO.Path]::GetTempPath()) "basalt_config.prova.$PID.json"
@@ -493,7 +493,7 @@ if ($rs.Codice -eq 6) {
 if ($rs.Codice -eq 5) {
     Scrivi (T "Il modello ($fonte) è un GGUF da convertire in .basalt: $($scelta.model)" "The model ($fonte) is a GGUF to convert to .basalt: $($scelta.model)") Yellow
     if (-not $Converti) {
-        Scrivi "  $(T 'Per convertirlo:' 'To convert it:') .\Avvia-Basalt.ps1 --model `"$($scelta.model)`" -converti $(T '(chiede conferma e dice quanto scrive),' '(asks first and says how much it writes),')" Yellow
+        Scrivi "  $(T 'Per convertirlo:' 'To convert it:') .\Avvia-TaDaMoo.ps1 --model `"$($scelta.model)`" -converti $(T '(chiede conferma e dice quanto scrive),' '(asks first and says how much it writes),')" Yellow
         Scrivi "  $(T 'oppure dall''app o dalla pagina Carica modello: Converti.' 'or from the app or the Loader page: Converti.')" Yellow
         Esci 1
     }
@@ -530,8 +530,8 @@ $modello = [string]$srv.model
 if (-not [System.IO.Path]::IsPathRooted($modello)) { $modello = Join-Path (Split-Path $cfgPath) $modello }
 $exe = Join-Path $Radice 'bin\basalt.exe'
 $logDir = Join-Path $Radice 'logs'
-$log = Join-Path $logDir 'basalt-serve.log'
-$pidFile = Join-Path $Radice 'basalt.pid'
+$log = Join-Path $logDir 'tadamoo-serve.log'
+$pidFile = Join-Path $Radice 'tadamoo.pid'
 $modo = if ($Server) { 'server' } elseif ($PerApp) { 'per-app' } else { 'browser' }
 
 Scrivi "Basalt Win+GUI - $(T 'avvio' 'start') -$modo $(if ($Prova) { T '(PROVA: non parte nulla)' '(DRY RUN: nothing starts)' })" Cyan
@@ -542,9 +542,9 @@ Scrivi "  $(T 'indirizzo:      ' 'address:        ') $url"
 
 $asc = Get-Ascoltatore $porta
 if ($asc) { Scrivi (T "La porta $porta è occupata da $($asc.Name) (PID $($asc.ProcessId)): non avvio Basalt Win+GUI (--port N per un'altra)." "Port $porta is taken by $($asc.Name) (PID $($asc.ProcessId)): Basalt Win+GUI is not started (--port N for another).") Red; Esci 1 }
-if ((Test-Path $pidFile) -and -not $env:BASALT_SCAN_PORTS) {               # con BASALT_SCAN_PORTS può essere di un altro server
+if ((Test-Path $pidFile) -and -not $env:TADAMOO_SCAN_PORTS) {               # con TADAMOO_SCAN_PORTS può essere di un altro server
     if (-not $Prova) { Remove-Item $pidFile -ErrorAction SilentlyContinue }   # di un avvio finito male
-    Scrivi "  $(T '(basalt.pid di un avvio precedente: rimosso)' '(basalt.pid of an earlier start: removed)')" DarkGray
+    Scrivi "  $(T '(tadamoo.pid di un avvio precedente: rimosso)' '(tadamoo.pid of an earlier start: removed)')" DarkGray
 }
 
 # ------------------------------------------------------------------ file necessari
@@ -578,8 +578,8 @@ $legato = -not $Server
 # legato a questa finestra: se dal Loader si sceglie un altro modello il server esce con 75 e qui riparte con quello
 $cmdLine = '"' + $exe + '" serve --config "' + $cfgPath + '"' + $(if ($Port) { " --port $Port" } else { '' }) +
     $(if ($legato) { ' --relaunch-on-model-change' } else { '' })
-$cache = if ($env:BASALT_CACHE) { $env:BASALT_CACHE } else { Join-Path $HOME '.cache\basalt' }
-$modoTesto = if ($Server) { T 'solo server, staccato e senza browser: lo script ritorna quando il modello è carico (fermare con Ferma-Basalt.ps1)' 'server alone, detached, no browser: the script returns once the model is loaded (stop it with Ferma-Basalt.ps1)' }
+$cache = if ($env:TADAMOO_CACHE) { $env:TADAMOO_CACHE } else { Join-Path $HOME '.cache\tadamoo' }
+$modoTesto = if ($Server) { T 'solo server, staccato e senza browser: lo script ritorna quando il modello è carico (fermare con Ferma-TaDaMoo.ps1)' 'server alone, detached, no browser: the script returns once the model is loaded (stop it with Ferma-TaDaMoo.ps1)' }
              elseif ($PerApp) { T 'legato al programma che l''ha avviato, senza interfaccia' 'tied to the program that started it, no interface' }
              else { T 'legato a questa finestra, interfaccia nel browser (Ctrl+C o chiudere la finestra lo ferma)' 'tied to this window, the interface in the browser (Ctrl+C or closing the window stops it)' }
 Scrivi ''
@@ -664,7 +664,7 @@ try {
             $h = Get-Json ($url + 'health')
             if ($h -and $h.loaded) {
                 Mostra-Log
-                Scrivi (T "Server pronto con il modello caricato: $url (solo server, PID $idServer). Per fermarlo: Ferma-Basalt.ps1 --port $porta" "Server ready with the model loaded: $url (server alone, PID $idServer). To stop it: Ferma-Basalt.ps1 --port $porta") Green
+                Scrivi (T "Server pronto con il modello caricato: $url (solo server, PID $idServer). Per fermarlo: Ferma-TaDaMoo.ps1 --port $porta" "Server ready with the model loaded: $url (server alone, PID $idServer). To stop it: Ferma-TaDaMoo.ps1 --port $porta") Green
                 if ($ApriDopo) { Start-Process $url }
                 break
             }
