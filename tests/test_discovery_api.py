@@ -84,7 +84,7 @@ def test_removing_deletes_what_basalt_installed_and_only_that(setup):
 def test_the_installed_one_shows_in_the_tree_as_installed_by_basalt_and_approved(setup):
     api, _ = setup
     entry = next(e for e in api("GET", "/api/capabilities")[1]["entries"] if e["id"] == "mcp:search-mcp")
-    assert entry["origin"] == "basalt" and entry["state"] == "approved"
+    assert entry["origin"] == "tadamoo" and entry["state"] == "approved"
 
 
 def test_the_search_settings_and_removal_do_not_look_at_the_origin(setup):

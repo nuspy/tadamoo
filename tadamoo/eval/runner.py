@@ -125,8 +125,8 @@ class EvalRunner:
     def run_trial(self, task: Task, rep: int) -> Trial:
         t0 = time.monotonic()
         name = re.sub(r"[^A-Za-z0-9_.@-]", "_", task.id)                 # a task id may hold a slash (bfcl/simple_0): it names folders here
-        work = Path(tempfile.mkdtemp(prefix=f"basalt-eval-{name}-"))
-        data = Path(tempfile.mkdtemp(prefix="basalt-eval-data-"))
+        work = Path(tempfile.mkdtemp(prefix=f"tadamoo-eval-{name}-"))
+        data = Path(tempfile.mkdtemp(prefix="tadamoo-eval-data-"))
         trial = Trial(repetition=rep, passed=False)
         agent = None
         built = None

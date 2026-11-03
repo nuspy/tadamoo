@@ -48,11 +48,11 @@
     s = esc(s)
       .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
       .replace(/(^|[^*\w])\*([^*\n]+)\*(?![*\w])/g, "$1<em>$2</em>")
-      .replace(/\[([^\]\n]+)\]\(basalt-file:([a-f0-9]{12})\)/g, (_, name, id) =>
+      .replace(/\[([^\]\n]+)\]\(tadamoo-file:([a-f0-9]{12})\)/g, (_, name, id) =>
         `<button type="button" class="afile" data-kind="file" data-id="${id}" data-name="${name}" title="${esc(T("ch.out.save", name))}">\u2193 ${name}</button>`)
-      .replace(/\[([^\]\n]+)\]\(basalt-path:([^)\s<>]{1,400})\)/g, (_, name, path) =>
+      .replace(/\[([^\]\n]+)\]\(tadamoo-path:([^)\s<>]{1,400})\)/g, (_, name, path) =>
         `<button type="button" class="afile" data-kind="path" data-path="${path}" data-name="${name}" title="${esc(T("ch.out.save", name))}">\u2193 ${name}</button>`)
-      .replace(/!\[([^\]\n]*)\]\(basalt-file:([a-f0-9]{12})\)/g, (_, alt, id) =>
+      .replace(/!\[([^\]\n]*)\]\(tadamoo-file:([a-f0-9]{12})\)/g, (_, alt, id) =>
         `<span class="afig"><img class="aimg" data-fid="${id}" alt="${alt}" hidden><span class="afigc">${alt}</span></span>`)
       .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s"'<>]+)\)/g, (_, text, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>${sourceButton(url)}`);
     s = addressButtons(s);

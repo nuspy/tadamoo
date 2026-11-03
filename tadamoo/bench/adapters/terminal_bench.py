@@ -6,7 +6,7 @@ container, runs the agent, runs the task's own hidden tests and writes `result.j
 `environment.exec`. The smoke subset uses Harbor's own `oracle` agent (it runs the task's reference solution), which proves Docker, Harbor and the verifier
 without the model.
 
-Settings read: `subset` (smoke, easy5, dev, full), `trials` (5 for `full` when not given), `tasks` (explicit task names), `agent` ('basalt', or 'oracle';
+Settings read: `subset` (smoke, easy5, dev, full), `trials` (5 for `full` when not given), `tasks` (explicit task names), `agent` ('tadamoo', or 'oracle';
 the smoke subset defaults to 'oracle'), `agent_config` (AgentConfig fields to change; see containerkit.FORBIDDEN_FIELDS), `harbor_command` (the program,
 a list), `environment` (Harbor's `--env`, default docker). Timeouts are the task's own and are never changed."""
 from __future__ import annotations
@@ -190,7 +190,7 @@ def trial_result(data: Optional[Mapping[str, Any]], trial_dir: Optional[Path], c
 
 class TerminalBenchAdapter:
     id = ID
-    SETTINGS = {"subset": ("smoke", "easy5", "dev", "full"), "trials": "k attempts per task (5 for full)", "agent": ("basalt", "oracle")}
+    SETTINGS = {"subset": ("smoke", "easy5", "dev", "full"), "trials": "k attempts per task (5 for full)", "agent": ("tadamoo", "oracle")}
 
     def __init__(self, runner: LongRunner = long_runner, which: Callable[[str], Optional[str]] = shutil.which,
                  environ: Optional[Mapping[str, str]] = None) -> None:
@@ -202,9 +202,9 @@ class TerminalBenchAdapter:
         return [(task, rep) for task in select_tasks(source_of(bench_dir), subset, settings) for rep in range(1, trials + 1)]
 
     def _agent(self, settings: Mapping[str, Any]) -> str:
-        chosen = str(settings.get("agent") or ("oracle" if settings.get("subset") == "smoke" else "basalt"))
-        if chosen not in ("basalt", "oracle"):
-            raise ValueError(f"the agent is 'basalt' or 'oracle', not {chosen!r}")
+        chosen = str(settings.get("agent") or ("oracle" if settings.get("subset") == "smoke" else "tadamoo"))
+        if chosen not in ("tadamoo", "oracle"):
+            raise ValueError(f"the agent is 'tadamoo' or 'oracle', not {chosen!r}")
         return chosen
 
     def command(self, key: Key, ctx: TrialContext, task_dir: Path, endpoint: str) -> Tuple[List[str], Path, str]:

@@ -414,7 +414,7 @@ def write_permission_prefs(profile_dir: str | Path) -> None:
 # What a page does to ask: noted (not answered) so that the person can be asked by the `ask` policy, or the model told by the others.
 PERMISSION_WATCH_JS = r"""
 (() => {
-  const tell = kind => { try { window.__basaltPerm(String(kind)); } catch (e) {} };
+  const tell = kind => { try { window.__tadamooPerm(String(kind)); } catch (e) {} };
   const wrap = (owner, name, kind) => {
     try {
       const f = owner && owner[name]; if (typeof f !== 'function') return;
@@ -435,7 +435,7 @@ PERMISSION_WATCH_JS = r"""
   if (window.StorageManager) wrap(StorageManager.prototype, 'persist', 'persistent storage');
 })();
 """
-WATCH_BINDING = "__basaltPerm"
+WATCH_BINDING = "__tadamooPerm"
 
 # what a request names -> the DevTools permissions that a person's approval turns on for that one site. A device chooser (USB, serial, HID) cannot be
 # answered from here, so it is never granted.

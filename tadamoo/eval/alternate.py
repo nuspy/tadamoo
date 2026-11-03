@@ -20,7 +20,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from tadamoo.client import TadamooClient
 
-WORDS = ("granite basalt obsidian pumice tuff scoria dolerite gabbro rhyolite andesite diorite peridotite komatiite phonolite trachyte "
+WORDS = ("granite gneiss obsidian pumice tuff scoria dolerite gabbro rhyolite andesite diorite peridotite komatiite phonolite trachyte "
          "kimberlite lamprophyre carbonatite ignimbrite").split()
 
 

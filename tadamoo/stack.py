@@ -217,7 +217,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--personal-skills-dir", default="", help="the folder of the person's personal skills: the conversation can write one with create_skill")
     parser.add_argument("--persistence-file", default="", help="where the person's choice for \"work until done\" is kept (tadamoo/persistence.py)")
     parser.add_argument("--next-steps-file", default="", help="where the person's choice for the card of next steps after a task is kept (tadamoo/nextsteps.py)")
-    parser.add_argument("--lessons-dir", default=None, help="the folder of the global lessons; with it (or with \"\") the conversation keeps outcomes and lessons in the project's .basalt folder and reads them at the start of a task")
+    parser.add_argument("--lessons-dir", default=None, help="the folder of the global lessons; with it (or with \"\") the conversation keeps outcomes and lessons in the project's .tadamoo folder and reads them at the start of a task")
     parser.add_argument("--past-index", default="", help="the file that indexes the person's earlier conversations (tadamoo/past.py): the conversation can search and reread them")
 
 

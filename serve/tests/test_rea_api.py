@@ -104,7 +104,7 @@ class SwitchTests(Base):
         server, skill = index.get("mcp:rea"), index.get("skill:reverse-engineer-anything")
         self.assertIsNotNone(server)
         self.assertIsNotNone(skill)
-        self.assertEqual((server["state"], server["origin"]), ("approved", "basalt"))
+        self.assertEqual((server["state"], server["origin"]), ("approved", "tadamoo"))
         self.assertEqual(skill["state"], "approved")
 
     def test_turning_it_off_removes_exactly_what_was_added(self):

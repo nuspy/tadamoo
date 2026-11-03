@@ -96,7 +96,7 @@ def ask_probes(built: Any, probes: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def run_trial(arm: Arm, variant: Dict[str, Any], rep: int, ctx: Context) -> CaseTrial:
     t0 = time.monotonic()
-    root = Path(tempfile.mkdtemp(prefix=f"basalt-e9-{variant['id']}-"))
+    root = Path(tempfile.mkdtemp(prefix=f"tadamoo-e9-{variant['id']}-"))
     trial = CaseTrial(arm.name, variant["id"], rep)
     client = CountingClient(ctx.client)
     built = None

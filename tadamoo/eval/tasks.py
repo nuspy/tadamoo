@@ -244,7 +244,7 @@ def place_hidden(task: Task, workspace: Path) -> None:
 
 def swe_failures(check: Dict[str, Any], workspace: Path, sandbox: Any) -> List[str]:
     """SWE-bench's own verdict: the instance's test patch is applied, the tests that must start passing pass, and the ones that passed still do."""
-    patch = Path(tempfile.mkdtemp(prefix="basalt-swe-")) / "tests.patch"
+    patch = Path(tempfile.mkdtemp(prefix="tadamoo-swe-")) / "tests.patch"
     patch.write_bytes(check["test_patch"].encode("utf-8"))
     try:
         applied = sandbox.run(subprocess.list2cmdline(["git", "apply", "--whitespace=nowarn", str(patch)]), timeout=60)

@@ -279,10 +279,10 @@ class Context:
     def resolve(self, dest: str) -> Tuple[Optional[str], bool]:
         """(address, is_app_file): the address a link may have in the document, or None."""
         dest = dest.strip()
-        m = re.fullmatch(r"basalt-file:([a-f0-9]{12})", dest)
+        m = re.fullmatch(r"tadamoo-file:([a-f0-9]{12})", dest)
         if m:
             return self.file_url(m.group(1)), True
-        m = re.fullmatch(r"basalt-path:([^\s<>]{1,400})", dest)
+        m = re.fullmatch(r"tadamoo-path:([^\s<>]{1,400})", dest)
         if m:
             return self.path_url(m.group(1)), True
         return safe_url(dest), False

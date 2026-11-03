@@ -20,7 +20,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from tadamoo.sandbox import CommandJob, CREATE_SUSPENDED, kill_tree
 
 ENTRY = Path(__file__).with_name("runtime") / "entry.py"
-PREFIX = "@@basalt@@ "
+PREFIX = "@@tadamoo@@ "
 
 
 @dataclass

@@ -1,5 +1,5 @@
 """The folders of the Agent tab. A project is a folder the person added: the agent's conversations in it work in that folder, and the
-folder keeps a registry of its own in `.basalt/` (its name and the conversations that were held there)."""
+folder keeps a registry of its own in `.tadamoo/` (its name and the conversations that were held there)."""
 from __future__ import annotations
 
 import json

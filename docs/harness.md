@@ -507,7 +507,7 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   bookings (`browser_open`, `browser_read`, `browser_click`, `browser_type`, `browser_select`, `browser_press`, `browser_back`).
   Where the conversation has a place for files (the Chat), `browser_screenshot` keeps a PNG of the page as a file of the conversation, and `browser_open`, `browser_click`,
   `browser_select`, `browser_press` and `browser_back` take `screenshot: true` to keep one of the page they lead to. The result names the file (its path, `output:<id>` for
-  `analyze_image`, and the `basalt-file:` link to show it); the call is in the audit log. In a browser where a vault value was typed a picture could show it (it cannot be masked like text): at the Auto level it is taken, otherwise the person is asked.
+  `analyze_image`, and the `tadamoo-file:` link to show it); the call is in the audit log. In a browser where a vault value was typed a picture could show it (it cannot be masked like text): at the Auto level it is taken, otherwise the person is asked.
   A page is read as numbered elements and text, fenced as untrusted. Nothing is cut off: `browser_read` takes `offset` and `limit` (the list is read in pages of 150
   elements), `contains` and `role` (only the matching elements, numbered as on the whole page), and `words_from` and `words` (the text, 1000 words at a time); a cut says how to read on. A vault value is typed only if the page's site is one the
   entry names, and a field that holds one is listed as set. Each conversation has its own browser, and the
@@ -893,7 +893,7 @@ Capabilities, *Search online*, and in `discovery.json`.
 - Candidates that would need an argument TaDaMoo cannot fill, another kind of package (OCI, NuGet, MCPB) or a missing `npm`, `uv` or
   `pip` are not offered, and the answer names what is missing.
 
-**Registration.** The entry is written to `installed.json` as installed by TaDaMoo (origin `basalt`); its hash is checked to be that of
+**Registration.** The entry is written to `installed.json` as installed by TaDaMoo (origin `tadamoo`); its hash is checked to be that of
 exactly what was shown: the start command or the address, or the text of `SKILL.md`. It shows in Settings, Capabilities, can be turned
 off or moved like any other, and `find_capability` finds it at once. Using it is still a `call_capability`, which asks like any
 action that cannot be undone.
@@ -1220,8 +1220,8 @@ wide, not for phones.
   file on disk is exactly what the agent wrote, so nothing you did since is overwritten; if you changed the file, or
   a later edit touched it, the panel says so and does nothing. Only the latest 30 edits can be undone, only for text
   files up to 200 000 characters, and only from the PC the server runs on.
-- **Files in answers**: a link written as `[name](basalt-file:ID)` (a file the agent made with `write_output_file` or `publish_output_file`) or
-  `[name](basalt-path:relative/path)` (a file in the folder the conversation works in) becomes a button in the answer that saves it; so does a file the agent wrote or edited,
+- **Files in answers**: a link written as `[name](tadamoo-file:ID)` (a file the agent made with `write_output_file` or `publish_output_file`) or
+  `[name](tadamoo-path:relative/path)` (a file in the folder the conversation works in) becomes a button in the answer that saves it; so does a file the agent wrote or edited,
   with a *Save* button in its step. The page asks for the file with the API key and saves it the way the place it runs in allows: the *Save as* window of the desktop app, the browser's
   save window, or a plain download. The folder's files come from `GET /api/agent/sessions/<id>/file?path=`, which sends only a regular file inside the folder the conversation works in
   (its own copy when it has one), never one in `.basalt` or `.git`, as an attachment with `nosniff` and a sandboxing policy. The agent is told how to write these links
@@ -1231,7 +1231,7 @@ wide, not for phones.
   conversation's process). With pictures on, the agent has `page_images` (the pictures a page shows: its own headline picture, then the article's,
   skipping logos, icons and pixels) and `show_image` (fetches a PNG, JPEG, GIF or WebP up to 8 MB into the conversation's files, with the same address checks
   as `browse_url`: no private address, every redirect checked, the bytes must really be a picture, never an SVG). It is told to take the picture from the
-  article it cites when that has one, to write `![caption](basalt-file:ID)` and to name the source page. **The page loads a picture only from the
+  article it cites when that has one, to write `![caption](tadamoo-file:ID)` and to name the source page. **The page loads a picture only from the
   conversation's own files** (`GET /api/outputs/<session>/<id>/file`, fetched with the API key and shown from a blob); a picture written with any other
   address is not loaded, so a hidden instruction in a page cannot make the page call out through an image. With charts on, the agent is told when and how to draw
   a diagram as a ` ```mermaid ` block (flow, sequence, state, class, entity, gantt, pie, mindmap, timeline). The page draws it with Mermaid

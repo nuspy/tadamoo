@@ -54,7 +54,7 @@ def test_a_screenshot_is_kept_as_a_file_and_the_model_is_told_its_path_and_how_t
     registry, b, saved = tools()
     out = registry.execute("browser_screenshot", {"full_page": True})
     assert saved[0][0].startswith("screenshot_hotel_example_") and saved[0][0].endswith(".png") and saved[0][1].startswith(PNG)
-    assert "[file:a1b2c3d4e5f6:" in out and "Path: C:/out/s1/a1b2c3d4e5f6/" in out and "analyze_image" in out and "output:a1b2c3d4e5f6" in out and "basalt-file:a1b2c3d4e5f6" in out
+    assert "[file:a1b2c3d4e5f6:" in out and "Path: C:/out/s1/a1b2c3d4e5f6/" in out and "analyze_image" in out and "output:a1b2c3d4e5f6" in out and "tadamoo-file:a1b2c3d4e5f6" in out
     assert b.taken == [True] and b.recorded[0] == "browser_screenshot" and b.recorded[1]["bytes"] == len(saved[0][1])      # the trace has it
 
 

@@ -45,8 +45,8 @@ def served_model(ctx: TrialContext) -> Dict[str, Any]:
 
 def model_key(model: Mapping[str, Any]) -> str:
     """The name the served model is called in a benchmark's own configuration: its name without characters those configurations refuse."""
-    raw = str(model.get("name") or Path(str(model.get("file") or "")).stem or "basalt-local")
-    return MODEL_NAME_BAD.sub("-", raw).strip("-") or "basalt-local"
+    raw = str(model.get("name") or Path(str(model.get("file") or "")).stem or "local-model")
+    return MODEL_NAME_BAD.sub("-", raw).strip("-") or "local-model"
 
 
 def clip(text: Any, n: int = 400) -> str:

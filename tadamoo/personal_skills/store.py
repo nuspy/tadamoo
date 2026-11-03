@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 from . import check as script_check
 from .values import check_spec
 
-FORMAT = "basalt-personal-skill"
+FORMAT = "tadamoo-personal-skill"
 SPEC, SCRIPT, LAST = "skill.json", "skill.py", "last_values.json"
 VERSIONS_KEPT = 10
 MAX_FILE = 300_000

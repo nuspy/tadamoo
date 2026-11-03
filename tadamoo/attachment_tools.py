@@ -79,7 +79,7 @@ def register_attachment_tools(registry: Any, store: AttachmentStore, outputs: Ou
         job_file = folder / "job.txt"
         job = job_file.read_text(encoding="utf-8").strip() if job_file.exists() else ""
         if not job:
-            tmp = Path(tempfile.mkdtemp(prefix="basalt-media-"))
+            tmp = Path(tempfile.mkdtemp(prefix="tadamoo-media-"))
             try:
                 copy = tmp / meta["name"]
                 shutil.copyfile(folder / "file", copy)

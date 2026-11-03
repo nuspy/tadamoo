@@ -195,7 +195,7 @@ class Installer:
         if self.index is not None:
             self.index.refresh()
             shown = self.index.get(record["id"])
-            if shown is None or shown["sha"] != record["sha"] or shown["state"] != "approved" or shown["origin"] != "basalt":
+            if shown is None or shown["sha"] != record["sha"] or shown["state"] != "approved" or shown["origin"] != "tadamoo":
                 self.remove(record["id"])
                 raise InstallError("The capability system did not take the entry as it was registered; it was removed.")
         return record
@@ -340,10 +340,10 @@ class Installer:
                     raise InstallError("A file would be written outside the skill's folder.")
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(data)
-            found = _read_skill(folder / "SKILL.md", "basalt")
+            found = _read_skill(folder / "SKILL.md", "tadamoo")
             if found is None:
                 raise InstallError("SKILL.md could not be read.")
-            (folder / ".basalt-source.json").write_text(f'{{"repo": "{c.repo}", "path": "{c.path}", "commit": "{c.commit}"}}', encoding="utf-8")
+            (folder / ".tadamoo-source.json").write_text(f'{{"repo": "{c.repo}", "path": "{c.path}", "commit": "{c.commit}"}}', encoding="utf-8")
         except BaseException:
             _forget(folder)
             raise

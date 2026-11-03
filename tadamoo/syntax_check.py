@@ -76,7 +76,7 @@ def _node(text: str, suffix: str = ".js") -> Optional[str]:
     node = shutil.which("node")
     if not node:
         return None
-    with tempfile.TemporaryDirectory(prefix="basalt-syntax-") as folder:
+    with tempfile.TemporaryDirectory(prefix="tadamoo-syntax-") as folder:
         target = Path(folder) / ("check" + suffix)
         target.write_text(text, encoding="utf-8")
         try:

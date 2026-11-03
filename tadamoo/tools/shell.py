@@ -170,7 +170,7 @@ def execute_shell_command(
     folders: List[Path] = []
 
     def make_folder() -> Path:
-        folders.append(Path(tempfile.mkdtemp(prefix="basalt-cmd-")))
+        folders.append(Path(tempfile.mkdtemp(prefix="tadamoo-cmd-")))
         return folders[-1]
 
     argv: Optional[List[str]] = None

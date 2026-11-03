@@ -52,7 +52,7 @@ def tasks() -> List[Dict[str, Any]]:
 
 def run_trial(arm: Arm, task: Dict[str, Any], rep: int, ctx: Context) -> CaseTrial:
     t0 = time.monotonic()
-    root = Path(tempfile.mkdtemp(prefix=f"basalt-e12-{task['id']}-"))
+    root = Path(tempfile.mkdtemp(prefix=f"tadamoo-e12-{task['id']}-"))
     trial = CaseTrial(arm.name, task["id"], rep)
     client = CountingClient(ctx.client)
     built = None

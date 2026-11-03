@@ -95,7 +95,7 @@ def test_the_files_guidance_no_longer_tells_the_model_to_keep_text_off_the_scree
     assert "paste a" not in FILES_GUIDANCE and "when a button will do" not in FILES_GUIDANCE
     assert "Offer a file when the person asks for a file or would want to keep one" in FILES_GUIDANCE
     assert "when the person asks to see a text on screen, the text goes in the answer" in FILES_GUIDANCE
-    assert "basalt-file:ID" in FILES_GUIDANCE and "basalt-path:" in FILES_GUIDANCE
+    assert "tadamoo-file:ID" in FILES_GUIDANCE and "tadamoo-path:" in FILES_GUIDANCE
 
 
 @pytest.fixture

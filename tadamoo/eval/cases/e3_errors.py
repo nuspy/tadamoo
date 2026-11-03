@@ -60,7 +60,7 @@ def real_wait(retries: int) -> float:
 
 def run_scenario(arm: Arm, scenario: Dict[str, Any], rep: int, ctx: Context) -> CaseTrial:
     deadline = float(ctx.extra.get("deadline_s", DEADLINE_S))
-    root = Path(tempfile.mkdtemp(prefix=f"basalt-e3-{scenario['id']}-"))
+    root = Path(tempfile.mkdtemp(prefix=f"tadamoo-e3-{scenario['id']}-"))
     trial = CaseTrial(arm.name, scenario["id"], rep)
     t0 = time.monotonic()
     session = built = None

@@ -15,9 +15,9 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-IDENTITY = ["-c", "user.name=TaDaMoo", "-c", "user.email=basalt@localhost", "-c", "commit.gpgsign=false"]
+IDENTITY = ["-c", "user.name=TaDaMoo", "-c", "user.email=tadamoo@localhost", "-c", "commit.gpgsign=false"]
 TIMEOUT_S = 120
-BRANCH = "basalt/"
+BRANCH = "tadamoo/"
 HIDDEN = (".tadamoo/",)                    # what the agent keeps for itself is not a change of the task
 
 
@@ -158,7 +158,7 @@ class Worktrees:
         if done.returncode != 0:
             raise WorktreeError(done.stderr.decode("utf-8", "replace").strip()[:400] or "git apply failed", "git")
         if paths is None or len(chosen) == len(found):
-            commit = _run([*IDENTITY, "commit-tree", tree, "-p", info["base"], "-m", "basalt: applied"], target).stdout.strip()
+            commit = _run([*IDENTITY, "commit-tree", tree, "-p", info["base"], "-m", "tadamoo: applied"], target).stdout.strip()
             info["base"] = commit                                    # from here on only what is new counts as a change
         else:
             info["base"] = self._rebase(info, tree, found, chosen)
@@ -185,7 +185,7 @@ class Worktrees:
                 scratch.unlink()
             except OSError:
                 pass
-        return _run([*IDENTITY, "commit-tree", new_tree, "-p", info["base"], "-m", "basalt: applied some"], target).stdout.strip()
+        return _run([*IDENTITY, "commit-tree", new_tree, "-p", info["base"], "-m", "tadamoo: applied some"], target).stdout.strip()
 
     def discard(self, info: Dict[str, Any]) -> None:
         """Remove the copy and its branch. Whatever was not applied is gone."""

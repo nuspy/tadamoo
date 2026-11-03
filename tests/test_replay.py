@@ -46,7 +46,7 @@ def record(tmp_path, asked=None):
 def test_an_export_names_the_decision_of_every_call(tmp_path):
     agent = record(tmp_path)
     lines = [json.loads(ln) for ln in rp.export_trace(agent.messages, agent.turns).splitlines()]
-    assert lines[0]["type"] == "header" and lines[0]["format"] == "basalt-trace"
+    assert lines[0]["type"] == "header" and lines[0]["format"] == "tadamoo-trace"
     tools = [ln for ln in lines if ln.get("message", {}).get("role") == "tool"]
     assert [ln["decision"] for ln in tools] == ["executed", "executed", "denied", "invalid"]
 

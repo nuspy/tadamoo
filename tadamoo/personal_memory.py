@@ -25,7 +25,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 from tadamoo import untrusted
 
 MAGIC = b"BPM1"
-AAD = b"basalt-personal-memory"
+AAD = b"tadamoo-personal-memory"
 LONG_SECTIONS = ("identity", "place", "people", "companies", "partners", "character", "tastes", "interests", "values", "thinking", "foundations", "emotions", "card")
 SHORT_SECTIONS = ("facts", "searches", "topics", "projects")
 SECTIONS = {"long": LONG_SECTIONS, "short": SHORT_SECTIONS}
@@ -106,7 +106,7 @@ class PersonalMemory:
             from tadamoo.waiver.keystore import load_or_create_key
             self.key_dir.mkdir(parents=True, exist_ok=True)
             raw = load_or_create_key(self.key_dir / "device.key")
-            self._key = hmac.new(raw, b"basalt personal memory", hashlib.sha256).digest()
+            self._key = hmac.new(raw, b"tadamoo personal memory", hashlib.sha256).digest()
         return self._key
 
     def _read(self) -> Dict[str, Any]:

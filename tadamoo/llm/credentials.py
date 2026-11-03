@@ -14,7 +14,7 @@ from ctypes import wintypes
 from pathlib import Path
 from typing import Dict, Optional, Protocol
 
-PREFIX = "Basalt/llm/"
+PREFIX = "TaDaMoo/llm/"
 MAX_BYTES = 2560                                   # what the Windows credential manager takes for one secret
 
 
@@ -66,7 +66,7 @@ class FileCredentials:
 
 
 class WindowsCredentials:
-    """The Windows credential manager, as generic credentials named `Basalt/llm/<name>`, kept for this user on this PC."""
+    """The Windows credential manager, as generic credentials named `TaDaMoo/llm/<name>`, kept for this user on this PC."""
 
     CRED_TYPE_GENERIC, CRED_PERSIST_LOCAL_MACHINE = 1, 2
 
@@ -108,7 +108,7 @@ class WindowsCredentials:
         buf = (ctypes.c_ubyte * max(len(blob), 1)).from_buffer_copy(blob or b"\0")
         cred = self._CREDENTIAL(Type=self.CRED_TYPE_GENERIC, TargetName=self.prefix + name, CredentialBlobSize=len(blob),
                                 CredentialBlob=ctypes.cast(buf, ctypes.POINTER(ctypes.c_ubyte)), Persist=self.CRED_PERSIST_LOCAL_MACHINE,
-                                UserName="basalt")
+                                UserName="tadamoo")
         if not self._adv.CredWriteW(ctypes.byref(cred), 0):
             raise CredentialError(f"the credential manager could not save {name}: error {ctypes.get_last_error()}")
 

@@ -136,7 +136,7 @@ def test_the_command_of_a_trial(tmp_path):
     assert json.loads(Path(argv3[argv3.index("--ak") + 1].split("=", 1)[1]).read_text())["overrides"] == {"reasoning_effort": "medium"}
     smoke = tb.TerminalBenchAdapter(which=lambda n: "/bin/harbor").command(("fix-git", 1), ctx_for(tmp_path, {"subset": "smoke"}), source / "fix-git", MODEL["endpoint"])[0]
     assert smoke[smoke.index("-a") + 1] == "oracle" and "--ak" not in smoke
-    with pytest.raises(ValueError, match="'basalt' or 'oracle'"):
+    with pytest.raises(ValueError, match="'tadamoo' or 'oracle'"):
         tb.TerminalBenchAdapter()._agent({"agent": "gpt-5"})
 
 

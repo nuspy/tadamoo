@@ -90,9 +90,9 @@
     const assets = {}, diagrams = {};
     const answers = items.filter(it => it.kind === "answer").map(it => it.text || "");
     const wanted = new Set();
-    for (const text of answers) for (const m of text.matchAll(/!\[[^\]\n]*\]\((basalt-file:[a-f0-9]{12})\)/g)) wanted.add(m[1]);
+    for (const text of answers) for (const m of text.matchAll(/!\[[^\]\n]*\]\((tadamoo-file:[a-f0-9]{12})\)/g)) wanted.add(m[1]);
     for (const key of [...wanted].slice(0, 100)) {
-      const data = snap.session ? await fetchPicture(snap.session, key.slice("basalt-file:".length)) : "";
+      const data = snap.session ? await fetchPicture(snap.session, key.slice("tadamoo-file:".length)) : "";
       if (data) assets[key] = data;
     }
     for (const text of answers) {

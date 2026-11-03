@@ -126,7 +126,7 @@ Before any model call the source is scanned and these are replaced by markers `â
 |---|---|---|
 | fenced code (including mermaid), `$$` math, HTML blocks, front matter, link reference lines | `CODE`, `MATH`, `HTML`, `FM`, `REF` | a block, in order |
 | images `![alt](src)` | `IMG` | whole |
-| link targets, bare URLs, `basalt-file:` ids | `URL` | the target only; the link text is still translated |
+| link targets, bare URLs, `tadamoo-file:` ids | `URL` | the target only; the link text is still translated |
 | inline code | `IC` | whole |
 | citation keys `[S1, S2]`, footnote references `[^1]` | `CITE`, `FN` | whole |
 

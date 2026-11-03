@@ -243,7 +243,7 @@ class SessionManager:
 
     def workspace_file(self, sid: str, path: Any) -> Tuple[Path, str]:
         """A file in the folder the conversation works in (its own copy when it has one), for the person to save: only a regular file inside that folder,
-        never in the agent's own `.basalt` or in `.git`."""
+        never in the agent's own `.tadamoo` or in `.git`."""
         rec = self.get(sid)
         root = Path(rec.get("workdir") or rec["workspace"]).resolve()
         text = str(path or "").replace("\\", "/").strip("/")

@@ -147,7 +147,7 @@ def test_initialize_follows_the_protocol(editor_factory):
     assert res["protocolVersion"] == 1 and isinstance(res["protocolVersion"], int)
     assert res["agentCapabilities"]["loadSession"] is True and res["authMethods"] == []
     assert res["agentCapabilities"]["promptCapabilities"]["embeddedContext"] is True
-    assert "capabilities" not in res and res["agentInfo"]["name"] == "basalt"
+    assert "capabilities" not in res and res["agentInfo"]["name"] == "tadamoo"
 
 
 def test_session_new_and_its_errors(editor_factory, tmp_path):

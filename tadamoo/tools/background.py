@@ -69,7 +69,7 @@ class Jobs:
             self._flush(job, force=True)
             self._say({"job": job.id, "command": command[:200], "state": job.state, "exit_code": job.result.get("exit_code"), "seconds": job.seconds()})
 
-        threading.Thread(target=work, name=f"basalt-{job.id}", daemon=True).start()
+        threading.Thread(target=work, name=f"tadamoo-{job.id}", daemon=True).start()
         return job
 
     def _say(self, event: Dict[str, Any]) -> None:

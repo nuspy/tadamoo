@@ -75,7 +75,7 @@ def message_seen(built: Any) -> str:
 def run_prompt(arm: Arm, row: Dict[str, Any], rep: int, ctx: Context) -> CaseTrial:
     t0 = time.monotonic()
     timeout = float(ctx.extra.get("turn_timeout_s", TURN_TIMEOUT_S))
-    root = Path(tempfile.mkdtemp(prefix=f"basalt-e8-{row['id']}-"))
+    root = Path(tempfile.mkdtemp(prefix=f"tadamoo-e8-{row['id']}-"))
     trial = CaseTrial(arm.name, row["id"], rep)
     client = CountingClient(ctx.client)
     session = built = None
