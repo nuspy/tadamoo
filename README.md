@@ -388,6 +388,12 @@ Google Pay were not tried against the live services. The list with the reasons i
 .\Avvia-Basalt.ps1 -server --model "D:\Models\Qwen3.8-Flash-Next-IQ3_XXS.basalt" --port 7240 --vram-libera 2
 .\Avvia-Basalt.ps1 -prova                                      # every check, nothing started, nothing written
 .\Ferma-Basalt.ps1 --port 7240                                 # stop only that server (its process tree)
+```sh
+git clone https://github.com/jesdga95/basalt && cd basalt
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j                  # bin/basalt, bin/basalt-bench, bin/basalt-probe, bin/basalt-vision
+pip install -r requirements.txt
+hf download jesdga/Qwen3.8-Flash-Next-Basalt Qwen3.8-FN-NVFP4-DQ6_K.basalt --local-dir models
 ```
 
 Every option is accepted with one or two dashes and in any case (`-gui`, `--gui`, `-GUI`).
@@ -1170,6 +1176,13 @@ python3 tools/convert/convert.py --gguf MODEL-00001-of-0000N.gguf --mmproj MMPRO
 Ready-to-run `.basalt` packs are on [Hugging Face](https://huggingface.co/jesdga/Qwen3.8-Flash-Next-Basalt). A pack
 you convert yourself will be significantly slower than the official `.basalt` files.
 
+Ready-to-run packs, with the quality of each measured against Q8_0, are on
+[Hugging Face](https://huggingface.co/jesdga/Qwen3.8-Flash-Next-Basalt):
+`Qwen3.8-FN-NVFP4-DQ6_K`, `-NVFP4-DQ8`, `-UD-Q4_K_XL`, `-UD-Q5_K_XL`, `-UD-Q6_K_XL`, `-Q8_0`, `-GSQ-RCO-IQ3_S`, `-GSQ-RCO-IQ3_XXS` and `-GSQ-RCO-Q2_0` (each `.basalt`).
+The two NVFP4 packs share NVIDIA's NVFP4 experts; `D` names the dense projections' format: DQ6_K is the default and
+faster, DQ8 is about 7% slower on prose with a lower KLD ([precision](docs/precision/isolated-costs.md)).
+A model is one file: weights, tokenizer, MTP drafter, 8-bit hyper-connection copies and vision projector. The expert
+profile ships with the engine ([data/profiles](data/profiles)).
 Quality measured with `basalt-bench --quality`: 20 chunks of wikitext-2 (512 tokens each), scored through the decode
 path against the Q8_0 reference. Lower KLD and higher top-1 agreement are closer to Q8_0. How precision is handled and how quality is measured:
 [docs/precision.md](docs/precision.md).
@@ -1191,6 +1204,13 @@ raises draft acceptance. Output is unchanged, because verify decides every token
 MTP layer. `--mtp-dense FILE` embeds that tuned layer (the `mtp/dense` section's raw bytes, checked against the
 source layout) and records it as self-distilled, with its SHA-256, in `meta.mtp`. The tuned layer ships with the
 packs, inside the model file; the converter input is only needed to build a pack yourself.
+- [Configuration](docs/configuration/index.md): every setting.
+- [Running](docs/running.md): parallel requests, prompt chunks, memory floors, image input.
+- [basalt-probe](docs/probe.md): measures the machine, the cold decode speed, and suggests values.
+- [The .basalt model file](docs/model-file.md): the layout, and building a pack yourself (including NVFP4).
+- [Platforms](docs/platforms.md): Linux and Windows requirements, the build steps and the Windows limitations.
+- [Changelog](docs/changelog/index.md): what each release changed.
+- [Building and testing](docs/building.md), [Precision and quality](docs/precision/index.md), [Contributing](CONTRIBUTING.md).
 
 The model files are derived from Qwen3.8-Flash-Next and are distributed under the
 [Qwen Community License 1.0](https://huggingface.co/Qwen/Qwen3.8-Flash-Next/blob/main/LICENSE), not Basalt's MIT

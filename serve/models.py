@@ -785,8 +785,11 @@ def _basalt_reason(info: dict) -> dict:
     if e == "magic":
         return _say("Non è un file .basalt (intestazione sconosciuta).", "Not a .basalt file (unknown header).")
     if e == "version":
-        return _say(f"File .basalt di versione {info.get('version')}: questo Basalt legge la versione {info.get('want')}.",
-                    f".basalt version {info.get('version')}: this Basalt reads version {info.get('want')}.")
+        old = str(info.get("version")) == "1"                 # the one older format: a migration exists, no new download needed
+        return _say(f"File .basalt di versione {info.get('version')}: questo Basalt legge la versione {info.get('want')}."
+                    + (" Si migra senza riquantizzare: python tools/migrations/basalt_v1_to_v2.py VECCHIO.basalt NUOVO.basalt." if old else ""),
+                    f".basalt version {info.get('version')}: this Basalt reads version {info.get('want')}."
+                    + (" It migrates without re-quantizing: python tools/migrations/basalt_v1_to_v2.py OLD.basalt NEW.basalt." if old else ""))
     if e == "truncated":
         return _say(f"File incompleto: {gb(info.get('size'))} di {gb(info.get('want'))} GB (copia o conversione "
                     "interrotta?).", f"Incomplete file: {gb(info.get('size'))} of {gb(info.get('want'))} GB (an "

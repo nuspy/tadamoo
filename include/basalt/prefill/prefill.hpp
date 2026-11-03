@@ -148,6 +148,8 @@ public:
     /// Off: the peer card's share (set_peer) is skipped, every expert of a chunk stays on this card - while the peer
     /// card runs a stage of the same prompt.
     void set_peer_share(bool on);
+    /// The longest routed-only chunk whose rows of its experts the peer computes (0: no peer share).
+    int64_t peer_routed_rows_max() const;
 
     /// The CPU expert pool (idle while a prompt is read). A chunk below stream_all_min() tokens hands it the
     /// non-resident experts with a host copy that few of its tokens route to, instead of streaming them; their rows
@@ -200,9 +202,14 @@ public:
     void continue_in_place() { rows_in_place_ = true; hand_in_ = nullptr; }
     /// A later stage: the hand-off buffer it read its last chunk from (pinned host, the stage before's), or null.
     const float* hand_in() const { return hand_in_; }
+    /// A stage that hands chunks on: its hand-off buffer `b` (0 or 1, pinned host, null before any), and the rows of
+    /// the full residual width each holds.  A run writes a chunk's rows at the start of one of them.
+    float* hand_buffer(int b) const;
+    int64_t hand_rows() const;
 
 
 private:
+    struct Run;
     // Stage-1 pipeline: intermediate stages return after handing their chunk to
     // the direct successor. The public run() drains the chain once at prompt end.
     bool run_impl(const int64_t* tokens, int64_t n, int64_t pos0, std::string& err);
@@ -221,7 +228,7 @@ private:
     std::future<bool> next_run_;
     int hand_buf_ = 0;
 
-    bool carve(std::size_t T, void* alloc);   // the device buffers of a chunk (prefill.cpp's Alloc)
+    bool carve(std::size_t T, void* alloc);   // the device buffers of a chunk (src/prefill/layout.hpp's Alloc)
     void release();                          // the destructor's cleanup (also `reset`'s)
     struct Impl;
     std::unique_ptr<Impl> impl_;
