@@ -18,7 +18,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from tadamoo.client import BasaltClient
+from tadamoo.client import TadamooClient
 
 WORDS = ("granite basalt obsidian pumice tuff scoria dolerite gabbro rhyolite andesite diorite peridotite komatiite phonolite trachyte "
          "kimberlite lamprophyre carbonatite ignimbrite").split()
@@ -112,7 +112,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = p.parse_args(argv)
     if not 2 <= args.rounds <= 50 or not 100 <= args.prefix_words <= 60000:
         p.error("--rounds is 2 to 50 and --prefix-words is 100 to 60000")
-    client = BasaltClient(base_url=args.endpoint, api_key=args.api_key)
+    client = TadamooClient(base_url=args.endpoint, api_key=args.api_key)
     from tadamoo.eval.runner import collect_environment
     model = str(collect_environment(client, args.endpoint, gpu_power_limit_w=args.gpu_power_limit_w).get("model", ""))
     result = compare(client, args.rounds, args.prefix_words)

@@ -1,7 +1,7 @@
 """Persistent lessons from earlier work: what went wrong or worked, kept in readable Markdown files the person can edit.
 
-Two files: `<project>/.basalt/lessons.md` (this project) and `<user data>/lessons.md` (everywhere). A task also leaves one line in
-`<project>/.basalt/outcomes.jsonl`. Everything here is deterministic code with no model call: a Recorder watches the agent loop's events and
+Two files: `<project>/.tadamoo/lessons.md` (this project) and `<user data>/lessons.md` (everywhere). A task also leaves one line in
+`<project>/.tadamoo/outcomes.jsonl`. Everything here is deterministic code with no model call: a Recorder watches the agent loop's events and
 finds the moments worth a lesson, a draft sentence is made from templates, and the technical session may rewrite the draft through
 `polish_prompt` / `apply_polish`, which check what comes back. Stored lessons are advice from past runs, never instructions: an entry that
 reads like an order to an assistant is refused (`tadamoo/inject_screen.py`), and again when it is shown.
@@ -23,7 +23,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tupl
 from tadamoo import inject_screen, shell_lessons
 from tadamoo.memory import MemoryStore, PREFIX_FROM, _PART, _fold, _specific, estimate_tokens, query_terms
 
-PROJECT_FOLDER = ".basalt"
+PROJECT_FOLDER = ".tadamoo"
 LESSONS_FILE = "lessons.md"
 OUTCOMES_FILE = "outcomes.jsonl"
 SCOPES = ("project", "global")

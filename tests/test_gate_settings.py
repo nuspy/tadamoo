@@ -84,7 +84,7 @@ def test_a_built_agent_gets_a_gate_only_when_commands_are_listed_and_knows_if_it
 
 @pytest.fixture
 def api(tmp_path, monkeypatch, start_server):  # noqa: F811
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
     url = start_server([answer("x")])
 
     def call(method, path, body=None):

@@ -73,7 +73,7 @@ def default_db_path(workspace: str | Path) -> Path:
         from serve.userdata import user_data_dir
         base = user_data_dir()
     except Exception:  # the harness also runs without the server package
-        base = Path.home() / ".basalt"
+        base = Path.home() / ".tadamoo"
     digest = hashlib.sha1(str(canonical_workspace(workspace)).lower().encode("utf-8")).hexdigest()[:16]
     return base / "memory" / f"{digest}.db"
 

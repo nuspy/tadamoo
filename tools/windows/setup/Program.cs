@@ -6,7 +6,7 @@
 //
 //   BasaltSetup.exe [--root DIR] [--lang it|en] [--no-ui] [--dry-run] [--keep-files]
 //
-// --root      the installed folder (default: found above this exe, the folder that holds Avvia-Basalt.ps1)
+// --root      the installed folder (default: found above this exe, the folder that holds Avvia-TaDaMoo.ps1)
 // --dry-run   says what it would do and changes nothing (no window)
 // --keep-files  keeps setup\ (the bundled Python installer and the wheels) after a successful run
 // --test-no-admin-check  for tests only: runs without administrator rights
@@ -80,15 +80,15 @@ sealed class Options
             }
         }
         if (o.Root == null) o.Root = FindRoot(AppContext.BaseDirectory);
-        if (o.Error == null && (o.Root == null || !File.Exists(Path.Combine(o.Root, "Avvia-Basalt.ps1")) || !Directory.Exists(Path.Combine(o.Root, "serve"))))
-            o.Error = Tr.T("Cartella di Basalt non trovata (serve Avvia-Basalt.ps1 e serve\\): ", "Basalt folder not found (Avvia-Basalt.ps1 and serve\\ are needed): ") + o.Root;
+        if (o.Error == null && (o.Root == null || !File.Exists(Path.Combine(o.Root, "Avvia-TaDaMoo.ps1")) || !Directory.Exists(Path.Combine(o.Root, "serve"))))
+            o.Error = Tr.T("Cartella di Basalt non trovata (serve Avvia-TaDaMoo.ps1 e serve\\): ", "Basalt folder not found (Avvia-TaDaMoo.ps1 and serve\\ are needed): ") + o.Root;
         return o;
     }
 
     static string FindRoot(string from)
     {
         for (var d = new DirectoryInfo(from); d != null; d = d.Parent)
-            if (File.Exists(Path.Combine(d.FullName, "Avvia-Basalt.ps1")) && Directory.Exists(Path.Combine(d.FullName, "serve")))
+            if (File.Exists(Path.Combine(d.FullName, "Avvia-TaDaMoo.ps1")) && Directory.Exists(Path.Combine(d.FullName, "serve")))
                 return d.FullName;
         return null;
     }
@@ -386,7 +386,7 @@ sealed class Installer
     void Permissions()
     {
         // The installed folder is read-only for users (programs, scripts, libraries cannot be replaced). The program writes
-        // logs\, basalt.pid and basalt_config.json in it: logs\ is writable, and in the root a user can only create files.
+        // logs\, tadamoo.pid and tadamoo_config.json in it: logs\ is writable, and in the root a user can only create files.
         string users = "*S-1-5-32-545";
         string logs = Path.Combine(o.Root, "logs");
         if (o.DryRun) { log.Line($"would create {logs} writable for Users, and let Users create files in {o.Root} (no change to existing ones)"); return; }

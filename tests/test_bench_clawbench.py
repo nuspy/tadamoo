@@ -153,7 +153,7 @@ def test_our_harness_is_added_once_with_its_payload_and_lf_scripts(checkout, rep
     src = checkout / "source"
     dest = cb.install_harness(src, repo)
     assert dest == src / cb.HARNESS_DIR / "basalt"
-    for name in ("Dockerfile.basalt", "setup-basalt.sh", "run-basalt.sh", "usage-emitter.py", "basalt_driver.py"):
+    for name in ("Dockerfile.tadamoo", "setup-tadamoo.sh", "run-tadamoo.sh", "usage-emitter.py", "tadamoo_driver.py"):
         assert b"\r" not in (dest / name).read_bytes(), name
     assert (dest / "payload" / "harness" / "headless.py").is_file() and (dest / "payload" / "serve" / "longform.py").is_file()
     assert not (dest / "payload" / "harness" / "__pycache__").exists()
@@ -171,8 +171,8 @@ def test_our_harness_is_added_once_with_its_payload_and_lf_scripts(checkout, rep
 
 def test_every_file_the_dockerfile_copies_is_in_the_folder_the_adapter_builds(checkout, repo):
     dest = cb.install_harness(checkout / "source", repo)
-    copied = re.findall(r"^COPY harnesses/basalt/(\S+)", (dest / "Dockerfile.basalt").read_text(), re.M)
-    assert {"payload", "setup-basalt.sh", "run-basalt.sh", "basalt_driver.py", "usage-emitter.py"} <= set(copied)
+    copied = re.findall(r"^COPY harnesses/basalt/(\S+)", (dest / "Dockerfile.tadamoo").read_text(), re.M)
+    assert {"payload", "setup-tadamoo.sh", "run-tadamoo.sh", "tadamoo_driver.py", "usage-emitter.py"} <= set(copied)
     for rel in copied:
         assert (dest / rel).exists(), rel
 
@@ -362,10 +362,10 @@ def test_a_whole_run_through_the_runner_and_the_failure_report(checkout, repo, t
 
 def load_driver(monkeypatch, tmp_path):
     import importlib.util
-    monkeypatch.setenv("BASALT_HOME", str(cb.REPO_ROOT))
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))
-    monkeypatch.setenv("BASALT_WORKSPACE", str(tmp_path / "work"))
-    spec = importlib.util.spec_from_file_location("basalt_driver_under_test", cb.ASSETS / "basalt" / "basalt_driver.py")
+    monkeypatch.setenv("TADAMOO_HOME", str(cb.REPO_ROOT))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TADAMOO_WORKSPACE", str(tmp_path / "work"))
+    spec = importlib.util.spec_from_file_location("basalt_driver_under_test", cb.ASSETS / "basalt" / "tadamoo_driver.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

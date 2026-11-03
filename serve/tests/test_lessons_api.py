@@ -64,7 +64,7 @@ def test_only_a_known_folder_can_be_used(tmp_path):
             api.post("add", {"folder": given, "situation": "x", "fix": "y"})
     with pytest.raises(LessonsError):
         api.overview(str(other))
-    assert not (other / ".basalt").exists()
+    assert not (other / ".tadamoo").exists()
 
 
 def test_add_edit_pin_confirm_and_delete(tmp_path):
@@ -72,7 +72,7 @@ def test_add_edit_pin_confirm_and_delete(tmp_path):
     f = str(project)
     made = api.post("add", {"folder": f, "scope": "project", "situation": "reading big files", "went_wrong": "it was cut", "fix": "read in ranges"})
     lid = made["lesson"]["id"]
-    assert made["action"] == "added" and (project / ".basalt" / "lessons.md").is_file()
+    assert made["action"] == "added" and (project / ".tadamoo" / "lessons.md").is_file()
     assert api.post("add", {"folder": f, "scope": "global", "situation": "everywhere note", "fix": "do it"})["lesson"]["scope"] == "global"
     assert api.post("edit", {"folder": f, "id": lid, "fix": "use ranges"})["lesson"]["fix"] == "use ranges"
     assert api.post("pin", {"folder": f, "id": lid})["lesson"]["pinned"] is True

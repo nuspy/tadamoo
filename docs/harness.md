@@ -22,11 +22,11 @@ nothing from the engine. `python -m pytest tests` runs its tests without a GPU, 
 ```powershell
 python -m tadamoo -p "fix the failing test in calc.py" --workspace D:\work\proj --json
 python -m tadamoo.acp_agent --workspace D:\work\proj          # the same agent for an editor that speaks ACP over stdio
-basalt-agent -p "fix the failing test" --workspace D:\work\proj   # basalt-agent.cmd: python -m tadamoo from any folder
-basalt-agent acp --workspace D:\work\proj                          # = python -m tadamoo acp = python -m tadamoo.acp_agent
+tadamoo-agent -p "fix the failing test" --workspace D:\work\proj   # tadamoo-agent.cmd: python -m tadamoo from any folder
+tadamoo-agent acp --workspace D:\work\proj                          # = python -m tadamoo acp = python -m tadamoo.acp_agent
 ```
 
-`basalt-agent.cmd` (next to `Avvia-Basalt.ps1`) uses this folder's `.venv` and packages, so it works from the project you are in. There is
+`tadamoo-agent.cmd` (next to `Avvia-TaDaMoo.ps1`) uses this folder's `.venv` and packages, so it works from the project you are in. There is
 no `pyproject.toml`, so nothing is installed and no command is added to the PATH; put the folder on the PATH, or call the file by its path.
 
 The command line (`python -m tadamoo`), the Chat's process (`python -m tadamoo session`) and the editor's agent (`acp`) take the same
@@ -46,7 +46,7 @@ the Chat can reach, the others can reach:
 | `--capabilities` | `find_capability`, `load_capability`, `read_capability`, `call_capability`, `analyze_image`: the skills, plugins and MCP servers found on this PC |
 | `--lsp` | `diagnostics`, `go_to_definition`, `find_references` when a language server is found |
 | `--council` | `ask_council` when a council is set up (the Chat always offers it) |
-| `--wiki`, `--wiki-project` | wikibridge tools (`BASALT_WIKIBRIDGE_URL`, `BASALT_WIKIBRIDGE_KEY`) |
+| `--wiki`, `--wiki-project` | wikibridge tools (`TADAMOO_WIKIBRIDGE_URL`, `TADAMOO_WIKIBRIDGE_KEY`) |
 | `--skills DIR` | folders with `SKILL.md` skills |
 | `--phone`, `--on-behalf-of NAME` | phone tools (`CALLAPICALL_URL`, `CALLAPICALL_TOKEN`); every call asks you |
 | `--hooks FILE`, `--workspace-hooks` | your hooks (see "Hooks you write") |
@@ -84,7 +84,7 @@ Exit codes: 0 finished, 1 error, 2 bad usage, 3 turn limit, 4 budget, 5 stuck in
 `heartbeat` and `done` (`denied`) and in `closed` (`permission_denials`); the `session_end` hook is given it too.
 
 Data (audit log, checkpoints, memory, approvals) lives in the user data folder, one folder per workspace, never in the
-repository; the only thing written in the workspace is `.basalt/artifacts` (full outputs that were shortened).
+repository; the only thing written in the workspace is `.tadamoo/artifacts` (full outputs that were shortened).
 
 ## Conversations (the Chat's agent)
 
@@ -262,12 +262,12 @@ the config. Every question below `auto` offers three levels (this call, this con
 tool name (`write_file:.git/config`, `acp_permission:...`, `request_payment:<system>`, `phone_call`) or from the command, and an allow rule also
 covers the Rule of Two and a tool that asks every time.
 When the technical session's `auto_approve` use is on (off by default), it reads a call the person would be asked about at the read-only and default levels, with their request, and may approve it; it can only say yes, a doubt asks the person, and the Rule of Two, orders found in outside text and tools that always ask never go to it. An approval is reported as an `auto_approved` event.
-**Work until done** (`tadamoo/persistence.py`, `tadamoo/completion.py`): one switch for every conversation, in the chat header of the Chat and the Agent, on by default and kept in `work-until-done.json` in the user data folder (`GET`/`POST /api/persistence`, this PC only; off where nothing configures it, as in a library call). While it is on, when the agent gives a final answer the harness checks that the request is met: an answer that admits it did not finish, or a `no: ...` from the technical session's `completion_check` use, sends the agent back with a precise note, at most twice per request (`completion_check` event; the limits, the stall guards and the person's stop stay in force). **Outcomes and lessons** (`tadamoo/lessons.py`): every request of the person is recorded by code (`Recorder`) and ends as one line in `<project>/.basalt/outcomes.jsonl` plus, when something was learned (an error that a later call fixed, a gate failure that was cleared, a loop that ended, a refusal that was worked around, a budget that ran out, a re-read after a fold), lessons in `<project>/.basalt/lessons.md` and the global `lessons.md` in the user data folder; the technical session's `lessons` use writes their sentences, and without it the code's drafts stay. The lessons that match a new request are added after it as a note of advice. Entries that read like orders or hold a secret are refused, and the files are plain Markdown the person can edit.
+**Work until done** (`tadamoo/persistence.py`, `tadamoo/completion.py`): one switch for every conversation, in the chat header of the Chat and the Agent, on by default and kept in `work-until-done.json` in the user data folder (`GET`/`POST /api/persistence`, this PC only; off where nothing configures it, as in a library call). While it is on, when the agent gives a final answer the harness checks that the request is met: an answer that admits it did not finish, or a `no: ...` from the technical session's `completion_check` use, sends the agent back with a precise note, at most twice per request (`completion_check` event; the limits, the stall guards and the person's stop stay in force). **Outcomes and lessons** (`tadamoo/lessons.py`): every request of the person is recorded by code (`Recorder`) and ends as one line in `<project>/.tadamoo/outcomes.jsonl` plus, when something was learned (an error that a later call fixed, a gate failure that was cleared, a loop that ended, a refusal that was worked around, a budget that ran out, a re-read after a fold), lessons in `<project>/.tadamoo/lessons.md` and the global `lessons.md` in the user data folder; the technical session's `lessons` use writes their sentences, and without it the code's drafts stay. The lessons that match a new request are added after it as a note of advice. Entries that read like orders or hold a secret are refused, and the files are plain Markdown the person can edit.
 **Course watch** (`tadamoo/course.py`): before each model call of a request, deterministic signals are looked at: the same tool failing the same way, the project's checks failing again, the loop guards striking, a checklist that does not move while half the steps are used, a context close to the masking threshold. The first time a signal appears the agent gets a note with the facts and the matching lessons (`course_check` event); if it comes back after the note, the same card as `ask_user` is put to the person with three options, the first recommended, and the turn ends to wait for the answer (where nobody watches, the recommended option answers). **Lessons view**: Settings > Memories lists the project's and the global lessons with a summary of recent outcomes, and edits, pins, deletes or promotes them to `AGENTS.md` after a preview and a confirmation (`serve/lessons_api.py`, `GET /api/lessons`, `POST /api/lessons/<action>`, this PC only).
 **Card after a task** (`tadamoo/nextsteps.py`, `Session._next_steps`): after a final answer, where the person is (never in an unattended run, never for a side task, a skill, a plan, or the answer to a card), the harness builds one `ask_user` card by code from the facts of the work: checks that failed (the gate gave up), items still open on the checklist, files changed with no check set up, and the matching lesson's fix in the description. It appears only after a task of at least 6 steps or with an open item, once per task. The first fitting option is recommended; "Nothing more" and a typed answer are always there, and "Nothing more" is answered by the harness with no model call. The switch is `next-steps.json` in the user data folder (`GET`/`POST /api/next-steps`, this PC only; on by default, off where nothing configures it), shown in Settings > Memories > Lessons.
 **The folder's own checks, offered once** (`serve/coding_prefs.py`, same card): the first time a conversation in a folder has changed files, and only if the folder still has no accepted or typed checks and was never asked, the card asks "Run these checks before finishing?" with the checks detected from the project files (`tadamoo/project_profile.py`: pyproject/pytest.ini/setup.cfg/tox.ini, package.json scripts, Makefile, Cargo.toml, go.mod, CMake) as a multiple choice (a yes or no for a single one). The server marks the folder as offered when the card is shown, saves the ticked commands as accepted checks (they become safe commands and, with the check gate on, run before an answer ends) and tells the running conversations; ticking nothing is a remembered no. Nothing runs without the person's tick. With the gate off the card says so.
 **Shell failures as lessons** (`tadamoo/shell_lessons.py`): a shell or code call that failed and a later call of the same intent that worked count as an `error_fix` only after a real change in between: another program, other flags or arguments, or a file edit. A plain red test run, a failed look around (grep with no match, ls of a missing folder, git status) and the same command run again unchanged are never lessons, unless the command could not run at all (not found, a module missing).
-**Work that repeats** (`tadamoo/repeats.py`): a request signature is its meaningful words, first ten, sorted. When the project's `outcomes.jsonl` holds the same signature at least 3 times, each finished in at least 8 steps, the conversation tells the page once (`script_hint` event, marked in `.basalt/repeats.json`): a note in the chat with the "Make a skill" button, which opens the existing request picker on the request just done, and a line in the Lessons view. Nothing is made without the person.
+**Work that repeats** (`tadamoo/repeats.py`): a request signature is its meaningful words, first ten, sorted. When the project's `outcomes.jsonl` holds the same signature at least 3 times, each finished in at least 8 steps, the conversation tells the page once (`script_hint` event, marked in `.tadamoo/repeats.json`): a note in the chat with the "Make a skill" button, which opens the existing request picker on the request just done, and a line in the Lessons view. Nothing is made without the person.
 The agent is told about itself by code (`tadamoo/awareness.py`): a fixed block "About yourself" in the system prompt (room for the conversation, when old results are masked and the conversation folded and that the originals are on disk, the limits, what is not available here), and the `self_status` tool, which reads the live numbers (context filled and the next thresholds, steps and tokens used and left, folds so far, loop strikes, gate rounds, refused calls, instructions waiting for authorization). Study and plan: [harness-study/awareness.md](harness-study/awareness.md).
 `shell_command` with `background: true` starts a job in a thread of its own and returns its id; `job_status`, `job_log` and `job_kill` follow it (the output is whole once the job ends or is killed), and the next tool result tells the model when a job ended (`tadamoo/tools/background.py`). While a job runs its output is kept and `job_log` reads what is there; the chat shows each job as a block of its own with a colour of its own, filled as the output is written (the `job` and `job_output` events). When the person writes a message that changes or cancels the work while a message's batch of calls is running, the calls not yet made are recorded as "Not run" and the message is read next (`batch_interrupt`, the `batch_interrupted` event); a message that would wait or is a different request does not stop it. The job goes through the same checks as any shell command; it is not kept after the conversation's process ends.
 
@@ -285,7 +285,7 @@ secret, a vault secret field, or a secret read from a file during the conversati
 hex or base64; a value under eight characters only as a whole word); a match asks the person before anything is sent (the question names the
 secret and the sites it would reach, never the value; it can be answered for the call, the conversation or for good), and with `off` nothing is asked.
 
-**How freely code runs (`tadamoo/exec_level.py`).** The person chooses, in the Wallet page ("Code the agent writes and runs"), one of three levels for every conversation. It is one file (`exec-level.json` in the user data folder) that a running conversation reads again at its next command. The default is `free`; a process nobody configured (a library caller, a test) is `contained`. What follows describes `contained`. With `free` a command or a `run_code` program runs with the person's own rights: no memory or process cap, no time limit unless the model sets one, the whole environment of Basalt plus the vault's values and the broker's secrets as `BASALT_VAULT_<entry>_<field>` and `BASALT_SECRET_<name>`, no deny list, no refusal for the person's secret places, no audit hook. The permission level in front of the tool is the only gate, and output is still masked of the values it holds. A time limit of the person's own (`tool_timeout_s`) still applies. `admin` is `free` for a Basalt that runs as administrator: the page says whether it does, and the programs inherit the rights of the process; nothing here elevates by itself.
+**How freely code runs (`tadamoo/exec_level.py`).** The person chooses, in the Wallet page ("Code the agent writes and runs"), one of three levels for every conversation. It is one file (`exec-level.json` in the user data folder) that a running conversation reads again at its next command. The default is `free`; a process nobody configured (a library caller, a test) is `contained`. What follows describes `contained`. With `free` a command or a `run_code` program runs with the person's own rights: no memory or process cap, no time limit unless the model sets one, the whole environment of Basalt plus the vault's values and the broker's secrets as `TADAMOO_VAULT_<entry>_<field>` and `TADAMOO_SECRET_<name>`, no deny list, no refusal for the person's secret places, no audit hook. The permission level in front of the tool is the only gate, and output is still masked of the values it holds. A time limit of the person's own (`tool_timeout_s`) still applies. `admin` is `free` for a Basalt that runs as administrator: the page says whether it does, and the programs inherit the rights of the process; nothing here elevates by itself.
 
 What this is **not**: an OS sandbox. A command runs with your files and network rights, with a scrubbed environment, no
 stdin, a time limit and capped output. On Windows each command also runs in its own job object, created before the command
@@ -345,7 +345,7 @@ Stop ends a command that is running: a shell command and everything it started (
 after the run is cancelled, instead of when the command finishes. Every tool also has a time limit, one hour unless set otherwise
 (`tool_timeout_s` in `limits.json`, which is never unlimited; or `--tool-timeout SECONDS`, or `NAME=SECONDS` for one tool; `0` for none; `ToolRegistry.set_timeout` in code).
 `limits.json` lives in the user data folder (`serve/limits.py`): `{"beat_timeout_s": null, "idle_s": null, "compare_wait_s": null, "tool_timeout_s": 3600}`;
-`null` or `0` is no limit (default for all but the tool's), `BASALT_LIMIT_<NAME>` sets one from the environment, and the file is read again whenever it changes. A tool that runs past it is
+`null` or `0` is no limit (default for all but the tool's), `TADAMOO_LIMIT_<NAME>` sets one from the environment, and the file is read again whenever it changes. A tool that runs past it is
 stopped and the model is told which tool and how long. The stop is an exception raised in the tool's own thread, so no thread is left running
 behind; a tool that is inside one blocking system call stops when that call returns. The clock does not run while the person is being asked
 something inside the tool (a plan change, a payment, a code). A shell command keeps its own `timeout` (up to 10 minutes); `transcribe_attachment`,
@@ -422,7 +422,7 @@ off by default until `python -m tadamoo.eval --set core --k 5 --instruction-bloc
 ### Hooks you write
 
 Hooks are commands (or fixed blocks) that run on events. They are read from `hooks.json` in the user data folder (or the file given with
-`--hooks`) and, only if you pass `--workspace-hooks`, from `.basalt/hooks.json` in the workspace: a folder under work can name commands, so it
+`--hooks`) and, only if you pass `--workspace-hooks`, from `.tadamoo/hooks.json` in the workspace: a folder under work can name commands, so it
 does not get to without your say. A file that cannot be read, or has a mistake (an unknown key, an event that does not exist), stops the agent
 from starting with the reason: a policy that is silently dropped protects nothing.
 
@@ -439,7 +439,7 @@ from starting with the reason: a policy that is silently dropped protects nothin
 | key | meaning |
 |---|---|
 | `event` | `pre_tool`, `post_tool`, `stop`, `turn_end`, `session_start`, `session_end`, `pre_compact`, `post_compact`, `subagent_start` or `subagent_stop` (what a `post_tool` and a `stop` hook can say back: [harness-gates.md](harness-gates.md)) |
-| `command` | what to run (text, or a list of words), in the workspace, with a scrubbed environment and the job limits of any command; the event is given as JSON on its standard input (`event`, `tool`, `arguments`, and for `post_tool` the `result`, masked; for the other events `turn`, `goal`, `stop_reason`, ...) and in `BASALT_HOOK_EVENT` and `BASALT_HOOK_TOOL` |
+| `command` | what to run (text, or a list of words), in the workspace, with a scrubbed environment and the job limits of any command; the event is given as JSON on its standard input (`event`, `tool`, `arguments`, and for `post_tool` the `result`, masked; for the other events `turn`, `goal`, `stop_reason`, ...) and in `TADAMOO_HOOK_EVENT` and `TADAMOO_HOOK_TOOL` |
 | `action` | `block`, instead of a command, only on `pre_tool`: refuses a matching call with `reason`, running nothing; `ask`, also only on `pre_tool`: the person decides the matching call, at every level (a command hook asks by exiting with code 3 or printing `{"decision": "ask", "reason": ...}`; a refusal by another hook wins over a question; where nobody watches the question waits in the pending list); or `plan_event`, on any other event: gives the planner an event whose `text` is the one written here (`{event}` and `{tool}` are filled in, nothing else of the call goes in; only the Chat's conversation has a planner to tell) |
 | `text` | what a `plan_event` action tells the planner, up to 300 characters |
 | `tool` | a pattern or a list of patterns for the tool's name (`*` and `?`); default every tool; `pre_tool` and `post_tool` only |
@@ -544,7 +544,7 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   `browser_back` asked to go; each is reported to the model.
 - **Phone calls** (`--phone`): below the `auto` level `phone_call` asks (this call, this conversation or for good); the call opens by
   saying it is an AI assistant calling for you; what the other person says is untrusted. Tests of real calls are skipped
-  and queued in `tests/QUEUE_live_calls.md` until you authorize them (`BASALT_LIVE_CALLS=1`).
+  and queued in `tests/QUEUE_live_calls.md` until you authorize them (`TADAMOO_LIVE_CALLS=1`).
 - **Recordings** (audio and video attachments): the same callAPIcall client sends a file to the service's analysis routes in
   chunks, follows the job and reads back the transcript (`start_media_analysis`, `wait_media_analysis`, `media_transcript`,
   `format_transcript`). The service runs one job at a time (the client says `busy`), takes only the sound of a video and needs
@@ -607,7 +607,7 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   `search_web` uses **DuckDuckGo** unless you set another engine: the tool reads the results page of `html.duckduckgo.com` (title,
   address, snippet; advertisements dropped), with no key, so the **words of each search go to DuckDuckGo**. The address is checked like
   any page's. It is a page meant for people, not an API: DuckDuckGo may ask for a check after many searches (the tool says so) or change
-  the page. `BASALT_WEB_SEARCH=off` removes it. The other engines add to it and are the default only when DuckDuckGo is off: a search tool of a connected MCP server, or a
+  the page. `TADAMOO_WEB_SEARCH=off` removes it. The other engines add to it and are the default only when DuckDuckGo is off: a search tool of a connected MCP server, or a
   provider of `tadamoo/tools/search/providers.json` for which you have a key (its environment variable, or a vault entry named
   after the provider, e.g. `tavily`, with the key in its `value` field). The provider's server is started when the first search is
   made. The Exa endpoint is reached with the key in an `x-api-key` header, which has not been tried against the live service.
@@ -644,8 +644,8 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   `tool_call` and `tool_call_update` updates, and the next prompt goes on from it. When the editor says it offers `fs`, the file tools read
   through it (so unsaved text is seen) and write through it (a write the editor refuses is an error for the model); every edit is still
   reported as a diff. When the Basalt server refuses requests without a key and the agent has none, `initialize` lists the method
-  `basalt_api_key` and `session/new` and `session/load` answer -32000 with `data.authRequired` until `authenticate` finds the key accepted;
-  the key itself can only be given at launch (`BASALT_API_KEY` or `--api-key`), so `authenticate` checks it and does not receive it. It
+  `tadamoo_api_key` and `session/new` and `session/load` answer -32000 with `data.authRequired` until `authenticate` finds the key accepted;
+  the key itself can only be given at launch (`TADAMOO_API_KEY` or `--api-key`), so `authenticate` checks it and does not receive it. It
   reads text only and has no `terminal/*`. It was tested against a scripted editor over in-memory pipes and against Basalt's own ACP client,
   never in Zed or JetBrains. It is built like the command line's agent and takes the same options
   (`python -m tadamoo acp --capabilities --lsp --vault-dir ...`), and the `mcpServers` the editor sends with `session/new` (a program to
@@ -845,7 +845,7 @@ the same fixed commands, so authorising is the only way an online find is instal
 by itself* setting). The tool is registered as reversible, so plan mode refuses it.
 The model gives only the need: the tool has no argument that names a package, a command or an address.
 
-**What goes onto the network.** Only GET requests, with the User-Agent `basalt-capability-search/1.0`, a 12 s timeout, a cap on the
+**What goes onto the network.** Only GET requests, with the User-Agent `tadamoo-capability-search/1.0`, a 12 s timeout, a cap on the
 bytes read (2 MB; 4 MB for an npm package record, 3 MB for PyPI), no cookie, no credential, and a redirect is followed only inside the
 same host. The need (the words the model wrote, at most 300 characters; the tool asks for no secrets and no personal data, and the call is
 shown in the Chat with its arguments) appears in the address of the searches:
@@ -1058,7 +1058,7 @@ and the spending report per function.
 When the server runs with `--side-slot` (see [running](running.md#the-technical-session---side-slot-tokens)) it keeps one slot with a
 short context for the harness's own short calls. `tadamoo/side.py` is the whole of the harness side: `side_extra(client=None)` returns
 `{"cache_slot": "side"}` for a local server that reports a session (its `/v1/status` `concurrency.side_slot`, asked at most every 30
-seconds by `BasaltClient.side_context()`) and `{}` otherwise; `SIDE_CONTEXT_TOKENS` is the default size (30000); `use(client)` registers
+seconds by `TadamooClient.side_context()`) and `{}` otherwise; `SIDE_CONTEXT_TOKENS` is the default size (30000); `use(client)` registers
 the client `side_extra()` asks when it is called without one (the stack does this). The calls that use it are the intake's triage
 (`tadamoo/intake.py`), the next-prompt suggestions (`tadamoo/suggestions.py`), the compaction summary (`tadamoo/stack.py`), the judge
 (`tadamoo/llm/judge.py`), the router's judge (`tadamoo/router.py`) and the rewrite of the person's message when Optimize prompt is on
@@ -1240,8 +1240,8 @@ wide, not for phones.
 - **Agent**: the conversation page of the Chat, working in a **folder** you add. The column at the left lists the folders, each with the
   conversations held in it (*New conversation in this folder*, a cross takes the folder off the list and keeps its files and conversations).
   *Add folder* asks for the full path (the Windows dialog inside the app, a typed path in a browser) and checks that the agent can work there:
-  Basalt can write in it. Adding it makes `<folder>/.basalt/project.json`, the folder's own registry
-  (its name and the conversations held in it, kept up to date as they are made, renamed and deleted), and `<folder>/.basalt/.gitignore`
+  Basalt can write in it. Adding it makes `<folder>/.tadamoo/project.json`, the folder's own registry
+  (its name and the conversations held in it, kept up to date as they are made, renamed and deleted), and `<folder>/.tadamoo/.gitignore`
   (the agent's `artifacts/`). The list of folders is in `journal/projects.json` of the user data folder; `GET/POST /api/agent/projects` and
   `/api/agent/projects/remove` serve it. A conversation of a folder is created with that folder as its `workspace`: its file tools stay inside it
   and the commands it runs are not limited to it. There is no model-only or question-only kind here, only conversations with tools, and the four
@@ -1267,7 +1267,7 @@ A personal skill is a folder in the user data folder, `personal-skills/<slug>/`,
 script names, version, counts) and `skill.py`, plus `.versions/` (the last ten) and `.cache/` (the answers of `ai()`). `tadamoo/personal_skills/`
 holds the library, `serve/personal_skills_api.py` the page's routes, `serve/web/pskills.js` the windows.
 
-- **The script** defines `main(params)` and uses `from basalt_skill import tool, ai, ask, say`: `tool(name, **arguments)` returns the tool's answer as text
+- **The script** defines `main(params)` and uses `from tadamoo_skill import tool, ai, ask, say`: `tool(name, **arguments)` returns the tool's answer as text
   and raises `ToolError` when it is refused or fails; `ai(prompt, cache=True, **inputs)` is one model call at temperature 0 with no thinking, and its answer
   is kept for the same prompt and inputs; `ask(question, options)` asks the person with buttons; `say(text)` tells how it is going. `params.name` holds
   each value (`datetime.date` for a date, `datetime.datetime` for a moment, numbers, lists). What `print` writes is the run's output.
@@ -1376,8 +1376,8 @@ records. The ledger belongs to the folder, not to one conversation.
 
 `run_code` (`tadamoo/tools/execute.py`) runs a snippet in a separate process: Python with the interpreter of Basalt's own
 environment in isolated mode (`-I`), and JavaScript or TypeScript when `deno` is on the PATH (all three languages) or
-JavaScript when only `node` is. Each run gets a new working folder under `.basalt/run/` in the workspace, the workspace's path
-in `BASALT_WORKSPACE`, and the same scrubbed environment as the shell. On Windows it runs in a job object (2 GiB of memory, 64
+JavaScript when only `node` is. Each run gets a new working folder under `.tadamoo/run/` in the workspace, the workspace's path
+in `TADAMOO_WORKSPACE`, and the same scrubbed environment as the shell. On Windows it runs in a job object (2 GiB of memory, 64
 processes); a timeout (30 s by default, 600 s at most) or a cancel of the run kills the whole tree. Output is cut at 50,000
 bytes per stream. Files the code leaves in its working folder are listed in the result and kept for a week; a run that makes
 none leaves nothing behind. Edits the code makes to workspace text files are recorded for review like a shell command's.
@@ -1475,7 +1475,7 @@ topics, projects). Each note has a section, a text of any length, an origin (`sa
   One process writes it (the server); each conversation process reads it again whenever the file changes, so a switch works on a running conversation.
 - **Learning.** `SessionManager` collects what the person writes in a turn (and the `search_web` queries run for it) and hands it to `MemoryWorker.offer` when the turn ends; a routine's conversation is
   excluded (`keep_out_of_memory`). The message is queued only if a memory learns. `MemoryWorker` runs a thread: when `gpu_free(svc)` is true (the model is loaded, nothing is served or queued, the last request
-  is more than 4 s old unless it was the worker's own, and no card is above 50% utilisation) it asks the **loaded model** (never a cloud route; `BasaltClient` on this server) with `memory_extract.SYSTEM`,
+  is more than 4 s old unless it was the worker's own, and no card is above 50% utilisation) it asks the **loaded model** (never a cloud route; `TadamooClient` on this server) with `memory_extract.SYSTEM`,
   `response_format json_object`, reasoning off, for operations `add`/`update`/`delete`. The model sees only the person's messages (each cut at 1,500 characters), the searches, the project's name and the
   related notes already kept. `apply` refuses notes that look like a secret (long digit runs, long tokens, password/key words) or an order to an assistant (`ignore previous`, `you must`, tags, vault
   placeholders), cannot change or delete a note the person wrote or confirmed, clamps a guess to confidence 0.3-0.9 and counts a repeated note instead of adding it. A failed call leaves the queue for

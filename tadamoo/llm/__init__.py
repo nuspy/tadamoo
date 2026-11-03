@@ -1,8 +1,8 @@
 """What the harness uses to talk to language models through llmswitch: one client or judge for each function.
 
     from tadamoo.llm import client_for, judge_for
-    client = client_for("executor", BasaltClient(...))      # the provider the person chose for it, or the loaded model
-    judge = judge_for("router", BasaltClient(...))
+    client = client_for("executor", TadamooClient(...))      # the provider the person chose for it, or the loaded model
+    judge = judge_for("router", TadamooClient(...))
 
 The registry is read again at every call, so a choice made on the Providers page applies to the next request.
 """

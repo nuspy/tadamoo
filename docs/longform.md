@@ -206,7 +206,7 @@ Under every assistant message, next to **Copy**, a **Save as file** button (Chat
 default, or Word, OpenDocument, HTML, PDF; the same ones as the conversation export) and the file name. Only that click saves anything. The
 text of that message alone goes to `POST /api/export` with `bare: true`: no title line, no export header and no speaker heading, the
 headings as written (`serve/exportdoc.py`, `serve/exportoffice.py`); the system's "Save as" window lets the person choose the folder
-(`serve/web/export.js`, `window.BasaltSave.message`). In the Agent the text is the answer's text blocks, as Copy gives it.
+(`serve/web/export.js`, `window.TadamooSave.message`). In the Agent the text is the answer's text blocks, as Copy gives it.
 
 ## Not done
 

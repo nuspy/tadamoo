@@ -64,7 +64,7 @@ class Rules(unittest.TestCase):
 class FileWrites(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.path = os.path.join(self.dir.name, "basalt_config.json")
+        self.path = os.path.join(self.dir.name, "tadamoo_config.json")
         Path(self.path).write_text(json.dumps(CONFIG, indent=2), encoding="utf-8")
 
     def tearDown(self):
@@ -118,7 +118,7 @@ class FileWrites(unittest.TestCase):
             with self.assertRaises(ValueError, msg=changes):
                 settings.save(self.path, changes)
         self.assertEqual(Path(self.path).read_bytes(), before)
-        self.assertEqual([p for p in os.listdir(self.dir.name) if p.startswith(".basalt-settings-")], [])
+        self.assertEqual([p for p in os.listdir(self.dir.name) if p.startswith(".tadamoo-settings-")], [])
 
     def test_the_whole_file_is_checked_as_the_server_would(self):
         Path(self.path).write_text(json.dumps({"engine": {"kv-resident": 32768, "batch": 2}}), encoding="utf-8")
@@ -139,7 +139,7 @@ class OverHttp(unittest.TestCase):
         self.svc = Service(MockEngine(tok, "</think>\n\nok", max_context=4096), tok,
                            ChatTemplate(ROOT / "serve/chat_template.jinja"))
         self.dir = tempfile.TemporaryDirectory()
-        self.path = os.path.join(self.dir.name, "basalt_config.json")
+        self.path = os.path.join(self.dir.name, "tadamoo_config.json")
         Path(self.path).write_text(json.dumps(CONFIG, indent=2), encoding="utf-8")
         self.svc.settings_info = {"config": self.path, "model": "/models/m.basalt", "cli": ["engine.spec"],
                                   "running": {"server.port": 7232, "engine.spec": 3}}

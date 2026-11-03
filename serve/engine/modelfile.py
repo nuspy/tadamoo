@@ -16,8 +16,8 @@ VISION_EXE = "basalt-vision"
 
 
 def cache_root() -> Path:
-    """The folder of what can be rebuilt: BASALT_CACHE when set, else ~/.cache/basalt."""
-    return Path(os.environ["BASALT_CACHE"]) if os.environ.get("BASALT_CACHE") else Path.home() / ".cache" / "basalt"
+    """The folder of what can be rebuilt: TADAMOO_CACHE when set, else ~/.cache/tadamoo."""
+    return Path(os.environ["TADAMOO_CACHE"]) if os.environ.get("TADAMOO_CACHE") else Path.home() / ".cache" / "basalt"
 
 
 def cache_dir(mf: ModelFile) -> Path:

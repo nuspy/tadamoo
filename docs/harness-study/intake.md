@@ -140,7 +140,7 @@ phase 2 `harness/subtasks.py` (about 500 lines). Hook in `Session._run_task` jus
 thread; not `_begin_main`, which is on the request path, and not `AgentLoop`). Question events reuse the `ask` event and
 `_policy`/`_park`, with `kind: "intake"` in `question_source`. `pipeline.py` accepts up to 3 extra qualitative constraints from
 `stated_constraints`. `stack.py` builds `Intake` beside `Pipeline` and `Router`. The assumption chips and the question card are
-the UI of the `ask_user` v2 work ([ask-user-v2.md](ask-user-v2.md)). New short doc `docs/harness-intake.md`. `BasaltClient.chat_completion`
+the UI of the `ask_user` v2 work ([ask-user-v2.md](ask-user-v2.md)). New short doc `docs/harness-intake.md`. `TadamooClient.chat_completion`
 already takes `response_format` and `extra`; `note: True` messages are stripped from the wire format and ignored when grouping
 turns; plan-change quotes must come from the person's latest message, so the note cannot stand for their confirmation.
 

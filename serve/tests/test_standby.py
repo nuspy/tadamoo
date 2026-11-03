@@ -38,11 +38,11 @@ class InProcess(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         root = Path(self.dir.name)
-        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": str(root), "BASALT_DATA": str(root)})
+        self.env = mock.patch.dict(os.environ, {"TADAMOO_CACHE": str(root), "TADAMOO_DATA": str(root)})
         self.env.start()
         self.a = tiny_basalt(root / "a.basalt", "Model A")
         self.b = tiny_basalt(root / "b.basalt", "Model B")
-        self.cfg = root / "basalt_config.json"
+        self.cfg = root / "tadamoo_config.json"
         self.cfg.write_text(json.dumps({"server": {"model": str(self.a)}, "engine": {"max-context": 4096}}),
                             encoding="utf-8")
         self.svc = service()
@@ -70,7 +70,7 @@ class InProcess(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 headers = {"Content-Type": "application/json"} if body is not None else {}
                 if path.startswith("/api/"):
-                    headers["X-Basalt-Control"] = self.svc.control_token
+                    headers["X-Tadamoo-Control"] = self.svc.control_token
                 c.request(method, path, body=None if body is None else json.dumps(body).encode(), headers=headers)
                 r = c.getresponse()
                 raw = r.read()
@@ -128,7 +128,7 @@ class NoModel(unittest.TestCase):
     def test_a_server_without_a_model_answers(self):
         """A real server process: --standby with only the engine binary, as the desktop app starts it on a new PC."""
         with tempfile.TemporaryDirectory() as d:
-            env = {**os.environ, "BASALT_DATA": d, "BASALT_CACHE": d, "PYTHONUTF8": "1"}
+            env = {**os.environ, "TADAMOO_DATA": d, "TADAMOO_CACHE": d, "PYTHONUTF8": "1"}
             p = subprocess.Popen([sys.executable, "-m", "serve.server", "--standby", "--engine-bin",
                                   str(Path(d) / "basalt.exe"), "--port", str(PORT)], cwd=ROOT, env=env,
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)

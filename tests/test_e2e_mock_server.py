@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from tadamoo import untrusted
-from tadamoo.client import BasaltClient
+from tadamoo.client import TadamooClient
 from tadamoo.headless import EXIT_CODES, main, parse_args, run_headless
 from tadamoo.stack import AgentConfig, build_agent
 from serve.engine.mock import MockEngine

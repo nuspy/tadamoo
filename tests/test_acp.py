@@ -10,7 +10,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from tadamoo.acp_agent import ACPAgentServer
-from tadamoo.client import BasaltError
+from tadamoo.client import TadamooError
 from tadamoo.tools.registry import EffectClass
 from test_agent_loop import ScriptedClient, call, say
 
@@ -287,7 +287,7 @@ def test_the_conversation_continues_across_prompts(editor_factory):
 
 
 def test_a_server_error_becomes_a_json_rpc_error_and_the_session_survives(editor_factory):
-    e = editor_factory(ScriptedClient(BasaltError(503, "model is loading"), say("ok now")))
+    e = editor_factory(ScriptedClient(TadamooError(503, "model is loading"), say("ok now")))
     sid = e.new_session()
     assert "model is loading" in e.response(e.prompt(sid))["error"]["message"]
     assert e.response(e.prompt(sid))["result"]["stopReason"] == "end_turn"
@@ -331,7 +331,7 @@ def test_the_agent_runs_as_a_subprocess_over_stdio_against_the_real_server(tmp_p
     httpd = serve(svc, port=0)
     ws = tmp_path / "ws"
     ws.mkdir()
-    env = {**__import__("os").environ, "BASALT_DATA": str(tmp_path / "data"), "PYTHONPATH": str(ROOT)}
+    env = {**__import__("os").environ, "TADAMOO_DATA": str(tmp_path / "data"), "PYTHONPATH": str(ROOT)}
     proc = subprocess.Popen([sys.executable, "-m", "tadamoo.acp_agent", "--workspace", str(ws), "--endpoint",
                              f"http://127.0.0.1:{httpd.server_address[1]}"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, env=env, cwd=str(ROOT))

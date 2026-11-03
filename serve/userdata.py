@@ -1,6 +1,6 @@
 """Where a user's own Basalt settings live, apart from the caches.
 
-    user_data_dir()   $BASALT_DATA, else %APPDATA%\\BasaltPannello (Windows), ~/Library/Application Support/Basalt
+    user_data_dir()   $TADAMOO_DATA, else %APPDATA%\\TaDaMoo (Windows), ~/Library/Application Support/Basalt
                       (macOS), $XDG_DATA_HOME/basalt (elsewhere; ~/.local/share/basalt without it)
 
 It holds what the user chose and must not be lost when a cache is cleared: the load profiles and inference presets
@@ -21,7 +21,7 @@ import sys
 import threading
 from pathlib import Path
 
-APP_DIR = "BasaltPannello"                       # the desktop app's folder: one place for everything of this user
+APP_DIR = "TaDaMoo"                       # the desktop app's folder: one place for everything of this user
 MARKER = "migrated-from-cache.json"
 COPIED = ("profiles.json", "models.json")       # the user's files that earlier versions kept in the cache folder
 _lock = threading.Lock()
@@ -34,8 +34,8 @@ def user_data_dir() -> Path:
 
 def default_dir(osname: str, platform: str, env, home: str) -> str:
     """The folder as a string for an operating system, its environment and the home folder."""
-    if env.get("BASALT_DATA"):
-        return env["BASALT_DATA"]
+    if env.get("TADAMOO_DATA"):
+        return env["TADAMOO_DATA"]
     if osname == "nt":
         return os.path.join(env.get("APPDATA") or os.path.join(home, "AppData", "Roaming"), APP_DIR)
     if platform == "darwin":

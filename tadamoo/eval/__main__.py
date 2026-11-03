@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-from tadamoo.client import BasaltClient
+from tadamoo.client import TadamooClient
 
 from . import benchmarks
 from .report import generate_eval_report, k_warning, results_to_json
@@ -89,7 +89,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         tasks = [t for t in tasks if t.id in args.only]
         if not tasks:
             p.error("no task matches --only")
-    client = BasaltClient(base_url=args.endpoint, api_key=args.api_key)
+    client = TadamooClient(base_url=args.endpoint, api_key=args.api_key)
     env = collect_environment(client, args.endpoint, gpu_power_limit_w=args.gpu_power_limit_w)
     timings = None if args.no_server_timings else ServerTimings(args.endpoint, args.api_key)
     runner = EvalRunner(client=client, temperature=args.temperature, keep_workspaces=Path(args.keep_workspaces) if args.keep_workspaces else None, council=args.council,

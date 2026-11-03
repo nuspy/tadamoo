@@ -13,7 +13,7 @@ from serve.agent_runs import AgentRunner, RunError
 from serve.tasks import _write_json
 
 PROJECTS_FILE = "projects.json"
-REGISTRY_DIR = ".basalt"
+REGISTRY_DIR = ".tadamoo"
 REGISTRY_FILE = "project.json"
 # what the agent keeps in the folder for itself is not part of the project's own files
 IGNORE_LINES = ("artifacts/",)

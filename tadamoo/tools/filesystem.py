@@ -22,7 +22,7 @@ MAX_LISTED = 500
 READ_CHARS = 40_000                # what one read_file answer may hold; a longer file is read in ranges
 SCAN_BYTES = 256_000_000           # how much of a file is read to count its lines
 # what a shell command may have changed is found by comparing the workspace's text files before and after it
-SKIP_DIRS = frozenset({".git", ".basalt", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache",
+SKIP_DIRS = frozenset({".git", ".tadamoo", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache",
                        ".idea", ".vscode"})
 MAX_WATCHED_FILES = 5000
 MAX_WATCHED_BYTES = 30_000_000     # the text kept in memory to compare against

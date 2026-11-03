@@ -251,7 +251,7 @@ int real(const std::string& gguf, int n_random, const std::string& tokens_path, 
     k::PleTable mm, direct;
     std::string err;
     basalt::core::ModelFile container;   // a .basalt file serves its source tensors as a GGUF view
-    if (gguf.size() > 7 && gguf.compare(gguf.size() - 7, 7, ".basalt") == 0 &&
+    if (gguf.size() > 7 && gguf.compare(gguf.size() - 7, 7, ".tadamoo") == 0 &&
         (!container.open(gguf, err) || !container.load_meta(err) || !container.register_gguf_view(err))) {
         std::fprintf(stderr, "container open: %s\n", err.c_str());
         return 2;

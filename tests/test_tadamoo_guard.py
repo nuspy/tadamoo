@@ -11,8 +11,8 @@ def run_guarded(tmp_path, code):
     protected = tmp_path / "protected"
     protected.mkdir()
     (protected / "secret.txt").write_text("s")
-    env = {**os.environ, "BASALT_GUARD": str(protected), "PYTHONPATH": str(GUARD)}
-    return subprocess.run([sys.executable, "-c", "import basalt_guard; basalt_guard.install()\n" + code.replace("PROTECTED", repr(str(protected)))],
+    env = {**os.environ, "TADAMOO_GUARD": str(protected), "PYTHONPATH": str(GUARD)}
+    return subprocess.run([sys.executable, "-c", "import tadamoo_guard; tadamoo_guard.install()\n" + code.replace("PROTECTED", repr(str(protected)))],
                           capture_output=True, text=True, env=env, timeout=60)
 
 

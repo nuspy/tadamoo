@@ -6,7 +6,7 @@ change (images, link targets, code, diagrams, math, HTML, citations) is replaced
 back byte for byte at the end. Every segment is checked by plain code before it is kept, and a problem that remains after
 the retries is reported, never hidden.
 
-`LongAnswer` drives any client with the `chat_completion` of `tadamoo.client.BasaltClient` and `tadamoo.llm.client.RoutedClient`
+`LongAnswer` drives any client with the `chat_completion` of `tadamoo.client.TadamooClient` and `tadamoo.llm.client.RoutedClient`
 (the loaded model, or a cloud route), and yields progress events. Everything else here is a pure function.
 """
 from __future__ import annotations

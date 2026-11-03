@@ -28,7 +28,7 @@ from tadamoo.sandbox import DEFAULT_MAX_PROCESSES, MAX_TIMEOUT, _Capped, guard, 
 from tadamoo.sandbox.jobs import CREATE_SUSPENDED, CommandJob
 from tadamoo.tools.registry import EffectClass
 
-RUN_DIR = Path(".basalt") / "run"
+RUN_DIR = Path(".tadamoo") / "run"
 DEFAULT_MAX_OUTPUT = 50_000
 DEFAULT_MAX_MEMORY = 2 << 30
 MAX_LISTED_FILES = 20
@@ -68,7 +68,7 @@ def build_command(runtime: Dict[str, str], script: Path, workdir: Path, workspac
         return [exe, "-I", "-X", "utf8", *([str(guard.LAUNCHER)] if places else []), str(script)]
     if kind == "deno":
         return [exe, "run", "--quiet", "--no-prompt", "--no-config", "--no-lock", f"--allow-read={workdir},{workspace}",
-                f"--allow-write={workdir}", "--allow-env=BASALT_WORKSPACE", *guard.deno_flags(places), str(script)]
+                f"--allow-write={workdir}", "--allow-env=TADAMOO_WORKSPACE", *guard.deno_flags(places), str(script)]
     if runtime.get("permission"):
         return [exe, "--no-warnings", runtime["permission"], f"--allow-fs-read={workdir}", f"--allow-fs-read={workspace}",
                 f"--allow-fs-write={workdir}", str(script)]
@@ -128,7 +128,7 @@ def run_code(language: str, code: str, workspace: str | Path, runtimes: Dict[str
                                        | (CREATE_SUSPENDED if job.active else 0))
     else:
         popen_args["start_new_session"] = True
-    own = {"PYTHONUTF8": "1", "PYTHONDONTWRITEBYTECODE": "1", "BASALT_WORKSPACE": str(workspace)}
+    own = {"PYTHONUTF8": "1", "PYTHONDONTWRITEBYTECODE": "1", "TADAMOO_WORKSPACE": str(workspace)}
     if free:                                          # the person's own environment, and the values of their vault ready in it
         env = {**os.environ, **(broker.environment() if broker is not None else {}), **own}
     else:
@@ -200,7 +200,7 @@ def register_run_code(registry: Any, workspace: str | Path, sandbox: Any = None,
     registry.register(
         name="run_code",
         description=("Runs a snippet of code in a separate process and returns its output. Languages: " + ", ".join(languages) + ". "
-                     "The working folder is new for each run; the workspace is in the environment variable BASALT_WORKSPACE. "
+                     "The working folder is new for each run; the workspace is in the environment variable TADAMOO_WORKSPACE. "
                      "Python runs in isolated mode: add the workspace to sys.path to import its modules. Files the code leaves in "
                      "its working folder are listed in the result. Python can reach whatever the user can, except the vault, payment files, browser "
                      "sign-ins, control token and phone keys, which it cannot open. JavaScript and TypeScript read only the working folder and the "

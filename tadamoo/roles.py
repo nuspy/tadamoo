@@ -16,7 +16,7 @@ from typing import Any, Callable, Dict, FrozenSet, List, Optional, Tuple
 GENERAL = "general"
 CODING_ROLE = "build"
 ASK, PLAN, DEBUG, ORCHESTRATE = "ask", "plan", "debug", "orchestrate"
-PLANS_GLOB = ".basalt/plans/*.md"
+PLANS_GLOB = ".tadamoo/plans/*.md"
 MAX_NOTE_TOKENS = 600
 CHARS_PER_TOKEN = 3.5
 SHOWN_CHECKS = 6
@@ -51,7 +51,7 @@ _TEXT: Dict[str, str] = {
         "Do not change the checks to make them pass."),
     PLAN: (
         "Role: plan. You plan and you do not change the project. Read what you need. Ask the person at most three questions with ask_user, "
-        "and only for decisions that are theirs. Write the plan as a Markdown file under .basalt/plans/ (the steps, the files each one "
+        "and only for decisions that are theirs. Write the plan as a Markdown file under .tadamoo/plans/ (the steps, the files each one "
         "touches, how each one is checked), keep a checklist with todo_write, and end with a short summary of the plan. The person decides "
         "when building starts."),
     ASK: (

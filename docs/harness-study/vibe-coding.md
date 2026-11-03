@@ -38,7 +38,7 @@ Two axes: the permission mode that exists (Plan only, Read only, Ask first, Auto
 agent is for and which tools it sees (name is the owner's decision).
 
 - **Roles** (`harness/modes.py`, `--role`): Ask (read tools only), Plan (read tools, `todo_write`, `ask_user`, `present_plan`, and
-  writes only under `.basalt/plans/*.md`), Build (read, edit, shell, todo), Debug (Build plus a hypothesis protocol: list causes,
+  writes only under `.tadamoo/plans/*.md`), Build (read, edit, shell, todo), Debug (Build plus a hypothesis protocol: list causes,
   narrow to 1-2, add logging, confirm, then fix; the gate re-runs the failing command), Orchestrate (todo, ask, `spawn_subagent(role,
   task)`, read tools; no edit or shell). Tools outside the role are neither advertised nor callable by name; the edit-glob limit
   is checked at call time and names the allowed globs. A workspace roles file may only narrow tools, never add shell or hooks.
@@ -59,7 +59,7 @@ agent is for and which tools it sees (name is the owner's decision).
   `parse_calls` is phase 2, behind an eval.
 - **After each edit:** syntax check in process (`ast.parse`, JSON, TOML, `node --check` when found), then new LSP diagnostics
   appended to the result; a per-file failure counter (third failure: re-read the file, prefer `write_file`).
-- **Project profile** in `<folder>/.basalt/project.json`: detected test, lint and run commands (`pyproject.toml` or `pytest.ini`
+- **Project profile** in `<folder>/.tadamoo/project.json`: detected test, lint and run commands (`pyproject.toml` or `pytest.ini`
   gives `python -m pytest -x -q`; `package.json` scripts; `Cargo.toml`; `CMakeLists.txt` asks). The person approves the exact
   strings once; they become a "safe verification" permission class together with a short read-only list (`git status`, `git
   diff`, `git log`, `ls`, `dir`), matched on the whole command after the segment splitter, never as a prefix. A profile

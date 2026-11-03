@@ -254,7 +254,7 @@ class SessionManager:
             inside = target.relative_to(root)
         except ValueError:
             raise RunError("That file is not inside the folder this conversation works in.", "bad_path") from None
-        if any(part in (".basalt", ".git") for part in inside.parts) or not target.is_file():
+        if any(part in (".tadamoo", ".git") for part in inside.parts) or not target.is_file():
             raise RunError("That file is not there, or it is one the agent keeps for itself.", "no_file")
         return target, target.name
 
@@ -579,7 +579,7 @@ class SessionManager:
     def merge(self, sid_a: Any, sid_b: Any, instruction: Any = "") -> Dict[str, Any]:
         """A new conversation that continues the first and ends with a synthesis the model writes, at the person's request, of what the two
         branches did after the point where they parted. Both are read, neither is changed."""
-        from tadamoo.client import BasaltError, extract_reasoning_and_content
+        from tadamoo.client import TadamooError, extract_reasoning_and_content
         if not isinstance(sid_a, str) or not isinstance(sid_b, str) or sid_a == sid_b:
             raise RunError("Choose two different conversations to merge.", "bad_merge")
         text = str(instruction or "").strip()
@@ -608,7 +608,7 @@ class SessionManager:
         try:
             resp = self._skill_client().chat_completion(messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
                                                         temperature=0.2, max_tokens=MERGE_TOKENS, extra={"reasoning_effort": "none"}, timeout=600.0)
-        except BasaltError as exc:
+        except TadamooError as exc:
             raise RunError(f"The model could not be reached: {exc}", "model") from None
         _, answer = extract_reasoning_and_content((resp.get("choices") or [{}])[0].get("message") or {})
         if not answer:
@@ -1043,9 +1043,9 @@ class SessionManager:
             if made is not None:
                 _write_json(history / "history.json", made)
         env = dict(os.environ)
-        env.update({"PYTHONUTF8": "1", "PYTHONPATH": str(self.root), "BASALT_COMPRESS": "1"})
+        env.update({"PYTHONUTF8": "1", "PYTHONPATH": str(self.root), "TADAMOO_COMPRESS": "1"})
         if self.api_key:
-            env["BASALT_API_KEY"] = self.api_key
+            env["TADAMOO_API_KEY"] = self.api_key
         flags = (subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW) if os.name == "nt" else 0
         log = open(history / "process.log", "ab")
         try:
@@ -1408,17 +1408,17 @@ class SessionManager:
         return chosen, steps
 
     def _skill_client(self) -> Any:
-        from tadamoo.client import BasaltClient
-        return BasaltClient(base_url=self.endpoint, api_key=self.api_key or None)
+        from tadamoo.client import TadamooClient
+        return TadamooClient(base_url=self.endpoint, api_key=self.api_key or None)
 
     def skill_propose(self, sid: str, turns: Any) -> Dict[str, Any]:
         """The first step of making a skill from requests: the values that probably change, named and explained."""
-        from tadamoo.client import BasaltError
+        from tadamoo.client import TadamooError
         from tadamoo.personal_skills import distill
         chosen, steps = self._skill_source(sid, turns)
         try:
             proposal = distill.propose(self._skill_client(), chosen, steps)
-        except BasaltError as exc:
+        except TadamooError as exc:
             raise RunError(f"The model could not be reached: {exc}", "model") from None
         return {**proposal, "requests": [{"n": r["n"], "raw": r["raw"]} for r in chosen],
                 "steps": [{"kind": s["kind"], "turn": s["turn"], **({"name": s["name"], "ok": s["ok"]} if s["kind"] == "tool" else {})} for s in steps]}
@@ -1426,7 +1426,7 @@ class SessionManager:
     def routine_skill(self, sid: str, name: str) -> Dict[str, Any]:
         """A script that repeats what a routine's run did, written from its recorded steps with every value the model proposed kept as a
         parameter. The person reads it before anything changes; `ai_calls` counts the places left to the language model."""
-        from tadamoo.client import BasaltError
+        from tadamoo.client import TadamooError
         from tadamoo.personal_skills import distill
         chosen, steps = self._skill_source(sid, [1])
         try:
@@ -1434,7 +1434,7 @@ class SessionManager:
             description = str(proposal.get("description") or name)[:500]
             params = proposal.get("params") or []
             written = distill.write_script(self._skill_client(), name[:60], description, params, chosen, steps)
-        except BasaltError as exc:
+        except TadamooError as exc:
             raise RunError(f"The model could not be reached: {exc}", "model") from None
         script = written.get("script") or ""
         return {"name": name[:60], "description": description, "params": params, "script": script, "problems": written.get("problems") or [],
@@ -1442,7 +1442,7 @@ class SessionManager:
 
     def skill_script(self, sid: str, turns: Any, name: Any, description: Any, params: Any) -> Dict[str, Any]:
         """The second step: the Python script, written from the requests, the recorded steps and the parameters the person kept."""
-        from tadamoo.client import BasaltError
+        from tadamoo.client import TadamooError
         from tadamoo.personal_skills import distill
         from tadamoo.personal_skills.values import check_spec
         if not isinstance(params, list) or len(params) > 20 or any(not isinstance(p, dict) for p in params):
@@ -1454,7 +1454,7 @@ class SessionManager:
         chosen, steps = self._skill_source(sid, turns)
         try:
             written = distill.write_script(self._skill_client(), str(name or "")[:60], str(description or "")[:500], params, chosen, steps)
-        except BasaltError as exc:
+        except TadamooError as exc:
             raise RunError(f"The model could not be reached: {exc}", "model") from None
         keep = ("name", "label", "explanation", "type", "default", "required", "choices", "item_type", "format")
         return {**written, "skill": {"name": str(name or "")[:60], "description": str(description or "")[:500],

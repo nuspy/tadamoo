@@ -6,13 +6,13 @@ from tadamoo.skills import SkillCatalog
 
 
 def compactor(tmp_path, **kw):
-    return TokenJuiceCompactor(tmp_path / "art", display_dir=".basalt/artifacts", **kw)
+    return TokenJuiceCompactor(tmp_path / "art", display_dir=".tadamoo/artifacts", **kw)
 
 
 def test_a_single_huge_line_is_cut_and_the_full_text_is_saved(tmp_path):
     c = compactor(tmp_path)
     out = c.compress_output("x" * 1_000_000, "read_file")
-    assert len(out) < 3000 and "characters hidden" in out and "full output saved to .basalt/artifacts/" in out
+    assert len(out) < 3000 and "characters hidden" in out and "full output saved to .tadamoo/artifacts/" in out
     saved = next((tmp_path / "art").iterdir())
     assert saved.read_text(encoding="utf-8") == "x" * 1_000_000
 
@@ -66,7 +66,7 @@ def test_a_masked_result_names_the_file_that_holds_it(tmp_path):
     out = manager.prepare(messages)
     assert out[1]["masked"] is True and out[2]["content"].startswith("NEW")
     named = out[1]["content"].splitlines()[0].split("full text in ")[1].rstrip("]")
-    assert named.startswith(".basalt/artifacts/")
+    assert named.startswith(".tadamoo/artifacts/")
     assert (tmp_path / "art" / named.split("/")[-1]).read_text(encoding="utf-8") == "OLD " * 500
 
 

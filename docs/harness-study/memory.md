@@ -10,7 +10,7 @@ about events in the EU, the harness must be able to refer to it and search that 
 - **The person's own memories** (`tadamoo/personal_memory.py`): encrypted, global, long and short term, learned by the loaded model from what the person writes. On by default (decided 1 November), editable in Settings > Memories, one file for every chat and project.
 - **Conversations in the conversations mode** (`serve/agent_sessions.py`, `tadamoo/session.py`): each has a folder with `history.json` (live messages), `archive.jsonl` (the originals that compaction
   or masking removed) and `nodes.jsonl` (branches). So the full text exists on disk, plain, and nothing reads it across conversations.
-- **The model-only chat page** (`serve/web/chat.js`): one conversation in the browser's localStorage, key `basalt.chat`. The server never sees it, so no memory or search can reach it.
+- **The model-only chat page** (`serve/web/chat.js`): one conversation in the browser's localStorage, key `tadamoo.chat`. The server never sees it, so no memory or search can reach it.
 
 ## The gaps against the request
 

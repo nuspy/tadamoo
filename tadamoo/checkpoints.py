@@ -35,7 +35,7 @@ log = logging.getLogger("basalt.checkpoints")
 MODES = ("on", "soft", "off")
 _CHECKPOINT_ID = re.compile(r"^cp_\d+_\d+$")
 FILE_PATH_TOOLS = ("write_file", "edit_file", "delete_file", "move_file")
-_LEGACY_EXCLUDES = ("node_modules", ".venv", "venv", "__pycache__", ".basalt_checkpoints", ".basalt", "build", "dist", ".git/objects")
+_LEGACY_EXCLUDES = ("node_modules", ".venv", "venv", "__pycache__", ".tadamoo_checkpoints", ".tadamoo", "build", "dist", ".git/objects")
 _LEGACY_GIT_KEPT = ("config", "hooks")
 _NULL_TARGETS = ("nul", "/dev/null", "$null")
 

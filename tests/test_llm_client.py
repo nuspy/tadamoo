@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from tadamoo.client import BasaltError
+from tadamoo.client import TadamooError
 from tadamoo.llm.client import RoutedClient, from_anthropic, to_anthropic
 from tadamoo.llm.credentials import FileCredentials
 from tadamoo.llm.store import Ledger, SecureRegistry
@@ -186,7 +186,7 @@ def test_a_local_provider_that_fails_says_why_there_is_no_other_route(tmp_path, 
     pid = reg2.add({"type": "lmstudio", "base_url": cloud.url + "/v1", "model": "m"})["id"]
     reg2.assign_checked("executor", pid)
     cloud.status = 401
-    with pytest.raises(BasaltError) as err:
+    with pytest.raises(TadamooError) as err:
         RoutedClient("executor", reg2, local, Ledger(tmp_path / "u2.json")).chat_completion(MSG)
     assert err.value.status == 401 and "provider says no" in str(err.value)
 

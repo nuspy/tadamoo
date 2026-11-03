@@ -3,7 +3,7 @@ sign-ins, the control token, the phone keys.
 
 It is an audit hook, so it sees the path a program builds at run time, which a check of the program's text cannot. It is not a wall
 against code written to defeat it: a program in another language, or one that starts a program that builds the path itself, is not
-seen. The places to refuse come in BASALT_GUARD, separated by the path separator; children that run Python load this module again
+seen. The places to refuse come in TADAMOO_GUARD, separated by the path separator; children that run Python load this module again
 through sitecustomize.
 """
 import os
@@ -33,7 +33,7 @@ def _text(value):
 
 def install():
     global _installed
-    places = [_flat(n).rstrip("/") for n in os.environ.get("BASALT_GUARD", "").split(os.pathsep) if n]
+    places = [_flat(n).rstrip("/") for n in os.environ.get("TADAMOO_GUARD", "").split(os.pathsep) if n]
     if _installed or not places:
         return
     _installed = True

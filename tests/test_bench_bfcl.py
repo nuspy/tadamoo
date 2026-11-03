@@ -126,11 +126,11 @@ def test_one_category_is_generated_and_scored_once_for_all_its_cases_with_the_lo
     gen, ev = fake.calls
     assert gen["args"][:4] == ["/bin/uv", "run", "--project", str(checkout / "source" / bfcl.PROJECT)] and "--python" in gen["args"] and "3.12" in gen["args"]
     tail = gen["args"][gen["args"].index("python") + 1:]
-    assert tail[0].endswith("launcher.py") and tail[1:] == ["generate", "--model", "basalt-local-FC", "--run-ids", "--num-threads", "1"]
+    assert tail[0].endswith("launcher.py") and tail[1:] == ["generate", "--model", "tadamoo-local-FC", "--run-ids", "--num-threads", "1"]
     assert ev["args"][-1] == "--partial-eval" and "evaluate" in ev["args"] and ev["args"][ev["args"].index("--test-category") + 1] == "multiple"
     env = gen["env"]
     assert env["OPENAI_BASE_URL"] == "http://127.0.0.1:7232/v1" and env["OPENAI_API_KEY"] == "local" and "SERPAPI_API_KEY" not in env and env["KEEP"] == "1"
-    assert env["BASALT_BFCL_REGISTRY"] == "basalt-local-FC" and env["BASALT_BFCL_MODEL"] == "Qwen3.8-Flash-Next" and env["BASALT_BFCL_HOST"] == "127.0.0.1"
+    assert env["TADAMOO_BFCL_REGISTRY"] == "tadamoo-local-FC" and env["TADAMOO_BFCL_MODEL"] == "Qwen3.8-Flash-Next" and env["TADAMOO_BFCL_HOST"] == "127.0.0.1"
     root = tmp_path / "run" / "bfcl"
     assert env["BFCL_PROJECT_ROOT"] == str(root)
     assert json.loads((root / "test_case_ids_to_generate.json").read_text()) == {"multiple": ["multiple_0", "multiple_1", "multiple_2"]}
@@ -264,12 +264,12 @@ def test_the_launcher_adds_the_served_model_and_starts_bfcls_command_line(monkey
     for parent, child in (("bfcl_eval", "constants"), ("bfcl_eval", "model_handler"), ("bfcl_eval.constants", "model_config"),
                           ("bfcl_eval.model_handler", "api_inference"), ("bfcl_eval.model_handler.api_inference", "openai_completion")):
         setattr(sys.modules[parent], child, sys.modules[parent + "." + child])
-    for k, v in {"BASALT_BFCL_REGISTRY": "basalt-local-FC", "BASALT_BFCL_MODEL": "Qwen", "OPENAI_BASE_URL": "http://127.0.0.1:7232/v1", "BASALT_BFCL_HOST": "127.0.0.1"}.items():
+    for k, v in {"TADAMOO_BFCL_REGISTRY": "tadamoo-local-FC", "TADAMOO_BFCL_MODEL": "Qwen", "OPENAI_BASE_URL": "http://127.0.0.1:7232/v1", "TADAMOO_BFCL_HOST": "127.0.0.1"}.items():
         monkeypatch.setenv(k, v)
     mod.main()
-    entry = mapping["basalt-local-FC"]
+    entry = mapping["tadamoo-local-FC"]
     assert seen["cli"] and entry.model_name == "Qwen" and entry.model_handler is Handler and entry.is_fc_model is True and entry.input_price is None
-    assert "_" not in "basalt-local-FC"
+    assert "_" not in "tadamoo-local-FC"
     monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
     with pytest.raises(SystemExit, match="not to the local engine"):
         mod.main()

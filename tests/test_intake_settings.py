@@ -80,7 +80,7 @@ def test_optimize_prompt_is_kept_in_the_file_and_a_new_handler_reads_it_again(tm
 
 @pytest.fixture
 def api(tmp_path, monkeypatch, start_server):  # noqa: F811
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
     url = start_server([answer("x")])
 
     def call(method, path, body=None):
@@ -110,7 +110,7 @@ def test_the_settings_page_reads_and_saves(api):
 @pytest.fixture
 def api_with_side(tmp_path, monkeypatch):
     """The settings route of a server whose engine may or may not have a technical session (set `svc.engine.side_slot`)."""
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
     tok = ByteTokenizer()
     svc = Service(MockEngine(tok, [answer("x")], max_context=65536), tok, ChatTemplate(Path(__file__).resolve().parents[1] / "serve" / "chat_template.jinja"))
     svc.start_telemetry = lambda: None

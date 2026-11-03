@@ -150,7 +150,7 @@ def test_a_routine_can_be_improved_into_a_skill_and_the_kill_switch_is_set(tmp_p
 
         def routine_skill(self, sid, name):
             return {"name": name, "description": "d", "params": [{"name": "file", "type": "text", "default": "a.txt", "label": "File"}],
-                    "script": "from basalt_skill import tool\n\ndef main(params):\n    return tool('read_file', path=params.file)\n", "problems": [], "tool_steps": 1, "ai_calls": 0}
+                    "script": "from tadamoo_skill import tool\n\ndef main(params):\n    return tool('read_file', path=params.file)\n", "problems": [], "tool_steps": 1, "ai_calls": 0}
 
     class Runner:
         def run(self, routine, cancel):

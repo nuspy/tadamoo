@@ -78,7 +78,7 @@
   }
   const errText = j => (j && j.error && (LANG === "it" && j.error.message_it ? j.error.message_it : j.error.message)) || "";
   const entry = id => C && C.entries.find(e => e.id === id);
-  const localHas = id => ((window.BasaltModels && BasaltModels.data() || {}).models || []).some(m => m.catalog === id);
+  const localHas = id => ((window.TadamooModels && TadamooModels.data() || {}).models || []).some(m => m.catalog === id);
 
   /* ---- the list ---- */
   const kindOf = e => e.convert === "no" ? "incompatible" : e.convert === "ready" ? "ready" : "convert";
@@ -189,7 +189,7 @@
       if (j.phase === "running" || j.phase === "verifying") { poll = setTimeout(tick, 1000); return; }
       if (j.phase === "done" && doneSeen !== j.finished) {
         doneSeen = j.finished;
-        if (window.BasaltModels) await BasaltModels.refresh(true);
+        if (window.TadamooModels) await TadamooModels.refresh(true);
         render();
       }
     };
@@ -363,7 +363,7 @@
   });
 
   /* ---- what the model picker shows for a model of the catalog ---- */
-  window.BasaltCatalog = {
+  window.TadamooCatalog = {
     entry: id => entry(id),
     tip(m) {
       const e = m && m.catalog && entry(m.catalog);
@@ -377,7 +377,7 @@
     const { r, j } = await api("api/models/catalog");
     if (!r.ok) return;
     C = j; render();
-    if (window.BasaltModels && BasaltModels.rerender) BasaltModels.rerender();
+    if (window.TadamooModels && TadamooModels.rerender) TadamooModels.rerender();
     const s = await api("api/models/download");
     if (s.r.ok) { job = s.j; paintJob(); if (job.phase === "running" || job.phase === "verifying") watch(); }
   }

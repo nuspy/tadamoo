@@ -7,7 +7,7 @@ Contract (wikibridge server, default port 8775; the key header is optional):
   GET  /wiki/page?project=&path=        -> {"path", "frontmatter", "body"}
   POST /rag/context {project, query, limit, max_chars, participants}
                                         -> {"blocks": [{"path", "title", "text", ...}], "truncated", "chars"}
-The address and the key are configuration (BASALT_WIKIBRIDGE_URL, BASALT_WIKIBRIDGE_KEY); without a
+The address and the key are configuration (TADAMOO_WIKIBRIDGE_URL, TADAMOO_WIKIBRIDGE_KEY); without a
 reachable service every method returns an empty result and `last_error` says why.
 Page text can come from imported web sources, so callers must treat it as untrusted data.
 """
@@ -33,10 +33,10 @@ class WikiBridgeClient:
 
     @classmethod
     def from_environment(cls, url: Optional[str] = None, **kwargs: Any) -> "WikiBridgeClient":
-        """The address is `url` when given, else BASALT_WIKIBRIDGE_URL, else the usual local one; the key is BASALT_WIKIBRIDGE_KEY."""
+        """The address is `url` when given, else TADAMOO_WIKIBRIDGE_URL, else the usual local one; the key is TADAMOO_WIKIBRIDGE_KEY."""
         return cls(
-            base_url=url or os.environ.get("BASALT_WIKIBRIDGE_URL", DEFAULT_URL),
-            api_key=os.environ.get("BASALT_WIKIBRIDGE_KEY") or None,
+            base_url=url or os.environ.get("TADAMOO_WIKIBRIDGE_URL", DEFAULT_URL),
+            api_key=os.environ.get("TADAMOO_WIKIBRIDGE_KEY") or None,
             **kwargs,
         )
 

@@ -9,7 +9,7 @@ from tadamoo.personal_skills import check
 from tadamoo.personal_skills.store import PersonalSkills, SkillError, slugify
 
 GOOD = '''
-from basalt_skill import tool, ai, say
+from tadamoo_skill import tool, ai, say
 import re
 
 def main(params):

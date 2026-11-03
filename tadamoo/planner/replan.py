@@ -10,7 +10,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from tadamoo.client import BasaltClient, BasaltError, extract_reasoning_and_content
+from tadamoo.client import TadamooClient, TadamooError, extract_reasoning_and_content
 from tadamoo.side import side_extra_for
 
 from .card import PlanInsightCard
@@ -141,11 +141,11 @@ def parse_proposal(text: str, dag: PlanDAG) -> ReplanProposal:
 
 
 class Replanner:
-    def __init__(self, client: BasaltClient, max_tokens: int = 3000, timeout: float = 120.0) -> None:
+    def __init__(self, client: TadamooClient, max_tokens: int = 3000, timeout: float = 120.0) -> None:
         self.client, self.max_tokens, self.timeout = client, max_tokens, timeout
 
     def propose(self, dag: PlanDAG, card: PlanInsightCard, triage: TriageResult, events: List[str]) -> ReplanProposal:
-        """Wakes the local model once. Raises BasaltError (server) or ValueError (an answer that cannot be used)."""
+        """Wakes the local model once. Raises TadamooError (server) or ValueError (an answer that cannot be used)."""
         messages = build_messages(dag, card, triage, events)
         side = side_extra_for(self.client, "planner", sum(len(str(m.get("content"))) for m in messages), self.max_tokens)     # in the session when it fits
         resp = self.client.chat_completion(
@@ -154,6 +154,6 @@ class Replanner:
         try:
             message = resp["choices"][0]["message"]
         except (KeyError, IndexError, TypeError):
-            raise BasaltError(0, "the server answered without a message") from None
+            raise TadamooError(0, "the server answered without a message") from None
         _, content = extract_reasoning_and_content(message)
         return parse_proposal(content, dag)

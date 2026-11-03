@@ -2,7 +2,7 @@
 
 One trial is one `harbor run` of one task with one attempt (`-k 1`), so the run's journal keeps the unit the person resumes by. Harbor builds the task's
 container, runs the agent, runs the task's own hidden tests and writes `result.json` and the verifier's files; this adapter reads them. The agent is
-`terminal_bench_agent.BasaltAgent`, a Harbor `BaseAgent` that Harbor imports by its path: it runs our headless agent on the host with its tools routed to
+`terminal_bench_agent.TadamooAgent`, a Harbor `BaseAgent` that Harbor imports by its path: it runs our headless agent on the host with its tools routed to
 `environment.exec`. The smoke subset uses Harbor's own `oracle` agent (it runs the task's reference solution), which proves Docker, Harbor and the verifier
 without the model.
 
@@ -25,7 +25,7 @@ from .containerkit import agent_overrides, local_endpoint
 from .proc import STALLED, LongRunner, dump_stacks, long_runner
 
 ID = "terminal-bench-2"
-AGENT_PATH = "tadamoo.bench.adapters.terminal_bench_agent:BasaltAgent"
+AGENT_PATH = "tadamoo.bench.adapters.terminal_bench_agent:TadamooAgent"
 SMOKE_TASK = "fix-git"
 DIFFICULTY = {"easy": 0, "medium": 1, "hard": 2}
 SUBSET_SIZE = {"easy5": 5, "dev": 10}

@@ -116,7 +116,7 @@ def test_a_request_declares_itself_and_carries_no_credential(fake):
     http = src.Http()
     src.RegistryClient(http, fake.bases["registry"]).search("search")
     _, headers = fake.world.requests[-1]
-    assert headers["user-agent"].startswith("basalt-capability-search/") and "authorization" not in headers and "cookie" not in headers
+    assert headers["user-agent"].startswith("tadamoo-capability-search/") and "authorization" not in headers and "cookie" not in headers
 
 
 def test_a_redirect_to_another_host_is_not_followed(fake):

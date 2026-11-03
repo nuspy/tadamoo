@@ -1,6 +1,6 @@
 # Example configurations
 
-Settings are described in [configuration](index.md). The model path is relative to the config file. Start the server with `bin/basalt serve --config basalt_config.json`.
+Settings are described in [configuration](index.md). The model path is relative to the config file. Start the server with `bin/basalt serve --config tadamoo_config.json`.
 
 ## One GPU (32 GB) and RAM
 

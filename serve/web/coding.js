@@ -7,7 +7,7 @@
   const card = document.getElementById("coding-card"), sum = document.getElementById("coding-sum"), toggle = document.getElementById("coding-toggle");
   const body = document.getElementById("coding-body"), go = document.getElementById("coding-go"), bug = document.getElementById("coding-bug");
   if (!sel || !card) return;
-  const ROLE_KEY = "basalt.agent.role";
+  const ROLE_KEY = "tadamoo.agent.role";
   const store = {
     get(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage blocked: the choice lasts until the page closes */ } },

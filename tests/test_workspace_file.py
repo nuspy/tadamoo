@@ -21,11 +21,11 @@ def world(tmp_path, monkeypatch, start_server):  # noqa: F811
     url = start_server(["ok"])
     folder = tmp_path / "site"
     (folder / "src").mkdir(parents=True)
-    (folder / ".basalt").mkdir()
+    (folder / ".tadamoo").mkdir()
     (folder / ".git").mkdir()
     (folder / "src" / "app.py").write_bytes(b"print('hi')" + bytes([10]))
     (folder / "notes è.txt").write_text("note", encoding="utf-8")
-    (folder / ".basalt" / "secret.json").write_text("{}", encoding="utf-8")
+    (folder / ".tadamoo" / "secret.json").write_text("{}", encoding="utf-8")
     (folder / ".git" / "config").write_text("x", encoding="utf-8")
     (tmp_path / "outside.txt").write_text("outside", encoding="utf-8")
     mgr = SessionManager(tmp_path / "j", url, "", board=ApprovalBoard(), tick_s=0.2, router="rules")
@@ -54,7 +54,7 @@ def test_a_file_in_the_folder_is_sent_as_a_download_with_its_own_name(world):
     assert get(url, sid, "src\\app.py")[0] == 200                                      # a Windows path works too
 
 
-@pytest.mark.parametrize("path", ["../outside.txt", "src/../../outside.txt", "..\\outside.txt", "/etc/passwd", "C:\\Windows\\win.ini", ".basalt/secret.json",
+@pytest.mark.parametrize("path", ["../outside.txt", "src/../../outside.txt", "..\\outside.txt", "/etc/passwd", "C:\\Windows\\win.ini", ".tadamoo/secret.json",
                                   ".git/config", "src", "missing.txt", "", "src/app.py\0"])
 def test_nothing_outside_the_folder_or_in_the_agents_own_files_is_sent(world, path):
     url, mgr, sid, folder = world

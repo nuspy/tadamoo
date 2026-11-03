@@ -276,7 +276,7 @@ def test_the_harness_arm_uses_our_agent_with_container_tools(tmp_path, monkeypat
     ctx = trial_ctx(tmp_path, {"subset": "dev", "max_steps": 20})
     res = a.run_trial(("proj__proj-002", 1), ctx)
     assert res.passed is False and res.facts["arm"] == "harness" and (repo / "a.py").read_text() == "def f():\n    return 2\n"
-    assert json.loads(ev.calls[0]["patch"])["model_name_or_path"] == "basalt-harness"
+    assert json.loads(ev.calls[0]["patch"])["model_name_or_path"] == "tadamoo-harness"
     system = client.sent[0][0]["content"]
     assert "the instance's Linux container" in system and "/testbed" in system
     events = [json.loads(l) for l in (ctx.trial_dir / "trajectory.jsonl").read_text().splitlines()]

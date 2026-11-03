@@ -6,7 +6,7 @@ Switch: Chat settings > Billion Context (default on). One checkbox, a port field
 
 ## What goes through it
 
-Only the streamed `POST /v1/chat/completions` of the Chat page and of the main agent loop, and only from the PC itself. The two ask with the header `X-Basalt-Compress: 1` (the page sets it; the agent processes get `BASALT_COMPRESS=1` and the client adds it). The server hands the body to `http://127.0.0.1:<port>/bili/http://127.0.0.1:<server port>/v1/chat/completions` and relays the answer chunk by chunk, so tokens arrive as they are produced, the final usage is intact and a closed browser tab or a Stop press cancels the request all the way to the engine. The relayed request comes back to the server marked with `X-Basalt-Bili-Hop` and is answered there as usual (logged once).
+Only the streamed `POST /v1/chat/completions` of the Chat page and of the main agent loop, and only from the PC itself. The two ask with the header `X-Tadamoo-Compress: 1` (the page sets it; the agent processes get `TADAMOO_COMPRESS=1` and the client adds it). The server hands the body to `http://127.0.0.1:<port>/bili/http://127.0.0.1:<server port>/v1/chat/completions` and relays the answer chunk by chunk, so tokens arrive as they are produced, the final usage is intact and a closed browser tab or a Stop press cancels the request all the way to the engine. The relayed request comes back to the server marked with `X-Tadamoo-Bili-Hop` and is answered there as usual (logged once).
 
 Everything else stays direct:
 - requests to cloud providers (they carry your API keys; they never touch the proxy);

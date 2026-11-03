@@ -53,7 +53,7 @@ def test_the_flags_reach_the_session_process_arguments_and_the_agent_settings(tm
 
 @pytest.fixture
 def api(tmp_path, monkeypatch, start_server):  # noqa: F811
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
     url = start_server([answer("x")])
 
     def call(method, path, body=None):

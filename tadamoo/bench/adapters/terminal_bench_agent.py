@@ -1,4 +1,4 @@
-"""The Harbor agent of the Terminal-Bench adapter. Harbor imports this module by its path (`-a tadamoo.bench.adapters.terminal_bench_agent:BasaltAgent`), so it
+"""The Harbor agent of the Terminal-Bench adapter. Harbor imports this module by its path (`-a tadamoo.bench.adapters.terminal_bench_agent:TadamooAgent`), so it
 imports `harbor` and is loaded only inside a Harbor process; the repository must be on that process's PYTHONPATH (the adapter sets it).
 
 The agent is an external one in Harbor's terms: the loop runs on the host and acts on the task's container only through `environment.exec`. Our headless agent
@@ -59,7 +59,7 @@ def harbor_exec(environment: Any, loop: asyncio.AbstractEventLoop, gate: ExecGat
     return run
 
 
-class BasaltAgent(BaseAgent):
+class TadamooAgent(BaseAgent):
     """Our headless agent as a Harbor agent. Options (`--ak`): `settings_file`, a JSON file with `endpoint` (the local model server) and `overrides`
     (AgentConfig fields the run's settings changed) and `max_seconds` (the task's time for the agent, less a margin, so that the agent can tell it is running out)."""
 
@@ -67,7 +67,7 @@ class BasaltAgent(BaseAgent):
 
     @staticmethod
     def name() -> str:
-        return "basalt-harness"
+        return "tadamoo-harness"
 
     def version(self) -> Optional[str]:
         try:

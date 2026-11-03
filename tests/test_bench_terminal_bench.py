@@ -366,7 +366,7 @@ def test_the_harbor_agent_runs_our_agent_through_environment_exec(harbor_stub, t
     root = tmp_path / "container"
     root.mkdir()
     client = Scripted(call("write_file", path="answer.txt", content="42"), call("shell_command", command="cat answer.txt"), say("Finished."))
-    agent = module.BasaltAgent(logs_dir=tmp_path / "agent", settings_file=str(agent_settings_file(tmp_path)))
+    agent = module.TadamooAgent(logs_dir=tmp_path / "agent", settings_file=str(agent_settings_file(tmp_path)))
     agent.client_factory = lambda endpoint: client
     env, ctx = FakeEnvironment(root), Context()
     asyncio.run(agent.run("write 42 to answer.txt", env, ctx))
@@ -375,7 +375,7 @@ def test_the_harbor_agent_runs_our_agent_through_environment_exec(harbor_stub, t
     events = [json.loads(l) for l in (tmp_path / "agent" / "trajectory.jsonl").read_text().splitlines()]
     assert [e["type"] for e in events if e["type"] in ("tool_call", "stop")] == ["tool_call", "tool_call", "stop"]
     assert json.loads((tmp_path / "agent" / "harness-summary.json").read_text())["stop_reason"] == "final"
-    assert agent.name() == "basalt-harness" and agent.version() == (tb.REPO_ROOT / "VERSION").read_text().strip()
+    assert agent.name() == "tadamoo-harness" and agent.version() == (tb.REPO_ROOT / "VERSION").read_text().strip()
 
 
 @pytest.mark.skipif(BASH is None, reason="needs bash to stand in for the container")
@@ -389,7 +389,7 @@ def test_when_harbor_cancels_the_agent_stops_and_late_commands_are_refused(harbo
         return call("shell_command", command="touch late.txt")
     root = tmp_path / "container"
     root.mkdir()
-    agent = module.BasaltAgent(logs_dir=tmp_path / "agent", settings_file=str(agent_settings_file(tmp_path)))
+    agent = module.TadamooAgent(logs_dir=tmp_path / "agent", settings_file=str(agent_settings_file(tmp_path)))
     agent.client_factory = lambda endpoint: Scripted(slow_then_call, say("never"))
 
     async def go():
@@ -409,7 +409,7 @@ def test_a_dead_model_server_is_not_graded_as_the_agent_failing(harbor_stub, tmp
     from test_session import Scripted
     root = tmp_path / "container"
     root.mkdir()
-    agent = module.BasaltAgent(logs_dir=tmp_path / "agent", settings_file=str(agent_settings_file(tmp_path)))
+    agent = module.TadamooAgent(logs_dir=tmp_path / "agent", settings_file=str(agent_settings_file(tmp_path)))
     agent.client_factory = lambda endpoint: Scripted(RuntimeError("cannot reach the Basalt server at http://127.0.0.1:7232: refused"))
     with pytest.raises(RuntimeError, match="AgentUnavailableError"):
         asyncio.run(agent.run("t", FakeEnvironment(root), Context()))
@@ -418,7 +418,7 @@ def test_a_dead_model_server_is_not_graded_as_the_agent_failing(harbor_stub, tmp
 def test_the_agent_options_are_checked(harbor_stub, tmp_path):
     module, _ = harbor_stub
     with pytest.raises(ValueError, match="no model address"):
-        module.BasaltAgent(logs_dir=tmp_path)
+        module.TadamooAgent(logs_dir=tmp_path)
 
 
 def test_a_harbor_that_does_not_start_is_started_again_once_and_then_reported_with_where_it_stood(tmp_path):

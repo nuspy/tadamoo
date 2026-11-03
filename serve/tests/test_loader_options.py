@@ -100,7 +100,7 @@ class ConfigFile(unittest.TestCase):
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.path = os.path.join(self.dir.name, "basalt_config.json")
+        self.path = os.path.join(self.dir.name, "tadamoo_config.json")
         Path(self.path).write_text(json.dumps({"server": {"port": 7232}, "engine": {"kv": "int8"}}), encoding="utf-8")
 
     def tearDown(self):
@@ -300,7 +300,7 @@ class PlanAccounting(unittest.TestCase):
 class SavedConfigurations(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": self.dir.name, "BASALT_DATA": self.dir.name})
+        self.env = mock.patch.dict(os.environ, {"TADAMOO_CACHE": self.dir.name, "TADAMOO_DATA": self.dir.name})
         self.env.start()
 
     def tearDown(self):
@@ -318,7 +318,7 @@ class SavedConfigurations(unittest.TestCase):
         profiles.change({"action": "delete", "name": "Lunga"})
         profiles.change({"action": "import", "data": data})
         self.assertEqual(profiles.get_load("Lunga"), got)
-        cfg = os.path.join(self.dir.name, "basalt_config.json")
+        cfg = os.path.join(self.dir.name, "tadamoo_config.json")
         Path(cfg).write_text(json.dumps({"server": {"port": 7232}, "engine": {"kv": "fp16"}}), encoding="utf-8")
         profiles.apply("Lunga", cfg)
         raw = json.loads(Path(cfg).read_text(encoding="utf-8"))
@@ -391,10 +391,10 @@ class GpuNames(unittest.TestCase):
             self.assertIsNone(hardware.gpu_name(0))
 
     def test_the_fake_gpu_of_the_mock_server(self):
-        env = {"BASALT_FAKE_SYSTEM_OK": "1", "BASALT_FAKE_GPU": json.dumps({"name": "Fake 1", "cc": [12, 0]})}
+        env = {"TADAMOO_FAKE_SYSTEM_OK": "1", "TADAMOO_FAKE_GPU": json.dumps({"name": "Fake 1", "cc": [12, 0]})}
         with mock.patch.dict(os.environ, env):
             self.assertEqual(hardware.gpu_list(), [{"index": 0, "name": "Fake 1"}])
-        with mock.patch.dict(os.environ, {"BASALT_FAKE_SYSTEM_OK": "1", "BASALT_FAKE_GPU": "null"}):
+        with mock.patch.dict(os.environ, {"TADAMOO_FAKE_SYSTEM_OK": "1", "TADAMOO_FAKE_GPU": "null"}):
             self.assertEqual(hardware.gpu_list(), [])
 
     def test_the_comparison_names_a_gpu_numbered_encoder(self):
@@ -405,13 +405,13 @@ class GpuNames(unittest.TestCase):
 
     def test_the_loader_payload_lists_the_gpus_and_names_the_vision_card(self):
         dirs = tempfile.TemporaryDirectory()
-        path = os.path.join(dirs.name, "basalt_config.json")
+        path = os.path.join(dirs.name, "tadamoo_config.json")
         Path(path).write_text(json.dumps({"server": {"port": 7232, "vision": "1"}, "engine": {"kv": "int8"}}), encoding="utf-8")
         svc = make_service()
         svc.settings_info = {"config": path, "model": None, "cli": [], "running": {}}
         svc.supervisor = supervisor.Supervisor(svc, ["--mock-engine", "--config", path], mock=True)
         try:
-            with mock.patch.dict(os.environ, {"BASALT_CACHE": dirs.name, "BASALT_DATA": dirs.name}), \
+            with mock.patch.dict(os.environ, {"TADAMOO_CACHE": dirs.name, "TADAMOO_DATA": dirs.name}), \
                     mock.patch.object(hardware, "_read_gpu_list", return_value=self.GPUS), \
                     mock.patch.object(loader, "system_now", return_value=dict(ROOMY)):
                 body = loader_api.info(svc)
@@ -424,7 +424,7 @@ class GpuNames(unittest.TestCase):
                 self.assertEqual(body["defaults"]["server.grammar"], True)
                 self.assertIsNone(loader_api.evaluate(svc, {"server.vision": "dynamic"})["vision_gpu"])
             hardware._gpu_list_cache.clear()
-            with mock.patch.dict(os.environ, {"BASALT_CACHE": dirs.name, "BASALT_DATA": dirs.name}), \
+            with mock.patch.dict(os.environ, {"TADAMOO_CACHE": dirs.name, "TADAMOO_DATA": dirs.name}), \
                     mock.patch.object(hardware, "_read_gpu_list", return_value=[]), \
                     mock.patch.object(loader, "system_now", return_value=dict(ROOMY)):
                 self.assertEqual(loader_api.info(svc)["limits"]["gpus"], [])

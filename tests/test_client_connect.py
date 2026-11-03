@@ -42,7 +42,7 @@ def test_a_connect_that_fails_twice_is_made_again_and_the_request_goes_once(serv
             raise TimeoutError("the connection did not go through")
         return real(address, timeout, source_address)
     monkeypatch.setattr(hc.socket, "create_connection", flaky)
-    assert hc.BasaltClient(base_url=server)._get("/x", 10.0) == {"ok": True}
+    assert hc.TadamooClient(base_url=server)._get("/x", 10.0) == {"ok": True}
     assert len(tries) == 3 and max(tries) <= hc.CONNECT_S and Echo.hits == 1
 
 
@@ -53,8 +53,8 @@ def test_a_server_that_is_not_there_gives_up_after_the_tries_and_says_so(monkeyp
         tries.append(1)
         raise TimeoutError("nothing answers")
     monkeypatch.setattr(hc.socket, "create_connection", never)
-    with pytest.raises(hc.BasaltError) as err:
-        hc.BasaltClient(base_url="http://127.0.0.1:9")._get("/x", 10.0)
+    with pytest.raises(hc.TadamooError) as err:
+        hc.TadamooClient(base_url="http://127.0.0.1:9")._get("/x", 10.0)
     assert err.value.status == 0 and len(tries) == hc.CONNECT_TRIES
 
 
@@ -89,11 +89,11 @@ def test_a_request_whose_connection_was_closed_before_any_answer_is_sent_again(m
     Resets.seen, Resets.fail_first = 0, 2
     httpd, url = _serve(Resets)
     try:
-        reply = hc.BasaltClient(base_url=url).chat_completion([{"role": "user", "content": "hi"}])
+        reply = hc.TadamooClient(base_url=url).chat_completion([{"role": "user", "content": "hi"}])
         assert reply["choices"][0]["message"]["content"] == "ok" and Resets.seen == 3
         Resets.seen, Resets.fail_first = 0, 99
-        with pytest.raises(hc.BasaltError) as err:
-            hc.BasaltClient(base_url=url).chat_completion([{"role": "user", "content": "hi"}])
+        with pytest.raises(hc.TadamooError) as err:
+            hc.TadamooClient(base_url=url).chat_completion([{"role": "user", "content": "hi"}])
         assert err.value.status == 0 and Resets.seen == hc.RESET_TRIES
     finally:
         httpd.shutdown()

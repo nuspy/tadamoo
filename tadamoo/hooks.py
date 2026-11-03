@@ -297,7 +297,7 @@ class _ConfiguredHooks:
         mask = self.manager.mask
         stdin = json.dumps(_shorten(payload), ensure_ascii=False)
         res = ProcessSandbox(self.workspace, timeout=spec.timeout, max_output_bytes=20_000).run(
-            spec.command, extra_env={"BASALT_HOOK_EVENT": spec.event, "BASALT_HOOK_TOOL": str(payload.get("tool", ""))},
+            spec.command, extra_env={"TADAMOO_HOOK_EVENT": spec.event, "TADAMOO_HOOK_TOOL": str(payload.get("tool", ""))},
             timeout=spec.timeout, stdin_text=stdin)
         said = _clip(mask(((res["stderr"] if res["exit_code"] == 2 else "") or res["stdout"] or res["stderr"]).strip()), limit)
         if res["blocked"]:

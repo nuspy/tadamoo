@@ -12,17 +12,17 @@ def write(root, name, header, body="# When to use\nalways\n# Steps\n1. go\n"):
 
 
 def test_a_skill_without_its_program_or_variable_is_listed_as_not_ready(tmp_path, monkeypatch):
-    monkeypatch.delenv("BASALT_TEST_TOKEN", raising=False)
+    monkeypatch.delenv("TADAMOO_TEST_TOKEN", raising=False)
     write(tmp_path, "needs-tool", "requires: definitely-not-a-program-xyz\n")
-    write(tmp_path, "needs-env", "env: BASALT_TEST_TOKEN\n")
+    write(tmp_path, "needs-env", "env: TADAMOO_TEST_TOKEN\n")
     write(tmp_path, "ready", "")
     catalog = SkillCatalog([tmp_path])
     catalog.discover_skills()
     prompt = catalog.format_catalog_prompt()
-    assert "[not ready: missing definitely-not-a-program-xyz]" in prompt and "[not ready: missing $BASALT_TEST_TOKEN]" in prompt
+    assert "[not ready: missing definitely-not-a-program-xyz]" in prompt and "[not ready: missing $TADAMOO_TEST_TOKEN]" in prompt
     assert "not ready" not in prompt.split("**ready**")[1]
     assert catalog.body("needs-env").startswith("[this skill is not ready here")
-    monkeypatch.setenv("BASALT_TEST_TOKEN", "x")
+    monkeypatch.setenv("TADAMOO_TEST_TOKEN", "x")
     assert "not ready" not in catalog.format_catalog_prompt().split("**needs-env**")[1].split("\n")[0]
 
 

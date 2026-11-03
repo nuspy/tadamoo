@@ -16,7 +16,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-SKIP_DIRS = frozenset({".git", ".hg", ".svn", ".basalt", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache",
+SKIP_DIRS = frozenset({".git", ".hg", ".svn", ".tadamoo", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache",
                        ".idea", ".vscode", "build", "dist", "target", "vendor", "out", ".next", ".cache", "coverage", "site-packages"})
 LANGUAGES = {".py": "python", ".pyi": "python", ".js": "js", ".jsx": "js", ".mjs": "js", ".cjs": "js", ".ts": "js", ".tsx": "js",
              ".c": "c", ".h": "c", ".cc": "c", ".cpp": "c", ".cxx": "c", ".hpp": "c", ".hh": "c", ".cu": "c", ".cuh": "c",

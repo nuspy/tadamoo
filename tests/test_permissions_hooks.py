@@ -351,10 +351,10 @@ def test_a_built_agent_loads_the_user_hooks_and_the_workspace_hooks_only_when_al
     from tadamoo.hooks import HookConfigError
     from tadamoo.stack import AgentConfig, build_agent
     ws = tmp_path / "ws"
-    (ws / ".basalt").mkdir(parents=True)
+    (ws / ".tadamoo").mkdir(parents=True)
     user = tmp_path / "user_hooks.json"
     user.write_text(json.dumps({"hooks": [{"event": "pre_tool", "tool": "read_file", "action": "block", "reason": "user rule"}]}), encoding="utf-8")
-    (ws / ".basalt" / "hooks.json").write_text(json.dumps({"hooks": [{"event": "pre_tool", "tool": "list_directory", "action": "block", "reason": "folder rule"}]}), encoding="utf-8")
+    (ws / ".tadamoo" / "hooks.json").write_text(json.dumps({"hooks": [{"event": "pre_tool", "tool": "list_directory", "action": "block", "reason": "folder rule"}]}), encoding="utf-8")
 
     def built(**kw):
         return build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "d"), use_memory=False, hooks_file=str(user), **kw), client=object())

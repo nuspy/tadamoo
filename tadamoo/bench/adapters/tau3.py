@@ -233,9 +233,9 @@ class Tau3Adapter:
         shutil.rmtree(save_dir, ignore_errors=True)                  # an earlier attempt of this trial must not be read as this one
         repairs_log = ctx.trial_dir / "repairs.jsonl"
         repairs_log.unlink(missing_ok=True)
-        env = clean_env(self.environ, {"OPENAI_API_KEY": LOCAL_KEY, "OPENAI_API_BASE": base_url, "BASALT_TAU_BASE_URL": base_url, "BASALT_TAU_MODEL": served,
-                                       "BASALT_TAU_HOST": urlparse(endpoint).hostname or "", "BASALT_TAU_REPAIR": "0" if ctx.settings.get("repair") is False else "1",
-                                       "BASALT_TAU_REPAIRS_LOG": str(repairs_log), "BASALT_REPO": str(self.repo_root), "UV_NO_PROGRESS": "1"})
+        env = clean_env(self.environ, {"OPENAI_API_KEY": LOCAL_KEY, "OPENAI_API_BASE": base_url, "TADAMOO_TAU_BASE_URL": base_url, "TADAMOO_TAU_MODEL": served,
+                                       "TADAMOO_TAU_HOST": urlparse(endpoint).hostname or "", "TADAMOO_TAU_REPAIR": "0" if ctx.settings.get("repair") is False else "1",
+                                       "TADAMOO_TAU_REPAIRS_LOG": str(repairs_log), "TADAMOO_REPO": str(self.repo_root), "UV_NO_PROGRESS": "1"})
         done = self.runner(self.command(key, ctx, source, served, base_url, save_dir), cwd=source, env=env, timeout=float(ctx.settings.get("trial_timeout_s") or TRIAL_TIMEOUT_S),
                            should_stop=ctx.should_stop, log_path=ctx.trial_dir / "tau2.log")
         if ctx.should_stop():

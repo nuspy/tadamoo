@@ -14,7 +14,7 @@ PYTEST_CMD = "python -m pytest -x -q"
 
 @pytest.fixture(autouse=True)
 def own_data_folder(tmp_path, monkeypatch):
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
 
 
 @pytest.fixture

@@ -85,7 +85,7 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
   validated answer is held. The server's body limit and its refusals reach the client whole.
 
 **6. Scripts, languages and data**
-- `Avvia-Basalt.ps1` / `Ferma-Basalt.ps1`: `-gui` (default), `-browser`, `-server` for agents, with the same option names
+- `Avvia-TaDaMoo.ps1` / `Ferma-TaDaMoo.ps1`: `-gui` (default), `-browser`, `-server` for agents, with the same option names
   as Strata's; they attach to a running server and check memory with the Loader's plan before loading.
 - English by default, Italian on request, in the app, the page, the scripts and the command-line tools; settings live in
   the user data folder, apart from the caches.
@@ -169,7 +169,7 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
   answers and nothing is loaded until the Loader's Load), `--relaunch-on-model-change` (a Load of another model ends
   the server with exit code 75 so its owner starts it again with that model), `/api/settings`, `/api/loader/*`,
   `/api/wizard/*`, `/api/profiles`, `/api/models/*`.
-- **Scripts** `Avvia-Basalt.ps1` / `Ferma-Basalt.ps1` with the same option names as Strata's: `-gui` (the default:
+- **Scripts** `Avvia-TaDaMoo.ps1` / `Ferma-TaDaMoo.ps1` with the same option names as Strata's: `-gui` (the default:
   the app), `-browser`, `-server` (for agents), `--model`, `--config "<profile>"`, `--port`, `--vram-libera GB`,
   `-riusa` / `-riavvia`, `--lang it|en`.
 
@@ -188,7 +188,7 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
 - **Main vs secondary monitor**: the VRAM reserve depends on whether the NVIDIA GPU drives the main monitor (1.5 GB more),
   a secondary one (about 0.4 GB) or none; what other programs use is shown, not added.
 - **Measured memory**: the RAM and commit a real load took are kept per model and added to later plans.
-- **Data folders**: settings in `%APPDATA%\BasaltPannello\` (copied once from `~\.cache\basalt`, never moved).
+- **Data folders**: settings in `%APPDATA%\TaDaMoo\` (copied once from `~\.cache\tadamoo`, never moved).
 - **Name**: the app is **Basalt Win+GUI** (`BasaltWinGUI.exe`, new icon); the engine, API, files and scripts keep their
   names.
 - **`-server` with a server already running** asks whether to reuse it or restart it (`-riusa`, `-riavvia`, 60 s, no
@@ -202,7 +202,7 @@ The **harness** (`harness/`) is an agent that works on your files with the model
 runs commands, searches the web, fills in forms, keeps notes about what it learns, and asks you before anything it cannot undo.
 It is a separate Python process: it talks to the running server through the public OpenAI-compatible API and imports nothing from
 the engine, so it needs no GPU of its own. What it keeps (conversations, memory, audit log, checkpoints, approvals) lives in the user
-data folder, never in your repository; the only thing it writes in the project is `.basalt/artifacts`, the full text of outputs it
+data folder, never in your repository; the only thing it writes in the project is `.tadamoo/artifacts`, the full text of outputs it
 had to shorten.
 
 The reference is [docs/harness.md](docs/harness.md); a step-by-step guide is [docs/harness-manual.md](docs/harness-manual.md).
@@ -221,7 +221,7 @@ All four build the agent in the same place (`tadamoo/stack.py`), so what one can
 |---|---|
 | **Chat** tab | Conversations with the agent. Each is a long-lived process with its own saved history, so a message does not pay for the start. This is the main way. |
 | **Agent** tab | The conversation page, working in folders you add: each folder has its own conversations and a `.basalt` registry, and the agent's edits can be kept or undone block by block. |
-| `python -m tadamoo -p "task"` or `basalt-agent` | The command line, for scripts: exit codes, `--json`, budgets. `basalt-agent.cmd` works from any folder. |
+| `python -m tadamoo -p "task"` or `tadamoo-agent` | The command line, for scripts: exit codes, `--json`, budgets. `tadamoo-agent.cmd` works from any folder. |
 | `python -m tadamoo acp` | The agent of an editor that speaks the Agent Client Protocol, over stdio. |
 
 ### What it can do
@@ -382,12 +382,12 @@ Google Pay were not tried against the live services. The list with the reasons i
 ## Starting Basalt Win+GUI
 
 ```powershell
-.\Avvia-Basalt.ps1                                             # the app (-gui): the Loader first, nothing loaded yet
-.\Avvia-Basalt.ps1 -browser                                    # the server tied to this window, the UI in the browser
-.\Avvia-Basalt.ps1 -server --config "Machine Default"          # detached, no UI: returns once the model is loaded
-.\Avvia-Basalt.ps1 -server --model "D:\Models\Qwen3.8-Flash-Next-IQ3_XXS.basalt" --port 7240 --vram-libera 2
-.\Avvia-Basalt.ps1 -prova                                      # every check, nothing started, nothing written
-.\Ferma-Basalt.ps1 --port 7240                                 # stop only that server (its process tree)
+.\Avvia-TaDaMoo.ps1                                             # the app (-gui): the Loader first, nothing loaded yet
+.\Avvia-TaDaMoo.ps1 -browser                                    # the server tied to this window, the UI in the browser
+.\Avvia-TaDaMoo.ps1 -server --config "Machine Default"          # detached, no UI: returns once the model is loaded
+.\Avvia-TaDaMoo.ps1 -server --model "D:\Models\Qwen3.8-Flash-Next-IQ3_XXS.basalt" --port 7240 --vram-libera 2
+.\Avvia-TaDaMoo.ps1 -prova                                      # every check, nothing started, nothing written
+.\Ferma-TaDaMoo.ps1 --port 7240                                 # stop only that server (its process tree)
 ```
 
 Every option is accepted with one or two dashes and in any case (`-gui`, `--gui`, `-GUI`).
@@ -396,18 +396,18 @@ Every option is accepted with one or two dashes and in any case (`-gui`, `--gui`
 |---|---|
 | *(none)* = `-gui` | opens `BasaltWinGUI.exe`, passing it `--config`, `--model`, `--port` and `--vram-libera`; the browser does **not** open, the address is printed and stays available. Without the built app the script says how to build it and uses `-browser` |
 | `-browser` | the server tied to this window (Ctrl+C or closing the window stops server and engine, and frees the RAM), the web UI opened in the browser |
-| `-server` | the server alone, detached, no app and no browser; the script returns when `/health` says the model is loaded. For agents; `Ferma-Basalt.ps1` stops it |
+| `-server` | the server alone, detached, no app and no browser; the script returns when `/health` says the model is loaded. For agents; `Ferma-TaDaMoo.ps1` stops it |
 | `--config "<profile>"` | the load profile; without it, the default profile (below) |
 | `--model "<file .basalt>"` | the model to serve, as a full path |
 | `--port N` | the port; wins over the profile's (default 7232) |
 | `--vram-libera GB` | the VRAM to leave free for other programs, in GB (`1.5` or `"1,5"`), instead of the profile's; `--vram-reserve-mib N` is the same in MiB |
 | `-converti` | with `-browser` / `-server`, when the model is a GGUF to convert: show the plan, ask, convert, then serve the new file (in the app: the Loader's **Convert…**) |
 | `-riusa` / `-riavvia` | with `-server`, the answer given in advance when a server is already running with other loading parameters: reuse it, or stop it and start again with the new ones (below) |
-| `--lang it\|en` | the language of the messages for this run (it also sets `BASALT_LANG` for the server and the app it starts) |
+| `--lang it\|en` | the language of the messages for this run (it also sets `TADAMOO_LANG` for the server and the app it starts) |
 | `-prova` | every check, nothing started; `-browser` / `-server` work on a copy of the config file |
-| `-file FILE` | the config file (default `basalt_config.json` beside the script; the app creates one without a model on a new installation) |
+| `-file FILE` | the config file (default `tadamoo_config.json` beside the script; the app creates one without a model on a new installation) |
 
-`-Sfondo` and `-SoloServer`, the old names, still work as `-server` and print a note. `Ferma-Basalt.ps1` takes
+`-Sfondo` and `-SoloServer`, the old names, still work as `-server` and print a note. `Ferma-TaDaMoo.ps1` takes
 `--port N` and `--file FILE` the same way.
 
 **When a server is already running** (one per installation, on any port):
@@ -421,9 +421,9 @@ Every option is accepted with one or two dashes and in any case (`-gui`, `--gui`
   - **The same**: it prints the address, model and profile and returns (exit code 0).
   - **Different**: it lists the differences (`engine.max-context: 65536 -> 131072`) and asks **Reuse the running
     server** or **Restart with the new parameters**: in a window when there is a desktop, else at the console (`R` /
-    `S`). With no answer within **60 seconds** (`BASALT_ASK_TIMEOUT_S` changes it), or with nobody to ask (an agent with
+    `S`). With no answer within **60 seconds** (`TADAMOO_ASK_TIMEOUT_S` changes it), or with nobody to ask (an agent with
     redirected input), the running server is **reused**: a server is never stopped without an answer. Restarting stops
-    only that server's process tree (`Ferma-Basalt.ps1 --port N`) and starts it again on the same port unless `--port`
+    only that server's process tree (`Ferma-TaDaMoo.ps1 --port N`) and starts it again on the same port unless `--port`
     asks for another.
   - **`-riusa`** and **`-riavvia`** give the answer in advance, for agents and scheduled tasks; with `-prova` the
     script only says what it would do.
@@ -437,7 +437,7 @@ engine does not support (exit code 1).
 **The default load profile**: the one chosen with **Make default** in the Loader, else **Machine Default** once
 the wizard has saved it, else **Valori sicuri**.
 
-Directly, on Windows or Linux: `bin\basalt.exe serve --config basalt_config.json [--port N]` (`bin/basalt serve` on
+Directly, on Windows or Linux: `bin\basalt.exe serve --config tadamoo_config.json [--port N]` (`bin/basalt serve` on
 Linux; every option is in [Settings](#settings---config) below and in `python -m serve.server --help`).
 
 ### The app
@@ -455,7 +455,7 @@ server in its own job (it ends with the app) **without loading a model** and sho
 
 Loading another model than the one the server was started with saves it and starts the server again with it; the page
 reconnects by itself. Closing the window hides it to the tray icon: **Open**, **Reload with other settings…** (the
-Loader), **Start the server alone (for agents)…** (the same as `Avvia-Basalt.ps1 -server`, in place of the app's server),
+Loader), **Start the server alone (for agents)…** (the same as `Avvia-TaDaMoo.ps1 -server`, in place of the app's server),
 **Turn off**. If the server cannot start (a port in use, a missing build), the app shows the reason, the end of the log
 and a native start panel as a fallback. With the server running, the same UI is at `http://127.0.0.1:7232/` in any
 browser.
@@ -605,15 +605,15 @@ expert cache auto, resident experts, 1.5 GB left free, 15 CPU workers, image inp
 
 ### Where the settings live
 
-Per user, never in the repository, in the **user data folder**: `%APPDATA%\BasaltPannello\` on Windows,
+Per user, never in the repository, in the **user data folder**: `%APPDATA%\TaDaMoo\` on Windows,
 `~/Library/Application Support/Basalt/` on macOS, `$XDG_DATA_HOME/basalt/` (`~/.local/share/basalt/`) elsewhere, or
-`BASALT_DATA`. It holds `profiles.json` (load profiles, inference presets, the default profile), `models.json` (the
+`TADAMOO_DATA`. It holds `profiles.json` (load profiles, inference presets, the default profile), `models.json` (the
 models folders, the default server model, the last output folder), `machine.json` (the wizard's answers: the share of
 RAM and commit, the VRAM to leave free, where the monitor is), `calibration\<model>.json` (the measured speeds and
-memory), `prefs.json` (the language) and the app's `desktop.json`. Caches that can be rebuilt stay in `%USERPROFILE%\.cache\basalt\` (`~/.cache/basalt/`, or
-`BASALT_CACHE`): the header scan, the logs of conversion and verification jobs, the tokenizer and vision files
+memory), `prefs.json` (the language) and the app's `desktop.json`. Caches that can be rebuilt stay in `%USERPROFILE%\.cache\tadamoo\` (`~/.cache/tadamoo/`, or
+`TADAMOO_CACHE`): the header scan, the logs of conversion and verification jobs, the tokenizer and vision files
 unpacked from a model, the engine log. Versions before this one kept the settings in the cache folder: they are copied
-(not moved) to the user data folder the first time. `basalt_config.json` beside the scripts is written by them and by
+(not moved) to the user data folder the first time. `tadamoo_config.json` beside the scripts is written by them and by
 the Loader from the chosen profile and is not tracked.
 
 ## Using it as a server (API)
@@ -630,8 +630,8 @@ The server speaks the OpenAI and the Anthropic APIs at `http://127.0.0.1:<port>`
 | `GET /v1/models/{id}` | one of them |
 | `GET /health` | `{"service": "basalt", "loaded": true, ...}` once the model is in; `"standby": true` while a server started by the app waits for the Loader |
 
-**Start it for agents** with `.\Avvia-Basalt.ps1 -server` (it returns once the model is loaded; add `-riusa` in
-unattended scripts) and stop it with `.\Ferma-Basalt.ps1`. `basalt.pid` holds the PID, port and profile of a server
+**Start it for agents** with `.\Avvia-TaDaMoo.ps1 -server` (it returns once the model is loaded; add `-riusa` in
+unattended scripts) and stop it with `.\Ferma-TaDaMoo.ps1`. `tadamoo.pid` holds the PID, port and profile of a server
 started by a script or the app.
 
 **Model name.** The served model's id is the `--alias` (or `"alias"` in the config file's `server` section), else the
@@ -682,7 +682,7 @@ curl http://127.0.0.1:7232/v1/chat/completions -H "Content-Type: application/jso
   -d '{"model": "OrcaRouter-IQ3_XXS", "messages": [{"role": "user", "content": "hi"}]}'
 # 404 {"error": {"message": "The model 'OrcaRouter-IQ3_XXS' is not loaded (this server is serving 'Qwen3.8 Flash
 #   Next Uncensored'). Load it in the web page's Loader (choose it in the model list, then Load), or start the server
-#   with it: .\Avvia-Basalt.ps1 --model \"D:/Modelli/OrcaRouter-IQ3_XXS.basalt\"", "type": "invalid_request_error",
+#   with it: .\Avvia-TaDaMoo.ps1 --model \"D:/Modelli/OrcaRouter-IQ3_XXS.basalt\"", "type": "invalid_request_error",
 #   "param": "model", "code": "model_not_found"}}
 ```
 
@@ -790,7 +790,7 @@ later, or load a model in the Loader. A prompt longer than the context is refuse
 ## Loading settings, one by one
 
 Set in the Loader (each with its reason and the live prediction), saved in load profiles, written to the `server` /
-`engine` sections of `basalt_config.json`. They take effect when the engine is (re)loaded.
+`engine` sections of `tadamoo_config.json`. They take effect when the engine is (re)loaded.
 
 | setting | what it does | how to choose |
 |---|---|---|
@@ -880,7 +880,7 @@ really took (see "Measured memory").
 ## Language
 
 English by default; Italian on request. One choice serves the app, the web page, the scripts and the command-line
-tools, in this order: `--lang it|en` (scripts and app, for that run) > the `BASALT_LANG` environment variable > the
+tools, in this order: `--lang it|en` (scripts and app, for that run) > the `TADAMOO_LANG` environment variable > the
 choice saved in **Settings → Language** on the web page (or with `python -m serve.lang set it|en|auto`, kept in
 `prefs.json` in the user data folder) > English. The language of Windows is not used. The Monitor and Hardware pages
 and some technical server messages are in English only.
@@ -965,7 +965,7 @@ Its web UI is at http://127.0.0.1:7232/: **Chat** streams from the server's own 
 ### Settings: `--config`
 
 The engine's built-in defaults are untuned (4096 context, fp16 KV, no speculation, no expert cache), and the model
-file carries no engine flags. Put every setting in one `basalt_config.json` and pass `--config`:
+file carries no engine flags. Put every setting in one `tadamoo_config.json` and pass `--config`:
 
 ```json
 {
@@ -989,8 +989,8 @@ file carries no engine flags. Put every setting in one `basalt_config.json` and 
 ```
 
 ```sh
-bin/basalt serve --config basalt_config.json                     # everything from the file
-bin/basalt serve --config basalt_config.json --max-context 32768  # the command line wins
+bin/basalt serve --config tadamoo_config.json                     # everything from the file
+bin/basalt serve --config tadamoo_config.json --max-context 32768  # the command line wins
 ```
 
 ### Request log: `--request-log`

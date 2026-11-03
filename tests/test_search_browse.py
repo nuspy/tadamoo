@@ -257,4 +257,4 @@ def test_a_connected_mcp_server_with_a_search_tool_becomes_a_backend(tmp_path, m
 
 @pytest.fixture(autouse=True)
 def no_default_engine(monkeypatch):
-    monkeypatch.setenv("BASALT_WEB_SEARCH", "off")       # these tests are about the other backends; DuckDuckGo has tests/test_search_ddg.py
+    monkeypatch.setenv("TADAMOO_WEB_SEARCH", "off")       # these tests are about the other backends; DuckDuckGo has tests/test_search_ddg.py

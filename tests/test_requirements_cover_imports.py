@@ -22,7 +22,7 @@ OPTIONAL = {
     "tau2": "imported only inside the tau2-bench process, which runs in the environment of the imported benchmark",
 }
 # modules of this repository that the code reaches through sys.path (tools/ is added at run time)
-# (the personal skills' runtime folder holds basalt_skill, which a skill's script imports from the process that runs it)
+# (the personal skills' runtime folder holds tadamoo_skill, which a skill's script imports from the process that runs it)
 LOCAL_FOLDERS = (ROOT, ROOT / "tools", ROOT / "tools" / "convert", ROOT / "harness" / "personal_skills" / "runtime", ROOT / "harness" / "sandbox" / "guard")
 
 

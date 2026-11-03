@@ -1,7 +1,7 @@
 """The council: advisers with roles debating in turn, a moderator that ends it, and a tool that exists only when the person set it up."""
 import pytest
 
-from tadamoo.client import BasaltError
+from tadamoo.client import TadamooError
 from tadamoo.council import CHAIR, DEFAULTS, MEMBERS, Council, clean_settings, configured, estimate, load_settings, offer_council, outside, render
 from tadamoo.llm.credentials import FileCredentials
 from tadamoo.llm.store import SecureRegistry
@@ -104,7 +104,7 @@ def test_a_long_debate_is_cut_to_the_latest_and_a_speaker_cannot_close_the_tags_
 
 
 def test_a_member_that_fails_is_reported_and_the_rest_go_on():
-    clients, council, _ = world(council_2={"fail": BasaltError(503, "the provider is down")})
+    clients, council, _ = world(council_2={"fail": TadamooError(503, "the provider is down")})
     out = council.convene("q")
     assert out["transcript"][1]["error"] == "the provider is down" and out["verdict"]
     text = render(out)

@@ -178,7 +178,7 @@ def test_wiki_tools_say_what_is_wrong_instead_of_returning_nothing(wiki):
     register_wiki_tools(registry, WikiBridgeClient(wiki.url, api_key="wrong"), default_project="cervinia")
     with pytest.raises(RuntimeError, match="unauthorized"):
         registry.execute("wiki_search", {"query": "x"})
-    with pytest.raises(RuntimeError, match="BASALT_WIKIBRIDGE_KEY"):
+    with pytest.raises(RuntimeError, match="TADAMOO_WIKIBRIDGE_KEY"):
         registry.execute("wiki_context", {"query": "x"})
     off = ToolRegistry()
     register_wiki_tools(off, WikiBridgeClient("http://127.0.0.1:59993", timeout=0.2))
@@ -193,8 +193,8 @@ def test_wiki_tools_say_what_is_wrong_instead_of_returning_nothing(wiki):
 
 
 def test_the_stack_can_offer_the_wiki(wiki, tmp_path, monkeypatch):
-    monkeypatch.setenv("BASALT_WIKIBRIDGE_URL", wiki.url)
-    monkeypatch.setenv("BASALT_WIKIBRIDGE_KEY", "k")
+    monkeypatch.setenv("TADAMOO_WIKIBRIDGE_URL", wiki.url)
+    monkeypatch.setenv("TADAMOO_WIKIBRIDGE_KEY", "k")
     b = build_agent(AgentConfig(workspace=str(tmp_path), data_dir=str(tmp_path / "d"), wiki=True, wiki_project="cervinia",
                                 use_memory=False, use_checkpoints=False), client=ScriptedClient(call("wiki_search", {"query": "diana"}), say("ok")))
     b.agent.run("who is diana")

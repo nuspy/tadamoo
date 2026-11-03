@@ -54,7 +54,7 @@ class Dialog(base.PlansApiBase):
     @classmethod
     def setUpClass(cls):
         cls.data = tempfile.TemporaryDirectory()
-        cls.env = mock.patch.dict(os.environ, {"BASALT_DATA": cls.data.name})
+        cls.env = mock.patch.dict(os.environ, {"TADAMOO_DATA": cls.data.name})
         cls.env.start()
         cls.reg_dir = Path(cls.data.name) / "registry"
         cls.reg_dir.mkdir()

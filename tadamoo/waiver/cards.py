@@ -10,7 +10,7 @@ SYSTEM_ID = re.compile(r"^[a-z0-9][a-z0-9_\-]{1,40}$")
 # entries in the vault (a card of any kind, or a login with the second factor the person chose there), which carry no limit but the cap.
 CREDENTIAL_KINDS = {"delegated_card", "delegated_token", "mandate", "vault_card", "vault_login"}
 VAULT_KINDS = {"vault_card", "vault_login"}
-BASALT_PROTECTIONS_OFF = ["confirmation of each payment, below the cap"]
+TADAMOO_PROTECTIONS_OFF = ["confirmation of each payment, below the cap"]
 PROTECTIONS_THAT_STAY = ["provider authentication and limits", "hard cap enforced outside the model", "audit ledger",
                          "kill switch"]
 
@@ -50,7 +50,7 @@ class PaymentSystem:
         """What the first dialog shows, and what the dossier keeps."""
         return {
             "id": self.system_id, "name": self.name, "kind": self.kind, "credential": self.credential_kind,
-            "currency": self.currency.upper(), "basalt_protections_off": BASALT_PROTECTIONS_OFF,
+            "currency": self.currency.upper(), "basalt_protections_off": TADAMOO_PROTECTIONS_OFF,
             "protections_that_stay": PROTECTIONS_THAT_STAY, "terms_url": self.provider_terms_url,
             "terms_checked_on": self.provider_terms_checked_on, "how_to_revoke": self.revoke_instructions,
             "vault_entry": self.vault_entry,

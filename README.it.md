@@ -93,7 +93,7 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
   interi al client.
 
 **6. Script, lingue e dati**
-- `Avvia-Basalt.ps1` / `Ferma-Basalt.ps1`: `-gui` (predefinito), `-browser`, `-server` per gli agenti, con gli stessi nomi
+- `Avvia-TaDaMoo.ps1` / `Ferma-TaDaMoo.ps1`: `-gui` (predefinito), `-browser`, `-server` per gli agenti, con gli stessi nomi
   di opzione di Strata; si collegano a un server in esecuzione e controllano la memoria con il piano del Loader prima di
   caricare.
 - Inglese di default, italiano su richiesta, nell'app, nella pagina, negli script e negli strumenti a riga di comando; le
@@ -178,7 +178,7 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
   (la pagina risponde e non si carica nulla finché non premi Carica nel Loader), `--relaunch-on-model-change` (caricare
   un altro modello chiude il server con codice d'uscita 75, così chi l'ha avviato lo riavvia con quel modello),
   `/api/settings`, `/api/loader/*`, `/api/wizard/*`, `/api/profiles`, `/api/models/*`.
-- **Script** `Avvia-Basalt.ps1` / `Ferma-Basalt.ps1` con gli stessi nomi di opzione di Strata: `-gui` (il predefinito:
+- **Script** `Avvia-TaDaMoo.ps1` / `Ferma-TaDaMoo.ps1` con gli stessi nomi di opzione di Strata: `-gui` (il predefinito:
   l'app), `-browser`, `-server` (per gli agenti), `--model`, `--config "<profilo>"`, `--port`, `--vram-libera GB`,
   `-riusa` / `-riavvia`, `--lang it|en`.
 
@@ -199,7 +199,7 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
   (1,5 GB in più), uno secondario (circa 0,4 GB) o nessuno; quello che usano gli altri programmi si mostra, non si somma.
 - **Memoria misurata**: RAM e commit presi davvero da un caricamento si conservano per modello e si sommano ai piani
   successivi.
-- **Cartelle dei dati**: le impostazioni in `%APPDATA%\BasaltPannello\` (copiate una volta da `~\.cache\basalt`, mai
+- **Cartelle dei dati**: le impostazioni in `%APPDATA%\TaDaMoo\` (copiate una volta da `~\.cache\tadamoo`, mai
   spostate).
 - **Nome**: l'app si chiama **Basalt Win+GUI** (`BasaltWinGUI.exe`, icona nuova); motore, API, file e script tengono i
   loro nomi.
@@ -215,7 +215,7 @@ esegue comandi, cerca sul web, compila moduli, tiene appunti su ciò che impara 
 disfare. È un processo Python separato: parla col server in esecuzione tramite l'API pubblica compatibile OpenAI e non importa nulla
 dal motore, quindi non ha bisogno di una GPU sua. Ciò che conserva (conversazioni, memoria, registro di audit, checkpoint,
 approvazioni) sta nella cartella dati dell'utente, mai nel tuo repository; l'unica cosa che scrive nel progetto è
-`.basalt/artifacts`, il testo completo degli output che ha dovuto accorciare.
+`.tadamoo/artifacts`, il testo completo degli output che ha dovuto accorciare.
 
 Il riferimento è [docs/harness.md](docs/harness.md) (in inglese); una guida passo passo è
 [docs/harness-manual.it.md](docs/harness-manual.it.md).
@@ -228,7 +228,7 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`tadamoo/stack.py`): c
 |---|---|
 | Scheda **Chat** | Conversazioni con l'agente. Ognuna è un processo che resta vivo, con la sua cronologia salvata, quindi un messaggio non paga l'avvio. È il modo principale. |
 | Scheda **Agente** | La pagina delle conversazioni, che lavora nelle cartelle che aggiungi: ogni cartella ha le sue conversazioni e un registro `.basalt`, e le modifiche dell'agente si tengono o si annullano blocco per blocco. |
-| `python -m tadamoo -p "compito"` o `basalt-agent` | La riga di comando, per gli script: codici di uscita, `--json`, limiti. `basalt-agent.cmd` funziona da qualunque cartella. |
+| `python -m tadamoo -p "compito"` o `tadamoo-agent` | La riga di comando, per gli script: codici di uscita, `--json`, limiti. `tadamoo-agent.cmd` funziona da qualunque cartella. |
 | `python -m tadamoo acp` | L'agente di un editor che parla l'Agent Client Protocol, su stdio. |
 
 ### Cosa sa fare
@@ -400,12 +400,12 @@ e Stripe e Google Pay non sono stati provati sui servizi reali. L'elenco con i m
 ## Avviare Basalt Win+GUI
 
 ```powershell
-.\Avvia-Basalt.ps1                                             # l'app (-gui): prima il Loader, nulla caricato
-.\Avvia-Basalt.ps1 -browser                                    # il server legato a questa finestra, l'interfaccia nel browser
-.\Avvia-Basalt.ps1 -server --config "Machine Default"          # staccato, senza interfaccia: torna quando il modello è caricato
-.\Avvia-Basalt.ps1 -server --model "D:\Modelli\Qwen3.8-Flash-Next-IQ3_XXS.basalt" --port 7240 --vram-libera 2
-.\Avvia-Basalt.ps1 -prova                                      # tutti i controlli, nulla avviato, nulla scritto
-.\Ferma-Basalt.ps1 --port 7240                                 # ferma solo quel server (il suo albero di processi)
+.\Avvia-TaDaMoo.ps1                                             # l'app (-gui): prima il Loader, nulla caricato
+.\Avvia-TaDaMoo.ps1 -browser                                    # il server legato a questa finestra, l'interfaccia nel browser
+.\Avvia-TaDaMoo.ps1 -server --config "Machine Default"          # staccato, senza interfaccia: torna quando il modello è caricato
+.\Avvia-TaDaMoo.ps1 -server --model "D:\Modelli\Qwen3.8-Flash-Next-IQ3_XXS.basalt" --port 7240 --vram-libera 2
+.\Avvia-TaDaMoo.ps1 -prova                                      # tutti i controlli, nulla avviato, nulla scritto
+.\Ferma-TaDaMoo.ps1 --port 7240                                 # ferma solo quel server (il suo albero di processi)
 ```
 
 Ogni opzione si accetta con uno o due trattini e in maiuscolo o minuscolo (`-gui`, `--gui`, `-GUI`).
@@ -414,18 +414,18 @@ Ogni opzione si accetta con uno o due trattini e in maiuscolo o minuscolo (`-gui
 |---|---|
 | *(nessuna)* = `-gui` | apre `BasaltWinGUI.exe` passandogli `--config`, `--model`, `--port` e `--vram-libera`; il browser **non** si apre, l'indirizzo si stampa e resta disponibile. Senza l'app compilata lo script dice come compilarla e usa `-browser` |
 | `-browser` | il server legato a questa finestra (Ctrl+C o chiudere la finestra ferma server e motore e libera la RAM), l'interfaccia aperta nel browser |
-| `-server` | il server da solo, staccato, senza app né browser; lo script torna quando `/health` dice che il modello è caricato. Per gli agenti; lo ferma `Ferma-Basalt.ps1` |
+| `-server` | il server da solo, staccato, senza app né browser; lo script torna quando `/health` dice che il modello è caricato. Per gli agenti; lo ferma `Ferma-TaDaMoo.ps1` |
 | `--config "<profilo>"` | il profilo di caricamento; senza, il profilo predefinito (sotto) |
 | `--model "<file .basalt>"` | il modello da servire, con il percorso completo |
 | `--port N` | la porta; vince su quella del profilo (predefinita 7232) |
 | `--vram-libera GB` | la VRAM da lasciare libera per gli altri programmi, in GB (`1.5` o `"1,5"`), al posto di quella del profilo; `--vram-reserve-mib N` è lo stesso in MiB |
 | `-converti` | con `-browser` / `-server`, quando il modello è un GGUF da convertire: mostra il piano, chiede, converte, poi serve il file nuovo (nell'app: **Converti…** nel Loader) |
 | `-riusa` / `-riavvia` | con `-server`, la risposta data in anticipo quando un server è già acceso con altri parametri di caricamento: riusarlo, o fermarlo e riavviarlo con i nuovi (sotto) |
-| `--lang it\|en` | la lingua dei messaggi per questo avvio (imposta anche `BASALT_LANG` per il server e l'app che avvia) |
+| `--lang it\|en` | la lingua dei messaggi per questo avvio (imposta anche `TADAMOO_LANG` per il server e l'app che avvia) |
 | `-prova` | tutti i controlli, nulla avviato; `-browser` / `-server` lavorano su una copia del file di configurazione |
-| `-file FILE` | il file di configurazione (predefinito `basalt_config.json` accanto allo script; l'app ne crea uno senza modello in un'installazione nuova) |
+| `-file FILE` | il file di configurazione (predefinito `tadamoo_config.json` accanto allo script; l'app ne crea uno senza modello in un'installazione nuova) |
 
-`-Sfondo` e `-SoloServer`, i vecchi nomi, funzionano ancora come `-server` e stampano una nota. `Ferma-Basalt.ps1`
+`-Sfondo` e `-SoloServer`, i vecchi nomi, funzionano ancora come `-server` e stampano una nota. `Ferma-TaDaMoo.ps1`
 accetta `--port N` e `--file FILE` allo stesso modo.
 
 **Quando un server è già acceso** (uno per installazione, su qualunque porta):
@@ -439,9 +439,9 @@ accetta `--port N` e `--file FILE` allo stesso modo.
   - **Uguali**: stampa indirizzo, modello e profilo e torna (codice d'uscita 0).
   - **Diversi**: elenca le differenze (`engine.max-context: 65536 -> 131072`) e chiede **Riusa il server avviato** o
     **Riavvia con i nuovi parametri**: in una finestra quando c'è un desktop, altrimenti nella console (`R` / `A`).
-    Senza risposta entro **60 secondi** (si cambiano con `BASALT_ASK_TIMEOUT_S`), o senza nessuno a cui chiedere (un
+    Senza risposta entro **60 secondi** (si cambiano con `TADAMOO_ASK_TIMEOUT_S`), o senza nessuno a cui chiedere (un
     agente con l'input rediretto), il server acceso **si riusa**: nessun server viene fermato senza una risposta.
-    Riavviare ferma solo l'albero di processi di quel server (`Ferma-Basalt.ps1 --port N`) e lo riavvia sulla stessa
+    Riavviare ferma solo l'albero di processi di quel server (`Ferma-TaDaMoo.ps1 --port N`) e lo riavvia sulla stessa
     porta, se `--port` non ne chiede un'altra.
   - **`-riusa`** e **`-riavvia`** danno la risposta in anticipo, per agenti e attività pianificate; con `-prova` lo
     script dice soltanto cosa farebbe.
@@ -455,7 +455,7 @@ di paging viene rifiutato, come una GPU che il motore non supporta (codice 1).
 **Il profilo di caricamento predefinito**: quello scelto con **Rendi predefinito** nel Loader, altrimenti **Machine
 Default** dopo che la configurazione guidata l'ha salvato, altrimenti **Valori sicuri**.
 
-Direttamente, su Windows o Linux: `bin\basalt.exe serve --config basalt_config.json [--port N]` (`bin/basalt serve` su
+Direttamente, su Windows o Linux: `bin\basalt.exe serve --config tadamoo_config.json [--port N]` (`bin/basalt serve` su
 Linux; ogni opzione è nel README originale, [Settings](README.md#settings---config), e in `python -m serve.server
 --help`).
 
@@ -475,7 +475,7 @@ modello** e mostra il **Loader** web:
 
 Caricare un modello diverso da quello con cui il server è partito lo salva e riavvia il server con quello; la pagina si
 ricollega da sola. Chiudere la finestra la nasconde nell'icona vicino all'orologio: **Apri**, **Ricarica con altri
-parametri…** (il Loader), **Avvia solo server (per gli agenti)…** (come `Avvia-Basalt.ps1 -server`, al posto del server
+parametri…** (il Loader), **Avvia solo server (per gli agenti)…** (come `Avvia-TaDaMoo.ps1 -server`, al posto del server
 dell'app), **Spegni**. Se il server non parte (una porta occupata, una build mancante), l'app mostra il motivo, la fine
 del registro e un pannello di avvio nativo come riserva. Con il server acceso la stessa interfaccia è a
 `http://127.0.0.1:7232/` in qualunque browser.
@@ -635,16 +635,16 @@ CPU, immagini dynamic.
 
 ### Dove stanno le impostazioni
 
-Per utente, mai nel repository, nella **cartella dei dati dell'utente**: `%APPDATA%\BasaltPannello\` su Windows,
+Per utente, mai nel repository, nella **cartella dei dati dell'utente**: `%APPDATA%\TaDaMoo\` su Windows,
 `~/Library/Application Support/Basalt/` su macOS, `$XDG_DATA_HOME/basalt/` (`~/.local/share/basalt/`) altrove, oppure
-`BASALT_DATA`. Contiene `profiles.json` (profili di caricamento, preset di inferenza, il profilo predefinito),
+`TADAMOO_DATA`. Contiene `profiles.json` (profili di caricamento, preset di inferenza, il profilo predefinito),
 `models.json` (le cartelle dei modelli, il modello predefinito del server, l'ultima cartella di uscita), `machine.json`
 (le risposte della configurazione guidata: quota di RAM e commit, VRAM da lasciare libera, dov'è il monitor),
 `calibration\<modello>.json` (velocità e memoria misurate), `prefs.json` (la lingua) e `desktop.json` dell'app. Le cache
-che si possono ricostruire restano in `%USERPROFILE%\.cache\basalt\` (`~/.cache/basalt/`, o `BASALT_CACHE`): la
+che si possono ricostruire restano in `%USERPROFILE%\.cache\tadamoo\` (`~/.cache/tadamoo/`, o `TADAMOO_CACHE`): la
 scansione delle intestazioni, i registri dei lavori di conversione e verifica, i file del tokenizer e delle immagini
 estratti da un modello, il registro del motore. Le versioni precedenti tenevano le impostazioni nella cartella della
-cache: la prima volta vengono copiate (non spostate) nella cartella dei dati. `basalt_config.json` accanto agli script
+cache: la prima volta vengono copiate (non spostate) nella cartella dei dati. `tadamoo_config.json` accanto agli script
 lo scrivono loro e il Loader dal profilo scelto, e non è tracciato da git.
 
 ## Usarlo come server (API)
@@ -661,8 +661,8 @@ Il server parla le API di OpenAI e di Anthropic a `http://127.0.0.1:<porta>` (po
 | `GET /v1/models/{id}` | uno di questi |
 | `GET /health` | `{"service": "basalt", "loaded": true, ...}` quando il modello è caricato; `"standby": true` mentre un server avviato dall'app aspetta il Loader |
 
-**Avviarlo per gli agenti**: `.\Avvia-Basalt.ps1 -server` (torna quando il modello è caricato; negli script senza
-nessuno davanti aggiungi `-riusa`), fermarlo con `.\Ferma-Basalt.ps1`. `basalt.pid` contiene PID, porta e profilo di un
+**Avviarlo per gli agenti**: `.\Avvia-TaDaMoo.ps1 -server` (torna quando il modello è caricato; negli script senza
+nessuno davanti aggiungi `-riusa`), fermarlo con `.\Ferma-TaDaMoo.ps1`. `tadamoo.pid` contiene PID, porta e profilo di un
 server avviato da uno script o dall'app.
 
 **Nome del modello.** L'id del modello servito è l'`--alias` (o `"alias"` nella sezione `server` del file di
@@ -714,7 +714,7 @@ curl http://127.0.0.1:7232/v1/chat/completions -H "Content-Type: application/jso
   -d '{"model": "OrcaRouter-IQ3_XXS", "messages": [{"role": "user", "content": "ciao"}]}'
 # 404 {"error": {"message": "The model 'OrcaRouter-IQ3_XXS' is not loaded (this server is serving 'Qwen3.8 Flash
 #   Next Uncensored'). Load it in the web page's Loader (choose it in the model list, then Load), or start the server
-#   with it: .\Avvia-Basalt.ps1 --model \"D:/Modelli/OrcaRouter-IQ3_XXS.basalt\"", "type": "invalid_request_error",
+#   with it: .\Avvia-TaDaMoo.ps1 --model \"D:/Modelli/OrcaRouter-IQ3_XXS.basalt\"", "type": "invalid_request_error",
 #   "param": "model", "code": "model_not_found"}}
 ```
 
@@ -825,7 +825,7 @@ che dice la lunghezza del contesto.
 ## Impostazioni di caricamento, una per una
 
 Si impostano nel Loader (ognuna con il suo motivo e la previsione dal vivo), si salvano nei profili di caricamento e
-si scrivono nelle sezioni `server` / `engine` di `basalt_config.json`. Valgono quando il motore si (ri)carica.
+si scrivono nelle sezioni `server` / `engine` di `tadamoo_config.json`. Valgono quando il motore si (ri)carica.
 
 | impostazione | cosa fa | come sceglierla |
 |---|---|---|
@@ -920,7 +920,7 @@ presi davvero dal caricamento (vedi «Memoria misurata»).
 
 Inglese come predefinito; italiano a richiesta. Una sola scelta vale per l'app, la pagina web, gli script e gli
 strumenti da riga di comando, in quest'ordine: `--lang it|en` (script e app, per quell'avvio) > la variabile
-d'ambiente `BASALT_LANG` > la scelta salvata in **Impostazioni → Lingua** nella pagina web (o con `python -m serve.lang
+d'ambiente `TADAMOO_LANG` > la scelta salvata in **Impostazioni → Lingua** nella pagina web (o con `python -m serve.lang
 set it|en|auto`, conservata in `prefs.json` nella cartella dei dati) > inglese. La lingua di Windows non si usa. Le
 pagine Monitor e Hardware e alcuni messaggi tecnici del server sono solo in inglese.
 

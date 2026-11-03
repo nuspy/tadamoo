@@ -52,7 +52,7 @@ def open_url(req: urllib.request.Request, timeout: float) -> Any:
     return _OPENER.open(req, timeout=timeout)
 
 
-class BasaltError(RuntimeError):
+class TadamooError(RuntimeError):
     """The server refused or failed a request; `status` is the HTTP status (0 when unreachable)."""
 
     def __init__(self, status: int, message: str) -> None:
@@ -114,7 +114,7 @@ def _collect_stream(resp: Any, on_delta: Callable[[str, str], None]) -> Dict[str
         except ValueError:
             continue
         if isinstance(chunk.get("error"), dict):
-            raise BasaltError(500, str(chunk["error"].get("message") or "the engine reported an error"))
+            raise TadamooError(500, str(chunk["error"].get("message") or "the engine reported an error"))
         if chunk.get("usage"):
             usage = chunk["usage"]
         if chunk.get("timings"):
@@ -135,7 +135,7 @@ def _collect_stream(resp: Any, on_delta: Callable[[str, str], None]) -> Dict[str
             cur["function"]["arguments"] += fn.get("arguments") or ""
         finish = choice.get("finish_reason") or finish
     if finish is None:
-        raise BasaltError(0, "the answer stopped before it was complete")
+        raise TadamooError(0, "the answer stopped before it was complete")
     message: Dict[str, Any] = {"role": "assistant", "content": "".join(content) or None}
     if reasoning:
         message["reasoning_content"] = "".join(reasoning)
@@ -148,7 +148,7 @@ def _collect_stream(resp: Any, on_delta: Callable[[str, str], None]) -> Dict[str
     return {"choices": [{"index": 0, "message": message, "finish_reason": finish}], "usage": usage or {}, **meta}
 
 
-class BasaltClient:
+class TadamooClient:
     """Client for local Basalt server."""
 
     def __init__(self, base_url: str = "http://127.0.0.1:7232", api_key: Optional[str] = None) -> None:
@@ -163,13 +163,13 @@ class BasaltClient:
         }
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        if os.environ.get("BASALT_COMPRESS") == "1":
-            headers["X-Basalt-Compress"] = "1"          # the server may compress a streamed conversation (Billion Context)
+        if os.environ.get("TADAMOO_COMPRESS") == "1":
+            headers["X-Tadamoo-Compress"] = "1"          # the server may compress a streamed conversation (Billion Context)
         return headers
 
     def context_window(self, timeout: float = 3.0) -> Optional[int]:
         """The tokens one request can hold, as /v1/status reports them (each parallel slot holds this many); None when the
-        model is not loaded or the server gives no number. Raises BasaltError when the server cannot be reached."""
+        model is not loaded or the server gives no number. Raises TadamooError when the server cannot be reached."""
         status = self._get("/v1/status", timeout)
         if status.get("loaded") is False:
             return None                                    # an engine that is not loaded reports a default, not its context
@@ -194,14 +194,14 @@ class BasaltClient:
         try:
             try:
                 status = self._get("/v1/status", timeout)
-            except BasaltError as first:
+            except TadamooError as first:
                 if first.status != 0:
                     raise
                 time.sleep(0.5)                              # a connection that did not go through: once more before saying there is no session
                 status = self._get("/v1/status", timeout)
             side = (status.get("concurrency") or {}).get("side_slot")
             tokens = int(side.get("context") or 0) if isinstance(side, dict) else 0
-        except (BasaltError, TypeError, ValueError):
+        except (TadamooError, TypeError, ValueError):
             tokens, answered = 0, False
         self._side = (time.monotonic(), tokens, answered)
         return tokens
@@ -216,9 +216,9 @@ class BasaltClient:
                 detail = json.loads(e.read().decode("utf-8")).get("error", {}).get("message", "")
             except Exception:
                 detail = ""
-            raise BasaltError(e.code, detail or f"HTTP {e.code}") from None
+            raise TadamooError(e.code, detail or f"HTTP {e.code}") from None
         except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
-            raise BasaltError(0, f"cannot reach the Basalt server at {self.base_url}: {e}") from None
+            raise TadamooError(0, f"cannot reach the Basalt server at {self.base_url}: {e}") from None
 
     def chat_completion(
         self,
@@ -277,11 +277,11 @@ class BasaltClient:
                     detail = json.loads(e.read().decode("utf-8")).get("error", {}).get("message", "")
                 except Exception:
                     detail = ""
-                raise BasaltError(e.code, detail or f"HTTP {e.code}") from None
+                raise TadamooError(e.code, detail or f"HTTP {e.code}") from None
             except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
                 reset = isinstance(e, ConnectionError) or isinstance(getattr(e, "reason", None), ConnectionError)
                 if reset and not shown[0] and attempt + 1 < RESET_TRIES:     # the connection was closed under the request: nothing came back yet
                     time.sleep(1.0 + attempt)
                     continue
-                raise BasaltError(0, f"cannot reach the Basalt server at {self.base_url}: {e}") from None
-        raise BasaltError(0, f"cannot reach the Basalt server at {self.base_url}")
+                raise TadamooError(0, f"cannot reach the Basalt server at {self.base_url}: {e}") from None
+        raise TadamooError(0, f"cannot reach the Basalt server at {self.base_url}")

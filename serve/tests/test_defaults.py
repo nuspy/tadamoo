@@ -77,7 +77,7 @@ class InTheServer(Base):
 class DefaultProfile(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": self.dir.name, "BASALT_DATA": self.dir.name})
+        self.env = mock.patch.dict(os.environ, {"TADAMOO_CACHE": self.dir.name, "TADAMOO_DATA": self.dir.name})
         self.env.start()
 
     def tearDown(self):

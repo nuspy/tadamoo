@@ -9,7 +9,7 @@ from tadamoo.agent_loop import AgentLoop, BUDGET, CANCELLED, ERROR, FINAL, LOOP,
 from tadamoo import untrusted
 from tadamoo.audit import AuditLedger
 from tadamoo.checkpoints import CheckpointManager
-from tadamoo.client import BasaltError
+from tadamoo.client import TadamooError
 from tadamoo.hooks import HookManager
 from tadamoo.permissions import PermissionLevel, PermissionManager
 from tadamoo.secrets_broker import SecretsBroker
@@ -229,7 +229,7 @@ def test_usage_and_cache_hits_are_recorded_per_turn(ws):
 
 
 def test_a_server_error_ends_the_run_without_raising(ws):
-    agent, _ = make(ws, ScriptedClient(BasaltError(503, "model is loading")))
+    agent, _ = make(ws, ScriptedClient(TadamooError(503, "model is loading")))
     assert agent.run("go") == []
     assert agent.stop_reason == ERROR and "model is loading" in agent.error
 
@@ -537,7 +537,7 @@ class _Flaky(ScriptedClient):
         self.calls += 1
         if self.calls > 1 and self.down > 0:
             self.down -= 1
-            raise BasaltError(0, "cannot reach the Basalt server")
+            raise TadamooError(0, "cannot reach the Basalt server")
         return super().chat_completion(*a, **kw)
 
 
@@ -556,7 +556,7 @@ def test_a_lost_connection_is_waited_out_and_the_run_goes_on(ws, monkeypatch):
 def test_a_server_that_never_answered_is_reported_at_once(ws):
     class Down:
         def chat_completion(self, *a, **kw):
-            raise BasaltError(0, "cannot reach the Basalt server")
+            raise TadamooError(0, "cannot reach the Basalt server")
     agent, _ = make(ws, Down())
     agent.run("hi")
     assert agent.error_status == 0

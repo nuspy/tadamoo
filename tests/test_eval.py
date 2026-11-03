@@ -257,8 +257,8 @@ def test_a_crashing_or_failing_trial_is_a_failed_trial_and_the_evaluation_goes_o
     def factory(t, rep):
         if rep == 1:
             raise RuntimeError("the client could not be made")
-        from tadamoo.client import BasaltError
-        return ScriptedClient(BasaltError(503, "model is loading")) if rep == 2 else ScriptedClient(*CORE_SOLUTIONS["read_and_answer"])
+        from tadamoo.client import TadamooError
+        return ScriptedClient(TadamooError(503, "model is loading")) if rep == 2 else ScriptedClient(*CORE_SOLUTIONS["read_and_answer"])
 
     res = EvalRunner(client_factory=factory).evaluate_task(task, 3)
     assert [t.passed for t in res.trials] == [False, False, True]
@@ -314,8 +314,8 @@ def test_the_report_states_where_it_came_from_and_what_it_cost():
 def test_crashes_and_server_errors_are_counted_apart_from_wrong_answers():
     _, tasks = load_task_set("core")
     task = next(t for t in tasks if t.id == "read_and_answer")
-    from tadamoo.client import BasaltError
-    res = EvalRunner(client_factory=lambda t, r: ScriptedClient(BasaltError(500, "boom"))).evaluate_task(task, 2)
+    from tadamoo.client import TadamooError
+    res = EvalRunner(client_factory=lambda t, r: ScriptedClient(TadamooError(500, "boom"))).evaluate_task(task, 2)
     s = summarize([res])
     assert s["server_errors"] == 2 and s["trial_success"] == 0.0
     assert "2 server error(s)" in generate_eval_report([res])

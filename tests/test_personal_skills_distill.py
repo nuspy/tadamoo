@@ -112,7 +112,7 @@ def test_the_script_is_asked_with_the_calls_and_the_parameters_wired_in():
     reqs = distill.requests_of(MESSAGES)
     steps = distill.steps_of(MESSAGES, reqs, [1])
     params = [{"name": "topic", "type": "text", "explanation": "what", "value_seen": "guerra in Ucraina"}, {"name": "day", "type": "date", "value_seen": "2026-10-26"}]
-    good = "```python\nfrom basalt_skill import tool\n\ndef main(params):\n    return tool('search_web', query=f'{params.topic} notizie') + str(params.day)\n```"
+    good = "```python\nfrom tadamoo_skill import tool\n\ndef main(params):\n    return tool('search_web', query=f'{params.topic} notizie') + str(params.day)\n```"
     model = Model(good)
     got = distill.write_script(model, "Rassegna", "news", params, reqs, steps)
     assert got["problems"] == [] and got["unused"] == [] and check(got["script"]) == []

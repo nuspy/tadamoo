@@ -35,7 +35,7 @@ def clean_url(value: Any) -> str:
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise KnowledgeError("The address must start with http:// or https:// and name a host, for example http://127.0.0.1:8775.", "wiki_url")
     if parts.username or parts.password or parts.query or parts.fragment:
-        raise KnowledgeError("The address has no user name, password, query or fragment: the key is set apart (BASALT_WIKIBRIDGE_KEY).", "wiki_url")
+        raise KnowledgeError("The address has no user name, password, query or fragment: the key is set apart (TADAMOO_WIKIBRIDGE_KEY).", "wiki_url")
     return text.rstrip("/")
 
 

@@ -75,13 +75,13 @@ def test_this_pcs_own_address_is_refused_as_for_any_page(ddg):
 
 def test_search_web_is_offered_with_duckduckgo_as_the_default_and_can_be_turned_off(tmp_path, monkeypatch):
     clear_backends()
-    for name in ("TAVILY_API_KEY", "EXA_API_KEY", "BASALT_WEB_SEARCH"):
+    for name in ("TAVILY_API_KEY", "EXA_API_KEY", "TADAMOO_WEB_SEARCH"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(search, "load_providers", lambda: [])
     registry, _ = create_standard_tool_registry(tmp_path)
     tool = registry.get("search_web")
     assert tool is not None and tool.parameters["properties"]["provider"]["enum"] == ["duckduckgo"]
     assert tool.parameters["properties"]["provider"]["default"] == "duckduckgo"
-    monkeypatch.setenv("BASALT_WEB_SEARCH", "off")
+    monkeypatch.setenv("TADAMOO_WEB_SEARCH", "off")
     registry, _ = create_standard_tool_registry(tmp_path)
     assert registry.get("search_web") is None

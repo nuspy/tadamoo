@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
 
-from tadamoo.client import BasaltError, extract_reasoning_and_content
+from tadamoo.client import TadamooError, extract_reasoning_and_content
 
 TARGET_STATES = ("running", "achieved", "stopped", "blocked")
 CRITERION_STATES = ("pending", "achieved", "partial", "not_met", "blocked")
@@ -163,7 +163,7 @@ class StructuredLLM:
         try:
             message = resp["choices"][0]["message"]
         except (KeyError, IndexError, TypeError):
-            raise BasaltError(0, "the server answered without a message") from None
+            raise TadamooError(0, "the server answered without a message") from None
         _, content = extract_reasoning_and_content(message)
         try:
             data = json.loads(content)
@@ -539,7 +539,7 @@ class TargetLoop:
             self._check_cancel()
             try:
                 return self.llm.ask(name, system, user, schema)
-            except BasaltError:
+            except TadamooError:
                 wait = self.waits[min(attempt, len(self.waits) - 1)]
                 attempt += 1
                 self._touch(phase="waiting_model")

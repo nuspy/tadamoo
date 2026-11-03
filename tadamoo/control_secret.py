@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Dict
 from urllib.parse import urlsplit
 
-HEADER = "X-Basalt-Control"
+HEADER = "X-Tadamoo-Control"
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 
 

@@ -17,7 +17,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from serve import addons, netwatch_api, userdata
 
-KEY_ENV = "BASALT_CANARY_KEY"                      # the server's own key, passed by name so the config on disk holds no secret
+KEY_ENV = "TADAMOO_CANARY_KEY"                      # the server's own key, passed by name so the config on disk holds no secret
 WATCH_S = 5.0                                      # how often a running test is looked at
 STOP_WAIT_S = 30.0                                 # how long a stop waits for the current session before it ends the process
 EXIT_WAIT_S = 15.0

@@ -30,7 +30,7 @@ def default_path() -> Path:
         from serve.userdata import user_data_dir
         base = user_data_dir()
     except Exception:  # the harness also runs without the server package
-        base = Path.home() / ".basalt"
+        base = Path.home() / ".tadamoo"
     return base / "memory" / "past.db"
 
 

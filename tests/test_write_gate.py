@@ -26,7 +26,7 @@ class _NoTelemetry:
 
 @pytest.fixture
 def server(tmp_path, monkeypatch):
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
     tok = ByteTokenizer()
     svc = Service(MockEngine(tok, ["</think>\n\nok"], max_context=16384), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
     svc.telemetry = _NoTelemetry()
@@ -56,13 +56,13 @@ WRITES = [("/api/tasks", {"id": "t1", "status": "running"}), ("/api/plans", {"pl
 def test_a_change_without_the_secret_is_refused_before_the_route_looks_at_it(server, path, body):
     code, data, _ = call(server, "POST", path, body)
     assert code == 403 and data["error"]["code"] == "control_secret" and "reload the page" in data["error"]["message"]
-    code, data, _ = call(server, "POST", path, body, {"X-Basalt-Control": "wrong"})
+    code, data, _ = call(server, "POST", path, body, {"X-Tadamoo-Control": "wrong"})
     assert code == 403 and data["error"]["code"] == "control_secret"
 
 
 @pytest.mark.parametrize("path,body", WRITES)
 def test_the_secret_in_the_header_lets_a_program_through(server, path, body):
-    code, data, _ = call(server, "POST", path, body, {"X-Basalt-Control": SECRET})
+    code, data, _ = call(server, "POST", path, body, {"X-Tadamoo-Control": SECRET})
     assert data.get("error", {}).get("code") != "control_secret" if isinstance(data, dict) else True
 
 
@@ -70,13 +70,13 @@ def test_the_page_gets_the_cookie_and_changes_things_with_it(server):
     nav = {"Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none"}           # what a browser sends when it opens the page
     code, page, resp = call(server, "GET", "/", headers=nav)
     cookie = resp.getheader("Set-Cookie")
-    assert code == 200 and cookie.startswith(f"basalt_control_{server}={SECRET}") and "HttpOnly" in cookie and "SameSite=Strict" in cookie
+    assert code == 200 and cookie.startswith(f"tadamoo_control_{server}={SECRET}") and "HttpOnly" in cookie and "SameSite=Strict" in cookie
     sent = cookie.split(";")[0]
     code, data, _ = call(server, "POST", "/api/tasks", {"id": "t2", "status": "running"}, {"Cookie": sent})
     assert code == 200
-    code, data, _ = call(server, "POST", "/api/tasks", {"id": "t2", "status": "running"}, {"Cookie": f"basalt_control_{server}=nope"})
+    code, data, _ = call(server, "POST", "/api/tasks", {"id": "t2", "status": "running"}, {"Cookie": f"tadamoo_control_{server}=nope"})
     assert code == 403
-    code, data, _ = call(server, "POST", "/api/tasks", {"id": "t2", "status": "running"}, {"Cookie": f"basalt_control_{server + 1}={SECRET}"})
+    code, data, _ = call(server, "POST", "/api/tasks", {"id": "t2", "status": "running"}, {"Cookie": f"tadamoo_control_{server + 1}={SECRET}"})
     assert code == 403                                                                           # another server's cookie name
 
 
@@ -96,7 +96,7 @@ def test_a_program_on_this_pc_finds_the_secret_in_the_data_folder(server, tmp_pa
     (tmp_path / "data").mkdir(parents=True, exist_ok=True)
     (tmp_path / "data" / f"control-{server}.token").write_text(SECRET, encoding="ascii")
     h = control_secret.header_for(f"http://127.0.0.1:{server}")
-    assert h == {"X-Basalt-Control": SECRET}
+    assert h == {"X-Tadamoo-Control": SECRET}
     code, data, _ = call(server, "POST", "/api/tasks", {"id": "t4", "status": "running"}, h)
     assert code == 200
     assert control_secret.header_for("https://example.com") == {} and control_secret.header_for("http://192.168.1.5:7232") == {}

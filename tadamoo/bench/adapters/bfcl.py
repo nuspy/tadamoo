@@ -35,7 +35,7 @@ from .proc import LongRunner, long_runner
 ID = "bfcl-v4"
 PROJECT = "berkeley-function-call-leaderboard"
 VERSION = "BFCL_v4"
-REGISTRY_NAME = "basalt-local-FC"
+REGISTRY_NAME = "tadamoo-local-FC"
 LAUNCHER = Path(__file__).resolve().parent / "bfcl_assets" / "launcher.py"
 NON_LIVE = ("simple_python", "simple_java", "simple_javascript", "multiple", "parallel", "parallel_multiple", "irrelevance")
 LIVE = ("live_simple", "live_multiple", "live_parallel", "live_parallel_multiple", "live_irrelevance", "live_relevance")
@@ -254,8 +254,8 @@ class BfclAdapter:
 
     def environment(self, ctx: TrialContext, endpoint: str, served: str) -> Dict[str, str]:
         base = f"{endpoint}/v1"
-        return clean_env(self.environ, {"BFCL_PROJECT_ROOT": str(self.folder(ctx)), "OPENAI_API_KEY": LOCAL_KEY, "OPENAI_BASE_URL": base, "BASALT_BFCL_REGISTRY": REGISTRY_NAME,
-                                        "BASALT_BFCL_MODEL": served, "BASALT_BFCL_HOST": urlparse(endpoint).hostname or "", "UV_NO_PROGRESS": "1"})
+        return clean_env(self.environ, {"BFCL_PROJECT_ROOT": str(self.folder(ctx)), "OPENAI_API_KEY": LOCAL_KEY, "OPENAI_BASE_URL": base, "TADAMOO_BFCL_REGISTRY": REGISTRY_NAME,
+                                        "TADAMOO_BFCL_MODEL": served, "TADAMOO_BFCL_HOST": urlparse(endpoint).hostname or "", "UV_NO_PROGRESS": "1"})
 
     def command(self, source: Path, settings: Mapping[str, Any], *args: str) -> List[str]:
         return uv_argv(self.which) + ["run", "--project", str(project_of(source)), "--python", str(settings.get("python") or "3.12"), "python", str(LAUNCHER), *args]

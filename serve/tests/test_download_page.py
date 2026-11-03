@@ -50,7 +50,7 @@ class Page(unittest.TestCase):
 
     def test_the_picker_shows_the_catalogs_hint_and_the_styles_exist(self):
         _, _, models_js = self.get("/web/models.js")
-        for needle in ("BasaltCatalog", "rerender: render", "mdl-tip"):
+        for needle in ("TadamooCatalog", "rerender: render", "mdl-tip"):
             self.assertIn(needle, models_js)
         _, _, css = self.get("/web/app.css")
         for cls in (".lddownload", ".dl-body", ".dl-steps", ".dl-ack"):

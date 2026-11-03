@@ -194,7 +194,7 @@ def test_python_dash_m_harness_has_a_subcommand_for_the_editors_agent():
 @pytest.mark.skipif(sys.platform != "win32", reason="the launcher is a .cmd file")
 def test_the_basalt_agent_launcher_runs_from_any_folder(tmp_path):
     import subprocess
-    launcher = ROOT / "basalt-agent.cmd"
+    launcher = ROOT / "tadamoo-agent.cmd"
     assert launcher.read_bytes().count(b"\r\n") == launcher.read_bytes().count(b"\n")           # a batch file with Windows line ends
     out = subprocess.run(["cmd.exe", "/c", str(launcher), "--help"], cwd=tmp_path, capture_output=True, text=True, timeout=60)
     assert out.returncode == 0 and "--permission-mode" in out.stdout and "--prompt" in out.stdout

@@ -433,7 +433,7 @@ def run_harness_agent(instruction: str, exec_fn: ExecFn, *, endpoint: str, work_
     """Runs our headless agent on `instruction` with its tools acting in the container. The agent keeps its own loop, context handling, permission
     layer (at Auto: nobody is there to ask) and repeat guards; nothing of it is switched off for the benchmark. Returns when the agent stops."""
     from tadamoo import agent_loop as al
-    from tadamoo.client import BasaltClient
+    from tadamoo.client import TadamooClient
     from tadamoo.stack import AgentConfig, build_agent
     work_dir = Path(work_dir)
     workspace = work_dir / "host-workspace"                       # an empty folder: the agent builder needs one, and no tool looks at it
@@ -441,7 +441,7 @@ def run_harness_agent(instruction: str, exec_fn: ExecFn, *, endpoint: str, work_
     fixed = dict(workspace=str(workspace), data_dir=str(work_dir / "agent-data"), endpoint=endpoint, permission_mode="auto", use_memory=False,
                  use_checkpoints=False, unattended=True, report=False, lessons_dir=None)
     cfg = AgentConfig(**fixed, **{"max_seconds": max_seconds, "max_turns": max_turns, **dict(overrides or {})})
-    client = client or BasaltClient(base_url=endpoint)
+    client = client or TadamooClient(base_url=endpoint)
     client.call_timeout = None                                  # a model call has no time limit of its own: the loop guards and the number of steps end a task that goes nowhere
     built = build_agent(cfg, client=client)
     finished = threading.Event()

@@ -485,7 +485,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--relaunch-on-model-change", action="store_true",
                     help=f"when the Loader loads another model, save it and end with exit code {RELAUNCH_EXIT_CODE} so "
                          "the program that started the server starts it again with that model (the desktop app and "
-                         "Avvia-Basalt.ps1 do)")
+                         "Avvia-TaDaMoo.ps1 do)")
     ap.add_argument("--idle-unload", type=float, default=None, metavar="SECONDS",
                     help="unload the model after this many seconds without requests; the next request loads it again")
     for key, text in (

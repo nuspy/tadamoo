@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from typing import Any, Callable, Dict, List, Optional
 
-from tadamoo.client import BasaltError
+from tadamoo.client import TadamooError
 from tadamoo.transcript import clip, fit
 
 MEMBERS = ("council_1", "council_2", "council_3")
@@ -171,7 +171,7 @@ class Council:
                 try:
                     text = self._ask(function, system, body + (f"\n<debate>\n{said}\n</debate>" if said else ""), ANSWER_MAX)
                     entry = {"round": rnd, "member": function, "role": role["name"], **({"text": text} if text else {"error": "no answer"})}
-                except BasaltError as e:
+                except TadamooError as e:
                     entry = {"round": rnd, "member": function, "role": role["name"], "error": str(e)[:240]}
                 except Exception as e:                                          # one adviser failing must not end the council
                     entry = {"round": rnd, "member": function, "role": role["name"], "error": f"{type(e).__name__}: {e}"[:240]}

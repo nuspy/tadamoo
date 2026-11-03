@@ -70,7 +70,7 @@ vm.runInContext(fs.readFileSync(web + '/chat.js', 'utf8'), ctx);
     still = dollar('#stop').hidden === true && sent.length === last ? still + 1 : 0;
     last = sent.length;
   }
-  console.log(JSON.stringify({ sent, messages: JSON.parse(store['basalt.chat'] || '[]') }));
+  console.log(JSON.stringify({ sent, messages: JSON.parse(store['tadamoo.chat'] || '[]') }));
   process.exit(0);
 })();
 """

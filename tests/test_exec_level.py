@@ -12,7 +12,7 @@ from tadamoo.tools.shell import check_timeout, execute_shell_command
 from tadamoo.vault import Vault
 
 RUNTIMES = find_runtimes()
-PRINT_VAR = "import os\nprint(os.environ.get('BASALT_TEST_OUTER', 'absent'))"
+PRINT_VAR = "import os\nprint(os.environ.get('TADAMOO_TEST_OUTER', 'absent'))"
 
 
 @pytest.fixture(autouse=True)
@@ -60,8 +60,8 @@ def test_the_deny_list_stops_a_command_only_when_it_is_contained(tmp_path):
 
 
 def test_a_command_gets_the_whole_environment_only_when_it_runs_free(tmp_path, monkeypatch):
-    monkeypatch.setenv("BASALT_TEST_OUTER", "from-the-outside")
-    show = f'"{sys.executable}" -c "import os;print(os.environ.get(\'BASALT_TEST_OUTER\',\'absent\'))"'
+    monkeypatch.setenv("TADAMOO_TEST_OUTER", "from-the-outside")
+    show = f'"{sys.executable}" -c "import os;print(os.environ.get(\'TADAMOO_TEST_OUTER\',\'absent\'))"'
     assert execute_shell_command(show, tmp_path, timeout=30)["stdout"].strip() == "absent"
     level("free")
     assert execute_shell_command(show, tmp_path)["stdout"].strip() == "from-the-outside"
@@ -69,13 +69,13 @@ def test_a_command_gets_the_whole_environment_only_when_it_runs_free(tmp_path, m
 
 @pytest.mark.skipif("python" not in RUNTIMES, reason="no Python runtime")
 def test_a_program_runs_free_with_the_environment_and_the_vault_values_ready_and_without_a_time_limit(tmp_path, monkeypatch):
-    monkeypatch.setenv("BASALT_TEST_OUTER", "from-the-outside")
+    monkeypatch.setenv("TADAMOO_TEST_OUTER", "from-the-outside")
     vault = Vault(tmp_path / "v", key=bytes(range(32)))
     vault.put("mail", kind="login", label="mail", fields={"username": "me", "password": "pw-1234"}, hosts=["mail.example.com"])
     broker = SecretsBroker({"API": "token-xyz"})
     broker.vault = vault
-    assert broker.environment()["BASALT_VAULT_MAIL_PASSWORD"] == "pw-1234" and broker.environment()["BASALT_SECRET_API"] == "token-xyz"
-    code = "import os\nprint(os.environ.get('BASALT_TEST_OUTER','absent'), os.environ.get('BASALT_VAULT_MAIL_PASSWORD','none'))"
+    assert broker.environment()["TADAMOO_VAULT_MAIL_PASSWORD"] == "pw-1234" and broker.environment()["TADAMOO_SECRET_API"] == "token-xyz"
+    code = "import os\nprint(os.environ.get('TADAMOO_TEST_OUTER','absent'), os.environ.get('TADAMOO_VAULT_MAIL_PASSWORD','none'))"
     contained = run_code("python", code, tmp_path, RUNTIMES, broker=broker)
     assert contained["stdout"].strip() == "absent none"
     level("free")

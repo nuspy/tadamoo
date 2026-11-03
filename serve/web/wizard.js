@@ -79,7 +79,7 @@
   };
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const GB = n => n == null ? "—" : nfmt(n / 2 ** 30, 1);
-  const STEPS = 6, KEEP = "basalt.wizard";
+  const STEPS = 6, KEEP = "tadamoo.wizard";
   let W = null;            // {step, info, answers, touched, model, prop, measured, measureNote, offered}
 
   async function api(path, body) {
@@ -120,7 +120,7 @@
     const d = dialog();
     let kept = null;
     try { kept = JSON.parse(sessionStorage.getItem(KEEP) || "null"); } catch (e) { kept = null; }
-    W = kept && opts.resume ? kept : { step: 1, answers: {}, touched: {}, model: (window.BasaltModels && BasaltModels.selected()) || null,
+    W = kept && opts.resume ? kept : { step: 1, answers: {}, touched: {}, model: (window.TadamooModels && TadamooModels.selected()) || null,
       prop: null, measured: null, offered: !!opts.offered };
     $("#wz-h").textContent = t("title");
     $("#wz-x").textContent = t("close");
@@ -198,7 +198,7 @@
 
   /* ---- 3: the model ---- */
   function step3() {
-    const M = window.BasaltModels && BasaltModels.data();
+    const M = window.TadamooModels && TadamooModels.data();
     const ready = ((M && M.models) || []).filter(m => m.status === "ready");
     if (!ready.length) return `<h3>${esc(t("h3"))}</h3><p class="setnote warnnote">${esc(t("nomodel"))}</p>`;
     if (!W.model || !ready.some(m => same(m.path, W.model))) W.model = ready[0].path;
@@ -314,7 +314,7 @@
     const p = W.prop || { values: {} };
     return `<h3>${esc(t("h6"))}</h3>
       <p>${esc(t("left", nfmt((W.answers.free_share || 0.15) * 100, 0) + "%", nfmt((W.answers.vram_reserve_mib || 0) / 1024, 2), t("monitor." + (W.answers.monitor || "none"))))}</p>
-      <p class="help">${esc((window.BasaltModels && BasaltModels.name(W.model)) || "")} · ${esc(W.measured ? t("measured", nfmt(W.measured.decode, 0), nfmt(W.measured.decode_reasoning, 0), nfmt(W.measured.prefill, 0)) : t("skipped"))}</p>
+      <p class="help">${esc((window.TadamooModels && TadamooModels.name(W.model)) || "")} · ${esc(W.measured ? t("measured", nfmt(W.measured.decode, 0), nfmt(W.measured.decode_reasoning, 0), nfmt(W.measured.prefill, 0)) : t("skipped"))}</p>
       <div class="setactions"><button type="button" class="btn primary" data-wz="save" ${W.prop ? "" : "disabled"}>${esc(t("save"))}</button>
         <button type="button" class="btn" data-wz="use" hidden>${esc(t("use"))}</button></div>
       <p class="wz-res" id="wz-saved" role="status" aria-live="polite"></p>`;
@@ -340,16 +340,16 @@
     else if (el.id === "wz-share") { const v = Number(el.value) / 100; if (Number.isFinite(v) && v >= 0.05 && v <= 0.5) { W.answers.free_share = v; W.prop = null; } }
     else if (el.id === "wz-vram") { const v = Number(String(el.value).replace(",", ".")); if (Number.isFinite(v) && v >= 0) { W.answers.vram_reserve_mib = Math.round(v * 1024); W.touched.vram = true; W.prop = null; } }
     else if (el.id === "wz-model") { W.model = el.value; W.prop = null; if (W.step === 3) go(3); }
-    else if (el.id === "wz-never") { try { localStorage.setItem("basalt.wizard.skip", el.checked ? "1" : "0"); } catch (err) { /* asked again next time */ } }
+    else if (el.id === "wz-never") { try { localStorage.setItem("tadamoo.wizard.skip", el.checked ? "1" : "0"); } catch (err) { /* asked again next time */ } }
     if (W.step === 4 || !W.prop) { const next = $("#wz [data-wz=next]"); if (next && W.step === 4) next.disabled = !W.prop; }
     remember();
   }
 
-  window.BasaltWizard = {
+  window.TadamooWizard = {
     open,
     offer() {
       let skip = false;
-      try { skip = localStorage.getItem("basalt.wizard.skip") === "1"; } catch (e) { skip = false; }
+      try { skip = localStorage.getItem("tadamoo.wizard.skip") === "1"; } catch (e) { skip = false; }
       if (!skip) open({ offered: true });
     },
     resume() { open({ resume: true }); },

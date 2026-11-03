@@ -55,7 +55,7 @@ The rule that runs through it: whatever can be code is code (events, counters, f
 
 - **Outcome record** after every task, by code: result (done, stalled, abandoned, stopped, failed), steps, tokens, time, errors by tool, retries, loop strikes, gate rounds,
   compactions, whether the person corrected the agent. One JSON line in `outcomes.jsonl`.
-- **Lessons** in a readable Markdown file the person can open and edit, at two levels: `<project>/.basalt/lessons.md` (shareable with the project, can be git-ignored) and a
+- **Lessons** in a readable Markdown file the person can open and edit, at two levels: `<project>/.tadamoo/lessons.md` (shareable with the project, can be git-ignored) and a
   global file in the user data folder for lessons that hold everywhere. Each entry: when, the situation in a few words, what went wrong or worked, the fix, evidence (audit ids),
   how many times it was confirmed, scope (this project / everywhere).
 - **Captured by code** from events that already exist, not by asking the model to remember:

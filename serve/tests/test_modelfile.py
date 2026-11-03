@@ -25,7 +25,7 @@ class Tmp(unittest.TestCase):
         self.td = tempfile.TemporaryDirectory()
         self.addCleanup(self.td.cleanup)
         self.dir = Path(self.td.name)
-        patch = mock.patch.dict(os.environ, {"BASALT_CACHE": str(self.dir / "cache"), "BASALT_DATA": str(self.dir / "data")})
+        patch = mock.patch.dict(os.environ, {"TADAMOO_CACHE": str(self.dir / "cache"), "TADAMOO_DATA": str(self.dir / "data")})
         patch.start()
         self.addCleanup(patch.stop)
         self.engine_bin = self.dir / "bin" / "basalt"

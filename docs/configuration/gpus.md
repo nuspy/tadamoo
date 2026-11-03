@@ -101,5 +101,5 @@ it holds.
 ## The engine log
 
 The server writes the engine's output, the `basalt ...` lines the engine prints at start and while it runs, to
-`~/.cache/basalt/<id>/engine.log`, one folder per model file (`<id>` is 16 hex digits taken from the model file).
+`~/.cache/tadamoo/<id>/engine.log`, one folder per model file (`<id>` is 16 hex digits taken from the model file).
 `[server] engine log: PATH` names it when the engine stops. The `[server]` lines are the server's own and go to its terminal.

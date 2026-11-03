@@ -1,10 +1,10 @@
 """A client for each function: it asks the provider the function is pointed at, and falls back only to a route as local or more.
 
-`RoutedClient` has the same `chat_completion` as `BasaltClient`, so the agent's loop, the summaries and the judges use it
+`RoutedClient` has the same `chat_completion` as `TadamooClient`, so the agent's loop, the summaries and the judges use it
 without knowing where the words come from. With nothing assigned it IS the loaded model of this Basalt. With a provider
 assigned it speaks that provider's dialect (OpenAI-compatible, Anthropic, a command-line agent for text), translates the
 reasoning level, counts the tokens against the provider's daily cap and refuses, with the reason, what the registry's rules
-do not allow. Errors are the same `BasaltError`s the loop already knows how to retry.
+do not allow. Errors are the same `TadamooError`s the loop already knows how to retry.
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import requests
 
-from tadamoo.client import BasaltError, _collect_stream
+from tadamoo.client import TadamooError, _collect_stream
 from tadamoo import side_uses
 from tadamoo.llm import functions
 from tadamoo.llm.profile import RouteProfile, route_profile
@@ -27,7 +27,7 @@ DEFAULT_MAX_TOKENS = 4096
 THIS_SERVER_ONLY = ("end_turn_bias", "repetition_penalty", "cache_slot", "side_use")      # options only the loaded model's server understands (a sampling option, the slot a call runs in)
 
 
-class NotAllowed(BasaltError):
+class NotAllowed(TadamooError):
     """The route is not allowed (consent, a daily cap, a provider that cannot do the work): not worth trying again."""
 
     def __init__(self, message: str) -> None:
@@ -39,13 +39,13 @@ def _lines(resp: "requests.Response"):
         yield raw + b"\n"
 
 
-def _http_error(prov: Dict[str, Any], resp: "requests.Response") -> BasaltError:
+def _http_error(prov: Dict[str, Any], resp: "requests.Response") -> TadamooError:
     try:
         detail = resp.json().get("error", {})
         detail = detail.get("message") if isinstance(detail, dict) else str(detail)
     except ValueError:
         detail = ""
-    return BasaltError(resp.status_code, f"{prov.get('name') or prov.get('id')}: {detail or 'HTTP ' + str(resp.status_code)}")
+    return TadamooError(resp.status_code, f"{prov.get('name') or prov.get('id')}: {detail or 'HTTP ' + str(resp.status_code)}")
 
 
 # -- Anthropic: the messages and the tools in its own shape ----------------------------------------------------
@@ -253,7 +253,7 @@ class RoutedClient:
             spoken[0] = True
             on_delta(kind, text)
         stream = tell if on_delta is not None else None
-        failure: Optional[BasaltError] = None
+        failure: Optional[TadamooError] = None
         for n, pid in enumerate(chain):
             if pid and TYPES.get((self.registry._find(self.registry.load(), pid) or {}).get("type") or "", {}).get("this_server"):
                 pid = None                                   # "Basalt (this server)" is the loaded model, whatever the way it is named
@@ -271,7 +271,7 @@ class RoutedClient:
                                                       extra=extra, **({"on_delta": stream} if stream else {}))
                 self.last_provider = pid
                 return self._call_provider(pid, messages, tools, tool_choice, temperature, max_tokens, timeout, response_format, extra, stream)
-            except BasaltError as exc:
+            except TadamooError as exc:
                 failure = exc
                 if spoken[0] or n == len(chain) - 1:        # what was written cannot be taken back; and the last route has no other
                     raise
@@ -326,7 +326,7 @@ class RoutedClient:
         try:
             resp = self.http.post(base.rstrip("/") + "/chat/completions", data=json.dumps(body), headers=headers, timeout=timeout, stream=on_delta is not None)
         except requests.RequestException as exc:
-            raise BasaltError(0, f"cannot reach {prov.get('name') or pid}: {exc}") from None
+            raise TadamooError(0, f"cannot reach {prov.get('name') or pid}: {exc}") from None
         if resp.status_code >= 400:
             raise _http_error(prov, resp)
         result = _collect_stream(_lines(resp), on_delta) if on_delta is not None else resp.json()
@@ -368,7 +368,7 @@ class RoutedClient:
         try:
             return self.http.post(base.rstrip("/") + "/messages", data=json.dumps(body), headers=headers, timeout=timeout)
         except requests.RequestException as exc:
-            raise BasaltError(0, f"cannot reach {prov.get('name') or prov.get('id')}: {exc}") from None
+            raise TadamooError(0, f"cannot reach {prov.get('name') or prov.get('id')}: {exc}") from None
 
     def _cli(self, prov: Dict[str, Any], messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """A command-line agent writes text only: no tools, nothing streams."""
@@ -377,5 +377,5 @@ class RoutedClient:
         try:
             text = genera(TYPES[prov["type"]].get("agent") or prov["type"].replace("_cli", ""), prompt, model=prov.get("model", ""))
         except AgentError as exc:
-            raise BasaltError(503, str(exc)) from None
+            raise TadamooError(503, str(exc)) from None
         return {"choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}], "usage": {}}

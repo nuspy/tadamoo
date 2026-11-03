@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, TextIO
 
 from tadamoo import agent_loop as al
-from tadamoo.client import BasaltClient
+from tadamoo.client import TadamooClient
 from tadamoo.replay import infer_decision
 from tadamoo.session import SessionStore
 from tadamoo.stack import AgentConfig, BuiltAgent, add_agent_arguments, agent_settings, build_agent, data_dir_for
@@ -51,8 +51,8 @@ MODES = [
 ]
 INVALID_PARAMS, METHOD_NOT_FOUND, INVALID_REQUEST, PARSE_ERROR, SERVER_ERROR = -32602, -32601, -32600, -32700, -32000
 AUTH_REQUIRED = -32000
-AUTH_METHOD = {"id": "basalt_api_key", "name": "Basalt API key",
-               "description": "The Basalt server wants an API key. Start this agent with BASALT_API_KEY set (or --api-key), then authenticate."}
+AUTH_METHOD = {"id": "tadamoo_api_key", "name": "Basalt API key",
+               "description": "The Basalt server wants an API key. Start this agent with TADAMOO_API_KEY set (or --api-key), then authenticate."}
 SESSION_ID = re.compile(r"acp_[0-9a-f]{12}")
 SESSIONS_FOLDER = "acp_sessions"
 REPLAY_OUTPUT = 4000
@@ -78,7 +78,7 @@ class ACPAgentServer:
     def __init__(
         self,
         workspace_dir: str = ".",
-        client: Optional[BasaltClient] = None,
+        client: Optional[TadamooClient] = None,
         in_stream: Optional[TextIO] = None,
         out_stream: Optional[TextIO] = None,
         endpoint: str = "http://127.0.0.1:7232",
@@ -205,7 +205,7 @@ class ACPAgentServer:
 
     def _need_key(self) -> None:
         if self.key_needed:
-            raise _AuthRequired("Authentication required: the Basalt server wants an API key. Start this agent with BASALT_API_KEY set, then authenticate.")
+            raise _AuthRequired("Authentication required: the Basalt server wants an API key. Start this agent with TADAMOO_API_KEY set, then authenticate.")
 
     def _authenticate(self, params: Dict[str, Any]) -> Dict[str, Any]:
         if params.get("methodId") != AUTH_METHOD["id"]:
@@ -214,7 +214,7 @@ class ACPAgentServer:
         if status is None:
             raise RuntimeError(f"cannot reach the Basalt server at {self.endpoint}")
         if not self.api_key or status in (401, 403):
-            raise _AuthRequired("The Basalt server did not accept the API key (BASALT_API_KEY is not set or is wrong).")
+            raise _AuthRequired("The Basalt server did not accept the API key (TADAMOO_API_KEY is not set or is wrong).")
         self.key_needed = False
         return {}
 

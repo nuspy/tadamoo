@@ -39,7 +39,7 @@ def system(ram_gib=128, vram_gib=32, used_vram_gib=1.0, commit_used_gib=20, page
 class Isolated(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"BASALT_DATA": self.dir.name, "BASALT_CACHE": self.dir.name})
+        self.env = mock.patch.dict(os.environ, {"TADAMOO_DATA": self.dir.name, "TADAMOO_CACHE": self.dir.name})
         self.env.start()
 
     def tearDown(self):
@@ -71,13 +71,13 @@ class Monitor(unittest.TestCase):
         self.assertEqual(hardware.monitor_on({"name": None}, None)["where"], "unknown")    # no NVML
 
     def test_the_fake_readings(self):
-        env = {"BASALT_FAKE_SYSTEM_OK": "1", "BASALT_FAKE_DISPLAYS": json.dumps([INTEL, NVIDIA]),
-               "BASALT_FAKE_GPU": json.dumps({**BLACKWELL, "display_active": True}),
-               "BASALT_FAKE_PAGEFILE": json.dumps({"automatic": True, "files": [{"name": "C:\\pagefile.sys"}]})}
+        env = {"TADAMOO_FAKE_SYSTEM_OK": "1", "TADAMOO_FAKE_DISPLAYS": json.dumps([INTEL, NVIDIA]),
+               "TADAMOO_FAKE_GPU": json.dumps({**BLACKWELL, "display_active": True}),
+               "TADAMOO_FAKE_PAGEFILE": json.dumps({"automatic": True, "files": [{"name": "C:\\pagefile.sys"}]})}
         with mock.patch.dict(os.environ, env):
             self.assertEqual(hardware.monitor_on(hardware.gpu(), hardware.displays())["where"], "secondary")
             self.assertTrue(hardware.page_file()["automatic"])
-        with mock.patch.dict(os.environ, {"BASALT_FAKE_SYSTEM_OK": "1", "BASALT_FAKE_GPU": "null"}):
+        with mock.patch.dict(os.environ, {"TADAMOO_FAKE_SYSTEM_OK": "1", "TADAMOO_FAKE_GPU": "null"}):
             self.assertIsNone(hardware.gpu()["name"])
             self.assertIn("Nessuna GPU NVIDIA", hardware.gpu_warning(hardware.gpu(), "it"))
 
@@ -156,8 +156,8 @@ class Proposals(Isolated):
         self.assertEqual(p["values"]["engine.vram-reserve-mib"], 4096)
 
     def test_a_card_that_is_not_blackwell_and_no_nvml(self):
-        with mock.patch.dict(os.environ, {"BASALT_FAKE_SYSTEM_OK": "1",
-                                          "BASALT_FAKE_GPU": json.dumps({"name": "NVIDIA GeForce RTX 4090",
+        with mock.patch.dict(os.environ, {"TADAMOO_FAKE_SYSTEM_OK": "1",
+                                          "TADAMOO_FAKE_GPU": json.dumps({"name": "NVIDIA GeForce RTX 4090",
                                                                          "cc": [8, 9]})}):
             self.assertIn("non è supportata", hardware.gpu_warning(hardware.gpu(), "it"))
         unknown = {**system(), "vram_total": None, "vram_free": None}
@@ -215,7 +215,7 @@ def make_service():
 class Measure(Isolated):
     def setUp(self):
         super().setUp()
-        self.cfg = Path(self.dir.name) / "basalt_config.json"
+        self.cfg = Path(self.dir.name) / "tadamoo_config.json"
         self.cfg.write_text(json.dumps({"server": {"port": 7286}, "engine": {"max-context": 4096}}), encoding="utf-8")
         self.svc = make_service()
         self.svc.settings_info = {"config": str(self.cfg), "model": None, "cli": [], "running": {}}
@@ -280,7 +280,7 @@ class OverHttp(Isolated):
         super().setUp()
         root = Path(self.dir.name)
         self.model = tiny_basalt(root / "a.basalt", "A")
-        self.cfg = root / "basalt_config.json"
+        self.cfg = root / "tadamoo_config.json"
         self.cfg.write_text(json.dumps({"server": {"model": str(self.model), "port": 7287}}), encoding="utf-8")
         self.svc = make_service()
         self.svc.standby = True
@@ -289,10 +289,10 @@ class OverHttp(Isolated):
         self.sup = self.svc.supervisor = supervisor.Supervisor(self.svc, ["--mock-engine", "--config", str(self.cfg)],
                                                                mock=True)
         self.sup.mock_delay = 0.05
-        env = {"BASALT_FAKE_SYSTEM_OK": "1", "BASALT_FAKE_SYSTEM": json.dumps(system()),
-               "BASALT_FAKE_GPU": json.dumps({**BLACKWELL, "display_active": True}),
-               "BASALT_FAKE_DISPLAYS": json.dumps([INTEL, NVIDIA]), "BASALT_FAKE_CPU": json.dumps(HYBRID),
-               "BASALT_FAKE_PAGEFILE": json.dumps({"automatic": False, "files": []})}
+        env = {"TADAMOO_FAKE_SYSTEM_OK": "1", "TADAMOO_FAKE_SYSTEM": json.dumps(system()),
+               "TADAMOO_FAKE_GPU": json.dumps({**BLACKWELL, "display_active": True}),
+               "TADAMOO_FAKE_DISPLAYS": json.dumps([INTEL, NVIDIA]), "TADAMOO_FAKE_CPU": json.dumps(HYBRID),
+               "TADAMOO_FAKE_PAGEFILE": json.dumps({"automatic": False, "files": []})}
         self.fake = mock.patch.dict(os.environ, env)
         self.fake.start()
         self.httpd = serve(self.svc, port=0)
@@ -394,9 +394,9 @@ class RealMemory(Isolated):
 
 class Cli(Isolated):
     def test_without_questions(self):
-        env = {"BASALT_FAKE_SYSTEM_OK": "1", "BASALT_FAKE_SYSTEM": json.dumps(system()),
-               "BASALT_FAKE_GPU": json.dumps(BLACKWELL), "BASALT_FAKE_DISPLAYS": json.dumps([INTEL, NVIDIA]),
-               "BASALT_FAKE_CPU": json.dumps(HYBRID), "BASALT_FAKE_PAGEFILE": json.dumps({"files": []})}
+        env = {"TADAMOO_FAKE_SYSTEM_OK": "1", "TADAMOO_FAKE_SYSTEM": json.dumps(system()),
+               "TADAMOO_FAKE_GPU": json.dumps(BLACKWELL), "TADAMOO_FAKE_DISPLAYS": json.dumps([INTEL, NVIDIA]),
+               "TADAMOO_FAKE_CPU": json.dumps(HYBRID), "TADAMOO_FAKE_PAGEFILE": json.dumps({"files": []})}
         out = io.StringIO()
         with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(out):
             code = loader.main(["wizard", "--json", "--free-share", "0.2", "--save", "--port", "7240"])
