@@ -375,7 +375,7 @@ def stop_name(stop_reason: str, error: str, timed_out: bool = False) -> str:
 
 
 _SERVER_FAULT = re.compile(r"cannot reach the basalt server|the answer stopped before it was complete|the engine reported an error|connection (?:refused|reset)|"
-                           r"remote end closed|bad gateway|service unavailable", re.I)
+                           r"remote end closed|bad gateway|service unavailable|layer \d+ never rang|illegal memory access", re.I)
 
 
 def is_server_fault(outcome: "AgentOutcome") -> bool:

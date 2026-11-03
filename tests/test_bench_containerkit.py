@@ -184,6 +184,7 @@ def test_the_local_engine_is_the_only_model_address():
 
 def test_server_faults_are_told_from_the_agent_failing():
     assert ck.is_server_fault(AgentOutcome(stop_reason="error", error="cannot reach the Basalt server at http://127.0.0.1:7232: refused"))
+    assert ck.is_server_fault(AgentOutcome(stop_reason="error", error="verify: layer 2 never rang (an illegal memory access was encountered)"))
     assert not ck.is_server_fault(AgentOutcome(stop_reason="error", error="maximum context length exceeded"))
     assert not ck.is_server_fault(AgentOutcome(stop_reason="final"))
 
