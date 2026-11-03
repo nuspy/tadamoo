@@ -21,7 +21,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 from harness.bench.runner import SETTINGS, Key, TrialContext, TrialResult, read_json
 
-from .containerkit import agent_overrides, local_endpoint
+from .containerkit import agent_overrides, guidance_of, local_endpoint
 from .proc import STALLED, LongRunner, dump_stacks, long_runner
 
 ID = "terminal-bench-2"
@@ -199,6 +199,7 @@ class TerminalBenchAdapter:
     def plan(self, settings: Mapping[str, Any], bench_dir: Path) -> List[Key]:
         subset = str(settings.get("subset") or "smoke")
         trials = int(settings.get("trials") or (FULL_TRIALS if subset == "full" else 1))
+        guidance_of(settings)                                        # a name that is not guidance is refused before the first trial
         return [(task, rep) for task in select_tasks(source_of(bench_dir), subset, settings) for rep in range(1, trials + 1)]
 
     def _agent(self, settings: Mapping[str, Any]) -> str:
@@ -219,7 +220,8 @@ class TerminalBenchAdapter:
         else:
             agent_file = ctx.trial_dir / "agent-settings.json"
             budget = max(REPORT_MARGIN_S, read_task_meta(task_dir)["agent_timeout"] - REPORT_MARGIN_S)
-            agent_file.write_text(json.dumps({"endpoint": endpoint, "overrides": agent_overrides(settings), "arm": "harness", "max_seconds": budget}), encoding="utf-8")
+            agent_file.write_text(json.dumps({"endpoint": endpoint, "overrides": agent_overrides(settings), "guidance": guidance_of(settings), "arm": "harness",
+                                              "max_seconds": budget}), encoding="utf-8")
             argv += ["-a", AGENT_PATH, "--ak", f"settings_file={agent_file.as_posix()}"]
         return argv, jobs, job
 
