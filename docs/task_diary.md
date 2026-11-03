@@ -3,6 +3,13 @@
 Ultimo aggiornamento: 1 novembre 2026, mattina. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «In corso adesso» e da «Decisioni tue in attesa».
 
+## Decisioni del 3 novembre pomeriggio (rinomina)
+
+- Tutto ciò che è dell'Harness si chiama TaDaMoo, nel codice e nei file; ciò che è del motore e del loader resta Basalt. Fatto sul ramo `rename/tadamoo` (ultimo commit `7ab38cf4`).
+- I preset della chat devono stare in file JSON, non nel WebView, e si esportano e importano copiando il file a mano, senza funzioni automatiche. Da fare.
+- In una versione futura l'installazione sarà solo dell'Harness, e durante l'installazione si chiederà se installare anche il motore Basalt-Plus. Per ora non si fa. Intanto si separa bene l'Harness dal motore e dal loader.
+- La priorità adesso sono i benchmark. Il livello di ragionamento scelto in automatico per ogni passo non è ancora fatto: oggi il livello è uno per tutta la sessione, con un solo ritocco automatico (dopo una risposta vuota la chiamata dopo scende di un livello).
+
 ## Decisioni tue su E9 e sulla compattazione (1 novembre, sera)
 
 - Le sessioni tecniche sono usa e getta (una o due chiamate): non compattano mai; se si riempiono, si apre una sessione nuova e si ripete la domanda. La compattazione riguarda solo le sessioni normali, chat e agente di codice.
