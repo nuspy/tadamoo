@@ -20,7 +20,7 @@ class Where(unittest.TestCase):
                          Path("C:/Users/u/AppData/Roaming/TaDaMoo"))
         self.assertEqual(Path(d("nt", "win32", {}, "C:/Users/u")), Path("C:/Users/u/AppData/Roaming/TaDaMoo"))
         self.assertEqual(d("posix", "linux", {}, "/home/u"), "/home/u/.local/share/tadamoo")
-        self.assertEqual(d("posix", "linux", {"XDG_DATA_HOME": "/xdg"}, "/home/u"), "/xdg/basalt")
+        self.assertEqual(d("posix", "linux", {"XDG_DATA_HOME": "/xdg"}, "/home/u"), "/xdg/tadamoo")
         self.assertEqual(d("posix", "darwin", {}, "/Users/u"), "/Users/u/Library/Application Support/TaDaMoo")
         self.assertEqual(d("nt", "win32", {"TADAMOO_DATA": "D:/b", "APPDATA": "C:/x"}, "C:/Users/u"), "D:/b")
 
