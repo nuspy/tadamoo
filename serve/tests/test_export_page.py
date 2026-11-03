@@ -62,7 +62,7 @@ class MarkupTest(unittest.TestCase):
         for match in re.finditer(r"localStorage\.(get|set)Item", JS):
             before = JS[:match.start()]
             self.assertGreater(before.rfind("try {"), before.rfind("}"), "localStorage used outside try/catch")
-        self.assertIn("basalt.export", JS)
+        self.assertIn("tadamoo.export", JS)
 
     def test_the_window_is_a_labelled_dialog_that_returns_the_focus(self):
         for needle in ('mk("dialog"', "aria-labelledby", "aria-describedby", "showModal()", 'addEventListener("close"', "trigger.focus()", 'setAttribute("role", "status")',

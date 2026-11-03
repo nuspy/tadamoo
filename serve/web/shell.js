@@ -198,5 +198,5 @@
     checkModel();
     noticeTimer = setInterval(() => { if (!document.hidden) checkModel(); }, 5000);
   });
-  document.addEventListener("basalt:view", () => { checkModel(); });
+  document.addEventListener("tadamoo:view", () => { checkModel(); });
 })();

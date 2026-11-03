@@ -452,12 +452,12 @@
     viewTimer = setInterval(() => { if (document.body.dataset.view === "security" && !document.hidden) refresh(false); }, VIEW_MS);
   }
 
-  document.addEventListener("basalt:view", e => {
+  document.addEventListener("tadamoo:view", e => {
     if (e.detail !== "security") return;
     if (!built) build();
     refresh(true);
   });
-  document.addEventListener("basalt:lang", () => { if (built) { build(); paintStatus(); paintEvents(true); paintExceptions(); } });
+  document.addEventListener("tadamoo:lang", () => { if (built) { build(); paintStatus(); paintEvents(true); paintExceptions(); } });
   window.nwKit = { el, call, btn, say, field, checkRow, chip, when, num };       // the exfiltration test section (canary.js) builds on these
   startTimers();
   pollAlerts();

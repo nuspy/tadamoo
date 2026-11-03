@@ -7,7 +7,7 @@
 (() => {
   const dlg = document.getElementById("target-dlg"), openBtn = document.getElementById("target-open");
   if (!dlg || !openBtn) return;
-  const DRAFT = "basalt.target.draft", OPTS = "basalt.target.options", FAST_MS = 1200, SLOW_MS = 4000, FORGET_MS = 4000;
+  const DRAFT = "tadamoo.target.draft", OPTS = "tadamoo.target.options", FAST_MS = 1200, SLOW_MS = 4000, FORGET_MS = 4000;
   const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick, tip) => { const b = mk("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; if (tip) b.title = tip; return b; };
   const load = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
@@ -81,7 +81,7 @@
     const running = targets.some(t => t.state === "running");
     timer = setTimeout(() => refresh(deferred), running ? FAST_MS : SLOW_MS);
   }
-  document.addEventListener("basalt:target", () => { if (dlg.open) refresh(false); });
+  document.addEventListener("tadamoo:target", () => { if (dlg.open) refresh(false); });
 
   /* ---- the history ---- */
   function paintHistory() {

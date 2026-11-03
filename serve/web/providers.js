@@ -241,7 +241,7 @@
     panel.replaceChildren(noteEl, top, functionsTable(), councilSection(), providersSection());
   }
 
-  document.addEventListener("basalt:view", e => { if (e.detail === "loader" && !panel.hidden) refresh(); });
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "loader" && !panel.hidden) refresh(); });
   applyT(view.querySelector(".subtabs"));
   const saved = load(SUB_KEY, "qwen");
   sub(["providers", "converter", "llamacpp"].includes(saved) ? saved : "qwen");

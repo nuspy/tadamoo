@@ -95,9 +95,9 @@
   }
 
   document.querySelectorAll(".po[data-po]").forEach(el => hosts.push(el));
-  document.addEventListener("basalt:lang", paint);
-  document.addEventListener("basalt:view", () => { if (!loaded) load(); else refresh(); });
-  document.addEventListener("basalt:key", () => refresh(true));
+  document.addEventListener("tadamoo:lang", paint);
+  document.addEventListener("tadamoo:view", () => { if (!loaded) load(); else refresh(); });
+  document.addEventListener("tadamoo:key", () => refresh(true));
   document.addEventListener("basalt:loader", () => refresh(true));      // the Loader finished a load: the technical session may have come or gone
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 

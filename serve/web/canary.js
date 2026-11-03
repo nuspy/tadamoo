@@ -445,8 +445,8 @@
     refresh(true);
   }
 
-  document.addEventListener("basalt:view", e => { if (e.detail === "security") enter(); });
-  document.addEventListener("basalt:lang", () => { if (built) { build(); refresh(true); } });
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "security") enter(); });
+  document.addEventListener("tadamoo:lang", () => { if (built) { build(); refresh(true); } });
   setInterval(() => { if (document.body.dataset.view === "security" && !document.hidden) { attach(); refresh(false); } }, POLL_MS);
   if (document.body.dataset.view === "security") enter();
 })();

@@ -78,14 +78,14 @@ const notes = () => log.notes.splice(0).map(n => n.text);
   slash.run("/stop"); out.stopped = log.stopped;
   slash.run("/plans"); out.hash = ctx.location.hash;
   // skills are found when the chat view opens; a command of the same name as a built-in wins
-  ctx.document.dispatchEvent({ type: "basalt:view", detail: "chat" });
+  ctx.document.dispatchEvent({ type: "tadamoo:view", detail: "chat" });
   await new Promise(r => setTimeout(r, 5));
   out.candidates = slash.candidates("de").map(c => c.name);
   out.skillMenu = slash.candidates("").filter(c => c.kind === "skill").map(c => [c.name, !!c.pending]);
   out.skillRun = [slash.run("/deploy to staging"), slash.run("/draft"), log.sent.splice(0), notes()];
   out.rank = [slash.candidates("rev").map(c => c.name), slash.candidates("sec").map(c => c.name), slash.candidates("zzzz").length];
   // what the process answers is drawn as text
-  const answer = (name, data, ok = true) => { ctx.document.dispatchEvent({ type: "basalt:command", detail: { name, ok, data, error: ok ? "" : "boom" } }); return notes(); };
+  const answer = (name, data, ok = true) => { ctx.document.dispatchEvent({ type: "tadamoo:command", detail: { name, ok, data, error: ok ? "" : "boom" } }); return notes(); };
   out.status = answer("status", { mode: "plan", effort: "low", turns: 3, tokens: 1200, window: 32768, share: 0.037, messages: 7, tools: 30, memories: 2, mcp_servers: 1, model_tokens: 9000 });
   out.compact = [answer("compact", { done: true, before: 9000, after: 3000 }), answer("compact", { done: false, reason: "busy" }), answer("compact", { done: false, reason: "short", tokens: 55 })];
   out.mcp = [answer("mcp", { servers: [] }), answer("mcp", { servers: [{ name: "a", tools: 3, error: "" }, { name: "b", tools: 0, error: "no start" }] })];

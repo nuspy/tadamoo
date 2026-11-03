@@ -355,7 +355,7 @@
     await load();
     schedule();
   }
-  document.addEventListener("basalt:view", e => { if (e.detail === "cron") enter(); else clearTimeout(timer); });
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "cron") enter(); else clearTimeout(timer); });
   document.addEventListener("visibilitychange", schedule);
   if (document.body.dataset.view === "cron") enter();
 })();

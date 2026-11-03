@@ -80,12 +80,12 @@
     status(r.ok && got ? T("priv.forgot", got.chunks, got.notes, got.queued) : errText(r, r.json));
   };
 
-  document.addEventListener("basalt:chat-state", () => {
+  document.addEventListener("tadamoo:chat-state", () => {
     const sid = current();
     if (sid !== lastSid) { if (sid) waiting = false; lastSid = sid; armed = false; }       // a conversation now exists, or another was opened
     paint();
   });
-  document.addEventListener("basalt:lang", paint);
+  document.addEventListener("tadamoo:lang", paint);
   window.privacy = { pending: () => waiting && !current() };
   paint();
 })();

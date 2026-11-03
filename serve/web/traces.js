@@ -164,5 +164,5 @@
 
   applyT(el("tr-switch"));
   applyT(el("tr"));
-  document.addEventListener("basalt:lang", () => { applyT(el("tr-switch")); applyT(el("tr")); if (S.loaded) paintList(); });
+  document.addEventListener("tadamoo:lang", () => { applyT(el("tr-switch")); applyT(el("tr")); if (S.loaded) paintList(); });
 })();

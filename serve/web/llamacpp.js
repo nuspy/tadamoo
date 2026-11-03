@@ -177,6 +177,6 @@
   document.addEventListener("basalt:models-sub", e => {
     if (e.detail === "llamacpp") { refresh().then(poll); } else clearInterval(timer);
   });
-  document.addEventListener("basalt:lang", () => { if (built) { ui.filled = false; build(); paint(); paintPlan(); } });
+  document.addEventListener("tadamoo:lang", () => { if (built) { ui.filled = false; build(); paint(); paintPlan(); } });
   if (!panel.hidden) refresh().then(poll);
 })();

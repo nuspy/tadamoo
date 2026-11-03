@@ -22,7 +22,7 @@
   let chatNotes = {};
   const readNotes = d => { chatNotes = (d && d.chat_notes) || {}; };
   fetch("api/gate", { cache: "no-store", headers: authHeaders() }).then(r => (r.ok ? r.json() : null)).then(readNotes).catch(() => { /* no notes shown */ });
-  document.addEventListener("basalt:gate", e => readNotes(e.detail));
+  document.addEventListener("tadamoo:gate", e => readNotes(e.detail));
   const noteOn = k => chatNotes[k] === true;
   const load = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } };
   const keep = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* this page only */ } };
@@ -129,7 +129,7 @@
     paintFolder();
     paintChip();
     paintLive();
-    document.dispatchEvent(new Event("basalt:chat-state"));                    // the privacy buttons follow the open conversation
+    document.dispatchEvent(new Event("tadamoo:chat-state"));                    // the privacy buttons follow the open conversation
     if (window.codingUi) window.codingUi.refresh();
     const on = active();
     if (!on) return;
@@ -255,18 +255,18 @@
     status(T("ch.branch.done"));
   }
   $("#branch-chat").onclick = () => branch();
-  document.addEventListener("basalt:chatset", () => setControls());
+  document.addEventListener("tadamoo:chatset", () => setControls());
   /* the steps one answer may take and the end-of-turn bias are read from the panel when a conversation starts; a change made in the panel
      afterwards is sent to the open conversation (it is compared with the panel's own earlier value, not with the conversation's) */
   let panelWas = JSON.stringify(chatSettings.live()), panelTimer = 0;
-  document.addEventListener("basalt:chatset-settled", () => { panelWas = JSON.stringify(chatSettings.live()); });
+  document.addEventListener("tadamoo:chatset-settled", () => { panelWas = JSON.stringify(chatSettings.live()); });
   function paintLive() {
     const el = $("#cs-live"), on = active() && !!sid && !!rec && rec.max_turns !== undefined;
     if (!el) return;
     el.hidden = !on;
     if (on) el.textContent = T("cs.live", rec.max_turns > 0 ? rec.max_turns : T("cs.live.none"), rec.end_turn_bias || 0);
   }
-  document.addEventListener("basalt:chatset", () => {
+  document.addEventListener("tadamoo:chatset", () => {
     clearTimeout(panelTimer);
     panelTimer = setTimeout(async () => {
       const now = chatSettings.live(), before = JSON.parse(panelWas);
@@ -393,12 +393,12 @@
         if ("end_turn_bias" in e) noteItem({ s: T("ch.settings.bias", e.end_turn_bias || 0) });
         paintLive();
         break;
-      case "command": document.dispatchEvent(new CustomEvent("basalt:command", { detail: e })); break;
+      case "command": document.dispatchEvent(new CustomEvent("tadamoo:command", { detail: e })); break;
       case "target": {                                                         // the Target Loop (target.js) tells how it goes
         const n = e.what, args = { planned: [e.criteria, e.tasks], task: [e.n, e.of, e.title], pass: [e.n, e.achieved, e.total], fix: [e.tasks], approach: [e.tasks],
           achieved: [e.achieved], blocked: [e.achieved, e.total], stopped: [e.achieved, e.total] }[n];
         if (args) noteItem({ s: T("tg.note." + n, ...args) });
-        document.dispatchEvent(new CustomEvent("basalt:target", { detail: e }));
+        document.dispatchEvent(new CustomEvent("tadamoo:target", { detail: e }));
         break;
       }
       case "dropped": started(e.turn); noteItem({ s: T("ch.dropped") }); break;
@@ -1196,7 +1196,7 @@
   /* ---- the conversation's own copy of the folder: what it changed waits here until the person applies it ---- */
   const copyBar = $("#acopy"), copyText = $("#acopy-text"), copyOpen = $("#acopy-open"), copyPanel = $("#acopy-panel");
   /* pictures and charts: each is switched on by its own box and asked for at a level; they apply to the next new conversation */
-  const VIS_KEY = "basalt.visuals";
+  const VIS_KEY = "tadamoo.visuals";
   const vis = { imgOn: $("#cs-img-on"), imgLevel: $("#cs-img-level"), chartOn: $("#cs-chart-on"), chartLevel: $("#cs-chart-level") };
   (() => {
     let saved = {};
@@ -1298,7 +1298,7 @@
     const files = pend.filter(f => f.id);
     const r = await api("POST", `/${sid}/send`, { text, ...(files.length ? { attachments: files.map(f => f.id) } : {}) });
     if (!r.ok) { status(errText(r)); window.chatUi.setPrompt(text); return; }
-    document.dispatchEvent(new CustomEvent("basalt:sent", { detail: { text } }));
+    document.dispatchEvent(new CustomEvent("tadamoo:sent", { detail: { text } }));
     clearChips();
     pend = []; drawPend();
     state = "busy"; busyNow = true; status(T("ch.working")); setControls(); poll(true);
@@ -1309,7 +1309,7 @@
     const r = await api("POST", `/${sid}/send`, { text, optimize: false });
     if (!r.ok) { status(errText(r)); return; }
     if (button) button.disabled = true;
-    document.dispatchEvent(new CustomEvent("basalt:sent", { detail: { text } }));
+    document.dispatchEvent(new CustomEvent("tadamoo:sent", { detail: { text } }));
     clearChips();
     state = "busy"; busyNow = true; status(T("ch.working")); setControls(); poll(true);
   }
@@ -1390,7 +1390,7 @@
     if (active() && last && known.some(x => x.id === last && inContext(x))) openSession(last);
   }
   window.agentProjects.onChange(list => { projects = list; paintList(); setControls(); });
-  document.addEventListener("basalt:view", e => { if (e.detail === "chat" || e.detail === "agent") { enterContext().then(() => { refreshList(); poll(true); }); } });
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "chat" || e.detail === "agent") { enterContext().then(() => { refreshList(); poll(true); }); } });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(true); });
 
   /* ---- what the slash commands (slash.js) use ---- */
@@ -1443,7 +1443,7 @@
     perm: { now: permNow, set: setPerm, cycle: cyclePerm, available: () => active() && mode !== "ask", modes: PERM_CYCLE },
     sessions: () => known.filter(s => s.state !== "closed" && inContext(s)).map(s => ({ id: s.id, label: `${s.title || s.id} \u00B7 ${T("ch.state." + s.state)}` })), open: openSession, branch, hasCopy: () => !!(rec && rec.worktree),
     toggleCopy: () => copyOpen.click() };
-  document.addEventListener("basalt:open-session", async e => {      // the tree of branches opens a conversation here
+  document.addEventListener("tadamoo:open-session", async e => {      // the tree of branches opens a conversation here
     const id = e.detail && e.detail.id;
     if (!id) return;
     await refreshList();

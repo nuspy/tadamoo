@@ -773,8 +773,8 @@
     if (b.dataset.act === "load") load(readForm(), "#ld-side", "loader", undefined, b.dataset.force === "1");
     if (b.dataset.act === "calibrate") calibrate();
   });
-  document.addEventListener("basalt:view", e => { if (e.detail === "loader" || e.detail === "settings") refresh(); });
-  document.addEventListener("basalt:key", () => { if (viewOn === "loader" || viewOn === "settings") refresh(); });
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "loader" || e.detail === "settings") refresh(); });
+  document.addEventListener("tadamoo:key", () => { if (viewOn === "loader" || viewOn === "settings") refresh(); });
   applyT($("#view-loader"));
   $("#ld-models").setAttribute("aria-label", T("ld.model"));
   if (viewOn === "loader" || viewOn === "settings") refresh();

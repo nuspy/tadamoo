@@ -22,7 +22,7 @@ import uuid
 
 from serve.frontend import Event, _late_system_to_user, _parts_of, effort_kwargs, stable_tool_order
 
-ENCRYPTED_PREFIX = "basalt.r1:"                   # our own reasoning replay strings; others' are ignored
+ENCRYPTED_PREFIX = "tadamoo.r1:"                   # our own reasoning replay strings; others' are ignored
 HOSTED_TOOLS = ("web_search", "web_search_preview", "file_search", "computer_use_preview", "computer_use",
                 "code_interpreter", "image_generation", "local_shell", "mcp", "tool_search")
 

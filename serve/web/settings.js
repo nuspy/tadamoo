@@ -59,7 +59,7 @@
     try {
       const p = await postPrefs({ free_share: n / 100 });
       msg(out, T("st.share.saved", nfmt(p.free_share.value * 100, 0) + "%"), "ok");
-      document.dispatchEvent(new CustomEvent("basalt:prefs"));
+      document.dispatchEvent(new CustomEvent("tadamoo:prefs"));
     } catch (err) { msg(out, T("st.share.fail", err.message), "err"); }
   });
 
@@ -68,6 +68,6 @@
     try { localStorage.setItem("tadamoo.wizard.skip", e.target.checked ? "0" : "1"); } catch (err) { /* asked again */ }
   });
 
-  document.addEventListener("basalt:view", e => { if (e.detail === "settings") refresh(); });
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "settings") refresh(); });
   if (viewOn === "settings") refresh();
 })();

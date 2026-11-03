@@ -42,7 +42,7 @@ class StepsPageTest(unittest.TestCase):
         self.assertIn("...chatSettings.live()", CHAT)
         self.assertNotIn("chatSettings.body().end_turn_bias", CHAT)
         self.assertIn("`/${sid}/settings`", CHAT)
-        self.assertIn('document.addEventListener("basalt:chatset-settled"', CHAT)       # the panel's own starting values are not a change by the person
+        self.assertIn('document.addEventListener("tadamoo:chatset-settled"', CHAT)       # the panel's own starting values are not a change by the person
 
     def test_the_limit_is_said_with_a_button_to_go_on_and_the_other_stops_have_a_line(self):
         self.assertIn('["max_turns", "budget", "loop", "length"].includes(kind)', CHAT)

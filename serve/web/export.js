@@ -3,7 +3,7 @@
    and the file name; the server (api/export) makes the file and the system's "Save as" window lets the person choose the folder.
    The page sends only what was ticked. Everything shown comes in as text; nothing is built as markup. */
 (() => {
-  const KEY = "basalt.export";
+  const KEY = "tadamoo.export";
   const FORMATS = ["docx", "md", "pdf", "html", "odt"];
   const KINDS = ["prompts", "reasoning", "actions", "answers"];
   const DEFAULTS = { prompts: true, reasoning: false, actions: false, answers: true, format: "docx" };
@@ -296,7 +296,7 @@
   }
 
   /* ---- one message: "Save as file" beside Copy. Only the person's click opens it; the text goes through the same route as the export ---- */
-  const MESSAGE_KEY = "basalt.export.message";
+  const MESSAGE_KEY = "tadamoo.export.message";
   const loadFormat = () => { try { const f = JSON.parse(localStorage.getItem(MESSAGE_KEY) || "{}").format; return FORMATS.includes(f) ? f : "md"; } catch (e) { return "md"; } };
   const keepFormat = format => { try { localStorage.setItem(MESSAGE_KEY, JSON.stringify({ format })); } catch (e) { /* this page only */ } };
   const headingOf = text => {

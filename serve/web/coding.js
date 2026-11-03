@@ -148,14 +148,14 @@
   go.onclick = async () => { if (await setRole(codingRole, true)) chat().send(T("cd.go.text")); };
   bug.onclick = async () => { bugText = ""; await setRole("debug"); };
   const FAULT = /\b(error|errors|exception|traceback|stack ?trace|bug|crash(es|ed)?|fails?|failing|failed|broken|doesn'?t work|not working|regression)\b|\b(errore|eccezione|non funziona|si blocca|rotto|fallisce|fallito|guasto)\b/i;
-  document.addEventListener("basalt:sent", e => {
+  document.addEventListener("tadamoo:sent", e => {
     const text = e.detail && e.detail.text;
     bugText = (typeof text === "string" && roleNow() === codingRole && FAULT.test(text)) ? text : "";
     refresh();
   });
 
   window.codingUi = { refresh, role: roleNow, defaultRole: () => codingRole };
-  document.addEventListener("basalt:view", () => { view = null; viewFolder = ""; refresh(); });
+  document.addEventListener("tadamoo:view", () => { view = null; viewFolder = ""; refresh(); });
 
   (async () => {
     const r = await call("GET", "api/coding");

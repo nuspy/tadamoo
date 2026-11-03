@@ -110,8 +110,8 @@
   }
 
   document.querySelectorAll(".ps[data-panel]").forEach(el => hosts.push(el));
-  document.addEventListener("basalt:lang", paint);
-  document.addEventListener("basalt:view", () => { if (!loaded) load(); });
+  document.addEventListener("tadamoo:lang", paint);
+  document.addEventListener("tadamoo:view", () => { if (!loaded) load(); });
   document.addEventListener("click", e => {                            // a click elsewhere closes an open explanation
     hosts.forEach(host => {
       const panel = document.getElementById(host.dataset.panel);

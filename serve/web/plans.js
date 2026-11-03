@@ -23,7 +23,7 @@
     tab: "define", adding: false, edge: "", delArmed: "", rowFocus: "",
   };
   const TABS = ["aims", "details", "events", "define"];
-  const COL_KEY = "basalt.plans.col";
+  const COL_KEY = "tadamoo.plans.col";
   const keep = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* not kept */ } };
   const recall = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } };
 
@@ -1374,7 +1374,7 @@
     const id = wanted();
     if (id && id !== S.id && S.plans.some(p => p.plan_id === id)) { setTab("define", true); await choose(id); }
   }
-  document.addEventListener("basalt:view", e => {
+  document.addEventListener("tadamoo:view", e => {
     if (e.detail === "settings") loadSettings();
     if (e.detail === "plans") enter();
     else if (S.ready) stopStream();

@@ -3,7 +3,7 @@
    In the Chat they go to the server as `long_answer` (serve/longform.py writes the text in parts); in the Agent the message carries one
    line that the harness reads, and the harness itself writes the text in parts. */
 (() => {
-  const KEY = "basalt.longanswer";
+  const KEY = "tadamoo.longanswer";
   const MODES = ["write", "translate", "rewrite"];
   const load = () => { try { const v = JSON.parse(localStorage.getItem(KEY) || "{}"); return v && typeof v === "object" ? v : {}; } catch (e) { return {}; } };
   const keep = v => { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch (e) { /* the options are kept for this page only */ } };
@@ -70,7 +70,7 @@
     armed = true; paint(); dlg.close();
     $("#prompt").focus();
   });
-  document.addEventListener("basalt:lang", () => { paint(); fit(); });
+  document.addEventListener("tadamoo:lang", () => { paint(); fit(); });
 
   window.longAnswer = {
     armed: () => armed,
