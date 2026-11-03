@@ -226,7 +226,7 @@ start: a page that held the old one fetches itself again and sends the change on
 ### Where the settings live
 
 The user's settings are in the user data folder (`serve/userdata.py`): `%APPDATA%\TaDaMoo\` (or
-`%TADAMOO_DATA%`): `profiles.json`, `models.json`, `machine.json` (the wizard's answers), `calibration\<model>.json`,
+`%TADAMOO_DATA%`): `profiles.json`, `presets.json`, `models.json`, `machine.json` (the wizard's answers), `calibration\<model>.json`,
 `prefs.json` (the language: `python -m serve.lang set it|en|auto`, or Settings in the web page) and the app's
 `desktop.json`. What can be rebuilt stays in `%USERPROFILE%\.cache\tadamoo\` (or `%TADAMOO_CACHE%`): the
 header scan `models-scan.json`, the job logs `models-jobs\`, and per model the unpacked tokenizer and vision files and

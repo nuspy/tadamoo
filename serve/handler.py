@@ -438,9 +438,7 @@ def make_handler(svc: Service, remote: bool = False):
                                                      holds, holds_vram))
             elif path == "/api/profiles/export":
                 if self._authorized():
-                    kind = parse_qs(urlsplit(self.path).query).get("kind", [None])[0]
-                    body = json.dumps(profiles.export(kind if kind in profiles.KINDS else None), indent=2,
-                                      ensure_ascii=False).encode()
+                    body = json.dumps(profiles.export(), indent=2, ensure_ascii=False).encode()
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Content-Disposition", 'attachment; filename="basalt-profiles.json"')
@@ -1368,7 +1366,7 @@ def make_handler(svc: Service, remote: bool = False):
                 self._json(500, {"error": {"type": "server_error", "message": f"cannot write: {e}"}})
 
         def _profiles_post(self):
-            """POST /api/profiles {"action": "save"|"rename"|"delete"|"default"|"import", "kind": "load"|"inference",
+            """POST /api/profiles {"action": "save"|"rename"|"delete"|"default"|"import" (load profiles only), "kind": "load"|"inference",
             ...}: as JSON (serve/profiles.py)."""
             try:
                 req = json.loads(self._body(1 << 20) or b"{}")

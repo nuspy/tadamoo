@@ -612,7 +612,7 @@ expert cache auto, resident experts, 1.5 GB left free, 15 CPU workers, image inp
 
 Per user, never in the repository, in the **user data folder**: `%APPDATA%\TaDaMoo\` on Windows,
 `~/Library/Application Support/TaDaMoo/` on macOS, `$XDG_DATA_HOME/tadamoo/` (`~/.local/share/tadamoo/`) elsewhere, or
-`TADAMOO_DATA`. It holds `profiles.json` (load profiles, inference presets, the default profile), `models.json` (the
+`TADAMOO_DATA`. It holds `profiles.json` (load profiles, the default profile), `presets.json` (the chat presets; copy the file to move them), `models.json` (the
 models folders, the default server model, the last output folder), `machine.json` (the wizard's answers: the share of
 RAM and commit, the VRAM to leave free, where the monitor is), `calibration\<model>.json` (the measured speeds and
 memory), `prefs.json` (the language) and the app's `desktop.json`. Caches that can be rebuilt stay in `%USERPROFILE%\.cache\tadamoo\` (`~/.cache/tadamoo/`, or
