@@ -76,8 +76,8 @@ class PageWiringTest(unittest.TestCase):
     def test_the_chat_shows_the_loops_notes_and_tells_the_dialog(self):
         chat = (WEB / "agentchat.js").read_text(encoding="utf-8")
         self.assertIn('case "target":', chat)
-        self.assertIn('new CustomEvent("basalt:target"', chat)
-        self.assertIn('"basalt:target"', TARGET_JS)
+        self.assertIn('new CustomEvent("tadamoo:target"', chat)
+        self.assertIn('"tadamoo:target"', TARGET_JS)
 
     def test_the_dialog_talks_to_the_conversations_target_routes_with_the_api_key(self):
         self.assertIn("api/agent/sessions/${sid}/targets", TARGET_JS)

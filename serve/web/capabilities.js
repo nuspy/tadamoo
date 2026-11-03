@@ -244,6 +244,6 @@
       h("p", "setnote", T("cp.top", state.tree_top)), h("p", "setnote", T("cp.actions.help")), tree());
   }
 
-  document.addEventListener("basalt:view", e => { if (e.detail === "settings") load(); });
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "settings") load(); });
   if (document.body.dataset.view === "settings") load();
 })();

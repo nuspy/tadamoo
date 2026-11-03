@@ -112,7 +112,7 @@
   all.id = "cs-cp-all";
   $("#cs-cp-all").replaceWith(all);
   $("#cs-open").addEventListener("click", load);
-  document.addEventListener("basalt:open-session", () => setTimeout(() => { if (!$("#chatset").hidden) load(); }, 300));
+  document.addEventListener("tadamoo:open-session", () => setTimeout(() => { if (!$("#chatset").hidden) load(); }, 300));
   applyT($("#cs-cp"));
   window.checkpointsUi = { mode: () => mode, setMode, load, label: m => T("ck.m." + (m || "default")) };
 })();

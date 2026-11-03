@@ -117,11 +117,11 @@ const tick = (h, v) => { box(h).checked = v; box(h).fire("change", {}); };
   out.back = [view(chat).checked, view(chat).disabled, view(chat).mixed];
   window.OptimizePrompt.sync({ optimize_prompt: false });
   offline = true;
-  emit("basalt:key");
+  emit("tadamoo:key");
   await wait(30);
   out.offline = view(chat);
   global.LANG = "it";
-  emit("basalt:lang");
+  emit("tadamoo:lang");
   out.rebuilt = [chat.dataset.built, view(chat).title];
   process.stdout.write(JSON.stringify(out));
 })().catch(e => { console.error(e); process.exit(1); });
@@ -219,7 +219,7 @@ class WiringTest(unittest.TestCase):
         self.assertIn("window.OptimizePrompt.sync(state)", INTAKE)
         self.assertIn("optimize_prompt: s.defaults.optimize_prompt", INTAKE)                             # the defaults button turns it off
         self.assertIn('new CustomEvent("basalt:loader")', LOADER)                                        # a finished load asks the box to look again
-        for event in ('"basalt:loader"', '"basalt:view"', '"basalt:key"', '"basalt:lang"'):
+        for event in ('"basalt:loader"', '"tadamoo:view"', '"tadamoo:key"', '"tadamoo:lang"'):
             self.assertIn(event, JS)
         self.assertIn('"v1/status"', JS)
         self.assertIn("side_slot", JS)

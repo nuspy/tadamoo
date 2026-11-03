@@ -100,7 +100,7 @@
     busy = false; paint();
   });
 
-  document.addEventListener("basalt:view", e => { if (e.detail === "agent") load(); });
-  document.addEventListener("basalt:lang", () => paint());
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "agent") load(); });
+  document.addEventListener("tadamoo:lang", () => paint());
   if (document.body.dataset.view === "agent") load();
 })();

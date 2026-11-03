@@ -1663,7 +1663,7 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             mask = ExportMask(level, clean_words(query.get("hide", [""])[0]), known=[svc.api_key or "", os.environ.get("TADAMOO_API_KEY", "")],
                               vault_mask=Vault(userdata.path("vault")).mask)
-            name = f"basalt-requests-{time.strftime('%Y%m%d-%H%M%S')}." + ("log" if fmt == "text" else "jsonl")
+            name = f"tadamoo-requests-{time.strftime('%Y%m%d-%H%M%S')}." + ("log" if fmt == "text" else "jsonl")
             self.send_response(200)
             self.send_header("Content-Type", ("text/plain" if fmt == "text" else "application/x-ndjson") + "; charset=utf-8")
             self.send_header("Content-Disposition", f'attachment; filename="{name}"')

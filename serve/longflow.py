@@ -22,7 +22,7 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 from serve import longform as lf
 from serve.longform import Segment
 
-log = logging.getLogger("basalt.longflow")
+log = logging.getLogger("tadamoo.longflow")
 
 ESTIMATE_RANGE = lf.TARGET_WORDS_RANGE
 ASKED_BAND = (0.8, 1.25)            # a length the person stated bounds the estimate to this share of it

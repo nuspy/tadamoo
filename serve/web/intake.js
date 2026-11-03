@@ -60,6 +60,6 @@
     if (r.ok) { state = r.data; if (window.PromptSwitch) window.PromptSwitch.sync(state.intake); if (window.OptimizePrompt) window.OptimizePrompt.sync(state); draw(); } else root.replaceChildren(h("p", "setnote warnnote", why(r)));
   }
   document.addEventListener("basalt:side", () => { if (state) draw(); });
-  document.addEventListener("basalt:view", e => { if (e.detail === "settings") load(); });
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "settings") load(); });
   if (document.body.dataset.view === "settings") load();
 })();

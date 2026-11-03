@@ -176,7 +176,7 @@
     try { state = await call({ stop: true }); say(T("su.stopped")); draw(); } catch (e) { say(e.message, true); }
   });
   document.addEventListener("basalt:side", () => { if (document.body.dataset.view === "settings") load(); });
-  document.addEventListener("basalt:view", e => { if (e.detail === "settings") load(); });
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "settings") load(); });
   if (document.body.dataset.view === "settings") load();
   applyT(dlg);
 })();

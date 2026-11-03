@@ -104,11 +104,11 @@ const wait = () => new Promise(r => setTimeout(r, 20));
   await byId["coding-go"].onclick();
   await wait();
   out.afterGo = { role: rec.role, sent };
-  (handlers["basalt:sent"] || []).forEach(f => f({ detail: { text: "the build fails with an error" } }));
+  (handlers["tadamoo:sent"] || []).forEach(f => f({ detail: { text: "the build fails with an error" } }));
   out.bugVisible = !byId["coding-bug"].hidden;
   out.roleStillBuild = rec.role;
   global.agentChat.active = () => false;
-  byId["coding-toggle"].onclick; (handlers["basalt:view"] || []).forEach(f => f({ detail: "chat" }));
+  byId["coding-toggle"].onclick; (handlers["tadamoo:view"] || []).forEach(f => f({ detail: "chat" }));
   out.hiddenOutsideAgent = byId["coderole-label"].hidden && byId["coding-card"].hidden;
   process.stdout.write(JSON.stringify(out));
 })().catch(e => { console.error(e); process.exit(1); });
@@ -153,7 +153,7 @@ def test_the_page_wires_the_script_the_styles_the_selector_and_the_card():
 def test_what_the_server_and_the_project_say_enters_the_page_as_text():
     assert "innerHTML" not in JS and "insertAdjacentHTML" not in JS and "outerHTML" not in JS and "document.write" not in JS
     chat = (WEB / "agentchat.js").read_text(encoding="utf-8")
-    assert 'case "role"' in chat and 'case "checks"' in chat and "window.codingUi.role()" in chat and "basalt:sent" in chat
+    assert 'case "role"' in chat and 'case "checks"' in chat and "window.codingUi.role()" in chat and "tadamoo:sent" in chat
 
 
 def test_every_string_exists_in_both_languages_with_the_same_placeholders():

@@ -3,7 +3,7 @@
    output can never inject markup. The conversation is kept in this browser's localStorage when it allows it, and its words are handed to the server's
    index of earlier conversations (POST /api/past/chat) so that other conversations can find them. */
 (() => {
-  const STORE = "tadamoo.chat", EFFORT = "basalt.effort", IMAGE_MAX = 12 << 20;
+  const STORE = "tadamoo.chat", EFFORT = "tadamoo.effort", IMAGE_MAX = 12 << 20;
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const load = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
   const keep = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } };
@@ -207,7 +207,7 @@
     if (now && !det.dataset.auto) { det.dataset.auto = "1"; det.open = true; }
     else if (!now && det.dataset.auto === "1") { det.dataset.auto = "done"; if (!det.dataset.touched) det.open = false; }
   }
-  document.addEventListener("basalt:showreasoning", () => {
+  document.addEventListener("tadamoo:showreasoning", () => {
     msgs.querySelectorAll(".cmsg.assistant").forEach(e => { const m = messages[+e.dataset.i]; if (m) paintThink(e, m, !!busy && busy.el === e); });
   });
   function paint(el, m, streaming) {
@@ -331,7 +331,7 @@
   // (-1 for the system prompt). A compaction summary goes as the user message the server wrote for it.
   /* Old replies as a short record: the conversation keeps every reply, but from the turn after the newest few the model reads the abstract of
      each long one (written in the technical session when the reply ends, with the same compaction mark as every other record). Chat only. */
-  const ABS_KEY = "basalt.abstract", ABS_MIN = 400, ABS_KEEP = 6;     // the server decides from 400 characters up (Settings > Technical session)
+  const ABS_KEY = "tadamoo.abstract", ABS_MIN = 400, ABS_KEEP = 6;     // the server decides from 400 characters up (Settings > Technical session)
   const absPrefs = () => {
     try { const v = JSON.parse(localStorage.getItem(ABS_KEY) || "{}"); return { on: v.on !== false, keep: Math.max(1, Math.min(20, Math.round(Number(v.keep)) || ABS_KEEP)), codeKeep: Math.max(3, Math.min(5, Math.round(Number(v.codeKeep)) || CODE_KEEP)) }; } catch (e) { return { on: true, keep: ABS_KEEP, codeKeep: CODE_KEEP }; }
   };
@@ -432,7 +432,7 @@
     }, 250);
   }
   let limitKnown = 0;
-  document.addEventListener("basalt:chatset", meter);
+  document.addEventListener("tadamoo:chatset", meter);
   effort.addEventListener("change", meter);
 
   // apply the policy before a send: true to go on, false when the conversation cannot be sent
@@ -689,8 +689,8 @@
     $("#chat-model").textContent = model;
     prompt.placeholder = images ? "Message the model, or attach an image" : "Message the model";
   }
-  document.addEventListener("basalt:key", () => { capabilities(); meter(); });
-  document.addEventListener("basalt:view", e => { if (e.detail === "chat" || e.detail === "agent") { scrollDown(true); meter(); } });
+  document.addEventListener("tadamoo:key", () => { capabilities(); meter(); });
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "chat" || e.detail === "agent") { scrollDown(true); meter(); } });
 
   // what the conversations mode shares: the safe Markdown and the reasoning box, so both chats look and behave alike
   /* ---- pictures the agent fetched, and diagrams it wrote ---- */

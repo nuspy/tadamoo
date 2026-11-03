@@ -367,7 +367,7 @@
     for (const b of buttons.values()) b.setAttribute("aria-selected", "false");
     for (const p of panels.values()) p.hidden = true;
   });
-  document.addEventListener("basalt:lang", () => { if (data) draw(); else labelAll(); });
+  document.addEventListener("tadamoo:lang", () => { if (data) draw(); else labelAll(); });
 
   const saved = load(SUB_KEY, "qwen");
   if (saved.startsWith("engine:")) current = saved.slice(7);
