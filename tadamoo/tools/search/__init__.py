@@ -200,7 +200,7 @@ def discover_providers(secrets: Any = None, environ: Optional[Mapping[str, str]]
 # -- DuckDuckGo: the engine used when the person has set no other, with no key -------------------------------------
 
 DDG_URL = "https://html.duckduckgo.com/html/"
-DDG_AGENT = "Mozilla/5.0 (compatible; Basalt/1; +local agent)"
+DDG_AGENT = "Mozilla/5.0 (compatible; TaDaMoo/1; +local agent)"
 
 
 class _DdgResults(HTMLParser):
@@ -383,7 +383,7 @@ def _decode(body: bytes, content_type: str) -> str:
         return body.decode("utf-8", errors="replace")
 
 
-def fetch_page(url: str, allow_private: bool = False, user_agent: str = "Basalt/1 (+reader)") -> Dict[str, Any]:
+def fetch_page(url: str, allow_private: bool = False, user_agent: str = "TaDaMoo/1 (+reader)") -> Dict[str, Any]:
     """GET a page, following up to MAX_REDIRECTS redirects and checking the address of each hop; returns the raw result."""
     deadline = time.monotonic() + PAGE_SECONDS
     current = _validate(url, allow_private)

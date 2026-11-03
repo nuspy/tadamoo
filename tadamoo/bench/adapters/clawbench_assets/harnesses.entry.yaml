@@ -1,11 +1,11 @@
-  - name: basalt
-    image: clawbench-basalt
-    dockerfile: basalt/Dockerfile.tadamoo
-    setup_script: basalt/setup-tadamoo.sh
-    run_script: basalt/run-tadamoo.sh
-    usage_emitter: basalt/usage-emitter.py
+  - name: tadamoo
+    image: clawbench-tadamoo
+    dockerfile: tadamoo/Dockerfile.tadamoo
+    setup_script: tadamoo/setup-tadamoo.sh
+    run_script: tadamoo/run-tadamoo.sh
+    usage_emitter: tadamoo/usage-emitter.py
     extra_files:
-      - basalt/tadamoo_driver.py
+      - tadamoo/tadamoo_driver.py
     agent_message_sources:
       - type: file
         path: /data/agent-messages.jsonl

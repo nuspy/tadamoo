@@ -266,7 +266,7 @@ def collect_environment(client: Optional[TadamooClient] = None, endpoint: str = 
         pass
     try:
         env["harness_commit"] = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=root, capture_output=True, text=True, timeout=10).stdout.strip() or "unknown"
-        env["harness_dirty"] = bool(subprocess.run(["git", "status", "--porcelain", "--", "harness", "serve"], cwd=root, capture_output=True, text=True, timeout=10).stdout.strip())
+        env["harness_dirty"] = bool(subprocess.run(["git", "status", "--porcelain", "--", "tadamoo", "serve"], cwd=root, capture_output=True, text=True, timeout=10).stdout.strip())
     except Exception:
         pass
     if client is not None and hasattr(client, "metrics"):

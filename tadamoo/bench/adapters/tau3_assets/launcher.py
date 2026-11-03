@@ -26,7 +26,7 @@ def check_local(base_url: str, allowed_host: str) -> None:
 def load_repair(repo: str):
     """tadamoo/tools/repair.py (standard library only) loaded from its file, so none of the harness package has to be installed here; None when it is not found."""
     import importlib.util
-    path = os.path.join(repo, "harness", "tools", "repair.py") if repo else ""
+    path = os.path.join(repo, "tadamoo", "tools", "repair.py") if repo else ""
     if not path or not os.path.isfile(path):
         return None
     spec = importlib.util.spec_from_file_location("basalt_tool_repair", path)

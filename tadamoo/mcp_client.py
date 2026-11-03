@@ -33,7 +33,7 @@ from tadamoo.tools.registry import EXTERNAL, EffectClass, ToolArgumentError, Too
 
 SUPPORTED_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 MODERN_VERSION = "2026-07-28"
-CLIENT_INFO = {"name": "BasaltHarness", "version": "1.0"}
+CLIENT_INFO = {"name": "TaDaMoo", "version": "1.0"}
 META_VERSION = "io.modelcontextprotocol/protocolVersion"
 META_INFO = "io.modelcontextprotocol/clientInfo"
 META_CAPS = "io.modelcontextprotocol/clientCapabilities"

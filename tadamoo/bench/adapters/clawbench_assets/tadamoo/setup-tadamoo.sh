@@ -11,7 +11,7 @@ if [ -n "$TEMPERATURE" ]; then
 fi
 
 # The harness must import before the browser time is spent on it.
-PYTHONPATH=/opt/basalt python3 -c "import tadamoo.headless, tadamoo.bench.adapters.containerkit" || {
+PYTHONPATH=/opt/tadamoo python3 -c "import tadamoo.headless, tadamoo.bench.adapters.containerkit" || {
   echo "ERROR: the TaDaMoo harness does not import"
   exit 1
 }

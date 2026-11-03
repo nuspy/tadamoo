@@ -159,7 +159,7 @@ class TadamooClient:
     def _headers(self) -> Dict[str, str]:
         headers = {
             "Content-Type": "application/json",
-            "User-Agent": "BasaltHarness/1.0",
+            "User-Agent": "TaDaMoo/1.0",
         }
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"

@@ -966,7 +966,7 @@ class SessionManager:
     # -- starting a process ------------------------------------------------------------------------------
 
     def _command(self, sid: str, rec: Dict[str, Any], history: Path) -> List[str]:
-        cmd = [self.python, "-m", "harness", "session", "--session-id", sid, "--history-dir", str(history), "--workspace", rec.get("workdir") or rec["workspace"],
+        cmd = [self.python, "-m", "tadamoo", "session", "--session-id", sid, "--history-dir", str(history), "--workspace", rec.get("workdir") or rec["workspace"],
                "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", UNLIMITED_STEPS)), "--router", self.router, "--pipeline", self.pipeline, "--capabilities", "--lsp", "--report-changes", "--page-files"]
         if rec.get("unattended"):
             cmd.append("--unattended")

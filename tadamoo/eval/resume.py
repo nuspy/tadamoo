@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 FILE = "trials.jsonl"
-TREE_PATHS = ("harness", "serve", "src")            # the code a result depends on
+TREE_PATHS = ("tadamoo", "serve", "src")            # the code a result depends on
 SHOWN_CHARS = 80
 
 Key = Tuple[Any, ...]
@@ -26,7 +26,7 @@ class ResumeMismatch(Exception):
 
 
 def git_state(root: Path) -> Dict[str, Any]:
-    """The commit, whether harness/ serve/ src/ have uncommitted changes, and a digest of those changes (so an edit made between two runs shows)."""
+    """The commit, whether tadamoo/ serve/ src/ have uncommitted changes, and a digest of those changes (so an edit made between two runs shows)."""
     def git(*args: str) -> str:
         return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=30, encoding="utf-8", errors="replace").stdout
 

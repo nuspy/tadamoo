@@ -160,7 +160,7 @@ class ACPAgentServer:
                                           "promptCapabilities": {"image": False, "audio": False, "embeddedContext": True},
                                           "mcpCapabilities": {"http": True, "sse": False}},
                     "authMethods": [AUTH_METHOD] if self.key_needed else [],
-                    "agentInfo": {"name": "basalt", "title": "TaDaMoo Agent", "version": "1.0"},
+                    "agentInfo": {"name": "tadamoo", "title": "TaDaMoo Agent", "version": "1.0"},
                 })
             elif method == "authenticate":
                 self._reply(req_id, self._authenticate(params))

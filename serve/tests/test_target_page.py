@@ -17,7 +17,7 @@ HTML = (WEB / "index.html").read_text(encoding="utf-8")
 TARGET_JS = (WEB / "target.js").read_text(encoding="utf-8")
 LIST_JS = (WEB / "listtools.js").read_text(encoding="utf-8")
 CSS = (WEB / "target.css").read_text(encoding="utf-8")
-HARNESS = (ROOT / "harness" / "target.py").read_text(encoding="utf-8")
+HARNESS = (ROOT / "tadamoo" / "target.py").read_text(encoding="utf-8")
 
 
 @unittest.skipUnless(NODE, "node is needed to run the list tools")

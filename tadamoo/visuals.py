@@ -52,7 +52,7 @@ def fetch_image(url: str, allow_private: bool = False) -> Tuple[bytes, str, str]
         try:
             target = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
             try:
-                conn.request("GET", target, headers={"User-Agent": "Basalt/1 (+reader)", "Accept": "image/png,image/jpeg,image/gif,image/webp;q=0.9,*/*;q=0.1"})
+                conn.request("GET", target, headers={"User-Agent": "TaDaMoo/1 (+reader)", "Accept": "image/png,image/jpeg,image/gif,image/webp;q=0.9,*/*;q=0.1"})
                 resp = conn.getresponse()
             except PageError:
                 raise

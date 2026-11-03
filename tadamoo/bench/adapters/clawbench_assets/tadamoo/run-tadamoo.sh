@@ -3,7 +3,7 @@ set -e
 
 # Run-time script of the TaDaMoo harness: waits for the browser, runs the harness against it, watches the time and the interceptor, and leaves the files
 # ClawBench collects (/data/agent-messages.jsonl, /data/usage.jsonl, /data/.stop-reason).
-/setup-tadamoo.sh || { mkdir -p /data; echo "basalt_failed" > /data/.stop-reason; exit 1; }
+/setup-tadamoo.sh || { mkdir -p /data; echo "tadamoo_failed" > /data/.stop-reason; exit 1; }
 
 mkdir -p /data /root/workspace
 : > /data/agent-messages.jsonl
@@ -24,12 +24,12 @@ for i in $(seq 1 30); do
 done
 
 cd /root/workspace
-python3 /tadamoo_driver.py > /tmp/basalt-stdout.log 2> /tmp/basalt-stderr.log &
+python3 /tadamoo_driver.py > /tmp/tadamoo-stdout.log 2> /tmp/tadamoo-stderr.log &
 AGENT_PID=$!
 sleep 3
 if ! kill -0 $AGENT_PID 2>/dev/null && [ ! -s /data/usage.jsonl ] && ! grep -q '"type": "stop"' /data/agent-messages.jsonl 2>/dev/null; then
   echo "TaDaMoo driver died on startup."
-  echo "basalt_failed" > /data/.stop-reason
+  echo "tadamoo_failed" > /data/.stop-reason
 fi
 
 # Watchdog: the interceptor matched, the agent stopped acting for 300 s, or the time limit.
@@ -91,8 +91,8 @@ with open("/data/agent-messages.jsonl", "a", encoding="utf-8") as f:
 PYEOF
 fi
 python3 /usage-emitter.py || true
-cp /tmp/basalt-stdout.log /data/agent-stdout.log 2>/dev/null || true
-cp /tmp/basalt-stderr.log /data/agent-stderr.log 2>/dev/null || true
+cp /tmp/tadamoo-stdout.log /data/agent-stdout.log 2>/dev/null || true
+cp /tmp/tadamoo-stderr.log /data/agent-stderr.log 2>/dev/null || true
 
 curl -sf -X POST http://localhost:7878/api/stop || true
 rm -f /data/.stop-requested
