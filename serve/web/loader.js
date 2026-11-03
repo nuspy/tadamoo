@@ -564,7 +564,7 @@
         <button type="button" class="btn ghost" data-pf="rename" ${editable ? "" : "disabled"}>${esc(T("ld.profile.rename"))}</button>
         <button type="button" class="btn ghost" data-pf="delete" ${editable ? "" : "disabled"}>${esc(T("ld.profile.delete"))}</button>
         <button type="button" class="btn ghost" data-pf="default" ${editable ? "" : "disabled"}>${esc(T("ld.profile.default"))}</button>
-        <a class="btn ghost" href="api/profiles/export?kind=load" download="basalt-load-profiles.json">${esc(T("ld.profile.export"))}</a>
+        <a class="btn ghost" href="api/profiles/export" download="basalt-load-profiles.json">${esc(T("ld.profile.export"))}</a>
         <label class="btn ghost filebtn">${esc(T("ld.profile.import"))}<input type="file" accept="application/json,.json" data-pf="import" ${editable ? "" : "disabled"}></label>
         <button type="button" class="btn" data-pf="safe">${esc(T("ld.safe"))}</button>
         <button type="button" class="btn" data-pf="machine" ${PROF.load.some(p => p.name === PROF.machine) ? "" : "disabled"}>${esc(T("ld.machine"))}</button>
