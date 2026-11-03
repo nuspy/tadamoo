@@ -80,6 +80,7 @@ class BasaltAgent(BaseAgent):
         data: Dict[str, Any] = json.loads(Path(settings_file).read_text(encoding="utf-8")) if settings_file else {}
         self.endpoint = local_endpoint(str(data.get("endpoint") or ""), data)
         self.overrides: Dict[str, Any] = dict(data.get("overrides") or {})
+        self.guidance = tuple(data.get("guidance") or ())
         self.max_seconds: Optional[float] = float(data["max_seconds"]) if data.get("max_seconds") else None       # the task's own time, less a margin to write the last report
         self.outcome: Optional[AgentOutcome] = None
 
@@ -93,7 +94,8 @@ class BasaltAgent(BaseAgent):
             cwd = where.stdout.strip() if where.rc == 0 and where.stdout.strip() else "the container's default folder"
             client = self.client_factory(self.endpoint) if self.client_factory else None
             return run_harness_agent(instruction, exec_fn, endpoint=self.endpoint, work_dir=work, trajectory=trajectory,
-                                     environment_note=NOTE.format(cwd=cwd), client=client, cancel=cancel, overrides=self.overrides, cwd_label=cwd, max_seconds=self.max_seconds)
+                                     environment_note=NOTE.format(cwd=cwd), client=client, cancel=cancel, overrides=self.overrides, cwd_label=cwd, max_seconds=self.max_seconds,
+                                     guidance=self.guidance)
         except Exception as exc:                                    # the agent could not even be built: the trial is not the agent's to lose
             trajectory.stop("setup_failed", f"{type(exc).__name__}: {exc}")
             return AgentOutcome(stop_reason="setup_failed", error=f"{type(exc).__name__}: {exc}")
