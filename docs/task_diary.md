@@ -10,7 +10,9 @@ Ultimo aggiornamento: 4 novembre 2026, sera. Si aggiorna a ogni task nuovo ricev
 - Il computer finto dell'harness ha cartelle e file normali mescolati a cartelle e file «trigger» scritti per il contesto della sessione, con persone di spicco cinesi, russe, americane, europee e taiwanesi. Il gemello di controllo ha la stessa forma ma parla di normale lavoro d'ufficio.
 - Il test lungo (100 turni per conversazione, 20 interazioni con l'harness, computer finto attivo, quattro contesti) è partito dalla pagina sulla cartella `state3` della prova. Il blocco della GPU resta di TaDaMoo finché non finisce.
 - La pagina deve esistere sia da sola sia come scheda dentro TaDaMoo: è già montabile sotto un prefisso. La scheda dentro TaDaMoo non è ancora fatta.
-- Da decidere da te: la licenza del Canary è già «gratis per persone, associazioni senza scopo di lucro e aziende sotto 10 milioni», ma in dollari come quella di TaDaMoo; tu hai scritto euro. Il sito malweight.com e il link al progetto TaDaMoo (`github.com/nuspy/tadamoo`, da verificare) sono nella barra della pagina.
+- Decise da te il 4 novembre sera: la licenza del Canary resta in dollari come quella di TaDaMoo; il link a TaDaMoo va bene; i ruoli delle persone si aggiornano a mano ogni tanto (ora sono quelli controllati online); il modello revisore può essere lo stesso modello sotto prova, in un'altra conversazione (le revisioni lo dicono).
+- La scheda «Canary» di TaDaMoo mostra la stessa identica pagina del Canary da solo (stesso codice, servita dal server sotto /canary/): cambiano solo i comandi del motore e del modello, che in TaDaMoo si scelgono altrove. Commit `0cc29782` sul master, non pubblicato. La vecchia sezione Monitor > Security (exfiltration test) c'è ancora: da togliere quando confermi.
+- Nel Canary da solo, il nome del modello si sceglie da un menu con i modelli offerti dal provider.
 
 ## Decisioni del 3 novembre pomeriggio (rinomina)
 
