@@ -523,6 +523,8 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/canary" or path.startswith("/api/canary/"):
                 if self._authorized():
                     self._canary(path, None)
+            elif path == "/canary" or path.startswith("/canary/"):
+                self._canary_gui("GET")
             elif path == "/api/billion-context":
                 if self._authorized():
                     self._json(200, billion_context.get().view())
@@ -755,6 +757,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path.startswith("/api/canary/"):
                 self._canary(path, True)
+                return
+            if path.startswith("/canary/"):
+                self._canary_gui("POST")
                 return
             if path in ("/api/knowledge", "/api/knowledge/wiki-check"):
                 self._knowledge_post(path)
@@ -2021,6 +2026,46 @@ def make_handler(svc: Service, remote: bool = False):
             except (ValueError, TypeError) as e:
                 code, obj = 400, {"error": {"message": str(e)}}
             self._json(code, obj)
+
+        def _canary_gui(self, method):
+            """The Openweight Canary page (results by level, conversations, catalogs, settings, run): shown only on the PC the server runs on.
+            The page itself needs no key; its API does."""
+            post = method == "POST"
+            if not settings.is_loopback(self.client_address[0]):
+                if post:
+                    self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the Canary page is shown only on the PC the server runs on"}})
+            where = urlsplit(self.path).path
+            if where == "/canary":
+                self.send_response(308)
+                self.send_header("Location", "/canary/" + ("?" + urlsplit(self.path).query if urlsplit(self.path).query else ""))
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            if where != "/canary/" and not self._authorized():
+                if post:
+                    self._discard_body()
+                return
+            body = b""
+            if post:
+                try:
+                    body = self._body(1 << 20)
+                except BadBody as e:
+                    return self._json(e.status, {"error": {"message": str(e)}})
+            ctx = canary_api.Context(self.server.server_address[1], svc.api_key, svc.model if svc.loaded() else "")
+            try:
+                code, data, ctype, extra = canary_api.gui_response(method, self.path, self.headers, body, ctx)
+            except canary_api.CanaryError as e:
+                code, obj = canary_api.error_view(e)
+                return self._json(code, obj)
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(data)))
+            for k, v in extra.items():
+                self.send_header(k, v)
+            self.end_headers()
+            self.wfile.write(data)
 
         def _knowledge_post(self, path):
             """The settings of the project notes, the wiki and the reference documents: only from this PC and the page itself."""

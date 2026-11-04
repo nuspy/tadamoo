@@ -161,12 +161,22 @@ class TestRun(_Base):
         self.assertEqual(c.exception.code, "no_model")
         self.assertEqual(self.fake.started, [])
 
-    def test_reviewer_must_differ(self):
+    def test_the_reviewer_may_be_the_model_under_test(self):
         canary_api.save_settings({"reviewer": {"enabled": True, "kind": "openai", "base_url": "http://127.0.0.1:7232/v1", "model": "qwen-test"}})
-        with self.assertRaises(canary_api.CanaryError) as c:
-            canary_api.start(self.ctx)
-        self.assertEqual(c.exception.code, "same_model")
-        self.assertFalse(self.nw.store.settings["enabled"])               # nothing was switched on for a test that did not start
+        out = canary_api.start(self.ctx)
+        self.assertTrue(out["started"])
+        cfg = json.loads((canary_api._dir() / "canary.json").read_text(encoding="utf-8"))
+        self.assertEqual(cfg["reviewer"]["model"], "qwen-test")
+
+    def test_the_settings_saved_in_the_page_are_laid_over_the_config_but_never_the_engine(self):
+        canary_api._write(canary_api.overlay_path(), {"narrative": {"enabled": True, "turns": 40}, "workspace": {"enabled": True, "files": 12},
+                                                       "target": {"model": "not-this-one"}, "state_dir": "elsewhere", "reviewer": None})
+        cfg = json.loads(canary_api._write_config(canary_api.settings(), self.ctx).read_text(encoding="utf-8"))
+        self.assertEqual(cfg["narrative"]["turns"], 40)
+        self.assertTrue(cfg["narrative"]["enabled"])
+        self.assertEqual(cfg["workspace"]["files"], 12)
+        self.assertEqual(cfg["target"]["model"], "qwen-test")
+        self.assertNotEqual(cfg["state_dir"], "elsewhere")
 
     def test_start_turns_monitor_on_and_stop_restores_it(self):
         self.assertFalse(self.nw.store.settings["enabled"])
@@ -350,6 +360,28 @@ class TestHttp(unittest.TestCase):
         self.assertEqual(self.call("POST", "/api/netwatch/tool-calls", {"tool": "web_fetch", "target": "x"})[0], 200)
         self.assertTrue(self.call("GET", "/api/netwatch/status")[1]["tool_calls_reported"])
         self.assertEqual(self.call("POST", "/api/netwatch/tool-calls", {})[0], 400)
+
+    @unittest.skipUnless(ADDON, "the Openweight Canary add-on is not on this machine")
+    def test_the_canary_page_is_served_under_canary_and_runs_the_test_through_this_server(self):
+        req = urllib.request.Request(self.base + "/canary/")
+        with urllib.request.urlopen(req) as r:
+            page = r.read()
+            self.assertEqual(r.status, 200)
+        self.assertIn(b"Openweight Canary", page)
+        self.assertIn(b'"api/', page)
+        st, summary = self.call("GET", "/canary/api/summary")
+        self.assertEqual(st, 200)
+        self.assertIn("by_level", summary)
+        self.assertEqual(self.call("POST", "/canary/api/stop", {})[0], 403)                       # no page header: refused
+        req = urllib.request.Request(self.base + "/canary/api/start", data=b"{}", method="POST",
+                                     headers={"Content-Type": "application/json", "X-Canary-GUI": "1"})
+        with urllib.request.urlopen(req) as r:
+            started = json.loads(r.read())
+        self.assertTrue(started["ok"])
+        self.assertTrue(started["started"])                                                       # through canary_api.start, with the monitor
+        req = urllib.request.Request(self.base + "/canary/api/stop", data=b"{}", method="POST", headers={"X-Canary-GUI": "1"})
+        with urllib.request.urlopen(req) as r:
+            self.assertTrue(json.loads(r.read())["ok"])
 
     @unittest.skipUnless(ADDON, "the Openweight Canary add-on is not on this machine")
     def test_canary_routes(self):

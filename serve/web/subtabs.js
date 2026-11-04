@@ -9,6 +9,12 @@
       { id: "hardware", view: "hardware", label: () => T("tab.hardware") },
       { id: "logs", view: "logs", label: () => T("tab.logs") },
       { id: "security", view: "security", label: () => T("tab.security") }],
+    canary: [
+      { id: "results", view: "canary", label: () => T("sub.cn.results") },
+      { id: "sessions", view: "canary", label: () => T("sub.cn.sessions") },
+      { id: "catalog", view: "canary", label: () => T("sub.cn.catalog") },
+      { id: "settings", view: "canary", label: () => T("sub.cn.settings") },
+      { id: "run", view: "canary", label: () => T("sub.cn.run") }],
     settings: [
       { id: "general", view: "settings", label: () => T("sub.general") },
       { id: "inference", view: "settings", label: () => T("sub.inference") },
@@ -21,10 +27,10 @@
   };
   const strip = document.getElementById("viewsub");
   const settingsView = document.getElementById("view-settings");
-  let settingsSub = "general";
+  let settingsSub = "general", canarySub = "results";
 
   const groupOf = v => TAB_OF[v] || (GROUPS[v] ? v : "");
-  const activeId = (group, v) => group === "settings" && v === "settings" ? settingsSub : v;
+  const activeId = (group, v) => group === "settings" && v === "settings" ? settingsSub : group === "canary" && v === "canary" ? canarySub : v;
 
   function showSettingsSub() {
     settingsView.querySelectorAll(":scope > section.sec").forEach(sec => { sec.hidden = (sec.dataset.sub || "general") !== settingsSub; });
@@ -32,6 +38,7 @@
 
   function choose(item) {
     if (item.view === "settings") settingsSub = item.id;
+    if (item.view === "canary") canarySub = item.id;
     if (viewOn !== item.view) view(item.view);
     else paint();
   }
@@ -55,7 +62,7 @@
       return b;
     }));
     if (viewOn === "settings") showSettingsSub();
-    document.dispatchEvent(new CustomEvent("tadamoo:sub", { detail: viewOn === "settings" ? settingsSub : viewOn }));
+    document.dispatchEvent(new CustomEvent("tadamoo:sub", { detail: viewOn === "settings" ? settingsSub : viewOn === "canary" ? "canary:" + canarySub : viewOn }));
   }
 
   // arrow keys move along the strip, Home and End go to the ends

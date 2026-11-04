@@ -89,6 +89,7 @@
 <script defer src="web/netwatch.js"></script>
 <script defer src="web/rea.js"></script>
 <script defer src="web/canary.js"></script>
+<script defer src="web/canarytab.js"></script>
 </head>
 <body>
 
@@ -102,6 +103,7 @@
     <button class="tab" role="tab" id="tab-cron" data-view="cron" aria-controls="view-cron" aria-selected="false" tabindex="-1" data-t="tab.cron">Cron Jobs</button>
     <button class="tab" role="tab" id="tab-stats" data-view="stats" aria-controls="view-stats" aria-selected="true" data-t="tab.stats">Monitor</button>
     <button class="tab" role="tab" id="tab-loader" data-view="loader" aria-controls="view-loader" aria-selected="false" tabindex="-1" data-t="tab.loader">Models</button>
+    <button class="tab" role="tab" id="tab-canary" data-view="canary" aria-controls="view-canary" aria-selected="false" tabindex="-1" data-t="tab.canary">Canary</button>
     <button class="tab" role="tab" id="tab-settings" data-view="settings" aria-controls="view-settings" aria-selected="false" tabindex="-1" data-t="tab.settings">Settings</button>
   </nav>
   <span class="grow"></span>
@@ -945,6 +947,7 @@
     </section>
   </div>
   <div class="view nw" id="view-security" role="tabpanel" aria-labelledby="sub-security" hidden></div>
+  <div class="view cn-frame" id="view-canary" role="tabpanel" aria-labelledby="tab-canary" hidden></div>
   <div class="view logs" id="view-logs" role="tabpanel" aria-labelledby="sub-logs" hidden>
     <svg class="rl-sprite" width="0" height="0" aria-hidden="true" focusable="false">
       <symbol id="rl-i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
