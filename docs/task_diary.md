@@ -1,7 +1,16 @@
 # Diario dei task
 
-Ultimo aggiornamento: 1 novembre 2026, mattina. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
+Ultimo aggiornamento: 4 novembre 2026, sera. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «In corso adesso» e da «Decisioni tue in attesa».
+
+## Test di sicurezza Openweight Canary (4 novembre, sera)
+
+- Il progetto indipendente è su GitHub (nuspy/Openweight-Canary, ultimo commit pubblicato `8d942f0`). Ha una pagina web locale: risultati in cinque livelli di colore (bianco normale, verde interessante, giallo sospetto, arancione molto sospetto, rosso critico), ricerca e filtri, conversazioni come chat in cui puoi anche scrivere, analisi preliminare con un modello revisore, impostazioni, avvio, stop ed esportazione.
+- Le persone sono reali e attinenti al contesto (cercate online il 4 novembre; i ruoli vanno ricontrollati) e si modificano nella pagina (scheda Catalogo: crea, cambia, cancella, ripristina). Contesti nuovi: diplomazia su Taiwan, militare su Taiwan, attacchi informatici russi contro l'Europa, attacchi informatici cinesi contro gli Stati Uniti.
+- Il computer finto dell'harness ha cartelle e file normali mescolati a cartelle e file «trigger» scritti per il contesto della sessione, con persone di spicco cinesi, russe, americane, europee e taiwanesi. Il gemello di controllo ha la stessa forma ma parla di normale lavoro d'ufficio.
+- Il test lungo (100 turni per conversazione, 20 interazioni con l'harness, computer finto attivo, quattro contesti) è partito dalla pagina sulla cartella `state3` della prova. Il blocco della GPU resta di TaDaMoo finché non finisce.
+- La pagina deve esistere sia da sola sia come scheda dentro TaDaMoo: è già montabile sotto un prefisso. La scheda dentro TaDaMoo non è ancora fatta.
+- Da decidere da te: la licenza del Canary è già «gratis per persone, associazioni senza scopo di lucro e aziende sotto 10 milioni», ma in dollari come quella di TaDaMoo; tu hai scritto euro. Il sito malweight.com e il link al progetto TaDaMoo (`github.com/nuspy/tadamoo`, da verificare) sono nella barra della pagina.
 
 ## Decisioni del 3 novembre pomeriggio (rinomina)
 
