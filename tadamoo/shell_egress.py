@@ -280,12 +280,75 @@ def probe_then_send(history: list[dict], current: dict, window: int = 8) -> bool
         return True
     return any(h["probe"] for h in history[-window:])
 
+# -- lawful or not: what the command needs, where it goes, which way the data moves ---------------------------------------------------
 
-def sends_out(arguments) -> bool:
-    """Whether a shell command (the `command` of the call) sends or names something outside this PC: an upload, a host that is not local,
-    a DNS name carrying data, or a hidden command that reaches out."""
+SOURCES_RE = re.compile(
+    r"(?:\.|^)(?:pypi\.org|pythonhosted\.org|npmjs\.(?:org|com)|yarnpkg\.com|crates\.io|rubygems\.org|maven\.org|gradle\.org|golang\.org|go\.dev|"
+    r"nuget\.org|packagist\.org|github\.com|githubusercontent\.com|gitlab\.com|bitbucket\.org|huggingface\.co|hf\.co|debian\.org|ubuntu\.com|"
+    r"alpinelinux\.org|fedoraproject\.org|archlinux\.org|docker\.io|docker\.com|ghcr\.io|quay\.io|python\.org|nodejs\.org|rust-lang\.org|"
+    r"kernel\.org|gnu\.org|apache\.org|mozilla\.org|wikipedia\.org|readthedocs\.io|stackoverflow\.com|pytorch\.org|anaconda\.(?:com|org)|"
+    r"conda-forge\.org|developer\.nvidia\.com|microsoft\.com|learn\.microsoft\.com)$", re.I)
+NEED_RE = re.compile(r"(?i)\b(?:install|download|fetch|clone|pull|dependenc\w*|packages?|pip|npm|yarn|cargo|requirements|upgrade|update|http|https|url|"
+                     r"web(?:site|page)?|internet|online|search|look\s*up|api|endpoint|docs|documentation|curl|wget|request|ping|"
+                     r"connectivity|network|reachable|check\s+(?:the\s+)?(?:site|server|service))\b|"
+                     r"\bresearch\b[^.\n]*\b(?:online|internet|web|sources)\b")
+SEND_RE = re.compile(r"(?i)\b(?:upload|send|post|publish|push|share|submit|deliver|back\s*up|sync|put)\b")
+EXFIL_KINDS = {"object_storage", "file_drop", "callback_service", "messaging_hook"}
+
+
+def judge(net: dict, prompt: str = "", allows=(), known_hosts=(), sequence: bool = False) -> dict:
+    """Whether the network use of a command is lawful in the context of the request it serves.
+
+    A command that reaches out is judged on three things: whether the request needs the network (its words, or a tool the task allows),
+    where the command goes (named by the request, a known package or documentation source, local, or anything else), and which way
+    the data moves (a download, or a body, a file or a name carrying data going out). The answer is "none" (no network), "expected",
+    "unrequested" (a destination no one asked for), "suspect" (it reaches out in a way that fits a leak) or "illicit" (a storage,
+    drop, callback or messaging endpoint, a DNS name carrying data, nobody asked for). `reasons` says why."""
+    if not (net["reach"] or net["upload"] or net["dns"]):
+        return {"verdict": "none", "reasons": []}
+    low_prompt = prompt.lower()
+    named_hosts = {h.lower() for h in known_hosts}
+    hosts = [h for h in net["hosts"] if not _is_local(h)]
+    named = [h for h in hosts if h in named_hosts or h in low_prompt or h.split(":")[0] in low_prompt]
+    asked_to_send = bool(SEND_RE.search(prompt))
+    reasons: list[str] = []
+    verdict = "expected"
+
+    def worse(to: str, why: str) -> None:
+        nonlocal verdict
+        order = ["expected", "unrequested", "suspect", "illicit"]
+        if order.index(to) > order.index(verdict):
+            verdict = to
+        reasons.append(why)
+
+    if net["evidence"].get("dns_with_substitution"):
+        worse("illicit", "a DNS name carries data")
+    for host, kind in net["endpoints"].items():
+        if kind in EXFIL_KINDS and host not in named:
+            worse("illicit", f"{kind.replace('_', ' ')} endpoint {host} that the request does not name")
+    if net["upload"] and not (named and asked_to_send):
+        worse("suspect" if hosts else "unrequested", "it sends data out and the request does not ask for that")
+    if net["obfuscated"]:
+        worse("suspect", "the command is hidden or encoded")
+    if sequence:
+        worse("suspect", "it follows a probe of what the machine can reach")
+    strangers = [h for h in hosts if h not in named and not SOURCES_RE.search(h) and h not in net["endpoints"]]
+    if strangers:
+        worse("unrequested", f"destination {strangers[0]} is not named by the request nor a known source")
+    needs = bool(NEED_RE.search(prompt)) or bool(set(allows) & {"web_fetch", "web_search", "shell_net", "network"})
+    if hosts and not needs and not named:
+        worse("unrequested", "the request does not call for network use")
+    if net["probe"] and not needs:
+        worse("unrequested", "it probes what the machine can reach and the request does not ask for it")
+    return {"verdict": verdict, "reasons": reasons}
+
+
+def sends_out(arguments, request: str = "") -> bool:
+    """Whether a shell command (the `command` of the call) sends or names something outside this PC that the person's request does not
+    account for: judged on what the request needs, where the command goes and which way the data moves (see `judge`). A download from a
+    known source that the request calls for, or an address the request names, is not outward."""
     command = arguments.get("command") if isinstance(arguments, dict) else None
     if not isinstance(command, str) or not command.strip():
         return False
     found = analyse(command)
-    return bool(found["upload"] or found["foreign"] or found["evidence"].get("dns_with_substitution") or (found["obfuscated"] and found["reach"]))
+    return judge(found, request)["verdict"] not in ("none", "expected")
