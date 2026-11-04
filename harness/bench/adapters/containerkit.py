@@ -375,7 +375,7 @@ def stop_name(stop_reason: str, error: str, timed_out: bool = False) -> str:
 
 
 _SERVER_FAULT = re.compile(r"cannot reach the basalt server|the answer stopped before it was complete|the engine reported an error|connection (?:refused|reset)|"
-                           r"remote end closed|bad gateway|service unavailable", re.I)
+                           r"remote end closed|bad gateway|service unavailable|layer \d+ never rang|illegal memory access", re.I)
 
 
 def is_server_fault(outcome: "AgentOutcome") -> bool:
@@ -427,9 +427,71 @@ def agent_overrides(settings: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
     return asked
 
 
+# -- guidance: help for the agent that a run's settings switch on (off by default, so two runs can be compared) --------------
+
+GUIDANCE = ("rules", "outputs")
+RULES_NOTE = (
+    "\nWorking rules:\n"
+    "- A value your own script produced that fails a check is put right by fixing the script and running it again, not by editing the value by hand.\n"
+    "- When the task leaves a choice open (a boundary, an order, a format), take the most literal reading of the data you were given, and check each "
+    "requirement again under the other readings that are as valid.\n"
+    "- Parse or sanitise a standard format (HTML, JSON, XML, CSV) with an installed, well-tested library rather than a parser of your own, unless the task forbids it.\n"
+    "- Write each file the task asks for as soon as you have a first candidate, write it again whenever you improve it, and before you stop read it back "
+    "and compare it with your final answer.")
+_ABSOLUTE_PATH = re.compile(r"(?<![\w./~:-])/(?:[\w.+@-]+/)*[\w.+@-]*\w[\w.+@-]*")
+MAX_NAMED_PATHS = 8
+
+
+def guidance_of(settings: Optional[Mapping[str, Any]]) -> List[str]:
+    """The guidance a run's settings ask for: a list or a comma-separated text of names in GUIDANCE. A name that is not one is refused."""
+    asked = (settings or {}).get("guidance") or []
+    names = [n.strip() for n in (asked.split(",") if isinstance(asked, str) else asked) if str(n).strip()]
+    bad = sorted({n for n in names if n not in GUIDANCE})
+    if bad:
+        raise ValueError(f"the guidance is one of {', '.join(GUIDANCE)}; not {', '.join(bad)}")
+    return list(dict.fromkeys(names))
+
+
+def named_paths(instruction: str, limit: int = MAX_NAMED_PATHS) -> List[str]:
+    """The absolute paths the instruction names, in order of appearance (a URL is not one)."""
+    found: List[str] = []
+    for m in _ABSOLUTE_PATH.finditer(instruction):
+        path = m.group(0).rstrip(".,:;)")
+        if len(path) > 2 and path not in found:
+            found.append(path)
+    return found[:limit]
+
+
+class OutputWatch:
+    """The completion check of the `outputs` guidance. The paths the instruction names and the container did not have at the start are watched: when
+    the agent wants to stop and one is still missing, it is told once, and it may answer that the path is no result to produce."""
+
+    def __init__(self, instruction: str, exec_fn: ExecFn) -> None:
+        self.exec_fn, self.told = exec_fn, False
+        self.absent = [p for p in named_paths(instruction) if self._exists(p) is False]
+
+    def _exists(self, path: str) -> Optional[bool]:
+        """True or False; None when the container could not say."""
+        try:
+            rc = self.exec_fn(f"test -e {shlex.quote(path)}", 30).rc
+        except Exception:
+            return None
+        return True if rc == 0 else False if rc == 1 else None
+
+    def __call__(self, goal: str, answer: str, work: str) -> str:
+        if self.told or not self.absent:
+            return ""
+        missing = [p for p in self.absent if self._exists(p) is False]
+        if not missing:
+            return ""
+        self.told = True
+        return (f"[harness] The task text names {', '.join(missing)}, which does not exist. If it is a result you must produce, create it now; "
+                "if it is not, answer again and say so.")
+
+
 def run_harness_agent(instruction: str, exec_fn: ExecFn, *, endpoint: str, work_dir: Path, trajectory: TrajectoryRecorder, environment_note: str,
                       client: Any = None, cancel: Optional[threading.Event] = None, max_seconds: Optional[float] = None, max_turns: int = -1,
-                      overrides: Optional[Mapping[str, Any]] = None, cwd_label: str = "the working folder") -> AgentOutcome:
+                      overrides: Optional[Mapping[str, Any]] = None, cwd_label: str = "the working folder", guidance: Tuple[str, ...] = ()) -> AgentOutcome:
     """Runs our headless agent on `instruction` with its tools acting in the container. The agent keeps its own loop, context handling, permission
     layer (at Auto: nobody is there to ask) and repeat guards; nothing of it is switched off for the benchmark. Returns when the agent stops."""
     from harness import agent_loop as al
@@ -449,8 +511,11 @@ def run_harness_agent(instruction: str, exec_fn: ExecFn, *, endpoint: str, work_
         threading.Thread(target=_pass_on, args=(cancel, built.cancel, finished), name="bench-cancel-link", daemon=True).start()
     tools = ContainerTools(exec_fn)
     tools.install(built.agent.tools, cwd_label)
-    built.builder.pin("environment", environment_note)
+    built.builder.pin("environment", environment_note + (RULES_NOTE if "rules" in guidance else ""))
     built.agent.system_prompt = built.builder.assemble_system_message()
+    if "outputs" in guidance:
+        watch, other = OutputWatch(instruction, exec_fn), built.agent.completion
+        built.agent.completion = lambda goal, answer, work: watch(goal, answer, work) or (other(goal, answer, work) if other is not None else "")
     built.agent.reset()                                          # the conversation was started with the prompt that names this PC; it begins again with this one
     built.agent.on_event = trajectory.on_event
     outcome = AgentOutcome()

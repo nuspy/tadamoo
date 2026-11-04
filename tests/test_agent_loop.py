@@ -553,6 +553,52 @@ def test_a_lost_connection_is_waited_out_and_the_run_goes_on(ws, monkeypatch):
     assert [e["attempt"] for e in seen if e.get("type") == "server_unreachable"] == [1, 2, 3]
 
 
+class _EngineFault(ScriptedClient):
+    """The engine fails under the first `down` calls, as the server reports it."""
+
+    def __init__(self, *steps, down=2, message="verify: layer 2 never rang (an illegal memory access was encountered)"):
+        super().__init__(*steps)
+        self.down, self.message = down, message
+
+    def chat_completion(self, *a, **kw):
+        if self.down > 0:
+            self.down -= 1
+            raise BasaltError(500, self.message)
+        return super().chat_completion(*a, **kw)
+
+
+def test_a_request_the_engine_failed_under_is_asked_again(ws, monkeypatch):
+    import harness.agent_loop as al
+    monkeypatch.setattr(al, "ENGINE_FAULT_WAIT_FIRST", 0.01)
+    agent, _ = make(ws, _EngineFault(call("write_file", {"path": "a.txt", "content": "A"}, "c1"), say("done"), down=2))
+    seen = []
+    agent.on_event = seen.append
+    turns = agent.run("write a")
+    assert agent.stop_reason == FINAL and len(turns) == 2
+    assert [e["attempt"] for e in seen if e.get("type") == "engine_fault_retry"] == [1, 2]
+    assert (ws / "a.txt").read_text() == "A"
+
+
+def test_an_engine_that_keeps_failing_ends_the_run_after_the_tries(ws, monkeypatch):
+    import harness.agent_loop as al
+    monkeypatch.setattr(al, "ENGINE_FAULT_WAIT_FIRST", 0.01)
+    agent, _ = make(ws, _EngineFault(down=99))
+    seen = []
+    agent.on_event = seen.append
+    agent.run("hi")
+    assert agent.stop_reason == al.ERROR and "never rang" in agent.error
+    assert len([e for e in seen if e.get("type") == "engine_fault_retry"]) == al.ENGINE_FAULT_TRIES
+
+
+def test_an_error_of_the_server_that_is_not_an_engine_fault_is_not_asked_again(ws):
+    import harness.agent_loop as al
+    agent, _ = make(ws, _EngineFault(down=99, message="the request is not valid"))
+    seen = []
+    agent.on_event = seen.append
+    agent.run("hi")
+    assert agent.stop_reason == al.ERROR and not [e for e in seen if e.get("type") == "engine_fault_retry"]
+
+
 def test_a_server_that_never_answered_is_reported_at_once(ws):
     class Down:
         def chat_completion(self, *a, **kw):

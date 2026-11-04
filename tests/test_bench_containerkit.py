@@ -184,6 +184,7 @@ def test_the_local_engine_is_the_only_model_address():
 
 def test_server_faults_are_told_from_the_agent_failing():
     assert ck.is_server_fault(AgentOutcome(stop_reason="error", error="cannot reach the Basalt server at http://127.0.0.1:7232: refused"))
+    assert ck.is_server_fault(AgentOutcome(stop_reason="error", error="verify: layer 2 never rang (an illegal memory access was encountered)"))
     assert not ck.is_server_fault(AgentOutcome(stop_reason="error", error="maximum context length exceeded"))
     assert not ck.is_server_fault(AgentOutcome(stop_reason="final"))
 
@@ -242,6 +243,53 @@ def test_the_agent_cannot_use_a_tool_that_acts_on_this_pc(tmp_path):
     traj.close()
     tool_text = json.dumps(client.sent[1][-1])
     assert out.stop_reason == "final" and "browse_url" in tool_text and "tool" in tool_text.lower()
+
+
+def test_named_paths_are_absolute_paths_and_not_urls():
+    text = "Write the answer to /app/results.json (see https://example.com/a/b and `/tmp/x.txt`), then read /app/in.csv."
+    assert ck.named_paths(text) == ["/app/results.json", "/tmp/x.txt", "/app/in.csv"]
+    assert ck.guidance_of({"guidance": "rules, outputs"}) == ["rules", "outputs"] and ck.guidance_of({}) == []
+    with pytest.raises(ValueError):
+        ck.guidance_of({"guidance": ["rules", "tips"]})
+
+
+def test_the_outputs_guidance_sends_the_agent_back_once_for_a_missing_result(tmp_path):
+    import shlex
+    root = tmp_path / "container"
+    root.mkdir()
+    (root / "in.csv").write_text("a")
+    inner = local_exec(root)
+
+    def exec_fn(command, timeout):                                   # the container's /app is the folder
+        if command.startswith("test -e "):
+            return ExecOut(0 if (root / Path(shlex.split(command)[2]).name).exists() else 1)
+        return inner(command, timeout)
+    client = Scripted(say("Done."), call("shell_command", command="echo ok > out.json"), say("Now it is there."))
+    traj = TrajectoryRecorder(tmp_path / "trial" / "trajectory.jsonl")
+    out = ck.run_harness_agent("Read /app/in.csv and write /app/out.json.", exec_fn, endpoint="http://127.0.0.1:7232", work_dir=tmp_path / "trial", trajectory=traj,
+                               environment_note="n", client=client, max_turns=6, overrides={"final_review": False}, guidance=("outputs",))
+    traj.close()
+    assert out.stop_reason == "final" and (root / "out.json").exists()
+    sent = json.dumps(client.sent[1])
+    assert "/app/out.json, which does not exist" in sent and "in.csv, which" not in sent
+    off = Scripted(say("Done."))
+    traj2 = TrajectoryRecorder(tmp_path / "trial2" / "trajectory.jsonl")
+    out2 = ck.run_harness_agent("write /app/never.json", exec_fn, endpoint="http://127.0.0.1:7232", work_dir=tmp_path / "trial2", trajectory=traj2,
+                                environment_note="n", client=off, max_turns=6, overrides={"final_review": False})
+    traj2.close()
+    assert out2.turns == 1 and len(off.sent) == 1
+
+
+def test_the_rules_guidance_adds_the_working_rules_to_the_note_and_is_off_by_default(tmp_path):
+    root = tmp_path / "container"
+    root.mkdir()
+    for guidance, present in (((), False), (("rules",), True)):
+        client = Scripted(say("Done."))
+        traj = TrajectoryRecorder(tmp_path / f"t{len(guidance)}" / "trajectory.jsonl")
+        ck.run_harness_agent("x", local_exec(root), endpoint="http://127.0.0.1:7232", work_dir=tmp_path / f"t{len(guidance)}", trajectory=traj,
+                             environment_note="The system is a container.", client=client, max_turns=2, overrides={"final_review": False}, guidance=guidance)
+        traj.close()
+        assert ("Working rules:" in client.sent[0][0]["content"]) is present
 
 
 def test_a_stop_request_ends_the_agent(tmp_path):

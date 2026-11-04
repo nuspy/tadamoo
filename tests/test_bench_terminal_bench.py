@@ -134,6 +134,23 @@ def test_the_command_of_a_trial(tmp_path):
     ctx3.trial_dir.mkdir(parents=True)
     argv3 = a.command(("fix-git", 1), ctx3, source / "fix-git", MODEL["endpoint"])[0]
     assert json.loads(Path(argv3[argv3.index("--ak") + 1].split("=", 1)[1]).read_text())["overrides"] == {"reasoning_effort": "medium"}
+    ctx4 = ctx_for(tmp_path / "guided", {"subset": "dev", "agent_config": {}, "guidance": "rules,outputs"})
+    ctx4.trial_dir.mkdir(parents=True)
+    argv4 = a.command(("fix-git", 1), ctx4, source / "fix-git", MODEL["endpoint"])[0]
+    assert json.loads(Path(argv4[argv4.index("--ak") + 1].split("=", 1)[1]).read_text())["guidance"] == ["rules", "outputs"]
+    assert json.loads(settings_file.read_text())["guidance"] == []
+    ctx5 = ctx_for(tmp_path / "slow", {"subset": "dev", "agent_config": {}, "time_scale": 3})
+    ctx5.trial_dir.mkdir(parents=True)
+    argv5 = a.command(("fix-git", 1), ctx5, source / "fix-git", MODEL["endpoint"])[0]
+    agent_timeout = tb.read_task_meta(source / "fix-git")["agent_timeout"]
+    assert argv5[argv5.index("--agent-timeout-multiplier") + 1] == "3"
+    assert json.loads(Path(argv5[argv5.index("--ak") + 1].split("=", 1)[1]).read_text())["max_seconds"] == agent_timeout * 3 - tb.REPORT_MARGIN_S
+    assert "--agent-timeout-multiplier" not in argv
+    for bad in (0.5, 11, "soon"):
+        with pytest.raises(ValueError, match="time_scale"):
+            tb.time_scale_of({"time_scale": bad})
+    with pytest.raises(ValueError, match="guidance is one of"):
+        a.plan({"subset": "dev", "guidance": ["tips"]}, tmp_path / "terminal-bench-2")
     smoke = tb.TerminalBenchAdapter(which=lambda n: "/bin/harbor").command(("fix-git", 1), ctx_for(tmp_path, {"subset": "smoke"}), source / "fix-git", MODEL["endpoint"])[0]
     assert smoke[smoke.index("-a") + 1] == "oracle" and "--ak" not in smoke
     with pytest.raises(ValueError, match="'basalt' or 'oracle'"):
