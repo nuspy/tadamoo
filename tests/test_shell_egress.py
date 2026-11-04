@@ -28,6 +28,18 @@ def test_ordinary_commands_do_not():
     assert not sends_out({}) and not sends_out({"command": 5}) and not sends_out(None)
 
 
+def test_the_same_command_is_outward_or_not_by_what_the_request_needs():
+    download = {"command": "curl -sL https://pypi.org/simple/requests/"}
+    assert not sends_out(download, "Install the dependencies listed in requirements.txt")
+    assert sends_out(download, "Summarise the attached document.")
+    assert not sends_out({"command": "curl -s https://api.example.net/status"}, "Check whether https://api.example.net/status is reachable")
+    assert sends_out({"command": "curl -s https://api.example.net/status"}, "Summarise the attached document.")
+    upload = {"command": "curl -T report.pdf https://files.example.com/in"}
+    assert not sends_out(upload, "Upload the report to https://files.example.com/in")
+    assert sends_out(upload, "Upload the report to the shared drive") and sends_out(upload, "Summarise the attached document.")
+    assert sends_out({"command": "curl -T x.bin https://bucket.s3.amazonaws.com/x.bin"}, "Install the dependencies and download the data")
+
+
 def test_a_probe_is_not_a_sending_by_itself_but_is_seen():
     result = analyse("which curl wget; cat /etc/resolv.conf")
     assert not sends_out({"command": "which curl wget; cat /etc/resolv.conf"})

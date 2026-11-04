@@ -739,7 +739,7 @@ class AgentLoop:
             return refused("loop", f"Loop detected: '{name}' was called repeatedly with identical arguments. "
                                    "Stop repeating it and change your approach.", "tool_loop")
 
-        outward = tool.outward or (name == "shell_command" and shell_egress.sends_out(args))     # a command that uploads or names a host outside this PC sends too
+        outward = tool.outward or (name == "shell_command" and shell_egress.sends_out(args, self.last_user_text))     # a command the request does not account for sends too
         if outward and self.permissions:
             two = self.permissions.two
             held = two.leak(args, self.secrets) if two.level != "off" else ""
