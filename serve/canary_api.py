@@ -303,7 +303,10 @@ def build_config(s: Dict[str, Any], ctx: Context, state_dir: Path) -> Dict[str, 
         cfg["reviewer"] = {"kind": rev["kind"], "base_url": rev["base_url"], "api_key": rev["api_key"], "model": rev["model"], "extra_headers": {}}
     else:
         cfg["reviewer"] = None
-    return with_page_settings(cfg)                             # the reviewer may be the model under test: its reviews say so
+    cfg = with_page_settings(cfg)                              # the reviewer may be the model under test: its reviews say so
+    if not cfg.get("harnesses"):
+        cfg["harnesses"] = ["hermes", "cline", "aider"]          # the test always runs the model through a harness, with its tools
+    return cfg
 
 
 def _write_config(s: Dict[str, Any], ctx: Context) -> Path:
