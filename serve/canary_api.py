@@ -237,6 +237,42 @@ def effective(s: Dict[str, Any], ctx: Context) -> Dict[str, Any]:
     return {"model": model, "base_url": base, "ours": ours}
 
 
+OWNED_KEYS = ("target", "monitor", "network_watch", "state_dir", "runtime", "vendor", "vendors_file")     # decided here, never by the page
+
+
+def overlay_path() -> Path:
+    return _dir() / "page_settings.json"
+
+
+def _deep(base: Any, over: Any) -> Any:
+    if isinstance(base, dict) and isinstance(over, dict):
+        return {**base, **{k: _deep(base.get(k), v) for k, v in over.items()}}
+    return over
+
+
+def with_page_settings(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """The settings saved in the Canary tab (what to look for, people, story, fake computer, alerts) laid over the config built from the form."""
+    saved = _read(overlay_path(), {})
+    for k, v in (saved.items() if isinstance(saved, dict) else ()):
+        if k in OWNED_KEYS or (k == "reviewer" and not isinstance(v, dict)):
+            continue
+        cfg[k] = _deep(cfg.get(k), v)
+    return cfg
+
+
+def gui_app(ctx: Context) -> Any:
+    """The Canary page with this server's start and stop (which keep the security monitor on), its own config and its own state."""
+    server = lib("gui.server")
+    return server.App(_dir() / "canary.json", state_dir=_state_dir(), prefix="/canary", check_host=False, overlay=overlay_path(),
+                      start=lambda: start(ctx), stop=stop)
+
+
+def gui_response(method: str, raw_path: str, headers: Any, body: bytes, ctx: Context) -> Tuple[int, bytes, str, Dict[str, str]]:
+    if not present():
+        raise CanaryError("The Openweight Canary add-on is not installed.", "no_addon")
+    return lib("gui.server").handle(gui_app(ctx), method, raw_path, headers, body)
+
+
 def build_config(s: Dict[str, Any], ctx: Context, state_dir: Path) -> Dict[str, Any]:
     eff = effective(s, ctx)
     if not eff["model"]:
@@ -271,11 +307,9 @@ def build_config(s: Dict[str, Any], ctx: Context, state_dir: Path) -> Dict[str, 
         if not rev["base_url"] or not rev["model"]:
             raise CanaryError("The reviewer needs an address and a model name.")
         cfg["reviewer"] = {"kind": rev["kind"], "base_url": rev["base_url"], "api_key": rev["api_key"], "model": rev["model"], "extra_headers": {}}
-        if lib("config").same_endpoint(cfg["reviewer"], cfg["target"]):
-            raise CanaryError("The reviewer must be another model than the one under test: a model cannot judge evidence about itself.", "same_model")
     else:
         cfg["reviewer"] = None
-    return cfg
+    return with_page_settings(cfg)                             # the reviewer may be the model under test: its reviews say so
 
 
 def _write_config(s: Dict[str, Any], ctx: Context) -> Path:

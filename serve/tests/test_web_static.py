@@ -189,7 +189,7 @@ class MarkupTest(unittest.TestCase):
 
     def test_navigation_order_and_the_palette_and_the_notice_exist(self):
         tabs = re.findall(r'<button class="tab" role="tab" id="tab-(\w+)" data-view=', self.html)
-        self.assertEqual(tabs, ["chat", "agent", "plans", "cron", "stats", "loader", "settings"])     # Hardware and LOGS sit under Monitor, Wallet under Settings
+        self.assertEqual(tabs, ["chat", "agent", "plans", "cron", "stats", "loader", "canary", "settings"])     # Hardware and LOGS sit under Monitor, Wallet under Settings
         for needle in ('id="palette"', 'id="pal-input"', 'id="pal-list"', 'id="pal-open"', 'id="nomodel"', 'id="viewsub"',
                        'id="st-ui-scale"', 'id="st-planner-body"', 'aria-keyshortcuts="Control+K"'):
             self.assertIn(needle, self.html, needle)

@@ -1264,3 +1264,8 @@ dialog.afolder .brd-b { display: grid; gap: 8px; padding: 12px 16px 16px; }
 .afile { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 2px 10px; margin: 0 2px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--fg); font: 500 13px/1.6 var(--font-sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .afile:hover, .afile:focus-visible { border-color: var(--accent); }
 .afile:disabled { opacity: .6; }
+
+/* the Canary tab: the page of the test fills the view */
+.cn-frame { display: flex; flex-direction: column; }
+.cn-frame[hidden] { display: none; }
+.cn-frame iframe { flex: 1; width: 100%; min-height: calc(100vh - 150px); border: 0; background: transparent; }
