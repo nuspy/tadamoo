@@ -75,6 +75,7 @@ sealed class MainForm : Form
         Size = new Size(1360, 900);
         StartPosition = FormStartPosition.CenterScreen;
         cfgPath = opt.ConfigFile != null ? Path.GetFullPath(opt.ConfigFile) : Path.Combine(opt.Repo, "tadamoo_config.json");
+        EnsureConfig();
         string data = Environment.GetEnvironmentVariable("TADAMOO_DATA");
         statePath = opt.TestMock ? Path.Combine(Path.GetTempPath(), "tadamoo-desktop-test", "desktop.json")
                   : Path.Combine(string.IsNullOrEmpty(data) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TaDaMoo") : data, "desktop.json");
@@ -443,6 +444,15 @@ sealed class MainForm : Form
         await StartWeb(true);
     }
 
+    /// <summary>A new installation has no config file: write one without a model (the Loader writes the model and the
+    /// values into it). Null when the file exists or was written, else the reason it could not be.</summary>
+    string EnsureConfig()
+    {
+        if (File.Exists(cfgPath) || opt.ConfigFile != null) return null;
+        try { File.WriteAllText(cfgPath, "{\n  \"server\": {\n    \"port\": 7232,\n    \"listen-first\": true\n  },\n  \"engine\": {}\n}\n"); return null; }
+        catch (Exception e) { return e.Message; }
+    }
+
     /// <summary>The port of the app's server: --port, else the config file's, else 7232.</summary>
     int WebPort()
     {
@@ -460,12 +470,8 @@ sealed class MainForm : Form
     /// chose another model (exit code 75), loading the model now in the config file while the page already answers.</summary>
     async Task StartWeb(bool standby)
     {
-        if (!File.Exists(cfgPath) && opt.ConfigFile == null)
-        {
-            // a new installation: a config file without a model; the Loader writes the model and the values into it
-            try { File.WriteAllText(cfgPath, "{\n  \"server\": {\n    \"port\": 7232,\n    \"listen-first\": true\n  },\n  \"engine\": {}\n}\n"); }
-            catch (Exception e) { await Fallback(Tr.T($"Non riesco a creare {cfgPath}: {e.Message}", $"Cannot create {cfgPath}: {e.Message}")); return; }
-        }
+        var made = EnsureConfig();
+        if (made != null) { await Fallback(Tr.T($"Non riesco a creare {cfgPath}: {made}", $"Cannot create {cfgPath}: {made}")); return; }
         if (!File.Exists(cfgPath)) { await Fallback(Tr.T($"Manca il file di configurazione {cfgPath}.", $"The config file is missing: {cfgPath}.")); return; }
         int p = WebPort();
         var taken = Native.Listeners().FirstOrDefault(x => x.port == p);
