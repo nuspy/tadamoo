@@ -1,7 +1,7 @@
 import pytest
 
-from harness.past import CHUNK_CHARS, PER_SESSION, PastIndex, pieces, register_past_tools, text_of
-from harness.tools.registry import ToolRegistry
+from tadamoo.past import CHUNK_CHARS, PER_SESSION, PastIndex, pieces, register_past_tools, text_of
+from tadamoo.tools.registry import ToolRegistry
 
 
 def convo(*lines):

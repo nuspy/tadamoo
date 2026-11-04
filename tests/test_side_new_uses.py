@@ -4,10 +4,10 @@ import json
 
 import pytest
 
-from harness import digest, inject_screen, memory_rank, progress, side_uses, suggestions, tool_extract
-from harness.agent_loop import AgentLoop
-from harness.context import TokenJuiceCompactor
-from harness.tools.registry import EffectClass, ToolRegistry
+from tadamoo import digest, inject_screen, memory_rank, progress, side_uses, suggestions, tool_extract
+from tadamoo.agent_loop import AgentLoop
+from tadamoo.context import TokenJuiceCompactor
+from tadamoo.tools.registry import EffectClass, ToolRegistry
 
 
 @pytest.fixture(autouse=True)
@@ -168,7 +168,7 @@ def test_a_progress_line_is_due_every_few_steps_and_is_written_from_the_newest_o
 # -- suggestions -------------------------------------------------------------------------------------------------------
 
 def test_the_compact_view_has_no_system_prompt_no_tools_and_only_the_newest_turns():
-    history = [{"role": "system", "content": "You are Basalt " + "x" * 5000}]
+    history = [{"role": "system", "content": "You are TaDaMoo " + "x" * 5000}]
     for i in range(1, 8):
         history += [{"role": "user", "content": f"question {i}"}, {"role": "assistant", "content": "", "tool_calls": [{"id": "t"}]},
                     {"role": "tool", "content": "tool output"}, {"role": "assistant", "content": f"answer {i} " + "y" * 3000}]
@@ -176,7 +176,7 @@ def test_the_compact_view_has_no_system_prompt_no_tools_and_only_the_newest_turn
     assert out[0] == {"role": "system", "content": suggestions.SYSTEM}
     assert [m["role"] for m in out[1:]] == ["user", "assistant", "user", "assistant"]
     assert out[1]["content"] == "question 6" and out[3]["content"] == "question 7"
-    assert all(len(m["content"]) <= suggestions.TURN_CHARS + 20 for m in out[1:]) and "You are Basalt" not in json.dumps(out)
+    assert all(len(m["content"]) <= suggestions.TURN_CHARS + 20 for m in out[1:]) and "You are TaDaMoo" not in json.dumps(out)
 
 
 def test_with_a_session_the_suggestions_read_only_the_last_turns_and_a_long_conversation_is_no_reason_to_skip():
@@ -194,7 +194,7 @@ def test_with_a_session_the_suggestions_read_only_the_last_turns_and_a_long_conv
 # -- the planner and memory learning -----------------------------------------------------------------------------------
 
 def test_the_planner_reads_in_the_session_when_it_fits_and_in_the_ordinary_slot_when_it_does_not():
-    from harness.planner.alignment import client_ask
+    from tadamoo.planner.alignment import client_ask
     client = Session("{}")
     client_ask(client)([{"role": "user", "content": "compare these"}])
     assert client.calls[0]["extra"]["side_use"] == "planner"
@@ -208,8 +208,8 @@ def test_the_planner_reads_in_the_session_when_it_fits_and_in_the_ordinary_slot_
 
 
 def test_memory_learning_in_the_session_does_not_wait_for_the_card_to_be_free(tmp_path):
-    from harness.memory_extract import Extractor
-    from harness.personal_memory import PersonalMemory
+    from tadamoo.memory_extract import Extractor
+    from tadamoo.personal_memory import PersonalMemory
     memory = PersonalMemory(tmp_path / "pm", key_dir=str(tmp_path / "keys"))
     memory.set_settings({"learn_long": True, "learn_short": True})
     memory.enqueue({"text": "I always use two spaces to indent my code in every project", "project": ""})
@@ -224,11 +224,11 @@ def test_memory_learning_in_the_session_does_not_wait_for_the_card_to_be_free(tm
 # -- a route to another provider ---------------------------------------------------------------------------------------
 
 def test_the_quick_jobs_have_a_function_of_their_own_and_no_session_outside_this_pc_until_allowed(tmp_path):
-    from harness import side
-    from harness.llm import functions
-    from harness.llm.client import RoutedClient
-    from harness.llm.credentials import FileCredentials
-    from harness.llm.store import Ledger, SecureRegistry
+    from tadamoo import side
+    from tadamoo.llm import functions
+    from tadamoo.llm.client import RoutedClient
+    from tadamoo.llm.credentials import FileCredentials
+    from tadamoo.llm.store import Ledger, SecureRegistry
     assert functions.spec("technical")["data"] == "personal"
     reg = SecureRegistry(tmp_path / "p.json", credentials=FileCredentials(tmp_path / "c.json"))
     reg.local_hosts = ()

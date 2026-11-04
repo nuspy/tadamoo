@@ -175,7 +175,7 @@ class Base(unittest.TestCase):
         self.cache = self.root / "cache"
         self.models = self.root / "models"
         self.models.mkdir()
-        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": str(self.cache), "BASALT_DATA": str(self.cache)})
+        self.env = mock.patch.dict(os.environ, {"TADAMOO_CACHE": str(self.cache), "TADAMOO_DATA": str(self.cache)})
         self.env.start()
         self.geo = mock.patch.object(models, "GEOMETRY", dict(SMALL))
         self.geo.start()
@@ -531,7 +531,7 @@ class WithModel(Base):
         super().setUp()
         self.a = tiny_basalt(self.models / "A-IQ3_XXS.basalt", name="Modello A")
         self.b = tiny_basalt(self.models / "B-Q2_0.basalt", name="Modello B")
-        self.cfg = self.root / "basalt_config.json"
+        self.cfg = self.root / "tadamoo_config.json"
         self.cfg.write_text(json.dumps({"server": {"model": self.a.as_posix(), "alias": "Nome A", "port": 7232},
                                         "engine": {"kv": "int8"}}), encoding="utf-8")
 

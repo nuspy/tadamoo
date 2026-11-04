@@ -1,25 +1,30 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/basalt-lockup-dark.png">
-    <img src="assets/basalt-lockup-light.png" alt="Basalt" width="480">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/tadamoo-lockup-dark.png">
+    <img src="assets/tadamoo-lockup-light.png" alt="TaDaMoo" width="480">
   </picture>
 </p>
 
-# Basalt Win+GUI: this fork
+# TaDaMoo: AI agent harness (Win+GUI)
 
 *English* · [Italiano](README.it.md)
 
-**Basalt Win+GUI** is a fork of **[Basalt](https://github.com/jesdga95/basalt)** by jesdga95 (MIT license), which is itself
+**TaDaMoo** is an AI agent harness with a native Windows app. It runs on **Basalt-Plus**, its own local inference engine
+for the Qwen3.8-Flash-Next mixture-of-experts model on NVIDIA Blackwell GPUs. Website: **[tadamoo.com](https://tadamoo.com)**
+· Contact: [a.taini@gmail.com](mailto:a.taini@gmail.com) · Repository: [github.com/nuspy/tadamoo](https://github.com/nuspy/tadamoo).
+
+**Basalt-Plus** is a fork of **[Basalt](https://github.com/jesdga95/basalt)** by jesdga95 (MIT license), which is itself
 a fork of **[Strata](https://github.com/Niko1221/Strata)** by Niko1221 (MIT license). The engine, the `.basalt` model
 format, the converter and the server come from Basalt; the copyright notices of both projects and of the code they
 include (ggml, llama.cpp and others) are kept in [LICENSE](LICENSE) and [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES).
 The model files are derived from Qwen3.8-Flash-Next and are under the
 [Qwen Community License 1.0](https://huggingface.co/Qwen/Qwen3.8-Flash-Next/blob/main/LICENSE), not under MIT.
 
-What this fork adds: a native **Windows 10/11** port of the engine (the Linux code paths are unchanged), and the
-pieces that make it usable on a desktop: a native app that opens on a web Loader which predicts memory and speed
-before loading, a configuration wizard that finds the best values for each PC, load profiles, a model library that
-finds, verifies and converts models, and start/stop scripts. The upstream README follows below this section, unchanged.
+What TaDaMoo and Basalt-Plus add on top of Basalt: a native **Windows 10/11** port of the engine (the Linux code paths
+are unchanged), and the pieces that make it usable on a desktop: a native app that opens on a web Loader which predicts
+memory and speed before loading, a configuration wizard that finds the best values for each PC, load profiles, a model
+library that finds, verifies and converts models, the agent harness with its chat, planner and benchmarks, and
+start/stop scripts. The upstream README follows below this section, unchanged.
 
 ## Differences from the base Basalt
 
@@ -41,7 +46,7 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
   needs an AVX-512 CPU).
 
 **2. An advanced graphical interface (the base only had the Monitor and Hardware pages)**
-- **Basalt Win+GUI** (`BasaltWinGUI.exe`): a desktop app (WebView2 window, tray icon, single instance) that starts the
+- **TaDaMoo Win+GUI** (`TaDaMoo.exe`): a desktop app (WebView2 window, tray icon, single instance) that starts the
   server and opens the web UI; the same UI works in any browser, English or Italian, on phones too.
 - **Chat** with the model's own sampling values, presets, a context meter and context policies (stop, slide or have the
   model compact), structured output; **Settings** for the app's preferences, beside the base's Monitor and Hardware.
@@ -72,7 +77,7 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
   with the reason; **conversion and verification** in the background (disk and commit checked first).
 - A `.basalt` can be given a real **expert profile without converting again**, and the Loader says when it has only the
   plain fill order. `/v1/models` lists the folders' ready files.
-- **A second engine, Strata**, for what Basalt does not run: other GPU families and the Qwen3.6 and DeepSeek models. The Loader
+- **A second engine, Strata**, for what Basalt-Plus does not run: other GPU families and the Qwen3.6 and DeepSeek models. The Loader
   shows one Models tab per engine this PC can run, installs it from a local folder or archive (no download yet), and runs
   Strata's own server as a managed child, relaying `/v1/*` to it. One engine is active at a time. Details and limits:
   [docs/engines-protocol.md](docs/engines-protocol.md). Windows and Linux; AMD, Intel and Apple builds are untested here.
@@ -85,13 +90,13 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
   validated answer is held. The server's body limit and its refusals reach the client whole.
 
 **6. Scripts, languages and data**
-- `Avvia-Basalt.ps1` / `Ferma-Basalt.ps1`: `-gui` (default), `-browser`, `-server` for agents, with the same option names
+- `Avvia-TaDaMoo.ps1` / `Ferma-TaDaMoo.ps1`: `-gui` (default), `-browser`, `-server` for agents, with the same option names
   as Strata's; they attach to a running server and check memory with the Loader's plan before loading.
 - English by default, Italian on request, in the app, the page, the scripts and the command-line tools; settings live in
   the user data folder, apart from the caches.
 
 **7. An agent harness, a planner and a revised interface shell** (`harness/`, [docs/harness.md](docs/harness.md))
-- A separate process (`python -m harness -p "task"`, or as an editor's agent over ACP) that talks to the server's public
+- A separate process (`python -m tadamoo -p "task"`, or as an editor's agent over ACP) that talks to the server's public
   API: a tool loop with permission levels, a plan mode, hooks, file checkpoints, a hash-chained audit log, a command
   sandbox, a secrets broker, fenced untrusted content, context masking, memory, skills, MCP and
   reference documents (fixed block or search). A **vault** keeps cards, personal data and logins encrypted and the model only writes placeholders that are filled in at the last step (the agent runs as your own user, so what that does and does not protect is in `docs/harness.md`);
@@ -99,7 +104,7 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
   caps you choose, a question above them); the second factor of a login is your choice. Real phone calls are gated and off by default.
 - A proactive **planner**: plans as graphs with decisions, merges and tasks handed to you, a fast event filter (cloud only
   with your consent, names replaced) and re-planning by the local model, shown in a **Plans** view.
-- An **evaluation** (`python -m harness.eval`) that reports pass^k, cost and cache use, and the pages' shell: interface zoom
+- An **evaluation** (`python -m tadamoo.eval`) that reports pass^k, cost and cache use, and the pages' shell: interface zoom
   for very wide screens, a command palette (Ctrl+K), Alt+number views and a settings index.
 - **Questions and suggestions**: the agent asks with a card (choices, a row of your own, a recommended option first), looks at each request before it works, and offers next-message chips that only fill the box; unattended runs never wait ([docs/intake.md](docs/intake.md)).
 - A request for a text too long for one reply (a chapter, a report, a long translation) is written in checked parts: the Agent tab estimates the length, plans the parts, writes them and checks and corrects the whole by itself, after a card offers it; the **Long answer** button in the Chat and the Agent tab asks for it by hand. Images, links and code are kept exactly; a reply cut by the output limit shows a Continue button ([docs/longform.md](docs/longform.md)).
@@ -111,7 +116,7 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
 
 ## How it works
 
-- **One model.** Basalt runs Qwen3.8-Flash-Next (GGUF architecture `qwen4exp`): 48 layers, 512 routed experts per
+- **One model.** Basalt-Plus runs Qwen3.8-Flash-Next (GGUF architecture `qwen4exp`): 48 layers, 512 routed experts per
   layer, 10 of them active per token. At 3 bits the experts alone are about 50 GiB, more than a 32 GB GPU holds.
 - **Expert tiers.** The experts live in three places. An **expert cache in VRAM** holds as many as fit (`--expert-cache
   auto`: all the VRAM left after the reserve, see below), filled in the order of an expert profile so the most used ones
@@ -137,9 +142,9 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
   an I/O completion port, the CPU pool's topology from `GetLogicalProcessorInformationEx` with performance cores
   first on hybrid processors, `basalt serve` in a kill-on-close job object. `--no-pdl` launches every kernel without
   programmatic dependent launch, should a driver misbehave.
-- **The app, BasaltWinGUI.exe ("Basalt Win+GUI"), is the main interface.** It starts the server without loading a
+- **The app, TaDaMoo.exe ("TaDaMoo Win+GUI"), is the main interface.** It starts the server without loading a
   model and opens on the web Loader in its own window (WebView2), so the app and the browser have exactly the same
-  settings; a tray icon keeps Basalt Win+GUI running when the window is closed.
+  settings; a tray icon keeps TaDaMoo Win+GUI running when the window is closed.
 - **Web UI** (`/`, English or Italian, see [Language](#language)): Chat, Monitor, Hardware, the **Loader** (*Carica
   modello* in Italian) and Settings. Each setting lives in one tab:
   - **Loader**: everything decided when the model is loaded (the model, max context, KV cache, prompt reading, the MTP
@@ -169,7 +174,7 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
   answers and nothing is loaded until the Loader's Load), `--relaunch-on-model-change` (a Load of another model ends
   the server with exit code 75 so its owner starts it again with that model), `/api/settings`, `/api/loader/*`,
   `/api/wizard/*`, `/api/profiles`, `/api/models/*`.
-- **Scripts** `Avvia-Basalt.ps1` / `Ferma-Basalt.ps1` with the same option names as Strata's: `-gui` (the default:
+- **Scripts** `Avvia-TaDaMoo.ps1` / `Ferma-TaDaMoo.ps1` with the same option names as Strata's: `-gui` (the default:
   the app), `-browser`, `-server` (for agents), `--model`, `--config "<profile>"`, `--port`, `--vram-libera GB`,
   `-riusa` / `-riavvia`, `--lang it|en`.
 
@@ -188,8 +193,8 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
 - **Main vs secondary monitor**: the VRAM reserve depends on whether the NVIDIA GPU drives the main monitor (1.5 GB more),
   a secondary one (about 0.4 GB) or none; what other programs use is shown, not added.
 - **Measured memory**: the RAM and commit a real load took are kept per model and added to later plans.
-- **Data folders**: settings in `%APPDATA%\BasaltPannello\` (copied once from `~\.cache\basalt`, never moved).
-- **Name**: the app is **Basalt Win+GUI** (`BasaltWinGUI.exe`, new icon); the engine, API, files and scripts keep their
+- **Data folders**: settings in `%APPDATA%\TaDaMoo\` (copied once from `~\.cache\tadamoo`, never moved).
+- **Name**: the app is **TaDaMoo Win+GUI** (`TaDaMoo.exe`, new icon); the engine, API, files and scripts keep their
   names.
 - **`-server` with a server already running** asks whether to reuse it or restart it (`-riusa`, `-riavvia`, 60 s, no
   answer = reuse).
@@ -198,11 +203,11 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
 
 ## The agent harness
 
-The **harness** (`harness/`) is an agent that works on your files with the model loaded in Basalt. It reads and edits a project,
+The **harness** (`harness/`) is an agent that works on your files with the model loaded in TaDaMoo. It reads and edits a project,
 runs commands, searches the web, fills in forms, keeps notes about what it learns, and asks you before anything it cannot undo.
 It is a separate Python process: it talks to the running server through the public OpenAI-compatible API and imports nothing from
 the engine, so it needs no GPU of its own. What it keeps (conversations, memory, audit log, checkpoints, approvals) lives in the user
-data folder, never in your repository; the only thing it writes in the project is `.basalt/artifacts`, the full text of outputs it
+data folder, never in your repository; the only thing it writes in the project is `.tadamoo/artifacts`, the full text of outputs it
 had to shorten.
 
 The reference is [docs/harness.md](docs/harness.md); a step-by-step guide is [docs/harness-manual.md](docs/harness-manual.md).
@@ -215,14 +220,14 @@ An optional **reverse engineering** switch in the Agent tab adds the shipped REA
 
 ### Four ways in
 
-All four build the agent in the same place (`harness/stack.py`), so what one can reach the others can reach.
+All four build the agent in the same place (`tadamoo/stack.py`), so what one can reach the others can reach.
 
 | Way in | What it is |
 |---|---|
 | **Chat** tab | Conversations with the agent. Each is a long-lived process with its own saved history, so a message does not pay for the start. This is the main way. |
 | **Agent** tab | The conversation page, working in folders you add: each folder has its own conversations and a `.basalt` registry, and the agent's edits can be kept or undone block by block. |
-| `python -m harness -p "task"` or `basalt-agent` | The command line, for scripts: exit codes, `--json`, budgets. `basalt-agent.cmd` works from any folder. |
-| `python -m harness acp` | The agent of an editor that speaks the Agent Client Protocol, over stdio. |
+| `python -m tadamoo -p "task"` or `tadamoo-agent` | The command line, for scripts: exit codes, `--json`, budgets. `tadamoo-agent.cmd` works from any folder. |
+| `python -m tadamoo acp` | The agent of an editor that speaks the Agent Client Protocol, over stdio. |
 
 ### What it can do
 
@@ -248,7 +253,7 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   plan has a card the incoming events are judged against; the Chat asks you only what the card lacks. A decision with no exit that holds
   passes to you instead of skipping in silence. The event filter (local; the cloud one only with your consent) runs from the start of the
   server, and re-planning by the local model is optional.
-- **Run on its own schedule**: routines (a prompt, a folder, a schedule; always Automatic), evaluation (`python -m harness.eval`, pass^k, cost
+- **Run on its own schedule**: routines (a prompt, a folder, a schedule; always Automatic), evaluation (`python -m tadamoo.eval`, pass^k, cost
   and cache use), replay of a recorded session, and the energy a task used.
 
 ### The Chat's conversations
@@ -294,7 +299,7 @@ All four build the agent in the same place (`harness/stack.py`), so what one can
   once the conversation has read outside content and can reach a secret or a vault entry (the Rule of Two). The web is read freely for news; a web address, a search or a form asks only when the conversation has read outside content, touched private data (a stored credential, a file that holds keys, an attachment, your memories) and the action reaches the outside. Settings > Wallet sets how strict that is. A stored secret is never let into an address or a query, at any setting.
 - **Hooks you write** (`hooks.json`): commands or fixed blocks on tool calls, turns and the session; a hook that cannot decide blocks.
 - **Checkpoints and rewind**: before an action changes files, their previous content is kept outside the project (only the changed files, any folder, no size limit; off, on, or on without ever stopping the action);
-  `python -m harness.rewind`, `/rewind` and *Back to here* on a message restore it. Rewinding does not undo a command it ran, and says so.
+  `python -m tadamoo.rewind`, `/rewind` and *Back to here* on a message restore it. Rewinding does not undo a command it ran, and says so.
 - **An audit log**: one record per tool call (arguments hashed and masked, the decision, the outcome), in a hash chain you can verify.
 - **Time limits and Stop**: every tool has a time limit (one hour unless set in `limits.json`); silent work is not killed unless you set a limit; Stop ends a running command and everything it started.
 - **What it is not**: an operating-system sandbox. A command runs with your rights, with a scrubbed environment, no stdin, a time limit,
@@ -351,7 +356,7 @@ the note.
 ### What is not done
 
 File and network isolation for commands (the job object limits resources only); a try of the ACP agent in a real editor (Zed, JetBrains) and
-`terminal/*`; Basalt as an A2A server (it is a client only); bank accounts through an aggregator; a test of Google Pay or an embedded Stripe form on a real site;
+`terminal/*`; TaDaMoo as an A2A server (it is a client only); bank accounts through an aggregator; a test of Google Pay or an embedded Stripe form on a real site;
 and a measure of which context strategy works best (it needs the real model). No real phone call was placed in a test, and Stripe and
 Google Pay were not tried against the live services. The list with the reasons is at the end of [docs/harness.md](docs/harness.md).
 
@@ -372,48 +377,42 @@ Google Pay were not tried against the live services. The list with the reasons i
 
 ## Compatibility
 
-- **Basalt engine** (`.basalt` files, Qwen3.8-Flash-Next and the Qwen3.6 path): NVIDIA Blackwell only, Windows x64 and Linux x86-64.
+- **Basalt-Plus engine** (`.basalt` files, Qwen3.8-Flash-Next and the Qwen3.6 path): NVIDIA Blackwell only, Windows x64 and Linux x86-64.
 - **Strata engine** (second engine in the Loader, installed from a local folder): meant for the other NVIDIA generations, and for
   AMD (HIP), Intel (SYCL) and Apple (Metal) hardware. Run and checked here only on an NVIDIA Blackwell GPU with a Qwen3.6 GGUF
   that carries the MTP layer; the other backends are not tested. A Mac release is not built: Mac users compile from the repository.
 - **Add-ons in the setup**: Openweight Canary, Billion Context (needs Node.js), REA and Node.js; none of them needs a GPU.
-- Known limit: the Qwen3.6 path on the Basalt engine can crash with prompt chunks of 2048 tokens or more; `--chunk 512` works.
+- Known limit: the Qwen3.6 path on the Basalt-Plus engine can crash with prompt chunks of 2048 tokens or more; `--chunk 512` works.
 
-## Starting Basalt Win+GUI
+## Starting TaDaMoo Win+GUI
 
 ```powershell
-.\Avvia-Basalt.ps1                                             # the app (-gui): the Loader first, nothing loaded yet
-.\Avvia-Basalt.ps1 -browser                                    # the server tied to this window, the UI in the browser
-.\Avvia-Basalt.ps1 -server --config "Machine Default"          # detached, no UI: returns once the model is loaded
-.\Avvia-Basalt.ps1 -server --model "D:\Models\Qwen3.8-Flash-Next-IQ3_XXS.basalt" --port 7240 --vram-libera 2
-.\Avvia-Basalt.ps1 -prova                                      # every check, nothing started, nothing written
-.\Ferma-Basalt.ps1 --port 7240                                 # stop only that server (its process tree)
-```sh
-git clone https://github.com/jesdga95/basalt && cd basalt
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j                  # bin/basalt, bin/basalt-bench, bin/basalt-probe, bin/basalt-vision
-pip install -r requirements.txt
-hf download jesdga/Qwen3.8-Flash-Next-Basalt Qwen3.8-FN-NVFP4-DQ6_K.basalt --local-dir models
+.\Avvia-TaDaMoo.ps1                                             # the app (-gui): the Loader first, nothing loaded yet
+.\Avvia-TaDaMoo.ps1 -browser                                    # the server tied to this window, the UI in the browser
+.\Avvia-TaDaMoo.ps1 -server --config "Machine Default"          # detached, no UI: returns once the model is loaded
+.\Avvia-TaDaMoo.ps1 -server --model "D:\Models\Qwen3.8-Flash-Next-IQ3_XXS.basalt" --port 7240 --vram-libera 2
+.\Avvia-TaDaMoo.ps1 -prova                                      # every check, nothing started, nothing written
+.\Ferma-TaDaMoo.ps1 --port 7240                                 # stop only that server (its process tree)
 ```
 
 Every option is accepted with one or two dashes and in any case (`-gui`, `--gui`, `-GUI`).
 
 | option | meaning |
 |---|---|
-| *(none)* = `-gui` | opens `BasaltWinGUI.exe`, passing it `--config`, `--model`, `--port` and `--vram-libera`; the browser does **not** open, the address is printed and stays available. Without the built app the script says how to build it and uses `-browser` |
+| *(none)* = `-gui` | opens `TaDaMoo.exe`, passing it `--config`, `--model`, `--port` and `--vram-libera`; the browser does **not** open, the address is printed and stays available. Without the built app the script says how to build it and uses `-browser` |
 | `-browser` | the server tied to this window (Ctrl+C or closing the window stops server and engine, and frees the RAM), the web UI opened in the browser |
-| `-server` | the server alone, detached, no app and no browser; the script returns when `/health` says the model is loaded. For agents; `Ferma-Basalt.ps1` stops it |
+| `-server` | the server alone, detached, no app and no browser; the script returns when `/health` says the model is loaded. For agents; `Ferma-TaDaMoo.ps1` stops it |
 | `--config "<profile>"` | the load profile; without it, the default profile (below) |
 | `--model "<file .basalt>"` | the model to serve, as a full path |
 | `--port N` | the port; wins over the profile's (default 7232) |
 | `--vram-libera GB` | the VRAM to leave free for other programs, in GB (`1.5` or `"1,5"`), instead of the profile's; `--vram-reserve-mib N` is the same in MiB |
 | `-converti` | with `-browser` / `-server`, when the model is a GGUF to convert: show the plan, ask, convert, then serve the new file (in the app: the Loader's **Convert…**) |
 | `-riusa` / `-riavvia` | with `-server`, the answer given in advance when a server is already running with other loading parameters: reuse it, or stop it and start again with the new ones (below) |
-| `--lang it\|en` | the language of the messages for this run (it also sets `BASALT_LANG` for the server and the app it starts) |
+| `--lang it\|en` | the language of the messages for this run (it also sets `TADAMOO_LANG` for the server and the app it starts) |
 | `-prova` | every check, nothing started; `-browser` / `-server` work on a copy of the config file |
-| `-file FILE` | the config file (default `basalt_config.json` beside the script; the app creates one without a model on a new installation) |
+| `-file FILE` | the config file (default `tadamoo_config.json` beside the script; the app creates one without a model on a new installation) |
 
-`-Sfondo` and `-SoloServer`, the old names, still work as `-server` and print a note. `Ferma-Basalt.ps1` takes
+`-Sfondo` and `-SoloServer`, the old names, still work as `-server` and print a note. `Ferma-TaDaMoo.ps1` takes
 `--port N` and `--file FILE` the same way.
 
 **When a server is already running** (one per installation, on any port):
@@ -427,9 +426,9 @@ Every option is accepted with one or two dashes and in any case (`-gui`, `--gui`
   - **The same**: it prints the address, model and profile and returns (exit code 0).
   - **Different**: it lists the differences (`engine.max-context: 65536 -> 131072`) and asks **Reuse the running
     server** or **Restart with the new parameters**: in a window when there is a desktop, else at the console (`R` /
-    `S`). With no answer within **60 seconds** (`BASALT_ASK_TIMEOUT_S` changes it), or with nobody to ask (an agent with
+    `S`). With no answer within **60 seconds** (`TADAMOO_ASK_TIMEOUT_S` changes it), or with nobody to ask (an agent with
     redirected input), the running server is **reused**: a server is never stopped without an answer. Restarting stops
-    only that server's process tree (`Ferma-Basalt.ps1 --port N`) and starts it again on the same port unless `--port`
+    only that server's process tree (`Ferma-TaDaMoo.ps1 --port N`) and starts it again on the same port unless `--port`
     asks for another.
   - **`-riusa`** and **`-riavvia`** give the answer in advance, for agents and scheduled tasks; with `-prova` the
     script only says what it would do.
@@ -443,12 +442,12 @@ engine does not support (exit code 1).
 **The default load profile**: the one chosen with **Make default** in the Loader, else **Machine Default** once
 the wizard has saved it, else **Valori sicuri**.
 
-Directly, on Windows or Linux: `bin\basalt.exe serve --config basalt_config.json [--port N]` (`bin/basalt serve` on
+Directly, on Windows or Linux: `bin\basalt.exe serve --config tadamoo_config.json [--port N]` (`bin/basalt serve` on
 Linux; every option is in [Settings](#settings---config) below and in `python -m serve.server --help`).
 
 ### The app
 
-`tools\windows\desktop\publish\BasaltWinGUI.exe` (window and tray: "Basalt Win+GUI"; the file name differs from the
+`tools\windows\desktop\publish\TaDaMoo.exe` (window and tray: "TaDaMoo Win+GUI"; the file name differs from the
 engine's `basalt.exe` on purpose; the
 same options as the script: `--config`, `--model`, `--port`, `--vram-libera`, `--file`). On opening it starts the
 server in its own job (it ends with the app) **without loading a model** and shows the web **Loader**:
@@ -461,7 +460,7 @@ server in its own job (it ends with the app) **without loading a model** and sho
 
 Loading another model than the one the server was started with saves it and starts the server again with it; the page
 reconnects by itself. Closing the window hides it to the tray icon: **Open**, **Reload with other settings…** (the
-Loader), **Start the server alone (for agents)…** (the same as `Avvia-Basalt.ps1 -server`, in place of the app's server),
+Loader), **Start the server alone (for agents)…** (the same as `Avvia-TaDaMoo.ps1 -server`, in place of the app's server),
 **Turn off**. If the server cannot start (a port in use, a missing build), the app shows the reason, the end of the log
 and a native start panel as a fallback. With the server running, the same UI is at `http://127.0.0.1:7232/` in any
 browser.
@@ -474,7 +473,7 @@ on the VRAM, the RAM, the commit limit, the cores and on which card shows the de
 speed on a large PC or fail to load on a small one (or make the page file grow). The wizard computes each value from what
 it detects, says why, and can check it with a real measurement.
 
-1. **This PC**: RAM, the commit limit and its use, the page file (Windows-managed files may grow: Basalt Win+GUI
+1. **This PC**: RAM, the commit limit and its use, the page file (Windows-managed files may grow: TaDaMoo Win+GUI
    never makes them grow), the performance and efficiency cores, the NVIDIA GPU, and the video adapters with the one that shows
    the **main monitor**. A PC may drive its monitor from a separate card (an integrated GPU, for example) and keep the
    NVIDIA GPU for compute; the GPU may also have a **secondary** monitor, on or switched off. The wizard shows what it
@@ -531,10 +530,10 @@ FILE | resolve [--model FILE] [--profile NAME] | convert --model GGUF [--out DIR
 
 ### Download models
 
-The **Download models** panel of the Loader offers Qwen3.8-Flash-Next in the versions that run on Basalt: 23 files from
+The **Download models** panel of the Loader offers Qwen3.8-Flash-Next in the versions that run on Basalt-Plus: 23 files from
 Hugging Face (and 6 more shown as not compatible, with the reason). Each card says what the file is and how it differs
 from the base model, its size, its quantization, and how close it is to the full model with the **source of that
-figure** (Basalt's own measurement against Q8_0, the authors' own, Strata's or none: the references differ and must not
+figure** (Basalt-Plus's own measurement against Q8_0, the authors' own, Strata's or none: the references differ and must not
 be mixed). The model picker shows the same one-line hint for a model it knows.
 
 - **Ready `.basalt` files** (no conversion; `jesdga/Qwen3.8-Flash-Next-Basalt`: Q2_0, IQ3_XXS, IQ3_S, UD-Q4_K_XL, Q8_0;
@@ -544,7 +543,7 @@ be mixed). The model picker shows the same one-line hint for a model it knows.
   described above, with its own confirmation. The GGUF folder can be deleted afterwards.
 - **Uncensored** versions are marked and carry the author's warning. OrcaRouter's repository is **gated**: the panel
   explains how to get a Hugging Face account, accept the terms and make a read token, and takes the token for the
-  session only (`HF_TOKEN` or the file `huggingface-cli login` writes are read too). Basalt never saves, shows or logs
+  session only (`HF_TOKEN` or the file `huggingface-cli login` writes are read too). TaDaMoo never saves, shows or logs
   a token, and sends it only to Hugging Face; a redirect to any other http or https host is followed without it.
 - **A download starts only from its plan**: the files at a pinned revision with their sizes and SHA-256 as Hugging Face
   reports them, the disk and its free space, the access, and the license to accept (Qwen Community License 1.0, plus
@@ -552,11 +551,11 @@ be mixed). The model picker shows the same one-line hint for a model it knows.
   model's license). Files are written as `.part` and renamed only after the SHA-256 matches; an interrupted or stopped
   download continues from where it stopped.
 - **Not offered**: Unsloth UD-Q5_K_XL, UD-Q6_K_XL and UD-IQ1_S, and OrcaRouter's IQ2_XXS and Q2_K/Q3_K, because their
-  expert formats have no kernel in Basalt; and `Qwen3.8-35B-A3B`, which is not an official Qwen model but a community
+  expert formats have no kernel in Basalt-Plus; and `Qwen3.8-35B-A3B`, which is not an official Qwen model but a community
   distillation into another architecture (Qwen3.6-35B-A3B: 40 layers, hidden size 2048, 256 experts) that the engine,
   written for Flash-Next's shapes, cannot run.
 
-Entries marked "Not tried in Basalt" have expert formats the engine's lists accept but have not been run through Basalt.
+Entries marked "Not tried in Basalt-Plus" have expert formats the engine's lists accept but have not been run through Basalt-Plus.
 The catalog was read from the repositories on 2026-10-17 (`serve/catalog.py`); sizes are read again when a download is
 planned. The routes (this PC only): `GET /api/models/catalog | download | hf`, `POST
 /api/models/download-plan | download | download-cancel | hf-token`.
@@ -611,15 +610,15 @@ expert cache auto, resident experts, 1.5 GB left free, 15 CPU workers, image inp
 
 ### Where the settings live
 
-Per user, never in the repository, in the **user data folder**: `%APPDATA%\BasaltPannello\` on Windows,
-`~/Library/Application Support/Basalt/` on macOS, `$XDG_DATA_HOME/basalt/` (`~/.local/share/basalt/`) elsewhere, or
-`BASALT_DATA`. It holds `profiles.json` (load profiles, inference presets, the default profile), `models.json` (the
+Per user, never in the repository, in the **user data folder**: `%APPDATA%\TaDaMoo\` on Windows,
+`~/Library/Application Support/TaDaMoo/` on macOS, `$XDG_DATA_HOME/tadamoo/` (`~/.local/share/tadamoo/`) elsewhere, or
+`TADAMOO_DATA`. It holds `profiles.json` (load profiles, the default profile), `presets.json` (the chat presets; copy the file to move them), `models.json` (the
 models folders, the default server model, the last output folder), `machine.json` (the wizard's answers: the share of
 RAM and commit, the VRAM to leave free, where the monitor is), `calibration\<model>.json` (the measured speeds and
-memory), `prefs.json` (the language) and the app's `desktop.json`. Caches that can be rebuilt stay in `%USERPROFILE%\.cache\basalt\` (`~/.cache/basalt/`, or
-`BASALT_CACHE`): the header scan, the logs of conversion and verification jobs, the tokenizer and vision files
+memory), `prefs.json` (the language) and the app's `desktop.json`. Caches that can be rebuilt stay in `%USERPROFILE%\.cache\tadamoo\` (`~/.cache/tadamoo/`, or
+`TADAMOO_CACHE`): the header scan, the logs of conversion and verification jobs, the tokenizer and vision files
 unpacked from a model, the engine log. Versions before this one kept the settings in the cache folder: they are copied
-(not moved) to the user data folder the first time. `basalt_config.json` beside the scripts is written by them and by
+(not moved) to the user data folder the first time. `tadamoo_config.json` beside the scripts is written by them and by
 the Loader from the chosen profile and is not tracked.
 
 ## Using it as a server (API)
@@ -634,10 +633,10 @@ The server speaks the OpenAI and the Anthropic APIs at `http://127.0.0.1:<port>`
 | `POST /v1/messages/count_tokens` | Anthropic token count: the same prompt `/v1/messages` would read, not run |
 | `GET /v1/models` | the served model and every other model of the models folders it could serve (OpenAI or Anthropic shape) |
 | `GET /v1/models/{id}` | one of them |
-| `GET /health` | `{"service": "basalt", "loaded": true, ...}` once the model is in; `"standby": true` while a server started by the app waits for the Loader |
+| `GET /health` | `{"service": "tadamoo", "loaded": true, ...}` once the model is in; `"standby": true` while a server started by the app waits for the Loader |
 
-**Start it for agents** with `.\Avvia-Basalt.ps1 -server` (it returns once the model is loaded; add `-riusa` in
-unattended scripts) and stop it with `.\Ferma-Basalt.ps1`. `basalt.pid` holds the PID, port and profile of a server
+**Start it for agents** with `.\Avvia-TaDaMoo.ps1 -server` (it returns once the model is loaded; add `-riusa` in
+unattended scripts) and stop it with `.\Ferma-TaDaMoo.ps1`. `tadamoo.pid` holds the PID, port and profile of a server
 started by a script or the app.
 
 **Model name.** The served model's id is the `--alias` (or `"alias"` in the config file's `server` section), else the
@@ -647,7 +646,7 @@ model is refused (below).
 
 **The model list.** `GET /v1/models` lists the served model first (`"status": {"value": "loaded"}`, or `"unloaded"`
 while it loads on the first request), then every `.basalt` file of the models folders that the Loader shows as
-**ready** (a GGUF to convert or a file Basalt cannot run is not listed), each with `"status": {"value": "unloaded"}`.
+**ready** (a GGUF to convert or a file Basalt-Plus cannot run is not listed), each with `"status": {"value": "unloaded"}`.
 The id of such a model is its file name without `.basalt` (with a short hash after it when two folders hold the same
 file name): the name to pick in a client. Each entry has `created` (the file's date), `owned_by`, `display_name`, the
 context length when the file says it (`context_length`; the served model's `meta.n_ctx` is the context it runs with,
@@ -663,11 +662,11 @@ from the loaded model: OpenAI `{"error": {"code": "model_not_found", ...}}`, Ant
 # OpenAI shape
 curl http://127.0.0.1:7232/v1/models
 # {"object": "list", "data": [
-#   {"id": "Qwen3.8 Flash Next Uncensored", "object": "model", "created": 1791904651, "owned_by": "basalt",
+#   {"id": "Qwen3.8 Flash Next Uncensored", "object": "model", "created": 1791904651, "owned_by": "tadamoo",
 #    "display_name": "Qwen3.8 Flash Next Uncensored", "status": {"value": "loaded"}, "meta": {"n_ctx": 131702},
 #    "context_length": 131702, "architecture": {"input_modalities": ["text"], "output_modalities": ["text"]},
 #    "path": "D:/Modelli/Qwen3.8-Flash-Next-Uncensored-IQ3_XXS.basalt"},
-#   {"id": "OrcaRouter-IQ3_XXS", "object": "model", "created": 1791904651, "owned_by": "basalt",
+#   {"id": "OrcaRouter-IQ3_XXS", "object": "model", "created": 1791904651, "owned_by": "tadamoo",
 #    "display_name": "OrcaRouter", "status": {"value": "unloaded"}, "context_length": 262144,
 #    "meta": {"n_ctx_train": 262144}, "quant": "IQ3_XXS", "path": "D:/Modelli/OrcaRouter-IQ3_XXS.basalt", ...}]}
 
@@ -688,7 +687,7 @@ curl http://127.0.0.1:7232/v1/chat/completions -H "Content-Type: application/jso
   -d '{"model": "OrcaRouter-IQ3_XXS", "messages": [{"role": "user", "content": "hi"}]}'
 # 404 {"error": {"message": "The model 'OrcaRouter-IQ3_XXS' is not loaded (this server is serving 'Qwen3.8 Flash
 #   Next Uncensored'). Load it in the web page's Loader (choose it in the model list, then Load), or start the server
-#   with it: .\Avvia-Basalt.ps1 --model \"D:/Modelli/OrcaRouter-IQ3_XXS.basalt\"", "type": "invalid_request_error",
+#   with it: .\Avvia-TaDaMoo.ps1 --model \"D:/Modelli/OrcaRouter-IQ3_XXS.basalt\"", "type": "invalid_request_error",
 #   "param": "model", "code": "model_not_found"}}
 ```
 
@@ -711,15 +710,15 @@ any endpoint closes the thinking after N tokens and lets the model answer.
 
 ```sh
 curl http://127.0.0.1:7232/v1/chat/completions -H "Content-Type: application/json" -d '{
-  "model": "basalt", "messages": [{"role": "user", "content": "Say hello in three languages."}],
+  "model": "tadamoo", "messages": [{"role": "user", "content": "Say hello in three languages."}],
   "max_tokens": 512, "reasoning_effort": "low"}'
 
 curl -N http://127.0.0.1:7232/v1/messages -H "Content-Type: application/json" -H "anthropic-version: 2023-06-01" -d '{
-  "model": "basalt", "max_tokens": 1024, "stream": true,
+  "model": "tadamoo", "max_tokens": 1024, "stream": true,
   "messages": [{"role": "user", "content": "Write a haiku about basalt."}]}'
 
 curl http://127.0.0.1:7232/v1/responses -H "Content-Type: application/json" -d '{
-  "model": "basalt", "input": "What is 17 * 23?", "reasoning": {"effort": "none"}}'
+  "model": "tadamoo", "input": "What is 17 * 23?", "reasoning": {"effort": "none"}}'
 ```
 
 (In PowerShell use `curl.exe` and put the JSON in a file: `-d "@body.json"`.)
@@ -796,7 +795,7 @@ later, or load a model in the Loader. A prompt longer than the context is refuse
 ## Loading settings, one by one
 
 Set in the Loader (each with its reason and the live prediction), saved in load profiles, written to the `server` /
-`engine` sections of `basalt_config.json`. They take effect when the engine is (re)loaded.
+`engine` sections of `tadamoo_config.json`. They take effect when the engine is (re)loaded.
 
 | setting | what it does | how to choose |
 |---|---|---|
@@ -886,7 +885,7 @@ really took (see "Measured memory").
 ## Language
 
 English by default; Italian on request. One choice serves the app, the web page, the scripts and the command-line
-tools, in this order: `--lang it|en` (scripts and app, for that run) > the `BASALT_LANG` environment variable > the
+tools, in this order: `--lang it|en` (scripts and app, for that run) > the `TADAMOO_LANG` environment variable > the
 choice saved in **Settings → Language** on the web page (or with `python -m serve.lang set it|en|auto`, kept in
 `prefs.json` in the user data folder) > English. The language of Windows is not used. The Monitor and Hardware pages
 and some technical server messages are in English only.
@@ -971,7 +970,7 @@ Its web UI is at http://127.0.0.1:7232/: **Chat** streams from the server's own 
 ### Settings: `--config`
 
 The engine's built-in defaults are untuned (4096 context, fp16 KV, no speculation, no expert cache), and the model
-file carries no engine flags. Put every setting in one `basalt_config.json` and pass `--config`:
+file carries no engine flags. Put every setting in one `tadamoo_config.json` and pass `--config`:
 
 ```json
 {
@@ -995,8 +994,8 @@ file carries no engine flags. Put every setting in one `basalt_config.json` and 
 ```
 
 ```sh
-bin/basalt serve --config basalt_config.json                     # everything from the file
-bin/basalt serve --config basalt_config.json --max-context 32768  # the command line wins
+bin/basalt serve --config tadamoo_config.json                     # everything from the file
+bin/basalt serve --config tadamoo_config.json --max-context 32768  # the command line wins
 ```
 
 ### Request log: `--request-log`
@@ -1263,4 +1262,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-New and modified code is licensed under the **Basalt Win+GUI Community and Commercial License** (see [LICENSE](LICENSE)), free of charge for individuals and for businesses with annual gross revenue under $10,000,000 USD (enterprise commercial license required at or above $10M). Pre-existing upstream code (Strata, upstream Basalt, ggml) remains under its original MIT license (see [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES)).
+New and modified code is licensed under the **TaDaMoo Win+GUI Community and Commercial License** (see [LICENSE](LICENSE)), free of charge for individuals and for businesses with annual gross revenue under $10,000,000 USD (enterprise commercial license required at or above $10M). Pre-existing upstream code (Strata, upstream Basalt, ggml) remains under its original MIT license (see [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES)).

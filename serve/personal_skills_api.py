@@ -1,5 +1,5 @@
 """The page's side of the personal skills: the list, one skill, saving, deleting, moving as a `.pskill` file, and the
-live reading of a form (what a date written in words will be). The skills themselves are in harness/personal_skills/."""
+live reading of a form (what a date written in words will be). The skills themselves are in tadamoo/personal_skills/."""
 from __future__ import annotations
 
 import base64
@@ -7,9 +7,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
-from harness.personal_skills import check as script_check
-from harness.personal_skills.store import PersonalSkills, SkillError
-from harness.personal_skills.values import TYPES, ITEM_TYPES, ValueError_, parse_value
+from tadamoo.personal_skills import check as script_check
+from tadamoo.personal_skills.store import PersonalSkills, SkillError
+from tadamoo.personal_skills.values import TYPES, ITEM_TYPES, ValueError_, parse_value
 
 
 class PersonalSkillsApi:

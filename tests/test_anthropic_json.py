@@ -1,6 +1,6 @@
 """A JSON answer on the Anthropic route is kept: the harness's client asks for it in Anthropic's words, and the server's /v1/messages returns it.
 
-The defect: a call with a JSON `response_format` sent to an Anthropic-dialect provider (a Claude key, or another Basalt reached through
+The defect: a call with a JSON `response_format` sent to an Anthropic-dialect provider (a Claude key, or another TaDaMoo reached through
 /v1/messages) lost the form, because the dialect has no `response_format`: the request carried nothing that asked for JSON, so the
 engine had no grammar and the model wrote prose or a fenced block. Reproduced here against the real server with the scripted engine."""
 import contextlib
@@ -16,9 +16,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.llm.client import RoutedClient, json_in, with_json_format
-from harness.llm.credentials import FileCredentials
-from harness.llm.store import Ledger, SecureRegistry
+from tadamoo.llm.client import RoutedClient, json_in, with_json_format
+from tadamoo.llm.credentials import FileCredentials
+from tadamoo.llm.store import Ledger, SecureRegistry
 from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate
 from serve.handler import serve
@@ -32,7 +32,7 @@ FORMAT = {"type": "json_schema", "json_schema": {"name": "out", "strict": True, 
 ASK = [{"role": "system", "content": "Be brief."}, {"role": "user", "content": "give the json"}]
 
 
-class Basalt:
+class TaDaMoo:
     """The real server on a free port with a scripted engine, quiet."""
 
     def __init__(self, script):
@@ -61,7 +61,7 @@ def basalt():
     made = []
 
     def make(script):
-        made.append(Basalt(script))
+        made.append(TaDaMoo(script))
         return made[-1]
     yield make
     for b in made:

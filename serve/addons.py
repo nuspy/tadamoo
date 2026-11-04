@@ -5,13 +5,13 @@ import sys
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
-_DEV = _ROOT / "dist" / "stage" / "BasaltWinGUI" / "addons"
-_MAIN_DEV = Path(r"E:\Projects\basalt\dist\stage\BasaltWinGUI\addons")
+_DEV = _ROOT / "dist" / "stage" / "TaDaMoo" / "addons"
+_MAIN_DEV = Path(r"E:\Projects\basalt\dist\stage\TaDaMoo\addons")
 
 
 def addons_dir() -> Path | None:
     """The folder with node/, billion-context/, rea-agents/, openweight-canary/, or None when not installed."""
-    for cand in (os.environ.get("BASALT_ADDONS"), _ROOT / "addons", _DEV, _MAIN_DEV):
+    for cand in (os.environ.get("TADAMOO_ADDONS"), _ROOT / "addons", _DEV, _MAIN_DEV):
         if cand and (Path(cand) / "addons.json").is_file():
             return Path(cand)
     return None

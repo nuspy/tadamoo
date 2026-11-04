@@ -6,8 +6,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from harness import a2a
-from harness.a2a import A2AClient, A2AError, ask_agent
+from tadamoo import a2a
+from tadamoo.a2a import A2AClient, A2AError, ask_agent
 
 
 @pytest.fixture(autouse=True)

@@ -6,10 +6,10 @@ The Agent tab has a switch, **Reverse engineering (REA)**, off by default. REA i
 
 On:
 
-- adds the MCP server `rea` to Basalt's own capability store (`<data>/capabilities/installed.json`): command = add-on `node` + `scripts/rea.mjs` + `mcp`, stdio. The environment carries the programs found (see below). Like anything imported from the GUI it is born approved; the tools sit behind the agent's capability search because there are more than 24.
-- copies the skill `reverse-engineer-anything` (with its seven reference files) to `<data>/capabilities/skills/`. A marker file `.basalt-rea` records that Basalt put it there.
+- adds the MCP server `rea` to TaDaMoo's own capability store (`<data>/capabilities/installed.json`): command = add-on `node` + `scripts/rea.mjs` + `mcp`, stdio. The environment carries the programs found (see below). Like anything imported from the GUI it is born approved; the tools sit behind the agent's capability search because there are more than 24.
+- copies the skill `reverse-engineer-anything` (with its seven reference files) to `<data>/capabilities/skills/`. A marker file `.tadamoo-rea` records that TaDaMoo put it there.
 
-Off removes exactly the record and the folder it added, nothing else. A capability or skill of the same name that is not Basalt's is never touched, and the switch refuses to turn on over it.
+Off removes exactly the record and the folder it added, nothing else. A capability or skill of the same name that is not TaDaMoo's is never touched, and the switch refuses to turn on over it.
 
 The state is in `<data>/rea.json`. At server start, if it is on, the registration is made again (the add-on may have moved or been updated).
 

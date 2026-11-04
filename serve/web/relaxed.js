@@ -39,5 +39,5 @@
     });
   }
 
-  root.BasaltRelaxed = { NAMES, enter, leave, holds };
+  root.TadamooRelaxed = { NAMES, enter, leave, holds };
 })(typeof window !== "undefined" ? window : globalThis);

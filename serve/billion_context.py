@@ -1,7 +1,7 @@
-"""Billion Context in the chat: a context-compression proxy that Basalt starts, owns and stops.
+"""Billion Context in the chat: a context-compression proxy that TaDaMoo starts, owns and stops.
 
 The proxy is the Node.js add-on shipped with the app. Streaming chat requests that opt in (the web chat and the agent's
-main loop send the header X-Basalt-Compress) are handed to it as
+main loop send the header X-Tadamoo-Compress) are handed to it as
     http://127.0.0.1:<port>/bili/http://127.0.0.1:<server port>/v1/chat/completions
 and it relays them back to this same server, compressing a long conversation on the way. Whatever goes wrong (add-on
 missing, process dead, a refusal before the first byte) the request is answered directly instead: the proxy never
@@ -23,10 +23,10 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 FILE = "billion-context.json"
-CONFIG_NAME = "proxy-config.json"                 # the proxy's own configuration, written by Basalt at each start
+CONFIG_NAME = "proxy-config.json"                 # the proxy's own configuration, written by TaDaMoo at each start
 DEFAULT_PORT = 18788
-OPT_HEADER = "X-Basalt-Compress"                 # a client that wants its streamed chat compressed
-HOP_HEADER = "X-Basalt-Bili-Hop"                 # set on the request the proxy relays back, so it is not sent round again
+OPT_HEADER = "X-Tadamoo-Compress"                 # a client that wants its streamed chat compressed
+HOP_HEADER = "X-Tadamoo-Bili-Hop"                 # set on the request the proxy relays back, so it is not sent round again
 PROXY_HOP = "x-bili-hop"                         # the proxy's own mark on what it relays
 HEALTH_WAIT_S = 25.0
 POLL_S = 2.0
@@ -34,11 +34,11 @@ BACKOFF_FIRST_S = 2.0
 BACKOFF_MAX_S = 300.0
 STABLE_S = 60.0                                  # a proxy that ran this long starts the waits over
 STOP_WAIT_S = 4.0
-# Basalt's own compaction (Chat settings > When the context is full) acts at 80% of the context by default, so the proxy's
+# TaDaMoo's own compaction (Chat settings > When the context is full) acts at 80% of the context by default, so the proxy's
 # nudge to compress starts above that: it is the safety net for conversations that reach it, the agent's among them.
 CONFIG = {"compress": {"maxContextLimit": "90%", "emergencyThresholdPercent": "97%"}}
 # Without "compress" the proxy keeps only what does not rewrite the conversation (large outputs kept aside behind a pointer, the emergency
-# cut): the model is not given the tools that fold old turns, so the only summaries are the ones Basalt writes (harness/compacted.py).
+# cut): the model is not given the tools that fold old turns, so the only summaries are the ones TaDaMoo writes (tadamoo/compacted.py).
 ARCHIVE_ONLY = {"injectTool": False, "injectNudge": False}
 
 

@@ -8,19 +8,19 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import lessons
-from harness.eval import cases
-from harness.eval.cases import e9_context, e10_lessons, e11_awareness, e12_course
-from harness.eval.cases.core import Context, render_report, results_json, run_experiment, run_fingerprint
-from harness.eval.cases.fixtures import context_probes, derail_tasks, lesson_tasks, long_turn_repo
-from harness.eval.resume import Journal
+from tadamoo import lessons
+from tadamoo.eval import cases
+from tadamoo.eval.cases import e9_context, e10_lessons, e11_awareness, e12_course
+from tadamoo.eval.cases.core import Context, render_report, results_json, run_experiment, run_fingerprint
+from tadamoo.eval.cases.fixtures import context_probes, derail_tasks, lesson_tasks, long_turn_repo
+from tadamoo.eval.resume import Journal
 from test_cases_core import perfect
 from test_cases_runs import Fake, Steps, say, tool, writes
 
 
 @pytest.fixture(autouse=True)
 def _no_clock(monkeypatch):
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
 
 
 def task_of(module, task_id):
@@ -43,7 +43,7 @@ def test_the_three_experiments_are_selectable_with_their_arms_and_rules():
         exp = cases.load(key)
         assert [a.name for a in exp.arms] == arms and exp.rule.baseline == baseline and exp.rule.challengers == (challenger,) and exp.rule.primary == primary
         assert exp.needs_model and exp.default_k >= 5 and exp.id == key
-        assert "Win rule, written before the run" in (cases.MODULES and __import__(f"harness.eval.cases.{cases.MODULES[key]}", fromlist=["x"]).__doc__)
+        assert "Win rule, written before the run" in (cases.MODULES and __import__(f"tadamoo.eval.cases.{cases.MODULES[key]}", fromlist=["x"]).__doc__)
 
 
 # -- E10 ----------------------------------------------------------------------------------------------------------------------

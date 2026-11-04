@@ -246,7 +246,7 @@ def main() -> int:
         facts = dict(loader.DEMO_FACTS)
     if a.mock_engine:
         import os
-        os.environ["BASALT_FAKE_SYSTEM_OK"] = "1"        # BASALT_FAKE_SYSTEM: demo memory readings for the mock
+        os.environ["TADAMOO_FAKE_SYSTEM_OK"] = "1"        # TADAMOO_FAKE_SYSTEM: demo memory readings for the mock
     svc.supervisor = supervisor.Supervisor(svc, sys.argv[1:], mock=bool(a.mock_engine), facts=facts)
     svc.model_catalog = model_list.Catalog()            # GET /v1/models lists the folders' other models too
     svc.model_catalog.items()                           # the first scan starts now, on a thread
@@ -271,7 +271,7 @@ def main() -> int:
     httpd = serve(svc, host=a.host, port=a.port)
     from serve import billion_context, chatctx, llamacpp_api
     threading.Thread(target=billion_context.start, args=(httpd.server_address[1], lambda: chatctx._limit(svc)), daemon=True, name="billion-context-start").start()
-    threading.Thread(target=llamacpp_api.start_if_enabled, daemon=True, name="llamacpp-start").start()   # only when the person left it set to start with Basalt
+    threading.Thread(target=llamacpp_api.start_if_enabled, daemon=True, name="llamacpp-start").start()   # only when the person left it set to start with TaDaMoo
     svc.start_idle_unload()
     here = "127.0.0.1" if a.host in ("0.0.0.0", "", "::") else a.host
 

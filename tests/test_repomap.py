@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from harness.repomap import build_repo_map, names_of, rank, scan, symbols_of
-from harness.tools import create_standard_tool_registry
+from tadamoo.repomap import build_repo_map, names_of, rank, scan, symbols_of
+from tadamoo.tools import create_standard_tool_registry
 
 PY = '''import os
 
@@ -253,7 +253,7 @@ def test_the_same_tree_gives_the_same_map(tmp_path):
 
 
 def test_large_and_unreadable_files_are_left_out_and_counted(tmp_path, monkeypatch):
-    import harness.repomap as rm
+    import tadamoo.repomap as rm
     root = tmp_path / "r"
     root.mkdir()
     (root / "a.py").write_text("def alpha_function():\n    pass\n", encoding="utf-8")

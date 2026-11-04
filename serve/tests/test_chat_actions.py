@@ -33,8 +33,8 @@ class FileLinksTest(unittest.TestCase):
     chat = (WEB / "chat.js").read_text(encoding="utf-8")
 
     def test_a_link_to_a_file_the_agent_made_or_to_a_file_in_the_folder_becomes_a_button_that_saves_it(self):
-        self.assertIn("basalt-file:([a-f0-9]{12})", self.chat)
-        self.assertIn("basalt-path:", self.chat)
+        self.assertIn("tadamoo-file:([a-f0-9]{12})", self.chat)
+        self.assertIn("tadamoo-path:", self.chat)
         self.assertEqual(self.chat.count('class="afile"'), 2)
         self.assertIn('e.target.closest("button.afile")', CHAT)
         self.assertIn("saveOutput(b.dataset.id, b.dataset.name, b)", CHAT)

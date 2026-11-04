@@ -80,7 +80,7 @@ llama-perplexity -m PACK.gguf -f wikitext-2-raw/wiki.test.raw --kl-divergence-ba
     --kl-divergence -c 512 -b 8192 -ub 8192 --chunks 100 -ngl 99 --n-cpu-moe 99 -t 16
 ```
 
-Basalt's numbers, and the forced-window identity check (run with `--t` 1, 3 and 7, then diff the rows):
+Basalt-Plus's numbers, and the forced-window identity check (run with `--t` 1, 3 and 7, then diff the rows):
 
 ```sh
 python3 tools/ppl_gate.py --model PACK.basalt --engine-bin bin/basalt --base flashnext-bf16-base.kld \

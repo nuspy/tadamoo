@@ -3,7 +3,7 @@
    and the file name; the server (api/export) makes the file and the system's "Save as" window lets the person choose the folder.
    The page sends only what was ticked. Everything shown comes in as text; nothing is built as markup. */
 (() => {
-  const KEY = "basalt.export";
+  const KEY = "tadamoo.export";
   const FORMATS = ["docx", "md", "pdf", "html", "odt"];
   const KINDS = ["prompts", "reasoning", "actions", "answers"];
   const DEFAULTS = { prompts: true, reasoning: false, actions: false, answers: true, format: "docx" };
@@ -23,7 +23,7 @@
   const chatStatus = text => { const el = document.getElementById("chat-status"); if (el) el.textContent = text; };
 
   /* ---- the conversation, whichever chat is on screen ---- */
-  window.BasaltChat = {
+  window.TadamooChat = {
     snapshot() {
       const a = window.agentChat;
       const snap = a && a.active() && a.snapshot ? a.snapshot() : (window.chatUi && window.chatUi.snapshot ? window.chatUi.snapshot() : { title: "", session: "", items: [] });
@@ -77,7 +77,7 @@
 
   /* what the server needs for the ticked kinds, and nothing else */
   async function collect(sel, title, given) {
-    const snap = given || window.BasaltChat.snapshot();
+    const snap = given || window.TadamooChat.snapshot();
     const items = [];
     for (const it of snap.items) {
       if (it.kind === "action" && !sel.actions) {           // only the sources and documents it found travel: they are listed with the answers
@@ -90,9 +90,9 @@
     const assets = {}, diagrams = {};
     const answers = items.filter(it => it.kind === "answer").map(it => it.text || "");
     const wanted = new Set();
-    for (const text of answers) for (const m of text.matchAll(/!\[[^\]\n]*\]\((basalt-file:[a-f0-9]{12})\)/g)) wanted.add(m[1]);
+    for (const text of answers) for (const m of text.matchAll(/!\[[^\]\n]*\]\((tadamoo-file:[a-f0-9]{12})\)/g)) wanted.add(m[1]);
     for (const key of [...wanted].slice(0, 100)) {
-      const data = snap.session ? await fetchPicture(snap.session, key.slice("basalt-file:".length)) : "";
+      const data = snap.session ? await fetchPicture(snap.session, key.slice("tadamoo-file:".length)) : "";
       if (data) assets[key] = data;
     }
     for (const text of answers) {
@@ -186,7 +186,7 @@
       return { state: await printInApp(j.token, j.name), fileName: j.name || fileName };
     }
     const blob = await r.blob();
-    try { fileName = decodeURIComponent(r.headers.get("X-Basalt-Filename") || "") || fileName; } catch (err) { /* the name asked for */ }
+    try { fileName = decodeURIComponent(r.headers.get("X-Tadamoo-Filename") || "") || fileName; } catch (err) { /* the name asked for */ }
     if (format === "pdf" && win) { printInBrowser(blob, win); status.textContent = T("exp.pdf.browser"); return { state: "saved", fileName, stay: true, used: true }; }
     if (format === "pdf") { await saveBlob(new Blob([blob], { type: "text/html" }), fileName.replace(/\.pdf$/, ".html")); status.textContent = T("exp.pdf.nowin"); return { state: "saved", fileName, stay: true }; }
     return { state: await saveBlob(blob, fileName), fileName };
@@ -203,7 +203,7 @@
   const cleanName = s => s.replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 120);
 
   function openDialog(trigger) {
-    const snap = window.BasaltChat.snapshot();
+    const snap = window.TadamooChat.snapshot();
     const counts = { prompts: 0, reasoning: 0, actions: 0, answers: 0 };
     snap.items.forEach(it => { if (ITEM_KIND[it.kind]) counts[ITEM_KIND[it.kind]]++; });
     const saved = load();
@@ -296,7 +296,7 @@
   }
 
   /* ---- one message: "Save as file" beside Copy. Only the person's click opens it; the text goes through the same route as the export ---- */
-  const MESSAGE_KEY = "basalt.export.message";
+  const MESSAGE_KEY = "tadamoo.export.message";
   const loadFormat = () => { try { const f = JSON.parse(localStorage.getItem(MESSAGE_KEY) || "{}").format; return FORMATS.includes(f) ? f : "md"; } catch (e) { return "md"; } };
   const keepFormat = format => { try { localStorage.setItem(MESSAGE_KEY, JSON.stringify({ format })); } catch (e) { /* this page only */ } };
   const headingOf = text => {
@@ -350,7 +350,7 @@
       if (format === "pdf" && !inApp()) { try { win = window.open("", "_blank"); } catch (err) { win = null; } }
       let used = false;
       try {
-        const snap = { title: "", session: window.BasaltChat.snapshot().session, items: [{ kind: "answer", turn: message.turn || 1, text, time: message.time || 0 }] };
+        const snap = { title: "", session: window.TadamooChat.snapshot().session, items: [{ kind: "answer", turn: message.turn || 1, text, time: message.time || 0 }] };
         const done = await produce({ snapshot: await collect({ answers: true }, headingOf(text), snap), select: { answers: true }, bare: true }, format, file, win, status);
         used = done.used;
         if (done.stay) { working(false); return; }
@@ -367,7 +367,7 @@
     dialog.showModal();
     go.focus();
   }
-  window.BasaltSave = { message: openMessageDialog };
+  window.TadamooSave = { message: openMessageDialog };
 
   const button = document.getElementById("export-open");
   if (button) button.addEventListener("click", () => openDialog(button));

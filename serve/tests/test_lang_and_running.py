@@ -1,4 +1,4 @@
-"""The language of the messages (serve/lang.py, the page, the scripts) and `Avvia-Basalt.ps1 -server` with a server
+"""The language of the messages (serve/lang.py, the page, the scripts) and `Avvia-TaDaMoo.ps1 -server` with a server
 already running: the same loading parameters attach, different ones ask whether to reuse or restart it (-riusa,
 -riavvia, no answer = reuse)."""
 from __future__ import annotations
@@ -31,7 +31,7 @@ PORT = 7283                     # a free port of this repository's test range
 class Isolated(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"BASALT_DATA": self.dir.name, "BASALT_CACHE": self.dir.name})
+        self.env = mock.patch.dict(os.environ, {"TADAMOO_DATA": self.dir.name, "TADAMOO_CACHE": self.dir.name})
         self.env.start()
 
     def tearDown(self):
@@ -41,13 +41,13 @@ class Isolated(unittest.TestCase):
 
 class Language(Isolated):
     def test_the_order(self):
-        with mock.patch.dict(os.environ, {"BASALT_LANG": ""}), mock.patch.object(lang, "system_lang", return_value="it"):
+        with mock.patch.dict(os.environ, {"TADAMOO_LANG": ""}), mock.patch.object(lang, "system_lang", return_value="it"):
             self.assertEqual(lang.lang(), "en")                      # English, whatever the system's
             lang.set_lang("it")
             self.assertEqual(lang.lang(), "it")                      # the user's choice wins over the system
             self.assertEqual(lang.t("sì", "yes"), "sì")
-            with mock.patch.dict(os.environ, {"BASALT_LANG": "en"}):
-                self.assertEqual(lang.lang(), "en")                  # BASALT_LANG (or --lang) wins over the choice
+            with mock.patch.dict(os.environ, {"TADAMOO_LANG": "en"}):
+                self.assertEqual(lang.lang(), "en")                  # TADAMOO_LANG (or --lang) wins over the choice
             lang.set_lang("auto")
             self.assertEqual(lang.lang(), "en")
             self.assertIsNone(lang.info()["chosen"])
@@ -69,7 +69,7 @@ class Language(Isolated):
             c.close()
             return r.status, data
         try:
-            with mock.patch.dict(os.environ, {"BASALT_LANG": ""}), mock.patch.object(lang, "system_lang", return_value="en"):
+            with mock.patch.dict(os.environ, {"TADAMOO_LANG": ""}), mock.patch.object(lang, "system_lang", return_value="en"):
                 self.assertIn(b'data-server-lang="en"', req("GET", "/")[1])
                 self.assertIs(json.loads(req("GET", "/health")[1])["mock"], True)    # a test server says so
                 code, body = req("POST", "/api/prefs", {"lang": "it"})
@@ -96,8 +96,8 @@ class Language(Isolated):
 
     def test_the_command_line_follows_it(self):
         out = io.StringIO()
-        with mock.patch.dict(os.environ, {"BASALT_LANG": "en", "BASALT_FAKE_SYSTEM_OK": "1",
-                                          "BASALT_FAKE_DISPLAYS": "[]", "BASALT_FAKE_PAGEFILE": '{"files": []}'}), \
+        with mock.patch.dict(os.environ, {"TADAMOO_LANG": "en", "TADAMOO_FAKE_SYSTEM_OK": "1",
+                                          "TADAMOO_FAKE_DISPLAYS": "[]", "TADAMOO_FAKE_PAGEFILE": '{"files": []}'}), \
                 contextlib.redirect_stdout(out):
             loader.main(["wizard", "--monitor", "none"])
         self.assertIn("prediction:", out.getvalue())
@@ -136,7 +136,7 @@ class Compare(Isolated):
     def test_over_http_with_the_default_profile(self):
         tok = ByteTokenizer()
         svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
-        cfg = Path(self.dir.name) / "basalt_config.json"
+        cfg = Path(self.dir.name) / "tadamoo_config.json"
         cfg.write_text(json.dumps({"server": {"port": 7232}}), encoding="utf-8")
         svc.settings_info = {"config": str(cfg), "model": None, "cli": [], "running": dict(self.RUNNING)}
         httpd = serve(svc, port=0)
@@ -156,18 +156,18 @@ class Compare(Isolated):
 
 @unittest.skipUnless(sys.platform == "win32", "Windows PowerShell scripts")
 class RunningServer(Isolated):
-    """Avvia-Basalt.ps1 -server against a mock server of this repository on a test port."""
+    """Avvia-TaDaMoo.ps1 -server against a mock server of this repository on a test port."""
 
     def setUp(self):
         super().setUp()
         root = Path(self.dir.name)
-        self.cfg = root / "basalt_config.json"
+        self.cfg = root / "tadamoo_config.json"
         self.cfg.write_text(json.dumps({"server": {"port": PORT}}), encoding="utf-8")
         self.model = tiny_basalt(root / "a.basalt", "A")
         profiles.change({"action": "save", "kind": "load", "name": "Uguale", "values": {"server.side-slot": 0}})
         profiles.change({"action": "save", "kind": "load", "name": "Corto", "values": {"engine.max-context": 8192, "server.side-slot": 0}})
-        self.envs = {**os.environ, "BASALT_DATA": self.dir.name, "BASALT_CACHE": self.dir.name, "PYTHONUTF8": "1",
-                     "BASALT_NO_DIALOG": "1", "BASALT_LANG": "it"}
+        self.envs = {**os.environ, "TADAMOO_DATA": self.dir.name, "TADAMOO_CACHE": self.dir.name, "PYTHONUTF8": "1",
+                     "TADAMOO_NO_DIALOG": "1", "TADAMOO_LANG": "it"}
         self.server = subprocess.Popen([sys.executable, "-m", "serve.server", "--mock-engine", "--config", str(self.cfg),
                                         "--port", str(PORT)], cwd=ROOT, env=self.envs, stdout=subprocess.DEVNULL,
                                        stderr=subprocess.DEVNULL)
@@ -188,16 +188,16 @@ class RunningServer(Isolated):
 
     def avvia(self, *args, lang_code="it", **env):
         p = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-                            str(ROOT / "Avvia-Basalt.ps1"), "-server", "--file", str(self.cfg), *args],
+                            str(ROOT / "Avvia-TaDaMoo.ps1"), "-server", "--file", str(self.cfg), *args],
                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180,
-                           stdin=subprocess.DEVNULL, env={**self.envs, "BASALT_LANG": lang_code, **env})
+                           stdin=subprocess.DEVNULL, env={**self.envs, "TADAMOO_LANG": lang_code, **env})
         return p.returncode, p.stdout + p.stderr
 
     def test_a_mock_server_is_not_basalt_running(self):
-        # a real start (no BASALT_SCAN_MOCK) never attaches to a test server: it goes on as a new start, which finds
+        # a real start (no TADAMOO_SCAN_MOCK) never attaches to a test server: it goes on as a new start, which finds
         # the port taken
         code, out = self.avvia("--config", "Uguale", "--model", str(self.model), "--port", str(PORT), "-prova",
-                               BASALT_SCAN_MOCK="0")
+                               TADAMOO_SCAN_MOCK="0")
         self.assertNotIn("mi collego a quello", out)
         self.assertIn(f"La porta {PORT} è occupata", out)
         self.assertEqual(code, 1, out)
@@ -235,7 +235,7 @@ class RunningServer(Isolated):
         self.assertIn("reuse the running server (-riusa)", out)
 
     def test_the_timeout(self):
-        with mock.patch.dict(self.envs, {"BASALT_ASK_TIMEOUT_S": "1"}):
+        with mock.patch.dict(self.envs, {"TADAMOO_ASK_TIMEOUT_S": "1"}):
             t0 = time.time()
             code, out = self.avvia("--config", "Corto")
         self.assertEqual(code, 0, out)

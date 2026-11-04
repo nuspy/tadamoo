@@ -6,14 +6,14 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fake_services import FakeWikibridge
-from harness import untrusted
-from harness.eval import EvalRunner, expand_strategies, generate_eval_report, load_task_set
-from harness.integrations.wiki_tools import register_wiki_tools
-from harness.integrations.wikibridge_client import WikiBridgeClient
-from harness.knowledge import (CAG_MAX_FRACTION, LocalKnowledge, cag_prefix, choose_strategy, estimate_tokens, fingerprint,
+from tadamoo import untrusted
+from tadamoo.eval import EvalRunner, expand_strategies, generate_eval_report, load_task_set
+from tadamoo.integrations.wiki_tools import register_wiki_tools
+from tadamoo.integrations.wikibridge_client import WikiBridgeClient
+from tadamoo.knowledge import (CAG_MAX_FRACTION, LocalKnowledge, cag_prefix, choose_strategy, estimate_tokens, fingerprint,
                                register_local_search)
-from harness.stack import AgentConfig, build_agent
-from harness.tools.registry import ToolRegistry
+from tadamoo.stack import AgentConfig, build_agent
+from tadamoo.tools.registry import ToolRegistry
 from test_agent_loop import ScriptedClient, call, say
 
 DOCS = {"b.md": "Second document about ports: the gateway uses 9314.", "a.md": "First document about people: Marta Ruzzi is on call."}
@@ -178,7 +178,7 @@ def test_wiki_tools_say_what_is_wrong_instead_of_returning_nothing(wiki):
     register_wiki_tools(registry, WikiBridgeClient(wiki.url, api_key="wrong"), default_project="cervinia")
     with pytest.raises(RuntimeError, match="unauthorized"):
         registry.execute("wiki_search", {"query": "x"})
-    with pytest.raises(RuntimeError, match="BASALT_WIKIBRIDGE_KEY"):
+    with pytest.raises(RuntimeError, match="TADAMOO_WIKIBRIDGE_KEY"):
         registry.execute("wiki_context", {"query": "x"})
     off = ToolRegistry()
     register_wiki_tools(off, WikiBridgeClient("http://127.0.0.1:59993", timeout=0.2))
@@ -193,8 +193,8 @@ def test_wiki_tools_say_what_is_wrong_instead_of_returning_nothing(wiki):
 
 
 def test_the_stack_can_offer_the_wiki(wiki, tmp_path, monkeypatch):
-    monkeypatch.setenv("BASALT_WIKIBRIDGE_URL", wiki.url)
-    monkeypatch.setenv("BASALT_WIKIBRIDGE_KEY", "k")
+    monkeypatch.setenv("TADAMOO_WIKIBRIDGE_URL", wiki.url)
+    monkeypatch.setenv("TADAMOO_WIKIBRIDGE_KEY", "k")
     b = build_agent(AgentConfig(workspace=str(tmp_path), data_dir=str(tmp_path / "d"), wiki=True, wiki_project="cervinia",
                                 use_memory=False, use_checkpoints=False), client=ScriptedClient(call("wiki_search", {"query": "diana"}), say("ok")))
     b.agent.run("who is diana")

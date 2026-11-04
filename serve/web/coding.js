@@ -7,7 +7,7 @@
   const card = document.getElementById("coding-card"), sum = document.getElementById("coding-sum"), toggle = document.getElementById("coding-toggle");
   const body = document.getElementById("coding-body"), go = document.getElementById("coding-go"), bug = document.getElementById("coding-bug");
   if (!sel || !card) return;
-  const ROLE_KEY = "basalt.agent.role";
+  const ROLE_KEY = "tadamoo.agent.role";
   const store = {
     get(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage blocked: the choice lasts until the page closes */ } },
@@ -148,14 +148,14 @@
   go.onclick = async () => { if (await setRole(codingRole, true)) chat().send(T("cd.go.text")); };
   bug.onclick = async () => { bugText = ""; await setRole("debug"); };
   const FAULT = /\b(error|errors|exception|traceback|stack ?trace|bug|crash(es|ed)?|fails?|failing|failed|broken|doesn'?t work|not working|regression)\b|\b(errore|eccezione|non funziona|si blocca|rotto|fallisce|fallito|guasto)\b/i;
-  document.addEventListener("basalt:sent", e => {
+  document.addEventListener("tadamoo:sent", e => {
     const text = e.detail && e.detail.text;
     bugText = (typeof text === "string" && roleNow() === codingRole && FAULT.test(text)) ? text : "";
     refresh();
   });
 
   window.codingUi = { refresh, role: roleNow, defaultRole: () => codingRole };
-  document.addEventListener("basalt:view", () => { view = null; viewFolder = ""; refresh(); });
+  document.addEventListener("tadamoo:view", () => { view = null; viewFolder = ""; refresh(); });
 
   (async () => {
     const r = await call("GET", "api/coding");

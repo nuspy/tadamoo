@@ -1,7 +1,7 @@
 # Hybrid arena: design
 
 Not built. The hybrid arena sends one prompt to the local model and to a cloud model and puts the answers side by side with time to first token, tokens per second,
-tokens used, cost and a quality verdict. It differs from everything else in Basalt in one way: the prompt text goes to a third party. That needs a decision of the
+tokens used, cost and a quality verdict. It differs from everything else in TaDaMoo in one way: the prompt text goes to a third party. That needs a decision of the
 person, so this page says what the feature would need, not how it is done.
 
 ## Decisions that belong to the person
@@ -16,9 +16,9 @@ person, so this page says what the feature would need, not how it is done.
 
 ## What it would need
 
-- A route that runs the two sides one after the other (one GPU; the local side first) and streams both results; the cloud call reuses `harness.llm.client_for`,
+- A route that runs the two sides one after the other (one GPU; the local side first) and streams both results; the cloud call reuses `tadamoo.llm.client_for`,
   its daily token cap and its fallback rules (never to a less local route).
-- A per-provider price entered by the person, because Basalt does not know current prices; without it the arena shows tokens, not money.
+- A per-provider price entered by the person, because TaDaMoo does not know current prices; without it the arena shows tokens, not money.
 - A results page in Models next to the converter's benchmark: per run the prompt hash (not the text, unless the person keeps it), both answers, timings, tokens,
   and the verdict. Stored locally; nothing is reported anywhere.
 - Tests with a fake cloud server (no network): both sides run in order, nothing leaves without confirmation, a refused or failing provider leaves the local result.

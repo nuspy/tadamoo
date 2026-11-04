@@ -7,10 +7,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.permissions import PermissionLevel, PermissionManager
-from harness.tools import create_standard_tool_registry
-from harness.tools.registry import ToolArgumentError
-from harness.tools.extra import register_extra_tools
+from tadamoo.permissions import PermissionLevel, PermissionManager
+from tadamoo.tools import create_standard_tool_registry
+from tadamoo.tools.registry import ToolArgumentError
+from tadamoo.tools.extra import register_extra_tools
 from test_a2a import FakeAgent, _fast_polling  # noqa: F401  (fixture)
 from test_agent_loop import ScriptedClient
 
@@ -124,7 +124,7 @@ def test_the_a2a_tool_asks_the_listed_agent_with_the_token_from_the_environment(
 
 
 def test_a_built_agent_has_the_extra_tools_and_a_model_can_run_code_through_the_permission_layer(ws, tmp_path):
-    from harness.stack import AgentConfig, build_agent
+    from tadamoo.stack import AgentConfig, build_agent
     from test_agent_loop import call, say
     client = ScriptedClient(call("run_code", {"language": "python", "code": "print(6 * 7)"}), say("It printed 42."))
     built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "data"), permission_mode="auto"), client=client)

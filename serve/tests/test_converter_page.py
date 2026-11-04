@@ -68,7 +68,7 @@ class Wiring(unittest.TestCase):
 @unittest.skipUnless(NODE, "node is needed to run the charts")
 class Charts(unittest.TestCase):
     def run_js(self, body: str):
-        script = f"require({json.dumps(str(WEB / 'charts.js'))});const C=globalThis.BasaltCharts;" + body
+        script = f"require({json.dumps(str(WEB / 'charts.js'))});const C=globalThis.TadamooCharts;" + body
         out = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=30)
         self.assertEqual(out.returncode, 0, out.stderr)
         return json.loads(out.stdout)

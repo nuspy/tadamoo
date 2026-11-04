@@ -1,4 +1,4 @@
-"""Which of several runs of one benchmark is better (harness/bench/ranking.py compare_runs): each benchmark's own metric and interval, ties reported as ties,
+"""Which of several runs of one benchmark is better (tadamoo/bench/ranking.py compare_runs): each benchmark's own metric and interval, ties reported as ties,
 and no winner while the intervals overlap. CPU only."""
 import sys
 from pathlib import Path
@@ -8,8 +8,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from bench_support import MODEL, make_spec
-from harness.bench import ranking
-from harness.bench.runner import BenchRun, FakeAdapter
+from tadamoo.bench import ranking
+from tadamoo.bench.runner import BenchRun, FakeAdapter
 
 
 def tasks(solved, total, trials=1):

@@ -6,11 +6,11 @@ import time
 
 import pytest
 
-from harness import agent_loop as al
-from harness import side_uses
-from harness import suggestions as sg
-from harness.session import Session, SessionStore
-from harness.stack import AgentConfig, build_agent
+from tadamoo import agent_loop as al
+from tadamoo import side_uses
+from tadamoo import suggestions as sg
+from tadamoo.session import Session, SessionStore
+from tadamoo.stack import AgentConfig, build_agent
 
 
 def chips(*pairs):
@@ -121,7 +121,7 @@ class Events:
 
 @pytest.fixture(autouse=True)
 def _no_clock(monkeypatch):
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
 
 
 ANSWER = "The service reads the file, validates each row and writes the result next to the input; the three steps are independent and each can be tested alone. " * 2

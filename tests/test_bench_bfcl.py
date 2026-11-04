@@ -1,4 +1,4 @@
-"""The BFCL adapter (harness/bench/adapters/bfcl.py) against a fake BFCL checkout and a fake `bfcl generate` / `bfcl evaluate`: planning, the commands and the
+"""The BFCL adapter (tadamoo/bench/adapters/bfcl.py) against a fake BFCL checkout and a fake `bfcl generate` / `bfcl evaluate`: planning, the commands and the
 environment, reading BFCL's result and score files, and the score. No BFCL install, no model."""
 import importlib.util
 import json
@@ -10,11 +10,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.bench import analysis
-from harness.bench.adapters import bfcl
-from harness.bench.importer import Result
-from harness.bench.runner import BenchRun, TrialContext, TrialResult
-from harness.eval import resume
+from tadamoo.bench import analysis
+from tadamoo.bench.adapters import bfcl
+from tadamoo.bench.importer import Result
+from tadamoo.bench.runner import BenchRun, TrialContext, TrialResult
+from tadamoo.eval import resume
 from bench_support import MODEL, make_spec
 
 CATS = {"simple_python": 5, "multiple": 4, "parallel": 3, "irrelevance": 3, "live_simple": 3, "multi_turn_base": 3, "simple_java": 2, "simple_javascript": 1, "parallel_multiple": 2}
@@ -126,11 +126,11 @@ def test_one_category_is_generated_and_scored_once_for_all_its_cases_with_the_lo
     gen, ev = fake.calls
     assert gen["args"][:4] == ["/bin/uv", "run", "--project", str(checkout / "source" / bfcl.PROJECT)] and "--python" in gen["args"] and "3.12" in gen["args"]
     tail = gen["args"][gen["args"].index("python") + 1:]
-    assert tail[0].endswith("launcher.py") and tail[1:] == ["generate", "--model", "basalt-local-FC", "--run-ids", "--num-threads", "1"]
+    assert tail[0].endswith("launcher.py") and tail[1:] == ["generate", "--model", "tadamoo-local-FC", "--run-ids", "--num-threads", "1"]
     assert ev["args"][-1] == "--partial-eval" and "evaluate" in ev["args"] and ev["args"][ev["args"].index("--test-category") + 1] == "multiple"
     env = gen["env"]
     assert env["OPENAI_BASE_URL"] == "http://127.0.0.1:7232/v1" and env["OPENAI_API_KEY"] == "local" and "SERPAPI_API_KEY" not in env and env["KEEP"] == "1"
-    assert env["BASALT_BFCL_REGISTRY"] == "basalt-local-FC" and env["BASALT_BFCL_MODEL"] == "Qwen3.8-Flash-Next" and env["BASALT_BFCL_HOST"] == "127.0.0.1"
+    assert env["TADAMOO_BFCL_REGISTRY"] == "tadamoo-local-FC" and env["TADAMOO_BFCL_MODEL"] == "Qwen3.8-Flash-Next" and env["TADAMOO_BFCL_HOST"] == "127.0.0.1"
     root = tmp_path / "run" / "bfcl"
     assert env["BFCL_PROJECT_ROOT"] == str(root)
     assert json.loads((root / "test_case_ids_to_generate.json").read_text()) == {"multiple": ["multiple_0", "multiple_1", "multiple_2"]}
@@ -264,20 +264,20 @@ def test_the_launcher_adds_the_served_model_and_starts_bfcls_command_line(monkey
     for parent, child in (("bfcl_eval", "constants"), ("bfcl_eval", "model_handler"), ("bfcl_eval.constants", "model_config"),
                           ("bfcl_eval.model_handler", "api_inference"), ("bfcl_eval.model_handler.api_inference", "openai_completion")):
         setattr(sys.modules[parent], child, sys.modules[parent + "." + child])
-    for k, v in {"BASALT_BFCL_REGISTRY": "basalt-local-FC", "BASALT_BFCL_MODEL": "Qwen", "OPENAI_BASE_URL": "http://127.0.0.1:7232/v1", "BASALT_BFCL_HOST": "127.0.0.1"}.items():
+    for k, v in {"TADAMOO_BFCL_REGISTRY": "tadamoo-local-FC", "TADAMOO_BFCL_MODEL": "Qwen", "OPENAI_BASE_URL": "http://127.0.0.1:7232/v1", "TADAMOO_BFCL_HOST": "127.0.0.1"}.items():
         monkeypatch.setenv(k, v)
     mod.main()
-    entry = mapping["basalt-local-FC"]
+    entry = mapping["tadamoo-local-FC"]
     assert seen["cli"] and entry.model_name == "Qwen" and entry.model_handler is Handler and entry.is_fc_model is True and entry.input_price is None
-    assert "_" not in "basalt-local-FC"
+    assert "_" not in "tadamoo-local-FC"
     monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
     with pytest.raises(SystemExit, match="not to the local engine"):
         mod.main()
 
 
 def test_the_adapter_is_found_by_the_lazy_loader_and_has_the_runners_protocol():
-    from harness.bench import runner
-    from harness.bench.adapters import load
+    from tadamoo.bench import runner
+    from tadamoo.bench.adapters import load
     adapter = runner.get_adapter(bfcl.ID, {}, lazy=True)
     assert load(bfcl.ID) is bfcl.BfclAdapter and isinstance(adapter, bfcl.BfclAdapter) and adapter.id == "bfcl-v4"
     assert all(callable(getattr(adapter, n)) for n in ("plan", "run_trial", "score", "failure_facts"))

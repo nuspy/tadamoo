@@ -1,4 +1,4 @@
-"""Where the Markdown chunker (harness/markdown_chunks.py) is wired: a very long text read in parts (digest), shown to the model from an
+"""Where the Markdown chunker (tadamoo/markdown_chunks.py) is wired: a very long text read in parts (digest), shown to the model from an
 attachment (compose_message, read_range), and a long answer delivered and joined in pieces (serve/longform.py). Plain code, no model."""
 import re
 import sys
@@ -8,9 +8,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import attachments as at
-from harness import digest
-from harness.markdown_chunks import joiner, safe_line_end, whole_blocks
+from tadamoo import attachments as at
+from tadamoo import digest
+from tadamoo.markdown_chunks import joiner, safe_line_end, whole_blocks
 from serve import longform as lf
 
 

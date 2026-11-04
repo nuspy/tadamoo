@@ -9,11 +9,11 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fake_discovery import FakeServices, SHA  # noqa: E402
-from harness.discovery import sources as src  # noqa: E402
-from harness.discovery.candidates import Candidate, CandidateStore  # noqa: E402
-from harness.discovery.finder import Finder, keywords  # noqa: E402
-from harness.discovery.scoring import DEFAULT_WEIGHTS, Metrics, lookalike, score  # noqa: E402
-from harness.discovery.settings import DiscoverySettings  # noqa: E402
+from tadamoo.discovery import sources as src  # noqa: E402
+from tadamoo.discovery.candidates import Candidate, CandidateStore  # noqa: E402
+from tadamoo.discovery.finder import Finder, keywords  # noqa: E402
+from tadamoo.discovery.scoring import DEFAULT_WEIGHTS, Metrics, lookalike, score  # noqa: E402
+from tadamoo.discovery.settings import DiscoverySettings  # noqa: E402
 
 NOW = datetime(2026, 10, 25, tzinfo=timezone.utc)
 
@@ -116,7 +116,7 @@ def test_a_request_declares_itself_and_carries_no_credential(fake):
     http = src.Http()
     src.RegistryClient(http, fake.bases["registry"]).search("search")
     _, headers = fake.world.requests[-1]
-    assert headers["user-agent"].startswith("basalt-capability-search/") and "authorization" not in headers and "cookie" not in headers
+    assert headers["user-agent"].startswith("tadamoo-capability-search/") and "authorization" not in headers and "cookie" not in headers
 
 
 def test_a_redirect_to_another_host_is_not_followed(fake):

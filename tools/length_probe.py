@@ -1,6 +1,6 @@
 """How long an answer gets for a request of a given length, against the end-of-turn bias, with and without tools.
 
-Chat mode sends /v1/chat/completions to a running server; agent mode runs `python -m harness` (the same agent loop and tools as the Chat with
+Chat mode sends /v1/chat/completions to a running server; agent mode runs `python -m tadamoo` (the same agent loop and tools as the Chat with
 tools) in an empty throwaway folder. A run starts only when the server has been idle for a while, so a person's own request is never held up.
 Every run is appended to a JSONL file as it ends, so an interrupted night keeps what it measured; a markdown summary is written at the end.
 
@@ -85,8 +85,8 @@ def run_chat(endpoint: str, n_words: int, bias: float, seed: int, max_tokens: in
 
 def run_agent(endpoint: str, n_words: int, bias: float, max_turns: int, timeout: float) -> Dict[str, Any]:
     sys.path.insert(0, str(ROOT))
-    from harness.headless import config_from_args, parse_args
-    from harness.stack import build_agent
+    from tadamoo.headless import config_from_args, parse_args
+    from tadamoo.stack import build_agent
     with tempfile.TemporaryDirectory(prefix="length-probe-") as work:
         args = parse_args(["-p", PROMPT.format(n=n_words), "--workspace", work, "--endpoint", endpoint, "--max-turns", str(max_turns),
                            "--permission-mode", "default", "--end-turn-bias", str(bias), "--no-report", "--no-memory",

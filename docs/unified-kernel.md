@@ -45,7 +45,7 @@ Why it lost:
 - Windows of one and five to seven rows gained nothing, and the fused layer needed the tag protocol off, which cost about 1% on windows of five to seven rows.
 - The standalone harness predicted gains the engine did not show (ratio 0.1 to 0.3): it started every CTA with the experts known, while in the engine they arrive about 7 us after the attention output.
 
-Persistent QSA attention and the in-kernel phase stamps (`BASALT_PROFILE`) went with it.
+Persistent QSA attention and the in-kernel phase stamps (`TADAMOO_PROFILE`) went with it.
 
 ## Lessons
 

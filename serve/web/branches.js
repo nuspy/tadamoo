@@ -84,7 +84,7 @@
   });
   function open(id) {
     dlg.close();
-    document.dispatchEvent(new CustomEvent("basalt:open-session", { detail: { id } }));
+    document.dispatchEvent(new CustomEvent("tadamoo:open-session", { detail: { id } }));
   }
   async function drawTree() {
     const r = await api("/tree");
@@ -147,7 +147,7 @@
     });
     box.append(field("br-merge-a", T("br.merge.a"), a), field("br-merge-b", T("br.merge.b"), b), field("br-merge-text", T("br.merge.text"), text), go);
   }
-
+
   /* ---- two continuations from one point of the open conversation ---- */
 
   function variantBox(key, title) {

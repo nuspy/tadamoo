@@ -1,7 +1,7 @@
 """The watch of the course sees one kind of command tried again and again with other numbers, even when every try works."""
 from types import SimpleNamespace
 
-from harness import course
+from tadamoo import course
 
 
 def start(command, tool="shell_command"):

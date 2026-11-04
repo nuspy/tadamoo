@@ -1,8 +1,8 @@
 """Energy of a task from power samples: the sum over time, the limit, and nothing without readings."""
 import time
 
-from harness.energy import EnergyMeter
-from harness.scheduler import Scheduler
+from tadamoo.energy import EnergyMeter
+from tadamoo.scheduler import Scheduler
 
 
 def gpus(*watts, limit=450.0):

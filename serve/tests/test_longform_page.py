@@ -54,7 +54,7 @@ class LongAnswerPage(unittest.TestCase):
         self.assertIn('id="cs-max_answer_tokens"', HTML)
 
     def test_a_long_answer_is_not_compressed_by_billion_context(self):
-        self.assertIn('...(long ? {} : { "X-Basalt-Compress": "1" })', CHAT_JS)
+        self.assertIn('...(long ? {} : { "X-Tadamoo-Compress": "1" })', CHAT_JS)
 
     def test_the_chat_follows_the_events_of_the_new_flow_and_takes_the_corrected_text(self):
         for event in ("estimate", "review", "fix", "revised"):
@@ -99,8 +99,8 @@ class AutoContinueAndSavePage(unittest.TestCase):
     def test_save_as_file_is_a_button_beside_copy_in_both_chats_and_only_a_click_opens_it(self):
         self.assertIn('class="btn ghost savefile" hidden', CHAT_JS)
         self.assertIn('btn(T("sf.btn"), "ghost savefile"', AGENT_JS)
-        self.assertEqual(CHAT_JS.count("window.BasaltSave.message("), 1)
-        self.assertEqual(AGENT_JS.count("window.BasaltSave.message("), 1)
+        self.assertEqual(CHAT_JS.count("window.TadamooSave.message("), 1)
+        self.assertEqual(AGENT_JS.count("window.TadamooSave.message("), 1)
         self.assertIn("min-height: 30px", re.search(r"\.btn\.savefile \{[^}]*\}", self.EXPORT_CSS).group(0))
         self.assertIn("bare: true", self.EXPORT_JS)                                    # the message alone, through the export route
         self.assertIn('select: { answers: true }', self.EXPORT_JS)

@@ -7,11 +7,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import agent_loop as al
-from harness.headless import config_from_args, parse_args, run_headless
-from harness.session import parse_args as session_args
-from harness.stack import AgentConfig, agent_settings, build_agent
-from harness.tools.registry import ToolRegistry, configured_tool_timeout
+from tadamoo import agent_loop as al
+from tadamoo.headless import config_from_args, parse_args, run_headless
+from tadamoo.session import parse_args as session_args
+from tadamoo.stack import AgentConfig, agent_settings, build_agent
+from tadamoo.tools.registry import ToolRegistry, configured_tool_timeout
 from test_agent_loop import ScriptedClient, call, say
 
 SHARED = ["--workspace", "W", "--permission-mode", "auto", "--allow", "shell_command:pytest*", "--deny", "shell_command:rm*",
@@ -49,8 +49,8 @@ def test_headless_acts_without_asking_unless_it_is_interactive():
 
 
 def test_interactive_without_a_terminal_asks_the_approvals_board_when_it_answers_else_nobody_can_confirm(monkeypatch):
-    from harness import headless
-    from harness.approval_client import ServerApprover
+    from tadamoo import headless
+    from tadamoo.approval_client import ServerApprover
     args = parse_args(["-p", "x", "--interactive"])
     monkeypatch.setattr(headless, "_has_terminal", lambda: False)
     monkeypatch.setattr(ServerApprover, "available", lambda self: True)
@@ -63,8 +63,8 @@ def test_interactive_without_a_terminal_asks_the_approvals_board_when_it_answers
 
 
 def test_with_no_way_to_ask_the_model_is_told_nobody_can_confirm():
-    from harness.permissions import PermissionLevel, PermissionManager
-    from harness.tools.registry import EffectClass
+    from tadamoo.permissions import PermissionLevel, PermissionManager
+    from tadamoo.tools.registry import EffectClass
     ok, reason = PermissionManager(level=PermissionLevel.DEFAULT, confirm_callback=None).evaluate("pay", EffectClass.IRREVERSIBLE, {})
     assert not ok and "Nobody can confirm in this run" in reason
 
@@ -92,7 +92,7 @@ def test_the_timeouts_set_on_the_command_line_reach_the_registry(tmp_path):
 
 
 def test_tools_that_wait_with_a_limit_of_their_own_are_not_cut_by_the_default(tmp_path):
-    from harness.stack import OWN_TIME_LIMIT
+    from tadamoo.stack import OWN_TIME_LIMIT
     ws = tmp_path / "ws"
     ws.mkdir()
     built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "d"), use_memory=False), client=object())
@@ -158,7 +158,7 @@ def test_a_payment_is_put_to_the_person_in_a_headless_run(tmp_path):
 
 
 def test_mcp_tools_are_offered_one_by_one_while_few_and_behind_a_search_when_many(tmp_path):
-    from harness.mcp_client import MCPClient, MCPHub, hub_from_servers
+    from tadamoo.mcp_client import MCPClient, MCPHub, hub_from_servers
     fake = str(Path(__file__).resolve().parent / "fake_mcp_server.py")
     hub = hub_from_servers([{"name": "fake", "command": sys.executable, "args": [fake], "env": []}], str(tmp_path))
     try:
@@ -176,7 +176,7 @@ def test_mcp_tools_are_offered_one_by_one_while_few_and_behind_a_search_when_man
 
 
 def test_names_and_kinds_of_the_editors_servers_are_made_safe(tmp_path):
-    from harness.mcp_client import hub_from_servers
+    from tadamoo.mcp_client import hub_from_servers
     hub = hub_from_servers([{"name": "my server!", "command": "no_such_program_xyz"}, {"name": "my server!", "command": "no_such_program_xyz"},
                             {"command": "no_such_program_xyz"}, "not a server", {"name": "web", "type": "http", "url": "ftp://x"}], str(tmp_path))
     assert set(hub.errors) == {"my_server_", "my_server__2", "server3", "web"}
@@ -187,14 +187,14 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def test_python_dash_m_harness_has_a_subcommand_for_the_editors_agent():
     import subprocess
-    out = subprocess.run([sys.executable, "-m", "harness", "acp", "--help"], cwd=ROOT, capture_output=True, text=True, timeout=60)
-    assert out.returncode == 0 and "Basalt as an ACP agent" in out.stdout and "--capabilities" in out.stdout and "--vault-dir" in out.stdout
+    out = subprocess.run([sys.executable, "-m", "tadamoo", "acp", "--help"], cwd=ROOT, capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0 and "TaDaMoo as an ACP agent" in out.stdout and "--capabilities" in out.stdout and "--vault-dir" in out.stdout
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="the launcher is a .cmd file")
 def test_the_basalt_agent_launcher_runs_from_any_folder(tmp_path):
     import subprocess
-    launcher = ROOT / "basalt-agent.cmd"
+    launcher = ROOT / "tadamoo-agent.cmd"
     assert launcher.read_bytes().count(b"\r\n") == launcher.read_bytes().count(b"\n")           # a batch file with Windows line ends
     out = subprocess.run(["cmd.exe", "/c", str(launcher), "--help"], cwd=tmp_path, capture_output=True, text=True, timeout=60)
     assert out.returncode == 0 and "--permission-mode" in out.stdout and "--prompt" in out.stdout

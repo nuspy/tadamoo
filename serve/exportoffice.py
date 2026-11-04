@@ -74,9 +74,9 @@ def _docx_styles(lang: str) -> str:
         _style("Normal", "Normal").replace('<w:style w:type="paragraph"', '<w:style w:type="paragraph" w:default="1"', 1)
         + _style("Title", "Title", based="Normal", nxt="Normal", ppr='<w:spacing w:after="120"/>', rpr='<w:b/><w:sz w:val="48"/><w:szCs w:val="48"/>')
         + head(1, 36, 360) + head(2, 30, 320) + head(3, 26, 240) + head(4, 24, 200) + head(5, 22, 160) + head(6, 22, 160)
-        + _style("Meta", "Basalt Meta", based="Normal", ppr='<w:spacing w:before="40" w:after="40"/>', rpr='<w:i/><w:color w:val="57606A"/><w:sz w:val="20"/><w:szCs w:val="20"/>')
-        + _style("Label", "Basalt Label", based="Normal", nxt="Normal", ppr='<w:keepNext/><w:spacing w:before="200" w:after="40"/>', rpr="<w:b/>")
-        + _style("Code", "Basalt Code", based="Normal",
+        + _style("Meta", "TaDaMoo Meta", based="Normal", ppr='<w:spacing w:before="40" w:after="40"/>', rpr='<w:i/><w:color w:val="57606A"/><w:sz w:val="20"/><w:szCs w:val="20"/>')
+        + _style("Label", "TaDaMoo Label", based="Normal", nxt="Normal", ppr='<w:keepNext/><w:spacing w:before="200" w:after="40"/>', rpr="<w:b/>")
+        + _style("Code", "TaDaMoo Code", based="Normal",
                  ppr=('<w:keepLines/><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="D8DEE4"/><w:left w:val="single" w:sz="4" w:space="4" w:color="D8DEE4"/>'
                       '<w:bottom w:val="single" w:sz="4" w:space="4" w:color="D8DEE4"/><w:right w:val="single" w:sz="4" w:space="4" w:color="D8DEE4"/></w:pBdr>'
                       '<w:shd w:val="clear" w:color="auto" w:fill="F4F6F8"/><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:contextualSpacing/>'),
@@ -84,9 +84,9 @@ def _docx_styles(lang: str) -> str:
         + _style("Quote", "Quote", based="Normal", ppr='<w:pBdr><w:left w:val="single" w:sz="18" w:space="8" w:color="B8C0C8"/></w:pBdr><w:ind w:left="360"/>',
                  rpr='<w:color w:val="3A424A"/>')
         + _style("ListParagraph", "List Paragraph", based="Normal", ppr='<w:spacing w:after="40"/>')
-        + _style("TableText", "Basalt Table Text", based="Normal", ppr='<w:spacing w:before="40" w:after="40"/>')
+        + _style("TableText", "TaDaMoo Table Text", based="Normal", ppr='<w:spacing w:before="40" w:after="40"/>')
         + _style("DefaultParagraphFont", "Default Paragraph Font", kind="character", q=False, extra="").replace('w:type="character"', 'w:type="character" w:default="1"')
-        + _style("InlineCode", "Basalt Inline Code", kind="character", rpr=mono + '<w:shd w:val="clear" w:color="auto" w:fill="EEF1F4"/>')
+        + _style("InlineCode", "TaDaMoo Inline Code", kind="character", rpr=mono + '<w:shd w:val="clear" w:color="auto" w:fill="EEF1F4"/>')
         + _style("Hyperlink", "Hyperlink", kind="character", q=False, rpr='<w:color w:val="0563C1"/><w:u w:val="single"/>')
         + '<w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/>'
           '<w:tblPr><w:tblInd w:w="0" w:type="dxa"/><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="108" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/>'
@@ -295,9 +295,9 @@ def write_docx(doc: Doc) -> bytes:
     now = _now()
     core = (XML_HEAD + '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" '
             'xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
-            f'<dc:title>{esc(doc.title)}</dc:title><dc:creator>Basalt</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">{now}</dcterms:created>'
+            f'<dc:title>{esc(doc.title)}</dc:title><dc:creator>TaDaMoo</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">{now}</dcterms:created>'
             f'<dcterms:modified xsi:type="dcterms:W3CDTF">{now}</dcterms:modified></cp:coreProperties>')
-    app = XML_HEAD + '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Basalt</Application></Properties>'
+    app = XML_HEAD + '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>TaDaMoo</Application></Properties>'
     settings = (XML_HEAD + f'<w:settings {W_NS}><w:defaultTabStop w:val="720"/><w:compat>'
                 '<w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat></w:settings>')
     parts: List[Tuple[str, bytes]] = [
@@ -478,14 +478,14 @@ def _odf_styles(lang: str) -> str:
             + heading
             + pstyle("Text_20_body", "Text body", "Standard", 'fo:margin-top="0cm" fo:margin-bottom="0.21cm" fo:line-height="120%"')
             + pstyle("List_20_Paragraph", "List Paragraph", "Standard", 'fo:margin-top="0cm" fo:margin-bottom="0.1cm"')
-            + pstyle("Meta", "Basalt Meta", "Standard", 'fo:margin-top="0.1cm" fo:margin-bottom="0.1cm"', 'fo:font-size="10pt" fo:font-style="italic" fo:color="#57606a"')
-            + pstyle("Label", "Basalt Label", "Standard", 'fo:margin-top="0.4cm" fo:margin-bottom="0.1cm" fo:keep-with-next="always"', 'fo:font-weight="bold"')
+            + pstyle("Meta", "TaDaMoo Meta", "Standard", 'fo:margin-top="0.1cm" fo:margin-bottom="0.1cm"', 'fo:font-size="10pt" fo:font-style="italic" fo:color="#57606a"')
+            + pstyle("Label", "TaDaMoo Label", "Standard", 'fo:margin-top="0.4cm" fo:margin-bottom="0.1cm" fo:keep-with-next="always"', 'fo:font-weight="bold"')
             + pstyle("Quotations", "Quotations", "Standard", 'fo:margin-left="0.8cm" fo:margin-top="0cm" fo:margin-bottom="0.21cm" fo:border-left="2pt solid #b8c0c8" fo:padding-left="0.3cm"',
                      'fo:color="#3a424a"')
             + pstyle("Preformatted_20_Text", "Preformatted Text", "Standard", f'fo:margin-top="0.1cm" fo:margin-bottom="0.2cm" {border}',
                      f'style:font-name="Consolas" fo:font-size="9pt" fo:hyphenate="false"', ' style:class="html"')
             + pstyle("Table_20_Contents", "Table Contents", "Standard", 'fo:margin-top="0.05cm" fo:margin-bottom="0.05cm"')
-            + pstyle("Rule", "Basalt Rule", "Standard", 'fo:margin-top="0.2cm" fo:margin-bottom="0.2cm" fo:border-bottom="0.5pt solid #b8c0c8"')
+            + pstyle("Rule", "TaDaMoo Rule", "Standard", 'fo:margin-top="0.2cm" fo:margin-bottom="0.2cm" fo:border-bottom="0.5pt solid #b8c0c8"')
             + '<style:style style:name="Source_20_Text" style:display-name="Source Text" style:family="text"><style:text-properties style:font-name="Consolas" fo:background-color="#eef1f4"/></style:style>'
             + '<style:style style:name="Internet_20_link" style:display-name="Internet link" style:family="text"><style:text-properties fo:color="#0563c1" style:text-underline-style="solid" style:text-underline-width="auto" style:text-underline-color="font-color"/></style:style>'
             + '<style:style style:name="Visited_20_Internet_20_Link" style:display-name="Visited Internet Link" style:family="text"><style:text-properties fo:color="#551a8b" style:text-underline-style="solid" style:text-underline-width="auto" style:text-underline-color="font-color"/></style:style>'
@@ -521,7 +521,7 @@ def write_odt(doc: Doc) -> bytes:
     content = (XML_HEAD + f'<office:document-content {ODF_NS} office:version="1.2"><office:font-face-decls>'
                '<style:font-face style:name="Calibri" svg:font-family="Calibri"/><style:font-face style:name="Consolas" svg:font-family="Consolas" style:font-family-generic="modern" style:font-pitch="fixed"/>'
                f"</office:font-face-decls><office:automatic-styles>{auto}</office:automatic-styles><office:body><office:text>{body}</office:text></office:body></office:document-content>")
-    meta = (XML_HEAD + f'<office:document-meta {ODF_NS} office:version="1.2"><office:meta><dc:title>{esc(doc.title)}</dc:title><meta:generator>Basalt</meta:generator>'
+    meta = (XML_HEAD + f'<office:document-meta {ODF_NS} office:version="1.2"><office:meta><dc:title>{esc(doc.title)}</dc:title><meta:generator>TaDaMoo</meta:generator>'
             f"<meta:creation-date>{_now()}</meta:creation-date></office:meta></office:document-meta>")
     manifest = (XML_HEAD + '<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.2">'
                 '<manifest:file-entry manifest:full-path="/" manifest:version="1.2" manifest:media-type="application/vnd.oasis.opendocument.text"/>'

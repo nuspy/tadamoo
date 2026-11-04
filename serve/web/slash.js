@@ -71,7 +71,7 @@
     { name: "export", run: async () => {
       const text = A() && A().current() ? await A().transcript() : "";
       if (!text) { note(T("sl.export.none")); return; }
-      const name = "basalt-" + A().current() + ".txt";
+      const name = "tadamoo-" + A().current() + ".txt";
       await A().saveBlob(new Blob([text], { type: "text/plain;charset=utf-8" }), name);
       note(T("sl.exported", name));
     } },
@@ -275,13 +275,13 @@
     compact: d => d.done ? T("sl.r.compact.done", d.before, d.after) : T("sl.r.compact." + d.reason, d.tokens),
   };
   const effortName = level => { const o = [...sel.options].find(x => x.value === (level || "")); return o ? o.text : String(level); };
-  document.addEventListener("basalt:command", ev => {
+  document.addEventListener("tadamoo:command", ev => {
     const e = ev.detail || {};
     if (!e.ok) { note(T("sl.r.error", e.error || "")); return; }
     const out = (SHOW[e.name] || (() => ""))(e.data || {});
     if (typeof out === "string") note(out); else note(e.name, () => out);
   });
 
-  document.addEventListener("basalt:view", e => { if (e.detail === "chat" || e.detail === "agent") loadSkills(); });
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "chat" || e.detail === "agent") loadSkills(); });
   window.slash = { run, parse, byName, candidates, commands: COMMANDS };
 })();

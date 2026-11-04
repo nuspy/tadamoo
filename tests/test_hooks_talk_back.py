@@ -6,12 +6,12 @@ import sys
 
 import pytest
 
-from harness.agent_loop import FINAL, AgentLoop
-from harness.context import ContextManager, TokenJuiceCompactor
-from harness.hooks import HookConfigError, HookManager, load_hook_files, parse_hooks
-from harness.swarm.subagent import SubagentRunner
-from harness.tools import create_standard_tool_registry
-from harness.tools.registry import EffectClass, ToolRegistry
+from tadamoo.agent_loop import FINAL, AgentLoop
+from tadamoo.context import ContextManager, TokenJuiceCompactor
+from tadamoo.hooks import HookConfigError, HookManager, load_hook_files, parse_hooks
+from tadamoo.swarm.subagent import SubagentRunner
+from tadamoo.tools import create_standard_tool_registry
+from tadamoo.tools.registry import EffectClass, ToolRegistry
 
 
 class Scripted:

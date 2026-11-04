@@ -1,11 +1,11 @@
-"""Every third-party package that harness/ or serve/ imports is in a requirements file, so an installed copy does not stop on a missing module."""
+"""Every third-party package that tadamoo/ or serve/ imports is in a requirements file, so an installed copy does not stop on a missing module."""
 import ast
 import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-REQUIREMENT_FILES = (ROOT / "requirements.txt", ROOT / "harness" / "requirements.txt")
+REQUIREMENT_FILES = (ROOT / "requirements.txt", ROOT / "tadamoo" / "requirements.txt")
 # the distribution that provides an import name when the two differ
 DISTRIBUTION = {"PIL": "pillow", "yaml": "pyyaml", "fitz": "pymupdf"}
 # imported only inside a try block or a function, with a plain message when absent (not installed by default)
@@ -22,8 +22,8 @@ OPTIONAL = {
     "tau2": "imported only inside the tau2-bench process, which runs in the environment of the imported benchmark",
 }
 # modules of this repository that the code reaches through sys.path (tools/ is added at run time)
-# (the personal skills' runtime folder holds basalt_skill, which a skill's script imports from the process that runs it)
-LOCAL_FOLDERS = (ROOT, ROOT / "tools", ROOT / "tools" / "convert", ROOT / "harness" / "personal_skills" / "runtime", ROOT / "harness" / "sandbox" / "guard")
+# (the personal skills' runtime folder holds tadamoo_skill, which a skill's script imports from the process that runs it)
+LOCAL_FOLDERS = (ROOT, ROOT / "tools", ROOT / "tools" / "convert", ROOT / "tadamoo" / "personal_skills" / "runtime", ROOT / "tadamoo" / "sandbox" / "guard")
 
 
 def required():
@@ -44,9 +44,9 @@ def local_names():
 
 
 def imported():
-    """Import name -> the files that import it, for every non-test file of harness/ and serve/."""
+    """Import name -> the files that import it, for every non-test file of tadamoo/ and serve/."""
     found = {}
-    for top in ("harness", "serve"):
+    for top in ("tadamoo", "serve"):
         for path in (ROOT / top).rglob("*.py"):
             if "tests" in path.parts or "__pycache__" in path.parts:
                 continue
@@ -74,7 +74,7 @@ def test_every_third_party_import_is_in_a_requirements_file():
 
 
 def test_the_installer_reads_the_file_that_has_the_vault_package():
-    # setup installs only the top requirements.txt: a package the Wallet needs must be in it, not only in harness/requirements.txt
+    # setup installs only the top requirements.txt: a package the Wallet needs must be in it, not only in tadamoo/requirements.txt
     top = {re.match(r"\s*([A-Za-z0-9_.-]+)", line).group(1).lower() for line in (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
            if line.strip() and not line.lstrip().startswith("#")}
     assert "cryptography" in top

@@ -4,8 +4,8 @@ from datetime import datetime
 
 import pytest
 
-from harness.personal_skills import distill
-from harness.personal_skills.check import check
+from tadamoo.personal_skills import distill
+from tadamoo.personal_skills.check import check
 from test_session import Scripted, make, say
 
 DAY = datetime(2026, 10, 26, 15, 0).timestamp()
@@ -112,7 +112,7 @@ def test_the_script_is_asked_with_the_calls_and_the_parameters_wired_in():
     reqs = distill.requests_of(MESSAGES)
     steps = distill.steps_of(MESSAGES, reqs, [1])
     params = [{"name": "topic", "type": "text", "explanation": "what", "value_seen": "guerra in Ucraina"}, {"name": "day", "type": "date", "value_seen": "2026-10-26"}]
-    good = "```python\nfrom basalt_skill import tool\n\ndef main(params):\n    return tool('search_web', query=f'{params.topic} notizie') + str(params.day)\n```"
+    good = "```python\nfrom tadamoo_skill import tool\n\ndef main(params):\n    return tool('search_web', query=f'{params.topic} notizie') + str(params.day)\n```"
     model = Model(good)
     got = distill.write_script(model, "Rassegna", "news", params, reqs, steps)
     assert got["problems"] == [] and got["unused"] == [] and check(got["script"]) == []
@@ -143,7 +143,7 @@ def test_code_is_taken_from_the_fence_or_from_the_whole_answer():
 
 @pytest.fixture(autouse=True)
 def _no_clock(monkeypatch):
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
 
 
 def test_the_model_is_given_the_request_without_the_marks_and_the_history_keeps_what_was_written(tmp_path):

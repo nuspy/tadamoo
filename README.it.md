@@ -1,26 +1,31 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/basalt-lockup-dark.png">
-    <img src="assets/basalt-lockup-light.png" alt="Basalt" width="480">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/tadamoo-lockup-dark.png">
+    <img src="assets/tadamoo-lockup-light.png" alt="TaDaMoo" width="480">
   </picture>
 </p>
 
-# Basalt Win+GUI: questo fork
+# TaDaMoo: harness per agenti AI (Win+GUI)
 
 [English](README.md) · *Italiano*
 
-**Basalt Win+GUI** è un fork di **[Basalt](https://github.com/jesdga95/basalt)** di jesdga95 (licenza MIT), che a sua
-volta è un fork di **[Strata](https://github.com/Niko1221/Strata)** di Niko1221 (licenza MIT). Il motore, il formato
-`.basalt`, il convertitore e il server vengono da Basalt; le note di copyright dei due progetti e del codice che
-includono (ggml, llama.cpp e altri) sono in [LICENSE](LICENSE) e [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES). I file
-del modello derivano da Qwen3.8-Flash-Next e sono sotto la
+**TaDaMoo** è un harness per agenti AI con un'app nativa per Windows. Gira su **Basalt-Plus**, il suo motore di inferenza
+locale per il modello mixture-of-experts Qwen3.8-Flash-Next su GPU NVIDIA Blackwell. Sito: **[tadamoo.com](https://tadamoo.com)**
+· Contatto: [a.taini@gmail.com](mailto:a.taini@gmail.com) · Repository: [github.com/nuspy/tadamoo](https://github.com/nuspy/tadamoo).
+
+**Basalt-Plus** è un fork di **[Basalt](https://github.com/jesdga95/basalt)** di jesdga95 (licenza MIT), che a sua volta è
+un fork di **[Strata](https://github.com/Niko1221/Strata)** di Niko1221 (licenza MIT). Il motore, il formato `.basalt`, il
+convertitore e il server vengono da Basalt; le note di copyright dei due progetti e del codice che includono (ggml,
+llama.cpp e altri) sono in [LICENSE](LICENSE) e [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES). I file del modello derivano
+da Qwen3.8-Flash-Next e sono sotto la
 [Qwen Community License 1.0](https://huggingface.co/Qwen/Qwen3.8-Flash-Next/blob/main/LICENSE), non sotto MIT.
 
-Cosa aggiunge questo fork: un port nativo del motore per **Windows 10/11** (il codice per Linux è invariato) e quello
-che serve per usarlo su un desktop: un'app nativa che si apre sul Loader web, che prevede memoria e velocità prima di
-caricare; una configurazione guidata che trova i valori migliori per ogni PC; i profili di caricamento; una libreria
-dei modelli che li trova, li verifica e li converte; gli script di avvio e arresto. Il README originale di Basalt, in
-inglese, è in fondo a [README.md](README.md#upstream-basalt-readme).
+Cosa aggiungono TaDaMoo e Basalt-Plus rispetto a Basalt: un port nativo del motore per **Windows 10/11** (il codice per
+Linux è invariato) e quello che serve per usarlo su un desktop: un'app nativa che si apre sul Loader web, che prevede
+memoria e velocità prima di caricare; una configurazione guidata che trova i valori migliori per ogni PC; i profili di
+caricamento; una libreria dei modelli che li trova, li verifica e li converte; l'harness per agenti con chat, planner e
+benchmark; gli script di avvio e arresto. Il README originale di Basalt, in inglese, è in fondo a
+[README.md](README.md#upstream-basalt-readme).
 
 ## Differenze dalla base
 
@@ -45,7 +50,7 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
   passano; l'altro richiede una CPU con AVX-512).
 
 **2. Un'interfaccia grafica avanzata (la base aveva solo le pagine Monitor e Hardware)**
-- **Basalt Win+GUI** (`BasaltWinGUI.exe`): un'app desktop (finestra WebView2, icona nell'area di notifica, istanza
+- **TaDaMoo Win+GUI** (`TaDaMoo.exe`): un'app desktop (finestra WebView2, icona nell'area di notifica, istanza
   unica) che avvia il server e apre l'interfaccia web; la stessa interfaccia funziona in qualunque browser, in inglese o
   italiano, anche sul telefono.
 - **Chat** con i valori di campionamento del modello, preset, un indicatore del contesto e politiche di contesto
@@ -93,14 +98,14 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
   interi al client.
 
 **6. Script, lingue e dati**
-- `Avvia-Basalt.ps1` / `Ferma-Basalt.ps1`: `-gui` (predefinito), `-browser`, `-server` per gli agenti, con gli stessi nomi
+- `Avvia-TaDaMoo.ps1` / `Ferma-TaDaMoo.ps1`: `-gui` (predefinito), `-browser`, `-server` per gli agenti, con gli stessi nomi
   di opzione di Strata; si collegano a un server in esecuzione e controllano la memoria con il piano del Loader prima di
   caricare.
 - Inglese di default, italiano su richiesta, nell'app, nella pagina, negli script e negli strumenti a riga di comando; le
   impostazioni stanno nella cartella dati dell'utente, separate dalle cache.
 
 **7. Un harness per agenti, un planner e un guscio dell'interfaccia rivisto** (`harness/`, [docs/harness.md](docs/harness.md))
-- Un processo separato (`python -m harness -p "compito"`, oppure come agente di un editor via ACP) che parla con l'API
+- Un processo separato (`python -m tadamoo -p "compito"`, oppure come agente di un editor via ACP) che parla con l'API
   pubblica del server: un ciclo di strumenti con livelli di permesso, modalità piano, hook, checkpoint dei file, registro
   di audit a catena di hash, sandbox dei comandi, broker dei segreti, contenuti non fidati recintati, mascheramento del
   contesto, memoria, skill con approvazione per hash, MCP e documenti di riferimento (blocco fisso o ricerca). Un **vault**
@@ -109,7 +114,7 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
   una domanda oltre); il secondo fattore di un accesso lo scegli tu. Le telefonate vere sono protette e spente di default.
 - Un **planner** proattivo: piani come grafi con decisioni, riunioni e compiti passati a te, un filtro veloce degli eventi
   (nel cloud solo con il tuo consenso, nomi sostituiti) e nuova pianificazione col modello locale, in una vista **Piani**.
-- Una **valutazione** (`python -m harness.eval`) che riporta pass^k, costo e uso della cache, e il guscio delle pagine:
+- Una **valutazione** (`python -m tadamoo.eval`) che riporta pass^k, costo e uso della cache, e il guscio delle pagine:
   zoom dell'interfaccia per schermi molto larghi, una tavolozza dei comandi (Ctrl+K), viste con Alt+numero e un indice
   delle impostazioni.
 - Nella Chat: **Maiusc+Tab** cambia la modalità, mostrata in un'etichetta accanto a *Nuova conversazione*; un messaggio che inizia
@@ -119,7 +124,7 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
 
 ## Come funziona
 
-- **Un modello.** Basalt esegue Qwen3.8-Flash-Next (architettura GGUF `qwen4exp`): 48 strati, 512 esperti per strato,
+- **Un modello.** Basalt-Plus esegue Qwen3.8-Flash-Next (architettura GGUF `qwen4exp`): 48 strati, 512 esperti per strato,
   10 attivi per token. A 3 bit i soli esperti occupano circa 50 GiB, più di quanti ne tenga una GPU da 32 GB.
 - **Esperti su tre livelli.** Una **cache degli esperti in VRAM** ne tiene quanti ne entrano (`--expert-cache auto`:
   tutta la VRAM che resta dopo la riserva), riempita secondo un profilo d'uso, così i più usati stanno sulla GPU; una
@@ -144,9 +149,9 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
   bloccate secondo il budget di memoria condivisa di WDDM, letture non bufferizzate con una I/O completion port, la
   topologia della CPU con i core performance per primi sui processori ibridi, `basalt serve` in un job object che si
   chiude con lui. `--no-pdl` lancia ogni kernel senza il lancio dipendente programmatico, se un driver si comporta male.
-- **L'app, BasaltWinGUI.exe («Basalt Win+GUI»), è l'interfaccia principale.** Avvia il server senza caricare un
+- **L'app, TaDaMoo.exe («TaDaMoo Win+GUI»), è l'interfaccia principale.** Avvia il server senza caricare un
   modello e si apre sul Loader web nella sua finestra (WebView2): app e browser hanno esattamente le stesse
-  impostazioni; un'icona vicino all'orologio tiene acceso Basalt Win+GUI quando la finestra è chiusa.
+  impostazioni; un'icona vicino all'orologio tiene acceso TaDaMoo Win+GUI quando la finestra è chiusa.
 - **Interfaccia web** (`/`, in inglese o in italiano, vedi [Lingua](#lingua)): Chat, Monitor, Hardware, **Carica
   modello** (il Loader) e Impostazioni. Ogni impostazione sta in una sola scheda:
   - **Loader**: tutto ciò che si decide al caricamento del modello (il modello, contesto massimo, cache KV, lettura del
@@ -178,7 +183,7 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
   (la pagina risponde e non si carica nulla finché non premi Carica nel Loader), `--relaunch-on-model-change` (caricare
   un altro modello chiude il server con codice d'uscita 75, così chi l'ha avviato lo riavvia con quel modello),
   `/api/settings`, `/api/loader/*`, `/api/wizard/*`, `/api/profiles`, `/api/models/*`.
-- **Script** `Avvia-Basalt.ps1` / `Ferma-Basalt.ps1` con gli stessi nomi di opzione di Strata: `-gui` (il predefinito:
+- **Script** `Avvia-TaDaMoo.ps1` / `Ferma-TaDaMoo.ps1` con gli stessi nomi di opzione di Strata: `-gui` (il predefinito:
   l'app), `-browser`, `-server` (per gli agenti), `--model`, `--config "<profilo>"`, `--port`, `--vram-libera GB`,
   `-riusa` / `-riavvia`, `--lang it|en`.
 
@@ -199,9 +204,9 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
   (1,5 GB in più), uno secondario (circa 0,4 GB) o nessuno; quello che usano gli altri programmi si mostra, non si somma.
 - **Memoria misurata**: RAM e commit presi davvero da un caricamento si conservano per modello e si sommano ai piani
   successivi.
-- **Cartelle dei dati**: le impostazioni in `%APPDATA%\BasaltPannello\` (copiate una volta da `~\.cache\basalt`, mai
+- **Cartelle dei dati**: le impostazioni in `%APPDATA%\TaDaMoo\` (copiate una volta da `~\.cache\tadamoo`, mai
   spostate).
-- **Nome**: l'app si chiama **Basalt Win+GUI** (`BasaltWinGUI.exe`, icona nuova); motore, API, file e script tengono i
+- **Nome**: l'app si chiama **TaDaMoo Win+GUI** (`TaDaMoo.exe`, icona nuova); motore, API, file e script tengono i
   loro nomi.
 - **`-server` con un server già acceso** chiede se riusarlo o riavviarlo (`-riusa`, `-riavvia`, 60 s, senza risposta
   si riusa).
@@ -210,26 +215,26 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
 
 ## L'harness per agenti
 
-L'**harness** (`harness/`) è un agente che lavora sui tuoi file con il modello caricato in Basalt. Legge e modifica un progetto,
+L'**harness** (`harness/`) è un agente che lavora sui tuoi file con il modello caricato in TaDaMoo. Legge e modifica un progetto,
 esegue comandi, cerca sul web, compila moduli, tiene appunti su ciò che impara e ti chiede prima di tutto ciò che non si può
 disfare. È un processo Python separato: parla col server in esecuzione tramite l'API pubblica compatibile OpenAI e non importa nulla
 dal motore, quindi non ha bisogno di una GPU sua. Ciò che conserva (conversazioni, memoria, registro di audit, checkpoint,
 approvazioni) sta nella cartella dati dell'utente, mai nel tuo repository; l'unica cosa che scrive nel progetto è
-`.basalt/artifacts`, il testo completo degli output che ha dovuto accorciare.
+`.tadamoo/artifacts`, il testo completo degli output che ha dovuto accorciare.
 
 Il riferimento è [docs/harness.md](docs/harness.md) (in inglese); una guida passo passo è
 [docs/harness-manual.it.md](docs/harness-manual.it.md).
 
 ### Quattro modi di usarlo
 
-Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): ciò che uno raggiunge, lo raggiungono anche gli altri.
+Tutti e quattro costruiscono l'agente nello stesso punto (`tadamoo/stack.py`): ciò che uno raggiunge, lo raggiungono anche gli altri.
 
 | Modo | Cos'è |
 |---|---|
 | Scheda **Chat** | Conversazioni con l'agente. Ognuna è un processo che resta vivo, con la sua cronologia salvata, quindi un messaggio non paga l'avvio. È il modo principale. |
 | Scheda **Agente** | La pagina delle conversazioni, che lavora nelle cartelle che aggiungi: ogni cartella ha le sue conversazioni e un registro `.basalt`, e le modifiche dell'agente si tengono o si annullano blocco per blocco. |
-| `python -m harness -p "compito"` o `basalt-agent` | La riga di comando, per gli script: codici di uscita, `--json`, limiti. `basalt-agent.cmd` funziona da qualunque cartella. |
-| `python -m harness acp` | L'agente di un editor che parla l'Agent Client Protocol, su stdio. |
+| `python -m tadamoo -p "compito"` o `tadamoo-agent` | La riga di comando, per gli script: codici di uscita, `--json`, limiti. `tadamoo-agent.cmd` funziona da qualunque cartella. |
+| `python -m tadamoo acp` | L'agente di un editor che parla l'Agent Client Protocol, su stdio. |
 
 ### Cosa sa fare
 
@@ -257,7 +262,7 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
   tuo sì. Ogni piano ha una scheda rispetto a cui si giudicano gli eventi in arrivo; la Chat ti chiede solo ciò che alla scheda manca. Una
   decisione senza uscita valida passa a te invece di saltare in silenzio. Il filtro degli eventi (locale; quello nel cloud solo con il tuo
   consenso) parte con il server, e la ripianificazione col modello locale è facoltativa.
-- **Lavorare con orari propri**: routine (un prompt, una cartella, un orario; sempre in Automatica), valutazione (`python -m harness.eval`,
+- **Lavorare con orari propri**: routine (un prompt, una cartella, un orario; sempre in Automatica), valutazione (`python -m tadamoo.eval`,
   pass^k, costo e uso della cache), riesecuzione di una sessione registrata e l'energia usata da un compito.
 
 ### Le conversazioni della Chat
@@ -309,7 +314,7 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`harness/stack.py`): c
 - **Hook scritti da te** (`hooks.json`): comandi o blocchi fissi su chiamate di strumenti, turni e sessione; un hook che non riesce a
   decidere blocca.
 - **Checkpoint e ritorno**: l'area di lavoro viene salvata prima della prima modifica di un turno, fuori dal progetto e con limiti di
-  dimensione; `python -m harness.rewind`, `/rewind` e *Torna qui* su un messaggio la ripristinano. Tornare indietro non disfa un comando che ha
+  dimensione; `python -m tadamoo.rewind`, `/rewind` e *Torna qui* su un messaggio la ripristinano. Tornare indietro non disfa un comando che ha
   eseguito, e lo dice.
 - **Un registro di audit**: una riga per ogni chiamata di strumento (argomenti con hash e mascherati, la decisione, l'esito), in una
   catena di hash verificabile.
@@ -376,7 +381,7 @@ nell'appunto.
 ### Cosa non è fatto
 
 Isolamento di file e rete per i comandi (il job object limita solo le risorse); una prova dell'agente ACP in un editor vero (Zed, JetBrains)
-e `terminal/*`; Basalt come server A2A (è solo un client); i conti bancari tramite un aggregatore; una prova di Google Pay o di un modulo Stripe incorporato su un sito vero;
+e `terminal/*`; TaDaMoo come server A2A (è solo un client); i conti bancari tramite un aggregatore; una prova di Google Pay o di un modulo Stripe incorporato su un sito vero;
 e una misura di quale strategia di contesto funzioni meglio (serve il modello vero). Nessuna telefonata vera è stata fatta in un test,
 e Stripe e Google Pay non sono stati provati sui servizi reali. L'elenco con i motivi è in fondo a
 [docs/harness.md](docs/harness.md).
@@ -397,35 +402,35 @@ e Stripe e Google Pay non sono stati provati sui servizi reali. L'elenco con i m
   Linux nel README originale ([Build](README.md#build)). L'app: `dotnet publish tools\windows\desktop -c Release -o
   tools\windows\desktop\publish`.
 
-## Avviare Basalt Win+GUI
+## Avviare TaDaMoo Win+GUI
 
 ```powershell
-.\Avvia-Basalt.ps1                                             # l'app (-gui): prima il Loader, nulla caricato
-.\Avvia-Basalt.ps1 -browser                                    # il server legato a questa finestra, l'interfaccia nel browser
-.\Avvia-Basalt.ps1 -server --config "Machine Default"          # staccato, senza interfaccia: torna quando il modello è caricato
-.\Avvia-Basalt.ps1 -server --model "D:\Modelli\Qwen3.8-Flash-Next-IQ3_XXS.basalt" --port 7240 --vram-libera 2
-.\Avvia-Basalt.ps1 -prova                                      # tutti i controlli, nulla avviato, nulla scritto
-.\Ferma-Basalt.ps1 --port 7240                                 # ferma solo quel server (il suo albero di processi)
+.\Avvia-TaDaMoo.ps1                                             # l'app (-gui): prima il Loader, nulla caricato
+.\Avvia-TaDaMoo.ps1 -browser                                    # il server legato a questa finestra, l'interfaccia nel browser
+.\Avvia-TaDaMoo.ps1 -server --config "Machine Default"          # staccato, senza interfaccia: torna quando il modello è caricato
+.\Avvia-TaDaMoo.ps1 -server --model "D:\Modelli\Qwen3.8-Flash-Next-IQ3_XXS.basalt" --port 7240 --vram-libera 2
+.\Avvia-TaDaMoo.ps1 -prova                                      # tutti i controlli, nulla avviato, nulla scritto
+.\Ferma-TaDaMoo.ps1 --port 7240                                 # ferma solo quel server (il suo albero di processi)
 ```
 
 Ogni opzione si accetta con uno o due trattini e in maiuscolo o minuscolo (`-gui`, `--gui`, `-GUI`).
 
 | opzione | significato |
 |---|---|
-| *(nessuna)* = `-gui` | apre `BasaltWinGUI.exe` passandogli `--config`, `--model`, `--port` e `--vram-libera`; il browser **non** si apre, l'indirizzo si stampa e resta disponibile. Senza l'app compilata lo script dice come compilarla e usa `-browser` |
+| *(nessuna)* = `-gui` | apre `TaDaMoo.exe` passandogli `--config`, `--model`, `--port` e `--vram-libera`; il browser **non** si apre, l'indirizzo si stampa e resta disponibile. Senza l'app compilata lo script dice come compilarla e usa `-browser` |
 | `-browser` | il server legato a questa finestra (Ctrl+C o chiudere la finestra ferma server e motore e libera la RAM), l'interfaccia aperta nel browser |
-| `-server` | il server da solo, staccato, senza app né browser; lo script torna quando `/health` dice che il modello è caricato. Per gli agenti; lo ferma `Ferma-Basalt.ps1` |
+| `-server` | il server da solo, staccato, senza app né browser; lo script torna quando `/health` dice che il modello è caricato. Per gli agenti; lo ferma `Ferma-TaDaMoo.ps1` |
 | `--config "<profilo>"` | il profilo di caricamento; senza, il profilo predefinito (sotto) |
 | `--model "<file .basalt>"` | il modello da servire, con il percorso completo |
 | `--port N` | la porta; vince su quella del profilo (predefinita 7232) |
 | `--vram-libera GB` | la VRAM da lasciare libera per gli altri programmi, in GB (`1.5` o `"1,5"`), al posto di quella del profilo; `--vram-reserve-mib N` è lo stesso in MiB |
 | `-converti` | con `-browser` / `-server`, quando il modello è un GGUF da convertire: mostra il piano, chiede, converte, poi serve il file nuovo (nell'app: **Converti…** nel Loader) |
 | `-riusa` / `-riavvia` | con `-server`, la risposta data in anticipo quando un server è già acceso con altri parametri di caricamento: riusarlo, o fermarlo e riavviarlo con i nuovi (sotto) |
-| `--lang it\|en` | la lingua dei messaggi per questo avvio (imposta anche `BASALT_LANG` per il server e l'app che avvia) |
+| `--lang it\|en` | la lingua dei messaggi per questo avvio (imposta anche `TADAMOO_LANG` per il server e l'app che avvia) |
 | `-prova` | tutti i controlli, nulla avviato; `-browser` / `-server` lavorano su una copia del file di configurazione |
-| `-file FILE` | il file di configurazione (predefinito `basalt_config.json` accanto allo script; l'app ne crea uno senza modello in un'installazione nuova) |
+| `-file FILE` | il file di configurazione (predefinito `tadamoo_config.json` accanto allo script; l'app ne crea uno senza modello in un'installazione nuova) |
 
-`-Sfondo` e `-SoloServer`, i vecchi nomi, funzionano ancora come `-server` e stampano una nota. `Ferma-Basalt.ps1`
+`-Sfondo` e `-SoloServer`, i vecchi nomi, funzionano ancora come `-server` e stampano una nota. `Ferma-TaDaMoo.ps1`
 accetta `--port N` e `--file FILE` allo stesso modo.
 
 **Quando un server è già acceso** (uno per installazione, su qualunque porta):
@@ -439,9 +444,9 @@ accetta `--port N` e `--file FILE` allo stesso modo.
   - **Uguali**: stampa indirizzo, modello e profilo e torna (codice d'uscita 0).
   - **Diversi**: elenca le differenze (`engine.max-context: 65536 -> 131072`) e chiede **Riusa il server avviato** o
     **Riavvia con i nuovi parametri**: in una finestra quando c'è un desktop, altrimenti nella console (`R` / `A`).
-    Senza risposta entro **60 secondi** (si cambiano con `BASALT_ASK_TIMEOUT_S`), o senza nessuno a cui chiedere (un
+    Senza risposta entro **60 secondi** (si cambiano con `TADAMOO_ASK_TIMEOUT_S`), o senza nessuno a cui chiedere (un
     agente con l'input rediretto), il server acceso **si riusa**: nessun server viene fermato senza una risposta.
-    Riavviare ferma solo l'albero di processi di quel server (`Ferma-Basalt.ps1 --port N`) e lo riavvia sulla stessa
+    Riavviare ferma solo l'albero di processi di quel server (`Ferma-TaDaMoo.ps1 --port N`) e lo riavvia sulla stessa
     porta, se `--port` non ne chiede un'altra.
   - **`-riusa`** e **`-riavvia`** danno la risposta in anticipo, per agenti e attività pianificate; con `-prova` lo
     script dice soltanto cosa farebbe.
@@ -455,13 +460,13 @@ di paging viene rifiutato, come una GPU che il motore non supporta (codice 1).
 **Il profilo di caricamento predefinito**: quello scelto con **Rendi predefinito** nel Loader, altrimenti **Machine
 Default** dopo che la configurazione guidata l'ha salvato, altrimenti **Valori sicuri**.
 
-Direttamente, su Windows o Linux: `bin\basalt.exe serve --config basalt_config.json [--port N]` (`bin/basalt serve` su
+Direttamente, su Windows o Linux: `bin\basalt.exe serve --config tadamoo_config.json [--port N]` (`bin/basalt serve` su
 Linux; ogni opzione è nel README originale, [Settings](README.md#settings---config), e in `python -m serve.server
 --help`).
 
 ### L'app
 
-`tools\windows\desktop\publish\BasaltWinGUI.exe` (finestra e icona: «Basalt Win+GUI»; il nome del file è diverso da
+`tools\windows\desktop\publish\TaDaMoo.exe` (finestra e icona: «TaDaMoo Win+GUI»; il nome del file è diverso da
 quello del motore, `basalt.exe`, di proposito; le stesse opzioni dello script: `--config`, `--model`, `--port`,
 `--vram-libera`, `--file`, `--lang`). All'apertura avvia il server nel suo job (finisce con l'app) **senza caricare un
 modello** e mostra il **Loader** web:
@@ -475,7 +480,7 @@ modello** e mostra il **Loader** web:
 
 Caricare un modello diverso da quello con cui il server è partito lo salva e riavvia il server con quello; la pagina si
 ricollega da sola. Chiudere la finestra la nasconde nell'icona vicino all'orologio: **Apri**, **Ricarica con altri
-parametri…** (il Loader), **Avvia solo server (per gli agenti)…** (come `Avvia-Basalt.ps1 -server`, al posto del server
+parametri…** (il Loader), **Avvia solo server (per gli agenti)…** (come `Avvia-TaDaMoo.ps1 -server`, al posto del server
 dell'app), **Spegni**. Se il server non parte (una porta occupata, una build mancante), l'app mostra il motivo, la fine
 del registro e un pannello di avvio nativo come riserva. Con il server acceso la stessa interfaccia è a
 `http://127.0.0.1:7232/` in qualunque browser.
@@ -489,7 +494,7 @@ velocità su un PC grande o non si caricherebbero su uno piccolo (o farebbero cr
 configurazione guidata calcola ogni valore da quello che rileva, dice perché, e può verificarlo con una misura vera.
 
 1. **Questo PC**: RAM, limite di commit e quanto è usato, file di paging (quelli gestiti da Windows possono crescere:
-   Basalt Win+GUI non li fa mai crescere), core performance ed efficienza, la GPU NVIDIA, e le schede video con quella
+   TaDaMoo Win+GUI non li fa mai crescere), core performance ed efficienza, la GPU NVIDIA, e le schede video con quella
    che mostra il **monitor principale**. Un PC può comandare il monitor da un'altra scheda (una GPU integrata, per
    esempio) e tenere la GPU NVIDIA per il calcolo; la GPU può avere anche un monitor **secondario**, acceso o spento.
    La configurazione mostra cosa ha rilevato e chiede di confermarlo o correggerlo.
@@ -549,10 +554,10 @@ resolve [--model FILE] [--profile NOME] | convert --model GGUF [--out DIR]`.
 
 ### Download dei modelli
 
-Il pannello **Scarica modelli** del Loader offre Qwen3.8-Flash-Next nelle versioni che girano su Basalt: 23 file da
+Il pannello **Scarica modelli** del Loader offre Qwen3.8-Flash-Next nelle versioni che girano su Basalt-Plus: 23 file da
 Hugging Face (e altri 6 mostrati come non compatibili, con il motivo). Ogni scheda dice che cos'è il file e in cosa
 differisce dal modello base, la dimensione, la quantizzazione e quanto è vicino al modello pieno con la **fonte di
-quella misura** (la misura di Basalt contro Q8_0, quella degli autori, quella di Strata o nessuna: i riferimenti
+quella misura** (la misura di Basalt-Plus contro Q8_0, quella degli autori, quella di Strata o nessuna: i riferimenti
 sono diversi e non vanno mescolati). Il selettore dei modelli mostra lo stesso suggerimento di una riga per un modello
 che conosce.
 
@@ -564,7 +569,7 @@ che conosce.
 - Le versioni **uncensored** sono segnalate e portano l'avviso dell'autore. Il repository di OrcaRouter è **ad accesso
   controllato**: il pannello spiega come avere un account Hugging Face, accettare i termini e creare un token di sola
   lettura, e prende il token solo per la sessione (si leggono anche `HF_TOKEN` e il file scritto da
-  `huggingface-cli login`). Basalt non salva, non mostra e non registra mai un token, e lo invia solo a Hugging Face,
+  `huggingface-cli login`). TaDaMoo non salva, non mostra e non registra mai un token, e lo invia solo a Hugging Face,
   mai lungo un redirect verso un altro host.
 - **Un download parte solo dal suo piano**: i file a una revisione fissata con dimensioni e SHA-256 come li dà
   Hugging Face, il disco e il suo spazio libero, l'accesso e la licenza da accettare (Qwen Community License 1.0, più
@@ -572,12 +577,12 @@ che conosce.
   modello base). I file sono scritti come `.part` e rinominati solo quando lo SHA-256 corrisponde; un download
   interrotto o fermato riprende da dove si era fermato.
 - **Non offerti**: Unsloth UD-Q5_K_XL, UD-Q6_K_XL e UD-IQ1_S, e gli IQ2_XXS e Q2_K/Q3_K di OrcaRouter, perché i loro
-  formati degli esperti non hanno un kernel in Basalt; e `Qwen3.8-35B-A3B`, che non è un modello Qwen ufficiale ma una
+  formati degli esperti non hanno un kernel in Basalt-Plus; e `Qwen3.8-35B-A3B`, che non è un modello Qwen ufficiale ma una
   distillazione della community in un'altra architettura (Qwen3.6-35B-A3B: 40 strati, dimensione 2048, 256 esperti)
   che il motore, scritto per le forme di Flash-Next, non può eseguire.
 
-Le voci "Non provato con Basalt" hanno formati degli esperti che gli elenchi del motore accettano ma che non sono mai
-stati eseguiti con Basalt. Il catalogo è stato letto dai repository il 17/10/2026 (`serve/catalog.py`); le dimensioni
+Le voci "Non provato con Basalt-Plus" hanno formati degli esperti che gli elenchi del motore accettano ma che non sono mai
+stati eseguiti con Basalt-Plus. Il catalogo è stato letto dai repository il 17/10/2026 (`serve/catalog.py`); le dimensioni
 si rileggono quando si prepara un download. Le rotte (solo da questo PC e dalla pagina del server): `GET
 /api/models/catalog | download | hf`, `POST /api/models/download-plan | download | download-cancel | hf-token`.
 
@@ -635,16 +640,16 @@ CPU, immagini dynamic.
 
 ### Dove stanno le impostazioni
 
-Per utente, mai nel repository, nella **cartella dei dati dell'utente**: `%APPDATA%\BasaltPannello\` su Windows,
-`~/Library/Application Support/Basalt/` su macOS, `$XDG_DATA_HOME/basalt/` (`~/.local/share/basalt/`) altrove, oppure
-`BASALT_DATA`. Contiene `profiles.json` (profili di caricamento, preset di inferenza, il profilo predefinito),
+Per utente, mai nel repository, nella **cartella dei dati dell'utente**: `%APPDATA%\TaDaMoo\` su Windows,
+`~/Library/Application Support/TaDaMoo/` su macOS, `$XDG_DATA_HOME/tadamoo/` (`~/.local/share/tadamoo/`) altrove, oppure
+`TADAMOO_DATA`. Contiene `profiles.json` (profili di caricamento, preset di inferenza, il profilo predefinito),
 `models.json` (le cartelle dei modelli, il modello predefinito del server, l'ultima cartella di uscita), `machine.json`
 (le risposte della configurazione guidata: quota di RAM e commit, VRAM da lasciare libera, dov'è il monitor),
 `calibration\<modello>.json` (velocità e memoria misurate), `prefs.json` (la lingua) e `desktop.json` dell'app. Le cache
-che si possono ricostruire restano in `%USERPROFILE%\.cache\basalt\` (`~/.cache/basalt/`, o `BASALT_CACHE`): la
+che si possono ricostruire restano in `%USERPROFILE%\.cache\tadamoo\` (`~/.cache/tadamoo/`, o `TADAMOO_CACHE`): la
 scansione delle intestazioni, i registri dei lavori di conversione e verifica, i file del tokenizer e delle immagini
 estratti da un modello, il registro del motore. Le versioni precedenti tenevano le impostazioni nella cartella della
-cache: la prima volta vengono copiate (non spostate) nella cartella dei dati. `basalt_config.json` accanto agli script
+cache: la prima volta vengono copiate (non spostate) nella cartella dei dati. `tadamoo_config.json` accanto agli script
 lo scrivono loro e il Loader dal profilo scelto, e non è tracciato da git.
 
 ## Usarlo come server (API)
@@ -659,10 +664,10 @@ Il server parla le API di OpenAI e di Anthropic a `http://127.0.0.1:<porta>` (po
 | `POST /v1/messages/count_tokens` | conteggio dei token di Anthropic: lo stesso prompt che leggerebbe `/v1/messages`, senza eseguirlo |
 | `GET /v1/models` | il modello servito e ogni altro modello delle cartelle dei modelli che potrebbe servire (forma OpenAI o Anthropic) |
 | `GET /v1/models/{id}` | uno di questi |
-| `GET /health` | `{"service": "basalt", "loaded": true, ...}` quando il modello è caricato; `"standby": true` mentre un server avviato dall'app aspetta il Loader |
+| `GET /health` | `{"service": "tadamoo", "loaded": true, ...}` quando il modello è caricato; `"standby": true` mentre un server avviato dall'app aspetta il Loader |
 
-**Avviarlo per gli agenti**: `.\Avvia-Basalt.ps1 -server` (torna quando il modello è caricato; negli script senza
-nessuno davanti aggiungi `-riusa`), fermarlo con `.\Ferma-Basalt.ps1`. `basalt.pid` contiene PID, porta e profilo di un
+**Avviarlo per gli agenti**: `.\Avvia-TaDaMoo.ps1 -server` (torna quando il modello è caricato; negli script senza
+nessuno davanti aggiungi `-riusa`), fermarlo con `.\Ferma-TaDaMoo.ps1`. `tadamoo.pid` contiene PID, porta e profilo di un
 server avviato da uno script o dall'app.
 
 **Nome del modello.** L'id del modello servito è l'`--alias` (o `"alias"` nella sezione `server` del file di
@@ -672,7 +677,7 @@ nome che `GET /v1/models` elenca come un altro modello, non caricato, viene rifi
 
 **L'elenco dei modelli.** `GET /v1/models` elenca per primo il modello servito (`"status": {"value": "loaded"}`, o
 `"unloaded"` mentre si carica alla prima richiesta), poi ogni file `.basalt` delle cartelle dei modelli che il Loader
-mostra come **pronto** (un GGUF da convertire o un file che Basalt non può eseguire non è elencato), ciascuno con
+mostra come **pronto** (un GGUF da convertire o un file che Basalt-Plus non può eseguire non è elencato), ciascuno con
 `"status": {"value": "unloaded"}`. L'id di un modello così è il nome del file senza `.basalt` (con un breve hash in
 coda quando due cartelle hanno lo stesso nome di file): il nome da scegliere in un client. Ogni voce ha `created` (la
 data del file), `owned_by`, `display_name`, la lunghezza del contesto quando il file la dice (`context_length`; per il
@@ -689,11 +694,11 @@ caricato: OpenAI `{"error": {"code": "model_not_found", ...}}`, Anthropic
 # forma OpenAI
 curl http://127.0.0.1:7232/v1/models
 # {"object": "list", "data": [
-#   {"id": "Qwen3.8 Flash Next Uncensored", "object": "model", "created": 1791904651, "owned_by": "basalt",
+#   {"id": "Qwen3.8 Flash Next Uncensored", "object": "model", "created": 1791904651, "owned_by": "tadamoo",
 #    "display_name": "Qwen3.8 Flash Next Uncensored", "status": {"value": "loaded"}, "meta": {"n_ctx": 131702},
 #    "context_length": 131702, "architecture": {"input_modalities": ["text"], "output_modalities": ["text"]},
 #    "path": "D:/Modelli/Qwen3.8-Flash-Next-Uncensored-IQ3_XXS.basalt"},
-#   {"id": "OrcaRouter-IQ3_XXS", "object": "model", "created": 1791904651, "owned_by": "basalt",
+#   {"id": "OrcaRouter-IQ3_XXS", "object": "model", "created": 1791904651, "owned_by": "tadamoo",
 #    "display_name": "OrcaRouter", "status": {"value": "unloaded"}, "context_length": 262144,
 #    "meta": {"n_ctx_train": 262144}, "quant": "IQ3_XXS", "path": "D:/Modelli/OrcaRouter-IQ3_XXS.basalt", ...}]}
 
@@ -714,7 +719,7 @@ curl http://127.0.0.1:7232/v1/chat/completions -H "Content-Type: application/jso
   -d '{"model": "OrcaRouter-IQ3_XXS", "messages": [{"role": "user", "content": "ciao"}]}'
 # 404 {"error": {"message": "The model 'OrcaRouter-IQ3_XXS' is not loaded (this server is serving 'Qwen3.8 Flash
 #   Next Uncensored'). Load it in the web page's Loader (choose it in the model list, then Load), or start the server
-#   with it: .\Avvia-Basalt.ps1 --model \"D:/Modelli/OrcaRouter-IQ3_XXS.basalt\"", "type": "invalid_request_error",
+#   with it: .\Avvia-TaDaMoo.ps1 --model \"D:/Modelli/OrcaRouter-IQ3_XXS.basalt\"", "type": "invalid_request_error",
 #   "param": "model", "code": "model_not_found"}}
 ```
 
@@ -739,15 +744,15 @@ rispondere il modello.
 
 ```sh
 curl http://127.0.0.1:7232/v1/chat/completions -H "Content-Type: application/json" -d '{
-  "model": "basalt", "messages": [{"role": "user", "content": "Saluta in tre lingue."}],
+  "model": "tadamoo", "messages": [{"role": "user", "content": "Saluta in tre lingue."}],
   "max_tokens": 512, "reasoning_effort": "low"}'
 
 curl -N http://127.0.0.1:7232/v1/messages -H "Content-Type: application/json" -H "anthropic-version: 2023-06-01" -d '{
-  "model": "basalt", "max_tokens": 1024, "stream": true,
+  "model": "tadamoo", "max_tokens": 1024, "stream": true,
   "messages": [{"role": "user", "content": "Scrivi un haiku sul basalto."}]}'
 
 curl http://127.0.0.1:7232/v1/responses -H "Content-Type: application/json" -d '{
-  "model": "basalt", "input": "Quanto fa 17 * 23?", "reasoning": {"effort": "none"}}'
+  "model": "tadamoo", "input": "Quanto fa 17 * 23?", "reasoning": {"effort": "none"}}'
 ```
 
 (In PowerShell usa `curl.exe` e metti il JSON in un file: `-d "@corpo.json"`.)
@@ -825,7 +830,7 @@ che dice la lunghezza del contesto.
 ## Impostazioni di caricamento, una per una
 
 Si impostano nel Loader (ognuna con il suo motivo e la previsione dal vivo), si salvano nei profili di caricamento e
-si scrivono nelle sezioni `server` / `engine` di `basalt_config.json`. Valgono quando il motore si (ri)carica.
+si scrivono nelle sezioni `server` / `engine` di `tadamoo_config.json`. Valgono quando il motore si (ri)carica.
 
 | impostazione | cosa fa | come sceglierla |
 |---|---|---|
@@ -920,7 +925,7 @@ presi davvero dal caricamento (vedi «Memoria misurata»).
 
 Inglese come predefinito; italiano a richiesta. Una sola scelta vale per l'app, la pagina web, gli script e gli
 strumenti da riga di comando, in quest'ordine: `--lang it|en` (script e app, per quell'avvio) > la variabile
-d'ambiente `BASALT_LANG` > la scelta salvata in **Impostazioni → Lingua** nella pagina web (o con `python -m serve.lang
+d'ambiente `TADAMOO_LANG` > la scelta salvata in **Impostazioni → Lingua** nella pagina web (o con `python -m serve.lang
 set it|en|auto`, conservata in `prefs.json` nella cartella dei dati) > inglese. La lingua di Windows non si usa. Le
 pagine Monitor e Hardware e alcuni messaggi tecnici del server sono solo in inglese.
 
@@ -973,4 +978,4 @@ ordine di grandezza.
 
 ## Licenza
 
-Il codice nuovo e modificato di questo fork è rilasciato sotto la **Basalt Win+GUI Community and Commercial License** (vedi [LICENSE](LICENSE)): uso gratuito per privati e per aziende con fatturato lordo annuo consolidato inferiore a 10 milioni di dollari USD (licenza commerciale enterprise richiesta a partire da $10M). Il codice preesistente upstream (Strata, Basalt originale, ggml) rimane sotto le rispettive licenze MIT (vedi [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES)).
+Il codice nuovo e modificato di questo fork è rilasciato sotto la **TaDaMoo Win+GUI Community and Commercial License** (vedi [LICENSE](LICENSE)): uso gratuito per privati e per aziende con fatturato lordo annuo consolidato inferiore a 10 milioni di dollari USD (licenza commerciale enterprise richiesta a partire da $10M). Il codice preesistente upstream (Strata, Basalt originale, ggml) rimane sotto le rispettive licenze MIT (vedi [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES)).

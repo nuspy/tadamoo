@@ -1,7 +1,7 @@
 /* LOGS view: the switch between the request log and the session traces, and the traces page (traces.js) */
 .tr-switch { display: flex; gap: 8px; padding: 0 0 8px; flex: none; }
 .tr-switch .btn { min-height: 44px; min-width: 44px; padding: 8px 16px; font-size: 16px; }
-.tr-switch .btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--basalt-950); font-weight: 600; }
+.tr-switch .btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--tadamoo-950); font-weight: 600; }
 .tr { overflow: auto; }
 .tr-body { display: grid; gap: 16px; padding: 16px; max-width: 1100px; font: 400 16px/1.6 var(--font-sans); }
 .tr-body h2 { margin: 0; font: 600 18px/1.4 var(--font-sans); }

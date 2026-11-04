@@ -5,9 +5,9 @@ import queue
 import threading
 import time
 
-from harness import commands
-from harness.session import Session, SessionStore, main
-from harness.stack import AgentConfig, build_agent
+from tadamoo import commands
+from tadamoo.session import Session, SessionStore, main
+from tadamoo.stack import AgentConfig, build_agent
 from test_session import Events, Scripted, say
 
 
@@ -109,7 +109,7 @@ class Feed:
 
 
 def test_the_process_takes_a_mode_a_level_and_a_command_while_it_lives(tmp_path, monkeypatch):
-    import harness.session as hs
+    import tadamoo.session as hs
     ws = tmp_path / "ws"
     ws.mkdir()
     real_build = hs.build_agent
@@ -144,7 +144,7 @@ def test_the_process_takes_a_mode_a_level_and_a_command_while_it_lives(tmp_path,
 
 
 def test_the_process_takes_the_steps_and_the_end_of_turn_bias_while_it_lives(tmp_path, monkeypatch):
-    import harness.session as hs
+    import tadamoo.session as hs
     ws = tmp_path / "ws"
     ws.mkdir()
     real_build = hs.build_agent

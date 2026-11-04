@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from harness.secrets_broker import PROTECTED_FILES, SecretsBroker
-from harness.tools import create_standard_tool_registry
-from harness.tools.execute import find_runtimes, run_code
+from tadamoo.secrets_broker import PROTECTED_FILES, SecretsBroker
+from tadamoo.tools import create_standard_tool_registry
+from tadamoo.tools.execute import find_runtimes, run_code
 
 CANARY = "CANARY-vault-content-do-not-leak"
 
@@ -114,7 +114,7 @@ def test_a_link_in_the_workspace_does_not_hide_the_file(world):
             os.symlink(world["data"] / "vault", link)
     except (OSError, subprocess.CalledProcessError):
         pytest.skip("links cannot be made here")
-    code = "import os\nprint(open(os.path.join(os.environ['BASALT_WORKSPACE'], 'innocent', 'vau' + 'lt.bin')).read())"
+    code = "import os\nprint(open(os.path.join(os.environ['TADAMOO_WORKSPACE'], 'innocent', 'vau' + 'lt.bin')).read())"
     res = py(world, code)
     assert CANARY not in res["stdout"] and "PermissionError" in res["stderr"], res
     registry, _ = create_standard_tool_registry(world["ws"], secrets=world["broker"])
@@ -123,7 +123,7 @@ def test_a_link_in_the_workspace_does_not_hide_the_file(world):
 
 
 def test_what_is_not_a_secret_still_works(world):
-    code = ("import os, subprocess\nprint(open(os.path.join(os.environ['BASALT_WORKSPACE'], 'ok.txt')).read())\n"
+    code = ("import os, subprocess\nprint(open(os.path.join(os.environ['TADAMOO_WORKSPACE'], 'ok.txt')).read())\n"
             f"print(open({runtime_path(world, 'vault2', 'notes.txt')}).read())\n"
             "print(subprocess.run(['cmd', '/c', 'echo', 'hi'] if os.name == 'nt' else ['echo', 'hi'], capture_output=True, text=True).stdout)")
     res = py(world, code)

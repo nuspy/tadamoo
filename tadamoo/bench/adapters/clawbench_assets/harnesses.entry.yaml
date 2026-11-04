@@ -1,0 +1,11 @@
+  - name: tadamoo
+    image: clawbench-tadamoo
+    dockerfile: tadamoo/Dockerfile.tadamoo
+    setup_script: tadamoo/setup-tadamoo.sh
+    run_script: tadamoo/run-tadamoo.sh
+    usage_emitter: tadamoo/usage-emitter.py
+    extra_files:
+      - tadamoo/tadamoo_driver.py
+    agent_message_sources:
+      - type: file
+        path: /data/agent-messages.jsonl

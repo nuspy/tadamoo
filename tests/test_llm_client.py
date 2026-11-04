@@ -9,10 +9,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.client import BasaltError
-from harness.llm.client import RoutedClient, from_anthropic, to_anthropic
-from harness.llm.credentials import FileCredentials
-from harness.llm.store import Ledger, SecureRegistry
+from tadamoo.client import TadamooError
+from tadamoo.llm.client import RoutedClient, from_anthropic, to_anthropic
+from tadamoo.llm.credentials import FileCredentials
+from tadamoo.llm.store import Ledger, SecureRegistry
 
 
 class Cloud:
@@ -67,7 +67,7 @@ class Cloud:
 
 
 class Local:
-    """The loaded model of this Basalt: what a function without a provider uses."""
+    """The loaded model of this TaDaMoo: what a function without a provider uses."""
 
     def __init__(self):
         self.calls = []
@@ -89,7 +89,7 @@ def world(tmp_path):
     cloud.close()
 
 
-MSG = [{"role": "system", "content": "Sei Basalt."}, {"role": "user", "content": "ciao"}]
+MSG = [{"role": "system", "content": "Sei TaDaMoo."}, {"role": "user", "content": "ciao"}]
 
 
 def test_with_nothing_assigned_the_loaded_model_answers(world):
@@ -143,7 +143,7 @@ def test_anthropic_gets_its_own_shape_and_answers_come_back_in_the_openai_one(wo
     out = RoutedClient("eval", reg, local, ledger).chat_completion(history, tools=tools, max_tokens=100)
     req = cloud.requests[0]
     assert req["path"] == "/v1/messages" and req["headers"]["x-api-key"] == "sk-ant-abcdef" and "anthropic-version" in req["headers"]
-    assert req["body"]["system"] == [{"type": "text", "text": "Sei Basalt.", "cache_control": {"type": "ephemeral"}}]       # the stable start is marked for the cache
+    assert req["body"]["system"] == [{"type": "text", "text": "Sei TaDaMoo.", "cache_control": {"type": "ephemeral"}}]       # the stable start is marked for the cache
     assert req["body"]["tools"][0]["input_schema"] == {"type": "object", "properties": {}} and req["body"]["tools"][-1]["cache_control"] == {"type": "ephemeral"}
     assert req["body"]["messages"][-1] == {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "c0", "content": "nessun piano"}]}
     assert req["body"]["messages"][1]["content"][0]["type"] == "tool_use"
@@ -186,7 +186,7 @@ def test_a_local_provider_that_fails_says_why_there_is_no_other_route(tmp_path, 
     pid = reg2.add({"type": "lmstudio", "base_url": cloud.url + "/v1", "model": "m"})["id"]
     reg2.assign_checked("executor", pid)
     cloud.status = 401
-    with pytest.raises(BasaltError) as err:
+    with pytest.raises(TadamooError) as err:
         RoutedClient("executor", reg2, local, Ledger(tmp_path / "u2.json")).chat_completion(MSG)
     assert err.value.status == 401 and "provider says no" in str(err.value)
 
@@ -219,7 +219,7 @@ def test_the_anthropic_translation_alone():
 
 
 def test_this_server_takes_every_reasoning_level_llmswitch_offers():
-    from harness.llmswitch import reasoning
+    from tadamoo.llmswitch import reasoning
     from serve.frontend import effort_kwargs
     shown = {level: effort_kwargs(level) for level in reasoning.LEVELS}
     assert shown["none"] == shown["minimal"] == {"enable_thinking": False}

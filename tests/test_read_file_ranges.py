@@ -4,10 +4,10 @@ import json
 
 import pytest
 
-from harness.agent_loop import AgentLoop, FINAL
-from harness.context import TokenJuiceCompactor
-from harness.tools import create_standard_tool_registry
-from harness.tools.filesystem import WorkspaceSandbox
+from tadamoo.agent_loop import AgentLoop, FINAL
+from tadamoo.context import TokenJuiceCompactor
+from tadamoo.tools import create_standard_tool_registry
+from tadamoo.tools.filesystem import WorkspaceSandbox
 from tests.test_agent_loop import ScriptedClient, call, say
 
 
@@ -60,7 +60,7 @@ def test_an_offset_past_the_end_and_a_line_longer_than_the_limit_are_stated(sb):
 
 def run_read(ws, tmp_path, name, args):
     registry, _ = create_standard_tool_registry(ws)
-    compactor = TokenJuiceCompactor(ws / ".basalt" / "artifacts", display_dir=".basalt/artifacts")
+    compactor = TokenJuiceCompactor(ws / ".tadamoo" / "artifacts", display_dir=".tadamoo/artifacts")
     client = ScriptedClient(call("read_file", {"path": name, **args}), say("ok"))
     agent = AgentLoop(client=client, tool_registry=registry, output_filter=compactor.as_filter())
     agent.run("read it")
@@ -78,17 +78,17 @@ def test_the_middle_of_a_500_line_file_reaches_the_model_through_the_loop(tmp_pa
 
 def test_a_saved_result_read_again_is_not_shortened_again(tmp_path):
     ws = tmp_path / "ws"
-    (ws / ".basalt" / "artifacts").mkdir(parents=True)
-    compactor = TokenJuiceCompactor(ws / ".basalt" / "artifacts", display_dir=".basalt/artifacts")
+    (ws / ".tadamoo" / "artifacts").mkdir(parents=True)
+    compactor = TokenJuiceCompactor(ws / ".tadamoo" / "artifacts", display_dir=".tadamoo/artifacts")
     shortened = compactor.compress_output("".join(f"out {i}\n" for i in range(300)), "shell_command")
     assert "lines hidden" in shortened
-    artifact = next((ws / ".basalt" / "artifacts").iterdir()).name
-    content, _ = run_read(ws, tmp_path, f".basalt/artifacts/{artifact}", {})
+    artifact = next((ws / ".tadamoo" / "artifacts").iterdir()).name
+    content, _ = run_read(ws, tmp_path, f".tadamoo/artifacts/{artifact}", {})
     assert "out 150" in content and "lines hidden" not in content
 
 
 def test_a_shell_result_keeps_its_shape_and_loses_the_middle_of_its_output(tmp_path):
-    c = TokenJuiceCompactor(tmp_path / "art", display_dir=".basalt/artifacts")
+    c = TokenJuiceCompactor(tmp_path / "art", display_dir=".tadamoo/artifacts")
     stdout = "".join(f"step {i}\n" for i in range(300))
     result = {"stdout": stdout, "stderr": "", "exit_code": 0, "success": True}
     out = c.compress_output(json.dumps(result), "shell_command")
@@ -96,13 +96,13 @@ def test_a_shell_result_keeps_its_shape_and_loses_the_middle_of_its_output(tmp_p
     data = json.loads(out)
     assert data["exit_code"] == 0 and data["success"] is True
     assert "step 0\n" in data["stdout"] and "step 299" in data["stdout"] and "step 150\n" not in data["stdout"]
-    assert "lines hidden in total; full output saved to .basalt/artifacts/shell_command_stdout_" in data["stdout"]
+    assert "lines hidden in total; full output saved to .tadamoo/artifacts/shell_command_stdout_" in data["stdout"]
     saved = next(p for p in (tmp_path / "art").iterdir() if "stdout" in p.name)
     assert saved.read_text(encoding="utf-8") == stdout
 
 
 def test_a_very_long_line_in_a_shell_result_is_cut_and_says_so(tmp_path):
-    c = TokenJuiceCompactor(tmp_path / "art", display_dir=".basalt/artifacts")
+    c = TokenJuiceCompactor(tmp_path / "art", display_dir=".tadamoo/artifacts")
     out = c.compress_output(json.dumps({"stdout": "z" * 30_000, "exit_code": 0}), "shell_command")
     data = json.loads(out)
     assert len(out) < 4000 and "characters hidden" in data["stdout"] and "full output saved to" in data["stdout"]

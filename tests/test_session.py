@@ -8,16 +8,16 @@ import time
 
 import pytest
 
-from harness import agent_loop as al
-from harness.client import BasaltError
-from harness.session import UNAVAILABLE_NOTE, Session, SessionStore, approving_value, main, question_source, unattended_confirm
-from harness.stack import AgentConfig, build_agent
-from harness.tools.registry import EffectClass
+from tadamoo import agent_loop as al
+from tadamoo.client import TadamooError
+from tadamoo.session import UNAVAILABLE_NOTE, Session, SessionStore, approving_value, main, question_source, unattended_confirm
+from tadamoo.stack import AgentConfig, build_agent
+from tadamoo.tools.registry import EffectClass
 
 @pytest.fixture(autouse=True)
 def _no_clock(monkeypatch):
     """These tests count the messages the model is sent; the time note has its own tests (test_clock.py)."""
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
 
 
 
@@ -81,7 +81,7 @@ def make(tmp_path, client, **kw):
 
 
 def test_two_messages_in_a_row_the_second_sees_the_first(tmp_path):
-    client = Scripted(say("Mi chiamo Basalt."), say("Hai detto di chiederti il nome."))
+    client = Scripted(say("Mi chiamo TaDaMoo."), say("Hai detto di chiederti il nome."))
     session, ev, store, built = make(tmp_path, client)
     session.send("m1", "Come ti chiami?")
     ev.wait("done")
@@ -217,7 +217,7 @@ def test_after_a_cancel_the_next_message_runs(tmp_path):
 
 
 def test_a_busy_server_is_retried_with_waits_and_the_turn_ends_well(tmp_path):
-    client = Scripted(BasaltError(503, "busy"), BasaltError(0, "cannot reach"), say("Fatto."))
+    client = Scripted(TadamooError(503, "busy"), TadamooError(0, "cannot reach"), say("Fatto."))
     session, ev, *_ = make(tmp_path, client)
     session.send("m1", "ciao")
     done = ev.wait("done")
@@ -228,7 +228,7 @@ def test_a_busy_server_is_retried_with_waits_and_the_turn_ends_well(tmp_path):
 
 
 def test_a_model_error_of_any_kind_never_blocks_it_is_retried_and_the_event_says_what_is_waited_for(tmp_path):
-    client = Scripted(BasaltError(400, "the prompt is over the context"), say("Ora sì."))
+    client = Scripted(TadamooError(400, "the prompt is over the context"), say("Ora sì."))
     session, ev, *_ = make(tmp_path, client)
     session.send("m1", "enorme")
     assert ev.wait("done")["final"] == "Ora sì."
@@ -238,7 +238,7 @@ def test_a_model_error_of_any_kind_never_blocks_it_is_retried_and_the_event_says
 
 
 def test_a_model_that_is_not_loaded_is_loaded_by_the_session_and_attended_auto_does_not_block(tmp_path):
-    client = Scripted(BasaltError(503, "no model is loaded yet"), say("Carico."))
+    client = Scripted(TadamooError(503, "no model is loaded yet"), say("Carico."))
     session, ev, *_ = make(tmp_path, client, health=lambda: {"reachable": True, "loaded": False, "loading": False, "auto_load": False})
     session.endpoint = "http://127.0.0.1:1"
     loads = []
@@ -250,7 +250,7 @@ def test_a_model_that_is_not_loaded_is_loaded_by_the_session_and_attended_auto_d
 
 
 def test_a_load_the_loader_refuses_is_said_in_the_event_and_the_retries_go_on(tmp_path):
-    client = Scripted(BasaltError(503, "no model is loaded yet"), BasaltError(503, "no model is loaded yet"), say("Eccomi."))
+    client = Scripted(TadamooError(503, "no model is loaded yet"), TadamooError(503, "no model is loaded yet"), say("Eccomi."))
     session, ev, *_ = make(tmp_path, client, health=lambda: {"reachable": True, "loaded": False, "loading": False, "auto_load": False})
     session.endpoint = "http://127.0.0.1:1"
 
@@ -264,7 +264,7 @@ def test_a_load_the_loader_refuses_is_said_in_the_event_and_the_retries_go_on(tm
 
 
 def test_a_server_that_loads_by_itself_is_not_asked_to_load(tmp_path):
-    client = Scripted(BasaltError(503, "no model is loaded yet"), say("Ok."))
+    client = Scripted(TadamooError(503, "no model is loaded yet"), say("Ok."))
     session, ev, *_ = make(tmp_path, client, health=lambda: {"reachable": True, "loaded": False, "loading": False, "auto_load": True})
     session.endpoint = "http://127.0.0.1:1"
     session.load_model = lambda wait_s: pytest.fail("loaded by the session")
@@ -273,7 +273,7 @@ def test_a_server_that_loads_by_itself_is_not_asked_to_load(tmp_path):
 
 
 def test_retries_never_run_out_and_the_last_wait_is_repeated(tmp_path):
-    client = Scripted(*[BasaltError(503, "busy")] * 7, say("Finalmente."))
+    client = Scripted(*[TadamooError(503, "busy")] * 7, say("Finalmente."))
     session, ev, *_ = make(tmp_path, client, waits=(0, 0, 0))
     session.send("m1", "ciao")
     assert ev.wait("done")["final"] == "Finalmente."
@@ -283,12 +283,12 @@ def test_retries_never_run_out_and_the_last_wait_is_repeated(tmp_path):
 
 
 def test_the_waits_grow_up_to_a_few_minutes_and_stay_there():
-    from harness.session import BACKOFF_S
+    from tadamoo.session import BACKOFF_S
     assert list(BACKOFF_S) == sorted(BACKOFF_S) and 120 <= BACKOFF_S[-1] <= 600 and BACKOFF_S[0] <= 5
 
 
 def test_a_model_the_server_will_not_load_is_retried_and_the_facts_are_in_the_event(tmp_path):
-    client = Scripted(BasaltError(503, "no model loaded"), say("Ora è carico."))
+    client = Scripted(TadamooError(503, "no model loaded"), say("Ora è carico."))
     session, ev, *_ = make(tmp_path, client, health=lambda: {"reachable": True, "loaded": False, "loading": False, "auto_load": False})
     session.send("m1", "ciao")
     assert ev.wait("done")["final"] == "Ora è carico."
@@ -336,19 +336,19 @@ def test_an_action_that_cannot_be_undone_is_not_run_again_by_the_harness_after_a
 
 
 def test_no_secret_reaches_the_history_file(tmp_path, monkeypatch):
-    monkeypatch.setenv("BASALT_TEST_SECRET", "s3cr3t-value-123")
+    monkeypatch.setenv("TADAMOO_TEST_SECRET", "s3cr3t-value-123")
     client = Scripted(say("ok"))
     ws = tmp_path / "ws"
     ws.mkdir()
     built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False,
-                                    secret_names=["BASALT_TEST_SECRET"]), client=client)
+                                    secret_names=["TADAMOO_TEST_SECRET"]), client=client)
     events = Events()
     store = SessionStore(tmp_path / "hist", redact=built.agent.secrets.mask_secrets)
     session = Session(built, store, events, session_id="s1", sleep=lambda s: None)
     session.send("m1", "la chiave è s3cr3t-value-123, non scriverla")
     events.wait("done")
     text = (tmp_path / "hist" / "history.json").read_text(encoding="utf-8")
-    assert "s3cr3t-value-123" not in text and "[REDACTED:BASALT_TEST_SECRET]" in text
+    assert "s3cr3t-value-123" not in text and "[REDACTED:TADAMOO_TEST_SECRET]" in text
 
 
 class Feed:
@@ -374,7 +374,7 @@ class Feed:
 
 
 def test_the_process_speaks_lines_of_json_and_closes_on_command(tmp_path, monkeypatch):
-    import harness.session as hs
+    import tadamoo.session as hs
     client = Scripted(say("Ciao dal processo."))
     ws = tmp_path / "ws"
     ws.mkdir()
@@ -401,7 +401,7 @@ def test_the_process_speaks_lines_of_json_and_closes_on_command(tmp_path, monkey
 
 
 def test_a_position_sent_with_a_message_brings_the_tool_for_that_turn(tmp_path, monkeypatch):
-    import harness.session as hs
+    import tadamoo.session as hs
     offered = []
 
     class Spy(Scripted):
@@ -568,7 +568,7 @@ def test_a_turn_waiting_for_the_person_is_never_reported_as_stuck(tmp_path):
 
 
 def with_vault(tmp_path, client, entries):
-    from harness.vault import Vault
+    from tadamoo.vault import Vault
     vault = Vault(tmp_path / "vault")
     for entry_id, kw in entries.items():
         vault.put(entry_id, **kw)
@@ -711,7 +711,7 @@ def test_plan_mode_is_not_left_by_a_model_that_only_says_it_was_approved(tmp_pat
 
 
 def test_refused_calls_are_counted_in_the_conversation_state_and_in_its_closing_report(tmp_path, monkeypatch):
-    import harness.session as hs
+    import tadamoo.session as hs
     client = Scripted(call("shell_command", command="echo hi"), call("shell_command", command="echo again"), say("I could not run them."))
     ws = tmp_path / "ws"
     ws.mkdir()
@@ -735,11 +735,11 @@ def test_refused_calls_are_counted_in_the_conversation_state_and_in_its_closing_
 
 
 def test_the_session_end_hook_and_the_headless_result_carry_the_count(tmp_path):
-    from harness.headless import run_headless
-    from harness.hooks import HookManager
-    from harness.agent_loop import AgentLoop
-    from harness.permissions import PermissionLevel, PermissionManager
-    from harness.tools import create_standard_tool_registry
+    from tadamoo.headless import run_headless
+    from tadamoo.hooks import HookManager
+    from tadamoo.agent_loop import AgentLoop
+    from tadamoo.permissions import PermissionLevel, PermissionManager
+    from tadamoo.tools import create_standard_tool_registry
     ws = tmp_path / "ws"
     ws.mkdir()
     seen = []

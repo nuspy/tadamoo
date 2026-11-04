@@ -1,4 +1,4 @@
-"""Preparing and publishing a result (harness/bench/publish.py): two separate calls, an exact phrase, nothing sent by itself. CPU only."""
+"""Preparing and publishing a result (tadamoo/bench/publish.py): two separate calls, an exact phrase, nothing sent by itself. CPU only."""
 import hashlib
 import json
 import sys
@@ -8,10 +8,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.bench import publish
-from harness.bench.publish import BadConfirmation, NotConfigured, NotOffered, PackageChanged, PublishDesk, PublishError
-from harness.bench.runner import BenchRun, FakeAdapter
-from harness.eval import resume
+from tadamoo.bench import publish
+from tadamoo.bench.publish import BadConfirmation, NotConfigured, NotOffered, PackageChanged, PublishDesk, PublishError
+from tadamoo.bench.runner import BenchRun, FakeAdapter
+from tadamoo.eval import resume
 from bench_support import MODEL, make_spec
 
 
@@ -66,7 +66,7 @@ def test_a_pull_request_package_is_a_results_row(tmp_path):
     pkg = publish.prepare_package(run, "csv_pr", specs)
     assert {f["name"] for f in pkg["files"]} == {"entry.json", "results_row.csv"}
     text = (Path(pkg["folder"]) / "results_row.csv").read_text()
-    assert text.splitlines()[0].startswith("model,harness,resolution_rate") and "Basalt" in text
+    assert text.splitlines()[0].startswith("model,harness,resolution_rate") and "TaDaMoo" in text
 
 
 def test_trajectories_leave_only_when_asked(tmp_path):

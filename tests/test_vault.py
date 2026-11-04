@@ -7,9 +7,9 @@ from tempfile import TemporaryDirectory
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from harness.secrets_broker import SecretDestinationError, SecretsBroker
-from harness.tools.shell import execute_shell_command
-from harness.vault import Vault, VaultError, totp_code
+from tadamoo.secrets_broker import SecretDestinationError, SecretsBroker
+from tadamoo.tools.shell import execute_shell_command
+from tadamoo.vault import Vault, VaultError, totp_code
 
 KEY = bytes(range(32))
 NUMBER = "4242 4242 4242 4242"

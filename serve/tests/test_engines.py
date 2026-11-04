@@ -25,11 +25,11 @@ WEB = Path(__file__).resolve().parents[1] / "web"
 
 
 def nv(name, cc, **extra):
-    return {"BASALT_FAKE_GPU": json.dumps({"name": name, "cc": cc, **extra})}
+    return {"TADAMOO_FAKE_GPU": json.dumps({"name": name, "cc": cc, **extra})}
 
 
 def accel(*items):
-    return {"BASALT_FAKE_GPU": "null", "BASALT_FAKE_ACCEL": json.dumps(list(items))}
+    return {"TADAMOO_FAKE_GPU": "null", "TADAMOO_FAKE_ACCEL": json.dumps(list(items))}
 
 
 RTX5090 = nv("NVIDIA GeForce RTX 5090", [12, 0], vram_total=32 * GiB, vram_free=31 * GiB)
@@ -39,7 +39,7 @@ RTX2080 = nv("NVIDIA GeForce RTX 2080", [7, 5])
 A100 = nv("NVIDIA A100", [8, 0])
 H100 = nv("NVIDIA H100", [9, 0])
 GB10 = nv("NVIDIA GB10", [12, 1])
-NO_GPU = {"BASALT_FAKE_GPU": "null"}
+NO_GPU = {"TADAMOO_FAKE_GPU": "null"}
 MI300X = accel({"vendor": "amd", "name": "AMD Instinct MI300X"})
 MI300A = accel({"vendor": "amd", "name": "AMD Instinct MI300A"})
 RX7900 = accel({"vendor": "amd", "name": "AMD Radeon RX 7900 XTX"})
@@ -50,7 +50,7 @@ LAPTOP_APU = accel({"vendor": "amd", "name": "AMD Radeon(TM) 780M Graphics"}, {"
 
 
 def machine(env):
-    with mock.patch.dict(os.environ, {"BASALT_FAKE_SYSTEM_OK": "1", **env}):
+    with mock.patch.dict(os.environ, {"TADAMOO_FAKE_SYSTEM_OK": "1", **env}):
         return hardware.machine()
 
 
@@ -93,34 +93,34 @@ class Families(unittest.TestCase):
         self.assertEqual(hardware.classify_accel("amd", None), (None, None))
         self.assertEqual(hardware.classify_accel("amd", "AMD Radeon(TM) Graphics"), (None, None))
         self.assertEqual(hardware.classify_accel("intel", "Intel(R) Iris(R) Xe Graphics"), (None, None))
-        self.assertEqual(machine({"BASALT_FAKE_GPU": json.dumps({"name": "Mystery"})})["gpus"][0]["family"], None)
+        self.assertEqual(machine({"TADAMOO_FAKE_GPU": json.dumps({"name": "Mystery"})})["gpus"][0]["family"], None)
 
     def test_a_mixed_machine_is_not_unified(self):
-        env = {**RTX4090, "BASALT_FAKE_ACCEL": json.dumps({"vendor": "amd", "name": "AMD Radeon(TM) 8060S Graphics"})}
+        env = {**RTX4090, "TADAMOO_FAKE_ACCEL": json.dumps({"vendor": "amd", "name": "AMD Radeon(TM) 8060S Graphics"})}
         m = machine(env)
         self.assertEqual(m["families"], ["amd", "nvidia_ada"])
         self.assertIs(m["unified_memory"], False)
 
     def test_the_blackwell_flag_of_gpu_is_unchanged(self):
         self.assertEqual(hardware.BLACKWELL_MAJORS, (10, 12))
-        with mock.patch.dict(os.environ, {"BASALT_FAKE_SYSTEM_OK": "1", **RTX5090}):
+        with mock.patch.dict(os.environ, {"TADAMOO_FAKE_SYSTEM_OK": "1", **RTX5090}):
             g = hardware.gpu()
             self.assertIs(g["blackwell"], True)
             self.assertEqual(sorted(g), ["blackwell", "cc", "display_active", "display_mode", "name", "processes",
                                          "vram_free", "vram_total"])
         for env, expect in ((RTX4090, False), (RTX3090, False), (RTX2080, False), (H100, False), (GB10, True)):
-            with mock.patch.dict(os.environ, {"BASALT_FAKE_SYSTEM_OK": "1", **env}):
+            with mock.patch.dict(os.environ, {"TADAMOO_FAKE_SYSTEM_OK": "1", **env}):
                 self.assertIs(hardware.gpu()["blackwell"], expect, env)
-        with mock.patch.dict(os.environ, {"BASALT_FAKE_SYSTEM_OK": "1", **NO_GPU}):
+        with mock.patch.dict(os.environ, {"TADAMOO_FAKE_SYSTEM_OK": "1", **NO_GPU}):
             self.assertIsNone(hardware.gpu()["blackwell"])
 
     def test_the_old_fakes_still_work_and_skip_real_detection(self):
-        with mock.patch.dict(os.environ, {"BASALT_FAKE_SYSTEM_OK": "1", **RTX5090}), \
+        with mock.patch.dict(os.environ, {"TADAMOO_FAKE_SYSTEM_OK": "1", **RTX5090}), \
                 mock.patch.object(hardware, "_real_accel", side_effect=AssertionError("read the real adapters")):
             self.assertEqual(hardware.machine()["families"], ["nvidia_blackwell"])
         with mock.patch.dict(os.environ, RTX5090, clear=False):
-            os.environ.pop("BASALT_FAKE_SYSTEM_OK", None)
-            self.assertNotEqual(hardware._fake("BASALT_FAKE_GPU"), json.loads(RTX5090["BASALT_FAKE_GPU"]))
+            os.environ.pop("TADAMOO_FAKE_SYSTEM_OK", None)
+            self.assertNotEqual(hardware._fake("TADAMOO_FAKE_GPU"), json.loads(RTX5090["TADAMOO_FAKE_GPU"]))
 
 
 class Registry(unittest.TestCase):
@@ -244,12 +244,12 @@ def connect(port: int) -> http.client.HTTPConnection:
 class Http(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": self.dir.name, "BASALT_DATA": self.dir.name,
-                                                "BASALT_FAKE_SYSTEM_OK": "1", **self.fake})
+        self.env = mock.patch.dict(os.environ, {"TADAMOO_CACHE": self.dir.name, "TADAMOO_DATA": self.dir.name,
+                                                "TADAMOO_FAKE_SYSTEM_OK": "1", **self.fake})
         self.env.start()
         self.no_engines = mock.patch.object(engines, "ROOT", Path(self.dir.name))     # no engine installed on this PC leaks in
         self.no_engines.start()
-        self.path = os.path.join(self.dir.name, "basalt_config.json")
+        self.path = os.path.join(self.dir.name, "tadamoo_config.json")
         Path(self.path).write_text(json.dumps(CONFIG, indent=2), encoding="utf-8")
         self.svc = make_service()
         self.svc.settings_info = {"config": self.path, "model": None, "cli": [], "running": {"engine.max-context": 4096}}

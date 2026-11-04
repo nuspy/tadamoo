@@ -1,6 +1,6 @@
 """The Providers page's side of llmswitch: which provider each internal function uses, and the providers themselves.
 
-Everything here is about Basalt's own functions (the Chat, the agent's loop, the planner, the judges). What other programs see
+Everything here is about TaDaMoo's own functions (the Chat, the agent's loop, the planner, the judges). What other programs see
 of this server does not change: it is the loaded model. Keys are write-only: the page can send one and is told only that there
 is one. All changes come from this PC and the server's own page (the handler checks).
 """
@@ -10,11 +10,11 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from harness import council, side_uses
-from harness.llm import functions
-from harness.llm.store import Ledger, SecureRegistry, is_local, runs_here
-from harness.llmswitch import reasoning
-from harness.llmswitch.providers import TYPES
+from tadamoo import council, side_uses
+from tadamoo.llm import functions
+from tadamoo.llm.store import Ledger, SecureRegistry, is_local, runs_here
+from tadamoo.llmswitch import reasoning
+from tadamoo.llmswitch.providers import TYPES
 
 TECHNICAL_KINDS = ("lmstudio", "vllm", "llamacpp")          # the servers a second small model for the technical session can come from
 TECHNICAL_ID, TECHNICAL_NAME = "technical-%s", "Technical session: %s"

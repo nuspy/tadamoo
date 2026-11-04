@@ -42,8 +42,8 @@ The official NVFP4 file is NVIDIA's NVFP4 checkpoint
 with the dense projections stored as 6-bit Q6_K instead of 8-bit Q8_0, which takes the tensor-core dense path in
 decode. The per-tensor breakdown and its quality are on the Hugging Face card.
 
-Basalt's converter reads NVIDIA's safetensors directly (`convert.py --checkpoint`). It moves each expert's NVFP4 codes
-and scales into Basalt's blocks without changing a bit, quantizes each dense projection once from BF16, folds the "+1"
+Basalt-Plus's converter reads NVIDIA's safetensors directly (`convert.py --checkpoint`). It moves each expert's NVFP4 codes
+and scales into Basalt-Plus's blocks without changing a bit, quantizes each dense projection once from BF16, folds the "+1"
 of the norm weights into F32, puts the GDN value heads in the order the engine reads them, and writes the metadata and
 tokenizer from NVIDIA's `config.json`, tokenizer files and model card. `meta.checkpoint` records each step.
 

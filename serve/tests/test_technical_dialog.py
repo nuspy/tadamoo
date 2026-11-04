@@ -9,10 +9,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
-from harness import side, side_uses
-from harness.llm.client import RoutedClient
-from harness.llm.credentials import FileCredentials
-from harness.llm.store import Ledger, SecureRegistry
+from tadamoo import side, side_uses
+from tadamoo.llm.client import RoutedClient
+from tadamoo.llm.credentials import FileCredentials
+from tadamoo.llm.store import Ledger, SecureRegistry
 from serve import handler
 from serve.llm_api import LlmApi
 from serve.tests import test_api_plans as base
@@ -54,7 +54,7 @@ class Dialog(base.PlansApiBase):
     @classmethod
     def setUpClass(cls):
         cls.data = tempfile.TemporaryDirectory()
-        cls.env = mock.patch.dict(os.environ, {"BASALT_DATA": cls.data.name})
+        cls.env = mock.patch.dict(os.environ, {"TADAMOO_DATA": cls.data.name})
         cls.env.start()
         cls.reg_dir = Path(cls.data.name) / "registry"
         cls.reg_dir.mkdir()

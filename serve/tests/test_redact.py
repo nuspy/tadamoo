@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from harness.vault import Vault
+from tadamoo.vault import Vault
 from serve.util.redact import HIDDEN, ExportMask, clean_words, luhn
 
 

@@ -1,5 +1,5 @@
 """The folders of the Agent tab. A project is a folder the person added: the agent's conversations in it work in that folder, and the
-folder keeps a registry of its own in `.basalt/` (its name and the conversations that were held there)."""
+folder keeps a registry of its own in `.tadamoo/` (its name and the conversations that were held there)."""
 from __future__ import annotations
 
 import json
@@ -13,7 +13,7 @@ from serve.agent_runs import AgentRunner, RunError
 from serve.tasks import _write_json
 
 PROJECTS_FILE = "projects.json"
-REGISTRY_DIR = ".basalt"
+REGISTRY_DIR = ".tadamoo"
 REGISTRY_FILE = "project.json"
 # what the agent keeps in the folder for itself is not part of the project's own files
 IGNORE_LINES = ("artifacts/",)
@@ -110,4 +110,4 @@ class ProjectStore:
                     for s in sorted(sessions, key=lambda s: s.get("created", 0))]
             _write_json(registry, {"basalt_project": REGISTRY_VERSION, "name": folder.name or str(folder), "created": created, "conversations": rows})
         except OSError as exc:
-            raise RunError(f"Basalt cannot write in that folder, so it cannot keep its registry there: {exc}", "folder_readonly") from None
+            raise RunError(f"TaDaMoo cannot write in that folder, so it cannot keep its registry there: {exc}", "folder_readonly") from None

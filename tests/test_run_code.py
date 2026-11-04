@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from harness.permissions import PermissionLevel, PermissionManager
-from harness.tools import create_standard_tool_registry
-from harness.tools.execute import RUN_DIR, build_command, find_runtimes, register_run_code, run_code
-from harness.tools.registry import EffectClass
+from tadamoo.permissions import PermissionLevel, PermissionManager
+from tadamoo.tools import create_standard_tool_registry
+from tadamoo.tools.execute import RUN_DIR, build_command, find_runtimes, register_run_code, run_code
+from tadamoo.tools.registry import EffectClass
 
 RUNTIMES = find_runtimes()
 
@@ -38,7 +38,7 @@ def test_an_error_gives_the_traceback_and_the_exit_code(ws):
 
 def test_it_runs_in_isolated_mode_with_the_workspace_in_the_environment(ws, monkeypatch):
     monkeypatch.setenv("PYTHONSTARTUP", "x")
-    code = "import os, sys\nprint(sys.flags.isolated)\nprint(os.environ['BASALT_WORKSPACE'])\nprint(os.getcwd())"
+    code = "import os, sys\nprint(sys.flags.isolated)\nprint(os.environ['TADAMOO_WORKSPACE'])\nprint(os.getcwd())"
     res = run_code("python", code, ws, RUNTIMES)
     isolated, workspace, cwd = res["stdout"].split()
     assert isolated == "1"
@@ -158,6 +158,6 @@ def test_through_the_registry_and_with_the_edits_it_makes_recorded(ws):
     registry, sandbox = create_standard_tool_registry(ws)
     register_run_code(registry, ws, sandbox)
     out = registry.execute("run_code", {"language": "python",
-                                        "code": "import os\nopen(os.path.join(os.environ['BASALT_WORKSPACE'], 'made.txt'), 'w').write('hi')"})
+                                        "code": "import os\nopen(os.path.join(os.environ['TADAMOO_WORKSPACE'], 'made.txt'), 'w').write('hi')"})
     assert out["success"]
     assert [c["file"] for c in sandbox.changes] == ["made.txt"]

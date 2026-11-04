@@ -36,7 +36,7 @@
 
   async function save(values) {
     const r = await call("POST", "api/gate", values);
-    if (r.ok) { state = r.data; note = T("gt.saved"); noteBad = false; document.dispatchEvent(new CustomEvent("basalt:gate", { detail: state })); } else { note = why(r); noteBad = true; }
+    if (r.ok) { state = r.data; note = T("gt.saved"); noteBad = false; document.dispatchEvent(new CustomEvent("tadamoo:gate", { detail: state })); } else { note = why(r); noteBad = true; }
     draw();
   }
 
@@ -76,6 +76,6 @@
     const r = await call("GET", "api/gate");
     if (r.ok) { state = r.data; draw(); } else root.replaceChildren(h("p", "setnote warnnote", why(r)));
   }
-  document.addEventListener("basalt:view", e => { if (e.detail === "settings") load(); });
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "settings") load(); });
   if (document.body.dataset.view === "settings") load();
 })();

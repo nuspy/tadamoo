@@ -1,12 +1,12 @@
-"""The Target Loop (harness/target.py): the split into criteria and tasks, the passes, the judge, the stall rule, parking, stopping."""
+"""The Target Loop (tadamoo/target.py): the split into criteria and tasks, the passes, the judge, the stall rule, parking, stopping."""
 import json
 import threading
 import time
 
 import pytest
 
-from harness import target as tg
-from harness.client import BasaltError
+from tadamoo import target as tg
+from tadamoo.client import TadamooError
 from serve.tasks import TaskJournal
 
 
@@ -341,7 +341,7 @@ def test_stopping_mid_run_ends_the_target_and_puts_the_task_back(journal):
 
 def test_a_model_that_is_not_reachable_is_waited_for_and_a_stop_ends_the_wait(journal):
     cancel = threading.Event()
-    llm = FakeLLM(target_plan=[BasaltError(0, "no model")])
+    llm = FakeLLM(target_plan=[TadamooError(0, "no model")])
     target = tg.new_target("t", session="s")
     loop = tg.TargetLoop(target, FakeConversation(), llm, journal, lambda t: None, cancel=cancel, waits=(0.01,))
     thread = threading.Thread(target=loop.run)

@@ -28,7 +28,7 @@ done. The engine needs no manual and has none here.
 ## 1. What it is
 
 The harness is an agent: you tell it what you want, and it reads files, changes them, runs commands, searches the web and tells you
-what it did. It uses the model that is loaded in Basalt, so everything stays on your PC unless you choose a cloud provider for a
+what it did. It uses the model that is loaded in TaDaMoo, so everything stays on your PC unless you choose a cloud provider for a
 function. It is a separate Python process that talks to the server through its public API.
 
 Four ways to use it, all with the same abilities:
@@ -37,16 +37,16 @@ Four ways to use it, all with the same abilities:
 |---|---|
 | **Chat** tab, *With tools* | you want a conversation: ask, correct, go on tomorrow. The main way. |
 | **Agent** tab | you work on a folder of yours over several conversations, with its edits to keep or undo. |
-| `python -m harness` / `basalt-agent` | you want it in a script, with exit codes and JSON. |
-| `python -m harness acp` | you want it as the agent of an editor that speaks the Agent Client Protocol. |
+| `python -m tadamoo` / `tadamoo-agent` | you want it in a script, with exit codes and JSON. |
+| `python -m tadamoo acp` | you want it as the agent of an editor that speaks the Agent Client Protocol. |
 
 ## 2. Before you start
 
 1. **A model must be loaded.** If none is, a notice under the top bar says so and opens *Models*; load one there.
 2. **Python and the packages** are those of the repository's `.venv` (see the README, *Requirements*). The app starts the server for
    you; the agent's processes are started by the server.
-3. **Where things are kept.** In the user data folder (`%APPDATA%\BasaltPannello\`): conversations, memory (`memory\`), the audit log,
-   checkpoints, approvals, your `hooks.json`. Never in your project. The only thing the agent writes in a project is `.basalt\artifacts`.
+3. **Where things are kept.** In the user data folder (`%APPDATA%\TaDaMoo\`): conversations, memory (`memory\`), the audit log,
+   checkpoints, approvals, your `hooks.json`. Never in your project. The only thing the agent writes in a project is `.tadamoo\artifacts`.
 4. **Keep the API key private.** If the server has an `--api-key`, the pages and the agent use it; never open the server beyond
    127.0.0.1 without one.
 
@@ -183,7 +183,7 @@ you it may already have run. After that, or when the server refuses for good, th
 - **Back to here.** Each request of yours has this button (press twice). The conversation returns to just after that request and a
   copy of what came later is kept. The files are not touched: undo them from the Changes panel. Actions that stay done (a command, a
   call, a payment, a browser action) are listed first, and you must press again to go back anyway.
-- **Checkpoints.** Before an action changes files, their previous content is kept outside the project: only the files that change, from any folder, with no size limit. Files a shell command does not name are not covered. *Settings > Checkpoints* (or `/checkpoints on|soft|off|default`) chooses on, on without ever stopping the action, or off, lists them and deletes one or all. `python -m harness.rewind
+- **Checkpoints.** Before an action changes files, their previous content is kept outside the project: only the files that change, from any folder, with no size limit. Files a shell command does not name are not covered. *Settings > Checkpoints* (or `/checkpoints on|soft|off|default`) chooses on, on without ever stopping the action, or off, lists them and deletes one or all. `python -m tadamoo.rewind
   --workspace D:\proj` lists them and `--to ID` restores one; the conversations have `/rewind` and *Back to here*. A rewind takes a safety snapshot first, so it
   can be undone. It does not undo a command the agent ran, and says so.
 - **Branches.** `/branch` copies a conversation at a request; *Branches* shows the tree. *Run both and compare* sends one request down two
@@ -273,13 +273,13 @@ you the address and the number to call.
   untrusted data); `auto` picks by size. They apply to the conversations that start after you save.
 - **The wiki.** *Settings → Memories → Wiki (wikibridge)* turns on `wiki_search`, `wiki_page` and `wiki_context` in the Chat and the Agent,
   with the address of the service (default `http://127.0.0.1:8775`) and a project; a plan step that asks the wiki uses them. *Check the
-  connection* tells the address tried and, if it did not answer, why. A key, if the service asks for one, is `BASALT_WIKIBRIDGE_KEY`.
+  connection* tells the address tried and, if it did not answer, why. A key, if the service asks for one, is `TADAMOO_WIKIBRIDGE_KEY`.
 - **Cache.** The start of the prompt is kept byte-identical from turn to turn so the server reuses its cache. That is why notes and
   plan summaries come after your message, never in the system block.
 
 ## 10. Skills, plugins and MCP servers
 
-- **Where they come from.** Basalt reads, and never runs, the skills, plugins and MCP servers installed for other tools on this PC
+- **Where they come from.** TaDaMoo reads, and never runs, the skills, plugins and MCP servers installed for other tools on this PC
   (`~/.claude/skills`, the project's `.claude/skills`, plugins, `.mcp.json` and the like).
 - **What is found is usable.** There is no approval step: an entry on this PC works unless you turn it off in *Settings → Capabilities*,
   where *View text* shows what the agent reads (a skill) or runs (a server). Editing a file never withdraws anything.
@@ -315,11 +315,11 @@ you the address and the number to call.
   moment and masked in what comes back. **The vault** (Wallet) holds cards, personal data and logins encrypted; the agent writes
   `{{vault:ENTRY.FIELD}}`, and the value goes only toward the sites the entry names.
 - **The second factor** of each login is your choice: none, a code you type each time (the conversation stops and asks), or the TOTP
-  secret so Basalt makes the code itself. The last lets anyone who can use Basalt on this PC sign in; you are told once.
+  secret so TaDaMoo makes the code itself. The last lets anyone who can use TaDaMoo on this PC sign in; you are told once.
 - **Payments.** The limit is yours to set, to any amount; until you set it, every payment asks you. A **waiver** lets the agent pay by
   itself up to a cap per payment and, if you set one, a cumulative cap, until it ends (no end date unless you set one), after a dictated declaration and two dialogs with your name
   typed again; above the caps it asks again. A payment can be stopped from the Wallet at any moment, and then the card's fields are no
-  longer released. Whatever a merchant's form then charges is bounded by the card's own limit, not by Basalt.
+  longer released. Whatever a merchant's form then charges is bounded by the card's own limit, not by TaDaMoo.
 - **Phone calls** are off by default and, once on, ask you below *Automatic* (this call, this conversation or always); in *Automatic* nothing is asked. The call opens by saying an AI
   assistant is calling on your behalf. No real call has been placed in a test.
 - **What this does not protect from.** The agent runs as your own user. A program running as you can reach more than the vault can
@@ -364,7 +364,7 @@ interactions as diagrams that the page draws; *Source of the diagram* shows the 
 
 ## 12c. Phones
 
-*Settings > Phones* sets up the Basalt app for a phone. 1) **Tailscale** on this PC: the page installs it (with winget) and connects it, and shows the address this PC has on your private network. 2) **Let phones connect**:
+*Settings > Phones* sets up the TaDaMoo app for a phone. 1) **Tailscale** on this PC: the page installs it (with winget) and connects it, and shows the address this PC has on your private network. 2) **Let phones connect**:
 the server then also listens for them, by default only on the Tailscale address, never on the internet; *Listen on* changes that to every network interface (0.0.0.0) or to one IPv4 address you type, for a phone that reaches this PC on your home network without Tailscale (the link is plain HTTP, so use it only on a network you trust). 3) **A key for each phone**: give the phone a name, press *Make a key*, and scan the QR code with the app
 (or copy the key). The key stays on this PC, encrypted, so *Show code* in the list shows its QR code again (for example after reinstalling the app); the phone also keeps its settings through an update, and Android's backup restores them after an uninstall and reinstall when the phone's backup is on. To stop a phone, take its key away. On the phone, install Tailscale from the Play Store and sign in with the same account. A phone with its key can use the model, the
 conversations, any file or folder of this PC, the routines and the plans, and the rest that answers to a client with a key; what answers only to this PC itself (the wallet, the vault, the settings, the loading of models) stays on this PC, and a phone works in any folder.
@@ -387,9 +387,9 @@ limited to the folder; a sandbox for them is not there yet.
 ## 14. The command line and the editor
 
 ```powershell
-python -m harness -p "fix the failing test in calc.py" --workspace D:\work\proj --json
-basalt-agent -p "fix the failing test" --workspace D:\work\proj      # basalt-agent.cmd: from any folder
-basalt-agent acp --workspace D:\work\proj                             # for an editor that speaks ACP over stdio
+python -m tadamoo -p "fix the failing test in calc.py" --workspace D:\work\proj --json
+tadamoo-agent -p "fix the failing test" --workspace D:\work\proj      # tadamoo-agent.cmd: from any folder
+tadamoo-agent acp --workspace D:\work\proj                             # for an editor that speaks ACP over stdio
 ```
 
 Common options (all of them are in [harness.md](harness.md#running-the-agent)):
@@ -419,7 +419,7 @@ editor puts to you. Plan mode asks the editor to approve the plan, with a button
 ## 15. Hooks
 
 Hooks run on events and can block a tool call. Put them in `hooks.json` in the user data folder (or the file given with `--hooks`);
-`.basalt\hooks.json` of a project is read only with `--workspace-hooks`, because a folder under work should not name commands by itself.
+`.tadamoo\hooks.json` of a project is read only with `--workspace-hooks`, because a folder under work should not name commands by itself.
 
 ```json
 {"hooks": [
@@ -441,10 +441,10 @@ run) blocks too. A file with a mistake stops the agent from starting, with the r
   waits in *Waiting for you* while the rest of the run goes on. They are managed
   through the **Cron Jobs** tab: a list with *Turn on/off*, *Run now* and *Delete*, an editor, the latest results of each job, and a small chat at the right to
   talk a job over. The chat only proposes: *Use in the editor* fills the form, and nothing is saved until you press *Save*.
-- **Evaluation**: `python -m harness.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` runs each task k times on a fresh
+- **Evaluation**: `python -m tadamoo.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` runs each task k times on a fresh
   folder and reports pass@k, pass^k, cost and cache use (a `--k` below 5 is warned about). These are development comparisons, not headline numbers. Public benchmarks
   (BFCL, subsets of Terminal-Bench and SWE-bench Pro) are read from a folder you downloaded: `--bfcl DIR`, `--terminal-bench DIR`, `--swebench DIR`.
-- **Replay**: `python -m harness.replay trace.jsonl --mode auto` runs a recorded session again with the recorded model answers and
+- **Replay**: `python -m tadamoo.replay trace.jsonl --mode auto` runs a recorded session again with the recorded model answers and
   reports the first place where the tool calls differ. It tests the harness, not the model. The same replay, a masked JSONL export of
   a conversation and the check of the audit ledger are in the LOGS page, section *Session traces*.
 
@@ -495,7 +495,7 @@ its time unless you set a *time limit* in seconds in the editor. Read the script
 | "Nobody can confirm in this run" | a run in `plan`, `read_only` or `default` mode, with no one to ask, met something that needs a question | use `auto` (the headless default), `--interactive`, or an `--allow` rule |
 | A command still asks although a rule allows it | a statement of it is not covered by a rule, or it is built at run time (`$(...)`) | allow each program it uses |
 | A tool was stopped after one hour | the default time limit | `tool_timeout_s` in `limits.json`, or `--tool-timeout NAME=SECONDS` |
-| The search says it needs a check | DuckDuckGo limits automatic searches | wait, set another engine, or `BASALT_WEB_SEARCH=off` |
+| The search says it needs a check | DuckDuckGo limits automatic searches | wait, set another engine, or `TADAMOO_WEB_SEARCH=off` |
 | A slash command stays in the box | the name is unknown | `/help`; start with a space to send it as text |
 | A page was refused | it is on this PC or your network | allow it in the browser settings, if you mean to |
 | Every payment asks you | the limit is 0 until you set it | the Wallet view |
@@ -506,7 +506,7 @@ its time unless you set a *time limit* in seconds in the editor. Read the script
 ## 19. What it does not do
 
 - It does not isolate files and network for commands: *Automatic* belongs in a folder you can lose.
-- Basalt is an A2A **client** only; it does not receive tasks from other agents. The ACP agent has no `terminal/*` and was not tried in a real editor; it does have `session/load`, `authenticate` and `fs/*`.
+- TaDaMoo is an A2A **client** only; it does not receive tasks from other agents. The ACP agent has no `terminal/*` and was not tried in a real editor; it does have `session/load`, `authenticate` and `fs/*`.
 - It does not read bank accounts through an aggregator, and Stripe and Google Pay checkouts were not tried on live services.
 - Audio and video need the callAPIcall service; without it the file is kept and the agent says so.
 - Nothing here measures which context strategy is best; that needs the real model.

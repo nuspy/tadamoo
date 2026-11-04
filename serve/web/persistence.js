@@ -27,7 +27,7 @@
     } catch (e) { status(T("wud.fail")); }
     paint();
   };
-  document.addEventListener("basalt:lang", paint);
+  document.addEventListener("tadamoo:lang", paint);
   paint();
   load();
 })();

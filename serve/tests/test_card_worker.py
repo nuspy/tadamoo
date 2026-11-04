@@ -7,12 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from harness import side_uses
-from harness.past import PastIndex
+from tadamoo import side_uses
+from tadamoo.past import PastIndex
 from serve.agent_sessions import SessionManager
 from serve.card_worker import CardWorker
 from serve.memories_api import MemoriesApi
-from harness.personal_memory import PersonalMemory, PersonalMemoryError
+from tadamoo.personal_memory import PersonalMemory, PersonalMemoryError
 
 
 def convo(*lines):

@@ -65,7 +65,7 @@ class ThePlan(unittest.TestCase):
 @unittest.skipUnless(NODE, "node is needed to run the page's rule")
 class ThePageRule(unittest.TestCase):
     def run_js(self, body: str):
-        script = (f"require({json.dumps(str(WEB / 'relaxed.js'))});const R=globalThis.BasaltRelaxed;" + body)
+        script = (f"require({json.dumps(str(WEB / 'relaxed.js'))});const R=globalThis.TadamooRelaxed;" + body)
         out = subprocess.run([NODE, "-e", script], capture_output=True, text=True, timeout=30)
         self.assertEqual(out.returncode, 0, out.stderr)
         return json.loads(out.stdout)
@@ -120,7 +120,7 @@ class ThePage(unittest.TestCase):
         self.assertLess(html.index("web/relaxed.js"), html.index("web/loader.js"))
         js = (WEB / "loader.js").read_text(encoding="utf-8")
         self.assertIn('name: "engine.relaxed-drafting", kind: "choice"', js)
-        for part in ("rxChanged", "rxResync", "BasaltRelaxed.enter", "BasaltRelaxed.leave", 'id="rx-note"'):
+        for part in ("rxChanged", "rxResync", "TadamooRelaxed.enter", "TadamooRelaxed.leave", 'id="rx-note"'):
             self.assertIn(part, js, part)
         for name in ("loader.js", "relaxed.js", "wizard.js", "i18n.js"):
             self.assertNotIn("spec-min-p", (WEB / name).read_text(encoding="utf-8"), name)

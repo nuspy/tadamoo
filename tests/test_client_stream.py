@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.client import BasaltClient, BasaltError
+from tadamoo.client import TadamooClient, TadamooError
 from test_e2e_mock_server import answer, start_server, tool_call  # noqa: F401  (fixtures)
 
 MESSAGES = [{"role": "user", "content": "ciao"}]
@@ -14,7 +14,7 @@ MESSAGES = [{"role": "user", "content": "ciao"}]
 
 def test_a_streamed_answer_is_the_same_whole_answer_and_the_pieces_add_up(start_server):  # noqa: F811
     url = start_server(["pensiero breve</think>\n\nCiao, come stai? Tutto bene qui da me.", "pensiero breve</think>\n\nCiao, come stai? Tutto bene qui da me."])
-    client = BasaltClient(base_url=url)
+    client = TadamooClient(base_url=url)
     pieces = []
     streamed = client.chat_completion(MESSAGES, on_delta=lambda kind, text: pieces.append((kind, text)))
     plain = client.chat_completion(MESSAGES)
@@ -27,7 +27,7 @@ def test_a_streamed_answer_is_the_same_whole_answer_and_the_pieces_add_up(start_
 
 def test_a_streamed_tool_call_arrives_whole(start_server):  # noqa: F811
     url = start_server([tool_call("write_file", path="a.txt", content="ciao"), tool_call("write_file", path="a.txt", content="ciao")])
-    client = BasaltClient(base_url=url)
+    client = TadamooClient(base_url=url)
     streamed = client.chat_completion(MESSAGES, tools=[{"type": "function", "function": {"name": "write_file", "description": "w", "parameters": {
         "type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}}}}], on_delta=lambda k, t: None)
     plain = client.chat_completion(MESSAGES, tools=[{"type": "function", "function": {"name": "write_file", "description": "w", "parameters": {
@@ -44,8 +44,8 @@ def test_a_stream_that_stops_half_way_is_an_error_to_retry_not_an_answer():
             yield b'data: {"choices":[{"delta":{"content":"Ciao"}}]}\n'
             yield b"\n"
 
-    from harness.client import _collect_stream
-    with pytest.raises(BasaltError) as err:
+    from tadamoo.client import _collect_stream
+    with pytest.raises(TadamooError) as err:
         _collect_stream(Cut(), lambda k, t: None)
     assert err.value.status == 0
 
@@ -55,6 +55,6 @@ def test_an_error_inside_the_stream_is_an_error():
         def __iter__(self):
             yield b'data: {"error":{"message":"the engine stopped"}}\n'
 
-    from harness.client import _collect_stream
-    with pytest.raises(BasaltError, match="the engine stopped"):
+    from tadamoo.client import _collect_stream
+    with pytest.raises(TadamooError, match="the engine stopped"):
         _collect_stream(Bad(), lambda k, t: None)

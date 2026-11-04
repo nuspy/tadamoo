@@ -3,7 +3,7 @@ import re
 import unittest
 from pathlib import Path
 
-from harness.mcp_elicit import ELICIT_PREFIX
+from tadamoo.mcp_elicit import ELICIT_PREFIX
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 JS = (WEB / "agentchat.js").read_text(encoding="utf-8")

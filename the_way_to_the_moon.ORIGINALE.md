@@ -3,7 +3,7 @@
 
 > **Documento di Progettazione Esecutiva**  
 > **Target di Realizzazione**: Claude Code  
-> **Progetto**: Basalt (sm_120 Blackwell MoE Engine + Harness)  
+> **Progetto**: TaDaMoo (sm_120 Blackwell MoE Engine + Harness)  
 > **Stato Base**: Server HTTP/Jinja + WebView2 Desktop GUI  
 > **Obiettivo**: Autonomous Agentic Harness, Infinite Canvas, Multi-Channel Gateway & Personal Assistant  
 
@@ -13,7 +13,7 @@
 
 1. [Scopo dello Sviluppo](#1-scopo-dello-sviluppo)
 2. [Studio Comparativo dell'Offerta Esistente (I 5 Harness di Riferimento + Coding Tools)](#2-studio-comparativo-dellofferta-esistente)
-3. [Audit e Integrazione dello Stato Attuale di Basalt](#3-audit-e-integrazione-dello-stato-attuale-di-basalt)
+3. [Audit e Integrazione dello Stato Attuale di TaDaMoo](#3-audit-e-integrazione-dello-stato-attuale-di-basalt)
 4. [Specifiche Funzionali e Soluzioni Tecniche di Dettaglio](#4-specifiche-funzionali-e-soluzioni-tecniche-di-dettaglio)
    - [4.1 Context Compactor & Token Optimization (TokenJuice)](#41-context-compactor--token-optimization-tokenjuice)
    - [4.2 Compatibilità Modelli & Multi-Model Arena](#42-compatibilità-modelli--multi-model-arena)
@@ -35,7 +35,7 @@
    - [4.18 Architettura Ibrida RAG & CAG (Cache-Augmented Generation)](#418-architettura-ibrida-rag--cag-cache-augmented-generation)
    - [4.19 Motore di Esecuzione Codice Multi-Linguaggio (Code Execution Sandbox)](#419-motore-di-esecuzione-codice-multi-linguaggio-code-execution-sandbox)
    - [4.20 Protocollo ACP (Agent Client Protocol & Agent Communication Protocol)](#420-protocollo-acp-agent-client-protocol--agent-communication-protocol)
-5. [La Nostra Soluzione Ideale: "Basalt Omniverse" (Sintesi dei Concetti Migliori e Innovazioni Proprietarie)](#5-la-nostra-soluzione-ideale-basalt-omniverse)
+5. [La Nostra Soluzione Ideale: "TaDaMoo Omniverse" (Sintesi dei Concetti Migliori e Innovazioni Proprietarie)](#5-la-nostra-soluzione-ideale-basalt-omniverse)
 6. [Strategia di Migrazione della Licenza (da MIT/BSD-3 a Commerciale Source-Available)](#6-strategia-di-migrazione-della-licenza)
 7. [Architettura Target del Sistema](#7-architettura-target-del-sistema)
 8. [Roadmap Esecutiva di Implementazione per Claude Code](#8-roadmap-esecutiva-di-implementazione-per-claude-code)
@@ -44,10 +44,10 @@
 
 ## 1. Scopo dello Sviluppo
 
-Il progetto **Basalt** è nato come motore di inferenza C++/CUDA ultra-ottimizzato per architetture NVIDIA Blackwell (`sm_120`), specificamente tarato sul modello Mixture-of-Experts con componenti ibride SSM/Mamba `Qwen3.8-Flash-Next`, corredato da un server locale e da un'interfaccia grafica desktop essenziale (`Basalt-Win-GUI`).
+Il progetto **Basalt-Plus** è nato come motore di inferenza C++/CUDA ultra-ottimizzato per architetture NVIDIA Blackwell (`sm_120`), specificamente tarato sul modello Mixture-of-Experts con componenti ibride SSM/Mamba `Qwen3.8-Flash-Next`, corredato da un server locale e da un'interfaccia grafica desktop essenziale (`Basalt-Win-GUI`).
 
 L'obiettivo di **"The Way to the Moon"** è compiere un salto generazionale:
-> **Trasformare Basalt da un semplice runner/viewer passivo locale in un Harness Completo, Autonomo e Omnicomprensivo**, unificando in un'unica applicazione desktop/server le capacità di inferenza locale rapida, un'infrastruttura agentica avanzata (ReAct loop, gestione autonoma dei tool, sandbox di sicurezza personalizzabile), una memoria a lungo termine persistente, un'interfaccia a tela infinita (Infinite Canvas), un assistente personale proattivo e una piattaforma di coding di classe mondiale.
+> **Trasformare TaDaMoo da un semplice runner/viewer passivo locale in un Harness Completo, Autonomo e Omnicomprensivo**, unificando in un'unica applicazione desktop/server le capacità di inferenza locale rapida, un'infrastruttura agentica avanzata (ReAct loop, gestione autonoma dei tool, sandbox di sicurezza personalizzabile), una memoria a lungo termine persistente, un'interfaccia a tela infinita (Infinite Canvas), un assistente personale proattivo e una piattaforma di coding di classe mondiale.
 
 L'implementazione del codice è affidata a **Claude Code**, mentre il presente documento funge da specifica tecnica, guida architetturale e contratto operativo per ogni modulo.
 
@@ -61,7 +61,7 @@ I moderni framework AI si dividono in categorie frammentate. Nessun software esi
 graph TD
     subgraph Inference_Workbenches ["Inference & Model Workbenches"]
         LM["LM Studio / Ollama"]
-        BAS["Basalt Core (sm_120 Engine)"]
+        BAS["Basalt-Plus Core (sm_120 Engine)"]
     end
 
     subgraph Autonomous_Harnesses ["Agentic Harnesses & Execution Loops"]
@@ -115,9 +115,9 @@ graph TD
 
 ---
 
-## 3. Audit e Integrazione dello Stato Attuale di Basalt
+## 3. Audit e Integrazione dello Stato Attuale di TaDaMoo
 
-Prima di definire i nuovi componenti, è stato condotto un audit dei sorgenti attuali di Basalt:
+Prima di definire i nuovi componenti, è stato condotto un audit dei sorgenti attuali di TaDaMoo:
 
 1. **Compattazione Contesto Esistente (`serve/chatctx.py`)**:
    - Il server implementa già `fit(svc, req)` con tre policy (`stop`, `rolling`, `compact`).
@@ -126,7 +126,7 @@ Prima di definire i nuovi componenti, è stato condotto un audit dei sorgenti at
    - *Gap riscontrato*: Non esiste un sistema per proteggere blocchi dinamici multipli (es. credenziali, profilo utente, istruzioni di repo iniettate dinamicamente). Manca il pre-filtraggio degli output grezzi dei tool prima del salvataggio nel buffer di contesto.
 
 2. **Calcolatore VRAM & Hardware Engine (`serve/profiles.py`, `serve/loader.py`, `serve/hardware.py`)**:
-   - Basalt dispone già di un calcolatore avanzatissimo che predice non solo la memoria statica dei pesi, ma l'occupazione della KV-Cache, la banda di memoria, il throughput stimato (tok/s) e applica margini di sicurezza per prevenire Out-Of-Memory lasciando spazio configurabile per le altre app del sistema operativo.
+   - TaDaMoo dispone già di un calcolatore avanzatissimo che predice non solo la memoria statica dei pesi, ma l'occupazione della KV-Cache, la banda di memoria, il throughput stimato (tok/s) e applica margini di sicurezza per prevenire Out-Of-Memory lasciando spazio configurabile per le altre app del sistema operativo.
    - *Integrazione*: Questo motore deve diventare una fonte telemetrica accessibile all'agente in fase di pianificazione.
 
 3. **Preset Manager & Wizard (`serve/wizard.js`, `serve/settings.py`)**:
@@ -174,7 +174,7 @@ I kernel in `src/kernels/` sfruttano istruzioni native Blackwell (`sm_120`), qua
 #### Implementazione dell'Arena Side-by-Side
 La GUI offrirà una modalità **Arena / Benchmark** sdoppiata:
 1. **Arena Locale (In-Engine)**: Permette di eseguire lo stesso prompt o suite di test confrontando due configurazioni dello stesso modello (es. Q8_0 di riferimento vs IQ4 quantizzato; MTP Speculative decoding abilitato vs disabilitato).
-2. **Arena Ibrida (Local vs Cloud Gateway)**: Tramite adapter leggeri OpenAI/Anthropic/Ollama in `serve/harness/arena_bridge.py`, la GUI può inviare il prompt in parallelo a Basalt (Blackwell locale) e a un'API esterna (es. Claude 3.5 Sonnet, GPT-4o, DeepSeek-V3), visualizzando side-by-side tempo di primo token (TTFT), velocità di generazione (tok/s), utilizzo VRAM e qualità della risposta.
+2. **Arena Ibrida (Local vs Cloud Gateway)**: Tramite adapter leggeri OpenAI/Anthropic/Ollama in `serve/harness/arena_bridge.py`, la GUI può inviare il prompt in parallelo a TaDaMoo (Blackwell locale) e a un'API esterna (es. Claude 3.5 Sonnet, GPT-4o, DeepSeek-V3), visualizzando side-by-side tempo di primo token (TTFT), velocità di generazione (tok/s), utilizzo VRAM e qualità della risposta.
 
 ---
 
@@ -224,7 +224,7 @@ Per consentire all'utente di continuare la sessione avviata su PC direttamente d
          │
          │ (Tunnel Sicuro: Tailscale / Cloudflare Zero Trust / mTLS WebSocket)
          ▼
-[Basalt Remote Gateway (serve/gateway/daemon.py)]
+[TaDaMoo Remote Gateway (serve/gateway/daemon.py)]
          ├──> Controllo Sessione & Canvas (Stato sincronizzato real-time)
          ├──> Terminale PTY Interattivo (Shell Windows/Linux su WebSocket)
          ├──> Screen Stream & Mouse/Keyboard Virtuale (Desktop Duplication API)
@@ -232,7 +232,7 @@ Per consentire all'utente di continuare la sessione avviata su PC direttamente d
 ```
 
 - **Sicurezza**: Autenticazione a chiave asimmetrica (Ed25519) + Token temporanei con scadenza automatica; traffico cifrato end-to-end. Nessuna porta esposta su internet senza credenziali e certificato client.
-- **Session Continuity**: Lo stato del workflow non risiede nel browser locale, ma è memorizzato nel demone di Basalt. Chiudendo la finestra su PC e aprendo l'app da mobile, il visualizzatore si riaggancia istantaneamente allo stesso step di esecuzione.
+- **Session Continuity**: Lo stato del workflow non risiede nel browser locale, ma è memorizzato nel demone di TaDaMoo. Chiudendo la finestra su PC e aprendo l'app da mobile, il visualizzatore si riaggancia istantaneamente allo stesso step di esecuzione.
 
 ---
 
@@ -240,7 +240,7 @@ Per consentire all'utente di continuare la sessione avviata su PC direttamente d
 
 #### Elevazione UAC all'Avvio
 - Nel manifest di Windows (`tools/windows/basalt.manifest`) o nel bootstrapper `Program.cs`:
-  - Flag configurabile nel file di configurazione `basalt_config.json`: `"run_as_admin": true`.
+  - Flag configurabile nel file di configurazione `tadamoo_config.json`: `"run_as_admin": true`.
   - All'avvio, l'eseguibile verifica lo stato di integrità del token di Windows:
     ```csharp
     var identity = WindowsIdentity.GetCurrent();
@@ -288,7 +288,7 @@ classDiagram
     PlatformServiceManager <|-- LinuxSystemdServiceManager
 ```
 
-- **Windows**: Automatizza l'interazione con `nssm.exe` collocato in `tools/windows/`, configurando `AppDirectory`, redirect di stdout/stderr su `logs/basalt-service.log` e policy di riavvio in caso di crash.
+- **Windows**: Automatizza l'interazione con `nssm.exe` collocato in `tools/windows/`, configurando `AppDirectory`, redirect di stdout/stderr su `logs/tadamoo-service.log` e policy di riavvio in caso di crash.
 - **Linux**: Genera dinamicamente il file `/etc/systemd/system/basalt.service` con direttive `Restart=always`, `After=network.target` e comandi `systemctl`.
 - **UI nella GUI**: Nel tab *Settings*, un pannello unificato consente con un click di installare, avviare o rimuovere il servizio di sistema, visualizzandone lo stato (Active/Stopped/Failed).
 
@@ -376,7 +376,7 @@ Dall'analisi comparativa emergono tre pattern distinti di collaborazione multi-a
 - **OpenClaw**: Canale orizzontale a stanze (Agenti come colleghi in chat che si menzionano a vicenda).
 - **Meta Muse**: Dialettica strutturata (Tesi -> Antitesi -> Pragmatismo -> Sintesi).
 
-#### Il "Basalt Council Mode" Unificato
+#### Il "TaDaMoo Council Mode" Unificato
 L'harness implementa una sala di consiglio virtuale configurabile:
 
 ```mermaid
@@ -407,7 +407,7 @@ L'harness include una suite di visualizzazione completa integrata nell'interfacc
 3. **Visualizzatore Multimodale Esteso**:
    - Galleria anteprima per immagini scaricate dal web o presenti sul file system locale.
    - Screenshot automatici catturati dal browser web o dallo schermo del desktop durante le automazioni.
-   - Supporto nativo alle immagini nel prompt per il modello di visione di Basalt (`src/vision/`).
+   - Supporto nativo alle immagini nel prompt per il modello di visione di Basalt-Plus (`src/vision/`).
 
 ---
 
@@ -427,7 +427,7 @@ Questa funzionalità consente di intervenire dinamicamente sui rami di esecuzion
 
 ### 4.13 High-Level Coding Platform & Memoria di Progetto
 
-Per trasformare Basalt in una piattaforma di sviluppo professionale comparabile a Claude Code, Codex e Antigravity:
+Per trasformare TaDaMoo in una piattaforma di sviluppo professionale comparabile a Claude Code, Codex e Antigravity:
 1. **File di Istruzione e Memoria Dedicati**:
    - `AGENT.md`: Definisce le regole di ingaggio dell'agente, gli standard di formattazione, le convenzioni dei commit e le policy di sicurezza del repository.
    - `BASALT.md` (o nome custom di progetto): Documento vivente dell'architettura del software, mappa dei moduli, comandi di build, test di parità e changelog.
@@ -478,8 +478,8 @@ Sul sistema locale è già presente e funzionante il progetto **`C:\Projects\wik
   - *Importatore Universale*: Connettori già pronti per scaricare e strutturare contenuti da web, MediaWiki, Confluence, Notion, PDF, DOCX, XLSX, PPTX e HTML.
   - *Visualizzatore di Grafo*: File interattivo `graph.html` con relazioni concettuali bidirezionali.
   - *Server HTTP e Skill Agente*: Server su porta `8775` e script di skill già compatibile con agenti autonomi.
-- **Strategia di Integrazione in Basalt**:
-  Invece di riscrivere un motore RAG da zero, Basalt Harness importerà il modulo `wikibridge` o interagirà direttamente con la sua API locale su porta 8775. Ogni volta che l'utente o l'agente crea o seleziona un progetto in Basalt, l'harness carica il contesto, l'indice FTS5 e il grafo della corrispondente wiki di progetto.
+- **Strategia di Integrazione in TaDaMoo**:
+  Invece di riscrivere un motore RAG da zero, TaDaMoo Harness importerà il modulo `wikibridge` o interagirà direttamente con la sua API locale su porta 8775. Ogni volta che l'utente o l'agente crea o seleziona un progetto in TaDaMoo, l'harness carica il contesto, l'indice FTS5 e il grafo della corrispondente wiki di progetto.
 
 ---
 
@@ -501,14 +501,14 @@ flowchart TD
     Decomp --> SkillRoute["4. Two-Tier Skill Routing (Solo Skill Pertinenti)"]
     SkillRoute --> MemoryInj["5. Iniezione Memoria Mirata da Wikibridge"]
     MemoryInj --> TokenComp["6. TokenJuice Compression & Pinned Prompt Assembly"]
-    TokenComp --> Engine["7. Invio all'Engine Basalt C++/CUDA (sm_120)"]
+    TokenComp --> Engine["7. Invio all'Engine Basalt-Plus C++/CUDA (sm_120)"]
 ```
 
 ---
 
 ### 4.18 Architettura Ibrida RAG & CAG (Cache-Augmented Generation)
 
-In Basalt Omniverse la conoscenza esterna e documentale non si limita al tradizionale RAG basato su chunking vettoriale (che frammenta i testi e perde relazioni semantiche globali). Sfruttando la velocità del motore Blackwell (`sm_120`) e le ampie finestre di contesto native, l'harness adotta un **motore ibrido RAG + CAG**:
+In TaDaMoo Omniverse la conoscenza esterna e documentale non si limita al tradizionale RAG basato su chunking vettoriale (che frammenta i testi e perde relazioni semantiche globali). Sfruttando la velocità del motore Blackwell (`sm_120`) e le ampie finestre di contesto native, l'harness adotta un **motore ibrido RAG + CAG**:
 
 ```
                          [DOCUMENTAZIONE / KNOWLEDGE BASE]
@@ -541,11 +541,11 @@ In Basalt Omniverse la conoscenza esterna e documentale non si limita al tradizi
 
 Per operare come un vero assistente autonomo di alto livello, l'agente deve essere capace di **scrivere, eseguire, testare e correggere codice in tempo reale** per risolvere calcoli, analizzare dataset, manipolare file ed eseguire verifiche di compilazione.
 
-Ispirandoci alle migliori estensioni di **LM Studio** (come il plugin `lmstudio/js-code-sandbox` basato su **Deno** e `Maestro` di Beledarian che supporta **Python e terminale**), Basalt Omniverse include un sottosistema nativo di esecuzione:
+Ispirandoci alle migliori estensioni di **LM Studio** (come il plugin `lmstudio/js-code-sandbox` basato su **Deno** e `Maestro` di Beledarian che supporta **Python e terminale**), TaDaMoo Omniverse include un sottosistema nativo di esecuzione:
 
 ```mermaid
 flowchart TD
-    Agent["Basalt Agent Loop"] --> Detect{"L'agente emette blocco di codice o tool?"}
+    Agent["TaDaMoo Agent Loop"] --> Detect{"L'agente emette blocco di codice o tool?"}
     Detect -- Python Code --> PySandbox["Python 3.12+ REPL Sandbox\n(Numpy, Pandas, Matplotlib)"]
     Detect -- JS/TS Code --> DenoSandbox["Deno Runtime Sandbox\n(Isolamento V8, Zero Side-Effects)"]
     Detect -- Shell/Terminal --> ShellRunner["Native Shell (PowerShell / Bash)\n(Sotto Policy di Sicurezza UAC)"]
@@ -575,7 +575,7 @@ flowchart TD
 
 ### 4.20 Protocollo ACP (Agent Client Protocol & Agent Communication Protocol)
 
-Per integrarsi come cittadino di prima classe nell'ecosistema degli IDE moderni e dell'orchestrazione multi-agente, Basalt Omniverse adotta il supporto nativo a **ACP (Agent Client Protocol)**, lo standard aperto co-sviluppato da **Zed Industries** e **JetBrains** (con supporto in IntelliJ, PyCharm, WebStorm, Neovim ed Emacs), affiancato dalle specifiche di interoperabilità Agent-to-Agent (A2A).
+Per integrarsi come cittadino di prima classe nell'ecosistema degli IDE moderni e dell'orchestrazione multi-agente, TaDaMoo Omniverse adotta il supporto nativo a **ACP (Agent Client Protocol)**, lo standard aperto co-sviluppato da **Zed Industries** e **JetBrains** (con supporto in IntelliJ, PyCharm, WebStorm, Neovim ed Emacs), affiancato dalle specifiche di interoperabilità Agent-to-Agent (A2A).
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
@@ -587,12 +587,12 @@ Per integrarsi come cittadino di prima classe nell'ecosistema degli IDE moderni 
 ```
 
 #### Meccanismi Operativi:
-1. **Basalt come ACP Server (Backend di Intelligenza per IDE Esterni)**:
-   - Basalt espone un endpoint ACP standard su JSON-RPC 2.0 (via `stdio` o `WebSocket`).
-   - Gli sviluppatori possono programmare all'interno di **Zed, JetBrains (IntelliJ, CLion, PyCharm), VS Code o Neovim**, utilizzando Basalt locale (su Blackwell `sm_120`) come motore di coding agent autonomo.
+1. **TaDaMoo come ACP Server (Backend di Intelligenza per IDE Esterni)**:
+   - TaDaMoo espone un endpoint ACP standard su JSON-RPC 2.0 (via `stdio` o `WebSocket`).
+   - Gli sviluppatori possono programmare all'interno di **Zed, JetBrains (IntelliJ, CLion, PyCharm), VS Code o Neovim**, utilizzando TaDaMoo locale (su Blackwell `sm_120`) come motore di coding agent autonomo.
    - Gestione standardizzata dei cicli: `initialize`, `session/new`, `session/prompt`, streaming di thinking blocks, notifiche di progresso e applicazione di modifiche al codice tramite `file/edit` gestite direttamente dall'editor.
-2. **Basalt come ACP Client (Orchestratore di Agenti Esterni)**:
-   - L'interfaccia a tela (Infinite Canvas) di Basalt può a sua volta agire da client ACP, pilotando agenti esterni conformi (es. Claude Code, Goose, OpenHands, Gemini CLI) all'interno dei nodi del canvas.
+2. **TaDaMoo come ACP Client (Orchestratore di Agenti Esterni)**:
+   - L'interfaccia a tela (Infinite Canvas) di TaDaMoo può a sua volta agire da client ACP, pilotando agenti esterni conformi (es. Claude Code, Goose, OpenHands, Gemini CLI) all'interno dei nodi del canvas.
 3. **Controllo Sicurezza tramite `session/request_permission`**:
    - Qualsiasi azione sensibile (scrittura su file critici, esecuzione di comandi da terminale) passa attraverso l'handshake di permessi definito da ACP, integrandosi perfettamente con il nostro Wizard di Sandboxing a 3 livelli.
 4. **Agent-to-Agent Communication (A2A)**:
@@ -600,15 +600,15 @@ Per integrarsi come cittadino di prima classe nell'ecosistema degli IDE moderni 
 
 ---
 
-## 5. La Nostra Soluzione Ideale: "Basalt Omniverse" (Sintesi dei Concetti Migliori e Innovazioni Proprietarie)
+## 5. La Nostra Soluzione Ideale: "TaDaMoo Omniverse" (Sintesi dei Concetti Migliori e Innovazioni Proprietarie)
 
 La nostra soluzione non si limita a copiare le feature dei singoli progetti, ma ne estrae i principi primi, elimina le loro debolezze e introduce **innovazioni proprietarie uniche**, sfruttando al massimo il motore C++/CUDA su architettura Blackwell (`sm_120`).
 
-Chiamiamo concettualmente questa piattaforma **"Basalt Omniverse"** (o **Basalt OS / Moon Harness**).
+Chiamiamo concettualmente questa piattaforma **"TaDaMoo Omniverse"** (o **TaDaMoo OS / Moon Harness**).
 
 ### 5.1 La Mappa dei Concetti Assorbiti + Le Nostre Innovazioni
 
-| Progetto di Riferimento | Concetto Chiave Adottato | La Nostra Evoluzione per Basalt |
+| Progetto di Riferimento | Concetto Chiave Adottato | La Nostra Evoluzione per TaDaMoo |
 |---|---|---|
 | **LM Studio** | Telemetria, calcolatore VRAM e preset hub | **Hardware-Aware Orchestrator**: L'agente legge in tempo reale banda, tok/s ed headroom VRAM per dimensionare il contesto ed evitare OOM. |
 | **Hermes Agent** (Nous) | Skill modulari Markdown e closed-loop self-learning | **Cristallizzazione in Codice Deterministico**: I task ripetitivi vengono trasformati in script Python a costo token zero, con proposta proattiva all'utente. |
@@ -625,10 +625,10 @@ Chiamiamo concettualmente questa piattaforma **"Basalt Omniverse"** (o **Basalt 
 
 ---
 
-### 5.2 I 7 Pilastri Fondamentali di Basalt Omniverse
+### 5.2 I 7 Pilastri Fondamentali di TaDaMoo Omniverse
 
 #### 1. Hardware-Aware Inference Core (Fuso con l'Engine Blackwell sm_120)
-A differenza di OpenClaw, Roo Code o Goose, che sono semplici client esterni interfacciati ad API generiche, Basalt Omniverse **fonde l'harness direttamente con il motore C++/CUDA sm_120**:
+A differenza di OpenClaw, Roo Code o Goose, che sono semplici client esterni interfacciati ad API generiche, TaDaMoo Omniverse **fonde l'harness direttamente con il motore C++/CUDA sm_120**:
 - **Prefix-Cache Alignment Matematico**: I primi tre layer del prompt (Identità, Regole `AGENT.md`, Schemi tool di base) rimangono rigorosamente invariati tra una chiamata e l'altra. Il motore MoE su Blackwell non ricalcola mai il prefill di questi blocchi: l'avvio della risposta è istantaneo (Time-To-First-Token < 15ms).
 - **Consapevolezza dell'Headroom Hardware**: L'orchestratore consulta in tempo reale la telemetria di `profiles.py` e `wizard.js`: se la KV Cache supera la soglia di sicurezza o la memoria di sistema scarseggia, attiva tempestivamente la compattazione o riduce la profondità speculativa.
 
@@ -669,11 +669,11 @@ Nessun prompt dell'utente viene inviato direttamente al modello senza un'analisi
 #### 8. Controllo Remoto Completo del SO e Gestione Servizi
 - **Pieno Controllo da Mobile**: PWA con terminale PTY interattivo e streaming desktop WebRTC con emulazione mouse e tastiera.
 - **Avvio con Elevazione UAC**: Bootstrapper C# con richiesta privilegi di amministratore all'avvio (`runas`).
-- **Gestore Servizi Unificato**: Modulo bivalente per gestire Basalt come servizio di sistema permanente tramite `nssm.exe` (Windows) o `systemd` (Linux).
+- **Gestore Servizi Unificato**: Modulo bivalente per gestire TaDaMoo come servizio di sistema permanente tramite `nssm.exe` (Windows) o `systemd` (Linux).
 
 ---
 
-### 5.3 Schema Architetturale di Basalt Omniverse
+### 5.3 Schema Architetturale di TaDaMoo Omniverse
 
 ```mermaid
 flowchart TD
@@ -684,7 +684,7 @@ flowchart TD
         GATE["Omni-Channel Bots (Telegram / Discord)"]
     end
 
-    subgraph Orchestration_Tier ["Basalt Advanced Harness (Python / FastAPI)"]
+    subgraph Orchestration_Tier ["TaDaMoo Advanced Harness (Python / FastAPI)"]
         PRE["Pre-Flight Pipeline (Ambiguity, RepoMap, Budget)"]
         REACT["ReAct Loop & Epistemic Reflection Guard"]
         COUNCIL["Dialectic Multi-Persona Council"]
@@ -703,7 +703,7 @@ flowchart TD
 
     subgraph Hardware_Core ["Low-Level Inference Core (C++/CUDA sm_120)"]
         ALIGN["Prefix-Cache Aligned Prompt Generator"]
-        ENGINE["Basalt Blackwell Engine (MoE + SSM Mamba + PLE)"]
+        ENGINE["Basalt-Plus Blackwell Engine (MoE + SSM Mamba + PLE)"]
         VRAM["Hardware & VRAM Real-Time Telemetry"]
     end
 
@@ -731,7 +731,7 @@ Poiché il codice MIT/BSD-3 non impone il "contagio" copyleft, è legalmente pos
 [Nuovi Moduli Harness (serve/harness/, web/, desktop/)] ──> Licenziati sotto Nuova Licenza Proprietaria
                                                                      │
                                                                      ▼
-[DISTRIBUZIONE COMPLESSIVA DEL SOFTWARE] ───────────────> "Basalt Commercial / Source-Available License"
+[DISTRIBUZIONE COMPLESSIVA DEL SOFTWARE] ───────────────> "TaDaMoo Commercial / Source-Available License"
 ```
 
 #### Termini della Nuova Licenza di Progetto:
@@ -838,7 +838,7 @@ gantt
 ### Dettaglio dei Task di Lavoro:
 
 - [ ] **Fase 1: Fondamenta Agentiche, Gestione Contesto, Code Execution & ACP**
-  - Implementare `serve/harness/agent_loop.py` con intercettazione asincrona dei tag `<tool_call>` di Qwen.
+  - Implementare `serve/tadamoo/agent_loop.py` con intercettazione asincrona dei tag `<tool_call>` di Qwen.
   - Creare `serve/harness/skill_router.py` con pre-pass speculativo per caricare solo le skill necessarie.
   - Implementare `serve/harness/token_juice.py` con messaggi `pinned` e compattazione strutturale degli output dei tool.
   - Sviluppare `serve/harness/code_sandbox.py` con Python in-process REPL, Deno sandbox e loop di auto-riparazione su errori sintattici/runtime.
@@ -850,7 +850,7 @@ gantt
   - Creare `serve/harness/user_profile.py` e `credential_vault.py` con cifratura AES-256 e generatore TOTP RFC 6238.
 
 - [ ] **Fase 3: Sicurezza, Permessi e Servizi di Sistema**
-  - Costruire il wizard di sicurezza a 3 livelli in `serve/harness/sandbox.py`.
+  - Costruire il wizard di sicurezza a 3 livelli in `serve/tadamoo/sandbox.py`.
   - Creare `serve/platform/service_manager.py` con supporto bivalente Windows (`nssm`) e Linux (`systemd`).
   - Aggiornare `tools/windows/desktop/Program.cs` per la richiesta automatica di elevazione con verbo `runas`.
 
@@ -865,4 +865,4 @@ gantt
   - Applicare la nuova licenza commerciale Source-Available preservando le note di copyright originali di Strata/Basalt.
 
 ---
-*Documento generato e validato per la transizione di Basalt in Harness di Nuova Generazione.*
+*Documento generato e validato per la transizione di TaDaMoo in Harness di Nuova Generazione.*

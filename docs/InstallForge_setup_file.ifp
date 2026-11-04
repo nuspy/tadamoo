@@ -3,7 +3,7 @@
 <InstallForgeProject>
   <Metadata productVersion="1.6.1" projectFileVersion="2.0"/>
   <ProductInformation>
-    <Name>Basalt Windows+GUI</Name>
+    <Name>TaDaMoo Windows+GUI</Name>
     <Version>1.0</Version>
     <CompanyName>Tadamoo</CompanyName>
     <WebURI>https://github.com/nuspy/basalt_win_gui</WebURI>
@@ -48,7 +48,7 @@
       <Entry rootKey="HKEY_CLASSES_ROOT" subKey="Some_key_if_needed" valueName="key" valueData="value" isRemoveWhenUninstalling="true"/>
     </Registry>
     <Shortcuts defaultPath="&lt;Company&gt;\&lt;AppName&gt;\" isDefaultPathAlterable="true" isCreateStartmenuShortcutsForAllUsers="true" isCreateDesktopShortcutsForAllUsers="true">
-      <Shortcut destination="Desktop" name="Basalt" targetFile="&lt;InstallPath&gt;\desktop" commandLineArguments="Argument_if_needed" iconFilePath="c:\program files\Icon.bmp" iconIndex="0"/>
+      <Shortcut destination="Desktop" name="TaDaMoo" targetFile="&lt;InstallPath&gt;\desktop" commandLineArguments="Argument_if_needed" iconFilePath="c:\program files\Icon.bmp" iconIndex="0"/>
     </Shortcuts>
     <Serials isDialogEnabled="false" count="1000" mask ="#####-#####-#####-#####"/>
     <SplashScreen isDialogEnabled="true" delayTime="2">
@@ -68,7 +68,7 @@
     <CustomDisplayIcon isEnabled="false" iconFilePath="&lt;InstallPath&gt;\"/>
   </UninstallerConfiguration>
   <VisualUpdateConfiguration isPackaged="false">
-    <ProductName>Basalt Win+GUI</ProductName>
+    <ProductName>TaDaMoo Win+GUI</ProductName>
     <ProductVersion>&lt;AppVersion&gt;</ProductVersion>
     <Language>0</Language>
     <UpdateScriptURIs>

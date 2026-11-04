@@ -1,6 +1,6 @@
 """Starts the agent from the server's pages, watches it and stops it.
 
-The agent is the separate process `python -m harness`; this only launches it with the choices made on the page,
+The agent is the separate process `python -m tadamoo`; this only launches it with the choices made on the page,
 keeps its progress lines in a log, reads its result file, and records how it ended. A run that is still going when the server ends is killed with it.
 """
 from __future__ import annotations
@@ -140,18 +140,18 @@ class AgentRunner:
         path = Path(run["workspace"])
         if not path.is_dir():
             raise RunError("The folder of that run is not there any more.", "folder_not_found")
-        from harness.stack import data_dir_for                # imported here: the pages do not need the agent to be installed
+        from tadamoo.stack import data_dir_for                # imported here: the pages do not need the agent to be installed
         return path, data_dir_for(path)
 
     def checkpoints(self, run_id: str) -> List[Dict[str, Any]]:
-        """The checkpoints of the folder a run worked in, with what happened after each (see harness.rewind)."""
-        from harness.rewind import checkpoint_report
+        """The checkpoints of the folder a run worked in, with what happened after each (see tadamoo.rewind)."""
+        from tadamoo.rewind import checkpoint_report
         path, data = self._workspace_of(run_id)
         return [{**cp, "after": cp["after"][-8:]} for cp in checkpoint_report(data, path)]
 
     def rewind(self, run_id: str, checkpoint_id: Any) -> Dict[str, Any]:
         """Puts the files back to a checkpoint; a run still working is stopped first, and the actions that stay done are returned as `not_undone`."""
-        from harness.rewind import checkpoint_report, rewind
+        from tadamoo.rewind import checkpoint_report, rewind
         path, data = self._workspace_of(run_id)
         with self._lock:
             for r in [r for r in self.runs if r["status"] == "running"]:
@@ -196,16 +196,16 @@ class AgentRunner:
             run_id = secrets.token_hex(3)
             log_path = self._log_path(run_id)
             log_path.parent.mkdir(parents=True, exist_ok=True)
-            command = [self.python, "-m", "harness", f"--prompt={goal.strip()}", "--workspace", str(path), "--endpoint", self.endpoint,
+            command = [self.python, "-m", "tadamoo", f"--prompt={goal.strip()}", "--workspace", str(path), "--endpoint", self.endpoint,
                        "--permission-mode", mode, "--max-turns", str(max_turns), "--progress", "--result-file", str(self._result_path(run_id)),
                        "--run-id", run_id, "--ask-server",
                        "--pid-file", str(self._pid_path(run_id))]
             for rule in rules:
                 command += ["--allow", rule.strip()]
             env = dict(os.environ)
-            env.update({"PYTHONUTF8": "1", "PYTHONPATH": str(self.root), "BASALT_COMPRESS": "1"})
+            env.update({"PYTHONUTF8": "1", "PYTHONPATH": str(self.root), "TADAMOO_COMPRESS": "1"})
             if self.api_key:
-                env["BASALT_API_KEY"] = self.api_key
+                env["TADAMOO_API_KEY"] = self.api_key
             flags = (subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW) if os.name == "nt" else 0
             with open(log_path, "wb") as log:
                 try:

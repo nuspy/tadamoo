@@ -62,7 +62,7 @@ class MarkupTest(unittest.TestCase):
         for match in re.finditer(r"localStorage\.(get|set)Item", JS):
             before = JS[:match.start()]
             self.assertGreater(before.rfind("try {"), before.rfind("}"), "localStorage used outside try/catch")
-        self.assertIn("basalt.export", JS)
+        self.assertIn("tadamoo.export", JS)
 
     def test_the_window_is_a_labelled_dialog_that_returns_the_focus(self):
         for needle in ('mk("dialog"', "aria-labelledby", "aria-describedby", "showModal()", 'addEventListener("close"', "trigger.focus()", 'setAttribute("role", "status")',
@@ -130,7 +130,7 @@ const ctx = { window: win, document: { getElementById: () => null }, LANG: 'en',
 vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), ctx);
 const sel = JSON.parse(process.argv[3]);
-win.BasaltChat.prepare(sel, 'My title').then(out => console.log(JSON.stringify({ out, calls })));
+win.TadamooChat.prepare(sel, 'My title').then(out => console.log(JSON.stringify({ out, calls })));
 """
 
 SNAP = {
@@ -140,7 +140,7 @@ SNAP = {
         {"kind": "reasoning", "turn": 1, "text": "REASON-MARK"},
         {"kind": "action", "turn": 1, "name": "browse_url", "description": "DESC-MARK", "arguments": {"url": "ARG-MARK"},
          "result": "[file:0123456789ab:guide.pdf] RESULT-MARK", "sources": [{"url": "https://example.com/", "host": "example.com"}]},
-        {"kind": "answer", "turn": 1, "text": "ANSWER-MARK\n\n![map](basalt-file:0123456789ab)\n\n```mermaid\ngraph TD; A-->B\n```\n"},
+        {"kind": "answer", "turn": 1, "text": "ANSWER-MARK\n\n![map](tadamoo-file:0123456789ab)\n\n```mermaid\ngraph TD; A-->B\n```\n"},
     ],
 }
 

@@ -11,10 +11,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import commands
-from harness.compaction import DEFAULT_THRESHOLD
-from harness.session import Session, SessionStore, parse_args as session_args
-from harness.stack import AgentConfig, build_agent, _summarizer
+from tadamoo import commands
+from tadamoo.compaction import DEFAULT_THRESHOLD
+from tadamoo.session import Session, SessionStore, parse_args as session_args
+from tadamoo.stack import AgentConfig, build_agent, _summarizer
 from serve.compaction_prefs import CompactionError, CompactionPrefs
 from test_e2e_mock_server import answer, start_server  # noqa: F401  (fixture)
 from test_session import Events, Scripted, say
@@ -53,7 +53,7 @@ def test_the_flags_reach_the_session_process_arguments_and_the_agent_settings(tm
 
 @pytest.fixture
 def api(tmp_path, monkeypatch, start_server):  # noqa: F811
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
     url = start_server([answer("x")])
 
     def call(method, path, body=None):
@@ -158,7 +158,7 @@ def test_context_shows_the_compaction_and_compact_works_on_one_long_turn(tmp_pat
 
 
 def test_the_process_of_a_conversation_is_started_with_the_settings_and_they_reach_the_agent(tmp_path):
-    from harness.stack import agent_settings
+    from tadamoo.stack import agent_settings
     from serve.agent_sessions import SessionManager
     prefs = CompactionPrefs(tmp_path / "c.json")
     manager = SessionManager(tmp_path / "j", "http://127.0.0.1:1", compaction_flags=prefs.flags, command=None)
@@ -231,9 +231,9 @@ def test_the_summary_goes_to_a_cloud_route_only_when_the_compaction_function_is_
 
 
 def test_with_the_real_registry_the_compaction_function_stays_on_this_pc_until_it_is_pointed_elsewhere(tmp_path):
-    from harness.llm.client import RoutedClient
-    from harness.llm.credentials import FileCredentials
-    from harness.llm.store import Ledger, SecureRegistry
+    from tadamoo.llm.client import RoutedClient
+    from tadamoo.llm.credentials import FileCredentials
+    from tadamoo.llm.store import Ledger, SecureRegistry
     reg = SecureRegistry(tmp_path / "p.json", credentials=FileCredentials(tmp_path / "c.json"))
     reg.local_hosts = ()
     cloud = reg.add({"type": "openai_compat", "base_url": "https://api.example.com/v1", "api_key": "sk-test-abcdef", "model": "m"})["id"]

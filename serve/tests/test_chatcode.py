@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from harness import side_uses  # noqa: E402
+from tadamoo import side_uses  # noqa: E402
 from serve import chatcode  # noqa: E402
 
 PY = "\n".join(["# loads the lines of a file", "import os", "", "def load(path):", "    out = []", "    for line in open(path):", "        out.append(line.strip())",
@@ -47,7 +47,7 @@ def count(messages):
 class CodeAbstract(unittest.TestCase):
     def setUp(self):
         self.data = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"BASALT_DATA": self.data.name})
+        self.env = mock.patch.dict(os.environ, {"TADAMOO_DATA": self.data.name})
         self.env.start()
         side_uses.reset()
 

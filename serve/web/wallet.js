@@ -561,7 +561,7 @@
   }
   load();
   setInterval(() => { if (!document.hidden) load(true); }, 30000);
-  document.addEventListener("basalt:view", e => { if (e.detail === "wallet") load(true); });
-  document.addEventListener("basalt:key", () => { if (!document.getElementById("view-wallet").hidden) load(true); });
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "wallet") load(true); });
+  document.addEventListener("tadamoo:key", () => { if (!document.getElementById("view-wallet").hidden) load(true); });
   applyT(document.getElementById("view-wallet"));
 })();

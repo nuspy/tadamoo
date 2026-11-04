@@ -10,8 +10,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.llm.credentials import FileCredentials
-from harness.mcp_oauth import OAuthStore
+from tadamoo.llm.credentials import FileCredentials
+from tadamoo.mcp_oauth import OAuthStore
 from serve import handler
 from serve.capabilities_api import CapabilityApi
 from serve.mcp_auth_api import McpAuthApi

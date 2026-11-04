@@ -5,11 +5,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.eval import cases
-from harness.eval.cases import e13_old_chats as e13
-from harness.eval.cases.core import Context, decide, by_arm, render_report, results_json, run_experiment
-from harness.eval.cases.fixtures import old_chats as oc
-from harness.past import PastIndex
+from tadamoo.eval import cases
+from tadamoo.eval.cases import e13_old_chats as e13
+from tadamoo.eval.cases.core import Context, decide, by_arm, render_report, results_json, run_experiment
+from tadamoo.eval.cases.fixtures import old_chats as oc
+from tadamoo.past import PastIndex
 
 
 def arm(name):

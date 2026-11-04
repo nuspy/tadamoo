@@ -1,6 +1,6 @@
 """What the agent is told about itself, and the live numbers it can read."""
-from harness import awareness
-from harness.stack import AgentConfig, build_agent
+from tadamoo import awareness
+from tadamoo.stack import AgentConfig, build_agent
 
 
 def test_the_block_says_the_limits_and_what_is_missing_and_never_changes_for_the_same_setup():

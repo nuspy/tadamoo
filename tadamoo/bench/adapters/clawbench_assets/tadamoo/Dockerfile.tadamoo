@@ -1,0 +1,11 @@
+FROM clawbench-base
+
+# The TaDaMoo harness: standard library only, apart from `cryptography`. `payload/` holds the harness package and the few modules of the server it imports;
+# the adapter copies both there before the image is built. The model is reached over the network (BASE_URL), so nothing of it is in the image.
+RUN pip install --no-cache-dir --break-system-packages "cryptography>=44" || pip install --no-cache-dir "cryptography>=44"
+COPY harnesses/tadamoo/payload /opt/tadamoo
+COPY harnesses/tadamoo/setup-tadamoo.sh /setup-tadamoo.sh
+COPY harnesses/tadamoo/run-tadamoo.sh /run-harness.sh
+COPY harnesses/tadamoo/tadamoo_driver.py /tadamoo_driver.py
+COPY harnesses/tadamoo/usage-emitter.py /usage-emitter.py
+RUN chmod +x /setup-tadamoo.sh /run-harness.sh /tadamoo_driver.py /usage-emitter.py

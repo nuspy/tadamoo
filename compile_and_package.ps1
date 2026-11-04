@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    One command that does everything: builds Basalt Win+GUI, stages the program folder, builds the setup, updates the
+    One command that does everything: builds TaDaMoo Win+GUI, stages the program folder, builds the setup, updates the
     app on this PC and raises the version. Run it as it is: .\compile_and_package.ps1
 
 .DESCRIPTION
@@ -21,9 +21,9 @@
     Everything it makes is under dist\ (ignored by git) except VERSION, which you commit when you like. Nothing is
     uploaded or published anywhere.
 
-      dist\stage\BasaltWinGUI\   the program as it will be installed
-      dist\Basalt-WinGUI.ifp     the InstallForge project
-      dist\Basalt-WinGUI-<name>_(v_<version>_<subversion>)-setup.exe   the setup
+      dist\stage\TaDaMoo\   the program as it will be installed
+      dist\TaDaMoo-WinGUI.ifp     the InstallForge project
+      dist\TaDaMoo-WinGUI-<name>_(v_<version>_<subversion>)-setup.exe   the setup
       dist\cache\                downloads kept between runs (Python installer, wheels, the name generator)
 
     The version. The subversion goes up by one at every successful run. The name belongs to the version: it is made
@@ -32,10 +32,10 @@
     up by one, the subversion starts again and a new name is made) run it once with -NewVersion. VERSION holds the
     numbers and the names used; the setup, the app (window title, tray, file properties) and the file names show them.
 
-    The installer puts the folder in C:\Program Files\Tadamoo\BasaltWinGUI and runs
-    tools\windows\desktop\publish\BasaltSetup.exe once the files are copied: it finds Python (or installs the bundled
+    The installer puts the folder in C:\Program Files\Tadamoo\TaDaMoo and runs
+    tools\windows\desktop\publish\TaDaMooSetup.exe once the files are copied: it finds Python (or installs the bundled
     one), creates .venv, installs requirements.txt from the bundled wheels (else the internet), checks the server
-    imports and sets the write permissions. The user starts BasaltWinGUI.exe from the shortcut.
+    imports and sets the write permissions. The user starts TaDaMoo.exe from the shortcut.
 
 .PARAMETER NewVersion
     Start a new version instead of a new subversion.
@@ -87,12 +87,12 @@ function Find-Cuda([string]$Wanted) {
 $Root = $PSScriptRoot
 $Dist = if ([IO.Path]::IsPathRooted($OutDir)) { $OutDir } else { Join-Path $Root $OutDir }
 $Cache = Join-Path $Dist 'cache'
-$AppFolder = 'BasaltWinGUI'                       # the folder InstallForge creates under the install path
+$AppFolder = 'TaDaMoo'                       # the folder InstallForge creates under the install path
 $Stage = Join-Path (Join-Path $Dist 'stage') $AppFolder
-$IfpPath = Join-Path $Dist 'Basalt-WinGUI.ifp'
+$IfpPath = Join-Path $Dist 'TaDaMoo-WinGUI.ifp'
 $Company = 'Tadamoo'
 $InstallRoot = '<ProgramFilesX64>\' + $Company + '\'          # C:\Program Files\Tadamoo\ (not <ProgramFiles>: that is x86)
-$AppRel = '<InstallPath>\' + $AppFolder                        # C:\Program Files\Tadamoo\BasaltWinGUI
+$AppRel = '<InstallPath>\' + $AppFolder                        # C:\Program Files\Tadamoo\TaDaMoo
 $ExcludeFromPackage = @('tests', 'serve/tests', '.github', '.agents')   # developer-only, tracked
 
 function Step([string]$Text) { Write-Host ''; Write-Host "== $Text" -ForegroundColor Cyan }
@@ -144,7 +144,7 @@ try {
     $newSub = $curSub + 1
     $ReleaseLabel = '{0}_(v_{1}_{2})' -f $relName, $curVersion, $newSub       # the name shown everywhere
     $Version = '{0}.{1}' -f $curVersion, $newSub                              # the number InstallForge takes
-    $SetupExe = Join-Path $Dist ("Basalt-WinGUI-{0}-setup.exe" -f $ReleaseLabel)
+    $SetupExe = Join-Path $Dist ("TaDaMoo-WinGUI-{0}-setup.exe" -f $ReleaseLabel)
 
     # ------------------------------------------------------------------ what is being packaged
     Step "Source tree (release $ReleaseLabel)"
@@ -167,7 +167,7 @@ try {
         $wanted = (Join-Path $Cuda 'bin\nvcc.exe') -replace '\\', '/'
         if ($builtWith -and ($builtWith -replace '\\', '/') -ne $wanted) {
             $inUse = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith((Join-Path $Root 'bin'), [StringComparison]::OrdinalIgnoreCase) })
-            if ($inUse.Count) { throw ('the build was made with {0} and this run uses {1}, so the engine is built again, but it is running ({2}): stop the server (Ferma-Basalt.ps1) and run this again' -f $builtWith, $wanted, (($inUse | ForEach-Object { "$($_.ProcessName) $($_.Id)" }) -join ', ')) }
+            if ($inUse.Count) { throw ('the build was made with {0} and this run uses {1}, so the engine is built again, but it is running ({2}): stop the server (Ferma-TaDaMoo.ps1) and run this again' -f $builtWith, $wanted, (($inUse | ForEach-Object { "$($_.ProcessName) $($_.Id)" }) -join ', ')) }
             Info "the build folder was made with ${builtWith}: removed, the engine is built again with ${wanted}"
             Remove-Item -Recurse -Force (Join-Path $Root 'build-win')
         }
@@ -184,7 +184,7 @@ try {
         } else {
             $targets = @([regex]::Matches($plan, 'Linking \S+ executable (\S+)') | ForEach-Object { $_.Groups[1].Value })
             $inUse = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path } | Where-Object { $own = $_.Path; $targets | Where-Object { [string]::Equals($_, $own, [StringComparison]::OrdinalIgnoreCase) } })
-            if ($inUse.Count) { throw ('the engine has to be rebuilt ({0}) but it is running ({1}): stop the server (Ferma-Basalt.ps1) and run this again' -f (($targets | ForEach-Object { Split-Path $_ -Leaf }) -join ', '), (($inUse | ForEach-Object { "$($_.ProcessName) $($_.Id)" }) -join ', ')) }
+            if ($inUse.Count) { throw ('the engine has to be rebuilt ({0}) but it is running ({1}): stop the server (Ferma-TaDaMoo.ps1) and run this again' -f (($targets | ForEach-Object { Split-Path $_ -Leaf }) -join ', '), (($inUse | ForEach-Object { "$($_.ProcessName) $($_.Id)" }) -join ', ')) }
             (Get-Process -Id $PID).PriorityClass = 'BelowNormal'
             Run cmake @('--build', 'build-win', '--parallel', '4')
         }
@@ -238,12 +238,12 @@ try {
     # ------------------------------------------------------------------ desktop app and setup helper
     Step 'Desktop app and setup helper (.NET 8, self-contained)'
     $pub = Join-Path $Stage 'tools\windows\desktop\publish'
-    foreach ($proj in 'tools\windows\desktop\BasaltDesktop.csproj', 'tools\windows\setup\BasaltSetup.csproj') {
+    foreach ($proj in 'tools\windows\desktop\TaDaMooDesktop.csproj', 'tools\windows\setup\TaDaMooSetup.csproj') {
         Run dotnet @('publish', (Join-Path $Root $proj), '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '-o', $pub, '-nologo', '-v', 'q', '-p:DebugType=None', '-p:DebugSymbols=false', '-p:NoWarn=MSB3277',
             "-p:Version=$Version.0", "-p:InformationalVersion=$ReleaseLabel", '-p:IncludeSourceRevisionInInformationalVersion=false')
     }
     Get-ChildItem $pub -Recurse -Include *.pdb, *.xml | Remove-Item -Force
-    foreach ($exe in 'BasaltWinGUI.exe', 'BasaltSetup.exe') { if (-not (Test-Path (Join-Path $pub $exe))) { throw "$exe was not published" } }
+    foreach ($exe in 'TaDaMoo.exe', 'TaDaMooSetup.exe') { if (-not (Test-Path (Join-Path $pub $exe))) { throw "$exe was not published" } }
     Info ("{0} files, {1:N0} MB" -f (Get-ChildItem $pub -Recurse -File).Count, ((Get-ChildItem $pub -Recurse -File | Measure-Object Length -Sum).Sum / 1MB))
 
     # ------------------------------------------------------------------ Python assets (for PCs without Python)
@@ -388,7 +388,7 @@ try {
 
     # ------------------------------------------------------------------ notes in the package
     @"
-Basalt Win+GUI $ReleaseLabel
+TaDaMoo Win+GUI $ReleaseLabel
 built $(Get-Date -Format 'yyyy-MM-dd HH:mm') from $commit$(if ($changed.Count) { " (+$($changed.Count) uncommitted tracked file(s))" })
 
 Bundled third-party files that are not part of the repository:
@@ -407,9 +407,9 @@ The setup\ folder is removed by the installer once everything is in place. The Q
         ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $Stage 'VERSION')
 
     # check the staged folder with the setup helper itself (no change made: --dry-run)
-    Step 'Checking the staged folder (BasaltSetup --dry-run)'
-    & (Join-Path $pub 'BasaltSetup.exe') --root $Stage --dry-run --lang en | ForEach-Object { Info $_ }
-    if ($LASTEXITCODE -ne 0) { throw "BasaltSetup --dry-run failed ($LASTEXITCODE)" }
+    Step 'Checking the staged folder (TaDaMooSetup --dry-run)'
+    & (Join-Path $pub 'TaDaMooSetup.exe') --root $Stage --dry-run --lang en | ForEach-Object { Info $_ }
+    if ($LASTEXITCODE -ne 0) { throw "TaDaMooSetup --dry-run failed ($LASTEXITCODE)" }
 
     # ------------------------------------------------------------------ the InstallForge project
     Step 'InstallForge project (.ifp)'
@@ -423,10 +423,10 @@ The setup\ folder is removed by the installer once everything is in place. The Q
 <InstallForgeProject>
   <Metadata productVersion="1.6.1" projectFileVersion="2.0"/>
   <ProductInformation>
-    <Name>Basalt Windows+GUI</Name>
+    <Name>TaDaMoo Windows+GUI</Name>
     <Version>1.0</Version>
     <CompanyName>Tadamoo</CompanyName>
-    <WebURI>https://github.com/nuspy/basalt_win-GUI</WebURI>
+    <WebURI>https://github.com/nuspy/tadamoo</WebURI>
   </ProductInformation>
   <InstallerConfiguration>
     <Prerequisites>
@@ -478,7 +478,7 @@ The setup\ folder is removed by the installer once everything is in place. The Q
     <CustomDisplayIcon isEnabled="false" iconFilePath="&lt;InstallPath&gt;\"/>
   </UninstallerConfiguration>
   <VisualUpdateConfiguration isPackaged="false">
-    <ProductName>Basalt Win+GUI</ProductName>
+    <ProductName>TaDaMoo Win+GUI</ProductName>
     <ProductVersion>&lt;AppVersion&gt;</ProductVersion>
     <Language>0</Language>
     <UpdateScriptURIs>
@@ -525,17 +525,17 @@ The setup\ folder is removed by the installer once everything is in place. The Q
     # after the files are copied: the setup helper (it shows its own progress window)
     $cmds = Node 'InstallerConfiguration/Commands'
     Clear-El $cmds
-    [void]$cmds.AppendChild((New-El 'Command' @{ type = 'Execute Application'; command = "$AppRel\tools\windows\desktop\publish\BasaltSetup.exe"; commandLineArguments = ''; options = '-wait' } ''))
+    [void]$cmds.AppendChild((New-El 'Command' @{ type = 'Execute Application'; command = "$AppRel\tools\windows\desktop\publish\TaDaMooSetup.exe"; commandLineArguments = ''; options = '-wait' } ''))
 
     # the shortcuts: the app (desktop + start menu) and the uninstaller (start menu)
     $sc = Node 'InstallerConfiguration/Shortcuts'
     Clear-El $sc
-    $appExe = "$AppRel\tools\windows\desktop\publish\BasaltWinGUI.exe"
-    $icon = Join-Path $Root 'tools\windows\desktop\basalt.ico'             # a path on this PC, as InstallForge stores it
+    $appExe = "$AppRel\tools\windows\desktop\publish\TaDaMoo.exe"
+    $icon = Join-Path $Root 'tools\windows\desktop\tadamoo.ico'             # a path on this PC, as InstallForge stores it
     foreach ($def in @(
-            @{ destination = 'Desktop'; name = 'Basalt'; targetFile = $appExe },
-            @{ destination = 'Startmenu'; name = 'Basalt'; targetFile = $appExe },
-            @{ destination = 'Startmenu'; name = 'Uninstall Basalt'; targetFile = '<InstallPath>\Uninstall.exe' })) {
+            @{ destination = 'Desktop'; name = 'TaDaMoo'; targetFile = $appExe },
+            @{ destination = 'Startmenu'; name = 'TaDaMoo'; targetFile = $appExe },
+            @{ destination = 'Startmenu'; name = 'Uninstall TaDaMoo'; targetFile = '<InstallPath>\Uninstall.exe' })) {
         $def.commandLineArguments = ''; $def.iconFilePath = $icon; $def.iconIndex = '0'
         [void]$sc.AppendChild((New-El 'Shortcut' $def ''))
     }
@@ -611,8 +611,8 @@ The setup\ folder is removed by the installer once everything is in place. The Q
     Step 'The app on this PC (tools\windows\desktop\publish)'
     $local = Join-Path $Root 'tools\windows\desktop\publish'
     $appUpdated = $false
-    if (Get-Process BasaltWinGUI -ErrorAction SilentlyContinue) {
-        Warn 'BasaltWinGUI is open, so the app on this PC was not updated: close it and the next run will update it (the setup is built anyway)'
+    if (Get-Process TaDaMoo -ErrorAction SilentlyContinue) {
+        Warn 'TaDaMoo is open, so the app on this PC was not updated: close it and the next run will update it (the setup is built anyway)'
     } else {
         New-Item -ItemType Directory -Force $local | Out-Null
         Copy-Item (Join-Path $pub '*') $local -Recurse -Force
@@ -625,7 +625,7 @@ The setup\ folder is removed by the installer once everything is in place. The Q
                 built = (Get-Date -Format 's'); commit = $commit } | ConvertTo-Json | Set-Content -Encoding UTF8 $VersionFile
 
     if (-not $NoSetup) {                                           # only the setup just built stays: earlier versions are deleted
-        $older = @(Get-ChildItem -LiteralPath $Dist -Filter 'Basalt-WinGUI-*-setup.exe' -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne (Resolve-Path -LiteralPath $SetupExe).Path })
+        $older = @(Get-ChildItem -LiteralPath $Dist -Filter 'TaDaMoo-WinGUI-*-setup.exe' -File -ErrorAction SilentlyContinue | Where-Object { $_.FullName -ne (Resolve-Path -LiteralPath $SetupExe).Path })
         foreach ($f in $older) { Remove-Item -LiteralPath $f.FullName -Force; Info ('deleted the setup of an earlier version: {0}' -f $f.Name) }
         foreach ($f in @(Get-ChildItem -LiteralPath $Cache -Filter 'python-*-amd64.exe' -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne $pyInstaller.Name })) {
             Remove-Item -LiteralPath $f.FullName -Force; Info ('deleted an older Python installer from the cache: {0}' -f $f.Name)

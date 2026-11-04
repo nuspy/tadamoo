@@ -1,6 +1,6 @@
 # ask_user v2 and next-prompt suggestions (design)
 
-Spec, UI, files and tests. Survey and sources: [clarification-survey.md](clarification-survey.md). Built as described in [../intake.md](../intake.md). Real-model behaviour (does a Qwen-class model ask at the right times, are the suggestions sensible) is unmeasured and goes through `harness.eval` and `tests/QUEUE_daytime.md`.
+Spec, UI, files and tests. Survey and sources: [clarification-survey.md](clarification-survey.md). Built as described in [../intake.md](../intake.md). Real-model behaviour (does a Qwen-class model ask at the right times, are the suggestions sensible) is unmeasured and goes through `tadamoo.eval` and `tests/QUEUE_daytime.md`.
 
 4. (c) SPEC: ask_user v2
 Replaces v1 outright (no alias, per AGENTS.md "no shims"). Tests and prompt text are updated in the same change.
@@ -77,10 +77,10 @@ Tool description (short, shown every turn): "Asks the user 1 to 3 questions with
 
 4.5 Harness nudges that make a Qwen-class model ask well (Ambig-SWE says the model's own judgement is unreliable)
 - Ask budget: at most 2 ask_user calls per user message. The third returns "Do not ask again; decide and say what you assumed."
-- Repeat guard: the same normalised question text again returns "Already answered: <answer>". `harness/repeat_guard.py` exists; reuse its hashing.
+- Repeat guard: the same normalised question text again returns "Already answered: <answer>". `tadamoo/repeat_guard.py` exists; reuse its hashing.
 - Plan mode and the first message in an empty folder (the "Plan first" case in vibe-coding.md): add one line to the mode prompt, "ask up to 3 questions with ask_user before presenting the plan if the goal, the stack or the constraints are not stated".
-- Optional phase 3: a cheap grammar-constrained "ambiguity check" call before the first step of a NEW Agent-tab task, which lists at most 3 missing facts or an empty list. This is the detect/execute split from "Ask or Assume?". It adds a model call per task, so make it off by default and measure with `harness.eval` before enabling.
-- Evaluate with a new `harness.eval` set: some underspecified tasks where asking is right, and some fully specified tasks where asking is wrong. Report ask rate and over-ask rate. Label all numbers with the GPU power limit. Real-model runs go into `tests/QUEUE_daytime.md`.
+- Optional phase 3: a cheap grammar-constrained "ambiguity check" call before the first step of a NEW Agent-tab task, which lists at most 3 missing facts or an empty list. This is the detect/execute split from "Ask or Assume?". It adds a model call per task, so make it off by default and measure with `tadamoo.eval` before enabling.
+- Evaluate with a new `tadamoo.eval` set: some underspecified tasks where asking is right, and some fully specified tasks where asking is wrong. Report ask rate and over-ask rate. Label all numbers with the GPU power limit. Real-model runs go into `tests/QUEUE_daytime.md`.
 
 4.6 Harness behaviour
 
@@ -103,7 +103,7 @@ Unattended (nobody answers)
 
 Validation and repair of malformed payloads
 1. Grammar first: `strict: true` on the tool, so the arguments parse. Keep the schema within enums/min/max items and short strings.
-2. Lenient normalisation in `harness/questions.py` (new, pure functions, easy to test). These are repairs, not compatibility shims:
+2. Lenient normalisation in `tadamoo/questions.py` (new, pure functions, easy to test). These are repairs, not compatibility shims:
    - strings in `options` become `{label}`;
    - a missing `kind` becomes `single` when there are options, else `free`;
    - one option only: drop it and make the question `free`;
@@ -121,7 +121,7 @@ Validation and repair of malformed payloads
 6. Injection stance: the model may have read untrusted pages, so option labels and descriptions are rendered as TEXT only (`textContent` / Flutter `Text`), capped in length, and control characters stripped. A question never carries a URL as a link.
 
 Audit records
-- Use the existing hash-chained ledger (`harness/audit.py`). One record when the question is shown: question ids, kinds, option counts, which option was recommended, `source: user|auto|default|skip|chat`.
+- Use the existing hash-chained ledger (`tadamoo/audit.py`). One record when the question is shown: question ids, kinds, option counts, which option was recommended, `source: user|auto|default|skip|chat`.
 - One record when answered: picked option ids per question, the length of the typed text but not the text, and the seconds it took. The text lives in the conversation history anyway, like any chat message.
 - Auto-answered and parked questions are recorded the same way, so the "assumptions made" list can be rebuilt from the ledger.
 
@@ -215,16 +215,16 @@ One new ask block kind, `b.kind === "questions"`, drawn like the MCP elicitation
 
 7. FILES TO CHANGE
 Harness
-- `harness/questions.py` (new, pure, no I/O): normalise/repair a payload, assign ids, validate an answer, format the message for the model, pick auto answers. About 200 lines.
-- `harness/planner_tools.py`: replace the body of `register_ask_tool` (the signature stays); schema as 4.1 with `strict: true`; the ask budget and repeat guard; remove the old `MAX_OPTIONS`/`LABEL_CHARS` constants.
-- `harness/session.py`: `_question` (attended: emit the ask event with the normalised questions and `facts.involves`; unattended: auto-pick or park as 4.6); a validator for the `ask:` kind in `answer()`/`_answer_parked`; phase 2: route through `_ask`.
-- `harness/session.py` module docstring (line 29-30) says ask_user "does not end the turn... nobody can answer"; update it. Also the "ask_user" paragraph in `docs/harness.md` (line 226) and `docs/harness-manual*.md` (EN and IT).
-- System prompt text: wherever the tool prompts are assembled with the planner tools (`harness/planner_tools.py:159` mentions `ask_user`); keep it in one place.
-- `harness/audit.py` callers: the two audit records of 4.6.
-- Suggestions: `harness/suggestions.py` (new): build the instruction, call the client with `response_format`, repair and filter; triggered from `Session` after a `final` done event, emitting `{"event":"suggestions","turn":n,"items":[{label,prompt}]}`. Reuse `harness/client.py` `response_format` (line 168-186).
+- `tadamoo/questions.py` (new, pure, no I/O): normalise/repair a payload, assign ids, validate an answer, format the message for the model, pick auto answers. About 200 lines.
+- `tadamoo/planner_tools.py`: replace the body of `register_ask_tool` (the signature stays); schema as 4.1 with `strict: true`; the ask budget and repeat guard; remove the old `MAX_OPTIONS`/`LABEL_CHARS` constants.
+- `tadamoo/session.py`: `_question` (attended: emit the ask event with the normalised questions and `facts.involves`; unattended: auto-pick or park as 4.6); a validator for the `ask:` kind in `answer()`/`_answer_parked`; phase 2: route through `_ask`.
+- `tadamoo/session.py` module docstring (line 29-30) says ask_user "does not end the turn... nobody can answer"; update it. Also the "ask_user" paragraph in `docs/harness.md` (line 226) and `docs/harness-manual*.md` (EN and IT).
+- System prompt text: wherever the tool prompts are assembled with the planner tools (`tadamoo/planner_tools.py:159` mentions `ask_user`); keep it in one place.
+- `tadamoo/audit.py` callers: the two audit records of 4.6.
+- Suggestions: `tadamoo/suggestions.py` (new): build the instruction, call the client with `response_format`, repair and filter; triggered from `Session` after a `final` done event, emitting `{"event":"suggestions","turn":n,"items":[{label,prompt}]}`. Reuse `tadamoo/client.py` `response_format` (line 168-186).
 
 Server
-- `serve/agent_sessions.py`: add `questions` and `intro` to `ASK_FIELDS`; per-kind answer limits (replace the two `+ 500` checks at 1399 and 1414); for the end-turn MVP, an `/answer` branch for `rec["question"]` asks that formats the answer with `harness/questions.py` and sends it as the next user message (so both clients post JSON); keep `rec["suggestions"]` for reload.
+- `serve/agent_sessions.py`: add `questions` and `intro` to `ASK_FIELDS`; per-kind answer limits (replace the two `+ 500` checks at 1399 and 1414); for the end-turn MVP, an `/answer` branch for `rec["question"]` asks that formats the answer with `tadamoo/questions.py` and sends it as the next user message (so both clients post JSON); keep `rec["suggestions"]` for reload.
 - A setting for suggestions on/off (per session in the create body and a global default).
 
 GUI
@@ -245,7 +245,7 @@ Mobile
 - `serve/tests/test_web_static.py`: new keys exist in EN and IT with the same placeholders; the draw function and `send`/`answer` markers exist.
 - `serve/tests/slash_check.js` style: a node check that the draw function builds one fieldset per question and sets `aria-checked` (if the repo's JS checks run under node).
 - Mobile: a widget test for `_QuestionsCard` (single, multi, Other, Send disabled until valid).
-- Real-model behaviour (does Qwen ask at the right times, are suggestions sensible) is NOT CPU-testable: add it to `tests/QUEUE_daytime.md`, and add the ask/no-ask set to `harness.eval`.
+- Real-model behaviour (does Qwen ask at the right times, are suggestions sensible) is NOT CPU-testable: add it to `tests/QUEUE_daytime.md`, and add the ask/no-ask set to `tadamoo.eval`.
 
 9. MINIMUM VIABLE VERSION, SIZE, RISKS
 MVP (about 3 to 4 days for a focused session, my estimate):

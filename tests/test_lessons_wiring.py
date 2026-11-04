@@ -1,8 +1,8 @@
 """A task teaches the next one: the loop records how a request went, hands the outcome and the lessons to the writer, and shows the matching lessons at the start."""
 from test_agent_loop import ScriptedClient, call, make, say
 
-from harness import lessons
-from harness.permissions import PermissionLevel, PermissionManager
+from tadamoo import lessons
+from tadamoo.permissions import PermissionLevel, PermissionManager
 
 
 def agent_for(ws, client):
@@ -52,7 +52,7 @@ def test_a_request_with_no_learning_attached_runs_as_before(tmp_path):
 
 
 def test_the_stack_attaches_the_learning_only_when_it_is_given_a_lessons_folder(tmp_path):
-    from harness.stack import AgentConfig, build_agent
+    from tadamoo.stack import AgentConfig, build_agent
     ws = tmp_path / "ws"
     ws.mkdir()
     base = dict(workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False)

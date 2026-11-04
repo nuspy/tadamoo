@@ -34,7 +34,7 @@ LABELS: Dict[str, Dict[str, str]] = {
         "diagram": "Diagram", "diagram_source": "Diagram source", "exported": "Exported on {0}", "contents": "Contents",
         "k_prompt": "prompts", "k_reasoning": "reasoning", "k_action": "actions", "k_answer": "answers", "no_address": "(no network address)",
         "untitled": "Conversation", "print_hint": "In the print window choose \u201cSave as PDF\u201d as the printer.",
-        "no_image": "image not included", "created_by": "Exported from Basalt",
+        "no_image": "image not included", "created_by": "Exported from TaDaMoo",
     },
     "it": {
         "you": "Tu", "assistant": "Assistente", "reasoning": "Ragionamento", "action": "Azione", "arguments": "Argomenti",
@@ -42,7 +42,7 @@ LABELS: Dict[str, Dict[str, str]] = {
         "diagram": "Diagramma", "diagram_source": "Sorgente del diagramma", "exported": "Esportata il {0}", "contents": "Contenuto",
         "k_prompt": "richieste", "k_reasoning": "ragionamento", "k_action": "azioni", "k_answer": "risposte", "no_address": "(senza indirizzo di rete)",
         "untitled": "Conversazione", "print_hint": "Nella finestra di stampa scegli \u00abSalva come PDF\u00bb come stampante.",
-        "no_image": "immagine non inclusa", "created_by": "Esportata da Basalt",
+        "no_image": "immagine non inclusa", "created_by": "Esportata da TaDaMoo",
     },
 }
 
@@ -279,10 +279,10 @@ class Context:
     def resolve(self, dest: str) -> Tuple[Optional[str], bool]:
         """(address, is_app_file): the address a link may have in the document, or None."""
         dest = dest.strip()
-        m = re.fullmatch(r"basalt-file:([a-f0-9]{12})", dest)
+        m = re.fullmatch(r"tadamoo-file:([a-f0-9]{12})", dest)
         if m:
             return self.file_url(m.group(1)), True
-        m = re.fullmatch(r"basalt-path:([^\s<>]{1,400})", dest)
+        m = re.fullmatch(r"tadamoo-path:([^\s<>]{1,400})", dest)
         if m:
             return self.path_url(m.group(1)), True
         return safe_url(dest), False

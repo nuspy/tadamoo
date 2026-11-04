@@ -4,8 +4,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from harness.context import TokenJuiceCompactor
-from harness.tools.search import format_page, readable
+from tadamoo.context import TokenJuiceCompactor
+from tadamoo.tools.search import format_page, readable
 
 ARTICLE = "\n".join(f"Paragraph {i}: " + "the army reported movements near the town of Kupiansk. " * 6 for i in range(120))
 MENU = "\n".join(f"-\n[{name}]" for name in ("Home", "News", "Sport", "Business", "Live")) + "\n\n- []\n\n- []\n"

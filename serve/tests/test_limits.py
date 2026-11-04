@@ -4,12 +4,12 @@ import json
 import pytest
 
 from serve import limits
-from harness.tools.registry import DEFAULT_TOOL_TIMEOUT, ToolRegistry
+from tadamoo.tools.registry import DEFAULT_TOOL_TIMEOUT, ToolRegistry
 
 
 @pytest.fixture(autouse=True)
 def data_folder(tmp_path, monkeypatch):
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path))
     for name in limits.DEFAULTS:
         monkeypatch.delenv(limits.ENV_PREFIX + name.upper(), raising=False)
     return tmp_path
@@ -22,7 +22,7 @@ def test_without_a_file_the_silence_limits_are_off_and_a_tool_call_has_a_generou
 
 
 def test_the_file_wins_over_the_environment_and_the_default(data_folder, monkeypatch):
-    monkeypatch.setenv("BASALT_LIMIT_IDLE_S", "5")
+    monkeypatch.setenv("TADAMOO_LIMIT_IDLE_S", "5")
     assert limits.get("idle_s") == 5
     (data_folder / limits.FILE).write_text(json.dumps({"idle_s": 60, "beat_timeout_s": 0, "compare_wait_s": None}), encoding="utf-8")
     assert limits.get("idle_s") == 60 and limits.get("beat_timeout_s", 45) is None and limits.get("compare_wait_s", 45) is None   # 0 and null: no limit

@@ -1,4 +1,4 @@
-"""The language of the messages (Italian or English, for now): the user's explicit choice - BASALT_LANG (the
+"""The language of the messages (Italian or English, for now): the user's explicit choice - TADAMOO_LANG (the
 scripts' and the app's --lang set it), else the "lang" of prefs.json in the user's data folder (set from the web
 page's Settings, or below) - else English. The desktop app, the scripts, the command-line tools and the web page
 follow the same choice; the operating system's language is not used.
@@ -47,8 +47,8 @@ def prefs() -> dict:
 
 
 def chosen() -> str | None:
-    """The explicit choice: BASALT_LANG, else prefs.json; None when there is none."""
-    env = (os.environ.get("BASALT_LANG") or "").strip().lower()
+    """The explicit choice: TADAMOO_LANG, else prefs.json; None when there is none."""
+    env = (os.environ.get("TADAMOO_LANG") or "").strip().lower()
     if env in LANGS:
         return env
     p = prefs().get("lang")
@@ -82,7 +82,7 @@ def t(it: str, en: str) -> str:
 
 def info() -> dict:
     return {"lang": lang(), "chosen": prefs().get("lang") if prefs().get("lang") in LANGS else None,
-            "env": (os.environ.get("BASALT_LANG") or None), "system": system_lang(), "langs": list(LANGS)}
+            "env": (os.environ.get("TADAMOO_LANG") or None), "system": system_lang(), "langs": list(LANGS)}
 
 
 def main(argv=None) -> int:

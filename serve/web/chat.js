@@ -3,7 +3,7 @@
    output can never inject markup. The conversation is kept in this browser's localStorage when it allows it, and its words are handed to the server's
    index of earlier conversations (POST /api/past/chat) so that other conversations can find them. */
 (() => {
-  const STORE = "basalt.chat", EFFORT = "basalt.effort", IMAGE_MAX = 12 << 20;
+  const STORE = "tadamoo.chat", EFFORT = "tadamoo.effort", IMAGE_MAX = 12 << 20;
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const load = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
   const keep = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } };
@@ -48,11 +48,11 @@
     s = esc(s)
       .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
       .replace(/(^|[^*\w])\*([^*\n]+)\*(?![*\w])/g, "$1<em>$2</em>")
-      .replace(/\[([^\]\n]+)\]\(basalt-file:([a-f0-9]{12})\)/g, (_, name, id) =>
+      .replace(/\[([^\]\n]+)\]\(tadamoo-file:([a-f0-9]{12})\)/g, (_, name, id) =>
         `<button type="button" class="afile" data-kind="file" data-id="${id}" data-name="${name}" title="${esc(T("ch.out.save", name))}">\u2193 ${name}</button>`)
-      .replace(/\[([^\]\n]+)\]\(basalt-path:([^)\s<>]{1,400})\)/g, (_, name, path) =>
+      .replace(/\[([^\]\n]+)\]\(tadamoo-path:([^)\s<>]{1,400})\)/g, (_, name, path) =>
         `<button type="button" class="afile" data-kind="path" data-path="${path}" data-name="${name}" title="${esc(T("ch.out.save", name))}">\u2193 ${name}</button>`)
-      .replace(/!\[([^\]\n]*)\]\(basalt-file:([a-f0-9]{12})\)/g, (_, alt, id) =>
+      .replace(/!\[([^\]\n]*)\]\(tadamoo-file:([a-f0-9]{12})\)/g, (_, alt, id) =>
         `<span class="afig"><img class="aimg" data-fid="${id}" alt="${alt}" hidden><span class="afigc">${alt}</span></span>`)
       .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s"'<>]+)\)/g, (_, text, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>${sourceButton(url)}`);
     s = addressButtons(s);
@@ -207,7 +207,7 @@
     if (now && !det.dataset.auto) { det.dataset.auto = "1"; det.open = true; }
     else if (!now && det.dataset.auto === "1") { det.dataset.auto = "done"; if (!det.dataset.touched) det.open = false; }
   }
-  document.addEventListener("basalt:showreasoning", () => {
+  document.addEventListener("tadamoo:showreasoning", () => {
     msgs.querySelectorAll(".cmsg.assistant").forEach(e => { const m = messages[+e.dataset.i]; if (m) paintThink(e, m, !!busy && busy.el === e); });
   });
   function paint(el, m, streaming) {
@@ -267,10 +267,10 @@
     indexSoon();
   }
   // the words of the conversation go to the server once the page is quiet; nothing here depends on the answer
-  const ID_KEY = "basalt.chat.id";
+  const ID_KEY = "tadamoo.chat.id";
   const chatId = () => { let v = load(ID_KEY, ""); if (!/^[A-Za-z0-9_-]{6,64}$/.test(v || "")) { v = Date.now().toString(36) + Math.random().toString(36).slice(2, 10); keep(ID_KEY, v); } return v; };
   const wordsOf = c => typeof c === "string" ? c : Array.isArray(c) ? c.filter(p => p && p.type === "text").map(p => p.text).join("\n") : "";
-  const PRIV_KEY = "basalt.chat.private";
+  const PRIV_KEY = "tadamoo.chat.private";
   const isPrivate = () => load(PRIV_KEY, "0") === "1";                              // a private conversation is never sent to the index
   let indexTimer = null;
   function indexSoon() {
@@ -316,7 +316,7 @@
     const sv = e.target.closest(".savefile");
     if (sv && !busy) {                                  // only on the person's click: the message is saved as a file through the export route
       const m = messages[+sv.closest(".cmsg").dataset.i];
-      if (m && window.BasaltSave) window.BasaltSave.message(sv, { text: m.text, time: (m.time || 0) / 1000, turn: +sv.closest(".cmsg").dataset.i + 1 });
+      if (m && window.TadamooSave) window.TadamooSave.message(sv, { text: m.text, time: (m.time || 0) / 1000, turn: +sv.closest(".cmsg").dataset.i + 1 });
       return;
     }
     const b = e.target.closest(".copy");
@@ -331,7 +331,7 @@
   // (-1 for the system prompt). A compaction summary goes as the user message the server wrote for it.
   /* Old replies as a short record: the conversation keeps every reply, but from the turn after the newest few the model reads the abstract of
      each long one (written in the technical session when the reply ends, with the same compaction mark as every other record). Chat only. */
-  const ABS_KEY = "basalt.abstract", ABS_MIN = 400, ABS_KEEP = 6;     // the server decides from 400 characters up (Settings > Technical session)
+  const ABS_KEY = "tadamoo.abstract", ABS_MIN = 400, ABS_KEEP = 6;     // the server decides from 400 characters up (Settings > Technical session)
   const absPrefs = () => {
     try { const v = JSON.parse(localStorage.getItem(ABS_KEY) || "{}"); return { on: v.on !== false, keep: Math.max(1, Math.min(20, Math.round(Number(v.keep)) || ABS_KEEP)), codeKeep: Math.max(3, Math.min(5, Math.round(Number(v.codeKeep)) || CODE_KEEP)) }; } catch (e) { return { on: true, keep: ABS_KEEP, codeKeep: CODE_KEEP }; }
   };
@@ -432,7 +432,7 @@
     }, 250);
   }
   let limitKnown = 0;
-  document.addEventListener("basalt:chatset", meter);
+  document.addEventListener("tadamoo:chatset", meter);
   effort.addEventListener("change", meter);
 
   // apply the policy before a send: true to go on, false when the conversation cannot be sent
@@ -539,7 +539,7 @@
     if (long) { body.long_answer = long; for (const k of ["max_tokens", "max_answer_tokens", "response_format", "structured_retries"]) delete body[k]; }
     try {
       const r = await fetch("v1/chat/completions", { method: "POST", signal: controller.signal,
-        headers: { "Content-Type": "application/json", ...(long ? {} : { "X-Basalt-Compress": "1" }), ...authHeaders() }, body: JSON.stringify(body) });
+        headers: { "Content-Type": "application/json", ...(long ? {} : { "X-Tadamoo-Compress": "1" }), ...authHeaders() }, body: JSON.stringify(body) });
       if (!r.ok) {
         let msg = `HTTP ${r.status}`;
         try { msg = (await r.json()).error.message || msg; } catch (e) { /* not JSON */ }
@@ -689,8 +689,8 @@
     $("#chat-model").textContent = model;
     prompt.placeholder = images ? "Message the model, or attach an image" : "Message the model";
   }
-  document.addEventListener("basalt:key", () => { capabilities(); meter(); });
-  document.addEventListener("basalt:view", e => { if (e.detail === "chat" || e.detail === "agent") { scrollDown(true); meter(); } });
+  document.addEventListener("tadamoo:key", () => { capabilities(); meter(); });
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "chat" || e.detail === "agent") { scrollDown(true); meter(); } });
 
   // what the conversations mode shares: the safe Markdown and the reasoning box, so both chats look and behave alike
   /* ---- pictures the agent fetched, and diagrams it wrote ---- */

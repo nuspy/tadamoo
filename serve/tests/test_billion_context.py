@@ -34,7 +34,7 @@ class H(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0)); body = json.loads(self.rfile.read(n) or b"{}")
         if body.get("model") == "refuse": return self._json(502, {"error": {"message": "no"}})
         self.send_response(200); self.send_header("Content-Type", "text/event-stream"); self.end_headers()
-        self.wfile.write(("PATH " + self.path + " HOP " + str(self.headers.get("X-Basalt-Bili-Hop")) + " AUTH " + str(self.headers.get("Authorization")) + "\n").encode()); self.wfile.flush()
+        self.wfile.write(("PATH " + self.path + " HOP " + str(self.headers.get("X-Tadamoo-Bili-Hop")) + " AUTH " + str(self.headers.get("Authorization")) + "\n").encode()); self.wfile.flush()
         for i in range(200 if body.get("model") == "slow" else 3):
             time.sleep(0.2 if body.get("model") == "slow" else 0.05); self.wfile.write(("tok%d\n" % i).encode()); self.wfile.flush()
 ThreadingHTTPServer(("127.0.0.1", int(os.environ["ACP_PORT"])), H).serve_forever()
@@ -49,7 +49,7 @@ def free_port():
 
 @pytest.fixture(autouse=True)
 def data_folder(tmp_path, monkeypatch):
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path))
     return tmp_path
 
 
@@ -279,11 +279,11 @@ def test_the_post_saves_and_a_port_change_restarts(manager, monkeypatch):
 
 
 def test_the_agent_client_asks_only_when_the_server_started_it_for_a_conversation(monkeypatch):
-    from harness.client import BasaltClient
-    monkeypatch.delenv("BASALT_COMPRESS", raising=False)
-    assert bc.OPT_HEADER not in BasaltClient("http://x")._headers()
-    monkeypatch.setenv("BASALT_COMPRESS", "1")
-    assert BasaltClient("http://x")._headers()[bc.OPT_HEADER] == "1"
+    from tadamoo.client import TadamooClient
+    monkeypatch.delenv("TADAMOO_COMPRESS", raising=False)
+    assert bc.OPT_HEADER not in TadamooClient("http://x")._headers()
+    monkeypatch.setenv("TADAMOO_COMPRESS", "1")
+    assert TadamooClient("http://x")._headers()[bc.OPT_HEADER] == "1"
 
 
 def test_the_page_has_the_controls_and_every_text_in_both_languages():
@@ -298,4 +298,4 @@ def test_the_page_has_the_controls_and_every_text_in_both_languages():
     assert len(keys) >= 12
     for key in (k for k in keys if not k.endswith(".")):
         assert i18n.count(f'"{key}":') == 2, key                       # one English text and one Italian
-    assert 'X-Basalt-Compress' in (web / "chat.js").read_text(encoding="utf-8")
+    assert 'X-Tadamoo-Compress' in (web / "chat.js").read_text(encoding="utf-8")

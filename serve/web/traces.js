@@ -109,7 +109,7 @@
       }
       const blob = await r.resp.blob();
       const m = /filename="?([^";]+)"?/.exec(r.resp.headers.get("Content-Disposition") || "");
-      const name = m ? m[1] : `basalt-trace-${sel.value}.jsonl`;
+      const name = m ? m[1] : `tadamoo-trace-${sel.value}.jsonl`;
       const url = URL.createObjectURL(blob), a = mk("a");
       a.href = url;
       a.download = name;
@@ -164,5 +164,5 @@
 
   applyT(el("tr-switch"));
   applyT(el("tr"));
-  document.addEventListener("basalt:lang", () => { applyT(el("tr-switch")); applyT(el("tr")); if (S.loaded) paintList(); });
+  document.addEventListener("tadamoo:lang", () => { applyT(el("tr-switch")); applyT(el("tr")); if (S.loaded) paintList(); });
 })();

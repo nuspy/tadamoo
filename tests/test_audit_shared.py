@@ -6,8 +6,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import commands
-from harness.audit import AuditLedger
+from tadamoo import commands
+from tadamoo.audit import AuditLedger
 from test_commands import make
 from test_session import Scripted, call, say
 
@@ -36,7 +36,7 @@ def test_a_ledger_that_was_open_before_another_process_wrote_still_verifies_and_
 
 WRITER = """
 import sys
-from harness.audit import AuditLedger
+from tadamoo.audit import AuditLedger
 path, tag, n = sys.argv[1], sys.argv[2], int(sys.argv[3])
 ledger = AuditLedger(path)
 for i in range(n):

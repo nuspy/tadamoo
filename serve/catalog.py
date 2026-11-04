@@ -3,7 +3,7 @@
 Every entry was read from its repository at a pinned revision (2026-10-17). The sizes here are for display only: a
 download is planned from the sizes and SHA-256 that Hugging Face reports for that revision (serve/downloads.py).
 `convert`: "ready" a .basalt that loads as it is; "ok" a GGUF set the converter and the engine's kernels accept;
-"untested" accepted by the lists in serve/models.py but never run through Basalt; "no" not offered for download.
+"untested" accepted by the lists in serve/models.py but never run through Basalt-Plus; "no" not offered for download.
 The quality numbers say who measured them and against what: the references differ and must not be mixed."""
 from __future__ import annotations
 
@@ -76,23 +76,23 @@ FORMAT1_NOTE = {
           "python tools/migrations/basalt_v1_to_v2.py VECCHIO.basalt NUOVO.basalt (serve spazio per una seconda copia).",
 }
 UNTESTED_NOTE = {
-    "en": "Its expert formats are accepted by Basalt's lists, but this file has not been run through Basalt.",
-    "it": "I formati degli esperti sono accettati dagli elenchi di Basalt, ma questo file non è mai stato provato "
-          "con Basalt.",
+    "en": "Its expert formats are accepted by Basalt-Plus's lists, but this file has not been run through Basalt-Plus.",
+    "it": "I formati degli esperti sono accettati dagli elenchi di Basalt-Plus, ma questo file non è mai stato provato "
+          "con Basalt-Plus.",
 }
 
 # ---- who measured what ---------------------------------------------------------------------------------------
-# Basalt's own table: next-token agreement with Q8_0 through the decode path, 20 pieces of 512 tokens of wikitext-2
+# Basalt-Plus's own table: next-token agreement with Q8_0 through the decode path, 20 pieces of 512 tokens of wikitext-2
 # (README.md, "Quality"); KLD against Q8_0.
-BASALT_Q8 = {"q2_0": (80.6, 0.486), "iq3_xxs": (86.8, 0.277), "iq3_s": (89.4, 0.177), "ud-q2_k_xl": (84.3, 0.323),
+TADAMOO_Q8 = {"q2_0": (80.6, 0.486), "iq3_xxs": (86.8, 0.277), "iq3_s": (89.4, 0.177), "ud-q2_k_xl": (84.3, 0.323),
              "ud-iq3_xxs": (87.0, 0.244), "ud-q3_k_xl": (89.3, 0.160), "ud-q4_k_xl": (93.0, 0.068),
              "coder": (69.0, 1.03)}
 
 
 def _basalt(key: str) -> dict:
-    top, kld = BASALT_Q8[key]
-    return {"en": f"{top:g}% of the next tokens equal Q8_0's (Basalt's own measurement on wikitext-2; KLD {kld:g})",
-            "it": f"{str(top).replace('.', ',')}% dei token successivi uguali a Q8_0 (misura di Basalt su wikitext-2; "
+    top, kld = TADAMOO_Q8[key]
+    return {"en": f"{top:g}% of the next tokens equal Q8_0's (Basalt-Plus's own measurement on wikitext-2; KLD {kld:g})",
+            "it": f"{str(top).replace('.', ',')}% dei token successivi uguali a Q8_0 (misura di Basalt-Plus su wikitext-2; "
                   f"KLD {str(kld).replace('.', ',')})",
             "short": {"en": f"{top:g}% top token = Q8_0", "it": f"{str(top).replace('.', ',')}% token = Q8_0"},
             "source": "basalt"}
@@ -118,9 +118,9 @@ def _basalt_bf16(key: str) -> dict:
 
 def _strata(top: float, kl: float) -> dict:
     return {"en": f"{top:g}% of the next tokens equal Q8_0's (Strata's measurement on code, prose and other "
-                  f"languages; KL {kl:g}). Not measured by Basalt.",
+                  f"languages; KL {kl:g}). Not measured by Basalt-Plus.",
             "it": f"{str(top).replace('.', ',')}% dei token successivi uguali a Q8_0 (misura di Strata su codice, "
-                  f"prosa e altre lingue; KL {str(kl).replace('.', ',')}). Non misurato da Basalt.",
+                  f"prosa e altre lingue; KL {str(kl).replace('.', ',')}). Non misurato da Basalt-Plus.",
             "short": {"en": f"{top:g}% top token = Q8_0 (Strata)", "it": f"{str(top).replace('.', ',')}% token = Q8_0 (Strata)"},
             "source": "strata"}
 
@@ -161,11 +161,11 @@ _add(id="basalt-q2_0", name="Qwen3.8-Flash-Next · Q2_0", quant="Q2_0", files=["
             "it": "Il file pronto più piccolo e veloce: 2,4 bit per peso in media. Il più compresso, quindi il meno "
                   "fedele."},
      long={"en": "The base model compressed to about 2.4 bits per weight by ISTA-DASLab's GSQ-RCO method (a bit width "
-                 "chosen per tensor under a size budget), already converted to Basalt's format with a drafter "
+                 "chosen per tensor under a size budget), already converted to Basalt-Plus's format with a drafter "
                  "tuned for it. The authors report an average of 89.07 over their reasoning tasks against 93.12 for "
                  "the full-precision model. Pick it when memory or speed matter most.",
            "it": "Il modello base compresso a circa 2,4 bit per peso con il metodo GSQ-RCO di ISTA-DASLab (larghezza "
-                 "di bit scelta per tensore entro un budget di dimensione), già convertito nel formato di Basalt con "
+                 "di bit scelta per tensore entro un budget di dimensione), già convertito nel formato di Basalt-Plus con "
                  "un drafter tarato per questo file. Gli autori riportano una media di 89,07 sui loro compiti di "
                  "ragionamento contro 93,12 del modello a piena precisione. Scegli questo file quando contano "
                  "memoria e velocità."}, **_JD)
@@ -175,34 +175,34 @@ _add(id="basalt-iq3_xxs", name="Qwen3.8-Flash-Next · IQ3_XXS", quant="IQ3_XXS",
      short={"en": "3 bits per weight: the middle of the ready files, a good balance of size, speed and fidelity.",
             "it": "3 bit per peso: il centro dei file pronti, un buon equilibrio tra dimensione, velocità e "
                   "fedeltà."},
-     long={"en": "The base model at about 3 bits per weight (ISTA-DASLab GSQ-RCO), already converted to Basalt's "
+     long={"en": "The base model at about 3 bits per weight (ISTA-DASLab GSQ-RCO), already converted to Basalt-Plus's "
                  "format with a tuned drafter. The authors report 92.57 on their reasoning tasks against 93.12 at "
-                 "full precision. Basalt measures 84.0% of next tokens equal to full precision's (KLD 0.240).",
+                 "full precision. Basalt-Plus measures 84.0% of next tokens equal to full precision's (KLD 0.240).",
            "it": "Il modello base a circa 3 bit per peso (GSQ-RCO di ISTA-DASLab), già convertito nel formato di "
-                 "Basalt con un drafter tarato. Gli autori riportano 92,57 sui loro compiti di ragionamento contro "
-                 "93,12 a piena precisione. Basalt misura l'84,0% di token successivi uguali alla precisione piena (KLD 0,240)."}, **_JD)
+                 "Basalt-Plus con un drafter tarato. Gli autori riportano 92,57 sui loro compiti di ragionamento contro "
+                 "93,12 a piena precisione. Basalt-Plus misura l'84,0% di token successivi uguali alla precisione piena (KLD 0,240)."}, **_JD)
 _add(id="basalt-iq3_s", name="Qwen3.8-Flash-Next · IQ3_S", quant="IQ3_S", files=["Qwen3.8-FN-GSQ-RCO-IQ3_S.basalt"],
      approx_bytes=87_643_882_460, fidelity=_basalt_bf16("iq3_s"), match={"all": ["fn-gsq-rco-iq3_s"], "none": []},
      short={"en": "3.5 bits per weight: the most faithful of the 3-bit files, a little slower and larger.",
             "it": "3,5 bit per peso: il più fedele tra i file a 3 bit, un po' più lento e grande."},
-     long={"en": "The base model at about 3.5 bits per weight (ISTA-DASLab GSQ-RCO), already converted to Basalt's "
+     long={"en": "The base model at about 3.5 bits per weight (ISTA-DASLab GSQ-RCO), already converted to Basalt-Plus's "
                  "format with a tuned drafter. The authors report 93.26 on their reasoning tasks against 93.12 at "
-                 "full precision (a difference within the noise of the tests). Basalt measures 87.6% of next tokens "
+                 "full precision (a difference within the noise of the tests). Basalt-Plus measures 87.6% of next tokens "
                  "equal to full precision's (KLD 0.150).",
            "it": "Il modello base a circa 3,5 bit per peso (GSQ-RCO di ISTA-DASLab), già convertito nel formato di "
-                 "Basalt con un drafter tarato. Gli autori riportano 93,26 sui loro compiti di ragionamento contro "
-                 "93,12 a piena precisione (una differenza entro il rumore dei test). Basalt misura l'87,6% di "
+                 "Basalt-Plus con un drafter tarato. Gli autori riportano 93,26 sui loro compiti di ragionamento contro "
+                 "93,12 a piena precisione (una differenza entro il rumore dei test). Basalt-Plus misura l'87,6% di "
                  "token successivi uguali alla precisione piena (KLD 0,150)."}, **_JD)
 _add(id="basalt-ud-q4_k_xl", name="Qwen3.8-Flash-Next · UD-Q4_K_XL (Unsloth)", quant="UD-Q4_K_XL",
      files=["Qwen3.8-FN-UD-Q4_K_XL.basalt"], approx_bytes=115_307_561_176, fidelity=_basalt_bf16("ud-q4_k_xl"),
      match={"all": ["fn-ud-q4_k_xl"], "none": []},
      short={"en": "4-bit class (Unsloth's dynamic quantization): close to the full model, but very large.",
             "it": "Classe a 4 bit (quantizzazione dinamica di Unsloth): vicino al modello pieno, ma molto grande."},
-     long={"en": "Unsloth's 4-bit-class dynamic quantization, already converted to Basalt's format. It is the most faithful "
-                 "of the ready files that most PCs can still hold: Basalt measures 92.6% of next tokens equal to "
+     long={"en": "Unsloth's 4-bit-class dynamic quantization, already converted to Basalt-Plus's format. It is the most faithful "
+                 "of the ready files that most PCs can still hold: Basalt-Plus measures 92.6% of next tokens equal to "
                  "full precision's. Needs far more memory than the 3-bit files.",
-           "it": "La quantizzazione dinamica di Unsloth (classe a 4 bit), già convertita nel formato di Basalt. È il più "
-                 "fedele tra i file pronti che molti PC riescono ancora a contenere: Basalt misura il 92,6% di "
+           "it": "La quantizzazione dinamica di Unsloth (classe a 4 bit), già convertita nel formato di Basalt-Plus. È il più "
+                 "fedele tra i file pronti che molti PC riescono ancora a contenere: Basalt-Plus misura il 92,6% di "
                  "token successivi uguali alla precisione piena. Richiede molta più memoria dei file a 3 bit."}, **_JD)
 _add(id="basalt-nvfp4-dq6_k", name="Qwen3.8-Flash-Next · NVFP4-DQ6_K (NVIDIA)", quant="NVFP4-DQ6_K",
      files=["Qwen3.8-FN-NVFP4-DQ6_K.basalt"], approx_bytes=131_681_979_197, fidelity=_basalt_bf16("nvfp4-dq6_k"),
@@ -211,12 +211,12 @@ _add(id="basalt-nvfp4-dq6_k", name="Qwen3.8-Flash-Next · NVFP4-DQ6_K (NVIDIA)",
             "it": "Gli esperti NVFP4 di NVIDIA, bit per bit, con i livelli densi a 6 bit: vicino alla precisione piena, "
                   "molto grande."},
      long={"en": "NVIDIA's NVFP4 experts kept bit for bit; the head and embedding are Q8_0 and the dense projections are Q6_K, "
-                 "quantized once from BF16. Already converted to Basalt's format (version 2) with a tuned drafter. Basalt "
+                 "quantized once from BF16. Already converted to Basalt-Plus's format (version 2) with a tuned drafter. Basalt-Plus "
                  "measures 91.7% of next tokens equal to full precision's (KLD 0.062). Needs about 125 GB of disk and far "
                  "more memory than the 3-bit files.",
            "it": "Gli esperti NVFP4 di NVIDIA, bit per bit; la testa e gli embedding sono Q8_0 e le proiezioni dense Q6_K, "
-                 "quantizzate una sola volta da BF16. Già convertito nel formato di Basalt (versione 2) con un drafter "
-                 "tarato. Basalt misura il 91,7% di token successivi uguali alla precisione piena (KLD 0,062). Richiede "
+                 "quantizzate una sola volta da BF16. Già convertito nel formato di Basalt-Plus (versione 2) con un drafter "
+                 "tarato. Basalt-Plus misura il 91,7% di token successivi uguali alla precisione piena (KLD 0,062). Richiede "
                  "circa 125 GB di disco e molta più memoria dei file a 3 bit."}, **_JD)
 _add(id="basalt-nvfp4-dq8", name="Qwen3.8-Flash-Next · NVFP4-DQ8 (NVIDIA)", quant="NVFP4-DQ8",
      files=["Qwen3.8-FN-NVFP4-DQ8.basalt"], approx_bytes=132_367_747_589, fidelity=_basalt_bf16("nvfp4-dq8"),
@@ -226,11 +226,11 @@ _add(id="basalt-nvfp4-dq8", name="Qwen3.8-Flash-Next · NVFP4-DQ8 (NVIDIA)", qua
                   "lento."},
      long={"en": "The same NVIDIA NVFP4 experts as NVFP4-DQ6_K, with the dense projections stored as Q8_0, which removes most of "
                  "the 6-bit pack's measurable rounding. The authors measure it about 7% slower on prose and 3% on structured "
-                 "output. Basalt measures 92.3% of next tokens equal to full precision's (KLD 0.056). Version 2 format, "
+                 "output. Basalt-Plus measures 92.3% of next tokens equal to full precision's (KLD 0.056). Version 2 format, "
                  "tuned drafter; about 125 GB of disk.",
            "it": "Gli stessi esperti NVFP4 di NVIDIA del pacchetto NVFP4-DQ6_K, con le proiezioni dense salvate in Q8_0, "
                  "che toglie gran parte dell'arrotondamento misurabile del pacchetto a 6 bit. Gli autori lo misurano "
-                 "circa il 7% più lento sulla prosa e il 3% sull'output strutturato. Basalt misura il 92,3% di token "
+                 "circa il 7% più lento sulla prosa e il 3% sull'output strutturato. Basalt-Plus misura il 92,3% di token "
                  "successivi uguali alla precisione piena (KLD 0,056). Formato versione 2, drafter tarato; circa "
                  "125 GB di disco."}, **_JD)
 _add(id="basalt-ud-q5_k_xl", name="Qwen3.8-Flash-Next · UD-Q5_K_XL (Unsloth)", quant="UD-Q5_K_XL",
@@ -238,32 +238,32 @@ _add(id="basalt-ud-q5_k_xl", name="Qwen3.8-Flash-Next · UD-Q5_K_XL (Unsloth)", 
      match={"all": ["fn-ud-q5_k_xl"], "none": []},
      short={"en": "5-bit class (Unsloth's dynamic quantization): very close to the full model, and very large.",
             "it": "Classe a 5 bit (quantizzazione dinamica di Unsloth): molto vicino al modello pieno, e molto grande."},
-     long={"en": "Unsloth's 5-bit-class dynamic quantization, already converted to Basalt's format (version 2). Basalt "
+     long={"en": "Unsloth's 5-bit-class dynamic quantization, already converted to Basalt-Plus's format (version 2). Basalt-Plus "
                  "measures 94.8% of next tokens equal to full precision's (KLD 0.026). Needs about 155 GB of disk and a lot "
                  "of memory.",
-           "it": "La quantizzazione dinamica di Unsloth (classe a 5 bit), già convertita nel formato di Basalt (versione 2). "
-                 "Basalt misura il 94,8% di token successivi uguali alla precisione piena (KLD 0,026). Richiede circa "
+           "it": "La quantizzazione dinamica di Unsloth (classe a 5 bit), già convertita nel formato di Basalt-Plus (versione 2). "
+                 "Basalt-Plus misura il 94,8% di token successivi uguali alla precisione piena (KLD 0,026). Richiede circa "
                  "155 GB di disco e molta memoria."}, **_JD)
 _add(id="basalt-ud-q6_k_xl", name="Qwen3.8-Flash-Next · UD-Q6_K_XL (Unsloth)", quant="UD-Q6_K_XL",
      files=["Qwen3.8-FN-UD-Q6_K_XL.basalt"], approx_bytes=173_138_625_260, fidelity=_basalt_bf16("ud-q6_k_xl"),
      match={"all": ["fn-ud-q6_k_xl"], "none": []},
      short={"en": "6-bit class (Unsloth's dynamic quantization): nearly the full model, one of the largest files.",
             "it": "Classe a 6 bit (quantizzazione dinamica di Unsloth): quasi il modello pieno, uno dei file più grandi."},
-     long={"en": "Unsloth's 6-bit-class dynamic quantization, already converted to Basalt's format (version 2). Basalt "
+     long={"en": "Unsloth's 6-bit-class dynamic quantization, already converted to Basalt-Plus's format (version 2). Basalt-Plus "
                  "measures 95.2% of next tokens equal to full precision's (KLD 0.021). Needs about 165 GB of disk and a lot "
                  "of memory.",
-           "it": "La quantizzazione dinamica di Unsloth (classe a 6 bit), già convertita nel formato di Basalt (versione 2). "
-                 "Basalt misura il 95,2% di token successivi uguali alla precisione piena (KLD 0,021). Richiede circa "
+           "it": "La quantizzazione dinamica di Unsloth (classe a 6 bit), già convertita nel formato di Basalt-Plus (versione 2). "
+                 "Basalt-Plus misura il 95,2% di token successivi uguali alla precisione piena (KLD 0,021). Richiede circa "
                  "165 GB di disco e molta memoria."}, **_JD)
 _add(id="basalt-q8_0", name="Qwen3.8-Flash-Next · Q8_0", quant="Q8_0", files=["Qwen3.8-FN-Q8_0.basalt"],
      approx_bytes=192_197_543_485, fidelity=_basalt_bf16("q8_0"),
      match={"all": ["flash-next-q8_0"], "none": ["uncensored", "abliterated", "swift"]},
      short={"en": "8 bits per weight: the closest to the full model, but the largest file.",
             "it": "8 bit per peso: il più vicino al modello pieno, ma il file più grande."},
-     long={"en": "The base model at 8 bits per weight, already converted to Basalt's format (version 2). Basalt measures "
+     long={"en": "The base model at 8 bits per weight, already converted to Basalt-Plus's format (version 2). Basalt-Plus measures "
                  "95.3% of next tokens equal to full precision's (KLD 0.020); it needs about 180 GB of disk and a lot of "
                  "memory.",
-           "it": "Il modello base a 8 bit per peso, già convertito nel formato di Basalt (versione 2). Basalt misura il "
+           "it": "Il modello base a 8 bit per peso, già convertito nel formato di Basalt-Plus (versione 2). Basalt-Plus misura il "
                  "95,3% di token successivi uguali alla precisione piena (KLD 0,020); richiede circa 180 GB di disco e "
                  "molta memoria."}, **_JD)
 
@@ -279,15 +279,15 @@ _add(id="ista-iq2_xs", name="Qwen3.8-Flash-Next · IQ2_XS", quant="IQ2_XS", conv
                        "(autori)"),
      match={"all": ["gsq-rco-iq2_xs"], "none": ["abliterated", "swift", "uncensored"]},
      notes=[UNTESTED_NOTE],
-     short={"en": "2.5 bits per weight, between Q2_0 and IQ3_XXS in size. To convert; not run through Basalt yet.",
+     short={"en": "2.5 bits per weight, between Q2_0 and IQ3_XXS in size. To convert; not run through Basalt-Plus yet.",
             "it": "2,5 bit per peso, tra Q2_0 e IQ3_XXS per dimensione. Da convertire; non ancora provato con "
-                  "Basalt."},
-     long={"en": "The base model at about 2.5 bits per weight (ISTA-DASLab GSQ-RCO). There is no ready Basalt file "
+                  "Basalt-Plus."},
+     long={"en": "The base model at about 2.5 bits per weight (ISTA-DASLab GSQ-RCO). There is no ready Basalt-Plus file "
                  "for this size, so it is downloaded as GGUF and converted here. The authors report 89.16 on their "
-                 "reasoning tasks against 93.12 at full precision; Basalt has no measurement of its own for it.",
+                 "reasoning tasks against 93.12 at full precision; Basalt-Plus has no measurement of its own for it.",
            "it": "Il modello base a circa 2,5 bit per peso (GSQ-RCO di ISTA-DASLab). Per questa taglia non c'è un "
-                 "file Basalt pronto: si scarica come GGUF e si converte qui. Gli autori riportano 89,16 sui loro "
-                 "compiti di ragionamento contro 93,12 a piena precisione; Basalt non ha una misura propria."}, **_IS)
+                 "file Basalt-Plus pronto: si scarica come GGUF e si converte qui. Gli autori riportano 89,16 sui loro "
+                 "compiti di ragionamento contro 93,12 a piena precisione; Basalt-Plus non ha una misura propria."}, **_IS)
 _add(id="coder-iq1_m", name="Qwen3.8-Flash-Next Coder · IQ1_M", quant="IQ1_M", convert="ok", family="coder",
      repo="ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF", revision="5348543e0147355ac9cbcb031184a3546350988e",
      kind="gguf", folder="ista-gsq-rco-coder",
@@ -302,13 +302,13 @@ _add(id="coder-iq1_m", name="Qwen3.8-Flash-Next Coder · IQ1_M", quant="IQ1_M", 
                  "agent and image data, and the rest are stored at about 3.5 bits. The authors report 91.3% of the "
                  "full model's score on SWE-bench Verified (75.60 against 82.80) and 98.7% on LiveCodeBench. It is "
                  "weaker outside code and in languages other than English (Chinese answers have been reported "
-                 "wrong or looping). Basalt measures only 69% of next tokens equal to Q8_0's, which says how far it "
+                 "wrong or looping). Basalt-Plus measures only 69% of next tokens equal to Q8_0's, which says how far it "
                  "is from the full model on general text.",
            "it": "La versione per il codice di ISTA-DASLab: in ogni strato 256 esperti su 512 sono stati tolti, scelti "
                  "su dati di codice, agenti e immagini, e gli altri sono salvati a circa 3,5 bit. Gli autori "
                  "riportano il 91,3% del punteggio del modello pieno su SWE-bench Verified (75,60 contro 82,80) e il "
                  "98,7% su LiveCodeBench. È più debole fuori dal codice e nelle lingue diverse dall'inglese (sono "
-                 "state segnalate risposte in cinese sbagliate o in loop). Basalt misura solo il 69% di token "
+                 "state segnalate risposte in cinese sbagliate o in loop). Basalt-Plus misura solo il 69% di token "
                  "successivi uguali a Q8_0, il che dice quanto è lontano dal modello pieno sul testo generale."})
 
 # -- Swift 1.5 (ukisai): same structure as ISTA, fine-tuned to think shorter --
@@ -425,10 +425,10 @@ _add(id="orca-iq3_xxs", name="Uncensored (OrcaRouter) · IQ3_XXS", quant="IQ3_XX
                   "repository.",
             "it": "Uncensored a 3 bit per peso. Il file da cui è stato convertito il modello attuale di questo PC. "
                   "Repository ad accesso controllato."},
-     long={"en": _OR_LONG["en"] + "This IQ3_XXS file converts with Basalt (it needs the flag that rounds a few small "
+     long={"en": _OR_LONG["en"] + "This IQ3_XXS file converts with Basalt-Plus (it needs the flag that rounds a few small "
                                   "tensors to BF16, which the conversion adds by itself). The files total about 80 GB, and the "
                                   "second shard is mostly the per-layer embedding table.",
-           "it": _OR_LONG["it"] + "Questo file IQ3_XXS si converte con Basalt (serve il flag che arrotonda a BF16 "
+           "it": _OR_LONG["it"] + "Questo file IQ3_XXS si converte con Basalt-Plus (serve il flag che arrotonda a BF16 "
                                   "alcuni tensori piccoli, che la conversione aggiunge da sola). I file pesano circa 80 GB in tutto e "
                                   "il secondo shard è soprattutto la tabella degli embedding per strato."}, **_OR)
 _add(id="orca-iq4_xs", name="Uncensored (OrcaRouter) · IQ4_XS", quant="IQ4_XS", convert="untested", fidelity=_OR_FID,
@@ -438,8 +438,8 @@ _add(id="orca-iq4_xs", name="Uncensored (OrcaRouter) · IQ4_XS", quant="IQ4_XS",
      short={"en": "Uncensored, IQ4_XS: a step up from IQ3_XXS in size and fidelity. Gated.",
             "it": "Uncensored, IQ4_XS: un passo avanti rispetto a IQ3_XXS per dimensione e fedeltà. Ad "
                   "accesso controllato."},
-     long={"en": _OR_LONG["en"] + "This IQ4_XS file has expert formats Basalt accepts, but it has not been tried.",
-           "it": _OR_LONG["it"] + "Questo file IQ4_XS ha formati degli esperti che Basalt accetta, ma non è mai stato "
+     long={"en": _OR_LONG["en"] + "This IQ4_XS file has expert formats Basalt-Plus accepts, but it has not been tried.",
+           "it": _OR_LONG["it"] + "Questo file IQ4_XS ha formati degli esperti che Basalt-Plus accetta, ma non è mai stato "
                                   "provato."}, **_OR)
 _add(id="orca-q8_0", name="Uncensored (OrcaRouter) · Q8_0", quant="Q8_0", convert="ok", fidelity=_OR_FID,
      files=_shards("Qwen3.8-Flash-Next-Uncensored-Q8_0", 5) + ["mmproj-Qwen3.8-Flash-Next-Uncensored-F16.gguf"],
@@ -461,12 +461,12 @@ _add(id="jsonai-q4_k_m", name="Uncensored (JSon-AI) · Q4_K_M, ready .basalt", q
      notes=[UNCENSORED_WARNING, FORMAT1_NOTE,
             {"en": "Made by a third party, published on 2026-10-15 and not yet downloaded by anyone when this "
                    "list was written: its origin cannot be checked here beyond the SHA-256 the download verifies. "
-                   "It was converted from OrcaRouter's Q4_K_M, whose 5-bit expert format is accepted by Basalt's "
+                   "It was converted from OrcaRouter's Q4_K_M, whose 5-bit expert format is accepted by Basalt-Plus's "
                    "lists but not covered by its parity tests.",
              "it": "Fatto da terzi, pubblicato il 15/10/2026 e non ancora scaricato da nessuno quando questo elenco "
                    "è stato scritto: la sua origine non è verificabile qui oltre allo SHA-256 che il download "
                    "controlla. È stato convertito dal Q4_K_M di OrcaRouter, il cui formato degli esperti a 5 bit è "
-                   "accettato dagli elenchi di Basalt ma non è coperto dai suoi test di parità."}],
+                   "accettato dagli elenchi di Basalt-Plus ma non è coperto dai suoi test di parità."}],
      short={"en": "A ready .basalt of the uncensored model (Q4_K_M). Third-party file, not verified.",
             "it": "Un .basalt già pronto del modello uncensored (Q4_K_M). File di terzi, non verificato."},
      long={"en": "A .basalt file of OrcaRouter's uncensored model (Q4_K_M), converted by JSon-AI, so it needs no "
@@ -477,46 +477,46 @@ _add(id="jsonai-q4_k_m", name="Uncensored (JSon-AI) · Q4_K_M, ready .basalt", q
                  "pubblicata alcuna misura di fedeltà e il file viene da un solo account di terzi, nuovo."})
 
 # -- shown, not offered: why they would not run --
-_NO_EXPERTS = {"en": "Basalt's kernels have no format for these experts, so the engine would refuse the model.",
-               "it": "I kernel di Basalt non hanno un formato per questi esperti, quindi il motore rifiuterebbe il "
+_NO_EXPERTS = {"en": "Basalt-Plus's kernels have no format for these experts, so the engine would refuse the model.",
+               "it": "I kernel di Basalt-Plus non hanno un formato per questi esperti, quindi il motore rifiuterebbe il "
                      "modello."}
 for _id, _name, _q, _gb, _why in (
         ("unsloth-ud-q5_k_xl", "Qwen3.8-Flash-Next · UD-Q5_K_XL (Unsloth)", "UD-Q5_K_XL", 158.29,
-         {"en": "It stores part of the experts as Q6_K, which Basalt's kernels do not support.",
-          "it": "Tiene una parte degli esperti in Q6_K, che i kernel di Basalt non supportano."}),
+         {"en": "It stores part of the experts as Q6_K, which Basalt-Plus's kernels do not support.",
+          "it": "Tiene una parte degli esperti in Q6_K, che i kernel di Basalt-Plus non supportano."}),
         ("unsloth-ud-q6_k_xl", "Qwen3.8-Flash-Next · UD-Q6_K_XL (Unsloth)", "UD-Q6_K_XL", 169.17,
-         {"en": "Its experts are Q6_K, which Basalt's kernels do not support.",
-          "it": "I suoi esperti sono Q6_K, che i kernel di Basalt non supportano."}),
+         {"en": "Its experts are Q6_K, which Basalt-Plus's kernels do not support.",
+          "it": "I suoi esperti sono Q6_K, che i kernel di Basalt-Plus non supportano."}),
         ("unsloth-ud-iq1_s", "Qwen3.8-Flash-Next · UD-IQ1_S (Unsloth)", "UD-IQ1_S", 72.55,
-         {"en": "Its experts are IQ1_S, which Basalt's kernels do not support.",
-          "it": "I suoi esperti sono IQ1_S, che i kernel di Basalt non supportano."}),
+         {"en": "Its experts are IQ1_S, which Basalt-Plus's kernels do not support.",
+          "it": "I suoi esperti sono IQ1_S, che i kernel di Basalt-Plus non supportano."}),
         ("orca-iq2_xxs", "Uncensored (OrcaRouter) · IQ2_XXS", "IQ2_XXS", 74.85,
-         {"en": "Its first layers use Q4_0 experts, which Basalt's kernels do not support.",
-          "it": "I suoi primi strati usano esperti Q4_0, che i kernel di Basalt non supportano."}),
+         {"en": "Its first layers use Q4_0 experts, which Basalt-Plus's kernels do not support.",
+          "it": "I suoi primi strati usano esperti Q4_0, che i kernel di Basalt-Plus non supportano."}),
         ("orca-k-quants", "Uncensored (OrcaRouter) · Q2_K and Q3_K", "Q2_K / Q3_K", 80.45,
-         {"en": "K-quants of 2 and 3 bits use expert formats Basalt's kernels do not support.",
-          "it": "I K-quant a 2 e 3 bit usano formati degli esperti che i kernel di Basalt non supportano."})):
+         {"en": "K-quants of 2 and 3 bits use expert formats Basalt-Plus's kernels do not support.",
+          "it": "I K-quant a 2 e 3 bit usano formati degli esperti che i kernel di Basalt-Plus non supportano."})):
     _add(id=_id, name=_name, quant=_q, convert="no", files=[], approx_bytes=int(_gb * 1e9), repo="", revision="",
          kind="gguf", folder="", family="uncensored" if _id.startswith("orca") else "unsloth",
          uncensored=_id.startswith("orca"), fidelity=_NONE, reason=_why,
-         short={"en": "Not compatible with Basalt. " + _why["en"], "it": "Non compatibile con Basalt. " + _why["it"]},
+         short={"en": "Not compatible with Basalt-Plus. " + _why["en"], "it": "Non compatibile con Basalt-Plus. " + _why["it"]},
          long={"en": "Not offered for download: " + _why["en"], "it": "Non offerto per il download: " + _why["it"]})
 _add(id="qwen38-35b-a3b", name="Qwen3.8-35B-A3B (community distillation)", quant="—", convert="no", files=[],
      approx_bytes=0, repo="", revision="", kind="gguf", folder="", family="base", fidelity=_NONE,
      reason={"en": "It is a different architecture (Qwen3.6-35B-A3B: 40 layers, hidden size 2048, 256 experts) with "
-                   "Qwen3.8 only as the teacher of a distillation. Basalt's engine is written for Flash-Next's "
+                   "Qwen3.8 only as the teacher of a distillation. Basalt-Plus's engine is written for Flash-Next's "
                    "shapes (48 layers, 2560, 512 experts, hyper-connections), so supporting it would need a second "
                    "engine, not small changes.",
              "it": "È un'altra architettura (Qwen3.6-35B-A3B: 40 strati, dimensione 2048, 256 esperti) con Qwen3.8 "
-                   "solo come insegnante di una distillazione. Il motore di Basalt è scritto per le forme di "
+                   "solo come insegnante di una distillazione. Il motore di Basalt-Plus è scritto per le forme di "
                    "Flash-Next (48 strati, 2560, 512 esperti, hyper-connection), quindi supportarlo richiederebbe "
                    "un secondo motore, non piccole modifiche."},
      short={"en": "Not compatible: another architecture; there is no official Qwen3.8-35B-A3B.",
             "it": "Non compatibile: un'altra architettura; non esiste un Qwen3.8-35B-A3B ufficiale."},
      long={"en": "There is no official Qwen3.8-35B-A3B. The models sold under that name are community "
-                 "distillations of Qwen3.8 into the Qwen3.6-35B-A3B architecture, which Basalt cannot run.",
+                 "distillations of Qwen3.8 into the Qwen3.6-35B-A3B architecture, which Basalt-Plus cannot run.",
            "it": "Non esiste un Qwen3.8-35B-A3B ufficiale. I modelli venduti con quel nome sono distillazioni "
-                 "della comunità di Qwen3.8 nell'architettura Qwen3.6-35B-A3B, che Basalt non può eseguire."})
+                 "della comunità di Qwen3.8 nell'architettura Qwen3.6-35B-A3B, che Basalt-Plus non può eseguire."})
 
 CATALOG: list[dict] = _E
 GENERIC = {"plain": _PLAIN, "mmproj": MMPROJ_NOTE, "convert": CONVERT_NOTE, "ready": READY_NOTE}

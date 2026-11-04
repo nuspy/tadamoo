@@ -1,5 +1,5 @@
 "use strict";
-/* Reverse engineering with REA, in the Agent tab. One switch registers REA's MCP server and skill with Basalt; the list below it
+/* Reverse engineering with REA, in the Agent tab. One switch registers REA's MCP server and skill with TaDaMoo; the list below it
    shows the programs REA can use and installs one only when its button is pressed, with the command shown first.
    Everything the server sends goes in as text. See docs/rea.md. */
 (function () {
@@ -100,7 +100,7 @@
     busy = false; paint();
   });
 
-  document.addEventListener("basalt:view", e => { if (e.detail === "agent") load(); });
-  document.addEventListener("basalt:lang", () => paint());
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "agent") load(); });
+  document.addEventListener("tadamoo:lang", () => paint());
   if (document.body.dataset.view === "agent") load();
 })();

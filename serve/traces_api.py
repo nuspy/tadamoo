@@ -1,7 +1,7 @@
 """The traces of the Chat and Agent conversations for the LOGS page: the list, a replay, a masked export and the audit ledger.
 
-A trace is read from the conversation's saved history (harness/replay.py); the audit ledger is the hash-chained record
-the conversation's folder keeps (harness/audit.py). Nothing here runs a tool or calls the model: a replay answers from
+A trace is read from the conversation's saved history (tadamoo/replay.py); the audit ledger is the hash-chained record
+the conversation's folder keeps (tadamoo/audit.py). Nothing here runs a tool or calls the model: a replay answers from
 what was recorded, with stand-ins for the tools.
 """
 from __future__ import annotations
@@ -10,9 +10,9 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from harness import replay as replay_mod
-from harness.audit import AuditLedger
-from harness.stack import data_dir_for
+from tadamoo import replay as replay_mod
+from tadamoo.audit import AuditLedger
+from tadamoo.stack import data_dir_for
 from serve.agent_runs import RunError
 
 REPLAY_MODES = ("read_only", "default", "auto")
@@ -60,13 +60,13 @@ def export(sessions: Any, sid: str) -> Tuple[bytes, str]:
     folder = _checked(sessions, sid)
     rec = _record(sessions, sid)
     text = replay_mod.export_history(folder, meta={"session": sid, "title": rec.get("title", ""), "mode": rec.get("mode", "")})
-    return text.encode("utf-8"), f"basalt-trace-{sid}-{time.strftime('%Y%m%d-%H%M%S')}.jsonl"
+    return text.encode("utf-8"), f"tadamoo-trace-{sid}-{time.strftime('%Y%m%d-%H%M%S')}.jsonl"
 
 
 def replay(sessions: Any, sid: str, mode: Any = "default", compare_results: bool = False) -> Dict[str, Any]:
     """Runs the conversation again with the recorded answers and the tools' recorded results, under the permission level
     asked for, and says whether the same tools were called with the same arguments and got the same decisions."""
-    from harness.permissions import PermissionLevel, PermissionManager
+    from tadamoo.permissions import PermissionLevel, PermissionManager
     if mode not in REPLAY_MODES:
         raise ValueError("the permission level of a replay is read_only, default or auto")
     folder = _checked(sessions, sid)

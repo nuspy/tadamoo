@@ -5,7 +5,7 @@ back is replaced by what it does, written in words by the technical session (a f
 by the name of the file where the original is saved, so nothing is lost and the person can send it again. A call of the session reads only the
 block under a prompt of its own: it never touches a conversation.
 
-The Agent does not use this: a session with file and shell tools keeps its code whole (harness/context.py).
+The Agent does not use this: a session with file and shell tools keeps its code whole (tadamoo/context.py).
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from harness import codeblocks, digest, side_uses
+from tadamoo import codeblocks, digest, side_uses
 from serve import chatctx
 from serve.longform import request_language
 from serve.userdata import user_data_dir
@@ -32,12 +32,12 @@ MAX_DESCRIPTION_CHARS = 700
 COMMENT_CHARS = 100
 
 TEXTS = {
-    "en": {"pointer": "[Code removed from this message to save room. {what} The original ({lines} lines) is saved as {path} in the Basalt data folder; if you "
+    "en": {"pointer": "[Code removed from this message to save room. {what} The original ({lines} lines) is saved as {path} in the TaDaMoo data folder; if you "
                       "need its exact lines, ask the person to send it again.]",
            "outline": "{lang} code of {lines} lines", "classes": "it defines the classes {names}", "functions": "the functions {names}",
            "comment": "it starts with the comment \"{text}\"", "none": "it defines no function or class"},
     "it": {"pointer": "[Codice tolto da questo messaggio per risparmiare spazio. {what} L'originale ({lines} righe) è salvato come {path} nella cartella dati di "
-                      "Basalt; se ti servono le righe esatte, chiedi alla persona di rimandarlo.]",
+                      "TaDaMoo; se ti servono le righe esatte, chiedi alla persona di rimandarlo.]",
            "outline": "Codice {lang} di {lines} righe", "classes": "definisce le classi {names}", "functions": "le funzioni {names}",
            "comment": "inizia con il commento \"{text}\"", "none": "non definisce funzioni né classi"},
 }

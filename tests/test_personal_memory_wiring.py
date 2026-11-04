@@ -1,9 +1,9 @@
 """The person's notes in a conversation: the flags that open them, where they come in, and that they do not leave the PC unasked."""
 import argparse
 
-from harness.llm.client import RoutedClient
-from harness.personal_memory import PersonalMemory
-from harness.stack import AgentConfig, add_agent_arguments, agent_settings, build_agent
+from tadamoo.llm.client import RoutedClient
+from tadamoo.personal_memory import PersonalMemory
+from tadamoo.stack import AgentConfig, add_agent_arguments, agent_settings, build_agent
 
 
 def built_with(tmp_path, client=None, **settings):
@@ -86,7 +86,7 @@ def test_a_conversation_that_goes_to_another_provider_gets_no_notes_unless_allow
 
 
 def test_a_routed_client_says_whether_it_stays_on_this_pc():
-    from harness.llm.client import TYPES
+    from tadamoo.llm.client import TYPES
     here = next(name for name, spec in TYPES.items() if spec.get("this_server"))
     away = next(name for name, spec in TYPES.items() if not spec.get("this_server"))
     assert RoutedClient("executor", Registry([None], {}), object()).stays_local() is True

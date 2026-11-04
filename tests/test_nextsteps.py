@@ -7,12 +7,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from harness import agent_loop as al
-from harness import nextsteps as ns
-from harness import questions as qs
-from harness.project_profile import Check
-from harness.session import Session, SessionStore, Task
-from harness.stack import AgentConfig, build_agent
+from tadamoo import agent_loop as al
+from tadamoo import nextsteps as ns
+from tadamoo import questions as qs
+from tadamoo.project_profile import Check
+from tadamoo.session import Session, SessionStore, Task
+from tadamoo.stack import AgentConfig, build_agent
 
 
 @pytest.fixture(autouse=True)

@@ -10,11 +10,11 @@ The rule that runs through it: whatever can be code is code (events, counters, f
 
 ## What exists today
 
-- **Identity** is one short prompt (`SYSTEM_CORE` in `harness/stack.py`). The model is not told its window, that old tool results are masked and the conversation folded,
+- **Identity** is one short prompt (`SYSTEM_CORE` in `tadamoo/stack.py`). The model is not told its window, that old tool results are masked and the conversation folded,
   its budget, or what it cannot do. `/status`, `/tools`, `/context` show these to the person only; the model cannot call them.
-- **Target and progress**: the Target Loop (`harness/target.py`) splits a text into criteria and tasks, judges them with cited evidence and goes on until the criteria hold
-  or it stalls. It is the real "persist until done" and it has to be started. A plain turn has no goal state; the gate (`harness/gate.py`) runs only commands the person
-  listed; `harness/progress.py` writes a line for the person and never gives it back to the model.
+- **Target and progress**: the Target Loop (`tadamoo/target.py`) splits a text into criteria and tasks, judges them with cited evidence and goes on until the criteria hold
+  or it stalls. It is the real "persist until done" and it has to be started. A plain turn has no goal state; the gate (`tadamoo/gate.py`) runs only commands the person
+  listed; `tadamoo/progress.py` writes a line for the person and never gives it back to the model.
 - **Stops and warnings**: loop guard, repeat guard, error classifier, budget warning at 90% with a last report. All are reactive, and all end in a note or a stop.
 - **Memory**: project notes (`remember`/`recall`, only when the model chooses), the person's own memories, the index of past conversations, routine outcomes (per routine),
   compaction summaries that keep "decisions and why" and "lessons" inside one conversation. The audit ledger records everything and nothing reads it back.
@@ -55,7 +55,7 @@ The rule that runs through it: whatever can be code is code (events, counters, f
 
 - **Outcome record** after every task, by code: result (done, stalled, abandoned, stopped, failed), steps, tokens, time, errors by tool, retries, loop strikes, gate rounds,
   compactions, whether the person corrected the agent. One JSON line in `outcomes.jsonl`.
-- **Lessons** in a readable Markdown file the person can open and edit, at two levels: `<project>/.basalt/lessons.md` (shareable with the project, can be git-ignored) and a
+- **Lessons** in a readable Markdown file the person can open and edit, at two levels: `<project>/.tadamoo/lessons.md` (shareable with the project, can be git-ignored) and a
   global file in the user data folder for lessons that hold everywhere. Each entry: when, the situation in a few words, what went wrong or worked, the fix, evidence (audit ids),
   how many times it was confirmed, scope (this project / everywhere).
 - **Captured by code** from events that already exist, not by asking the model to remember:

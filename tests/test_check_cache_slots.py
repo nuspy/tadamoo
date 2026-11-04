@@ -46,7 +46,7 @@ class FakeLlama:
         return (200, [{"id": i} for i in range(self.slots)]) if self.listing and path == "/slots" else (404, {})
 
 
-class FakeBasalt:
+class FakeTadamoo:
     def __init__(self, side=True, caches=True):
         self.cache, self.side, self.caches = Cache(2), side, caches
 
@@ -91,14 +91,14 @@ def test_a_slot_count_that_disagrees_with_the_listing_fails():
 
 
 def test_a_basalt_server_with_a_session_serves_side_calls_there_and_refuses_oversized_strict_ones():
-    results = cs.check("x", "basalt", "m", transport=FakeBasalt(side=True))
+    results = cs.check("x", "basalt", "m", transport=FakeTadamoo(side=True))
     assert by_probe(results) == {"accepts_other_key": "PASS", "bad_value": "PASS", "same_slot_reuse": "PASS", "other_slot_kept": "PASS",
                                  "side_session": "PASS", "slots_listing": "SKIP"}
     assert "served by the side slot" in next(r["detail"] for r in results if r["probe"] == "other_slot_kept")
 
 
 def test_a_basalt_server_without_a_session_serves_side_calls_from_an_ordinary_slot():
-    out = by_probe(cs.check("x", "basalt", "m", transport=FakeBasalt(side=False)))
+    out = by_probe(cs.check("x", "basalt", "m", transport=FakeTadamoo(side=False)))
     assert out["side_session"] == "PASS" and out["bad_value"] == "PASS"
 
 

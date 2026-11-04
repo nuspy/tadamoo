@@ -5,7 +5,7 @@
    Everything the agent or a tool wrote enters the page through text nodes; the Markdown of its answers goes through the
    same safe renderer as the model-only chat. */
 (() => {
-  const MODE_KEY = "basalt.chatmode", LAST_KEYS = { chat: "basalt.chat.session", agent: "basalt.agent.session" }, PROJECT_KEY = "basalt.agent.project";
+  const MODE_KEY = "tadamoo.chatmode", LAST_KEYS = { chat: "tadamoo.chat.session", agent: "tadamoo.agent.session" }, PROJECT_KEY = "tadamoo.agent.project";
   const MODES = ["agent", "ask", "direct"];
   const FAST_MS = 350, SLOW_MS = 3000, SHOWN_OUTPUT = 1500, EXPLAIN_MAX = 300;
   /* what an action is called when the model gave no sentence for it: a phrase by tool name (ch.act.*), else a generic one */
@@ -22,7 +22,7 @@
   let chatNotes = {};
   const readNotes = d => { chatNotes = (d && d.chat_notes) || {}; };
   fetch("api/gate", { cache: "no-store", headers: authHeaders() }).then(r => (r.ok ? r.json() : null)).then(readNotes).catch(() => { /* no notes shown */ });
-  document.addEventListener("basalt:gate", e => readNotes(e.detail));
+  document.addEventListener("tadamoo:gate", e => readNotes(e.detail));
   const noteOn = k => chatNotes[k] === true;
   const load = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } };
   const keep = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* this page only */ } };
@@ -129,7 +129,7 @@
     paintFolder();
     paintChip();
     paintLive();
-    document.dispatchEvent(new Event("basalt:chat-state"));                    // the privacy buttons follow the open conversation
+    document.dispatchEvent(new Event("tadamoo:chat-state"));                    // the privacy buttons follow the open conversation
     if (window.codingUi) window.codingUi.refresh();
     const on = active();
     if (!on) return;
@@ -145,7 +145,7 @@
   modeSel.onchange = () => { mode = modeSel.value; keep(MODE_KEY, mode); if (sid) forget(); applyMode(); };
 
   /* ---- the column of conversations: the earlier ones to open again or delete, the favourites kept apart and above the rest ---- */
-  const convs = $("#convs"), CV_KEY = "basalt.chat.convs";
+  const convs = $("#convs"), CV_KEY = "tadamoo.chat.convs";
   let known = [];                                                              // what the server lists, newest first
   const when = ts => (ts ? new Date(ts * 1000).toLocaleString(LANG === "it" ? "it-IT" : "en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "");
   function setColumn(open) {
@@ -255,18 +255,18 @@
     status(T("ch.branch.done"));
   }
   $("#branch-chat").onclick = () => branch();
-  document.addEventListener("basalt:chatset", () => setControls());
+  document.addEventListener("tadamoo:chatset", () => setControls());
   /* the steps one answer may take and the end-of-turn bias are read from the panel when a conversation starts; a change made in the panel
      afterwards is sent to the open conversation (it is compared with the panel's own earlier value, not with the conversation's) */
   let panelWas = JSON.stringify(chatSettings.live()), panelTimer = 0;
-  document.addEventListener("basalt:chatset-settled", () => { panelWas = JSON.stringify(chatSettings.live()); });
+  document.addEventListener("tadamoo:chatset-settled", () => { panelWas = JSON.stringify(chatSettings.live()); });
   function paintLive() {
     const el = $("#cs-live"), on = active() && !!sid && !!rec && rec.max_turns !== undefined;
     if (!el) return;
     el.hidden = !on;
     if (on) el.textContent = T("cs.live", rec.max_turns > 0 ? rec.max_turns : T("cs.live.none"), rec.end_turn_bias || 0);
   }
-  document.addEventListener("basalt:chatset", () => {
+  document.addEventListener("tadamoo:chatset", () => {
     clearTimeout(panelTimer);
     panelTimer = setTimeout(async () => {
       const now = chatSettings.live(), before = JSON.parse(panelWas);
@@ -319,7 +319,7 @@
     return current;
   }
   function noteItem(it) { items.push({ kind: "note", ts: stampOf(), ...it }); }
-  /* Optimize prompt (harness/optimize.py): under the person's message, what the model read in its place, or why the rewrite was not used */
+  /* Optimize prompt (tadamoo/optimize.py): under the person's message, what the model read in its place, or why the rewrite was not used */
   const OPT_WHY = ["lost", "ratio", "answer", "leak", "cut", "empty"];
   function optimizedNote(state, reason, detail, text, original, turn) {
     const waiting = (byTurn[turn] ? byTurn[turn].blocks : []).find(b => b.wait && !b.gone);
@@ -328,7 +328,7 @@
     if (state === "sent") addBlock({ t: "opt", text: String(text || ""), original: String(original || "") }, turn);
     else if (state === "rejected") addBlock({ t: "note", s: T("ch.opt.rejected." + (OPT_WHY.includes(reason) ? reason : "empty"), String(detail || "")) }, turn);
   }
-  /* a reply the output limit cut is asked to go on (harness/agent_loop.py): its words join the text already shown, with no doubled space and
+  /* a reply the output limit cut is asked to go on (tadamoo/agent_loop.py): its words join the text already shown, with no doubled space and
      none of the words the model wrote again. They are held back for a moment so the start can be compared with the end of the text. */
   function joinPending(a, force) {
     if (!a.joinTo || (!force && a.joinBuf.length < 160)) return;
@@ -359,7 +359,7 @@
     switch (e.event) {
       case "user": closeQuestions(); clearChips(); userItem(e.text, e.attachments); break;
       case "accepted": clearChips(); assistant(e.turn); started(e.turn); break;
-      case "intake": {                                                         // what the harness assumed or split before the agent began (harness/intake.py)
+      case "intake": {                                                         // what the harness assumed or split before the agent began (tadamoo/intake.py)
         const lines = [];
         if ((e.assumptions || []).length) lines.push(T("ch.intake.assumed", e.assumptions.join("; ")));
         if ((e.subtasks || []).length) lines.push(T("ch.intake.parts", e.subtasks.length, e.subtasks.join("; ")));
@@ -393,12 +393,12 @@
         if ("end_turn_bias" in e) noteItem({ s: T("ch.settings.bias", e.end_turn_bias || 0) });
         paintLive();
         break;
-      case "command": document.dispatchEvent(new CustomEvent("basalt:command", { detail: e })); break;
+      case "command": document.dispatchEvent(new CustomEvent("tadamoo:command", { detail: e })); break;
       case "target": {                                                         // the Target Loop (target.js) tells how it goes
         const n = e.what, args = { planned: [e.criteria, e.tasks], task: [e.n, e.of, e.title], pass: [e.n, e.achieved, e.total], fix: [e.tasks], approach: [e.tasks],
           achieved: [e.achieved], blocked: [e.achieved, e.total], stopped: [e.achieved, e.total] }[n];
         if (args) noteItem({ s: T("tg.note." + n, ...args) });
-        document.dispatchEvent(new CustomEvent("basalt:target", { detail: e }));
+        document.dispatchEvent(new CustomEvent("tadamoo:target", { detail: e }));
         break;
       }
       case "dropped": started(e.turn); noteItem({ s: T("ch.dropped") }); break;
@@ -578,7 +578,7 @@
   /* ---- drawing ---- */
   const planIdOf = b => (b.args && b.args.plan_id) || ((b.output.match(/Plan ([A-Za-z0-9_-]+):/) || [])[1]) || "";
   function openPlan(id) {
-    try { sessionStorage.setItem("basalt.openplan", id); } catch (e) { /* the view opens anyway */ }
+    try { sessionStorage.setItem("tadamoo.openplan", id); } catch (e) { /* the view opens anyway */ }
     location.hash = "plans";
   }
   function askQuestion(b) {                                                    // the harness's question, in the language of the page
@@ -919,7 +919,7 @@
         branchBtn.prepend(icon(BRANCH_ICON));
         const save = btn(T("sf.btn"), "ghost savefile", () => {
           const text = answerText(it);
-          if (text && window.BasaltSave) window.BasaltSave.message(save, { text, time: it.ts || 0, turn: items.indexOf(it) + 1 });     // only on the person's click
+          if (text && window.TadamooSave) window.TadamooSave.message(save, { text, time: it.ts || 0, turn: items.indexOf(it) + 1 });     // only on the person's click
         });
         save.title = T("sf.tip");
         it.actsEl.append(copyButton(() => answerText(it)), save, branchBtn);
@@ -1147,7 +1147,7 @@
   }
 
   /* ---- what a new conversation may do without asking: its mode and the rules that let a kind of command run ---- */
-  const PERM_KEY = "basalt.chat.perm", ALLOW_KEY = "basalt.chat.allow";
+  const PERM_KEY = "tadamoo.chat.perm", ALLOW_KEY = "tadamoo.chat.allow";
   const permRadios = [...document.querySelectorAll('input[name="cs-perm"]')], allowBox = $("#cs-allow"), autoRisk = $("#cs-auto-risk");
   const permMode = () => (permRadios.find(r => r.checked) || {}).value || "default";
   const PERM_CYCLE = ["default", "plan", "read_only", "auto"];                // the order Shift+Tab goes through
@@ -1163,7 +1163,7 @@
     chip.setAttribute("aria-label", T("ch.chip", T("ag.mode." + m)));
     chip.title = T("ag.mode." + m + ".d");
   }
-  window.basaltAutoMode = () => permNow() === "auto";                         // the risk questions of other settings answer yes by themselves while this is on
+  window.tadamooAutoMode = () => permNow() === "auto";                         // the risk questions of other settings answer yes by themselves while this is on
   async function setPerm(m) {                                                // false when the server did not take it
     if (sid) {
       const r = await api("POST", `/${sid}/mode`, { mode: m });
@@ -1196,7 +1196,7 @@
   /* ---- the conversation's own copy of the folder: what it changed waits here until the person applies it ---- */
   const copyBar = $("#acopy"), copyText = $("#acopy-text"), copyOpen = $("#acopy-open"), copyPanel = $("#acopy-panel");
   /* pictures and charts: each is switched on by its own box and asked for at a level; they apply to the next new conversation */
-  const VIS_KEY = "basalt.visuals";
+  const VIS_KEY = "tadamoo.visuals";
   const vis = { imgOn: $("#cs-img-on"), imgLevel: $("#cs-img-level"), chartOn: $("#cs-chart-on"), chartLevel: $("#cs-chart-level") };
   (() => {
     let saved = {};
@@ -1298,7 +1298,7 @@
     const files = pend.filter(f => f.id);
     const r = await api("POST", `/${sid}/send`, { text, ...(files.length ? { attachments: files.map(f => f.id) } : {}) });
     if (!r.ok) { status(errText(r)); window.chatUi.setPrompt(text); return; }
-    document.dispatchEvent(new CustomEvent("basalt:sent", { detail: { text } }));
+    document.dispatchEvent(new CustomEvent("tadamoo:sent", { detail: { text } }));
     clearChips();
     pend = []; drawPend();
     state = "busy"; busyNow = true; status(T("ch.working")); setControls(); poll(true);
@@ -1309,7 +1309,7 @@
     const r = await api("POST", `/${sid}/send`, { text, optimize: false });
     if (!r.ok) { status(errText(r)); return; }
     if (button) button.disabled = true;
-    document.dispatchEvent(new CustomEvent("basalt:sent", { detail: { text } }));
+    document.dispatchEvent(new CustomEvent("tadamoo:sent", { detail: { text } }));
     clearChips();
     state = "busy"; busyNow = true; status(T("ch.working")); setControls(); poll(true);
   }
@@ -1390,7 +1390,7 @@
     if (active() && last && known.some(x => x.id === last && inContext(x))) openSession(last);
   }
   window.agentProjects.onChange(list => { projects = list; paintList(); setControls(); });
-  document.addEventListener("basalt:view", e => { if (e.detail === "chat" || e.detail === "agent") { enterContext().then(() => { refreshList(); poll(true); }); } });
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "chat" || e.detail === "agent") { enterContext().then(() => { refreshList(); poll(true); }); } });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(true); });
 
   /* ---- what the slash commands (slash.js) use ---- */
@@ -1443,7 +1443,7 @@
     perm: { now: permNow, set: setPerm, cycle: cyclePerm, available: () => active() && mode !== "ask", modes: PERM_CYCLE },
     sessions: () => known.filter(s => s.state !== "closed" && inContext(s)).map(s => ({ id: s.id, label: `${s.title || s.id} \u00B7 ${T("ch.state." + s.state)}` })), open: openSession, branch, hasCopy: () => !!(rec && rec.worktree),
     toggleCopy: () => copyOpen.click() };
-  document.addEventListener("basalt:open-session", async e => {      // the tree of branches opens a conversation here
+  document.addEventListener("tadamoo:open-session", async e => {      // the tree of branches opens a conversation here
     const id = e.detail && e.detail.id;
     if (!id) return;
     await refreshList();

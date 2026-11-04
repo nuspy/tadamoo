@@ -1,12 +1,12 @@
 # llama-server (llama.cpp) in the Loader
 
-llama.cpp's server runs beside Basalt's own engine, mostly to hold a small model that does the quick jobs of the technical session (`docs/harness.md`, *Where the quick jobs run*). It is another engine: it takes the GPU memory its model needs, so it is started by the person, never by itself unless *Start it with Basalt* is on.
+llama.cpp's server runs beside Basalt-Plus's own engine, mostly to hold a small model that does the quick jobs of the technical session (`docs/harness.md`, *Where the quick jobs run*). It is another engine: it takes the GPU memory its model needs, so it is started by the person, never by itself unless *Start it with TaDaMoo* is on.
 
 Code: `serve/llamacpp.py` (the manager), `serve/llamacpp_api.py` (the routes), `serve/web/llamacpp.js` (Models > llama.cpp). Everything that touches the machine goes through `llamacpp.Host`, which tests replace.
 
 ## The program
 
-Looked for, in this order: the path saved in the page, `BASALT_LLAMA_SERVER`, the folder an update installed into, `bin/llama-server` and `bin/llama.cpp/` of the install, `PATH`, a few usual folders. The first found is used; the others are listed. The version is the line `llama-server --version` prints, asked once per program.
+Looked for, in this order: the path saved in the page, `TADAMOO_LLAMA_SERVER`, the folder an update installed into, `bin/llama-server` and `bin/llama.cpp/` of the install, `PATH`, a few usual folders. The first found is used; the others are listed. The version is the line `llama-server --version` prints, asked once per program.
 
 ## Running it
 
@@ -14,7 +14,7 @@ Looked for, in this order: the path saved in the page, `BASALT_LLAMA_SERVER`, th
 
     llama-server -m <model> --host 127.0.0.1 --port <port> -c <ctx x parallel> -ngl <ngl> -np <parallel> --alias <alias> --jinja
 
-Nothing else can be added to the command line. It listens on loopback only, in the server's job object, so it ends with Basalt. The settings are kept in `machine.json` (`llamacpp`).
+Nothing else can be added to the command line. It listens on loopback only, in the server's job object, so it ends with TaDaMoo. The settings are kept in `machine.json` (`llamacpp`).
 
 State comes from the process and `GET /health`: `starting` (503, loading), `ready` (200), `error` (the process exited: the end of its log is shown), `stopped`, `external` (something that was not started here answers on the port; it is shown but not stopped). A port in use is refused before anything starts.
 

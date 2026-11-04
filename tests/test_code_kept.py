@@ -5,12 +5,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import codeblocks as cb
-from harness import context_patterns as cp
-from harness.agent_loop import AgentLoop
-from harness.compaction import KEPT_CODE_HEAD, Compaction
-from harness.context import ContextManager, TokenJuiceCompactor, code_indices, wire_messages
-from harness.tools import create_standard_tool_registry
+from tadamoo import codeblocks as cb
+from tadamoo import context_patterns as cp
+from tadamoo.agent_loop import AgentLoop
+from tadamoo.compaction import KEPT_CODE_HEAD, Compaction
+from tadamoo.context import ContextManager, TokenJuiceCompactor, code_indices, wire_messages
+from tadamoo.tools import create_standard_tool_registry
 from test_compaction import paired
 
 PY = "\n".join(["import os", "", "def load(path):", "    out = []", "    for line in open(path):", "        out.append(line.strip())", "    return out", "",

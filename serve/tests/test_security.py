@@ -46,7 +46,7 @@ class OverHttp(unittest.TestCase):
     def req(self, method, path, body=None, headers=None, host=None):
         """(status, JSON, what the server printed, response headers); `host` replaces the Host header http.client sends."""
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=30)
-        h = {"X-Basalt-Control": self.svc.control_token, **(headers or {})} if path.startswith("/api/") else dict(headers or {})
+        h = {"X-Tadamoo-Control": self.svc.control_token, **(headers or {})} if path.startswith("/api/") else dict(headers or {})
         if host is not None:
             h["Host"] = host
         data = body if isinstance(body, (bytes, type(None))) else json.dumps(body).encode()
@@ -125,7 +125,7 @@ class OverHttp(unittest.TestCase):
             try:
                 with mock.patch.object(self.svc, "unload", return_value="unloaded") as unload:
                     c.putrequest("POST", "/api/control/unload")
-                    c.putheader("X-Basalt-Control", self.svc.control_token)
+                    c.putheader("X-Tadamoo-Control", self.svc.control_token)
                     c.putheader("Content-Type", "application/json")
                     c.putheader("Content-Length", "2")
                     c.endheaders()
@@ -147,7 +147,7 @@ class OverHttp(unittest.TestCase):
     def test_unload_and_load_need_the_control_secret_and_nothing_about_the_page(self):
         self.start()
         for path in ("/api/control/unload", "/api/control/load"):
-            self.assertEqual(self.req("POST", path, {}, {"Content-Type": "application/json", "X-Basalt-Control": "wrong"})[0], 403, path)
+            self.assertEqual(self.req("POST", path, {}, {"Content-Type": "application/json", "X-Tadamoo-Control": "wrong"})[0], 403, path)
             for headers in ({"Content-Type": "application/x-www-form-urlencoded"}, {}, {"Content-Type": "application/json", "Origin": "http://evil.example.com"}):
                 self.assertEqual(self.req("POST", path, b"a=1", headers)[0], 200, (path, headers))
 

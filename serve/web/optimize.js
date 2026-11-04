@@ -1,5 +1,5 @@
 "use strict";
-/* The Optimize prompt option: before a message reaches the model, the technical session rewrites it as a clearer instruction (harness/optimize.py).
+/* The Optimize prompt option: before a message reaches the model, the technical session rewrites it as a clearer instruction (tadamoo/optimize.py).
    There is one value; every place that hosts the box (the Chat toolbar, Settings > Inference) shows it, and it is saved through api/intake. The box
    can be ticked only while the server reports a technical session (v1/status, concurrency.side_slot): otherwise it is disabled, says why next to
    it, and its tooltip says how to turn the session on. A value saved while the session was there is kept when it goes, and the box then stays
@@ -95,9 +95,9 @@
   }
 
   document.querySelectorAll(".po[data-po]").forEach(el => hosts.push(el));
-  document.addEventListener("basalt:lang", paint);
-  document.addEventListener("basalt:view", () => { if (!loaded) load(); else refresh(); });
-  document.addEventListener("basalt:key", () => refresh(true));
+  document.addEventListener("tadamoo:lang", paint);
+  document.addEventListener("tadamoo:view", () => { if (!loaded) load(); else refresh(); });
+  document.addEventListener("tadamoo:key", () => refresh(true));
   document.addEventListener("basalt:loader", () => refresh(true));      // the Loader finished a load: the technical session may have come or gone
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 

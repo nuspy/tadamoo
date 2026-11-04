@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from harness import environment
-from harness.attachment_tools import register_attachment_tools
-from harness.attachments import AttachmentStore, OutputStore
-from harness.stack import AgentConfig, build_agent
-from harness.tools import create_standard_tool_registry
-from harness.tools.filesystem import WorkspaceSandbox
-from harness.tools.registry import ToolRegistry
-from harness.visuals import FILES_GUIDANCE
+from tadamoo import environment
+from tadamoo.attachment_tools import register_attachment_tools
+from tadamoo.attachments import AttachmentStore, OutputStore
+from tadamoo.stack import AgentConfig, build_agent
+from tadamoo.tools import create_standard_tool_registry
+from tadamoo.tools.filesystem import WorkspaceSandbox
+from tadamoo.tools.registry import ToolRegistry
+from tadamoo.visuals import FILES_GUIDANCE
 
 
 class Model:
@@ -82,7 +82,7 @@ def test_the_built_agent_has_the_environment_block_after_the_core(tmp_path):
     plain = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "d"), use_memory=False, use_checkpoints=False), client=Model())
     prompt = plain.agent.system_prompt
     assert "# Environment\nThe system is " in prompt and f"The working folder is {ws.resolve()}" in prompt
-    assert prompt.index("# Environment") > prompt.index("You are Basalt")
+    assert prompt.index("# Environment") > prompt.index("You are TaDaMoo")
     assert "write_output_file" not in prompt
     with_files = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "d2"), use_memory=False, use_checkpoints=False,
                                          attachments_dir=str(tmp_path / "att"), outputs_dir=str(tmp_path / "out"), run_id="s1"), client=Model())
@@ -95,7 +95,7 @@ def test_the_files_guidance_no_longer_tells_the_model_to_keep_text_off_the_scree
     assert "paste a" not in FILES_GUIDANCE and "when a button will do" not in FILES_GUIDANCE
     assert "Offer a file when the person asks for a file or would want to keep one" in FILES_GUIDANCE
     assert "when the person asks to see a text on screen, the text goes in the answer" in FILES_GUIDANCE
-    assert "basalt-file:ID" in FILES_GUIDANCE and "basalt-path:" in FILES_GUIDANCE
+    assert "tadamoo-file:ID" in FILES_GUIDANCE and "tadamoo-path:" in FILES_GUIDANCE
 
 
 @pytest.fixture
@@ -217,13 +217,13 @@ def test_the_tool_registry_hands_these_messages_to_the_model(tmp_path):
 
 @pytest.mark.skipif(sys.platform != "win32", reason="cmd.exe")
 def test_a_shell_command_that_cannot_find_a_file_says_where_it_ran(tmp_path):
-    from harness.tools.shell import execute_shell_command
+    from tadamoo.tools.shell import execute_shell_command
     (tmp_path / "chapter1.txt").write_text("x", encoding="utf-8")
     res = execute_shell_command("type chapter_1.txt", tmp_path)
     assert not res["success"] and str(tmp_path.resolve()) in res["hint"] and "chapter1.txt" in res["hint"]
 
 
 def test_a_blocked_program_message_lists_what_is_blocked():
-    from harness.sandbox import blocked_reason
+    from tadamoo.sandbox import blocked_reason
     why = blocked_reason("echo x && reg add y")
     assert "Command 'reg' is blocked by sandbox security policy" in why and "netsh" in why

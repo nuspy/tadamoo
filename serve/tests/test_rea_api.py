@@ -64,7 +64,7 @@ class Base(unittest.TestCase):
         base = Path(self.tmp.name)
         self.data = base / "data"
         self.addons = make_addons(base / "addons")
-        patch = mock.patch.dict(os.environ, {"BASALT_DATA": str(self.data), "BASALT_ADDONS": str(self.addons)})
+        patch = mock.patch.dict(os.environ, {"TADAMOO_DATA": str(self.data), "TADAMOO_ADDONS": str(self.addons)})
         patch.start()
         self.addCleanup(patch.stop)
         self.host = FakeHost(results={"--version": (0, "v24.22.1\n")})
@@ -73,7 +73,7 @@ class Base(unittest.TestCase):
         self.addCleanup(patch.stop)
 
     def store(self):
-        from harness.discovery.installed import InstalledStore
+        from tadamoo.discovery.installed import InstalledStore
         return InstalledStore(self.data / "capabilities")
 
 
@@ -98,13 +98,13 @@ class SwitchTests(Base):
         self.assertTrue((skill / "references" / "environments.md").is_file())
 
     def test_the_capability_index_takes_both_as_approved(self):
-        from harness.capabilities import CapabilityIndex
+        from tadamoo.capabilities import CapabilityIndex
         rea_api.enable()
         index = CapabilityIndex(self.data / "capabilities", self.data / "ws", home=self.data / "home", appdata=self.data / "appdata")
         server, skill = index.get("mcp:rea"), index.get("skill:reverse-engineer-anything")
         self.assertIsNotNone(server)
         self.assertIsNotNone(skill)
-        self.assertEqual((server["state"], server["origin"]), ("approved", "basalt"))
+        self.assertEqual((server["state"], server["origin"]), ("approved", "tadamoo"))
         self.assertEqual(skill["state"], "approved")
 
     def test_turning_it_off_removes_exactly_what_was_added(self):
@@ -130,7 +130,7 @@ class SwitchTests(Base):
 
     def test_without_the_add_on_it_cannot_be_turned_on(self):
         gone = Path(self.tmp.name) / "nowhere"
-        with mock.patch.dict(os.environ, {"BASALT_ADDONS": str(gone)}), mock.patch.object(rea_api.addons, "_ROOT", gone), \
+        with mock.patch.dict(os.environ, {"TADAMOO_ADDONS": str(gone)}), mock.patch.object(rea_api.addons, "_ROOT", gone), \
                 mock.patch.object(rea_api.addons, "_DEV", gone), mock.patch.object(rea_api.addons, "_MAIN_DEV", gone):
             self.assertFalse(rea_api.status()["addon"]["present"])
             with self.assertRaises(rea_api.ReaError) as ctx:

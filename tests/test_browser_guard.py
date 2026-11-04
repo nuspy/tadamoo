@@ -9,11 +9,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import harness.browser as hb
-from harness.browser import Browser, BrowserError, blocked_host, find_browser, register_browser_tools
-from harness.secrets_broker import SecretsBroker
-from harness.tools.registry import ToolRegistry
-from harness.vault import Vault
+import tadamoo.browser as hb
+from tadamoo.browser import Browser, BrowserError, blocked_host, find_browser, register_browser_tools
+from tadamoo.secrets_broker import SecretsBroker
+from tadamoo.tools.registry import ToolRegistry
+from tadamoo.vault import Vault
 
 # the frame tests of test_browser_frames, run again with the guard on (a page there is "on the internet")
 from test_browser_frames import (  # noqa: F401  (collected here, with the fixtures below)

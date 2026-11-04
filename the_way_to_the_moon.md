@@ -3,7 +3,7 @@
 
 > **Documento di Progettazione Esecutiva — versione rivista il 2026-10-18**  
 > **Target di Realizzazione**: Claude Code  
-> **Progetto**: Basalt (sm_120 Blackwell MoE Engine + Harness)  
+> **Progetto**: TaDaMoo (sm_120 Blackwell MoE Engine + Harness)  
 > **Stato Base**: motore C++/CUDA + server HTTP Python (libreria standard) + GUI web e desktop WebView2 (vedi §3, verificato sul codice)  
 > **Obiettivo**: Autonomous Agentic Harness, Infinite Canvas, Multi-Channel Gateway & Personal Assistant  
 > **Revisione**: ogni correzione è segnata **[REV]** e rimanda alla sua prova (codice del repo o fonte letta il 2026-10-18, elenco in Appendice C). Il testo originale è conservato dove era corretto. L'originale integrale è in `the_way_to_the_moon.ORIGINALE.md`.
@@ -23,7 +23,7 @@
    - [2.1 I Harness di Riferimento (verificati)](#21-i-harness-di-riferimento-verificati)
    - [2.2 I Coding Tool di Riferimento (verificati)](#22-i-coding-tool-di-riferimento-verificati)
    - [2.3 Cosa dicono le misure sul peso dell'harness (nuovo)](#23-cosa-dicono-le-misure-sul-peso-dellharness-nuovo)
-- [3. Audit e Integrazione dello Stato Attuale di Basalt](#3-audit-e-integrazione-dello-stato-attuale-di-basalt)
+- [3. Audit e Integrazione dello Stato Attuale di TaDaMoo](#3-audit-e-integrazione-dello-stato-attuale-di-basalt)
    - [3.1 Ciò che esiste già](#31-ciò-che-esiste-già)
    - [3.2 Ciò che manca davvero (i gap veri)](#32-ciò-che-manca-davvero-i-gap-veri)
    - [3.3 Vincoli che il motore impone all'harness (nuovo)](#33-vincoli-che-il-motore-impone-allharness-nuovo)
@@ -52,11 +52,11 @@
    - [4.22 Funzioni di Base dei Migliori Harness che Mancano al Documento (nuovo)](#422-funzioni-di-base-dei-migliori-harness-che-mancano-al-documento-nuovo)
    - [4.23 Concorrenza e Risorse su una Sola GPU (nuovo)](#423-concorrenza-e-risorse-su-una-sola-gpu-nuovo)
    - [4.24 Osservabilità e Trasparenza (nuovo)](#424-osservabilità-e-trasparenza-nuovo)
-- [5. La Nostra Soluzione Ideale: "Basalt Omniverse"](#5-la-nostra-soluzione-ideale-basalt-omniverse)
+- [5. La Nostra Soluzione Ideale: "TaDaMoo Omniverse"](#5-la-nostra-soluzione-ideale-basalt-omniverse)
    - [5.1 La Mappa dei Concetti Assorbiti (corretta) + Cosa Aggiungiamo](#51-la-mappa-dei-concetti-assorbiti-corretta--cosa-aggiungiamo)
-   - [5.2 I Pilastri di Basalt Omniverse (riscritti)](#52-i-pilastri-di-basalt-omniverse-riscritti)
+   - [5.2 I Pilastri di TaDaMoo Omniverse (riscritti)](#52-i-pilastri-di-basalt-omniverse-riscritti)
    - [5.3 Schema Architetturale (corretto)](#53-schema-architetturale-corretto)
-   - [5.4 Cosa Distingue Davvero Basalt (e Cosa è Ancora un'Ipotesi) (nuovo)](#54-cosa-distingue-davvero-basalt-e-cosa-è-ancora-unipotesi-nuovo)
+   - [5.4 Cosa Distingue Davvero TaDaMoo (e Cosa è Ancora un'Ipotesi) (nuovo)](#54-cosa-distingue-davvero-basalt-e-cosa-è-ancora-unipotesi-nuovo)
 - [6. Strategia di Migrazione della Licenza](#6-strategia-di-migrazione-della-licenza)
    - [6.1 Il Contesto Legale di Partenza](#61-il-contesto-legale-di-partenza)
    - [6.2 I termini della nuova licenza (bozza di lavoro per l'avvocato, non testo legale)](#62-i-termini-della-nuova-licenza-bozza-di-lavoro-per-lavvocato-non-testo-legale)
@@ -88,7 +88,7 @@
 
 ### 0.1 Giudizio
 
-L'ambizione è giusta e la direzione tecnica è in gran parte sensata: un ciclo agentico lato server, contesto gestito in modo deterministico, memoria locale, protocolli standard (MCP, ACP), esecuzione di codice con auto-riparazione, interfaccia a grafo. Basalt ha inoltre un vantaggio reale e raro: **il motore e l'harness possono essere progettati insieme** (cache dei prefissi, telemetria hardware, slot paralleli, richieste tracciate).
+L'ambizione è giusta e la direzione tecnica è in gran parte sensata: un ciclo agentico lato server, contesto gestito in modo deterministico, memoria locale, protocolli standard (MCP, ACP), esecuzione di codice con auto-riparazione, interfaccia a grafo. TaDaMoo ha inoltre un vantaggio reale e raro: **il motore e l'harness possono essere progettati insieme** (cache dei prefissi, telemetria hardware, slot paralleli, richieste tracciate).
 
 Il documento però, così com'era, **non era pronto per essere eseguito**: conteneva errori sul nostro codice, sul mercato e sui protocolli che avrebbero prodotto lavoro sbagliato; una promessa di prestazioni non dimostrata (cache "congelata in VRAM", TTFT < 15 ms); una scelta di sicurezza (§4.8, livello 3) che le evidenze sconsigliano; una sezione sulla licenza che descriveva male cosa si può fare con codice di terzi (e che, al momento della revisione, contraddiceva la decisione MIT del 2026-10-17: l'utente ha poi deciso di adottarla, vedi §0.5); e **nessun modo di misurare** se l'harness sia "il migliore". Mescolava inoltre tre prodotti diversi (harness di coding, assistente personale, controllo remoto del PC), che per essere il migliore in uno vanno separati.
 
@@ -113,7 +113,7 @@ Il documento però, così com'era, **non era pronto per essere eseguito**: conte
 
 ### 0.3 Cosa è stato aggiunto
 
-§0.5 Decisioni dell'utente del 2026-10-18 · §4.8.4-4.8.5 Livello 4 e broker dei pagamenti · §4.21 Valutazione e misure · §4.22 Funzioni di base mancanti · §4.23 Concorrenza e risorse su una sola GPU · §4.24 Osservabilità · §5.4 Cosa distingue davvero Basalt (e cosa è ancora un'ipotesi) · §7 architettura riscritta (l'harness come processo separato che parla con l'API pubblica) · §8 roadmap riordinata per rischio e con criteri di accettazione · Appendice A (registro delle correzioni) · B (decisioni richieste) · C (fonti).
+§0.5 Decisioni dell'utente del 2026-10-18 · §4.8.4-4.8.5 Livello 4 e broker dei pagamenti · §4.21 Valutazione e misure · §4.22 Funzioni di base mancanti · §4.23 Concorrenza e risorse su una sola GPU · §4.24 Osservabilità · §5.4 Cosa distingue davvero TaDaMoo (e cosa è ancora un'ipotesi) · §7 architettura riscritta (l'harness come processo separato che parla con l'API pubblica) · §8 roadmap riordinata per rischio e con criteri di accettazione · Appendice A (registro delle correzioni) · B (decisioni richieste) · C (fonti).
 
 ### 0.4 Decisioni ancora aperte (Appendice B)
 
@@ -131,14 +131,14 @@ D1 trasporto ACP · D4 versione MCP · D5 isolamento del codice su Windows · D6
 
 ## 1. Scopo dello Sviluppo
 
-Il progetto **Basalt** è nato come motore di inferenza C++/CUDA ultra-ottimizzato per architetture NVIDIA Blackwell (`sm_120`), specificamente tarato sul modello Mixture-of-Experts `Qwen3.8-Flash-Next` (**[REV]** strati a ricorrenza GDN/DeltaNet e attenzione sparsa QSA, hyper-connection, esperti instradati), corredato da un server locale e da un'interfaccia grafica desktop e web (`Basalt-Win-GUI`).
+Il progetto **Basalt-Plus** è nato come motore di inferenza C++/CUDA ultra-ottimizzato per architetture NVIDIA Blackwell (`sm_120`), specificamente tarato sul modello Mixture-of-Experts `Qwen3.8-Flash-Next` (**[REV]** strati a ricorrenza GDN/DeltaNet e attenzione sparsa QSA, hyper-connection, esperti instradati), corredato da un server locale e da un'interfaccia grafica desktop e web (`Basalt-Win-GUI`).
 
 L'obiettivo di **"The Way to the Moon"** è compiere un salto generazionale:
-> **Trasformare Basalt da un runner/viewer locale in un Harness Completo, Autonomo e Omnicomprensivo**, unificando in un'unica applicazione desktop/server le capacità di inferenza locale rapida, un'infrastruttura agentica avanzata (ReAct loop, gestione autonoma dei tool, sandbox di sicurezza personalizzabile), una memoria a lungo termine persistente, un'interfaccia a tela infinita (Infinite Canvas), un assistente personale proattivo e una piattaforma di coding di classe mondiale.
+> **Trasformare TaDaMoo da un runner/viewer locale in un Harness Completo, Autonomo e Omnicomprensivo**, unificando in un'unica applicazione desktop/server le capacità di inferenza locale rapida, un'infrastruttura agentica avanzata (ReAct loop, gestione autonoma dei tool, sandbox di sicurezza personalizzabile), una memoria a lungo termine persistente, un'interfaccia a tela infinita (Infinite Canvas), un assistente personale proattivo e una piattaforma di coding di classe mondiale.
 
 **[REV] Criterio di successo (nuovo).** «Il miglior harness» non è verificabile finché non si dice su quale asse e rispetto a chi. Questo documento lo definisce così (dettaglio in §4.21):
 
-1. **A modello fisso** (Qwen3.8-Flash-Next su Basalt), l'harness di Basalt ottiene un punteggio più alto, con ripetizioni, degli altri harness puntati sullo **stesso endpoint** (Claude Code, OpenCode, Goose, Cline…) su un insieme di compiti pubblici e privati.
+1. **A modello fisso** (Qwen3.8-Flash-Next su TaDaMoo), l'harness di TaDaMoo ottiene un punteggio più alto, con ripetizioni, degli altri harness puntati sullo **stesso endpoint** (Claude Code, OpenCode, Goose, Cline…) su un insieme di compiti pubblici e privati.
 2. Il costo per compito (token, secondi, energia) è misurato e dichiarato; il tasso di *cache hit* del prefisso è una metrica di prima classe.
 3. Nessuna funzione per cui non esiste una misura viene presentata come "migliore": resta un'ipotesi (§5.4).
 
@@ -156,7 +156,7 @@ I moderni framework AI si dividono in categorie che si sovrappongono sempre di p
 graph TD
     subgraph Inference_Workbenches ["Inference & Model Workbenches"]
         LM["LM Studio (con agente Bionic dal 2026-07) / Ollama"]
-        BAS["Basalt Core (sm_120 Engine)"]
+        BAS["Basalt-Plus Core (sm_120 Engine)"]
     end
 
     subgraph Autonomous_Harnesses ["Agentic Harnesses & Execution Loops"]
@@ -196,7 +196,7 @@ graph TD
    - *[REV]* «Ecosistema chiuso» è **falso** (GPL-3.0, supporta Ollama/LM Studio). Il **Memory Tree SQLite/Obsidian è stato rimosso** nelle versioni attuali (ora CortexDB): il documento descriveva una versione superata.
 5. **Meta Muse (annunciato 2026-09-08, proprietario, solo USA)**
    - *Fatti*: agente personale su VM cloud sicura, agente separato che approva le azioni verso internet, *side chats* (ramificazione), *Artifacts*, carte virtuali monouso, *Muse Code* (terminale, multi-agente).
-   - *[REV]* **«Infinite canvas» e «council dialettico» non compaiono in nessuna fonte ufficiale.** Restano proposte di Basalt, non feature di Muse: vanno riattribuite.
+   - *[REV]* **«Infinite canvas» e «council dialettico» non compaiono in nessuna fonte ufficiale.** Restano proposte di TaDaMoo, non feature di Muse: vanno riattribuite.
 
 > **[REV]** Il numero «5 harness» era un conteggio del documento: LM Studio era un runtime, non un harness, fino a Bionic.
 
@@ -219,7 +219,7 @@ A modello fisso, la scelta dell'harness e persino le risorse di esecuzione spost
 
 ---
 
-## 3. Audit e Integrazione dello Stato Attuale di Basalt
+## 3. Audit e Integrazione dello Stato Attuale di TaDaMoo
 
 > **[REV]** Ogni riga è stata controllata sul codice del repo il 2026-10-18 (`file:riga` dove utile). L'audit originale era corretto sui punti 1-3 ma ignorava gran parte di ciò che già esiste.
 
@@ -278,7 +278,7 @@ Le evidenze disponibili indicano che **non si deve partire dal riassunto fatto d
 2. **Offload su file con riferimento leggero**: l'output completo va in `artifacts/`, nel contesto resta il riferimento (compressione «sempre ripristinabile»).
 3. **Compattazione strutturata fatta dal modello** (*Facts, Decisions, Open questions, Code*, come già fa `chatctx`) solo come ultima leva e al punto in cui il prefisso si ferma comunque.
 
-**[REV] Costo nascosto, specifico di Basalt.** Modificare o togliere un messaggio **nel mezzo** del contesto invalida il checkpoint da quel punto e forza una nuova lettura (prefill) di tutto ciò che segue (§3.3). Quindi: contesto **append-only**, serializzazione deterministica, nessun timestamp o id variabile nel prefisso, strumenti sempre nello stesso ordine (già garantito da `stable_tool_order`). La compattazione va fatta **a confini che coincidono con i checkpoint** (`prompt-cache-root`, `prompt-cache-every`).
+**[REV] Costo nascosto, specifico di Basalt-Plus.** Modificare o togliere un messaggio **nel mezzo** del contesto invalida il checkpoint da quel punto e forza una nuova lettura (prefill) di tutto ciò che segue (§3.3). Quindi: contesto **append-only**, serializzazione deterministica, nessun timestamp o id variabile nel prefisso, strumenti sempre nello stesso ordine (già garantito da `stable_tool_order`). La compattazione va fatta **a confini che coincidono con i checkpoint** (`prompt-cache-root`, `prompt-cache-every`).
 
 #### Pre-Compattazione Tool Output (TokenJuice Layer)
 Quando un tool restituisce un output:
@@ -307,7 +307,7 @@ I kernel in `src/kernels/` sfruttano istruzioni native Blackwell (`sm_120`), qua
 #### Implementazione dell'Arena Side-by-Side
 La GUI offrirà una modalità **Arena / Benchmark** sdoppiata:
 1. **Arena Locale (In-Engine)**: confronta due configurazioni dello stesso modello (es. Q8_0 di riferimento vs IQ3 quantizzato; MTP abilitato vs disabilitato). **[REV]** Su una sola GPU le due configurazioni **non girano insieme** se la memoria non basta: l'arena è di norma *sequenziale* (ricarica del motore tra un lato e l'altro, già supportata dal Loader) o parallela solo quando i due piani di memoria stanno insieme.
-2. **Arena Ibrida (Local vs Cloud Gateway)**: tramite adapter leggeri OpenAI/Anthropic/Ollama in `serve/harness/arena_bridge.py`, la GUI può inviare il prompt in parallelo a Basalt e a un'API esterna, visualizzando tempo di primo token (TTFT), velocità (tok/s), memoria e qualità. **[REV]** La «qualità della risposta» richiede un criterio (suite di test eseguibili, rubrica, o giudice automatico dichiarato come tale); senza criterio l'arena misura solo velocità. Con chiavi API esterne si applicano le regole di §4.8 (mai nel contesto del modello).
+2. **Arena Ibrida (Local vs Cloud Gateway)**: tramite adapter leggeri OpenAI/Anthropic/Ollama in `serve/harness/arena_bridge.py`, la GUI può inviare il prompt in parallelo a TaDaMoo e a un'API esterna, visualizzando tempo di primo token (TTFT), velocità (tok/s), memoria e qualità. **[REV]** La «qualità della risposta» richiede un criterio (suite di test eseguibili, rubrica, o giudice automatico dichiarato come tale); senza criterio l'arena misura solo velocità. Con chiavi API esterne si applicano le regole di §4.8 (mai nel contesto del modello).
 
 ---
 
@@ -323,7 +323,7 @@ L'interfaccia si arricchisce di una vista **Canvas 2D** a nodi infinita:
         └──> [Ramo B: Soluzione Monolite C++]  ──> [Bench Latenza] ─┘
 ```
 
-> **[REV] Attribuzione.** Né l'«infinite canvas» né il «council» risultano nelle fonti ufficiali di Meta Muse (esistono *side chats* e *Artifacts*). Il canvas è una **proposta propria di Basalt**; OpenClaw ha un Canvas, ma di altro tipo.
+> **[REV] Attribuzione.** Né l'«infinite canvas» né il «council» risultano nelle fonti ufficiali di Meta Muse (esistono *side chats* e *Artifacts*). Il canvas è una **proposta propria di TaDaMoo**; OpenClaw ha un Canvas, ma di altro tipo.
 
 #### Meccanismo Operativo:
 - **Struttura Dati a Grafo (DAG)**: La sessione non è un array `messages: []`, ma un grafo di nodi dove ogni nodo contiene: `id`, `parent_ids`, `content`, `role`, `artifacts`, `token_count`, `metadata`. **[REV]** I nodi sono **immutabili e indirizzati per contenuto** (event sourcing append-only): permette fork economici, replay e confronti, ed è la base di §4.12.
@@ -347,9 +347,9 @@ L'interfaccia si arricchisce di una vista **Canvas 2D** a nodi infinita:
 | **Ricerca Ibrida (Testo + Vettoriale)** | FTS5 nativo per chiavi esatte, codice e identificatori + `sqlite-vec` per similarità semantica. | Potente, ma pesante per un'applicazione desktop stand-alone monoposto. |
 
 #### Decisione Architetturale (confermata, con precisazioni):
-1. **Core Default**: **SQLite con FTS5** subito; **`sqlite-vec` come passo successivo**. **[REV]** Il vettoriale richiede un **modello di embedding** (es. bge-m3, nomic-embed-text): il motore Basalt esegue un solo modello MoE, quindi gli embedding girano **altrove** (CPU, o un secondo processo) e **competono per RAM/VRAM** con il modello principale (D8). La disponibilità e il caricamento di `sqlite-vec` su Python/Windows vanno **verificati** prima di promettere la funzione. Hermes usa già FTS5 sulle sessioni: per la maggior parte dei casi d'uso (codice, identificatori, wiki) FTS5 da solo è un ottimo inizio.
+1. **Core Default**: **SQLite con FTS5** subito; **`sqlite-vec` come passo successivo**. **[REV]** Il vettoriale richiede un **modello di embedding** (es. bge-m3, nomic-embed-text): il motore Basalt-Plus esegue un solo modello MoE, quindi gli embedding girano **altrove** (CPU, o un secondo processo) e **competono per RAM/VRAM** con il modello principale (D8). La disponibilità e il caricamento di `sqlite-vec` su Python/Windows vanno **verificati** prima di promettere la funzione. Hermes usa già FTS5 sulle sessioni: per la maggior parte dei casi d'uso (codice, identificatori, wiki) FTS5 da solo è un ottimo inizio.
 2. **Enterprise Remote Adapter**: interfaccia astratta `BaseMemoryStore` che permetta di indirizzare la memoria verso PostgreSQL + pgvector. **[REV]** Priorità bassa: non scrivere l'adapter finché non c'è un secondo utente reale.
-3. **Dove vivono i dati**: **[REV]** nella cartella dati dell'utente già usata da Basalt (`serve/userdata.py`, `%APPDATA%`), **non** in `data/` dentro il repo. Cifrati a riposo i dati personali (§4.14); permessi di file restrittivi.
+3. **Dove vivono i dati**: **[REV]** nella cartella dati dell'utente già usata da TaDaMoo (`serve/userdata.py`, `%APPDATA%`), **non** in `data/` dentro il repo. Cifrati a riposo i dati personali (§4.14); permessi di file restrittivi.
 
 ---
 
@@ -369,14 +369,14 @@ Per consentire all'utente di continuare la sessione avviata su PC direttamente d
          │
          │ (Tunnel Sicuro: Tailscale / Cloudflare Zero Trust / mTLS)
          ▼
-[Basalt Remote Gateway (serve/gateway/daemon.py)]
+[TaDaMoo Remote Gateway (serve/gateway/daemon.py)]
          ├──> Controllo Sessione & Canvas (Stato sincronizzato)
          ├──> Terminale PTY Interattivo (livello 2)
          └──> File Manager Remoto (sola lettura di default)
 ```
 
 - **Sicurezza**: autenticazione a chiave asimmetrica (Ed25519) per dispositivo + token temporanei con scadenza; traffico cifrato end-to-end; **disattivato di default**; allowlist di dispositivi; registro di audit append-only; interruttore di arresto immediato. **[REV]** Riutilizzare la rete privata già presente (Tailscale con ACL) invece di esporre porte; nessuna porta su internet senza credenziali e certificato client.
-- **Session Continuity**: lo stato del workflow risiede nel demone di Basalt, non nel browser. **[REV]** Con la libreria standard il canale in tempo reale si fa con **SSE + richieste POST** (già usato per lo streaming delle risposte); un WebSocket vero richiede una dipendenza in più (D6).
+- **Session Continuity**: lo stato del workflow risiede nel demone di TaDaMoo, non nel browser. **[REV]** Con la libreria standard il canale in tempo reale si fa con **SSE + richieste POST** (già usato per lo streaming delle risposte); un WebSocket vero richiede una dipendenza in più (D6).
 
 ---
 
@@ -384,7 +384,7 @@ Per consentire all'utente di continuare la sessione avviata su PC direttamente d
 
 #### Elevazione UAC all'Avvio
 - **[REV] Principio del minimo privilegio.** Un'app che gira **sempre** come amministratore moltiplica il danno di qualunque errore o prompt injection (§4.8). Raccomandazione: **default `run_as_admin: false`**; l'app resta non elevata e ricorre a un **piccolo helper elevato** solo per operazioni puntuali (installare/rimuovere il servizio, regole del firewall). L'elevazione completa resta un'opzione esplicita.
-- Nel manifest di Windows (`tools/windows/basalt.manifest`) o nel bootstrapper `Program.cs`, flag in `basalt_config.json`: `"run_as_admin": false`. Con il flag attivo, all'avvio:
+- Nel manifest di Windows (`tools/windows/basalt.manifest`) o nel bootstrapper `Program.cs`, flag in `tadamoo_config.json`: `"run_as_admin": false`. Con il flag attivo, all'avvio:
   ```csharp
   var identity = WindowsIdentity.GetCurrent();
   var principal = new WindowsPrincipal(identity);
@@ -430,7 +430,7 @@ classDiagram
     PlatformServiceManager <|-- LinuxSystemdServiceManager
 ```
 
-- **Windows**: **[REV]** NSSM è una scelta valida ma è un binario di terzi da distribuire e mantenere (non è oggi in `tools/windows/`); alternative: servizio nativo (`sc`/pywin32) o WinSW. Qualunque sia la scelta: `AppDirectory`, redirect di stdout/stderr su `logs/basalt-service.log`, riavvio dopo crash. **Attenzione**: un servizio gira in sessione 0 (nessuna finestra, nessun WebView2): il **server** può essere servizio, la **GUI** resta un processo utente che vi si collega. Va verificato che l'arresto del servizio liberi la memoria GPU come il job object con chiusura automatica già usato oggi.
+- **Windows**: **[REV]** NSSM è una scelta valida ma è un binario di terzi da distribuire e mantenere (non è oggi in `tools/windows/`); alternative: servizio nativo (`sc`/pywin32) o WinSW. Qualunque sia la scelta: `AppDirectory`, redirect di stdout/stderr su `logs/tadamoo-service.log`, riavvio dopo crash. **Attenzione**: un servizio gira in sessione 0 (nessuna finestra, nessun WebView2): il **server** può essere servizio, la **GUI** resta un processo utente che vi si collega. Va verificato che l'arresto del servizio liberi la memoria GPU come il job object con chiusura automatica già usato oggi.
 - **Linux**: genera `basalt.service` con `Restart=always`, `After=network.target`.
 - **UI nella GUI**: nel tab *Settings*, un pannello per installare, avviare o rimuovere il servizio, con lo stato (Active/Stopped/Failed).
 
@@ -514,7 +514,7 @@ I livelli 1-3 **non** includono pagamenti senza conferma, banche, invio di messa
 - **Isolamento dell'esecuzione su Windows** (D5): un *Job Object* limita **solo le risorse** (memoria, tempo, kill-on-close), non file né rete; *AppContainer* è un vero confine ma poco adatto ai flussi da sviluppatore; *Windows Sandbox* è una VM usa-e-getta (non su Windows Home); *WSL2* di default monta `C:` e consente l'interoperabilità con i programmi Windows, quindi **non è un confine di sicurezza** senza configurazione restrittiva. La soluzione descritta da OpenAI per Codex su Windows (maggio 2026) è: **utente locale dedicato + regole di Windows Firewall + token con restrizione in scrittura** (richiede un'elevazione una tantum); il blocco di rete solo tramite variabili d'ambiente è «consultivo» e aggirabile. Raccomandazione: **utente dedicato + firewall + token ristretto** come base; una **VM** per codice davvero non fidato.
 
 #### Denaro e credenziali (D2 — deciso dall'utente il 2026-10-18)
-**Decisione**: i livelli 1-3 usano il modello **(b)** (l'agente prepara, l'umano conferma); **in più** si introduce il **livello 4** (§4.8.4), un opt-in con rinuncia esplicita che toglie la sola conferma di Basalt, fino a un massimale. L'opzione **(c)** (vault con password **e** TOTP letti dall'agente) **non** è stata scelta e **non** è coperta dal livello 4. Le tre opzioni originali, per memoria:
+**Decisione**: i livelli 1-3 usano il modello **(b)** (l'agente prepara, l'umano conferma); **in più** si introduce il **livello 4** (§4.8.4), un opt-in con rinuncia esplicita che toglie la sola conferma di TaDaMoo, fino a un massimale. L'opzione **(c)** (vault con password **e** TOTP letti dall'agente) **non** è stata scelta e **non** è coperta dal livello 4. Le tre opzioni originali, per memoria:
 - **(a)** Nessuna funzione bancaria o di pagamento nel prodotto.
 - **(b) Raccomandata — l'agente *prepara*, l'umano *conferma* su un altro dispositivo.** L'agente costruisce il pagamento (importo, beneficiario, motivo); l'approvazione avviene su un **secondo dispositivo** (notifica push / app della banca / 3-D Secure). Strumenti complementari: **carte virtuali con plafond**, **allowlist di beneficiari**, **limiti di spesa**, accesso ai conti in **sola lettura** tramite export/estratti o un aggregatore autorizzato. È la direzione dell'industria: Google AP2 (mandati firmati, in standardizzazione FIDO) e Visa «Agentic Ready» usano **token delegati con limiti e conferma umana**, non codici TOTP in mano all'agente.
 - **(c) Come nel documento originale** (vault con password + TOTP letti dall'agente): **sconsigliata.** Motivi, in sintesi: (1) tecnicamente riunisce in un solo punto due fattori pensati per essere indipendenti (RTS 2018/389, art. 9) e, con il modello nello stesso processo, una prompt injection può usarli; (2) in UE (PSD2, D.Lgs. 11/2010, art. 7 e art. 12) l'utente deve proteggere le credenziali e la «colpa grave» comporta che **tutta** la perdita è a suo carico, non solo i 50 euro; (3) le banche dichiarano di non chiedere mai codici OTP e l'accesso di terzi è previsto solo tramite fornitori autorizzati (PISP/AISP) con certificati eIDAS. **[AVVOCATO]**: questa è una lettura tecnica, non un parere legale; e la riforma PSD3/PSR è in corso (stato non confermato).
@@ -529,12 +529,12 @@ Ogni azione con effetto (e ogni richiesta di permesso e la risposta) genera una 
 > **Origine.** Specifica dettata dall'utente: il livello 4 consente al sistema di eseguire **pagamenti automatici senza conferma** fino a un **massimale**, solo se l'utente ne fa **esplicita richiesta** all'applicazione, **rinunciando alla protezione**, con raccolta di prove e doppia conferma di responsabilità, **sistema di pagamento per sistema di pagamento**. Sotto il massimale l'app **non filtra**. Quanto segue traduce quella specifica in requisiti; i punti non definiti dall'utente sono segnati **[DA CONFERMARE]**, le aggiunte di sicurezza proposte dal revisore sono segnate **[AGGIUNTA]** e sono, per ora, proposte non decise.
 
 ##### A. Che cosa il livello 4 toglie e che cosa non toglie
-- **Toglie**: la conferma per ogni pagamento che Basalt richiederebbe ai livelli 1-3, **per quel solo sistema di pagamento e fino al massimale**. Sotto il massimale Basalt non applica filtri di importo o di beneficiario.
+- **Toglie**: la conferma per ogni pagamento che TaDaMoo richiederebbe ai livelli 1-3, **per quel solo sistema di pagamento e fino al massimale**. Sotto il massimale TaDaMoo non applica filtri di importo o di beneficiario.
 - **Non toglie, e non aggira**: l'autenticazione e i limiti del **fornitore di pagamento** (banca, carta, wallet). Il livello 4 non dà all'agente password né segreti TOTP: l'agente opera con **credenziali delegate** (es. carta virtuale con plafond, token o mandato del fornitore). **[AGGIUNTA]** Un sistema di pagamento utilizzabile *solo* con login e codice TOTP non è idoneo al livello 4 (resterebbe l'opzione (c) di cui sopra, non scelta).
 - **Il massimale è un limite rigido**: oltre, **nessun pagamento parte mai**, qualunque cosa dica il modello o la pagina visitata. Va applicato **fuori dal modello** (§4.8.5), non con un'istruzione nel prompt.
 
 ##### B. Procedura di rinuncia (per ogni sistema di pagamento, separatamente)
-1. **Scheda del sistema di pagamento** (vedi D): nome, tipo, protezioni di Basalt che verranno disattivate, protezioni del fornitore che restano, come revocare.
+1. **Scheda del sistema di pagamento** (vedi D): nome, tipo, protezioni di TaDaMoo che verranno disattivate, protezioni del fornitore che restano, come revocare.
 2. **Dialog 1 — Rinuncia alla protezione.** Una finestra spiega, in linguaggio semplice, *cosa sta per succedere e che cosa deve fare l'utente*, e mostra il **testo da scrivere**, **selezionabile e copiabile** (Ctrl+C / Ctrl+V; l'utente può anche digitarlo). L'utente indica **nome e cognome** (come nel documento d'identità) e il **valore massimo**. La frase richiesta, nel testo dettato dall'utente:
    > *«Io `<nome e cognome>` hackero la applicazione sotto la mia responsabilità di quanto accade, autorizzando il pagamento automatico senza mia conferma fino a `<valore>` massimo.»*
 
@@ -542,8 +542,8 @@ Ogni azione con effetto (e ogni richiesta di permesso e la risposta) genera una 
    - L'app **confronta** ciò che è scritto con il testo atteso (spazi e maiuscole normalizzati), **estrae il valore** e lo verifica con il campo del massimale: se non coincidono, rifiuta. Se l'utente ha incollato il testo invece di digitarlo, l'app lo **registra** (non lo vieta: è una scelta dell'utente).
    - **[DA CONFERMARE]** Il testo dettato contiene **un solo valore**: va deciso se è il massimale **per singolo pagamento**, **cumulativo**, o **per periodo**. **[AGGIUNTA]** Si consiglia di chiedere sempre **entrambi** (per pagamento e cumulativo mensile), dichiarati nel dialog.
 3. **Raccolta delle prove** (§C) in questo momento.
-4. **Dialog 2 — Scarico di responsabilità.** L'utente dichiara di sapere che gli autori e i distributori di Basalt non rispondono delle conseguenze dei pagamenti eseguiti in autonomia dall'applicazione, **nei limiti consentiti dalla legge**. **[DA CONFERMARE]** Interpretazione della specifica: «scarico delle responsabilità mie verso gli utenti» è stato inteso come lo **scarico di responsabilità dello sviluppatore verso chi usa l'app**, sottoscritto dall'utente.
-5. **Dialog 3 — Accettazione integrale delle responsabilità.** L'utente accetta **in toto** le responsabilità dell'uso del livello 4. **[DA CONFERMARE]** «per utente» è stato inteso così: la rinuncia è **personale**, legata all'utente del sistema operativo e al profilo Basalt, **non trasferibile**; su un PC condiviso ogni utente fa la propria.
+4. **Dialog 2 — Scarico di responsabilità.** L'utente dichiara di sapere che gli autori e i distributori di TaDaMoo non rispondono delle conseguenze dei pagamenti eseguiti in autonomia dall'applicazione, **nei limiti consentiti dalla legge**. **[DA CONFERMARE]** Interpretazione della specifica: «scarico delle responsabilità mie verso gli utenti» è stato inteso come lo **scarico di responsabilità dello sviluppatore verso chi usa l'app**, sottoscritto dall'utente.
+5. **Dialog 3 — Accettazione integrale delle responsabilità.** L'utente accetta **in toto** le responsabilità dell'uso del livello 4. **[DA CONFERMARE]** «per utente» è stato inteso così: la rinuncia è **personale**, legata all'utente del sistema operativo e al profilo TaDaMoo, **non trasferibile**; su un PC condiviso ogni utente fa la propria.
    - Per evitare che i due dialog diventino un clic automatico: lettura fino in fondo prima di abilitare il pulsante, e una **seconda digitazione** (es. il nome) in ciascuno. **[AGGIUNTA]**
 6. **Attivazione**, con un eventuale pagamento di prova di importo minimo (a scelta).
 7. **Indicatore permanente**: finché un livello 4 è attivo, banner visibile in ogni schermata e nell'icona dell'area di notifica con *sistema, massimale, scadenza*.
@@ -551,7 +551,7 @@ Ogni azione con effetto (e ogni richiesta di permesso e la risposta) genera una 
 
 ##### C. Raccolta delle prove (forensi) al momento della rinuncia
 L'app crea un **fascicolo di prova** cifrato, locale, in sola scrittura, con:
-- **Identità del sistema**: utente del sistema operativo (nome e SID), sessione di login, nome della macchina e identificatori hardware **in forma di hash**, versione di Windows, versione di Basalt e **hash dei file dell'applicazione**.
+- **Identità del sistema**: utente del sistema operativo (nome e SID), sessione di login, nome della macchina e identificatori hardware **in forma di hash**, versione di Windows, versione di TaDaMoo e **hash dei file dell'applicazione**.
 - **Tempo**: data/ora locale e UTC, scarto rispetto a un'ora di rete se disponibile; **[AGGIUNTA, facoltativa]** una **marca temporale di una autorità riconosciuta** (RFC 3161: si invia solo un hash) per fissare l'istante.
 - **Contenuto**: il testo scritto, il valore estratto, se incollato o digitato (con la cadenza dei tasti), il **testo esatto** mostrato nei tre dialog, **screenshot** di ciascun dialog con la dichiarazione visibile.
 - **Integrità**: voce nel registro a **catena di hash** (§4.8) e firma con una chiave del dispositivo (non esportabile, se il sistema lo permette).
@@ -564,12 +564,12 @@ Per **ogni** sistema a cui si toglie la protezione si compila una scheda e si se
 | Campo della scheda | Contenuto |
 |---|---|
 | Nome e tipo | es. carta virtuale con plafond, wallet, bonifico tramite fornitore autorizzato, account di un marketplace (l'elenco dei connettori supportati **non è ancora definito**) |
-| Credenziale usata da Basalt | delegata (carta virtuale, token, mandato) — mai password né TOTP |
-| Protezioni di Basalt disattivate | conferma per pagamento (sotto il massimale) |
+| Credenziale usata da TaDaMoo | delegata (carta virtuale, token, mandato) — mai password né TOTP |
+| Protezioni di TaDaMoo disattivate | conferma per pagamento (sotto il massimale) |
 | Protezioni che restano | autenticazione e limiti del fornitore; massimale rigido; registro d'audit; interruttore di arresto |
 | Massimale | per pagamento e/o cumulativo (**[DA CONFERMARE]**), valuta, scadenza |
 | Condizioni del fornitore | **da verificare dall'utente prima di attivare** (l'uso di un agente automatico può essere vietato dalle condizioni del fornitore): link e data di verifica registrati nel fascicolo |
-| Come si revoca | pulsante in Basalt + passo lato fornitore |
+| Come si revoca | pulsante in TaDaMoo + passo lato fornitore |
 | Collaudo | pagamento di importo minimo con esito registrato |
 | Esito | attivato il …, scade il …, fascicolo n. … |
 
@@ -606,9 +606,9 @@ I modelli linguistici devono essere usati dove serve ragionamento o comprensione
 Dall'analisi comparativa emergono tre pattern di collaborazione multi-agente:
 - **Hermes**: gerarchia verticale (**[REV]** «subagenti isolati per flussi paralleli» secondo la fonte; «gerarchici» è una nostra lettura).
 - **OpenClaw**: canale orizzontale a stanze con agenti che si menzionano.
-- **Dialettica strutturata** (Tesi → Antitesi → Pragmatismo → Sintesi). **[REV]** Non attribuibile a Meta Muse (§2.1): è un'idea di Basalt.
+- **Dialettica strutturata** (Tesi → Antitesi → Pragmatismo → Sintesi). **[REV]** Non attribuibile a Meta Muse (§2.1): è un'idea di TaDaMoo.
 
-#### Il "Basalt Council Mode" Unificato
+#### Il "TaDaMoo Council Mode" Unificato
 
 ```mermaid
 sequenceDiagram
@@ -637,7 +637,7 @@ L'utente può definire le personalità, il numero massimo di round e ricevere un
 L'harness include una suite di visualizzazione integrata:
 1. **Grafo dei Task in Esecuzione (Live DAG)**: stato dei task (in coda, in esecuzione, completato, in errore con ispezione).
 2. **Architettura e Flussi del Codice**: diagrammi di repository (classi, flussi di controllo, grafi delle chiamate) con Mermaid o SVG nativi. **[REV]** La libreria di rendering va **inclusa nell'app** (niente CDN): funziona offline e non invia nulla all'esterno.
-3. **Visualizzatore Multimodale Esteso**: galleria di immagini, screenshot automatici durante le automazioni, immagini nel prompt per il modello di visione di Basalt (`src/vision/`). **[REV]** Gli screenshot possono contenere dati sensibili: scadenza e cifratura (§4.8).
+3. **Visualizzatore Multimodale Esteso**: galleria di immagini, screenshot automatici durante le automazioni, immagini nel prompt per il modello di visione di Basalt-Plus (`src/vision/`). **[REV]** Gli screenshot possono contenere dati sensibili: scadenza e cifratura (§4.8).
 
 **[REV]** Il DAG dei task e il grafo di sessione di §4.3 sono lo **stesso modello dati**: costruirli una volta sola.
 
@@ -662,9 +662,9 @@ Questa funzionalità consente di intervenire dinamicamente sui rami di esecuzion
 
 ### 4.13 High-Level Coding Platform & Memoria di Progetto
 
-Per trasformare Basalt in una piattaforma di sviluppo professionale comparabile a Claude Code, Codex e Antigravity:
+Per trasformare TaDaMoo in una piattaforma di sviluppo professionale comparabile a Claude Code, Codex e Antigravity:
 1. **File di Istruzione e Memoria Dedicati**:
-   - **[REV] `AGENTS.md`** (standard aperto, letto da Codex, OpenCode e altri): regole di ingaggio, standard di formattazione, convenzioni dei commit, policy di sicurezza. Basalt lo legge **per primo**; legge anche `CLAUDE.md` e `GEMINI.md` come ripiego, così un repository già configurato funziona subito. (Il testo originale proponeva `AGENT.md`: il nome standard è `AGENTS.md`.)
+   - **[REV] `AGENTS.md`** (standard aperto, letto da Codex, OpenCode e altri): regole di ingaggio, standard di formattazione, convenzioni dei commit, policy di sicurezza. TaDaMoo lo legge **per primo**; legge anche `CLAUDE.md` e `GEMINI.md` come ripiego, così un repository già configurato funziona subito. (Il testo originale proponeva `AGENT.md`: il nome standard è `AGENTS.md`.)
    - `BASALT.md` (o nome custom): documento vivo dell'architettura, mappa dei moduli, comandi di build, test di parità, changelog. **[REV]** Facoltativo: può essere una sezione di `AGENTS.md`.
 2. **Isolamento della Memoria per Progetto**: ogni cartella di lavoro ha un indice di memoria e una cronologia propri; l'agente non inquina un progetto con i dettagli di un altro.
 3. **Background Cron Jobs di Sviluppo**: routine schedulate (test di parità a intervalli, log di compilazione, regressioni di memoria sui commit). **[REV]** Girano con un **profilo di permessi ridotto e dichiarato** (di norma sola lettura + esecuzione dei test), mai con quelli della sessione interattiva.
@@ -696,7 +696,7 @@ Un vero assistente personale deve conoscere la persona con cui interagisce:
 
 ### 4.15 Personal Assistant Quotidiano & Email Triage
 
-> **[REV] Prodotto separato (D7).** Questa sezione appartiene a un secondo prodotto («Basalt Assistant») che riusa il ciclo, i permessi e la memoria dell'harness ma ha priorità, rischi e utenti diversi.
+> **[REV] Prodotto separato (D7).** Questa sezione appartiene a un secondo prodotto («TaDaMoo Assistant») che riusa il ciclo, i permessi e la memoria dell'harness ma ha priorità, rischi e utenti diversi.
 
 1. **Dashboard Unificata "Agenda & Attività"**: calendario sincronizzato, task una tantum con orario, task ricorrenti dello scheduler interno (*«Ogni mattina alle 08:30 il punto sulle issue aperte»*).
 2. **Email Triage Intelligente** (IMAP/OAuth): scansione, filtro per rilevanza rispetto al *Profilo*, *Progetti Attivi* e *Relazioni*, bozze di risposta nel registro adatto, pronte per l'approvazione con un clic.
@@ -709,10 +709,10 @@ Un vero assistente personale deve conoscere la persona con cui interagisce:
 
 Sul sistema locale è presente il progetto **wikibridge** dell'utente (verificato: esiste, con `README.md`, `wikibridge/`, `skill/`, `data/projects/<slug>/`, indice FTS5 `index.db` per progetto e un server HTTP sulla **porta 8775**), che fornisce una buona infrastruttura di conoscenza:
 - **Punti di Forza**: progetti isolati (`data/projects/<slug>/`, SQLite FTS5); formato *LLM Wiki* (`sources/`, `entities/`, `concepts/`, `syntheses/`, `meetings/`); importatore da web, MediaWiki, Confluence, Notion, PDF, DOCX, XLSX, PPTX, HTML; visualizzatore di grafo; skill per agenti.
-- **Strategia di Integrazione**: invece di riscrivere un motore RAG, Basalt usa wikibridge tramite la sua **API HTTP locale** (o, in alternativa, importandone il pacchetto). Quando l'utente o l'agente seleziona un progetto, l'harness carica il contesto e l'indice della wiki corrispondente.
+- **Strategia di Integrazione**: invece di riscrivere un motore RAG, TaDaMoo usa wikibridge tramite la sua **API HTTP locale** (o, in alternativa, importandone il pacchetto). Quando l'utente o l'agente seleziona un progetto, l'harness carica il contesto e l'indice della wiki corrispondente.
 
 **[REV] Precisazioni.**
-- **Niente percorsi fissi**: `C:\Projects\wikibridge` non va scritto nel codice. L'indirizzo (e il percorso, se si usa il pacchetto) sono **configurazione**; Basalt funziona anche senza wikibridge (la funzione si disattiva con un messaggio chiaro).
+- **Niente percorsi fissi**: `C:\Projects\wikibridge` non va scritto nel codice. L'indirizzo (e il percorso, se si usa il pacchetto) sono **configurazione**; TaDaMoo funziona anche senza wikibridge (la funzione si disattiva con un messaggio chiaro).
 - Va scritto un **contratto d'interfaccia** (endpoint usati, formato delle risposte, versione) in `serve/integrations/wikibridge_client.py`, con test che girano anche con un wikibridge finto. Non sono state verificate qui le specifiche dell'API oltre alla porta e alla presenza del server.
 - Il contenuto delle pagine wiki è **dato non fidato** quando proviene da fonti importate dal web (§4.8): va trattato come tale nel prompt.
 
@@ -736,7 +736,7 @@ flowchart TD
     Decomp --> SkillRoute["4. Skill: catalogo stabile + caricamento all'uso (§4.7)"]
     SkillRoute --> MemoryInj["5. Memoria e wiki pertinenti (FTS5/wikibridge)"]
     MemoryInj --> Budget["6. Budget di contesto e assemblaggio append-only (§4.1)"]
-    Budget --> Engine["7. Invio all'engine Basalt C++/CUDA (sm_120)"]
+    Budget --> Engine["7. Invio all'engine Basalt-Plus C++/CUDA (sm_120)"]
 ```
 
 **[REV] Correzioni.**
@@ -786,7 +786,7 @@ L'agente deve poter **scrivere, eseguire, testare e correggere codice** per riso
 
 ```mermaid
 flowchart TD
-    Agent["Basalt Agent Loop"] --> Detect{"L'agente emette blocco di codice o tool?"}
+    Agent["TaDaMoo Agent Loop"] --> Detect{"L'agente emette blocco di codice o tool?"}
     Detect -- Python --> PySandbox["Python in un PROCESSO SEPARATO (venv dedicato)"]
     Detect -- JS/TS --> DenoSandbox["Deno con permessi ristretti"]
     Detect -- Shell --> ShellRunner["PowerShell / Bash sotto il sistema di permessi (§4.8)"]
@@ -828,14 +828,14 @@ flowchart TD
 ```
 
 #### Meccanismi Operativi (corretti):
-1. **Basalt come *Agente* ACP** (**[REV]** in ACP il ruolo si chiama *Agent*, non «server»; l'editor è il *Client*). Metodi lato agente: `initialize`, `authenticate`, `session/new`, `session/load`, `session/prompt`, `session/cancel`, `session/set_mode`…; l'agente invia `session/update` (testo, ragionamento come `agent_thought_chunk`, tool call, piani).
-   - **Trasporto: stabile solo `stdio`** (il client lancia Basalt come sottoprocesso). **WebSocket e Streamable HTTP sono solo in una proposta (RFD)**: un endpoint WebSocket oggi **non è standard** (D1).
+1. **TaDaMoo come *Agente* ACP** (**[REV]** in ACP il ruolo si chiama *Agent*, non «server»; l'editor è il *Client*). Metodi lato agente: `initialize`, `authenticate`, `session/new`, `session/load`, `session/prompt`, `session/cancel`, `session/set_mode`…; l'agente invia `session/update` (testo, ragionamento come `agent_thought_chunk`, tool call, piani).
+   - **Trasporto: stabile solo `stdio`** (il client lancia TaDaMoo come sottoprocesso). **WebSocket e Streamable HTTP sono solo in una proposta (RFD)**: un endpoint WebSocket oggi **non è standard** (D1).
    - **Le modifiche ai file**: **`file/edit` non esiste.** Si usano i metodi del *client* `fs/read_text_file` e `fs/write_text_file`, oppure l'agente riporta la modifica come **tool call con contenuto di tipo `diff`** che l'editor mostra e applica. Il terminale è `terminal/create|output|wait_for_exit|kill`.
    - **Client supportati**: Zed, JetBrains, Neovim, Emacs, Visual Studio, Sublime Text… **VS Code solo tramite estensioni di terzi.**
-2. **Basalt come *Client* ACP (orchestratore)**: l'interfaccia a tela può pilotare agenti esterni conformi (Goose, Gemini CLI, OpenCode, Cline, OpenHands, Hermes Agent; Claude Code e Codex tramite adattatori). Fattibile, ma **secondario** rispetto a fare bene il proprio agente.
+2. **TaDaMoo come *Client* ACP (orchestratore)**: l'interfaccia a tela può pilotare agenti esterni conformi (Goose, Gemini CLI, OpenCode, Cline, OpenHands, Hermes Agent; Claude Code e Codex tramite adattatori). Fattibile, ma **secondario** rispetto a fare bene il proprio agente.
 3. **Permessi**: `session/request_permission` (opzioni tipo `allow_once`, `reject_once`) si integra con il Wizard a 3 livelli di §4.8: una sola fonte di verità per i permessi.
 4. **Sub-agenti** in ACP sono solo una proposta (RFD *Subagent Sessions*): non contarci come standard.
-5. **A2A** (opzionale, dopo): se serve far parlare Basalt con agenti di altri produttori, A2A è lo standard; non c'è motivo di inventare un formato di handoff.
+5. **A2A** (opzionale, dopo): se serve far parlare TaDaMoo con agenti di altri produttori, A2A è lo standard; non c'è motivo di inventare un formato di handoff.
 
 ---
 
@@ -858,7 +858,7 @@ Senza misure non si può dire che una modifica migliori l'harness, né che sia �
 - Un **insieme privato** di compiti reali (repo e task dell'utente) per non ottimizzare su set pubblici contaminati.
 
 #### Il confronto che conta: **a modello fisso, harness variabile**
-- Puntare **gli altri harness sullo stesso endpoint Basalt** (Basalt espone API compatibili OpenAI e Anthropic; LM Studio dichiara lo stesso uso con Claude Code — la compatibilità degli altri harness con l'endpoint di Basalt **va verificata** caso per caso) e confrontare con il ciclo di Basalt. È l'unico confronto equo: a parità di modello l'harness sposta il risultato quanto un cambio di modello (articolo del maggio 2026; Anthropic, febbraio 2026: +6 punti dalle sole risorse).
+- Puntare **gli altri harness sullo stesso endpoint TaDaMoo** (TaDaMoo espone API compatibili OpenAI e Anthropic; LM Studio dichiara lo stesso uso con Claude Code — la compatibilità degli altri harness con l'endpoint di TaDaMoo **va verificata** caso per caso) e confrontare con il ciclo di TaDaMoo. È l'unico confronto equo: a parità di modello l'harness sposta il risultato quanto un cambio di modello (articolo del maggio 2026; Anthropic, febbraio 2026: +6 punti dalle sole risorse).
 - **Dichiarare l'harness e le risorse** (hardware, potenza della GPU, limiti di tempo e di turni) in ogni risultato; trattare con scetticismo differenze sotto i ~3 punti.
 - **Leggere i transcript**: uno 0% su molte prove è di solito un compito rotto, non un modello debole.
 
@@ -869,9 +869,9 @@ Qwen3.8-Flash-Next è un modello da **~6 miliardi di parametri attivi**: un harn
 
 ### 4.22 Funzioni di Base dei Migliori Harness che Mancano al Documento (nuovo)
 
-Nel testo originale ricorrono **zero volte**: hook, checkpoint/rewind, plan mode, `AGENTS.md`, modalità headless/SDK, worktree, difese dalla prompt injection, LSP. Sono la base su cui gli harness attuali si confrontano. Proposta per Basalt:
+Nel testo originale ricorrono **zero volte**: hook, checkpoint/rewind, plan mode, `AGENTS.md`, modalità headless/SDK, worktree, difese dalla prompt injection, LSP. Sono la base su cui gli harness attuali si confrontano. Proposta per TaDaMoo:
 
-| Funzione | Cosa fanno i migliori (verificato) | Proposta per Basalt | Priorità |
+| Funzione | Cosa fanno i migliori (verificato) | Proposta per TaDaMoo | Priorità |
 |---|---|---|---|
 | **Hook su eventi** (prima/dopo uno strumento, fine turno, avvio sessione) | Claude Code (documentati); plugin in OpenCode | Hook configurabili per automazione deterministica **e per applicare le policy** (es. blocca `rm -rf` fuori dal perimetro) | Alta |
 | **Modalità di permesso a livelli + regole** | Claude Code (plan/default/accept edits/auto, regole per comando e percorso); Codex (`/permissions`); Bionic (Auto Review dei comandi) | §4.8: livelli 1-3 + regole allow/deny + classificatore di rischio **opzionale** (mai l'unica difesa) | Alta |
@@ -880,7 +880,7 @@ Nel testo originale ricorrono **zero volte**: hook, checkpoint/rewind, plan mode
 | **`AGENTS.md`** (+ lettura di `CLAUDE.md`/`GEMINI.md`) | Standard aperto | §4.13 | Alta |
 | **Skill (agentskills.io)** | Hermes, Claude Code, Codex | §4.7/§4.9 | Alta |
 | **Subagenti** | Claude Code, Codex, Goose, Hermes | Su una GPU i subagenti competono per gli slot e dividono il contesto: **prima misurare** (§4.23) | Media |
-| **Modalità headless / SDK** | `claude -p` e SDK, `codex exec`, `gemini -p`, SDK OpenCode | `basalt-agent -p "..."` con uscita JSON, codici di uscita, per CI e per essere pilotato da altri: **è anche la base per ACP e per i test di §4.21** | Alta |
+| **Modalità headless / SDK** | `claude -p` e SDK, `codex exec`, `gemini -p`, SDK OpenCode | `tadamoo-agent -p "..."` con uscita JSON, codici di uscita, per CI e per essere pilotato da altri: **è anche la base per ACP e per i test di §4.21** | Alta |
 | **Worktree paralleli** | Claude Code | Sessioni parallele su copie isolate del repo | Media |
 | **Sessioni: riprendi / fork** | Claude Code, OpenCode | Già implicito nel DAG di §4.3 | Media |
 | **Ricerca differita degli strumenti MCP** | Claude Code | §4.7 | Media |
@@ -898,7 +898,7 @@ Su una GPU, **la concorrenza non è gratuita** e cambia ciò che ha senso proget
 - **Un solo modello**: embeddings, un modello giudice, un modello di visione separato o un secondo agente di altro modello competono per VRAM/RAM e sono **caricamenti** (non gratuiti).
 - **Checkpoint della cache**: sei checkpoint in una catena; molte sessioni attive si sfrattano a vicenda (§3.3).
 
-**Conseguenze di progetto.** *a)* Uno **scheduler** con priorità e budget (interattivo > subagenti > routine in background); *b)* per default i subagenti sono **sequenziali** finché la misura non dimostra un guadagno in parallelo; *c)* l'orchestratore consulta la telemetria hardware già presente (`serve/loader.py`, `serve/hardware.py`) per dimensionare gli slot e ridurre la profondità speculativa quando la memoria scarseggia — questo, sì, è un vantaggio reale e raro di Basalt (§5.4).
+**Conseguenze di progetto.** *a)* Uno **scheduler** con priorità e budget (interattivo > subagenti > routine in background); *b)* per default i subagenti sono **sequenziali** finché la misura non dimostra un guadagno in parallelo; *c)* l'orchestratore consulta la telemetria hardware già presente (`serve/loader.py`, `serve/hardware.py`) per dimensionare gli slot e ridurre la profondità speculativa quando la memoria scarseggia — questo, sì, è un vantaggio reale e raro di TaDaMoo (§5.4).
 
 ---
 
@@ -912,28 +912,28 @@ Il registro delle richieste (tab LOGS) mostra già ciò che il modello ha visto 
 
 ---
 
-## 5. La Nostra Soluzione Ideale: "Basalt Omniverse"
+## 5. La Nostra Soluzione Ideale: "TaDaMoo Omniverse"
 
 > **[REV]** Questa sezione sintetizzava «i concetti migliori e le innovazioni proprietarie». Dopo la verifica: alcune attribuzioni erano sbagliate, alcune «innovazioni» erano promesse non dimostrate. È stata riscritta separando ciò che è **già vero**, ciò che è **da costruire** e ciò che è **un'ipotesi da dimostrare con le misure di §4.21**.
 
-La piattaforma si chiama concettualmente **"Basalt Omniverse"** (o **Basalt OS / Moon Harness**). Il suo punto di forza non è avere più funzioni degli altri, ma essere **l'unico harness progettato insieme al motore** su una GPU consumer, in modo nativo su Windows, con tutto in locale.
+La piattaforma si chiama concettualmente **"TaDaMoo Omniverse"** (o **TaDaMoo OS / Moon Harness**). Il suo punto di forza non è avere più funzioni degli altri, ma essere **l'unico harness progettato insieme al motore** su una GPU consumer, in modo nativo su Windows, con tutto in locale.
 
 ### 5.1 La Mappa dei Concetti Assorbiti (corretta) + Cosa Aggiungiamo
 
-| Riferimento | Concetto adottato (verificato) | Evoluzione per Basalt |
+| Riferimento | Concetto adottato (verificato) | Evoluzione per TaDaMoo |
 |---|---|---|
-| **LM Studio** | Downloader, gestione modelli, server compatibile, agente Bionic | **Hardware-Aware Orchestrator**: l'agente legge banda, tok/s e margine di memoria (già presenti in `loader.py`/`hardware.py`) per dimensionare contesto, slot e profondità speculativa. *[REV]* «calcolo preventivo VRAM» di LM Studio non verificato; quello di Basalt è verificato sul codice. |
+| **LM Studio** | Downloader, gestione modelli, server compatibile, agente Bionic | **Hardware-Aware Orchestrator**: l'agente legge banda, tok/s e margine di memoria (già presenti in `loader.py`/`hardware.py`) per dimensionare contesto, slot e profondità speculativa. *[REV]* «calcolo preventivo VRAM» di LM Studio non verificato; quello di TaDaMoo è verificato sul codice. |
 | **Hermes Agent** (MIT) | Skill `SKILL.md` (agentskills.io), memoria curata, FTS5 sulle sessioni, cron, gateway | **Cristallizzazione in codice deterministico** con revisione umana alla prima esecuzione (§4.9) |
 | **OpenClaw** (MIT) | Gateway omni-canale, `MEMORY.md`/`USER.md`, policy dei tool | Permessi a livelli e regole (§4.8). *[REV]* la sandbox di OpenClaw è spenta di default: non è un modello da copiare. |
 | **OpenHuman** (GPL-3.0) | TokenJuice (compressione recuperabile degli output), workflow a grafo (TinyFlows) | Pre-filtro degli output (§4.1). *[REV]* «Memory Tree SQLite/Obsidian» è una versione superata; **GPL-3.0**: non si può incorporare codice in un progetto con altra licenza (§6) — si imitano le idee, non si copia. |
-| **Meta Muse** | *Side chats* (ramificazione), *Artifacts* | **DAG di sessione e artefatti** (§4.3, §4.12). *[REV]* canvas infinito e council **non sono di Muse**: sono proposte di Basalt. |
+| **Meta Muse** | *Side chats* (ramificazione), *Artifacts* | **DAG di sessione e artefatti** (§4.3, §4.12). *[REV]* canvas infinito e council **non sono di Muse**: sono proposte di TaDaMoo. |
 | **Cline / OpenCode / Kilo / OpenHands** | Plan/Act, checkpoint, ACP, SDK, undo/redo | Funzioni di base di §4.22. *[REV]* sostituiscono il riferimento a **Roo Code (archiviato) e «Cangaroo»**. |
 | **Goose** | Estensioni MCP, ACP, subagenti | Client MCP moderno (§4.7); agente ACP (§4.20) |
 | **Aider** | RepoMap con tree-sitter e budget di token; lint/test dopo l'edit | Mappa del repo e **diagnostica live** (§4.13) |
 | **Claude Code** | Hook, subagenti, plan mode, checkpoint, headless/SDK, compattazione, ricerca differita degli strumenti MCP | §4.22 |
 | **Antigravity** | App per agenti paralleli, artefatti | Dashboard dei task (§4.11). *[REV]* «esecuzione reattiva senza polling» **non verificabile**: la riattivazione basata su eventi (invece di un polling ciclico) resta una buona scelta progettuale, ma non la si attribuisce ad Antigravity. |
 
-### 5.2 I Pilastri di Basalt Omniverse (riscritti)
+### 5.2 I Pilastri di TaDaMoo Omniverse (riscritti)
 
 #### 0. Misura prima di tutto (nuovo)
 Insieme di valutazione, confronto a modello fisso con altri harness sullo stesso endpoint, metriche di costo e di cache (§4.21). Nessuna affermazione di superiorità senza una misura.
@@ -956,7 +956,7 @@ Rilevamento di ambiguità bloccanti, permessi, piano per i compiti lunghi, skill
 SQLite + FTS5 subito, vettori dopo; wikibridge tramite API configurabile; CAG come **prefisso fisso** dove la misura lo giustifica.
 
 #### 5. Sicurezza per Costruzione (§4.8)
-Wizard a **4 livelli**, **Rule of Two**, broker dei segreti e **broker dei pagamenti** fuori dal modello, isolamento reale dell'esecuzione, conferma su secondo dispositivo per il denaro ai livelli 1-3 e, **per scelta dell'utente**, un **livello 4 con rinuncia esplicita, massimale rigido e fascicolo di prova** (§4.8.4), registro d'audit append-only. **[REV]** Sostituisce «Unsupervised Operator con 2FA Vault»: il livello 4 toglie la sola conferma di Basalt, non l'autenticazione del fornitore e non dà all'agente segreti TOTP.
+Wizard a **4 livelli**, **Rule of Two**, broker dei segreti e **broker dei pagamenti** fuori dal modello, isolamento reale dell'esecuzione, conferma su secondo dispositivo per il denaro ai livelli 1-3 e, **per scelta dell'utente**, un **livello 4 con rinuncia esplicita, massimale rigido e fascicolo di prova** (§4.8.4), registro d'audit append-only. **[REV]** Sostituisce «Unsupervised Operator con 2FA Vault»: il livello 4 toglie la sola conferma di TaDaMoo, non l'autenticazione del fornitore e non dà all'agente segreti TOTP.
 
 #### 6. Canvas e Council (opzionali, §4.3, §4.10)
 Canvas a nodi con alternativa lineare accessibile; council opzionale e misurato.
@@ -972,10 +972,10 @@ flowchart TD
         CANVAS["Vista a grafo / lineare (Web / WebView2)"]
         DIFF["Artefatti e Diff Viewer"]
         IDE["IDE via ACP (stdio)"]
-        CLI["Headless / SDK (basalt-agent -p)"]
+        CLI["Headless / SDK (tadamoo-agent -p)"]
     end
 
-    subgraph Harness_Tier ["Basalt Harness (processo Python separato)"]
+    subgraph Harness_Tier ["TaDaMoo Harness (processo Python separato)"]
         PRE["Pre-Flight (ambiguità, permessi, piano, budget)"]
         REACT["ReAct Loop + rilevatore di cicli"]
         TJ["TokenJuice / masking / compattazione"]
@@ -989,7 +989,7 @@ flowchart TD
         BROKER["Broker dei segreti (fuori dal modello)"]
     end
 
-    subgraph Engine_Tier ["Server Basalt (libreria standard) + Motore C++/CUDA sm_120"]
+    subgraph Engine_Tier ["Server TaDaMoo (libreria standard) + Motore C++/CUDA sm_120"]
         API["API OpenAI / Anthropic / Responses"]
         ENGINE["Motore MoE (GDN + QSA + hyper-connection)"]
         CACHE["Checkpoint dei prefissi (RAM)"]
@@ -1004,7 +1004,7 @@ flowchart TD
     ENGINE <--> VRAM
 ```
 
-### 5.4 Cosa Distingue Davvero Basalt (e Cosa è Ancora un'Ipotesi) (nuovo)
+### 5.4 Cosa Distingue Davvero TaDaMoo (e Cosa è Ancora un'Ipotesi) (nuovo)
 
 | Elemento | Stato | Perché |
 |---|---|---|
@@ -1071,12 +1071,12 @@ flowchart TD
 
 ## 7. Architettura Target del Sistema
 
-> **[REV]** Riscritta. Le differenze principali rispetto al testo originale: il server resta sulla **libreria standard** (FastAPI e WebSocket sono una *decisione*, D6); l'harness è un **processo/pacchetto separato** che parla con l'**API pubblica** di Basalt; i dati stanno nella **cartella dati dell'utente**, non in `data/` del repo; i percorsi corrispondono al repo reale.
+> **[REV]** Riscritta. Le differenze principali rispetto al testo originale: il server resta sulla **libreria standard** (FastAPI e WebSocket sono una *decisione*, D6); l'harness è un **processo/pacchetto separato** che parla con l'**API pubblica** di TaDaMoo; i dati stanno nella **cartella dati dell'utente**, non in `data/` del repo; i percorsi corrispondono al repo reale.
 
 ### 7.1 Perché l'harness come processo separato
-- **Disaccoppiamento**: parlando con un endpoint OpenAI/Anthropic compatibile, l'harness funziona con Basalt, con un altro backend locale o con un modello cloud (Arena ibrida, confronti a modello fisso di §4.21).
+- **Disaccoppiamento**: parlando con un endpoint OpenAI/Anthropic compatibile, l'harness funziona con TaDaMoo, con un altro backend locale o con un modello cloud (Arena ibrida, confronti a modello fisso di §4.21).
 - **Sicurezza**: il codice dell'agente e quello del server hanno confini e permessi diversi; un errore nell'harness non compromette il server e viceversa.
-- **Server piccolo**: il server HTTP di Basalt resta con dipendenze minime; l'harness può dipendere da librerie in più (tree-sitter, client MCP…).
+- **Server piccolo**: il server HTTP di TaDaMoo resta con dipendenze minime; l'harness può dipendere da librerie in più (tree-sitter, client MCP…).
 - **Test**: l'harness si prova contro un motore finto (già esiste un motore *mock* per i test) senza GPU.
 
 ### 7.2 Albero dei moduli (proposto)
@@ -1105,8 +1105,8 @@ E:\projects\basalt\
 │   ├── secrets_broker.py        # broker FUORI dal processo del modello
 │   ├── payments_broker.py       # broker dei pagamenti: massimale rigido, rinunce attive, registro (§4.8.5)
 │   ├── waiver/                  # livello 4: dialog di rinuncia, fascicolo di prova, schede dei sistemi di pagamento (§4.8.4)
-│   ├── acp_agent.py             # Basalt come Agente ACP su stdio (D1)
-│   ├── headless.py              # basalt-agent -p, SDK, uscita JSON
+│   ├── acp_agent.py             # TaDaMoo come Agente ACP su stdio (D1)
+│   ├── headless.py              # tadamoo-agent -p, SDK, uscita JSON
 │   ├── eval/                    # insieme di valutazione, runner, report (Fase 0)
 │   └── integrations/wikibridge_client.py   # client con contratto, configurabile
 │
@@ -1141,14 +1141,14 @@ flowchart LR
 
 - [ ] **Fase 0 — Misura (L)** *(prerequisito di tutto)*
   - Strumentare il motore e il server per `cache_n`/hit-rate, prefill, TTFT, tok/s per richiesta (in parte già nel registro).
-  - `harness/eval/`: runner con **ripetizioni (k ≥ 5) e pass^k**, prove isolate, risorse dichiarate; un set privato di compiti + un sottoinsieme di un benchmark pubblico attuale (**SWE-bench Pro** o **Terminal-Bench**) + **BFCL** per il tool calling.
-  - **Baseline**: gli altri harness (Claude Code, OpenCode, Goose, Cline…) puntati sull'endpoint di Basalt; verifica caso per caso della compatibilità.
+  - `tadamoo/eval/`: runner con **ripetizioni (k ≥ 5) e pass^k**, prove isolate, risorse dichiarate; un set privato di compiti + un sottoinsieme di un benchmark pubblico attuale (**SWE-bench Pro** o **Terminal-Bench**) + **BFCL** per il tool calling.
+  - **Baseline**: gli altri harness (Claude Code, OpenCode, Goose, Cline…) puntati sull'endpoint di TaDaMoo; verifica caso per caso della compatibilità.
   - *Accettazione*: un report riproducibile con harness, configurazione e hardware dichiarati.
 
 - [ ] **Fase 1 — Ciclo agentico minimo (L)**
   - `agent_loop.py`: intercetta i `<tool_call>` di Qwen, **valida contro lo schema** con messaggio di riparazione (riuso di `repair.py`), esegue, reinietta `role: "tool"`, rilevatore di cicli, limiti di iterazioni e di budget, annullamento.
   - Strumenti minimi: lettura/scrittura file, ricerca, shell, con **classi di effetto**.
-  - `headless.py` (`basalt-agent -p`, uscita JSON).
+  - `headless.py` (`tadamoo-agent -p`, uscita JSON).
   - *Accettazione*: supera il tasso di successo del tool calling misurato in Fase 0 sulle prove di riferimento; nessun deadlock; test con motore finto.
 
 - [ ] **Fase 2 — Sicurezza e controllo (XL)**
@@ -1166,7 +1166,7 @@ flowchart LR
 - [ ] **Fase 4 — Interoperabilità (M)**
   - Client MCP (stdio + Streamable HTTP, doppia revisione con rilevamento, OAuth, ricerca differita degli strumenti).
   - `acp_agent.py` su **stdio** (D1); permessi via `session/request_permission`.
-  - *Accettazione*: Basalt funziona come agente in almeno un client ACP reale (Zed o un client JetBrains) con modifiche mostrate come `diff` e permessi funzionanti.
+  - *Accettazione*: TaDaMoo funziona come agente in almeno un client ACP reale (Zed o un client JetBrains) con modifiche mostrate come `diff` e permessi funzionanti.
 
 - [ ] **Fase 5 — Interfaccia (L)**
   - Dashboard dei task (DAG), visualizzatore di artefatti e diff con applica/rifiuta per hunk, vista di sessione/branching con **alternativa lineare accessibile**, time-travel con classi di effetto; canvas a nodi come ultimo passo; council opzionale con **misura A/B**.
@@ -1200,7 +1200,7 @@ flowchart LR
 | 2.1 | Hermes: «nessuna GUI ricca», «nessuna compattazione» | Hermes Desktop; `/compress` | README Hermes |
 | 2.1 | OpenClaw: «accoppiato a cloud commerciale» | modelli e harness come plugin, anche locali | README OpenClaw |
 | 2.1 | OpenHuman: «ecosistema chiuso»; Memory Tree SQLite/Obsidian | GPL-3.0; Memory Tree rimosso nelle versioni attuali | repo, docs |
-| 2.1, 4.3, 4.10 | Muse: canvas infinito, council | non trovati nelle fonti ufficiali; restano proposte di Basalt | about.fb.com, ai.meta.com/muse |
+| 2.1, 4.3, 4.10 | Muse: canvas infinito, council | non trovati nelle fonti ufficiali; restano proposte di TaDaMoo | about.fb.com, ai.meta.com/muse |
 | 2.2, 5.1 | «Roo Code (Cangaroo/Kangaroo)»; «Goose / Kangaroo» | nome giusto Roo Code, archiviato 2026-05-15; accoppiamento errato | GitHub |
 | 2.2 | «Codex / OpenAI Operator» | Operator è un agente-browser ritirato | openai.com |
 | 3 | `serve/wizard.js` | `serve/web/wizard.js` | repo |
@@ -1226,7 +1226,7 @@ flowchart LR
 | D4 | Revisione MCP | solo 2025-11-25 · solo 2026-07-28 · entrambe con rilevamento | entrambe con rilevamento, stdio + Streamable HTTP; niente Sampling/Roots |
 | D5 | Isolamento dell'esecuzione su Windows | (a) utente dedicato + Firewall + token ristretto · (b) solo Job Object + cartella · (c) VM / Windows Sandbox | (a) come base; (c) per codice non fidato |
 | D6 | Stack del server | libreria standard (SSE + POST) · aggiungere FastAPI/WebSocket | libreria standard finché serve; WebSocket solo con una necessità dimostrata |
-| D7 | Prodotto | un solo prodotto · harness + «Basalt Assistant» separato | **DECISO (2026-10-18)**: separati; il remoto avrà funzioni minime di controllo e iniziazione, **da individuare al momento** |
+| D7 | Prodotto | un solo prodotto · harness + «TaDaMoo Assistant» separato | **DECISO (2026-10-18)**: separati; il remoto avrà funzioni minime di controllo e iniziazione, **da individuare al momento** |
 | D8 | Embedding | nessuno (solo FTS5) · modello su CPU · secondo processo/GPU | iniziare solo con FTS5 |
 | D9 | Riferimenti di mercato | sostituire Roo Code e Operator con Cline/OpenCode/Kilo/Goose + LM Studio Bionic | sì |
 
@@ -1253,7 +1253,7 @@ Le fonti primarie sono elencate nei due rapporti di verifica (`reports/market-pr
 3. L'originale (non corretto, **non** da usare come specifica) è `the_way_to_the_moon.ORIGINALE.md`.
 
 ### D.2 Stato del repository [verificato 2026-10-18]
-- Directory `E:\Projects\basalt`; ramo di lavoro **`tarots/windows`**, che traccia **`origin/master`** (`https://github.com/nuspy/basalt_win-GUI`); `upstream` = `jesdga95/basalt`. A `16f0cf6c` locale e remoto coincidono. Il ramo locale `main` è il vecchio ramo dell'upstream: **non usarlo**.
+- Directory `E:\Projects\basalt`; ramo di lavoro **`tarots/windows`**, che traccia **`origin/master`** (`https://github.com/nuspy/tadamoo`); `upstream` = `jesdga95/basalt`. A `16f0cf6c` locale e remoto coincidono. Il ramo locale `main` è il vecchio ramo dell'upstream: **non usarlo**.
 - Il codice del motore e del porting Windows è pubblicato; sono pubblicati anche il catalogo/downloader dei modelli e la GUI di download. Licenza **del codice pubblicato: MIT** (la nuova licenza di §6 non è ancora applicata).
 - **File non tracciati che non appartengono a questo lavoro**: `conquer_of_the_moon.md`, `tests_jev.md`, `tools/jev_*.json`, `tools/poc_jev_triage.py`, `tools/run_jev_*.py`, `.agents/`, `skills-lock.json`. **Non committarli e non cancellarli** senza chiedere. Questo documento e `the_way_to_the_moon.ORIGINALE.md` sono anch'essi non tracciati: se vanno nel repo lo decide l'utente.
 - Compilazione Windows: MSVC + CUDA 13.1 (sm_120), `tools\windows\vsenv.ps1`, cartella `build-win`, binari in `bin\`; istruzioni in `docs/WINDOWS.md`. Il server Python è in `serve/` (libreria standard, nessun FastAPI/WebSocket).
@@ -1276,14 +1276,14 @@ Le fonti primarie sono elencate nei due rapporti di verifica (`reports/market-pr
 
 ### D.5 Ordine di partenza consigliato (sabato)
 1. **Chiedere all'utente** le decisioni aperte che bloccano la fase (D.7), non tutte insieme.
-2. **Fase 0 (§8)**, parte che non richiede GPU: schema del set di valutazione, runner con ripetizioni e `pass^k`, formato del report, e un uso del `MockEngine` esistente (`serve/engine/mock.py`) dietro il server di Basalt, così l'harness si prova senza GPU.
-3. **Fase 1**: ciclo agentico minimo contro il mock; poi contro Basalt reale quando la GPU è libera.
+2. **Fase 0 (§8)**, parte che non richiede GPU: schema del set di valutazione, runner con ripetizioni e `pass^k`, formato del report, e un uso del `MockEngine` esistente (`serve/engine/mock.py`) dietro il server di TaDaMoo, così l'harness si prova senza GPU.
+3. **Fase 1**: ciclo agentico minimo contro il mock; poi contro Basalt-Plus reale quando la GPU è libera.
 4. Non iniziare **Fase 2 (livello 4)** prima che la suite avversariale del livello 2 passi (§8).
 5. A ogni fase: criterio di accettazione di §8 **misurato**, non dichiarato.
 
 ### D.6 Punti del documento ancora **non verificati** (da controllare prima di usarli)
 - Il comportamento esatto delle **chiamate a strumenti di Qwen3.8-Flash-Next** oltre il formato XML già gestito da `serve/frontend.py`, e il tasso di successo reale: è la **prima misura da fare** (§4.21, Fase 0).
-- La **compatibilità degli altri harness** (Claude Code, OpenCode, Goose, Cline…) con l'endpoint di Basalt: ipotesi da provare caso per caso.
+- La **compatibilità degli altri harness** (Claude Code, OpenCode, Goose, Cline…) con l'endpoint di TaDaMoo: ipotesi da provare caso per caso.
 - Le cifre di **prestazioni e di cache** (hit-rate del prefisso, TTFT, tok/s con carico agentico): nessuna misurata, tutte da rilevare.
 - Le fonti **secondarie** (sintesi di ricerca web) citate nelle Appendici A e C: i dettagli delle specifiche (MCP 2026-07-28, ACP, A2A, PSD2/RTS) vanno riletti alla fonte primaria prima di scriverci codice contro.
 - Il valore **giuridico** di dialog, prove e licenza (§4.8.4, §6): non è stato valutato da un legale.

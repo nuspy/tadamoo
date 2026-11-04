@@ -30,7 +30,7 @@ FAST = {"engine.max-context": 65536, "engine.kv": "int8", "engine.spec": 7, "ser
 class Store(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": self.dir.name, "BASALT_DATA": self.dir.name})
+        self.env = mock.patch.dict(os.environ, {"TADAMOO_CACHE": self.dir.name, "TADAMOO_DATA": self.dir.name})
         self.env.start()
 
     def tearDown(self):
@@ -56,7 +56,7 @@ class Store(unittest.TestCase):
         self.assertEqual(profiles.get_load("Vecchio"), FAST)
         listed = next(p for p in profiles.listing(ROOMY)["load"] if p["name"] == "Vecchio")
         self.assertEqual(listed["values"], FAST)
-        self.assertEqual(profiles.export("load")["load"]["Vecchio"]["values"], FAST)
+        self.assertEqual(profiles.export()["load"]["Vecchio"]["values"], FAST)
         profiles.change({"action": "import", "data": {"load": {"Importato": {"values": old}}}})   # an older export
         self.assertEqual(profiles.get_load("Importato"), FAST)
         self.assertEqual(profiles.check_load(old), FAST)
@@ -110,16 +110,25 @@ class Store(unittest.TestCase):
 
     def test_export_import(self):
         profiles.change({"action": "save", "name": "Veloce", "values": FAST})
-        profiles.change({"action": "save", "kind": "inference", "name": "P", "settings": {"temperature": "1"}})
         data = profiles.export()
+        self.assertNotIn("inference", data)
         profiles.change({"action": "delete", "name": "Veloce"})
-        profiles.change({"action": "delete", "kind": "inference", "name": "P"})
         profiles.change({"action": "import", "data": json.loads(json.dumps(data))})
         self.assertEqual(profiles.get_load("Veloce"), FAST)
+
+    def test_the_inference_presets_are_their_own_file_and_copying_it_moves_them(self):
+        profiles.change({"action": "save", "kind": "inference", "name": "P", "settings": {"temperature": "1"}})
+        profiles.change({"action": "save", "name": "Veloce", "values": FAST})
+        self.assertEqual(json.loads(profiles.presets_path().read_text(encoding="utf-8"))["presets"]["P"]["settings"], {"temperature": "1"})
+        self.assertNotIn("inference", json.loads(profiles.path().read_text(encoding="utf-8")))
+        copy = profiles.presets_path().read_text(encoding="utf-8")
+        profiles.change({"action": "delete", "kind": "inference", "name": "P"})
+        self.assertEqual(profiles.listing()["inference"], [])
+        profiles.presets_path().write_text(copy, encoding="utf-8")           # a file copied in by hand
         self.assertEqual([p["name"] for p in profiles.listing()["inference"]], ["P"])
 
     def test_apply_writes_the_config_and_keeps_a_backup(self):
-        cfg = os.path.join(self.dir.name, "basalt_config.json")
+        cfg = os.path.join(self.dir.name, "tadamoo_config.json")
         original = {"server": {"model": "m.basalt", "port": 7232}, "engine": {"kv": "fp16", "resident-experts": True}}
         Path(cfg).write_text(json.dumps(original), encoding="utf-8")
         profiles.change({"action": "save", "name": "Veloce", "values": FAST})
@@ -142,7 +151,7 @@ class Store(unittest.TestCase):
 class OverHttp(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": self.dir.name, "BASALT_DATA": self.dir.name})
+        self.env = mock.patch.dict(os.environ, {"TADAMOO_CACHE": self.dir.name, "TADAMOO_DATA": self.dir.name})
         self.env.start()
         tok = ByteTokenizer()
         self.svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
@@ -175,7 +184,7 @@ class OverHttp(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/profiles", {"action": "delete", "name": profiles.SAFE_NAME}, json_)[0], 400)
         with mock.patch("serve.settings.is_loopback", return_value=False):
             self.assertEqual(self.req("POST", "/api/profiles", {"action": "save", "name": "B", "values": {}}, json_)[0], 200)
-        code, data = self.req("GET", "/api/profiles/export?kind=load")
+        code, data = self.req("GET", "/api/profiles/export")
         self.assertEqual(code, 200)
         self.assertIn("A", data["load"])
         self.assertNotIn("inference", data)

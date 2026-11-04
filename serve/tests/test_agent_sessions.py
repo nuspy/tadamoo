@@ -20,7 +20,7 @@ def stub_command(die_times=1):
 
 @pytest.fixture(autouse=True)
 def own_data_folder(tmp_path, monkeypatch):
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))          # the person's limits.json is not read
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))          # the person's limits.json is not read
 
 
 @pytest.fixture
@@ -509,7 +509,7 @@ def test_a_branch_copies_the_history_up_to_a_request_and_leaves_the_first_alone(
 
 
 def test_snapshots_are_listed_diffed_and_checked_from_the_conversations_folder(make, ws):
-    from harness.context_patterns import Snapshots
+    from tadamoo.context_patterns import Snapshots
     mgr = make()
     sid = mgr.create(ws)["id"]
     snaps = Snapshots(mgr.history_dir(sid) / "snapshots")
@@ -598,7 +598,7 @@ def test_a_second_conversation_in_a_git_folder_gets_its_own_copy_and_the_first_s
     mgr = make()
     first = mgr.create(repo)
     second = mgr.create(repo)
-    assert "worktree" not in first and second["worktree"]["branch"] == f"basalt/{second['id']}"
+    assert "worktree" not in first and second["worktree"]["branch"] == f"tadamoo/{second['id']}"
     assert second["workdir"] != second["workspace"] and Path(second["workdir"]).is_dir()
     cmd = mgr._command(second["id"], second, mgr.history_dir(second["id"]))
     assert cmd[cmd.index("--workspace") + 1] == second["workdir"]
@@ -673,7 +673,7 @@ def test_throwing_a_copy_away_closes_the_conversation_and_removes_the_folder_and
     (work / "a.txt").write_text("lost\n", encoding="utf-8")
     out = mgr.copy_discard(sid)
     assert out["state"] == "closed" and not out.get("worktree") and not work.exists()
-    assert f"basalt/{sid}" not in _git(repo, "branch") and (Path(repo) / "a.txt").read_text(encoding="utf-8") == "one\n"
+    assert f"tadamoo/{sid}" not in _git(repo, "branch") and (Path(repo) / "a.txt").read_text(encoding="utf-8") == "one\n"
 
 
 def test_a_branch_of_a_conversation_in_a_copy_gets_a_copy_of_its_own(make, repo):

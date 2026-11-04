@@ -185,7 +185,7 @@ def _opener(follow: bool):
 
 
 def _headers(token: str | None, extra: dict | None = None) -> dict:
-    h = {"User-Agent": "basalt-win-gui"}
+    h = {"User-Agent": "tadamoo"}
     if token:
         h["Authorization"] = "Bearer " + token
     h.update(extra or {})

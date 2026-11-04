@@ -30,7 +30,7 @@
 .cv-name { font-weight: 600; overflow-wrap: anywhere; }
 .cv-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .cv-chip { font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--fg-2); }
-.cv-chip[data-on="1"] { color: var(--fg); border-color: var(--basalt-500); }
+.cv-chip[data-on="1"] { color: var(--fg); border-color: var(--tadamoo-500); }
 .cv-sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; flex: none; }
 .cv-row .btn { min-height: 44px; }
 

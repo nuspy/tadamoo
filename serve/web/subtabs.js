@@ -55,7 +55,7 @@
       return b;
     }));
     if (viewOn === "settings") showSettingsSub();
-    document.dispatchEvent(new CustomEvent("basalt:sub", { detail: viewOn === "settings" ? settingsSub : viewOn }));
+    document.dispatchEvent(new CustomEvent("tadamoo:sub", { detail: viewOn === "settings" ? settingsSub : viewOn }));
   }
 
   // arrow keys move along the strip, Home and End go to the ends
@@ -69,7 +69,7 @@
     document.getElementById(next.id).focus();
   });
 
-  document.addEventListener("basalt:view", paint);
-  document.addEventListener("basalt:lang", paint);
+  document.addEventListener("tadamoo:view", paint);
+  document.addEventListener("tadamoo:lang", paint);
   paint();
 })();

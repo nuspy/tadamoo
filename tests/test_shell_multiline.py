@@ -9,14 +9,14 @@ from pathlib import Path
 
 import pytest
 
-from harness import environment
-from harness.hooks import HookManager
-from harness.permissions import PermissionLevel, PermissionManager, PermissionRule
-from harness.sandbox import MAX_TIMEOUT, blocked_reason
-from harness.secrets_broker import SecretsBroker
-from harness.tools import create_standard_tool_registry, shell
-from harness.tools.registry import EffectClass, ToolArgumentError
-from harness.tools.shell import check_timeout, execute_shell_command, python_wrapper
+from tadamoo import environment
+from tadamoo.hooks import HookManager
+from tadamoo.permissions import PermissionLevel, PermissionManager, PermissionRule
+from tadamoo.sandbox import MAX_TIMEOUT, blocked_reason
+from tadamoo.secrets_broker import SecretsBroker
+from tadamoo.tools import create_standard_tool_registry, shell
+from tadamoo.tools.registry import EffectClass, ToolArgumentError
+from tadamoo.tools.shell import check_timeout, execute_shell_command, python_wrapper
 
 windows = pytest.mark.skipif(sys.platform != "win32", reason="the shell is cmd.exe")
 needs_powershell = pytest.mark.skipif(sys.platform != "win32" or environment.powershell_path() is None, reason="PowerShell on Windows")

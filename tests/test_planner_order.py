@@ -1,7 +1,7 @@
 """The list of a plan's steps: the order the person gave, kept valid when links change or steps are removed."""
 import pytest
 
-from harness.planner.dag import Assignee, NodeType, PlanDAG, PlanError, PlanNode
+from tadamoo.planner.dag import Assignee, NodeType, PlanDAG, PlanError, PlanNode
 
 
 def action(name, **kw):

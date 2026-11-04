@@ -11,12 +11,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fake_discovery import FakeServices, SHA, git_blob_sha  # noqa: E402
-from harness.capabilities import CapabilityIndex  # noqa: E402
-from harness.discovery import sources as src  # noqa: E402
-from harness.discovery.candidates import Candidate, CandidateStore  # noqa: E402
-from harness.discovery.installed import InstalledStore  # noqa: E402
-from harness.discovery.installer import BOOT, AlreadyInstalled, InstallError, Installer, IntegrityError, Run, UnknownCandidate  # noqa: E402
-from harness.discovery.scoring import Metrics, score  # noqa: E402
+from tadamoo.capabilities import CapabilityIndex  # noqa: E402
+from tadamoo.discovery import sources as src  # noqa: E402
+from tadamoo.discovery.candidates import Candidate, CandidateStore  # noqa: E402
+from tadamoo.discovery.installed import InstalledStore  # noqa: E402
+from tadamoo.discovery.installer import BOOT, AlreadyInstalled, InstallError, Installer, IntegrityError, Run, UnknownCandidate  # noqa: E402
+from tadamoo.discovery.scoring import Metrics, score  # noqa: E402
 
 WIN = os.name == "nt"
 
@@ -85,7 +85,7 @@ def test_an_npm_package_is_installed_with_the_fixed_command_checked(env):
     shim = folder / "node_modules" / ".bin" / ("search-mcp" + (".cmd" if WIN else ""))
     assert record["command"] == [str(shim), "--mode", "fast"] and "npx" not in json.dumps(record["command"])
     entry = env.index.get("mcp:search-mcp")
-    assert entry["origin"] == "basalt" and entry["state"] == "approved" and entry["sha"] == record["sha"]
+    assert entry["origin"] == "tadamoo" and entry["state"] == "approved" and entry["sha"] == record["sha"]
     assert env.index.target("mcp:search-mcp") == [str(shim), "--mode", "fast"]
     assert [h["id"] for h in env.index.search("web search")] == ["mcp:search-mcp"]
     stored = json.loads((env.caps / "installed.json").read_text(encoding="utf-8"))["items"]["mcp:search-mcp"]
@@ -235,9 +235,9 @@ def test_a_skill_is_downloaded_folder_only_file_by_file_at_the_pinned_commit(env
     folder = env.caps / "skills" / "pdf-tables"
     assert (folder / "SKILL.md").is_file() and (folder / "scripts" / "x.py").read_bytes() == b"print('hi')\n" and not (folder / "link").exists()
     assert not (folder / "other").exists() and record["id"] == "skill:pdf-tables" and record["commit"] == SHA
-    assert json.loads((folder / ".basalt-source.json").read_text())["commit"] == SHA
+    assert json.loads((folder / ".tadamoo-source.json").read_text())["commit"] == SHA
     entry = env.index.get("skill:pdf-tables")
-    assert entry["origin"] == "basalt" and entry["state"] == "approved"
+    assert entry["origin"] == "tadamoo" and entry["state"] == "approved"
     assert "Read the file" in env.index.body("skill:pdf-tables")
     assert not any(p.startswith("/raw/acme/skills/" + SHA + "/skills/other") for p, _ in skills.world.requests)
 
@@ -295,7 +295,7 @@ def test_a_name_that_is_already_there_is_not_overwritten(env):
 # ---- the keys of a server come from the vault when it starts ---------------------------------------------------------------
 
 def vault_with(tmp_path, entries):
-    from harness.vault import Vault
+    from tadamoo.vault import Vault
     vault = Vault(tmp_path / "vault")
     for entry_id, value in entries.items():
         vault.put(entry_id, kind="secret", label=entry_id, fields={"value": value})
@@ -307,7 +307,7 @@ def installed_fake_search(env):
     env.inst.install(c.id)
     store = InstalledStore(env.caps)
     rec = store.get("mcp:search")
-    from harness.capabilities import mcp_spec_sha
+    from tadamoo.capabilities import mcp_spec_sha
     command = [sys.executable, str(Path(__file__).resolve().parent / "fake_search_mcp.py")]
     rec.update(command=command, sha=mcp_spec_sha(command[0], command[1:]))
     store.put(rec)
@@ -322,7 +322,7 @@ def test_the_key_is_read_from_the_vault_at_the_start_and_never_written_down(env)
     for f in env.caps.rglob("*"):
         if f.is_file():
             assert "sekret-value-123" not in f.read_text(encoding="utf-8", errors="ignore"), f
-    from harness.mcp_client import MCPClient
+    from tadamoo.mcp_client import MCPClient
     client = MCPClient(target, env={"FAKE_SEARCH_KEY": "sekret-value-123", **target.env})
     client.start()
     try:
@@ -388,7 +388,7 @@ def test_update_replaces_the_installed_one_and_a_failure_brings_the_old_one_back
 
 
 def test_a_skill_over_a_limit_is_refused_only_when_the_person_set_one(env, skills):
-    from harness.discovery.settings import DiscoverySettings
+    from tadamoo.discovery.settings import DiscoverySettings
     c = env.store.add(skill_candidate())
     DiscoverySettings(env.caps).save({"max_skill_files": 1})
     with pytest.raises(InstallError, match="limits"):
@@ -398,7 +398,7 @@ def test_a_skill_over_a_limit_is_refused_only_when_the_person_set_one(env, skill
 
 
 def test_the_size_limits_default_to_none(tmp_path):
-    from harness.discovery.settings import DiscoverySettings
+    from tadamoo.discovery.settings import DiscoverySettings
     s = DiscoverySettings(tmp_path)
     assert [s.load()[k] for k in ("max_skill_files", "max_skill_mb", "max_skill_file_mb")] == [0, 0, 0]
     assert s.save({"max_skill_mb": 12})["max_skill_mb"] == 12

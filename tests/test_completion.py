@@ -3,8 +3,8 @@ import json
 
 from test_agent_loop import ScriptedClient, call, make, say
 
-from harness import completion, persistence, side_uses
-from harness.permissions import PermissionLevel, PermissionManager
+from tadamoo import completion, persistence, side_uses
+from tadamoo.permissions import PermissionLevel, PermissionManager
 
 
 class Judge:

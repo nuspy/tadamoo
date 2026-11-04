@@ -109,7 +109,7 @@ class Lifecycle(unittest.TestCase):
         self.httpd.server_close()
 
     def request(self, path, body=None, headers=None):
-        secret = {"X-Basalt-Control": self.svc.control_token} if path.startswith("/api/") else {}
+        secret = {"X-Tadamoo-Control": self.svc.control_token} if path.startswith("/api/") else {}
         req = urllib.request.Request(self.base + path, data=json.dumps(body).encode() if body is not None else None,
                                      headers={"Content-Type": "application/json", **secret, **(headers or {})})
         try:
@@ -152,7 +152,7 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual(self.request("/metrics")[1]["live"]["state"], "idle")
 
     def test_discover_chat_unload_and_stream_reload(self):
-        self.assertEqual(self.request("/api/health")[1]["service"], "basalt")
+        self.assertEqual(self.request("/api/health")[1]["service"], "tadamoo")
         self.assertFalse(self.request("/v1/status")[1]["loaded"])
         self.assertEqual(self.request("/v1/models")[1]["data"][0]["status"]["value"], "unloaded")
         self.assertTrue(self.request("/props")[1]["models_autoload"])
@@ -209,7 +209,7 @@ class Lifecycle(unittest.TestCase):
         code, status = self.request("/api/control/load", {})
         self.assertEqual((code, status), (200, {"status": "loaded"}))
         self.assertEqual(self.engine.starts, 1)
-        for headers in ({"X-Basalt-Control": "wrong"}, {"X-Basalt-Control": ""}):
+        for headers in ({"X-Tadamoo-Control": "wrong"}, {"X-Tadamoo-Control": ""}):
             self.assertEqual(self.request("/api/control/unload", {}, headers)[0], 403, headers)
         self.assertEqual(self.engine.closes, 0)
         self.svc.control_token = ""                                  # without --control-secret the routes ask nothing beyond this PC

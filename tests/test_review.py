@@ -1,7 +1,7 @@
 """The technical session's look at whether the request was followed as named."""
 from types import SimpleNamespace
 
-from harness import review, side_uses
+from tadamoo import review, side_uses
 
 
 class Judge:

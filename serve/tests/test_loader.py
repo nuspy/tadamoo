@@ -175,7 +175,7 @@ def make_service(max_context=4096):
 class Calibration(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": self.dir.name, "BASALT_DATA": self.dir.name})
+        self.env = mock.patch.dict(os.environ, {"TADAMOO_CACHE": self.dir.name, "TADAMOO_DATA": self.dir.name})
         self.env.start()
 
     def tearDown(self):
@@ -203,9 +203,9 @@ class Calibration(unittest.TestCase):
 class OverHttp(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": self.dir.name, "BASALT_DATA": self.dir.name})
+        self.env = mock.patch.dict(os.environ, {"TADAMOO_CACHE": self.dir.name, "TADAMOO_DATA": self.dir.name})
         self.env.start()
-        self.path = os.path.join(self.dir.name, "basalt_config.json")
+        self.path = os.path.join(self.dir.name, "tadamoo_config.json")
         Path(self.path).write_text(json.dumps(CONFIG, indent=2), encoding="utf-8")
         self.svc = make_service()
         self.svc.settings_info = {"config": self.path, "model": None, "cli": [], "running": {"engine.max-context": 4096}}

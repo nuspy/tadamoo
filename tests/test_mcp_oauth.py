@@ -8,8 +8,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from harness.llm.credentials import FileCredentials
-from harness.mcp_oauth import AuthRequired, McpOAuth, OAuthError, OAuthStore, canonical, parse_challenge
+from tadamoo.llm.credentials import FileCredentials
+from tadamoo.mcp_oauth import AuthRequired, McpOAuth, OAuthError, OAuthStore, canonical, parse_challenge
 
 REDIRECT = "http://127.0.0.1:7232/api/mcp/auth/callback"
 
@@ -139,7 +139,7 @@ def test_signing_in_asks_for_everything_the_specification_requires(parts, world)
     q = sign_in(oauth, world)
     assert q["response_type"] == "code" and q["client_id"] == "cid-1" and q["redirect_uri"] == REDIRECT
     assert q["code_challenge_method"] == "S256" and q["resource"] == world.url and q["scope"] == "mcp.read" and len(q["state"]) >= 20
-    assert world.registered == [{"client_name": "Basalt", "redirect_uris": [REDIRECT], "grant_types": ["authorization_code", "refresh_token"],
+    assert world.registered == [{"client_name": "TaDaMoo", "redirect_uris": [REDIRECT], "grant_types": ["authorization_code", "refresh_token"],
                                  "response_types": ["code"], "token_endpoint_auth_method": "none"}]
     assert world.last_token_request["resource"] == world.url and world.last_token_request["client_id"] == "cid-1"
     assert oauth.signed_in() and oauth.access_token() == "AT1"
@@ -300,7 +300,7 @@ def test_a_server_that_does_not_register_clients_says_so(tmp_path):
 
 
 def test_the_http_client_sends_the_token_asks_to_sign_in_without_one_and_renews_a_token_that_ran_out(parts, world):
-    from harness.mcp_client import MCPAuthRequired, MCPHttpClient
+    from tadamoo.mcp_client import MCPAuthRequired, MCPHttpClient
     oauth, store, clock, creds, tmp = parts
     client = MCPHttpClient(world.url, auth=oauth)
     with pytest.raises(MCPAuthRequired) as e:
@@ -317,7 +317,7 @@ def test_the_http_client_sends_the_token_asks_to_sign_in_without_one_and_renews_
 
 
 def test_a_static_token_and_no_auth_still_work_as_before(world):
-    from harness.mcp_client import MCPAuthRequired, MCPHttpClient
+    from tadamoo.mcp_client import MCPAuthRequired, MCPHttpClient
     world.tokens = {"fixed": "x"}
     MCPHttpClient(world.url, token="fixed").notify("ping")
     with pytest.raises(MCPAuthRequired):

@@ -1,4 +1,4 @@
-"""What the person accepted for each project folder: the checks detected from its files (harness/project_profile.py) and the exact commands
+"""What the person accepted for each project folder: the checks detected from its files (tadamoo/project_profile.py) and the exact commands
 they typed themselves. Kept in one small file in the user data folder, never in the project, so a cloned repository cannot approve anything.
 
 An accepted check is stored with the digest of what it ran when it was shown; it counts only while the folder still detects the same command
@@ -10,8 +10,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List
 
-from harness.permissions import READ_ONLY_COMMANDS
-from harness.project_profile import COMMAND_CHARS, KINDS, MAX_SAFE, Check, clean_list, detect, is_empty
+from tadamoo.permissions import READ_ONLY_COMMANDS
+from tadamoo.project_profile import COMMAND_CHARS, KINDS, MAX_SAFE, Check, clean_list, detect, is_empty
 
 
 class CodingError(ValueError):

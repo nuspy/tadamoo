@@ -11,7 +11,7 @@ const HIST = 60;
 let perStream = Array(HIST).fill(0);   // mean tok/s per decoding slot, one sample per poll
 
 let apiKey = "";
-try { apiKey = sessionStorage.getItem("basalt.key") || ""; } catch (e) { /* storage blocked: ask again */ }
+try { apiKey = sessionStorage.getItem("tadamoo.key") || ""; } catch (e) { /* storage blocked: ask again */ }
 let M = null;          // the last /metrics reading
 const authHeaders = () => apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
 
@@ -60,7 +60,7 @@ function view(v, focus) {
   });
   if (location.hash.slice(1) !== v) history.replaceState(null, "", "#" + v);
   if (v === "stats") scrollLog();
-  document.dispatchEvent(new CustomEvent("basalt:view", { detail: v }));
+  document.dispatchEvent(new CustomEvent("tadamoo:view", { detail: v }));
 }
 $$(".tabs .tab").forEach(t => t.onclick = () => view(t.dataset.view));
 // the tab list: arrow keys move between tabs, Home and End go to the ends (WAI-ARIA tabs pattern)
@@ -417,12 +417,12 @@ async function pollLog() {
 }
 $("#auth").onsubmit = e => {
   e.preventDefault(); apiKey = $("#key").value.trim();
-  try { sessionStorage.setItem("basalt.key", apiKey); } catch (err) { /* kept for this page only */ }
-  document.dispatchEvent(new CustomEvent("basalt:key"));
+  try { sessionStorage.setItem("tadamoo.key", apiKey); } catch (err) { /* kept for this page only */ }
+  document.dispatchEvent(new CustomEvent("tadamoo:key"));
 };
 // with an API key set the server gives the page its change secret only to a request that carries the key
 const openSession = () => { if (apiKey) fetch("api/session", { cache: "no-store", headers: authHeaders() }).catch(() => { /* the next change says what is missing */ }); };
-document.addEventListener("basalt:key", openSession);
+document.addEventListener("tadamoo:key", openSession);
 openSession();
 // a 401 from any view shows the key prompt
 function askKey() { $("#auth").hidden = false; $("#key").focus(); }

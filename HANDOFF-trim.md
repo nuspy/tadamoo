@@ -1,10 +1,10 @@
-# Handoff — Commit del pagefile per le allocazioni GPU di Basalt
+# Handoff — Commit del pagefile per le allocazioni GPU di Basalt-Plus
 
 Data: 2026-10-23. Repo: `E:\Projects\basalt`, branch `tarots/windows`.
 
 ## Il problema
 
-Basalt (motore di inferenza) carica ~32 GB di pesi del modello in VRAM su una RTX 5090.
+Basalt-Plus (motore di inferenza) carica ~32 GB di pesi del modello in VRAM su una RTX 5090.
 Sulle build Windows recenti, dxgkrnl (il kernel del display) **committa automaticamente
 una riserva equivalente nel pagefile**: quando la GPU alloca memoria, Windows riserva
 spazio nel commit di sistema come backup di paginazione. Con il modello intero in VRAM,
@@ -20,7 +20,7 @@ senza dover ricostruire il motore ogni volta?
 1. **Opzione B (scelta)**: usare l'API pubblica `D3DKMTTrimProcessCommitment` per
    "scaricare" il commit quando il motore è in pausa, senza patchare il driver.
 2. (Scartata in una prima sessione) far scrivere al chiamante i flag di allocazione
-   "non committed": Basalt alloca via CUDA VMM (`cuMemCreate`, vedi
+   "non committed": Basalt-Plus alloca via CUDA VMM (`cuMemCreate`, vedi
    `src/core/vmm.cpp`), quindi il dword dei flag lo scrive il driver utente NVIDIA,
    non il nostro codice.
 
@@ -31,7 +31,7 @@ senza dover ricostruire il motore ogni volta?
 - Registry `...\GraphicsDrivers\DxgKrnlVersion = 69639 (0x11007)` → WDDM ≥ 2.0,
   la gate di versione per il trim è soddisfatta.
 - Display driver NVIDIA: serie 32.0.101.70xx. Pagefile su `D:\` (16 GB allocati).
-- Basalt in esecuzione al momento delle misure (PID 24504).
+- Basalt-Plus in esecuzione al momento delle misure (PID 24504).
 
 ## Cosa è stato fatto
 

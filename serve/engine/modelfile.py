@@ -23,8 +23,8 @@ GGUF_SAMPLING = {"general.sampling.temp": "temperature", "general.sampling.top_p
 
 
 def cache_root() -> Path:
-    """The folder of what can be rebuilt: BASALT_CACHE when set, else ~/.cache/basalt."""
-    return Path(os.environ["BASALT_CACHE"]) if os.environ.get("BASALT_CACHE") else Path.home() / ".cache" / "basalt"
+    """The folder of what can be rebuilt: TADAMOO_CACHE when set, else ~/.cache/tadamoo."""
+    return Path(os.environ["TADAMOO_CACHE"]) if os.environ.get("TADAMOO_CACHE") else Path.home() / ".cache" / "tadamoo"
 
 
 def cache_dir(mf: ModelFile) -> Path:
@@ -172,7 +172,7 @@ def model_config(path: str, engine_bin: str, vision: bool | str = False, engine_
     args = ["--model", path]   # settings come from the engine defaults and the server
     args += words
     cdir.mkdir(parents=True, exist_ok=True)
-    cfg = {"engine_bin": os.path.abspath(engine_bin), "args": args, "model_name": meta.get("name") or "basalt",
+    cfg = {"engine_bin": os.path.abspath(engine_bin), "args": args, "model_name": meta.get("name") or "tadamoo",
            "sampling": sampling_defaults(meta), "log": str(cdir / "engine.log"),
            "tokenizer": str(extract_tokenizer(mf))}
     v = vision_config(mf, engine_bin, sidecar=vision != "dynamic", projector=projector) if vision else None

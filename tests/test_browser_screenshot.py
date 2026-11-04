@@ -8,11 +8,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.attachments import OutputStore
-from harness.browser import Browser, BrowserError, find_browser, register_browser_tools
-from harness.secrets_broker import SecretsBroker
-from harness.tools.registry import ToolRegistry
-from harness.vault import Vault
+from tadamoo.attachments import OutputStore
+from tadamoo.browser import Browser, BrowserError, find_browser, register_browser_tools
+from tadamoo.secrets_broker import SecretsBroker
+from tadamoo.tools.registry import ToolRegistry
+from tadamoo.vault import Vault
 
 needs_browser = pytest.mark.skipif(find_browser() is None, reason="needs Edge or Chrome on this PC")
 PNG = b"\x89PNG\r\n\x1a\n"
@@ -54,7 +54,7 @@ def test_a_screenshot_is_kept_as_a_file_and_the_model_is_told_its_path_and_how_t
     registry, b, saved = tools()
     out = registry.execute("browser_screenshot", {"full_page": True})
     assert saved[0][0].startswith("screenshot_hotel_example_") and saved[0][0].endswith(".png") and saved[0][1].startswith(PNG)
-    assert "[file:a1b2c3d4e5f6:" in out and "Path: C:/out/s1/a1b2c3d4e5f6/" in out and "analyze_image" in out and "output:a1b2c3d4e5f6" in out and "basalt-file:a1b2c3d4e5f6" in out
+    assert "[file:a1b2c3d4e5f6:" in out and "Path: C:/out/s1/a1b2c3d4e5f6/" in out and "analyze_image" in out and "output:a1b2c3d4e5f6" in out and "tadamoo-file:a1b2c3d4e5f6" in out
     assert b.taken == [True] and b.recorded[0] == "browser_screenshot" and b.recorded[1]["bytes"] == len(saved[0][1])      # the trace has it
 
 
@@ -133,8 +133,8 @@ def test_the_real_browser_gives_a_png_that_is_stored_with_the_conversation_and_s
 
 @needs_browser
 def test_the_agent_gets_the_picture_tools_with_a_place_for_files_and_can_name_a_picture_by_its_output_id(tmp_path, monkeypatch):
-    from harness.stack import AgentConfig, build_agent
-    monkeypatch.setattr("harness.llm.registry", lambda path=None: None)
+    from tadamoo.stack import AgentConfig, build_agent
+    monkeypatch.setattr("tadamoo.llm.registry", lambda path=None: None)
     ws = tmp_path / "ws"
     ws.mkdir()
 

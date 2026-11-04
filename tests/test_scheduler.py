@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from harness.scheduler import RoutineError, Schedule, Scheduler, SessionRoutineRunner
+from tadamoo.scheduler import RoutineError, Schedule, Scheduler, SessionRoutineRunner
 from serve.agent_sessions import SessionManager
 
 STUB = str(Path(__file__).resolve().parent.parent / "serve" / "tests" / "session_stub.py")
@@ -583,7 +583,7 @@ def test_a_check_that_passes_gives_its_words_to_the_model_and_the_outcome_is_kep
     sched.shutdown()
     assert seen[0]["check_output"] == "3 new files" and seen[0]["previous"] == []
     assert sched.results[0]["outcome"] == "progress" and seen[1]["previous"][0]["outcome"] == "progress"
-    from harness.scheduler import with_history
+    from tadamoo.scheduler import with_history
     text = with_history(seen[1])
     assert "Earlier runs" in text and "progress" in text and "3 new files" in text and text.rstrip().endswith("blocked.")
 

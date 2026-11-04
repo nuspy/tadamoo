@@ -51,14 +51,14 @@ CODE = "graph TD; A-->B"
 def snapshot(**over):
     snap = {
         "title": "Plan the trip", "lang": "en", "base": "http://127.0.0.1:8080/", "session": "abcd1234", "exported_at": 1792000000, "tz": 0,
-        "assets": {"basalt-file:0123456789ab": uri(png())},
+        "assets": {"tadamoo-file:0123456789ab": uri(png())},
         "diagrams": {CODE: {"svg": SVG, "png": uri(png(60, 30))}},
         "items": [
             {"kind": "prompt", "text": "PROMPT-MARK where to go?\nsecond line", "time": 1792000000, "attachments": ["notes.txt"]},
             {"kind": "reasoning", "turn": 1, "text": "REASON-MARK the model thinks", "time": 1792000001},
             {"kind": "action", "turn": 1, "name": "search_web", "description": "ACTION-DESC-MARK looks it up", "arguments": {"query": "ACTION-ARG-MARK"},
              "result": "[file:0123456789ab:guide.pdf] ACTION-RESULT-MARK", "status": "ok", "sources": [{"url": "https://example.com/page?a=1&b=2", "host": "example.com"}]},
-            {"kind": "answer", "turn": 1, "text": "ANSWER-MARK\n\n# Title\n\nGo to **Rome** and see [the site](https://rome.example/x).\n\n![map](basalt-file:0123456789ab)\n\n"
+            {"kind": "answer", "turn": 1, "text": "ANSWER-MARK\n\n# Title\n\nGo to **Rome** and see [the site](https://rome.example/x).\n\n![map](tadamoo-file:0123456789ab)\n\n"
                                                   "- one\n- two\n  - nested\n\n1. first\n2. second\n\n> a quote\n\n| city | days |\n|---|---|\n| Rome | 3 |\n\n"
                                                   "```py\nprint('hi')\n```\n\n```mermaid\n" + CODE + "\n```\n", "time": 1792000002},
         ],
@@ -150,9 +150,9 @@ HOSTILE = "<script>alert(1)</script> ]]> \x00\x01\x0b\x1b\ud800 &amp; \"quote\" 
 def hostile_snapshot():
     evil_links = ("[a](javascript:alert(1)) [b](JaVaScRiPt:alert(2)) [c](data:text/html,<script>x</script>) [d](file:///c:/secret) [e](vbscript:x) "
                   "[f](//evil.example/x) [g](https://user:pass@evil.example/) [h](http://ok.example/a\"onmouseover=\"x) ![i](javascript:alert(3)) "
-                  "![j\" onerror=\"alert(4)](data:text/html;base64,PHNjcmlwdD4=) <javascript:alert(5)> [k](mailto:me@example.com) [l](basalt-file:ZZZ)")
+                  "![j\" onerror=\"alert(4)](data:text/html;base64,PHNjcmlwdD4=) <javascript:alert(5)> [k](mailto:me@example.com) [l](tadamoo-file:ZZZ)")
     return snapshot(
-        title=HOSTILE, assets={"basalt-file:0123456789ab": "data:image/png;base64," + base64.b64encode(b"<script>alert(1)</script>").decode()},
+        title=HOSTILE, assets={"tadamoo-file:0123456789ab": "data:image/png;base64," + base64.b64encode(b"<script>alert(1)</script>").decode()},
         items=[
             {"kind": "prompt", "text": HOSTILE, "attachments": [HOSTILE], "images": [{"name": HOSTILE, "url": "data:text/html;base64,PHNjcmlwdD4="}]},
             {"kind": "reasoning", "turn": 1, "text": HOSTILE},
@@ -252,7 +252,7 @@ def test_urls():
     for ok in ("https://example.com/a?b=1", "http://example.com", "mailto:a@example.com", "https://例え.jp/x"):
         assert E.safe_url(ok)
     for bad in ("javascript:alert(1)", "data:text/html,x", "file:///etc/passwd", "ftp://x.example/", "//x.example/", "https://u:p@x.example/", "https://x.example/a b",
-                "https://x.example/\x01", "", "http://", "basalt-file:0123456789ab", None, 5):
+                "https://x.example/\x01", "", "http://", "tadamoo-file:0123456789ab", None, 5):
         assert E.safe_url(bad) is None, bad
 
 
@@ -300,24 +300,24 @@ def test_inline_marks():
 
 
 def test_links_to_the_apps_files_become_the_servers_address_or_a_note():
-    runs = E.parse_inline("[the guide](basalt-file:0123456789ab) [code](basalt-path:src/a%20b.py)", ctx())
+    runs = E.parse_inline("[the guide](tadamoo-file:0123456789ab) [code](tadamoo-path:src/a%20b.py)", ctx())
     hrefs = [r.href for r in runs if r.href]
     assert hrefs[0] == "http://127.0.0.1:8080/api/outputs/abcd1234/0123456789ab"
     assert hrefs[1] == "http://127.0.0.1:8080/api/agent/sessions/abcd1234/file?path=src%2Fa%2520b.py"
     bare = E.Context({"items": []}, E.LABELS["it"])                                      # no address known: the name stays, with a note
-    out = runs_text(E.parse_inline("[la guida](basalt-file:0123456789ab)", bare))
+    out = runs_text(E.parse_inline("[la guida](tadamoo-file:0123456789ab)", bare))
     assert "la guida" in out and "senza indirizzo di rete" in out
-    assert not [r for r in E.parse_inline("[la guida](basalt-file:0123456789ab)", bare) if r.href]
-    assert not [r for r in E.parse_inline("[x](basalt-file:0123456789ab)", E.Context({"base": "ftp://x/", "session": "s", "items": []}, E.LABELS["en"])) if r.href]
+    assert not [r for r in E.parse_inline("[la guida](tadamoo-file:0123456789ab)", bare) if r.href]
+    assert not [r for r in E.parse_inline("[x](tadamoo-file:0123456789ab)", E.Context({"base": "ftp://x/", "session": "s", "items": []}, E.LABELS["en"])) if r.href]
 
 
 def test_an_image_in_an_answer_is_embedded_or_named():
-    runs = E.parse_inline("![map](basalt-file:0123456789ab) ![gone](basalt-file:ffffffffffff) ![web](https://example.com/p.png)", ctx())
+    runs = E.parse_inline("![map](tadamoo-file:0123456789ab) ![gone](tadamoo-file:ffffffffffff) ![web](https://example.com/p.png)", ctx())
     assert runs[0].image and runs[0].image.alt == "map" and (runs[0].image.width, runs[0].image.height) == (40, 20)
     assert any(r.text == "gone" and r.href.endswith("/api/outputs/abcd1234/ffffffffffff") for r in runs)      # not embedded: its address instead
     assert any(r.href == "https://example.com/p.png" for r in runs)                      # a picture on the web is a link: the server fetches nothing
     bare = E.Context({"items": []}, E.LABELS["en"])
-    assert "[gone: image not included]" in runs_text(E.parse_inline("![gone](basalt-file:ffffffffffff)", bare))
+    assert "[gone: image not included]" in runs_text(E.parse_inline("![gone](tadamoo-file:ffffffffffff)", bare))
 
 
 # ---------------------------------------------------------------- Markdown and HTML

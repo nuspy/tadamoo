@@ -135,5 +135,5 @@
     return { svg: s + "</svg>", missing: left };
   }
 
-  root.BasaltCharts = { COLORS, SHAPES, format, scores, radarData, niceTicks, polar, marker, radar, bars, scatter, esc };
+  root.TadamooCharts = { COLORS, SHAPES, format, scores, radarData, niceTicks, polar, marker, radar, bars, scatter, esc };
 })(typeof window !== "undefined" ? window : globalThis);

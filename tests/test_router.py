@@ -1,5 +1,5 @@
 """How a message written during a task is sent on: the person's words first, then a judge, then the safe default."""
-from harness.router import QUEUE, STEER, URGENT, Router, judge_with_model
+from tadamoo.router import QUEUE, STEER, URGENT, Router, judge_with_model
 
 
 def test_clear_words_say_to_wait_or_to_hurry_in_italian_and_english():

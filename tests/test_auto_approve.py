@@ -1,7 +1,7 @@
 """The technical session may approve a call the person would be asked about; it never decides alone anything the person must decide."""
-from harness import auto_approve, side_uses
-from harness.permissions import PermissionLevel, PermissionManager
-from harness.tools.registry import EffectClass
+from tadamoo import auto_approve, side_uses
+from tadamoo.permissions import PermissionLevel, PermissionManager
+from tadamoo.tools.registry import EffectClass
 
 
 class Client:

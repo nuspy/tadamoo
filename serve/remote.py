@@ -61,7 +61,7 @@ class ApiKeys:
 
     def _sealing_key(self) -> Optional[bytes]:
         if self._seal_key is None and self.key_dir is not None:
-            from harness.waiver.keystore import load_or_create_key
+            from tadamoo.waiver.keystore import load_or_create_key
             raw = load_or_create_key(self.key_dir / "device.key")
             self._seal_key = hmac.new(raw, b"basalt phone keys", hashlib.sha256).digest()
         return self._seal_key

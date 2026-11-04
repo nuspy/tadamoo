@@ -7,11 +7,11 @@ import time
 
 import pytest
 
-from harness import intake as it
-from harness import optimize as opt
-from harness import questions as qs
-from harness.session import Session, SessionStore, parse_args
-from harness.stack import AgentConfig, build_agent
+from tadamoo import intake as it
+from tadamoo import optimize as opt
+from tadamoo import questions as qs
+from tadamoo.session import Session, SessionStore, parse_args
+from tadamoo.stack import AgentConfig, build_agent
 
 ASK = "Please write a short script that reads data.csv and prints how many rows it has."
 BETTER = "Write a short Python script that reads the file data.csv, counts its rows and prints the number of rows."
@@ -207,7 +207,7 @@ class Events:
 
 @pytest.fixture(autouse=True)
 def _no_clock(monkeypatch):
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
 
 
 def session_with(tmp_path, model, on=True, mode="off", unattended=False):

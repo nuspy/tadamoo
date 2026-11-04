@@ -25,16 +25,16 @@ int8 KV, `--resident-experts`, tiers pinned, RTX 5090 at 400 W + RTX 5060 Ti at 
 Basalt Q8_0 pack scores 0.0200 and 95.34%.
 
 Earlier numbers were measured against a llama.cpp Q8_0 base. That base carries llama.cpp's own Q8_0 rounding (next
-section), so every pack read 0.003 to 0.010 KLD higher against it, and the Basalt Q8_0 pack is closer to BF16 (0.0200)
+section), so every pack read 0.003 to 0.010 KLD higher against it, and the Basalt-Plus Q8_0 pack is closer to BF16 (0.0200)
 than to it (0.0304). All numbers in these pages are against the BF16 base.
 
 ## Why llama.cpp's Q8_0 reads further from BF16
 
 llama.cpp quantizes the activations of its Q8_0 matmuls. In the hyper-connection read (down projection 10240 → 320,
 then up) the sum has cancellation, so Q8_0 quantization of the input (0.2 to 0.4% per element) becomes about 1% in the
-mixed stream at layer 0. Basalt's hc read uses fp32 activations and matches the exact math to 1e-5.
+mixed stream at layer 0. Basalt-Plus's hc read uses fp32 activations and matches the exact math to 1e-5.
 
 At layer 0, computed in numpy from llama.cpp's own hc_norm output and the GGUF Q8_0 hc weights, against an fp64 result
-with no activation quantization: Basalt's mixed stream has relative error 0.00000 and llama.cpp's 1.06%. llama.cpp
+with no activation quantization: Basalt-Plus's mixed stream has relative error 0.00000 and llama.cpp's 1.06%. llama.cpp
 against an emulation of Q8_0 activation quantization differs by 0.009%. This is the main reason llama.cpp running the
-Q8_0 GGUF scores KLD 0.0325 against BF16 where the Basalt Q8_0 pack scores 0.0200 (table above).
+Q8_0 GGUF scores KLD 0.0325 against BF16 where the Basalt-Plus Q8_0 pack scores 0.0200 (table above).

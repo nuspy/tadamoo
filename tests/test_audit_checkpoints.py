@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from harness.audit import AuditLedger
-from harness.checkpoints import CheckpointManager
-from harness.secrets_broker import SecretsBroker
-from harness.tools.registry import EffectClass
+from tadamoo.audit import AuditLedger
+from tadamoo.checkpoints import CheckpointManager
+from tadamoo.secrets_broker import SecretsBroker
+from tadamoo.tools.registry import EffectClass
 
 
 def test_ledger_detects_a_corrupt_line_instead_of_skipping_it(tmp_path: Path):
@@ -204,8 +204,8 @@ def test_storage_inside_the_workspace_is_refused(tmp_path: Path):
 
 def _loop_with_audit(tmp_path, steps, **kw):
     from test_agent_loop import ScriptedClient
-    from harness.agent_loop import AgentLoop
-    from harness.tools import create_standard_tool_registry
+    from tadamoo.agent_loop import AgentLoop
+    from tadamoo.tools import create_standard_tool_registry
     ws = tmp_path / "ws"
     ws.mkdir(parents=True, exist_ok=True)
     registry, _ = create_standard_tool_registry(ws)
@@ -216,7 +216,7 @@ def _loop_with_audit(tmp_path, steps, **kw):
 def test_a_tool_call_leaves_a_hash_a_short_masked_preview_the_decision_the_outcome_and_the_time(tmp_path: Path):
     import hashlib
     from test_agent_loop import call, say
-    from harness.permissions import PermissionLevel, PermissionManager
+    from tadamoo.permissions import PermissionLevel, PermissionManager
     body = "line of a long file " * 400
     secret = "ghp_" + "x" * 70
     broker = SecretsBroker({"TOKEN": secret})
@@ -238,7 +238,7 @@ def test_a_tool_call_leaves_a_hash_a_short_masked_preview_the_decision_the_outco
 def test_the_outcome_says_ok_error_refused_or_cancelled(tmp_path: Path):
     import threading
     from test_agent_loop import call, say
-    from harness.permissions import PermissionLevel, PermissionManager
+    from tadamoo.permissions import PermissionLevel, PermissionManager
     cancel = threading.Event()
     steps = [call("write_file", {"path": "a.txt", "content": "A"}, "1"), call("read_file", {"path": "missing.txt"}, "2"),
              call("shell_command", {"command": "echo hi"}, "3"), call("rm_all", {}, "4"), say("done")]

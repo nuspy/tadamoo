@@ -3,8 +3,8 @@ import re
 import unittest
 from pathlib import Path
 
-from harness.bench.analysis import CLASS_ORDER
-from harness.bench.registry import SPECS
+from tadamoo.bench.analysis import CLASS_ORDER
+from tadamoo.bench.registry import SPECS
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 HTML = (WEB / "index.html").read_text(encoding="utf-8")

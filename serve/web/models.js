@@ -1,5 +1,5 @@
 "use strict";
-/* Models: the models folders and every model under them with its status for Basalt (GET /api/models). The Loader
+/* Models: the models folders and every model under them with its status for Basalt-Plus (GET /api/models). The Loader
    picks the model to load (verify, convert); Settings holds the app's choices: the folders and the default server
    model. Until the folders are set the Loader asks for them first. A conversion opens a dialog that states the
    new file's size and the disk's free space; it starts only from that plan (its token). */
@@ -18,8 +18,8 @@
       experts: "experts {0} GB", mtp: "MTP drafter", mtpSource: "MTP from {0}", mtpFetch: "MTP to download",
       vision: "vision", outside: "outside the folders (from the config file)",
       choose: "Use", verify: "Verify", conv: "Convert…", isDefault: "server default",
-      defaultSet: "“{0}” is now the default server model: Avvia-Basalt.ps1 without --model starts it.",
-      defModel: "Default server model", defModelHelp: "Avvia-Basalt.ps1 and the app start this model when no --model is given. Each load can still pick another one in the Loader. It is saved as soon as you choose.",
+      defaultSet: "“{0}” is now the default server model: Avvia-TaDaMoo.ps1 without --model starts it.",
+      defModel: "Default server model", defModelHelp: "Avvia-TaDaMoo.ps1 and the app start this model when no --model is given. Each load can still pick another one in the Loader. It is saved as soon as you choose.",
       defNone: "None: the config file's model", defIs: "Default server model: {0}.", defNoneShort: "No default server model.",
       inSettings: "Change it in Settings", dirsIn: "Models folders ({0}): in Settings",
       dlgTitle: "Convert “{0}”?", out: "Output folder", file: "The new file: {0}", cmd: "Command", cancel: "Cancel",
@@ -43,8 +43,8 @@
       experts: "esperti {0} GB", mtp: "drafter MTP", mtpSource: "MTP da {0}", mtpFetch: "MTP da scaricare",
       vision: "visione", outside: "fuori dalle cartelle (dal file di configurazione)",
       choose: "Usa", verify: "Verifica", conv: "Converti…", isDefault: "predefinito per il server",
-      defaultSet: "«{0}» ora è il modello predefinito per il server: Avvia-Basalt.ps1 senza --model avvia questo.",
-      defModel: "Modello predefinito per il server", defModelHelp: "Avvia-Basalt.ps1 e l'app avviano questo modello quando non si indica --model. Ogni caricamento può comunque sceglierne un altro nel Loader. Si salva appena scegli.",
+      defaultSet: "«{0}» ora è il modello predefinito per il server: Avvia-TaDaMoo.ps1 senza --model avvia questo.",
+      defModel: "Modello predefinito per il server", defModelHelp: "Avvia-TaDaMoo.ps1 e l'app avviano questo modello quando non si indica --model. Ogni caricamento può comunque sceglierne un altro nel Loader. Si salva appena scegli.",
       defNone: "Nessuno: il modello del file di configurazione", defIs: "Modello predefinito per il server: {0}.", defNoneShort: "Nessun modello predefinito per il server.",
       inSettings: "Cambialo nelle Impostazioni", dirsIn: "Cartelle dei modelli ({0}): nelle Impostazioni",
       dlgTitle: "Convertire «{0}»?", out: "Cartella di uscita", file: "Il nuovo file: {0}", cmd: "Comando", cancel: "Annulla",
@@ -65,7 +65,7 @@
   const GB = n => nfmt((n || 0) / 2 ** 30, 1);
   const same = (a, b) => !!a && !!b && a.replace(/\\/g, "/").toLowerCase() === b.replace(/\\/g, "/").toLowerCase();
   const say = it => (it && (it[LANG] || it.en)) || "";
-  const tip = m => (window.BasaltCatalog && window.BasaltCatalog.tip(m)) || "";     // what the Download catalog says of it
+  const tip = m => (window.TadamooCatalog && window.TadamooCatalog.tip(m)) || "";     // what the Download catalog says of it
   let M = null, selected = null, listeners = [], poll = 0, plan = null, planSeq = 0, lastJob = null;
 
   async function api(path, body) {
@@ -378,7 +378,7 @@
     return M;
   }
 
-  window.BasaltModels = {
+  window.TadamooModels = {
     refresh, rerender: render, selected: () => selected, data: () => M,
     select(path) { if (path && readyOnes().some(m => same(m.path, path))) choose(path); },
     onChange(fn) { listeners.push(fn); },

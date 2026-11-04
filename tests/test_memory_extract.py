@@ -1,8 +1,8 @@
 """Learning from what the person wrote: what is asked of the model, what is kept of its answer, and when."""
 import json
 
-from harness.memory_extract import Extractor, apply, looks_unsafe, parse, prompt_for, related
-from harness.personal_memory import PersonalMemory
+from tadamoo.memory_extract import Extractor, apply, looks_unsafe, parse, prompt_for, related
+from tadamoo.personal_memory import PersonalMemory
 
 KEY = bytes(range(32))
 

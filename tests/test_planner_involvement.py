@@ -9,13 +9,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.integrations.planner_client import PlannerClient
-from harness.planner import PlanCanvasBridge, PlanDAG
-from harness.planner.card import PlanInsightCard
-from harness.planner.involvement import CALL, EFFECTS, PEOPLE, split_diff, step_facts
-from harness.planner.replan import Replanner
-from harness.planner_tools import Confirmer, involved, register_planner_tools
-from harness.tools.registry import ToolRegistry
+from tadamoo.integrations.planner_client import PlannerClient
+from tadamoo.planner import PlanCanvasBridge, PlanDAG
+from tadamoo.planner.card import PlanInsightCard
+from tadamoo.planner.involvement import CALL, EFFECTS, PEOPLE, split_diff, step_facts
+from tadamoo.planner.replan import Replanner
+from tadamoo.planner_tools import Confirmer, involved, register_planner_tools
+from tadamoo.tools.registry import ToolRegistry
 from test_e2e_mock_server import answer, start_server  # noqa: F401  (fixture)
 from test_planner import CARD, THREAT, cervinia
 from test_planner_tools import AgentState, Asker, title

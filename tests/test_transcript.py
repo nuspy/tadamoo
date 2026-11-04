@@ -1,9 +1,9 @@
 """The shared transcript: cuts that keep the beginning and the end, markers wherever something is left out, and the record of what was cut."""
 import json
 
-from harness.memory_extract import BATCH_CHARS, MESSAGE_CHARS, Extractor, outcome_of, prompt_for, read_ops
-from harness.personal_memory import PersonalMemory
-from harness.transcript import Cut, clip, fit, marker, message_text, render
+from tadamoo.memory_extract import BATCH_CHARS, MESSAGE_CHARS, Extractor, outcome_of, prompt_for, read_ops
+from tadamoo.personal_memory import PersonalMemory
+from tadamoo.transcript import Cut, clip, fit, marker, message_text, render
 
 KEY = bytes(range(32))
 
