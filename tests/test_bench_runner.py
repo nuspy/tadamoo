@@ -23,6 +23,13 @@ def new_run(tmp_path, adapter=None, settings=None, spec=None, power=400.0, commi
                     imported_commit=commit, **kw)
 
 
+def test_a_run_with_more_time_than_the_task_allows_is_labelled_provisional(tmp_path):
+    assert new_run(tmp_path / "a").record["provisional"] is False
+    relaxed = new_run(tmp_path / "b", settings={"time_scale": 3}).record
+    assert relaxed["provisional"] is True and "x3" in relaxed["provisional_label"]
+    assert new_run(tmp_path / "c", settings={"time_scale": 1}).record["provisional"] is False
+
+
 def test_a_new_run_writes_its_folder_and_state(tmp_path):
     run = new_run(tmp_path)
     assert run.dir.parent == tmp_path / "b" / "runs"
