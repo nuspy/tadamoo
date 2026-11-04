@@ -111,6 +111,7 @@ Stato (1 novembre, sera): committati il blocco «cosa sei» con `self_status` (`
 - Memoria a breve e lungo termine dell'harness (comune a tutti i progetti: cosa è stato fatto, l'utente, i suoi gusti): confrontare Claude-Mem riadattato, il nostro sistema proprietario e Obsidian per efficienza e utilità; rileggere la documentazione della funzione.
 
 ## In coda, serve la GPU (e l'OK dell'altra sessione, sempre)
+- Dal 4 Nov (ordine dell'utente): la GPU non si alterna più; si prende solo quando LTX ha finito tutta la sua coda («TUTTO FINITO»). Allora: (1) verifica del v2 con il motore unito (apertura e stessa risposta del v1 a temperatura zero), poi cancellare il v1 (autorizzazione esplicita già data, se tutto è a posto); (2) test difficili di Terminal-Bench: polyglot-rust-c, write-compressor, llm-inference-batching-scheduler, con il tempo ufficiale; (3) i blocchi 2-3 dell'A/B delle regole sul motore unito. Senza GPU nel frattempo: compilare il motore unito (in corso), far girare i test dopo il «tempi finiti» di LTX.
 
 - Esperimento sul contesto (E9, da scrivere con regola di vittoria prima): riassunto nostro, riassunto del proxy (modello decide) e misto, su conversazioni lunghe di agente; misure: domande di richiamo dopo la compattazione, riuso della cache, token, tempo, riuscita del compito.
 - Le prove con il modello vero, righe 36-88 di `tests/QUEUE_daytime.md`.
