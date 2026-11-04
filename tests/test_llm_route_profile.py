@@ -2,9 +2,9 @@
 record, and whether the route is stateless. A route to a local model is unchanged."""
 import pytest
 
-from harness.llm.client import RoutedClient, from_anthropic, to_anthropic
-from harness.llm.profile import RouteProfile, route_profile
-from harness.llmswitch.providers import TYPES
+from tadamoo.llm.client import RoutedClient, from_anthropic, to_anthropic
+from tadamoo.llm.profile import RouteProfile, route_profile
+from tadamoo.llmswitch.providers import TYPES
 from test_llm_client import MSG, Cloud, Local, world  # noqa: F401  (the fixture)
 
 TOOLS = [{"type": "function", "function": {"name": "a", "description": "a", "parameters": {"type": "object", "properties": {}}}},
@@ -69,7 +69,7 @@ def test_the_cache_marks_can_be_turned_off_in_the_record(world):  # noqa: F811
     reg.save(data)
     reg.assign_checked("eval", pid)
     RoutedClient("eval", reg, local, ledger).chat_completion(MSG, tools=TOOLS, max_tokens=100)
-    assert cloud.requests[0]["body"]["system"] == "Sei Basalt." and "cache_control" not in str(cloud.requests[0]["body"])
+    assert cloud.requests[0]["body"]["system"] == "Sei TaDaMoo." and "cache_control" not in str(cloud.requests[0]["body"])
 
 
 def test_an_openai_compatible_route_keeps_its_limit_and_a_route_to_the_loaded_model_changes_nothing(world):  # noqa: F811

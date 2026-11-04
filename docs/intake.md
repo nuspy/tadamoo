@@ -1,7 +1,7 @@
 # Intake, questions and suggestions
 
 What the harness does between the person's text and the model's first step, how the agent asks the person, the chips offered after an
-answer, and the optional rewrite of each message. Code: `harness/intake.py`, `harness/optimize.py`, `harness/questions.py`, `harness/suggestions.py`, the hooks in `harness/session.py`, `serve/intake_prefs.py`,
+answer, and the optional rewrite of each message. Code: `tadamoo/intake.py`, `tadamoo/optimize.py`, `tadamoo/questions.py`, `tadamoo/suggestions.py`, the hooks in `tadamoo/session.py`, `serve/intake_prefs.py`,
 `serve/web/askcard.js`, `serve/web/promptswitch.js`, `serve/web/optimize.js`, `serve/web/intake.js`, `mobile/lib/src/ask_card.dart`. The designs and their sources are in
 [harness-study/](harness-study/README.md); this page says what is built. Unattended runs (routines, the Target Loop in an unattended
 conversation) never wait for any of it.
@@ -10,7 +10,7 @@ conversation) never wait for any of it.
 
 Settings > Inference holds them: the **Prompt analysis** switch first, then Questions and suggestions. Each control is explained on the page;
 the values are saved on this PC (`intake.json` in the data folder, read again after a restart of the server or the app, `/api/intake`) and a conversation started afterwards uses them (`--intake`, `--side-call-tokens`,
-`--suggestions`, `--optimize-prompt` of `python -m harness session`).
+`--suggestions`, `--optimize-prompt` of `python -m tadamoo session`).
 
 | Setting | Values | Default |
 |---|---|---|
@@ -87,14 +87,14 @@ message the person sends is rewritten by one short call before the model reads i
 
 **Available only with the technical session.** Without one it cannot be switched on: the box is disabled, with the reason written beside it ("Needs the technical session") and a tooltip
 that says how to turn it on (Loader > Technical session, then load the model), whenever the server's `/v1/status` (`concurrency.side_slot`, the
-source `harness/side.py` reads) reports no session. The page asks when it opens, on every change of view and after a load in the Loader finishes
+source `tadamoo/side.py` reads) reports no session. The page asks when it opens, on every change of view and after a load in the Loader finishes
 (`basalt:loader`). The server refuses to save `true` without a session (a 400 with the reason); `false` is always saved. If the session goes while the
 box is ticked, the saved value stays, the box shows a dash and the reason "Saved as on, but not used", and the harness makes no call and rewrites
 nothing (it asks the client for `side_extra()` each time, and never uses a route that is not this server). The box stays clickable then, for one
 thing only: a click switches it off (it can never be switched on without the session). Tooltip: "Before your message reaches the model, a quick helper pass rewrites it as a clearer, more complete instruction. The chat
 still shows what you wrote. Needs the technical session."
 
-**The call** (`harness/optimize.py`, from `_intake_step` after the cleaning and the Long answer check, before the model's first step). One request on the
+**The call** (`tadamoo/optimize.py`, from `_intake_step` after the cleaning and the Long answer check, before the model's first step). One request on the
 session through `side_extra()`: no tools, temperature 0, thinking off, 8 s, at most about 1.5 times the input in tokens (floor 128, ceiling 2000), a
 fixed system part (rewrite as a clear, complete, self-contained instruction in the person's language; keep every fact, name, number, path, link, code
 block, quotation and constraint; add no requirement; do not answer; output only the text). The user part holds the message and, for context only, the
@@ -125,7 +125,7 @@ helps is the question of experiment E8 ([experiments.md](experiments.md)); nothi
 ## ask_user
 
 One call, one to four questions; the rules the model reads (when to ask, one call, no "shall I continue", options that stand alone) are
-added to the system prompt with the tool (`PROMPT_RULES` in `harness/questions.py`).
+added to the system prompt with the tool (`PROMPT_RULES` in `tadamoo/questions.py`).
 
 ```
 ask_user {intro?, questions: [{text, kind: single|multi|free|confirm, options?: [{label, description?, recommended?}],

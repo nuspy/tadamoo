@@ -228,7 +228,7 @@ longer time.
 
 ## Memory floors
 
-Basalt refuses settings that would leave the machine without memory, and never shrinks what you asked for:
+Basalt-Plus refuses settings that would leave the machine without memory, and never shrinks what you asked for:
 
 - `--vram-reserve-mib` below 256 is refused at startup on Windows and WSL2: with less VRAM free once everything is
   loaded, a later allocation can make the driver page GPU memory and requests stall. On Linux, where the driver fails
@@ -266,7 +266,7 @@ Basalt refuses settings that would leave the machine without memory, and never s
 ## Vision: `--vision`
 
 Image input is one server option, `--vision off | dynamic | cpu | <GPU number>` (config: `"vision": 1` in the
-`server` section). It is `off` by default. The encoder is Basalt's own and shares its kernels in every mode, so all
+`server` section). It is `off` by default. The encoder is Basalt-Plus's own and shares its kernels in every mode, so all
 of them give bitwise identical embeddings.
 
 | mode | where the encoder runs | VRAM cost | fresh-image latency (IQ3_S, 400 W, earlier build) |
@@ -294,7 +294,7 @@ sidecar's. A sidecar is built for one card at configure time (`-DCMAKE_CUDA_ARCH
 at startup with CUDA's own error, which the server shows. Sidecars on non-Blackwell cards are community-tested.
 `dynamic` needs no sidecar.
 
-The image encoder is Basalt's own, written for this model's vision tower (no llama.cpp or ggml): bf16 tensor-core
+The image encoder is Basalt-Plus's own, written for this model's vision tower (no llama.cpp or ggml): bf16 tensor-core
 products and flash attention with fp32 accumulation on the GPU, AVX-512/AVX2 on the CPU. It replaces llama.cpp's
 mtmd encoder as a drop-in, is faster at every image size, and stays closer to an fp32 reference: mtmd's fp16 attention
 drifts on large images. One image is capped at 64 megapixels; a header past it is refused before it is decoded.

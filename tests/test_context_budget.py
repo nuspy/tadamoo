@@ -4,9 +4,9 @@ import urllib.error
 
 import pytest
 
-from harness.client import BasaltClient, BasaltError
-from harness.session import Session, SessionStore
-from harness.stack import (ANSWER_RESERVE_TOKENS, FALLBACK_CONTEXT_TOKENS, MIN_BUDGET_TOKENS, AgentConfig, build_agent, context_budget,
+from tadamoo.client import TadamooClient, TadamooError
+from tadamoo.session import Session, SessionStore
+from tadamoo.stack import (ANSWER_RESERVE_TOKENS, FALLBACK_CONTEXT_TOKENS, MIN_BUDGET_TOKENS, AgentConfig, build_agent, context_budget,
                            server_context_window)
 
 
@@ -33,13 +33,13 @@ def build(tmp_path, client, **kw):
 
 
 def unreachable():
-    return BasaltError(0, "cannot reach the Basalt server at http://127.0.0.1:7232")
+    return TadamooError(0, "cannot reach the TaDaMoo server at http://127.0.0.1:7232")
 
 
 # -- the client ------------------------------------------------------------------------------------
 
 def test_the_client_reads_the_context_from_v1_status(monkeypatch):
-    client = BasaltClient()
+    client = TadamooClient()
     asked = []
     monkeypatch.setattr(client, "_get", lambda path, timeout: asked.append(path) or {"loaded": True, "context": {"native": 131072, "max_positions": 131072}})
     assert client.context_window() == 131072 and asked == ["/v1/status"]
@@ -48,7 +48,7 @@ def test_the_client_reads_the_context_from_v1_status(monkeypatch):
 
 
 def test_the_client_says_nothing_for_a_model_that_is_not_loaded_or_a_status_without_a_number(monkeypatch):
-    client = BasaltClient()
+    client = TadamooClient()
     monkeypatch.setattr(client, "_get", lambda path, timeout: {"loaded": False, "context": {"native": 4096}})
     assert client.context_window() is None                              # an engine that is not loaded reports a default
     monkeypatch.setattr(client, "_get", lambda path, timeout: {"loaded": True, "context": {}})
@@ -60,9 +60,9 @@ def test_the_client_says_nothing_for_a_model_that_is_not_loaded_or_a_status_with
 def test_the_client_raises_when_the_server_cannot_be_reached(monkeypatch):
     def refuse(*a, **k):
         raise urllib.error.URLError("refused")
-    monkeypatch.setattr("harness.client.urllib.request.urlopen", refuse)
-    with pytest.raises(BasaltError) as err:
-        BasaltClient(base_url="http://127.0.0.1:1").context_window()
+    monkeypatch.setattr("tadamoo.client.urllib.request.urlopen", refuse)
+    with pytest.raises(TadamooError) as err:
+        TadamooClient(base_url="http://127.0.0.1:1").context_window()
     assert err.value.status == 0
 
 

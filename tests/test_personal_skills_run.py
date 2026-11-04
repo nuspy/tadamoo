@@ -2,8 +2,8 @@
 import threading
 import time
 
-from harness.personal_skills.runner import Handlers, run
-from harness.personal_skills.values import resolve
+from tadamoo.personal_skills.runner import Handlers, run
+from tadamoo.personal_skills.values import resolve
 
 
 def handlers(**over):
@@ -41,7 +41,7 @@ def values(specs, given):
 
 def test_a_script_calls_tools_the_model_and_the_person_and_returns_a_result(tmp_path):
     path = script(tmp_path, '''
-from basalt_skill import tool, ai, ask, say
+from tadamoo_skill import tool, ai, ask, say
 
 def main(params):
     say("starting")
@@ -76,7 +76,7 @@ def main(params):
 
 def test_a_refused_tool_raises_in_the_script_which_may_go_on(tmp_path):
     path = script(tmp_path, '''
-from basalt_skill import tool, ToolError
+from tadamoo_skill import tool, ToolError
 
 def main(params):
     try:
@@ -134,7 +134,7 @@ def test_a_handler_that_fails_is_told_to_the_script(tmp_path):
         raise RuntimeError("the model is not loaded")
 
     path = script(tmp_path, '''
-from basalt_skill import ai, SkillError
+from tadamoo_skill import ai, SkillError
 
 def main(params):
     try:
@@ -147,14 +147,14 @@ def main(params):
 
 
 def test_unicode_goes_through_the_pipes(tmp_path):
-    path = script(tmp_path, 'from basalt_skill import ai\n\ndef main(params):\n    print("città — ✓")\n    return ai("{t}", t="perché")\n')
+    path = script(tmp_path, 'from tadamoo_skill import ai\n\ndef main(params):\n    print("città — ✓")\n    return ai("{t}", t="perché")\n')
     res = run(path, {}, handlers()[0])
     assert res.ok and res.output == "AI(perché)" and res.printed == "città — ✓"
 
 
 def test_a_script_gets_the_whole_environment_of_the_server(tmp_path, monkeypatch):
-    monkeypatch.setenv("BASALT_TEST_SECRET_TOKEN", "visible")
-    path = script(tmp_path, "import os\n\ndef main(params):\n    return os.environ.get('BASALT_TEST_SECRET_TOKEN', 'missing')\n")
+    monkeypatch.setenv("TADAMOO_TEST_SECRET_TOKEN", "visible")
+    path = script(tmp_path, "import os\n\ndef main(params):\n    return os.environ.get('TADAMOO_TEST_SECRET_TOKEN', 'missing')\n")
     h, _ = handlers()
     result = run(path, {}, h)
     assert result.ok and result.output == "visible"

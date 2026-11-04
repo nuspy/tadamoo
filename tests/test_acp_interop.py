@@ -162,12 +162,12 @@ def keyed_server():
 def test_a_server_that_wants_a_key_makes_the_agent_offer_authenticate_and_refuse_sessions_until_then(tmp_path, keyed_server):
     e = Editor(tmp_path, None, endpoint=keyed_server, api_key=None)
     res = e.call("initialize", {"protocolVersion": 1, "clientCapabilities": {}})["result"]
-    assert [m["id"] for m in res["authMethods"]] == ["basalt_api_key"]
+    assert [m["id"] for m in res["authMethods"]] == ["tadamoo_api_key"]
     refused = e.call("session/new", {"cwd": str(e.ws)})["error"]
-    assert refused["code"] == -32000 and refused["data"] == {"authRequired": True} and "BASALT_API_KEY" in refused["message"]
+    assert refused["code"] == -32000 and refused["data"] == {"authRequired": True} and "TADAMOO_API_KEY" in refused["message"]
     assert e.call("session/load", {"sessionId": "acp_000000000000", "cwd": str(e.ws)})["error"]["code"] == -32000
     assert e.call("authenticate", {"methodId": "nope"})["error"]["code"] == -32602
-    assert e.call("authenticate", {"methodId": "basalt_api_key"})["error"]["code"] == -32000          # there is still no key
+    assert e.call("authenticate", {"methodId": "tadamoo_api_key"})["error"]["code"] == -32000          # there is still no key
     e.close()
 
 
@@ -175,12 +175,12 @@ def test_a_key_the_server_accepts_authenticates_and_one_it_refuses_does_not(tmp_
     (tmp_path / "good").mkdir()
     good = Editor(tmp_path / "good", None, endpoint=keyed_server, api_key="right-key")
     assert good.call("initialize", {"protocolVersion": 1, "clientCapabilities": {}})["result"]["authMethods"] == []
-    assert good.call("authenticate", {"methodId": "basalt_api_key"})["result"] == {}
+    assert good.call("authenticate", {"methodId": "tadamoo_api_key"})["result"] == {}
     assert good.call("session/new", {"cwd": str(good.ws)})["result"]["sessionId"].startswith("acp_")
     good.close()
     (tmp_path / "bad").mkdir()
     bad = Editor(tmp_path / "bad", None, endpoint=keyed_server, api_key="wrong-key")
-    assert bad.call("authenticate", {"methodId": "basalt_api_key"})["error"]["code"] == -32000
+    assert bad.call("authenticate", {"methodId": "tadamoo_api_key"})["error"]["code"] == -32000
     bad.close()
 
 

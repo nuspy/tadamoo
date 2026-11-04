@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- not "TaDaMoo": the engine is basalt.exe, and a shared name invites stopping the wrong process -->
+    <AssemblyName>TaDaMoo</AssemblyName>
+    <AssemblyTitle>TaDaMoo Win+GUI</AssemblyTitle>
+    <RootNamespace>TaDaMooDesktop</RootNamespace>
+    <ApplicationIcon>tadamoo.ico</ApplicationIcon>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <SelfContained>false</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Product>TaDaMoo Win+GUI</Product>
+    <Description>TaDaMoo Win+GUI: the window, the tray icon and the start of the local server</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\TaDaMooLauncher.cs" Link="TaDaMooLauncher.cs" />
+    <EmbeddedResource Include="tadamoo.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3485.44" />
+  </ItemGroup>
+
+</Project>

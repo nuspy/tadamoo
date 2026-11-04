@@ -39,7 +39,7 @@ class AgentPageTest(unittest.TestCase):
         self.assertIn("const inContext = x => (inAgent() ? !isChatSession(x) : isChatSession(x));", CHAT)
 
     def test_each_tab_remembers_its_own_last_conversation_and_does_not_clear_the_other(self):
-        self.assertIn('LAST_KEYS = { chat: "basalt.chat.session", agent: "basalt.agent.session" }', CHAT)
+        self.assertIn('LAST_KEYS = { chat: "tadamoo.chat.session", agent: "tadamoo.agent.session" }', CHAT)
         self.assertIn("keep(LAST_KEYS.chat, kept.chat); keep(LAST_KEYS.agent, kept.agent);", CHAT)
         self.assertNotRegex(CHAT, r"\bLAST_KEY\b")
 

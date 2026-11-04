@@ -1,6 +1,6 @@
 """Reverse engineering with REA (the rea-agents add-on): the switch in the Agent tab, the programs REA can use and their installers.
 
-Turning it on registers REA's MCP server (the add-on's Node.js running `rea.mjs mcp`) and copies REA's skill into Basalt's own
+Turning it on registers REA's MCP server (the add-on's Node.js running `rea.mjs mcp`) and copies REA's skill into TaDaMoo's own
 capability store, where both are born approved. Turning it off removes exactly those two things. `rea setup` is never run: it
 rewrites the configuration of other coding agents. A program is installed only when the person presses its button, with the
 command shown on the page; the command comes from the table below, never from the request.
@@ -24,7 +24,7 @@ MCP_NAME = "rea"
 MCP_ID = f"mcp:{MCP_NAME}"
 SOURCE = "rea-addon"
 SKILL_NAME = "reverse-engineer-anything"
-MARKER = ".basalt-rea"
+MARKER = ".tadamoo-rea"
 OUTPUT_KEEP = 6000
 INSTALL_TIMEOUT = 1800
 VERSION_TIMEOUT = 5
@@ -198,7 +198,7 @@ def tools_view() -> List[Dict[str, Any]]:
 
 
 def _env_for_record(views: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    from harness.discovery.installed import env_spec
+    from tadamoo.discovery.installed import env_spec
     return env_spec([{"name": v["env"], "value": v["path"]} for v in views if v["detected"]])
 
 
@@ -239,7 +239,7 @@ def _addon() -> Dict[str, Any]:
 
 
 def _record_ours() -> Optional[Dict[str, Any]]:
-    from harness.discovery.installed import InstalledStore
+    from tadamoo.discovery.installed import InstalledStore
     rec = InstalledStore(_capdir()).get(MCP_ID)
     return rec if rec and rec.get("source") == SOURCE else None
 
@@ -250,10 +250,10 @@ def _skill_ours() -> bool:
 
 def register(views: Optional[List[Dict[str, Any]]] = None) -> None:
     """Puts REA's server and skill in the capability store (or brings them up to date). Raises ReaError when it cannot."""
-    from harness.discovery.installed import InstalledStore
+    from tadamoo.discovery.installed import InstalledStore
     add = _addon()
     if not (add["node"] and add["rea"]):
-        raise ReaError("The REA add-on is not installed with this copy of Basalt.", "no_addon", 404)
+        raise ReaError("The REA add-on is not installed with this copy of TaDaMoo.", "no_addon", 404)
     store = InstalledStore(_capdir())
     existing = store.get(MCP_ID)
     if existing is not None and existing.get("source") != SOURCE:
@@ -270,12 +270,12 @@ def register(views: Optional[List[Dict[str, Any]]] = None) -> None:
     if add["skill"]:
         target = _skill_dir()
         shutil.copytree(add["skill"], target, dirs_exist_ok=True)
-        (target / MARKER).write_text("added by Basalt for the REA switch; removed when it is turned off\n", encoding="utf-8")
+        (target / MARKER).write_text("added by TaDaMoo for the REA switch; removed when it is turned off\n", encoding="utf-8")
 
 
 def unregister() -> None:
     """Removes the server and the skill that `register` added, and nothing else."""
-    from harness.discovery.installed import InstalledStore
+    from tadamoo.discovery.installed import InstalledStore
     if _record_ours() is not None:
         InstalledStore(_capdir()).delete(MCP_ID)
     if _skill_ours():

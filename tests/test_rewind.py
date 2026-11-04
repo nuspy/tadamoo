@@ -8,9 +8,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.audit import AuditLedger
-from harness.rewind import checkpoint_report, main, rewind
-from harness.stack import AgentConfig, build_agent
+from tadamoo.audit import AuditLedger
+from tadamoo.rewind import checkpoint_report, main, rewind
+from tadamoo.stack import AgentConfig, build_agent
 from test_agent_loop import ScriptedClient, call, say
 
 
@@ -111,7 +111,7 @@ def _call(cid, name, **args):
 
 
 def test_a_conversation_rewind_lists_what_stays_done_and_what_the_working_copy_can_put_back(tmp_path):
-    from harness.rewind import session_impact
+    from tadamoo.rewind import session_impact
     outside = str(tmp_path / "elsewhere" / "x.txt")
     messages = [
         {"role": "assistant", "content": "", "tool_calls": [_call("1", "read_file", path="a"), _call("2", "write_file", path="b.txt"), _call("3", "shell_command", command="make"),
@@ -130,7 +130,7 @@ def test_a_conversation_rewind_lists_what_stays_done_and_what_the_working_copy_c
 
 
 def _plan():
-    from harness.planner.dag import Assignee, NodeType, PlanDAG, PlanNode
+    from tadamoo.planner.dag import Assignee, NodeType, PlanDAG, PlanNode
     dag = PlanDAG(plan_id="p1", title="Trip", target_type="occasional")
     for nid, deps in (("book", []), ("call", ["book"]), ("pay", ["call"])):
         dag.add_node(PlanNode(nid, NodeType.ACTION, nid.title(), "", Assignee.AGENT, dependencies=list(deps)))
@@ -138,8 +138,8 @@ def _plan():
 
 
 def test_a_plan_rewind_names_the_steps_whose_actions_stay_done_and_waits_for_a_yes():
-    from harness.planner.dag import PlanError
-    from harness.rewind import note_plan_effect, plan_impact
+    from tadamoo.planner.dag import PlanError
+    from tadamoo.rewind import note_plan_effect, plan_impact
     dag = _plan()
     for nid in ("book", "call", "pay"):
         dag.mark(nid, "completed")
@@ -161,7 +161,7 @@ def test_a_plan_rewind_names_the_steps_whose_actions_stay_done_and_waits_for_a_y
 
 
 def test_a_plan_without_recorded_actions_or_with_only_files_rewinds_as_before():
-    from harness.rewind import note_plan_effect
+    from tadamoo.rewind import note_plan_effect
     dag = _plan()
     dag.mark("book", "completed")
     note_plan_effect(dag, "book", "write_file", "reversible", "write_file trip.md")
@@ -170,7 +170,7 @@ def test_a_plan_without_recorded_actions_or_with_only_files_rewinds_as_before():
 
 
 def test_the_plan_events_note_an_effect_preview_the_rewind_and_ask_for_the_yes():
-    from harness.planner.bridge import PlanCanvasBridge
+    from tadamoo.planner.bridge import PlanCanvasBridge
     bridge = PlanCanvasBridge(_plan())
     for nid in ("book", "call", "pay"):
         assert bridge.handle({"type": "plan:mark", "node_id": nid, "status": "completed"})["ok"]

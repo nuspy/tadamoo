@@ -7,12 +7,12 @@ import time
 
 import pytest
 
-from harness import commands
-from harness.session import Session, SessionStore, main
-from harness.skills import MAX_GUIDELINE_BYTES, find_project_guidelines, guidelines_cut_notice, read_project_guidelines
-from harness.stack import AgentConfig, add_agent_arguments, agent_settings, build_agent
-from harness.tools import create_standard_tool_registry
-from harness.tools.registry import EXTERNAL, SESSION, STABLE, EffectClass, ToolRegistry
+from tadamoo import commands
+from tadamoo.session import Session, SessionStore, main
+from tadamoo.skills import MAX_GUIDELINE_BYTES, find_project_guidelines, guidelines_cut_notice, read_project_guidelines
+from tadamoo.stack import AgentConfig, add_agent_arguments, agent_settings, build_agent
+from tadamoo.tools import create_standard_tool_registry
+from tadamoo.tools.registry import EXTERNAL, SESSION, STABLE, EffectClass, ToolRegistry
 from test_commands import Feed, make
 from test_session import Events, Scripted, say
 
@@ -154,7 +154,7 @@ def test_a_built_agent_forces_no_temperature_unless_the_config_sets_one(tmp_path
 
 
 def test_the_process_takes_the_temperature_and_the_ceiling_while_it_lives(tmp_path, monkeypatch):
-    import harness.session as hs
+    import tadamoo.session as hs
     ws = tmp_path / "ws"
     ws.mkdir()
     real_build = hs.build_agent

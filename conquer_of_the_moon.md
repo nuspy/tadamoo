@@ -5,9 +5,9 @@
 > **Documento Tecnico di Progettazione Esecutiva**  
 > **Data di Redazione**: 18 Ottobre 2026  
 > **Target di Realizzazione**: Claude Code  
-> **Progetto**: Basalt (sm_120 NVIDIA Blackwell MoE Inference Harness & Workbench)  
+> **Progetto**: TaDaMoo (sm_120 NVIDIA Blackwell MoE Inference Harness & Workbench)  
 > **Documento Padre**: [`the_way_to_the_moon.md`](file:///E:/projects/basalt/the_way_to_the_moon.md)  
-> **Componenti Validati Empiricamente**: TypeSafe Jev (`jev-1.13.0`) + Basalt C++/CUDA MoE Server  
+> **Componenti Validati Empiricamente**: TypeSafe Jev (`jev-1.13.0`) + Basalt-Plus C++/CUDA MoE Server  
 
 ---
 
@@ -21,7 +21,7 @@
 2. [L'Architettura Dual-Process: Risolvere il Frame Problem](#2-larchitettura-dual-process-risolvere-il-frame-problem)
    - 2.1 Il Limite delle Ricerche Statiche (Reverse Search / Keyword Matching)
    - 2.2 System 1 (Jev `jev-latest`): Triage Causale Istantaneo a Zero Costo GPU
-   - 2.3 System 2 (Basalt Qwen3.8-Flash-Next su sm_120): Ragionamento Profondo & Re-Planning
+   - 2.3 System 2 (Basalt-Plus Qwen3.8-Flash-Next su sm_120): Ragionamento Profondo & Re-Planning
    - 2.4 La Scheda del Piano (Plan Insight Card Caching)
 3. [Validazione Sperimentale Live & Telemetria Empirica](#3-validazione-sperimentale-live--telemetria-empirica)
    - 3.1 Riferimento ai File dei Test e Dataset
@@ -43,7 +43,7 @@
 
 ## 1. Visione e Fondamenti del Planner Dinamico
 
-Il modulo **Planner** trasforma Basalt da assistente reattivo (richiesta -> risposta) in un **agente proattivo e autonomo di pianificazione a lungo termine**. L'utente definisce un obiettivo e l'agente co-progetta, monitora, adatta ed esegue il piano, negoziando costantemente ogni modifica con l'utente.
+Il modulo **Planner** trasforma TaDaMoo da assistente reattivo (richiesta -> risposta) in un **agente proattivo e autonomo di pianificazione a lungo termine**. L'utente definisce un obiettivo e l'agente co-progetta, monitora, adatta ed esegue il piano, negoziando costantemente ogni modifica con l'utente.
 
 ### 1.1 Target Costanti vs Target Occasionali
 
@@ -132,7 +132,7 @@ flowchart TD
         impact in [MOLTO, CRITICAL]"}
     end
 
-    subgraph SYSTEM2["SYSTEM 2: Basalt Qwen3.8-Flash-Next (sm_120 Blackwell)"]
+    subgraph SYSTEM2["SYSTEM 2: Basalt-Plus Qwen3.8-Flash-Next (sm_120 Blackwell)"]
         QWEN["Qwen C++/CUDA Inference
         - Analisi Causale Dettagliata
         - Ristrutturazione Grafo DAG
@@ -152,7 +152,7 @@ flowchart TD
 - **Tempo di risposta**: ~250 ms.
 - **Carico GPU locale**: **0%** sulla RTX 5090.
 
-### 2.3 System 2 (Basalt Qwen su sm_120): Ragionamento Profondo & Re-Planning
+### 2.3 System 2 (Basalt-Plus Qwen su sm_120): Ragionamento Profondo & Re-Planning
 
 Quando Jev rileva una criticità (`MOLTO` o `CRITICAL`):
 1. **Sveglia la GPU Blackwell**: Invia a Qwen3.8-Flash-Next l'evento esatto, la scheda del piano e la telemetria di Jev.
@@ -269,11 +269,11 @@ Per verificare la capacità del Planner di gestire decine di notifiche ed eventi
 
 ## 4. Integrazione con l'Ecosistema Host Locale
 
-Il Planner di Basalt non opera in isolamento, ma si interfaccia direttamente con i due progetti e componenti già esistenti sulla macchina host:
+Il Planner di TaDaMoo non opera in isolamento, ma si interfaccia direttamente con i due progetti e componenti già esistenti sulla macchina host:
 
 ```mermaid
 flowchart LR
-    subgraph BASALT["Basalt Harness (E:\projects\basalt)"]
+    subgraph BASALT["TaDaMoo Harness (E:\projects\basalt)"]
         PLN["Proactive Planner Engine"]
         JEV_GATE["Jev System 1 Triage Gate"]
         QWN["Qwen3.8-Flash-Next sm_120"]
@@ -304,14 +304,14 @@ flowchart LR
 
 ### 4.1 Modulo Telefonia, STT/TTS e Avatar: `C:\projects\callAPIcall`
 
-Il progetto `callAPIcall` fornisce a Basalt capacità operative nel mondo reale:
+Il progetto `callAPIcall` fornisce a TaDaMoo capacità operative nel mondo reale:
 - **Chiamate Vocali Reali**: Supporta sia modem hardware USB GSM SIM800C (comandi seriali `ATD`, `ATH`) sia dispositivi Android connessi via Bluetooth Hands-Free Profile (HFP).
 - **Trascrizione e Sintesi Real-Time**: Integrazione locale di **Whisper CUDA** (Speech-to-Text) e **Kokoro** (Text-to-Speech rapido a bassa latenza).
 - **Interfaccia ACP Nativa**: `callAPIcall` espone un server standard ACP (Agent Client Protocol) su `stdio` o socket locale, permettendo a Qwen di effettuare chiamate telefoniche (es. telefonare all'Hotel di Cervinia per verificare lo stato della strada o prenotare il ristorante) come semplice chiamata tool RPC.
 
 ### 4.2 Knowledge Base, Memoria a Lungo Termine e RAG: `C:\projects\wikibridge`
 
-Il progetto `wikibridge` costituisce il database cognitivo locale di Basalt:
+Il progetto `wikibridge` costituisce il database cognitivo locale di TaDaMoo:
 - **Archiviazione Schede Piani**: I piani attivi, i Target Costanti e i profili delle persone chiave (Gianni, Erica, Diana) sono memorizzati in file Markdown gerarchici.
 - **Ricerche Ibride FTS5 & Graph**: Consente a Qwen di recuperare all'istante numeri di telefono, allergie, abitudini passate e preferenze verificate dell'utente.
 
@@ -328,7 +328,7 @@ Gli eventi vengono convogliati in un buffer thread-safe (`EventBuffer`) ed elabo
 
 ## 5. Specifiche Software e Componenti da Implementare
 
-Questa sezione definisce le interfacce e i contratti API che **Claude Code** dovrà implementare nella codebase di Basalt (`src/`, `include/` e `serve/`).
+Questa sezione definisce le interfacce e i contratti API che **Claude Code** dovrà implementare nella codebase di TaDaMoo (`src/`, `include/` e `serve/`).
 
 ### 5.1 Modello Dati del Grafo del Piano (`PlanDAG`)
 

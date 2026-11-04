@@ -10,11 +10,11 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fake_mcp_http import FakeMcpHttp
-from harness import capabilities as cap
-from harness.mcp_client import MCPClient, MCPError, MCPHttpClient, MCPToolError, _Client, flatten_result
-from harness.mcp_elicit import ELICIT_PREFIX, checked_content, elicit_through, form_fields
-from harness.stack import AgentConfig, build_agent
-from harness.tools.registry import ToolRegistry
+from tadamoo import capabilities as cap
+from tadamoo.mcp_client import MCPClient, MCPError, MCPHttpClient, MCPToolError, _Client, flatten_result
+from tadamoo.mcp_elicit import ELICIT_PREFIX, checked_content, elicit_through, form_fields
+from tadamoo.stack import AgentConfig, build_agent
+from tadamoo.tools.registry import ToolRegistry
 
 HERE = Path(__file__).resolve().parent
 LEGACY = str(HERE / "fake_mcp_server.py")
@@ -124,7 +124,7 @@ def test_words_find_tools_of_a_large_server_with_their_whole_definition(registry
 
 
 def test_a_call_with_wrong_arguments_comes_back_with_the_definition_so_one_repair_is_enough(registry):
-    from harness.tools.registry import ToolArgumentError
+    from tadamoo.tools.registry import ToolArgumentError
 
     def call(tool, arguments):
         raise ToolArgumentError(f"Tool '{tool}' is missing required argument(s): city.")

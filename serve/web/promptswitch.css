@@ -7,7 +7,7 @@
 .ps .ps-opt { min-height: var(--btn-h); min-width: 3.5rem; padding: 4px 12px; border: 0; border-radius: 0; background: transparent; color: var(--fg); font: 500 var(--btn-fs)/1.2 var(--font-sans); cursor: pointer; }
 .ps .ps-opt + .ps-opt { border-left: 1px solid var(--line); }
 .ps .ps-opt:hover:not(:disabled) { background: var(--raised); }
-.ps .ps-opt[aria-checked="true"] { background: var(--accent); color: var(--basalt-950); font-weight: 650; }
+.ps .ps-opt[aria-checked="true"] { background: var(--accent); color: var(--tadamoo-950); font-weight: 650; }
 .ps .ps-opt[aria-checked="true"]::before { content: "\2713\00a0"; }
 .ps .ps-opt:focus-visible { outline: 2px solid var(--fg); outline-offset: -4px; }
 .ps .ps-opt:disabled { color: var(--fg-3); cursor: default; }

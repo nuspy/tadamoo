@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>TaDaMooSetup</AssemblyName>
+    <AssemblyTitle>TaDaMoo Win+GUI Setup</AssemblyTitle>
+    <RootNamespace>TaDaMooSetup</RootNamespace>
+    <ApplicationIcon>..\desktop\tadamoo.ico</ApplicationIcon>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <SelfContained>false</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Product>TaDaMoo Win+GUI</Product>
+    <Description>TaDaMoo Win+GUI: the step the installer runs after copying the files (Python, virtual environment, packages, permissions)</Description>
+  </PropertyGroup>
+
+</Project>

@@ -7,8 +7,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fake_services import FakeCallAPICall, FakeWikibridge  # noqa: E402
-from harness.integrations import CallAPICallClient, WikiBridgeClient  # noqa: E402
-from harness.integrations.call_api_client import build_greeting, format_transcript, has_ai_disclosure  # noqa: E402
+from tadamoo.integrations import CallAPICallClient, WikiBridgeClient  # noqa: E402
+from tadamoo.integrations.call_api_client import build_greeting, format_transcript, has_ai_disclosure  # noqa: E402
 
 
 @pytest.fixture
@@ -64,8 +64,8 @@ def test_wikibridge_follows_a_dotdot_that_stays_inside_the_wiki(wiki):
 
 
 def test_wiki_tools_pass_the_limit_and_the_size_as_asked(wiki):
-    from harness.integrations.wiki_tools import register_wiki_tools
-    from harness.tools.registry import ToolRegistry
+    from tadamoo.integrations.wiki_tools import register_wiki_tools
+    from tadamoo.tools.registry import ToolRegistry
     registry = ToolRegistry()
     register_wiki_tools(registry, WikiBridgeClient(wiki.url, api_key="k3y"), default_project="cervinia")
     registry.execute("wiki_search", {"query": "diana", "limit": 500})
@@ -77,8 +77,8 @@ def test_wiki_tools_pass_the_limit_and_the_size_as_asked(wiki):
 
 
 def test_wikibridge_environment_configuration(monkeypatch, wiki):
-    monkeypatch.setenv("BASALT_WIKIBRIDGE_URL", wiki.url)
-    monkeypatch.setenv("BASALT_WIKIBRIDGE_KEY", "k3y")
+    monkeypatch.setenv("TADAMOO_WIKIBRIDGE_URL", wiki.url)
+    monkeypatch.setenv("TADAMOO_WIKIBRIDGE_KEY", "k3y")
     assert WikiBridgeClient.from_environment().is_available()
 
 
@@ -217,8 +217,8 @@ import threading  # noqa: E402
 import time  # noqa: E402
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # noqa: E402
 
-from harness.integrations.telephony_tools import register_phone_tools  # noqa: E402
-from harness.tools.registry import ToolRegistry  # noqa: E402
+from tadamoo.integrations.telephony_tools import register_phone_tools  # noqa: E402
+from tadamoo.tools.registry import ToolRegistry  # noqa: E402
 
 
 class ScriptedPhone:

@@ -1,6 +1,6 @@
 """The server's side of the planner: stored plans, the user's planner settings and the triage entry point.
 
-The planner itself lives in harness/planner and is imported only when used, so the server starts
+The planner itself lives in tadamoo/planner and is imported only when used, so the server starts
 without it. The Jev API key is not kept among these settings: it comes from the TYPESAFE_API_KEY
 environment variable of the server process or from the Jev provider of the providers registry (where
 `update_settings` saves it, in the credential store), and using it needs the user's explicit
@@ -35,9 +35,9 @@ class PlannerUnavailable(RuntimeError):
 
 def _planner():
     try:
-        import harness.planner as planner
+        import tadamoo.planner as planner
     except ImportError as exc:                       # pragma: no cover - the harness ships with the server
-        raise PlannerUnavailable("the planner (harness/planner) is not installed") from exc
+        raise PlannerUnavailable("the planner (tadamoo/planner) is not installed") from exc
     return planner
 
 
@@ -146,7 +146,7 @@ class PlanService:
             self.sync_events()
         return self.settings()
 
-    registry = None                                        # Basalt's providers (harness.llm): set by the server
+    registry = None                                        # TaDaMoo's providers (tadamoo.llm): set by the server
 
     def gatekeeper(self):
         """The process's gatekeeper, set to the settings and the key as they are now. It is the same object every time, so
@@ -169,7 +169,7 @@ class PlanService:
         return {"triage": self.gatekeeper().telemetry.summary(), "replanning": sorted(self._replanning), "events": self.events_status()}
 
     def _providers(self):
-        from harness import llm
+        from tadamoo import llm
         return self.registry if self.registry is not None else llm.registry()
 
     def _saved_jev_key(self) -> bool:
@@ -213,7 +213,7 @@ class PlanService:
     def _jev_from_registry(self):
         """(key, address, model) of the Jev provider the person pointed the triage at, when the registry allows it."""
         try:
-            from harness import llm
+            from tadamoo import llm
             reg = self.registry if self.registry is not None else llm.registry()
         except Exception:
             return None
@@ -367,7 +367,7 @@ class PlanService:
 
     def _replan_parked(self, plan_id: str, bridge: Any, event: Dict[str, Any], result: Dict[str, Any]) -> None:
         """Steps were parked below a failed or timed-out one: the planner is asked for another way for that branch."""
-        from harness.planner.triage import TriageResult
+        from tadamoo.planner.triage import TriageResult
         names = ", ".join(bridge.dag.nodes[i].title for i in result["parked"] if i in bridge.dag.nodes)
         source = bridge.dag.nodes.get(event.get("node_id"))
         why = f"{source.title if source else event.get('node_id')} {'timed out' if event.get('type') == 'plan:timeout' else 'failed'}; parked: {names}"
@@ -468,7 +468,7 @@ class PlanService:
     def _vault(self):
         if self.vault_factory is not None:
             return self.vault_factory()
-        from harness.vault import Vault
+        from tadamoo.vault import Vault
         from serve import userdata
         return Vault(userdata.path("vault"))
 

@@ -2,10 +2,10 @@
 import copy
 import json
 
-from harness.agent_loop import AgentLoop, FINAL, LOOP, MAX_CALLS_PER_MESSAGE, MAX_TURNS, BUDGET
-from harness.audit import AuditLedger
-from harness.permissions import PermissionLevel, PermissionManager
-from harness.tools.registry import DESCRIPTION_CHARS, EffectClass, ToolRegistry, description_key
+from tadamoo.agent_loop import AgentLoop, FINAL, LOOP, MAX_CALLS_PER_MESSAGE, MAX_TURNS, BUDGET
+from tadamoo.audit import AuditLedger
+from tadamoo.permissions import PermissionLevel, PermissionManager
+from tadamoo.tools.registry import DESCRIPTION_CHARS, EffectClass, ToolRegistry, description_key
 
 
 class Scripted:
@@ -80,7 +80,7 @@ def test_a_tool_that_already_has_description_gets_explain_and_one_with_both_gets
 def test_the_sentence_is_taken_off_before_the_tool_runs_and_reaches_the_events_the_record_and_the_questions(tmp_path):
     seen, events, asked = [], [], []
     reg = registry(seen)
-    from harness import agent_loop as al
+    from tadamoo import agent_loop as al
     reg.register("ask", "asks", {"type": "object", "properties": {}}, EffectClass.PURE, lambda: asked.append(al.current_explanation()) or "ok")
     perms = PermissionManager(level=PermissionLevel.AUTO)
     audit = AuditLedger(tmp_path / "audit.jsonl")

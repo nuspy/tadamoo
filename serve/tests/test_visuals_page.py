@@ -31,9 +31,9 @@ class VisualsPageTest(base.PlansApiBase):
             self.assertEqual(self.fetch(path)[0], 404, path)
 
     def test_a_picture_in_an_answer_comes_only_from_the_conversations_own_files(self):
-        self.assertIn("basalt-file:([a-f0-9]{12})", CHAT)
+        self.assertIn("tadamoo-file:([a-f0-9]{12})", CHAT)
         self.assertEqual(len(re.findall(r"!\\\[", CHAT)), 1)                  # the only picture rule: none loads a picture from an address
-        self.assertEqual(set(re.findall(r"\(basalt-(\w+):", CHAT)), {"file", "path"})
+        self.assertEqual(set(re.findall(r"\(tadamoo-(\w+):", CHAT)), {"file", "path"})
         self.assertIn("api/outputs/${encodeURIComponent(sid)}/${id}/file", CHAT)
         self.assertIn("headers: authHeaders()", CHAT[CHAT.index("async function loadPictures"):CHAT.index("const drawn = new Map()")])
         self.assertIn("window.chatUi.sessionId = () => sid;", AGENT)

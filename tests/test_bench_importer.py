@@ -1,4 +1,4 @@
-"""Importing, updating and removing a benchmark (harness/bench/importer.py) with a local git repository standing in for the benchmark. CPU only."""
+"""Importing, updating and removing a benchmark (tadamoo/bench/importer.py) with a local git repository standing in for the benchmark. CPU only."""
 import sys
 from pathlib import Path
 
@@ -6,8 +6,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.bench import importer
-from harness.bench.importer import BenchImportError, Result
+from tadamoo.bench import importer
+from tadamoo.bench.importer import BenchImportError, Result
 from bench_support import commit_files, git, make_remote, make_spec
 
 
@@ -99,7 +99,7 @@ def test_a_folder_inside_the_repository_is_refused(remote):
 
 
 def test_a_benchmark_that_is_one_folder_of_a_large_repository_is_fetched_sparse():
-    from harness.bench import importer, registry
+    from tadamoo.bench import importer, registry
     spec = registry.SPECS["bfcl-v4"]
     args = importer._clone_args(spec, Path("dest"))
     assert "--sparse" in args and "--filter=blob:none" in args and spec.sparse == ("berkeley-function-call-leaderboard",)

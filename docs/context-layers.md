@@ -2,18 +2,18 @@
 
 Six things shorten what the model reads. They run in this order as the context fills; each one is told what the ones before it did.
 
-1. **Limits on tool output** (`harness/context.py`, TokenJuice, JSON and HTML trimming): the output is cut when it is made.
-2. **Masking of old results** (`harness/context.py`): from 70% to 80% of the budget, an old tool result is replaced by a note that names the file holding its full text.
-3. **Compaction of older steps** (`harness/compaction.py`): near 85% of the budget, everything between the head and the newest steps becomes one record. The summary patterns of `harness/context_patterns.py` (summary, sliding window) leave the same record.
+1. **Limits on tool output** (`tadamoo/context.py`, TokenJuice, JSON and HTML trimming): the output is cut when it is made.
+2. **Masking of old results** (`tadamoo/context.py`): from 70% to 80% of the budget, an old tool result is replaced by a note that names the file holding its full text.
+3. **Compaction of older steps** (`tadamoo/compaction.py`): near 85% of the budget, everything between the head and the newest steps becomes one record. The summary patterns of `tadamoo/context_patterns.py` (summary, sliding window) leave the same record.
 4. **The Chat's policy for a full context** (`serve/chatctx.py`): at 80% the middle turns of a chat become one record, or the oldest turns are dropped, or sending stops.
 5. **Old long replies as a short record** (Chat only, `serve/chatctx.py` and `serve/web/chat.js`): see below.
 6. **Billion Context**, the local proxy ([billion-context](billion-context.md)): by default it only keeps large tool outputs aside and cuts in an emergency; it does not fold old turns itself unless the setting is switched on.
 
-The summaries of 3, 4 and 5 are written in the technical session ([compaction](compaction.md#the-technical-session)); a text larger than the session is read in parts, each in a call of its own that is checked and, if it is not good, made again (`harness/digest.py`).
+The summaries of 3, 4 and 5 are written in the technical session ([compaction](compaction.md#the-technical-session)); a text larger than the session is read in parts, each in a call of its own that is checked and, if it is not good, made again (`tadamoo/digest.py`).
 
 ## One mark for every compaction
 
-Whatever wrote it, a compacted record carries the same mark (`harness/compacted.py`), as a field on the message (`compacted`, never sent to the model) and as a first line in its text, so it is found again after a restart, in a page's record or in a message that went through another program:
+Whatever wrote it, a compacted record carries the same mark (`tadamoo/compacted.py`), as a field on the message (`compacted`, never sent to the model) and as a first line in its text, so it is found again after a restart, in a page's record or in a message that went through another program:
 
     [Compacted record: generation 2; 14 messages, about 31200 tokens, written here in about 900; originals: <path>]
 
@@ -51,7 +51,7 @@ The same rules in every summary prompt (`compacted.KEEP_RULES`): compress only w
 
 ## Where the layers can disagree
 
-- **Switching one off in the middle.** The record of the conversation is Basalt's; the proxy only changes what goes out. With its folding off (the default) there is nothing to undo. If it is turned on and then off, the next request is the conversation as Basalt holds it, and a compaction is due at once if it no longer fits.
-- **The proxy restarts or dies.** The request goes direct with the conversation as Basalt holds it; the same rule.
-- **The technical session is off.** Summaries are written in an ordinary slot and a text larger than the window loses its middle, as before `harness/digest.py`.
-- **Not measured yet.** Which summary is better (Basalt's, the proxy's, a mix), what *N* and the 4000 characters should be, and how much of the cache each layer costs are open questions for experiment E9 ([experiments](experiments.md)).
+- **Switching one off in the middle.** The record of the conversation is TaDaMoo's; the proxy only changes what goes out. With its folding off (the default) there is nothing to undo. If it is turned on and then off, the next request is the conversation as TaDaMoo holds it, and a compaction is due at once if it no longer fits.
+- **The proxy restarts or dies.** The request goes direct with the conversation as TaDaMoo holds it; the same rule.
+- **The technical session is off.** Summaries are written in an ordinary slot and a text larger than the window loses its middle, as before `tadamoo/digest.py`.
+- **Not measured yet.** Which summary is better (TaDaMoo's, the proxy's, a mix), what *N* and the 4000 characters should be, and how much of the cache each layer costs are open questions for experiment E9 ([experiments](experiments.md)).

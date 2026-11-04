@@ -171,7 +171,7 @@ class Base(unittest.TestCase):
         self.dest = self.root / "models"
         self.dest.mkdir()
         self.patches = [
-            mock.patch.dict(os.environ, {"BASALT_CACHE": str(self.root / "cache"), "BASALT_DATA": str(self.root / "data"),
+            mock.patch.dict(os.environ, {"TADAMOO_CACHE": str(self.root / "cache"), "TADAMOO_DATA": str(self.root / "data"),
                                          "HF_TOKEN": "", "HUGGING_FACE_HUB_TOKEN": ""}),
             mock.patch.object(downloads, "_token_files", return_value=[]),
             mock.patch.object(downloads, "_session_token", None),

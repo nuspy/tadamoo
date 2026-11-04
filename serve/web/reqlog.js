@@ -7,7 +7,7 @@
   const CLIP_CHARS = 4000, CLIP_LINES = 60, SLICE = 100000;
   const MEM_CAP = 6e6, EVENT_COST = 200, MATCH_CAP = 5000, DROP_PER_FRAME = 40;
   const FRAME_MS = 8, FIND_WAIT_MS = 150, FIND_AGAIN_MS = 500, HEAVY = 1;
-  const FORMAT_KEY = "basalt.logs.format";
+  const FORMAT_KEY = "tadamoo.logs.format";
 
   const el = id => document.getElementById(id);
   const mk = (tag, cls, txt) => {
@@ -624,7 +624,7 @@
       const blob = await r.blob();
       const m = /filename="?([^";]+)"?/.exec(r.headers.get("Content-Disposition") || "");
       const d = new Date(), p = n => String(n).padStart(2, "0");
-      const name = m ? m[1] : `basalt-requests-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${format === "jsonl" ? "jsonl" : "log"}`;
+      const name = m ? m[1] : `tadamoo-requests-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${format === "jsonl" ? "jsonl" : "log"}`;
       const url = URL.createObjectURL(blob), a = mk("a");
       a.href = url;
       a.download = name;
@@ -716,8 +716,8 @@
     clearTimeout(timer);
     timer = 0;
   }
-  document.addEventListener("basalt:view", e => (e.detail === "logs" ? enter() : leave()));
-  document.addEventListener("basalt:key", () => { if (locked) { locked = false; if (active()) schedule(0); } });
+  document.addEventListener("tadamoo:view", e => (e.detail === "logs" ? enter() : leave()));
+  document.addEventListener("tadamoo:key", () => { if (locked) { locked = false; if (active()) schedule(0); } });
   document.addEventListener("visibilitychange", () => { if (active() && !timer) schedule(0); kick(); });
   document.addEventListener("keydown", e => {
     if (viewOn === "logs" && e.key === "/" && !typing(e.target) && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); qEl.focus(); }

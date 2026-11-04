@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from harness import digest, side, side_uses
+from tadamoo import digest, side, side_uses
 
 
 @pytest.fixture(autouse=True)

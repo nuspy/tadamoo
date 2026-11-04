@@ -10,9 +10,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.integrations.planner_client import PlannerClient
-from harness.planner_tools import Confirmer, plans_summary, register_ask_tool, register_planner_tools
-from harness.tools.registry import ToolArgumentError, ToolRegistry
+from tadamoo.integrations.planner_client import PlannerClient
+from tadamoo.planner_tools import Confirmer, plans_summary, register_ask_tool, register_planner_tools
+from tadamoo.tools.registry import ToolArgumentError, ToolRegistry
 from test_e2e_mock_server import answer, start_server  # noqa: F401  (fixture)
 
 
@@ -371,7 +371,7 @@ def test_a_failed_step_with_tries_left_is_not_marked_failed_by_the_tool(world):
 
 
 def test_at_the_auto_level_a_plan_change_asks_only_when_the_plan_involves_people_a_booking_or_a_call():
-    from harness.planner_tools import involved
+    from tadamoo.planner_tools import involved
     plain = {"plan": {"nodes": {"a": {"assignee": "agent"}}}, "card": {"participants": []}}
     for snap in (plain,
                  {**plain, "card": {"participants": ["Anna", "Luca"]}},

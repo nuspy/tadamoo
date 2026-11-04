@@ -3,9 +3,9 @@ import pytest
 from unittest.mock import MagicMock, patch
 from pathlib import Path
 
-from harness.integrations.wikibridge_client import WikiBridgeClient
-from harness.mcp_client import MCPClient
-from harness.tools.registry import ToolRegistry
+from tadamoo.integrations.wikibridge_client import WikiBridgeClient
+from tadamoo.mcp_client import MCPClient
+from tadamoo.tools.registry import ToolRegistry
 
 
 def test_wikibridge_client_offline_graceful():

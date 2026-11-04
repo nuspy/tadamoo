@@ -1,6 +1,6 @@
 # Platforms
 
-Basalt runs natively on Linux x64 and Windows x64, on NVIDIA Blackwell (sm_120). Linux is where
+Basalt-Plus runs natively on Linux x64 and Windows x64, on NVIDIA Blackwell (sm_120). Linux is where
 the engine is tested and benchmarked. CI builds both and runs the CPU tests on each. The GPU
 tests and the quality gate run on a machine with a card.
 

@@ -345,7 +345,7 @@ def check_whole(obj: dict, path: str) -> None:
     if isinstance(obj.get("engine"), dict):
         check_combination({norm(k): v for k, v in obj["engine"].items()})
     folder = os.path.dirname(os.path.abspath(path))
-    fd, tmp = tempfile.mkstemp(prefix=".basalt-settings-", suffix=".json", dir=folder)
+    fd, tmp = tempfile.mkstemp(prefix=".tadamoo-settings-", suffix=".json", dir=folder)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(obj, f)
@@ -405,7 +405,7 @@ def _save(path: str, changes: dict, fields=FIELDS) -> dict:
     check_whole(new, path)
     text = json.dumps(new, indent=2, ensure_ascii=False) + "\n"
     folder = os.path.dirname(os.path.abspath(path))
-    fd, tmp = tempfile.mkstemp(prefix=".basalt-settings-", suffix=".json", dir=folder)
+    fd, tmp = tempfile.mkstemp(prefix=".tadamoo-settings-", suffix=".json", dir=folder)
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
             f.write(text)

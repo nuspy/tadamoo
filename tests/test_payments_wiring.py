@@ -9,13 +9,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import agent_loop as al
-from harness.audit import AuditLedger
-from harness.payments_broker import PaymentsBroker
-from harness.session import Session, SessionStore
-from harness.stack import AgentConfig, build_agent
-from harness.vault import Vault
-from harness.waiver import PaymentSystem, required_phrase
+from tadamoo import agent_loop as al
+from tadamoo.audit import AuditLedger
+from tadamoo.payments_broker import PaymentsBroker
+from tadamoo.session import Session, SessionStore
+from tadamoo.stack import AgentConfig, build_agent
+from tadamoo.vault import Vault
+from tadamoo.waiver import PaymentSystem, required_phrase
 
 from test_session import Events, Scripted, call, say
 
@@ -142,7 +142,7 @@ def test_a_purchase_from_the_agent_to_the_shop_form(tmp_path):
     the shop receives the real number while the model reads only placeholders."""
     import http.server
     import urllib.parse
-    from harness.browser import find_browser
+    from tadamoo.browser import find_browser
     if find_browser() is None:
         pytest.skip("needs Edge or Chrome on this PC")
     got = []

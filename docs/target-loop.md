@@ -3,7 +3,7 @@
 The Target Loop carries a described target to the end and checks that it is really met. The person writes what must be true when the
 work is finished; the agent splits it into items to check and tasks, does the tasks one by one in the conversation, a reviewer checks
 every item against the evidence, and whatever is not met is worked on again until all of it is, until nothing moves any more, or until
-the person stops it. Code: `harness/target.py` (the loop and the data model), `serve/target_api.py` (the conversation, the threads, the
+the person stops it. Code: `tadamoo/target.py` (the loop and the data model), `serve/target_api.py` (the conversation, the threads, the
 routes), `serve/web/target.js` and `target.css` (the dialog), `serve/web/listtools.js` (the list tools).
 
 ## What the person sees

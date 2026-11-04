@@ -1,6 +1,6 @@
-"""The engine the Loader started in place of Basalt's own: Strata's Python server run as a managed child.
+"""The engine the Loader started in place of Basalt-Plus's own: Strata's Python server run as a managed child.
 
-  HOST.activate(svc, engine_id, req)   stop Basalt's engine (or the other one), start this one, load the model
+  HOST.activate(svc, engine_id, req)   stop Basalt-Plus's engine (or the other one), start this one, load the model
   HOST.stop()                          end the child and whatever it started
   HOST.status()                        {"engine", "phase": idle | starting | loading | running | error, "error", ...}
   HOST.forward(handler, method, path, body)   answer one /v1 request from the child (streams as it arrives)
@@ -206,9 +206,9 @@ class Host:
             port = _free_port()
             cfg, fam = build_config(model, req.get("values"), port, req.get("family"))
             self._stop_locked()
-            # Basalt's own engine gives the GPU back first; a request still running there is not cut
+            # Basalt-Plus's own engine gives the GPU back first; a request still running there is not cut
             if svc is not None and svc.unload() == "busy":
-                raise Refused(409, "busy", "Basalt is answering a request: try again when it has finished", "model_busy")
+                raise Refused(409, "busy", "Basalt-Plus is answering a request: try again when it has finished", "model_busy")
             self._gen += 1
             self.engine, self.phase, self.error = engine_id, "starting", None
             self.family, self.model, self.model_name, self.port = fam, model, cfg["model_name"], port

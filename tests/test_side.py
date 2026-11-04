@@ -9,20 +9,20 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import side
-from harness.client import BasaltClient
-from harness.intake import Context, Intake
-from harness.llm.client import THIS_SERVER_ONLY, RoutedClient
-from harness.llm.credentials import FileCredentials
-from harness.llm.store import Ledger, SecureRegistry
-from harness.router import judge_with_model
-from harness.stack import _summarizer
-from harness.suggestions import Suggester
+from tadamoo import side
+from tadamoo.client import TadamooClient
+from tadamoo.intake import Context, Intake
+from tadamoo.llm.client import THIS_SERVER_ONLY, RoutedClient
+from tadamoo.llm.credentials import FileCredentials
+from tadamoo.llm.store import Ledger, SecureRegistry
+from tadamoo.router import judge_with_model
+from tadamoo.stack import _summarizer
+from tadamoo.suggestions import Suggester
 from test_llm_client import Cloud, Local, MSG
 
 
 class FakeServer:
-    """A Basalt server's status route, with or without a technical session; counts the questions."""
+    """A TaDaMoo server's status route, with or without a technical session; counts the questions."""
 
     def __init__(self, side_slot):
         self.asked = 0
@@ -98,15 +98,15 @@ def test_a_registered_client_answers_the_call_without_one():
 def test_the_client_reads_the_session_from_the_server_status_and_remembers_it():
     on, off = FakeServer({"slot": 3, "context": 30000}), FakeServer(None)
     try:
-        client = BasaltClient(base_url=on.url)
+        client = TadamooClient(base_url=on.url)
         assert client.side_context() == 30000 and client.side_context() == 30000 and on.asked == 1
         assert side.side_extra(client) == {"cache_slot": "side"}
-        assert BasaltClient(base_url=off.url).side_context() == 0
-        assert side.side_extra(BasaltClient(base_url=off.url)) == {}
+        assert TadamooClient(base_url=off.url).side_context() == 0
+        assert side.side_extra(TadamooClient(base_url=off.url)) == {}
     finally:
         on.close()
         off.close()
-    assert BasaltClient(base_url="http://127.0.0.1:9").side_context() == 0         # nobody there: no session
+    assert TadamooClient(base_url="http://127.0.0.1:9").side_context() == 0         # nobody there: no session
 
 
 def test_the_field_never_reaches_a_cloud_route_but_the_loaded_model_gets_it(tmp_path):

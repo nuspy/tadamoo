@@ -15,9 +15,9 @@ about the machine):
                  on or connected but off: NVML's display_active), "none", or "unknown"
   page_file()    the page file's size and whether Windows manages it (then it may grow)
 
-The mock server reads BASALT_FAKE_CPU / BASALT_FAKE_GPU / BASALT_FAKE_DISPLAYS / BASALT_FAKE_PAGEFILE (JSON) like
-BASALT_FAKE_SYSTEM, only with BASALT_FAKE_SYSTEM_OK=1. BASALT_FAKE_ACCEL (a JSON object or list of {"vendor", "name",
-"unified_memory"}) stands for the non-NVIDIA adapters; BASALT_FAKE_GPU may carry "unified_memory" too."""
+The mock server reads TADAMOO_FAKE_CPU / TADAMOO_FAKE_GPU / TADAMOO_FAKE_DISPLAYS / TADAMOO_FAKE_PAGEFILE (JSON) like
+TADAMOO_FAKE_SYSTEM, only with TADAMOO_FAKE_SYSTEM_OK=1. TADAMOO_FAKE_ACCEL (a JSON object or list of {"vendor", "name",
+"unified_memory"}) stands for the non-NVIDIA adapters; TADAMOO_FAKE_GPU may carry "unified_memory" too."""
 from __future__ import annotations
 
 import ctypes
@@ -30,7 +30,7 @@ BLACKWELL_MAJORS = (10, 12)             # sm_100 (data centre) and sm_120 (GeFor
 
 
 def _fake(name: str):
-    if os.environ.get("BASALT_FAKE_SYSTEM_OK") == "1" and os.environ.get(name):
+    if os.environ.get("TADAMOO_FAKE_SYSTEM_OK") == "1" and os.environ.get(name):
         try:
             return json.loads(os.environ[name])
         except ValueError:
@@ -78,7 +78,7 @@ def _linux_list(path: str) -> int:
 
 def cpu() -> dict:
     """{"logical", "physical", "p_cores", "e_cores", "hybrid"}; unknown counts are None."""
-    fake = _fake("BASALT_FAKE_CPU")
+    fake = _fake("TADAMOO_FAKE_CPU")
     if isinstance(fake, dict):
         return {"logical": fake.get("logical"), "physical": fake.get("physical"), "p_cores": fake.get("p_cores", 0),
                 "e_cores": fake.get("e_cores", 0), "hybrid": bool(fake.get("e_cores"))}
@@ -137,8 +137,8 @@ def _proc_name(pid: int) -> str | None:
 def gpu(index: int = 0) -> dict:
     """{"name", "cc", "blackwell", "vram_total", "vram_free", "processes": [{"pid", "name", "used"}]}; what cannot
     be read is None (no NVIDIA driver: {"name": None, ...})."""
-    fake = _fake("BASALT_FAKE_GPU")
-    if os.environ.get("BASALT_FAKE_SYSTEM_OK") == "1" and os.environ.get("BASALT_FAKE_GPU") == "null":
+    fake = _fake("TADAMOO_FAKE_GPU")
+    if os.environ.get("TADAMOO_FAKE_SYSTEM_OK") == "1" and os.environ.get("TADAMOO_FAKE_GPU") == "null":
         fake = {"name": None}                                    # a PC without an NVIDIA GPU (no NVML)
     if isinstance(fake, dict):
         cc = fake.get("cc")
@@ -218,8 +218,8 @@ def _read_gpu_list() -> list[dict]:
 def gpu_list() -> list[dict]:
     """The NVIDIA GPUs of this PC, [{"index", "name"}] in the numbering nvidia-smi uses ([] when none can be read); the
     reading is kept for GPU_LIST_TTL seconds, so asking per request costs nothing."""
-    fake = _fake("BASALT_FAKE_GPU")
-    if os.environ.get("BASALT_FAKE_SYSTEM_OK") == "1" and os.environ.get("BASALT_FAKE_GPU") == "null":
+    fake = _fake("TADAMOO_FAKE_GPU")
+    if os.environ.get("TADAMOO_FAKE_SYSTEM_OK") == "1" and os.environ.get("TADAMOO_FAKE_GPU") == "null":
         return []
     if isinstance(fake, dict):
         return [{"index": 0, "name": fake["name"]}] if fake.get("name") else []
@@ -241,16 +241,16 @@ def gpu_name(index) -> str | None:
 def gpu_warning(g: dict, lang: str = "it") -> str | None:
     """A sentence when the GPU cannot run the engine (not NVIDIA, or not Blackwell); None when it can or is unknown."""
     if g.get("name") is None and g.get("cc") is None:
-        return ("Nessuna GPU NVIDIA leggibile (driver NVIDIA e NVML): il motore di Basalt gira solo su GPU NVIDIA "
+        return ("Nessuna GPU NVIDIA leggibile (driver NVIDIA e NVML): il motore di Basalt-Plus gira solo su GPU NVIDIA "
                 "Blackwell (RTX 50, RTX PRO 6000, B200)." if lang == "it" else
-                "No NVIDIA GPU could be read (NVIDIA driver and NVML): the Basalt engine runs only on NVIDIA Blackwell "
+                "No NVIDIA GPU could be read (NVIDIA driver and NVML): the Basalt-Plus engine runs only on NVIDIA Blackwell "
                 "GPUs (RTX 50 series, RTX PRO 6000, B200).")
     if g.get("blackwell") is False:
         cc = ".".join(str(x) for x in g["cc"])
-        return (f"La GPU {g.get('name')} (compute capability {cc}) non è supportata: il motore di Basalt è compilato "
+        return (f"La GPU {g.get('name')} (compute capability {cc}) non è supportata: il motore di Basalt-Plus è compilato "
                 "solo per GPU NVIDIA Blackwell (compute capability 10.x o 12.x: RTX 50, RTX PRO 6000, B200)."
                 if lang == "it" else
-                f"The GPU {g.get('name')} (compute capability {cc}) is not supported: the Basalt engine is built only "
+                f"The GPU {g.get('name')} (compute capability {cc}) is not supported: the Basalt-Plus engine is built only "
                 "for NVIDIA Blackwell GPUs (compute capability 10.x or 12.x: RTX 50 series, RTX PRO 6000, B200).")
     return None
 
@@ -293,7 +293,7 @@ def _windows_displays() -> list[dict]:
 def displays() -> list[dict] | None:
     """The video adapters: [{"name", "id" (PCI\\VEN_...), "primary" (it shows the main monitor), "outputs" (monitors on
     the desktop now), "monitors"}]; None when this system cannot tell."""
-    fake = _fake("BASALT_FAKE_DISPLAYS")
+    fake = _fake("TADAMOO_FAKE_DISPLAYS")
     if isinstance(fake, list):
         return [{"name": a.get("name"), "id": a.get("id") or "", "primary": bool(a.get("primary")),
                  "outputs": int(a.get("outputs") or 0), "monitors": int(a.get("monitors") or a.get("outputs") or 0)}
@@ -340,7 +340,7 @@ def monitor_on(g: dict, adapters: list[dict] | None) -> dict:
 def page_file() -> dict:
     """{"files": [{"name", "allocated_mib", "used_mib"}], "automatic": Windows manages its size (it can grow),
     "known": False when it cannot be read}."""
-    fake = _fake("BASALT_FAKE_PAGEFILE")
+    fake = _fake("TADAMOO_FAKE_PAGEFILE")
     if isinstance(fake, dict):
         return {"files": fake.get("files", []), "automatic": bool(fake.get("automatic")), "known": True}
     if os.name != "nt":
@@ -408,7 +408,7 @@ def classify_accel(vendor: str, name: str | None) -> tuple[str | None, bool | No
 
 
 def _accel_fake() -> list[dict] | None:
-    fake = _fake("BASALT_FAKE_ACCEL")
+    fake = _fake("TADAMOO_FAKE_ACCEL")
     if isinstance(fake, dict):
         fake = [fake]
     return fake if isinstance(fake, list) else None
@@ -453,7 +453,7 @@ def machine() -> dict:
     True / False / None (unknown), "os", "arch"}. Adapters that are not compute targets are left out."""
     import platform
     gpus: list[dict] = []
-    raw = _fake("BASALT_FAKE_GPU")
+    raw = _fake("TADAMOO_FAKE_GPU")
     for g in gpu_list():
         info = gpu(g["index"])
         cc = info.get("cc")
@@ -463,8 +463,8 @@ def machine() -> dict:
         gpus.append({"index": g["index"], "name": name, "vendor": "nvidia", "cc": cc,
                      "sm": f"{cc[0]}.{cc[1]}" if cc else None, "family": nvidia_family(cc), "unified_memory": unified})
     fake_accel = _accel_fake()
-    faked = fake_accel is not None or (os.environ.get("BASALT_FAKE_SYSTEM_OK") == "1"
-                                       and bool(os.environ.get("BASALT_FAKE_GPU")))
+    faked = fake_accel is not None or (os.environ.get("TADAMOO_FAKE_SYSTEM_OK") == "1"
+                                       and bool(os.environ.get("TADAMOO_FAKE_GPU")))
     for a in (fake_accel if fake_accel is not None else ([] if faked else _real_accel())):
         vendor = str(a.get("vendor") or "").lower()
         family, unified = classify_accel(vendor, a.get("name"))

@@ -11,7 +11,7 @@ import json
 import threading
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from harness.mcp_oauth import Http, McpOAuth, OAuthError, OAuthStore, default_http
+from tadamoo.mcp_oauth import Http, McpOAuth, OAuthError, OAuthStore, default_http
 from serve.capabilities_api import CapabilityApi
 
 
@@ -55,7 +55,7 @@ class McpAuthApi:
             oauth = self._oauth(server["url"])
             status, headers, _body = self.http("POST", server["url"], {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
                                                json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
-                                                   "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "Basalt", "version": "0"}}}).encode("utf-8"), 15.0)
+                                                   "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "TaDaMoo", "version": "0"}}}).encode("utf-8"), 15.0)
             if status != 401:
                 return {"signed_in": oauth.signed_in(), "needs_sign_in": False}
             began = oauth.begin(headers.get("www-authenticate", ""))
@@ -82,7 +82,7 @@ class McpAuthApi:
             oauth.complete(query.get("code", ""), state)
         except OAuthError as e:
             return False, str(e)
-        return True, "You are signed in. You can close this tab and go back to Basalt."
+        return True, "You are signed in. You can close this tab and go back to TaDaMoo."
 
     def sign_out(self, entry_id: Any) -> Dict[str, Any]:
         server = self._server(entry_id)

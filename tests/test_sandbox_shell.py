@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from harness.sandbox import ProcessSandbox, blocked_reason, command_words
-from harness.secrets_broker import SecretsBroker
-from harness.tools.shell import execute_shell_command
+from tadamoo.sandbox import ProcessSandbox, blocked_reason, command_words
+from tadamoo.secrets_broker import SecretsBroker
+from tadamoo.tools.shell import execute_shell_command
 
 PY = f'"{sys.executable}"'
 
@@ -152,7 +152,7 @@ def test_the_command_runs_nothing_before_it_is_in_the_job(tmp_path: Path):
 
 def test_cancelling_ends_a_running_command_and_its_children_within_a_moment(tmp_path: Path):
     import threading
-    from harness.sandbox import cancel_scope
+    from tadamoo.sandbox import cancel_scope
     marker = tmp_path / "alive.txt"
     (tmp_path / "child.py").write_text(f"import time\ntime.sleep(4)\nopen(r'{marker}', 'w').write('child survived')\n", encoding="utf-8")
     (tmp_path / "parent.py").write_text("import subprocess, sys, time\nsubprocess.Popen([sys.executable, 'child.py'])\ntime.sleep(60)\n", encoding="utf-8")
@@ -169,7 +169,7 @@ def test_cancelling_ends_a_running_command_and_its_children_within_a_moment(tmp_
 
 def test_a_command_outside_a_cancel_scope_is_not_affected_by_another_threads_scope(tmp_path: Path):
     import threading
-    from harness.sandbox import cancel_scope
+    from tadamoo.sandbox import cancel_scope
     done = threading.Event()
     done.set()
     with cancel_scope(done):
@@ -183,9 +183,9 @@ def test_a_command_outside_a_cancel_scope_is_not_affected_by_another_threads_sco
 def test_stop_in_the_loop_ends_a_slow_shell_command_instead_of_waiting_for_it(tmp_path: Path):
     import threading
     from test_agent_loop import ScriptedClient, call, say
-    from harness.agent_loop import AgentLoop, CANCELLED
-    from harness.permissions import PermissionLevel, PermissionManager
-    from harness.tools import create_standard_tool_registry
+    from tadamoo.agent_loop import AgentLoop, CANCELLED
+    from tadamoo.permissions import PermissionLevel, PermissionManager
+    from tadamoo.tools import create_standard_tool_registry
     registry, _ = create_standard_tool_registry(tmp_path)
     cancel = threading.Event()
     agent = AgentLoop(ScriptedClient(call("shell_command", {"command": f"{PY} -c \"import time; time.sleep(120)\"", "timeout": 300}), say("never")),

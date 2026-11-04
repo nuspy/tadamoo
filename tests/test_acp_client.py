@@ -1,4 +1,4 @@
-"""Basalt as an ACP client: a fake agent in a subprocess, and Basalt's own ACP agent driven over real stdio."""
+"""TaDaMoo as an ACP client: a fake agent in a subprocess, and TaDaMoo's own ACP agent driven over real stdio."""
 import sys
 import threading
 import time
@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from harness.acp_client import AcpClient, AcpError, run_task
+from tadamoo.acp_client import AcpClient, AcpError, run_task
 
 HERE = Path(__file__).resolve().parent
 FAKE = [sys.executable, str(HERE / "fake_acp_agent.py")]
-BASALT_AGENT = [sys.executable, str(HERE / "fake_acp_basalt.py")]
+TADAMOO_AGENT = [sys.executable, str(HERE / "fake_acp_tadamoo.py")]
 
 
 @pytest.fixture
@@ -81,14 +81,14 @@ def test_a_missing_program_is_reported(ws):
 
 def test_basalts_own_agent_asks_through_us_and_runs_the_command_after_a_yes(ws, tmp_path):
     asked = []
-    out = run_task(BASALT_AGENT + [str(ws), str(tmp_path / "data")], ws, "run it",
+    out = run_task(TADAMOO_AGENT + [str(ws), str(tmp_path / "data")], ws, "run it",
                    ask=lambda title, details: asked.append(title) or True, timeout=60)
-    assert out["agent"] == "Basalt Agent" and out["stop_reason"] == "end_turn"
+    assert out["agent"] == "TaDaMoo Agent" and out["stop_reason"] == "end_turn"
     assert out["text"].endswith("Done: the command was run.")
     assert len(asked) == 1 and "shell_command" in asked[0]
     assert any("shell_command" in c and "completed" in c for c in out["tool_calls"])
 
 
 def test_basalts_own_agent_does_not_run_the_command_after_a_no(ws, tmp_path):
-    out = run_task(BASALT_AGENT + [str(ws), str(tmp_path / "data")], ws, "run it", ask=lambda t, d: False, timeout=60)
+    out = run_task(TADAMOO_AGENT + [str(ws), str(tmp_path / "data")], ws, "run it", ask=lambda t, d: False, timeout=60)
     assert any("shell_command" in c and "failed" in c for c in out["tool_calls"])

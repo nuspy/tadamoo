@@ -1,11 +1,11 @@
 """GET /v1/models and GET /v1/models/{id}: the model this server serves, and every other model it could serve from the
 models folders (the Loader's scan, serve/models.py: the .basalt files that are "ready"; a GGUF to convert or a file
-Basalt cannot run is not listed), in the OpenAI shape or, for an Anthropic client, in Anthropic's.
+Basalt-Plus cannot run is not listed), in the OpenAI shape or, for an Anthropic client, in Anthropic's.
 
 Each model has a stable id: the served name (--alias, else the file's own name) for the one the server runs, the
 file's name without .basalt for the others (with a short hash after it when two folders hold the same file name). The
 others are listed with "status": {"value": "unloaded"}; a request that names one of them is refused with a 404 that
-says how to load it (the Loader, or Avvia-Basalt.ps1 --model) instead of being answered by the model that is loaded.
+says how to load it (the Loader, or Avvia-TaDaMoo.ps1 --model) instead of being answered by the model that is loaded.
 Any other name (the served one, "default", "x", none at all) is served as before. Nothing switches the model on
 request.
 
@@ -24,7 +24,7 @@ from pathlib import Path
 
 REFRESH_S = 30.0                  # a listing older than this is scanned again, on a thread
 FIRST_WAIT_S = 5.0                # how long the first GET /v1/models waits for the first scan
-OWNER = "basalt"
+OWNER = "tadamoo"
 STARTED = int(time.time())        # the "created" of a model whose file cannot be read
 
 
@@ -250,7 +250,7 @@ def refusal(svc, asked, local: bool) -> str | None:
     now = (f"this server is serving {svc.model!r}" if svc.loaded() or getattr(svc.engine, "unloaded", False) or
            getattr(svc, "idle_unload_s", 0) else "no model is loaded on this server")
     return (f"The model {hit['id']!r} is not loaded ({now}). Load it in the web page's Loader (choose it in the model "
-            f"list, then Load), or start the server with it: .\\Avvia-Basalt.ps1 --model {where}")
+            f"list, then Load), or start the server with it: .\\Avvia-TaDaMoo.ps1 --model {where}")
 
 
 def refused_body(message: str, kind: str) -> dict:

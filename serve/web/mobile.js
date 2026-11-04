@@ -217,8 +217,8 @@
     if (shown) qrBlock().then(b => { const slot = host.querySelector(".mb-slot"); if (slot) slot.replaceWith(b); });
   }
 
-  document.addEventListener("basalt:sub", e => { if (e.detail === "mobile") { refresh(); poll(); } else clearTimeout(timer); });
-  document.addEventListener("basalt:view", e => { if (e.detail !== "settings") clearTimeout(timer); });
+  document.addEventListener("tadamoo:sub", e => { if (e.detail === "mobile") { refresh(); poll(); } else clearTimeout(timer); });
+  document.addEventListener("tadamoo:view", e => { if (e.detail !== "settings") clearTimeout(timer); });
   document.addEventListener("visibilitychange", poll);
   applyT(document.getElementById("mb-section"));
   paint();

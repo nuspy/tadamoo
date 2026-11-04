@@ -7,13 +7,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import compaction as cm
-from harness import identifiers, untrusted
-from harness.agent_loop import AgentLoop, FINAL
-from harness.compaction import Compaction
-from harness.context import TokenJuiceCompactor, wire_messages
-from harness.context_patterns import PatternContext
-from harness.tools import create_standard_tool_registry
+from tadamoo import compaction as cm
+from tadamoo import identifiers, untrusted
+from tadamoo.agent_loop import AgentLoop, FINAL
+from tadamoo.compaction import Compaction
+from tadamoo.context import TokenJuiceCompactor, wire_messages
+from tadamoo.context_patterns import PatternContext
+from tadamoo.tools import create_standard_tool_registry
 
 GOAL = "Fix the parser in src/app/config.py and keep 48213 as the limit"
 
@@ -178,7 +178,7 @@ def test_a_record_whose_originals_are_gone_is_folded_as_notes_and_a_final_one_is
 
 
 def test_every_compaction_leaves_the_same_mark_in_the_text_and_in_the_field(tmp_path):
-    from harness import compacted
+    from tadamoo import compacted
     ctx, comp = make(tmp_path, Writer())
     note = next(m for m in ctx.prepare(single_turn()) if m.get("summary"))
     info = note["compacted"]
@@ -189,7 +189,7 @@ def test_every_compaction_leaves_the_same_mark_in_the_text_and_in_the_field(tmp_
 
 
 def test_the_mark_says_when_a_record_can_still_be_compacted():
-    from harness import compacted
+    from tadamoo import compacted
     assert compacted.stamp(1, 10, 1000, 200, "o.txt")["final"] is False
     assert compacted.stamp(1, 10, 1000, 700, "o.txt")["final"] is True          # kept most of its source
     assert compacted.stamp(3, 10, 1000, 200, "")["final"] is True               # folded often and no originals
@@ -462,7 +462,7 @@ def test_the_loop_compacts_in_the_middle_of_one_turn_and_goes_on(tmp_path):
 
 
 def test_the_hooks_hear_of_a_compaction_with_its_report(tmp_path):
-    from harness.hooks import HookManager
+    from tadamoo.hooks import HookManager
     ws = tmp_path / "ws"
     ws.mkdir()
     (ws / "f0.txt").write_text("text\n" * 400, encoding="utf-8")
@@ -483,7 +483,7 @@ def test_the_hooks_hear_of_a_compaction_with_its_report(tmp_path):
 
 
 def test_pre_compact_fires_when_the_servers_count_puts_the_conversation_over(tmp_path):
-    from harness.hooks import HookManager
+    from tadamoo.hooks import HookManager
     ws = tmp_path / "ws"
     ws.mkdir()
     registry, _ = create_standard_tool_registry(ws)

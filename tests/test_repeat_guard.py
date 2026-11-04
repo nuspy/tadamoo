@@ -2,13 +2,13 @@
 import copy
 import json
 
-from harness import untrusted
-from harness.agent_loop import AgentLoop, FINAL
-from harness.audit import AuditLedger
-from harness.context import ContextManager, TokenJuiceCompactor
-from harness.permissions import PermissionLevel, PermissionManager
-from harness.repeat_guard import WEB_READ_TOOLS, RepeatGuard
-from harness.tools.registry import EffectClass, ToolRegistry
+from tadamoo import untrusted
+from tadamoo.agent_loop import AgentLoop, FINAL
+from tadamoo.audit import AuditLedger
+from tadamoo.context import ContextManager, TokenJuiceCompactor
+from tadamoo.permissions import PermissionLevel, PermissionManager
+from tadamoo.repeat_guard import WEB_READ_TOOLS, RepeatGuard
+from tadamoo.tools.registry import EffectClass, ToolRegistry
 
 
 class Scripted:
@@ -109,13 +109,13 @@ def test_a_masked_first_result_is_named_by_the_file_that_holds_it(tmp_path):
     big = page("https://n.example/big", size=4000)
     client = Scripted(calls(("a", "browser_open", {"url": "https://n.example/big"})), calls(("b", "browser_open", {"url": "https://n.example/other"})),
                       calls(("c", "browser_open", {"url": "https://n.example/big"})), say("done"))
-    mgr = ContextManager(TokenJuiceCompactor(tmp_path / "artifacts", display_dir=".basalt/artifacts"), budget_tokens=2000, mask_at=0.5, keep_recent=1)
+    mgr = ContextManager(TokenJuiceCompactor(tmp_path / "artifacts", display_dir=".tadamoo/artifacts"), budget_tokens=2000, mask_at=0.5, keep_recent=1)
     agent, ran, _ = make(tmp_path, client, results={"https://n.example/other": page("https://n.example/other", size=4000)}, context=mgr)
     agent.run("go")
     assert [r[1] for r in ran] == ["https://n.example/big", "https://n.example/other"]
     third = tool_texts(agent)[-1]
     assert third.startswith("Not run again: browser_open was already called with these same arguments at step 1 of this request. "
-                            "Its text was masked to save context and is saved at .basalt/artifacts/browser_open_")
+                            "Its text was masked to save context and is saved at .tadamoo/artifacts/browser_open_")
     assert third.endswith(".txt. The call was not repeated.")
     saved = third.split("saved at ")[1].split(". The call")[0].split("/")[-1]
     text = (tmp_path / "artifacts" / saved).read_text(encoding="utf-8")

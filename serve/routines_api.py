@@ -1,4 +1,4 @@
-"""The routines of the agent (harness/scheduler.py) as the server's API.
+"""The routines of the agent (tadamoo/scheduler.py) as the server's API.
 
 The scheduler is made when first needed and runs the routines through the server's conversation manager. Routes, under
 /api/routines (the writes pass the same gates as the other /api/ writes):
@@ -19,10 +19,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from harness.energy import EnergyMeter
-from harness.personal_skills.store import SkillError
-from harness.personal_skills.values import resolve as resolve_values
-from harness.scheduler import RoutineError, Scheduler, SessionRoutineRunner
+from tadamoo.energy import EnergyMeter
+from tadamoo.personal_skills.store import SkillError
+from tadamoo.personal_skills.values import resolve as resolve_values
+from tadamoo.scheduler import RoutineError, Scheduler, SessionRoutineRunner
 
 RECENT_RUNS = 20
 

@@ -13,10 +13,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.planner import EventBuffer, EventInbox, InboxPump, JevTriageGatekeeper, sources  # noqa: E402
-from harness.planner.sources import (ImapSource, RssSource, SourceError, SourceRunner, TelegramSource, build_source, clean_source,  # noqa: E402
+from tadamoo.planner import EventBuffer, EventInbox, InboxPump, JevTriageGatekeeper, sources  # noqa: E402
+from tadamoo.planner.sources import (ImapSource, RssSource, SourceError, SourceRunner, TelegramSource, build_source, clean_source,  # noqa: E402
                                      clean_sources, parse_feed, redact)
-from harness.vault import Vault  # noqa: E402
+from tadamoo.vault import Vault  # noqa: E402
 from serve.plans import PlanService  # noqa: E402
 from test_planner import CARD  # noqa: E402
 from test_planner_service import PLAN, FakeModel, wait_for  # noqa: E402

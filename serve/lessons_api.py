@@ -11,8 +11,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
-from harness import repeats
-from harness.lessons import Lesson, LessonStore, OutcomeLog, RESULTS, screen_reason, write_atomic
+from tadamoo import repeats
+from tadamoo.lessons import Lesson, LessonStore, OutcomeLog, RESULTS, screen_reason, write_atomic
 
 RECENT_OUTCOMES = 50              # the outcomes the summary counts
 TOP_ERROR_TOOLS = 3

@@ -9,10 +9,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.browser import BrowserPrefs
-from harness.payments_broker import PaymentsBroker
-from harness.vault import Vault
-from harness.waiver import required_phrase
+from tadamoo.browser import BrowserPrefs
+from tadamoo.payments_broker import PaymentsBroker
+from tadamoo.vault import Vault
+from tadamoo.waiver import required_phrase
 from serve import handler
 from serve.wallet_api import WalletApi
 from serve.engine.mock import MockEngine
@@ -206,7 +206,7 @@ def test_the_kept_browser_choice_and_the_window_to_sign_in_and_forgetting(setup,
 
 
 def test_the_window_to_sign_in_says_when_the_profile_is_in_use(setup):
-    from harness.browser import ProfileLock
+    from tadamoo.browser import ProfileLock
     base, tmp = setup
     held = ProfileLock(tmp / "profile")
     assert held.acquire()
@@ -266,15 +266,15 @@ def test_a_wallet_route_needs_the_control_secret(guarded, route):
     base, spy = guarded
     code, body = post(base, route)
     assert code == 403 and body["error"]["code"] == "control_secret"
-    assert post(base, route, {"X-Basalt-Control": "wrong"})[0] == 403
+    assert post(base, route, {"X-Tadamoo-Control": "wrong"})[0] == 403
     assert spy.calls == []
 
 
 @pytest.mark.parametrize("route", POST_ROUTES)
 def test_a_wallet_route_does_not_look_at_the_origin_or_the_content_type(guarded, route):
     base, spy = guarded
-    assert post(base, route, {"X-Basalt-Control": SECRET, "Origin": "http://evil.example"})[0] == 200
-    assert post(base, route, {"X-Basalt-Control": SECRET, "Content-Type": "text/plain"})[0] == 200
+    assert post(base, route, {"X-Tadamoo-Control": SECRET, "Origin": "http://evil.example"})[0] == 200
+    assert post(base, route, {"X-Tadamoo-Control": SECRET, "Content-Type": "text/plain"})[0] == 200
     assert len(spy.calls) == 2
 
 
@@ -282,7 +282,7 @@ def test_a_wallet_route_does_not_look_at_the_origin_or_the_content_type(guarded,
 def test_a_wallet_route_refuses_a_client_that_is_not_on_this_pc(guarded, monkeypatch, route):
     base, spy = guarded
     monkeypatch.setattr(handler.settings, "is_loopback", lambda address: False)
-    code, body = post(base, route, {"X-Basalt-Control": SECRET})
+    code, body = post(base, route, {"X-Tadamoo-Control": SECRET})
     assert code == 403 and "only from the PC" in body["error"]["message"]
     assert spy.calls == []
 
@@ -290,6 +290,6 @@ def test_a_wallet_route_refuses_a_client_that_is_not_on_this_pc(guarded, monkeyp
 @pytest.mark.parametrize("route", POST_ROUTES)
 def test_the_same_request_with_the_secret_from_the_page_goes_through(guarded, route):
     base, spy = guarded
-    assert post(base, route, {"X-Basalt-Control": SECRET})[0] == 200
-    assert post(base, route, {"X-Basalt-Control": SECRET, "Origin": base})[0] == 200      # the page's own origin
+    assert post(base, route, {"X-Tadamoo-Control": SECRET})[0] == 200
+    assert post(base, route, {"X-Tadamoo-Control": SECRET, "Origin": base})[0] == 200      # the page's own origin
     assert len(spy.calls) == 2

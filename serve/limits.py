@@ -2,7 +2,7 @@
 
     {"beat_timeout_s": 120, "idle_s": null, "compare_wait_s": null, "tool_timeout_s": 3600}
 
-A value of null or 0 means no limit. A name missing from the file takes the environment variable BASALT_LIMIT_<NAME>
+A value of null or 0 means no limit. A name missing from the file takes the environment variable TADAMOO_LIMIT_<NAME>
 (upper case), else the default of the caller, else DEFAULTS. `tool_timeout_s` is the one limit that always exists: null,
 0 or a bad value in the file gives the default. The file is read again whenever it changes, so a new value reaches
 the next tool call or check without a restart. The harness processes read the same file."""
@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 FILE = "limits.json"
-ENV_PREFIX = "BASALT_LIMIT_"
+ENV_PREFIX = "TADAMOO_LIMIT_"
 DEFAULTS: Dict[str, Optional[float]] = {
     "beat_timeout_s": None,        # silence from a conversation's process before it is stopped and restarted
     "idle_s": None,                # an idle conversation's process is closed (dormant) after this

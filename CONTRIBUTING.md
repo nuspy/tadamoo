@@ -1,6 +1,6 @@
-# Contributing to Basalt
+# Contributing to Basalt-Plus
 
-Basalt is a single-purpose engine: Qwen3.8-Flash-Next on Linux with NVIDIA Blackwell GPUs. Every rule below exists to keep it fast and correct on that one target.
+Basalt-Plus is a single-purpose engine: Qwen3.8-Flash-Next on Linux with NVIDIA Blackwell GPUs. Every rule below exists to keep it fast and correct on that one target.
 
 ## Scope
 
@@ -14,7 +14,7 @@ Basalt is a single-purpose engine: Qwen3.8-Flash-Next on Linux with NVIDIA Black
 
 ## What every change must include
 
-1. **A parity test** for every new or changed kernel: random inputs plus the real model geometry, compared against (a) the current Basalt kernel it replaces and (b) the plain CPU reference for that operation (dequantize, then accumulate in double precision). Report the max absolute and relative error against both. A kernel meant to be bitwise-neutral must match the frozen output hashes of the current kernels. The output for a token must not depend on the batch/window width or the token's position in it; the test must check that.
+1. **A parity test** for every new or changed kernel: random inputs plus the real model geometry, compared against (a) the current Basalt-Plus kernel it replaces and (b) the plain CPU reference for that operation (dequantize, then accumulate in double precision). Report the max absolute and relative error against both. A kernel meant to be bitwise-neutral must match the frozen output hashes of the current kernels. The output for a token must not depend on the batch/window width or the token's position in it; the test must check that.
 2. **A profile.** Give a microbench line for the kernel: µs per call and achieved GB/s (or TFLOP/s) against the bytes or FLOPs it must move. Give an end-to-end number from `basalt-bench`: ms per decode window and passes/s, not only tok/s, which drafting luck moves by ±3-5%.
 3. **A quality check:**
    - Bitwise-identical output: show the greedy-identity check against the previous build. Pin the expert tiers, since changes in GPU module size move the auto-sized tiers and change rounding.

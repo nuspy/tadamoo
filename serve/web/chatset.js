@@ -1,14 +1,14 @@
 "use strict";
 /* Chat settings: sampling, reasoning, output length, stop strings, system prompt, structured output, the context policy
    and named presets. The current settings stay in this client (localStorage when it allows it): the app and each
-   browser keep their own. Presets are kept by the server (GET/POST /api/profiles, shared with the desktop app) and in
-   this browser when the server cannot. A request carries only the fields that are set, so the model file's defaults
+   browser keep their own. Presets are kept by the server in presets.json in the data folder (GET/POST /api/profiles,
+   shared with the desktop app); moving them to another PC is copying that file. A request carries only the fields that are set, so the model file's defaults
    apply to the rest.
    On opening, a client takes the preset it used last when it still exists; otherwise, and when it used the default,
    it follows the current default ("Machine Default" from the configuration wizard, else the model's own defaults).
    Settings changed by hand after that are kept as they are. */
 const chatSettings = (() => {
-  const STORE = "basalt.chatset", PRESETS = "basalt.presets", LAST = "basalt.chatset.last";
+  const STORE = "tadamoo.chatset", LAST = "tadamoo.chatset.last";
   const MODEL = "@model";                     // LAST.name of the model's own defaults chosen by hand
   const load = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
   const keep = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } };
@@ -162,12 +162,8 @@ const chatSettings = (() => {
     return out;
   }
 
-  /* presets: the server's, else this browser's */
-  function localPresets() { const p = load(PRESETS, {}); return p && typeof p === "object" && !Array.isArray(p) ? p : {}; }
-  function presets() {
-    if (serverPresets) return Object.fromEntries(serverPresets.map(p => [p.name, p]));
-    return Object.fromEntries(Object.entries(localPresets()).map(([n, s]) => [n, { name: n, settings: s, summary: "" }]));
-  }
+  /* presets: the server's (presets.json) */
+  function presets() { return Object.fromEntries((serverPresets || []).map(p => [p.name, p])); }
   async function fetchPresets() {
     try {
       const r = await fetch("api/profiles", { cache: "no-store", headers: authHeaders() });
@@ -175,16 +171,6 @@ const chatSettings = (() => {
       const all = await r.json();
       serverPresets = all.inference || [];
       inferenceDefault = all.inference_default || null;
-      const local = localPresets();                    // presets kept here while the server could not: move them
-      for (const [name, settings] of Object.entries(local)) {
-        if (serverPresets.some(p => p.name === name)) continue;
-        if (await change({ action: "save", kind: "inference", name, settings })) delete local[name];
-      }
-      keep(PRESETS, local);
-      if (Object.keys(local).length === 0) {
-        const r2 = await fetch("api/profiles", { cache: "no-store", headers: authHeaders() });
-        if (r2.ok) serverPresets = (await r2.json()).inference || [];
-      }
     } catch (e) { serverPresets = null; }
     drawPresets($("#cs-preset").value);
     if (!started) { started = true; startWith(); }
@@ -211,7 +197,7 @@ const chatSettings = (() => {
     drawPresets(p ? inferenceDefault : "");
     settled();
   }
-  const settled = () => document.dispatchEvent(new CustomEvent("basalt:chatset-settled"));      // the panel took its starting values: not a change by the person
+  const settled = () => document.dispatchEvent(new CustomEvent("tadamoo:chatset-settled"));      // the panel took its starting values: not a change by the person
   function remember(name, edited) { last = { name, edited }; keep(LAST, last); showActive(); }
   function showActive() {
     const box = $("#cs-active");
@@ -244,55 +230,35 @@ const chatSettings = (() => {
     write(p.settings); save(); say(T("cs.preset.loaded", name), "ok");
     remember(name === inferenceDefault ? "" : name, false);
     $("#cs-preset-name").value = name;
-    document.dispatchEvent(new CustomEvent("basalt:chatset"));
+    document.dispatchEvent(new CustomEvent("tadamoo:chatset"));
   };
   $("#cs-preset-save").onclick = async () => {
     const name = $("#cs-preset-name").value.trim();
     if (!name) { say(T("cs.preset.noname"), "err"); $("#cs-preset-name").focus(); return; }
     const ok = await change({ action: "save", kind: "inference", name, settings: read() });
-    if (ok !== true) {
-      const all = localPresets(); all[name] = read();
-      if (!keep(PRESETS, all)) { say(T("cs.preset.nostore"), "err"); return; }
-      serverPresets = null; drawPresets(name); say(T("cs.preset.local"), "ok"); return;
-    }
+    if (ok !== true) { say((ok && ok.message) || "error", "err"); return; }
     await fetchPresets(); drawPresets(name); say(T("cs.preset.saved", name), "ok");
   };
   $("#cs-preset-rename").onclick = async () => {
     const name = $("#cs-preset").value, to = $("#cs-preset-name").value.trim();
     if (!name) return;
     if (!to) { say(T("cs.preset.noname"), "err"); $("#cs-preset-name").focus(); return; }
-    if (serverPresets) {
-      const ok = await change({ action: "rename", kind: "inference", name, new_name: to });
-      if (ok !== true) { say((ok && ok.message) || "error", "err"); return; }
-      await fetchPresets();
-    } else {
-      const all = localPresets(); all[to] = all[name]; delete all[name]; keep(PRESETS, all);
-    }
+    const ok = await change({ action: "rename", kind: "inference", name, new_name: to });
+    if (ok !== true) { say((ok && ok.message) || "error", "err"); return; }
+    await fetchPresets();
     drawPresets(to); say(T("cs.preset.renamed", to), "ok");
   };
   $("#cs-preset-del").onclick = async () => {
     const name = $("#cs-preset").value;
     if (!name) return;
-    if (serverPresets) { await change({ action: "delete", kind: "inference", name }); await fetchPresets(); }
-    else { const all = localPresets(); delete all[name]; keep(PRESETS, all); }
+    await change({ action: "delete", kind: "inference", name }); await fetchPresets();
     drawPresets(""); say(T("cs.preset.deleted", name), "ok");
-  };
-  $("#cs-preset-import").onchange = async e => {
-    const f = e.target.files[0];
-    e.target.value = "";
-    if (!f) return;
-    try {
-      const data = JSON.parse(await f.text());
-      const ok = await change({ action: "import", data });
-      if (ok !== true) throw new Error((ok && ok.message) || "the server did not take the file");
-      await fetchPresets(); say(T("cs.preset.imported"), "ok");
-    } catch (err) { say(err.message, "err"); }
   };
   $("#cs-reset").onclick = () => {
     write(modelOnly());
     save(); say(T("cs.reset.done"), "ok");
     drawPresets(""); remember(MODEL, false);
-    document.dispatchEvent(new CustomEvent("basalt:chatset"));
+    document.dispatchEvent(new CustomEvent("tadamoo:chatset"));
   };
   $("#cs-machine").onclick = async () => {
     await fetchPresets();
@@ -301,7 +267,7 @@ const chatSettings = (() => {
     write(p.settings); save(); drawPresets("Machine Default");
     remember(inferenceDefault === "Machine Default" ? "" : "Machine Default", false);
     say(T("cs.machine.done"), "ok");
-    document.dispatchEvent(new CustomEvent("basalt:chatset"));
+    document.dispatchEvent(new CustomEvent("tadamoo:chatset"));
   };
 
   /* panel */
@@ -309,7 +275,7 @@ const chatSettings = (() => {
     $("#chatset").hidden = !on;
     $("#cs-open").setAttribute("aria-expanded", String(on));
     $("#view-chat").classList.toggle("withset", on);
-    keep("basalt.chatset.open", on);
+    keep("tadamoo.chatset.open", on);
     if (on) { $("#cs-title").scrollIntoView({ block: "nearest" }); fetchPresets(); }
   }
   $("#cs-open").onclick = () => openPanel($("#chatset").hidden);
@@ -322,12 +288,12 @@ const chatSettings = (() => {
     if (f) { const p = mark(f); say(p ? T("cs.bad", T(f.label), p) : "", p ? "err" : ""); }
     show(); save();
     if (byHand(e) && !last.edited) remember(last.name, true);
-    document.dispatchEvent(new CustomEvent("basalt:chatset"));
+    document.dispatchEvent(new CustomEvent("tadamoo:chatset"));
   });
   $("#cs-form").addEventListener("change", e => {
     show(); save();
     if (byHand(e) && !last.edited) remember(last.name, true);
-    document.dispatchEvent(new CustomEvent("basalt:chatset"));
+    document.dispatchEvent(new CustomEvent("tadamoo:chatset"));
   });
   $("#effort").addEventListener("change", e => { if (e.isTrusted && !last.edited) remember(last.name, true); });
   $("#cs-form").onsubmit = e => e.preventDefault();
@@ -348,28 +314,28 @@ const chatSettings = (() => {
       $("#cs-" + f.key).placeholder = v != null ? T("cs.default", v) : e != null ? T("cs.engine", e) : T("cs.model");
     }
   }
-  document.addEventListener("basalt:key", () => { defaults(); fetchPresets(); });
+  document.addEventListener("tadamoo:key", () => { defaults(); fetchPresets(); });
   // the wizard saved a new Machine Default: a client that follows the default takes it now
   document.addEventListener("basalt:machine", async () => {
     await fetchPresets();
     if (!last.edited && !last.name) { followDefault(); showActive(); }
   });
-  document.addEventListener("basalt:view", e => { if (e.detail === "chat" || e.detail === "agent") defaults(); });
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "chat" || e.detail === "agent") defaults(); });
 
   // whether the chat shows the model's reasoning: a display choice of this client, not part of a preset
-  const SHOW = "basalt.showreasoning";
+  const SHOW = "tadamoo.showreasoning";
   const showReasoning = () => load(SHOW, true) !== false;
   $("#cs-show-reasoning").checked = showReasoning();
   $("#cs-show-reasoning").addEventListener("change", e => {
     keep(SHOW, e.target.checked);
-    document.dispatchEvent(new CustomEvent("basalt:showreasoning"));
+    document.dispatchEvent(new CustomEvent("tadamoo:showreasoning"));
   });
 
   write(load(STORE, {}));
   drawPresets("");
   defaults();
   fetchPresets();
-  if (load("basalt.chatset.open", false) && innerWidth > 980) openPanel(true);
+  if (load("tadamoo.chatset.open", false) && innerWidth > 980) openPanel(true);
   const patterns = () => read().context_patterns || {};
   return { body, system, policy, threshold, structured, showReasoning, autoContinue, patterns, live };
 })();

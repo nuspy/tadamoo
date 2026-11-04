@@ -7,13 +7,13 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.audit import AuditLedger
-from harness.payments_broker import PaymentsBroker, register_payment_tool, to_cents
-from harness.permissions import PermissionLevel, PermissionManager
-from harness.tools.registry import ToolRegistry
-from harness.waiver import PaymentSystem, parse_amount, required_phrase, verify_phrase
-from harness.waiver.dossier import DossierStore, DossierUnavailable
-from harness.waiver.keystore import load_or_create_key
+from tadamoo.audit import AuditLedger
+from tadamoo.payments_broker import PaymentsBroker, register_payment_tool, to_cents
+from tadamoo.permissions import PermissionLevel, PermissionManager
+from tadamoo.tools.registry import ToolRegistry
+from tadamoo.waiver import PaymentSystem, parse_amount, required_phrase, verify_phrase
+from tadamoo.waiver.dossier import DossierStore, DossierUnavailable
+from tadamoo.waiver.keystore import load_or_create_key
 
 NAME = "Mario Rossi"
 
@@ -99,7 +99,7 @@ def test_amount_parsing():
 
 def test_a_system_must_say_what_it_pays_with_and_a_vault_credential_names_its_entry():
     for kind in ("password", "password_totp", "anything_else"):
-        assert any("choose what Basalt pays with" in p for p in system(credential_kind=kind).problems())
+        assert any("choose what TaDaMoo pays with" in p for p in system(credential_kind=kind).problems())
     assert system().problems() == []
     assert any("vault entry" in p for p in system(credential_kind="vault_card").problems())
     assert system(credential_kind="vault_card", vault_entry="trip").problems() == []
@@ -156,7 +156,7 @@ def test_a_tampered_dossier_or_another_device_key_cannot_be_opened(broker, tmp_p
 
 
 def test_without_the_crypto_package_no_waiver_is_given(broker, monkeypatch):
-    import harness.waiver.dossier as d
+    import tadamoo.waiver.dossier as d
     monkeypatch.setattr(d, "_aead", lambda: (_ for _ in ()).throw(DossierUnavailable("needs cryptography")))
     with pytest.raises(DossierUnavailable):
         grant(broker)
@@ -351,7 +351,7 @@ def test_a_failing_notification_does_not_undo_the_payment(broker):
 
 
 def test_register_rejects_an_ineligible_system(broker):
-    with pytest.raises(ValueError, match="choose what Basalt pays with"):
+    with pytest.raises(ValueError, match="choose what TaDaMoo pays with"):
         broker.register_system(system(system_id="bank", credential_kind="password_totp"))
 
 

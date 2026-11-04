@@ -7,9 +7,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.planner import JevTriageGatekeeper
-from harness.planner import triage as triage_module
-from harness.planner.card import sender_names
+from tadamoo.planner import JevTriageGatekeeper
+from tadamoo.planner import triage as triage_module
+from tadamoo.planner.card import sender_names
 from test_planner import FULL
 
 EVENTS = ["Email from Mario Bianchi: cena annullata per sciopero", "Telegram from Luca: Mario Bianchi dice che arriva tardi",

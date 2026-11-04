@@ -18,7 +18,7 @@ from serve.util.text import ByteTokenizer
 ROOT = Path(__file__).resolve().parents[2]
 SECRET = "s3cret-of-this-server"
 STUB = str(Path(__file__).with_name("session_stub.py"))
-SCRIPT = 'from basalt_skill import tool\n\ndef main(params):\n    return tool("read_file", path=params.file)\n'
+SCRIPT = 'from tadamoo_skill import tool\n\ndef main(params):\n    return tool("read_file", path=params.file)\n'
 DEFINITION = {"name": "Read a day", "description": "reads the file of a day", "params": [
     {"name": "file", "type": "path", "label": "File", "explanation": "which file"}, {"name": "day", "type": "date", "default": "ieri"}]}
 
@@ -30,8 +30,8 @@ class _NoTelemetry:
 
 @pytest.fixture
 def server(tmp_path, monkeypatch):
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))
-    monkeypatch.setenv("BASALT_CACHE", str(tmp_path / "data"))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TADAMOO_CACHE", str(tmp_path / "data"))
     import serve.handler as handler
     monkeypatch.setattr(handler, "_PSKILLS", None)
     tok = ByteTokenizer()
@@ -46,7 +46,7 @@ def server(tmp_path, monkeypatch):
 
 def call(port, method, path, body=None, headers=None):
     c = http.client.HTTPConnection("127.0.0.1", port, timeout=15)
-    c.request(method, path, body=None if body is None else json.dumps(body), headers={"Content-Type": "application/json", "X-Basalt-Control": SECRET, **(headers or {})})
+    c.request(method, path, body=None if body is None else json.dumps(body), headers={"Content-Type": "application/json", "X-Tadamoo-Control": SECRET, **(headers or {})})
     r = c.getresponse()
     raw = r.read()
     c.close()
@@ -104,7 +104,7 @@ def test_a_skill_goes_to_another_pc_as_a_file_and_arrives_usable(server):
 
 
 def test_skills_are_changed_only_with_the_servers_secret(server):
-    assert call(server, "POST", "/api/personal-skills", {"skill": DEFINITION, "script": SCRIPT}, {"X-Basalt-Control": "wrong"})[0] == 403
+    assert call(server, "POST", "/api/personal-skills", {"skill": DEFINITION, "script": SCRIPT}, {"X-Tadamoo-Control": "wrong"})[0] == 403
 
 
 # ---- a skill started in a conversation (the manager, with the stand-in process) ----------------------------------------------------
@@ -230,7 +230,7 @@ def test_the_values_that_change_are_proposed_from_the_chosen_requests(manager, t
 
 def test_the_script_is_written_from_the_parameters_the_person_kept(manager, tmp_path, monkeypatch):
     sid = conversation_with_a_tool(manager, tmp_path)
-    model = Model("```python\nfrom basalt_skill import tool\n\ndef main(params):\n    return tool('read_file', path=params.file)\n```")
+    model = Model("```python\nfrom tadamoo_skill import tool\n\ndef main(params):\n    return tool('read_file', path=params.file)\n```")
     monkeypatch.setattr(manager, "_skill_client", lambda: model)
     got = manager.skill_script(sid, [1], "Leggi", "reads a file", [{"name": "file", "type": "path", "value_seen": "notes.txt", "label": "File"}])
     assert got["problems"] == [] and got["unused"] == [] and "params.file" in got["script"]
@@ -255,7 +255,7 @@ def test_what_cannot_be_made_into_a_skill_is_said(manager, tmp_path, monkeypatch
 def test_a_routine_run_becomes_a_script_that_counts_the_places_left_to_the_model(manager, tmp_path, monkeypatch):
     sid = conversation_with_a_tool(manager, tmp_path)
     proposal = json.dumps({"name": "Leggi", "description": "reads a file", "params": [{"name": "file", "type": "path", "value_seen": "notes.txt", "explanation": "which"}]})
-    script = "```python\nfrom basalt_skill import tool, ai\n\ndef main(params):\n    text = tool('read_file', path=params.file)\n    return ai('summarise', text)\n```"
+    script = "```python\nfrom tadamoo_skill import tool, ai\n\ndef main(params):\n    text = tool('read_file', path=params.file)\n    return ai('summarise', text)\n```"
     monkeypatch.setattr(manager, "_skill_client", lambda: Model(proposal, script))
     got = manager.routine_skill(sid, "Morning notes")
     assert got["name"] == "Morning notes" and got["problems"] == [] and got["tool_steps"] == 1 and got["ai_calls"] == 1 and "params.file" in got["script"]

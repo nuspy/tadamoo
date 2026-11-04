@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from harness.agent_loop import AgentLoop, FINAL
-from harness.gitignore import GitIgnore, glob_regex, parse_rules
-from harness.permissions import PermissionManager, PermissionLevel
-from harness.tools import EffectClass, create_standard_tool_registry
-from harness.tools.filesystem import WorkspaceSandbox
-from harness.tools.search_code import MAX_HITS
+from tadamoo.agent_loop import AgentLoop, FINAL
+from tadamoo.gitignore import GitIgnore, glob_regex, parse_rules
+from tadamoo.permissions import PermissionManager, PermissionLevel
+from tadamoo.tools import EffectClass, create_standard_tool_registry
+from tadamoo.tools.filesystem import WorkspaceSandbox
+from tadamoo.tools.search_code import MAX_HITS
 from tests.test_agent_loop import ScriptedClient, call, say
 
 

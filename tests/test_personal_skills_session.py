@@ -5,13 +5,13 @@ import time
 
 import pytest
 
-from harness import agent_loop as al
+from tadamoo import agent_loop as al
 from test_session import Events, Scripted, make, say
 
 
 @pytest.fixture(autouse=True)
 def _no_clock(monkeypatch):
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
 
 
 def skill(script, **over):
@@ -26,7 +26,7 @@ def done(ev, after=0, seconds=30):
 def test_the_scripts_tool_calls_go_through_the_gate_and_stay_in_the_conversation(tmp_path):
     session, ev, store, built = make(tmp_path, Scripted())
     script = '''
-from basalt_skill import tool
+from tadamoo_skill import tool
 
 def main(params):
     tool("write_file", path="out.txt", content="x" * params.n)
@@ -51,7 +51,7 @@ def main(params):
 def test_the_same_call_many_times_is_not_taken_for_a_loop(tmp_path):
     session, ev, *_ = make(tmp_path, Scripted())
     (tmp_path / "ws" / "a.txt").write_text("a", encoding="utf-8")
-    script = 'from basalt_skill import tool\n\ndef main(params):\n    return [tool("read_file", path="a.txt") for _ in range(6)] and "ok"\n'
+    script = 'from tadamoo_skill import tool\n\ndef main(params):\n    return [tool("read_file", path="a.txt") for _ in range(6)] and "ok"\n'
     session.run_skill("t1", skill(script))
     assert done(ev)["final"] == "ok"
 
@@ -59,7 +59,7 @@ def test_the_same_call_many_times_is_not_taken_for_a_loop(tmp_path):
 def test_a_tool_that_is_refused_or_unknown_is_an_error_the_script_can_catch(tmp_path):
     session, ev, *_ = make(tmp_path, Scripted())
     script = '''
-from basalt_skill import tool, ToolError
+from tadamoo_skill import tool, ToolError
 
 def main(params):
     try:
@@ -75,7 +75,7 @@ def test_the_model_is_asked_once_and_the_answer_is_kept_for_the_same_prompt(tmp_
     client = Scripted(say("A SUMMARY"), say("SHOULD NOT BE ASKED"))
     session, ev, store, built = make(tmp_path, client)
     cache = tmp_path / "cache"
-    script = 'from basalt_skill import ai\n\ndef main(params):\n    return ai("Summarise {what} in {n} words", what="the war", n=params.n)\n'
+    script = 'from tadamoo_skill import ai\n\ndef main(params):\n    return ai("Summarise {what} in {n} words", what="the war", n=params.n)\n'
     session.run_skill("t1", skill(script, cache_dir=str(cache)))
     assert done(ev)["final"] == "A SUMMARY"
     sent = client.sent[0]
@@ -87,22 +87,22 @@ def test_the_model_is_asked_once_and_the_answer_is_kept_for_the_same_prompt(tmp_
 
 
 def test_a_model_that_does_not_answer_is_waited_for_with_the_sessions_growing_waits_for_as_long_as_it_takes(tmp_path):
-    from harness.client import BasaltError
+    from tadamoo.client import TadamooError
     slept = []
-    errors = [BasaltError(500, "down") for _ in range(7)]                         # more tries than the old three, and a hard error among them
-    errors[2] = BasaltError(400, "refused")
+    errors = [TadamooError(500, "down") for _ in range(7)]                         # more tries than the old three, and a hard error among them
+    errors[2] = TadamooError(400, "refused")
     client = Scripted(*errors, say("AT LAST"))
     session, ev, *_ = make(tmp_path, client, waits=(1, 2, 3))
     session.sleep = lambda s: slept.append(s)
     session._wait = lambda seconds, cancel: slept.append(seconds) or True
-    script = 'from basalt_skill import ai\n\ndef main(params):\n    return ai("Say it")\n'
+    script = 'from tadamoo_skill import ai\n\ndef main(params):\n    return ai("Say it")\n'
     session.run_skill("t1", skill(script))
     assert done(ev)["final"] == "AT LAST" and slept == [1, 2, 3, 3, 3, 3, 3]
 
 
 def test_a_question_to_the_person_waits_for_the_button(tmp_path):
     session, ev, *_ = make(tmp_path, Scripted())
-    script = 'from basalt_skill import ask\n\ndef main(params):\n    return "chose " + ask("Which?", ["first", "second"])\n'
+    script = 'from tadamoo_skill import ask\n\ndef main(params):\n    return "chose " + ask("Which?", ["first", "second"])\n'
     session.run_skill("t1", skill(script))
     question = ev.wait("ask")
     assert question["question"] == "Which?" and [o["value"] for o in question["options"]] == ["first", "second"] and question["kind"] == "skill_question"

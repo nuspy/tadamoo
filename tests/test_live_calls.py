@@ -4,11 +4,11 @@ import time
 
 import pytest
 
-from harness.integrations.call_api_client import CallAPICallClient, build_greeting, has_ai_disclosure
+from tadamoo.integrations.call_api_client import CallAPICallClient, build_greeting, has_ai_disclosure
 
 pytestmark = pytest.mark.skipif(
-    os.environ.get("BASALT_LIVE_CALLS") != "1",
-    reason="real phone calls need the user's explicit authorization (BASALT_LIVE_CALLS=1)",
+    os.environ.get("TADAMOO_LIVE_CALLS") != "1",
+    reason="real phone calls need the user's explicit authorization (TADAMOO_LIVE_CALLS=1)",
 )
 
 
@@ -19,9 +19,9 @@ def client():
 
 @pytest.fixture
 def number():
-    value = os.environ.get("BASALT_LIVE_CALL_NUMBER")
+    value = os.environ.get("TADAMOO_LIVE_CALL_NUMBER")
     if not value:
-        pytest.skip("BASALT_LIVE_CALL_NUMBER is not set")
+        pytest.skip("TADAMOO_LIVE_CALL_NUMBER is not set")
     return value
 
 
@@ -39,7 +39,7 @@ def test_service_reachable_and_authenticated(client):
 
 
 def test_single_call_with_ai_disclosure_and_hangup(client, number):
-    call_id = _place(client, number, "Questa è una chiamata di prova del sistema Basalt.")
+    call_id = _place(client, number, "Questa è una chiamata di prova del sistema TaDaMoo.")
     try:
         time.sleep(5)
         assert "assistant:" in (client.get_call_transcript(call_id) or "")

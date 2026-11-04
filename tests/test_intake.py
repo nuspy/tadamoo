@@ -7,11 +7,11 @@ from datetime import datetime
 
 import pytest
 
-from harness import agent_loop as al
-from harness import intake as it
-from harness import questions as qs
-from harness.session import Session, SessionStore
-from harness.stack import AgentConfig, build_agent
+from tadamoo import agent_loop as al
+from tadamoo import intake as it
+from tadamoo import questions as qs
+from tadamoo.session import Session, SessionStore
+from tadamoo.stack import AgentConfig, build_agent
 
 NBSP = chr(160)
 
@@ -288,7 +288,7 @@ class Sink:
 
 @pytest.fixture(autouse=True)
 def _no_clock(monkeypatch):
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
 
 
 def session_with(tmp_path, client, mode="full", unattended=False, permission_mode="default", clock=None):

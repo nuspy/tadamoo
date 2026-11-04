@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from harness.agent_loop import AgentLoop
-from harness.audit import AuditLedger
-from harness.checkpoints import CheckpointManager, call_paths, read_mode, resolve_mode, shell_paths, write_mode
-from harness.permissions import PermissionLevel, PermissionManager
-from harness.tools import create_standard_tool_registry
+from tadamoo.agent_loop import AgentLoop
+from tadamoo.audit import AuditLedger
+from tadamoo.checkpoints import CheckpointManager, call_paths, read_mode, resolve_mode, shell_paths, write_mode
+from tadamoo.permissions import PermissionLevel, PermissionManager
+from tadamoo.tools import create_standard_tool_registry
 from test_agent_loop import ScriptedClient, call, say
 
 
@@ -63,7 +63,7 @@ def test_an_entry_without_its_copy_is_refused_before_anything_is_touched(ws, tmp
 
 
 def test_two_managers_on_one_storage_never_take_the_same_id(ws, tmp_path, monkeypatch):
-    monkeypatch.setattr("harness.checkpoints.time.time", lambda: 1_700_000_000.0)       # the same millisecond for everyone
+    monkeypatch.setattr("tadamoo.checkpoints.time.time", lambda: 1_700_000_000.0)       # the same millisecond for everyone
     managers = [CheckpointManager(ws, storage_dir=tmp_path / "cps") for _ in range(3)]
     ids, errors = [], []
 
@@ -81,7 +81,7 @@ def test_two_managers_on_one_storage_never_take_the_same_id(ws, tmp_path, monkey
 
 def test_a_failed_checkpoint_leaves_nothing_behind(ws, tmp_path, monkeypatch):
     cpm = CheckpointManager(ws, storage_dir=tmp_path / "cps")
-    monkeypatch.setattr("harness.checkpoints.shutil.copy2", lambda *a, **k: (_ for _ in ()).throw(OSError("disk")))
+    monkeypatch.setattr("tadamoo.checkpoints.shutil.copy2", lambda *a, **k: (_ for _ in ()).throw(OSError("disk")))
     with pytest.raises(OSError):
         cpm.create(paths=[ws / "src" / "main.py"])
     assert list((tmp_path / "cps").iterdir()) == []
@@ -238,7 +238,7 @@ def test_a_restore_leaves_a_file_that_already_has_the_kept_content_alone(ws, tmp
         if Path(dst) == main:
             raise PermissionError("in use")
         return real(src, dst, *a, **k)
-    monkeypatch.setattr("harness.checkpoints.shutil.copy2", guarded)
+    monkeypatch.setattr("tadamoo.checkpoints.shutil.copy2", guarded)
     assert cpm.restore(cp) is True                                                       # nothing needed copying
 
 

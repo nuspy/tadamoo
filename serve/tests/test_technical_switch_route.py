@@ -7,7 +7,7 @@ import urllib.request
 from pathlib import Path
 from unittest import mock
 
-from harness import side_uses
+from tadamoo import side_uses
 from serve import handler, userdata
 from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate
@@ -26,7 +26,7 @@ class TechnicalSwitchRoute(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.patch = mock.patch.object(userdata, "path", lambda *parts: Path(cls.tmp.name).joinpath(*parts))
         cls.patch.start()
-        cls.env = mock.patch.dict("os.environ", {"BASALT_DATA": cls.tmp.name})
+        cls.env = mock.patch.dict("os.environ", {"TADAMOO_DATA": cls.tmp.name})
         cls.env.start()
         cls.httpd = serve(cls.svc, port=0)
         cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"

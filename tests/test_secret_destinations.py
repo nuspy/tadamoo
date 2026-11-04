@@ -9,11 +9,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from test_agent_loop import ScriptedClient, call, say
 
-from harness.agent_loop import AgentLoop
-from harness.permissions import PermissionLevel, PermissionManager
-from harness.secret_scan import scripts_run, uses_network
-from harness.secrets_broker import SecretsBroker
-from harness.tools import create_standard_tool_registry
+from tadamoo.agent_loop import AgentLoop
+from tadamoo.permissions import PermissionLevel, PermissionManager
+from tadamoo.secret_scan import scripts_run, uses_network
+from tadamoo.secrets_broker import SecretsBroker
+from tadamoo.tools import create_standard_tool_registry
 
 TOKEN = "ghp_realtokenvalue1234"
 

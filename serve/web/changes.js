@@ -240,7 +240,7 @@
     }
   }
 
-  document.addEventListener("basalt:view", schedule);
+  document.addEventListener("tadamoo:view", schedule);
   document.addEventListener("visibilitychange", schedule);
   document.addEventListener("DOMContentLoaded", schedule);
 })();

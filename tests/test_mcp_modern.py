@@ -10,9 +10,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from fake_mcp_http import FakeMcpHttp
 from fake_mcp_modern_http import FakeMcpModernHttp
-from harness.mcp_client import (MCPClient, MCPError, MCPHttpClient, MCPHub, annotated_values, header_annotations, header_value,
+from tadamoo.mcp_client import (MCPClient, MCPError, MCPHttpClient, MCPHub, annotated_values, header_annotations, header_value,
                                 is_modern_error)
-from harness.tools.registry import ToolRegistry
+from tadamoo.tools.registry import ToolRegistry
 
 MODERN = str(Path(__file__).resolve().parent / "fake_mcp_modern.py")
 LEGACY = str(Path(__file__).resolve().parent / "fake_mcp_server.py")
@@ -52,7 +52,7 @@ def test_a_stateless_server_is_detected_and_no_handshake_is_sent(modern):
 
 def test_every_request_carries_its_version_identity_and_capabilities(modern):
     meta = json.loads(modern.call_tool("meta", {}))
-    assert meta == {"io.modelcontextprotocol/clientCapabilities": {}, "io.modelcontextprotocol/clientInfo": {"name": "BasaltHarness", "version": "1.0"},
+    assert meta == {"io.modelcontextprotocol/clientCapabilities": {}, "io.modelcontextprotocol/clientInfo": {"name": "TaDaMoo", "version": "1.0"},
                     "io.modelcontextprotocol/protocolVersion": "2026-07-28"}
     assert [t["name"] for t in modern.list_tools()] == ["echo", "meta", "fail"]          # both pages
     assert modern.call_tool("echo", {"text": "hi"}) == "echo: hi"

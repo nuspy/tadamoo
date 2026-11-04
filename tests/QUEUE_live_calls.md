@@ -6,8 +6,8 @@ Vanno eseguiti solo dopo l'autorizzazione esplicita dell'utente, di giorno, con 
 ## Come si eseguono (solo dopo il via)
 
 ```powershell
-$env:BASALT_LIVE_CALLS = "1"                 # senza questa variabile i test restano saltati
-$env:BASALT_LIVE_CALL_NUMBER = "+39..."      # numero di prova scelto dall'utente
+$env:TADAMOO_LIVE_CALLS = "1"                 # senza questa variabile i test restano saltati
+$env:TADAMOO_LIVE_CALL_NUMBER = "+39..."      # numero di prova scelto dall'utente
 $env:CALLAPICALL_TOKEN = "<control_auth_token di callAPIcall>"
 python -m pytest tests/test_live_calls.py -v -p no:cacheprovider
 ```

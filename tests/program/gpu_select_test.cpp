@@ -135,7 +135,7 @@ int main() {
         const std::vector<GpuCard> w = {card(0, "RTX 5070 Ti Laptop GPU", 12, 0, 896, 12), card(1, "RTX 5080", 12, 0, 896, 16)};
         CHECK_STR(cards(pick("auto", w)), "1,0");
     }
-    // A first card Basalt cannot run: unset is an error that points at gpu N and auto.
+    // A first card Basalt-Plus cannot run: unset is an error that points at gpu N and auto.
     {
         const std::vector<GpuCard> v = {card(0, "RTX 4090", 8, 9, 1008, 24), card(1, "RTX 5090", 12, 0, 1792, 32)};
         CHECK(!pick("", v).error.empty());

@@ -5,7 +5,7 @@ import tempfile
 import threading
 from unittest import mock
 
-from harness import side_uses
+from tadamoo import side_uses
 from serve.tests import test_api_plans as base
 
 
@@ -13,7 +13,7 @@ class SideUsesApiTest(base.PlansApiBase):
     @classmethod
     def setUpClass(cls):
         cls.data = tempfile.TemporaryDirectory()
-        cls.env = mock.patch.dict(os.environ, {"BASALT_DATA": cls.data.name})
+        cls.env = mock.patch.dict(os.environ, {"TADAMOO_DATA": cls.data.name})
         cls.env.start()
         super().setUpClass()
 

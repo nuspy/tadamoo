@@ -1,7 +1,7 @@
 """The comparison of two conversations taking turns, against a model that keeps a single prompt cache."""
 import time
 
-from harness.eval import alternate as alt
+from tadamoo.eval import alternate as alt
 
 
 class OneCache:

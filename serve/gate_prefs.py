@@ -1,13 +1,13 @@
 """What the person chose about how a turn is checked before it ends: the project's own check commands and when they run (the verify gate),
 whether a budget that runs out warns first and allows a last report, and the proposal about model errors that waiting cannot cure. Kept in
-one small file; the conversations are started with the matching options (harness/stack.py)."""
+one small file; the conversations are started with the matching options (tadamoo/stack.py)."""
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from typing import Any, Dict, List
 
-from harness.gate import COMMAND_CHARS, DEFAULT_ROUNDS, MAX_COMMANDS, MAX_ROUNDS, MODES, clean_commands
+from tadamoo.gate import COMMAND_CHARS, DEFAULT_ROUNDS, MAX_COMMANDS, MAX_ROUNDS, MODES, clean_commands
 
 
 CHAT_NOTES = ("review", "completion_check", "course", "todo_open")       # the notes of the harness the chat can show; each is off until the person turns it on

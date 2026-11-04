@@ -1,4 +1,4 @@
-"""Resuming an interrupted run (harness/eval/resume.py): the same fingerprint reuses finished valid trials, another refuses, invalid trials are redone. CPU only, no model."""
+"""Resuming an interrupted run (tadamoo/eval/resume.py): the same fingerprint reuses finished valid trials, another refuses, invalid trials are redone. CPU only, no model."""
 import json
 import sys
 from pathlib import Path
@@ -7,10 +7,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.eval import EvalRunner, Task, resume
-from harness.eval.cases.core import Arm, CaseTrial, Context, Experiment, Rule, run_experiment, run_fingerprint
-from harness.eval.resume import FILE, Journal, ResumeMismatch, differences, git_state as real_git_state, make_fingerprint
-from harness.eval.runner import Trial, trial_is_valid
+from tadamoo.eval import EvalRunner, Task, resume
+from tadamoo.eval.cases.core import Arm, CaseTrial, Context, Experiment, Rule, run_experiment, run_fingerprint
+from tadamoo.eval.resume import FILE, Journal, ResumeMismatch, differences, git_state as real_git_state, make_fingerprint
+from tadamoo.eval.runner import Trial, trial_is_valid
 from test_agent_loop import ScriptedClient, say
 
 

@@ -1,4 +1,4 @@
-"""The ClawBench adapter (harness/bench/adapters/clawbench.py) against a fake ClawBench checkout and a fake `clawbench-run`: planning, adding our harness to the
+"""The ClawBench adapter (tadamoo/bench/adapters/clawbench.py) against a fake ClawBench checkout and a fake `clawbench-run`: planning, adding our harness to the
 imported tree, the command, reading the results and the score. No Docker, no model."""
 import json
 import re
@@ -9,11 +9,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.bench import analysis
-from harness.bench.adapters import clawbench as cb
-from harness.bench.importer import Result
-from harness.bench.runner import BenchRun, TrialContext, TrialResult, read_trials
-from harness.eval import resume
+from tadamoo.bench import analysis
+from tadamoo.bench.adapters import clawbench as cb
+from tadamoo.bench.importer import Result
+from tadamoo.bench.runner import BenchRun, TrialContext, TrialResult, read_trials
+from tadamoo.eval import resume
 from bench_support import MODEL, make_spec
 
 YAML = """default: openclaw
@@ -71,9 +71,9 @@ def checkout(tmp_path):
 @pytest.fixture
 def repo(tmp_path):
     root = tmp_path / "repo"
-    (root / "harness" / "__pycache__").mkdir(parents=True)
-    (root / "harness" / "__pycache__" / "x.pyc").write_bytes(b"x")
-    (root / "harness" / "headless.py").write_text("print('h')\n")
+    (root / "tadamoo" / "__pycache__").mkdir(parents=True)
+    (root / "tadamoo" / "__pycache__" / "x.pyc").write_bytes(b"x")
+    (root / "tadamoo" / "headless.py").write_text("print('h')\n")
     (root / "serve" / "web").mkdir(parents=True)
     (root / "serve" / "web" / "index.html").write_text("<html>")
     (root / "serve" / "tests").mkdir()
@@ -131,12 +131,12 @@ def make(checkout, repo, runner, **kw):
 
 def test_the_subsets_pick_their_cases_and_smoke_runs_the_two_baselines_on_two_lite_cases(checkout, repo):
     a = make(checkout, repo, FakeClawBench())
-    assert a.plan({"subset": "lite", "trials": 2}, checkout)[:2] == [("basalt", CASES[0], 1), ("basalt", CASES[0], 2)]
+    assert a.plan({"subset": "lite", "trials": 2}, checkout)[:2] == [("tadamoo", CASES[0], 1), ("tadamoo", CASES[0], 2)]
     assert len(a.plan({"subset": "v2"}, checkout)) == 3
     smoke = a.plan({"subset": "smoke"}, checkout)
     assert smoke == [(h, c, 1) for h in ("null", "random-click") for c in CASES[:2]]
-    assert a.plan({"subset": "lite", "limit": 1}, checkout) == [("basalt", CASES[0], 1)]
-    assert a.plan({"subset": "lite", "tasks": [CASES[2]]}, checkout) == [("basalt", CASES[2], 1)]
+    assert a.plan({"subset": "lite", "limit": 1}, checkout) == [("tadamoo", CASES[0], 1)]
+    assert a.plan({"subset": "lite", "tasks": [CASES[2]]}, checkout) == [("tadamoo", CASES[2], 1)]
     with pytest.raises(ValueError, match="no such ClawBench case"):
         a.plan({"subset": "lite", "tasks": ["nope"]}, checkout)
     with pytest.raises(ValueError, match="unknown subset"):
@@ -152,27 +152,27 @@ def test_the_subsets_pick_their_cases_and_smoke_runs_the_two_baselines_on_two_li
 def test_our_harness_is_added_once_with_its_payload_and_lf_scripts(checkout, repo):
     src = checkout / "source"
     dest = cb.install_harness(src, repo)
-    assert dest == src / cb.HARNESS_DIR / "basalt"
-    for name in ("Dockerfile.basalt", "setup-basalt.sh", "run-basalt.sh", "usage-emitter.py", "basalt_driver.py"):
+    assert dest == src / cb.HARNESS_DIR / "tadamoo"
+    for name in ("Dockerfile.tadamoo", "setup-tadamoo.sh", "run-tadamoo.sh", "usage-emitter.py", "tadamoo_driver.py"):
         assert b"\r" not in (dest / name).read_bytes(), name
-    assert (dest / "payload" / "harness" / "headless.py").is_file() and (dest / "payload" / "serve" / "longform.py").is_file()
-    assert not (dest / "payload" / "harness" / "__pycache__").exists()
+    assert (dest / "payload" / "tadamoo" / "headless.py").is_file() and (dest / "payload" / "serve" / "longform.py").is_file()
+    assert not (dest / "payload" / "tadamoo" / "__pycache__").exists()
     assert not (dest / "payload" / "serve" / "web").exists() and not (dest / "payload" / "serve" / "tests").exists()
     cb.install_harness(src, repo)                                   # again: the entry is not doubled
     text = (src / cb.HARNESS_DIR / "harnesses.yaml").read_text()
-    assert text.count("name: basalt") == 1 and text.count(cb.BEGIN) == 1 and "\r" not in text
+    assert text.count("name: tadamoo") == 1 and text.count(cb.BEGIN) == 1 and "\r" not in text
     yaml = pytest.importorskip("yaml")
     entries = {h["name"]: h for h in yaml.safe_load(text)["harnesses"]}
-    assert set(entries) == {"openclaw", "null", "basalt"}
-    e = entries["basalt"]
+    assert set(entries) == {"openclaw", "null", "tadamoo"}
+    e = entries["tadamoo"]
     for rel in (e["dockerfile"], e["setup_script"], e["run_script"], e["usage_emitter"], *e["extra_files"]):
         assert (src / cb.HARNESS_DIR / rel).is_file(), rel
 
 
 def test_every_file_the_dockerfile_copies_is_in_the_folder_the_adapter_builds(checkout, repo):
     dest = cb.install_harness(checkout / "source", repo)
-    copied = re.findall(r"^COPY harnesses/basalt/(\S+)", (dest / "Dockerfile.basalt").read_text(), re.M)
-    assert {"payload", "setup-basalt.sh", "run-basalt.sh", "basalt_driver.py", "usage-emitter.py"} <= set(copied)
+    copied = re.findall(r"^COPY harnesses/tadamoo/(\S+)", (dest / "Dockerfile.tadamoo").read_text(), re.M)
+    assert {"payload", "setup-tadamoo.sh", "run-tadamoo.sh", "tadamoo_driver.py", "usage-emitter.py"} <= set(copied)
     for rel in copied:
         assert (dest / rel).exists(), rel
 
@@ -190,7 +190,7 @@ def test_the_payload_imports_on_its_own(checkout, repo, tmp_path):
     import shutil
     for name in cb.PAYLOAD:
         shutil.copytree(real / name, dest / name, ignore=cb._ignore)
-    code = "import harness.headless, harness.bench.adapters.containerkit, harness.bench.adapters; print('ok')"
+    code = "import tadamoo.headless, tadamoo.bench.adapters.containerkit, tadamoo.bench.adapters; print('ok')"
     out = subprocess.run([sys.executable, "-I", "-c", f"import sys; sys.path.insert(0, {str(dest)!r}); {code}"], capture_output=True, text=True, cwd=str(tmp_path))
     assert out.returncode == 0 and "ok" in out.stdout, out.stderr[-800:]
 
@@ -207,15 +207,15 @@ def test_models_yaml_names_the_container_and_the_host_side_and_needs_an_address(
 # -- running a trial ------------------------------------------------------------------------------------------------
 
 def test_the_command_runs_clawbench_on_the_case_with_the_local_model_and_no_cloud_keys(checkout, repo, tmp_path):
-    fake = FakeClawBench({"basalt": {"intercepted": True, "judge": {"match": True, "reason": "right item"}}})
+    fake = FakeClawBench({"tadamoo": {"intercepted": True, "judge": {"match": True, "reason": "right item"}}})
     a = make(checkout, repo, fake)
     ctx = ctx_for(checkout, tmp_path / "run", "t", {"subset": "lite", "judge": "local"})
-    res = a.run_trial(("basalt", CASES[0], 1), ctx)
+    res = a.run_trial(("tadamoo", CASES[0], 1), ctx)
     args = fake.calls[0]["args"]
     assert args[:3] == ["/bin/uv", "run", "--project"] and "clawbench-run" in args
     assert args[args.index("clawbench-run") + 1].endswith(f"test-cases/v1-lite/{CASES[0]}".replace("/", args[args.index("clawbench-run") + 1][-len(CASES[0]) - 1]))
     assert args[args.index("clawbench-run") + 2] == "Qwen3.8-Flash-Next"
-    assert args[args.index("--harness") + 1] == "basalt" and "--no-upload" in args and "--no-build" not in args
+    assert args[args.index("--harness") + 1] == "tadamoo" and "--no-upload" in args and "--no-build" not in args
     assert args[args.index("--judge") + 1] == "Qwen3.8-Flash-Next-judge" and "--no-judge" not in args
     env = fake.calls[0]["env"]
     assert "OPENAI_API_KEY" not in env and "HF_TOKEN" not in env and env["KEEP"] == "1" and env["CLAWBENCH_WORKSPACE"].endswith("workspace")
@@ -224,20 +224,20 @@ def test_the_command_runs_clawbench_on_the_case_with_the_local_model_and_no_clou
     assert models["Qwen3.8-Flash-Next"]["base_url"].startswith("http://host.docker.internal:7232")
     assert res.passed is True and res.score == 1.0 and res.tokens == 1500 and res.seconds == 61
     # the second case reuses the image
-    a.run_trial(("basalt", CASES[1], 1), ctx_for(checkout, tmp_path / "run", "t2", {"subset": "lite", "judge": "local"}))
+    a.run_trial(("tadamoo", CASES[1], 1), ctx_for(checkout, tmp_path / "run", "t2", {"subset": "lite", "judge": "local"}))
     assert "--no-build" in fake.calls[1]["args"]
 
 
 def test_the_judge_free_mode_passes_on_interception_alone(checkout, repo, tmp_path):
-    fake = FakeClawBench({"basalt": {"intercepted": True}})
-    res = make(checkout, repo, fake).run_trial(("basalt", CASES[0], 1), ctx_for(checkout, tmp_path / "run", "t", {"subset": "lite", "judge": "none"}))
+    fake = FakeClawBench({"tadamoo": {"intercepted": True}})
+    res = make(checkout, repo, fake).run_trial(("tadamoo", CASES[0], 1), ctx_for(checkout, tmp_path / "run", "t", {"subset": "lite", "judge": "none"}))
     assert "--no-judge" in fake.calls[0]["args"] and "--judge" not in fake.calls[0]["args"]
     assert res.passed is True and res.facts["judge"] == "none"
 
 
 def test_a_judge_that_disagrees_fails_the_trial_and_says_so(checkout, repo, tmp_path):
-    fake = FakeClawBench({"basalt": {"intercepted": True, "judge": {"match": False, "reason": "wrong item"}}})
-    res = make(checkout, repo, fake).run_trial(("basalt", CASES[0], 1), ctx_for(checkout, tmp_path / "run", "t", {"subset": "lite"}))
+    fake = FakeClawBench({"tadamoo": {"intercepted": True, "judge": {"match": False, "reason": "wrong item"}}})
+    res = make(checkout, repo, fake).run_trial(("tadamoo", CASES[0], 1), ctx_for(checkout, tmp_path / "run", "t", {"subset": "lite"}))
     assert res.passed is False and res.facts["judge_disagrees"] is True and res.facts["judge_match"] is False
     assert "wrong item" in (tmp_path / "run" / res.verifier_output_path).read_text()
     kind = analysis.classify(res, analysis._read_events(tmp_path / "run" / res.trajectory_path), (tmp_path / "run" / res.verifier_output_path).read_text())
@@ -245,14 +245,14 @@ def test_a_judge_that_disagrees_fails_the_trial_and_says_so(checkout, repo, tmp_
 
 
 def test_a_judge_that_gave_no_verdict_leaves_the_trial_unjudged(checkout, repo, tmp_path):
-    fake = FakeClawBench({"basalt": {"intercepted": True, "judge": {"match": None, "reason": "judge_setup_failed: connection refused"}}})
-    res = make(checkout, repo, fake).run_trial(("basalt", CASES[0], 1), ctx_for(checkout, tmp_path / "run", "t", {"subset": "lite"}))
+    fake = FakeClawBench({"tadamoo": {"intercepted": True, "judge": {"match": None, "reason": "judge_setup_failed: connection refused"}}})
+    res = make(checkout, repo, fake).run_trial(("tadamoo", CASES[0], 1), ctx_for(checkout, tmp_path / "run", "t", {"subset": "lite"}))
     assert res.passed is None and not res.valid and "no verdict" in res.error and res.facts["class"] == "environment_problem"
 
 
 def test_a_case_that_was_not_intercepted_fails_with_its_stop_reason_as_a_timeout(checkout, repo, tmp_path):
-    fake = FakeClawBench({"basalt": {"intercepted": False, "stop_reason": "time_limit_exceeded", "category": "model_not_intercepted"}})
-    res = make(checkout, repo, fake).run_trial(("basalt", CASES[0], 1), ctx_for(checkout, tmp_path / "run", "t", {"subset": "lite"}))
+    fake = FakeClawBench({"tadamoo": {"intercepted": False, "stop_reason": "time_limit_exceeded", "category": "model_not_intercepted"}})
+    res = make(checkout, repo, fake).run_trial(("tadamoo", CASES[0], 1), ctx_for(checkout, tmp_path / "run", "t", {"subset": "lite"}))
     assert res.passed is False and "time_limit_exceeded" in res.error
     events = analysis._read_events(tmp_path / "run" / res.trajectory_path)
     assert events[-1] == {"type": "stop", "reason": "timeout"} and events[0]["type"] == "tool_call"
@@ -261,14 +261,14 @@ def test_a_case_that_was_not_intercepted_fails_with_its_stop_reason_as_a_timeout
 
 def test_an_infrastructure_failure_is_not_the_agents_failure(checkout, repo, tmp_path):
     for scenario in ({"category": "infra_failure", "reason": "infra_failure: container build exited 1"}, {"category": "api_or_credit", "reason": "model_api_preflight: down"},
-                     {"stop_reason": "chrome_cdp_timeout"}, {"stop_reason": "basalt_failed"}):
-        fake = FakeClawBench({"basalt": scenario})
-        res = make(checkout, repo, fake).run_trial(("basalt", CASES[0], 1), ctx_for(checkout, tmp_path / "run", "t", {"subset": "lite"}))
+                     {"stop_reason": "chrome_cdp_timeout"}, {"stop_reason": "tadamoo_failed"}):
+        fake = FakeClawBench({"tadamoo": scenario})
+        res = make(checkout, repo, fake).run_trial(("tadamoo", CASES[0], 1), ctx_for(checkout, tmp_path / "run", "t", {"subset": "lite"}))
         assert res.passed is None and res.facts["class"] == "environment_problem", scenario
 
 
 def test_a_crash_with_no_output_is_unjudged_and_says_what_it_saw(checkout, repo, tmp_path):
-    res = make(checkout, repo, FakeClawBench({"basalt": {"crash": True}})).run_trial(("basalt", CASES[0], 1), ctx_for(checkout, tmp_path / "run", "t", {"subset": "lite"}))
+    res = make(checkout, repo, FakeClawBench({"tadamoo": {"crash": True}})).run_trial(("tadamoo", CASES[0], 1), ctx_for(checkout, tmp_path / "run", "t", {"subset": "lite"}))
     assert res.passed is None and "no run-meta.json" in res.error and "exit code 2" in res.error and "boom" in res.error
 
 
@@ -283,9 +283,9 @@ def test_a_stopped_trial_removes_the_container_left_behind(checkout, repo, tmp_p
             return Result(0, "0123456789ab\nabcdef012345\n", "")
         return Result(0, "", "")
 
-    res = make(checkout, repo, runner).run_trial(("basalt", CASES[0], 1), ctx_for(checkout, tmp_path / "run", "t", {"subset": "lite"}, stop=lambda: True))
+    res = make(checkout, repo, runner).run_trial(("tadamoo", CASES[0], 1), ctx_for(checkout, tmp_path / "run", "t", {"subset": "lite"}, stop=lambda: True))
     assert res.passed is None and "stopped" in res.error
-    assert calls[1][:3] == ["docker", "ps", "-aq"] and calls[1][-1] == f"name=clawbench-basalt-{CASES[0]}-"
+    assert calls[1][:3] == ["docker", "ps", "-aq"] and calls[1][-1] == f"name=clawbench-tadamoo-{CASES[0]}-"
     assert calls[2] == ["docker", "rm", "-f", "0123456789ab", "abcdef012345"]
 
 
@@ -294,7 +294,7 @@ def test_an_earlier_attempt_is_not_read_as_this_one(checkout, repo, tmp_path):
     stale = ctx.trial_dir / "out" / "m" / "old"
     stale.mkdir(parents=True)
     (stale / "run-meta.json").write_text(json.dumps({"intercepted": True}))
-    res = make(checkout, repo, FakeClawBench({"basalt": {"crash": True}})).run_trial(("basalt", CASES[0], 1), ctx)
+    res = make(checkout, repo, FakeClawBench({"tadamoo": {"crash": True}})).run_trial(("tadamoo", CASES[0], 1), ctx)
     assert res.passed is None
 
 
@@ -333,19 +333,19 @@ def test_the_score_reports_both_rates_and_labels_the_judge(checkout, repo):
     a = make(checkout, repo, FakeClawBench())
 
     def res(passed, intercepted, judge="local"):
-        return TrialResult(passed=passed, facts={"intercepted": intercepted, "judge": judge, "harness": "basalt"})
+        return TrialResult(passed=passed, facts={"intercepted": intercepted, "judge": judge, "harness": "tadamoo"})
 
-    got = a.score({("basalt", "a", 1): res(True, True), ("basalt", "b", 1): res(False, True), ("basalt", "c", 1): res(False, False), ("basalt", "d", 1): TrialResult(error="x")})
+    got = a.score({("tadamoo", "a", 1): res(True, True), ("tadamoo", "b", 1): res(False, True), ("tadamoo", "c", 1): res(False, False), ("tadamoo", "d", 1): TrialResult(error="x")})
     assert got["reward_rate"] == pytest.approx(1 / 3) and got["intercepted_rate"] == pytest.approx(2 / 3) and got["of"] == 3 and got["invalid"] == 1
     assert "provisional" in " ".join(got["notes"]) and got["reward_basis"].startswith("interception and the local model")
-    free = a.score({("basalt", "a", 1): res(True, True, "none")})
+    free = a.score({("tadamoo", "a", 1): res(True, True, "none")})
     assert free["reward_basis"].startswith("interception only") and free["reward_rate"] == 1.0
 
 
 def test_a_whole_run_through_the_runner_and_the_failure_report(checkout, repo, tmp_path):
-    fake = FakeClawBench({("basalt", CASES[0]): {"intercepted": True, "judge": {"match": True, "reason": "ok"}},
-                          ("basalt", CASES[1]): {"intercepted": False, "stop_reason": "time_limit_exceeded"},
-                          ("basalt", CASES[2]): {"intercepted": True, "judge": {"match": False, "reason": "wrong quantity"}}})
+    fake = FakeClawBench({("tadamoo", CASES[0]): {"intercepted": True, "judge": {"match": True, "reason": "ok"}},
+                          ("tadamoo", CASES[1]): {"intercepted": False, "stop_reason": "time_limit_exceeded"},
+                          ("tadamoo", CASES[2]): {"intercepted": True, "judge": {"match": False, "reason": "wrong quantity"}}})
     a = make(checkout, repo, fake)
     spec = make_spec("clawbench", id="clawbench", primary_metric="reward_rate", official_cloud_judge=True)
     run = BenchRun(tmp_path / "base", spec, {"subset": "lite", "judge": "local"}, adapter=a, model=MODEL, power_limit_w=400.0, root=tmp_path)
@@ -362,10 +362,10 @@ def test_a_whole_run_through_the_runner_and_the_failure_report(checkout, repo, t
 
 def load_driver(monkeypatch, tmp_path):
     import importlib.util
-    monkeypatch.setenv("BASALT_HOME", str(cb.REPO_ROOT))
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))
-    monkeypatch.setenv("BASALT_WORKSPACE", str(tmp_path / "work"))
-    spec = importlib.util.spec_from_file_location("basalt_driver_under_test", cb.ASSETS / "basalt" / "basalt_driver.py")
+    monkeypatch.setenv("TADAMOO_HOME", str(cb.REPO_ROOT))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TADAMOO_WORKSPACE", str(tmp_path / "work"))
+    spec = importlib.util.spec_from_file_location("tadamoo_driver_under_test", cb.ASSETS / "tadamoo" / "tadamoo_driver.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -377,8 +377,8 @@ def test_the_driver_points_the_harness_at_the_container_browser_and_refuses_the_
     assert argv[argv.index("--endpoint") + 1] == "http://host.docker.internal:7232" and argv[argv.index("--browser-cdp-url") + 1] == "http://127.0.0.1:9222"
     assert "--browser" in argv and argv[argv.index("--timeout-seconds") + 1] == "1755"
     assert [argv[i + 1] for i, a in enumerate(argv) if a == "--deny"] == ["group:shell", "group:web", "group:agents", "group:mcp", "group:phone"]
-    from harness.headless import parse_args
-    from harness.stack import agent_settings
+    from tadamoo.headless import parse_args
+    from tadamoo.stack import agent_settings
     got = agent_settings(parse_args(argv))
     assert got["browser"] is True and got["browser_cdp_url"] == "http://127.0.0.1:9222" and got["permission_mode"] == "auto" and got["rule_of_two"] == "off"
     assert got["deny"] == list(d.DENIED) and got["use_memory"] is False
@@ -386,7 +386,7 @@ def test_the_driver_points_the_harness_at_the_container_browser_and_refuses_the_
 
 def test_the_driver_writes_the_trajectory_the_usage_and_ends_with_a_reason(monkeypatch, tmp_path):
     d = load_driver(monkeypatch, tmp_path)
-    import harness.headless as headless
+    import tadamoo.headless as headless
 
     def fake_run(cfg, prompt, client=None, on_event=None):
         assert cfg.browser_cdp_url == "http://127.0.0.1:9222" and "WEBMAIL" not in prompt and "COMPLETION NOTE" in prompt
@@ -407,17 +407,17 @@ def test_the_driver_writes_the_trajectory_the_usage_and_ends_with_a_reason(monke
     assert events[2]["decision"] == "refused" and events[-1] == {"type": "stop", "reason": "final"}
     usage = json.loads((tmp_path / "data" / "usage.jsonl").read_text())
     assert usage["input_tokens"] == 900 and usage["output_tokens"] == 100 and usage["model"] == "m"
-    assert json.loads((tmp_path / "data" / "basalt-result.json").read_text())["turns_count"] == 3
+    assert json.loads((tmp_path / "data" / "tadamoo-result.json").read_text())["turns_count"] == 3
 
 
 def test_the_driver_ends_the_trajectory_when_the_harness_fails_or_is_stopped(monkeypatch, tmp_path):
     d = load_driver(monkeypatch, tmp_path)
-    import harness.headless as headless
+    import tadamoo.headless as headless
     monkeypatch.setenv("INSTRUCTION", "x")
     monkeypatch.setenv("BASE_URL", "http://h:1/v1")
 
     def boom(cfg, prompt, client=None, on_event=None):
-        raise RuntimeError("cannot reach the Basalt server")
+        raise RuntimeError("cannot reach the TaDaMoo server")
 
     monkeypatch.setattr(headless, "run_headless", boom)
     assert d.main() == 1
@@ -446,25 +446,25 @@ def test_the_webmail_login_is_written_out_for_the_agent(monkeypatch, tmp_path):
 
 
 def test_the_adapter_is_found_by_the_lazy_loader_and_has_the_runners_protocol():
-    from harness.bench import runner
-    from harness.bench.adapters import load
+    from tadamoo.bench import runner
+    from tadamoo.bench.adapters import load
     adapter = runner.get_adapter(cb.ID, {}, lazy=True)
     assert load(cb.ID) is cb.ClawBenchAdapter and isinstance(adapter, cb.ClawBenchAdapter) and adapter.id == "clawbench"
     assert all(callable(getattr(adapter, n)) for n in ("plan", "run_trial", "score", "failure_facts"))
 
 
 def test_the_workspace_gets_the_benchmarks_mail_settings_and_a_checkout_without_them_is_unjudged(checkout, repo, tmp_path):
-    fake = FakeClawBench({"basalt": {"intercepted": True, "judge": {"match": True}}})
-    make(checkout, repo, fake).run_trial(("basalt", CASES[0], 1), ctx_for(checkout, tmp_path / "run", "t", {"subset": "lite"}))
+    fake = FakeClawBench({"tadamoo": {"intercepted": True, "judge": {"match": True}}})
+    make(checkout, repo, fake).run_trial(("tadamoo", CASES[0], 1), ctx_for(checkout, tmp_path / "run", "t", {"subset": "lite"}))
     assert (checkout / "workspace" / ".env").read_text() == (checkout / "source" / ".env").read_text()
     (checkout / "source" / ".env").unlink()
-    res = make(checkout, repo, FakeClawBench()).run_trial(("basalt", CASES[0], 1), ctx_for(checkout, tmp_path / "run", "u", {"subset": "lite"}))
+    res = make(checkout, repo, FakeClawBench()).run_trial(("tadamoo", CASES[0], 1), ctx_for(checkout, tmp_path / "run", "u", {"subset": "lite"}))
     assert res.passed is None and "disposable e-mail" in res.error
 
 
 def test_podman_reaches_the_host_by_its_own_name(checkout, repo, tmp_path):
     a = cb.ClawBenchAdapter(runner=FakeClawBench(), which=lambda n: "/bin/" + n, environ={"CONTAINER_ENGINE": "podman"}, repo_root=repo)
-    a.run_trial(("basalt", CASES[0], 1), ctx_for(checkout, tmp_path / "run", "p", {"subset": "lite"}))
+    a.run_trial(("tadamoo", CASES[0], 1), ctx_for(checkout, tmp_path / "run", "p", {"subset": "lite"}))
     models = json.loads((checkout / "workspace" / "models" / "models.yaml").read_text())
     assert models["Qwen3.8-Flash-Next"]["base_url"] == "http://host.containers.internal:7232/v1"
 

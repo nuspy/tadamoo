@@ -6,12 +6,12 @@ import sys
 
 import pytest
 
-from harness import gate as gate_module
-from harness import target as tg
-from harness.agent_loop import FINAL, VERIFY_FAILED, AgentLoop
-from harness.gate import CommandResult, VerifyGate, clean_commands, read_result, trim_output
-from harness.permissions import PermissionLevel, PermissionManager
-from harness.tools import create_standard_tool_registry
+from tadamoo import gate as gate_module
+from tadamoo import target as tg
+from tadamoo.agent_loop import FINAL, VERIFY_FAILED, AgentLoop
+from tadamoo.gate import CommandResult, VerifyGate, clean_commands, read_result, trim_output
+from tadamoo.permissions import PermissionLevel, PermissionManager
+from tadamoo.tools import create_standard_tool_registry
 
 
 class Scripted:

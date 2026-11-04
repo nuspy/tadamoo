@@ -17,7 +17,7 @@ HTML = (WEB / "index.html").read_text(encoding="utf-8")
 TARGET_JS = (WEB / "target.js").read_text(encoding="utf-8")
 LIST_JS = (WEB / "listtools.js").read_text(encoding="utf-8")
 CSS = (WEB / "target.css").read_text(encoding="utf-8")
-HARNESS = (ROOT / "harness" / "target.py").read_text(encoding="utf-8")
+HARNESS = (ROOT / "tadamoo" / "target.py").read_text(encoding="utf-8")
 
 
 @unittest.skipUnless(NODE, "node is needed to run the list tools")
@@ -76,8 +76,8 @@ class PageWiringTest(unittest.TestCase):
     def test_the_chat_shows_the_loops_notes_and_tells_the_dialog(self):
         chat = (WEB / "agentchat.js").read_text(encoding="utf-8")
         self.assertIn('case "target":', chat)
-        self.assertIn('new CustomEvent("basalt:target"', chat)
-        self.assertIn('"basalt:target"', TARGET_JS)
+        self.assertIn('new CustomEvent("tadamoo:target"', chat)
+        self.assertIn('"tadamoo:target"', TARGET_JS)
 
     def test_the_dialog_talks_to_the_conversations_target_routes_with_the_api_key(self):
         self.assertIn("api/agent/sessions/${sid}/targets", TARGET_JS)
@@ -124,7 +124,7 @@ class TextsTest(unittest.TestCase):
     def test_every_state_phase_flag_reason_and_note_the_server_can_send_has_a_text(self):
         import sys
         sys.path.insert(0, str(ROOT))
-        from harness import target as tg
+        from tadamoo import target as tg
         wanted = {f"tg.state.{x}" for x in tg.TARGET_STATES} | {f"tg.crit.{x}" for x in tg.CRITERION_STATES} | {f"tg.task.{x}" for x in tg.TASK_STATES}
         wanted |= {f"tg.stop.{x}" for x in tg.STOP_REASONS} | {f"tg.report.{x}" for x in tg.STOP_REASONS}
         wanted |= {f"tg.phase.{x}" for x in set(re.findall(r'phase="(\w+)"', HARNESS))}

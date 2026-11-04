@@ -1,4 +1,4 @@
-"""The Terminal-Bench adapter (harness/bench/adapters/terminal_bench.py) and its Harbor agent, with a fake Harbor: no Docker, no GPU, no model."""
+"""The Terminal-Bench adapter (tadamoo/bench/adapters/terminal_bench.py) and its Harbor agent, with a fake Harbor: no Docker, no GPU, no model."""
 import asyncio
 import json
 import shutil
@@ -13,10 +13,10 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from bench_support import MODEL, make_spec
-from harness.bench import analysis, registry
-from harness.bench.adapters import terminal_bench as tb
-from harness.bench.importer import Result
-from harness.bench.runner import BenchRun, TrialContext, TrialResult, get_adapter
+from tadamoo.bench import analysis, registry
+from tadamoo.bench.adapters import terminal_bench as tb
+from tadamoo.bench.importer import Result
+from tadamoo.bench.runner import BenchRun, TrialContext, TrialResult, get_adapter
 
 TASK_TOML = """schema_version = "1.1"
 [metadata]
@@ -153,7 +153,7 @@ def test_the_command_of_a_trial(tmp_path):
         a.plan({"subset": "dev", "guidance": ["tips"]}, tmp_path / "terminal-bench-2")
     smoke = tb.TerminalBenchAdapter(which=lambda n: "/bin/harbor").command(("fix-git", 1), ctx_for(tmp_path, {"subset": "smoke"}), source / "fix-git", MODEL["endpoint"])[0]
     assert smoke[smoke.index("-a") + 1] == "oracle" and "--ak" not in smoke
-    with pytest.raises(ValueError, match="'basalt' or 'oracle'"):
+    with pytest.raises(ValueError, match="'tadamoo' or 'oracle'"):
         tb.TerminalBenchAdapter()._agent({"agent": "gpt-5"})
 
 
@@ -197,7 +197,7 @@ def test_an_agent_timeout_is_graded_but_an_environment_failure_is_not(tmp_path):
     assert ctx_overflow.passed is False
     broken, _ = one(tmp_path / "c", reward=None, exception=("SandboxBuildFailedError", "docker build failed"))
     assert broken.passed is None and not broken.valid and broken.facts["class"] == "environment_problem"
-    crashed, _ = one(tmp_path / "d", reward=0.0, exception=("AgentUnavailableError", "cannot reach the Basalt server"))
+    crashed, _ = one(tmp_path / "d", reward=0.0, exception=("AgentUnavailableError", "cannot reach the TaDaMoo server"))
     assert crashed.passed is None                                  # a reward next to an exception that is not the agent's is not taken
     silent, _ = one(tmp_path / "e", reward=None)
     assert silent.passed is None and "no reward" in silent.error
@@ -326,7 +326,7 @@ def harbor_stub(monkeypatch):
     for name in list(sys.modules):
         if name.startswith("harbor"):
             monkeypatch.delitem(sys.modules, name)
-    monkeypatch.delitem(sys.modules, "harness.bench.adapters.terminal_bench_agent", raising=False)
+    monkeypatch.delitem(sys.modules, "tadamoo.bench.adapters.terminal_bench_agent", raising=False)
     pkgs = {n: types.ModuleType(n) for n in ("harbor", "harbor.agents", "harbor.agents.base", "harbor.environments", "harbor.environments.base", "harbor.models",
                                              "harbor.models.agent", "harbor.models.agent.context")}
 
@@ -346,7 +346,7 @@ def harbor_stub(monkeypatch):
     for n, m in pkgs.items():
         monkeypatch.setitem(sys.modules, n, m)
     import importlib
-    return importlib.import_module("harness.bench.adapters.terminal_bench_agent"), AgentContext
+    return importlib.import_module("tadamoo.bench.adapters.terminal_bench_agent"), AgentContext
 
 
 BASH = shutil.which("bash")
@@ -377,13 +377,13 @@ def agent_settings_file(tmp_path):
 
 @pytest.mark.skipif(BASH is None, reason="needs bash to stand in for the container")
 def test_the_harbor_agent_runs_our_agent_through_environment_exec(harbor_stub, tmp_path, monkeypatch):
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
     module, Context = harbor_stub
     from test_session import Scripted, call, say
     root = tmp_path / "container"
     root.mkdir()
     client = Scripted(call("write_file", path="answer.txt", content="42"), call("shell_command", command="cat answer.txt"), say("Finished."))
-    agent = module.BasaltAgent(logs_dir=tmp_path / "agent", settings_file=str(agent_settings_file(tmp_path)))
+    agent = module.TadamooAgent(logs_dir=tmp_path / "agent", settings_file=str(agent_settings_file(tmp_path)))
     agent.client_factory = lambda endpoint: client
     env, ctx = FakeEnvironment(root), Context()
     asyncio.run(agent.run("write 42 to answer.txt", env, ctx))
@@ -392,12 +392,12 @@ def test_the_harbor_agent_runs_our_agent_through_environment_exec(harbor_stub, t
     events = [json.loads(l) for l in (tmp_path / "agent" / "trajectory.jsonl").read_text().splitlines()]
     assert [e["type"] for e in events if e["type"] in ("tool_call", "stop")] == ["tool_call", "tool_call", "stop"]
     assert json.loads((tmp_path / "agent" / "harness-summary.json").read_text())["stop_reason"] == "final"
-    assert agent.name() == "basalt-harness" and agent.version() == (tb.REPO_ROOT / "VERSION").read_text().strip()
+    assert agent.name() == "tadamoo-harness" and agent.version() == (tb.REPO_ROOT / "VERSION").read_text().strip()
 
 
 @pytest.mark.skipif(BASH is None, reason="needs bash to stand in for the container")
 def test_when_harbor_cancels_the_agent_stops_and_late_commands_are_refused(harbor_stub, tmp_path, monkeypatch):
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
     module, Context = harbor_stub
     from test_session import Scripted, call, say
 
@@ -406,7 +406,7 @@ def test_when_harbor_cancels_the_agent_stops_and_late_commands_are_refused(harbo
         return call("shell_command", command="touch late.txt")
     root = tmp_path / "container"
     root.mkdir()
-    agent = module.BasaltAgent(logs_dir=tmp_path / "agent", settings_file=str(agent_settings_file(tmp_path)))
+    agent = module.TadamooAgent(logs_dir=tmp_path / "agent", settings_file=str(agent_settings_file(tmp_path)))
     agent.client_factory = lambda endpoint: Scripted(slow_then_call, say("never"))
 
     async def go():
@@ -421,13 +421,13 @@ def test_when_harbor_cancels_the_agent_stops_and_late_commands_are_refused(harbo
 
 @pytest.mark.skipif(BASH is None, reason="needs bash to stand in for the container")
 def test_a_dead_model_server_is_not_graded_as_the_agent_failing(harbor_stub, tmp_path, monkeypatch):
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
     module, Context = harbor_stub
     from test_session import Scripted
     root = tmp_path / "container"
     root.mkdir()
-    agent = module.BasaltAgent(logs_dir=tmp_path / "agent", settings_file=str(agent_settings_file(tmp_path)))
-    agent.client_factory = lambda endpoint: Scripted(RuntimeError("cannot reach the Basalt server at http://127.0.0.1:7232: refused"))
+    agent = module.TadamooAgent(logs_dir=tmp_path / "agent", settings_file=str(agent_settings_file(tmp_path)))
+    agent.client_factory = lambda endpoint: Scripted(RuntimeError("cannot reach the TaDaMoo server at http://127.0.0.1:7232: refused"))
     with pytest.raises(RuntimeError, match="AgentUnavailableError"):
         asyncio.run(agent.run("t", FakeEnvironment(root), Context()))
 
@@ -435,7 +435,7 @@ def test_a_dead_model_server_is_not_graded_as_the_agent_failing(harbor_stub, tmp
 def test_the_agent_options_are_checked(harbor_stub, tmp_path):
     module, _ = harbor_stub
     with pytest.raises(ValueError, match="no model address"):
-        module.BasaltAgent(logs_dir=tmp_path)
+        module.TadamooAgent(logs_dir=tmp_path)
 
 
 def test_a_harbor_that_does_not_start_is_started_again_once_and_then_reported_with_where_it_stood(tmp_path):

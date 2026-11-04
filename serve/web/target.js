@@ -1,13 +1,13 @@
 "use strict";
 /* Target Loop: the button next to Send (in the Chat and in the Agent tab, which share one page) and its dialog. The person describes a target in a
    large text box (with the list tools of listtools.js); the server splits it into items to check and tasks, works through them in this conversation,
-   reviews the result against the evidence and goes on with what is not met (serve/target_api.py, harness/target.py). The dialog shows the target
+   reviews the result against the evidence and goes on with what is not met (serve/target_api.py, tadamoo/target.py). The dialog shows the target
    with what is achieved struck through in red, the items with notes the person can edit, the tasks and sub-tasks, the passes, and every earlier
    target of the conversation, which can be opened, resumed or run again. Everything the server or the model wrote enters the page as text nodes. */
 (() => {
   const dlg = document.getElementById("target-dlg"), openBtn = document.getElementById("target-open");
   if (!dlg || !openBtn) return;
-  const DRAFT = "basalt.target.draft", OPTS = "basalt.target.options", FAST_MS = 1200, SLOW_MS = 4000, FORGET_MS = 4000;
+  const DRAFT = "tadamoo.target.draft", OPTS = "tadamoo.target.options", FAST_MS = 1200, SLOW_MS = 4000, FORGET_MS = 4000;
   const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick, tip) => { const b = mk("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; if (tip) b.title = tip; return b; };
   const load = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
@@ -81,7 +81,7 @@
     const running = targets.some(t => t.state === "running");
     timer = setTimeout(() => refresh(deferred), running ? FAST_MS : SLOW_MS);
   }
-  document.addEventListener("basalt:target", () => { if (dlg.open) refresh(false); });
+  document.addEventListener("tadamoo:target", () => { if (dlg.open) refresh(false); });
 
   /* ---- the history ---- */
   function paintHistory() {

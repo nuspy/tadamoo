@@ -9,9 +9,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from harness.tools import create_standard_tool_registry
-from harness.tools import search
-from harness.tools.search import ProviderUnavailable, clear_backends, duckduckgo_search
+from tadamoo.tools import create_standard_tool_registry
+from tadamoo.tools import search
+from tadamoo.tools.search import ProviderUnavailable, clear_backends, duckduckgo_search
 
 PAGE = """<html><body>
 <div class="result results_links results_links_deep web-result result--ad"><h2 class="result__title"><a rel="nofollow" class="result__a" href="//duckduckgo.com/y.js?ad_domain=shop.example">An advert</a></h2></div>
@@ -56,7 +56,7 @@ def test_the_results_are_the_titles_addresses_and_snippets_without_the_adverts(d
     assert hits[0]["title"] == "Kyiv news today" and hits[0]["snippet"] == "The latest from the front and the talks."
     assert hits[1]["title"] == "Second page"
     path, agent = Fake.seen[0]
-    assert path == "/html/?q=Ukraine+2026" and "Basalt" in agent
+    assert path == "/html/?q=Ukraine+2026" and "TaDaMoo" in agent
     assert len(duckduckgo_search("x", 1, base=ddg, allow_private=True)) == 1
 
 
@@ -75,13 +75,13 @@ def test_this_pcs_own_address_is_refused_as_for_any_page(ddg):
 
 def test_search_web_is_offered_with_duckduckgo_as_the_default_and_can_be_turned_off(tmp_path, monkeypatch):
     clear_backends()
-    for name in ("TAVILY_API_KEY", "EXA_API_KEY", "BASALT_WEB_SEARCH"):
+    for name in ("TAVILY_API_KEY", "EXA_API_KEY", "TADAMOO_WEB_SEARCH"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(search, "load_providers", lambda: [])
     registry, _ = create_standard_tool_registry(tmp_path)
     tool = registry.get("search_web")
     assert tool is not None and tool.parameters["properties"]["provider"]["enum"] == ["duckduckgo"]
     assert tool.parameters["properties"]["provider"]["default"] == "duckduckgo"
-    monkeypatch.setenv("BASALT_WEB_SEARCH", "off")
+    monkeypatch.setenv("TADAMOO_WEB_SEARCH", "off")
     registry, _ = create_standard_tool_registry(tmp_path)
     assert registry.get("search_web") is None

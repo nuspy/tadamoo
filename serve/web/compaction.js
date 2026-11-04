@@ -53,6 +53,6 @@
     const r = await call("GET", "api/compaction");
     if (r.ok) { state = r.data; draw(); } else root.replaceChildren(h("p", "setnote warnnote", why(r)));
   }
-  document.addEventListener("basalt:view", e => { if (e.detail === "settings") load(); });
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "settings") load(); });
   if (document.body.dataset.view === "settings") load();
 })();

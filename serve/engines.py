@@ -31,7 +31,7 @@ POOL_SPLIT, POOL_SINGLE = "split", "single"
 
 ENGINES: dict[str, dict] = {
     "basalt": {
-        "id": "basalt", "label": "Basalt", "dir": "", "binary": "basalt",
+        "id": "basalt", "label": "Basalt-Plus", "dir": "", "binary": "basalt",
         "families": ("nvidia_blackwell",), "sm_majors": hardware.BLACKWELL_MAJORS,
         "models": ("qwen4exp",),
         "capabilities": dict.fromkeys(CAPABILITIES, True),
@@ -63,7 +63,7 @@ FAMILIES: dict[str, dict] = {
                    "controls": ("max_context", "expert_cache", "vram_reserve", "parallel")},
 }
 ENGINES["strata"]["capabilities"] = {c: any(f["capabilities"][c] for f in FAMILIES.values()) for c in CAPABILITIES}
-BASALT_CONTROLS = ("max_context", "kv", "spec", "expert_cache", "vram_reserve", "parallel")
+TADAMOO_CONTROLS = ("max_context", "kv", "spec", "expert_cache", "vram_reserve", "parallel")
 
 TABS: list[dict] = [
     {"id": "qwen", "engine": "basalt", "label": "Qwen Loader", "builtin": True, "shows_on": ("nvidia_blackwell",)},
@@ -165,7 +165,7 @@ def listing(hw: dict | None = None, show_all: bool = False, host: dict | None = 
         ok, code, text = compatible(e["id"], hw)
         have = installed(e["id"])
         running = host["engine"] == e["id"]
-        # Basalt is running when no other engine is: its own supervisor owns that state
+        # Basalt-Plus is running when no other engine is: its own supervisor owns that state
         state = "not_installed" if not have else (host["phase"] if running else "stopped")
         item = {"id": e["id"], "label": e["label"], "installed": have, "compatible": ok,
                 "reason_code": code, "reason": text, "families": list(e["families"]),
@@ -183,10 +183,10 @@ def listing(hw: dict | None = None, show_all: bool = False, host: dict | None = 
 
 
 def controls(engine_id: str, family: str | None = None) -> tuple[str, ...]:
-    """The Loader controls this engine supports: Basalt's all; Strata's those of the model family (all families'
+    """The Loader controls this engine supports: Basalt-Plus's all; Strata's those of the model family (all families'
     when none is given)."""
     if engine_id == "basalt":
-        return BASALT_CONTROLS
+        return TADAMOO_CONTROLS
     if family:
         return FAMILIES[family]["controls"]
     return tuple(dict.fromkeys(c for f in FAMILIES.values() for c in f["controls"]))

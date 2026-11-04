@@ -28,7 +28,7 @@ cosa non è fatto. Il motore non ha bisogno di un manuale e qui non ne ha.
 ## 1. Cos'è
 
 L'harness è un agente: gli dici cosa vuoi, e lui legge i file, li modifica, esegue comandi, cerca sul web e ti racconta cosa ha
-fatto. Usa il modello caricato in Basalt, quindi tutto resta sul tuo PC, a meno che tu scelga un provider cloud per una funzione. È un
+fatto. Usa il modello caricato in TaDaMoo, quindi tutto resta sul tuo PC, a meno che tu scelga un provider cloud per una funzione. È un
 processo Python separato che parla col server tramite la sua API pubblica.
 
 Quattro modi di usarlo, tutti con le stesse capacità:
@@ -37,17 +37,17 @@ Quattro modi di usarlo, tutti con le stesse capacità:
 |---|---|
 | Scheda **Chat**, *Con strumenti* | vuoi una conversazione: chiedere, correggere, riprendere domani. Il modo principale. |
 | Scheda **Agente** | vuoi un lavoro in una cartella che indichi, con un registro e una via per tornare indietro. |
-| `python -m harness` / `basalt-agent` | lo vuoi in uno script, con codici di uscita e JSON. |
-| `python -m harness acp` | lo vuoi come agente di un editor che parla l'Agent Client Protocol. |
+| `python -m tadamoo` / `tadamoo-agent` | lo vuoi in uno script, con codici di uscita e JSON. |
+| `python -m tadamoo acp` | lo vuoi come agente di un editor che parla l'Agent Client Protocol. |
 
 ## 2. Prima di cominciare
 
 1. **Serve un modello caricato.** Se non c'è, un avviso sotto la barra in alto lo dice e apre *Modelli*; caricane uno lì.
 2. **Python e i pacchetti** sono quelli del `.venv` del repository (vedi il README, *Requisiti*). L'app avvia il server per te; i
    processi dell'agente li avvia il server.
-3. **Dove sta tutto.** Nella cartella dati dell'utente (`%APPDATA%\BasaltPannello\`): conversazioni, memoria (`memory\`), registro di
+3. **Dove sta tutto.** Nella cartella dati dell'utente (`%APPDATA%\TaDaMoo\`): conversazioni, memoria (`memory\`), registro di
    audit, checkpoint, approvazioni, il tuo `hooks.json`. Mai nel tuo progetto. L'unica cosa che l'agente scrive in un progetto è
-   `.basalt\artifacts`.
+   `.tadamoo\artifacts`.
 4. **Tieni privata la chiave API.** Se il server ha un `--api-key`, le pagine e l'agente la usano; non aprire mai il server oltre
    127.0.0.1 senza una.
 
@@ -189,7 +189,7 @@ conversazione ti dice che potrebbe essere già partito. Dopo di che, o quando il
   copia di ciò che veniva dopo viene conservata. I file non si toccano: annullali dal pannello delle modifiche. Le azioni che restano
   avvenute (un comando, una telefonata, un pagamento, un'azione del browser) sono elencate prima, e devi premere ancora per tornare
   indietro lo stesso.
-- **Checkpoint.** Prima che un'azione cambi dei file, il loro contenuto precedente viene conservato fuori dal progetto: solo i file che cambiano, di qualunque cartella, senza limite di dimensione. I file che un comando di shell non nomina non sono coperti. *Impostazioni > Checkpoint* (o `/checkpoints on|soft|off|default`) sceglie attivo, attivo senza mai fermare l'azione, o spento, li elenca e ne elimina uno o tutti. `python -m harness.rewind
+- **Checkpoint.** Prima che un'azione cambi dei file, il loro contenuto precedente viene conservato fuori dal progetto: solo i file che cambiano, di qualunque cartella, senza limite di dimensione. I file che un comando di shell non nomina non sono coperti. *Impostazioni > Checkpoint* (o `/checkpoints on|soft|off|default`) sceglie attivo, attivo senza mai fermare l'azione, o spento, li elenca e ne elimina uno o tutti. `python -m tadamoo.rewind
   --workspace D:\proj` li elenca e `--to ID` ne ripristina uno; le conversazioni hanno `/rewind` e *Torna qui*. Il ritorno fa prima uno
   snapshot di sicurezza, quindi si può a sua volta annullare. Non disfa un comando che l'agente ha eseguito, e lo dice.
 - **Rami.** `/branch` copia una conversazione a una richiesta; *Rami* mostra l'albero. *Esegui entrambi e confronta* manda una richiesta lungo due
@@ -285,13 +285,13 @@ nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare
   passaggi arrivano come dati non fidati); `auto` sceglie in base alla dimensione. Valgono per le conversazioni che iniziano dopo il salvataggio.
 - **La wiki.** *Impostazioni → Memorie → Wiki (wikibridge)* attiva `wiki_search`, `wiki_page` e `wiki_context` nella Chat e nell'Agente, con
   l'indirizzo del servizio (predefinito `http://127.0.0.1:8775`) e un progetto; un passo di piano che interroga la wiki li usa.
-  *Verifica la connessione* dice l'indirizzo provato e, se non ha risposto, perché. Una chiave, se il servizio la chiede, è `BASALT_WIKIBRIDGE_KEY`.
+  *Verifica la connessione* dice l'indirizzo provato e, se non ha risposto, perché. Una chiave, se il servizio la chiede, è `TADAMOO_WIKIBRIDGE_KEY`.
 - **Cache.** L'inizio del prompt resta identico byte per byte da un turno all'altro, così il server riusa la sua cache. Per questo gli
   appunti e i riassunti dei piani stanno dopo il tuo messaggio, mai nel blocco di sistema.
 
 ## 10. Skill, plugin e server MCP
 
-- **Da dove vengono.** Basalt legge, e non esegue mai, le skill, i plugin e i server MCP installati per altri strumenti su questo PC
+- **Da dove vengono.** TaDaMoo legge, e non esegue mai, le skill, i plugin e i server MCP installati per altri strumenti su questo PC
   (`~/.claude/skills`, il `.claude/skills` del progetto, i plugin, `.mcp.json` e simili).
 - **Ciò che si trova è utilizzabile.** Non c'è un passaggio di approvazione: una voce su questo PC funziona a meno che tu non la spenga in
   *Impostazioni → Capacità*, dove *Vedi il testo* mostra ciò che l'agente legge (una skill) o esegue (un server). Modificare un file non
@@ -329,13 +329,13 @@ nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare
   momento e mascherato in ciò che torna. **Il vault** (Portafoglio) tiene cifrati carte, dati personali e accessi; l'agente scrive
   `{{vault:VOCE.CAMPO}}`, e il valore va solo verso i siti che la voce indica.
 - **Il secondo fattore** di ogni accesso lo scegli tu: nessuno, un codice digitato ogni volta (la conversazione si ferma e chiede),
-  oppure il segreto TOTP, così Basalt fa il codice da sé. L'ultimo permette l'accesso a chiunque possa usare Basalt su questo PC; te
+  oppure il segreto TOTP, così TaDaMoo fa il codice da sé. L'ultimo permette l'accesso a chiunque possa usare TaDaMoo su questo PC; te
   lo dice una volta.
 - **Pagamenti.** Il limite lo imposti tu, a qualunque importo; finché non lo imposti, ogni pagamento ti chiede. Una **rinuncia** lascia
   che l'agente paghi da solo fino a un massimale per pagamento e, se lo imposti, a uno cumulativo, finché non finisce (nessuna scadenza se non la imposti), dopo una dichiarazione dettata e due
   finestre con il tuo nome riscritto; oltre i massimali chiede di nuovo. Un pagamento si può fermare dal Portafoglio in ogni momento, e
   da allora i campi della carta non vengono più rilasciati. Ciò che poi addebita il modulo di un commerciante è limitato dal limite
-  della carta stessa, non da Basalt.
+  della carta stessa, non da TaDaMoo.
 - **Telefonate.** Sono spente di default e, una volta accese, ti chiedono conferma sotto *Automatico* (questa volta, in questa conversazione o sempre); in *Automatico* non si chiede nulla. La chiamata si apre
   dicendo che un assistente IA telefona per tuo conto. Nessuna telefonata vera è stata fatta in un test.
 - **Da cosa non protegge.** L'agente gira come il tuo stesso utente. Un programma che gira come te può raggiungere più di quanto il
@@ -383,7 +383,7 @@ deployment e interazioni come diagrammi che la pagina disegna; *Sorgente del dia
 
 ## 12c. Telefoni
 
-*Impostazioni > Telefoni* prepara l'app Basalt per un telefono. 1) **Tailscale** su questo PC: la pagina lo installa (con winget), lo collega e mostra l'indirizzo che questo PC ha nella tua rete privata. 2) **Lascia
+*Impostazioni > Telefoni* prepara l'app TaDaMoo per un telefono. 1) **Tailscale** su questo PC: la pagina lo installa (con winget), lo collega e mostra l'indirizzo che questo PC ha nella tua rete privata. 2) **Lascia
 collegare i telefoni**: il server ascolta anche per loro, di norma solo sull'indirizzo Tailscale, mai su internet; *Ascolta su* lo cambia in tutte le interfacce di rete (0.0.0.0) o in un solo indirizzo IPv4 che scrivi, per un telefono che raggiunge questo PC sulla rete di casa senza Tailscale (il collegamento è HTTP semplice: usalo solo su una rete di cui ti fidi). 3) **Una chiave per ogni telefono**: dai un nome al telefono, premi *Crea una chiave* e inquadra il
 codice QR con l'app (o copia la chiave). La chiave resta su questo PC, cifrata, quindi *Mostra il codice* nell'elenco ne rimostra il QR (per esempio dopo aver reinstallato l'app); il telefono tiene le sue impostazioni negli aggiornamenti, e il backup di Android le ripristina dopo una disinstallazione e una reinstallazione se il backup del telefono è attivo. Per fermare un telefono, togli la sua chiave. Sul telefono installa Tailscale dal Play Store e accedi con lo stesso account. Un telefono con la sua chiave può
 usare il modello, le conversazioni, qualunque file o cartella di questo PC, le routine e i piani, e il resto che risponde a un client con una chiave; ciò che risponde solo a questo PC stesso (portafoglio, cassaforte, impostazioni, caricamento dei modelli) resta su questo PC, e un telefono lavora in qualunque cartella.
@@ -407,9 +407,9 @@ comandi che esegue non sono limitati alla cartella; un sandbox per loro non c'è
 ## 14. La riga di comando e l'editor
 
 ```powershell
-python -m harness -p "correggi il test che fallisce in calc.py" --workspace D:\work\proj --json
-basalt-agent -p "correggi il test che fallisce" --workspace D:\work\proj      # basalt-agent.cmd: da qualunque cartella
-basalt-agent acp --workspace D:\work\proj                                      # per un editor che parla ACP su stdio
+python -m tadamoo -p "correggi il test che fallisce in calc.py" --workspace D:\work\proj --json
+tadamoo-agent -p "correggi il test che fallisce" --workspace D:\work\proj      # tadamoo-agent.cmd: da qualunque cartella
+tadamoo-agent acp --workspace D:\work\proj                                      # per un editor che parla ACP su stdio
 ```
 
 Opzioni comuni (tutte sono in [harness.md](harness.md#running-the-agent)):
@@ -441,7 +441,7 @@ proseguire.
 ## 15. Gli hook
 
 Gli hook girano su eventi e possono bloccare una chiamata di strumento. Mettili in `hooks.json` nella cartella dati dell'utente (o nel
-file dato con `--hooks`); il `.basalt\hooks.json` di un progetto si legge solo con `--workspace-hooks`, perché una cartella in lavorazione
+file dato con `--hooks`); il `.tadamoo\hooks.json` di un progetto si legge solo con `--workspace-hooks`, perché una cartella in lavorazione
 non deve nominare comandi da sola.
 
 ```json
@@ -464,10 +464,10 @@ scaduto, non autorizzato a girare) blocca anch'esso. Un file con un errore imped
   (a meno che tu imposti un tempo per cedere il passo). Passi e tempo per esecuzione sono limiti facoltativi, vuoti per nessuno. Un orario fisso perso a PC spento viene eseguito una volta, in ritardo, all'avvio.
   Una richiesta che solo tu puoi risolvere resta in *Ti aspettano* mentre il resto dell'esecuzione va avanti. Si gestiscono dalla scheda **Cron Jobs**: un elenco con *Accendi/Spegni*, *Esegui ora* ed *Elimina*, un editor, gli ultimi risultati di ogni job e una
   piccola chat a destra per discuterne uno. La chat propone soltanto: *Usa nell'editor* riempie il modulo, e nulla è salvato finché non premi *Salva*.
-- **Valutazione**: `python -m harness.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` esegue ogni compito k volte su una
+- **Valutazione**: `python -m tadamoo.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` esegue ogni compito k volte su una
   cartella nuova e riporta pass@k, pass^k, costo e uso della cache (un `--k` sotto 5 viene segnalato). Sono confronti di sviluppo, non numeri da titolo. I benchmark pubblici
   (BFCL, sottoinsiemi di Terminal-Bench e SWE-bench Pro) si leggono da una cartella che hai scaricato tu: `--bfcl DIR`, `--terminal-bench DIR`, `--swebench DIR`.
-- **Riesecuzione**: `python -m harness.replay trace.jsonl --mode auto` rifà una sessione registrata con le risposte registrate del modello
+- **Riesecuzione**: `python -m tadamoo.replay trace.jsonl --mode auto` rifà una sessione registrata con le risposte registrate del modello
   e riporta il primo punto in cui le chiamate agli strumenti divergono. Prova l'harness, non il modello. La stessa riesecuzione,
   l'esportazione JSONL mascherata di una conversazione e il controllo del registro di audit sono nella pagina LOGS, sezione *Tracce delle sessioni*.
 
@@ -520,7 +520,7 @@ o *domani* viene ricalcolata a ogni esecuzione. La modalità e le regole del job
 | «Nobody can confirm in this run» | un'esecuzione in modalità `plan`, `read_only` o `default`, senza nessuno a cui chiedere, ha incontrato qualcosa che richiede una domanda | usa `auto` (il default senza interfaccia), `--interactive`, o una regola `--allow` |
 | Un comando è stato rifiutato anche se una regola lo permette | il comando ne concatena o reindirizza un altro | un solo comando semplice per chiamata |
 | Uno strumento si è fermato dopo un'ora | il limite di tempo predefinito | `tool_timeout_s` in `limits.json`, o `--tool-timeout NOME=SECONDI` |
-| La ricerca dice che serve un controllo | DuckDuckGo limita le ricerche automatiche | aspetta, imposta un altro motore, o `BASALT_WEB_SEARCH=off` |
+| La ricerca dice che serve un controllo | DuckDuckGo limita le ricerche automatiche | aspetta, imposta un altro motore, o `TADAMOO_WEB_SEARCH=off` |
 | Un comando con la barra resta nel campo | il nome è sconosciuto | `/help`; inizia con uno spazio per inviarlo come testo |
 | Una pagina è stata rifiutata | è su questo PC o sulla tua rete | permettila nelle impostazioni del browser, se vuoi |
 | Ogni pagamento ti chiede | il limite è 0 finché non lo imposti | la vista Portafoglio |
@@ -531,7 +531,7 @@ o *domani* viene ricalcolata a ogni esecuzione. La modalità e le regole del job
 ## 19. Cosa non fa
 
 - Non isola file e rete per i comandi: *Automatico* va in una cartella che puoi perdere.
-- Basalt è solo un **client** A2A; non riceve compiti da altri agenti. L'agente ACP non ha `terminal/*` e non è stato provato in un editor vero; ha invece `session/load`, `authenticate` e `fs/*`.
+- TaDaMoo è solo un **client** A2A; non riceve compiti da altri agenti. L'agente ACP non ha `terminal/*` e non è stato provato in un editor vero; ha invece `session/load`, `authenticate` e `fs/*`.
 - Non legge i conti bancari tramite un aggregatore, e i pagamenti con Stripe e Google Pay non sono stati provati su servizi reali.
 - Audio e video richiedono il servizio callAPIcall; senza, il file viene conservato e l'agente lo dice.
 - Nulla qui misura quale strategia di contesto sia la migliore; serve il modello vero.

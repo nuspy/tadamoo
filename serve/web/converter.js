@@ -5,7 +5,7 @@
 (() => {
   const root = document.getElementById("ld-converter");
   if (!root) return;
-  const C = window.BasaltCharts, MAX_STAR = 4, MAX_PICK = 8;
+  const C = window.TadamooCharts, MAX_STAR = 4, MAX_PICK = 8;
   const store = {
     get(k, d) { try { const v = localStorage.getItem("basalt.cv." + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem("basalt.cv." + k, JSON.stringify(v)); } catch (e) { /* this page only */ } },
@@ -277,7 +277,7 @@
   const metricById = id => (O.metrics || []).find(m => m.id === id);
   const STAR_CHOICES = ["decode", "decode_r05", "prefill", "gsm8k_pct", "top1_pct", "ram_gib", "commit_gib", "vram_gib", "load_s", "size_gib"];
   function legend(ms) {
-    return `<ul class="cv-legend" aria-label="${esc(T("cv.legend"))}">${ms.map(m => `<li><svg width="14" height="14" viewBox="-7 -7 14 14" aria-hidden="true">${(window.BasaltCharts.marker || (() => ""))(m.shape, 0, 0, 4.5, m.color, "var(--viz-surface)")}</svg>${esc(m.name)}${m.kind === "published" ? ` <span class="dim">(${esc(T("cv.pub.tag"))})</span>` : ""}</li>`).join("")}</ul>`;
+    return `<ul class="cv-legend" aria-label="${esc(T("cv.legend"))}">${ms.map(m => `<li><svg width="14" height="14" viewBox="-7 -7 14 14" aria-hidden="true">${(window.TadamooCharts.marker || (() => ""))(m.shape, 0, 0, 4.5, m.color, "var(--viz-surface)")}</svg>${esc(m.name)}${m.kind === "published" ? ` <span class="dim">(${esc(T("cv.pub.tag"))})</span>` : ""}</li>`).join("")}</ul>`;
   }
   function compare() {
     const body = $("#cv-compare-body");

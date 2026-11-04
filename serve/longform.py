@@ -6,7 +6,7 @@ change (images, link targets, code, diagrams, math, HTML, citations) is replaced
 back byte for byte at the end. Every segment is checked by plain code before it is kept, and a problem that remains after
 the retries is reported, never hidden.
 
-`LongAnswer` drives any client with the `chat_completion` of `harness.client.BasaltClient` and `harness.llm.client.RoutedClient`
+`LongAnswer` drives any client with the `chat_completion` of `tadamoo.client.TadamooClient` and `tadamoo.llm.client.RoutedClient`
 (the loaded model, or a cloud route), and yields progress events. Everything else here is a pure function.
 """
 from __future__ import annotations
@@ -19,8 +19,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
-from harness.continuation import cut_point, join_continuation
-from harness.markdown_chunks import joiner, split_markdown, whole_blocks
+from tadamoo.continuation import cut_point, join_continuation
+from tadamoo.markdown_chunks import joiner, split_markdown, whole_blocks
 
 MODES = ("write", "translate", "rewrite")
 SEGMENT_WORDS = 2000            # words one segment aims at
@@ -72,7 +72,7 @@ INLINE_CODE_RE = re.compile(r"(`+)(?!`)(.+?)(?<!`)\1(?!`)")
 IMAGE_RE = re.compile(r"!\[[^\]\n]*\]\([^)\n]*\)")
 LINK_RE = re.compile(r"(?<!!)\[([^\]\n]+)\]\(([^)\n]+)\)")
 REF_RE = re.compile(r"^\[(?!\^)[^\]]+\]:[ \t]*\S.*$")
-URL_RE = re.compile(r"(?:https?://|ftp://|file://|www\.|basalt-file:)[^\s<>()\[\]⟦⟧\"']+")
+URL_RE = re.compile(r"(?:https?://|ftp://|file://|www\.|tadamoo-file:)[^\s<>()\[\]⟦⟧\"']+")
 CITE_RE = re.compile(r"\[S\d+(?:\s*[,;]\s*S\d+)*\]")
 FOOTNOTE_RE = re.compile(r"\[\^[^\]\s]+\](?!:)")
 HTML_BLOCK_RE = re.compile(r"^\s*<(?:!--|/?(?:div|p|table|details|summary|img|iframe|video|audio|figure|section|center|pre|ul|ol|"
@@ -375,7 +375,7 @@ def _split_sentences(unit: str, limit: int) -> List[str]:
 
 
 def _split_block(unit: str, soft: int) -> List[str]:
-    """A table or code block of more than `soft` words as pieces of about `soft` words (harness/markdown_chunks.py)."""
+    """A table or code block of more than `soft` words as pieces of about `soft` words (tadamoo/markdown_chunks.py)."""
     limit = max(200, int(len(unit) * soft / max(1, count_words(unit))))
     try:
         return split_markdown(unit, limit)
@@ -920,7 +920,7 @@ def join_parts(parts: List[str]) -> str:
 def _side() -> Dict[str, Any]:
     """The request fields that select the short technical session for the short calls (estimate, plan, review); empty where this build has none."""
     try:
-        from harness.side import side_extra
+        from tadamoo.side import side_extra
     except ImportError:
         return {}
     return dict(side_extra(use="longform"))
@@ -979,7 +979,7 @@ class LongAnswer:
 
         def on_delta(kind: str, piece: str) -> None:
             if self.cancel.is_set():
-                from harness.client import StreamCancelled
+                from tadamoo.client import StreamCancelled
                 raise StreamCancelled()
             if kind == "content":
                 text.append(piece)
@@ -1013,7 +1013,7 @@ class LongAnswer:
                 continue
             break
         if kind == "error":
-            from harness.client import StreamCancelled
+            from tadamoo.client import StreamCancelled
             if isinstance(value, StreamCancelled) or self.cancel.is_set():
                 raise Cancelled()
             raise value

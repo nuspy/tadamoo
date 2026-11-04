@@ -1,11 +1,11 @@
 """The council: advisers with roles debating in turn, a moderator that ends it, and a tool that exists only when the person set it up."""
 import pytest
 
-from harness.client import BasaltError
-from harness.council import CHAIR, DEFAULTS, MEMBERS, Council, clean_settings, configured, estimate, load_settings, offer_council, outside, render
-from harness.llm.credentials import FileCredentials
-from harness.llm.store import SecureRegistry
-from harness.tools import ToolRegistry
+from tadamoo.client import TadamooError
+from tadamoo.council import CHAIR, DEFAULTS, MEMBERS, Council, clean_settings, configured, estimate, load_settings, offer_council, outside, render
+from tadamoo.llm.credentials import FileCredentials
+from tadamoo.llm.store import SecureRegistry
+from tadamoo.tools import ToolRegistry
 
 
 class Fake:
@@ -104,7 +104,7 @@ def test_a_long_debate_is_cut_to_the_latest_and_a_speaker_cannot_close_the_tags_
 
 
 def test_a_member_that_fails_is_reported_and_the_rest_go_on():
-    clients, council, _ = world(council_2={"fail": BasaltError(503, "the provider is down")})
+    clients, council, _ = world(council_2={"fail": TadamooError(503, "the provider is down")})
     out = council.convene("q")
     assert out["transcript"][1]["error"] == "the provider is down" and out["verdict"]
     text = render(out)
@@ -179,7 +179,7 @@ def test_a_council_function_on_a_cloud_provider_is_counted_as_outside(llm):
 
 
 def test_the_comparison_set_loads_and_its_checks_tell_a_flaw_from_a_sound_file():
-    from harness.eval.tasks import load_task_set, run_checks
+    from tadamoo.eval.tasks import load_task_set, run_checks
     meta, tasks = load_task_set("council")
     assert meta["name"] == "council" and len(tasks) == 6
     by_id = {t.id: t for t in tasks}
@@ -191,9 +191,9 @@ def test_the_comparison_set_loads_and_its_checks_tell_a_flaw_from_a_sound_file()
 
 
 def test_the_agent_gets_the_tool_only_with_the_flag_and_a_council_set_up(tmp_path, monkeypatch):
-    from harness.stack import AgentConfig, build_agent
+    from tadamoo.stack import AgentConfig, build_agent
     reg = SecureRegistry(tmp_path / "p.json", credentials=FileCredentials(tmp_path / "c.json"))
-    monkeypatch.setattr("harness.llm.registry", lambda path=None: reg)
+    monkeypatch.setattr("tadamoo.llm.registry", lambda path=None: reg)
     ws = tmp_path / "ws"
     ws.mkdir()
 

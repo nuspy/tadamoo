@@ -1,4 +1,4 @@
-"""A stand-in for `python -m harness session` that speaks the same lines of JSON, for the manager's tests.
+"""A stand-in for `python -m tadamoo session` that speaks the same lines of JSON, for the manager's tests.
 
 What the text of a message makes it do: "die" ends the process abruptly (the first --die-times starts only), "hang" stops its
 heartbeat and sleeps, "block" says the turn is blocked, "irreversible" leaves a note of an action in flight and ends

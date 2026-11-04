@@ -1,5 +1,5 @@
 "use strict";
-/* Models > Providers: which provider each internal function of Basalt uses (the Chat, the agent's loop, the planner, the judges),
+/* Models > Providers: which provider each internal function of TaDaMoo uses (the Chat, the agent's loop, the planner, the judges),
    and the providers themselves (a model in this PC, a cloud service, a command-line agent, Jev that judges).
    What other programs see of this server does not change: it is the loaded model. Keys are write-only: they go to the server,
    which keeps them in the Windows credential manager; this page is only told that there is one. Everything the server says is
@@ -241,7 +241,7 @@
     panel.replaceChildren(noteEl, top, functionsTable(), councilSection(), providersSection());
   }
 
-  document.addEventListener("basalt:view", e => { if (e.detail === "loader" && !panel.hidden) refresh(); });
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "loader" && !panel.hidden) refresh(); });
   applyT(view.querySelector(".subtabs"));
   const saved = load(SUB_KEY, "qwen");
   sub(["providers", "converter", "llamacpp"].includes(saved) ? saved : "qwen");

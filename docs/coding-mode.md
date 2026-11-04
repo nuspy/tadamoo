@@ -1,8 +1,8 @@
 # Coding mode
 
 What the Agent tab adds for working on code in a folder: a **role** for each conversation, the **project checks** a folder seems to have,
-and a **safe verification** class of permissions. Code: `harness/roles.py`, `harness/project_profile.py`, `harness/permissions.py`
-(`safe_verification`), `serve/coding_prefs.py`, the wiring in `harness/stack.py`, `harness/agent_loop.py`, `harness/session.py` and
+and a **safe verification** class of permissions. Code: `tadamoo/roles.py`, `tadamoo/project_profile.py`, `tadamoo/permissions.py`
+(`safe_verification`), `serve/coding_prefs.py`, the wiring in `tadamoo/stack.py`, `tadamoo/agent_loop.py`, `tadamoo/session.py` and
 `serve/agent_sessions.py`, and the page in `serve/web/coding.js` and `coding.css`. The design comes from
 [harness-study/vibe-coding.md](harness-study/vibe-coding.md). The file tools (`edit_file`, `search_code`, `tree`) and the verify gate are
 described in [harness-file-tools.md](harness-file-tools.md) and [harness-gates.md](harness-gates.md).
@@ -15,7 +15,7 @@ conversation (the selector in the Agent tab, `--role`, the `role` field when a c
 | role | tools | writes | instructions in short |
 |---|---|---|---|
 | `build` (the coding role, shown as Developer) | read, search, `edit_file`, `write_file`, `shell_command`, memory, skills, LSP | anywhere in the folder | look first, change in small steps, run the project's checks, report what they showed |
-| `plan` | read tools, `edit_file`, `write_file` | only `.basalt/plans/*.md` | no changes to the project; at most three questions; a plan file, a checklist, a summary |
+| `plan` | read tools, `edit_file`, `write_file` | only `.tadamoo/plans/*.md` | no changes to the project; at most three questions; a plan file, a checklist, a summary |
 | `ask` | read tools | nothing | answer about the project with file and line for each claim |
 | `debug` | the same as `build` | anywhere in the folder | run the failure, list at most four causes, narrow to one or two, confirm, fix, run again |
 | `orchestrate` | read tools, `spawn_subagent` | nothing | hand each part to a subagent with the file and the check, then verify what comes back |
@@ -24,7 +24,7 @@ conversation (the selector in the Agent tab, `--role`, the `role` field when a c
 The read tools are `read_file`, `list_directory`, `tree`, `search_code`, `repo_map`, `repo_diagram`, `diagnostics`, `go_to_definition`,
 `find_references`, `recall` and `load_skill`. `ask_user`, `todo_write` and `present_plan` are allowed in every role, so the checklist and
 the way out of the Plan only permission mode always work. The browser, the web tools, the planner, the phone, the vault and MCP tools are
-not in a coding role; `general` has them. The coding role has one name, the constant `CODING_ROLE` in `harness/roles.py` (its id is `build`; the page shows it as
+not in a coding role; `general` has them. The coding role has one name, the constant `CODING_ROLE` in `tadamoo/roles.py` (its id is `build`; the page shows it as
 "Developer" in both languages, the string `cd.role.build`, and it is the Agent tab's default role).
 
 ### How a role is applied, and the cache
@@ -46,7 +46,7 @@ The tool list therefore still holds every tool, so the model may try one that th
 
 ## The project checks
 
-`harness/project_profile.py` reads a folder's files (it runs nothing) and suggests commands by kind:
+`tadamoo/project_profile.py` reads a folder's files (it runs nothing) and suggests commands by kind:
 
 | files | suggested |
 |---|---|
@@ -66,7 +66,7 @@ card shows it. Each suggestion has a digest of the command and that text.
 The card "Project checks" in the Agent tab lists them and the person accepts them one by one, with two choices for each: **run without
 asking** and **run before an answer ends** (the verify gate). Nothing is accepted by default and nothing from a project file approves
 anything: the acceptance is saved in `coding.json` in the user data folder, keyed by the folder, with the command and its digest
-(`serve/coding_prefs.py`); a file `.basalt/project.json` or anything else in the project is never read for it. Only a command the folder
+(`serve/coding_prefs.py`); a file `.tadamoo/project.json` or anything else in the project is never read for it. Only a command the folder
 suggests now can be accepted. An accepted command counts only while the folder still suggests the same command with the same digest: if the
 project changes the script behind `npm test`, the card shows "Changed since you accepted it" and the command asks again, and a command the
 folder no longer has is dropped.
@@ -75,7 +75,7 @@ The person can also type their own checks, one command per line (up to 24, 500 c
 
 ## Safe verification
 
-`PermissionManager.safe_verification` (`harness/permissions.py`) lets a `shell_command` run without a question when:
+`PermissionManager.safe_verification` (`tadamoo/permissions.py`) lets a `shell_command` run without a question when:
 
 - the whole command equals one the person listed or accepted (spaces outside quotes do not matter), or
 - every statement of it does (statements are split on `;`, `&`, `|`, `&&`, `||` and line ends outside quotes), or
@@ -134,4 +134,4 @@ in `tests/QUEUE_daytime.md` (rows 54 to 56).
   the detection of a language server's diagnostics as a check.
 - The status chip per turn ("Edited 3 files, tests passed"), "Back to last passing state", the whole-folder snapshot and "Undo this request".
 - The SEARCH/REPLACE fallback, subfolder `AGENTS.md`, skill arguments, named subagents (phase 2 of the study).
-- An evaluation of the roles with `harness.eval --set vibe`; the numbers wait for the real model (queue row 54).
+- An evaluation of the roles with `tadamoo.eval --set vibe`; the numbers wait for the real model (queue row 54).

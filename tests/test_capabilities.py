@@ -7,9 +7,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import untrusted
-from harness import capabilities as cap
-from harness.tools.registry import ToolRegistry
+from tadamoo import untrusted
+from tadamoo import capabilities as cap
+from tadamoo.tools.registry import ToolRegistry
 
 SECRET = "sk-live-0123456789abcdef0123456789abcdef"
 
@@ -204,8 +204,8 @@ def test_the_readable_view_has_a_section_per_root(world):
 
 def test_an_approved_skill_loaded_in_the_loop_is_not_fenced_and_does_not_break_the_rule_of_two(world):
     from test_agent_loop import ScriptedClient, call, say
-    from harness.agent_loop import AgentLoop
-    from harness.permissions import PermissionLevel, PermissionManager
+    from tadamoo.agent_loop import AgentLoop
+    from tadamoo.permissions import PermissionLevel, PermissionManager
     idx, *_ = world
     registry = ToolRegistry()
     cap.register_capability_tools(registry, idx)
@@ -219,8 +219,8 @@ def test_an_approved_skill_loaded_in_the_loop_is_not_fenced_and_does_not_break_t
 
 def test_what_the_search_and_a_server_return_stays_untrusted_in_the_loop(world):
     from test_agent_loop import ScriptedClient, call, say
-    from harness.agent_loop import AgentLoop
-    from harness.permissions import PermissionLevel, PermissionManager
+    from tadamoo.agent_loop import AgentLoop
+    from tadamoo.permissions import PermissionLevel, PermissionManager
     idx, *_ = world
 
     class Hub:

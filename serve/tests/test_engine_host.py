@@ -162,7 +162,7 @@ class Activate(Base):
         self.assertEqual(json.loads(raw)["data"][0]["id"], "qwen3.8-flash-next")
         sent = json.loads(self.get("/v1/status")[1])
         self.assertEqual(sent["args"][sent["args"].index("--max-context") + 1], "8192")
-        run = json.loads((Path(os.environ["BASALT_DATA"]) / "strata-run" / "run.json").read_text(encoding="utf-8"))
+        run = json.loads((Path(os.environ["TADAMOO_DATA"]) / "strata-run" / "run.json").read_text(encoding="utf-8"))
         self.assertNotIn("api_key", run)
         self.assertEqual(run["host"], "127.0.0.1")
         self.assertEqual(Path(run["cwd"]), self.rootp / "bin" / "strata")
@@ -182,7 +182,7 @@ class Activate(Base):
         self.assertEqual((code, body["phase"]), (200, "idle"))
         self.assertEqual(self.entry()["state"], "stopped")
         wait(lambda: not alive(pid))
-        self.assertEqual(json.loads(self.get("/v1/models")[1])["data"][0]["owned_by"], "basalt")
+        self.assertEqual(json.loads(self.get("/v1/models")[1])["data"][0]["owned_by"], "tadamoo")
 
     def test_loading_a_basalt_model_stops_the_other_engine(self):
         self.start()
@@ -222,7 +222,7 @@ class Activate(Base):
     def test_the_health_route_stays_basalts(self):
         self.start()
         self.running()
-        self.assertEqual(json.loads(self.get("/health")[1])["service"], "basalt")
+        self.assertEqual(json.loads(self.get("/health")[1])["service"], "tadamoo")
 
     def test_the_load_control_follows_the_active_engine(self):
         self.start()
@@ -231,7 +231,7 @@ class Activate(Base):
         c = connect(self.port)
         try:
             c.request("POST", "/api/control/load", body=b"{}",
-                      headers={"Content-Type": "application/json", "X-Basalt-Control": "control-secret"})
+                      headers={"Content-Type": "application/json", "X-Tadamoo-Control": "control-secret"})
             r = c.getresponse()
             self.assertEqual((r.status, json.loads(r.read())["status"]), (200, "loaded"))
         finally:

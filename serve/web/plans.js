@@ -23,7 +23,7 @@
     tab: "define", adding: false, edge: "", delArmed: "", rowFocus: "",
   };
   const TABS = ["aims", "details", "events", "define"];
-  const COL_KEY = "basalt.plans.col";
+  const COL_KEY = "tadamoo.plans.col";
   const keep = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* not kept */ } };
   const recall = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } };
 
@@ -1366,7 +1366,7 @@
   // the Chat links to a plan it touched: the id waits in the session storage until this view opens
   function wanted() {
     let id = "";
-    try { id = sessionStorage.getItem("basalt.openplan") || ""; sessionStorage.removeItem("basalt.openplan"); } catch (e) { /* no link */ }
+    try { id = sessionStorage.getItem("tadamoo.openplan") || ""; sessionStorage.removeItem("tadamoo.openplan"); } catch (e) { /* no link */ }
     return id;
   }
   async function enter() {
@@ -1374,7 +1374,7 @@
     const id = wanted();
     if (id && id !== S.id && S.plans.some(p => p.plan_id === id)) { setTab("define", true); await choose(id); }
   }
-  document.addEventListener("basalt:view", e => {
+  document.addEventListener("tadamoo:view", e => {
     if (e.detail === "settings") loadSettings();
     if (e.detail === "plans") enter();
     else if (S.ready) stopStream();

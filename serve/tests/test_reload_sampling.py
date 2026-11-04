@@ -42,10 +42,10 @@ class Reload(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         root = Path(self.dir.name)
-        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": str(root), "BASALT_DATA": str(root)})
+        self.env = mock.patch.dict(os.environ, {"TADAMOO_CACHE": str(root), "TADAMOO_DATA": str(root)})
         self.env.start()
         self.model = tiny_basalt(root / "a.basalt", "Model A")
-        self.cfg = root / "basalt_config.json"
+        self.cfg = root / "tadamoo_config.json"
         tok = ByteTokenizer()
         self.svc = Service(MockEngine(tok, ["</think>\n\nhello"]), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
         self.svc.settings_info = {"config": str(self.cfg), "model": str(self.model), "cli": [], "running": {}}

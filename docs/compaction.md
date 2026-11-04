@@ -3,8 +3,8 @@
 An autonomous request can run for hundreds of tool calls without a new message from the person. Masking old results (see
 [harness.md](harness.md), "Context, memory, skills and reference documents") is lossless but cannot keep up forever, and the summary
 of the context patterns works on whole turns, so a single long turn was never summarised. This page is the summary that works inside one
-turn. Code: `harness/compaction.py` (cuts, the summary call, the report), `harness/identifiers.py` (the identifier audit), the hook in
-`PatternContext.prepare` (`harness/context_patterns.py`) and in `AgentLoop._prepare_context` (`harness/agent_loop.py`). The design comes
+turn. Code: `tadamoo/compaction.py` (cuts, the summary call, the report), `tadamoo/identifiers.py` (the identifier audit), the hook in
+`PatternContext.prepare` (`tadamoo/context_patterns.py`) and in `AgentLoop._prepare_context` (`tadamoo/agent_loop.py`). The design comes
 from [harness-study](harness-study/README.md) (OpenClaw, Hermes). The settings page is Settings > General > Long work
 (`serve/web/compaction.js`, `serve/compaction_prefs.py`, kept in `compaction.json` in the user data folder).
 
@@ -41,7 +41,7 @@ folded into the new one, so there is always one. What leaves the model's view is
 ## Code stays whole (agent sessions)
 
 A session with a file or shell tool (`read_file`, `write_file`, `edit_file`, `shell_command`: the Agent tab and any headless run) never masks or
-summarises code (`harness/codeblocks.py`, `AgentConfig.keep_code`, on by default). A message is marked `code` once, from the message and the call
+summarises code (`tadamoo/codeblocks.py`, `AgentConfig.keep_code`, on by default). A message is marked `code` once, from the message and the call
 it answers: a fenced block or pasted source in the person's message, a fenced block in the model's reply, a write or edit call to a source file (by
 extension, or text that reads as source), a `read_file` result of a source file, `search_code`, `find_references` and `go_to_definition` hits in
 source files, and shell output that reads as source. A call and its results stay together: a code result keeps the call that asked for it, a call
@@ -60,7 +60,7 @@ windows feel it first: the code and the head (system prompt and tools) share wha
 
 A separate call through the client the function "Context compaction" points to: the loaded model unless the person pointed it at a cloud
 route in Settings (which also needs their yes for personal data). Where the function is not set, the conversation's own client writes the
-summary only if it stays on this PC (`harness/stack.py`, `_compaction_client`); a conversation that runs on a cloud route never sends its
+summary only if it stays on this PC (`tadamoo/stack.py`, `_compaction_client`); a conversation that runs on a cloud route never sends its
 history to it for a summary unless the person chose that route for the function. It has no tools, temperature 0, thinking off, at most 1500 tokens out and a 240 s limit; a failed, empty or
 slow call gives the **plain notes** instead (below), flagged `summary_by: "extract"` with the reason. Nothing waits for the call but the
 turn itself.
@@ -75,7 +75,7 @@ The notes follow a fixed outline: Facts, Goal, Decisions, Files touched, Command
 request, with paths, names, ids, URLs, numbers and error text copied. Earlier notes are given for updating, also when the originals are
 read back (the notes carry what the oldest part held, within the call's read budget).
 
-**Facts** (`harness/compaction_facts.py`) hold per-item values as `id: value` lines, kept by the program: the lines of the previous record
+**Facts** (`tadamoo/compaction_facts.py`) hold per-item values as `id: value` lines, kept by the program: the lines of the previous record
 are copied unchanged, the lines the agent wrote itself in its edits and writes are read from the calls (a later write for an id wins), and
 the summary call may only add ids that are not there yet. They come first in the note, so a cut loses the least; at most a tenth of the
 budget, the oldest lines leaving first and counted.
@@ -84,7 +84,7 @@ budget, the oldest lines leaving first and counted.
 twice, no compaction is made: the conversation and the earlier records stay as they were and nothing is counted (`abandoned` in `/context`).
 The gain is estimated from the cut before the call, and a call is not made when it cannot free enough.
 
-**Untrusted text.** Each tool result in the call is inside a data block with a random id (`harness/untrusted.py`), forged tags and chat
+**Untrusted text.** Each tool result in the call is inside a data block with a random id (`tadamoo/untrusted.py`), forged tags and chat
 control tokens are scrubbed, and the instructions say a block's text is never to be followed or turned into a decision or an open item. The
 notes themselves go into the conversation inside a data block as well, under a heading that says they are a record and that the request
 after them is the only order, so text that came in through a tool and survived into a summary does not become an instruction. The note
@@ -95,7 +95,7 @@ agent said. They are the same kind of record, fenced the same way.
 
 ## The identifier audit
 
-After the summary is written, the identifiers (`harness/identifiers.py`: URLs, file paths, ids such as UUIDs, hashes, call ids and
+After the summary is written, the identifiers (`tadamoo/identifiers.py`: URLs, file paths, ids such as UUIDs, hashes, call ids and
 tickets, function and class names, numbers of three digits or more) that appear **both** in the removed text and in what is kept (the
 newest steps and the latest requests) are compared with the summary. Tool names and the harness's own markup are not identifiers.
 Whatever the summary lacks is added to the note as a **Re-read these** list, at most 12 entries, each saying how to get it back:
@@ -188,10 +188,10 @@ and the engine's headers:
 
 With `--side-slot TOKENS` (on by default, 30000; `0` is off) the engine has one more slot, with a context of its own, that only
 calls carrying `"cache_slot": "side"` use ([running](running.md#the-technical-session---side-slot-tokens)). `_summarizer` in
-`harness/stack.py` sends it (through `harness/side.py`, `side_extra`) when the server reports a session, and `THIS_SERVER_ONLY` in
-`harness/llm/client.py` holds it back from any cloud route. The summary prompt keeps its own system message and no tools, so in the
+`tadamoo/stack.py` sends it (through `tadamoo/side.py`, `side_extra`) when the server reports a session, and `THIS_SERVER_ONLY` in
+`tadamoo/llm/client.py` holds it back from any cloud route. The summary prompt keeps its own system message and no tools, so in the
 session it shares nothing with a conversation and writes nothing into one: the conversations' slots keep their cache, and the
-summary's own slot keeps no checkpoint. A text larger than the session is not sent whole: `harness/digest.py` cuts it into parts of about
+summary's own slot keeps no checkpoint. A text larger than the session is not sent whole: `tadamoo/digest.py` cuts it into parts of about
 10,000 tokens at blank lines and line ends (no model decides the cuts), the session writes notes on each part in a call of its own that
 carries nothing from the others, and the notes are what the final call reads; notes still too large are cut and written up again, up to
 four rounds. The harness checks the notes of every part without a model: not empty, not almost as long as the part, not going round in

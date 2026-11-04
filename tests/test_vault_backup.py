@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from harness.vault import Vault, VaultError
+from tadamoo.vault import Vault, VaultError
 
 KEY, OTHER = bytes(range(32)), bytes(range(1, 33))
 
@@ -60,8 +60,8 @@ def test_restoring_replaces_an_entry_with_the_same_name():
 
 
 def test_the_wallet_gives_and_takes_the_backup_as_a_file(tmp_path):
-    from harness.browser import BrowserPrefs
-    from harness.payments_broker import PaymentsBroker
+    from tadamoo.browser import BrowserPrefs
+    from tadamoo.payments_broker import PaymentsBroker
     from serve.wallet_api import WalletApi
     v = filled(tmp_path / "v")
     api = WalletApi(lambda: v, lambda: PaymentsBroker(tmp_path / "p"), BrowserPrefs(tmp_path / "b.json"), tmp_path / "profile")

@@ -24,13 +24,13 @@ Not verified, and treated as hints only:
 - ChatGPT follow-up suggestions: secondary sources only. Perplexity related questions and Gemini suggestions: not researched. I do not describe them.
 - Papers: abstracts only (Ambig-SWE arXiv 2502.13069, "Ask or Assume?" arXiv 2603.26233, ClarEval 2603.00187, HumanEvalComm 2406.00215, ClarifyCodeBench 2607.00711). I did not read the full texts. I did not verify the ClarifyCodeBench figures quoted in a blog.
 - Goose: I found no dedicated ask tool, only MCP elicitation plumbing (crates/goose/src/elicitation.rs, action_required_manager.rs). Its timeouts were not confirmed.
-- Nothing about local Qwen behaviour is measured. All "a Qwen-class model will..." statements are expectations to test with `python -m harness.eval`, not results.
+- Nothing about local Qwen behaviour is measured. All "a Qwen-class model will..." statements are expectations to test with `python -m tadamoo.eval`, not results.
 
 1. WHAT WE HAVE TODAY (verified in the code)
-- `ask_user(question_text, options[{label,value}])` is in `harness/planner_tools.py:729-756`. Limits: 6 options, label 60 characters, value 300, question 600.
+- `ask_user(question_text, options[{label,value}])` is in `tadamoo/planner_tools.py:729-756`. Limits: 6 options, label 60 characters, value 300, question 600.
   - The tool puts the question to the person and calls `agent.request_end_turn()`. The turn ends with `stop_reason "asked"`.
   - The button text, or whatever the person types, becomes their next user message. The model is not called again until then.
-  - It is registered only in conversations that have the planner (`Session.enable_planner`, `harness/session.py:565`), so only server Chat/Agent sessions, not the plain headless CLI or ACP.
+  - It is registered only in conversations that have the planner (`Session.enable_planner`, `tadamoo/session.py:565`), so only server Chat/Agent sessions, not the plain headless CLI or ACP.
 - Unattended: `Session._question` (`session.py:490`) emits `auto_answered` with an empty value. The tool then returns "Nobody can answer in this run: decide with what you know". There is no recommended-default pick today.
 - The blocking path already exists for confirmations, but not for ask_user:
   - `Session._ask` (`session.py:406`) puts the question in a slot, waits under `clock_paused()` with no timeout, and returns the value to the tool.
@@ -45,13 +45,13 @@ Not verified, and treated as hints only:
 - GUI: `serve/web/agentchat.js` is shared by the Chat tab and the Agent tab (`inAgent()`).
   - `ask` events become a block `{t:"ask", mode, kind, options}`.
   - Question mode (line 620-636) draws the question plus one `.btn` per option. A click calls `answer()` which, for mode "question", does `send(value)`.
-  - There is already a form widget for MCP elicitation (lines 541-601): fields, a Send button, Decline/Cancel, answer as `elicit:` + JSON of at most 500 characters, validated by `harness/mcp_elicit.py`.
+  - There is already a form widget for MCP elicitation (lines 541-601): fields, a Send button, Decline/Cancel, answer as `elicit:` + JSON of at most 500 characters, validated by `tadamoo/mcp_elicit.py`.
   - A capability_choice widget (602-619) already has an "Other" input.
   - The `tool_start`/`tool_end`/history code hides ask_user cards (lines 356, 364, 411).
   - CSS is `.aask*` in `serve/web/app.css:953-966`. Buttons use `--btn-h: 30px`, inputs 44px.
 - i18n: `serve/web/i18n.js` has an EN block and an IT block. `serve/tests/test_web_static.py` checks key sets (e.g. the `ch.q.` list at line 40), placeholder parity, and that EN differs from IT.
 - Mobile: `mobile/lib/src/chat_model.dart` (Block with `options`, `answer()` posts `/api/agent/sessions/$sid/answer`) and `chat_screen.dart:_ask` (a Card with a Wrap of OutlinedButtons). It also ignores ask_user tool cards (chat_model.dart 274, 279, 350). Texts are in `mobile/lib/src/i18n.dart` as [it, en] pairs.
-- Tool-call JSON can already be grammar-constrained. `serve/api/grammar.py` sends a grammar for any request with tools when the server option is on, or when the tool's function has `strict: true`. A one-shot JSON call with `response_format json_schema` is used in `harness/planner/replan.py:62`. So both the question payload and the suggestions can be made parse-proof. The engine's actual grammar subset (pattern, maxLength, oneOf) is not verified. Keep the schema simple: enums, minItems/maxItems, short strings.
+- Tool-call JSON can already be grammar-constrained. `serve/api/grammar.py` sends a grammar for any request with tools when the server option is on, or when the tool's function has `strict: true`. A one-shot JSON call with `response_format json_schema` is used in `tadamoo/planner/replan.py:62`. So both the question payload and the suggestions can be made parse-proof. The engine's actual grammar subset (pattern, maxLength, oneOf) is not verified. Keep the schema simple: enums, minItems/maxItems, short strings.
 - Existing studies (`docs/harness-study/vibe-coding.md`) already plan "Plan asks at most three questions as buttons". No other study covers clarification.
 
 2. (a) SURVEY: HOW OTHER SYSTEMS ASK

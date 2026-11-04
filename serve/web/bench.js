@@ -433,6 +433,6 @@
 
   host.append(hostTop, hostList, hostRun, hostResults, hostDesk);
   paintAll();
-  document.addEventListener("basalt:sub", e => { visible = e.detail === "benchmarks"; if (visible) load(); else clearTimeout(timer); });
-  document.addEventListener("basalt:lang", () => { if (S) paintAll(); });
+  document.addEventListener("tadamoo:sub", e => { visible = e.detail === "benchmarks"; if (visible) load(); else clearTimeout(timer); });
+  document.addEventListener("tadamoo:lang", () => { if (S) paintAll(); });
 })();

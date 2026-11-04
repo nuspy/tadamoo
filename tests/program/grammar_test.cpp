@@ -381,8 +381,8 @@ static std::vector<std::string> bench_vocab(size_t n) {
     return v;
 }
 
-// BASALT_GRAMMAR_VOCAB names a file of (u32 length, bytes) records, one per token id, for a run on the real vocabulary;
-// BASALT_GRAMMAR_END is the end token's id.
+// TADAMOO_GRAMMAR_VOCAB names a file of (u32 length, bytes) records, one per token id, for a run on the real vocabulary;
+// TADAMOO_GRAMMAR_END is the end token's id.
 static bool load_vocab(const char* path, std::vector<std::string>& out) {
     std::FILE* f = std::fopen(path, "rb");
     if (!f) return false;
@@ -398,8 +398,8 @@ static bool load_vocab(const char* path, std::vector<std::string>& out) {
 
 static void bench() {
     std::vector<std::string> tokens;
-    const char* vpath = std::getenv("BASALT_GRAMMAR_VOCAB");
-    const char* eos = std::getenv("BASALT_GRAMMAR_END");
+    const char* vpath = std::getenv("TADAMOO_GRAMMAR_VOCAB");
+    const char* eos = std::getenv("TADAMOO_GRAMMAR_END");
     bool real = vpath && load_vocab(vpath, tokens);
     if (!real) tokens = bench_vocab(248320);
     const size_t N = tokens.size();
@@ -456,7 +456,7 @@ int main() {
     test_token_refs();
     test_patterns();
     test_partial_utf8();
-    if (std::getenv("BASALT_GRAMMAR_BENCH")) bench();
+    if (std::getenv("TADAMOO_GRAMMAR_BENCH")) bench();
     if (g_fail) { std::printf("grammar_test: %d failures\n", g_fail); return 1; }
     std::printf("grammar_test: ok\n");
     return 0;

@@ -8,9 +8,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.planner import JevTriageGatekeeper, PlanCanvasBridge, PlanDAG, PlanInsightCard, PlanProfile, PlanStore
-from harness.planner.card import card_gaps, derive_card
-from harness.planner_tools import interview_text
+from tadamoo.planner import JevTriageGatekeeper, PlanCanvasBridge, PlanDAG, PlanInsightCard, PlanProfile, PlanStore
+from tadamoo.planner.card import card_gaps, derive_card
+from tadamoo.planner_tools import interview_text
 from test_planner import CARD, chain, node
 from test_planner_tools import Asker, AgentState, world  # noqa: F401  (fixture)
 from test_session_wake import quiet

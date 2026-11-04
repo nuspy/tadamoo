@@ -5,8 +5,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import compaction_facts as cf
-from harness.compaction import Compaction, SHORTER, SUMMARY_PROMPT, SummaryCut
+from tadamoo import compaction_facts as cf
+from tadamoo.compaction import Compaction, SHORTER, SUMMARY_PROMPT, SummaryCut
 from test_compaction import Writer, make, paired, single_turn, step
 
 
@@ -170,7 +170,7 @@ def test_the_note_points_at_where_each_folded_result_is_saved(tmp_path):
 
 
 def test_a_small_result_that_was_not_masked_gets_no_pointer(tmp_path):
-    from harness import compaction as cm
+    from tadamoo import compaction as cm
     ctx, comp = make(tmp_path, Writer(), budget=3000)
     plan = cm.plan_cut(single_turn(steps=10, size=20), 100, 3.5)
     assert plan.region and comp._pointers(ctx, plan) == ""
@@ -191,7 +191,7 @@ class Finishing:
 
 def test_a_summary_that_ended_on_the_length_limit_raises_only_when_asked_to():
     import pytest
-    from harness.stack import _summarizer
+    from tadamoo.stack import _summarizer
     with pytest.raises(SummaryCut):
         _summarizer(Finishing("length"), reject_cut=True)("instructions", "text")
     assert _summarizer(Finishing("length"))("instructions", "text").startswith("Goal")          # the turn-based summary takes what it gets

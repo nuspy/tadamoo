@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.planner import PlanDAG, PlanNode
+from tadamoo.planner import PlanDAG, PlanNode
 from serve.plans import PlanService
 from test_planner import CARD, FakeJev, jev_answer  # noqa: E402
 
@@ -191,8 +191,8 @@ def test_the_blocker_threshold_the_cloud_timeout_and_the_chunk_size_are_settings
 
 
 def _registry(tmp_path):
-    from harness.llm.credentials import FileCredentials
-    from harness.llm.store import SecureRegistry
+    from tadamoo.llm.credentials import FileCredentials
+    from tadamoo.llm.store import SecureRegistry
     return SecureRegistry(tmp_path / "p.json", credentials=FileCredentials(tmp_path / "c.json"))
 
 

@@ -20,7 +20,7 @@ ROOMY = {"ram_total": 128 * GiB, "ram_available": 116 * GiB, "commit_limit": 144
 class Isolated(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"BASALT_DATA": self.dir.name, "BASALT_CACHE": self.dir.name})
+        self.env = mock.patch.dict(os.environ, {"TADAMOO_DATA": self.dir.name, "TADAMOO_CACHE": self.dir.name})
         self.env.start()
         self.values = loader.safe(loader.DEMO_FACTS, ROOMY)
 

@@ -1,15 +1,15 @@
-"""Divergent tasks and component usage in the evaluation reports (harness/eval/traces.py). CPU only, no model."""
+"""Divergent tasks and component usage in the evaluation reports (tadamoo/eval/traces.py). CPU only, no model."""
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.eval import EvalRunner, generate_eval_report, load_task_set
-from harness.eval.cases.agentrun import CountingClient
-from harness.eval.cases.core import Arm, CaseTrial, Context, Experiment, Rule, render_report
-from harness.eval.runner import EvalResult, Trial
-from harness.eval.traces import call_trace, component_usage, divergence, divergent_section, divergent_tasks, first_difference, observe
+from tadamoo.eval import EvalRunner, generate_eval_report, load_task_set
+from tadamoo.eval.cases.agentrun import CountingClient
+from tadamoo.eval.cases.core import Arm, CaseTrial, Context, Experiment, Rule, render_report
+from tadamoo.eval.runner import EvalResult, Trial
+from tadamoo.eval.traces import call_trace, component_usage, divergence, divergent_section, divergent_tasks, first_difference, observe
 from test_agent_loop import ScriptedClient, call, say
 
 

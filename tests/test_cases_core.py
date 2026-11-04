@@ -1,4 +1,4 @@
-"""The case studies (harness/eval/cases): the shared part, the fixtures, the scorers and the wiring of the arms. CPU only, no model."""
+"""The case studies (tadamoo/eval/cases): the shared part, the fixtures, the scorers and the wiring of the arms. CPU only, no model."""
 import dataclasses
 import json
 import sys
@@ -9,17 +9,17 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import intake as it
-from harness import target as tg
-from harness.eval import cases
-from harness import optimize as opt
-from harness.eval.cases import e1_target, e2_gate, e3_errors, e4_intake, e5_compaction, e6_longform, e7_cache, e8_optimize
-from harness.eval.cases.agentrun import apply_solution, snapshot, wasted_turns, write_files
-from harness.eval.cases.core import (Arm, CaseTrial, Context, Experiment, Guard, Rule, arm_summary, by_arm, decide, render_report, results_json, rotate,
+from tadamoo import intake as it
+from tadamoo import target as tg
+from tadamoo.eval import cases
+from tadamoo import optimize as opt
+from tadamoo.eval.cases import e1_target, e2_gate, e3_errors, e4_intake, e5_compaction, e6_longform, e7_cache, e8_optimize
+from tadamoo.eval.cases.agentrun import apply_solution, snapshot, wasted_turns, write_files
+from tadamoo.eval.cases.core import (Arm, CaseTrial, Context, Experiment, Guard, Rule, arm_summary, by_arm, decide, render_report, results_json, rotate,
                                      run_experiment, with_control)
-from harness.eval.cases.fixtures import error_scenarios, gate_tasks, intake_prompts, longform_texts, long_turn_repo, optimize_prompts, shop_repo
-from harness.eval.tasks import Task, make_workspace, run_checks
-from harness.stack import AgentConfig
+from tadamoo.eval.cases.fixtures import error_scenarios, gate_tasks, intake_prompts, longform_texts, long_turn_repo, optimize_prompts, shop_repo
+from tadamoo.eval.tasks import Task, make_workspace, run_checks
+from tadamoo.stack import AgentConfig
 from serve import longform as lf
 
 
@@ -244,7 +244,7 @@ def test_e8_scores_the_task_and_what_the_model_read_against_what_the_person_wrot
 def test_e4_dates_are_the_days_the_fixed_clock_gives():
     from datetime import timedelta
 
-    from harness.eval.cases.agentrun import FIXED_NOW
+    from tadamoo.eval.cases.agentrun import FIXED_NOW
     assert FIXED_NOW.strftime("%A") == "Friday"
     want = {"date1": 1, "date2": 2, "date3": -1, "date4": 3}
     for r in e4_intake.prompts():
@@ -256,7 +256,7 @@ def test_e4_the_rules_arm_writes_the_dates_the_row_expects():
     now = e4_intake.prompts()
     for r in now:
         if r["expected_date"] and r["id"] != "date4":                    # "next Monday" is not one of the words the rules know
-            out = it.Intake("rules").run(r["text"], it.Context(now=__import__("harness.eval.cases.agentrun", fromlist=["x"]).FIXED_NOW))
+            out = it.Intake("rules").run(r["text"], it.Context(now=__import__("tadamoo.eval.cases.agentrun", fromlist=["x"]).FIXED_NOW))
             assert r["expected_date"] in out.note, r["id"]
 
 
@@ -406,7 +406,7 @@ def test_e2_arms_are_agent_config_fields():
 
 
 def test_e3_e4_e5_arms_are_the_flags_the_session_and_the_agent_take():
-    from harness.session import parse_args
+    from tadamoo.session import parse_args
     assert {a.name: a.settings["classify_errors"] for a in e3_errors.ARMS} == {"A": False, "B": True, "A~aa": False}
     assert parse_args([]).no_error_classifier is False and parse_args(["--no-error-classifier"]).no_error_classifier is True
     assert {a.settings["intake"] for a in e4_intake.ARMS} == set(it.MODES)
@@ -435,7 +435,7 @@ def test_e7_shapes_are_all_known_and_each_cycle_has_text_of_its_own():
 
 
 def test_wasted_turns_counts_turns_that_moved_nothing():
-    from harness.agent_loop import AgentTurn, ToolExecutionResult as R
+    from tadamoo.agent_loop import AgentTurn, ToolExecutionResult as R
     ok = lambda args: R("read_file", args, "x", decision="executed")
     turns = [AgentTurn(1, "", "", "", [ok({"p": 1})]), AgentTurn(2, "", "", "", [ok({"p": 1})]), AgentTurn(3, "", "", "", [R("edit_file", {}, "no", is_error=True, decision="invalid")]),
              AgentTurn(4, "", "", "", [ok({"p": 2})]), AgentTurn(5, "", "", "done", [])]

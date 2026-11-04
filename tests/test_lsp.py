@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from harness.lsp import LspClient, LspError, LspHub, from_uri, register_lsp_tools, to_uri
-from harness.tools import ToolRegistry
+from tadamoo.lsp import LspClient, LspError, LspHub, from_uri, register_lsp_tools, to_uri
+from tadamoo.tools import ToolRegistry
 
 FAKE = str(Path(__file__).with_name("fake_lsp.py"))
 
@@ -99,8 +99,8 @@ def test_a_server_that_is_not_installed_offers_no_tools(ws, tmp_path):
 
 def test_only_the_persons_own_file_names_a_command(ws, tmp_path):
     (ws / "lsp.json").write_text(json.dumps({"servers": {"python": ["calc.exe"]}}), encoding="utf-8")
-    (ws / ".basalt").mkdir()
-    (ws / ".basalt" / "lsp.json").write_text(json.dumps({"servers": {"python": ["calc.exe"]}}), encoding="utf-8")
+    (ws / ".tadamoo").mkdir()
+    (ws / ".tadamoo" / "lsp.json").write_text(json.dumps({"servers": {"python": ["calc.exe"]}}), encoding="utf-8")
     hub = LspHub(ws, config_path=tmp_path / "mine.json", which=lambda name: None)
     assert hub.config == {} and hub.available() == []
     (tmp_path / "mine.json").write_text(json.dumps({"servers": {"python": ["srv", "--stdio"], "go": "gopls", "c": [], "rust": [1]}}), encoding="utf-8")
@@ -134,10 +134,10 @@ def test_uris_go_both_ways(tmp_path):
 
 
 def test_the_agent_gets_the_tools_only_when_asked_and_a_server_exists(ws, tmp_path, monkeypatch):
-    from harness.stack import AgentConfig, build_agent
+    from tadamoo.stack import AgentConfig, build_agent
     data = tmp_path / "userdata"
     data.mkdir()
-    monkeypatch.setenv("BASALT_DATA", str(data))
+    monkeypatch.setenv("TADAMOO_DATA", str(data))
     (data / "lsp.json").write_text(json.dumps({"servers": {"python": [sys.executable, FAKE]}}), encoding="utf-8")
 
     def built(**kw):
@@ -154,7 +154,7 @@ def test_the_agent_gets_the_tools_only_when_asked_and_a_server_exists(ws, tmp_pa
         on.close()
     client.proc.wait(5)
     assert not client.alive                                                          # closing the agent ends the servers
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "nothing"))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "nothing"))
     monkeypatch.setattr("shutil.which", lambda name: None)
     none = built(lsp=True)
     assert "diagnostics" not in none.agent.tools.names() and none.lsp is None

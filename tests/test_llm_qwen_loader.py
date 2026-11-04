@@ -9,11 +9,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.client import BasaltError
-from harness.llm.client import RoutedClient
-from harness.llm.credentials import FileCredentials
-from harness.llm.qwen_loader import QwenLoader, QwenNotReady
-from harness.llm.store import Ledger, SecureRegistry
+from tadamoo.client import TadamooError
+from tadamoo.llm.client import RoutedClient
+from tadamoo.llm.credentials import FileCredentials
+from tadamoo.llm.qwen_loader import QwenLoader, QwenNotReady
+from tadamoo.llm.store import Ledger, SecureRegistry
 
 
 class Loader:
@@ -149,5 +149,5 @@ def test_the_routed_client_asks_the_loader_before_it_uses_this_server(tmp_path):
     class NotReady:
         def ensure(self, route):
             raise QwenNotReady("another program holds the memory")
-    with pytest.raises(BasaltError, match="holds the memory"):
+    with pytest.raises(TadamooError, match="holds the memory"):
         RoutedClient("chat", reg, Local(), Ledger(tmp_path / "u.json"), loader=NotReady()).chat_completion(messages=[])

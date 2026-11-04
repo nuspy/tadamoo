@@ -12,7 +12,7 @@
       never: "Do not offer it at start again", h1: "This PC", h2: "What to leave to the other programs", h3: "Model",
       h4: "Computed values", h5: "Measure (optional)", h6: "Save as Machine Default",
       ram: "RAM", commit: "Commit (Windows)", pagefile: "Page file", cpu: "Processor", gpu: "GPU", adapters: "Video adapters",
-      ramv: "{0} GB, {1} GB available", commitv: "{0} of {1} GB in use ({2})", pfauto: "managed by Windows: it may grow. Basalt Win+GUI never makes it grow: every plan leaves part of the commit limit free.",
+      ramv: "{0} GB, {1} GB available", commitv: "{0} of {1} GB in use ({2})", pfauto: "managed by Windows: it may grow. TaDaMoo Win+GUI never makes it grow: every plan leaves part of the commit limit free.",
       pffixed: "fixed size", pfnone: "none", pfunk: "unknown", cores: "{0} cores", coresh: "{0} cores ({1} performance + {2} efficiency)",
       gpuv: "{0}, {1} GB of VRAM, {2} GB in use now", nogpu: "no NVIDIA GPU could be read",
       primary: "main monitor", outputs: "{0} monitor(s) on the desktop", noadapters: "This system does not say which adapter shows the monitor.",
@@ -26,8 +26,8 @@
       model: "Model", nomodel: "No model is ready in the models folders: choose them in the Loader first.",
       sampling: "The model's own chat values: {0}", nosampling: "the model file sets no chat values",
       fits: "Fits", nofit: "Does not fit", need: "{0} GB needed, {1} available", speed: "Predicted: {0} tok/s answer, {1} tok/s prompt reading",
-      measureh: "About 5 to 10 minutes: Basalt Win+GUI loads the computed values, checks the real memory after the load against the plan (smaller values if it is above), measures the speed, tries the maximum verify windows 5, 7 and 8 (one reload each), and keeps the fastest. Without it the values stay as computed.",
-      measure: "Measure now", measureLoad: "Load the model and measure", measureRestart: "Basalt Win+GUI starts again with this model; the measurement starts by itself and this page reconnects.",
+      measureh: "About 5 to 10 minutes: TaDaMoo Win+GUI loads the computed values, checks the real memory after the load against the plan (smaller values if it is above), measures the speed, tries the maximum verify windows 5, 7 and 8 (one reload each), and keeps the fastest. Without it the values stay as computed.",
+      measure: "Measure now", measureLoad: "Load the model and measure", measureRestart: "TaDaMoo Win+GUI starts again with this model; the measurement starts by itself and this page reconnects.",
       measuring: "Measuring: {0}…", measured: "Measured: {0} tok/s (answer), {1} tok/s (with reasoning), {2} tok/s (prompt reading).",
       cannot: "The measurement needs less than {0} of the commit limit in use (now {1}): close other programs, or skip it.",
       skipped: "Not measured: the values are the computed ones.", failed: "The measurement failed: {0}",
@@ -45,7 +45,7 @@
       never: "Non proporla più all'avvio", h1: "Questo PC", h2: "Cosa lasciare agli altri programmi", h3: "Modello",
       h4: "Valori calcolati", h5: "Misura (facoltativa)", h6: "Salva come Machine Default",
       ram: "RAM", commit: "Commit (Windows)", pagefile: "File di paging", cpu: "Processore", gpu: "GPU", adapters: "Schede video",
-      ramv: "{0} GB, {1} GB disponibili", commitv: "{0} di {1} GB in uso ({2})", pfauto: "gestito da Windows: può crescere. Basalt Win+GUI non lo fa mai crescere: ogni piano lascia libera una parte del limite di commit.",
+      ramv: "{0} GB, {1} GB disponibili", commitv: "{0} di {1} GB in uso ({2})", pfauto: "gestito da Windows: può crescere. TaDaMoo Win+GUI non lo fa mai crescere: ogni piano lascia libera una parte del limite di commit.",
       pffixed: "dimensione fissa", pfnone: "nessuno", pfunk: "sconosciuto", cores: "{0} core", coresh: "{0} core ({1} performance + {2} efficienza)",
       gpuv: "{0}, {1} GB di VRAM, {2} GB in uso ora", nogpu: "nessuna GPU NVIDIA leggibile",
       primary: "monitor principale", outputs: "{0} monitor sul desktop", noadapters: "Questo sistema non dice quale scheda mostra il monitor.",
@@ -59,8 +59,8 @@
       model: "Modello", nomodel: "Nessun modello pronto nelle cartelle dei modelli: sceglile prima nel Loader.",
       sampling: "Valori di chat del modello: {0}", nosampling: "il file del modello non indica valori di chat",
       fits: "Entra", nofit: "Non entra", need: "servono {0} GB, disponibili {1}", speed: "Previsione: {0} tok/s in risposta, {1} tok/s in lettura",
-      measureh: "Circa 5-10 minuti: Basalt Win+GUI carica i valori calcolati, confronta la memoria reale dopo il caricamento con il piano (valori più piccoli se è sopra), misura la velocità, prova le finestre massime di verifica 5, 7 e 8 (un ricaricamento ciascuna) e tiene la più veloce. Senza misura restano i valori calcolati.",
-      measure: "Misura ora", measureLoad: "Carica il modello e misura", measureRestart: "Basalt Win+GUI riparte con questo modello; la misura parte da sola e questa pagina si ricollega.",
+      measureh: "Circa 5-10 minuti: TaDaMoo Win+GUI carica i valori calcolati, confronta la memoria reale dopo il caricamento con il piano (valori più piccoli se è sopra), misura la velocità, prova le finestre massime di verifica 5, 7 e 8 (un ricaricamento ciascuna) e tiene la più veloce. Senza misura restano i valori calcolati.",
+      measure: "Misura ora", measureLoad: "Carica il modello e misura", measureRestart: "TaDaMoo Win+GUI riparte con questo modello; la misura parte da sola e questa pagina si ricollega.",
       measuring: "Misura in corso: {0}…", measured: "Misurato: {0} tok/s (risposta), {1} tok/s (con ragionamento), {2} tok/s (lettura del prompt).",
       cannot: "La misura vuole meno del {0} del limite di commit in uso (ora {1}): chiudi altri programmi, oppure saltala.",
       skipped: "Non misurato: restano i valori calcolati.", failed: "La misura non è riuscita: {0}",
@@ -79,7 +79,7 @@
   };
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const GB = n => n == null ? "—" : nfmt(n / 2 ** 30, 1);
-  const STEPS = 6, KEEP = "basalt.wizard";
+  const STEPS = 6, KEEP = "tadamoo.wizard";
   let W = null;            // {step, info, answers, touched, model, prop, measured, measureNote, offered}
 
   async function api(path, body) {
@@ -120,7 +120,7 @@
     const d = dialog();
     let kept = null;
     try { kept = JSON.parse(sessionStorage.getItem(KEEP) || "null"); } catch (e) { kept = null; }
-    W = kept && opts.resume ? kept : { step: 1, answers: {}, touched: {}, model: (window.BasaltModels && BasaltModels.selected()) || null,
+    W = kept && opts.resume ? kept : { step: 1, answers: {}, touched: {}, model: (window.TadamooModels && TadamooModels.selected()) || null,
       prop: null, measured: null, offered: !!opts.offered };
     $("#wz-h").textContent = t("title");
     $("#wz-x").textContent = t("close");
@@ -198,7 +198,7 @@
 
   /* ---- 3: the model ---- */
   function step3() {
-    const M = window.BasaltModels && BasaltModels.data();
+    const M = window.TadamooModels && TadamooModels.data();
     const ready = ((M && M.models) || []).filter(m => m.status === "ready");
     if (!ready.length) return `<h3>${esc(t("h3"))}</h3><p class="setnote warnnote">${esc(t("nomodel"))}</p>`;
     if (!W.model || !ready.some(m => same(m.path, W.model))) W.model = ready[0].path;
@@ -314,7 +314,7 @@
     const p = W.prop || { values: {} };
     return `<h3>${esc(t("h6"))}</h3>
       <p>${esc(t("left", nfmt((W.answers.free_share || 0.15) * 100, 0) + "%", nfmt((W.answers.vram_reserve_mib || 0) / 1024, 2), t("monitor." + (W.answers.monitor || "none"))))}</p>
-      <p class="help">${esc((window.BasaltModels && BasaltModels.name(W.model)) || "")} · ${esc(W.measured ? t("measured", nfmt(W.measured.decode, 0), nfmt(W.measured.decode_reasoning, 0), nfmt(W.measured.prefill, 0)) : t("skipped"))}</p>
+      <p class="help">${esc((window.TadamooModels && TadamooModels.name(W.model)) || "")} · ${esc(W.measured ? t("measured", nfmt(W.measured.decode, 0), nfmt(W.measured.decode_reasoning, 0), nfmt(W.measured.prefill, 0)) : t("skipped"))}</p>
       <div class="setactions"><button type="button" class="btn primary" data-wz="save" ${W.prop ? "" : "disabled"}>${esc(t("save"))}</button>
         <button type="button" class="btn" data-wz="use" hidden>${esc(t("use"))}</button></div>
       <p class="wz-res" id="wz-saved" role="status" aria-live="polite"></p>`;
@@ -340,16 +340,16 @@
     else if (el.id === "wz-share") { const v = Number(el.value) / 100; if (Number.isFinite(v) && v >= 0.05 && v <= 0.5) { W.answers.free_share = v; W.prop = null; } }
     else if (el.id === "wz-vram") { const v = Number(String(el.value).replace(",", ".")); if (Number.isFinite(v) && v >= 0) { W.answers.vram_reserve_mib = Math.round(v * 1024); W.touched.vram = true; W.prop = null; } }
     else if (el.id === "wz-model") { W.model = el.value; W.prop = null; if (W.step === 3) go(3); }
-    else if (el.id === "wz-never") { try { localStorage.setItem("basalt.wizard.skip", el.checked ? "1" : "0"); } catch (err) { /* asked again next time */ } }
+    else if (el.id === "wz-never") { try { localStorage.setItem("tadamoo.wizard.skip", el.checked ? "1" : "0"); } catch (err) { /* asked again next time */ } }
     if (W.step === 4 || !W.prop) { const next = $("#wz [data-wz=next]"); if (next && W.step === 4) next.disabled = !W.prop; }
     remember();
   }
 
-  window.BasaltWizard = {
+  window.TadamooWizard = {
     open,
     offer() {
       let skip = false;
-      try { skip = localStorage.getItem("basalt.wizard.skip") === "1"; } catch (e) { skip = false; }
+      try { skip = localStorage.getItem("tadamoo.wizard.skip") === "1"; } catch (e) { skip = false; }
       if (!skip) open({ offered: true });
     },
     resume() { open({ resume: true }); },

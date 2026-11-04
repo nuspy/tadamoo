@@ -1,5 +1,5 @@
 "use strict";
-/* Joining the pieces of a reply the output limit cut (the same two functions as harness/continuation.py, which the tests run against
+/* Joining the pieces of a reply the output limit cut (the same two functions as tadamoo/continuation.py, which the tests run against
    this file with one table of cases). A cut reply is sent back up to its last whitespace (cutPoint): the model writes the unfinished
    word again. joinCut puts the whole cut text and the new reply together: no doubled or missing space, one paragraph break at most,
    and none of the words the model repeated. */

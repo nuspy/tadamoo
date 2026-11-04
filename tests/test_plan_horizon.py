@@ -9,8 +9,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from harness.planner import PlanDAG, PlanProfile, alignment
-from harness.planner.alignment import meaning_conflicts, rule_conflicts, view
+from tadamoo.planner import PlanDAG, PlanProfile, alignment
+from tadamoo.planner.alignment import meaning_conflicts, rule_conflicts, view
 from serve.plans import PlanService
 
 LONG = {"goals": ["Keep a healthy knee", "Save for a house"], "review_every_days": 14, "last_review": "2026-10-20",

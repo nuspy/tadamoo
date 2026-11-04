@@ -94,7 +94,7 @@ class Http(unittest.TestCase):
         self.assertEqual([m["id"] for m in data], [SERVED, "Orca-IQ3_XXS", "Qwen3.8-Flash-Next-IQ4_NL"])
         self.assertEqual([m["status"]["value"] for m in data], ["loaded", "unloaded", "unloaded"])
         served, orca, iq4 = data
-        self.assertEqual((served["meta"]["n_ctx"], served["context_length"], served["owned_by"]), (8192, 8192, "basalt"))
+        self.assertEqual((served["meta"]["n_ctx"], served["context_length"], served["owned_by"]), (8192, 8192, "tadamoo"))
         self.assertEqual(served["path"], self.svc.settings_info["model"])      # bound to 127.0.0.1: the paths
         self.assertEqual(iq4["path"], "D:/Modelli/Qwen3.8-Flash-Next-IQ4_NL.basalt")
         self.assertEqual((iq4["context_length"], iq4["meta"], iq4["display_name"]),
@@ -140,7 +140,7 @@ class Http(unittest.TestCase):
         self.assertFalse(any("path" in m for m in data))
         message = model_list.refusal(self.svc, "Orca-IQ3_XXS", local=False)
         self.assertNotIn("D:/Modelli", message)
-        self.assertIn("Avvia-Basalt.ps1 --model", message)
+        self.assertIn("Avvia-TaDaMoo.ps1 --model", message)
 
     def test_an_unloaded_model_is_refused(self):
         msgs = [{"role": "user", "content": "hi"}]
@@ -151,7 +151,7 @@ class Http(unittest.TestCase):
                                                                                  "invalid_request_error"))
                 self.assertIn("not loaded", e["error"]["message"])
                 self.assertIn("Loader", e["error"]["message"])
-                self.assertIn('Avvia-Basalt.ps1 --model "D:/Modelli/Orca-IQ3_XXS.basalt"', e["error"]["message"])
+                self.assertIn('Avvia-TaDaMoo.ps1 --model "D:/Modelli/Orca-IQ3_XXS.basalt"', e["error"]["message"])
         code, e = self.req("POST", "/v1/messages", {"model": "Orca-IQ3_XXS", "messages": msgs, "max_tokens": 4})
         self.assertEqual((code, e["type"], e["error"]["type"]), (404, "error", "not_found_error"))
         code, e = self.req("POST", "/v1/responses", {"model": "Orca-IQ3_XXS", "input": "hi", "max_output_tokens": 4})
@@ -219,7 +219,7 @@ class Folders(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         root = Path(self.dir.name)
-        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": str(root / "cache"), "BASALT_DATA": str(root / "data")})
+        self.env = mock.patch.dict(os.environ, {"TADAMOO_CACHE": str(root / "cache"), "TADAMOO_DATA": str(root / "data")})
         self.env.start()
         models._cache = None
         self.a, self.b = root / "a", root / "b"
@@ -255,7 +255,7 @@ class ProfileSummaries(unittest.TestCase):
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"BASALT_CACHE": self.dir.name, "BASALT_DATA": self.dir.name})
+        self.env = mock.patch.dict(os.environ, {"TADAMOO_CACHE": self.dir.name, "TADAMOO_DATA": self.dir.name})
         self.env.start()
         tok = ByteTokenizer()
         self.svc = Service(MockEngine(tok, "ok"), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))

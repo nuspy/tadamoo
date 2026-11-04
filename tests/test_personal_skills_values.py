@@ -3,8 +3,8 @@ from datetime import datetime
 
 import pytest
 
-from harness.personal_skills import markers
-from harness.personal_skills.values import ValueError_, check_spec, parse_value, parse_when, resolve
+from tadamoo.personal_skills import markers
+from tadamoo.personal_skills.values import ValueError_, check_spec, parse_value, parse_when, resolve
 
 NOW = datetime(2026, 10, 26, 14, 30, 15)             # a Monday
 

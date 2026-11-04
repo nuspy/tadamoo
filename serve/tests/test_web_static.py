@@ -289,7 +289,7 @@ class SearchOnlineTest(unittest.TestCase):
     def test_every_warning_and_fact_the_search_can_give_has_a_text_in_both_languages(self):
         import sys
         sys.path.insert(0, str(ROOT))
-        from harness.discovery.scoring import TEXT
+        from tadamoo.discovery.scoring import TEXT
         if not NODE:
             self.skipTest("node is needed to read the translations")
         strings_ = strings()
@@ -362,7 +362,7 @@ class BranchesTest(unittest.TestCase):
             self.assertIn(needle, self.html, needle)
         self.assertLess(self.html.index('class="sh chathead"'), self.html.index('id="branches-open"'))   # in the chat's own header
         self.assertLess(self.html.index('id="branches-open"'), self.html.index('class="acopy"'))
-        self.assertIn("basalt:open-session", (WEB / "agentchat.js").read_text(encoding="utf-8"))
+        self.assertIn("tadamoo:open-session", (WEB / "agentchat.js").read_text(encoding="utf-8"))
         chat = (WEB / "agentchat.js").read_text(encoding="utf-8")
         self.assertIn("back-impact", chat)                                  # going back lists what stays done before it takes anything off
         self.assertIn("accept_irreversible: true", chat)

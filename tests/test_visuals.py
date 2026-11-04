@@ -10,10 +10,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.attachments import OutputStore
-from harness.tools.registry import ToolRegistry
-from harness.tools.search import PageError
-from harness.visuals import IMAGE_RULES, CHART_RULES, fetch_image, format_images, guidance, page_images, register_visual_tools, sniff
+from tadamoo.attachments import OutputStore
+from tadamoo.tools.registry import ToolRegistry
+from tadamoo.tools.search import PageError
+from tadamoo.visuals import IMAGE_RULES, CHART_RULES, fetch_image, format_images, guidance, page_images, register_visual_tools, sniff
 
 
 def png(width=200, height=120):
@@ -93,7 +93,7 @@ def test_show_image_keeps_the_picture_in_the_conversation_and_tells_how_to_show_
     listing = registry.get("page_images").handler(site + "/article")
     assert "headline.png" in listing
     done = registry.get("show_image").handler(site + "/img/headline.png", "The bridge")
-    assert done.startswith("[file:") and "![short caption](basalt-file:" in done
+    assert done.startswith("[file:") and "![short caption](tadamoo-file:" in done
     (item,) = outputs.list("s1")
     assert item["name"].endswith(".png") and item["name"].startswith("The_bridge")
     assert "Could not get that picture" in registry.get("show_image").handler(site + "/fake.png", "x")

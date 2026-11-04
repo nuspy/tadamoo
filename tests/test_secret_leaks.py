@@ -6,9 +6,9 @@ from tempfile import TemporaryDirectory
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from harness.secrets_broker import SecretDestinationError, SecretsBroker, command_hosts, url_hosts
-from harness.tools.shell import execute_shell_command
-from harness.vault import Vault
+from tadamoo.secrets_broker import SecretDestinationError, SecretsBroker, command_hosts, url_hosts
+from tadamoo.tools.shell import execute_shell_command
+from tadamoo.vault import Vault
 
 KEY = bytes(range(32))
 
@@ -104,7 +104,7 @@ class ProtectedPlaces(unittest.TestCase):
             b = SecretsBroker()
             b.protect(Path(d) / "vault", Path(d) / "payments")
             for command in (f'type "{Path(d) / "vault" / "x"}"', "cat " + str(Path(d) / "payments").replace("\\", "/") + "/state", "type vault.bin",
-                            r"type %APPDATA%\Basalt\control-8080.token", "copy browser-profile/Default/Cookies ."):
+                            r"type %APPDATA%\TaDaMoo\control-8080.token", "copy browser-profile/Default/Cookies ."):
                 res = execute_shell_command(command, w, secrets=b)
                 self.assertTrue(res["blocked"], command)
             self.assertFalse(execute_shell_command("echo fine", w, secrets=b)["blocked"])

@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from harness.memory import MemoryStore, canonical_workspace, default_db_path, estimate_tokens, query_terms
-from harness.stack import AgentConfig, build_agent
-from harness.worktrees import Worktrees
+from tadamoo.memory import MemoryStore, canonical_workspace, default_db_path, estimate_tokens, query_terms
+from tadamoo.stack import AgentConfig, build_agent
+from tadamoo.worktrees import Worktrees
 
 BUILD = "The build uses cmake and ninja; configure with -DCMAKE_BUILD_TYPE=Release."
 DEPLOY = "Deploy goes to tadamoo.com with the script deploy.ps1, never by hand."
@@ -90,7 +90,7 @@ def repo(tmp_path):
 
 
 def test_the_copies_of_one_repository_are_one_project(tmp_path, repo, monkeypatch):
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
     copies = Worktrees(tmp_path / "wt")
     first, second = copies.create("t1", repo), copies.create("t2", repo)
     assert canonical_workspace(first["workdir"]) == repo.resolve() == canonical_workspace(repo)
@@ -100,7 +100,7 @@ def test_the_copies_of_one_repository_are_one_project(tmp_path, repo, monkeypatc
 
 
 def test_a_note_kept_in_one_copy_is_found_from_another_and_from_the_repository(tmp_path, repo, monkeypatch):
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
     copies = Worktrees(tmp_path / "wt")
     first, second = copies.create("t1", repo), copies.create("t2", repo)
     made = []
@@ -120,7 +120,7 @@ def test_a_note_kept_in_one_copy_is_found_from_another_and_from_the_repository(t
 
 
 def test_other_folders_keep_their_own_memory(tmp_path, monkeypatch):
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
     a, b = tmp_path / "a", tmp_path / "b"
     a.mkdir()
     b.mkdir()

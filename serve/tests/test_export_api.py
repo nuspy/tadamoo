@@ -82,7 +82,7 @@ class Plain(unittest.TestCase):
             status, headers, data = self.post(body(format=fmt, name="../Plan: the trip?"))
             self.assertEqual(status, 200, fmt)
             self.assertIn(ctype, headers["Content-Type"])
-            name = urllib.parse.unquote(headers["X-Basalt-Filename"])
+            name = urllib.parse.unquote(headers["X-Tadamoo-Filename"])
             self.assertTrue(name.endswith("." + ext) and "/" not in name and ":" not in name and "?" not in name, name)
             self.assertIn("attachment", headers["Content-Disposition"])
             self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
@@ -108,7 +108,7 @@ class Plain(unittest.TestCase):
         status, headers, data = self.post({"snapshot": snap, "select": {"answers": True}, "format": "md", "name": "Chapter one", "bare": True})
         self.assertEqual(status, 200)
         self.assertEqual(data.decode(), "# Chapter one\n\nThe river runs.\n")
-        self.assertEqual(urllib.parse.unquote(headers["X-Basalt-Filename"]), "Chapter one.md")
+        self.assertEqual(urllib.parse.unquote(headers["X-Tadamoo-Filename"]), "Chapter one.md")
         status, _, data = self.post({"snapshot": snap, "select": {"answers": True}, "format": "md", "name": "Chapter one"})
         self.assertIn("## Assistant", data.decode())
 

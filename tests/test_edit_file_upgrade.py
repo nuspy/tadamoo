@@ -1,9 +1,9 @@
 """edit_file: several edits at once, a tolerant match only when it is unique, and errors that say where the text really is."""
 import pytest
 
-from harness import editing
-from harness.editing import EditError, apply_edits, restore_endings, to_lf
-from harness.tools.filesystem import WorkspaceSandbox
+from tadamoo import editing
+from tadamoo.editing import EditError, apply_edits, restore_endings, to_lf
+from tadamoo.tools.filesystem import WorkspaceSandbox
 
 
 @pytest.fixture

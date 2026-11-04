@@ -14,21 +14,21 @@ in the robustness of the model-facing loop for a small local model and in a few 
   covering half of a 400+ character fragment), otherwise appends the fragment plus a nudge and continues at most 4 times,
   stops when the prompt filled the window (fewer than 512 free tokens), re-asks a tool call cut mid-argument with a doubled
   `max_tokens` (never runs incomplete arguments), and turns reasoning off for a thinking-only truncation. A ladder recovers
-  "no visible text after think". Port: read `finish_reason` and `usage` in `AgentLoop.run`, new `harness/output_guard.py`
+  "no visible text after think". Port: read `finish_reason` and `usage` in `AgentLoop.run`, new `tadamoo/output_guard.py`
   (repetition test, continue/retry/stop state machine), nudge as a `note: true` message. M.
 - **Tool-call repair.** Three layers: JSON repair by passes (control characters, trailing commas, string-aware closing of
   brackets, unrecoverable text never guessed; `agent/message_sanitization.py`), schema-guided coercion ("42" to 42, "true" to
   True, JSON string to array/object, bare scalar to one-element list; keep the original when ambiguous;
   `tools/arg_coercion.py`), and tool-name repair (case, separators, CamelCase, `_tool` suffix, junk after a quote, then
   `difflib` at 0.7; `agent/agent_runtime_helpers.py`). A mixed batch runs the valid calls and errors only the invalid ones;
-  strikes advance only when no call in the turn is valid. Port: `harness/tools/repair.py`, called in `parse_calls` and
+  strikes advance only when no call in the turn is valid. Port: `tadamoo/tools/repair.py`, called in `parse_calls` and
   `ToolRegistry.validate` before the permission layer; record `repaired: true` in the audit. S.
 - **Instruction blocks by model family** (`agent/prompt_builder.py`): tool-use enforcement ("never end your turn with a promise
   of future action", applied to qwen), execution discipline (verify before done, read back after external writes, mandatory
   tools for arithmetic and file facts), task completion ("never substitute fabricated output; reporting a blocker honestly is
   better"), and a function that deletes any line naming a tool absent in the session. Their own A/B shows such blocks can move
-  nothing for some models, so gate by evidence. Port: `harness/prompt_blocks.py` in our words, selected by `valid_tool_names`;
-  decide with `python -m harness.eval --set core --set toolcalls --k 5`. S.
+  nothing for some models, so gate by evidence. Port: `tadamoo/prompt_blocks.py` in our words, selected by `valid_tool_names`;
+  decide with `python -m tadamoo.eval --set core --set toolcalls --k 5`. S.
 - **Prompt assembly.** Stable tier, then context (project files, then anything worktree-dependent), then volatile (skills index,
   memory snapshot, time line, cwd last): project files before worktree text lets worktree sessions share a prefix. Skill-index
   changes are delivered once as a note on the next user message. A prompt-surface snapshot test (render the exact system prompt
@@ -54,14 +54,14 @@ in the robustness of the model-facing loop for a small local model and in a few 
   locations; `is_already_applied` turns a re-sent edit into a no-op; failures show numbered "did you mean" snippets with a
   visible-whitespace diff; an empty or identical `old_string` gets "do not re-send this call unchanged". Read-before-write: a
   whole-file write over a file never read, or changed since, is refused; a repeated identical read answers "unchanged" and is
-  blocked on the third. Port: `harness/tools/fuzzy_edit.py` and read stamps in `FileSandbox`. M.
+  blocked on the third. Port: `tadamoo/tools/fuzzy_edit.py` and read stamps in `FileSandbox`. M.
 - **Background processes** (`tools/terminal_tool.py`, `tools/process_registry*.py`): `background=true`, `notify_on_complete`,
   `watch_patterns`, a `process_manage` tool (poll, log, wait, kill, write), a 200 KB rolling buffer; a foreground command over
   the cap is promoted to background; after two empty polls the model is told to end its turn and wait for the completion note.
   Ours has foreground shell only (10 minutes). M-L.
 - **Programmatic tool calling** (`tools/code_execution_tool.py`): a script calls the allowed tools through RPC stubs (cap 50
   calls, only stdout returns); collapses a 10-step chain into one turn. Ours: personal skills already do this through
-  `harness/personal_skills/hosting.py`; expose the same stub module to `run_code`. M.
+  `tadamoo/personal_skills/hosting.py`; expose the same stub module to `run_code`. M.
 - **Schemas:** descriptions must not name tools of other toolsets; `tools/schema_sanitizer.py` rewrites schemas that the
   llama.cpp grammar converter rejects and a classifier strips `pattern`/`format` and retries. Check our `ToolRegistry.schemas()`
   against our grammar path.
@@ -91,7 +91,7 @@ in the robustness of the model-facing loop for a small local model and in a few 
 - **Budget warning at 90% of max turns plus one grace call to summarise**, so a run that hits `--max-turns` ends with a report.
 - **Cron:** a pre-run script whose stdout is injected, a script-only job (zero model cost), `context_from` chaining, an idle
   watchdog instead of a wall-clock cut, `next_run_at` advanced before dispatch so a crash cannot run a slot twice; an ESTOP
-  file that pauses new work without killing running work. All S in `harness/scheduler.py`.
+  file that pauses new work without killing running work. All S in `tadamoo/scheduler.py`.
 - **Approvals:** the hardline floor and user deny globs run before any bypass; matching on deobfuscated command variants; a
   denial circuit breaker after N denials per session (S).
 

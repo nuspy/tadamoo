@@ -12,16 +12,16 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from harness import capabilities as cap
-from harness.discovery.candidates import CandidateStore
-from harness.discovery.installed import InstalledStore
-from harness.discovery import sources as src
-from harness.discovery.finder import resolve_bases
-from harness.discovery.installed import github_token
-from harness.discovery.installer import AlreadyInstalled, InstallError, Installer, IntegrityError
-from harness.discovery.requests import InstallRequests, UnknownRequest
-from harness.discovery.scoring import DEFAULT_WEIGHTS
-from harness.discovery.settings import DiscoverySettings, SOURCES
+from tadamoo import capabilities as cap
+from tadamoo.discovery.candidates import CandidateStore
+from tadamoo.discovery.installed import InstalledStore
+from tadamoo.discovery import sources as src
+from tadamoo.discovery.finder import resolve_bases
+from tadamoo.discovery.installed import github_token
+from tadamoo.discovery.installer import AlreadyInstalled, InstallError, Installer, IntegrityError
+from tadamoo.discovery.requests import InstallRequests, UnknownRequest
+from tadamoo.discovery.scoring import DEFAULT_WEIGHTS
+from tadamoo.discovery.settings import DiscoverySettings, SOURCES
 
 
 class CapabilityError(ValueError):
@@ -96,10 +96,10 @@ class CapabilityApi:
                 self.index.refresh()
         return self.overview()
 
-    # -- the search online and what Basalt installed -------------------------------------------------------------------
+    # -- the search online and what TaDaMoo installed -------------------------------------------------------------------
 
     def online(self) -> Dict[str, Any]:
-        """The settings of the search online, the capabilities Basalt installed, and which installers this PC has."""
+        """The settings of the search online, the capabilities TaDaMoo installed, and which installers this PC has."""
         with self._lock:
             settings = DiscoverySettings(self.index.dir).load()
             settings.pop("base_urls", None)
@@ -116,14 +116,14 @@ class CapabilityApi:
         return self.online()
 
     def remove_installed(self, entry_id: Any) -> Dict[str, Any]:
-        """Deletes a capability Basalt installed: its folder and its record."""
+        """Deletes a capability TaDaMoo installed: its folder and its record."""
         try:
             with self._lock:
                 removed = Installer(self.index.dir, CandidateStore(), index=self.index).remove(str(entry_id))
         except InstallError as exc:
             raise CapabilityError(str(exc), "bad_folder") from None
         if not removed:
-            raise CapabilityError("Basalt did not install that one: look again.", "gone")
+            raise CapabilityError("TaDaMoo did not install that one: look again.", "gone")
         return self.online()
 
     # -- install requests: what the harness found by itself and the person has to authorise -----------------------------

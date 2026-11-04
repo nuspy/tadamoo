@@ -39,12 +39,12 @@ support is thin, so several ideas matter more for a local Qwen on one GPU than f
    tokens so tool calls stay paired with results; an identifier audit; a deterministic fallback when the summariser times out; a
    silent "write durable notes" turn before compaction. Ours: `_drop` and `_summarize` return unchanged when `len(groups) <= 2`
    (a single autonomous request with hundreds of tool calls is only masked, never summarised) and the summariser gets
-   `text[:24000]`, the oldest part, so the newest is lost. Port in `harness/context_patterns.py` and `stack.py`; 250-350 lines.
+   `text[:24000]`, the oldest part, so the newest is lost. Port in `tadamoo/context_patterns.py` and `stack.py`; 250-350 lines.
 7. **Bootstrap files with budgets and a notice (S).** Per-file and total caps with a short notice telling the model to read the
    file directly; sub-agents get only AGENTS.md; a `SOUL.md` voice file split from the rules. Ours cuts AGENTS.md at 32 KB silently.
 8. **Execution-bias block (S).** "Actionable request: act now; weak or empty result: vary query, path, command, source, then
    conclude; mutable facts: live-check; a final claim needs evidence or a named blocker; promising future work creates an
-   obligation to schedule it." About 6 lines in `SYSTEM_CORE`, measured with `harness.eval`; it fits "the user chooses the risk"
+   obligation to schedule it." About 6 lines in `SYSTEM_CORE`, measured with `tadamoo.eval`; it fits "the user chooses the risk"
    because it tells the model not to pre-refuse.
 9. **Block chunking for chat surfaces (M, only if long replies go to channels or the phone).** Bounded blocks with a break chain
    (paragraph, newline, sentence, whitespace, hard cut); never splits inside a fence (closes and reopens it); a table stays in one

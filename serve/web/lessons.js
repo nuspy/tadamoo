@@ -203,6 +203,6 @@
     if (again && again !== document.activeElement) again.focus();
   }
 
-  document.addEventListener("basalt:sub", e => { if (e.detail === "memories") refresh(); });
-  document.addEventListener("basalt:lang", () => { if (S) paint(); });
+  document.addEventListener("tadamoo:sub", e => { if (e.detail === "memories") refresh(); });
+  document.addEventListener("tadamoo:lang", () => { if (S) paint(); });
 })();

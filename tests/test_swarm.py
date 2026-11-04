@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from harness.swarm.orchestrator import SwarmOrchestrator, SwarmPlan
+from tadamoo.swarm.orchestrator import SwarmOrchestrator, SwarmPlan
 
 
 def test_swarm_manifest_loading():

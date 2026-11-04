@@ -9,8 +9,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.audit import AuditLedger
-from harness.stack import data_dir_for
+from tadamoo.audit import AuditLedger
+from tadamoo.stack import data_dir_for
 from serve import handler
 from serve.agent_sessions import SessionManager
 from serve.approvals import ApprovalBoard

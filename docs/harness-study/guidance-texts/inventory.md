@@ -12,14 +12,14 @@ What the server renders, in order: the template's reasoning-effort sentence, the
 - Template, effort sentence (xhigh/medium/low): about 35 tokens, at the very top. Not ours; it changes with the effort setting.
 - Template, tool-format block (`<tool_call><function=...>` with ONLY, NO, MUST, `<IMPORTANT>`): 817 / 168. Not ours; it is the model's native format text.
 - Tool list: see section 4. It is the largest part by far.
-- `harness/stack.py:42` SYSTEM_CORE: 951 / 205. Identity, act with tools, read sources for look-ups, untrusted-data rule, secret placeholder, the [harness] time line, the missing-capability hint.
-- `harness/tools/registry.py:165` TOOL_CALL_NOTE (joined to SYSTEM_CORE at `stack.py:700`): 64 / 15. The person sees your `description` of each call.
-- `harness/awareness.py:28` self_model, pinned as "# About yourself": 1073 / 246. Role and level, room in tokens, masking/fold thresholds, limits, absent features, "a task is yours until done".
-- `harness/prompt_blocks.py:10` RULES, "# Working rules": 918 / 220. Opt-in (`--instruction-blocks`, off by default).
-- `harness/environment.py:108` environment_paragraph, "# Environment": 660 / 187. OS, shell, Python, working folder, output files.
-- `harness/capabilities.py:451` top_of_tree, "# Capabilities": 208 / 66. Only with `--capabilities`.
-- `harness/visuals.py:238` guidance, "# Pictures and diagrams": 1148 / 259. Only with images/charts set. `visuals.py:231` FILES_GUIDANCE, "# Files for the person": 545 / 134, only for the page-files chat.
-- `harness/questions.py:321` PROMPT_RULES (ask_user rules): 1497 / 340. Appended to the system prompt when the planner is enabled (`session.py:655`).
+- `tadamoo/stack.py:42` SYSTEM_CORE: 951 / 205. Identity, act with tools, read sources for look-ups, untrusted-data rule, secret placeholder, the [harness] time line, the missing-capability hint.
+- `tadamoo/tools/registry.py:165` TOOL_CALL_NOTE (joined to SYSTEM_CORE at `stack.py:700`): 64 / 15. The person sees your `description` of each call.
+- `tadamoo/awareness.py:28` self_model, pinned as "# About yourself": 1073 / 246. Role and level, room in tokens, masking/fold thresholds, limits, absent features, "a task is yours until done".
+- `tadamoo/prompt_blocks.py:10` RULES, "# Working rules": 918 / 220. Opt-in (`--instruction-blocks`, off by default).
+- `tadamoo/environment.py:108` environment_paragraph, "# Environment": 660 / 187. OS, shell, Python, working folder, output files.
+- `tadamoo/capabilities.py:451` top_of_tree, "# Capabilities": 208 / 66. Only with `--capabilities`.
+- `tadamoo/visuals.py:238` guidance, "# Pictures and diagrams": 1148 / 259. Only with images/charts set. `visuals.py:231` FILES_GUIDANCE, "# Files for the person": 545 / 134, only for the page-files chat.
+- `tadamoo/questions.py:321` PROMPT_RULES (ask_user rules): 1497 / 340. Appended to the system prompt when the planner is enabled (`session.py:655`).
 - Optional pinned blocks whose size is the user's: project AGENTS.md (cut at 32 KiB), reference documents (CAG), the skills catalog, the vault note.
 
 Prefix totals measured (Qwen3 tokenizer):
@@ -54,7 +54,7 @@ All start with `[harness]` and are user-role messages unless stated.
 - Largest tools (tokens, whole definition): ask_user 423, edit_file 413, plan_create 400, plan_mark 360, read_file 350, shell_command 315, plan_prepare_call 306, create_skill 293, search_code 289, repo_diagram 284, run_code 283.
 - The 15 `plan_*` tools plus ask_user and present_plan: 3,570 tokens (31% of the schema). Registered in every chat (`session.py:656`) whether or not the user ever talks about plans.
 - Capability family (find_capability, find_online_capability, call_capability, read_capability, load_capability, explain/ask_install_request, analyze_image): 1,460. search_past, open_past, recall_about_user, create_skill, self_status: 1,025.
-- Descriptions by file: `harness/tools/__init__.py:47-` (read, write, edit, search, tree, shell, jobs), `todo.py:58`, `plan_mode.py:57`, `planner_tools.py` (15 tools), `memory.py:296`, `personal_memory.py:560`, `past.py:291`, `attachment_tools.py:151`, `capabilities.py:630`, `lsp.py:399`, `vision_tool.py:109`, `visuals.py:206`, `tools/extra.py:139,167`, `awareness.py:78` self_status, `personal_skills/authoring.py:38` (create_skill, description plus GUIDE 364 chars), `council.py:229`, `integrations/telephony_tools.py:87`, `integrations/wiki_tools.py:51`, `mcp_client.py`.
+- Descriptions by file: `tadamoo/tools/__init__.py:47-` (read, write, edit, search, tree, shell, jobs), `todo.py:58`, `plan_mode.py:57`, `planner_tools.py` (15 tools), `memory.py:296`, `personal_memory.py:560`, `past.py:291`, `attachment_tools.py:151`, `capabilities.py:630`, `lsp.py:399`, `vision_tool.py:109`, `visuals.py:206`, `tools/extra.py:139,167`, `awareness.py:78` self_status, `personal_skills/authoring.py:38` (create_skill, description plus GUIDE 364 chars), `council.py:229`, `integrations/telephony_tools.py:87`, `integrations/wiki_tools.py:51`, `mcp_client.py`.
 - Browser (only with `--browser`, `browser.py:1258-1350`): 9 tools, descriptions 29-242 characters each.
 
 ## 5. Side-session prompts (separate requests, a different prefix, mostly effort none)
@@ -65,4 +65,4 @@ Chars / tokens, file:line. Each is its own request, so none of them touches the 
 - `suggestions.py:27` 764 / 181. `serve/longflow.py:69` PLAN 634 / 151, `:75` VERIFY 794 / 173, `:83` FIX 288 / 68. `serve/chatctx.py:19` SUMMARY 840 / 173, `:148` ABSTRACT 564 / 122. `digest.py:42` 522 / 125. `serve/agent_sessions.py:600` merge prompt 265 chars.
 - Small judges: `completion.py:18` 666 / 145, `optimize.py:33` 538 / 115, `auto_approve.py:18` 483 / 107, `inject_screen.py:21` 442 / 102 (+ `:17` NOTICE 250), `tool_extract.py:21` 583 / 126, `lessons.py:782` 484 / 104, `router.py:36` 389 / 88, `memory_rank.py:21` 343 / 76, `progress.py:21` 342 / 80.
 - `swarm/subagent.py:18` SYSTEM 329 / 72 (a subagent starts with this instead of SYSTEM_CORE). `council.py:46,49` 341 and 475 chars.
-- Eval fixtures (`harness/eval/cases/fixtures/`) are test inputs, not guidance, and are left out.
+- Eval fixtures (`tadamoo/eval/cases/fixtures/`) are test inputs, not guidance, and are left out.

@@ -108,10 +108,10 @@ class ModeLabelWiringTest(unittest.TestCase):
 
     def test_the_other_risk_questions_are_answered_yes_by_themselves_while_the_mode_is_automatic(self):
         risk = (WEB / "risk.js").read_text(encoding="utf-8")
-        self.assertIn('window.basaltAutoMode = () => permNow() === "auto";', self.chat)
+        self.assertIn('window.tadamooAutoMode = () => permNow() === "auto";', self.chat)
         body = risk[risk.index("window.riskConfirm"):]
         before_dialog = body[:body.index("showModal")]
-        self.assertIn("window.basaltAutoMode()", before_dialog)
+        self.assertIn("window.tadamooAutoMode()", before_dialog)
         self.assertIn("resolve(true); return;", before_dialog)
 
     def test_the_menu_is_a_listbox_the_message_box_controls_and_the_script_is_loaded_after_the_chat(self):

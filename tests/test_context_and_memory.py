@@ -3,12 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from harness import untrusted
-from harness.context import (ContextBuilder, ContextManager, TokenJuiceCompactor, available_budget,
+from tadamoo import untrusted
+from tadamoo.context import (ContextBuilder, ContextManager, TokenJuiceCompactor, available_budget,
                              get_eviction_candidates, html_to_markdown, trim_json, wire_messages)
-from harness.memory import MemoryStore, default_db_path, fts_query
-from harness.skills import (SkillCatalog, find_project_guidelines, load_project_guidelines, parse_frontmatter, register_skill_tool)
-from harness.tools.registry import ToolRegistry
+from tadamoo.memory import MemoryStore, default_db_path, fts_query
+from tadamoo.skills import (SkillCatalog, find_project_guidelines, load_project_guidelines, parse_frontmatter, register_skill_tool)
+from tadamoo.tools.registry import ToolRegistry
 
 
 def make_compactor(tmp_path, **kw):
@@ -195,7 +195,7 @@ def test_memory_update_and_validation(tmp_path: Path):
 
 
 def test_memory_path_is_per_workspace_and_outside_it(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
     a, b = tmp_path / "proj_a", tmp_path / "proj_b"
     a.mkdir()
     b.mkdir()

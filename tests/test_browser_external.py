@@ -6,11 +6,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness.browser import Browser, BrowserError, external_endpoint, find_browser, register_browser_tools
-from harness.headless import parse_args
-from harness.session import parse_args as session_args
-from harness.stack import agent_settings
-from harness.tools.registry import ToolRegistry
+from tadamoo.browser import Browser, BrowserError, external_endpoint, find_browser, register_browser_tools
+from tadamoo.headless import parse_args
+from tadamoo.session import parse_args as session_args
+from tadamoo.stack import agent_settings
+from tadamoo.tools.registry import ToolRegistry
 from test_browser import shop  # noqa: F401 (fixture)
 
 needs_browser = pytest.mark.skipif(find_browser() is None, reason="needs Edge or Chrome on this PC")
@@ -42,7 +42,7 @@ def test_the_option_reaches_the_agent_settings_of_the_command_line_and_the_chat(
 
 def test_a_browser_that_does_not_answer_is_reported_not_started(tmp_path, monkeypatch):
     b = Browser(cdp_url="http://127.0.0.1:1")
-    monkeypatch.setattr("harness.browser.time.sleep", lambda s: None)
+    monkeypatch.setattr("tadamoo.browser.time.sleep", lambda s: None)
     with pytest.raises(BrowserError, match="no browser page answered"):
         b.start()
     assert b.proc is None
@@ -69,10 +69,10 @@ def test_an_already_running_browser_is_driven_and_left_running(tmp_path, shop):
 
 def test_a_headless_run_hands_every_event_to_a_recorder_in_the_format_analysis_reads(tmp_path):
     """What the ClawBench driver does inside the container, with a scripted model: the events of a run end up as analysis.py's trajectory."""
-    from harness.bench import analysis
-    from harness.bench.adapters.containerkit import TrajectoryRecorder
-    from harness.headless import run_headless
-    from harness.stack import AgentConfig
+    from tadamoo.bench import analysis
+    from tadamoo.bench.adapters.containerkit import TrajectoryRecorder
+    from tadamoo.headless import run_headless
+    from tadamoo.stack import AgentConfig
     from test_agent_loop import ScriptedClient, call, say
 
     ws = tmp_path / "ws"

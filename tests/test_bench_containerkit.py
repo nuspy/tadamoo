@@ -1,4 +1,4 @@
-"""The shared part of the container adapters (harness/bench/adapters/containerkit.py): the container tools, the trajectory, our agent and the bash baseline
+"""The shared part of the container adapters (tadamoo/bench/adapters/containerkit.py): the container tools, the trajectory, our agent and the bash baseline
 with their commands run in a local bash standing in for the container. No Docker, no model."""
 import json
 import shutil
@@ -11,12 +11,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import editing
-from harness.bench import analysis
-from harness.bench.adapters import containerkit as ck
-from harness.bench.adapters.containerkit import AgentOutcome, ContainerTools, ExecOut, TrajectoryRecorder
-from harness.bench.runner import TrialResult
-from harness.tools import create_standard_tool_registry
+from tadamoo import editing
+from tadamoo.bench import analysis
+from tadamoo.bench.adapters import containerkit as ck
+from tadamoo.bench.adapters.containerkit import AgentOutcome, ContainerTools, ExecOut, TrajectoryRecorder
+from tadamoo.bench.runner import TrialResult
+from tadamoo.tools import create_standard_tool_registry
 from test_session import Scripted, call, say
 
 BASH = shutil.which("bash")
@@ -27,7 +27,7 @@ pytestmark = pytest.mark.skipif(BASH is None, reason="needs bash to stand in for
 
 @pytest.fixture(autouse=True)
 def _no_clock(monkeypatch):
-    monkeypatch.setattr("harness.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.local_now", None)
 
 
 def local_exec(cwd: Path, log=None):
@@ -183,7 +183,7 @@ def test_the_local_engine_is_the_only_model_address():
 
 
 def test_server_faults_are_told_from_the_agent_failing():
-    assert ck.is_server_fault(AgentOutcome(stop_reason="error", error="cannot reach the Basalt server at http://127.0.0.1:7232: refused"))
+    assert ck.is_server_fault(AgentOutcome(stop_reason="error", error="cannot reach the TaDaMoo server at http://127.0.0.1:7232: refused"))
     assert ck.is_server_fault(AgentOutcome(stop_reason="error", error="verify: layer 2 never rang (an illegal memory access was encountered)"))
     assert not ck.is_server_fault(AgentOutcome(stop_reason="error", error="maximum context length exceeded"))
     assert not ck.is_server_fault(AgentOutcome(stop_reason="final"))
@@ -355,7 +355,7 @@ def test_the_baseline_has_a_step_limit_a_time_limit_and_reports_a_server_fault(t
     traj = TrajectoryRecorder(tmp_path / "trajectory.jsonl")
     out = ck.run_bash_baseline("t", local_exec(root), client=forever, trajectory=traj, max_steps=3)
     assert out.stop_reason == "max_turns" and out.turns == 3
-    broken = Counting(RuntimeError("cannot reach the Basalt server at http://127.0.0.1:7232"))
+    broken = Counting(RuntimeError("cannot reach the TaDaMoo server at http://127.0.0.1:7232"))
     out2 = ck.run_bash_baseline("t", local_exec(root), client=broken, trajectory=traj, max_steps=3)
     traj.close()
     assert out2.stop_reason == "error" and ck.is_server_fault(out2)

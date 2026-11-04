@@ -1,9 +1,9 @@
 # Precision and quality
 
-This page shows what precision Basalt computes in, that speculative decoding (MTP) does not change its output, and how
+This page shows what precision Basalt-Plus computes in, that speculative decoding (MTP) does not change its output, and how
 its quality compares with llama.cpp on the same GGUFs against the same Q8_0 reference.
 
-Test setup: Basalt at commit 610f2cd, one RTX 5090 at a 400 W power limit, an RTX 5060 Ti as the peer expert
+Test setup: Basalt-Plus at commit 610f2cd, one RTX 5090 at a 400 W power limit, an RTX 5060 Ti as the peer expert
 tier, 32 GB of system RAM.
 
 ## Summary
@@ -11,7 +11,7 @@ tier, 32 GB of system RAM.
 - **MTP does not change output** (unless `--relaxed-drafting` is set: [see below](#relaxed-drafting)). With the expert tiers pinned, 275 of 275 greedy prompts produced identical tokens on
   both packs tested, and every full-vocabulary fp32 logit row (62,271 and 60,878) was bit-identical between `--spec 0`
   and `--spec 7`.
-- **KLD matches llama.cpp.** On the same GGUFs against the same base, Basalt and llama.cpp's own `llama-perplexity`
+- **KLD matches llama.cpp.** On the same GGUFs against the same base, Basalt-Plus and llama.cpp's own `llama-perplexity`
   agree: IQ3_S 0.15264 vs 0.1526, IQ3_XXS 0.2433 vs 0.2428 at 100 chunks, with the exact head. The two-stage
   verify head of a Q6_K head (IQ3_S) adds about 0.0017 ([see below](#two-stage-verify-head)).
 - **No requantization.** Weights are the GGUF blocks as shipped. The one exception is the hyper-connection matrices,
@@ -67,7 +67,7 @@ The drafter only proposes tokens; verify decides every token, so the drafter's p
 | Output head | q8_1 of the fp32 final stream, mmvq or the Q5_K/Q6_K kernels; the two-stage Q6_K head's first stage takes the same q8_1 codes as int8 mma inputs (exact int32 per 32-group), fp32 scale terms | verify.cpp (the head); q6k_head.cu |
 | CPU expert tier (experts not resident on a GPU) | The fp32 input quantized with ggml's vec_dot_type (Q8_K per 256 for i-quant gate/up; Q8_0 or Q8_K for down), so it rounds differently from the GPU tiers | native_expert.cpp:52-62, 84-139 |
 
-Unlike llama.cpp, Basalt does not quantize the activations of the hc read to Q8_0.
+Unlike llama.cpp, Basalt-Plus does not quantize the activations of the hc read to Q8_0.
 
 ### Accumulation, state, softmax and logits
 
@@ -344,13 +344,13 @@ forward pass. 100 chunks, base PPL 3.286070, 400 W:
 | Pack | Engine | PPL | KLD mean | KLD median | KLD p99 | Same top-1 |
 |---|---|---|---|---|---|---|
 | GSQ-RCO IQ3_S | llama.cpp | 3.3728 | 0.1526 | 0.0340 | 1.750 | 87.20% |
-| GSQ-RCO IQ3_S | Basalt | 3.3723 | 0.15264 | – | – | 87.16% |
+| GSQ-RCO IQ3_S | Basalt-Plus | 3.3723 | 0.15264 | – | – | 87.16% |
 | GSQ-RCO IQ3_XXS | llama.cpp | 3.4675 | 0.2428 | 0.0596 | 2.607 | 84.05% |
-| GSQ-RCO IQ3_XXS | Basalt | 3.4678 | 0.2433 | – | – | – |
+| GSQ-RCO IQ3_XXS | Basalt-Plus | 3.4678 | 0.2433 | – | – | – |
 
-At 20 chunks (Basalt: the README table; llama.cpp: its running value at chunk 20):
+At 20 chunks (Basalt-Plus: the README table; llama.cpp: its running value at chunk 20):
 
-| Pack | Basalt KLD / top-1 | llama.cpp KLD / top-1 |
+| Pack | Basalt-Plus KLD / top-1 | llama.cpp KLD / top-1 |
 |---|---|---|
 | GSQ-RCO IQ3_S | 0.177 / 89.4% | 0.1753 / 89.22% |
 | GSQ-RCO IQ3_XXS | 0.277 / 86.8% | 0.2780 / 86.65% |
@@ -373,27 +373,27 @@ been compared yet (daytime queue, row 28).
 
 ## Why Q8_0 against Q8_0 is not zero
 
-The Basalt Q8_0 pack scores KLD 0.0456 and top-1 95.6% (4 chunks, fp16 KV) against the stock llama.cpp Q8_0 base. This
+The Basalt-Plus Q8_0 pack scores KLD 0.0456 and top-1 95.6% (4 chunks, fp16 KV) against the stock llama.cpp Q8_0 base. This
 is mostly the base's own noise. llama.cpp quantizes the activations of its Q8_0 matmuls. In the hyper-connection read
 (down projection 10240 → 320, then up) the sum has cancellation, so Q8_0 quantization of the input (0.2 to 0.4% per
-element) becomes about 1% in the mixed stream at layer 0. Basalt's hc read uses fp32 activations and matches the exact
+element) becomes about 1% in the mixed stream at layer 0. Basalt-Plus's hc read uses fp32 activations and matches the exact
 math to 1e-5.
 
 At layer 0, computed in numpy from llama.cpp's own hc_norm output and the GGUF Q8_0 hc weights, against an fp64 result
-with no activation quantization: Basalt's mixed stream has relative error 0.00000 and llama.cpp's 1.06%. llama.cpp
+with no activation quantization: Basalt-Plus's mixed stream has relative error 0.00000 and llama.cpp's 1.06%. llama.cpp
 against an emulation of Q8_0 activation quantization differs by 0.009%.
 
 With the hc read cast to F32 in llama.cpp (a local patch), 4 chunks, 400 W:
 
 | Comparison | KLD mean | Same top-1 |
 |---|---|---|
-| Basalt Q8_0 vs stock base | 0.0456 | 95.6% |
-| Basalt Q8_0 vs F32-hc base | 0.0233 | 97.16% |
+| Basalt-Plus Q8_0 vs stock base | 0.0456 | 95.6% |
+| Basalt-Plus Q8_0 vs F32-hc base | 0.0233 | 97.16% |
 | llama.cpp Q8_0 with F32 hc vs stock base | 0.0436 | 96.0% |
 | llama.cpp with ssm_alpha/beta activation quantization also removed vs F32-hc base | 0.0241 | 96.86% |
 
-Basalt's 0.0233 is the level of two independent implementations of this model (0.0241 between two llama.cpp variants).
-The stock base's hc noise lifts every pack's KLD by about 0.01 to 0.02 (Basalt, 4 chunks):
+Basalt-Plus's 0.0233 is the level of two independent implementations of this model (0.0241 between two llama.cpp variants).
+The stock base's hc noise lifts every pack's KLD by about 0.01 to 0.02 (Basalt-Plus, 4 chunks):
 
 | Pack | Stock base | F32-hc base |
 |---|---|---|
@@ -427,7 +427,7 @@ llama-perplexity -m PACK.gguf -f wikitext-2-raw/wiki.test.raw --kl-divergence-ba
     --kl-divergence -c 512 -b 2048 -ngl 99 --n-cpu-moe 99 -t 16
 ```
 
-Basalt's numbers, and the forced-window identity check (run with `--t` 1, 3 and 7, then diff the rows):
+Basalt-Plus's numbers, and the forced-window identity check (run with `--t` 1, 3 and 7, then diff the rows):
 
 ```sh
 python3 tools/ppl_gate.py --model PACK.basalt --engine-bin bin/basalt --base flashnext-q8-base.kld \

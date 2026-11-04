@@ -1,4 +1,4 @@
-"""How the runner and the service find the adapters (harness/bench/adapters/__init__.py): lazily, one module per benchmark, a missing module is only a missing
+"""How the runner and the service find the adapters (tadamoo/bench/adapters/__init__.py): lazily, one module per benchmark, a missing module is only a missing
 adapter. CPU only."""
 import sys
 import textwrap
@@ -9,9 +9,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from bench_support import MODEL
-from harness.bench import adapters, registry
-from harness.bench.runner import ADAPTERS, AdapterNotWritten, FakeAdapter, get_adapter
-from harness.bench.service import BenchService
+from tadamoo.bench import adapters, registry
+from tadamoo.bench.runner import ADAPTERS, AdapterNotWritten, FakeAdapter, get_adapter
+from tadamoo.bench.service import BenchService
 
 
 def test_the_table_names_a_module_for_every_benchmark():
@@ -28,7 +28,7 @@ def test_a_missing_module_is_a_missing_adapter_and_a_broken_one_is_an_error(tmp_
     with pytest.raises(adapters.AdapterModuleMissing, match="no adapter module is listed"):
         adapters.load("unknown")
     with pytest.raises(adapters.AdapterModuleMissing, match="does not exist yet"):
-        adapters.load("x", {"x": "harness.bench.adapters.not_written_yet"})
+        adapters.load("x", {"x": "tadamoo.bench.adapters.not_written_yet"})
     (tmp_path / "bench_adapter_broken.py").write_text("import a_package_nobody_has\n", encoding="utf-8")
     (tmp_path / "bench_adapter_empty.py").write_text("X = 1\n", encoding="utf-8")
     (tmp_path / "bench_adapter_fine.py").write_text(textwrap.dedent("class A:\n    id = 'fine'\nADAPTER = A\n"), encoding="utf-8")

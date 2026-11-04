@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import attachments as at
+from tadamoo import attachments as at
 from serve import handler
 from serve.agent_sessions import SessionManager
 from test_e2e_mock_server import answer, start_server  # noqa: F401  (fixture)

@@ -1,12 +1,13 @@
 """Saved configurations, shared by the web UI, the desktop app and the start scripts: named load profiles (the
 Loader's engine fields, the port and, when saved with one, the model file) and named inference presets (the chat
-settings). They live in one JSON file in the user's data folder (serve/userdata.py, outside the repository). "Valori sicuri" is a
+settings). The load profiles live in `profiles.json` and the inference presets in `presets.json`, both in the user's data
+folder (serve/userdata.py, outside the repository); a preset is moved between PCs by copying its file. "Valori sicuri" is a
 built-in load profile: it cannot be changed or deleted and it keeps the model the config file has. The default load
 profile is the one chosen (Make default), else "Machine Default" once the configuration wizard has saved it, else
 Valori sicuri; a client's chat follows "Machine Default" the same way until it picks another preset.
 
     python -m serve.profiles list
-    python -m serve.profiles apply NAME --config basalt_config.json [--model FILE.basalt]   # write NAME into the file
+    python -m serve.profiles apply NAME --config tadamoo_config.json [--model FILE.basalt]   # write NAME into the file
     python -m serve.profiles default
 """
 from __future__ import annotations
@@ -41,16 +42,25 @@ def path() -> Path:
     return userdata.path("profiles.json")
 
 
-def _read() -> dict:
+def presets_path() -> Path:
+    from serve import userdata
+    return userdata.path("presets.json")
+
+
+def _json_file(p: Path) -> dict:
     try:
-        data = json.loads(path().read_text(encoding="utf-8"))
+        data = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        data = {}
-    if not isinstance(data, dict):
-        data = {}
-    for kind in KINDS:
-        if not isinstance(data.get(kind), dict):
-            data[kind] = {}
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _read() -> dict:
+    data = _json_file(path())
+    saved = _json_file(presets_path()).get("presets")
+    data["inference"] = saved if isinstance(saved, dict) else {}
+    if not isinstance(data.get("load"), dict):
+        data["load"] = {}
     if not isinstance(data.get("default"), str):
         data["default"] = None                          # none chosen: default_of() picks one
     for p in data["load"].values():
@@ -74,13 +84,20 @@ def inference_default(data: dict) -> str | None:
     return MACHINE_NAME if MACHINE_NAME in data["inference"] else None
 
 
-def _write(data: dict) -> None:
-    p = path()
+def _write_file(p: Path, content: dict) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix="profiles.", suffix=".json")
+    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=p.stem + ".", suffix=".json")
     with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+        json.dump(content, f, indent=2, ensure_ascii=False)
     os.replace(tmp, p)
+
+
+def _write(data: dict, kind: str | None = None) -> None:
+    """Writes the load profiles and/or the inference presets (each its own file); no kind writes both."""
+    if kind in (None, "inference") and (kind == "inference" or data["inference"]):
+        _write_file(presets_path(), {"format": "tadamoo-presets", "version": 1, "presets": data["inference"]})
+    if kind in (None, "load"):
+        _write_file(path(), {k: v for k, v in data.items() if k != "inference"})
 
 
 def safe_values(port: int = DEFAULT_PORT, facts: dict | None = None, system: dict | None = None,
@@ -146,7 +163,7 @@ def check_inference(values) -> dict:
         raise ValueError("settings: an object of chat settings")
     out = {k: v for k, v in values.items() if k in INFERENCE_KEYS}
     if "context_patterns" in out:
-        from harness.context_patterns import check_config
+        from tadamoo.context_patterns import check_config
         out["context_patterns"] = check_config(out["context_patterns"])
     if out.get("end_turn_bias") not in (None, ""):
         from serve.api.logit_bias import add_end_turn
@@ -333,31 +350,23 @@ def change(req: dict) -> dict:
             items = req.get("data")
             if not isinstance(items, dict):
                 raise ValueError("data: the exported JSON object")
-            for k in KINDS:
-                for name, item in (items.get(k) or {}).items():
-                    name = check_name(name)
-                    if k == "load" and name == SAFE_NAME:
-                        continue
-                    if k == "load":
-                        model = item.get("model")
-                        if model and not os.path.isfile(str(model)):
-                            model = None                 # exported on another PC: the config file's model stays
-                        data[k][name] = _load_item(item.get("values"), model) | {"saved": loader.now_iso()}
-                    else:
-                        data[k][name] = {"settings": check_inference(item.get("settings")), "saved": loader.now_iso()}
+            for name, item in (items.get("load") or {}).items():
+                name = check_name(name)
+                if name == SAFE_NAME:
+                    continue
+                model = item.get("model")
+                if model and not os.path.isfile(str(model)):
+                    model = None                         # exported on another PC: the config file's model stays
+                data["load"][name] = _load_item(item.get("values"), model) | {"saved": loader.now_iso()}
         else:
             raise ValueError("action: save, rename, delete, default or import")
-        _write(data)
+        _write(data, "load" if action == "import" else kind)
     return {"ok": True}
 
 
-def export(kind: str | None = None) -> dict:
-    data = _read()
-    out = {"format": "basalt-profiles", "version": 1}
-    for k in KINDS:
-        if kind in (None, k):
-            out[k] = data[k]
-    return out
+def export() -> dict:
+    """The load profiles as the Loader exports them; the inference presets are copied as their own file."""
+    return {"format": "basalt-profiles", "version": 1, "load": _read()["load"]}
 
 
 def apply(name: str, config: str, model: str | None = None, reserve_mib: int | None = None) -> dict:
@@ -441,7 +450,7 @@ def _get_json(url: str):
 
 def compare_with_server(url: str, profile: str | None, model: str | None, config: str | None,
                         reserve_mib: int | None = None, port: int | None = None) -> dict:
-    """What `Avvia-Basalt.ps1 -server` would load (resolved as a new start: the profile, else the default one; the
+    """What `Avvia-TaDaMoo.ps1 -server` would load (resolved as a new start: the profile, else the default one; the
     model by --model > profile > default server model > config file) against the server answering at `url`. Valori
     sicuri is the server's own computation (it knows the memory its engine gives back)."""
     from serve import models

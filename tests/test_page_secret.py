@@ -28,7 +28,7 @@ class _NoTelemetry:
 
 
 def start(tmp_path, monkeypatch, api_key=""):
-    monkeypatch.setenv("BASALT_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
     tok = ByteTokenizer()
     svc = Service(MockEngine(tok, ["</think>\n\nok"], max_context=16384), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
     svc.telemetry = _NoTelemetry()
@@ -71,7 +71,7 @@ def test_a_plain_program_gets_the_page_but_no_cookie(server):
 
 def test_the_browsers_own_navigation_gets_the_cookie(server):
     code, cookie, _ = call(server, "GET", "/", headers=NAV)
-    assert code == 200 and cookie.startswith(f"basalt_control_{server}={SECRET}") and "HttpOnly" in cookie
+    assert code == 200 and cookie.startswith(f"tadamoo_control_{server}={SECRET}") and "HttpOnly" in cookie
 
 
 @pytest.mark.parametrize("headers", [
@@ -86,7 +86,7 @@ def test_a_request_that_is_not_the_page_gets_no_cookie(server, headers):
 
 def test_the_cookie_does_not_depend_on_the_host_name(server):
     code, cookie, _ = call(server, "GET", "/", headers={**NAV, "Host": "box.lan"})
-    assert code == 200 and cookie.startswith(f"basalt_control_{server}={SECRET}")
+    assert code == 200 and cookie.startswith(f"tadamoo_control_{server}={SECRET}")
 
 
 def test_with_an_api_key_the_page_gets_the_cookie_only_through_the_key(keyed):
@@ -94,7 +94,7 @@ def test_with_an_api_key_the_page_gets_the_cookie_only_through_the_key(keyed):
     assert call(keyed, "GET", "/api/session")[0] == 401
     assert call(keyed, "GET", "/api/session", headers={"Authorization": "Bearer wrong"})[0] == 401
     code, cookie, _ = call(keyed, "GET", "/api/session", headers={"Authorization": "Bearer k-1234"})
-    assert code == 200 and cookie.startswith(f"basalt_control_{keyed}={SECRET}")
+    assert code == 200 and cookie.startswith(f"tadamoo_control_{keyed}={SECRET}")
     assert call(keyed, "GET", "/", headers={"Authorization": "Bearer k-1234"})[1] is not None
 
 
@@ -110,7 +110,7 @@ c.request("GET", "/", headers={"Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "
 r = c.getresponse(); r.read()
 cookie = r.getheader("Set-Cookie")
 c2 = http.client.HTTPConnection("127.0.0.1", port, timeout=15)
-c2.request("POST", "/api/tasks", body=json.dumps({"id": "t9", "status": "running"}), headers={"Content-Type": "application/json", "X-Basalt-Control": secret})
+c2.request("POST", "/api/tasks", body=json.dumps({"id": "t9", "status": "running"}), headers={"Content-Type": "application/json", "X-Tadamoo-Control": secret})
 r2 = c2.getresponse(); body = r2.read()
 print(json.dumps({"cookie": cookie, "write": r2.status, "body": body.decode()[:300]}))
 """
@@ -133,7 +133,7 @@ def test_a_child_of_the_agent_is_a_client_like_any_other(server, agent_is_this_p
     assert got["write"] == 200, got
     # the agent process itself (the approval client lives there) is not its own descendant
     assert call(server, "GET", "/", headers=NAV)[1] is not None
-    code, _, body = call(server, "POST", "/api/tasks", {"id": "t8", "status": "running"}, {"X-Basalt-Control": SECRET})
+    code, _, body = call(server, "POST", "/api/tasks", {"id": "t8", "status": "running"}, {"X-Tadamoo-Control": SECRET})
     assert code == 200
 
 
@@ -151,8 +151,8 @@ print(c.getresponse().status)
 
 def test_the_file_with_the_secret_is_refused_to_the_agents_own_code_and_the_route_accepts_the_secret_from_it(tmp_path, monkeypatch, server, agent_is_this_process):
     """The control token sits in a file of the data folder. Code the agent runs can neither read it nor use it if it knew it."""
-    from harness.secrets_broker import PROTECTED_FILES, SecretsBroker
-    from harness.tools.execute import find_runtimes, run_code
+    from tadamoo.secrets_broker import PROTECTED_FILES, SecretsBroker
+    from tadamoo.tools.execute import find_runtimes, run_code
     data = tmp_path / "data"
     data.mkdir(exist_ok=True)
     token_file = data / f"control-{server}.token"
@@ -168,7 +168,7 @@ try:
 except PermissionError:
     print('file refused')
 c = http.client.HTTPConnection('127.0.0.1', {server}, timeout=15)
-c.request('POST', '/api/agent/approvals/abc', body=json.dumps({{'decision': 'approve'}}), headers={{'Content-Type': 'application/json', 'X-Basalt-Control': {SECRET!r}}})
+c.request('POST', '/api/agent/approvals/abc', body=json.dumps({{'decision': 'approve'}}), headers={{'Content-Type': 'application/json', 'X-Tadamoo-Control': {SECRET!r}}})
 r = c.getresponse()
 print('approve', r.status, r.read().decode()[:120])
 """

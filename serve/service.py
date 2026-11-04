@@ -592,7 +592,7 @@ class Service:
         busy, ctx = bool(s.get("busy")), self.engine.max_context
         images = self.vision is not None
         return {
-            "service": "basalt", "model": self.model,
+            "service": "tadamoo", "model": self.model,
             "loaded": self.loaded(), "loading": self.loading, "auto_load": hasattr(self.engine, "restart"),
             "structured_output": {"formats": ["json_object", "json_schema"], "method": "grammar",
                                   "constrained_decoding": bool(self.grammar_engine), "stream_buffered": False,
