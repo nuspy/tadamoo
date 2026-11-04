@@ -27,7 +27,7 @@ from tadamoo.gate import VerifyGate, event_data, read_result
 from tadamoo.loop_guard import OutcomeGuard, Verdict
 from tadamoo.repeat_guard import RepeatGuard
 from tadamoo.rule_of_two import CONTENT_TOOLS, leak_question
-from tadamoo import inject_screen, outward_calls
+from tadamoo import inject_screen, outward_calls, shell_egress
 from tadamoo.hooks import AskPerson, HookManager
 from tadamoo.output_guard import RepetitionAbort, RepetitionWatch, raised_penalty, repetition_dominated
 from tadamoo.permissions import PermissionManager
@@ -739,7 +739,8 @@ class AgentLoop:
             return refused("loop", f"Loop detected: '{name}' was called repeatedly with identical arguments. "
                                    "Stop repeating it and change your approach.", "tool_loop")
 
-        if tool.outward and self.permissions:
+        outward = tool.outward or (name == "shell_command" and shell_egress.sends_out(args))     # a command that uploads or names a host outside this PC sends too
+        if outward and self.permissions:
             two = self.permissions.two
             held = two.leak(args, self.secrets) if two.level != "off" else ""
             if held:
@@ -755,7 +756,7 @@ class AgentLoop:
             elif blocked:
                 return refused("blocked", blocked, "tool_blocked")
         if self.permissions:
-            allowed, reason = self.permissions.evaluate(name, tool.effect, args, outward=tool.outward)
+            allowed, reason = self.permissions.evaluate(name, tool.effect, args, outward=outward)
             permission = "allowed" if allowed else "denied"
             if not allowed:
                 return refused("denied", f"Permission denied: {reason}", "permission_denied")
@@ -777,7 +778,7 @@ class AgentLoop:
                 cp_note = f"No checkpoint could be taken for this action ({exc}); it ran without one."
 
         ran = time.monotonic()
-        if tool.outward:
+        if outward:
             outward_calls.note(name, args)
         try:
             with cancel_scope(self.cancel) as scope:             # Stop also ends a command that is running
