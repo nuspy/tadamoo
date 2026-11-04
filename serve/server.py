@@ -96,7 +96,7 @@ def main() -> int:
     standby = bool(a.standby)                           # HTTP and the Loader now, the engine on the Loader's Load
     if not a.mock_engine and not (a.model and a.engine_bin) and not (standby and a.engine_bin):
         fail("the server needs --model and the engine binary: run it as basalt serve --config FILE (or --mock-engine)")
-    if (file_engine or cli_engine) and not a.model:
+    if (file_engine or cli_engine) and not a.model and not standby:     # a standby server keeps them for the Loader's Load
         fail("engine flags need --model")
     words: list[str] = []                               # the engine words in force (config file, then command line)
     if a.model:
