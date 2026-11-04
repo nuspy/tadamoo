@@ -79,6 +79,7 @@ Stato (1 novembre, sera): committati il blocco «cosa sei» con `self_status` (`
 - Compiti già annunciati: riesame delle ispirazioni da altri strumenti, confronto delle memorie (Claude-Mem, nostro sistema, Obsidian).
 
 ## In coda, senza GPU
+- Studio di due nuove famiglie per il motore, scritto in docs/new-model-families.md (4 Nov): DeepSeek V4.1 Flash (oggi si può far girare con Strata dal Loader; portarlo in Basalt solo se batte la misura base di strata-dsv41 su questo PC, che va fatta con la GPU) e il supporto ai layer Mamba S6 (utile solo per modelli che già li hanno; sostituire o aggiungere layer nel Qwen richiede riaddestramento). Prima di qualsiasi codice: leggere il rapporto ufficiale di DeepSeek, perché le cifre trovate in rete non coincidono. Attende la tua scelta.
 - Livello di ragionamento valutato in automatico per ogni passo dell'agente (oggi è uno per sessione). Si progetta dopo la prima misura dei benchmark con livello fisso, per avere un riferimento. (3 novembre)
 
 - Livello di ragionamento automatico: discussione scritta in `docs/auto-reasoning-level.md` (nessun tetto al pensiero, tua decisione del 2 novembre: solo il livello;
