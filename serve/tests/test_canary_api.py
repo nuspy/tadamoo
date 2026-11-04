@@ -104,7 +104,7 @@ class TestSettings(_Base):
         self.assertIsNone(canary_api.settings()["duration_minutes"])
 
     def test_refused(self):
-        for bad in ({"bogus": 1}, {"base_url": "ftp://x"}, {"duration_minutes": -5}, {"duration_minutes": "x"}, {"sessions_per_hour": 0},
+        for bad in ({"bogus": 1}, {"base_url": "ftp://x"}, {"duration_minutes": -5}, {"duration_minutes": "x"},
                     {"review_every": 1.5}, {"reviewer": {"kind": "other"}}, {"runtime": ""}, [1]):
             with self.assertRaises(canary_api.CanaryError, msg=str(bad)):
                 canary_api.save_settings(bad)

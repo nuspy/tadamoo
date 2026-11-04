@@ -73,8 +73,6 @@
     ui.minutes = numberInput(1);
     ui.minutesField = field("cn-minutes", "cn.f.minutes", "cn.h.minutes", ui.minutes);
     form.append(ui.minutesField);
-    ui.rate = numberInput(0.1);
-    form.append(field("cn-rate", "cn.f.rate", "cn.h.rate", ui.rate));
     ui.every = numberInput(1);
     form.append(field("cn-every", "cn.f.every", "cn.h.every", ui.every));
 
@@ -144,7 +142,6 @@
     ui.vendor.value = s.vendor;
     ui.mode.value = s.duration_minutes ? "fixed" : "forever";
     ui.minutes.value = s.duration_minutes || "";
-    ui.rate.value = s.sessions_per_hour;
     ui.every.value = s.review_every;
     ui.harness.value = s.harness || "";
     ui.keep.checked = !!s.keep_running;
@@ -160,7 +157,7 @@
     return {
       runtime: ui.runtime.value, model: ui.model.value, base_url: ui.base.value, api_key: ui.key.value, vendor: ui.vendor.value,
       duration_minutes: ui.mode.value === "fixed" ? Number(ui.minutes.value) || 0 : null,
-      sessions_per_hour: Number(ui.rate.value) || 0, review_every: Math.floor(Number(ui.every.value)) || 0,
+      review_every: Math.floor(Number(ui.every.value)) || 0,
       keep_running: ui.keep.checked, harness: ui.harnessBox.hidden ? "" : ui.harness.value,
       reviewer: { enabled: ui.rvOn.checked, kind: ui.rvKind.value, base_url: ui.rvBase.value, api_key: ui.rvKey.value, model: ui.rvModel.value },
     };

@@ -25,7 +25,7 @@ REPORT_MAX = 400_000
 
 DEFAULTS: Dict[str, Any] = {
     "runtime": "basalt", "model": "", "base_url": "", "api_key": "", "vendor": "auto",
-    "duration_minutes": None, "sessions_per_hour": 6, "review_every": 10, "keep_running": False, "harness": "",
+    "duration_minutes": None, "review_every": 10, "keep_running": False, "harness": "",
     "reviewer": {"enabled": False, "kind": "openai", "base_url": "", "api_key": "", "model": ""},
 }
 
@@ -191,11 +191,6 @@ def check_settings(patch: Any) -> Dict[str, Any]:
             raise CanaryError("duration_minutes is a number above 0, or empty for no limit.")
         else:
             cur["duration_minutes"] = d
-    if "sessions_per_hour" in patch:
-        v = patch["sessions_per_hour"]
-        if isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0:
-            raise CanaryError("sessions_per_hour is a number above 0.")
-        cur["sessions_per_hour"] = v
     if "review_every" in patch:
         v = patch["review_every"]
         if isinstance(v, bool) or not isinstance(v, int) or v < 1:
@@ -300,7 +295,6 @@ def build_config(s: Dict[str, Any], ctx: Context, state_dir: Path) -> Dict[str, 
     cfg["vendors_file"] = str(_dir() / "vendors.local.json")
     minutes = s["duration_minutes"]
     cfg["duration"] = f"{int(round(minutes * 60))}" if minutes else "until-stopped"
-    cfg["sessions_per_hour"] = s["sessions_per_hour"]
     cfg["review_every"] = s["review_every"]
     rev = s["reviewer"]
     if rev["enabled"]:
