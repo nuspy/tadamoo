@@ -117,14 +117,16 @@
     ui.geo = Object.assign(el("input", "nw-in"), { type: "text", spellcheck: false });
     ui.maxlog = Object.assign(el("input", "nw-in"), { type: "number", min: "0", step: "1", inputMode: "numeric" });
     ui.wide = Object.assign(el("input"), { type: "checkbox" });
+    ui.popup = Object.assign(el("input"), { type: "checkbox" });
     set.append(field("nw-interval", "sec.set.interval", "sec.set.interval.hint", ui.interval),
       field("nw-names", "sec.set.names", "sec.set.names.hint", ui.names),
       field("nw-folders", "sec.set.folders", "sec.set.folders.hint", ui.folders));
     ui.expected = el("p", "nw-hint nw-mono");
     set.append(ui.expected, field("nw-geo", "sec.set.geo", "sec.set.geo.hint", ui.geo),
       field("nw-maxlog", "sec.set.maxlog", "sec.set.maxlog.hint", ui.maxlog),
-      checkRow("nw-wide", "sec.set.system", "sec.set.system.hint", ui.wide));
-    [ui.interval, ui.names, ui.folders, ui.geo, ui.maxlog, ui.wide].forEach(c => c.addEventListener("input", () => { touched = true; }));
+      checkRow("nw-wide", "sec.set.system", "sec.set.system.hint", ui.wide),
+      checkRow("nw-popup", "sec.set.popup", "sec.set.popup.hint", ui.popup));
+    [ui.interval, ui.names, ui.folders, ui.geo, ui.maxlog, ui.wide, ui.popup].forEach(c => c.addEventListener("input", () => { touched = true; }));
     ui.setMsg = el("p", "nw-line"); ui.setMsg.setAttribute("role", "status");
     set.append(btn(T("sec.set.save"), "primary", saveSettings), ui.setMsg);
 
@@ -232,6 +234,7 @@
     ui.geo.value = s.geo_db_path || "";
     ui.maxlog.value = s.max_log_mb || 0;
     ui.wide.checked = !!s.alert_on_system_wide;
+    ui.popup.checked = !!s.alert_popup;
   }
 
   function setFilter(f) {
@@ -331,7 +334,7 @@
     try {
       S = await call("api/netwatch/settings", {
         interval_s: Number(ui.interval.value), watch_extra_names: lines(ui.names.value), expected_folders: lines(ui.folders.value),
-        geo_db_path: ui.geo.value.trim(), max_log_mb: Number(ui.maxlog.value) || 0, alert_on_system_wide: ui.wide.checked });
+        geo_db_path: ui.geo.value.trim(), max_log_mb: Number(ui.maxlog.value) || 0, alert_on_system_wide: ui.wide.checked, alert_popup: ui.popup.checked });
       touched = false; fillSettings(); paintStatus(); say(ui.setMsg, T("sec.set.saved"));
     } catch (e) { say(ui.setMsg, e.message, true); }
   }
@@ -438,7 +441,7 @@
 
   /* ---- timers ---- */
   async function pollAlerts() {
-    if (alertsOff || dlgBusy || document.hidden) return;
+    if (alertsOff || dlgBusy || document.hidden || !((S && S.settings) || {}).alert_popup) return;
     try {
       const j = await call("api/netwatch/alerts");
       const next = (j.alerts || []).find(a => !snoozed.has(a.id));
