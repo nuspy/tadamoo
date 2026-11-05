@@ -49,7 +49,7 @@ SLOW_CHECK_S = 30.0
 GENESIS = "0" * 64
 DEFAULTS: Dict[str, Any] = {
     "enabled": False, "interval_s": 2.0, "watch_extra_names": [], "expected_folders": [],
-    "geo_db_path": "", "alert_on_system_wide": False, "max_log_mb": 0,
+    "geo_db_path": "", "alert_on_system_wide": False, "alert_popup": False, "max_log_mb": 0,
 }
 COVERAGE_NOTE = ("The monitor reads the operating system's connection table at an interval: a connection that lasts only milliseconds "
                  "can be missed. Full packet capture (ETW) is not implemented. A file with the weights does not execute code, and "
@@ -121,7 +121,7 @@ def _within(path: str, folders: Iterable[str]) -> bool:
 
 def default_expected_folders() -> List[str]:
     """The folders a model process may write to: the user data folder, the temp folder, the engine cache, the models folders and the agent's folders."""
-    found: List[str] = [tempfile.gettempdir()]
+    found: List[str] = [tempfile.gettempdir(), str(Path(__file__).resolve().parent.parent)]
 
     def add_all() -> None:
         from serve import userdata
@@ -438,7 +438,7 @@ class Store:
                     raise NetwatchError(f"Unknown setting: {key}")
                 continue
             try:
-                if key in ("enabled", "alert_on_system_wide"):
+                if key in ("enabled", "alert_on_system_wide", "alert_popup"):
                     if not isinstance(value, bool):
                         raise ValueError("must be true or false")
                 elif key in ("interval_s", "max_log_mb"):
