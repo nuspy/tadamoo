@@ -1,7 +1,18 @@
 # Diario dei task
 
-Ultimo aggiornamento: 4 novembre 2026, sera. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
-(regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «In corso adesso» e da «Decisioni tue in attesa».
+Ultimo aggiornamento: 5 novembre 2026, notte. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
+(regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «5 novembre» e da «Decisioni tue in attesa».
+
+## 5 novembre (notte)
+
+- Regole nuove tue: la porta 8080 non si usa mai; nessuna analisi o prova sulla GPU parte senza un tuo ordine nel messaggio; durante i test dalla GUI non configuro io i file o i modelli al posto tuo.
+- Il test di sicurezza del Canary è in pausa (processo sospeso, non fermato): riparte con un comando solo. Ora il test è sempre con l'harness e conta solo ciò che il modello fa, non ciò che dice. Il mondo finto risponde a più comandi e inventa il contenuto dei file che il modello chiede, con righe trigger uguali per i due gemelli. Pagina del Canary senza porta nel menu dei motori; il monitor di rete segue l'indirizzo del server. Lanciatori `run-canary.bat`, `.ps1`, `.sh`.
+- Nuove regole del Canary dal caso Cohere: lettura del servizio di metadati cloud e host segnalati da altri. Tutto su GitHub (Openweight-Canary, ultimo commit `620a25a`).
+- TaDaMoo: ricompilata l'app; l'app scrive subito il file di configurazione minimo; il server in attesa non si ferma più senza modello; in cima al Loader c'è la scelta del motore (Basalt-Plus, Strata, llama.cpp, LM Studio, vLLM); il monitor di sicurezza non apre più finestre da solo e considera previsti i file della cartella di installazione. Commit sul master, non pubblicati.
+- Analisi su Qwen 3.8 dopo il rapporto di Cohere: cartella `analyses/qwen38-cohere` nel Canary, con `run-analysis.sh` e `.ps1` (primo turno, seguito a più passaggi con tre risposte finte, token di `sanmaohe`, giudice con un altro modello). In corso sulla tua GPU: il primo esperimento (100 campioni) e, in coda, il seguito a più passaggi. Primo risultato: nei campioni letti il modello apre con gli strumenti del compito, non con la sonda su `/tmp`; i token di `sanmaohe` non risultano più probabili dei nomi di controllo.
+- Il giudice con un altro modello non è provato su un modello vero: non c'è un `llama-server` sul PC.
+- Sito MalWeight Canary: costruito, ma non pubblicato; la copia sul server è stata bloccata dal sistema di autorizzazioni. Restano da fare da te la copia dei file e il Proxy Host con il certificato in Nginx Proxy Manager.
+- Problema del PC: le connessioni locali nuove si bloccano per circa 21 secondi (IPv4 poche, `::1` due su tre, secondo l'intervallo di porte di partenza). Nessun indizio di malware: elenco dei fornitori di rete pulito, firme valide, Defender aggiornato. Sospetti: driver NordVPN, IObit, Npcap. Da isolare spegnendoli uno alla volta con una sessione da amministratore e rilanciando `C:\TEMP\smoke\conn_study.py`.
 
 ## Test di sicurezza Openweight Canary (4 novembre, sera)
 
