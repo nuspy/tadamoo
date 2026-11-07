@@ -379,7 +379,7 @@
     msgEl = document.getElementById("cj-chat-msgs");
     document.getElementById("cj-new").onclick = () => select("new");
     SessChat.mount(document.getElementById("cj-instr-root"), {
-      id: "cj-instr", kind: "cron", emptyKey: "sc.empty.cron", placeholderKey: "sc.ph.cron", labelKey: "sc.title.cron",
+      id: "cj-instr", kind: "cron", canCreate: true, emptyKey: "sc.empty.cron", placeholderKey: "sc.ph.cron", labelKey: "sc.title.cron",
       target: () => { const j = S.selected && S.selected !== "new" ? job(S.selected) : null; return j ? `${j.name} (id ${j.id})` : ""; },
       onDone: () => document.dispatchEvent(new CustomEvent("tadamoo:edited")) });
     document.getElementById("cj-stop").onclick = setStop;
