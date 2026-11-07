@@ -465,6 +465,12 @@ scaduto, non autorizzato a girare) blocca anch'esso. Un file con un errore imped
   (a meno che tu imposti un tempo per cedere il passo). Passi e tempo per esecuzione sono limiti facoltativi, vuoti per nessuno. Un orario fisso perso a PC spento viene eseguito una volta, in ritardo, all'avvio.
   Una richiesta che solo tu puoi risolvere resta in *Ti aspettano* mentre il resto dell'esecuzione va avanti. Si gestiscono dalla scheda **Cron Jobs**: un elenco con *Accendi/Spegni*, *Esegui ora* ed *Elimina*, un editor, gli ultimi risultati di ogni job e una
   piccola chat a destra per discuterne uno. La chat propone soltanto: *Usa nell'editor* riempie il modulo, e nulla è salvato finché non premi *Salva*.
+- Una routine accetta anche un'espressione cron (`cron 50 14 * * 1-5`) o un momento singolo (`at 2026-12-24 18:00`, una volta sola), un
+  tempo massimo di ritardo (una partenza più tardi di questo viene saltata, non eseguita a freddo) e una chiave che impedisce a due
+  routine di partire insieme. Invece di aprire una conversazione nuova, una routine può **consegnare il suo messaggio a una già
+  aperta**, per nome, come dato a meno che quella conversazione non sia stata autorizzata a riceverne ordini; la scheda *Cron Jobs*
+  mostra un messaggio mai arrivato, per rimandarlo o metterlo da parte. Vedi `docs/orchestration.md` per come le conversazioni si
+  scambiano messaggi, possiedono insieme dei file e legano una programmazione a un piano.
 - **Valutazione**: `python -m tadamoo.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` esegue ogni compito k volte su una
   cartella nuova e riporta pass@k, pass^k, costo e uso della cache (un `--k` sotto 5 viene segnalato). Sono confronti di sviluppo, non numeri da titolo. I benchmark pubblici
   (BFCL, sottoinsiemi di Terminal-Bench e SWE-bench Pro) si leggono da una cartella che hai scaricato tu: `--bfcl DIR`, `--terminal-bench DIR`, `--swebench DIR`.
