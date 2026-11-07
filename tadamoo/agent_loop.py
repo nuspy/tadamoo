@@ -15,7 +15,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from tadamoo.audit import AuditLedger
 from tadamoo.checkpoints import CheckpointManager, call_paths
@@ -27,7 +27,7 @@ from tadamoo.gate import VerifyGate, event_data, read_result
 from tadamoo.loop_guard import OutcomeGuard, Verdict
 from tadamoo.repeat_guard import RepeatGuard
 from tadamoo.rule_of_two import CONTENT_TOOLS, leak_question
-from tadamoo import inject_screen, outward_calls, shell_egress
+from tadamoo import inject_screen, outward_calls, provenance, shell_egress
 from tadamoo.hooks import AskPerson, HookManager
 from tadamoo.output_guard import RepetitionAbort, RepetitionWatch, raised_penalty, repetition_dominated
 from tadamoo.permissions import PermissionManager
@@ -309,6 +309,7 @@ class AgentLoop:
         self._loop_strikes = 0
         self.last_user_text = ""                      # the words of the person's latest message
         self.untrusted_since_user = False             # content from outside came in after that message
+        self.cross_commands: Tuple[str, ...] = ()     # the conversations whose messages may give orders here (tadamoo/provenance.py)
         self.screen: Optional[Callable[[str, str], Optional[str]]] = None      # a second reader of untrusted text (tadamoo/inject_screen.py): a notice or None
         self._end_turn = False
         self.length_stops = 0                         # replies the output limit ended, in the latest run
@@ -344,7 +345,11 @@ class AgentLoop:
             cancel=threading.Event(), max_loop_strikes=self.max_loop_strikes, max_failed_attempts=self.max_failed_attempts, final_review=self.final_review, context=self.context, on_event=self.on_event,
             sampling=self.sampling, on_delta=self.on_delta, pipeline=self.pipeline, clock=self.clock, max_tokens=self.max_tokens,
             gate=self.gate.clone() if self.gate is not None else None, changes=self.changes, budget_grace=self.budget_grace,
-            role=self.role)
+            role=self.role)._with_senders(self.cross_commands)
+
+    def _with_senders(self, senders: Tuple[str, ...]) -> "AgentLoop":
+        self.cross_commands = senders
+        return self
 
     def append(self, message: Dict[str, Any]) -> None:
         """Puts a message at the end of the conversation; with a clock it carries the time it was made, which never goes to the server."""
@@ -360,9 +365,7 @@ class AgentLoop:
         if self.clock is not None:
             self.append({"role": "user", "content": local_time_line(self.clock()), "note": True})
         if origin != "user":
-            self.append({"role": "user", "content": text})
-            self.last_user_text = ""
-            self.taint(f"{origin} note")                                       # text made from an event is no one's instruction
+            self._add_outside_message(text, origin)
             return
         self.loop_detector = LoopDetector()                              # a request of the person starts the count again: asking for the same thing twice is not a loop
         self.outcome_guard.restart()
@@ -487,6 +490,26 @@ class AgentLoop:
             self.permissions.note_untrusted_input(source)
             if private:
                 self.permissions.note_private_data(source)
+
+    def _add_outside_message(self, text: str, origin: str) -> None:
+        """A message that is not the person's: nothing in it stands for the person's words. An order of a schedule or a plan the person set
+        up is put in as it is; the text of another conversation is data (fenced, and an instruction found in it makes the permission manager
+        ask) unless that conversation may give orders; a note of the harness's own is tainted, as text made from an event."""
+        self.last_user_text = ""
+        kind = provenance.family(origin)
+        if kind in provenance.ORDERS:
+            self.append({"role": "user", "content": f"[{origin}] {text}"})
+            return
+        if kind == "agent":
+            self.taint(origin)                                                 # the Rule of Two counts it even when it may give orders
+            if not provenance.may_command(origin, self.cross_commands):
+                if self.permissions and inject_screen.detect(text, strict=True):
+                    self.permissions.note_instructions(origin)
+                text = _fence_untrusted(origin, text)
+            self.append({"role": "user", "content": f"[message from another conversation: {origin}]\n{text}"})
+            return
+        self.append({"role": "user", "content": text})
+        self.taint(f"{origin} note")                                           # text made from an event is no one's instruction
 
     def request_end_turn(self) -> None:
         """For a tool: end this run when the tools of the current model turn are done (a question was put to the person)."""

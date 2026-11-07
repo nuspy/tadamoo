@@ -73,6 +73,14 @@ for line in sys.stdin:
     name = cmd.get("cmd")
     if name == "send":
         text = cmd["text"]
+        delivery = cmd.get("delivery")                                      # a message from a schedule, a plan or another conversation
+        if delivery:
+            if busy["v"]:
+                emit({"event": "delivery", "id": delivery, "state": "busy"})
+                continue
+            with (H / "deliveries.jsonl").open("a", encoding="utf-8") as f:
+                f.write(json.dumps({"id": delivery, "provenance": cmd.get("provenance"), "text": text}) + "\n")
+            emit({"event": "delivery", "id": delivery, "state": "accepted"})
         if "place" in cmd:                                                  # the position the manager handed over with this message
             (H / "place.json").write_text(json.dumps(cmd["place"]), encoding="utf-8")
         data["messages"].append({"role": "user", "content": text})

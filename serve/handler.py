@@ -47,7 +47,7 @@ from serve.allow_rules import AllowRules
 from tadamoo.payments_broker import PaymentsBroker
 from tadamoo.waiver.dossier import sntp_offset
 from tadamoo.vault import Vault, VaultError
-from serve.agent_sessions import SessionManager
+from serve.agent_sessions import TOKEN_HEADER, SessionManager
 from serve.target_api import TargetManager
 from tadamoo.target import TargetError
 from serve.files_api import FilesApi, FilesError
@@ -2838,12 +2838,17 @@ def make_handler(svc: Service, remote: bool = False):
             try:
                 if parts[0] == "traces":
                     return self._traces_get(parts)
+                if parts == ["deliveries"]:
+                    query = parse_qs(urlsplit(self.path).query)
+                    return self._json(200, {"deliveries": self._agent_sessions().deliveries.entries((query.get("state") or [""])[0], (query.get("session") or [""])[0])})
                 if parts[0] == "sessions":
                     mgr = self._agent_sessions()
                     if parts == ["sessions"]:
                         return self._json(200, mgr.view())
                     if parts == ["sessions", "tree"]:
                         return self._json(200, mgr.tree())
+                    if len(parts) == 3 and parts[2] == "status":
+                        return self._json(200, mgr.status(parts[1]))
                     # --- conversation nodes: begin ---
                     if parts == ["sessions", "nodes"]:
                         return self._json(200, mgr.node_tree())
@@ -2916,6 +2921,9 @@ def make_handler(svc: Service, remote: bool = False):
                     raise ValueError("send a JSON object")
                 if parts[0] == "traces":
                     return self._traces_post(parts, req)
+                if parts[0] == "deliveries" and len(parts) == 3 and parts[2] in ("retry", "dismiss"):
+                    mgr = self._agent_sessions()
+                    return self._json(200, {"delivery": (mgr.retry_delivery if parts[2] == "retry" else mgr.dismiss_delivery)(parts[1])})
                 if parts == ["sessions"] or parts == ["runs"]:
                     if not self._phone_limits(req.get("mode", "default"), req.get("allow"), req):
                         return
@@ -2938,7 +2946,8 @@ def make_handler(svc: Service, remote: bool = False):
                                                                       req.get("context_threshold", 0.8), req.get("end_turn_bias"),
                                                                       req.get("worktree", "auto"), req.get("effort", ""),
                                                                       req.get("images", ""), req.get("charts", ""),
-                                                                      req.get("unattended") is True, req.get("role", "general"), req.get("private") is True)})
+                                                                      req.get("unattended") is True, req.get("role", "general"), req.get("private") is True,
+                                                                      req.get("alias", ""), req.get("cross_commands"))})
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "apply":
                         return self._json(200, mgr.copy_apply(parts[1], req.get("paths")))
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "discard":
@@ -2955,6 +2964,15 @@ def make_handler(svc: Service, remote: bool = False):
                     # --- conversation nodes: end ---
                     if len(parts) >= 3 and parts[2] == "targets":
                         return self._json(200, self._targets().post_route(parts[1], parts[3:], req))
+                    if len(parts) == 3 and parts[2] == "deliver":
+                        sender = mgr.sender_of(self.headers.get(TOKEN_HEADER))
+                        if sender is None:                                  # only a conversation's own process presents the token the manager gave it
+                            return self._json(403, {"error": {"type": "forbidden", "code": "not_a_conversation", "message": "only a conversation can send a message to another"}})
+                        return self._json(200, mgr.deliver(parts[1], req.get("message"), sender=sender))
+                    if len(parts) == 3 and parts[2] == "alias":
+                        return self._json(200, {"session": mgr.set_alias(parts[1], req.get("alias"))})
+                    if len(parts) == 3 and parts[2] == "cross-commands":
+                        return self._json(200, {"session": mgr.set_cross_commands(parts[1], req.get("senders"))})
                     if len(parts) == 3 and parts[2] == "send":
                         return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments"), req.get("place"), req.get("optimize")))
                     if len(parts) == 3 and parts[2] in ("promote", "drop"):
@@ -3021,7 +3039,7 @@ def make_handler(svc: Service, remote: bool = False):
                 return self._json(404 if e.code == "gone" else 409 if e.code in ("busy", "not_running", "closed", "running", "achieved") else 400,
                                   {"error": {"type": "target", "message": str(e), "code": e.code}})
             except RunError as e:
-                return self._json(409 if e.code in ("not_running", "gone", "needs_yes", "no_checkpoint", "not_blocked", "closed", "not_asking", "asking", "busy", "copy_conflict") else 400,
+                return self._json(409 if e.code in ("not_running", "gone", "needs_yes", "no_checkpoint", "not_blocked", "closed", "not_asking", "asking", "busy", "copy_conflict", "alias_taken", "not_dead") else 400,
                                   {"error": {"type": "agent", "message": str(e), "code": e.code}})
             except ApprovalError as e:
                 return self._json(409 if "already" in str(e) or "not there" in str(e) else 400,
