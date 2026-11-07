@@ -56,6 +56,37 @@ def test_the_matching_lesson_goes_into_the_note_and_its_fix_into_the_first_optio
     assert note.card()["questions"][0]["options"][0]["label"] == "Try the lesson"
 
 
+def test_a_lesson_line_with_a_capital_fix_does_not_break_the_check():
+    for word in ("Fix", "FIX", "fix"):
+        watcher = course.Watcher(lambda q, w=word: f"Lessons:\n- a mistyped name. {w}: list the folder first")
+        watcher.observe(failed("read_file"))
+        watcher.observe(failed("read_file"))
+        assert watcher.check(Fake(), 1).fix == "list the folder first"
+    plain = course.Watcher(lambda q: "Lessons:\n- nothing to add here")
+    plain.observe(failed("read_file"))
+    plain.observe(failed("read_file"))
+    assert plain.check(Fake(), 1).fix == ""
+
+
+def test_a_failing_course_check_does_not_end_the_turn_and_is_recorded(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    agent, _ = make(ws, ScriptedClient(say("done")))
+    recorded = []
+
+    class Ledger:
+        def record(self, actor, action, details):
+            recorded.append((action, details))
+
+    class Broken(course.Watcher):
+        def check(self, agent, step):
+            raise IndexError("list index out of range")
+    agent.audit, agent.course = Ledger(), Broken()
+    agent.run("hello")
+    assert agent.stop_reason != "error" and agent.messages[-1]["content"] == "done"
+    assert any(a == "course_error" and "IndexError" in d["traceback"] for a, d in recorded)
+
+
 def test_a_near_fold_is_told_once():
     class Ctx:
         mask_at, budget_tokens = 0.7, 1000

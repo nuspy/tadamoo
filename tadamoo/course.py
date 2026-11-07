@@ -164,8 +164,9 @@ class Watcher:
                 lesson = ""
         fix = ""
         for line in lesson.splitlines():
-            if line.startswith("- ") and "fix" in line.lower():
-                fix = line.split("fix", 1)[1].lstrip(": ").strip()[:200]
+            at = line.lower().find("fix")
+            if line.startswith("- ") and at >= 0:
+                fix = line[at + 3:].lstrip(": ").strip()[:200]
                 break
         advice = advice or "Change what you are doing: a different tool, other arguments, a smaller step, or ask the person if the decision is theirs."
         text = f"[harness] Course check: {problem}. {advice}" + (f"\n{lesson}" if lesson else "")
