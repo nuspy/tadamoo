@@ -43,6 +43,7 @@ import os
 import sys
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.request
 import uuid
@@ -1582,6 +1583,7 @@ class Session:
                     self._maybe_suggest(task)
                 task = self._next_after(task)
         except BaseException as exc:                       # the process stays up: the task ends with an error
+            self._audit("crash", {"traceback": traceback.format_exc()[-4000:]})     # the short message is what the person sees; the file and line are only in the audit log
             self._block(task, "crash", f"{type(exc).__name__}: {exc}")
         finally:
             self._tl.task = None

@@ -321,6 +321,8 @@ def test_an_action_that_cannot_be_undone_is_not_run_again_by_the_harness_after_a
     session.send("m1", "paga")
     assert ev.wait("blocked")["reason"] == "crash" and len(ran) == 1
     assert store.inflight()["tool"] == "pay"
+    crash = next(r for r in built.agent.audit.records if r["action"] == "crash")
+    assert "Died" in crash["details"]["traceback"] and "test_session.py" in crash["details"]["traceback"]   # the file and line, for diagnosis; not shown to the person
 
     client2 = Scripted(say("Controllo prima di fare altro."))
     session2, ev2, store2, built2 = make(tmp_path, client2)
