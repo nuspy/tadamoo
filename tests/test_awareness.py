@@ -26,3 +26,22 @@ def test_the_built_agent_carries_the_block_and_the_tool_reads_the_live_state(tmp
     assert "# About yourself" in system and "7 steps" in system
     got = built.agent.tools.get("self_status").handler()
     assert got["context"]["window"] > 0 and got["steps"]["max"] == 7 and got["loop_strikes"] == 0 and got["level"] == "default"
+
+
+def test_a_changed_setting_is_told_once_before_the_request_that_follows(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False, permission_mode="default", max_turns=7),
+                        client=object())
+    agent = built.agent
+    system = agent.messages[0]["content"]
+    notes = lambda: [m["content"] for m in agent.messages if m.get("note") and str(m.get("content")).startswith("[state]")]
+    agent.add_user_message("first")
+    assert len(notes()) == 1 and "steps=7" in notes()[0] and "window" not in notes()[0]       # the window was in the prompt already
+    agent.add_user_message("second")
+    assert len(notes()) == 1                                                                      # nothing changed
+    agent.sampling["reasoning_effort"] = "high"
+    agent.add_user_message("third")
+    assert notes()[-1] == "[state] effort=high" and len(notes()) == 2
+    assert agent.messages[0]["content"] == system                                                 # the prompt prefix is the same
+    assert built.agent.tools.get("self_status").handler()["settings"]["effort"] == "high"

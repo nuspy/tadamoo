@@ -30,7 +30,7 @@ from tadamoo.rule_of_two import LEVELS
 from tadamoo.syntax_check import DEFAULT_GUARD as DEFAULT_EDIT_GUARD, GUARD_LEVELS as EDIT_GUARD_LEVELS
 from tadamoo.secrets_broker import PROTECTED_FILES, SecretsBroker
 from tadamoo import digest
-from tadamoo import auto_approve, awareness, completion, course, inject_screen, lessons, nextsteps, persistence, memory_rank, repeats, review, side_uses, tool_extract
+from tadamoo import auto_approve, awareness, capstate, completion, course, inject_screen, lessons, nextsteps, persistence, memory_rank, repeats, review, side_uses, tool_extract
 from tadamoo.side import side_context, side_extra, side_extra_for, use as side_use
 from tadamoo.prompt_blocks import instruction_blocks
 from tadamoo.project_profile import clean_list
@@ -947,7 +947,12 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
     if cfg.course_watch:
         agent.course = course.Watcher(getattr(agent, "lessons_for", None))
     if cfg.self_block:
-        awareness.register_self_status(registry, lambda: awareness.status_of(agent, context.budget_tokens))
+        teller = capstate.Teller({"window": context.budget_tokens})
+
+        def settings() -> Dict[str, Any]:
+            return capstate.read(agent, window=context.budget_tokens, unattended=cfg.unattended)
+        agent.state_note = lambda: teller.note(settings(), getattr(getattr(context, "compaction", None), "count", 0))
+        awareness.register_self_status(registry, lambda: awareness.status_of(agent, context.budget_tokens, {"settings": settings()}))
     quick = technical if technical is not None else client          # the quick jobs never take the conversation's own route
     if quick is not None:                               # the technical session's two readers of tool results (both off until switched on)
         compactor.extract = tool_extract.make_extractor(quick, lambda: agent.last_user_text)
