@@ -403,7 +403,7 @@ class BuiltAgent:
     role: Optional[RolePolicy] = None
     checks_switch: Optional[Callable[[List[str], List[str]], None]] = None
     mcp: Optional[Any] = None                 # the MCPHub of cfg.mcp_servers
-    skills: Optional[Any] = None              # the SkillCatalog of the skill folders given at the start (rescanned by /skills-reload)
+    skills: Optional[Any] = None              # the SkillCatalog of the skill folders given at the start (rescanned by /reload-skills)
     personal: Optional[Any] = None            # the notes about the person this conversation takes in (tadamoo/personal_memory.py Recall)
     take_place: Optional[Callable[[Any], bool]] = None     # keeps the position the person's phone sent and offers where_is_user (tadamoo/place.py)
     mcp_errors: Dict[str, str] = field(default_factory=dict)       # the servers that could not be started, and why

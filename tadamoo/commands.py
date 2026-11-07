@@ -180,9 +180,26 @@ def skills_reload(session: Any, args: str) -> Dict[str, Any]:
     return {"done": True, "skills": sorted(now), "added": sorted(now - before), "removed": sorted(before - now), "warnings": warnings}
 
 
+def plugins_reload(session: Any, args: str) -> Dict[str, Any]:
+    """The plugins are looked for again (their skills and their MCP servers); the servers already running are left as they are, and a new one
+    starts at its first use. Only when nothing is under way."""
+    if not session.idle():
+        return {"done": False, "reason": "busy"}
+    index = session.built.capabilities
+    if index is None:
+        return {"done": False, "reason": "off"}
+
+    def parts(entries: Any) -> Dict[str, str]:
+        return {e["id"]: f"{e['name']} ({e['origin'][7:]})" for e in entries if str(e.get("origin", "")).startswith("plugin:")}
+    before = parts(index.entries)
+    now = parts(index.refresh(rescan=True))
+    return {"done": True, "plugins": sorted({e["origin"][7:] for e in index.entries if str(e.get("origin", "")).startswith("plugin:")}),
+            "added": sorted(v for i, v in now.items() if i not in before), "removed": sorted(v for i, v in before.items() if i not in now)}
+
+
 COMMANDS: Dict[str, Callable[[Any, str], Dict[str, Any]]] = {
     "status": status, "tools": tools, "hooks": hooks, "mcp": mcp, "memory": memory, "permissions": permissions, "context": context, "compact": compact, "audit": audit,
-    "mcp-reload": mcp_reload, "skills-reload": skills_reload,
+    "reload-mcp": mcp_reload, "reload-skills": skills_reload, "reload-plugins": plugins_reload,
 }
 
 

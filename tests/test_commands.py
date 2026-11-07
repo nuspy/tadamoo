@@ -208,21 +208,21 @@ def test_skills_reload_finds_a_skill_added_after_the_conversation_began(tmp_path
     assert "first" in session.built.skills.skills
     write_skill(skills, "second")
     write_skill(home / ".claude" / "skills", "third")
-    out = commands.run("skills-reload", "", session)
+    out = commands.run("reload-skills", "", session)
     assert out["ok"] and out["data"]["done"]
     assert {"second", "third"} <= set(out["data"]["added"]) and "first" in out["data"]["skills"]
     assert "second" in session.built.skills.skills
     assert "second" in session.built.builder.assemble_system_message()
     (skills / "second" / "SKILL.md").unlink()
-    gone = commands.run("skills-reload", "", session)["data"]
+    gone = commands.run("reload-skills", "", session)["data"]
     assert "second" in gone["removed"] and "second" not in session.built.skills.skills
 
 
 def test_mcp_reload_reads_the_servers_again_and_stops_the_ones_started(tmp_path):
     session, home = make_caps(tmp_path)
-    assert commands.run("mcp-reload", "", session)["data"] == {"done": True, "stopped": 0, "servers": [], "added": [], "removed": []}
+    assert commands.run("reload-mcp", "", session)["data"] == {"done": True, "stopped": 0, "servers": [], "added": [], "removed": []}
     (home / ".claude.json").write_text(json.dumps({"mcpServers": {"alpha": {"command": "python", "args": ["-c", "pass"]}}}), encoding="utf-8")
-    out = commands.run("mcp-reload", "", session)["data"]
+    out = commands.run("reload-mcp", "", session)["data"]
     assert out["done"] and out["servers"] == ["alpha"] and out["added"] == ["alpha"]
     closed = []
 
@@ -235,14 +235,26 @@ def test_mcp_reload_reads_the_servers_again_and_stops_the_ones_started(tmp_path)
     assert session.built.capabilities.drop_servers() == 0 and not closed
 
 
+def test_reload_plugins_finds_a_plugin_installed_after_the_conversation_began(tmp_path):
+    session, home = make_caps(tmp_path)
+    first = commands.run("reload-plugins", "", session)["data"]
+    assert first == {"done": True, "plugins": [], "added": [], "removed": []}
+    write_skill(home / ".claude" / "plugins" / "cache" / "market" / "tidy" / "1.0" / "skills", "sweep")
+    out = commands.run("reload-plugins", "", session)["data"]
+    assert out["done"] and out["plugins"] == ["tidy"] and out["added"] == ["sweep (tidy)"] and out["removed"] == []
+    again = commands.run("reload-plugins", "", session)["data"]
+    assert again["plugins"] == ["tidy"] and again["added"] == []
+
+
 def test_reload_waits_until_nothing_is_under_way(tmp_path):
     session, _ = make_caps(tmp_path)
     session.idle = lambda: False
-    for name in ("mcp-reload", "skills-reload"):
+    for name in ("reload-mcp", "reload-skills", "reload-plugins"):
         assert commands.run(name, "", session)["data"] == {"done": False, "reason": "busy"}
 
 
 def test_reload_says_when_the_conversation_looks_for_nothing(tmp_path):
     session, events, built = make(tmp_path, Scripted(say("x")))
-    assert commands.run("mcp-reload", "", session)["data"] == {"done": False, "reason": "off"}
-    assert commands.run("skills-reload", "", session)["data"] == {"done": False, "reason": "off"}
+    assert commands.run("reload-mcp", "", session)["data"] == {"done": False, "reason": "off"}
+    assert commands.run("reload-skills", "", session)["data"] == {"done": False, "reason": "off"}
+    assert commands.run("reload-plugins", "", session)["data"] == {"done": False, "reason": "off"}
