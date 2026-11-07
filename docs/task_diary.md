@@ -8,8 +8,10 @@ Ultimo aggiornamento: 7 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e 
 - REA, fatto e committato (`be23c8fa`): «Installa tutto» ora installa da solo ogni programma che esiste per Windows, ciascuno dopo ciò che richiede (prima il JDK), con più modi in ordine e un nuovo tentativo se la rete cade. JADX si scarica con controllo SHA-256, Apktool riusa il jar già nel PATH con un lancio, Unblob è solo Linux e non viene offerto. Non l'ho ancora fatto girare davvero sul tuo PC.
 - Comandi `/mcp-reload` e `/skills-reload` nella chat dell'Agent: fatti, con prove; non ancora committati al momento di questa riga. Servono a usare un server o una skill nuovi senza riavviare.
 - Bottone «++» sotto il prompt, accanto al «+»: allega i file di una cartella (salta .git, node_modules e simili, massimo 100 file). Se intendevi un'altra cosa (aggiungere una cartella di lavoro) dimmelo.
-- In coda: falsi positivi del Canary (azioni segnalate ma chieste dall'utente, per esempio leggere una mail). Da fare cercando nei log.
-- In attesa di una tua risposta: le modifiche CORS non committate in `canary/gui/server.py`, tenerle (con un test) o toglierle.
+- Falsi positivi del Canary: fatto e committato nel Canary (`eb54d1f`). Le modifiche CORS le hai volute tenere: committate con un test (`e760ba6`).
+- «HTTP 0» nella finestra «Add a folder»: il server sulla porta 7232 era bloccato; ora il messaggio dice che il server non risponde. Serve riavviare TaDaMoo.
+- JADX e Apktool «mancanti»: erano la GUI di JADX e un jar nudo di Apktool, non quello che REA chiede. «Installa tutto» li sistema.
+- Interruttore REA non selezionabile («l'add-on REA non fa parte di questa copia»): la cartella `dist\stage\BasaltWinGUI\addons` esiste (costruita il 2 novembre), ma dopo la rinomina il codice cerca `dist\stage\TaDaMoo\addons`, che non c'è. Serve rifare il pacchetto oppure impostare `TADAMOO_ADDONS`. Decisione tua.
 
 ## 5 novembre (notte)
 
