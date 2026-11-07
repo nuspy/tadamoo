@@ -18,6 +18,8 @@ from __future__ import annotations
 import collections
 import copy
 import difflib
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -45,6 +47,7 @@ from serve.api import logit_bias
 from serve.agent_runs import MODES, RunBusy, RunError
 from serve.approvals import ApprovalBoard
 from serve.conv_nodes import NodeStore
+from serve.deliveries import DeliveryError, DeliveryQueue
 from serve.tasks import _write_json
 from serve.util import peer
 from serve.util.winjob import contain
@@ -71,6 +74,10 @@ LEVELS = ("", "very_low", "low", "normal", "high", "very_high", "highest")     #
 EFFORTS = ("", "none", "low", "medium", "high")                             # how long the model thinks; empty is its own default
 SLASH_COMMANDS = ("status", "tools", "hooks", "mcp", "memory", "permissions", "context", "compact", "audit", "mcp-reload", "skills-reload")     # tadamoo/commands.py
 FILE_DIFF_BYTES = 200_000
+ALIAS = re.compile(r"^[a-z0-9][a-z0-9-]{1,31}$")
+SENDER_PATTERN = re.compile(r"^[A-Za-z0-9_*?-]{1,40}$")
+SENDERS_MAX = 10
+TOKEN_HEADER = "X-Tadamoo-Session"
 UNLIMITED_STEPS = -1                                                        # `max_turns` for no limit on the steps of an answer
 
 
@@ -176,6 +183,9 @@ class SessionManager:
         self.records: List[Dict[str, Any]] = self._load()
         self.nodes = NodeStore(self.directory / NODES_FILE)         # every conversation's messages as shared immutable nodes
         self._migrate_nodes()
+        self._token_key = secrets.token_bytes(32)               # signs the name a conversation's process presents when it calls the server
+        self._chains: Dict[str, List[str]] = {}                 # per conversation: the conversations the message that woke it came through
+        self.deliveries = DeliveryQueue(Path(directory), self)  # messages from schedules, plans and other conversations, until they are taken
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._supervise, name="session-supervisor", daemon=True)
         self._thread.start()
@@ -895,7 +905,8 @@ class SessionManager:
     def create(self, workspace: Any, mode: Any = "default", allow: Any = None, ask_only: bool = False, title: Any = "",
                max_turns: Any = UNLIMITED_STEPS, context_patterns: Any = None,
                context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto", effort: Any = "",
-               images: Any = "", charts: Any = "", unattended: bool = False, role: Any = GENERAL_ROLE, private: bool = False) -> Dict[str, Any]:
+               images: Any = "", charts: Any = "", unattended: bool = False, role: Any = GENERAL_ROLE, private: bool = False,
+               alias: Any = "", cross_commands: Any = None) -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
         if (workspace is None or workspace == "") and self.default_workspace is not None:
             self.default_workspace.mkdir(parents=True, exist_ok=True)
@@ -919,6 +930,8 @@ class SessionManager:
         if isinstance(context_threshold, bool) or not isinstance(context_threshold, (int, float)) or not 0.3 <= context_threshold <= 1.0:
             raise RunError("The threshold is a share of the context window from 0.3 to 1.", "bad_policy")
         check_end_turn_bias(end_turn_bias)
+        alias = self._check_alias(alias)
+        senders = self._check_senders(cross_commands)
         patterns =context_patterns_mod.check_config(context_patterns) if context_patterns else {}
         if context_policy != "stop":
             patterns = context_patterns_mod.with_policy(context_patterns or {}, context_policy)
@@ -937,7 +950,12 @@ class SessionManager:
             rec["worktree"], rec["workdir"] = copy, copy["workdir"]
         if private is True:
             rec["private"] = True                                  # left out of the index of earlier conversations and of what is learned about the person
+        if senders:
+            rec["cross_commands"] = senders
         with self._lock:
+            if alias:
+                self._alias_free(alias, sid)
+                rec["alias"] = alias
             self.records.append(rec)
             self._events[sid], self._seq[sid] = collections.deque(maxlen=EVENTS_KEPT), 0
             self._save()
@@ -970,6 +988,8 @@ class SessionManager:
                "--endpoint", self.endpoint, "--permission-mode", rec["mode"], "--max-turns", str(rec.get("max_turns", UNLIMITED_STEPS)), "--router", self.router, "--pipeline", self.pipeline, "--capabilities", "--lsp", "--report-changes", "--page-files"]
         if rec.get("unattended"):
             cmd.append("--unattended")
+        for pattern in rec.get("cross_commands") or []:
+            cmd += ["--cross-commands", pattern]
         if rec.get("role") and rec["role"] != GENERAL_ROLE and not rec.get("ask_only"):
             cmd += ["--role", rec["role"]]
         if self.coding is not None and not rec.get("ask_only"):
@@ -1046,6 +1066,7 @@ class SessionManager:
         env.update({"PYTHONUTF8": "1", "PYTHONPATH": str(self.root), "TADAMOO_COMPRESS": "1"})
         if self.api_key:
             env["TADAMOO_API_KEY"] = self.api_key
+        env["TADAMOO_SESSION_ID"], env["TADAMOO_SESSION_TOKEN"] = sid, self.session_token(sid)
         flags = (subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW) if os.name == "nt" else 0
         log = open(history / "process.log", "ab")
         try:
@@ -1094,6 +1115,13 @@ class SessionManager:
     def _on_event(self, sid: str, live: Live, event: Dict[str, Any]) -> None:
         live.last_seen = time.monotonic()
         kind = event.get("event")
+        if kind == "delivery":                                   # the queue's lock is never taken inside this manager's
+            item = self.deliveries.acked(str(event.get("id") or ""), str(event.get("state") or ""), sid)
+            if item is not None and item["state"] == "delivered":
+                with self._lock:
+                    self._chains[sid] = list(item["chain"])
+            self._push(sid, {"event": "delivery", "id": event.get("id"), "state": event.get("state")})
+            return
         with self._lock:
             rec = next((r for r in self.records if r["id"] == sid), None)
             if rec is None or self._live.get(sid) is not live:
@@ -1246,6 +1274,137 @@ class SessionManager:
         except (OSError, ValueError):
             return False
 
+    # -- naming a conversation, and messages between conversations -------------------------------------------
+
+    @staticmethod
+    def _check_alias(alias: Any) -> str:
+        text = str(alias or "").strip().lower()
+        if not text:
+            return ""
+        if not ALIAS.match(text) or re.fullmatch(r"[0-9a-f]{8}", text):
+            raise RunError("A name is 2 to 32 letters, digits or dashes, and is not an id.", "bad_alias")
+        return text
+
+    def _alias_free(self, alias: str, sid: str) -> None:
+        if any(r.get("alias") == alias and r["id"] != sid and r["state"] != "closed" for r in self.records):
+            raise RunError(f"Another conversation is already called '{alias}'.", "alias_taken")
+
+    @staticmethod
+    def _check_senders(patterns: Any) -> List[str]:
+        if patterns is None:
+            return []
+        if not isinstance(patterns, list) or len(patterns) > SENDERS_MAX or any(not isinstance(p, str) or not SENDER_PATTERN.match(p) for p in patterns):
+            raise RunError(f"The conversations that may give orders are a short list (at most {SENDERS_MAX}) of ids, names or patterns with * and ?.", "bad_senders")
+        return sorted(set(patterns))
+
+    def set_alias(self, sid: str, alias: Any) -> Dict[str, Any]:
+        """Gives the conversation a name other conversations and schedules can use (empty takes it off)."""
+        name = self._check_alias(alias)
+        with self._lock:
+            rec = self._record(sid)
+            if name:
+                self._alias_free(name, sid)
+            self._set(rec, alias=name)
+        return self.get(sid)
+
+    def set_cross_commands(self, sid: str, patterns: Any) -> Dict[str, Any]:
+        """Which conversations may give this one orders: what a conversation sends it is data unless the sender is named here."""
+        senders = self._check_senders(patterns if patterns is not None else [])
+        with self._lock:
+            rec = self._record(sid)
+            self._set(rec, cross_commands=senders)
+            self._tell_if_running(sid, {"cmd": "cross_commands", "patterns": senders})
+        return self.get(sid)
+
+    def resolve(self, ref: Any) -> Optional[str]:
+        """The id a reference names: an id, or the name of a conversation that is not closed."""
+        text = str(ref or "").strip().lower()
+        if not text:
+            return None
+        with self._lock:
+            if any(r["id"] == text for r in self.records):
+                return text
+            return next((r["id"] for r in self.records if r.get("alias") == text and r["state"] != "closed"), None)
+
+    def state_of(self, sid: str) -> Optional[str]:
+        with self._lock:
+            rec = next((r for r in self.records if r["id"] == sid), None)
+            return rec["state"] if rec else None
+
+    def over_budget(self, sid: str) -> bool:
+        return False
+
+    def label_of(self, sid: str) -> str:
+        """How a conversation is named in a message it sends: its name, else its id."""
+        with self._lock:
+            rec = next((r for r in self.records if r["id"] == sid), None)
+        return str((rec or {}).get("alias") or sid)
+
+    def session_token(self, sid: str) -> str:
+        return hmac.new(self._token_key, sid.encode("utf-8"), hashlib.sha256).hexdigest()[:32]
+
+    def sender_of(self, header: Any) -> Optional[str]:
+        """The conversation a process says it is (`<id>.<token>`), when the token is the one this server gave it; None otherwise."""
+        sid, _, token = str(header or "").partition(".")
+        if not sid or not token or self.resolve(sid) != sid:
+            return None
+        return sid if hmac.compare_digest(token, self.session_token(sid)) else None
+
+    def push_delivery(self, sid: str, delivery: Dict[str, Any]) -> bool:
+        """Writes a delivered message to the process of a conversation, starting it if it sleeps. It is a turn with its provenance, not the person's."""
+        with self._lock:
+            rec = self._record(sid)
+            if rec["state"] == "closed":
+                return False
+            live = self._ensure(sid)
+            turn = secrets.token_hex(3)
+            cmd = {"cmd": "send", "id": turn, "text": delivery["message"], "provenance": delivery["provenance"], "delivery": delivery["id"]}
+            if not live.ready.is_set():
+                live.after_ready.append(cmd)
+            elif not self._write(sid, live, cmd):
+                return False
+        self._push(sid, {"event": "incoming", "turn": turn, "text": delivery["message"], "provenance": delivery["provenance"], "delivery": delivery["id"]})
+        return True
+
+    def deliver(self, ref: Any, message: Any, sender: str = "", provenance: str = "", run_id: str = "") -> Dict[str, Any]:
+        """A message for another conversation. From a conversation (`sender`) it is `agent:<its name>` and carries the line of conversations
+        it came through; from a schedule or a plan the caller says which (`provenance`)."""
+        if sender:
+            with self._lock:
+                chain = list(self._chains.get(sender, [])) + [sender]
+            provenance = f"agent:{self.label_of(sender)}"
+        else:
+            chain = []
+        try:
+            return {"delivery": self.deliveries.submit(ref, message, provenance, chain, run_id, sender)}
+        except DeliveryError as exc:
+            raise RunError(str(exc), exc.code) from None
+
+    def retry_delivery(self, delivery_id: str) -> Dict[str, Any]:
+        try:
+            return self.deliveries.retry(delivery_id)
+        except DeliveryError as exc:
+            raise RunError(str(exc), exc.code) from None
+
+    def dismiss_delivery(self, delivery_id: str) -> Dict[str, Any]:
+        try:
+            return self.deliveries.dismiss(delivery_id)
+        except DeliveryError as exc:
+            raise RunError(str(exc), exc.code) from None
+
+    def status(self, ref: Any) -> Dict[str, Any]:
+        """What another conversation needs to know about this one: who and where it is, whether it is free, and what is stuck waiting for it."""
+        sid = self.resolve(ref)
+        if sid is None:
+            raise RunError(f"No conversation is called '{ref}'.", "gone")
+        rec = self.get(sid)
+        with self._lock:
+            last = next((e for e in reversed(self._events.get(sid, ())) if e.get("event") == "done" and e.get("final")), None)
+        return {"id": sid, "alias": rec.get("alias", ""), "title": rec.get("title", ""), "state": rec["state"], "workspace": rec["workspace"],
+                "unattended": bool(rec.get("unattended")), "turns": rec.get("turns", 0), "updated": rec.get("updated", 0),
+                "pending_messages": self.deliveries.pending_count(sid), "dead_letters": self.deliveries.dead_count(sid),
+                "last_answer": str(last.get("final") or "")[:300] if last else ""}
+
     # -- the page's commands -----------------------------------------------------------------------------
 
     def _check_attachments(self, sid: str, ids: Any) -> List[Dict[str, Any]]:
@@ -1291,6 +1450,7 @@ class SessionManager:
             if rec["state"] == "closed":
                 raise RunError("That conversation is closed.", "closed")
             turn = secrets.token_hex(3)              # a message that comes while the agent works is looked at by the agent itself
+            self._chains.pop(sid, None)              # the person is talking: whatever woke it before is no longer the line it works in
             live = self._ensure(sid)
             held = self._place_for(sid, place)
             cmd = {"cmd": "send", "id": turn, "text": text, **({"attachments": [c["id"] for c in cards]} if cards else {}), **({"place": held} if held else {}),
@@ -1910,6 +2070,7 @@ class SessionManager:
     def check(self, now: Optional[float] = None) -> None:
         """One round of looking at every process (public so the tests can drive it)."""
         now = now if now is not None else time.monotonic()
+        self.deliveries.pump()
         with self._lock:
             live_items = list(self._live.items())
             records = {r["id"]: r for r in self.records}

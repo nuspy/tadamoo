@@ -56,6 +56,7 @@ from tadamoo import intake as it
 from tadamoo import nextsteps as ns
 from tadamoo import optimize as opt
 from tadamoo import progress as prog
+from tadamoo import provenance as prov
 from tadamoo import side_uses
 from serve import longflow as lfw
 from serve import longform as lf
@@ -1677,6 +1678,8 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--unattended", action="store_true",
                         help="nobody answers questions here: an approval is given at once, what only the person can give is reported as not available, "
                              "and a question about another person, money or a booking waits in the pending list")
+    parser.add_argument("--cross-commands", action="append", default=[], metavar="NAME",
+                        help="a conversation (a name, an id or a pattern with * and ?) whose messages may give orders here; what any other conversation sends is data")
     parser.add_argument("--ask-server", action="store_true", help="ask for approvals on the server's pages instead of in the conversation")
     parser.add_argument("--ask-only", action="store_true", help="answer without tools: a greeting does not become a loop")
     parser.add_argument("--report-changes", action="store_true", help="send each file edit to the server's Changes panel, to keep or undo by block")
@@ -1765,6 +1768,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         from tadamoo.attachments import AttachmentStore
         session.attachment_store = AttachmentStore(Path(args.attachments_dir))
     session.endpoint, session.api_key = cfg.endpoint, cfg.api_key
+    built.agent.cross_commands = tuple(args.cross_commands)
+    seen = prov.SeenDeliveries(history)
     session.ask_only = args.ask_only
     session.workspace, session.checks_offer = cfg.workspace, args.offer_checks and not args.ask_only and not args.unattended
     session.intake = it.Intake(args.intake, built.technical, args.side_call_tokens)
@@ -1832,7 +1837,19 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                 ids = [i for i in cmd.get("attachments", []) if isinstance(i, str)] if isinstance(cmd.get("attachments"), list) else []
                 if cmd.get("place") is not None and built.take_place:
                     built.take_place(cmd["place"])                  # before the message, so the tool is there from this turn on
-                session.send(str(cmd.get("id") or uuid.uuid4().hex[:8]), cmd["text"], attachments=ids or None, optimize=cmd.get("optimize") is not False)
+                delivery = cmd["delivery"] if isinstance(cmd.get("delivery"), str) else ""
+                if delivery and delivery in seen:
+                    emit({"event": "delivery", "id": delivery, "state": "accepted"})        # written twice: it was taken the first time
+                    continue
+                took = session.send(str(cmd.get("id") or uuid.uuid4().hex[:8]), cmd["text"], origin=prov.clean(cmd.get("provenance")) if delivery else "user",
+                                    attachments=ids or None, optimize=cmd.get("optimize") is not False)
+                if delivery:
+                    if took:
+                        seen.add(delivery)
+                    emit({"event": "delivery", "id": delivery, "state": "accepted" if took else "busy"})
+            elif name == "cross_commands" and isinstance(cmd.get("patterns"), list):
+                built.agent.cross_commands = tuple(str(p) for p in cmd["patterns"])
+                emit({"event": "cross_commands", "patterns": list(built.agent.cross_commands)})
             elif name == "answer":
                 session.answer(cmd.get("id"), cmd.get("value"))
             elif name == "promote":
