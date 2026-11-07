@@ -9,7 +9,7 @@
   const PRESETS = ["every 1h", "every 30m", "daily 08:30", "weekdays 08:30", "mon,wed,fri 18:15"];
   const POLL_MS = 5000;
   const STATUSES = ["done", "parked", "failed", "cancelled", "timeout", "yielded", "skipped"];
-  const S = { jobs: [], running: [], queued: [], pending: [], selected: "", runs: [], armed: "", chat: [], busy: false, ready: false, skills: [], stopped: false, improve: null };
+  const S = { jobs: [], running: [], queued: [], pending: [], selected: "", runs: [], armed: "", chat: [], busy: false, ready: false, skills: [], stopped: false, improve: null, openRun: "", openLater: 0 };
   let timer = 0, armTimer = 0, form = null, msgEl, statusEl;
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -285,11 +285,23 @@
   }
   function paintRuns() {
     const list = document.getElementById("cj-runs-list");
+    if (S.openRun && list.contains(document.activeElement) && list.querySelector(".cj-runchat")) return;          // a message being written is not redrawn away
     document.getElementById("cj-runs-none").hidden = S.runs.length > 0;
     list.replaceChildren(...S.runs.map(r => {
       const li = el("li", "cj-run " + r.status);
       li.append(el("b", "", T("cj.status." + (STATUSES.includes(r.status) ? r.status : "failed"))), el("span", "", ` · ${when(r.started)}${r.seconds ? ` · ${Math.round(r.seconds)} s` : ""}`));
       if (r.summary) li.append(el("p", "cj-sum", r.summary.slice(0, 600)));
+      const open = S.openRun === r.id;
+      li.append(btn(T(open ? "rl.close" : "rl.open"), "ghost cj-chatbtn", () => { S.openRun = open ? "" : r.id; paintRuns(); }, T("rl.open.tip")));
+      if (open) {
+        const host = el("div", "cj-runchat");
+        li.append(host);
+        const chat = RunLog.mount(host, { id: "cj-run-" + r.id, emptyKey: "rl.empty.run", labelKey: "rl.title.run", placeholderKey: "rl.ph.run",
+          send: r.session ? text => RunLog.sendToSession(r.session, text) : null, noReplyKey: "rl.noreply.run", after: () => { clearTimeout(S.openLater); S.openLater = setTimeout(openRefresh, 3000); } });
+        const openRefresh = async () => { if (S.openRun === r.id) chat.set(RunLog.runEntries(r, r.session ? await RunLog.messagesOf(r.session) : [])); };
+        chat.set(RunLog.runEntries(r, []));
+        openRefresh();
+      }
       return li;
     }));
   }

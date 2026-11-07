@@ -115,6 +115,9 @@
       el("div", { class: "sh" }, el("b", { id: "pl-pal-h", text: T("pl.pal.title") }), el("span", { class: "grow" }), ui.palToggle), el("p", { class: "help pad", text: T("pl.pal.help") }), ui.palBody);
     ui.manage = el("section", { class: "sec pl-manage" });
     ui.history = el("section", { class: "sec pl-history", "aria-labelledby": "pl-hist-h" });
+    ui.logHost = el("div", { class: "pad", id: "pl-log-root" });
+    ui.chatlog = el("section", { class: "sec pl-chatlog", "aria-labelledby": "pl-log-h" }, el("div", { class: "sh" }, el("b", { id: "pl-log-h", text: T("rl.title.plan") })),
+      el("p", { class: "help pad", text: T("rl.help.plan") }), ui.logHost);
     ui.align = el("section", { class: "sec pl-align", "aria-labelledby": "pl-al-h" });
     ui.horizon = el("section", { class: "sec pl-horizon" });
     ui.archived = el("section", { class: "sec pl-archived" });
@@ -143,8 +146,9 @@
       panel("details", ui.manage, ui.archived),
       panel("events", ui.triage),
       panel("define", ui.defineBar, ui.palette, ui.add, ui.instr, ui.summary,
-        el("div", { class: "pl-main" }, el("div", { class: "pl-canvas" }, ui.graph, ui.list), el("div", { class: "pl-side" }, ui.detail, ui.proposals, ui.offers, ui.history))));
+        el("div", { class: "pl-main" }, el("div", { class: "pl-canvas" }, ui.graph, ui.list), el("div", { class: "pl-side" }, ui.detail, ui.proposals, ui.offers, ui.chatlog, ui.history))));
     root.replaceChildren(ui.col, ui.main);
+    ui.runlog = RunLog.mount(ui.logHost, { id: "pl-log", emptyKey: "rl.empty.plan", labelKey: "rl.title.plan", placeholderKey: "rl.ph.plan", noReplyKey: "rl.noreply.plan", send: null, after: refreshSoon });
     SessChat.mount(document.getElementById("pl-instr-root"), {
       id: "pl-instr", kind: "plan", emptyKey: "sc.empty.plan", placeholderKey: "sc.ph.plan", labelKey: "sc.title.plan",
       target: () => (S.id && S.snap ? `${plan().title} (id ${S.id})` : ""),
@@ -928,6 +932,12 @@
     document.getElementById("pl-a-spec").replaceChildren(el("p", { class: "help", text: T("pl.kind." + type + ".d") }), ...(S.specForm ? [S.specForm.el] : []));
     document.getElementById("pl-a-exits").hidden = type !== "decision";
   }
+  /* what the plan did and wrote, as a conversation with whoever works on it */
+  function drawLog() {
+    const snap = S.snap, ref = (snap.schedule && snap.schedule.session_ref) || snap.created_by || "";
+    ui.runlog.setSend(ref ? text => RunLog.sendToSession(ref, T("rl.about.plan", snap.plan.title, snap.plan.plan_id, text)) : null);
+    ui.runlog.set(RunLog.planEntries(snap.plan.journal, snap.history, a => T("pl.actor." + a)));
+  }
   /* the palette: a kind picked by tap or keys opens the add form with it; one dragged onto the plan opens it with the place it was let go */
   function drawPalette() {
     const kinds = kindList(), key = kinds.map(k => k.type).join(",") + document.documentElement.lang;
@@ -1433,6 +1443,7 @@
     }
     drawProposals();
     drawOffers();
+    drawLog();
     drawHistory();
     drawAlign();
     drawHorizon();

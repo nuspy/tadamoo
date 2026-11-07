@@ -11,3 +11,11 @@
 .sc-note.bad { color: var(--warn); }
 @media (max-width: 480px) { .sc-form { grid-template-columns: minmax(0, 1fr); } .sc-send { width: 100%; } }
 .cj-instr, .pl-instr { border-bottom: 1px solid var(--line); }
+
+/* the log and results of a plan or a run, read as a conversation (runlog.js) */
+.sc-time { font-size: 12px; color: var(--fg-2); margin-bottom: 2px; }
+.sc-msg.event { justify-self: center; max-width: 100%; background: transparent; border: 1px dashed var(--line); color: var(--fg-2); font-size: 13px; }
+.sc-msg.rl-output { border-left: 3px solid var(--accent); }
+.rl-log { max-height: 320px; }
+.cj-runchat { margin-top: 8px; }
+.cj-chatbtn { min-height: 44px; margin-top: 6px; }
