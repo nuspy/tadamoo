@@ -250,6 +250,22 @@ class PlanCanvasBridge:
             fresh = self.dag.note_count - before
             return {**report, "changed": bool(report["done"]), "lines": [dict(j) for j in self.dag.journal[-fresh:]] if fresh > 0 else []}
 
+    def settle_wait(self, node_id: str, now: float, text: str) -> bool:
+        """A wait written in words was judged to hold: the step completes, as if its time had come. False when it is not waiting any more."""
+        with self._lock:
+            node = self.dag.nodes.get(node_id)
+            if node is None or node.status != "pending":
+                return False
+            previous, self._actor = self._actor, "system"
+            try:
+                self.dag.mark(node_id, "completed", None, now)
+                self.dag.note(node_id, "auto", f"{node.title}: {text}", now)
+                self._bump("auto", f"worked out by itself: {node.title}")
+                self._emit("plan:auto", {"done": [node_id], "ready": self.dag.ready_nodes()})
+            finally:
+                self._actor = previous
+            return True
+
     def _stale(self, kind: str, event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """A direct change made on an old reading of the plan is refused, so it cannot overwrite a newer one."""
         base = event.get("base_rev")
