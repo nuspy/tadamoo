@@ -33,6 +33,23 @@ field), `serve/web/longform.js` and `longform.css` (the control), `tadamoo/sessi
   the final chunk. A group of at most 3 different tokens (a table rule, a row of dashes) and everything inside a code fence are never
   counted; nor is a request with a JSON `response_format`, whose keys repeat by nature. `Service.repeat_ngram = (12, 4, 2000)`; `None` turns it off.
 
+## While the control is on: the model's own work and `write_long`
+
+The control is a state of the conversation, not of one message, and the harness does not take over a turn that needs the model's work.
+Where the control line is on a message:
+
+- **One text, nothing else to do:** the harness writes it alone, as above (the length is estimated first; a short text goes back to the model).
+- **Several separate texts** ("write the 10 chapters", `separate_texts`): the turn goes on with the model and a `[harness]` note after the message
+  that lists the texts and says to write each with its own `write_long` call. The parts are recorded in the task registry like the parts of any large request.
+- **A text that depends on a file, a page or an attachment:** left to the model, which reads first and then writes the long part with `write_long`.
+- The `[state]` note carries `long_answer=on (mode, about N words)` when it comes on or changes and `long_answer=off` when it goes off, so the model knows
+  what it is working under (`self_status` too).
+
+`write_long(brief, words, path, mode, source_path, language, style)` is always in the tool list (the list does not change with the control). It runs the
+same engine as the harness (estimate, plan, parts, checks) on the conversation's own model, shows progress as one line, and saves the text to `path`
+(default `.tadamoo/artifacts/`); it never replaces an existing file and returns where the text is and how long. The writer sees only the brief, so the
+brief holds the outline, the tone and what the earlier texts said. Where the model does not call it, a long text it writes by itself is as unreliable as without the control.
+
 ## The segmented mode
 
 For a final text that is too long for one turn the text is planned, then written one **segment** per model call (about 2000 words, never
@@ -42,7 +59,7 @@ Two ways to start it, both with the same engine:
 
 1. **By hand.** The **Long answer** button beside Send (Chat and Agent). A small dialog asks what to write (a new text from the message,
    a translation of it, a rewrite of it), the length, the language, a style, a glossary, and whether images, links, code, tables and
-   diagrams are kept as they are. It applies to the next message only. In the Chat the options go to the server as `long_answer`, and a new
+   diagrams are kept as they are. It stays on for that conversation until it is turned off (the dialog's *new conversations* box sets the default for conversations not started yet). In the Chat the options go to the server as `long_answer`, and a new
    text then goes through the same flow as in the Agent (below; the page's length field is a declared length, so no estimate is asked, and
    a plan given as `outline` is followed as it is); in the Agent the message ends with one line, `[long answer: mode=translate; language=Italian]`, which the harness reads and acts on at once:
    no card, and for a new text no length estimate (the person chose it).
