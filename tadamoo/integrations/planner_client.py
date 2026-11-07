@@ -6,6 +6,7 @@ of a plan shows who did what.
 """
 from __future__ import annotations
 
+import os
 import urllib.parse
 from typing import Any, Dict, List, Optional
 
@@ -16,10 +17,11 @@ ACTOR = "chat"
 
 
 class PlannerClient:
-    def __init__(self, endpoint: str, api_key: Optional[str] = None, timeout: float = 10.0) -> None:
+    def __init__(self, endpoint: str, api_key: Optional[str] = None, timeout: float = 10.0, session_id: str = "") -> None:
         self.endpoint = endpoint.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
+        self.session_id = session_id or os.environ.get("TADAMOO_SESSION_ID", "")      # the plans this session makes are its own
 
     def _call(self, method: str, path: str, payload: Optional[Dict[str, Any]] = None) -> Any:
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
@@ -40,7 +42,16 @@ class PlannerClient:
         return self._call("GET", f"/api/plans/{self._id(plan_id)}")
 
     def create(self, plan: Dict[str, Any], profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        return self._call("POST", "/api/plans", {"plan": plan, "actor": ACTOR, **({"profile": profile} if profile else {})})
+        return self._call("POST", "/api/plans", {"plan": plan, "actor": ACTOR, "created_by": self.session_id, **({"profile": profile} if profile else {})})
+
+    def set_paused(self, plan_id: str, value: bool) -> Dict[str, Any]:
+        return self._call("POST", f"/api/plans/{self._id(plan_id)}/{'pause' if value else 'resume'}", {"actor": ACTOR})
+
+    def set_schedule(self, plan_id: str, schedule: Dict[str, Any]) -> Dict[str, Any]:
+        return self._call("POST", f"/api/plans/{self._id(plan_id)}/schedule", {"actor": ACTOR, "schedule": schedule})
+
+    def remove_schedule(self, plan_id: str) -> Dict[str, Any]:
+        return self._call("POST", f"/api/plans/{self._id(plan_id)}/schedule_remove", {"actor": ACTOR})
 
     def alignment(self, plan_id: str, model: bool = False) -> Dict[str, Any]:
         """How the plan sits with the others; with `model` the local model is asked to read what the plans mean together."""

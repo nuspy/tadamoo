@@ -210,6 +210,14 @@ A conversation has the planner's tools (`tadamoo/planner_tools.py`), unless it i
 buttons. The plans live in the server, in the one store the Plans view uses, and every change made from the Chat names the
 Chat as its author in the plan's history.
 
+`plan_get(plan_id, view="compact")` gives a few lines (state, ready steps, values) instead of the full reading, for a conversation that
+only needs to check on a plan. `plan_pause` and `plan_resume` stop or restart a plan's schedule without touching the plan; a fire
+of a paused plan is recorded `skipped_paused`, not lost. `plan_set_schedule(plan_id, session_ref, schedule, instruction)` makes (or
+replaces) a schedule for the plan through `cron_create`: at its time, the conversation named by `session_ref` is sent `instruction`
+(or a default note) with the plan's provenance (`tadamoo/scheduler.py`, `tadamoo/cron_tools.py`); `plan_remove_schedule` removes it.
+These four, like the others, need the person's yes below `auto`, except that the session that created the plan (`created_by`,
+set from the session id when the plan is made) needs none, the same way `auto` does not ask for a change that touches nobody else.
+
 **Every change to a plan has the person's yes, in every permission mode below `auto`; at `auto` it is asked only for the step it touches that involves other people, a call to prepare or effects that cannot be undone (bookings, payments)**, and it is one of two things:
 
 * *their own words*: the call carries a literal quotation (`quote`) of what they asked for. It counts only when it is

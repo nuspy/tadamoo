@@ -69,8 +69,11 @@ class Proposal:
 
 class PlanCanvasBridge:
     def __init__(self, dag: PlanDAG, card: Optional[PlanInsightCard] = None, replanner: Optional[Replanner] = None,
-                 profile: Optional[PlanProfile] = None) -> None:
+                 profile: Optional[PlanProfile] = None, created_by: str = "") -> None:
         self.dag = dag
+        self.created_by = created_by                     # the session that made this plan, or "" (an older plan, or made by the person)
+        self.paused = False                               # while true, a schedule tied to this plan is recorded skipped_paused, not run
+        self.schedule: Dict[str, Any] = {}                # {"routine_id", "session_ref", "mode", "cron"|"at", "ttl_min", "instruction"}, or {}
         self.profile = profile or PlanProfile()                # the plan's aims, budget, dates and cost: what it is compared on
         # every plan has a card: one that is not given is drawn from the plan, and those fields follow the plan until the person writes them
         self.card = card if card is not None else derive_card(dag, self.profile)
@@ -159,7 +162,42 @@ class PlanCanvasBridge:
                     "history": list(self.history)[-HISTORY_SHOWN:],
                     "proposals": [p.to_dict() for p in self.proposals.values() if p.status == "pending"],
                     "offers": [o for o in self.offers.values() if o["status"] == "offered"],
-                    "ready": self.dag.ready_nodes()}
+                    "ready": self.dag.ready_nodes(), "created_by": self.created_by, "paused": self.paused, "schedule": dict(self.schedule)}
+
+    def set_paused(self, actor: str, value: bool) -> Dict[str, Any]:
+        with self._lock:
+            previous, self._actor = self._actor, actor
+            try:
+                self.paused = bool(value)
+                self._bump("pause" if value else "resume", self.dag.title)
+                self._emit("plan:paused", {"paused": self.paused})
+            finally:
+                self._actor = previous
+            return {"paused": self.paused}
+
+    def set_schedule(self, actor: str, schedule: Dict[str, Any]) -> Dict[str, Any]:
+        with self._lock:
+            previous, self._actor = self._actor, actor
+            try:
+                self.schedule = dict(schedule)
+                self._bump("schedule", f"{self.dag.title}: scheduled")
+                self._emit("plan:schedule", {"schedule": dict(self.schedule)})
+            finally:
+                self._actor = previous
+            return {"schedule": dict(self.schedule)}
+
+    def clear_schedule(self, actor: str) -> Dict[str, Any]:
+        with self._lock:
+            previous, self._actor = self._actor, actor
+            try:
+                had = bool(self.schedule)
+                self.schedule = {}
+                if had:
+                    self._bump("schedule", f"{self.dag.title}: schedule removed")
+                    self._emit("plan:schedule", {"schedule": {}})
+            finally:
+                self._actor = previous
+            return {"schedule": {}}
 
     # -- events ----------------------------------------------------------------------------------
 
@@ -460,12 +498,14 @@ class PlanCanvasBridge:
     def to_dict(self) -> Dict[str, Any]:
         return {"plan": self.dag.to_dict(), "card": self.card.to_dict(), "card_auto": list(self.card_auto), "profile": self.profile.to_dict(), "alignment": self.alignment,
                 "proposals": {k: {**v.to_dict()} for k, v in self.proposals.items()}, "offers": self.offers, "seq": self.seq,
-                "rev": self.rev, "history": list(self.history)}
+                "rev": self.rev, "history": list(self.history), "created_by": self.created_by, "paused": self.paused, "schedule": self.schedule}
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any], replanner: Optional[Replanner] = None) -> "PlanCanvasBridge":
         bridge = cls(PlanDAG.from_dict(data["plan"]), PlanInsightCard.from_dict(data["card"]) if data.get("card") else None,
-                     replanner, PlanProfile.from_dict(data.get("profile")))
+                     replanner, PlanProfile.from_dict(data.get("profile")), str(data.get("created_by") or ""))
+        bridge.paused = data.get("paused") is True
+        bridge.schedule = data["schedule"] if isinstance(data.get("schedule"), dict) else {}
         bridge.alignment = data.get("alignment") if isinstance(data.get("alignment"), dict) else {}
         if data.get("card"):
             bridge.card_auto = [f for f in (data.get("card_auto") or []) if f in CARD_FIELDS]
@@ -499,7 +539,7 @@ class PlanStore:
         return self.dir / "archive" / f"{plan_id}.json"
 
     def create(self, dag: PlanDAG, card: Optional[PlanInsightCard] = None, replanner: Optional[Replanner] = None,
-               profile: Optional[PlanProfile] = None) -> PlanCanvasBridge:
+               profile: Optional[PlanProfile] = None, created_by: str = "") -> PlanCanvasBridge:
         with self._lock:
             if dag.plan_id in RESERVED_IDS:
                 raise ValueError(f"'{dag.plan_id}' is kept for the server's own routes: choose another plan id")
@@ -509,7 +549,7 @@ class PlanStore:
                 raise ValueError(f"plan '{dag.plan_id}' is in the archive; restore it or choose another id")
             dag.validate_acyclic()
             dag.enforce_decisions()
-            bridge = PlanCanvasBridge(dag, card, replanner, profile)
+            bridge = PlanCanvasBridge(dag, card, replanner, profile, created_by)
             self._bridges[dag.plan_id] = bridge
             self.save(dag.plan_id)
             return bridge

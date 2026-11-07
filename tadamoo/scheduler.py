@@ -426,8 +426,13 @@ class Scheduler:
             raise RoutineError("Write what the agent should do.", "bad_prompt")
         if len(prompt) > PROMPT_MAX:
             raise RoutineError(f"The task is too long ({len(prompt)} characters; at most {PROMPT_MAX}).", "bad_prompt")
-        if not isinstance(workspace, str) or not Path(workspace.strip()).is_absolute() or not Path(workspace.strip()).is_dir():
-            raise RoutineError("Give the full path of an existing folder.", "bad_folder")
+        kind = deliver_to.get("kind") if isinstance(deliver_to, dict) else "new_session"
+        if kind == "new_session" or check:
+            if not isinstance(workspace, str) or not Path(workspace.strip()).is_absolute() or not Path(workspace.strip()).is_dir():
+                raise RoutineError("Give the full path of an existing folder.", "bad_folder")
+            workspace = str(Path(workspace.strip()).resolve())
+        else:
+            workspace = str(workspace or "").strip()           # not used: this fire only delivers a message, nothing runs in a folder
         Schedule.parse(schedule)
         if max_turns is not None and (not isinstance(max_turns, int) or isinstance(max_turns, bool) or max_turns < 1):
             raise RoutineError("The number of steps is a whole number from 1, or empty for no limit.", "bad_steps")
@@ -456,7 +461,7 @@ class Scheduler:
         if link is not None and (not isinstance(link, dict) or set(link) - {"plan"} or (("plan" in link) and not isinstance(link["plan"], str))):
             raise RoutineError("The link is {\"plan\": a plan id}, or empty.", "bad_link")
         return {"ttl_min": ttl_min, "dedup_key": dedup_key, "deliver_to": {"kind": deliver_to["kind"], "ref": ref.strip() if isinstance(ref, str) else ""},
-                "message": message.strip(), "link": {"plan": link["plan"]} if link and link.get("plan") else {}, "yield_s": yield_s, "index_past": index_past, "check": check.strip(), "name": name.strip(), "prompt": prompt.strip(), "workspace": str(Path(workspace.strip()).resolve()),
+                "message": message.strip(), "link": {"plan": link["plan"]} if link and link.get("plan") else {}, "yield_s": yield_s, "index_past": index_past, "check": check.strip(), "name": name.strip(), "prompt": prompt.strip(), "workspace": workspace,
                 "schedule": " ".join(str(schedule).lower().split()), "max_turns": max_turns, "max_minutes": max_minutes,
                 **({"skill": skill, "values": dict(values or {})} if skill else {"skill": "", "values": {}})}
 
