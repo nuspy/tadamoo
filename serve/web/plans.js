@@ -21,9 +21,10 @@
     settings: null, refreshTimer: null, abort: null, flash: {}, align: null, rewindAsk: null, rewindFocus: false,
     local: {}, drag: null, refocus: "", justDragged: false,
     tab: "define", adding: false, edge: "", delArmed: "", rowFocus: "",
+    addKind: "", addAt: null, specForm: null, kindsKey: "",
   };
   const TABS = ["aims", "details", "events", "define"];
-  const COL_KEY = "tadamoo.plans.col";
+  const COL_KEY = "tadamoo.plans.col", PAL_KEY = "tadamoo.plans.pal";
   const keep = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* not kept */ } };
   const recall = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } };
 
@@ -108,6 +109,10 @@
     ui.proposals = el("section", { class: "sec pl-props", "aria-labelledby": "pl-props-h" });
     ui.offers = el("section", { class: "sec pl-offers", "aria-labelledby": "pl-offers-h" });
     ui.add = el("section", { class: "sec pl-add", id: "pl-add", hidden: true });
+    ui.palToggle = el("button", { type: "button", class: "btn ghost pl-paltoggle", "aria-controls": "pl-pal-body", onclick: () => setPalette(ui.palBody.hidden) });
+    ui.palBody = el("div", { class: "pad", id: "pl-pal-body" });
+    ui.palette = el("section", { class: "sec pl-palette", "aria-labelledby": "pl-pal-h", hidden: true },
+      el("div", { class: "sh" }, el("b", { id: "pl-pal-h", text: T("pl.pal.title") }), el("span", { class: "grow" }), ui.palToggle), el("p", { class: "help pad", text: T("pl.pal.help") }), ui.palBody);
     ui.manage = el("section", { class: "sec pl-manage" });
     ui.history = el("section", { class: "sec pl-history", "aria-labelledby": "pl-hist-h" });
     ui.align = el("section", { class: "sec pl-align", "aria-labelledby": "pl-al-h" });
@@ -137,7 +142,7 @@
       panel("aims", ui.horizon, ui.align),
       panel("details", ui.manage, ui.archived),
       panel("events", ui.triage),
-      panel("define", ui.defineBar, ui.add, ui.instr, ui.summary,
+      panel("define", ui.defineBar, ui.palette, ui.add, ui.instr, ui.summary,
         el("div", { class: "pl-main" }, el("div", { class: "pl-canvas" }, ui.graph, ui.list), el("div", { class: "pl-side" }, ui.detail, ui.proposals, ui.offers, ui.history))));
     root.replaceChildren(ui.col, ui.main);
     SessChat.mount(document.getElementById("pl-instr-root"), {
@@ -145,6 +150,7 @@
       target: () => (S.id && S.snap ? `${plan().title} (id ${S.id})` : ""),
       onDone: () => document.dispatchEvent(new CustomEvent("tadamoo:edited")) });
     document.addEventListener("tadamoo:edited", () => { if (S.id) refreshSoon(); });
+    setPalette(recall(PAL_KEY, narrow() ? "0" : "1") === "1");
     buildAdd();
     buildTriage();
     buildArchived();
@@ -401,7 +407,7 @@
   function shape(type, x, y) {
     if (type === "decision") return svg("polygon", { points: `${x + W / 2},${y} ${x + W},${y + H / 2} ${x + W / 2},${y + H} ${x},${y + H / 2}` });
     if (type === "merge") return svg("polygon", { points: `${x + 14},${y} ${x + W - 14},${y} ${x + W},${y + H / 2} ${x + W - 14},${y + H} ${x + 14},${y + H} ${x},${y + H / 2}` });
-    return svg("rect", { x, y, width: W, height: H, rx: type === "sensor" ? H / 2 : 8 });
+    return svg("rect", { x, y, width: W, height: H, rx: type === "sensor" || type.startsWith("wait_") ? H / 2 : 8 });
   }
 
   function drawGraph() {
@@ -463,8 +469,9 @@
       const label = svg("text", { x: p.x + W / 2, y: p.y + H / 2 - 4, class: "pl-t", "text-anchor": "middle" });
       label.textContent = clip(n.title, 20);
       const sub = svg("text", { x: p.x + W / 2, y: p.y + H / 2 + 14, class: "pl-s", "text-anchor": "middle" });
-      sub.textContent = `${ICON[status]} ${T("pl.status." + status)} · ${T("pl.assignee.short." + n.assignee)}`;
-      g.append(label, sub);
+      const words = PlanKinds.brief(n.type, n.spec);
+      sub.textContent = `${ICON[status]} ${T("pl.status." + status)} · ${words ? clip(words, 16) : T("pl.assignee.short." + n.assignee)}`;
+      g.append(label, sub, PlanKinds.iconGroup(n.type, p.x + 6, p.y + 3, 0.45));
       g.addEventListener("click", () => { if (S.justDragged) { S.justDragged = false; return; } select(n.id); });
       g.addEventListener("keydown", e => {
         if (e.key === "Enter" || e.key === " ") { e.preventDefault(); S.refocus = n.id; select(n.id); }
@@ -710,15 +717,23 @@
     if (n.state_variables.no_route) facts.push(T("pl.fact.noroute", noRouteText(n.state_variables.no_route)));
     if (n.call_request) facts.push(T("pl.fact.call", n.call_request.number, n.call_request.reason));
     if (n.wiki_query) facts.push(T("pl.fact.wiki", n.wiki_query));
+    const sv = n.state_variables;
+    if (sv.wake_at && n.status === "pending") facts.push(T("pl.fact.wake", new Date(sv.wake_at * 1000).toLocaleString()));
+    if (sv.judged) facts.push(T("pl.fact.judged", T("pl.judged." + sv.judged.answer), new Date(sv.judged.at * 1000).toLocaleTimeString()));
+    if (sv.auto_error) facts.push(T("pl.fact.autoerr", sv.auto_error));
+    if (sv.runs) facts.push(T("pl.fact.runs", sv.runs));
+    const kindFields = PlanKinds.fieldsOf(kindList(), n.type);
+    const specForm = kindFields.length ? PlanKinds.specForm(kindFields, n.spec, "pl-d-sp", T, done) : null;
     const isReady = S.snap.ready.includes(n.id);
     if (S.rewindAsk && S.rewindAsk.id !== n.id) S.rewindAsk = null;
-    ui.detail.append(el("form", { class: "pad pl-dform", onsubmit: e => { e.preventDefault(); saveNode(n.id, cond); } },
+    ui.detail.append(el("form", { class: "pad pl-dform", onsubmit: e => { e.preventDefault(); saveNode(n.id, cond, specForm); } },
       S.rewindAsk ? rewindBox(S.rewindAsk) : [],
       el("p", { class: "pl-dmeta", text: `${T("pl.type." + n.type)} · ${ICON[n.status]} ${T("pl.status." + n.status)}${isReady ? " · " + T("pl.ready") : ""}` }),
       ...facts.map(f => el("p", { class: "pl-fact", text: f })),
       el("label", { for: "pl-d-title", text: T("pl.f.title") }), title,
       el("label", { for: "pl-d-desc", text: T("pl.f.desc") }), desc,
       el("label", { for: "pl-d-assignee", text: T("pl.f.assignee") }), assignee,
+      specForm ? el("fieldset", { class: "pl-parents pl-spec" }, el("legend", { text: T("pl.type." + n.type) }), el("p", { class: "help", text: T("pl.kind." + n.type + ".d") }), specForm.el) : [],
       cond ? [el("label", { for: "pl-d-cond", text: T("pl.f.cond") }), cond, el("p", { class: "help", text: T(n.type === "sensor" ? "pl.f.cond.sensor.help" : "pl.f.cond.help") })] : [],
       el("label", { for: "pl-d-tries", text: T("pl.f.tries") }), tries,
       el("label", { for: "pl-d-wait", text: T("pl.f.wait") }), wait,
@@ -777,13 +792,18 @@
     await refresh();
     return r;
   }
-  async function saveNode(id, cond) {
+  async function saveNode(id, cond, specForm) {
     const changes = { title: document.getElementById("pl-d-title").value.trim(), description: document.getElementById("pl-d-desc").value,
       assignee: document.getElementById("pl-d-assignee").value };
     if (cond) {
       try { changes.conditions = JSON.parse(cond.value || "{}"); } catch (e) { say(T("pl.badjson"), true); return; }
     }
     if (!changes.title) { say(T("pl.f.title.required"), true); return; }
+    if (specForm) {
+      const got = specForm.collect();
+      if (got.errors.length) { say(T("pl.spec.need", got.errors.map(n => T("pl.spec." + n)).join(", ")), true); return; }
+      changes.spec = got.spec;
+    }
     const tries = Number(document.getElementById("pl-d-tries").value) || 1, wait = Number(document.getElementById("pl-d-wait").value) || 0;
     const old = (S.snap.plan.nodes[id] || {}).retry_policy || {};
     changes.retry_policy = { max_attempts: tries, wait_seconds: wait, backoff: old.backoff || 2 };
@@ -889,14 +909,55 @@
       el("label", { for: "pl-a-title", text: T("pl.f.title") }), el("input", { id: "pl-a-title", required: true, maxlength: "200", autocomplete: "off" }),
       el("label", { for: "pl-a-desc", text: T("pl.f.desc") }), el("textarea", { id: "pl-a-desc", rows: "2" }),
       el("label", { for: "pl-a-type", text: T("pl.f.type") }),
-      el("select", { id: "pl-a-type", onchange: () => { document.getElementById("pl-a-exits").hidden = document.getElementById("pl-a-type").value !== "decision"; } },
-        TYPES.map(t => el("option", { value: t, text: T("pl.type." + t) }))),
+      el("select", { id: "pl-a-type", onchange: () => { S.addKind = document.getElementById("pl-a-type").value; fillSpecBox(); } },
+        kindList().map(k => el("option", { value: k.type, text: T("pl.type." + k.type), selected: k.type === (S.addKind || "action") }))),
+      el("div", { id: "pl-a-spec", class: "pl-specbox" }),
       exitsBox(),
       el("label", { for: "pl-a-assignee", text: T("pl.f.assignee") }),
       el("select", { id: "pl-a-assignee" }, ["agent", "user", "third_party"].map(a => el("option", { value: a, text: T("pl.assignee." + a) }))),
       nodes.length ? el("fieldset", { class: "pl-parents" }, el("legend", { text: T("pl.f.parents") }),
         nodes.map(n => el("label", { class: "pl-check" }, el("input", { type: "checkbox", name: "parent", value: n.id }), el("span", { text: n.title })))) : [],
       el("button", { class: "btn primary pl-btn", text: T("pl.add.btn") }));
+    fillSpecBox();
+  }
+  /* the kinds of step the server offers, and the fields of the one chosen */
+  const kindList = () => (S.snap && S.snap.kinds) || TYPES.map(t => ({ type: t, family: "action", fields: [] }));
+  function fillSpecBox() {
+    const type = document.getElementById("pl-a-type").value, fields = PlanKinds.fieldsOf(kindList(), type);
+    S.specForm = fields.length ? PlanKinds.specForm(fields, {}, "pl-a-sp", T, false) : null;
+    document.getElementById("pl-a-spec").replaceChildren(el("p", { class: "help", text: T("pl.kind." + type + ".d") }), ...(S.specForm ? [S.specForm.el] : []));
+    document.getElementById("pl-a-exits").hidden = type !== "decision";
+  }
+  /* the palette: a kind picked by tap or keys opens the add form with it; one dragged onto the plan opens it with the place it was let go */
+  function drawPalette() {
+    const kinds = kindList(), key = kinds.map(k => k.type).join(",") + document.documentElement.lang;
+    if (key === S.kindsKey) return;
+    S.kindsKey = key;
+    if (ui.palBox && ui.palBox.dispose) ui.palBox.dispose();
+    ui.palBody.replaceChildren(ui.palBox = PlanKinds.palette(kinds, {
+      T, canvas: () => ui.graph, over: e => { const hit = document.elementFromPoint(e.clientX, e.clientY); return !!(hit && ui.graph.contains(hit)); },
+      pick: type => chooseKind(type, null),
+      drop: (type, e) => {
+        const svgEl = S.svg, ctm = svgEl && svgEl.getScreenCTM();
+        let at = null;
+        if (ctm) { const pt = svgEl.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; const q = pt.matrixTransform(ctm.inverse()); at = { x: clamp(q.x - W / 2), y: clamp(q.y - H / 2) }; }
+        chooseKind(type, at);
+      },
+    }));
+  }
+  function chooseKind(type, at) {
+    S.addKind = type; S.addAt = at; S.adding = true;
+    S.tab = "define";
+    render();
+    const title = document.getElementById("pl-a-title");
+    if (title) title.focus();
+    say(T(at ? "pl.pal.dropped" : "pl.pal.picked", T("pl.type." + type)));
+  }
+  function setPalette(open) {
+    ui.palBody.hidden = !open;
+    ui.palToggle.setAttribute("aria-expanded", String(open));
+    ui.palToggle.textContent = T(open ? "pl.pal.hide" : "pl.pal.show");
+    keep(PAL_KEY, open ? "1" : "0");
   }
   /* A decision is made with its exits: at least two steps, each with the condition that picks it. */
   const MAX_EXITS = 6;
@@ -924,7 +985,13 @@
     const parents = [...f.querySelectorAll("input[name=parent]:checked")].map(i => i.value);
     const type = f.querySelector("#pl-a-type").value;
     const base = { description: f.querySelector("#pl-a-desc").value, assignee: f.querySelector("#pl-a-assignee").value };
-    const add = [{ id, type, title, ...base, dependencies: parents, outputs: [] }];
+    let spec;
+    if (S.specForm) {
+      const got = S.specForm.collect();
+      if (got.errors.length) { say(T("pl.spec.need", got.errors.map(n => T("pl.spec." + n)).join(", ")), true); return; }
+      spec = got.spec;
+    }
+    const add = [{ id, type, title, ...base, dependencies: parents, outputs: [], ...(spec ? { spec } : {}), ...(S.addAt ? { position: S.addAt } : {}) }];
     if (type === "decision") {
       const rows = [...f.querySelectorAll("#pl-a-exits .pl-exit")].map(r => ({ title: r.querySelector("[name=exit-title]").value.trim(), cond: r.querySelector("[name=exit-cond]").value.trim() }))
         .filter(r => r.title || r.cond);
@@ -940,6 +1007,7 @@
     if (!(await userDiff({ add_nodes: add }, T("pl.add")))) return;
     f.reset();
     S.adding = false;
+    S.addKind = ""; S.addAt = null; S.specForm = null;
     S.selected = id;
     S.edge = "";
     render();
@@ -1348,7 +1416,9 @@
     ui.addBtn.setAttribute("aria-expanded", String(S.adding));
     ui.add.hidden = !has || !S.adding;
     ui.instr.hidden = !has;
+    ui.palette.hidden = !has;
     if (!has) return;
+    drawPalette();
     const nodes = Object.values(S.snap.plan.nodes);
     ui.summary.textContent = T("pl.summary", nodes.length, nodes.filter(n => n.status === "completed").length, S.snap.ready.length,
       Object.keys(S.snap.plan.shared_state).length);

@@ -50,6 +50,10 @@ NODE_SPECS: Dict[str, Dict[str, Any]] = {
     "log": {"family": "io", "auto": True, "summary": "Writes a line in the plan's log", "fields": [
         {"name": "message", "kind": "textarea", "required": True, "max": 500}]},
 }
+for _row in NODE_SPECS.values():                    # the numbers that are lengths of time, so a page can offer minutes, hours and days
+    for _field in _row["fields"]:
+        if _field["name"] in ("seconds", "every", "timeout_s", "poll_s"):
+            _field["unit"] = "seconds"
 AUTO = tuple(k for k, v in NODE_SPECS.items() if v["auto"])
 FAMILIES = ("action", "wait", "data", "flow", "io")
 
