@@ -653,6 +653,15 @@ class Session:
             self.built.permissions.add_rule(rule, "allow")                   # the server keeps it for this conversation's next starts; "always" for every other one too
             self.emit({"event": "rule_added", "rule": rule, "scope": scope})
 
+    def enable_orchestration(self) -> None:
+        """Gives the conversation the tools to message and start other conversations (tadamoo/orchestration_tools.py)."""
+        if getattr(self.agent.tools, "_orchestration_on", False):
+            return
+        from tadamoo.integrations.orchestration_client import OrchestrationClient
+        from tadamoo.orchestration_tools import register_orchestration_tools
+        register_orchestration_tools(self.agent.tools, OrchestrationClient(self.endpoint, self.api_key))
+        self.agent.tools._orchestration_on = True
+
     def enable_planner(self, client: Any) -> None:
         """Gives the conversation the planner's tools and the question tool; every change to a plan asks."""
         from tadamoo.planner_tools import Confirmer, register_ask_tool, register_planner_tools
@@ -1802,6 +1811,15 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     if not args.ask_only and not args.no_planner:
         from tadamoo.integrations.planner_client import PlannerClient
         session.enable_planner(PlannerClient(cfg.endpoint, cfg.api_key))
+    if not args.ask_only and args.orchestration:
+        session.enable_orchestration()
+    if not args.ask_only and built.capabilities is not None:
+        def activate(cap_id: str) -> Optional[str]:
+            if cap_id != "builtin:orchestration":
+                return None
+            session.enable_orchestration()
+            return "The tools to message and start other conversations are available for the rest of this conversation."
+        built.capabilities.activate = activate
     restored = session.restore()
     emit({"event": "ready", "session": sid, "restored": restored, "pid": os.getpid(), "blocked": session.blocked,
           "parked": session.parked_questions()})

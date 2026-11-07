@@ -296,6 +296,7 @@ class CapabilityIndex:
         self.workspace, self.home, self.appdata = Path(workspace), home, appdata
         self.online_hint = False                          # set when find_online_capability is offered: find_capability then points to it
         self.vault_dir: Optional[Path] = None             # where the keys a server installed by TaDaMoo asks for are read from, when it starts
+        self.activate: Optional[Callable[[str], Optional[str]]] = None    # turns on a builtin's tools for this conversation; None or "not mine" means try the next thing
         self._lock = threading.RLock()
         self.entries: List[Dict[str, Any]] = []
         self._raw: Dict[str, List[str]] = {}
@@ -342,6 +343,9 @@ class CapabilityIndex:
              "tags": ["vision"], "forced_node": VISION_ANALYSIS},
             {"id": "builtin:phone_media", "name": "Audio and video with callAPIcall", "kind": "builtin", "origin": "builtin", "path": "", "sha": "", "command": "",
              "description": "Transcribes an audio or video file with the local callAPIcall service.", "tags": ["audio_video"], "forced_node": "audio_video"},
+            {"id": "builtin:orchestration", "name": "Messaging other conversations", "kind": "builtin", "origin": "builtin", "path": "", "sha": "", "command": "",
+             "description": "Send a message to another conversation, see whether it is free, or start a new one on a task of its own. "
+                            "load_capability turns these tools on for the rest of this conversation.", "tags": ["orchestration", "sessions", "messages"], "forced_node": "other"},
         ]
 
     def refresh(self, rescan: bool = True) -> List[Dict[str, Any]]:
@@ -478,10 +482,14 @@ class CapabilityIndex:
     # -- using an entry ---------------------------------------------------------------------------------------------
 
     def body(self, entry_id: str) -> str:
-        """The instructions of a skill, read now."""
+        """The instructions of a skill, read now; for a builtin with an activator, turns it on instead and returns its confirmation."""
         e = self.get(entry_id)
         if e is None:
             raise KeyError(f"No capability '{entry_id}'. Search with find_capability.")
+        if e["kind"] == "builtin" and self.activate is not None:
+            said = self.activate(entry_id)
+            if said is not None:
+                return said
         if e["kind"] != "skill":
             raise ValueError(f"'{entry_id}' is not a skill: use call_capability for a server.")
         if e["state"] == "off":

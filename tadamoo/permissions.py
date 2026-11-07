@@ -103,6 +103,7 @@ GROUPS: Dict[str, Tuple[str, ...]] = {
     "browser": ("browser_*",),
     "phone": ("phone_*",),
     "plan": ("plan_*",),
+    "orchestration": ("session_send", "session_status", "session_spawn", "cron_*"),
     "agents": ("spawn_subagent", "delegate_to_acp_agent", "ask_a2a_agent", "ask_council"),
     "mcp": ("mcp_call", "mcp_read", "call_capability", "read_capability", "load_capability", "find_capability", "find_online_capability"),
 }

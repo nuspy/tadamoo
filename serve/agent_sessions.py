@@ -75,6 +75,9 @@ EFFORTS = ("", "none", "low", "medium", "high")                             # ho
 SLASH_COMMANDS = ("status", "tools", "hooks", "mcp", "memory", "permissions", "context", "compact", "audit", "mcp-reload", "skills-reload")     # tadamoo/commands.py
 FILE_DIFF_BYTES = 200_000
 ALIAS = re.compile(r"^[a-z0-9][a-z0-9-]{1,31}$")
+MAX_SPAWN_DEPTH = 2
+MAX_SPAWN_CHILDREN = 3
+RULES_TEXT_MAX = 20_000
 SENDER_PATTERN = re.compile(r"^[A-Za-z0-9_*?-]{1,40}$")
 SENDERS_MAX = 10
 TOKEN_HEADER = "X-Tadamoo-Session"
@@ -906,8 +909,20 @@ class SessionManager:
                max_turns: Any = UNLIMITED_STEPS, context_patterns: Any = None,
                context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto", effort: Any = "",
                images: Any = "", charts: Any = "", unattended: bool = False, role: Any = GENERAL_ROLE, private: bool = False,
-               alias: Any = "", cross_commands: Any = None) -> Dict[str, Any]:
+               alias: Any = "", cross_commands: Any = None, parent: Any = "", operating_rules: Any = None) -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
+        depth = 0
+        if parent:
+            parent_rec = next((r for r in self.records if r["id"] == parent), None)
+            if parent_rec is None:
+                raise RunError("The conversation that asked for this one is not there any more.", "gone")
+            depth = int(parent_rec.get("depth", 0)) + 1
+            if depth > MAX_SPAWN_DEPTH:
+                raise RunError(f"A conversation started this way may not itself start one more than {MAX_SPAWN_DEPTH} deep.", "too_deep")
+            if unattended:
+                live = sum(1 for r in self.records if r.get("parent") == parent and r.get("unattended") and r["state"] != "closed")
+                if live >= MAX_SPAWN_CHILDREN:
+                    raise RunError(f"This conversation already has {MAX_SPAWN_CHILDREN} background conversations of its own running; close one first.", "too_many_children")
         if (workspace is None or workspace == "") and self.default_workspace is not None:
             self.default_workspace.mkdir(parents=True, exist_ok=True)
             workspace = str(self.default_workspace)
@@ -944,7 +959,7 @@ class SessionManager:
         sid = secrets.token_hex(4)
         copy = self._copy_for(sid, path, worktree)
         rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "role": role, "effort": effort, "images": images, "charts": charts,
-               "allow": [r.strip() for r in rules], "ask_only": bool(ask_only), "max_turns": max_turns, "unattended": unattended is True,
+               "allow": [r.strip() for r in rules], "ask_only": bool(ask_only), "max_turns": max_turns, "unattended": unattended is True, "parent": parent or "", "depth": depth,
                "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": 0}
         if copy:
             rec["worktree"], rec["workdir"] = copy, copy["workdir"]
@@ -952,6 +967,13 @@ class SessionManager:
             rec["private"] = True                                  # left out of the index of earlier conversations and of what is learned about the person
         if senders:
             rec["cross_commands"] = senders
+        if operating_rules is not None:
+            text = str(operating_rules).strip()[:RULES_TEXT_MAX]
+            if text:
+                path = self.history_dir(sid) / "rules.md"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+                rec["rules_file"] = str(path)
         with self._lock:
             if alias:
                 self._alias_free(alias, sid)
@@ -990,6 +1012,10 @@ class SessionManager:
             cmd.append("--unattended")
         for pattern in rec.get("cross_commands") or []:
             cmd += ["--cross-commands", pattern]
+        if rec.get("rules_file"):
+            cmd += ["--rules-file", rec["rules_file"]]
+        if rec.get("orchestration") or rec.get("alias") or rec.get("unattended") or rec.get("parent"):
+            cmd.append("--orchestration")
         if rec.get("role") and rec["role"] != GENERAL_ROLE and not rec.get("ask_only"):
             cmd += ["--role", rec["role"]]
         if self.coding is not None and not rec.get("ask_only"):
