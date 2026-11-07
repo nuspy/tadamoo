@@ -107,7 +107,9 @@ t("left and right move between questions from an answer, up and down between ans
   eq(AC.keyAction(K("Enter"), ctx("option", { multi: true })), { do: "pick", submit: false, advance: false });
   eq(AC.keyAction(K("Enter"), ctx("option", { index: 2 })), { do: "pick", submit: false, advance: false });
   eq(AC.keyAction(K("Enter"), ctx("option", { other: true })), { do: "pick", submit: false, advance: false });
-  eq(AC.keyAction(K("Enter"), ctx("option", { total: 1, index: 0, fast: true })), { do: "pick", submit: true, advance: false });
+  eq(AC.keyAction(K("Enter"), ctx("option", { total: 1, index: 0, fast: true })), { do: "pick", submit: false, advance: false });      // a choice not yet made is only made
+  eq(AC.keyAction(K("Enter"), ctx("option", { total: 1, index: 0, fast: true, picked: true })), { do: "pick", submit: true, advance: false });
+  eq(AC.keyAction(K("Enter"), ctx("option", { total: 1, index: 0, fast: true, picked: true, other: true })), { do: "pick", submit: false, advance: false });
   eq(AC.keyAction(K("ArrowRight"), ctx("option", { total: 1, index: 0 })), { do: "stay" });
 });
 

@@ -73,8 +73,9 @@ class WiringTest(unittest.TestCase):
         self.assertIn("minmax(0, 1fr)", CSS[CSS.index(".asuggest {"):])                    # the column can shrink: no sideways scroll at 1024 px
 
     def test_the_card_is_keyboard_operable_and_names_what_is_missing(self):
-        for needle in ('"radiogroup"', '"fieldset"', '"legend"', "ctrlKey", 'aria-live', "ev.detail > 0", "T(\"ch.ask.missing\""):
+        for needle in ('"radiogroup"', '"fieldset"', '"legend"', "ctrlKey", 'aria-live', "T(\"ch.ask.missing\""):
             self.assertIn(needle.strip('"') if needle.startswith('"') else needle, CARD)
+        self.assertNotIn("ev.detail", CARD)                                                 # a click only chooses; Enter on the chosen answer sends
         self.assertIn("ch.ask.recommended", CARD)                                           # the recommended tag is words, not colour only
 
     def test_several_questions_are_tabs_with_roles_and_arrow_keys(self):
