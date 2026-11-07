@@ -1,14 +1,16 @@
 "use strict";
 /* Reverse engineering with REA, in the Agent tab. One switch registers REA's MCP server and skill with TaDaMoo; the list below it
-   shows the programs REA can use and installs one only when its button is pressed, with the command shown first.
-   Everything the server sends goes in as text. See docs/rea.md. */
+   shows the programs REA can use. A press of Install, or of Install all, runs the steps shown, in the order of what each program needs,
+   in the background; this page follows it. Everything the server sends goes in as text. See docs/rea.md. */
 (function () {
   const box = $("#rea-box");
   if (!box) return;
   const on = $("#rea-on"), msg = $("#rea-msg"), body = $("#rea-body"), state = $("#rea-state");
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  let S = null, busy = false;
-  const outputs = {};                       // tool id -> the last install result, kept across repaints
+  let S = null, busy = false, timer = 0;
+  const running = () => !!(S && S.install && S.install.running);
+  const results = () => { const out = {}; ((S && S.install && S.install.results) || []).forEach(r => { out[r.tool] = r; }); return out; };
+  const name = id => T("rea.t." + id);
 
   async function call(path, body) {
     const opts = body === undefined ? { cache: "no-store", headers: authHeaders() }
@@ -30,25 +32,39 @@
     return b;
   }
 
-  function toolRow(t) {
+  // what happened to a program in the last installation
+  function outcome(r) {
+    if (r.skipped === "present") return null;
+    if (r.skipped === "platform") return T("rea.skip.platform");
+    if (r.skipped === "needs") return T("rea.skip.needs", r.output.split(", ").map(name).join(", "));
+    if (r.skipped === "manual") return T("rea.skip.manual");
+    return r.ok ? T("rea.ok", r.method, r.attempts) : T("rea.failed", r.code, r.attempts);
+  }
+
+  function toolRow(t, res) {
     const li = el("li", "rea-tool");
     const top = el("div", "rea-top");
-    top.append(el("b", "rea-name", T("rea.t." + t.id)), el("span", "rea-chip" + (t.detected ? " ok" : ""), t.detected ? T("rea.found") : T("rea.missing")));
+    const chip = t.detected ? ["rea-chip ok", T("rea.found")] : !t.supported ? ["rea-chip", T("rea.nosystem")] : ["rea-chip", T("rea.missing")];
+    top.append(el("b", "rea-name", name(t.id)), el("span", chip[0], chip[1]));
     li.append(top, el("p", "rea-hint", T("rea.tw." + t.id)));
     if (t.detected) {
       li.append(el("p", "rea-mono", t.path + (t.version ? "  (" + t.version + ")" : "")));
-    } else if (t.command.length) {
-      li.append(el("p", "rea-hint", T("rea.cmd")), el("code", "rea-cmd", t.command.join(" ")));
-      li.append(btn(busy ? T("rea.installing") : T("rea.install"), () => install({ tool: t.id }), busy));
+    } else if (!t.supported) {
+      li.append(el("p", "rea-hint", T("rea.only", t.only.join(", "))));
+    } else if (t.installable) {
+      li.append(el("p", "rea-hint", T("rea.steps")));
+      t.steps.forEach(s => li.append(el("code", "rea-cmd", s)));
+      li.append(btn(running() ? T("rea.installing") : T("rea.install"), () => install({ tool: t.id }), busy || running()));
     } else {
-      const p = el("p", "rea-hint", T("rea.manual", t.link));
-      li.append(p);
+      li.append(el("p", "rea-hint", T("rea.manual", t.link)));
     }
-    if (t.needs.length && !t.detected) li.append(el("p", "rea-hint", T("rea.needs", t.needs.map(n => T("rea.t." + n)).join(", "))));
-    const out = outputs[t.id];
-    if (out) {
-      li.append(el("p", "rea-hint", out.code === 0 ? T("rea.done") : T("rea.failed", out.code)));
-      if (out.output) { const pre = el("pre", "rea-out", out.output); pre.tabIndex = 0; li.append(pre); }
+    if (t.needs.length && !t.detected && t.supported) li.append(el("p", "rea-hint", T("rea.needs", t.needs.map(name).join(", "))));
+    if (res) {
+      const line = outcome(res);
+      if (line) li.append(el("p", "rea-hint", line));
+      if (res.output && res.skipped !== "needs") { const pre = el("pre", "rea-out", res.output); pre.tabIndex = 0; li.append(pre); }
+    } else if (running() && S.install.plan.includes(t.id) && !t.detected) {
+      li.append(el("p", "rea-hint", S.install.current === t.id ? T("rea.now") : T("rea.queued")));
     }
     return li;
   }
@@ -66,28 +82,47 @@
     body.textContent = "";
     body.append(el("p", "rea-hint", T("rea.risk")));
     body.append(el("h3", "rea-h", T("rea.tools.h")), el("p", "rea-hint", T("rea.tools.hint")));
-    const missing = S.tools.filter(t => !t.detected && t.command.length);
+    const missing = S.tools.filter(t => !t.detected && t.installable);
     const bar = el("div", "rea-bar");
-    bar.append(btn(T("rea.all", missing.length), () => install({ all: true }), busy || !missing.length));
-    bar.append(btn(T("rea.refresh"), () => load(), busy));
+    bar.append(btn(T("rea.all", missing.length), () => install({ all: true }), busy || running() || !missing.length));
+    bar.append(btn(T("rea.refresh"), () => load(), busy || running()));
+    body.append(bar);
+    if (running()) {
+      const done = S.install.results.length, total = S.install.plan.length;
+      const p = el("p", "rea-hint", T("rea.progress", Math.min(done + 1, total), total, S.install.current ? name(S.install.current) : ""));
+      p.setAttribute("role", "status");
+      body.append(p);
+    }
+    body.append(el("p", "rea-hint", T("rea.uac")));
+    const res = results();
     const list = el("ul", "rea-list");
-    S.tools.forEach(t => list.append(toolRow(t)));
-    body.append(bar, el("p", "rea-hint", T("rea.uac")), list);
+    S.tools.forEach(t => list.append(toolRow(t, res[t.id])));
+    body.append(list);
+  }
+
+  // while an installation runs the page asks again every two seconds
+  function follow() {
+    clearTimeout(timer);
+    if (running()) timer = setTimeout(load, 2000);
   }
 
   async function load() {
-    try { S = await call("/api/rea"); say(""); paint(); }
-    catch (e) { say(e.message, true); }
+    try {
+      const before = running();
+      S = await call("/api/rea");
+      say(before && !running() ? T("rea.installed") : (running() ? T("rea.installing") : ""));
+      paint();
+      follow();
+    } catch (e) { say(e.message, true); follow(); }
   }
 
   async function install(req) {
-    busy = true; paint(); say(T("rea.installing"));
+    busy = true; paint();
     try {
       const j = await call("/api/rea/install", req);
-      j.results.forEach(r => { outputs[r.tool] = r; });
-      S = j.status; say(T("rea.installed"));
+      S = j.status; say(T("rea.installing"));
     } catch (e) { say(e.message, true); }
-    busy = false; paint();
+    busy = false; paint(); follow();
   }
 
   on.addEventListener("change", async () => {
