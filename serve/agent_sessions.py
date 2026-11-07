@@ -128,7 +128,7 @@ class SessionManager:
                  rule_of_two: Optional[Callable[[], str]] = None, allow_rules: Any = None, rule_of_two_prefs: Any = None,
                  intake_flags: Optional[Callable[[], List[str]]] = None,
                  gate_flags: Optional[Callable[[], List[str]]] = None, coding: Any = None,
-                 compaction_flags: Optional[Callable[[], List[str]]] = None, past: Any = None, exec_level_file: Optional[Path] = None, persistence_file: Optional[Path] = None, lessons_dir: Optional[Path] = None, next_steps_file: Optional[Path] = None,
+                 compaction_flags: Optional[Callable[[], List[str]]] = None, past: Any = None, exec_level_file: Optional[Path] = None, persistence_file: Optional[Path] = None, lessons_dir: Optional[Path] = None, next_steps_file: Optional[Path] = None, file_owners_path: Optional[Path] = None,
                  forgetter: Any = None, cards: Any = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -145,6 +145,7 @@ class SessionManager:
         self.lessons_dir = lessons_dir                          # the global lessons: one folder; the project's own are in its .basalt folder
         self.persistence_file = persistence_file                # the choice for "work until done": one file, read again by each conversation when it changes
         self.exec_level_file = exec_level_file                  # how freely the code the model writes runs: one file, read again by each conversation when it changes
+        self.file_owners_path = file_owners_path                # which conversation owns a shared file: one file, read again by each conversation on every write and edit
         self.past = past                                        # the index of earlier conversations (tadamoo/past.py); each conversation is added to it when a turn ends
         self.cards = cards                                      # told when a conversation's turn ended, to write its card once it is quiet (serve/card_worker.py)
         self.forgetter = forgetter                              # takes a conversation back out of the index and the memories (tadamoo/forget.py)
@@ -1014,6 +1015,8 @@ class SessionManager:
             cmd += ["--cross-commands", pattern]
         if rec.get("rules_file"):
             cmd += ["--rules-file", rec["rules_file"]]
+        if self.file_owners_path:
+            cmd += ["--file-owners", str(self.file_owners_path)]
         if rec.get("orchestration") or rec.get("alias") or rec.get("unattended") or rec.get("parent"):
             cmd.append("--orchestration")
         if rec.get("role") and rec["role"] != GENERAL_ROLE and not rec.get("ask_only"):
