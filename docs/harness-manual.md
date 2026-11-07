@@ -442,6 +442,11 @@ run) blocks too. A file with a mistake stops the agent from starting, with the r
   waits in *Waiting for you* while the rest of the run goes on. They are managed
   through the **Cron Jobs** tab: a list with *Turn on/off*, *Run now* and *Delete*, an editor, the latest results of each job, and a small chat at the right to
   talk a job over. The chat only proposes: *Use in the editor* fills the form, and nothing is saved until you press *Save*.
+- A routine can also accept a cron expression (`cron 50 14 * * 1-5`) or a single moment (`at 2026-12-24 18:00`, run once), a time to live
+  (a fire later than this is skipped, not run cold) and a key that keeps two routines from firing at once. Instead of starting a new
+  conversation, a routine can **deliver its message to one already open**, by name, as data unless that conversation was told the
+  sender may give it orders; the *Cron Jobs* tab shows a message that never arrived, to send it again or put it away. See
+  `docs/orchestration.md` for how conversations message each other, own files together and tie a schedule to a plan.
 - **Evaluation**: `python -m tadamoo.eval --set core --k 5 --gpu-power-limit-w 450 --out report.md` runs each task k times on a fresh
   folder and reports pass@k, pass^k, cost and cache use (a `--k` below 5 is warned about). These are development comparisons, not headline numbers. Public benchmarks
   (BFCL, subsets of Terminal-Bench and SWE-bench Pro) are read from a folder you downloaded: `--bfcl DIR`, `--terminal-bench DIR`, `--swebench DIR`.
