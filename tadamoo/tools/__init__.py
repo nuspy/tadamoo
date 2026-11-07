@@ -69,13 +69,15 @@ def create_standard_tool_registry(
     registry.register(
         name="write_file",
         description="Writes the whole content of a file in the workspace and records the diff. Give the complete text, not a summary of what stays. "
-                    "An existing file must have been read in full since it last changed, or send overwrite=true.",
+                    "An existing file must have been read in full since it last changed, or send overwrite=true. With append=true, content is added "
+                    "as new whole lines at the end instead, for a file another conversation may also be writing to.",
         parameters={
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Relative path to file"},
-                "content": {"type": "string", "description": "Full file content to write"},
+                "content": {"type": "string", "description": "Full file content to write, or the lines to add with append=true"},
                 "overwrite": {"type": "boolean", "description": "Replace an existing file you have not read in full, or with much less text (default false)"},
+                "append": {"type": "boolean", "description": "Add content as new lines at the end instead of replacing the file (default false)"},
             },
             "required": ["path", "content"],
         },

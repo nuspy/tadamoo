@@ -219,6 +219,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--persistence-file", default="", help="where the person's choice for \"work until done\" is kept (tadamoo/persistence.py)")
     parser.add_argument("--rules-file", default="", help="a file of operating rules that this conversation keeps whole, in its system message, however long it runs")
     parser.add_argument("--orchestration", action="store_true", help="offer the tools to message other conversations and start background ones (also loaded on request with find_capability)")
+    parser.add_argument("--file-owners", default="", help="which conversation owns a shared file (tadamoo/file_owners.py): a write or edit of a file another conversation owns is refused")
     parser.add_argument("--next-steps-file", default="", help="where the person's choice for the card of next steps after a task is kept (tadamoo/nextsteps.py)")
     parser.add_argument("--lessons-dir", default=None, help="the folder of the global lessons; with it (or with \"\") the conversation keeps outcomes and lessons in the project's .tadamoo folder and reads them at the start of a task")
     parser.add_argument("--past-index", default="", help="the file that indexes the person's earlier conversations (tadamoo/past.py): the conversation can search and reread them")
@@ -245,7 +246,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
         hooks_file=args.hooks, workspace_hooks=args.workspace_hooks, after_plan=args.after_plan, images=args.images, charts=args.charts, page_files=args.page_files,
         tool_timeout=tool_timeout, tool_timeouts=tool_timeouts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
-        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys, past_index=args.past_index, persistence_file=args.persistence_file, next_steps_file=args.next_steps_file, rules_file=args.rules_file, orchestration=args.orchestration, lessons_dir=args.lessons_dir, personal_skills_dir=args.personal_skills_dir, exec_level_file=args.exec_level_file,
+        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys, past_index=args.past_index, persistence_file=args.persistence_file, next_steps_file=args.next_steps_file, rules_file=args.rules_file, orchestration=args.orchestration, file_owners_path=args.file_owners, lessons_dir=args.lessons_dir, personal_skills_dir=args.personal_skills_dir, exec_level_file=args.exec_level_file,
     )
 
 
@@ -311,6 +312,7 @@ class AgentConfig:
     next_steps_file: str = ""           # where the choice for the card of next steps is kept; empty: it is off
     rules_file: str = ""                # a file of operating rules, pinned in the system message so that no compaction removes them
     orchestration: bool = False         # the tools for messaging other conversations are offered from the start
+    file_owners_path: str = ""          # which conversation owns a shared file (tadamoo/file_owners.py), read again on every write and edit
     personal_skills_dir: str = ""       # the folder of the personal skills; empty: the conversation cannot write one
     past_index: str = ""                # the index of the earlier conversations (tadamoo/past.py); empty: the conversation cannot search them
     reference_docs: Dict[str, str] = field(default_factory=dict)   # path -> text of reference documents
@@ -652,6 +654,10 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
 
     registry, sandbox = create_standard_tool_registry(workspace, secrets=secrets, allow_private_pages=cfg.browser_private, permissions=permissions)
     sandbox.edit_guard = cfg.edit_guard if cfg.edit_guard in EDIT_GUARD_LEVELS else DEFAULT_EDIT_GUARD
+    if cfg.file_owners_path:
+        from tadamoo.file_owners import FileOwnership
+        sandbox.file_owners = FileOwnership(cfg.file_owners_path)
+        sandbox.own_ref = cfg.run_id
     payment_confirm = None
     if cfg.payments_dir:
         from tadamoo.payments_broker import PaymentsBroker, register_payment_tool

@@ -68,6 +68,9 @@ class WorkspaceSandbox:
         self.write_through: Optional[Callable[[Path, str], None]] = None
         # path -> the protected place it is or lies in, or "": the person's secrets are not opened by any file tool
         self.protected_hit: Optional[Callable[[Path], str]] = None
+        # a path's owner and mode ("owner" or "append"), or None when nobody owns it (tadamoo/file_owners.py); own_ref is this conversation's own id
+        self.file_owners: Optional[Any] = None
+        self.own_ref: str = ""
         # what happens when an edit or a write leaves a file that parsed before unparsable: off, warn (written, with a warning) or block
         self.edit_guard = syntax_check.DEFAULT_GUARD
         # per file: what was read of it and when (a whole-file write needs all of it, unchanged), the last read, and failed edits in a row
@@ -124,6 +127,33 @@ class WorkspaceSandbox:
         allowed, reason = self.confirm_git_write(tool, {"path": path})
         if not allowed:
             raise PermissionError(reason)
+
+    def _owner_block(self, path: str, resolved: Path, append: bool) -> Optional[Dict[str, Any]]:
+        """None when this write may go ahead; otherwise the refusal to return instead of writing."""
+        if self.file_owners is None:
+            return None
+        found = self.file_owners.owner_of(resolved)
+        if found is None or found[0] == self.own_ref:
+            return None
+        owner, mode = found
+        if mode == "append" and append:
+            return None
+        if mode == "append":
+            return refusal(f"'{path}' only takes new lines from another conversation: call write_file again with append=true, "
+                           f"or send its owner a message with session_send.", owner=owner, mode=mode)
+        return refusal(f"'{path}' is owned by another conversation: send it what to write with session_send instead of writing it directly.",
+                       owner=owner, mode=mode)
+
+    def _append(self, path: str, resolved: Path, text: str) -> Dict[str, Any]:
+        """Adds whole lines to the end of a file another conversation may also be appending to, under a lock held across processes."""
+        from tadamoo.audit import file_lock
+        lines = text if text.endswith("\n") else text + "\n"
+        lock_path = resolved.with_name(resolved.name + ".lock")
+        with file_lock(lock_path):
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            with open(resolved, "ab") as f:
+                f.write(lines.encode("utf-8"))
+        return {"status": "success", "file": path, "kind": "appended", "added": lines.count("\n")}
 
     @staticmethod
     def _read_text(path: Path) -> str:
@@ -377,10 +407,15 @@ class WorkspaceSandbox:
         if self.write_through is None and self._read_text(safe_path) != expected:
             raise OSError(f"{path} was written but reading it back gives different text; another program may be changing it. Read it again before the next edit.")
 
-    def write_file(self, path: str, content: str, overwrite: bool = False) -> Dict[str, Any]:
+    def write_file(self, path: str, content: str, overwrite: bool = False, append: bool = False) -> Dict[str, Any]:
         safe_path = self.resolve_safe(path)
         if safe_path.is_dir():
             raise IsADirectoryError(f"'{path}' is a folder, not a file.{self._where(path, safe_path)}")
+        blocked = self._owner_block(path, safe_path, append)
+        if blocked:
+            return blocked
+        if append:
+            return self._append(path, safe_path, content)
         self._guard_git("write_file", path, safe_path)
         rel = self._rel(safe_path)
         old_content, kind = "", "added"
@@ -429,6 +464,9 @@ class WorkspaceSandbox:
         safe_path = self.resolve_safe(path)
         if not safe_path.is_file():
             raise FileNotFoundError(f"File not found: {path}.{self._where(path, safe_path)}")
+        blocked = self._owner_block(path, safe_path, append=False)
+        if blocked:
+            return blocked
         items = self._edit_items(target, replacement, edits, replace_all, expected_count)
         self._guard_git("edit_file", path, safe_path)
         rel = self._rel(safe_path)

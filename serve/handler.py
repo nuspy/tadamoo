@@ -71,6 +71,8 @@ from serve.capabilities_api import CapabilityApi, CapabilityError
 from serve.intake_prefs import IntakeError, IntakePrefs
 from tadamoo.roles import CODING_ROLE, ROLE_IDS
 from serve.coding_prefs import CodingError, CodingPrefs
+from serve.file_owners import FileOwners, OwnersError
+from tadamoo.file_owners import FILE as FILE_OWNERS_FILE
 from serve.compaction_prefs import CompactionError, CompactionPrefs
 from serve.gate_prefs import GateError, GatePrefs
 from serve.knowledge_prefs import KnowledgeError, KnowledgePrefs, check_wiki, clean_url
@@ -88,6 +90,7 @@ _PROJECTS = None                                      # the folders of the Agent
 _INSTALLER = Installer()                              # installs Tailscale when the person asks
 _ROUTINES = None                                      # the agent's recurring routines, made with the conversations or on first use
 _PSKILLS = None                                       # the person's personal skills, made on first use
+_FILE_OWNERS = None                                    # which conversation owns a shared file, made on first use
 _PERSONAL = None                                      # the person's own memories (long-term and short-term), made on first use
 MEMORY_EXPORT = "memory-export"                        # the folder of the exported memories, in the user data folder
 _PAST = None                                          # the index of earlier conversations, made on first use
@@ -496,6 +499,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path in ("/api/routines", "/api/routines/runs"):
                 if self._authorized():
                     self._routines_get(path)
+            elif path == "/api/file-owners":
+                if self._authorized():
+                    self._file_owners_get(path)
             elif path == "/api/technical-session":
                 if self._authorized():
                     self._json(200, {"on": side_uses.session_on()})
@@ -727,6 +733,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path == "/api/routines" or path.startswith("/api/routines/"):
                 self._routines_post(path)
+                return
+            if path in ("/api/file-owners/set", "/api/file-owners/remove"):
+                self._file_owners_post(path)
                 return
             if path == "/api/personal-skills" or path.startswith("/api/personal-skills/"):
                 self._pskills_post(path)
@@ -2621,6 +2630,37 @@ def make_handler(svc: Service, remote: bool = False):
                                         power_source=(lambda: tel.snapshot()["now"].get("gpus") or []) if tel else None)
             return _ROUTINES
 
+        def _file_owners(self) -> "FileOwners":
+            global _FILE_OWNERS
+            if _FILE_OWNERS is None:
+                _FILE_OWNERS = FileOwners(userdata.path(FILE_OWNERS_FILE))
+            return _FILE_OWNERS
+
+        def _file_owners_get(self, path):
+            if path == "/api/file-owners":
+                return self._json(200, {"files": self._file_owners().list()})
+            self._json(404, {"error": {"message": "not found"}})
+
+        def _file_owners_post(self, path):
+            if not self._local_or_device():
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "file ownership can be changed only from the PC the server runs on"}})
+            store = self._file_owners()
+            try:
+                req = json.loads(self._body() or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                if path == "/api/file-owners/set":
+                    owner = self._agent_sessions().resolve(req.get("owner"))
+                    if owner is None:
+                        return self._json(404, {"error": {"type": "target", "message": f"No conversation is called '{req.get('owner')}'.", "code": "gone"}})
+                    return self._json(200, {"file": store.set(req.get("path"), owner, req.get("mode", "owner"))})
+                if path == "/api/file-owners/remove":
+                    return self._json(200, {"removed": store.remove(req.get("path"))})
+            except OwnersError as e:
+                return self._json(400, {"error": {"message": str(e), "field": e.field}})
+            self._json(404, {"error": {"message": "not found"}})
+
         def _pskills(self) -> PersonalSkillsApi:
             global _PSKILLS
             if _PSKILLS is None:
@@ -2802,6 +2842,7 @@ def make_handler(svc: Service, remote: bool = False):
             if _SESSIONS is None:
                 _SESSIONS = SessionManager(userdata.path("journal"), f"http://127.0.0.1:{self.server.server_address[1]}",
                                            svc.api_key or "", board=_APPROVALS, default_workspace=userdata.path("chat-workspace"),
+                                           file_owners_path=userdata.path(FILE_OWNERS_FILE),
                                            attachments_dir=userdata.path("attachments"), outputs_dir=userdata.path("outputs"),
                                            vault_dir=userdata.path("vault"), payments_dir=userdata.path("payments"),
                                            browser_prefs=BrowserPrefs(userdata.path("browser.json")).read, knowledge_flags=KnowledgePrefs(userdata.path("knowledge.json")).flags,
