@@ -397,6 +397,7 @@ class PlanDAG:
     updated_at: str = field(default_factory=_now)
     order: List[str] = field(default_factory=list)       # the list the person arranged; list_order() keeps it valid
     journal: List[Dict[str, Any]] = field(default_factory=list)      # what the plan did by itself and what its log and result steps wrote, newest last
+    note_count: int = field(default=0, repr=False, compare=False)    # lines ever written in this run of the program: how many are new since a look
 
     def _touch(self) -> None:
         self.updated_at = _now()
@@ -406,6 +407,7 @@ class PlanDAG:
         from tadamoo.planner import nodes
         self.journal.append({"t": time.time() if now is None else now, "node": node_id, "kind": kind, "text": " ".join(str(text).split())[:500]})
         del self.journal[:-nodes.JOURNAL_MAX]
+        self.note_count += 1
 
     def advance(self, now: Optional[float] = None) -> Dict[str, Any]:
         """Resolves the steps the plan works out by itself (waits, values, log and result lines); see tadamoo/planner/nodes.py."""

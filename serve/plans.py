@@ -23,7 +23,7 @@ DEFAULTS = {"cloud_triage": False, "pseudonymize": True, "card_fields": None, "g
             "blocker_threshold": 0.8, "cloud_timeout": 5.0, "max_events": 20}
 KEY_FIELDS = ("jev_key", "clear_jev_key")                 # acts on the key, which is not stored among the settings
 EVENTS_MAX = 100
-RESULT_KINDS = ("mark", "sensor", "timeout", "fallback", "no_route")      # the changes of a plan that are something coming out of it, not editing it
+RESULT_KINDS = ("mark", "sensor", "timeout", "fallback", "no_route", "auto")      # the changes of a plan that are something coming out of it, not editing it
 
 
 def _short(c: Dict[str, Any]) -> Dict[str, Any]:
@@ -57,6 +57,8 @@ class PlanService:
         self._sync_lock = threading.RLock()                # one start or stop of the pump and the sources at a time
         self._events_in = 0                                # events the mailbox has taken since the server started
         self._store = None
+        self._due: Dict[str, Optional[float]] = {}             # per plan, when a step it works out by itself next comes due (None: nothing is waiting)
+        self._due_scanned = False
         self._attention: Dict[str, Any] = {"t": 0.0}           # the latest result of a plan that was not the person's own edit
         self._settings_path = self.dir / "planner.json"
         self._lock = threading.RLock()
@@ -311,6 +313,7 @@ class PlanService:
         created_by = str(body.get("created_by") or "")
         bridge = self.store.create(dag, card, self._replanner(), profile, created_by)
         bridge.record(actor, "create", dag.title)
+        self.tick(dag.plan_id)
         self.store.save(dag.plan_id)
         self._announce(dag.plan_id)
         return bridge.snapshot()
@@ -346,6 +349,8 @@ class PlanService:
         bridge = self.store.get(plan_id)
         out = bridge.set_paused(actor, value)
         self.store.save(plan_id)
+        if not value:
+            self.tick(plan_id)                              # what came due while it was paused is worked out now
         return out
 
     def set_schedule(self, plan_id: str, actor: str, schedule: Dict[str, Any]) -> Dict[str, Any]:
@@ -396,11 +401,41 @@ class PlanService:
         """When a plan last moved by someone other than the person (a step done, a sensor read, a timeout), for the tab that tells them something new came out."""
         return dict(self._attention)
 
+    def tick(self, plan_id: str, now: Optional[float] = None) -> Dict[str, Any]:
+        """Lets a plan work out the steps it resolves by itself and keeps when the next one comes due; saved when something changed."""
+        bridge = self.store.get(plan_id, self._replanner())
+        report = bridge.tick(now)
+        self._due[plan_id] = report["next_due"]
+        if report["changed"]:
+            self.store.save(plan_id)
+            if any(line["kind"] in ("output", "log") or "timed out" in line["text"] for line in report["lines"]):
+                last = report["lines"][-1]
+                self._attention = {"t": last["t"], "plan": plan_id, "title": bridge.dag.title, "summary": last["text"]}
+        return report
+
+    def watch_tick(self, now: float) -> None:
+        """Called by the clock of the routines: the plans whose next step of this kind has come due are looked at; the others cost one comparison.
+        The first call looks at every plan once, to find the ones with something waiting."""
+        if not self._due_scanned:
+            self._due_scanned = True
+            for row in self.store.list():
+                self._safe_tick(row["plan_id"], now)
+        for plan_id, due in list(self._due.items()):
+            if due is not None and due <= now:
+                self._safe_tick(plan_id, now)
+
+    def _safe_tick(self, plan_id: str, now: float) -> None:
+        try:
+            self.tick(plan_id, now)
+        except Exception:                                       # a plan that cannot be read does not stop the others
+            self._due.pop(plan_id, None)
+
     def handle_event(self, plan_id: str, event: Dict[str, Any]) -> Dict[str, Any]:
         bridge = self.store.get(plan_id, self._replanner())
         before = bridge.rev
         result = bridge.handle(event)
         if result.get("ok"):
+            self.tick(plan_id)
             if bridge.rev != before and bridge.history and bridge.history[-1]["actor"] != "user" and bridge.history[-1]["type"] in RESULT_KINDS:
                 self._attention = {"t": bridge.history[-1]["t"], "plan": plan_id, "title": bridge.dag.title, "summary": bridge.history[-1]["summary"]}
             self.store.save(plan_id)

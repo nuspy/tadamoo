@@ -277,6 +277,7 @@ class Scheduler:
         self._claims: Dict[str, str] = {}                                    # routine id -> run id of the scheduled fire waiting in the queue
         self._manual: set = set()                                            # queued because the person asked, enabled or not
         self._due: Dict[str, float] = {}
+        self.tick_hooks: List[Callable[[float], None]] = []     # called with the time at every look at the clock (the plans' waits)
         self._active: Dict[str, Dict[str, Any]] = {}                         # routine id -> the cancel and yield events and run id of its run
         self._workers: List[threading.Thread] = []
         self.routines: List[Dict[str, Any]] = [self._normalize(r) for r in self._load(ROUTINES_FILE, "routines")]
@@ -559,6 +560,11 @@ class Scheduler:
     def check(self, now: Optional[float] = None) -> None:
         """One look at the clock (public so the tests can drive it): every enabled routine that is due goes in the queue once."""
         now = self.clock() if now is None else now
+        for hook in list(self.tick_hooks):
+            try:
+                hook(now)
+            except Exception:                                   # something that only watches the clock never stops it
+                pass
         if self.stopped():
             self.cancel_running()
             return
