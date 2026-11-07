@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import re
 import secrets
+import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from tadamoo.integrations._http import ServiceError
@@ -692,6 +693,20 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         seen.pop(plan_id, None)
         return f'Plan "{snap["plan"]["title"]}" archived ({how}); it can be restored from the Plans view.'
 
+    def plan_digest(plan_id: str, n: int = 20) -> str:
+        """The plan's last changes, oldest first: who did what and when. For an idea of what happened to a plan without reading it whole."""
+        try:
+            snap = client.snapshot(plan_id)
+        except Exception as exc:
+            return failure(exc)
+        history = snap.get("history") or []
+        if not history:
+            return f'"{snap["plan"]["title"]}": no history yet.'
+        count = max(1, min(int(n) if isinstance(n, (int, float)) and not isinstance(n, bool) else 20, 100))
+        lines = [f"{time.strftime('%H:%M', time.localtime(h.get('t') or 0))} {h.get('actor')} {h.get('type')}: {h.get('summary')}"
+                for h in history[-count:]]
+        return f'"{snap["plan"]["title"]}":\n' + "\n".join(lines)
+
     def is_owner(snap: Dict[str, Any]) -> bool:
         mine = client.session_id
         return bool(mine) and snap.get("created_by") == mine
@@ -852,6 +867,9 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
                       EffectClass.REVERSIBLE, plan_set_schedule)
     registry.register("plan_remove_schedule", "Removes a plan's schedule, if it has one.",
                       obj({"plan_id": {"type": "string"}, "quote": quote_param}, ["plan_id"]), EffectClass.REVERSIBLE, plan_remove_schedule)
+    registry.register("plan_digest", "The plan's last changes, oldest first (who did what and when), for an idea of what happened to it "
+                      "without reading it whole.", obj({"plan_id": {"type": "string"}, "n": {"type": "integer"}}, ["plan_id"]),
+                      EffectClass.PURE, plan_digest, untrusted=True)
 
 
 def register_ask_tool(registry: ToolRegistry, agent: Any, question: Callable[[Dict[str, Any]], Optional[str]]) -> None:

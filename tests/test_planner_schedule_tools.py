@@ -102,3 +102,15 @@ def test_plan_get_compact_shows_state_ready_steps_and_values(url):
     assert plan_id in out and "pending" in out and "Ready:" in out
     full = reg.get("plan_get").handler(plan_id)
     assert len(full) > len(out)                                  # the full view says more
+
+
+def test_plan_digest_shows_the_history_oldest_first_and_cut_to_n(url):
+    reg, agent, _ = rig(url, session_id="aa11bb22")
+    plan_id = make_plan(reg, agent, title())
+    reg.get("plan_pause").handler(plan_id)
+    reg.get("plan_resume").handler(plan_id)
+    out = reg.get("plan_digest").handler(plan_id)
+    lines = out.splitlines()[1:]
+    assert len(lines) >= 3 and "create" in lines[0] and "pause" in lines[1] and "resume" in lines[2]
+    short = reg.get("plan_digest").handler(plan_id, 1)
+    assert len(short.splitlines()) == 2 and "resume" in short.splitlines()[1]

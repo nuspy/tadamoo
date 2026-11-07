@@ -9,6 +9,7 @@ class FakeClient:
         self.sent, self.created = [], []
         self.deliver_result = {"delivery": {"state": "delivered"}}
         self.status_result = {"id": "bb22", "alias": "log", "state": "idle", "title": "", "pending_messages": 0, "dead_letters": 0, "last_answer": ""}
+        self.digest_result = {"id": "bb22", "alias": "log", "lines": [], "pending_messages": 0, "dead_letters": 0}
         self.create_result = {"session": {"id": "cc33", "alias": ""}}
         self.fail = None
 
@@ -22,6 +23,11 @@ class FakeClient:
         if self.fail:
             raise self.fail
         return self.status_result
+
+    def digest(self, ref, n=20):
+        if self.fail:
+            raise self.fail
+        return self.digest_result
 
     def create(self, workspace, title="", alias="", unattended=False, rules=""):
         self.created.append((workspace, title, alias, unattended, rules))
@@ -113,3 +119,18 @@ def test_session_spawn_names_what_is_wrong_without_calling_the_client():
     assert "Write what it should do" in reg.get("session_spawn").handler("D:/work", "")
     assert "too long" in reg.get("session_spawn").handler("D:/work", "x" * 8001)
     assert client.created == []
+
+
+def test_session_digest_shows_lines_or_says_nothing_yet():
+    reg, client = make()
+    client.digest_result = {"id": "bb22", "alias": "log", "lines": [], "pending_messages": 0, "dead_letters": 0}
+    assert "nothing to show yet" in reg.get("session_digest").handler("log")
+    client.digest_result = {"id": "bb22", "alias": "log", "lines": ["10:00 you: hi", "10:01 done: ok"], "pending_messages": 1, "dead_letters": 2}
+    out = reg.get("session_digest").handler("log")
+    assert "10:00 you: hi" in out and "10:01 done: ok" in out and "1 message(s) still waiting" in out and "2 could not be delivered" in out
+
+
+def test_session_digest_reports_a_failure(): 
+    reg, client = make()
+    client.fail = ServiceError("timeout", "x")
+    assert "timeout" in reg.get("session_digest").handler("log")
