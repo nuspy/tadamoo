@@ -176,9 +176,10 @@ class PlanNode:
     position: Optional[Dict[str, float]] = None          # where the canvas draws the node, {"x", "y"}; None: the automatic layout
     call_request: Optional[Dict[str, str]] = None        # a call the plan prepared, {"number", "reason", "text"}; only the Chat's phone_call places it
     wiki_query: Optional[str] = None                     # what this step wants from the knowledge wiki, when there is one
+    repeat: Optional[Dict[str, Any]] = None              # {"every", "max_runs", "reset_from", "stop_when"}: completing the step re-arms it instead of finishing it
 
 
-EDITABLE = ("title", "description", "assignee", "conditions", "state_variables", "retry_policy", "position", "call_request", "wiki_query")
+EDITABLE = ("title", "description", "assignee", "conditions", "state_variables", "retry_policy", "position", "call_request", "wiki_query", "repeat")
 
 # -- what a node may carry ---------------------------------------------------------------------------------
 
@@ -252,6 +253,35 @@ def clean_wiki_query(value: Any) -> Optional[str]:
     return value.strip() or None
 
 
+MIN_REPEAT_S, MAX_REPEAT_S, MAX_REPEAT_RUNS = 60, 30 * 86400, 10_000
+RESET_FROM_RE = re.compile(r"^(?:value|session|skill):[A-Za-z0-9_.:-]{1,80}$")
+
+
+def clean_repeat(value: Any) -> Optional[Dict[str, Any]]:
+    """A step that re-arms itself on completion instead of finishing: {"every" (seconds, 60 to 30 days), "max_runs" (1-10000, or
+    absent for no limit), "reset_from" ("value:<name>", "session:<ref>" or "skill:<name>": where the next run's fresh input comes
+    from, a label only — the value itself is already in the plan's shared state once something writes it), "stop_when" (a condition
+    over the plan's values, tadamoo/planner/dag.py's own expression language: true ends the repetition for good)}."""
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) - {"every", "max_runs", "reset_from", "stop_when"}:
+        raise PlanError("repeat is {every, max_runs, reset_from, stop_when}")
+    every = value.get("every")
+    if isinstance(every, bool) or not isinstance(every, (int, float)) or not MIN_REPEAT_S <= every <= MAX_REPEAT_S:
+        raise PlanError(f"repeat.every is seconds, from {MIN_REPEAT_S} to {MAX_REPEAT_S}")
+    max_runs = value.get("max_runs")
+    if max_runs is not None and (not _whole(max_runs) or not 1 <= max_runs <= MAX_REPEAT_RUNS):
+        raise PlanError(f"repeat.max_runs is a whole number from 1 to {MAX_REPEAT_RUNS}, or absent for no limit")
+    reset_from = value.get("reset_from")
+    if reset_from is not None and (not isinstance(reset_from, str) or not RESET_FROM_RE.match(reset_from)):
+        raise PlanError("repeat.reset_from is 'value:<name>', 'session:<ref>' or 'skill:<name>'")
+    stop_when = value.get("stop_when")
+    if stop_when is not None:
+        check_expression(stop_when)
+    return {"every": float(every), **({"max_runs": max_runs} if max_runs is not None else {}),
+            **({"reset_from": reset_from} if reset_from else {}), **({"stop_when": stop_when} if stop_when else {})}
+
+
 def check_expression(expression: Any) -> None:
     """Syntax and vocabulary of a condition, without any values: raises PlanError if safe_eval would never accept it."""
     if not isinstance(expression, str) or not expression.strip() or len(expression) > 300:
@@ -300,6 +330,8 @@ def clean_field(node_type: Any, key: str, value: Any) -> Any:
         return cleaned
     if key == "conditions":
         return clean_conditions(node_type, value)
+    if key == "repeat":
+        return clean_repeat(value)
     return value
 
 
@@ -681,7 +713,8 @@ class PlanDAG:
         now = time.time() if now is None else now
         for nid in self.topological_order():
             n = self.nodes[nid]
-            if n.status != "pending" or self._blockers(n) or n.state_variables.get("retry_at", 0) > now:
+            if (n.status != "pending" or self._blockers(n) or n.state_variables.get("retry_at", 0) > now
+                    or n.state_variables.get("repeat_at", 0) > now):
                 continue
             parents = [self.nodes[p].status for p in n.dependencies]
             if all(s in DONE for s in parents) and (not parents or "completed" in parents):
@@ -707,6 +740,25 @@ class PlanDAG:
         node.state_variables["retry_at"] = now + wait
         node.status = "pending"
         return {"attempt": attempts, "of": policy["max_attempts"], "wait_seconds": wait, "retry_at": now + wait}
+
+    def _rearm(self, node: PlanNode, now: float) -> Optional[Dict[str, Any]]:
+        """After a repeating step completes: ends it for good (its `stop_when` holds, or it used up its `max_runs`), leaving it
+        `completed` like any other step, or sends it back to `pending` for another run once `every` seconds have passed."""
+        repeat = node.repeat or {}
+        runs = int(node.state_variables.get("runs", 0)) + 1
+        node.state_variables["runs"] = runs
+        stop = False
+        if repeat.get("stop_when"):
+            try:
+                stop = bool(safe_eval(repeat["stop_when"], self.shared_state))
+            except PlanError:
+                stop = False                              # a value the condition needs is not there yet: not held, it repeats again
+        if stop or (repeat.get("max_runs") and runs >= repeat["max_runs"]):
+            node.state_variables.pop("repeat_at", None)
+            return None
+        node.state_variables["repeat_at"] = now + repeat["every"]
+        node.status = "pending"
+        return {"repeated": True, "run": runs, "repeat_at": node.state_variables["repeat_at"]}
 
     def mark(self, node_id: str, status: str, outputs: Optional[Dict[str, Any]] = None, now: Optional[float] = None) -> Optional[Dict[str, Any]]:
         """Sets a node's status. Completing it writes its outputs into the shared state and, for a
@@ -740,6 +792,8 @@ class PlanDAG:
                 if node.type == NodeType.DECISION:
                     node.state_variables.pop("no_route", None)
                     self._route(node)
+                if node.repeat:
+                    retry = self._rearm(node, time.time() if now is None else now)
             except NoRoute as stop:
                 self.nodes, self.shared_state = backup           # the decision is not taken: it goes to the person with the facts
                 node = self.nodes[node_id]
@@ -999,6 +1053,7 @@ def node_to_dict(n: PlanNode) -> Dict[str, Any]:
         "position": n.position,
         "call_request": n.call_request,
         "wiki_query": n.wiki_query,
+        "repeat": n.repeat,
     }
 
 
@@ -1016,4 +1071,5 @@ def node_from_dict(nd: Dict[str, Any]) -> PlanNode:
         position=clean_field(node_type, "position", nd.get("position")),
         call_request=clean_field(node_type, "call_request", nd.get("call_request")),
         wiki_query=clean_field(node_type, "wiki_query", nd.get("wiki_query")),
+        repeat=clean_field(node_type, "repeat", nd.get("repeat")),
     )
