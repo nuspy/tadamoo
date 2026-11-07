@@ -2641,7 +2641,14 @@ def make_handler(svc: Service, remote: bool = False):
                                         power_source=(lambda: tel.snapshot()["now"].get("gpus") or []) if tel else None,
                                         plan_paused=lambda plan_id: self._plan_service().is_paused(plan_id),
                                         plan_context=lambda plan_id: self._plan_service().template_context(plan_id))
+                _ROUTINES.scheduler.tick_hooks.append(self._watch_plans)
             return _ROUTINES
+
+        def _watch_plans(self, now):
+            """The clock of the routines also lets the plans work out their own waits and values; no plan on disk, nothing is made or opened."""
+            if _PLANS is None and next((userdata.path("planner") / "plans").glob("*.json"), None) is None:
+                return
+            self._plan_service().watch_tick(now)
 
         def _file_owners(self) -> "FileOwners":
             global _FILE_OWNERS

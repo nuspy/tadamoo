@@ -231,6 +231,25 @@ class PlanCanvasBridge:
         except (PlanError, ValueError, TypeError) as exc:
             return {"ok": False, "error": str(exc)}
 
+    def tick(self, now: Optional[float] = None) -> Dict[str, Any]:
+        """The plan works out what it can by itself (waits that ended, values, result and log lines). A paused plan does not. Returns the report of
+        `PlanDAG.advance` with `changed` and `lines` (the journal lines written by this look)."""
+        with self._lock:
+            if self.paused:
+                return {"done": [], "judge": [], "next_due": None, "changed": False, "lines": []}
+            before = self.dag.note_count
+            previous, self._actor = self._actor, "system"
+            try:
+                report = self.dag.advance(now)
+                if report["done"]:
+                    names = ", ".join(self.dag.nodes[i].title for i in report["done"] if i in self.dag.nodes)
+                    self._bump("auto", f"worked out by itself: {names}")
+                    self._emit("plan:auto", {"done": report["done"], "ready": self.dag.ready_nodes()})
+            finally:
+                self._actor = previous
+            fresh = self.dag.note_count - before
+            return {**report, "changed": bool(report["done"]), "lines": [dict(j) for j in self.dag.journal[-fresh:]] if fresh > 0 else []}
+
     def _stale(self, kind: str, event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """A direct change made on an old reading of the plan is refused, so it cannot overwrite a newer one."""
         base = event.get("base_rev")
