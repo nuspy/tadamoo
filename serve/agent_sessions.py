@@ -48,6 +48,7 @@ from serve.agent_runs import MODES, RunBusy, RunError
 from serve.approvals import ApprovalBoard
 from serve.conv_nodes import NodeStore
 from serve.deliveries import DeliveryError, DeliveryQueue
+from serve.session_budget import SessionBudget
 from serve.tasks import _write_json
 from serve.util import peer
 from serve.util.winjob import contain
@@ -188,6 +189,7 @@ class SessionManager:
         self.nodes = NodeStore(self.directory / NODES_FILE)         # every conversation's messages as shared immutable nodes
         self._migrate_nodes()
         self._token_key = secrets.token_bytes(32)               # signs the name a conversation's process presents when it calls the server
+        self.budget = SessionBudget()                           # tokens spent today, per conversation (serve/session_budget.py)
         self._chains: Dict[str, List[str]] = {}                 # per conversation: the conversations the message that woke it came through
         self.deliveries = DeliveryQueue(Path(directory), self)  # messages from schedules, plans and other conversations, until they are taken
         self._stop = threading.Event()
@@ -910,8 +912,11 @@ class SessionManager:
                max_turns: Any = UNLIMITED_STEPS, context_patterns: Any = None,
                context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto", effort: Any = "",
                images: Any = "", charts: Any = "", unattended: bool = False, role: Any = GENERAL_ROLE, private: bool = False,
-               alias: Any = "", cross_commands: Any = None, parent: Any = "", operating_rules: Any = None) -> Dict[str, Any]:
+               alias: Any = "", cross_commands: Any = None, parent: Any = "", operating_rules: Any = None,
+               budget_day_tokens: Any = None) -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
+        if budget_day_tokens is not None and (not isinstance(budget_day_tokens, int) or isinstance(budget_day_tokens, bool) or budget_day_tokens < 1):
+            raise RunError("The day's budget is a whole number of tokens from 1, or empty for no limit.", "bad_budget")
         depth = 0
         if parent:
             parent_rec = next((r for r in self.records if r["id"] == parent), None)
@@ -961,6 +966,7 @@ class SessionManager:
         copy = self._copy_for(sid, path, worktree)
         rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "role": role, "effort": effort, "images": images, "charts": charts,
                "allow": [r.strip() for r in rules], "ask_only": bool(ask_only), "max_turns": max_turns, "unattended": unattended is True, "parent": parent or "", "depth": depth,
+               "budget_day_tokens": budget_day_tokens,
                "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": 0}
         if copy:
             rec["worktree"], rec["workdir"] = copy, copy["workdir"]
@@ -1209,6 +1215,7 @@ class SessionManager:
                 if rec["state"] not in ("asking", "blocked"):
                     self._set(rec, state="busy")
             elif kind == "done":
+                self.budget.record(sid, event.get("tokens"))
                 if not event.get("more"):
                     threading.Thread(target=self._flush_heard, args=(sid,), name="learn-flush", daemon=True).start()
                     threading.Thread(target=self._index_and_card, args=(sid,), name="past-index", daemon=True).start()
@@ -1345,6 +1352,15 @@ class SessionManager:
             self._tell_if_running(sid, {"cmd": "cross_commands", "patterns": senders})
         return self.get(sid)
 
+    def set_budget(self, sid: str, budget_day_tokens: Any) -> Dict[str, Any]:
+        """How many tokens this conversation may use today; a delivery to it is refused once it has spent that much (empty: no limit)."""
+        if budget_day_tokens is not None and (not isinstance(budget_day_tokens, int) or isinstance(budget_day_tokens, bool) or budget_day_tokens < 1):
+            raise RunError("The day's budget is a whole number of tokens from 1, or empty for no limit.", "bad_budget")
+        with self._lock:
+            rec = self._record(sid)
+            self._set(rec, budget_day_tokens=budget_day_tokens)
+        return self.get(sid)
+
     def resolve(self, ref: Any) -> Optional[str]:
         """The id a reference names: an id, or the name of a conversation that is not closed."""
         text = str(ref or "").strip().lower()
@@ -1361,7 +1377,8 @@ class SessionManager:
             return rec["state"] if rec else None
 
     def over_budget(self, sid: str) -> bool:
-        return False
+        rec = next((r for r in self.records if r["id"] == sid), None)
+        return rec is not None and self.budget.over(sid, rec.get("budget_day_tokens"))
 
     def label_of(self, sid: str) -> str:
         """How a conversation is named in a message it sends: its name, else its id."""
@@ -1432,7 +1449,43 @@ class SessionManager:
         return {"id": sid, "alias": rec.get("alias", ""), "title": rec.get("title", ""), "state": rec["state"], "workspace": rec["workspace"],
                 "unattended": bool(rec.get("unattended")), "turns": rec.get("turns", 0), "updated": rec.get("updated", 0),
                 "pending_messages": self.deliveries.pending_count(sid), "dead_letters": self.deliveries.dead_count(sid),
-                "last_answer": str(last.get("final") or "")[:300] if last else ""}
+                "last_answer": str(last.get("final") or "")[:300] if last else "",
+                "budget_day_tokens": rec.get("budget_day_tokens"), "used_today": self.budget.used_today(sid)}
+
+    def digest(self, ref: Any, n: Any = 20) -> Dict[str, Any]:
+        """The last `n` things that happened to or from this conversation: its own answers, messages it took in, and messages it sent
+        that are still pending or could not be delivered; oldest first. For an idea of what an unattended run did without reading its
+        whole history."""
+        sid = self.resolve(ref)
+        if sid is None:
+            raise RunError(f"No conversation is called '{ref}'.", "gone")
+        try:
+            count = max(1, min(int(n), 100))
+        except (TypeError, ValueError):
+            raise RunError("The count is a number.", "bad_limit") from None
+        rec = self.get(sid)
+        rows: List[Tuple[float, str]] = []
+        with self._lock:
+            events = list(self._events.get(sid, ()))
+        for e in events:
+            when = float(e.get("t") or 0)
+            if e.get("event") == "done" and e.get("final"):
+                rows.append((when, f"done: {str(e['final'])[:160]}"))
+            elif e.get("event") == "incoming":
+                rows.append((when, f"from {e.get('provenance', '')}: {str(e.get('text', ''))[:160]}"))
+            elif e.get("event") == "user":
+                rows.append((when, f"you: {str(e.get('text', ''))[:160]}"))
+        for d in self.deliveries.entries():
+            when = float(d.get("created") or 0)
+            if d.get("sender") == sid:                                   # a message this conversation sent: only it has this record
+                rows.append((when, f"sent to {d.get('target', '')}: {d.get('state')}" + (f" — {d.get('reason')}" if d.get("state") == "dead" else "")))
+            elif d.get("session") == sid and d.get("state") in ("pending", "dead"):
+                # delivered ones are already an "incoming" event above; a pending or dead one never reaches it, so it is shown here instead
+                rows.append((when, f"from {d.get('provenance', '')}: {'waiting to be delivered' if d['state'] == 'pending' else 'not delivered — ' + d.get('reason', '')}"))
+        rows.sort(key=lambda r: r[0])
+        lines = [f"{time.strftime('%H:%M', time.localtime(t))} {text}" for t, text in rows[-count:]]
+        return {"id": sid, "alias": rec.get("alias", ""), "lines": lines, "pending_messages": self.deliveries.pending_count(sid),
+                "dead_letters": self.deliveries.dead_count(sid)}
 
     # -- the page's commands -----------------------------------------------------------------------------
 

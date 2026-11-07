@@ -96,3 +96,21 @@ def test_a_name_and_the_senders_that_may_give_orders_are_set_by_the_person(setup
     assert api("POST", f"/api/agent/sessions/{sid}/cross-commands", {"senders": "boss"})[0] == 400
     code, data = api("POST", "/api/agent/sessions", {"workspace": ws, "alias": "made", "cross_commands": ["night"]})
     assert code == 200 and data["session"]["alias"] == "made" and data["session"]["cross_commands"] == ["night"]
+
+
+def test_budget_is_set_through_the_api_and_shown_in_status(setup, ws):
+    api, mgr = setup
+    sid = mgr.create(ws, alias="boss")["id"]
+    code, data = api("POST", f"/api/agent/sessions/{sid}/budget", {"budget_day_tokens": 2000})
+    assert code == 200 and data["session"]["budget_day_tokens"] == 2000
+    assert api("GET", "/api/agent/sessions/boss/status")[1]["budget_day_tokens"] == 2000
+    code, data = api("POST", f"/api/agent/sessions/{sid}/budget", {"budget_day_tokens": "x"})
+    assert code == 400 and data["error"]["code"] == "bad_budget"
+
+
+def test_the_digest_is_read_through_the_api(setup, ws):
+    api, mgr = setup
+    mgr.create(ws, alias="night")
+    code, data = api("GET", "/api/agent/sessions/night/digest?n=5")
+    assert code == 200 and data["alias"] == "night" and data["lines"] == []
+    assert api("GET", "/api/agent/sessions/nowhere/digest")[0] == 404

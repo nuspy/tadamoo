@@ -2891,6 +2891,8 @@ def make_handler(svc: Service, remote: bool = False):
                         return self._json(200, mgr.tree())
                     if len(parts) == 3 and parts[2] == "status":
                         return self._json(200, mgr.status(parts[1]))
+                    if len(parts) == 3 and parts[2] == "digest":
+                        return self._json(200, mgr.digest(parts[1], (parse_qs(urlsplit(self.path).query).get("n") or ["20"])[0]))
                     # --- conversation nodes: begin ---
                     if parts == ["sessions", "nodes"]:
                         return self._json(200, mgr.node_tree())
@@ -2989,7 +2991,8 @@ def make_handler(svc: Service, remote: bool = False):
                                                                       req.get("worktree", "auto"), req.get("effort", ""),
                                                                       req.get("images", ""), req.get("charts", ""),
                                                                       req.get("unattended") is True, req.get("role", "general"), req.get("private") is True,
-                                                                      req.get("alias", ""), req.get("cross_commands"), req.get("parent", ""), req.get("rules"))})
+                                                                      req.get("alias", ""), req.get("cross_commands"), req.get("parent", ""), req.get("rules"),
+                                                                      req.get("budget_day_tokens"))})
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "apply":
                         return self._json(200, mgr.copy_apply(parts[1], req.get("paths")))
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "discard":
@@ -3015,6 +3018,8 @@ def make_handler(svc: Service, remote: bool = False):
                         return self._json(200, {"session": mgr.set_alias(parts[1], req.get("alias"))})
                     if len(parts) == 3 and parts[2] == "cross-commands":
                         return self._json(200, {"session": mgr.set_cross_commands(parts[1], req.get("senders"))})
+                    if len(parts) == 3 and parts[2] == "budget":
+                        return self._json(200, {"session": mgr.set_budget(parts[1], req.get("budget_day_tokens"))})
                     if len(parts) == 3 and parts[2] == "send":
                         return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments"), req.get("place"), req.get("optimize")))
                     if len(parts) == 3 and parts[2] in ("promote", "drop"):
