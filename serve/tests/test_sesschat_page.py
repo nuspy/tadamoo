@@ -60,3 +60,16 @@ class WiringTest(unittest.TestCase):
         self.assertGreaterEqual(len(used), 12)
         for key in sorted(used):
             self.assertEqual(I18N.count(f'"{key}":'), 2, key)
+
+
+class CreateWiringTest(unittest.TestCase):
+    def test_only_the_cron_tab_may_send_with_nothing_chosen(self):
+        self.assertIn("canCreate: true", CRON)
+        self.assertNotIn("canCreate", PLANS)
+        self.assertIn("opts.kind && !opts.canCreate && !String(opts.target()", CHAT)
+
+    def test_the_cron_texts_say_that_a_new_job_can_be_made_in_both_languages(self):
+        for key in ("sc.title.cron", "sc.help.cron", "sc.empty.cron", "sc.ph.cron"):
+            self.assertEqual(I18N.count(f'"{key}":'), 2, key)
+        self.assertEqual(I18N.lower().count("with no job selected"), 2)
+        self.assertEqual(I18N.lower().count("senza job scelto"), 2)

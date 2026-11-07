@@ -38,3 +38,11 @@ def test_a_bad_request_is_refused_before_anything_is_made(make, tmp_path, args, 
     with pytest.raises(RunError) as e:
         tab_editor.instruct(mgr, *args)
     assert e.value.code == code and not mgr.records
+
+
+def test_a_cron_instruction_with_no_job_chosen_makes_a_new_job(make, tmp_path):
+    mgr = make(default_workspace=tmp_path / "chat")
+    sid = tab_editor.instruct(mgr, "cron", "", "every morning at 8 summarize the news")["session"]
+    sent = [e for e in mgr.events(sid, 0)["events"] if e.get("event") == "user"]
+    assert sent[-1]["text"] == "Make a new cron job: every morning at 8 summarize the news"
+    assert "cron_create" in (mgr.history_dir(sid) / "rules.md").read_text(encoding="utf-8")

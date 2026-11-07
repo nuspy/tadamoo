@@ -35,7 +35,7 @@
   }
   const why = r => r.status === 0 ? T("sc.offline") : ((r.data && r.data.error && r.data.error.message) || `HTTP ${r.status}`);
 
-  /* opts: { id, kind: "plan" | "cron" | "", target: () => name of what to change, ref: the conversation to follow (default: the editing one), onDone } */
+  /* opts: { id, kind: "plan" | "cron" | "", target: () => name of what to change ("" makes a new one when canCreate), canCreate, ref: the conversation to follow (default: the editing one), onDone } */
   function mount(host, opts) {
     const S = { sid: "", log: [], busy: false, note: "", timer: 0 };
     const ref = opts.ref || "tab-editor";
@@ -82,7 +82,7 @@
       e.preventDefault();
       const text = input.value.trim();
       if (!text || S.busy) return;
-      if (opts.kind && !String(opts.target() || "").trim()) { S.note = T(opts.kind === "plan" ? "sc.pick.plan" : "sc.pick.cron"); paint(); return; }
+      if (opts.kind && !opts.canCreate && !String(opts.target() || "").trim()) { S.note = T(opts.kind === "plan" ? "sc.pick.plan" : "sc.pick.cron"); paint(); return; }
       input.value = "";
       ask(text);
     });
