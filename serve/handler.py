@@ -71,6 +71,7 @@ from serve.capabilities_api import CapabilityApi, CapabilityError
 from serve.intake_prefs import IntakeError, IntakePrefs
 from tadamoo.roles import CODING_ROLE, ROLE_IDS
 from serve.coding_prefs import CodingError, CodingPrefs
+from serve import sessions_move
 from serve.file_owners import FileOwners, OwnersError
 from tadamoo.file_owners import FILE as FILE_OWNERS_FILE
 from serve.compaction_prefs import CompactionError, CompactionPrefs
@@ -502,6 +503,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/file-owners":
                 if self._authorized():
                     self._file_owners_get(path)
+            elif path == "/api/sessions-base":
+                if self._authorized():
+                    self._sessions_base_get()
             elif path == "/api/technical-session":
                 if self._authorized():
                     self._json(200, {"on": side_uses.session_on()})
@@ -736,6 +740,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path in ("/api/file-owners/set", "/api/file-owners/remove"):
                 self._file_owners_post(path)
+                return
+            if path in ("/api/sessions-base/check", "/api/sessions-base/move"):
+                self._sessions_base_post(path)
                 return
             if path == "/api/personal-skills" or path.startswith("/api/personal-skills/"):
                 self._pskills_post(path)
@@ -2662,6 +2669,29 @@ def make_handler(svc: Service, remote: bool = False):
             except OwnersError as e:
                 return self._json(400, {"error": {"message": str(e), "field": e.field}})
             self._json(404, {"error": {"message": "not found"}})
+
+        def _sessions_base_get(self):
+            chosen = userdata.chosen_sessions_base()
+            self._json(200, {"current": str(userdata.sessions_base() / "sessions"), "default": str(userdata.path("journal") / "sessions"),
+                             "chosen": chosen is not None, "running": _SESSIONS.running_count() if _SESSIONS is not None else 0})
+
+        def _sessions_base_post(self, path):
+            if not self._local_or_device():
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the conversations' folder can be changed only from the PC the server runs on"}})
+            try:
+                req = json.loads(self._body() or b"{}")
+                if not isinstance(req, dict) or not isinstance(req.get("path"), str) or not req["path"].strip():
+                    raise ValueError("send the full path of the folder in `path`")
+            except ValueError as e:
+                return self._json(400, {"error": {"message": str(e), "field": "path"}})
+            running = _SESSIONS.running_count() if _SESSIONS is not None else 0
+            try:
+                if path.endswith("/check"):
+                    return self._json(200, sessions_move.inspect(userdata.sessions_base(), Path(req["path"].strip()), running))
+                self._json(200, sessions_move.move(userdata.sessions_base(), Path(req["path"].strip()), running))
+            except sessions_move.MoveError as e:
+                self._json(409, {"error": {"type": "move", "code": e.code, "message": e.message}})
 
         def _pskills(self) -> PersonalSkillsApi:
             global _PSKILLS
