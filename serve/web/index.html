@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="web/app.css">
 <link rel="stylesheet" href="web/plans.css">
 <link rel="stylesheet" href="web/cron.css">
+<link rel="stylesheet" href="web/sesschat.css">
 <link rel="stylesheet" href="web/traces.css">
 <link rel="stylesheet" href="web/mobile.css">
 <link rel="stylesheet" href="web/memories.css">
@@ -83,6 +84,7 @@
 <script defer src="web/reqlog.js"></script>
 <script defer src="web/traces.js"></script>
 <script defer src="web/changes.js"></script>
+<script defer src="web/sesschat.js"></script>
 <script defer src="web/plans.js"></script>
 <script defer src="web/cron.js"></script>
 <script defer src="web/mobile.js"></script>
@@ -769,6 +771,11 @@
         <p class="cj-status pad" id="cj-status" role="status" aria-live="polite"></p>
       </section>
       <section class="sec cj-edsec" aria-label="Job" data-t-aria="cj.job">
+        <div class="cj-instr" aria-labelledby="cj-instr-h">
+          <div class="sh"><b id="cj-instr-h" data-t="sc.title.cron">Change this job with an instruction</b></div>
+          <p class="help pad" data-t="sc.help.cron"></p>
+          <div class="pad" id="cj-instr-root"></div>
+        </div>
         <p class="pad dim" id="cj-pick" data-t="cj.pick">Choose a job, or press New job.</p>
         <div id="cj-editor" hidden></div>
         <datalist id="cj-folders"></datalist>
