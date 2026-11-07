@@ -4,9 +4,11 @@
 class Text { constructor(t) { this.text = String(t); this.nodeType = 3; } }
 class El {
   constructor(tag) {
-    this.nodeType = 1; this.tagName = tag; this.children = []; this.attrs = {}; this.dataset = {}; this.listeners = {}; this.classes = new Set(); this.style = {}; this.value = ""; this.disabled = false;
+    this.nodeType = 1; this.tagName = tag; this.children = []; this.attrs = {}; this.dataset = {}; this.listeners = {}; this.classes = new Set(); this.style = {}; this._value = ""; this.disabled = false;
     this.classList = { add: c => this.classes.add(c), remove: c => this.classes.delete(c), contains: c => this.classes.has(c), toggle: (c, on) => (on ? this.classes.add(c) : this.classes.delete(c)) };
   }
+  get value() { if (this.tagName === "select") { const o = this.children.find(c => c.selected); return o ? o.value : this._value; } return this._value; }
+  set value(v) { this._value = String(v); if (this.tagName === "select") this.children.forEach(c => { c.selected = c.value === String(v); }); }
   set className(v) { this.classes = new Set(String(v).split(/\s+/).filter(Boolean)); }
   get className() { return [...this.classes].join(" "); }
   append(...nodes) { nodes.forEach(n => this.children.push(typeof n === "string" ? new Text(n) : n)); }
@@ -113,7 +115,7 @@ t("the form of a kind gives its spec from what was typed, with a time in the uni
 t("a saved spec fills the form back in, in the biggest unit", () => {
   const form = PK.specForm(KINDS[1].fields, { seconds: 5400 }, "x", T, false);
   const inputs = form.el.all().filter(e => e.tagName === "input" || e.tagName === "select");
-  eq([inputs[0].value, inputs[1].all().find(o => o.selected).value], ["90", "min"]);                  // the option marked chosen is the unit
+  eq([inputs[0].value, inputs[1].value], ["90", "min"]);
   eq(form.collect().spec, { seconds: 5400 });
 });
 t("a finished step has its fields switched off", () => {
