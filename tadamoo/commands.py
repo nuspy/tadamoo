@@ -136,8 +136,53 @@ def compact(session: Any, args: str) -> Dict[str, Any]:
     return {"done": True, "before": before, "after": ctx.estimate_tokens(shortened), "compaction": report}
 
 
+def mcp_reload(session: Any, args: str) -> Dict[str, Any]:
+    """The MCP servers started so far are stopped and the capability index is read again: a server installed, changed or given new keys since the
+    conversation began is used from its next call, with no restart. Only when nothing is under way."""
+    if not session.idle():
+        return {"done": False, "reason": "busy"}
+    index = session.built.capabilities
+    if index is None:
+        return {"done": False, "reason": "off"}
+    before = {e["id"]: e["name"] for e in index.entries if e.get("kind") == "mcp"}
+    stopped = index.drop_servers() if hasattr(index, "drop_servers") else 0
+    now = {e["id"]: e["name"] for e in index.refresh(rescan=True) if e.get("kind") == "mcp"}
+    return {"done": True, "stopped": stopped, "servers": sorted(now.values()), "added": sorted(n for i, n in now.items() if i not in before),
+            "removed": sorted(n for i, n in before.items() if i not in now)}
+
+
+def skills_reload(session: Any, args: str) -> Dict[str, Any]:
+    """The skills are read again from every folder: the ones of the capability index (what find_capability and load_capability see) and the folders
+    given at the start (the catalog in the prompt and `load_skill`). Only when nothing is under way."""
+    if not session.idle():
+        return {"done": False, "reason": "busy"}
+    built = session.built
+    index, catalog = built.capabilities, getattr(built, "skills", None)
+    if catalog is not None and not catalog.search_paths:
+        catalog = None
+    before = {e["name"] for e in index.entries if e.get("kind") == "skill"} if index is not None else set()
+    before |= set(catalog.skills) if catalog is not None else set()
+    if index is not None:
+        index.refresh(rescan=True)
+    warnings: List[str] = []
+    if catalog is not None:
+        catalog.discover_skills()
+        warnings = list(catalog.warnings)
+        if catalog.skills:
+            built.builder.set_skills_catalog(catalog.format_catalog_prompt())
+            if "load_skill" not in session.agent.tools.names():
+                from tadamoo.skills import register_skill_tool
+                register_skill_tool(session.agent.tools, catalog)
+    now = {e["name"] for e in index.entries if e.get("kind") == "skill"} if index is not None else set()
+    now |= set(catalog.skills) if catalog is not None else set()
+    if index is None and catalog is None:
+        return {"done": False, "reason": "off"}
+    return {"done": True, "skills": sorted(now), "added": sorted(now - before), "removed": sorted(before - now), "warnings": warnings}
+
+
 COMMANDS: Dict[str, Callable[[Any, str], Dict[str, Any]]] = {
     "status": status, "tools": tools, "hooks": hooks, "mcp": mcp, "memory": memory, "permissions": permissions, "context": context, "compact": compact, "audit": audit,
+    "mcp-reload": mcp_reload, "skills-reload": skills_reload,
 }
 
 

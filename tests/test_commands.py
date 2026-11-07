@@ -179,3 +179,70 @@ def test_the_process_takes_the_steps_and_the_end_of_turn_bias_while_it_lives(tmp
     assert seen(lambda e: e["event"] == "settings") == [{"event": "settings", "max_turns": -1, "end_turn_bias": -20.0},
                                                         {"event": "settings", "end_turn_bias": 0.0}]
     assert len(seen(lambda e: e.get("code") == "bad_command")) == 4
+
+
+def make_caps(tmp_path, skill_dir=None):
+    ws = tmp_path / "ws"
+    ws.mkdir(exist_ok=True)
+    home = tmp_path / "home"
+    home.mkdir(exist_ok=True)
+    built = build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False, capabilities=True,
+                                    capabilities_dir=str(tmp_path / "caps"), capabilities_home=str(home), permission_mode="default",
+                                    skill_paths=[str(skill_dir)] if skill_dir else [], max_turns=6), client=Scripted(say("ok")))
+    events = Events()
+    session = Session(built, SessionStore(tmp_path / "hist"), events, session_id="s1", waits=(0, 0, 0), sleep=lambda s: None)
+    session.endpoint = ""
+    return session, home
+
+
+def write_skill(base, name):
+    folder = base / name
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "SKILL.md").write_text(f"---\nname: {name}\ndescription: does {name}\n---\nUse {name}.\n", encoding="utf-8")
+
+
+def test_skills_reload_finds_a_skill_added_after_the_conversation_began(tmp_path):
+    skills = tmp_path / "skills"
+    write_skill(skills, "first")
+    session, home = make_caps(tmp_path, skills)
+    assert "first" in session.built.skills.skills
+    write_skill(skills, "second")
+    write_skill(home / ".claude" / "skills", "third")
+    out = commands.run("skills-reload", "", session)
+    assert out["ok"] and out["data"]["done"]
+    assert {"second", "third"} <= set(out["data"]["added"]) and "first" in out["data"]["skills"]
+    assert "second" in session.built.skills.skills
+    assert "second" in session.built.builder.assemble_system_message()
+    (skills / "second" / "SKILL.md").unlink()
+    gone = commands.run("skills-reload", "", session)["data"]
+    assert "second" in gone["removed"] and "second" not in session.built.skills.skills
+
+
+def test_mcp_reload_reads_the_servers_again_and_stops_the_ones_started(tmp_path):
+    session, home = make_caps(tmp_path)
+    assert commands.run("mcp-reload", "", session)["data"] == {"done": True, "stopped": 0, "servers": [], "added": [], "removed": []}
+    (home / ".claude.json").write_text(json.dumps({"mcpServers": {"alpha": {"command": "python", "args": ["-c", "pass"]}}}), encoding="utf-8")
+    out = commands.run("mcp-reload", "", session)["data"]
+    assert out["done"] and out["servers"] == ["alpha"] and out["added"] == ["alpha"]
+    closed = []
+
+    class Hub:
+        def close(self):
+            closed.append(1)
+
+    # a server started earlier is stopped, so that its next use starts it again
+    session.built.capabilities.drop_servers  # exists once the capability tools are registered
+    assert session.built.capabilities.drop_servers() == 0 and not closed
+
+
+def test_reload_waits_until_nothing_is_under_way(tmp_path):
+    session, _ = make_caps(tmp_path)
+    session.idle = lambda: False
+    for name in ("mcp-reload", "skills-reload"):
+        assert commands.run(name, "", session)["data"] == {"done": False, "reason": "busy"}
+
+
+def test_reload_says_when_the_conversation_looks_for_nothing(tmp_path):
+    session, events, built = make(tmp_path, Scripted(say("x")))
+    assert commands.run("mcp-reload", "", session)["data"] == {"done": False, "reason": "off"}
+    assert commands.run("skills-reload", "", session)["data"] == {"done": False, "reason": "off"}

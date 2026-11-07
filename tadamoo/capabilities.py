@@ -570,6 +570,19 @@ def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory
     from tadamoo.tools.registry import EffectClass
     hubs: Dict[str, Any] = {}
 
+    def drop_servers() -> int:
+        """Stops the servers started so far; the next call to one starts it again with the command and the keys the index has by then."""
+        count = len(hubs)
+        for hub in list(hubs.values()):
+            try:
+                getattr(hub, "close", lambda: None)()
+            except Exception:
+                pass
+        hubs.clear()
+        return count
+
+    index.drop_servers = drop_servers
+
     def find_capability(query: str, node: str = "", kind: str = "") -> str:
         hits = index.search(query, node, kind)
         if not hits:
