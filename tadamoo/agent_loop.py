@@ -12,6 +12,7 @@ import math
 import re
 import threading
 import time
+import traceback
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -409,7 +410,11 @@ class AgentLoop:
     def _course_step(self, step: int) -> bool:
         """Before a model call: what the watch of the course wants done. A note goes to the agent; a card goes to the person, and True comes back when the
         turn must end there to wait for their answer."""
-        action = self.course.check(self, step)
+        try:
+            action = self.course.check(self, step)
+        except Exception:
+            self._audit("course_error", {"traceback": traceback.format_exc()[-4000:]})
+            return False
         if action is None:
             return False
         self._audit("course_check", {"kind": action.kind, "stage": action.stage, "problem": action.problem[:200]})
