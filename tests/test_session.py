@@ -16,8 +16,9 @@ from tadamoo.tools.registry import EffectClass
 
 @pytest.fixture(autouse=True)
 def _no_clock(monkeypatch):
-    """These tests count the messages the model is sent; the time note has its own tests (test_clock.py)."""
+    """These tests count the messages the model is sent; the time note has its own tests (test_clock.py) and the state note its own (test_capstate.py)."""
     monkeypatch.setattr("tadamoo.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.capstate.read", lambda agent, **kw: {})
 
 
 

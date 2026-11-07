@@ -323,3 +323,83 @@ def test_a_translation_that_names_no_language_is_left_to_the_model(tmp_path):
     session.send("m1", "Please translate\n\n" + body)
     done = ev.wait("done")
     assert done["final"] == "Which language?" and model.calls == []
+
+
+# -- write_long: a long text inside a turn that does other things -----------------------------------------------------
+
+def test_write_long_writes_a_text_in_parts_into_a_file_and_says_where(tmp_path):
+    model = Model(estimate=6000, plan_chunks=3)
+    session, ev, built = session_with(tmp_path, model)
+    out = built.agent.tools.execute("write_long", {"brief": "Chapter 2 of the book on rivers", "words": 6000, "path": "book/02.md"})
+    text = (tmp_path / "ws" / "book" / "02.md").read_text(encoding="utf-8")
+    assert text.count("Opening paragraph of chapter") == 3
+    assert "book/02.md" in str(out) and "3 parts" in str(out)
+    assert [c["kind"] for c in model.calls].count("part") == 3 and model.agent_calls == []
+    assert [p["event"] for p in ev.progress()][-1] == "done"
+    assert ev.shown() == ""                      # the text goes to the file, not into the chat
+
+
+def test_write_long_refuses_to_replace_a_file_and_keeps_the_text_out_of_the_way(tmp_path):
+    model = Model(estimate=6000, plan_chunks=3)
+    session, ev, built = session_with(tmp_path, model)
+    (tmp_path / "ws" / "a.md").write_text("mine", encoding="utf-8")
+    out = str(built.agent.tools.execute("write_long", {"brief": "Something long", "words": 6000, "path": "a.md"}))
+    assert "not saved" in out and (tmp_path / "ws" / "a.md").read_text(encoding="utf-8") == "mine"
+
+
+def test_write_long_without_a_path_saves_under_the_artifacts_folder_and_a_short_text_is_left_to_the_model(tmp_path):
+    session, ev, built = session_with(tmp_path, Model(estimate=6000, plan_chunks=3))
+    out = str(built.agent.tools.execute("write_long", {"brief": "The rivers of Europe", "words": 6000}))
+    assert ".tadamoo/artifacts/long_the-rivers-of-europe_" in out
+    session, ev, built = session_with(tmp_path / "b", Model(estimate=300, plan_chunks=1))
+    assert "write it yourself" in str(built.agent.tools.execute("write_long", {"brief": "A short note"}))
+
+
+def test_write_long_is_always_in_the_tool_list_and_needs_a_brief(tmp_path):
+    session, ev, built = session_with(tmp_path, Model())
+    assert "write_long" in [s["function"]["name"] for s in built.agent.tools.schemas()]
+    assert "needs a brief" in str(built.agent.tools.execute("write_long", {"brief": " "}))
+
+
+# -- several separate texts, and a text that needs work first: the model goes on, with write_long ------------------------
+
+class Sink:
+    def __init__(self):
+        self.rows = []
+
+    def record(self, id, status, title, children=None, metadata=None):
+        self.rows.append((id, status, title))
+
+
+CHAPTERS = "Scrivi un libro sul Vibe Coding con dieci capitoli, uno alla volta\n\n[long answer: mode=write; words=3000]"
+
+
+def test_ten_chapters_are_not_written_as_one_text_the_model_is_told_to_use_write_long_for_each(tmp_path):
+    model = Model(say("Fatto."))
+    session, ev, built = session_with(tmp_path, model)
+    session.task_sink = Sink()
+    session.send("m1", CHAPTERS)
+    done = ev.wait("done")
+    assert done["stop_reason"] == al.FINAL and model.calls == [] and len(model.agent_calls) == 1
+    note = next(m["content"] for m in built.agent.messages if str(m.get("content")).startswith("[harness] Long answer:"))
+    assert "10 separate texts" in note and "write_long" in note and "10. Capitolo 10" in note
+    assert [r[1] for r in session.task_sink.rows].count("pending") == 10
+
+
+def test_a_text_that_depends_on_a_file_is_left_to_the_model_which_writes_the_long_part_with_write_long(tmp_path):
+    model = Model(say("Fatto."))
+    session, ev, built = session_with(tmp_path, model)
+    session.send("m1", "Scrivi un report di 5000 parole basato su docs/notes.md\n\n[long answer: mode=write; words=5000]")
+    assert ev.wait("done")["stop_reason"] == al.FINAL and model.calls == [] and len(model.agent_calls) == 1
+
+
+def test_the_model_is_told_when_the_control_is_on_and_when_it_goes_off_and_only_then(tmp_path):
+    model = Model(say("a"), say("b"), say("c"), say("d"))
+    session, ev, built = session_with(tmp_path, model)
+    on = "Scrivi qualcosa su docs/notes.md\n\n[long answer: mode=write; words=3000]"
+    for i, text in enumerate((on, on, "Grazie", "Grazie")):
+        seen = len(ev.items)
+        session.send(f"m{i}", text)
+        ev.wait("done", after=seen)
+    states = [m["content"] for m in built.agent.messages if str(m.get("content")).startswith("[state]")]
+    assert len(states) == 2 and "long_answer=on (write, about 3000 words)" in states[0] and states[1] == "[state] long_answer=off"
