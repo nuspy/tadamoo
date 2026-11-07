@@ -197,6 +197,11 @@ class SessionManager:
         self._thread.start()
         peer.add_provider(self.agent_pids)
 
+    def running_count(self) -> int:
+        """How many conversations have a live process now: their folders are open."""
+        with self._lock:
+            return sum(1 for live in self._live.values() if live.proc.poll() is None)
+
     def agent_pids(self) -> List[int]:
         """The process ids of the agents running now: whatever a connection from below one of them runs is the agent's own code."""
         with self._lock:
