@@ -2947,7 +2947,7 @@ def make_handler(svc: Service, remote: bool = False):
                                                                       req.get("worktree", "auto"), req.get("effort", ""),
                                                                       req.get("images", ""), req.get("charts", ""),
                                                                       req.get("unattended") is True, req.get("role", "general"), req.get("private") is True,
-                                                                      req.get("alias", ""), req.get("cross_commands"))})
+                                                                      req.get("alias", ""), req.get("cross_commands"), req.get("parent", ""), req.get("rules"))})
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "apply":
                         return self._json(200, mgr.copy_apply(parts[1], req.get("paths")))
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "discard":
@@ -3039,7 +3039,8 @@ def make_handler(svc: Service, remote: bool = False):
                 return self._json(404 if e.code == "gone" else 409 if e.code in ("busy", "not_running", "closed", "running", "achieved") else 400,
                                   {"error": {"type": "target", "message": str(e), "code": e.code}})
             except RunError as e:
-                return self._json(409 if e.code in ("not_running", "gone", "needs_yes", "no_checkpoint", "not_blocked", "closed", "not_asking", "asking", "busy", "copy_conflict", "alias_taken", "not_dead") else 400,
+                return self._json(409 if e.code in ("not_running", "gone", "needs_yes", "no_checkpoint", "not_blocked", "closed", "not_asking", "asking", "busy", "copy_conflict", "alias_taken", "not_dead",
+                                   "too_deep", "too_many_children") else 400,
                                   {"error": {"type": "agent", "message": str(e), "code": e.code}})
             except ApprovalError as e:
                 return self._json(409 if "already" in str(e) or "not there" in str(e) else 400,
