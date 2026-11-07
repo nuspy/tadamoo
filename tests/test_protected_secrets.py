@@ -19,13 +19,13 @@ def world(tmp_path):
     data = tmp_path / "userdata"
     (data / "vault").mkdir(parents=True)
     (data / "vault2").mkdir()
-    (data / "journal").mkdir()
+    (data / "journal" / "sessions").mkdir(parents=True)
     (data / "vault" / "vault.bin").write_text(CANARY)
     (data / "vault" / "device.key").write_text(CANARY)
     (data / "vault2" / "notes.txt").write_text("not a secret")
     (data / "control-7232.token").write_text(CANARY)
     (data / "api-keys.json").write_text(CANARY)
-    (data / "journal" / "agent_sessions.json").write_text(CANARY)
+    (data / "journal" / "sessions" / "agent_sessions.json").write_text(CANARY)
     broker = SecretsBroker()
     broker.protect(data / "vault", data / "payments", data / "browser-profile")
     broker.protect_in(data, *PROTECTED_FILES)
@@ -52,7 +52,7 @@ def test_a_snippet_that_names_a_secret_is_refused_by_its_text(world):
 
 
 @pytest.mark.parametrize("parts", [("vault", "vault.bin"), ("vault", "device.key"), ("control-7232.token",),
-                                   ("api-keys.json",), ("journal", "agent_sessions.json")])
+                                   ("api-keys.json",), ("journal", "sessions", "agent_sessions.json")])
 def test_a_snippet_that_builds_the_path_at_run_time_is_stopped_by_the_guard(world, parts):
     res = py(world, f"import os\nprint(open({runtime_path(world, *parts)}).read())")
     assert CANARY not in res["stdout"] and CANARY not in res["stderr"], res
@@ -135,7 +135,7 @@ def test_what_is_not_a_secret_still_works(world):
 
 def test_the_file_tools_refuse_the_secrets_even_when_the_workspace_contains_them(world):
     registry, _ = create_standard_tool_registry(world["data"], secrets=world["broker"])
-    for path in ("vault/vault.bin", "vault/device.key", "control-7232.token", "api-keys.json", "journal/agent_sessions.json"):
+    for path in ("vault/vault.bin", "vault/device.key", "control-7232.token", "api-keys.json", "journal/sessions/agent_sessions.json"):
         with pytest.raises(PermissionError):
             registry.execute("read_file", {"path": path})
     with pytest.raises(PermissionError):

@@ -2842,7 +2842,7 @@ def make_handler(svc: Service, remote: bool = False):
         def _agent_sessions(self) -> SessionManager:
             global _SESSIONS
             if _SESSIONS is None:
-                _SESSIONS = SessionManager(userdata.path("journal"), f"http://127.0.0.1:{self.server.server_address[1]}",
+                _SESSIONS = SessionManager(userdata.sessions_base(), f"http://127.0.0.1:{self.server.server_address[1]}",
                                            svc.api_key or "", board=_APPROVALS, default_workspace=userdata.path("chat-workspace"),
                                            file_owners_path=userdata.path(FILE_OWNERS_FILE),
                                            attachments_dir=userdata.path("attachments"), outputs_dir=userdata.path("outputs"),

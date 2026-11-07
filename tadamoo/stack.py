@@ -640,6 +640,9 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
     try:
         from serve.userdata import user_data_dir
         secrets.protect_in(user_data_dir(), *PROTECTED_FILES)
+        from serve.userdata import chosen_sessions_base
+        if (moved := chosen_sessions_base()) is not None:
+            secrets.protect_in(moved, "sessions/agent_sessions.json")
     except Exception:
         pass
     level, plan = PERMISSION_MODES[cfg.permission_mode]
