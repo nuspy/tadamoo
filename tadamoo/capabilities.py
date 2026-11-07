@@ -344,8 +344,9 @@ class CapabilityIndex:
             {"id": "builtin:phone_media", "name": "Audio and video with callAPIcall", "kind": "builtin", "origin": "builtin", "path": "", "sha": "", "command": "",
              "description": "Transcribes an audio or video file with the local callAPIcall service.", "tags": ["audio_video"], "forced_node": "audio_video"},
             {"id": "builtin:orchestration", "name": "Messaging other conversations", "kind": "builtin", "origin": "builtin", "path": "", "sha": "", "command": "",
-             "description": "Send a message to another conversation, see whether it is free, or start a new one on a task of its own. "
-                            "load_capability turns these tools on for the rest of this conversation.", "tags": ["orchestration", "sessions", "messages"], "forced_node": "other"},
+             "description": "Send a message to another conversation, see whether it is free, start a new one on a task of its own, or make a "
+                            "schedule of your own. load_capability turns these tools on for the rest of this conversation.",
+             "tags": ["orchestration", "sessions", "messages", "cron", "schedules"], "forced_node": "other"},
         ]
 
     def refresh(self, rescan: bool = True) -> List[Dict[str, Any]]:

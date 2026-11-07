@@ -654,12 +654,16 @@ class Session:
             self.emit({"event": "rule_added", "rule": rule, "scope": scope})
 
     def enable_orchestration(self) -> None:
-        """Gives the conversation the tools to message and start other conversations (tadamoo/orchestration_tools.py)."""
+        """Gives the conversation the tools to message and start other conversations, and its own schedules (tadamoo/orchestration_tools.py,
+        tadamoo/cron_tools.py)."""
         if getattr(self.agent.tools, "_orchestration_on", False):
             return
         from tadamoo.integrations.orchestration_client import OrchestrationClient
+        from tadamoo.integrations.routines_client import RoutinesClient
         from tadamoo.orchestration_tools import register_orchestration_tools
+        from tadamoo.cron_tools import register_cron_tools
         register_orchestration_tools(self.agent.tools, OrchestrationClient(self.endpoint, self.api_key))
+        register_cron_tools(self.agent.tools, RoutinesClient(self.endpoint, self.api_key))
         self.agent.tools._orchestration_on = True
 
     def enable_planner(self, client: Any) -> None:

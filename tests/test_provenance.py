@@ -157,3 +157,25 @@ def test_orchestration_tools_are_registered_only_with_the_flag(tmp_path, monkeyp
     events = [json.loads(line) for line in out.getvalue().splitlines()]
     ends = [e for e in events if e.get("event") == "agent" and e["data"].get("type") == "tool_end" and e["data"].get("name") == "session_send"]
     assert ends and "Unknown tool" not in ends[0]["data"]["output"]                 # registered: it tried to reach the server and failed there, not here
+
+
+def test_cron_tools_come_with_orchestration_too(tmp_path, monkeypatch):
+    import tadamoo.session as hs
+    client = Scripted(call("cron_list"), say("done."))
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    real_build = hs.build_agent
+    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, technical=None, _c=client: real_build(cfg, client=_c))
+    feed, out = Feed(), io.StringIO()
+    t = threading.Thread(target=lambda: main(["--workspace", str(ws), "--history-dir", str(tmp_path / "h"), "--session-id", "o2", "--no-memory", "--no-checkpoints",
+                                              "--heartbeat", "0.05", "--orchestration", "--endpoint", "http://127.0.0.1:1"], stdin=feed, stdout=out), daemon=True)
+    t.start()
+    feed.put({"cmd": "send", "id": "m1", "text": "list schedules"})
+    deadline = time.monotonic() + 10
+    while '"done"' not in out.getvalue() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    feed.put({"cmd": "close"})
+    t.join(10)
+    events = [json.loads(line) for line in out.getvalue().splitlines()]
+    ends = [e for e in events if e.get("event") == "agent" and e["data"].get("type") == "tool_end" and e["data"].get("name") == "cron_list"]
+    assert ends and "Unknown tool" not in ends[0]["data"]["output"]
