@@ -21,6 +21,13 @@ class Wiring(unittest.TestCase):
             self.assertIn(needle, HTML)
         self.assertNotIn('id="rea-on" checked', HTML)            # off by default
 
+    def test_the_box_folds_to_its_switch(self):
+        for needle in ('id="rea-toggle"', 'aria-expanded="false" aria-controls="rea-content"', 'id="rea-content" hidden'):
+            self.assertIn(needle, HTML)
+        box = HTML.split('id="rea-box"')[1].split("</section>")[0]
+        folded = box[box.index('<div id="rea-content"'):box.index('id="rea-msg"')]
+        self.assertEqual(folded.count("<div"), folded.count("</div>"))                  # the folded part is closed before the message    # messages and errors stay visible when folded
+
     def test_the_box_is_shown_only_in_the_agent_tab(self):
         self.assertRegex(CSS, r'body\[data-view="agent"\] \.rea \{ display: block')
         self.assertRegex(CSS, r"\.rea \{ display: none")
