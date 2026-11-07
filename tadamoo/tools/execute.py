@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -87,6 +88,18 @@ def _files_left(workdir: Path, script: Path) -> List[Dict[str, Any]]:
             except OSError:
                 continue
     return sorted(out, key=lambda f: f["path"])[:MAX_LISTED_FILES]
+
+
+def _existing_workspace_path(stderr: str, workspace: Path) -> str:
+    """The note for a missing `.tadamoo/...` path that does exist under the workspace: a script starts in its own folder, not in the workspace."""
+    if "No such file" not in stderr and "ENOENT" not in stderr and "cannot find" not in stderr.lower():
+        return ""
+    for token in re.findall(r"\.tadamoo[\\/][^\s'\"]+", stderr):
+        relative = re.sub(r"[\\/]+", "/", token)
+        found = workspace / relative
+        if not relative.startswith(RUN_DIR.as_posix() + "/") and found.exists():
+            return f"\nThat path exists at {found}. A script starts in its own new folder; the workspace is in TADAMOO_WORKSPACE."
+    return ""
 
 
 def run_code(language: str, code: str, workspace: str | Path, runtimes: Dict[str, Dict[str, str]], timeout: Optional[float] = None,
@@ -171,6 +184,7 @@ def run_code(language: str, code: str, workspace: str | Path, runtimes: Dict[str
         stderr = (stderr + f"\nThe code was stopped after {limit:g} seconds").strip()
     if result["cancelled"]:
         stderr = (stderr + "\nThe code was stopped because the run was cancelled").strip()
+    stderr += _existing_workspace_path(stderr, workspace)
     code_out = -1 if result["timed_out"] or result["cancelled"] else proc.returncode
     files = _files_left(workdir, script)
     if files:
@@ -200,7 +214,8 @@ def register_run_code(registry: Any, workspace: str | Path, sandbox: Any = None,
     registry.register(
         name="run_code",
         description=("Runs a snippet of code in a separate process and returns its output. Languages: " + ", ".join(languages) + ". "
-                     "The working folder is new for each run; the workspace is in the environment variable TADAMOO_WORKSPACE. "
+                     "The working folder is new for each run, so relative paths start there; the workspace is in the environment variable TADAMOO_WORKSPACE "
+                     "(saved results are in TADAMOO_WORKSPACE/.tadamoo/artifacts/). "
                      "Python runs in isolated mode: add the workspace to sys.path to import its modules. Files the code leaves in "
                      "its working folder are listed in the result. Python can reach whatever the user can, except the vault, payment files, browser "
                      "sign-ins, control token and phone keys, which it cannot open. JavaScript and TypeScript read only the working folder and the "

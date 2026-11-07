@@ -161,3 +161,14 @@ def test_through_the_registry_and_with_the_edits_it_makes_recorded(ws):
                                         "code": "import os\nopen(os.path.join(os.environ['TADAMOO_WORKSPACE'], 'made.txt'), 'w').write('hi')"})
     assert out["success"]
     assert [c["file"] for c in sandbox.changes] == ["made.txt"]
+
+
+def test_a_missing_relative_path_that_exists_in_the_workspace_is_pointed_out(ws):
+    saved = ws / ".tadamoo" / "artifacts"
+    saved.mkdir(parents=True)
+    (saved / "earlier.txt").write_text("kept", encoding="utf-8")
+    res = run_code("python", "open(r'.tadamoo\\artifacts\\earlier.txt').read()", ws, RUNTIMES)
+    assert not res["success"] and "FileNotFoundError" in res["stderr"]
+    assert f"exists at {saved / 'earlier.txt'}" in res["stderr"]
+    other = run_code("python", "open(r'.tadamoo\\artifacts\\nothing.txt').read()", ws, RUNTIMES)
+    assert "exists at" not in other["stderr"]
