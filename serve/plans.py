@@ -358,6 +358,16 @@ class PlanService:
         self.store.save(plan_id)
         return out
 
+    def template_context(self, plan_id: str) -> Dict[str, Any]:
+        """What a schedule's message template can use for this plan: its title, its first ready step, and its own shared values
+        (so {bilancio} and the like are already there once something writes them)."""
+        try:
+            bridge = self.store.get(plan_id)
+        except KeyError:
+            return {}
+        ready = bridge.dag.ready_nodes()
+        return {"plan_title": bridge.dag.title, "ready_step": ready[0] if ready else "", **bridge.dag.shared_state}
+
     def is_paused(self, plan_id: str) -> bool:
         """Whether a plan a routine speaks for has been paused; False for a plan that is gone (its schedule should be removed too)."""
         try:
