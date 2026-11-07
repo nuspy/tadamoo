@@ -30,6 +30,14 @@ class AgentPageTest(unittest.TestCase):
         self.assertIn('api/agent/projects', PROJ)
         self.assertLess(HTML.index("web/projects.js"), HTML.index("web/agentchat.js"))
 
+    def test_beside_the_plus_a_double_plus_adds_a_directory_and_leaves_out_tool_folders(self):
+        self.assertRegex(HTML, r'id="attach"[^>]*>\+</button>\s*<input type="file" id="adir" webkitdirectory multiple hidden>\s*<button[^>]*id="attach-dir"[^>]*title="Add a directory"[^>]*>\+\+</button>')
+        self.assertIn('$("#attach-dir").hidden = !on;', CHAT)
+        self.assertIn("webkitRelativePath", CHAT)
+        self.assertIn("node_modules", CHAT)
+        for key in ("ch.attdir.btn", "ch.attdir.none", "ch.attdir.cut"):
+            self.assertEqual(I18N.count(f'"{key}"'), 2, key)                                    # English and Italian
+
     def test_a_conversation_in_the_agent_tab_is_made_in_the_folder_and_asks_for_one_first(self):
         self.assertIn('...(inAgent() ? { workspace: curPath(), ...(window.codingUi ? { role: window.codingUi.role() } : {}) } : {})', CHAT)
         self.assertIn("if (inAgent() && !curPath() && !(await addFolder()))", CHAT)

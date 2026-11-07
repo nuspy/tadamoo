@@ -61,6 +61,8 @@
     { name: "tools", run: rest => server("tools", rest) },
     { name: "hooks", run: rest => server("hooks", rest) },
     { name: "mcp", run: rest => server("mcp", rest) },
+    { name: "mcp-reload", alias: ["reload-mcp"], run: rest => server("mcp-reload", rest) },
+    { name: "skills-reload", alias: ["reload-skills"], run: async rest => { skillsAt = 0; await loadSkills(); server("skills-reload", rest); } },
     { name: "memory", args: "[search]", run: rest => server("memory", rest) },
     { name: "copy", args: "[n]", run: async rest => {
       const all = A() && A().active() ? A().answers() : [];
@@ -273,6 +275,12 @@
       T("sl.r.perm.denied", d.denied), T("sl.r.perm.edit")]),
     audit: d => d.valid ? T("sl.r.audit.ok", d.records) : T("sl.r.audit.bad", d.records, d.problem),
     compact: d => d.done ? T("sl.r.compact.done", d.before, d.after) : T("sl.r.compact." + d.reason, d.tokens),
+    "mcp-reload": d => !d.done ? T("sl.r.reload." + d.reason) : list(T("sl.r.mcpreload.title", d.stopped), [
+      [T("sl.r.reload.now"), d.servers.length ? d.servers.join(", ") : T("sl.r.reload.none")], [T("sl.r.reload.added"), d.added.length ? d.added.join(", ") : "-"],
+      [T("sl.r.reload.removed"), d.removed.length ? d.removed.join(", ") : "-"]]),
+    "skills-reload": d => !d.done ? T("sl.r.reload." + d.reason) : list(T("sl.r.skillsreload.title", d.skills.length), [
+      [T("sl.r.reload.now"), d.skills.length ? d.skills.join(", ") : T("sl.r.reload.none")], [T("sl.r.reload.added"), d.added.length ? d.added.join(", ") : "-"],
+      [T("sl.r.reload.removed"), d.removed.length ? d.removed.join(", ") : "-"], ...d.warnings.map(w => [T("sl.r.reload.warning"), w])]),
   };
   const effortName = level => { const o = [...sel.options].find(x => x.value === (level || "")); return o ? o.text : String(level); };
   document.addEventListener("tadamoo:command", ev => {

@@ -1,7 +1,15 @@
 # Diario dei task
 
-Ultimo aggiornamento: 5 novembre 2026, notte. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
+Ultimo aggiornamento: 7 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «5 novembre» e da «Decisioni tue in attesa».
+
+## 7 novembre
+
+- REA, fatto e committato (`be23c8fa`): «Installa tutto» ora installa da solo ogni programma che esiste per Windows, ciascuno dopo ciò che richiede (prima il JDK), con più modi in ordine e un nuovo tentativo se la rete cade. JADX si scarica con controllo SHA-256, Apktool riusa il jar già nel PATH con un lancio, Unblob è solo Linux e non viene offerto. Non l'ho ancora fatto girare davvero sul tuo PC.
+- Comandi `/mcp-reload` e `/skills-reload` nella chat dell'Agent: fatti, con prove; non ancora committati al momento di questa riga. Servono a usare un server o una skill nuovi senza riavviare.
+- Bottone «++» sotto il prompt, accanto al «+»: allega i file di una cartella (salta .git, node_modules e simili, massimo 100 file). Se intendevi un'altra cosa (aggiungere una cartella di lavoro) dimmelo.
+- In coda: falsi positivi del Canary (azioni segnalate ma chieste dall'utente, per esempio leggere una mail). Da fare cercando nei log.
+- In attesa di una tua risposta: le modifiche CORS non committate in `canary/gui/server.py`, tenerle (con un test) o toglierle.
 
 ## 5 novembre (notte)
 

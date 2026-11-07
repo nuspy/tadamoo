@@ -142,6 +142,7 @@ una nota.
 | `/context` | quanto è pieno il contesto |
 | `/compact` | trasforma la metà più vecchia della conversazione in un riassunto; solo quando nulla è in corso |
 | `/tools`, `/hooks`, `/mcp` | cosa può chiamare la conversazione, quali hook sono attivi, quali server MCP sono partiti |
+| `/mcp-reload`, `/skills-reload` | ferma i server MCP già avviati e rilegge i server; rilegge le skill da ogni cartella. Un server o una skill installati dopo l'inizio della conversazione si usano da subito, senza riavviare. Solo quando non sta girando nulla |
 | `/audit` | controlla che il registro di ciò che l'agente ha fatto (catena di hash e file di testa) sia integro, leggendo il file com'è ora |
 | `/memory [parole]` | gli ultimi dieci appunti, oppure una ricerca |
 | `/copy [n]` | copia l'ultima risposta (o l'ennesima dalla fine) |

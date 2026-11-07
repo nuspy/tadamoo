@@ -107,6 +107,7 @@
     $("#attach").hidden = on ? false : $("#attach").dataset.can !== "1";
     const attachName = T(on ? "ch.att.btn" : "ch.att.img");
     $("#attach").setAttribute("aria-label", attachName); $("#attach").title = attachName;
+    $("#attach-dir").hidden = !on;                                            // a directory is attached only to a conversation of the Agent
     $("#branches-open").hidden = !on;
     $("#pskills-open").hidden = !on;
     $("#ps-chat").hidden = !on;                                               // the model-only chat has no look at a request
@@ -1083,6 +1084,18 @@
   }
   document.getElementById("attach").addEventListener("click", e => { if (active()) { e.preventDefault(); e.stopImmediatePropagation(); $("#afile").click(); } }, true);
   $("#afile").onchange = e => { attachFiles([...e.target.files]); e.target.value = ""; };
+  /* a directory: its files are attached one by one, named by their path inside it; the folders of tools and history are left out, and so is what is past the limit */
+  const DIR_SKIP = /(^|\/)(\.git|node_modules|__pycache__|\.venv|venv)\//, DIR_MAX = 100;
+  async function attachDir(files) {
+    const all = files.filter(f => !DIR_SKIP.test(f.webkitRelativePath || f.name)), use = all.slice(0, DIR_MAX);
+    if (!use.length) { status(T("ch.attdir.none")); return; }
+    if (!(await ensure())) return;
+    for (const f of use) await upload(new File([f], (f.webkitRelativePath || f.name), { type: f.type }));
+    const left = files.length - use.length;
+    if (left > 0) status(T("ch.attdir.cut", use.length, left, DIR_MAX));
+  }
+  $("#attach-dir").addEventListener("click", () => { if (active()) $("#adir").click(); });
+  $("#adir").onchange = e => { attachDir([...e.target.files]); e.target.value = ""; };
   const dropZone = document.getElementById("view-chat");
   dropZone.addEventListener("dragover", e => { if (active() && [...(e.dataTransfer || {}).types || []].includes("Files")) e.preventDefault(); });
   dropZone.addEventListener("drop", e => { if (active() && e.dataTransfer && e.dataTransfer.files.length) { e.preventDefault(); attachFiles([...e.dataTransfer.files]); } });

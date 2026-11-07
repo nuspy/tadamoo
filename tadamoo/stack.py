@@ -396,6 +396,7 @@ class BuiltAgent:
     role: Optional[RolePolicy] = None
     checks_switch: Optional[Callable[[List[str], List[str]], None]] = None
     mcp: Optional[Any] = None                 # the MCPHub of cfg.mcp_servers
+    skills: Optional[Any] = None              # the SkillCatalog of the skill folders given at the start (rescanned by /skills-reload)
     personal: Optional[Any] = None            # the notes about the person this conversation takes in (tadamoo/personal_memory.py Recall)
     take_place: Optional[Callable[[Any], bool]] = None     # keeps the position the person's phone sent and offers where_is_user (tadamoo/place.py)
     mcp_errors: Dict[str, str] = field(default_factory=dict)       # the servers that could not be started, and why
@@ -552,6 +553,9 @@ def _offer_capabilities(cfg: AgentConfig, workspace: Path, registry: Any, builde
                 raise RuntimeError("; ".join(self.hub.errors.values()))
             self.client = client
             self._tools = self.hub.catalog.get("s", [])
+
+        def close(self) -> None:
+            self.hub.close()
 
         @property
         def tools(self) -> List[Dict[str, Any]]:
@@ -949,4 +953,5 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
     return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index, lsp=lsp_hub, payment_confirm=payment_confirm, browser=browser,
                       plan_gate=plan_gate, mode_switch=switch_mode, role=role, checks_switch=switch_checks, personal=personal, take_place=take_place,
                       mcp=mcp_hub, mcp_errors=dict(mcp_hub.errors) if mcp_hub is not None else {}, refresh_budget=refresh_budget, technical=quick,
-                      memory_min_score=cfg.memory_min_score, memory_notes=cfg.memory_notes, memory_budget_tokens=cfg.memory_budget_tokens, notices=notices)
+                      memory_min_score=cfg.memory_min_score, memory_notes=cfg.memory_notes, memory_budget_tokens=cfg.memory_budget_tokens, notices=notices,
+                      skills=catalog)

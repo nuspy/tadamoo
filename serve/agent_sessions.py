@@ -69,7 +69,7 @@ EFFECTS_FILE = "tool_effects.json"                                          # th
 SNIPPET_CHARS = 80
 LEVELS = ("", "very_low", "low", "normal", "high", "very_high", "highest")     # how much of pictures or diagrams the person wants; empty is none
 EFFORTS = ("", "none", "low", "medium", "high")                             # how long the model thinks; empty is its own default
-SLASH_COMMANDS = ("status", "tools", "hooks", "mcp", "memory", "permissions", "context", "compact", "audit")     # tadamoo/commands.py
+SLASH_COMMANDS = ("status", "tools", "hooks", "mcp", "memory", "permissions", "context", "compact", "audit", "mcp-reload", "skills-reload")     # tadamoo/commands.py
 FILE_DIFF_BYTES = 200_000
 UNLIMITED_STEPS = -1                                                        # `max_turns` for no limit on the steps of an answer
 
