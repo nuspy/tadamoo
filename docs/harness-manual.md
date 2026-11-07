@@ -140,7 +140,7 @@ argument, **Escape** closes. A message that starts with a space is sent as writt
 | `/context` | how full the context is |
 | `/compact` | turns the older half of the conversation into a summary; only when nothing is under way |
 | `/tools`, `/hooks`, `/mcp` | what the conversation can call, which hooks are active, which MCP servers started |
-| `/mcp-reload`, `/skills-reload` | stop the MCP servers started so far and read the servers again; read the skills again from every folder. A server or skill installed after the conversation began is used from then on, with no restart. Only when nothing is under way |
+| `/reload-mcp`, `/reload-skills`, `/reload-plugins` | stop the MCP servers started so far and read the servers again; read the skills again from every folder; look for plugins again (their skills and MCP servers, leaving the running servers alone). Anything installed after the conversation began is used from then on, with no restart. Only when nothing is under way |
 | `/audit` | checks that the record of what the agent did (the hash chain and its head file) is whole, reading the file as it is now |
 | `/memory [words]` | the last ten notes, or a search |
 | `/copy [n]` | copies the last answer (or the nth from the end) |
