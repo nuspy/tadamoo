@@ -52,6 +52,10 @@ td, th, .v, .k, .ln, .kv dd, .sub { font-family: var(--font-mono); font-variant-
 .tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-left: 8px; }
 .tab { white-space: nowrap; padding: 8px 16px; color: var(--fg-3); font-weight: 500; font-size: 14.5px; border-radius: 6px; }
 .tab:hover { color: var(--fg); }
+.tab.attn { color: var(--fg); animation: attn-blink 1.2s ease-in-out infinite; }
+.tab.attn::after { content: ""; display: inline-block; flex: none; width: 8px; height: 8px; margin-inline-start: 6px; border-radius: 50%; background: var(--accent); }
+@keyframes attn-blink { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .tab.attn { animation: none; } }
 .tab[aria-selected="true"] { color: var(--fg); background: var(--panel); }
 .grow { flex: 1; }
 .state { font: 500 13.5px/1 var(--font-mono); color: var(--fg-2); white-space: nowrap; }
