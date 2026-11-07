@@ -23,6 +23,7 @@ from pathlib import Path
 
 APP_DIR = "TaDaMoo"                       # the desktop app's folder: one place for everything of this user
 MARKER = "migrated-from-cache.json"
+SESSIONS_BASE_FILE = "sessions-base.json"
 COPIED = ("profiles.json", "models.json")       # the user's files that earlier versions kept in the cache folder
 _lock = threading.Lock()
 _checked: set = set()
@@ -52,6 +53,33 @@ def path(name: str) -> Path:
     """A file or folder in the user data folder, after the one-off copy from the cache folder."""
     migrate()
     return user_data_dir() / name
+
+
+def sessions_base() -> Path:
+    """The folder whose `sessions/` holds every conversation's files: the one chosen in Settings, else `journal/` of the data folder."""
+    chosen = chosen_sessions_base()
+    return chosen if chosen is not None else path("journal")
+
+
+def chosen_sessions_base() -> Path | None:
+    """The folder chosen in Settings (kept in the default data folder, which is known before anything else is opened), or None."""
+    try:
+        value = json.loads((user_data_dir() / SESSIONS_BASE_FILE).read_text(encoding="utf-8")).get("path")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return Path(value) if isinstance(value, str) and value.strip() else None
+
+
+def set_sessions_base(folder: Path | None) -> None:
+    """Keep the chosen folder, or forget it with None; the file is replaced whole."""
+    target = user_data_dir() / SESSIONS_BASE_FILE
+    if folder is None:
+        target.unlink(missing_ok=True)
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"path": str(folder)}, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, target)
 
 
 def migrate() -> list[str]:

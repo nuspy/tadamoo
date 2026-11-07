@@ -29,7 +29,7 @@ PROTECTED_NAMES = ["vault.bin", "device.key", "payments_state.json", "payments.j
 CONTROL_TOKEN = re.compile(r"control-\d+\.token")
 # files of the user data folder that no tool of the agent opens: the secret of the control routes, the phones' keys, the OAuth tokens
 # and the records that hold each conversation's permission rules
-PROTECTED_FILES = ("control-*.token", "api-keys.json", "mcp_oauth.json", "rule_of_two.json", "journal/agent_sessions.json", "journal/agent_runs.json")
+PROTECTED_FILES = ("control-*.token", "api-keys.json", "mcp_oauth.json", "rule_of_two.json", "journal/sessions/agent_sessions.json", "journal/agent_runs.json")
 
 
 def _real(path: Any) -> Path:
