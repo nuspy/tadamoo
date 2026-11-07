@@ -33,6 +33,15 @@ class NodeType(str, enum.Enum):
     SENSOR = "sensor"        # Environment sensing / event monitoring
     DECISION = "decision"    # Multi-branch routing (N >= 2 exits)
     MERGE = "merge"          # Parallel branch synchronization
+    WAIT_DURATION = "wait_duration"      # the kinds below carry a `spec`; tadamoo/planner/nodes.py says what each one is
+    WAIT_UNTIL = "wait_until"
+    WAIT_CONDITION = "wait_condition"
+    LOOP = "loop"
+    SET_VAR = "set_var"
+    GET_VAR = "get_var"
+    INPUT = "input"
+    OUTPUT = "output"
+    LOG = "log"
 
 
 class Assignee(str, enum.Enum):
@@ -177,9 +186,10 @@ class PlanNode:
     call_request: Optional[Dict[str, str]] = None        # a call the plan prepared, {"number", "reason", "text"}; only the Chat's phone_call places it
     wiki_query: Optional[str] = None                     # what this step wants from the knowledge wiki, when there is one
     repeat: Optional[Dict[str, Any]] = None              # {"every", "max_runs", "reset_from", "stop_when"}: completing the step re-arms it instead of finishing it
+    spec: Dict[str, Any] = field(default_factory=dict)   # what the kinds beyond action/sensor/decision/merge need (tadamoo/planner/nodes.py)
 
 
-EDITABLE = ("title", "description", "assignee", "conditions", "state_variables", "retry_policy", "position", "call_request", "wiki_query", "repeat")
+EDITABLE = ("title", "description", "assignee", "conditions", "state_variables", "retry_policy", "position", "call_request", "wiki_query", "repeat", "spec")
 
 # -- what a node may carry ---------------------------------------------------------------------------------
 
@@ -332,6 +342,9 @@ def clean_field(node_type: Any, key: str, value: Any) -> Any:
         return clean_conditions(node_type, value)
     if key == "repeat":
         return clean_repeat(value)
+    if key == "spec":
+        from tadamoo.planner import nodes
+        return nodes.clean_spec(node_type, value)
     return value
 
 
@@ -1054,6 +1067,7 @@ def node_to_dict(n: PlanNode) -> Dict[str, Any]:
         "call_request": n.call_request,
         "wiki_query": n.wiki_query,
         "repeat": n.repeat,
+        **({"spec": n.spec} if n.spec else {}),
     }
 
 
@@ -1061,8 +1075,11 @@ def node_from_dict(nd: Dict[str, Any]) -> PlanNode:
     status = nd.get("status", "pending")
     if status not in STATUSES:
         raise PlanError(f"status must be one of {STATUSES}")
-    node_type = NodeType(nd["type"])
-    return PlanNode(
+    try:
+        node_type = NodeType(nd["type"])
+    except ValueError:
+        raise PlanError(f"unknown kind of step '{nd['type']}' (a plan written by a newer version?)") from None
+    node = PlanNode(
         id=str(nd["id"]), type=node_type, title=str(nd["title"]), description=str(nd.get("description", "")),
         assignee=Assignee(nd.get("assignee", "agent")), dependencies=list(nd.get("dependencies", [])),
         outputs=list(nd.get("outputs", [])), conditions=clean_conditions(node_type, nd.get("conditions") or {}),
@@ -1072,4 +1089,8 @@ def node_from_dict(nd: Dict[str, Any]) -> PlanNode:
         call_request=clean_field(node_type, "call_request", nd.get("call_request")),
         wiki_query=clean_field(node_type, "wiki_query", nd.get("wiki_query")),
         repeat=clean_field(node_type, "repeat", nd.get("repeat")),
+        spec=clean_field(node_type, "spec", nd.get("spec")),
     )
+    if node_type == NodeType.INPUT:
+        node.assignee = Assignee.USER                       # a question is answered by the person
+    return node
