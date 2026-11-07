@@ -189,3 +189,149 @@ def clean_spec(node_type: Any, spec: Any) -> Dict[str, Any]:
 def catalogue() -> List[Dict[str, Any]]:
     """The kinds in the order a page lists them, with their family, summary and fields."""
     return [{"type": k, **{f: v[f] for f in ("family", "auto", "summary", "fields")}} for k, v in NODE_SPECS.items()]
+
+
+# -- the steps the plan works out itself ------------------------------------------------------------------------
+
+JOURNAL_MAX = 200
+
+
+def repeat_of(node: Any) -> Optional[Dict[str, Any]]:
+    """What re-arms a step when it completes: its own `repeat`, or for a loop the one its spec describes (works, then again while the condition holds)."""
+    if getattr(node.type, "value", node.type) == "loop":
+        spec = node.spec
+        return {"every": float(spec["every"]), "max_runs": int(spec["max_iter"]), "stop_when": f"not ({spec['while']})"}
+    return node.repeat
+
+
+def _template_context(dag: Any, now: float) -> Dict[str, Any]:
+    return {**{k: v for k, v in dag.shared_state.items() if isinstance(k, str)}, "plan_id": dag.plan_id, "plan_title": dag.title,
+            "date": datetime.fromtimestamp(now).astimezone().strftime("%Y-%m-%d %H:%M")}
+
+
+def _brief(value: Any) -> str:
+    text = value if isinstance(value, str) else repr(value)
+    return text if len(text) <= 80 else text[:79] + "…"
+
+
+def _startable(dag: Any, node: Any) -> bool:
+    if node.status != "pending" or dag._blockers(node):
+        return False
+    parents = [dag.nodes[p].status for p in node.dependencies]
+    return all(s in ("completed", "skipped") for s in parents) and (not parents or "completed" in parents)
+
+
+def _complete(dag: Any, node: Any, now: float, outputs: Optional[Dict[str, Any]], line: str, kind: str = "auto") -> bool:
+    try:
+        dag.mark(node.id, "completed", outputs or None, now)
+    except PlanError as exc:                       # it cannot finish now (a value too large, a name refused): it stays and says why
+        node.state_variables["auto_error"] = str(exc)[:200]
+        return False
+    node.state_variables.pop("auto_error", None)
+    dag.note(node.id, kind, line, now)
+    return True
+
+
+def _value_of(dag: Any, node: Any) -> Any:
+    from tadamoo.planner.dag import safe_eval
+    spec = node.spec
+    return safe_eval(spec["expr"], dag.shared_state) if spec.get("expr") is not None else spec.get("value")
+
+
+def _resolve(dag: Any, node: Any, now: float, due: List[float], judge: List[str]) -> bool:
+    """One step the plan resolves by itself, if its time or its condition has come. True when it completed."""
+    from tadamoo.cron_templates import render_template
+    from tadamoo.planner.dag import safe_eval
+    kind, spec, sv = node.type.value, node.spec, node.state_variables
+    if kind == "wait_duration":
+        started = sv.setdefault("wait_started", now)
+        if now >= started + spec["seconds"]:
+            return _complete(dag, node, now, None, f"{node.title}: waited {spec['seconds']:g} s")
+        sv["wake_at"] = started + spec["seconds"]
+        due.append(sv["wake_at"])
+    elif kind == "wait_until":
+        sv.setdefault("wait_started", now)
+        at = parse_at(spec["at"])
+        if now >= at:
+            return _complete(dag, node, now, None, f"{node.title}: reached {spec['at']}")
+        sv["wake_at"] = at
+        due.append(at)
+    elif kind == "wait_condition":
+        started = sv.setdefault("wait_started", now)
+        held = False
+        if spec.get("expr"):
+            try:
+                held = bool(safe_eval(spec["expr"], dag.shared_state))
+            except PlanError:
+                held = False                                 # a value it needs is not there yet: not held
+        if held:
+            return _complete(dag, node, now, None, f"{node.title}: the condition holds")
+        if spec.get("timeout_s") and now >= started + spec["timeout_s"]:
+            if spec["on_timeout"] == "skip":
+                dag.mark(node.id, "skipped")
+                dag.note(node.id, "auto", f"{node.title}: gave up waiting, skipped", now)
+            else:
+                dag.timed_out(node.id, now)
+                dag.note(node.id, "auto", f"{node.title}: timed out", now)
+            return True
+        if spec.get("timeout_s"):
+            due.append(started + spec["timeout_s"])
+        if spec.get("describe") and not spec.get("expr"):
+            judge.append(node.id)
+        due.append(now + spec["poll_s"])
+    elif kind == "set_var":
+        try:
+            value = _value_of(dag, node)
+        except PlanError as exc:
+            sv["auto_error"] = str(exc)[:200]
+            return False
+        return _complete(dag, node, now, {spec["name"]: value}, f"{spec['name']} = {_brief(value)}")
+    elif kind == "get_var":
+        if spec["name"] not in dag.shared_state:
+            sv["auto_error"] = f"'{spec['name']}' has no value yet"
+            return False
+        value = dag.shared_state[spec["name"]]
+        sv["value"] = value
+        return _complete(dag, node, now, {spec["into"]: value} if spec.get("into") else None, f"{spec['name']} is {_brief(value)}")
+    elif kind == "output":
+        try:
+            value = render_template(spec["template"], _template_context(dag, now)) if spec.get("template") else _value_of(dag, node)
+        except PlanError as exc:
+            sv["auto_error"] = str(exc)[:200]
+            return False
+        return _complete(dag, node, now, {spec["name"]: value}, f"{spec['name']}: {_brief(value)}", "output")
+    elif kind == "log":
+        return _complete(dag, node, now, None, render_template(spec["message"], _template_context(dag, now)), "log")
+    return False
+
+
+def advance(dag: Any, now: float) -> Dict[str, Any]:
+    """Resolves every step the plan can work out by itself at `now`, over and over until nothing more moves (a wait that ends lets what is after it
+    start). Returns {"done": ids, "judge": ids of waits that only a reading of their description can settle, "next_due": the next moment
+    something here comes due, or None}."""
+    from tadamoo.planner.dag import safe_eval
+    done: List[str] = []
+    due: List[float] = []
+    judge: List[str] = []
+    moved = True
+    while moved:
+        moved, due, judge = False, [], []
+        for nid in dag.topological_order():
+            node = dag.nodes[nid]
+            kind = node.type.value
+            if not _startable(dag, node):
+                continue
+            if kind == "loop" and "runs" not in node.state_variables:       # a loop that does not hold on arrival is not entered
+                try:
+                    enter = bool(safe_eval(node.spec["while"], dag.shared_state))
+                except PlanError:
+                    enter = True
+                if not enter and _complete(dag, node, now, None, f"{node.title}: not entered, its condition does not hold"):
+                    node.state_variables["runs"] = 0
+                    done.append(nid)
+                    moved = True
+                continue
+            if kind in AUTO and _resolve(dag, node, now, due, judge):
+                done.append(nid)
+                moved = True
+    return {"done": list(dict.fromkeys(done)), "judge": judge, "next_due": min(due) if due else None}

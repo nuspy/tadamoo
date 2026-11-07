@@ -396,9 +396,21 @@ class PlanDAG:
     created_at: str = field(default_factory=_now)
     updated_at: str = field(default_factory=_now)
     order: List[str] = field(default_factory=list)       # the list the person arranged; list_order() keeps it valid
+    journal: List[Dict[str, Any]] = field(default_factory=list)      # what the plan did by itself and what its log and result steps wrote, newest last
 
     def _touch(self) -> None:
         self.updated_at = _now()
+
+    def note(self, node_id: str, kind: str, text: str, now: Optional[float] = None) -> None:
+        """A line in the plan's journal: {"t", "node", "kind" (auto, log or output), "text"}; only the latest few hundred are kept."""
+        from tadamoo.planner import nodes
+        self.journal.append({"t": time.time() if now is None else now, "node": node_id, "kind": kind, "text": " ".join(str(text).split())[:500]})
+        del self.journal[:-nodes.JOURNAL_MAX]
+
+    def advance(self, now: Optional[float] = None) -> Dict[str, Any]:
+        """Resolves the steps the plan works out by itself (waits, values, log and result lines); see tadamoo/planner/nodes.py."""
+        from tadamoo.planner import nodes
+        return nodes.advance(self, time.time() if now is None else now)
 
     # structure ---------------------------------------------------------------------------------------
 
@@ -721,12 +733,13 @@ class PlanDAG:
 
     def ready_nodes(self, now: Optional[float] = None) -> List[str]:
         """Pending nodes whose parents are all finished (a merge needs at least one completed parent), except a
-        step that failed and is waiting to try again."""
+        step that failed and is waiting to try again and the kinds the plan resolves itself (see `advance`)."""
+        from tadamoo.planner import nodes
         out = []
         now = time.time() if now is None else now
         for nid in self.topological_order():
             n = self.nodes[nid]
-            if (n.status != "pending" or self._blockers(n) or n.state_variables.get("retry_at", 0) > now
+            if (n.status != "pending" or n.type.value in nodes.AUTO or self._blockers(n) or n.state_variables.get("retry_at", 0) > now
                     or n.state_variables.get("repeat_at", 0) > now):
                 continue
             parents = [self.nodes[p].status for p in n.dependencies]
@@ -757,7 +770,8 @@ class PlanDAG:
     def _rearm(self, node: PlanNode, now: float) -> Optional[Dict[str, Any]]:
         """After a repeating step completes: ends it for good (its `stop_when` holds, or it used up its `max_runs`), leaving it
         `completed` like any other step, or sends it back to `pending` for another run once `every` seconds have passed."""
-        repeat = node.repeat or {}
+        from tadamoo.planner import nodes
+        repeat = nodes.repeat_of(node) or {}
         runs = int(node.state_variables.get("runs", 0)) + 1
         node.state_variables["runs"] = runs
         stop = False
@@ -805,7 +819,8 @@ class PlanDAG:
                 if node.type == NodeType.DECISION:
                     node.state_variables.pop("no_route", None)
                     self._route(node)
-                if node.repeat:
+                from tadamoo.planner import nodes
+                if nodes.repeat_of(node):
                     retry = self._rearm(node, time.time() if now is None else now)
             except NoRoute as stop:
                 self.nodes, self.shared_state = backup           # the decision is not taken: it goes to the person with the facts
@@ -1024,6 +1039,7 @@ class PlanDAG:
             "updated_at": self.updated_at,
             "order": [i for i in self.order if i in self.nodes],
             "nodes": {nid: node_to_dict(n) for nid, n in self.nodes.items()},
+            **({"journal": self.journal} if self.journal else {}),
         }
 
     @classmethod
@@ -1041,6 +1057,7 @@ class PlanDAG:
                 shared_state=data.get("shared_state") or {},
                 created_at=data.get("created_at") or _now(), updated_at=data.get("updated_at") or _now(),
                 order=[str(i) for i in (data.get("order") or [])],
+                journal=[dict(j) for j in (data.get("journal") or []) if isinstance(j, dict)],
             )
         except (KeyError, TypeError, ValueError, AttributeError) as exc:
             raise PlanError(f"the plan is not valid: {type(exc).__name__}: {exc}") from None
