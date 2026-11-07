@@ -71,7 +71,7 @@ from serve.capabilities_api import CapabilityApi, CapabilityError
 from serve.intake_prefs import IntakeError, IntakePrefs
 from tadamoo.roles import CODING_ROLE, ROLE_IDS
 from serve.coding_prefs import CodingError, CodingPrefs
-from serve import sessions_move
+from serve import sessions_move, tab_editor
 from serve.file_owners import FileOwners, OwnersError
 from tadamoo.file_owners import FILE as FILE_OWNERS_FILE
 from serve.compaction_prefs import CompactionError, CompactionPrefs
@@ -3011,6 +3011,8 @@ def make_handler(svc: Service, remote: bool = False):
                 if parts == ["place", "forget"]:
                     self._agent_sessions().forget_place()
                     return self._json(200, {"forgotten": True})
+                if parts == ["editor"]:
+                    return self._json(200, tab_editor.instruct(self._agent_sessions(), req.get("kind"), req.get("target"), req.get("instruction")))
                 if parts == ["projects"]:
                     return self._json(200, {"project": self._projects().add(req.get("path"))})
                 if parts == ["projects", "remove"]:
