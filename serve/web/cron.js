@@ -366,6 +366,10 @@
     statusEl = document.getElementById("cj-status");
     msgEl = document.getElementById("cj-chat-msgs");
     document.getElementById("cj-new").onclick = () => select("new");
+    SessChat.mount(document.getElementById("cj-instr-root"), {
+      id: "cj-instr", kind: "cron", emptyKey: "sc.empty.cron", placeholderKey: "sc.ph.cron", labelKey: "sc.title.cron",
+      target: () => { const j = S.selected && S.selected !== "new" ? job(S.selected) : null; return j ? `${j.name} (id ${j.id})` : ""; },
+      onDone: () => document.dispatchEvent(new CustomEvent("tadamoo:edited")) });
     document.getElementById("cj-stop").onclick = setStop;
     const input = document.getElementById("cj-chat-input");
     document.getElementById("cj-chat-form").onsubmit = e => { e.preventDefault(); const t = input.value.trim(); input.value = ""; ask(t); };
@@ -388,5 +392,6 @@
   }
   document.addEventListener("tadamoo:view", e => { if (e.detail === "cron") enter(); else clearTimeout(timer); });
   document.addEventListener("visibilitychange", schedule);
+  document.addEventListener("tadamoo:edited", () => { if (S.ready) load(); });
   if (document.body.dataset.view === "cron") enter();
 })();

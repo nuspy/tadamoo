@@ -1,0 +1,13 @@
+/* the small chat on a conversation of the harness (sesschat.js): bubbles, a box, a wait */
+.sc { display: grid; gap: 8px; }
+.sc-log { display: grid; gap: 8px; align-content: start; max-height: 260px; min-height: 0; overflow: auto; }
+.sc-msg { max-width: 94%; padding: 8px 12px; border-radius: 10px; background: var(--surface); overflow-wrap: anywhere; white-space: pre-wrap; }
+.sc-msg.user { justify-self: end; background: var(--raised); }
+.sc-empty { margin: 0; color: var(--fg-2); font-size: 13px; }
+.sc-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+.sc-form textarea { resize: vertical; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font-size: 15px; }
+.sc-send { min-height: 44px; min-width: 88px; }
+.sc-note { min-height: 1.4em; margin: 0; color: var(--fg-2); font-size: 13px; }
+.sc-note.bad { color: var(--warn); }
+@media (max-width: 480px) { .sc-form { grid-template-columns: minmax(0, 1fr); } .sc-send { width: 100%; } }
+.cj-instr, .pl-instr { border-bottom: 1px solid var(--line); }

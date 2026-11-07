@@ -129,15 +129,22 @@
     const panel = (k, ...kids) => (ui["panel_" + k] = el("div", { class: "pl-panel", role: "tabpanel", id: "pl-panel-" + k, "aria-labelledby": "pl-tab-" + k }, ...kids));
     ui.defineBar = el("div", { class: "pl-bar" },
       el("div", { class: "pl-modes", role: "group", "aria-label": T("pl.view.label") }, ui.modeGraph, ui.modeList), ui.addBtn);
+    ui.instr = el("section", { class: "sec pl-instr", "aria-labelledby": "pl-instr-h", hidden: true },
+      el("div", { class: "sh" }, el("b", { id: "pl-instr-h", text: T("sc.title.plan") })), el("p", { class: "help pad", text: T("sc.help.plan") }), el("div", { class: "pad", id: "pl-instr-root" }));
     ui.main = el("section", { class: "sec plmain", "aria-labelledby": "pl-h" },
       el("div", { class: "sh" }, ui.title, connEl),
       ui.pick, ui.tabs, statusEl,
       panel("aims", ui.horizon, ui.align),
       panel("details", ui.manage, ui.archived),
       panel("events", ui.triage),
-      panel("define", ui.defineBar, ui.add, ui.summary,
+      panel("define", ui.defineBar, ui.add, ui.instr, ui.summary,
         el("div", { class: "pl-main" }, el("div", { class: "pl-canvas" }, ui.graph, ui.list), el("div", { class: "pl-side" }, ui.detail, ui.proposals, ui.offers, ui.history))));
     root.replaceChildren(ui.col, ui.main);
+    SessChat.mount(document.getElementById("pl-instr-root"), {
+      id: "pl-instr", kind: "plan", emptyKey: "sc.empty.plan", placeholderKey: "sc.ph.plan", labelKey: "sc.title.plan",
+      target: () => (S.id && S.snap ? `${plan().title} (id ${S.id})` : ""),
+      onDone: () => document.dispatchEvent(new CustomEvent("tadamoo:edited")) });
+    document.addEventListener("tadamoo:edited", () => { if (S.id) refreshSoon(); });
     buildAdd();
     buildTriage();
     buildArchived();
@@ -1340,6 +1347,7 @@
     TABS.forEach(k => { ui["panel_" + k].hidden = !has || S.tab !== k; });
     ui.addBtn.setAttribute("aria-expanded", String(S.adding));
     ui.add.hidden = !has || !S.adding;
+    ui.instr.hidden = !has;
     if (!has) return;
     const nodes = Object.values(S.snap.plan.nodes);
     ui.summary.textContent = T("pl.summary", nodes.length, nodes.filter(n => n.status === "completed").length, S.snap.ready.length,
