@@ -1,7 +1,8 @@
 /* Reverse engineering (REA) box in the Agent tab. Narrow first; shown only in the Agent tab. */
 .rea { display: none; margin: 0 28px 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); min-width: 0; max-height: 45vh; overflow: auto; }
 body[data-view="agent"] .rea { display: block; }
-.rea-check { display: flex; align-items: center; gap: 10px; min-height: 44px; font: 600 15px/1.4 var(--font-sans); cursor: pointer; }
+.rea-head { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
+.rea-check { display: flex; align-items: center; gap: 10px; min-height: 44px; min-width: 0; flex: 1 1 auto; font: 600 15px/1.4 var(--font-sans); cursor: pointer; }
 .rea-check input { width: 24px; height: 24px; flex: none; }
 .rea-hint, .rea-line, .rea-mono { margin: 0 0 6px; font: 400 14px/1.5 var(--font-sans); color: var(--fg-2); overflow-wrap: anywhere; }
 .rea-mono { font-family: var(--font-mono); font-size: 13px; }

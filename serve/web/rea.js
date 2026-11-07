@@ -6,6 +6,7 @@
   const box = $("#rea-box");
   if (!box) return;
   const on = $("#rea-on"), msg = $("#rea-msg"), body = $("#rea-body"), state = $("#rea-state");
+  const toggle = $("#rea-toggle"), content = $("#rea-content"), OPEN_KEY = "tadamoo.rea.open";
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   let S = null, busy = false, timer = 0;
   const running = () => !!(S && S.install && S.install.running);
@@ -135,7 +136,18 @@
     busy = false; paint();
   });
 
+  // the box starts folded to its switch; the choice is kept in this browser
+  function fold(open, keep) {
+    content.hidden = !open;
+    toggle.setAttribute("aria-expanded", String(open));
+    toggle.textContent = T(open ? "rea.hide" : "rea.show");
+    if (keep) { try { localStorage.setItem(OPEN_KEY, open ? "1" : "0"); } catch (e) { /* the choice just is not kept */ } }
+  }
+  const isOpen = () => !content.hidden;
+  toggle.addEventListener("click", () => fold(!isOpen(), true));
+  try { fold(localStorage.getItem(OPEN_KEY) === "1", false); } catch (e) { fold(false, false); }
+
   document.addEventListener("tadamoo:view", e => { if (e.detail === "agent") load(); });
-  document.addEventListener("tadamoo:lang", () => paint());
+  document.addEventListener("tadamoo:lang", () => { paint(); fold(isOpen(), false); });
   if (document.body.dataset.view === "agent") load();
 })();
