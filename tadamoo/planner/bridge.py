@@ -297,7 +297,13 @@ class PlanCanvasBridge:
             self._emit("plan:graph", {"seq_graph": True, "no_route": {"node_id": node.id, **retry["no_route"]}})
             return {"ready": self.dag.ready_nodes(), "shared_state": self.dag.shared_state, "status": node.status, "completed": False,
                     "no_route": retry["no_route"], "message": retry["message"]}
-        self._bump("mark", f"{node.title}: {node.status}" + (f", try {retry['attempt']} of {retry['of']} failed, tries again" if retry else ""))
+        if retry and retry.get("repeated"):
+            summary = f"{node.title}: completed, run {retry['run']}, repeats again"
+        elif retry:
+            summary = f"{node.title}: {node.status}, try {retry['attempt']} of {retry['of']} failed, tries again"
+        else:
+            summary = f"{node.title}: {node.status}"
+        self._bump("mark", summary)
         parking = self._parking(before, node.id)
         self._emit("plan:graph", {"seq_graph": True, **({"retry": {"node_id": node.id, **retry}} if retry else {})})
         return {"ready": self.dag.ready_nodes(), "shared_state": self.dag.shared_state, "status": node.status, **({"retry": retry} if retry else {}), **parking}
