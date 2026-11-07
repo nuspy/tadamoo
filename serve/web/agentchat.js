@@ -280,7 +280,8 @@
     }, 600);
   });
 
-  function forget() { pick = null; learn = null; paintPick(); paintLearn(); pend = []; sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked, .asuggest").forEach(e => e.remove()); chipsEl = null; chipTexts = []; empty.hidden = false; keep(lastKey(), ""); copyShown = false; }
+  function forget() { pick = null; learn = null; paintPick(); paintLearn(); pend = []; sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked, .asuggest").forEach(e => e.remove()); chipsEl = null; chipTexts = []; empty.hidden = false; keep(lastKey(), ""); copyShown = false; conversationChanged(); }
+  function conversationChanged(created) { document.dispatchEvent(new CustomEvent("tadamoo:conversation", { detail: { created: !!created } })); }
   function newChat() {
     if (inAgent() && !curPath()) { addFolder(); return; }                      // a conversation in the Agent tab needs a folder to work in
     forget(); status(T("ch.new")); setControls(); paintList();
@@ -289,12 +290,12 @@
     forget();
     const h = await api("GET", `/${id}/history`);
     if (!h.ok) { status(errText(h)); return; }
-    sid = id; keep(lastKey(), id); rec = h.json.session; state = rec.state;
+    sid = id; keep(lastKey(), id); rec = h.json.session; state = rec.state; conversationChanged();
     if (inAgent() && rec.workspace && projects.some(x => sameDir(x.path, rec.workspace))) setProject(rec.workspace);
     if (typeof rec.effort === "string") effortSel.value = rec.effort;
     fromHistory(h.json.messages || []);
     if (state === "busy" || state === "starting" || state === "asking") {      // mid-turn: rebuild what is going on from its events
-      forget(); sid = id;
+      forget(); sid = id; conversationChanged();
       const e = await api("GET", `/${id}/events?after=0`);
       if (e.ok) { replaying = true; try { e.json.events.forEach(apply); } finally { replaying = false; } after = e.json.next; state = e.json.state; }
     } else {
@@ -1300,7 +1301,7 @@
     if (inAgent() && !curPath() && !(await addFolder())) { status(T("ag.noproject")); return false; }
     const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath(), ...(window.codingUi ? { role: window.codingUi.role() } : {}) } : {}), mode: permMode(), allow: allowRules(), ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), ...chatSettings.live(), worktree: copyMode(), ...visuals(), ...(window.privacy && window.privacy.pending() ? { private: true } : {}) });
     if (!r.ok) { status(errText(r)); return false; }
-    sid = r.json.session.id; rec = r.json.session; keep(lastKey(), sid); after = 0;
+    sid = r.json.session.id; rec = r.json.session; keep(lastKey(), sid); after = 0; conversationChanged(true);
     await refreshList();
     return true;
   }

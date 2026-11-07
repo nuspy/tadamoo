@@ -1,16 +1,29 @@
 "use strict";
-/* The Long answer control: a button beside Send that opens a small dialog. The options apply to the next message only.
-   In the Chat they go to the server as `long_answer` (serve/longform.py writes the text in parts); in the Agent the message carries one
-   line that the harness reads, and the harness itself writes the text in parts. */
+/* The Long answer control: a button beside Send that opens a small dialog. Once on, it stays on for that conversation until it is turned off;
+   a new conversation starts as the "new conversations" box says. In the Chat the options go to the server as `long_answer`
+   (serve/longform.py writes the text in parts); in the Agent the message carries one line that the harness reads, and the harness itself writes
+   the text in parts. */
 (() => {
-  const KEY = "tadamoo.longanswer";
+  const KEY = "tadamoo.longanswer", ON_KEY = "tadamoo.longanswer.on", MAX_KEPT = 200, NEW = "new";
   const MODES = ["write", "translate", "rewrite"];
   const load = () => { try { const v = JSON.parse(localStorage.getItem(KEY) || "{}"); return v && typeof v === "object" ? v : {}; } catch (e) { return {}; } };
   const keep = v => { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch (e) { /* the options are kept for this page only */ } };
 
   const dlg = $("#long-dlg"), open = $("#long-open"), form = $("#la-form"), say = $("#la-msg");
-  const f = { mode: $("#la-mode"), words: $("#la-words"), lang: $("#la-lang"), instr: $("#la-instr"), style: $("#la-style"), gloss: $("#la-gloss"), protect: $("#la-protect") };
-  let armed = false;
+  const f = { mode: $("#la-mode"), words: $("#la-words"), lang: $("#la-lang"), instr: $("#la-instr"), style: $("#la-style"), gloss: $("#la-gloss"), protect: $("#la-protect"),
+    fresh: $("#la-default") };
+  /* which conversations have it on: {id: bool}, plus "new" for the one not started yet; `defaults` is what a new conversation starts with */
+  const loadOn = () => { try { const v = JSON.parse(localStorage.getItem(ON_KEY) || "{}"); return v && typeof v === "object" ? v : {}; } catch (e) { return {}; } };
+  const keepOn = v => {
+    const ids = Object.keys(v);
+    for (const id of ids.slice(0, Math.max(0, ids.length - MAX_KEPT))) delete v[id];
+    try { localStorage.setItem(ON_KEY, JSON.stringify(v)); } catch (e) { /* it is kept for this page only */ }
+  };
+  let on = loadOn();
+  const scope = () => (window.chatUi && window.chatUi.sessionId && window.chatUi.sessionId()) || NEW;
+  const defaults = () => load().fresh === true;
+  const armed = () => { const v = on[scope()]; return v === undefined ? defaults() : v === true; };
+  const setArmed = value => { on[scope()] = value; keepOn(on); paint(); };
 
   function restore() {
     const s = load();
@@ -18,9 +31,10 @@
     f.words.value = s.words || 3000;
     f.lang.value = s.lang || ""; f.instr.value = s.instr || ""; f.style.value = s.style || ""; f.gloss.value = s.gloss || "";
     f.protect.checked = s.protect !== false;
+    f.fresh.checked = s.fresh === true;
   }
   const values = () => ({ mode: f.mode.value, words: Number(f.words.value) || 0, lang: f.lang.value.trim(), instr: f.instr.value.trim(), style: f.style.value.trim(),
-    gloss: f.gloss.value, protect: f.protect.checked });
+    gloss: f.gloss.value, protect: f.protect.checked, fresh: f.fresh.checked });
   function fit() {                                     // each mode shows the fields it uses
     const m = f.mode.value;
     $("#la-words-box").hidden = m === "translate";
@@ -34,9 +48,10 @@
     return "";
   }
   function paint() {
-    open.setAttribute("aria-pressed", String(armed));
-    open.textContent = T(armed ? "la.open.on" : "la.open");
-    open.dataset.on = armed ? "1" : "";
+    const now = armed();
+    open.setAttribute("aria-pressed", String(now));
+    open.textContent = T(now ? "la.open.on" : "la.open");
+    open.dataset.on = now ? "1" : "";
   }
   const glossary = text => {
     const out = {};
@@ -56,36 +71,38 @@
     if (Object.keys(g).length) o.glossary = g;
     return o;
   }
-  function disarm() { armed = false; paint(); }
+  /* the conversation changed: a fresh one starts again from the default; one just created takes what the unstarted one had */
+  document.addEventListener("tadamoo:conversation", e => {
+    const created = e.detail && e.detail.created, id = scope();
+    if (created && id !== NEW && on[NEW] !== undefined && on[id] === undefined) on[id] = on[NEW];
+    if (id === NEW || created) { delete on[NEW]; keepOn(on); }
+    paint();
+  });
 
   open.addEventListener("click", () => { restore(); fit(); say.textContent = ""; dlg.showModal(); f.mode.focus(); });
   f.mode.addEventListener("change", fit);
   $("#la-close").addEventListener("click", () => dlg.close());
-  $("#la-off").addEventListener("click", () => { disarm(); dlg.close(); });
+  $("#la-off").addEventListener("click", () => { setArmed(false); dlg.close(); });
   form.addEventListener("submit", e => {
     e.preventDefault();
     const v = values(), bad = problem(v);
     if (bad) { say.textContent = bad; return; }
     keep(v);
-    armed = true; paint(); dlg.close();
+    setArmed(true); dlg.close();
     $("#prompt").focus();
   });
   document.addEventListener("tadamoo:lang", () => { paint(); fit(); });
 
   window.longAnswer = {
-    armed: () => armed,
-    /* the Chat: the `long_answer` field of the next request, or null; the control turns itself off */
+    armed,
+    /* the Chat: the `long_answer` field of the next request, or null; it stays on until the person turns it off */
     request() {
-      if (!armed) return null;
-      const o = options(load());
-      disarm();
-      return o;
+      return armed() ? options(load()) : null;
     },
     /* the Agent: the message with the one line the harness reads */
     decorate(text) {
-      if (!armed) return text;
+      if (!armed()) return text;
       const v = load();
-      disarm();
       const part = s => String(s).replace(/[\]\n;]+/g, " ").trim().slice(0, 80);
       const bits = [`mode=${v.mode}`, ...(v.mode === "write" ? [`words=${v.words}`] : []), ...(v.lang ? [`language=${part(v.lang)}`] : []),
         ...(v.instr && v.mode === "rewrite" ? [`task=${part(v.instr)}`] : []), ...(v.style ? [`style=${part(v.style)}`] : [])];
