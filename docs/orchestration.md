@@ -118,6 +118,23 @@ means the process restarted, counted as that call's own usage, not a negative). 
 `session_digest` tool) gives the last `n` lines of what a conversation answered, took in and sent, oldest first, from its own event
 stream and the delivery log — enough to see what an unattended run did without reading its whole history.
 
+## Plans: kinds of step, their own clock, the journal
+
+Beyond action, sensor, decision and merge (`tadamoo/planner/dag.py`), a step can be one of the kinds of `tadamoo/planner/nodes.py`, the one table the checks,
+the tools (`plan_propose_change` names them), the snapshot (`kinds`) and the page (palette, form, inspector) all read. A step carries a checked `spec`:
+
+- Waits: `wait_duration {seconds}`, `wait_until {at}`, `wait_condition {expr | describe, watch, timeout_s, poll_s, on_timeout}`. A wait with no parent starts with the plan, so it is
+  the plan's trigger. `describe` is a wait in words: see below.
+- `loop {while, every, max_iter}`: its work is done again while the condition holds (it is a repeating step, so `stop_when` is `not (while)`); a loop that does not hold on arrival is
+  not entered. `set_var`, `get_var`, `output`, `log`: values and lines. `input {prompt, into}`: a question to the person, who answers with `plan_mark ... outputs {into: ...}`.
+- The kinds in `nodes.AUTO` (waits, values, result and log lines) are worked out by the plan (`PlanDAG.advance`), never offered to the agent; what they wrote is in the
+  plan's `journal` (`kind` auto, log or output) and a `plan:auto` event. A plan saved before these kinds loads and saves unchanged; an unknown kind is refused by name.
+- Its own clock: `Scheduler.tick_hooks` calls `PlanService.watch_tick(now)` at every look at the clock. A plan costs one comparison with its `next_due`; only the due ones are opened.
+  Every event on a plan also lets it work out what it can. A paused plan stands still. A result or log line, or a timeout, makes the Plans tab blink (`/api/attention`).
+- A wait in words (`serve/plan_wait.py`, the `plan_wait` use of the technical session): read only when the values it watches changed since the last reading, with a pause
+  that doubles after each "no" (up to 12 times), at most `max_per_hour` readings an hour for a plan, one at a time and off the clock's thread. The values and lines are data,
+  never orders. Without the technical session the step waits and the snapshot says `watch_degraded` (`no_judge` or `rate_limit`).
+
 ## Where things are kept
 
 - Conversations: `<base>/sessions/<id>/` (`history.json`, `inflight.json`, `archive.jsonl`, `tool_effects.json`, `rules.md`, `snapshots/`), plus the records shared by all of them in `<base>/sessions/` (`agent_sessions.json`, `compares.json`, `nodes.jsonl`). `<base>` is `journal/` of the data folder unless one was chosen in Settings > General (`sessions-base.json` in the default data folder; `serve/userdata.py`'s `sessions_base()`). Moving it (`serve/sessions_move.py`, `/api/sessions-base/check|move`) copies the whole `sessions/` folder, checks every file by size and hash, leaves the original, and asks for a restart; nothing moves while a conversation runs. Project memory (`memory/<workspace>.db`), the search of past conversations (`memory/past.db`, keyed by conversation id) and the list in the page do not depend on the folder.

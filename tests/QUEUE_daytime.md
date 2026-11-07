@@ -157,3 +157,14 @@ Costruito e provato solo con motore finto e programmi finti (`serve/tests/test_l
 16. llama-server avviato con `-np 2` (dal Loader, 2 slot): `python tools/check_cache_slots.py --base http://127.0.0.1:8080 --server llama --model <alias> --slots 2`. Atteso: `accepts_other_key` PASS, `same_slot_reuse` e `other_slot_kept` PASS, `slots_listing` PASS (INFO se `/slots` è spento). Annotare cosa fa `bad_value` (INFO): se un `id_slot` fuori scala viene accettato o rifiutato.
 
 **E. Risposta JSON sulla rotta Anthropic.** Il difetto del diario (la forma JSON si perdeva sulla rotta Anthropic) è corretto e riprodotto col motore finto. Con un provider Claude VERO (serve una chiave, chiamata a pagamento, solo con l'OK dell'utente): assegnare a una funzione con forma JSON (`triage`, `suggestions`) il provider «Claude» e controllare che la risposta sia JSON valido; se il provider rifiuta `output_config.format` con 400 il client riprova con l'istruzione nel testo e il JSON viene estratto comunque.
+
+## Da guardare a occhio sull'app vera (7 novembre, serie dei nove punti; nessun avvio fatto per scriverli)
+
+La pagina è provata con un DOM finto e con letture dei file, non su una finestra vera. Da vedere a 360×640, 390×844 e oltre 1280, senza scroll orizzontale:
+
+1. Piani: la palette dei tipi di passo; trascinare «Attendi un tempo» sul grafico con il mouse (deve aprire il modulo con quel tipo e mettere il passo dove lo si lascia); toccare un tipo con un dito (non trascina, apre il modulo); Esc a metà trascinamento annulla; i campi con unità (minuti, ore, giorni).
+2. Piani: un passo «Attendi una condizione» a parole con la sessione tecnica accesa e spenta (deve comparire l'avviso del limite o della sessione spenta); un passo «Chiedi alla persona» e la sua risposta con il pannello del passo.
+3. Piani e Cron Jobs: la scheda lampeggia dopo un risultato nuovo e smette quando la apri; con «riduci animazioni» resta il puntino.
+4. Piani e Cron Jobs: la casella «Cambia con un'istruzione» (una vera, con Qwen) e il «Log e risultati» come chat con risposta; «Apri come chat» su un'esecuzione.
+5. Chat: Risposta lunga resta accesa tra i messaggi di una conversazione e non in un'altra; il prompt non compare due volte inviando di seguito.
+6. Impostazioni > Generale > «Dove sono tenute le conversazioni»: Controlla, Sposta (con una cartella di prova), riavvio, e che l'elenco delle conversazioni sia intatto.
