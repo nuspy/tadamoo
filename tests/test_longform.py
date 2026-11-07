@@ -547,3 +547,24 @@ def test_the_short_calls_take_the_side_fields_and_a_form_and_the_writer_neither(
     list(la._call([{"role": "user", "content": "x"}], 50))
     assert seen[0][0]["session"] == "tech" and seen[0][1] == {"temperature": 0.0, "response_format": {"type": "json_schema"}}
     assert "session" not in seen[1][0] and seen[1][1] == {}
+
+
+class TestSeparateTexts:
+    def test_a_count_of_chapters_with_a_writing_verb_gives_one_title_each(self):
+        got = lf.separate_texts("Write a book on Vibe Coding: 10 chapters, one by one")
+        assert (got["kind"], got["count"]) == ("chapter", 10)
+        assert got["titles"][0] == "Chapter 1" and len(got["titles"]) == 10
+
+    def test_the_count_may_be_a_word_and_the_titles_follow_the_language(self):
+        got = lf.separate_texts("scrivi i dodici capitoli di una guida")
+        assert got["count"] == 12 and got["titles"][1] == "Capitolo 2"
+
+    def test_a_numbered_list_as_long_as_the_count_names_the_pieces(self):
+        got = lf.separate_texts("write the 3 chapters:\n1. Intro\n2. Tools\n3. Wrap up")
+        assert got["titles"] == ["Intro", "Tools", "Wrap up"]
+
+    def test_no_writing_verb_one_piece_or_too_many_is_not_a_set_of_texts(self):
+        assert lf.separate_texts("summarize the 10 chapters of this book") is None
+        assert lf.separate_texts("write 1 chapter") is None
+        assert lf.separate_texts("write 99 chapters") is None
+        assert lf.separate_texts("write a long report") is None

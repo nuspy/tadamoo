@@ -275,6 +275,41 @@ def detect_long_request(text: str, source_words: int = 0) -> Optional[Dict[str, 
     return None
 
 
+NUMBER_WORDS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+                "due": 2, "tre": 3, "quattro": 4, "cinque": 5, "sei": 6, "sette": 7, "otto": 8, "nove": 9, "dieci": 10, "undici": 11, "dodici": 12}
+PIECE_NOUNS = {"chapter": "chapter", "chapters": "chapter", "capitoli": "chapter", "section": "section", "sections": "section", "sezioni": "section",
+               "article": "article", "articles": "article", "articoli": "article", "essay": "essay", "essays": "essay", "saggi": "essay",
+               "story": "story", "stories": "story", "racconti": "story", "lesson": "lesson", "lessons": "lesson", "lezioni": "lesson",
+               "post": "post", "posts": "post", "part": "part", "parts": "part", "parti": "part"}
+PIECE_LABEL = {"en": {"chapter": "Chapter", "section": "Section", "article": "Article", "essay": "Essay", "story": "Story", "lesson": "Lesson",
+                      "post": "Post", "part": "Part"},
+               "it": {"chapter": "Capitolo", "section": "Sezione", "article": "Articolo", "essay": "Saggio", "story": "Racconto", "lesson": "Lezione",
+                      "post": "Post", "part": "Parte"}}
+PIECE_RE = re.compile(r"(?<![\w.])(\d{1,2}|" + "|".join(NUMBER_WORDS) + r")\s+(?:[\w'-]+\s+){0,2}?(" + "|".join(sorted(PIECE_NOUNS, key=len, reverse=True)) + r")\b", re.I)
+LIST_ITEM_RE = re.compile(r"^[ \t]*(?:\d{1,2}[.)]|[-*\u2022])[ \t]+(\S.*)$", re.M)
+PIECES_RANGE = (2, 40)
+PIECE_TITLE_CHARS = 80
+
+
+def separate_texts(text: str) -> Optional[Dict[str, Any]]:
+    """A request for several texts that stand apart ("write the 10 chapters", "scrivi dodici capitoli"): the kind, the count and a title for each
+    (the items of a numbered list when it has as many as the count, else "Chapter 1", ...); None when it does not ask to write or names no count."""
+    if not isinstance(text, str) or not WRITE_VERB_RE.search(text):
+        return None
+    m = PIECE_RE.search(text)
+    if m is None:
+        return None
+    raw = m.group(1).lower()
+    count = int(raw) if raw.isdigit() else NUMBER_WORDS[raw]
+    if not PIECES_RANGE[0] <= count <= PIECES_RANGE[1]:
+        return None
+    kind = PIECE_NOUNS[m.group(2).lower()]
+    items = [" ".join(i.split())[:PIECE_TITLE_CHARS] for i in LIST_ITEM_RE.findall(text)]
+    label = PIECE_LABEL["it" if request_language(text) == "it" else "en"][kind]
+    titles = items[:count] if len(items) >= count else [f"{label} {i}" for i in range(1, count + 1)]
+    return {"kind": kind, "count": count, "titles": titles}
+
+
 TARGET_RE = re.compile(r"\b(?:into|in|to|a|en|al|ins|auf|para|vers|em)\s+(" + "|".join(sorted(map(re.escape, LANGUAGE_NAMES), key=len, reverse=True)) + r")\b", re.I)
 INSTRUCTION_WORDS = 60              # a request's first paragraph is its instruction when it is this short and the source follows
 
