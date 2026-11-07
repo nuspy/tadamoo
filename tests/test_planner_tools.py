@@ -389,3 +389,50 @@ def test_at_the_auto_level_a_plan_change_asks_only_when_the_plan_involves_people
     assert involved({"plan": {"nodes": {"a": {"state_variables": {"effects": [{"effect": "irreversible", "tool": "shell_command"}]}}}}}) == []
     below = Asker("confirm")
     assert Confirmer(AgentState(), below, auto=lambda: False).check({"kind": "plan_change"}, "Change it?", "", plain)[1] == "asked"
+
+
+def test_the_model_is_told_the_kinds_of_step_it_may_add(world):
+    client, agent, build = world
+    reg, ask = build()
+    description = reg.schemas()
+    text = next(s["function"]["description"] + json.dumps(s["function"]["parameters"]) for s in description if s["function"]["name"] == "plan_propose_change")
+    for kind in ("wait_duration {seconds}", "wait_condition {", "set_var {name", "input {prompt, into"):
+        assert kind in text
+
+
+def test_a_wait_added_with_a_change_is_worked_out_by_the_plan_and_the_next_step_waits_for_it(world):
+    client, agent, build = world
+    reg, ask = build("default", "confirm")
+    t = title()
+    create_with_quote(reg, agent, t)
+    pid = next(p["plan_id"] for p in client.list() if p["title"] == t)
+    reg.execute("plan_get", {"plan_id": pid})
+    agent.last_user_text = "boh"
+    wait = {"id": "w1", "type": "wait_duration", "title": "Aspetta due ore", "description": "", "assignee": "agent", "dependencies": ["s1"], "outputs": ["s2"],
+            "spec": {"seconds": 7200}}
+    out = reg.execute("plan_propose_change", {"plan_id": pid, "title": "Una pausa", "rationale": "", "diff": {"add_nodes": [wait]}})
+    assert "Change applied" in out
+    snap = client.snapshot(pid)
+    assert snap["plan"]["nodes"]["w1"]["spec"] == {"seconds": 7200} and "w1" not in snap["ready"]
+    assert {k["type"] for k in snap["kinds"]} >= {"wait_duration", "log", "input"}
+    bad = {**wait, "id": "w2", "spec": {"seconds": -1}}
+    refused = reg.execute("plan_propose_change", {"plan_id": pid, "title": "x", "diff": {"add_nodes": [bad]}})
+    assert "'seconds' is a number from 1 to" in refused and "w2" not in client.snapshot(pid)["plan"]["nodes"]
+
+
+def test_a_question_step_cannot_be_completed_without_the_answer(world):
+    client, agent, build = world
+    reg, ask = build("default", "confirm", "confirm", "confirm")
+    t = title()
+    create_with_quote(reg, agent, t)
+    pid = next(p["plan_id"] for p in client.list() if p["title"] == t)
+    reg.execute("plan_get", {"plan_id": pid})
+    agent.last_user_text = "boh"
+    question = {"id": "q1", "type": "input", "title": "Quanto?", "description": "", "assignee": "user", "dependencies": [], "outputs": [],
+                "spec": {"prompt": "Quanto vuoi spendere?", "into": "importo", "kind": "number"}}
+    reg.execute("plan_propose_change", {"plan_id": pid, "title": "Una domanda", "diff": {"add_nodes": [question]}})
+    reg.execute("plan_get", {"plan_id": pid})
+    refused = reg.execute("plan_mark", {"plan_id": pid, "node_id": "q1", "status": "completed"})
+    assert "importo" in refused and client.snapshot(pid)["plan"]["nodes"]["q1"]["status"] == "pending"
+    reg.execute("plan_mark", {"plan_id": pid, "node_id": "q1", "status": "completed", "outputs": {"importo": 300}})
+    assert client.snapshot(pid)["plan"]["shared_state"]["importo"] == 300

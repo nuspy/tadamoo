@@ -23,6 +23,7 @@ from .card import CARD_FIELDS, DERIVED_FIELDS, PlanInsightCard, card_gaps, deriv
 from .dag import Assignee, PlanDAG, PlanError, node_to_dict
 from .horizon import PlanProfile
 from .involvement import EXCEPTION_KINDS, split_diff
+from .nodes import catalogue as node_kinds
 from .replan import ReplanProposal, Replanner
 from .triage import TriageResult
 
@@ -162,7 +163,8 @@ class PlanCanvasBridge:
                     "history": list(self.history)[-HISTORY_SHOWN:],
                     "proposals": [p.to_dict() for p in self.proposals.values() if p.status == "pending"],
                     "offers": [o for o in self.offers.values() if o["status"] == "offered"],
-                    "ready": self.dag.ready_nodes(), "created_by": self.created_by, "paused": self.paused, "schedule": dict(self.schedule)}
+                    "ready": self.dag.ready_nodes(), "created_by": self.created_by, "paused": self.paused, "schedule": dict(self.schedule),
+                    "kinds": node_kinds()}
 
     def set_paused(self, actor: str, value: bool) -> Dict[str, Any]:
         with self._lock:

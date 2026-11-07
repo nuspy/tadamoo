@@ -186,6 +186,11 @@ def clean_spec(node_type: Any, spec: Any) -> Dict[str, Any]:
     return out
 
 
+def kinds_line() -> str:
+    """The kinds beyond the four basic ones, each with the fields of its spec, in a line a tool description can carry."""
+    return "; ".join(f"{k} {{{', '.join(f['name'] + ('' if f.get('required') else '?') for f in v['fields'])}}}" for k, v in NODE_SPECS.items() if v["fields"])
+
+
 def catalogue() -> List[Dict[str, Any]]:
     """The kinds in the order a page lists them, with their family, summary and fields."""
     return [{"type": k, **{f: v[f] for f in ("family", "auto", "summary", "fields")}} for k, v in NODE_SPECS.items()]

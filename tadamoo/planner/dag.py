@@ -808,6 +808,8 @@ class PlanDAG:
                     problems = self._decision_problems(node)
                     if problems:
                         raise PlanError("; ".join(problems))
+                if node.type == NodeType.INPUT and (node.spec["into"] not in (outputs or {}) and node.spec["into"] not in self.shared_state):
+                    raise PlanError(f"this step asks the person for '{node.spec['into']}': complete it with outputs {{{node.spec['into']}: their answer}}")
                 if outputs:
                     outputs = clean_outputs(outputs)
                     merged = {**self.shared_state, **outputs}
