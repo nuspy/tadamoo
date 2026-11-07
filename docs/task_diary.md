@@ -11,7 +11,8 @@ Ultimo aggiornamento: 7 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e 
 - Falsi positivi del Canary: fatto e committato nel Canary (`eb54d1f`). Le modifiche CORS le hai volute tenere: committate con un test (`e760ba6`).
 - «HTTP 0» nella finestra «Add a folder»: il server sulla porta 7232 era bloccato; ora il messaggio dice che il server non risponde. Serve riavviare TaDaMoo.
 - JADX e Apktool «mancanti»: erano la GUI di JADX e un jar nudo di Apktool, non quello che REA chiede. «Installa tutto» li sistema.
-- Interruttore REA non selezionabile («l'add-on REA non fa parte di questa copia»): la cartella `dist\stage\BasaltWinGUI\addons` esiste (costruita il 2 novembre), ma dopo la rinomina il codice cerca `dist\stage\TaDaMoo\addons`, che non c'è. Serve rifare il pacchetto oppure impostare `TADAMOO_ADDONS`. Decisione tua.
+- Interruttore REA non selezionabile («l'add-on REA non fa parte di questa copia»): la cartella `dist\stage\BasaltWinGUI\addons` esiste (costruita il 2 novembre), ma dopo la rinomina il codice cerca `dist\stage\TaDaMoo\addons`, che non c'è. Serve rifare il pacchetto oppure impostare `TADAMOO_ADDONS`. Decisione tua. Fatto: ho spostato gli add-on in `dist\stage\TaDaMooddons` e cancellato i residui `BasaltWinGUI` in `dist` e `publish`.
+- Crash di `TaDaMoo.exe` con «No» ai privilegi di amministratore: le impostazioni di Windows Forms venivano date due volte. Corretto (`4f132241`), exe ripubblicato in `publish`; verificato da te il 7 novembre: ora parte anche con «No».
 
 ## 5 novembre (notte)
 
