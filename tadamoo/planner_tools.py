@@ -26,6 +26,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from tadamoo.integrations._http import ServiceError
 from tadamoo.integrations.planner_client import PlannerClient
+from tadamoo.planner import nodes as nodes_mod
 from tadamoo.planner.bridge import classify_diff
 from tadamoo.planner.dag import PlanError, clean_outputs
 from tadamoo.planner.involvement import split_diff, step_facts
@@ -213,6 +214,15 @@ def render_plan(snap: Dict[str, Any]) -> str:
             lines.append(f'      call prepared (not placed): {n["call_request"]["number"]} - {n["call_request"]["reason"][:100]}')
         if n.get("wiki_query"):
             lines.append(f'      wants from the wiki: {n["wiki_query"][:100]}')
+        if n.get("spec"):
+            lines.append(f'      {n.get("type")}: ' + json.dumps(n["spec"], ensure_ascii=False)[:200])
+        sv = n.get("state_variables") or {}
+        if sv.get("wake_at") and n.get("status") == "pending":
+            lines.append("      waiting until " + time.strftime("%Y-%m-%d %H:%M", time.localtime(sv["wake_at"])))
+        if sv.get("judged"):
+            lines.append(f'      last reading of the wait in words: {sv["judged"].get("answer")}')
+        if sv.get("auto_error"):
+            lines.append(f'      cannot be worked out yet: {sv["auto_error"]}')
         if (n.get("state_variables") or {}).get("retry_at"):
             lines.append(f'      failed {n["state_variables"].get("attempts", 1)} time(s), waits to try again')
         if (n.get("state_variables") or {}).get("timed_out"):
@@ -586,7 +596,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         return (f'Step {node_id} started ({how}): "{node["title"]}". {node.get("description") or ""}\n'
                 "Do it with your tools, read the result, then mark the step completed or failed with plan_mark.")
 
-    def plan_propose_change(plan_id: str, title: str, rationale: str, diff: Dict[str, Any], quote: str = "") -> str:
+    def plan_propose_change(plan_id: str, title: str, diff: Dict[str, Any], rationale: str = "", quote: str = "") -> str:
         if (msg := need_read(plan_id)):
             return msg
         if not isinstance(diff, dict):
@@ -841,7 +851,9 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
                       obj({"plan_id": {"type": "string"}, "node_id": {"type": "string"}, "quote": quote_param}, ["plan_id", "node_id"]), EffectClass.REVERSIBLE, plan_step_start)
     registry.register("plan_propose_change", "Changes the structure of a plan (add, remove or change steps and links) with a diff. Needs the user's yes. At the Auto level what touches no step for other people, a prepared call or a booking is applied at once; the rest waits in the plan as a proposal for the user.",
                       obj({"plan_id": {"type": "string"}, "title": {"type": "string"}, "rationale": {"type": "string"},
-                           "diff": {"type": "object", "description": "{add_nodes: [node], remove_nodes: [id], update_nodes: {id: fields}, add_edges: [[parent, child]], remove_edges: [[parent, child]]}"},
+                           "diff": {"type": "object", "description": "{add_nodes: [node], remove_nodes: [id], update_nodes: {id: fields}, add_edges: [[parent, child]], remove_edges: [[parent, child]]}. "
+                                                                    "A node: {id, type, title, description, assignee, dependencies, spec}. Beyond action, sensor, decision and merge, the type may be: "
+                                                                    + nodes_mod.kinds_line() + " (? is optional). Waits, set_var, get_var, output and log are worked out by the plan itself."},
                            "quote": quote_param}, ["plan_id", "title", "diff"]), EffectClass.REVERSIBLE, plan_propose_change)
     registry.register("plan_prepare_call", "Prepares a phone call (number, reason, what to say) and/or a wiki question on an action step of a plan. It places nothing: "
                                            "only phone_call places a call, and it asks the user each time. Needs the user's yes.",
