@@ -68,6 +68,7 @@
 <script defer src="web/gate.js"></script>
 <script defer src="web/compaction.js"></script>
 <script defer src="web/sessionsbase.js"></script>
+<script defer src="web/attention.js"></script>
 <script defer src="web/models.js"></script>
 <script defer src="web/download.js"></script>
 <script defer src="web/relaxed.js"></script>
@@ -99,6 +100,7 @@
 <header class="bar">
   <div class="brand"><img src="web/icon-256.png" alt="" width="28" height="28"><span class="wordmark">TaDaMoo <span class="wm-sub">Win+GUI</span></span></div>
   <span class="model" id="model"></span>
+  <div id="attn-live" class="sr" role="status" aria-live="polite"></div>
   <nav class="tabs" role="tablist" aria-label="Views">
     <button class="tab" role="tab" id="tab-chat" data-view="chat" aria-controls="view-chat" aria-selected="false" tabindex="-1" data-t="tab.chat" aria-keyshortcuts="Alt+1">Chat</button>
     <button class="tab" role="tab" id="tab-agent" data-view="agent" aria-controls="view-agent" aria-selected="false" tabindex="-1" data-t="tab.agent">Agent</button>
