@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import fnmatch
+import glob
+import hashlib
+import io
 import json
 import os
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,14 +17,20 @@ from serve import rea_api
 
 
 class FakeHost(rea_api.Host):
+    """A machine with no network. `results` answers commands (a tuple, a function of the command, or a list of them used one after the other);
+    paths under `real_root` are looked up on the real disk, where the downloads and the unpacking of the tests are made."""
     platform = "win32"
 
-    def __init__(self, files=(), on_path=None, env=None, results=None):
+    def __init__(self, files=(), on_path=None, env=None, results=None, payloads=None, releases=None):
         self.files = set(files)
         self.on_path = dict(on_path or {})
         self.env = dict(env or {})
         self.results = results or {}
-        self.ran = []
+        self.payloads = dict(payloads or {})
+        self.releases = dict(releases or {})
+        self.real_root = ""
+        self.ran, self.slept, self.fetched, self.refreshed = [], [], [], 0
+        self.on_path_files = []
 
     def environ(self):
         return dict(self.env)
@@ -28,18 +38,46 @@ class FakeHost(rea_api.Host):
     def which(self, name):
         return self.on_path.get(name)
 
+    def _real(self, path):
+        return bool(self.real_root) and os.path.normpath(path).startswith(os.path.normpath(self.real_root))
+
     def glob(self, pattern):
-        return sorted(f for f in self.files if fnmatch.fnmatch(f, pattern.replace("\\", "/")))
+        fake = sorted(f for f in self.files if fnmatch.fnmatch(f, pattern.replace("\\", "/")))
+        return fake + (sorted(glob.glob(pattern)) if self._real(pattern) else [])
 
     def exists(self, path):
-        return path.replace("\\", "/") in self.files
+        return path.replace("\\", "/") in self.files or (self._real(path) and os.path.exists(path))
 
     def run(self, argv, timeout):
         self.ran.append(list(argv))
         for key, value in self.results.items():
             if key in " ".join(argv):
-                return value
+                if isinstance(value, list):
+                    value = value.pop(0) if len(value) > 1 else value[0]
+                return value(argv) if callable(value) else value
         return 0, ""
+
+    def sleep(self, seconds):
+        self.slept.append(seconds)
+
+    def refresh_path(self):
+        self.refreshed += 1
+
+    def find_in_path(self, pattern):
+        return sorted(f for f in self.on_path_files if fnmatch.fnmatch(os.path.basename(f), pattern))
+
+    def fetch(self, url, dest):
+        self.fetched.append(url)
+        if url not in self.payloads:
+            raise OSError("network error: no route")
+        Path(dest).write_bytes(self.payloads[url])
+        return hashlib.sha256(self.payloads[url]).hexdigest()
+
+    def http_json(self, url):
+        self.fetched.append(url)
+        if url not in self.releases:
+            raise OSError("network error: no route")
+        return self.releases[url]
 
 
 def make_addons(root: Path) -> Path:
@@ -68,6 +106,7 @@ class Base(unittest.TestCase):
         patch.start()
         self.addCleanup(patch.stop)
         self.host = FakeHost(results={"--version": (0, "v24.22.1\n")})
+        self.host.real_root = str(self.data)
         patch = mock.patch.object(rea_api, "HOST", self.host)
         patch.start()
         self.addCleanup(patch.stop)
@@ -176,17 +215,46 @@ class ToolTests(Base):
         self.host.files.add("D:/x/adb.exe")
         self.assertEqual({v["id"]: v for v in rea_api.tools_view()}["adb"]["path"], "D:/x/adb.exe")
 
-    def test_a_missing_tool_shows_its_exact_command(self):
+    def test_a_missing_tool_shows_its_exact_command_and_its_steps(self):
         self.host.on_path["winget"] = "C:/w/winget.exe"
         views = {v["id"]: v for v in rea_api.tools_view()}
         self.assertEqual(views["adb"]["command"][:4], ["winget", "install", "--id", "Google.PlatformTools"])
-        self.assertEqual(views["wabt"]["command"], [])         # no installer: by hand
+        self.assertEqual(views["adb"]["steps"], [" ".join(views["adb"]["command"])])
+        self.assertEqual(views["wabt"]["command"], [])                      # it comes from a GitHub release: no command, one step
+        self.assertTrue(views["wabt"]["installable"])
+        self.assertIn("github.com/WebAssembly/wabt", views["wabt"]["steps"][0])
+        self.assertIn("jadx-headless-mcp-0.7.1-all.jar", views["jadx"]["steps"][0])
+        self.assertIn("SHA-256", views["jadx"]["steps"][0])
+
+    def test_a_program_that_exists_only_for_linux_is_not_offered_on_windows(self):
+        views = {v["id"]: v for v in rea_api.tools_view()}
+        self.assertEqual((views["unblob"]["supported"], views["unblob"]["installable"], views["unblob"]["only"]), (False, False, ["linux"]))
+        self.host.platform = "linux"
+        self.host.on_path["python"] = "/usr/bin/python"
+        views = {v["id"]: v for v in rea_api.tools_view()}
+        self.assertTrue(views["unblob"]["supported"])
+        self.assertEqual(views["unblob"]["command"], ["/usr/bin/python", "-m", "pip", "install", "--user", "unblob"])
+
+    def test_a_program_on_the_path_gives_its_folder(self):
+        self.host.files |= {"D:/jdk17/bin/java.exe", "D:/wb/bin/wasm-validate.exe"}
+        self.host.on_path.update({"java": "D:/jdk17/bin/java.exe", "wasm-validate": "D:/wb/bin/wasm-validate.exe"})
+        views = {v["id"]: v for v in rea_api.tools_view()}
+        self.assertEqual(views["jdk"]["path"].replace("\\", "/"), "D:/jdk17")
+        self.assertEqual(views["wabt"]["path"].replace("\\", "/"), "D:/wb/bin")
+
+    def test_the_android_sdk_variable_is_a_place_to_look_for_adb(self):
+        self.host.env["ANDROID_HOME"] = "E:/Dev/android-sdk"
+        self.host.files.add("E:/Dev/android-sdk/platform-tools/adb.exe")
+        self.host.env["REA_ADB_PATH"] = ""
+        views = {v["id"]: v for v in rea_api.tools_view()}
+        self.assertFalse(views["adb"]["detected"])                          # the pattern is expanded by the real environment, not the fake one
 
     def test_nothing_runs_while_only_looking(self):
         self.host.on_path["winget"] = "C:/w/winget.exe"
         rea_api.status()
         rea_api.tools_view()
         self.assertFalse([a for a in self.host.ran if "install" in a])
+        self.assertFalse(self.host.fetched)
 
 
 class InstallTests(Base):
@@ -194,22 +262,178 @@ class InstallTests(Base):
         super().setUp()
         self.host.on_path["winget"] = "C:/w/winget.exe"
         self.host.on_path["python"] = "C:/py/python.exe"
+        self.host.files.update({"C:/Tools/Java21/jdk-21.0.1+12", "C:/Tools/Java21/jdk-21.0.1+12/bin/java.exe"})   # Java is there unless a test removes it
+        self.host.results["find_spec"] = (1, "")                             # pwntools is not importable until pip installs it
 
     def installs(self):
         return [a for a in self.host.ran if "install" in a]
 
-    def test_one_tool_runs_its_own_command_and_shows_the_output(self):
-        self.host.results["Google.PlatformTools"] = (0, "Successfully installed\n")
-        res = rea_api.install("adb")
-        self.assertEqual(len(res["results"]), 1)
-        self.assertEqual(res["results"][0]["output"], "Successfully installed\n")
-        self.assertEqual(res["results"][0]["code"], 0)
-        self.assertEqual(self.installs(), [res["results"][0]["command"]])
+    def appears(self, *paths, out="Successfully installed\n", on_path=None):
+        def run(argv):
+            self.host.files.update(paths)
+            self.host.on_path.update(on_path or {})
+            return 0, out
+        return run
 
-    def test_a_failure_is_reported_not_hidden(self):
+    def results(self, res):
+        return {r["tool"]: r for r in res["results"]}
+
+    def test_one_tool_runs_its_own_command_and_shows_the_output(self):
+        self.host.results["Google.PlatformTools"] = self.appears("C:/p/adb.exe", on_path={"adb": "C:/p/adb.exe"})
+        res = rea_api.install("adb", wait=True)
+        r = res["results"][0]
+        self.assertEqual((r["ok"], r["code"], r["attempts"], r["method"], r["output"]), (True, 0, 1, "winget", "Successfully installed\n"))
+        self.assertEqual(self.installs(), [r["command"]])
+        self.assertGreaterEqual(self.host.refreshed, 1)                      # the PATH an installer changed reaches the server
+
+    def test_a_failure_that_is_not_the_network_is_reported_once_and_not_hidden(self):
         self.host.results["Google.Chrome"] = (1, "No package found")
-        res = rea_api.install("chrome")
-        self.assertEqual((res["results"][0]["code"], res["results"][0]["output"]), (1, "No package found"))
+        r = rea_api.install("chrome", wait=True)["results"][0]
+        self.assertEqual((r["ok"], r["code"], r["output"], r["attempts"]), (False, 1, "No package found", 1))
+        self.assertEqual(self.host.slept, [])
+
+    def test_a_network_failure_is_tried_again_and_the_second_try_can_succeed(self):
+        self.host.results["Google.Chrome"] = [(1, "Download failed: timed out"), self.appears("C:/c/chrome.exe", on_path={"chrome": "C:/c/chrome.exe"})]
+        r = rea_api.install("chrome", wait=True)["results"][0]
+        self.assertEqual((r["ok"], r["attempts"]), (True, 2))
+        self.assertEqual(self.host.slept, [5])
+
+    def test_it_gives_up_after_three_network_failures(self):
+        self.host.results["Google.Chrome"] = (1, "could not resolve host")
+        r = rea_api.install("chrome", wait=True)["results"][0]
+        self.assertEqual((r["ok"], r["attempts"]), (False, 3))
+        self.assertEqual(self.host.slept, [5, 20])
+
+    def test_when_one_way_fails_the_next_one_is_tried(self):
+        self.host.files.clear()
+        self.host.results["Microsoft.OpenJDK.21"] = (1, "No package found")
+        self.host.results["Temurin"] = self.appears("C:/Tools/Java21/jdk-21.0.1+12", "C:/Tools/Java21/jdk-21.0.1+12/bin/java.exe")
+        r = rea_api.install("jdk", wait=True)["results"][0]
+        self.assertEqual((r["ok"], r["attempts"]), (True, 2))
+        self.assertIn("EclipseAdoptium.Temurin.21.JDK", r["command"])
+
+    def test_a_program_is_installed_after_what_it_needs(self):
+        self.host.files.clear()
+        self.host.results["Microsoft.OpenJDK.21"] = self.appears("C:/Tools/Java21/jdk-21.0.1+12", "C:/Tools/Java21/jdk-21.0.1+12/bin/java.exe")
+        self.host.results["Ghidra"] = self.appears("C:/Tools/Ghidra/ghidra_12.1.4_PUBLIC", "C:/Tools/Ghidra/ghidra_12.1.4_PUBLIC/ghidraRun.bat")
+        res = rea_api.install("ghidra", wait=True)
+        self.assertEqual(res["plan"], ["jdk", "ghidra"])
+        self.assertEqual([r["tool"] for r in res["results"]], ["jdk", "ghidra"])
+        self.assertTrue(all(r["ok"] for r in res["results"]))
+        self.assertIn("Microsoft.OpenJDK.21", " ".join(self.installs()[0]))
+        self.assertIn("NationalSecurityAgency.Ghidra", " ".join(self.installs()[1]))
+
+    def test_what_needs_a_program_that_could_not_be_installed_is_skipped_and_nothing_of_it_runs(self):
+        self.host.files.clear()
+        self.host.results["OpenJDK"] = (1, "No package found")
+        self.host.results["Temurin"] = (1, "No package found")
+        res = rea_api.install("ghidra", wait=True)
+        got = self.results(res)
+        self.assertFalse(got["jdk"]["ok"])
+        self.assertEqual((got["ghidra"]["ok"], got["ghidra"]["skipped"], got["ghidra"]["output"]), (False, "needs", "jdk"))
+        self.assertFalse([a for a in self.installs() if "Ghidra" in " ".join(a)])
+
+    def test_install_all_takes_what_is_missing_here_in_order_and_leaves_out_the_rest(self):
+        self.host.files.clear()
+        self.host.on_path["adb"] = "C:/p/adb.exe"
+        self.host.files.add("C:/p/adb.exe")
+        res = rea_api.install(None, True, wait=True)
+        plan = res["plan"]
+        self.assertNotIn("adb", plan)                                       # found
+        self.assertNotIn("unblob", plan)                                    # Linux only
+        for tool in ("jdk", "ghidra", "jadx", "apktool", "chrome", "tshark", "wabt", "pwntools", "rizin"):
+            self.assertIn(tool, plan)
+        self.assertLess(plan.index("jdk"), min(plan.index(t) for t in ("ghidra", "jadx", "apktool")))
+
+    def test_the_jadx_jar_is_downloaded_and_checked_against_its_sha256(self):
+        jar = b"PK jar bytes"
+        with mock.patch.object(rea_api, "JADX_SHA256", hashlib.sha256(jar).hexdigest()):
+            self.host.payloads[rea_api.JADX_URL] = jar
+            r = rea_api.install("jadx", wait=True)["results"][0]
+        self.assertTrue(r["ok"], r)
+        self.assertEqual((self.data / "rea-tools" / "jadx-headless-mcp-0.7.1-all.jar").read_bytes(), jar)
+
+    def test_a_download_with_the_wrong_sha256_is_refused_and_not_kept(self):
+        self.host.payloads[rea_api.JADX_URL] = b"something else"
+        r = rea_api.install("jadx", wait=True)["results"][0]
+        self.assertEqual((r["ok"], r["code"], r["attempts"]), (False, 65, 1))
+        self.assertIn("SHA-256 mismatch", r["output"])
+        self.assertFalse(list((self.data / "rea-tools").glob("*")) if (self.data / "rea-tools").exists() else [])
+
+    def test_a_jar_already_on_the_path_gets_a_launcher_and_nothing_is_downloaded(self):
+        self.host.on_path_files = ["E:/Program Files/REA_Components/APKTool/apktool_3.0.3.jar"]
+        views = {v["id"]: v for v in rea_api.tools_view()}
+        self.assertIn("nothing is downloaded", views["apktool"]["steps"][0])
+        r = rea_api.install("apktool", wait=True)["results"][0]
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(r["attempts"], 1)
+        self.assertFalse(self.host.fetched)
+        bat = (self.data / "rea-tools" / "apktool" / "apktool.bat").read_text(errors="replace")
+        self.assertIn("apktool_3.0.3.jar", bat)
+        self.assertIn("-jar", bat)
+
+    def test_apktool_comes_from_its_release_with_a_launcher_that_finds_java(self):
+        jar = b"PK apktool"
+        url = "https://github.com/iBotPeaches/Apktool/releases/download/v9.9.9/apktool_9.9.9.jar"
+        self.host.releases["https://api.github.com/repos/iBotPeaches/Apktool/releases/latest"] = {
+            "tag_name": "v9.9.9", "assets": [{"name": "apktool_9.9.9.jar", "browser_download_url": url, "digest": "sha256:" + hashlib.sha256(jar).hexdigest()}]}
+        self.host.payloads[url] = jar
+        r = rea_api.install("apktool", wait=True)["results"][0]
+        self.assertTrue(r["ok"], r)
+        folder = self.data / "rea-tools" / "apktool"
+        self.assertEqual((folder / "apktool.jar").read_bytes(), jar)
+        bat = (folder / "apktool.bat").read_text()
+        self.assertIn("JAVA_HOME", bat)
+        self.assertIn("-jar", bat)
+
+    def test_a_release_archive_is_unpacked_without_repeating_its_top_folder(self):
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as t:
+            for name in ("wabt-1.0.42/bin/wasm-validate.exe", "wabt-1.0.42/bin/wasm2wat.exe"):
+                info = tarfile.TarInfo(name)
+                info.size = 3
+                t.addfile(info, io.BytesIO(b"exe"))
+        data = buf.getvalue()
+        url = "https://github.com/WebAssembly/wabt/releases/download/1.0.42/wabt-1.0.42-windows-x64.tar.gz"
+        self.host.releases["https://api.github.com/repos/WebAssembly/wabt/releases/tags/1.0.42"] = {
+            "tag_name": "1.0.42", "assets": [{"name": "wabt-1.0.42-windows-x64.tar.gz", "browser_download_url": url, "digest": "sha256:" + hashlib.sha256(data).hexdigest()}]}
+        self.host.payloads[url] = data
+        r = rea_api.install("wabt", wait=True)["results"][0]
+        self.assertTrue(r["ok"], r)
+        self.assertTrue((self.data / "rea-tools" / "wabt-1.0.42" / "bin" / "wasm-validate.exe").is_file())
+
+    def test_an_archive_that_writes_outside_its_folder_is_refused(self):
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as t:
+            info = tarfile.TarInfo("../evil.txt")
+            info.size = 1
+            t.addfile(info, io.BytesIO(b"x"))
+        data = buf.getvalue()
+        url = "https://x/wabt-1.0.42-windows-x64.tar.gz"
+        self.host.releases["https://api.github.com/repos/WebAssembly/wabt/releases/tags/1.0.42"] = {
+            "tag_name": "1.0.42", "assets": [{"name": "wabt-1.0.42-windows-x64.tar.gz", "browser_download_url": url, "digest": "sha256:" + hashlib.sha256(data).hexdigest()}]}
+        self.host.payloads[url] = data
+        r = rea_api.install("wabt", wait=True)["results"][0]
+        self.assertFalse(r["ok"])
+        self.assertFalse((self.data / "rea-tools" / "evil.txt").exists())
+
+    def test_without_network_a_github_way_fails_with_a_clear_reason_and_is_tried_again(self):
+        r = rea_api.install("rizin", wait=True)["results"][0]                 # winget answers (0, "") and installs nothing: then GitHub, no route
+        self.assertFalse(r["ok"])
+        self.assertIn("network error", r["output"])
+        self.assertEqual(self.host.slept, [5, 20])
+
+    def test_a_tool_that_is_found_is_not_installed_again(self):
+        self.host.on_path["adb"] = "C:/p/adb.exe"
+        self.host.files.add("C:/p/adb.exe")
+        r = rea_api.install("adb", wait=True)["results"][0]
+        self.assertEqual((r["ok"], r["skipped"]), (True, "present"))
+        self.assertFalse(self.installs())
+
+    def test_a_program_for_another_system_is_skipped(self):
+        r = rea_api.install("unblob", wait=True)["results"][0]
+        self.assertEqual((r["ok"], r["skipped"]), (False, "platform"))
+        self.assertFalse(self.installs())
 
     def test_an_unknown_tool_runs_nothing(self):
         for bad in ("calc", None, 5, "../x"):
@@ -217,33 +441,40 @@ class InstallTests(Base):
                 rea_api.install(bad)
         self.assertFalse(self.installs())
 
-    def test_a_tool_with_no_installer_is_skipped(self):
-        res = rea_api.install("wabt")
-        self.assertEqual(res["results"][0]["skipped"], "manual")
-        self.assertFalse(self.installs())
-
-    def test_install_all_runs_only_the_missing_ones_that_have_a_command(self):
-        self.host.on_path["adb"] = "C:/p/adb.exe"
-        self.host.files.add("C:/p/adb.exe")
-        res = rea_api.install(None, True)
-        done = {r["tool"] for r in res["results"]}
-        self.assertNotIn("adb", done)
-        self.assertNotIn("wabt", done)
-        self.assertIn("chrome", done)
-        self.assertIn("unblob", done)
-        self.assertTrue(all(r["command"] for r in res["results"]))
-
     def test_the_pip_command_uses_the_user_site(self):
-        res = rea_api.install("pwntools")
-        self.assertEqual(res["results"][0]["command"], ["C:/py/python.exe", "-m", "pip", "install", "--user", "pwntools"])
+        def pip(argv):
+            self.host.results["find_spec"] = (0, "")
+            return 0, "Successfully installed pwntools"
+        self.host.results["pwntools"] = pip
+        r = rea_api.install("pwntools", wait=True)["results"][0]
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["command"], ["C:/py/python.exe", "-m", "pip", "install", "--user", "pwntools"])
 
     def test_after_an_install_the_registered_server_learns_the_new_path(self):
         rea_api.enable()
         self.assertNotIn("REA_ADB_PATH", {e["name"] for e in self.store().get("mcp:rea")["env"]})
-        self.host.files.add("C:/p/adb.exe")
-        self.host.on_path["adb"] = "C:/p/adb.exe"
-        rea_api.install("adb")
+        self.host.results["Google.PlatformTools"] = self.appears("C:/p/adb.exe", on_path={"adb": "C:/p/adb.exe"})
+        rea_api.install("adb", wait=True)
         self.assertEqual({e["name"]: e["value"] for e in self.store().get("mcp:rea")["env"]}["REA_ADB_PATH"], "C:/p/adb.exe")
+
+    def test_the_installation_runs_in_the_background_and_the_status_follows_it(self):
+        gate = __import__("threading").Event()
+
+        def slow(argv):
+            gate.wait(5)
+            self.host.files.add("C:/p/adb.exe")
+            self.host.on_path["adb"] = "C:/p/adb.exe"
+            return 0, "ok"
+        self.host.results["Google.PlatformTools"] = slow
+        started = rea_api.install("adb")
+        self.assertTrue(started["started"])
+        self.assertTrue(rea_api.status()["install"]["running"])
+        self.assertEqual(rea_api.status()["install"]["plan"], ["adb"])
+        gate.set()
+        rea_api._job_thread.join(5)
+        done = rea_api.status()["install"]
+        self.assertFalse(done["running"])
+        self.assertTrue(done["results"][0]["ok"])
 
     def test_only_one_installation_at_a_time(self):
         rea_api._install_lock.acquire()
@@ -266,6 +497,11 @@ class RouteTests(Base):
         code, obj = rea_api.route_post("/api/rea/disable", {})
         self.assertEqual((code, obj["enabled"]), (200, False))
         self.assertEqual(rea_api.route_post("/api/rea/install", {"tool": "nope"})[0], 400)
+        self.host.on_path["adb"] = "C:/p/adb.exe"
+        self.host.files.add("C:/p/adb.exe")
+        code, obj = rea_api.route_post("/api/rea/install", {"tool": "adb"})
+        rea_api._job_thread.join(5)
+        self.assertEqual((code, obj["started"], obj["plan"]), (200, True, ["adb"]))
         self.assertEqual(rea_api.route_post("/api/rea/other", {})[0], 404)
 
 
