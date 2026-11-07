@@ -306,7 +306,8 @@ class PlanService:
         card = p.PlanInsightCard.from_dict(body["card"]) if body.get("card") else None
         profile = p.PlanProfile.from_dict(body.get("profile"))
         actor = self._actor(body)
-        bridge = self.store.create(dag, card, self._replanner(), profile)
+        created_by = str(body.get("created_by") or "")
+        bridge = self.store.create(dag, card, self._replanner(), profile, created_by)
         bridge.record(actor, "create", dag.title)
         self.store.save(dag.plan_id)
         self._announce(dag.plan_id)
@@ -338,6 +339,31 @@ class PlanService:
 
     def delete(self, plan_id: str) -> bool:
         return self.store.delete(plan_id)
+
+    def set_paused(self, plan_id: str, actor: str, value: bool) -> Dict[str, Any]:
+        bridge = self.store.get(plan_id)
+        out = bridge.set_paused(actor, value)
+        self.store.save(plan_id)
+        return out
+
+    def set_schedule(self, plan_id: str, actor: str, schedule: Dict[str, Any]) -> Dict[str, Any]:
+        bridge = self.store.get(plan_id)
+        out = bridge.set_schedule(actor, schedule)
+        self.store.save(plan_id)
+        return out
+
+    def remove_schedule(self, plan_id: str, actor: str) -> Dict[str, Any]:
+        bridge = self.store.get(plan_id)
+        out = bridge.clear_schedule(actor)
+        self.store.save(plan_id)
+        return out
+
+    def is_paused(self, plan_id: str) -> bool:
+        """Whether a plan a routine speaks for has been paused; False for a plan that is gone (its schedule should be removed too)."""
+        try:
+            return self.store.get(plan_id).paused
+        except KeyError:
+            return False
 
     def duplicate(self, plan_id: str, actor: str = "user", title: Any = None) -> Dict[str, Any]:
         """A copy of a plan under a new id: its steps, links, card and dates, with a history of its own."""

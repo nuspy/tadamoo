@@ -3212,6 +3212,14 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, service.restore(plan_id, service._actor(req)))
                 if action == "duplicate":
                     return self._json(201, service.duplicate(plan_id, service._actor(req), req.get("title")))
+                if action == "pause":
+                    return self._json(200, service.set_paused(plan_id, service._actor(req), True))
+                if action == "resume":
+                    return self._json(200, service.set_paused(plan_id, service._actor(req), False))
+                if action == "schedule":
+                    return self._json(200, service.set_schedule(plan_id, service._actor(req), req.get("schedule") or {}))
+                if action == "schedule_remove":
+                    return self._json(200, service.remove_schedule(plan_id, service._actor(req)))
                 if action == "delete":
                     if not service.delete(plan_id):
                         raise KeyError(plan_id)

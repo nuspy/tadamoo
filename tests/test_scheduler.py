@@ -900,3 +900,19 @@ def test_an_old_routine_without_the_new_fields_defaults_to_new_session(tmp_path,
     sched._save()
     again, _ = make(tmp_path)
     assert again.get(rid)["deliver_to"] == {"kind": "new_session", "ref": ""} and again.get(rid)["message"] == "" and again.get(rid)["link"] == {}
+
+
+def test_a_message_delivery_needs_no_workspace_unless_it_has_a_check(tmp_path):
+    sched, _ = make(tmp_path)
+    rid = sched.add("tell", "x", "", "every 1h", deliver_to={"kind": "session", "ref": "night"})["id"]
+    assert sched.get(rid)["workspace"] == ""
+    with pytest.raises(RoutineError) as e:
+        sched.add("tell2", "x", "", "every 1h", deliver_to={"kind": "session", "ref": "night"}, check="pytest -q")
+    assert e.value.code == "bad_folder"
+
+
+def test_a_new_session_routine_still_needs_a_real_folder(tmp_path):
+    sched, _ = make(tmp_path)
+    with pytest.raises(RoutineError) as e:
+        sched.add("x", "y", "", "every 1h")
+    assert e.value.code == "bad_folder"

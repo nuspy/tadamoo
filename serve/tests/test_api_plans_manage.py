@@ -39,6 +39,25 @@ class PlansManageTest(base.PlansApiBase):
         self.assertNotEqual(other["plan"]["plan_id"], copy["plan"]["plan_id"])
         self.assertEqual(self.call("POST", "/api/plans/ghost/duplicate", {})[0], 404)
 
+    def test_a_plan_is_created_with_its_session_as_owner_and_can_be_paused_and_resumed(self):
+        self.call("POST", "/api/plans", {"plan": {**PLAN, "plan_id": "owned_a1"}, "card": CARD, "created_by": "aa11bb22"})
+        self.assertEqual(self.call("GET", "/api/plans/owned_a1")[1]["created_by"], "aa11bb22")
+        code, out = self.call("POST", "/api/plans/owned_a1/pause", {})
+        self.assertEqual((code, out["paused"]), (200, True))
+        self.assertTrue(self.call("GET", "/api/plans/owned_a1")[1]["paused"])
+        code, out = self.call("POST", "/api/plans/owned_a1/resume", {})
+        self.assertEqual((code, out["paused"]), (200, False))
+        self.assertEqual(self.call("POST", "/api/plans/ghost/pause", {})[0], 404)
+
+    def test_a_schedule_is_set_and_removed_from_a_plan(self):
+        self.call("POST", "/api/plans", {"plan": {**PLAN, "plan_id": "sched_a1"}, "card": CARD})
+        code, out = self.call("POST", "/api/plans/sched_a1/schedule", {"schedule": {"routine_id": "r1", "session_ref": "night"}})
+        self.assertEqual((code, out["schedule"]), (200, {"routine_id": "r1", "session_ref": "night"}))
+        self.assertEqual(self.call("GET", "/api/plans/sched_a1")[1]["schedule"], {"routine_id": "r1", "session_ref": "night"})
+        code, out = self.call("POST", "/api/plans/sched_a1/schedule_remove", {})
+        self.assertEqual((code, out["schedule"]), (200, {}))
+        self.assertEqual(self.call("GET", "/api/plans/sched_a1")[1]["schedule"], {})
+
     def test_a_deleted_plan_is_gone_from_the_list_and_cannot_be_deleted_twice(self):
         self.call("POST", "/api/plans", {"plan": {**PLAN, "plan_id": "to_delete"}, "card": CARD})
         self.assertEqual(self.call("POST", "/api/plans/to_delete/delete", {}), (200, {"deleted": "to_delete"}))
