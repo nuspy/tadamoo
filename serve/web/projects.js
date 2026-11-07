@@ -22,6 +22,7 @@
   const errText = r => {
     const e = r.json && r.json.error;
     const known = e && e.code && ["folder_missing", "folder_relative", "folder_not_found", "folder_readonly"].includes(e.code);
+    if (!r.status) return T("ag.add.e.unreachable");                         // the request never got an answer
     return known ? T("ag.add.e." + e.code) : (e && e.message) || `HTTP ${r.status}`;
   };
 
