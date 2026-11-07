@@ -20,7 +20,7 @@ def agent(effort="", level=PermissionLevel.AUTO, plan_mode=False, steps=40, tool
 
 def test_read_gives_plain_values():
     state = capstate.read(agent("high", PermissionLevel.AUTO, True, 0, ("session_send",)), window=32768, unattended=True)
-    assert state == {"window": 32768, "effort": "high", "level": "auto", "plan_mode": True, "unattended": True, "steps": "unlimited", "orchestration": True}
+    assert state == {"window": 32768, "effort": "high", "level": "auto", "plan_mode": True, "unattended": True, "steps": "unlimited", "orchestration": True, "long_answer": "off"}
     assert capstate.read(agent(), window=1000, unattended=False)["effort"] == "default"
 
 
@@ -47,3 +47,21 @@ def test_after_a_fold_everything_is_told_again_once():
     again = teller.note(state, folds=1)
     assert "effort=low" in again and "window=8192" in again
     assert teller.note(state, folds=1) == ""
+
+
+def test_long_answer_is_read_from_the_control_line_of_the_latest_message():
+    on = SimpleNamespace(incoming="Write about rivers\n\n[long answer: mode=write; words=3000]")
+    assert capstate.long_answer(on.incoming).startswith("on (write, about 3000 words)")
+    assert "write_long" in capstate.long_answer(on.incoming)
+    assert capstate.long_answer("[long answer: mode=translate; language=it]").startswith("on (translate)")
+    assert capstate.long_answer("Write about rivers") == "off" and capstate.long_answer("") == "off" and capstate.long_answer(None) == "off"
+    state = capstate.read(SimpleNamespace(incoming=on.incoming, sampling={}, permissions=None, max_turns=0, tools=None), window=1000, unattended=False)
+    assert state["long_answer"].startswith("on (write")
+
+
+def test_the_note_names_long_answer_only_when_it_changes():
+    teller = capstate.Teller()
+    base = {"window": 1000, "long_answer": "off"}
+    assert "long_answer=off" in teller.note(base)
+    assert teller.note(base) == ""
+    assert teller.note({**base, "long_answer": "on (write)"}) == "[state] long_answer=on (write)"

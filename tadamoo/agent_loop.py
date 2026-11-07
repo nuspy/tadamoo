@@ -285,6 +285,7 @@ class AgentLoop:
         self.course: Any = None                   # the watch on the course of a request (tadamoo/course.py): notes to the agent, then a card to the person
         self.mission: Dict[str, Any] = {}         # the request in hand and what the harness knows of it, for self_status
         self.state_note: Optional[Callable[[], str]] = None       # the note about settings that changed, put before a request (tadamoo/capstate.py)
+        self.incoming = ""                                        # the person's latest message as it came, with the control lines the page added to it
         self.batch_interrupt = batch_interrupt    # looked at before each call of a message's batch: a reason to leave the rest of the batch unrun, or ""
         self.pipeline = pipeline                  # checks the final answer against the request's card (tadamoo/pipeline.py)
         self.clock = clock                        # when set: each request is preceded by the local time, and each message carries its time (`ts`)
@@ -366,6 +367,8 @@ class AgentLoop:
         the harness's: it is the one thing in the conversation that changes with every request, so it comes after everything that is kept."""
         if self.clock is not None:
             self.append({"role": "user", "content": local_time_line(self.clock()), "note": True})
+        if origin == "user":
+            self.incoming = text
         state = self.state_note() if self.state_note is not None else ""
         if state:
             self.append({"role": "user", "content": state, "note": True})

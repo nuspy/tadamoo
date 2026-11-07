@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-FIELDS = ("window", "effort", "level", "plan_mode", "unattended", "steps", "orchestration")
+FIELDS = ("window", "effort", "level", "plan_mode", "unattended", "steps", "orchestration", "long_answer")
 PROMPT_TOLD = ("window",)         # the fixed block already states these when the session is built
 
 
@@ -16,6 +16,18 @@ def _word(value: Any) -> str:
     if isinstance(value, bool):
         return "on" if value else "off"
     return str(value)
+
+
+def long_answer(message: Any) -> str:
+    """Whether the person's latest message carries the Long answer control line (serve/longform.py `parse_hint`), in words."""
+    if not isinstance(message, str) or not message:
+        return "off"
+    from serve import longform
+    hint = longform.parse_hint(message)
+    if hint is None:
+        return "off"
+    words = hint["fields"].get("words", "")
+    return f"on ({hint['mode']}{', about ' + words + ' words' if hint['mode'] == 'write' and words.isdigit() else ''}): write each text over about 1500 words with write_long"
 
 
 def read(agent: Any, *, window: int, unattended: bool) -> Dict[str, Any]:
@@ -31,6 +43,7 @@ def read(agent: Any, *, window: int, unattended: bool) -> Dict[str, Any]:
         "unattended": bool(unattended),
         "steps": steps if steps > 0 else "unlimited",
         "orchestration": bool(tools is not None and tools.get("session_send") is not None),
+        "long_answer": long_answer(getattr(agent, "incoming", "")),
     }
 
 

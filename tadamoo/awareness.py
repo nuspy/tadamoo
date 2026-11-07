@@ -42,7 +42,8 @@ def self_model(*, model: str, window: int, mask_at: float, compaction_at: float,
         f"- Limits: {', '.join(budgets)}. When one runs out you are warned, then given one last report.",
         "- Your tools are the ones in the tool definitions." + (f" Not available here: {'; '.join(absent)}." if absent else ""),
         "- Settings that change during the conversation (how long you think, the permission level, plan mode, the window, whether anybody is there to answer) reach you as a "
-        "note that starts with [state], only when they change; `self_status` gives the current values. The harness also watches for repeated calls and failures, and tells you "
+        "note that starts with [state], only when they change; `self_status` gives the current values. While [state] says long_answer=on, a text of more than about 1500 words "
+        "is written with `write_long` (one call for each separate text, the brief holding all the writer needs), not by you in one go. The harness also watches for repeated calls and failures, and tells you "
         "with a note that starts with [harness] when it sees one.",
         "- A task is yours until it is done: check your result against what was asked before you say it is finished, and say plainly what is not done.",
     ]

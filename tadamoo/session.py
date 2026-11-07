@@ -38,8 +38,10 @@ nothing, and what is still asked (the Rule of Two the person set) is theirs to a
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -68,7 +70,7 @@ from tadamoo.pipeline import Pipeline
 from tadamoo.roles import valid as valid_role
 from tadamoo.router import QUEUE, STEER, STRONG_URGENT, URGENT, Router
 from tadamoo.stack import PERMISSION_MODES, AgentConfig, BuiltAgent, add_agent_arguments, agent_settings, build_agent, data_dir_for, split_secret_specs
-from tadamoo.tools.registry import clock_paused
+from tadamoo.tools.registry import EffectClass, clock_paused
 from tadamoo.vault import valid_code
 
 HEARTBEAT_S = 5.0
@@ -315,6 +317,7 @@ class Session:
         self.current = _Current(self)
         self.main = Task("main", "", self.agent)
         self._adopt(self.main)
+        self._register_long_tool()
         if built.plan_gate is not None:
             built.plan_gate.ask = self.ask_plan                  # a plan in plan mode is put to the person in the conversation
 
@@ -1157,7 +1160,7 @@ class Session:
             self._card_at = None
         if facts and self._steps_closed(task):
             return True
-        if facts and self._long_step(task):
+        if facts and self._long_step(task, facts):
             return True
         if facts:
             self._optimize_step(task, facts)
@@ -1282,7 +1285,7 @@ class Session:
             kept.pop(0)
         return kept
 
-    def _long_step(self, task: Task) -> bool:
+    def _long_step(self, task: Task, facts: Optional[Dict[str, Any]] = None) -> bool:
         """A request for a text too long for one reply (serve/longform.py): where the person is, a card offers to write it in parts and the
         turn ends on it (True); where nobody watches the offer is taken at once. Once taken, the harness writes the text itself
         (`_long_run`). Never raises."""
@@ -1299,13 +1302,19 @@ class Session:
             if self.ask_only or text.startswith(qs.ANSWER_HEADER) or not callable(getattr(agent.client, "chat_completion", None)):
                 return False
             asked = lf.parse_hint(text)
+            found = None if asked is not None else lf.detect_long_request(text)
+            if asked is None and found is None:
+                return False
+            pieces = lf.separate_texts(asked["text"] if asked is not None else text)
+            if pieces is not None:                            # several texts that stand apart: the model writes them one by one with write_long
+                return self._long_pieces(task, pieces)
+            if asked is not None and asked["mode"] == "write" and self._needs_work(asked["text"], facts):
+                self._audit("long_answer", {"deferred": "work", "words": asked["words"]})
+                return False                                  # the text depends on files or pages: the model works, and writes the long part with write_long
             if asked is not None:                             # the person turned the control on: no card
                 self._long_request = {**asked, "prior": self._long_prior(agent)}
                 self._audit("long_answer", {"asked": asked["parts"], "words": asked["words"], "mode": asked["mode"]})
                 return self._long_run(task)
-            found = lf.detect_long_request(text)
-            if found is None:
-                return False
             self._long_request = {**found, "text": text, "prior": self._long_prior(agent)}
             words = (found["words"] // 100) * 100 or found["words"]
             strings = self.LONG_TEXT["it" if lf.request_language(text) == "it" else "en"]
@@ -1333,6 +1342,24 @@ class Session:
             it.log.warning("long answer: failed: %s", type(exc).__name__)
             return False
 
+    @staticmethod
+    def _needs_work(text: str, facts: Optional[Dict[str, Any]]) -> bool:
+        """Whether a request for a new text also needs the model's tools first: a file or a page to read, or files attached."""
+        return bool((facts or {}).get("attachments")) or bool(it._PATH.search(text) or it._URL.search(text))
+
+    def _long_pieces(self, task: Task, pieces: Dict[str, Any]) -> bool:
+        """A request for several separate texts is not written as one: the model is told to write them one after the other, each with its own
+        `write_long` call, and the parts are recorded in the task registry. False: the model goes on."""
+        titles = pieces["titles"]
+        note = (f"[harness] Long answer: the request is for {pieces['count']} separate texts. Write each with its own write_long call, one after the other, "
+                f"saving each in its own file (for example {pieces['kind']}s/01.md in the working folder); the brief of each holds the outline, the tone and a "
+                "line on what the earlier ones said. Do not write them yourself. At the end answer with the list of files and a line on each.\n"
+                + "\n".join(f"{i}. {t}" for i, t in enumerate(titles, 1)))
+        task.agent.append({"role": "user", "content": note, "note": True})
+        self._register_subtasks(task, [{"index": i, "title": t, "span": t[:it.SPAN_CHARS], "depends_on": [], "acceptance": "saved with write_long"} for i, t in enumerate(titles)])
+        self._audit("long_answer", {"pieces": pieces["count"], "kind": pieces["kind"]})
+        return False
+
     def _long_spec(self, agent: Any, request: Dict[str, Any]) -> Optional[lf.Spec]:
         """The job for a request that needs a long text, or None when the harness cannot do it alone (a translation with no language named,
         a rewrite with no instruction): the model then answers as usual."""
@@ -1350,6 +1377,109 @@ class Session:
         instruction = fields.get("task") or instruction
         return lf.Spec(mode="rewrite", task=instruction, source=source, language=language, **base) if instruction else None
 
+    def _long_job(self, task: Task, spec: lf.Spec, *, words: int, stated: bool, prior: List[Dict[str, str]], show: bool) -> Tuple[str, Dict[str, Any], str, bool]:
+        """Runs the engine of a long text with the conversation's own model: (the text written, the closing event, the failure, whether it was
+        cancelled). The text is streamed to the page as it passes its checks when `show`; progress goes out as `long_answer` events either way.
+        `NotLong` and `LongformError` are the caller's to handle."""
+        agent = task.agent
+        client = agent.client
+        try:
+            spec.context_tokens = int(client.context_window() or 0)
+        except Exception:                                            # a client that cannot say: the parts carry the whole text
+            spec.context_tokens = 0
+        bias = agent.sampling.get("end_turn_bias")
+        spec.end_turn_bias = float(bias) if isinstance(bias, (int, float)) and not isinstance(bias, bool) else None
+        kw: Dict[str, Any] = {"prior": prior, "cancel": agent.cancel,
+                              "sampling": {k: agent.sampling[k] for k in lf.SAMPLING_FIELDS if agent.sampling.get(k) is not None}}
+        if spec.mode == "write":
+            run: lf.LongAnswer = lfw.LongFlow(client, spec, hint_words=words, stated=stated, **kw)
+        else:
+            run = lf.LongAnswer(client, spec, **kw)
+        done: Dict[str, Any] = {}
+        failure = ""
+        try:
+            for ev in run.run():
+                if ev is None:
+                    continue
+                if ev["event"] == "delta":
+                    if show:
+                        self._on_delta("content", ev["text"], task)
+                else:
+                    done = ev if ev["event"] == "done" else done
+                    self._on_event({"type": "long_answer", **ev}, task)
+        except (lfw.NotLong, lf.LongformError):
+            raise
+        except StreamCancelled:
+            failure = "cancelled"
+        except Exception as exc:                                     # the model failed after some parts: what was written is kept
+            failure = f"{type(exc).__name__}: {exc}"
+        if show:
+            with self._delta_lock:
+                self._flush_delta()
+        return run.text(), done, failure, failure == "cancelled" or done.get("stopped") == "cancelled"
+
+    LONG_TOOL_ROOT = ".tadamoo/artifacts"
+    LONG_TOOL_WORDS = lf.TARGET_WORDS_RANGE
+
+    def _register_long_tool(self) -> None:
+        """`write_long`: a text of the length the long answer is for, written in parts by the harness and saved to a file; the model works with
+        the file. Always in the list, so the tools of a conversation do not change when the control is switched."""
+        self.agent.tools.register(
+            "write_long",
+            "Writes one long text (over about 1500 words) in checked parts and saves it to a file: use it for each such text instead of writing it "
+            "yourself in one go, once per separate text (each chapter, article or document). Put what the writer needs in `brief` (topic, outline, "
+            "tone, what the earlier texts said): it sees nothing else. Gives back where the text was saved and how long it is. Optional: `words` "
+            "(target length), `path` (a file in the working folder; default under .tadamoo/artifacts/), `language`, `style`; `mode` translate or "
+            "rewrite with `source_path` (the file to work from).",
+            {"type": "object", "properties": {
+                "brief": {"type": "string", "description": "what to write, or for translate/rewrite what to do"},
+                "words": {"type": "integer", "description": "target length in words; 0 lets the harness estimate it"},
+                "path": {"type": "string", "description": "where to save it, relative to the working folder"},
+                "mode": {"type": "string", "enum": list(lf.MODES)}, "source_path": {"type": "string"},
+                "language": {"type": "string"}, "style": {"type": "string"}}, "required": ["brief"]},
+            EffectClass.REVERSIBLE, self._long_tool, timeout=None)
+
+    def _long_tool(self, brief: str, words: int = 0, path: str = "", mode: str = "write", source_path: str = "", language: str = "", style: str = "") -> str:
+        task = getattr(self._tl, "task", None) or self.main
+        agent = task.agent
+        brief, mode = str(brief or "").strip(), str(mode or "write")
+        if mode not in lf.MODES or not brief:
+            return "write_long needs a brief and a mode of " + ", ".join(lf.MODES) + "."
+        if not callable(getattr(agent.client, "chat_completion", None)):
+            return "This conversation has no model that can write in parts: write the text yourself."
+        source = ""
+        if mode != "write":
+            try:
+                source = self.built.sandbox.resolve_safe(source_path or ".").read_text(encoding="utf-8")
+            except (OSError, ValueError) as exc:
+                return f"write_long cannot read the source '{source_path}': {exc}"
+        stated = max(0, min(lf.TARGET_WORDS_RANGE[1], int(words or 0)))
+        lang = lf.language_code(language) or language or lf.request_language(brief)
+        spec = (lf.Spec(mode="write", task=brief, target_words=max(stated, lf.TARGET_WORDS_RANGE[0]), language=lang, style=style, retries=1, headings=None)
+                if mode == "write" else lf.Spec(mode=mode, task=brief, source=source, language=lang, style=style, retries=1, headings=None))
+        try:
+            answer, done, failure, cancelled = self._long_job(task, spec, words=stated, stated=bool(stated), prior=[], show=False)
+        except lfw.NotLong as short:
+            return f"This text is short (about {short.words} words): write it yourself in one go, there is no need for write_long."
+        except lf.LongformError as exc:
+            return f"write_long could not do it: {exc}"
+        if not answer.strip():
+            return "write_long wrote nothing" + (f" ({failure})." if failure else ".")
+        slug = re.sub(r"[^a-z0-9]+", "-", brief.lower())[:40].strip("-") or "text"
+        target = path.strip() or f"{self.LONG_TOOL_ROOT}/long_{slug}_{hashlib.sha1(answer.encode('utf-8')).hexdigest()[:8]}.md"
+        try:
+            saved = self.built.sandbox.write_file(target, answer)
+        except (OSError, ValueError) as exc:
+            return f"The text was written ({len(answer.split())} words) but could not be saved to '{target}': {exc}. Choose another path and ask again."
+        if isinstance(saved, dict) and saved.get("status") == "refused":
+            return f"The text was written but not saved: {saved.get('message')} Choose another path and ask again."
+        self._audit("long_answer", {"tool": True, "words": done.get("words"), "parts": done.get("segments"), "unapplied": len(done.get("unapplied") or []),
+                                    "stopped": done.get("stopped") or ""})
+        problems = len(done.get("warnings") or []) + len(done.get("unapplied") or [])
+        end = " It was stopped before the end." if cancelled or done.get("stopped") else ""
+        return (f"Saved {done.get('words') or len(answer.split())} words in {done.get('segments') or 1} parts to {target}." + end
+                + (f" {problems} problem(s) were left in it; read the file if it matters." if problems else "") + (f" ({failure})" if failure and not cancelled else ""))
+
     def _long_run(self, task: Task) -> bool:
         """Writes the long text of the request in parts (serve/longflow.py): a new text is estimated, planned, written and checked by the
         harness; a translation or rewrite goes part by part from its source. The text is shown as it passes its checks, progress goes out as
@@ -1361,44 +1491,15 @@ class Session:
         if spec is None:
             self._audit("long_answer", {"skipped": "no language or instruction"})
             return False
-        client = agent.client
         try:
-            spec.context_tokens = int(client.context_window() or 0)
-        except Exception:                                            # a client that cannot say: the parts carry the whole text
-            spec.context_tokens = 0
-        bias = agent.sampling.get("end_turn_bias")
-        spec.end_turn_bias = float(bias) if isinstance(bias, (int, float)) and not isinstance(bias, bool) else None
-        kw: Dict[str, Any] = {"prior": request.get("prior") or [], "cancel": agent.cancel,
-                              "sampling": {k: agent.sampling[k] for k in lf.SAMPLING_FIELDS if agent.sampling.get(k) is not None}}
-        if spec.mode == "write":
-            run: lf.LongAnswer = lfw.LongFlow(client, spec, hint_words=int(request.get("words") or 0), stated=bool((request.get("fields") or {}).get("words")), **kw)
-        else:
-            run = lf.LongAnswer(client, spec, **kw)
-        done: Dict[str, Any] = {}
-        failure = ""
-        try:
-            for ev in run.run():
-                if ev is None:
-                    continue
-                if ev["event"] == "delta":
-                    self._on_delta("content", ev["text"], task)
-                else:
-                    done = ev if ev["event"] == "done" else done
-                    self._on_event({"type": "long_answer", **ev}, task)
+            answer, done, failure, cancelled = self._long_job(task, spec, words=int(request.get("words") or 0), stated=bool((request.get("fields") or {}).get("words")),
+                                                              prior=request.get("prior") or [], show=True)
         except lfw.NotLong as short:                                 # the estimate says it fits one reply
             self._audit("long_answer", {"estimate": short.words, "result": "one_reply"})
             return False
         except lf.LongformError as exc:
             it.log.warning("long answer: not accepted: %s", exc)
             return False
-        except StreamCancelled:
-            failure = "cancelled"
-        except Exception as exc:                                     # the model failed after some parts: what was written is kept
-            failure = f"{type(exc).__name__}: {exc}"
-        with self._delta_lock:
-            self._flush_delta()
-        answer = run.text()
-        cancelled = failure == "cancelled" or done.get("stopped") == "cancelled"
         if not answer.strip():
             agent.stop_reason, agent.error = (al.CANCELLED, "") if cancelled else (al.ERROR, failure)
             return True
