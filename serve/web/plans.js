@@ -1432,6 +1432,7 @@
     const nodes = Object.values(S.snap.plan.nodes);
     ui.summary.textContent = T("pl.summary", nodes.length, nodes.filter(n => n.status === "completed").length, S.snap.ready.length,
       Object.keys(S.snap.plan.shared_state).length);
+    if (S.snap.watch_degraded) ui.summary.textContent += " · " + T("pl.degraded." + S.snap.watch_degraded);
     drawGraph();
     drawList();
     const editing = ui.detail.contains(document.activeElement) && document.activeElement.matches("input, textarea, select");
