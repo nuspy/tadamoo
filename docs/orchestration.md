@@ -118,6 +118,12 @@ means the process restarted, counted as that call's own usage, not a negative). 
 `session_digest` tool) gives the last `n` lines of what a conversation answered, took in and sent, oldest first, from its own event
 stream and the delivery log — enough to see what an unattended run did without reading its whole history.
 
+## Where things are kept
+
+- Conversations: `<base>/sessions/<id>/` (`history.json`, `inflight.json`, `archive.jsonl`, `tool_effects.json`, `rules.md`, `snapshots/`), plus the records shared by all of them in `<base>/sessions/` (`agent_sessions.json`, `compares.json`, `nodes.jsonl`). `<base>` is `journal/` of the data folder unless one was chosen in Settings > General (`sessions-base.json` in the default data folder; `serve/userdata.py`'s `sessions_base()`). Moving it (`serve/sessions_move.py`, `/api/sessions-base/check|move`) copies the whole `sessions/` folder, checks every file by size and hash, leaves the original, and asks for a restart; nothing moves while a conversation runs. Project memory (`memory/<workspace>.db`), the search of past conversations (`memory/past.db`, keyed by conversation id) and the list in the page do not depend on the folder.
+- Plans: `planner/plans/<id>.json` (archived ones in `planner/plans/archive/`) and `planner/planner.json`; schedules in `journal/` as below. Both are global to the user, not inside any conversation's folder, and are written whole through a temporary file and a rename.
+- Schedules: `journal/routines.json`, `runs.json`, `pending.json`, `fires.json`, same way of writing.
+
 ## What was not built
 
 A separate "PlanTimers" scheduler source (the cron mechanism above already wakes a session for a repeating step); a per-routine
