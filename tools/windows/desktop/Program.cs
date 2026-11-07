@@ -17,6 +17,16 @@ static class Program
     const string MutexName = @"Local\TaDaMoo.Desktop";
     public const string ShowEventName = @"Local\TaDaMoo.Desktop.Show";
 
+    static bool uiReady;
+
+    /// <summary>Windows Forms accepts its defaults once, before the first window: the administrator question and the main window both ask for them.</summary>
+    public static void InitUi()
+    {
+        if (uiReady) return;
+        uiReady = true;
+        ApplicationConfiguration.Initialize();
+    }
+
     [STAThread]
     static int Main(string[] args)
     {
@@ -29,7 +39,7 @@ static class Program
         }
         if (opt.TestAdmin)                                       // only the administrator choice: no server, no model; the window says whether this process is elevated
         {
-            ApplicationConfiguration.Initialize();
+            InitUi();
             if (AdminChoice.Relaunch(args)) return 0;
             MessageBox.Show("Elevated: " + AdminChoice.IsElevated(), AppName);
             return 0;
@@ -41,7 +51,7 @@ static class Program
             try { EventWaitHandle.OpenExisting(ShowEventName + (opt.TestMock ? ".test" : "")).Set(); } catch (WaitHandleCannotBeOpenedException) { }
             return 0;
         }
-        ApplicationConfiguration.Initialize();
+        InitUi();
         using var show = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName + (opt.TestMock ? ".test" : ""));
         var form = new MainForm(opt, show);
         Application.Run(form);
@@ -291,7 +301,7 @@ static class AdminChoice
         if (remembered.HasValue) admin = remembered.Value;
         else
         {
-            ApplicationConfiguration.Initialize();
+            Program.InitUi();
             using var dialog = new AdminDialog();
             admin = dialog.ShowDialog() == DialogResult.Yes;
             if (dialog.Remember)
