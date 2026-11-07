@@ -1355,13 +1355,17 @@
     busyNow = state === "busy" || state === "starting" || state === "asking";
     setControls();
   }
-  async function poll(now) {
+  let pollRun = null;
+  function poll(now) { pollRun = pollRun || window.singleFlight(pollOnce); return pollRun(now); }          // two reads from the same point would show an event twice
+  async function pollOnce(now) {
     clearTimeout(timer);
     if (!active() || !sid || document.hidden || !document.getElementById("view-chat") || document.getElementById("view-chat").hidden) {
       if (active()) timer = setTimeout(() => poll(), SLOW_MS);
       return;
     }
+    const mine = sid;
     const r = await api("GET", `/${sid}/events?after=${after}`);
+    if (mine !== sid) { timer = setTimeout(() => poll(), FAST_MS); return; }
     if (r.ok) {
       const before = state;
       r.json.events.forEach(apply);
