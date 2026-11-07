@@ -17,7 +17,9 @@ import secrets
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Callable, Deque, Dict, List, Optional
 
 DEFAULTS = {"cloud_triage": False, "pseudonymize": True, "card_fields": None, "gate_mode": "or", "event_pump": True, "auto_apply": True, "sources": [],
             "blocker_threshold": 0.8, "cloud_timeout": 5.0, "max_events": 20}
@@ -59,6 +61,10 @@ class PlanService:
         self._store = None
         self._due: Dict[str, Optional[float]] = {}             # per plan, when a step it works out by itself next comes due (None: nothing is waiting)
         self._due_scanned = False
+        self._judgments: Dict[str, Deque[float]] = {}          # per plan, when a wait in words was last judged (the hourly cap)
+        self._degraded: Dict[str, str] = {}                    # per plan, why a wait in words is not being judged: no_judge or rate_limit
+        self._pool: Optional[ThreadPoolExecutor] = None
+        self.judge_runner: Callable[[Callable[[], None]], Any] = self._submit      # runs a judgement off the clock's thread (a test runs it in place)
         self._attention: Dict[str, Any] = {"t": 0.0}           # the latest result of a plan that was not the person's own edit
         self._settings_path = self.dir / "planner.json"
         self._lock = threading.RLock()
@@ -326,6 +332,7 @@ class PlanService:
     def snapshot(self, plan_id: str) -> Dict[str, Any]:
         snap = self.store.get(plan_id, self._replanner()).snapshot()
         snap["replanning"] = plan_id in self._replanning
+        snap["watch_degraded"] = self._degraded.get(plan_id, "")
         return snap
 
     def archive(self, plan_id: str, actor: str = "user") -> Dict[str, Any]:
@@ -406,12 +413,65 @@ class PlanService:
         bridge = self.store.get(plan_id, self._replanner())
         report = bridge.tick(now)
         self._due[plan_id] = report["next_due"]
+        self._judge_waits(plan_id, bridge, report, time.time() if now is None else now)
         if report["changed"]:
             self.store.save(plan_id)
             if any(line["kind"] in ("output", "log") or "timed out" in line["text"] for line in report["lines"]):
                 last = report["lines"][-1]
                 self._attention = {"t": last["t"], "plan": plan_id, "title": bridge.dag.title, "summary": last["text"]}
         return report
+
+    # -- waits written in words ------------------------------------------------------------------------------
+
+    def _submit(self, work: Callable[[], None]) -> None:
+        if self._pool is None:
+            self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="plan-wait")      # one judgement at a time
+        self._pool.submit(work)
+
+    def _judge_waits(self, plan_id: str, bridge: Any, report: Dict[str, Any], now: float) -> None:
+        """The waits in words that are due for a reading go to the technical session, off the clock's thread: when the values they watch changed,
+        after the pause, and not more than the cap an hour (tadamoo/side_uses.py `plan_wait`)."""
+        if not report["judge"]:
+            self._degraded.pop(plan_id, None)
+            return
+        from serve import plan_wait
+        from tadamoo import side_uses
+        per_hour = int(side_uses.param("plan_wait", "max_per_hour"))
+        for node_id in report["judge"]:
+            node = bridge.dag.nodes.get(node_id)
+            if node is None:
+                continue
+            values = plan_wait.watched(bridge.dag, node.spec)
+            if not values:                                  # nothing to read yet
+                continue
+            sig = plan_wait.signature(values)
+            if not plan_wait.due_for_judgement(node.state_variables.get("judged"), sig, now, node.spec.get("poll_s", 300)):
+                continue
+            stamps = self._judgments.setdefault(plan_id, deque())
+            if not plan_wait.under_the_cap(stamps, now, per_hour):
+                self._degraded[plan_id] = "rate_limit"
+                continue
+            stamps.append(now)
+            self.judge_runner(lambda n=node_id, d=node.spec["describe"], v=values, s=sig: self._judge_one(plan_id, n, d, v, s, now))
+
+    def _judge_one(self, plan_id: str, node_id: str, describe: str, values: Dict[str, Any], sig: str, now: float) -> None:
+        from serve import plan_wait
+        bridge = self.store.get(plan_id, self._replanner())
+        lines = [j["text"] for j in bridge.dag.journal]
+        answer = plan_wait.ask(self.client_factory() if self.client_factory else None, describe, values, lines)
+        if answer is None:
+            self._degraded[plan_id] = "no_judge"
+            return
+        self._degraded.pop(plan_id, None)
+        node = bridge.dag.nodes.get(node_id)
+        if node is None:
+            return
+        node.state_variables["judged"] = plan_wait.next_state(node.state_variables.get("judged"), answer, sig, now)
+        if answer == "yes":
+            bridge.settle_wait(node_id, now, "judged to hold")
+        self.store.save(plan_id)
+        if answer == "yes":
+            self.tick(plan_id)                              # what comes after the wait starts now
 
     def watch_tick(self, now: float) -> None:
         """Called by the clock of the routines: the plans whose next step of this kind has come due are looked at; the others cost one comparison.
@@ -625,6 +685,8 @@ class PlanService:
     def close(self) -> None:
         """Ends the pump and the sources' threads; the server calls it as it stops."""
         self._stop_events()
+        if self._pool is not None:
+            self._pool.shutdown(wait=False, cancel_futures=True)
 
     def events_status(self) -> Dict[str, Any]:
         pump, inbox, runner = self._pump, self._inbox, self._runner
