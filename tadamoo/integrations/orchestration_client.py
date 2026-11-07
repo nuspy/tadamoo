@@ -44,6 +44,9 @@ class OrchestrationClient:
     def status(self, ref: str) -> Dict[str, Any]:
         return self._call("GET", f"/api/agent/sessions/{self._ref(ref)}/status")
 
+    def digest(self, ref: str, n: int = 20) -> Dict[str, Any]:
+        return self._call("GET", f"/api/agent/sessions/{self._ref(ref)}/digest?n={max(1, min(int(n), 100))}")
+
     def create(self, workspace: str, title: str = "", alias: str = "", unattended: bool = False, rules: str = "") -> Dict[str, Any]:
         body: Dict[str, Any] = {"workspace": workspace, "title": title, "parent": self.session_id}
         if alias:

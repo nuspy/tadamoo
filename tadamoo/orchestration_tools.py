@@ -93,6 +93,23 @@ def register_orchestration_tools(registry: Any, client: Any, limiter: Optional[R
             line += f'\nIts last answer: "{status["last_answer"]}"'
         return line
 
+    def session_digest(ref: str, n: int = 20) -> str:
+        if not isinstance(ref, str) or not ref.strip():
+            return "Name the conversation."
+        try:
+            digest = client.digest(ref, n)
+        except Exception as exc:
+            return _failure(exc)
+        who = digest.get("alias") or digest["id"]
+        if not digest.get("lines"):
+            return f"{who}: nothing to show yet."
+        out = f"{who}:\n" + "\n".join(digest["lines"])
+        if digest.get("pending_messages"):
+            out += f"\n({digest['pending_messages']} message(s) still waiting for it)"
+        if digest.get("dead_letters"):
+            out += f"\n({digest['dead_letters']} could not be delivered)"
+        return out
+
     def session_spawn(workspace: str, prompt: str, background: bool = False, alias: str = "", rules: str = "") -> str:
         if not isinstance(workspace, str) or not workspace.strip():
             return "Give the folder it works in."
@@ -128,6 +145,10 @@ def register_orchestration_tools(registry: Any, client: Any, limiter: Optional[R
     registry.register("session_status", "Shows whether another conversation (by its name or id) is free or at work, its last answer, and "
                        "whether anything sent to it is waiting or could not be delivered.",
                        {"type": "object", "properties": {"ref": {"type": "string"}}, "required": ["ref"]}, EffectClass.PURE, session_status, untrusted=True)
+    registry.register("session_digest", "The last things a conversation (by its name or id) said, took in and sent, oldest first: for an "
+                       "idea of what an unattended run did without reading its whole history.",
+                       {"type": "object", "properties": {"ref": {"type": "string"}, "n": {"type": "integer", "description": "how many lines, at most 100 (default 20)"}},
+                        "required": ["ref"]}, EffectClass.PURE, session_digest, untrusted=True)
     registry.register("session_spawn", "Starts a new conversation on a folder and gives it a task, running on its own. With background=true "
                        "it keeps working unattended after this call returns: give it `rules` (what it must never do, whom it answers to) or "
                        "it is refused.",
