@@ -66,6 +66,7 @@ PERMISSION_MODES = {
 FALLBACK_CONTEXT_TOKENS = 32768       # the window assumed when the server cannot say its own
 ANSWER_RESERVE_TOKENS = 8192          # room kept for the model's answer when the window comes from the server (a small window keeps a quarter)
 MIN_BUDGET_TOKENS = 1024              # the least the context manager is ever given
+RULES_MAX = 20_000                    # the most of a rules file that is kept in the system message
 SUMMARY_READ_CHARS = 120_000          # the most a summary call is sent
 CONNECT_TRIES = 3                    # calls of a summary part when the connection to the server fails
 SUMMARY_TIMEOUT_S = 240.0             # a summary call that takes longer is given up and the notes are made without the model
@@ -216,6 +217,8 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--exec-level-file", default="", help="the file that holds how freely the code the model writes runs (contained, free or admin; tadamoo/exec_level.py); empty: contained")
     parser.add_argument("--personal-skills-dir", default="", help="the folder of the person's personal skills: the conversation can write one with create_skill")
     parser.add_argument("--persistence-file", default="", help="where the person's choice for \"work until done\" is kept (tadamoo/persistence.py)")
+    parser.add_argument("--rules-file", default="", help="a file of operating rules that this conversation keeps whole, in its system message, however long it runs")
+    parser.add_argument("--orchestration", action="store_true", help="offer the tools to message other conversations and start background ones (also loaded on request with find_capability)")
     parser.add_argument("--next-steps-file", default="", help="where the person's choice for the card of next steps after a task is kept (tadamoo/nextsteps.py)")
     parser.add_argument("--lessons-dir", default=None, help="the folder of the global lessons; with it (or with \"\") the conversation keeps outcomes and lessons in the project's .tadamoo folder and reads them at the start of a task")
     parser.add_argument("--past-index", default="", help="the file that indexes the person's earlier conversations (tadamoo/past.py): the conversation can search and reread them")
@@ -242,7 +245,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
         hooks_file=args.hooks, workspace_hooks=args.workspace_hooks, after_plan=args.after_plan, images=args.images, charts=args.charts, page_files=args.page_files,
         tool_timeout=tool_timeout, tool_timeouts=tool_timeouts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
-        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys, past_index=args.past_index, persistence_file=args.persistence_file, next_steps_file=args.next_steps_file, lessons_dir=args.lessons_dir, personal_skills_dir=args.personal_skills_dir, exec_level_file=args.exec_level_file,
+        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys, past_index=args.past_index, persistence_file=args.persistence_file, next_steps_file=args.next_steps_file, rules_file=args.rules_file, orchestration=args.orchestration, lessons_dir=args.lessons_dir, personal_skills_dir=args.personal_skills_dir, exec_level_file=args.exec_level_file,
     )
 
 
@@ -306,6 +309,8 @@ class AgentConfig:
     course_watch: bool = True           # watch the course of a request: notes to the agent about repeated failures and a near fold, then a card to the person (tadamoo/course.py)
     persistence_file: str = ""          # where the choice for "work until done" is kept; empty: it is off
     next_steps_file: str = ""           # where the choice for the card of next steps is kept; empty: it is off
+    rules_file: str = ""                # a file of operating rules, pinned in the system message so that no compaction removes them
+    orchestration: bool = False         # the tools for messaging other conversations are offered from the start
     personal_skills_dir: str = ""       # the folder of the personal skills; empty: the conversation cannot write one
     past_index: str = ""                # the index of the earlier conversations (tadamoo/past.py); empty: the conversation cannot search them
     reference_docs: Dict[str, str] = field(default_factory=dict)   # path -> text of reference documents
@@ -726,6 +731,13 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
             notices.append(guidelines_cut_notice(guide_file.name, guide_cut))
             guidelines = f"{guidelines}\n{notices[-1]}"
         builder.set_project_rules(guidelines)
+    if cfg.rules_file:
+        try:
+            rules = Path(cfg.rules_file).read_text(encoding="utf-8", errors="replace").strip()[:RULES_MAX]
+        except OSError:
+            rules = ""
+        if rules:
+            builder.pin("operating_rules", rules)
     kb = None
     if cfg.reference_docs and cfg.reference_strategy != "none":
         strategy = choose_strategy(cfg.reference_docs, budget) if cfg.reference_strategy == "auto" else cfg.reference_strategy

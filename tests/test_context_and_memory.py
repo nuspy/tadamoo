@@ -138,13 +138,26 @@ def test_context_builder_is_stable_and_orders_pinned_blocks():
     builder = ContextBuilder(system_core="Core instructions.")
     builder.pin("active_skills", "- git: Version control helper")
     builder.set_project_rules("Follow AGENTS.md conventions.")
+    builder.pin("operating_rules", "Never message another conversation about money.")
     builder.pin("user_profile", "Prefers concise answers.")
     msg = builder.assemble_system_message()
-    order = [msg.index(t) for t in ("Core instructions.", "# Project Rules", "# User Profile", "# Available Skills")]
+    order = [msg.index(t) for t in ("Core instructions.", "# Project Rules", "# Operating rules", "# User Profile", "# Available Skills")]
     assert order == sorted(order)
     assert msg == builder.assemble_system_message()
     with pytest.raises(ValueError):
         builder.pin("random", "x")
+
+
+def test_operating_rules_are_in_the_one_system_message_so_they_outlive_a_reset_and_compaction():
+    """Unlike the tail, which compaction and eviction can cut, the system message is rebuilt whole (agent_loop.AgentLoop._system_message)
+    and nothing in it is ever masked or folded away (tadamoo/context.py get_eviction_candidates skips pinned, tadamoo/compaction.py
+    plan_cut keeps pinned messages): a rule pinned as "operating_rules" is therefore in every system message built from this builder,
+    across a reset and a compaction, with no separate wiring needed."""
+    builder = ContextBuilder(system_core="Core.")
+    builder.pin("operating_rules", "The balance file is owned by the 'log' conversation: never write it directly.")
+    for _ in range(3):                              # a reset rebuilds the system message from the same builder each time
+        msg = builder.assemble_system_message()
+        assert "never write it directly" in msg and msg.startswith("Core.")
 
 
 def test_memories_go_to_the_tail_as_untrusted_data_and_not_in_the_prefix():
