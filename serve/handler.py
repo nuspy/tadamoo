@@ -2627,7 +2627,8 @@ def make_handler(svc: Service, remote: bool = False):
             if _ROUTINES is None:
                 tel = getattr(svc, "telemetry", None)       # the power the GPUs draw, for the energy of each run
                 _ROUTINES = RoutinesApi(userdata.path("journal"), sessions,
-                                        power_source=(lambda: tel.snapshot()["now"].get("gpus") or []) if tel else None)
+                                        power_source=(lambda: tel.snapshot()["now"].get("gpus") or []) if tel else None,
+                                        plan_paused=lambda plan_id: self._plan_service().is_paused(plan_id))
             return _ROUTINES
 
         def _file_owners(self) -> "FileOwners":

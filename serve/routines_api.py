@@ -29,11 +29,12 @@ RECENT_RUNS = 20
 
 class RoutinesApi:
     def __init__(self, directory: str | Path, sessions: Any, scheduler: Optional[Scheduler] = None,
-                 power_source: Optional[Callable[[], Any]] = None) -> None:
-        """`power_source()` returns the GPUs' power readings (the server's telemetry); with it each result carries its energy."""
+                 power_source: Optional[Callable[[], Any]] = None, plan_paused: Optional[Callable[[str], bool]] = None) -> None:
+        """`power_source()` returns the GPUs' power readings (the server's telemetry); with it each result carries its energy.
+        `plan_paused(plan_id)` says whether a "plan" delivery's plan has its schedule stopped (served/plans.py `PlanService.is_paused`)."""
         self.sessions = sessions                          # its personal skills are what a skill routine runs
         meter = (lambda: EnergyMeter(power_source)) if power_source else None
-        self.scheduler = scheduler or Scheduler(directory, SessionRoutineRunner(sessions), meter=meter).start()
+        self.scheduler = scheduler or Scheduler(directory, SessionRoutineRunner(sessions, plan_paused=plan_paused), meter=meter).start()
 
     def overview(self) -> Dict[str, Any]:
         return {**self.scheduler.view(), "runs": self.scheduler.runs(limit=RECENT_RUNS)}

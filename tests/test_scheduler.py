@@ -916,3 +916,15 @@ def test_a_new_session_routine_still_needs_a_real_folder(tmp_path):
     with pytest.raises(RoutineError) as e:
         sched.add("x", "y", "", "every 1h")
     assert e.value.code == "bad_folder"
+
+
+def test_a_plan_delivery_is_skipped_while_its_plan_is_paused(manager, folder):
+    paused = {"P1": True}
+    runner = SessionRoutineRunner(manager, poll_s=0.05, plan_paused=lambda pid: paused.get(pid, False))
+    manager.create(folder, alias="night")
+    out = runner.run(routine(folder, "run it", deliver_to={"kind": "plan", "ref": "night"}, link={"plan": "P1"}), threading.Event())
+    assert out["status"] == "skipped_paused" and "P1" in out["summary"]
+    assert manager.deliveries.entries() == []                                 # nothing was sent while paused
+    paused["P1"] = False
+    out = runner.run(routine(folder, "run it", deliver_to={"kind": "plan", "ref": "night"}, link={"plan": "P1"}), threading.Event())
+    assert out["status"] == "done" and manager.deliveries.entries()
