@@ -355,7 +355,7 @@ class Scheduler:
 
     def previous(self, routine_id: str) -> List[Dict[str, Any]]:
         """The outcome and the first words of the last runs of a routine, oldest first: what the next run is told."""
-        done = [r for r in self.results if r.get("routine") == routine_id and r.get("status") not in ("skipped",)]
+        done = [r for r in self.results if r.get("routine") == routine_id and r.get("status") not in ("skipped", "skipped_paused")]
         return [{"at": r.get("started"), "outcome": r.get("outcome") or "", "status": r.get("status"), "summary": str(r.get("summary") or "")[:300]} for r in done[-PREVIOUS_RUNS:]]
 
     def view(self) -> Dict[str, Any]:
@@ -770,8 +770,9 @@ class SessionRoutineRunner:
 
     park: Optional[Callable[[str, Dict[str, Any]], None]] = None            # set by the Scheduler: keeps a request for the person
 
-    def __init__(self, manager: Any, poll_s: float = 0.5, cancel_grace_s: float = 30.0) -> None:
+    def __init__(self, manager: Any, poll_s: float = 0.5, cancel_grace_s: float = 30.0, plan_paused: Optional[Callable[[str], bool]] = None) -> None:
         self.manager, self.poll_s, self.cancel_grace_s = manager, poll_s, cancel_grace_s      # how long a stopped conversation has to wind down
+        self.plan_paused = plan_paused                  # plan_id -> paused, for a "plan" delivery whose plan has its schedule stopped
         self._own: set = set()
 
     def busy(self) -> bool:
@@ -791,6 +792,9 @@ class SessionRoutineRunner:
         from tadamoo.cron_templates import render_template
         started = time.monotonic()
         link = routine.get("link") or {}
+        if deliver_to["kind"] == "plan" and link.get("plan") and self.plan_paused is not None and self.plan_paused(link["plan"]):
+            return {"status": "skipped_paused", "outcome": "nothing_new", "summary": f"The plan {link['plan']} is paused: the fire was skipped.",
+                    "seconds": round(time.monotonic() - started, 1)}
         context = {"date": time.strftime("%Y-%m-%d"), "plan_id": link["plan"]} if link.get("plan") else {"date": time.strftime("%Y-%m-%d")}
         text = render_template(routine.get("message") or routine["prompt"], context)
         provenance = f"plan:{link['plan']}" if deliver_to["kind"] == "plan" and link.get("plan") else "cron:" + routine["id"]
