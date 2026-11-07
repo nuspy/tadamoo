@@ -23,6 +23,7 @@ DEFAULTS = {"cloud_triage": False, "pseudonymize": True, "card_fields": None, "g
             "blocker_threshold": 0.8, "cloud_timeout": 5.0, "max_events": 20}
 KEY_FIELDS = ("jev_key", "clear_jev_key")                 # acts on the key, which is not stored among the settings
 EVENTS_MAX = 100
+RESULT_KINDS = ("mark", "sensor", "timeout", "fallback", "no_route")      # the changes of a plan that are something coming out of it, not editing it
 
 
 def _short(c: Dict[str, Any]) -> Dict[str, Any]:
@@ -56,6 +57,7 @@ class PlanService:
         self._sync_lock = threading.RLock()                # one start or stop of the pump and the sources at a time
         self._events_in = 0                                # events the mailbox has taken since the server started
         self._store = None
+        self._attention: Dict[str, Any] = {"t": 0.0}           # the latest result of a plan that was not the person's own edit
         self._settings_path = self.dir / "planner.json"
         self._lock = threading.RLock()
         self._gate = None                                  # the one gatekeeper of this process: its telemetry adds up
@@ -390,10 +392,17 @@ class PlanService:
         plan.update(plan_id=new_id, title=new_title)
         return self.create({"plan": plan, "card": card, "profile": bridge.profile.to_dict(), "actor": actor})
 
+    def attention(self) -> Dict[str, Any]:
+        """When a plan last moved by someone other than the person (a step done, a sensor read, a timeout), for the tab that tells them something new came out."""
+        return dict(self._attention)
+
     def handle_event(self, plan_id: str, event: Dict[str, Any]) -> Dict[str, Any]:
         bridge = self.store.get(plan_id, self._replanner())
+        before = bridge.rev
         result = bridge.handle(event)
         if result.get("ok"):
+            if bridge.rev != before and bridge.history and bridge.history[-1]["actor"] != "user" and bridge.history[-1]["type"] in RESULT_KINDS:
+                self._attention = {"t": bridge.history[-1]["t"], "plan": plan_id, "title": bridge.dag.title, "summary": bridge.history[-1]["summary"]}
             self.store.save(plan_id)
             if event.get("type") == "plan:update_meta":
                 self._announce(plan_id)

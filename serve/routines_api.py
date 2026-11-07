@@ -42,6 +42,11 @@ class RoutinesApi:
     def overview(self) -> Dict[str, Any]:
         return {**self.scheduler.view(), "runs": self.scheduler.runs(limit=RECENT_RUNS)}
 
+    def attention(self) -> Dict[str, Any]:
+        """When the latest run ended, for the tab that tells the person something new came out: 0 when nothing ran yet."""
+        latest = next(iter(self.scheduler.runs(limit=1)), None)
+        return {"t": float(latest.get("ended") or 0) if latest else 0.0, "name": (latest or {}).get("name", ""), "status": (latest or {}).get("status", "")}
+
     def runs(self, routine_id: str = "", limit: Any = 50) -> Dict[str, Any]:
         try:
             count = int(limit)
