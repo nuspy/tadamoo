@@ -54,6 +54,14 @@ except (OSError, ValueError):
 emit({"event": "ready", "session": args.session_id, "restored": len(data["messages"]), "pid": os.getpid(), "blocked": blocked, "starts": starts,
       "parked": parked})
 
+_tokens = {"n": 0}
+
+
+def next_tokens():
+    _tokens["n"] += 37
+    return _tokens["n"]
+
+
 beating = threading.Event()
 beating.set()
 busy = {"v": False}
@@ -107,7 +115,7 @@ for line in sys.stdin:
             (H / "parked.json").write_text(json.dumps([item]), encoding="utf-8")
             emit({"event": "pending", **item})
             busy["v"] = False
-            emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "went on"})
+            emit({"event": "done", "tokens": next_tokens(), "turn": cmd.get("id"), "stop_reason": "final", "final": "went on"})
             continue
         if text == "code":
             emit({"event": "ask", "id": "c1", "mode": "confirm", "kind": "code", "free": True, "question": "Type the code for bank.", "facts": {"who": "bank"}, "options": []})
@@ -119,18 +127,18 @@ for line in sys.stdin:
         if text == "question":
             emit({"event": "ask", "id": "q1", "mode": "question", "question": "Which day?", "options": [{"label": "Sat", "value": "Saturday"}]})
             busy["v"] = False
-            emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "asked", "final": ""})
+            emit({"event": "done", "tokens": next_tokens(), "turn": cmd.get("id"), "stop_reason": "asked", "final": ""})
             continue
         if text == "card":
             emit({"event": "ask", "id": "k2", "mode": "question", "kind": "questions", "intro": "", "notes": [], "question": "Which database?", "options": [],
                   "questions": [{"id": "q1", "text": "Which database?", "kind": "single", "required": True, "allow_other": True,
                                  "options": [{"id": "o1", "label": "PostgreSQL", "recommended": True}, {"id": "o2", "label": "SQLite"}]}]})
             busy["v"] = False
-            emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "asked", "final": ""})
+            emit({"event": "done", "tokens": next_tokens(), "turn": cmd.get("id"), "stop_reason": "asked", "final": ""})
             continue
         if text == "offer":
             busy["v"] = False
-            emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "worked"})
+            emit({"event": "done", "tokens": next_tokens(), "turn": cmd.get("id"), "stop_reason": "final", "final": "worked"})
             emit({"event": "ask", "id": "k3", "mode": "question", "kind": "questions", "source": "next_steps", "intro": "", "notes": [], "question": "Run these checks before finishing?",
                   "options": [], "offer": {"question": "checks", "commands": {"o1": "python -m pytest -x -q", "o2": "python -m ruff check ."}},
                   "questions": [{"id": "checks", "text": "Run these checks before finishing?", "kind": "multi", "required": False, "allow_other": False,
@@ -142,16 +150,16 @@ for line in sys.stdin:
             emit({"event": "auto_answered", "id": "z2", "turn": cmd.get("id"), "kind": "question", "value": "", "answer": "(no answer)", "chosen": "parked",
                   "available": False, "source": {"kind": "question", "named": "people", "needs_data": False}, "question": "Call the vet?"})
             busy["v"] = False
-            emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "all done"})
+            emit({"event": "done", "tokens": next_tokens(), "turn": cmd.get("id"), "stop_reason": "final", "final": "all done"})
             continue
         if text == "chips":
             busy["v"] = False
-            emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "an answer"})
+            emit({"event": "done", "tokens": next_tokens(), "turn": cmd.get("id"), "stop_reason": "final", "final": "an answer"})
             emit({"event": "suggestions", "turn": cmd.get("id"), "items": [{"prompt": "Tell me more"}]})
             continue
         if text == "more":
             busy["v"] = False
-            emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "first part", "more": True})
+            emit({"event": "done", "tokens": next_tokens(), "turn": cmd.get("id"), "stop_reason": "final", "final": "first part", "more": True})
             continue
         if text == "rule":
             emit({"event": "rule_added", "rule": "shell_command:pytest *"})
@@ -183,7 +191,7 @@ for line in sys.stdin:
         data["turns"] += 1
         save(data)
         busy["v"] = False
-        emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": "echo: " + text})
+        emit({"event": "done", "tokens": next_tokens(), "turn": cmd.get("id"), "stop_reason": "final", "final": "echo: " + text})
     elif name == "skill":
         data["messages"].append({"role": "user", "content": cmd.get("display", "")})
         emit({"event": "accepted", "turn": cmd.get("id")})
@@ -191,7 +199,7 @@ for line in sys.stdin:
         data["messages"].append({"role": "assistant", "content": final})
         data["turns"] += 1
         save(data)
-        emit({"event": "done", "turn": cmd.get("id"), "stop_reason": "final", "final": final})
+        emit({"event": "done", "tokens": next_tokens(), "turn": cmd.get("id"), "stop_reason": "final", "final": final})
     elif name == "mode":
         emit({"event": "mode", "mode": cmd.get("mode")})
     elif name == "role":
@@ -217,7 +225,7 @@ for line in sys.stdin:
         emit({"event": "pending_done", "id": "p1", "value": cmd.get("value")})
     elif name == "answer":
         busy["v"] = False
-        emit({"event": "done", "turn": "answered", "stop_reason": "final", "final": "answered: " + str(cmd.get("value"))})
+        emit({"event": "done", "tokens": next_tokens(), "turn": "answered", "stop_reason": "final", "final": "answered: " + str(cmd.get("value"))})
     elif name == "resume":
         last = data["messages"][-1]["content"] if data["messages"] else ""
         if last == "die" and starts <= args.die_times:                      # the same message ends this process again
@@ -226,7 +234,7 @@ for line in sys.stdin:
             continue
         data["turns"] += 1
         save(data)
-        emit({"event": "done", "turn": "resumed", "stop_reason": "final", "final": "resumed after %d messages" % len(data["messages"])})
+        emit({"event": "done", "tokens": next_tokens(), "turn": "resumed", "stop_reason": "final", "final": "resumed after %d messages" % len(data["messages"])})
     elif name == "close":
         emit({"event": "closed"})
         break
