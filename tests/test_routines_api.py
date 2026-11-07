@@ -174,3 +174,15 @@ def test_a_routine_can_be_improved_into_a_skill_and_the_kill_switch_is_set(tmp_p
     assert applied["routine"]["skill"] == applied["skill"] and applied["routine"]["values"] == {"file": "a.txt"}
     assert api.stop({"on": True})["stopped"] and not api.stop({"on": False})["stopped"]
     sched.shutdown()
+
+
+def test_a_cron_schedule_a_time_to_live_and_a_key_go_through_the_api(api, ws):
+    code, made = api("POST", "/api/routines", body(ws, schedule="cron 50 14 * * 1-5", ttl_min=60, dedup_key="pnl"))
+    routine = made["routine"]
+    assert code == 200 and routine["schedule"] == "cron 50 14 * * 1-5" and routine["ttl_min"] == 60 and routine["dedup_key"] == "pnl"
+    code, changed = api("POST", f"/api/routines/{routine['id']}/update", {"ttl_min": 30})
+    assert code == 200 and changed["routine"]["ttl_min"] == 30 and changed["routine"]["dedup_key"] == "pnl"
+    code, refused = api("POST", "/api/routines", body(ws, schedule="cron nonsense", ttl_min=0))
+    assert code == 400 and refused["error"]["code"] == "bad_schedule"
+    code, refused = api("POST", "/api/routines", body(ws, ttl_min=0))
+    assert code == 400 and refused["error"]["code"] == "bad_ttl"

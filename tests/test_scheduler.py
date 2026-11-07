@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from tadamoo.scheduler import RoutineError, Schedule, Scheduler, SessionRoutineRunner
+from tadamoo.scheduler import RoutineError, Schedule, Scheduler, SessionRoutineRunner, fire_id
 from serve.agent_sessions import SessionManager
 
 STUB = str(Path(__file__).resolve().parent.parent / "serve" / "tests" / "session_stub.py")
@@ -35,7 +35,7 @@ def test_intervals(text, seconds):
 
 
 @pytest.mark.parametrize("text", ["", "every 0s", "every 0m", "every 5x", "daily 25:00", "daily 08:61", "someday 08:00", "mon,xyz 08:00",
-                                  "08:00", "cron * * * * *", None, 5])
+                                  "08:00", None, 5])
 def test_bad_schedules_say_how_to_write_them(text):
     with pytest.raises(RoutineError) as e:
         Schedule.parse(text)
@@ -59,6 +59,212 @@ def test_the_latest_fixed_time_at_or_before_a_moment():
     assert Schedule.parse("weekdays 08:30").previous(saturday_noon) == ts(2026, 10, 23, 8, 30)
     assert Schedule.parse("mon 09:00").previous(ts(2026, 10, 26, 9, 0)) == ts(2026, 10, 26, 9, 0)
     assert Schedule.parse("every 2h").previous(saturday_noon) == 0
+
+
+# -- cron expressions and single moments -------------------------------------------------------------------
+
+def test_a_cron_expression_finds_the_next_and_the_previous_time():
+    friday_noon = ts(2026, 10, 23, 12, 0)
+    weekdays = Schedule.parse("Cron  50 14 * * 1-5")
+    assert weekdays.next_after(friday_noon) == ts(2026, 10, 23, 14, 50)
+    assert weekdays.next_after(ts(2026, 10, 23, 14, 50)) == ts(2026, 10, 26, 14, 50)             # over the weekend
+    assert weekdays.previous(friday_noon) == ts(2026, 10, 22, 14, 50)
+    assert weekdays.previous(ts(2026, 10, 25, 9, 0)) == ts(2026, 10, 23, 14, 50)
+    quarters = Schedule.parse("cron */15 9-10 * * *")
+    assert quarters.next_after(ts(2026, 10, 23, 9, 50)) == ts(2026, 10, 23, 10, 0)
+    assert quarters.next_after(ts(2026, 10, 23, 10, 45)) == ts(2026, 10, 24, 9, 0)
+    assert Schedule.parse("cron 0 8 * * 7").next_after(friday_noon) == ts(2026, 10, 25, 8, 0)      # 7 is Sunday, as 0 is
+
+
+def test_a_restricted_day_of_month_and_day_of_week_are_either_one():
+    both = Schedule.parse("cron 0 9 13 * 5")                      # the 13th, or a Friday
+    assert both.next_after(ts(2026, 10, 23, 12, 0)) == ts(2026, 10, 30, 9, 0)
+    assert both.next_after(ts(2026, 11, 1, 0, 0)) == ts(2026, 11, 6, 9, 0)
+    assert Schedule.parse("cron 0 9 13 * *").next_after(ts(2026, 10, 23, 12, 0)) == ts(2026, 11, 13, 9, 0)
+    assert Schedule.parse("cron 0 9 * * 5").next_after(ts(2026, 10, 23, 12, 0)) == ts(2026, 10, 30, 9, 0)
+
+
+@pytest.mark.parametrize("text", ["cron * * * *", "cron * * * * * *", "cron 60 * * * *", "cron * 24 * * *", "cron * * 0 * *", "cron * * * 13 *",
+                                  "cron */0 * * * *", "cron a * * * *", "cron 5-1 * * * *", "cron * * * * 8"])
+def test_a_bad_cron_expression_says_how_to_write_one(text):
+    with pytest.raises(RoutineError) as e:
+        Schedule.parse(text)
+    assert e.value.code == "bad_schedule" and "minute hour" in str(e.value)
+
+
+def test_a_cron_expression_that_never_comes_is_refused():
+    with pytest.raises(RoutineError) as e:
+        Schedule.parse("cron 0 0 31 2 *").next_after(ts(2026, 1, 1, 0, 0))
+    assert e.value.code == "bad_schedule"
+
+
+def test_a_single_moment_comes_once():
+    once = Schedule.parse("at 2026-10-24 18:00")
+    assert once.next_after(ts(2026, 10, 23, 12, 0)) == ts(2026, 10, 24, 18, 0)
+    assert once.next_after(ts(2026, 10, 24, 18, 0)) == float("inf") and once.previous(ts(2026, 10, 24, 17, 59)) == 0.0
+    assert once.previous(ts(2026, 10, 25, 0, 0)) == ts(2026, 10, 24, 18, 0)
+    for text in ("at 2026-13-01 10:00", "at 2026-02-30 10:00", "at tomorrow"):
+        with pytest.raises(RoutineError):
+            Schedule.parse(text)
+
+
+def test_occurrences_count_what_came_between_two_moments():
+    daily = Schedule.parse("daily 08:30")
+    assert daily.occurrences(ts(2026, 10, 20, 9, 0), ts(2026, 10, 23, 9, 0)) == 3
+    assert Schedule.parse("every 1h").occurrences(ts(2026, 10, 23, 8, 0), ts(2026, 10, 23, 11, 30)) == 3
+    assert daily.occurrences(ts(2026, 10, 23, 9, 0), ts(2026, 10, 23, 10, 0)) == 0
+
+
+# -- fires: run ids, time to live, dedup, restarts ---------------------------------------------------------
+
+def test_a_fire_has_one_id_for_its_planned_local_time():
+    assert fire_id("abc", ts(2026, 10, 23, 8, 30)) == fire_id("abc", ts(2026, 10, 23, 8, 30) + 0.4)
+    assert fire_id("abc", ts(2026, 10, 23, 8, 30)) != fire_id("abd", ts(2026, 10, 23, 8, 30))
+    assert fire_id("abc", ts(2026, 10, 23, 8, 30)) != fire_id("abc", ts(2026, 10, 24, 8, 30))
+
+
+@pytest.mark.skipif(not hasattr(time, "tzset"), reason="the clock can only be moved to a zone with daylight saving where tzset exists")
+def test_the_hour_that_repeats_when_the_clocks_go_back_is_one_fire(monkeypatch):
+    monkeypatch.setenv("TZ", "Europe/Rome")
+    time.tzset()
+    try:
+        first = dt.datetime(2026, 10, 25, 0, 30, tzinfo=dt.timezone.utc).timestamp()       # 02:30 summer time
+        second = first + 3600                                                              # 02:30 winter time
+        assert fire_id("abc", first) == fire_id("abc", second)
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+
+
+def test_a_scheduled_run_carries_the_id_of_its_fire_and_the_log_says_how_it_ended(tmp_path, folder):
+    runner = FakeRunner()
+    sched, clock = make(tmp_path, runner)
+    rid = add(sched, folder, schedule="every 1h")["id"]
+    due = sched._due[rid]
+    sched.start()
+    clock.now = due + 5
+    sched.check()
+    until(lambda: runner.ran == ["tests"])
+    fire = until(lambda: next((f for f in sched.fires_log(rid) if f["state"] == "done"), None))
+    assert fire["id"] == fire_id(rid, due) and fire["planned"] == due and fire["status"] == "done"
+    assert sched.runs(rid)[0]["id"] == fire["id"]
+    sched.shutdown()
+
+
+def test_a_fire_later_than_the_time_to_live_is_skipped_and_written_down(tmp_path, folder):
+    sched, _ = make(tmp_path, now=ts(2026, 10, 23, 12, 0))
+    rid = add(sched, folder, schedule="daily 08:30", ttl_min=60)["id"]
+    late, _ = make(tmp_path, now=ts(2026, 10, 24, 10, 0))                  # 90 minutes after 08:30
+    late.check()
+    assert late.view()["queued"] == []
+    fire = late.fires_log(rid)[0]
+    assert fire["state"] == "skipped_late" and fire["planned"] == ts(2026, 10, 24, 8, 30) and fire["missed"] == 1
+    assert late._due[rid] == ts(2026, 10, 25, 8, 30)
+    again, _ = make(tmp_path, now=ts(2026, 10, 24, 10, 30))               # and it is not looked at again after another restart
+    again.check()
+    assert again.view()["queued"] == [] and len(again.fires_log(rid)) == 1
+
+
+def test_a_fire_inside_the_time_to_live_still_runs_late(tmp_path, folder):
+    sched, _ = make(tmp_path, now=ts(2026, 10, 23, 12, 0))
+    rid = add(sched, folder, schedule="daily 08:30", ttl_min=60)["id"]
+    late, _ = make(tmp_path, now=ts(2026, 10, 24, 9, 0))                   # 30 minutes after
+    late.check()
+    assert late.view()["queued"] == [rid] and late.fires_log(rid)[0]["state"] == "claimed"
+
+
+def test_a_routine_without_a_time_to_live_runs_however_late(tmp_path, folder):
+    sched, _ = make(tmp_path, now=ts(2026, 10, 23, 12, 0))
+    rid = add(sched, folder, schedule="daily 08:30")["id"]
+    late, _ = make(tmp_path, now=ts(2026, 10, 24, 23, 0))
+    late.check()
+    assert late.view()["queued"] == [rid]
+
+
+def test_missed_fires_are_counted_when_one_is_skipped(tmp_path, folder):
+    sched, _ = make(tmp_path, now=ts(2026, 10, 20, 12, 0))
+    rid = add(sched, folder, schedule="daily 08:30", ttl_min=60)["id"]
+    late, _ = make(tmp_path, now=ts(2026, 10, 23, 12, 0))                  # the PC was off for three mornings
+    late.check()
+    assert late.fires_log(rid)[0]["missed"] == 3 and late.view()["queued"] == []
+
+
+def test_a_restart_after_a_fire_was_claimed_does_not_run_it_again(tmp_path, folder):
+    sched, clock = make(tmp_path)
+    rid = add(sched, folder, schedule="every 1h")["id"]
+    clock.now += 3700
+    sched.check()
+    assert sched.view()["queued"] == [rid]                                # claimed, then the program ends before it finishes
+    again, _ = make(tmp_path, now=clock.now + 600)
+    again.check()
+    assert again.view()["queued"] == []                                   # the claim counts: no second run at start
+    assert [f["state"] for f in again.fires_log(rid)] == ["interrupted"]
+
+
+def test_routines_with_one_key_never_have_two_fires_in_flight(tmp_path, folder):
+    sched, clock = make(tmp_path)
+    a = add(sched, folder, name="a", schedule="every 1h", dedup_key="morning")["id"]
+    b = add(sched, folder, name="b", schedule="every 1h", dedup_key="morning")["id"]
+    c = add(sched, folder, name="c", schedule="every 1h")["id"]
+    clock.now += 3700
+    sched.check()
+    assert sched.view()["queued"] == [a, c]
+    assert [f["state"] for f in sched.fires_log(b)] == ["skipped_dup"]
+
+
+def test_a_fire_waiting_in_the_queue_is_cancelled_when_its_routine_is_turned_off_or_removed(tmp_path, folder):
+    sched, clock = make(tmp_path)
+    a = add(sched, folder, name="a", schedule="every 1h")["id"]
+    b = add(sched, folder, name="b", schedule="every 1h")["id"]
+    clock.now += 3700
+    sched.check()
+    sched.set_enabled(a, False)
+    sched.remove(b)
+    assert sched.view()["queued"] == []
+    assert [f["state"] for f in sched.fires_log(a)] == ["cancelled"] and [f["state"] for f in sched.fires_log(b)] == ["cancelled"]
+
+
+def test_a_single_moment_runs_once_and_then_the_routine_is_off(tmp_path, folder):
+    runner = FakeRunner()
+    sched, clock = make(tmp_path, runner)
+    rid = add(sched, folder, schedule="at 2026-10-23 14:00")["id"]
+    assert sched.view()["routines"][0]["next_run"] == ts(2026, 10, 23, 14, 0)
+    sched.start()
+    clock.now = ts(2026, 10, 23, 14, 1)
+    sched.check()
+    until(lambda: runner.ran == ["tests"])
+    until(lambda: sched.get(rid)["enabled"] is False)
+    assert sched.view()["routines"][0]["next_run"] is None
+    clock.now = ts(2026, 10, 23, 15, 0)
+    sched.check()
+    assert runner.ran == ["tests"]
+    sched.shutdown()
+    again, _ = make(tmp_path, now=ts(2026, 10, 24, 9, 0))
+    again.check()
+    assert again.view()["queued"] == []
+
+
+def test_a_single_moment_past_its_time_to_live_is_skipped_and_the_routine_is_off(tmp_path, folder):
+    sched, _ = make(tmp_path, now=ts(2026, 10, 23, 12, 0))
+    rid = add(sched, folder, schedule="at 2026-10-23 14:00", ttl_min=30)["id"]
+    late, _ = make(tmp_path, now=ts(2026, 10, 23, 16, 0))
+    late.check()
+    assert late.view()["queued"] == [] and late.get(rid)["enabled"] is False
+    assert late.fires_log(rid)[0]["state"] == "skipped_late"
+
+
+def test_the_time_to_live_and_the_key_are_checked(tmp_path, folder):
+    sched, _ = make(tmp_path)
+    for bad in (0, -5, True, "60", 1.5):
+        with pytest.raises(RoutineError) as e:
+            add(sched, folder, ttl_min=bad)
+        assert e.value.code == "bad_ttl"
+    for bad in ("two words", "x" * 81, 5):
+        with pytest.raises(RoutineError) as e:
+            add(sched, folder, dedup_key=bad)
+        assert e.value.code == "bad_key"
+    kept = add(sched, folder, ttl_min=45, dedup_key="pnl-morning")["id"]
+    assert sched.get(kept)["ttl_min"] == 45 and sched.update(kept, ttl_min=None)["ttl_min"] is None
 
 
 # -- the scheduler with a stand-in runner ------------------------------------------------------------------
