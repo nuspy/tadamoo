@@ -72,6 +72,36 @@
     say(T("cj.pending.dismissed"));
     load();
   }
+
+  /* ---- messages a schedule sent that never reached their target (serve/deliveries.py) ---- */
+  function deadRow(d) {
+    const li = el("li", "cj-pend");
+    li.append(el("b", "", d.target), el("span", "", ` · ${when(d.created)}`),
+             el("p", "cj-sum", T("cj.dead.reason." + (["unreachable", "busy_timeout", "loop", "budget"].includes(d.reason) ? d.reason : "unreachable"))),
+             el("p", "cj-sum", String(d.message || "").slice(0, 300)));
+    const row = el("div", "cj-acts");
+    row.append(btn(T("cj.dead.retry"), "primary", () => retryDead(d), T("cj.dead.retry")), btn(T("cj.pending.dismiss"), "ghost", () => dismissDead(d), T("cj.tip.dismiss")));
+    li.append(row);
+    return li;
+  }
+  async function loadDead() {
+    const r = await api("GET", "api/agent/deliveries?state=dead");
+    const box = document.getElementById("cj-dead"), list = document.getElementById("cj-dead-list");
+    const items = (r.ok ? r.data.deliveries || [] : []).filter(d => /^(cron|plan):/.test(d.provenance) || d.provenance === "cron");
+    box.hidden = !items.length;
+    list.replaceChildren(...items.map(deadRow));
+  }
+  async function retryDead(d) {
+    const r = await api("POST", `api/agent/deliveries/${d.id}/retry`, {});
+    if (!r.ok) { say(errText(r), true); return; }
+    say(T("cj.dead.retried"));
+    loadDead();
+  }
+  async function dismissDead(d) {
+    const r = await api("POST", `api/agent/deliveries/${d.id}/dismiss`, {});
+    if (!r.ok) { say(errText(r), true); return; }
+    loadDead();
+  }
   async function loadSkills() {
     const r = await api("GET", "api/personal-skills");
     S.skills = r.ok ? r.data.skills || [] : [];
@@ -86,6 +116,7 @@
     S.stopped = !!r.data.stopped;
     paintStop();
     paintList();
+    loadDead();
     if (S.selected && S.selected !== "new" && !job(S.selected)) { S.selected = ""; paintEditor(); }
     if (S.selected && S.selected !== "new") loadRuns();
   }

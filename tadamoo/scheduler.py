@@ -50,6 +50,8 @@ KEY_MAX = 80
 NO_STEP_LIMIT = -1                  # `max_turns` the conversation path reads as no limit
 KEEP_RUNS = 200
 NAME_MAX, PROMPT_MAX, SUMMARY_MAX = 80, 4000, 4000
+MESSAGE_MAX = 4000
+DELIVER_KINDS = ("new_session", "session", "plan")
 CHECK_MAX, CHECK_TIMEOUT_S, CHECK_OUTPUT_MAX = 1000, 300, 2000
 STOP_FILE = "routines.stop"         # while this file exists in the data folder no routine starts and the ones running are stopped
 OUTCOMES = ("nothing_new", "progress", "done", "blocked")
@@ -318,6 +320,11 @@ class Scheduler:
         r["ttl_min"] = ttl if isinstance(ttl, int) and not isinstance(ttl, bool) and ttl >= 1 else None
         r["dedup_key"] = r["dedup_key"] if isinstance(r.get("dedup_key"), str) else ""
         r["last_planned"] = float(r.get("last_planned") or 0)
+        deliver_to = r.get("deliver_to")
+        r["deliver_to"] = deliver_to if isinstance(deliver_to, dict) and deliver_to.get("kind") in DELIVER_KINDS else {"kind": "new_session", "ref": ""}
+        r["message"] = r["message"] if isinstance(r.get("message"), str) else ""
+        link = r.get("link")
+        r["link"] = {"plan": str(link["plan"])} if isinstance(link, dict) and isinstance(link.get("plan"), str) and link["plan"] else {}
         return r
 
     def _save(self) -> None:
@@ -368,13 +375,16 @@ class Scheduler:
 
     def add(self, name: Any, prompt: Any, workspace: Any, schedule: Any, max_turns: Any = None, max_minutes: Any = None,
             skill: Any = "", values: Any = None, yield_s: Any = None, index_past: Any = False, check: Any = "",
-            ttl_min: Any = None, dedup_key: Any = "") -> Dict[str, Any]:
+            ttl_min: Any = None, dedup_key: Any = "", deliver_to: Any = None, message: Any = "", link: Any = None) -> Dict[str, Any]:
         """A new routine, enabled. With a `skill` it runs that personal skill with `values` instead of a prompt.
         `max_turns` and `max_minutes` limit the steps and the time of a run, `yield_s` how long it may go on once a conversation
         of the person's is at work; empty means no limit. `index_past` adds what the routine does to the index of earlier conversations (off unless the person asks).
         `check` is a command run before the model is woken: exit code 0 goes on (what it prints is given to the model), 1 means nothing to do and the run ends there, anything else fails the run.
-        `ttl_min` is how late a scheduled fire may start (empty: any time); `dedup_key` keeps routines that share it from having two fires in flight."""
-        routine = self._check(name, prompt, workspace, schedule, max_turns, max_minutes, skill, values, yield_s, index_past, check, ttl_min, dedup_key)
+        `ttl_min` is how late a scheduled fire may start (empty: any time); `dedup_key` keeps routines that share it from having two fires in flight.
+        `deliver_to` ({"kind": "new_session"|"session"|"plan", "ref": name}) sends `message` (or `prompt` when it is empty) to an existing
+        conversation instead of starting one; `link` ({"plan": plan_id}) is which plan a "plan" delivery speaks for."""
+        routine = self._check(name, prompt, workspace, schedule, max_turns, max_minutes, skill, values, yield_s, index_past, check, ttl_min, dedup_key,
+                              deliver_to, message, link)
         now = self.clock()
         routine.update(id=secrets.token_hex(3), enabled=True, enabled_at=now, created=now, last_run=0, last_planned=0, last_status="")
         with self._lock:
@@ -386,10 +396,12 @@ class Scheduler:
     def update(self, routine_id: str, **fields: Any) -> Dict[str, Any]:
         with self._lock:
             current = self._find(routine_id)
-            merged = {**current, **{k: v for k, v in fields.items() if k in ("name", "prompt", "workspace", "schedule", "max_turns", "max_minutes", "skill", "values", "yield_s", "index_past", "check", "ttl_min", "dedup_key")}}
+            merged = {**current, **{k: v for k, v in fields.items() if k in ("name", "prompt", "workspace", "schedule", "max_turns", "max_minutes", "skill", "values", "yield_s", "index_past", "check", "ttl_min",
+                                                    "dedup_key", "deliver_to", "message", "link")}}
             checked = self._check(merged["name"], merged["prompt"], merged["workspace"], merged["schedule"], merged.get("max_turns"),
                                   merged.get("max_minutes"), merged.get("skill", ""), merged.get("values"), merged.get("yield_s"), merged.get("index_past", False),
-                                  merged.get("check", ""), merged.get("ttl_min"), merged.get("dedup_key", ""))
+                                  merged.get("check", ""), merged.get("ttl_min"), merged.get("dedup_key", ""), merged.get("deliver_to"),
+                                  merged.get("message", ""), merged.get("link"))
             current.update(checked)
             self._due[routine_id] = self._advance(current, self.clock())
             self._save()
@@ -398,7 +410,7 @@ class Scheduler:
     @staticmethod
     def _check(name: Any, prompt: Any, workspace: Any, schedule: Any, max_turns: Any = None, max_minutes: Any = None,
                skill: Any = "", values: Any = None, yield_s: Any = None, index_past: Any = False, check: Any = "",
-               ttl_min: Any = None, dedup_key: Any = "") -> Dict[str, Any]:
+               ttl_min: Any = None, dedup_key: Any = "", deliver_to: Any = None, message: Any = "", link: Any = None) -> Dict[str, Any]:
         if not isinstance(name, str) or not name.strip() or len(name) > NAME_MAX:
             raise RoutineError(f"Give the routine a name of at most {NAME_MAX} characters.", "bad_name")
         if skill:
@@ -431,7 +443,20 @@ class Scheduler:
             raise RoutineError("How late a fire may start is a whole number of minutes from 1, or empty for any time.", "bad_ttl")
         if not isinstance(dedup_key, str) or len(dedup_key) > KEY_MAX or not _KEY.match(dedup_key):
             raise RoutineError(f"The key that keeps fires apart is letters, digits and _.:- (at most {KEY_MAX}), or empty.", "bad_key")
-        return {"ttl_min": ttl_min, "dedup_key": dedup_key, "yield_s": yield_s, "index_past": index_past, "check": check.strip(), "name": name.strip(), "prompt": prompt.strip(), "workspace": str(Path(workspace.strip()).resolve()),
+        deliver_to = deliver_to if deliver_to is not None else {"kind": "new_session", "ref": ""}
+        if not isinstance(deliver_to, dict) or deliver_to.get("kind") not in DELIVER_KINDS:
+            raise RoutineError("Where a fire goes is 'new_session', 'session' or 'plan', each with a 'ref' (empty for new_session).", "bad_deliver_to")
+        ref = deliver_to.get("ref", "")
+        if deliver_to["kind"] != "new_session" and (not isinstance(ref, str) or not ref.strip()):
+            raise RoutineError("Name the conversation this fire is delivered to.", "bad_deliver_to")
+        if deliver_to["kind"] == "new_session" and ref:
+            raise RoutineError("A new-session routine has no 'ref'.", "bad_deliver_to")
+        if not isinstance(message, str) or len(message) > MESSAGE_MAX:
+            raise RoutineError(f"The message is at most {MESSAGE_MAX} characters.", "bad_message")
+        if link is not None and (not isinstance(link, dict) or set(link) - {"plan"} or (("plan" in link) and not isinstance(link["plan"], str))):
+            raise RoutineError("The link is {\"plan\": a plan id}, or empty.", "bad_link")
+        return {"ttl_min": ttl_min, "dedup_key": dedup_key, "deliver_to": {"kind": deliver_to["kind"], "ref": ref.strip() if isinstance(ref, str) else ""},
+                "message": message.strip(), "link": {"plan": link["plan"]} if link and link.get("plan") else {}, "yield_s": yield_s, "index_past": index_past, "check": check.strip(), "name": name.strip(), "prompt": prompt.strip(), "workspace": str(Path(workspace.strip()).resolve()),
                 "schedule": " ".join(str(schedule).lower().split()), "max_turns": max_turns, "max_minutes": max_minutes,
                 **({"skill": skill, "values": dict(values or {})} if skill else {"skill": "", "values": {}})}
 
@@ -630,7 +655,7 @@ class Scheduler:
             if skipped is not None:
                 outcome = skipped
             else:
-                outcome = self.runner.run({**routine, "previous": self.previous(routine["id"]), "check_output": note}, state["cancel"])
+                outcome = self.runner.run({**routine, "previous": self.previous(routine["id"]), "check_output": note, "fire_run": state["run"]}, state["cancel"])
         except Exception as exc:
             outcome = {"status": "failed", "summary": f"{type(exc).__name__}: {exc}"}
         finished.set()
@@ -755,7 +780,30 @@ class SessionRoutineRunner:
             self.park(routine["id"], {"session": sid, "key": key, "kind": kind, "question": text, "options": _pending_options(source)})
         return text
 
+    def _deliver(self, routine: Dict[str, Any], deliver_to: Dict[str, Any]) -> Dict[str, Any]:
+        """A fire that speaks to an existing conversation instead of starting one: the message is left for it (tadamoo/provenance.py),
+        and this run ends here whether or not it was taken yet (the delivery's own state, pending/delivered/dead, lives in the queue)."""
+        from tadamoo.cron_templates import render_template
+        started = time.monotonic()
+        link = routine.get("link") or {}
+        context = {"date": time.strftime("%Y-%m-%d"), "plan_id": link["plan"]} if link.get("plan") else {"date": time.strftime("%Y-%m-%d")}
+        text = render_template(routine.get("message") or routine["prompt"], context)
+        provenance = f"plan:{link['plan']}" if deliver_to["kind"] == "plan" and link.get("plan") else "cron:" + routine["id"]
+        try:
+            result = self.manager.deliver(deliver_to["ref"], text, provenance=provenance, run_id=routine.get("fire_run") or "")
+        except Exception as exc:
+            return {"status": "failed", "summary": f"Could not deliver to {deliver_to['ref']}: {exc}", "seconds": round(time.monotonic() - started, 1)}
+        delivery = result.get("delivery") or {}
+        state = delivery.get("state", "pending")
+        if state == "dead":
+            return {"status": "failed", "summary": f"Not delivered to {deliver_to['ref']}: {delivery.get('reason', 'unreachable')}.",
+                    "seconds": round(time.monotonic() - started, 1)}
+        return {"status": "done", "summary": f"Message {state} to {deliver_to['ref']}.", "seconds": round(time.monotonic() - started, 1)}
+
     def run(self, routine: Dict[str, Any], cancel: threading.Event) -> Dict[str, Any]:
+        deliver_to = routine.get("deliver_to") or {"kind": "new_session", "ref": ""}
+        if deliver_to.get("kind") in ("session", "plan") and deliver_to.get("ref"):
+            return self._deliver(routine, deliver_to)
         mgr = self.manager
         started = time.monotonic()
         limit_s = routine["max_minutes"] * 60 if routine.get("max_minutes") else None

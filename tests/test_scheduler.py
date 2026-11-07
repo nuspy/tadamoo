@@ -810,3 +810,93 @@ def test_the_kill_switch_stops_everything_until_it_is_taken_off(tmp_path):
     _wait_runs(sched, 1)
     sched.shutdown()
     assert len(seen) == 1 and not sched.view()["stopped"]
+
+
+# -- a fire that speaks to an existing conversation instead of starting one --------------------------------
+
+
+def until_delivered(manager, delivery_id, seconds=15):
+    return until(lambda: manager.deliveries.get(delivery_id)["state"] in ("delivered", "dead"), seconds)
+
+
+def test_a_session_delivery_sends_the_message_to_an_existing_conversation_and_never_starts_one(manager, folder):
+    runner = SessionRoutineRunner(manager, poll_s=0.05)
+    target = manager.create(folder, alias="night")["id"]
+    before = manager.view()["sessions"]
+    out = runner.run(routine(folder, "watch the log", deliver_to={"kind": "session", "ref": "night"}, message="Check in, {date}."), threading.Event())
+    assert out["status"] == "done" and "night" in out["summary"]
+    assert len(manager.view()["sessions"]) == len(before)                     # no new conversation
+    delivery_id = next(d["id"] for d in manager.deliveries.entries() if d["target"] == "night")
+    until_delivered(manager, delivery_id)
+    assert manager.deliveries.get(delivery_id)["provenance"] == "cron:r1"
+    assert manager.history(target)["messages"][0]["content"].startswith("Check in, 20")      # the date was filled
+
+
+def test_a_plan_delivery_carries_the_plans_provenance(manager, folder):
+    runner = SessionRoutineRunner(manager, poll_s=0.05)
+    manager.create(folder, alias="night")
+    out = runner.run(routine(folder, "run the plan", deliver_to={"kind": "plan", "ref": "night"}, message="Run {plan_id}.", link={"plan": "P1"}),
+                     threading.Event())
+    assert out["status"] == "done"
+    delivery_id = next(d["id"] for d in manager.deliveries.entries() if d["target"] == "night")
+    until_delivered(manager, delivery_id)
+    assert manager.deliveries.get(delivery_id)["provenance"] == "plan:P1"
+    assert manager.history(manager.resolve("night"))["messages"][0]["content"] == "Run P1."
+
+
+def test_a_session_delivery_to_nobody_is_a_failed_run_not_a_crash(manager, folder):
+    runner = SessionRoutineRunner(manager, poll_s=0.05)
+    out = runner.run(routine(folder, "x", deliver_to={"kind": "session", "ref": "nobody"}), threading.Event())
+    assert out["status"] == "failed" and "unreachable" in out["summary"]
+
+
+def test_without_a_message_the_prompt_itself_is_delivered(manager, folder):
+    runner = SessionRoutineRunner(manager, poll_s=0.05)
+    manager.create(folder, alias="night")
+    runner.run(routine(folder, "watch the printer log", deliver_to={"kind": "session", "ref": "night"}), threading.Event())
+    delivery_id = next(d["id"] for d in manager.deliveries.entries() if d["target"] == "night")
+    until_delivered(manager, delivery_id)
+    assert manager.history(manager.resolve("night"))["messages"][0]["content"] == "watch the printer log"
+
+
+def test_a_session_delivery_through_the_scheduler_itself_is_recorded_as_a_run(tmp_path, manager, folder):
+    sched = Scheduler(tmp_path / "data", SessionRoutineRunner(manager, poll_s=0.05), tick_s=3600, poll_s=0.02)
+    manager.create(folder, alias="night")
+    rid = sched.add("check", "watch it", folder, "every 1h", deliver_to={"kind": "session", "ref": "night"}, message="hi")["id"]
+    sched.start()
+    sched.check(sched.clock() + 4000)
+    until(lambda: sched.runs(rid) and sched.runs(rid)[0]["status"] == "done")
+    sched.shutdown()
+
+
+def test_a_bad_deliver_to_message_or_link_is_refused(tmp_path, folder):
+    sched, _ = make(tmp_path)
+    for bad, code in (({"deliver_to": {"kind": "elsewhere", "ref": ""}}, "bad_deliver_to"),
+                      ({"deliver_to": {"kind": "session", "ref": ""}}, "bad_deliver_to"),
+                      ({"deliver_to": {"kind": "new_session", "ref": "x"}}, "bad_deliver_to"),
+                      ({"message": "x" * 4001}, "bad_message"),
+                      ({"link": {"plan": "P1", "extra": 1}}, "bad_link"),
+                      ({"link": {"plan": 5}}, "bad_link")):
+        with pytest.raises(RoutineError) as e:
+            add(sched, folder, **bad)
+        assert e.value.code == code, bad
+
+
+def test_deliver_to_message_and_link_are_kept_and_updated(tmp_path, folder):
+    sched, _ = make(tmp_path)
+    rid = add(sched, folder, deliver_to={"kind": "session", "ref": "night"}, message="hi {date}", link={"plan": "P1"})["id"]
+    routine = sched.get(rid)
+    assert routine["deliver_to"] == {"kind": "session", "ref": "night"} and routine["message"] == "hi {date}" and routine["link"] == {"plan": "P1"}
+    changed = sched.update(rid, deliver_to={"kind": "new_session", "ref": ""}, message="", link=None)
+    assert changed["deliver_to"] == {"kind": "new_session", "ref": ""} and changed["message"] == "" and changed["link"] == {}
+
+
+def test_an_old_routine_without_the_new_fields_defaults_to_new_session(tmp_path, folder):
+    sched, _ = make(tmp_path)
+    rid = add(sched, folder)["id"]
+    sched.routines[0].pop("deliver_to", None)
+    sched.routines[0].pop("message", None)
+    sched.routines[0].pop("link", None)
+    sched._save()
+    again, _ = make(tmp_path)
+    assert again.get(rid)["deliver_to"] == {"kind": "new_session", "ref": ""} and again.get(rid)["message"] == "" and again.get(rid)["link"] == {}
