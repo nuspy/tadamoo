@@ -70,7 +70,7 @@
       return { text: q.text, answer: parts.join("; ") };
     });
   }
-  /* a card with one question of single or confirm kind is answered by one click */
+  /* a card with one question of single or confirm kind is sent by Enter on the answer that is already chosen; a click only chooses */
   const fast = card => (card.questions || []).length === 1 && ["single", "confirm"].includes(card.questions[0].kind);
 
   /* the quoted topic of the card, put at the start of the chat message when the person sets the card aside to talk it over */
@@ -85,7 +85,7 @@
   /* What a key does inside the card. e: {key, ctrl, alt, meta, shift}. c: {where: "tab" | "option" | "text" | "area", index (the question),
      total, stop (the focused answer), stops (how many answers can take the focus), fast, multi, other (the focused row is the one of their own)}.
      Returns null (the browser keeps the key) or an action: send; question (go to question `to`, `focus` puts the focus on its first answer);
-     stop (focus answer `to`); pick (choose or toggle the focused answer; `advance` moves on to the next question, `submit` sends at once);
+     stop (focus answer `to`); pick (choose or toggle the focused answer; `advance` moves on to the next question, `submit` sends: only a lone question whose focused answer is already chosen);
      stay (the key is taken and does nothing). Left and right move between questions, up and down between answers, Enter picks. */
   function keyAction(e, c) {
     if (e.key === "Enter" && e.ctrl) return { do: "send" };
@@ -106,7 +106,7 @@
       if (!many) return { do: "stay" };
       return { do: "question", to: clamp(c.index + (k === "ArrowRight" ? 1 : -1), 0, last), focus: true };
     }
-    if (k === "Enter" && !e.shift) return { do: "pick", submit: !!c.fast && !c.other, advance: many && !c.multi && !c.other && c.index < last };
+    if (k === "Enter" && !e.shift) return { do: "pick", submit: !!c.fast && !c.other && !!c.picked, advance: many && !c.multi && !c.other && c.index < last };
     return null;
   }
 
@@ -223,7 +223,6 @@
         lab.append(inp, body);
         inp.onchange = () => { onchange(inp.checked); refresh(); };
         inp.dataset.q = q.id;
-        if (fast(card)) inp.addEventListener("click", ev => { if (ev.detail > 0 && oid !== "__other") { onchange(true); refresh(); submit("submitted"); } });
         return { lab, inp };
       };
       (q.options || []).forEach(o => {
@@ -259,7 +258,7 @@
       }
       const index = tab ? tabs.indexOf(tab) : Math.max(0, panels.indexOf(panel)), stops = panel ? stopsOf(panel) : [], q = card.questions[index] || {};
       const act = keyAction({ key: e.key, ctrl: e.ctrlKey, alt: e.altKey, meta: e.metaKey, shift: e.shiftKey },
-        { where, index, total, stop: stops.indexOf(t), stops: stops.length, fast: fast(card), multi: q.kind === "multi", other: t.value === "__other" });
+        { where, index, total, stop: stops.indexOf(t), stops: stops.length, fast: fast(card), picked: !!t.checked, multi: q.kind === "multi", other: t.value === "__other" });
       if (!act) return;
       e.preventDefault();
       if (act.do === "send") submit("submitted");

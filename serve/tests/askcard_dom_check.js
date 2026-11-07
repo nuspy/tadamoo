@@ -192,12 +192,15 @@ t("Ctrl+Enter sends only when every required question is answered, from any cont
   eq(JSON.parse(sent[0][0].slice(4)).answers.q1, { picked: ["o1"], text: "" });
 });
 
-t("a card of one single question is answered by Enter on the focused answer", () => {
+t("a card of one single question is sent by Enter on the answer that is already chosen, and a click only chooses", () => {
   const { el, sent } = open([card()[0]]);
   const r = rows(el, 0);
   r[0].focus(); key(r[0], "ArrowDown"); key(r[1], "Enter");
-  eq(sent.length, 1);
-  eq(JSON.parse(sent[0][0].slice(4)).answers.q1.picked, ["o2"]);
+  eq(sent.length, 0); eq(r[1].checked, true);                              // the first Enter chooses
+  r[0].click(); r[0].focus(); eq(sent.length, 0);                          // a click changes the mind and sends nothing
+  key(r[0], "Enter");
+  eq(sent.length, 1);                                                      // Enter on the chosen answer sends it
+  eq(JSON.parse(sent[0][0].slice(4)).answers.q1.picked, ["o1"]);
   const other = open([card()[0]]);                                        // the row of their own waits for the text
   const o = rows(other.el, 0)[2]; o.focus(); key(o, "Enter");
   eq(other.sent.length, 0);
