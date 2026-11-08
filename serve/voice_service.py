@@ -87,6 +87,43 @@ def _get(host: str, port: int, route: str, token: str) -> tuple[int, dict | None
         conn.close()
 
 
+class ServiceDown(Exception):
+    """The voice service cannot be reached; the message says why."""
+
+
+def call(method: str, route: str, body: dict | None = None, timeout: float = TIMEOUT) -> tuple[int, dict | None]:
+    """One request to the running service with its token, to 127.0.0.1 only: (status code, JSON object or None). ServiceDown when it is not there."""
+    found = info()
+    if found is None:
+        raise ServiceDown("the voice service has not started: it leaves no info file")
+    if found["host"] not in LOOPBACK:
+        raise ServiceDown("the info file names a host that is not this PC")
+    token = _read_token()
+    if not token:
+        raise ServiceDown("there is no token for the voice service")
+    conn = http.client.HTTPConnection("127.0.0.1" if found["host"] == "localhost" else found["host"], found["port"], timeout=timeout)
+    try:
+        headers = {"Authorization": "Bearer " + token}
+        payload = None
+        if body is not None:
+            payload = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        conn.request(method, route, body=payload, headers=headers)
+        r = conn.getresponse()
+        raw = r.read(1 << 20)
+    except (OSError, http.client.HTTPException) as e:
+        raise ServiceDown(f"the voice service does not answer on port {found['port']} ({e.__class__.__name__})") from None
+    finally:
+        conn.close()
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        data = None
+    if r.status == 401:
+        raise ServiceDown("the voice service refused the token")
+    return r.status, data if isinstance(data, dict) else None
+
+
 def status() -> dict:
     """{running, port, pid, status}: `status` is the service's own /status, or {"reason": ...} when it is not reachable."""
     found = info()

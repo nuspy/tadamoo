@@ -2,7 +2,7 @@
 
 `GET /functions` says, per function, its state (unloaded | loading | loaded | error), its model and placement, the VRAM it was
 estimated to need (the server sends the estimate; it comes from the catalog or from an earlier measurement) and the VRAM it was
-measured to take. `POST /functions/apply` loads what is on and unloads what is off, one function at a time. The free VRAM is read
+measured to take; a loaded function also says `loaded_with` (the model and placement it was loaded with). `POST /functions/apply` loads what is on and unloads what is off, one function at a time. The free VRAM is read
 before and after each step (`free_vram_mib`); a reading that cannot be made is `null`, never a guess. A model that is not installed
 leaves its function unloaded with the plain `ModelNotInstalled` reason and the others still load.
 
@@ -217,6 +217,8 @@ class Functions:
             entry = {"state": self._live(name), "model": c.model, "name": ms.MODELS[c.model][2] if c.model in ms.MODELS else "", "engine": c.engine,
                      "device": c.device, "memory": c.memory, "enabled": settings_bridge.is_enabled(c, settings.models_dir), "installed": installed,
                      "estimated_mib": rec["estimated_mib"], "measured_mib": rec["measured_mib"], "error": rec["error"] or None}
+            if rec["applied"] and entry["state"] == "loaded":
+                entry["loaded_with"] = dict(zip(("model", "device", "memory"), rec["applied"]))
             if not installed:
                 entry["reason"] = ms.reason(c.model, settings.models_dir)
             out[name] = entry

@@ -225,14 +225,15 @@ def info(svc, lang: str = "en") -> dict:
     return out
 
 
-def load(svc, req: dict) -> dict:
-    """Check, write and apply; Refused with the status and body otherwise."""
+def load(svc, req: dict, voice_done: bool = False) -> dict:
+    """Check, write and apply; Refused with the status and body otherwise. The voice functions that are on and not loaded load first
+    (serve/voice_loader.py), so that the plan below reads the VRAM they left; `voice_done` is that job calling this again."""
     sup = sup_of(svc)
     path = _config(svc)
     if not path:
         raise Refused(409, {"error": {"type": "invalid_request_error", "code": "no_config",
                                       "message": "the server was started without --config: there is no file to load from"}})
-    if sup.busy():
+    if sup.busy() and not voice_done:
         raise Refused(409, {"error": {"type": "model_busy", "code": "busy",
                                       "message": "a load or a calibration is already running"}})
     model = req.get("model") if isinstance(req, dict) else None
@@ -250,13 +251,18 @@ def load(svc, req: dict) -> dict:
         raise Refused(400, {"error": {"type": "invalid_request_error", "code": "unknown_flag",
                                       "message": ", ".join(f"--{n.split('.', 1)[1]}" for n in refused)
                                       + ": this engine binary does not know the flag; build the engine again or leave the field empty"}})
+    running = (getattr(svc, "settings_info", None) or {}).get("model")
+    if not voice_done and (model is None or _same(model, running)) and (running or sup.mock):       # a different model ends this server: the service is not touched
+        from serve import voice_loader
+        first = voice_loader.before_load(svc, req)
+        if first is not None:
+            return first
     p = evaluate(svc, merged, model=model)
     force = isinstance(req, dict) and bool(req.get("force"))
     if not p["fits"] and not force:
         raise Refused(422, {"error": {"type": "insufficient_memory", "code": "does_not_fit",
                                       "message": " ".join(x["text"] for x in p["problems"])},
                             "problems": p["problems"], "plan": p})
-    running = (getattr(svc, "settings_info", None) or {}).get("model")
     if model is None and not running and not sup.mock:
         raise Refused(409, {"error": {"type": "invalid_request_error", "code": "no_model",
                                       "message": "no model is chosen: pick one in the Loader's model list first"}})
@@ -281,7 +287,9 @@ def load(svc, req: dict) -> dict:
                     "notes": ["model_on_restart"], "model": model}
     print(f"[server] loader: {', '.join(result['changed']) or 'no change'} saved to {path}; reloading the engine",
           flush=True)
-    if not sup.reload():
+    from serve import voice_loader
+    voice_loader.llm_reloaded()
+    if not (sup.reload(held=True) if voice_done else sup.reload()):
         raise Refused(409, {"error": {"type": "model_busy", "code": "busy",
                                       "message": "a load or a calibration is already running"}})
     notes = []

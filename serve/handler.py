@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
 from tadamoo import exec_level, nextsteps, persistence, side_uses
-from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, voice_api, voice_service, voice_settings
+from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, voice_api, voice_loader, voice_service, voice_settings
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX, checked_sampling
 from serve.engine.vision import VISION_MODES
@@ -601,7 +601,7 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/personas" or path.startswith("/api/personas/"):
                 if self._authorized():
                     self._personas_get(path)
-            elif path in ("/api/voice/models", "/api/voice/download/plan", "/api/voice/download/status", "/api/voice/service"):
+            elif path in ("/api/voice/models", "/api/voice/download/plan", "/api/voice/download/status", "/api/voice/service", "/api/voice/functions"):
                 if self._authorized():
                     if not settings.is_loopback(self.client_address[0]):
                         return self._json(403, {"error": {"type": "forbidden", "message": "the voice models and service are shown only on the PC the server runs on"}})
@@ -2339,6 +2339,8 @@ def make_handler(svc: Service, remote: bool = False):
                 if path == "/api/voice/service":
                     voice_service.ensure_token()
                     return self._json(200, voice_service.status())
+                if path == "/api/voice/functions":
+                    return self._json(200, voice_loader.info(svc))
                 return self._json(200, voice_api.plan((query.get("id") or [""])[0]))
             except (voice_settings.VoiceSettingsError, models.Refused, downloads.DownloadError, OSError) as e:
                 return self._voice_error(e)
@@ -2359,11 +2361,15 @@ def make_handler(svc: Service, remote: bool = False):
                 return self._json(400, {"error": {"type": "invalid_request_error", "message": "the body is not valid JSON"}})
             routes = {"/api/voice/select": voice_api.select, "/api/voice/placement": voice_api.placement,
                       "/api/voice/models-dir": voice_api.set_models_dir, "/api/voice/download": voice_api.download,
-                      "/api/voice/download/cancel": lambda _req: voice_api.cancel()}
+                      "/api/voice/download/cancel": lambda _req: voice_api.cancel(), "/api/voice/enabled": voice_api.set_enabled,
+                      "/api/voice/functions/plan": lambda r: voice_loader.plan(svc, r.get("desired")),
+                      "/api/voice/functions/apply": lambda r: voice_loader.apply(svc, r),
+                      "/api/voice/functions/reload-llm": lambda r: voice_loader.reload_llm(svc, r)}
             if path not in routes:
                 return self._json(404, {"error": {"message": "not found"}})
             try:
-                self._json(202 if path == "/api/voice/download" else 200, routes[path](req))
+                out = routes[path](req)
+                self._json(202 if path in ("/api/voice/download", "/api/voice/functions/reload-llm") or out.get("status") == "started" else 200, out)
             except (voice_settings.VoiceSettingsError, models.Refused, downloads.DownloadError, OSError) as e:
                 self._voice_error(e)
 

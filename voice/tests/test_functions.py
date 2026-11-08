@@ -139,6 +139,7 @@ def test_apply_loads_in_order_one_at_a_time_through_the_serialiser(rig):
     assert out["free_vram_mib"] == 20000 - 700 - 1200 - 7000
     snap = rig.f.snapshot()["functions"]
     assert snap["avatar"]["state"] == "loaded" and snap["avatar"]["measured_mib"] == 7000
+    assert snap["tts"]["loaded_with"] == {"model": "kokoro", "device": "auto", "memory": "vram"}
 
 
 def test_what_is_off_leaves_before_anything_enters(rig):

@@ -1,7 +1,8 @@
 """Settings > Voice: where the voice models are kept, which model each service uses and where it is loaded.
 
 `voice.json` in the user data folder holds only what the person chose:
-    {"models_dir": "<absolute path>", "services": {"<service>": {"selected": "<model id>", "device": "auto|cpu|cuda:N", "memory": "vram|ram"}}}
+    {"models_dir": "<absolute path>", "services": {"<service>": {"selected": "<model id>", "device": "auto|cpu|cuda:N", "memory": "vram|ram",
+                                                                  "enabled": true|false}}}
 A missing value has a default: the folder is `voice/` inside the first models folder of Basalt (else `voice-models/` in the data folder), a
 service uses the default model of serve/voice_catalog.py, on the GPU the service picks (`auto`) in VRAM, or on the CPU in RAM for the
 services that run there. Changing the folder moves nothing: a model is looked for where the folder is now. The file is replaced whole."""
@@ -136,6 +137,27 @@ def placement(service: str) -> dict:
     return {"device": device, "memory": memory}
 
 
+def enabled(service: str) -> bool:
+    """Whether the voice service is loaded with the others (Models > Voice services): the stored boolean, else on only for the speech-to-text
+    model when it is installed."""
+    stored = ((_read().get("services") or {}).get(service) or {}).get("enabled")
+    if isinstance(stored, bool):
+        return stored
+    entry = voice_catalog.find(selected(service))
+    return service == "stt" and entry is not None and voice_catalog.installed(entry, models_dir())
+
+
+def set_enabled(service, on) -> bool:
+    _check_service(service)
+    if not isinstance(on, bool):
+        raise VoiceSettingsError("enabled", "enabled is true or false.", "enabled è true o false.")
+    with _lock:
+        data = _read()
+        data.setdefault("services", {}).setdefault(service, {})["enabled"] = on
+        _write(data)
+    return on
+
+
 def select(service, model) -> str:
     _check_service(service)
     entry = voice_catalog.find(model)
@@ -148,14 +170,18 @@ def select(service, model) -> str:
     return model
 
 
-def set_placement(service, device, memory) -> dict:
-    _check_service(service)
+def check_placement(device, memory) -> None:
     if not (isinstance(device, str) and _DEVICE_RE.match(device)):
         raise VoiceSettingsError("device", "The device is auto, cpu or cuda:N (N a GPU number).", "Il dispositivo è auto, cpu o cuda:N (N il numero di una GPU).")
     if memory not in MEMORY:
         raise VoiceSettingsError("memory", "The memory is vram or ram.", "La memoria è vram o ram.")
     if device == "cpu" and memory == "vram":
         raise VoiceSettingsError("cpu_vram", "A model on the CPU lives in RAM, not in VRAM.", "Un modello sulla CPU sta nella RAM, non nella VRAM.")
+
+
+def set_placement(service, device, memory) -> dict:
+    _check_service(service)
+    check_placement(device, memory)
     with _lock:
         data = _read()
         data.setdefault("services", {}).setdefault(service, {}).update({"device": device, "memory": memory})
