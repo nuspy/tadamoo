@@ -186,7 +186,15 @@ def protect(text: str) -> Tuple[str, Protected]:
 
 # -- when a request needs parts -------------------------------------------------------------------------------------------
 
-LONG_MIN_TOKENS = 3000              # a text asked for above this is not written reliably in one turn
+LONG_MIN_TOKENS = 3000              # a text asked for above this is not written reliably in one turn, for a model whose length is not known
+ANSWER_SHARE = 0.6                  # of the tokens a model writes well in one reply, thinking included, the share the answer may take
+LONG_MIN_FLOOR = 500                # the least threshold a measured length gives
+
+
+def long_min_tokens(limit: int = 0) -> int:
+    """The answer tokens above which a text is written in parts: the model's measured reliable reply (serve/lengthprobe.py) less what its
+    thinking takes, else the general threshold."""
+    return max(LONG_MIN_FLOOR, int(limit * ANSWER_SHARE)) if limit and limit > 0 else LONG_MIN_TOKENS
 TOKENS_PER_WORD_BY_LANGUAGE = {"en": 1.35, "it": 1.5}   # a language not listed (or not recognised) counts like Italian: a long request is not missed
 WORDS_ASKED_RE = re.compile(r"(?<![\w.])(\d{1,3}(?:[.,' ]\d{3})+|\d+(?:[.,]\d+)?)\s*(k\b)?\s*(?:-\s*)?(?:words?|parole|palabras|mots|wörter|palavras)\b", re.I)
 PAGES_ASKED_RE = re.compile(r"(?<![\w.])(\d+)\s*(?:pages?|pagine|páginas|paginas|seiten)\b", re.I)
@@ -249,9 +257,9 @@ def parse_hint(text: str) -> Optional[Dict[str, Any]]:
     return {"mode": mode, "words": words, "parts": chunk_count(words), "reason": "asked", "text": body, "fields": fields}
 
 
-def detect_long_request(text: str, source_words: int = 0) -> Optional[Dict[str, Any]]:
-    """A request that needs parts, found by plain rules, or None. `source_words` are the words of an attached text. The answer holds the
-    mode, the words the text will have, the number of parts and why."""
+def detect_long_request(text: str, source_words: int = 0, min_tokens: int = LONG_MIN_TOKENS) -> Optional[Dict[str, Any]]:
+    """A request that needs parts, found by plain rules, or None. `source_words` are the words of an attached text; `min_tokens`, the answer
+    length above which a text goes in parts (long_min_tokens). The answer holds the mode, the words the text will have, the number of parts and why."""
     if not isinstance(text, str) or not text.strip():
         return None
     typed, asked = count_words(text), asked_words(text)
@@ -259,7 +267,7 @@ def detect_long_request(text: str, source_words: int = 0) -> Optional[Dict[str, 
     lang = request_language(text)
 
     def over(words: int, times: int = 1) -> bool:
-        return tokens_for_words(words, lang) > times * LONG_MIN_TOKENS
+        return tokens_for_words(words, lang) > times * min_tokens
 
     def found(mode: str, words: int, reason: str) -> Dict[str, Any]:
         return {"mode": mode, "words": words, "tokens": tokens_for_words(words, lang), "parts": chunk_count(words), "reason": reason}

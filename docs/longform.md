@@ -50,6 +50,17 @@ same engine as the harness (estimate, plan, parts, checks) on the conversation's
 (default `.tadamoo/artifacts/`); it never replaces an existing file and returns where the text is and how long. The writer sees only the brief, so the
 brief holds the outline, the tone and what the earlier texts said. Where the model does not call it, a long text it writes by itself is as unreliable as without the control.
 
+## Where the threshold comes from, and the rescue
+
+A text asked for above a number of answer tokens is written in parts. The number was fixed (3,000). When the server has measured the model
+([length](configuration/length.md)), the number follows it: 60 % of the tokens the model is known to write well in one reply, thinking
+included (`long_min_tokens`, at least 500), so a model that writes 40,000 tokens well answers a 6,000-word report in one go and a weaker one
+gets parts earlier. The harness asks `GET /v1/status` (`length.limit_tokens`) at most once a minute; with no measure the old number applies.
+
+When the thinking uses the whole output and no answer comes (`empty`), on a request with no tool work, the harness hands the request to this
+engine: the estimate decides whether the text is long, and if so it is written in parts, where the thinking cannot take its room. The thinking
+itself is never cut.
+
 ## The segmented mode
 
 For a final text that is too long for one turn the text is planned, then written one **segment** per model call (about 2000 words, never

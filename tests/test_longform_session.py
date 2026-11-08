@@ -403,3 +403,58 @@ def test_the_model_is_told_when_the_control_is_on_and_when_it_goes_off_and_only_
         ev.wait("done", after=seen)
     states = [m["content"] for m in built.agent.messages if str(m.get("content")).startswith("[state]")]
     assert len(states) == 2 and "long_answer=on (write, about 3000 words)" in states[0] and states[1] == "[state] long_answer=off"
+
+
+# -- the length of this model decides, and a thinking that used the whole output is rescued ----------------------------------
+
+def empty(finish="length"):
+    return {"choices": [{"message": {"role": "assistant", "content": "", "reasoning_content": "thinking on and on"}, "finish_reason": finish}]}
+
+
+class Measured(Model):
+    limit = 0
+
+    def length_limit(self, timeout=3.0):
+        return self.limit
+
+
+def test_a_measured_length_moves_the_threshold_of_a_long_text():
+    assert lf.long_min_tokens(0) == lf.LONG_MIN_TOKENS
+    assert lf.long_min_tokens(20000) == 12000 and lf.long_min_tokens(100) == lf.LONG_MIN_FLOOR
+    text = "Write a report of 6000 words about the rivers of Europe"
+    assert lf.detect_long_request(text) is not None
+    assert lf.detect_long_request(text, min_tokens=lf.long_min_tokens(40000)) is None            # this model writes that in one go
+    assert lf.detect_long_request(text, min_tokens=lf.long_min_tokens(6000)) is not None
+
+
+def test_a_model_known_to_write_long_replies_is_left_to_answer_a_report_in_one_go(tmp_path):
+    model = Measured(say("Eccolo."))
+    model.limit = 40000
+    session, ev, built = session_with(tmp_path, model, unattended=True)
+    session.send("m1", ASK_EN)
+    done = ev.wait("done")
+    assert done["final"] == "Eccolo." and model.calls == [] and ev.progress() == []
+
+
+def test_without_a_measure_the_general_threshold_still_applies(tmp_path):
+    model = Measured()
+    session, ev, built = session_with(tmp_path, model, unattended=True)
+    session.send("m1", ASK_EN)
+    assert ev.wait("done")["final"].count("Opening paragraph of chapter") == 3
+
+
+def test_a_thinking_that_used_the_whole_output_is_rescued_by_writing_the_text_in_parts(tmp_path):
+    model = Measured(empty(), empty())
+    session, ev, built = session_with(tmp_path, model, unattended=True)
+    session.send("m1", "Explain how rivers shape the valleys they cross")
+    done = ev.wait("done")
+    assert done["stop_reason"] == al.FINAL and done["final"].count("Opening paragraph of chapter") == 3, done
+    assert [p["event"] for p in ev.progress()][0] == "estimate"
+
+
+def test_a_rescue_is_not_made_when_the_estimate_says_it_is_short_and_not_after_tool_work(tmp_path):
+    model = Measured(empty(), empty(), estimate=900)
+    session, ev, built = session_with(tmp_path, model, unattended=True)
+    session.send("m1", "Explain how rivers shape the valleys they cross")
+    done = ev.wait("done")
+    assert done["stop_reason"] == al.EMPTY and ev.progress()[0]["long"] is False
