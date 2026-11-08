@@ -106,10 +106,8 @@ Server options. Command line `--name`, config `server` block `"name"`.
 | `debug` | switch | off | One log line per request and the raw model text after each reply. |
 | `request-lines` | switch | off | Echo the engine's per-request summary on stdout, for a supervisor that sees only that output. |
 | `temperature`, `top-p`, `top-k`, `min-p`, `presence-penalty`, `frequency-penalty`, `repetition-penalty`, `penalty-last-n`, `seed` | number (`top-k`, `penalty-last-n`, `seed`: integer) | the model file's `sampling` value, else the engine's | The sampling default for a request that leaves that field out, over the model file's. Same meaning and allowed values as the [model file's sampling keys](sampling.md#the-model-files-sampling-defaults). The server applies them to each request; the engine never sees them. |
-| `reasoning-budget-tokens` | integer | `0` (none) | The thinking budget for a request that names none (see [sampling](sampling.md#the-thinking-budget)). At the budget the thinking is closed and the answer starts. A request's own field wins, and `0` there disables budgeting. Positive budgets are also limited by `answer-room`. |
 | `thinking-loop-tokens` | integer | `0` (never) | End the thinking, and let the model answer, when it repeats one token this many times in a row inside the thinking. See [Thinking loops](sampling.md#thinking-loops). |
-| `answer-room` | switch (`--answer-room` or `answer-room: true` turns it on) | off | Reserve space for closing the thinking and for the answer when the effective output cap is at least 1024 tokens; this cuts a long thinking short. A request budget of `0` opts out. See [sampling](sampling.md). |
-| `max-answer-tokens` | integer | `0` (none) | The most the answer text may take, not counting the thinking, for a request that names none (`max_answer_tokens`). The reply then ends as `length`. |
+| `answer-room` | switch (`--answer-room` or `answer-room: true` turns it on) | off | Reserve space for closing the thinking and for the answer when the effective output cap is at least 1024 tokens; this cuts a long thinking short. A request budget of `0` or `-1` opts out. See [sampling](sampling.md). |
 | `passage-loop-tokens`, `passage-loop-times`, `passage-loop-window` | integer | `12`, `4`, `2000` | An answer that writes the same passage of this many tokens this many times within this many tokens ends as `length`; `passage-loop-tokens` `0` turns it off. Code blocks and groups of three or fewer different tokens never count. |
 | `measure-length` | switch (`--no-measure-length` turns it off) | on | At a model's first load, measure how long a reply it writes by itself and keep it with the model; see [length](length.md). |
 | `tokenizer` | path | `pack/full/tokenizer` in the source tree (a byte tokenizer if absent) | Tokenizer directory. Mock engine only. |
@@ -273,9 +271,9 @@ reports the defaults in effect.
 
 Other request fields the API reads: `max_tokens` / `max_completion_tokens` (the Anthropic `max_tokens`; `0` or
 `-1` means the rest of the context), `stop` / `stop_sequences`, `logit_bias`, `reasoning_effort`, `enable_thinking`
-and `reasoning_budget_tokens` (a cap on thinking tokens; `0` is none). Anthropic's `thinking.budget_tokens` and
+and `reasoning_budget_tokens` (a cap on thinking tokens; `0` or `-1` is no limit). Anthropic's `thinking.budget_tokens` and
 llama.cpp's `thinking_budget_tokens` are the same budget, and `reasoning_budget_tokens` wins when more than one is
-sent. A request that names none of them takes the server's [`reasoning-budget-tokens`](#server).
+sent. A request that names none of them has no thinking budget.
 
 ### The model file's sampling defaults
 

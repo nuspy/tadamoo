@@ -10,7 +10,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-from serve.config import PARALLEL_MAX, REMOVED_ENGINE_KEYS, SIDE_SLOT_DEFAULT, SIDE_SLOT_MIN, build_parser, parse_settings
+from serve.config import PARALLEL_MAX, REMOVED_ENGINE_KEYS, REMOVED_SERVER_KEYS, SIDE_SLOT_DEFAULT, SIDE_SLOT_MIN, build_parser, parse_settings
 from serve.engine.vision import VISION_MODES, vision_mode
 
 KV_MODES = ("fp16", "int8", "q4_0", "k8v4")          # the engine's --kv (q4 is read as q4_0)
@@ -43,9 +43,9 @@ LOADER_FIELDS = (("server", "port"), ("server", "parallel"), ("server", "slot-fu
                  ("engine", "conversation-cache-min-free-mib"),
                  # context extension, fixed for the run
                  ("engine", "rope-scaling"), ("engine", "rope-scale"), ("engine", "rope-freq-base"),
-                 ("server", "grammar"), ("server", "reasoning-budget-tokens"),
+                 ("server", "grammar"),
                  # what ends or limits the thinking and the answer
-                 ("server", "answer-room"), ("server", "thinking-loop-tokens"), ("server", "max-answer-tokens"),
+                 ("server", "answer-room"), ("server", "thinking-loop-tokens"),
                  ("server", "passage-loop-tokens"), ("server", "passage-loop-times"), ("server", "passage-loop-window"),
                  ("server", "thinking-passage-loop-tokens"), ("server", "thinking-passage-loop-times"), ("server", "thinking-passage-loop-window"),
                  ("server", "measure-length"))
@@ -67,7 +67,7 @@ RESIDENT_BUDGET_MAX_GIB = 65536
 PROFILE_SAVE_EVERY_MAX = 525600                      # minutes: a year
 PATH_MAX = 1024
 # fields an older saved file, profile or form may still carry: ignored, and dropped when the file is next saved
-REMOVED_KEYS = frozenset(f"engine.{k}" for k in REMOVED_ENGINE_KEYS)
+REMOVED_KEYS = frozenset([f"engine.{k}" for k in REMOVED_ENGINE_KEYS] + [f"server.{k}" for k in REMOVED_SERVER_KEYS])
 RESTART_NOTE = "Saved to the config file. The running server keeps its settings until it is started again."
 
 
@@ -222,7 +222,7 @@ def check_value(section: str, key: str, value):
         return _number(value, what, 0, PROFILE_SAVE_EVERY_MAX, "a number of minutes (0 = on exit only)")
     if key == "prompt-cache":
         return _whole(value, what, 0, PROMPT_CACHE_MAX)
-    if key in ("prompt-cache-every", "prompt-cache-root", "reasoning-budget-tokens", "thinking-loop-tokens", "max-answer-tokens",
+    if key in ("prompt-cache-every", "prompt-cache-root", "thinking-loop-tokens",
                "passage-loop-tokens", "passage-loop-times", "passage-loop-window",
                "thinking-passage-loop-tokens", "thinking-passage-loop-times", "thinking-passage-loop-window"):
         return _whole(value, what, 0, CONTEXT_MAX)
@@ -330,6 +330,9 @@ def merge(raw: dict, changes: dict, fields=FIELDS) -> tuple[dict, list[str]]:
     if isinstance(out.get("engine"), dict):
         for k in [k for k in out["engine"] if norm(k) in REMOVED_ENGINE_KEYS]:
             del out["engine"][k]
+    if isinstance(out.get("server"), dict):
+        for k in [k for k in out["server"] if norm(k) in REMOVED_SERVER_KEYS]:
+            del out["server"][k]
     for section in ("server", "engine"):
         if section in out and out[section] == {} and section not in raw:
             del out[section]

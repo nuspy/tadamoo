@@ -29,7 +29,7 @@ NEW = {"engine.kv-resident": 40960, "engine.resident-budget-gib": 24.5, "engine.
        "engine.prompt-cache": 3, "engine.prompt-cache-every": 8192, "engine.prompt-cache-root": 0,
        "engine.conversation-cache-mib": 2048, "engine.conversation-cache-slots": 2,
        "engine.conversation-cache-min-free-mib": 4096, "engine.rope-scaling": "yarn", "engine.rope-scale": 2,
-       "engine.rope-freq-base": 1000000, "server.grammar": False, "server.reasoning-budget-tokens": 4096}
+       "engine.rope-freq-base": 1000000, "server.grammar": False, "server.thinking-loop-tokens": 4096}
 
 
 def item(p, bar, key):
@@ -50,8 +50,8 @@ class Validation(unittest.TestCase):
               ("engine", "conversation-cache-min-free-mib", 2560, 2560),
               ("engine", "rope-scaling", "YaRN", "yarn"), ("engine", "rope-scale", 1, 1), ("engine", "rope-scale", "2.5", 2.5),
               ("engine", "rope-freq-base", 0, 0), ("engine", "rope-freq-base", 1000000, 1000000),
-              ("server", "grammar", False, False), ("server", "reasoning-budget-tokens", 0, 0),
-              ("server", "reasoning-budget-tokens", 2048, 2048)]
+              ("server", "grammar", False, False), ("server", "thinking-loop-tokens", 0, 0),
+              ("server", "thinking-loop-tokens", 2048, 2048)]
         for section, key, value, want in ok:
             self.assertEqual(settings.check_value(section, key, value), want, (key, value))
 
@@ -72,7 +72,8 @@ class Validation(unittest.TestCase):
                ("engine", "rope-scaling", "ntk"), ("engine", "rope-scaling", 1), ("engine", "rope-scale", 0.5),
                ("engine", "rope-scale", 0), ("engine", "rope-freq-base", 0.5), ("engine", "rope-freq-base", 1),
                ("engine", "rope-freq-base", -3), ("server", "grammar", "off"), ("server", "grammar", 0),
-               ("server", "reasoning-budget-tokens", -1), ("server", "reasoning-budget-tokens", "many")]
+               ("server", "thinking-loop-tokens", -1), ("server", "thinking-loop-tokens", "many"),
+               ("server", "reasoning-budget-tokens", 2048), ("server", "max-answer-tokens", 0)]
         for section, key, value in bad:
             with self.assertRaises(ValueError, msg=(key, value)):
                 settings.check_value(section, key, value)
@@ -114,7 +115,7 @@ class ConfigFile(unittest.TestCase):
         self.assertIs(raw["server"]["grammar"], False)
         a, _argv, file_words, _cli = config.parse_settings(settings._parser(), ["--config", self.path])
         self.assertFalse(a.grammar)
-        self.assertEqual(a.reasoning_budget_tokens, 4096)
+        self.assertEqual(a.thinking_loop_tokens, 4096)
         for words in (["--kv-resident", "40960"], ["--resident-budget-gib", "24.5"], ["--adapt-swaps", "0"],
                       ["--prefill-cpu-share", "0.25"], ["--vram-elastic"], ["--keep-vram-commit"],
                       ["--expert-profile-save", "profiles/learned.json"], ["--expert-profile-save-every", "5"],
@@ -323,7 +324,7 @@ class SavedConfigurations(unittest.TestCase):
         profiles.apply("Lunga", cfg)
         raw = json.loads(Path(cfg).read_text(encoding="utf-8"))
         self.assertEqual((raw["engine"]["prompt-cache"], raw["engine"]["rope-scaling"], raw["server"]["grammar"],
-                          raw["server"]["reasoning-budget-tokens"]), (3, "yarn", False, 4096))
+                          raw["server"]["thinking-loop-tokens"]), (3, "yarn", False, 4096))
 
     def test_an_older_configuration_without_them_loads_and_takes_the_defaults(self):
         old = {"engine.max-context": 65536, "engine.kv": "int8", "server.port": 7300}
@@ -332,6 +333,11 @@ class SavedConfigurations(unittest.TestCase):
         e = loader.effective(profiles.get_load("Vecchia"))
         self.assertEqual((e["engine.adapt-swaps"], e["server.grammar"], e["engine.prompt-cache"]), (96, True, 6))
         self.assertEqual(profiles.listing()["load"][1]["summary"]["text"], "64K · int8 · no MTP · technical session 30000")
+
+    def test_an_older_profile_that_holds_the_removed_fields_loads_without_them(self):
+        profiles.change({"action": "save", "name": "Prima", "values": {"engine.kv": "int8", "server.reasoning-budget-tokens": 4096,
+                                                                       "server.max-answer-tokens": 9000}})
+        self.assertEqual(profiles.get_load("Prima"), {"engine.kv": "int8"})
 
     def test_a_bad_or_contradictory_configuration_is_refused(self):
         for values in ({"engine.kv-resident": 5}, {"engine.rope-scaling": "ntk"}, {"engine.kv": "k8v4", "engine.kv-resident": 30000},
@@ -355,7 +361,7 @@ class SavedConfigurations(unittest.TestCase):
     def test_the_running_server_reports_the_new_fields(self):
         a = mock.Mock(port=7232, parallel=None, vision="off", vision_projector="auto", vision_hold="keep",
                       slot_full_context=False, shared_context=None, config=None, model=None, grammar=False,
-                      reasoning_budget_tokens=2048)
+                      thinking_loop_tokens=2048)
         words = ["--kv-resident", "30000", "--mmap-experts", "--rope-scaling", "linear", "--adapt-swaps", "12",
                  "--resident-budget-gib", "8.5", "--expert-profile-save", "p.json"]
         running = supervisor.settings_info(a, words, [])["running"]
@@ -363,7 +369,9 @@ class SavedConfigurations(unittest.TestCase):
                           running["engine.adapt-swaps"], running["engine.resident-budget-gib"],
                           running["engine.expert-profile-save"]), (30000, True, "linear", 12, 8.5, "p.json"))
         self.assertIsNone(running["engine.prompt-cache"])
-        self.assertEqual((running["server.grammar"], running["server.reasoning-budget-tokens"]), (False, 2048))
+        self.assertEqual((running["server.grammar"], running["server.thinking-loop-tokens"]), (False, 2048))
+        self.assertNotIn("server.reasoning-budget-tokens", running)
+        self.assertNotIn("server.max-answer-tokens", running)
 
 
 def settings_checked(values):

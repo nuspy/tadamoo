@@ -26,13 +26,14 @@ const chatSettings = (() => {
     { key: "end_turn_bias", min: -20, max: 0, step: 0.1, kind: "float", help: true },
   ];
   const OTHER = [
-    { key: "reasoning_budget_tokens", id: "cs-budget", min: 0, kind: "int", label: "cs.budget" },
-    { key: "max_tokens", id: "cs-max_tokens", min: 1, kind: "int", label: "cs.max_tokens" },
+    { key: "reasoning_budget_tokens", id: "cs-budget", min: -1, kind: "int", label: "cs.budget" },
+    { key: "max_tokens", id: "cs-max_tokens", min: -1, kind: "int", label: "cs.max_tokens" },
     { key: "retries", id: "cs-retries", min: 0, max: 5, kind: "int", label: "cs.retries" },
     { key: "max_turns", id: "cs-max_turns", min: -1, kind: "int", label: "cs.max_turns" },     // for the Agent, not for the model: -1 or empty is no limit
-    { key: "max_answer_tokens", id: "cs-max_answer_tokens", min: 1, kind: "int", label: "cs.max_answer_tokens" },
+    { key: "max_answer_tokens", id: "cs-max_answer_tokens", min: -1, kind: "int", label: "cs.max_answer_tokens" },
     { key: "auto_continue", id: "cs-auto_continue", min: 0, max: 20, kind: "int", label: "cs.auto_continue" },     // for the Chat's own continuing, not sent to the model
   ];
+  const NO_LIMIT = ["reasoning_budget_tokens", "max_tokens", "max_answer_tokens"];
   const AUTO_CONTINUE = 4;
   // what the engine does with a key that neither the request nor the model file sets (the GEN line's defaults)
   const ENGINE_SAMPLING = { temperature: 0, top_p: 1, top_k: 20, min_p: 0, repetition_penalty: 1,
@@ -133,7 +134,7 @@ const chatSettings = (() => {
     for (const f of fieldsOf()) {
       if (s[f.key] === "" || problem(f, s[f.key])) continue;
       const n = Number(s[f.key]);
-      if (f.key === "reasoning_budget_tokens" && n === 0) continue;
+      if (NO_LIMIT.includes(f.key) && n <= 0) continue;         // 0 or -1: no limit, the field is left out
       if (f.key === "retries" || f.key === "max_turns" || f.key === "auto_continue") continue;
       out[f.key] = n;
     }

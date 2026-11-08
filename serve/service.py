@@ -130,9 +130,7 @@ class Service:
         self.min_free_vram_mib = 0
         self.before_load = None
         self.vram_reserve = None                         # last POST /v1/vram reserve (None: the start's)
-        self.reasoning_budget_tokens = 0                 # default thinking budget (0: none)
         self.repeat_ngram = REPEAT_NGRAM                 # see REPEAT_NGRAM
-        self.max_answer_tokens = 0                       # default cap on the answer text, apart from the thinking (0: none)
         self.lengths = None                              # serve.lengthprobe.Lengths: how long a reply this model writes well
         self.measure_length = True                       # measure it at the model's first load
         self.answer_room = True                          # reserve output space when thinking
@@ -187,8 +185,8 @@ class Service:
             return False
         return not hasattr(self.engine, "alive") or self.engine.alive()
 
-    def reasoning_budget(self, req, *, use_default: bool = True) -> int | None:
-        """The request's thinking budget in tokens, or None (0 or less: none); ValueError for a non-integer."""
+    def reasoning_budget(self, req) -> int | None:
+        """The request's thinking budget in tokens, or None (absent, 0 or -1: no limit); ValueError for a non-integer."""
         req = req if isinstance(req, dict) else {}
         value = req.get("reasoning_budget_tokens")
         if value is None:                               # llama.cpp's name for the same budget
@@ -197,26 +195,20 @@ class Service:
             thinking = req.get("thinking")
             value = thinking.get("budget_tokens") if isinstance(thinking, dict) else None
         if value is None:
-            value = self.reasoning_budget_tokens if use_default else None
-        if value is None:
             return None
         if isinstance(value, float) and value.is_integer():
             value = int(value)
         if isinstance(value, bool) or not isinstance(value, int):
-            raise ValueError(f"reasoning_budget_tokens: expected a whole number (0 = none), not {value!r}")
+            raise ValueError(f"reasoning_budget_tokens: expected a whole number (0 or -1 = no limit), not {value!r}")
         return value if value > 0 else None
 
     def apply_limits(self, a) -> None:
         """The limits of the thinking and the answer from the parsed options (the start, and a reload from the Loader)."""
-        budget = getattr(a, "reasoning_budget_tokens", None)
-        if budget is None or isinstance(budget, int):
-            self.reasoning_budget_tokens = budget or 0
         if isinstance(getattr(a, "answer_room", None), bool):
             self.answer_room = a.answer_room
-        for name in ("thinking_loop_tokens", "max_answer_tokens"):
-            value = getattr(a, name, None)
-            if isinstance(value, int) and not isinstance(value, bool):
-                setattr(self, name, value)
+        value = getattr(a, "thinking_loop_tokens", None)
+        if isinstance(value, int) and not isinstance(value, bool):
+            self.thinking_loop_tokens = value
         if isinstance(getattr(a, "measure_length", None), bool):
             self.measure_length = a.measure_length
         n, times, window = (getattr(a, "thinking_passage_loop_" + k, None) for k in ("tokens", "times", "window"))
@@ -228,21 +220,21 @@ class Service:
 
     def answer_cap(self, req) -> int:
         """The request's `max_answer_tokens`: the most the answer text may take, not counting the thinking (0: none); ValueError for a
-        value that is not a whole number of 0 or more. The reply ends as "length" when it is reached."""
+        value that is not a whole number. 0 or -1 = no limit. The reply ends as "length" when it is reached."""
         value = (req if isinstance(req, dict) else {}).get("max_answer_tokens")
         if value is None:
-            return self.max_answer_tokens
+            return 0
         if isinstance(value, float) and value.is_integer():
             value = int(value)
-        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-            raise ValueError(f"max_answer_tokens: a whole number of tokens, 0 or more (0 = none), not {value!r}")
-        return value
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"max_answer_tokens: a whole number of tokens (0 or -1 = no limit), not {value!r}")
+        return max(value, 0)
 
     def answer_budget(self, req, max_new: int, budget: int | None) -> int | None:
         """Limit thinking to leave answer space; an explicit non-positive request budget opts out."""
         if not self.answer_room or max_new < ANSWER_ROOM_MIN_CAP:
             return budget
-        request_budget = self.reasoning_budget(req, use_default=False)
+        request_budget = self.reasoning_budget(req)
         # None also means an absent field: distinguish it from an explicit opt-out.
         req = req if isinstance(req, dict) else {}
         thinking = req.get("thinking")
@@ -1347,7 +1339,7 @@ class Service:
                                             dl, hit_rate, pcie_share), flush=True)
                             if finish == "length" and parser.state == "reasoning":
                                 print("[server] warning: max tokens reached while thinking, no answer "
-                                      "(set reasoning_budget_tokens, or start with --reasoning-budget-tokens)",
+                                      "(set reasoning_budget_tokens)",
                                       flush=True)
                             if DEBUG and raw_ids:
                                 print(f"[server] raw: {self.tok.decode(raw_ids)!r}", flush=True)

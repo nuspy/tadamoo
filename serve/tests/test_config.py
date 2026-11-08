@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import re
@@ -289,16 +291,20 @@ class SamplingOptions(unittest.TestCase):
 
 
 class ThinkingBudget(unittest.TestCase):
-    """reasoning-budget-tokens is the launch default for the request field of the same name; the field itself and
-    what a budget does to a reply are covered in test_server's ThinkingBudget (Service level)."""
+    """The thinking budget and the answer limit are request fields only: the server has no option for them, and a
+    saved file that still holds them loads. What a budget does to a reply is covered in test_server's ThinkingBudget."""
 
-    def test_left_out_the_request_decides(self):
-        self.assertIsNone(parse([])[0].reasoning_budget_tokens)
+    def test_the_server_has_no_option_for_them(self):
+        a = parse([])[0]
+        self.assertFalse(hasattr(a, "reasoning_budget_tokens") or hasattr(a, "max_answer_tokens"))
+        for flag in ("--reasoning-budget-tokens", "--max-answer-tokens"):
+            with self.subTest(flag=flag), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                build_parser().parse_args([flag, "10"])
 
-    def test_a_bad_budget_is_refused(self):
-        for bad in ("-1", "-3072", "lots", "1.5", ""):
-            with self.subTest(value=bad), self.assertRaises(SystemExit):
-                parse(["--reasoning-budget-tokens", bad])
+    def test_an_old_config_file_still_loads_and_the_keys_are_ignored(self):
+        a = parse([], {"server": {"reasoning-budget-tokens": 4096, "max_answer_tokens": 9000, "grammar": False}})[0]
+        self.assertFalse(a.grammar)
+        self.assertFalse(hasattr(a, "reasoning_budget_tokens") or hasattr(a, "max_answer_tokens"))
 
 
 class SlotContext(unittest.TestCase):

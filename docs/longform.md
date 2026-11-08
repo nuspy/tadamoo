@@ -27,7 +27,7 @@ field), `serve/web/longform.js` and `longform.css` (the control), `tadamoo/sessi
   of every part against what was asked and writes a short part again.
 - **`max_answer_tokens`** (a request field and a Chat setting, *Max answer tokens*): the most the answer text may take, not counting the
   thinking. `max_tokens` is one budget for thinking and answer together; this one is for the answer alone. The reply ends as `length`
-  and the final chunk carries `answer_capped: true`. The server default is off (`Service.max_answer_tokens`).
+  and the final chunk carries `answer_capped: true`. `0` or `-1` means no limit, which is also what a request without it gets.
 - **Loop guard for a passage.** Besides the guard for one token repeated 256 times, a passage of 12 tokens written 4 times, apart from
   each other, within the last 2000 tokens ends the reply as `length`, with a warning line in the server window and `repeated: true` in
   the final chunk. A group of at most 3 different tokens (a table rule, a row of dashes) and everything inside a code fence are never

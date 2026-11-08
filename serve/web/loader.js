@@ -42,10 +42,8 @@
     { group: "server", name: "server.vision-projector", kind: "choice", options: ["embedded"] },   // the options come with each plan
     { group: "server", name: "server.vision-hold", kind: "choice", options: ["keep", "release"] },
     { group: "server", name: "server.grammar", kind: "bool" },
-    { group: "server", name: "server.reasoning-budget-tokens", kind: "int", min: 0, max: 2147483639, step: 256 },
     { group: "server", name: "server.answer-room", kind: "bool" },
     { group: "server", name: "server.thinking-loop-tokens", kind: "int", min: 0, max: 2147483639, step: 64 },
-    { group: "server", name: "server.max-answer-tokens", kind: "int", min: 0, max: 2147483639, step: 256 },
     { group: "server", name: "server.measure-length", kind: "bool" },
     { group: "server", name: "server.thinking-passage-loop-tokens", kind: "int", min: 0, max: 2147483639, step: 1 },
     { group: "server", name: "server.thinking-passage-loop-times", kind: "int", min: 0, max: 2147483639, step: 1 },

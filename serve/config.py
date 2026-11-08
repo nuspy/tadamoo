@@ -23,6 +23,7 @@ SIDE_SLOT_MAX = 2147483639
 CONFIG_PATHS = ("model", "tokenizer")       # relative to the config file
 RELAUNCH_EXIT_CODE = 75                     # --relaunch-on-model-change: start me again (EX_TEMPFAIL)
 GRAMMAR_DEFAULT = True                      # the `grammar` option when neither the file nor the command line sets it
+REMOVED_SERVER_KEYS = ("reasoning-budget-tokens", "max-answer-tokens")   # server options a saved file may still hold: dropped
 REMOVED_ENGINE_KEYS = ("spec-min-p",)       # engine flags a saved file may still hold: dropped, the engine no longer has them
 
 
@@ -108,6 +109,8 @@ def load_config_file(path: str, ap: argparse.ArgumentParser) -> tuple[list[str],
             raise ValueError("api-key can't be set in a config file; pass --api-key on the command line")
     for key, value in sections["server"].items():
         name = str(key).strip().lower().replace("_", "-").removeprefix("--")
+        if name in REMOVED_SERVER_KEYS:
+            continue
         act = known.get(name)
         if name == "engine-bin":
             raise ValueError("server.engine-bin: engine-bin is set by basalt serve")
@@ -529,10 +532,6 @@ def build_parser() -> argparse.ArgumentParser:
                          "unless you save it from the page")
     ap.add_argument("--request-log-mib", type=float, default=32.0, metavar="MIB",
                     help="memory the request log may use (default 32); the oldest entries are dropped beyond it")
-    ap.add_argument("--reasoning-budget-tokens", type=budget_count, default=None, metavar="N",
-                    help="default thinking budget for requests that leave reasoning_budget_tokens out (0 = none): at "
-                         "the budget the thinking is closed and the answer starts, so set it below the request's "
-                         "max_tokens")
     ap.add_argument("--thinking-loop-tokens", type=budget_count, default=0, metavar="N",
                     help="end the thinking and let the model answer when it repeats one token this many times in a "
                          "row inside the thinking (default 0 = never; the thinking is never cut otherwise)")
@@ -544,9 +543,6 @@ def build_parser() -> argparse.ArgumentParser:
                          "a loop is --thinking-passage-loop-times copies within --thinking-passage-loop-window tokens. The copies are left out of what the answer reads")
     ap.add_argument("--thinking-passage-loop-times", type=budget_count, default=5, metavar="N", help="copies of a passage in the thinking that make a loop")
     ap.add_argument("--thinking-passage-loop-window", type=budget_count, default=3000, metavar="N", help="tokens of the thinking a loop is looked for in")
-    ap.add_argument("--max-answer-tokens", type=budget_count, default=0, metavar="N",
-                    help="the most the answer text may take, not counting the thinking, for requests that leave "
-                         "max_answer_tokens out (0 = none); the reply then ends as cut")
     ap.add_argument("--measure-length", action=argparse.BooleanOptionalAction, default=True,
                     help="measure once, when a model is first loaded, how long a reply it writes: a text with no end under a cap of 30000 tokens "
                          "that the server counts, with the thinking off, kept with the model; a reply above it raises the number. Takes minutes of GPU")
