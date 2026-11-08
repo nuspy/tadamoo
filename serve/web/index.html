@@ -122,9 +122,9 @@
     <button class="tab" role="tab" id="tab-cron" data-view="cron" aria-controls="view-cron" aria-selected="false" tabindex="-1" data-t="tab.cron">Cron Jobs</button>
     <button class="tab" role="tab" id="tab-stats" data-view="stats" aria-controls="view-stats" aria-selected="true" data-t="tab.stats">Monitor</button>
     <button class="tab" role="tab" id="tab-loader" data-view="loader" aria-controls="view-loader" aria-selected="false" tabindex="-1" data-t="tab.loader">Models</button>
+    <button class="tab" role="tab" id="tab-rag" data-view="rag" aria-controls="view-rag" aria-selected="false" tabindex="-1" data-t="tab.rag">Knowledge</button>
     <button class="tab" role="tab" id="tab-canary" data-view="canary" aria-controls="view-canary" aria-selected="false" tabindex="-1" data-t="tab.canary">Canary</button>
     <button class="tab" role="tab" id="tab-settings" data-view="settings" aria-controls="view-settings" aria-selected="false" tabindex="-1" data-t="tab.settings">Settings</button>
-    <button class="tab" role="tab" id="tab-rag" data-view="rag" aria-controls="view-rag" aria-selected="false" tabindex="-1" data-t="tab.rag">Knowledge</button>
   </nav>
   <span class="grow"></span>
   <button type="button" class="pal-open" id="pal-open" aria-haspopup="dialog" aria-keyshortcuts="Control+K"><span data-t="pal.open">Find a command</span> <kbd>Ctrl K</kbd></button>
@@ -892,15 +892,15 @@
     <p class="sr" id="wl-live" role="status" aria-live="polite"></p>
     <div class="wl-grid" id="wl-root"></div>
   </div>
-  <div class="view settings" id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
-    <section class="sec stlang" data-sub="general" aria-labelledby="st-lang-h">
-      <div class="sh"><b id="st-lang-h" data-t="st.lang.title">Language</b></div>
   <div class="view rg" id="view-rag" role="tabpanel" aria-labelledby="tab-rag" hidden>
     <section class="sec rg-sec" aria-labelledby="rg-h">
       <div class="sh"><b id="rg-h" data-t="rg.title">Knowledge</b></div>
       <div class="pad rg-root" id="rg-root"></div>
     </section>
   </div>
+  <div class="view settings" id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+    <section class="sec stlang" data-sub="general" aria-labelledby="st-lang-h">
+      <div class="sh"><b id="st-lang-h" data-t="st.lang.title">Language</b></div>
       <div class="stlang-body">
         <label for="st-lang" data-t="st.lang.label">Language</label>
         <select id="st-lang" aria-describedby="st-lang-h">
