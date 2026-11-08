@@ -56,6 +56,7 @@ class FakeApi:
         self.sessions = 0
         self._seq = 0
         self.down = False
+        self.temperature = None
 
     # -- requests
     def _check(self):
@@ -87,9 +88,10 @@ class FakeApi:
         self._seq += len(batch)
         return {"events": batch, "next": self._seq, "state": "busy"}
 
-    def chat_stream(self, messages, max_tokens=400, timeout=120.0):
+    def chat_stream(self, messages, max_tokens=400, timeout=120.0, temperature=None):
         self._check()
         self.calls.append(("CHAT", messages, max_tokens))
+        self.temperature = temperature
         if self.chat_error:
             raise self.chat_error
         yield from self.pieces

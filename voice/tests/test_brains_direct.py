@@ -122,3 +122,13 @@ def test_ask_stream_is_the_model_alone_with_everything_kept():
     msgs = [c for c in api.calls if c[0] == "CHAT"][-1][1]
     assert msgs == [{"role": "user", "content": "analyse this"}]
     assert not api.sent("/compose") and not log                                   # no personality, no history, not on the voice tab
+
+
+def test_the_direct_brain_asks_for_a_low_temperature_so_the_language_holds():
+    api = FakeApi()
+    b, _ = brain(api)
+    say(b, "ciao")
+    assert api.temperature == 0.3
+    b2, _ = brain(api, direct_temperature=0.5)
+    say(b2, "ciao")
+    assert api.temperature == 0.5

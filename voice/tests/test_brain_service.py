@@ -128,9 +128,11 @@ def test_a_server_that_is_not_there_is_an_api_error_with_status_zero():
 
 def test_the_stream_gives_the_content_and_not_the_reasoning(server):
     api = TadamooApi(f"http://127.0.0.1:{server}", "tok")
-    assert list(api.chat_stream([{"role": "user", "content": "hi"}], max_tokens=50)) == ["Hel", "lo."]
+    assert list(api.chat_stream([{"role": "user", "content": "hi"}], max_tokens=50, temperature=0.3)) == ["Hel", "lo."]
     sent = [s for s in Handler.seen if s[1] == "/v1/chat/completions"][0]
-    assert sent[3]["stream"] is True and sent[3]["max_tokens"] == 50
+    assert sent[3]["stream"] is True and sent[3]["max_tokens"] == 50 and sent[3]["temperature"] == 0.3
+    list(api.chat_stream([{"role": "user", "content": "hi"}]))
+    assert "temperature" not in [s for s in Handler.seen if s[1] == "/v1/chat/completions"][1][3]       # the server's own default when none is asked
 
 
 def test_a_refused_stream_is_an_api_error(server):

@@ -95,12 +95,6 @@ class Config:
     # mai catturata, quindi non innesca risposte. Niente TTS (output solo testo).
     copilot_enabled: bool = True
     push_to_talk_hotkey_copilot: str = "shift+f4"
-    # "Forza LLM esterna senza RAG": il copilota lascia l'agente locale e parla
-    # col provider assegnato a `copilot` nel tab Provider LLM. Si RINUNCIA al
-    # sapere delle persone (che vive in locale e non va spedito fuori) e agli
-    # strumenti dell'agente: in cambio si ha una conoscenza generale piu' ampia.
-    # Default False: il copilota resta locale, che e' cio' che abilita il RAG.
-    copilot_force_external: bool = False
     copilot_loopback_samplerate: int = 48000  # sample rate del device di uscita
     copilot_lang: str = "it"
     copilot_num_responses: int = 3            # n. di risposte suggerite (regolabile in GUI)
@@ -198,6 +192,9 @@ class Config:
     )
     direct_history_turns: int = 8           # recent turns kept in the rolling context
     direct_max_tokens: int = 400
+    # Low on purpose: at the server's own default temperature multilingual models switch alphabet in the middle of a sentence (Cyrillic or
+    # Chinese words in an Italian answer); at 0.3 that went away.
+    direct_temperature: float = 0.3
     agent_max_wait_s: float = 900.0         # how long one spoken request waits for the harness turn to end
     agent_poll_s: float = 0.7
     # Models of the services that read text with an OpenAI-compatible server (persona ingestion, the external LLM registry).
@@ -232,7 +229,6 @@ class Config:
     vllm_manager_url: str = "http://127.0.0.1:7860"
     vllm_model: str = ""                     # es. sahilchachra/Qwen3.6-35B-A3B-uncensored-heretic-AWQ
     vllm_ensure_timeout_s: float = 300.0     # quanto attendiamo il cold start (pesi + JIT)
-    persona_rag_top_k: int = 4               # chunk iniettati per battuta
     persona_ingest_chunk_tokens: int = 1800  # ~dimensione blocco (stima 4 char/token)
     persona_ingest_overlap_tokens: int = 200
 
@@ -401,14 +397,6 @@ class Config:
     # segfaulta senza ESPEAK_DATA_PATH.
     espeak_ng_exe: str = ""
     espeak_data_path: str = ""
-    # Temperatura della chat avatar. Non era impostata affatto: si prendeva il
-    # default del server (0,7-0,8), e a quella temperatura i modelli
-    # multilingue cambiano alfabeto in mezzo alla frase — misurato su
-    # ternary-bonsai-27b: "un sistema di обработка audio", "in inglês", frasi
-    # in cinese dentro una risposta italiana. A 0,3 il fenomeno e' sparito
-    # (0 caratteri estranei su 1373), a 0,7 restavano 4-8. Per una voce conta
-    # piu' la tenuta della lingua che la varieta' delle parole.
-    lmstudio_temperature: float = 0.3
     stt_language: str = ""                 # "" = autodetect; es. "it", "en"
     # Endpointing del client STT nativo. Usa il VAD SILERO (modello, robusto ai
     # mic a basso livello: non taglia la voce continua) se disponibile; altrimenti

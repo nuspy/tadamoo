@@ -118,7 +118,7 @@ class DirectBrain:
         error = ""
         stripper = spoken.CodeStripper()
         try:
-            for piece in api.chat_stream(self.messages(api, text), max_tokens=int(self.cfg.direct_max_tokens)):
+            for piece in api.chat_stream(self.messages(api, text), max_tokens=int(self.cfg.direct_max_tokens), temperature=float(self.cfg.direct_temperature)):
                 raw.append(piece)
                 clean = stripper.feed(piece)
                 if clean:
