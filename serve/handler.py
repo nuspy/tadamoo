@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
 from tadamoo import exec_level, nextsteps, persistence, side_uses
-from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, voice_api, voice_settings
+from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, voice_api, voice_service, voice_settings
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX, checked_sampling
 from serve.engine.vision import VISION_MODES
@@ -595,10 +595,10 @@ def make_handler(svc: Service, remote: bool = False):
                                    else api.job((query.get("id") or [""])[0]))
                     except WebSearchError as e:
                         self._json(404 if e.code == "not_found" else 400, {"error": {"type": "websearch", "code": e.code, "message": str(e)}})
-            elif path in ("/api/voice/models", "/api/voice/download/plan", "/api/voice/download/status"):
+            elif path in ("/api/voice/models", "/api/voice/download/plan", "/api/voice/download/status", "/api/voice/service"):
                 if self._authorized():
                     if not settings.is_loopback(self.client_address[0]):
-                        return self._json(403, {"error": {"type": "forbidden", "message": "the voice models are shown only on the PC the server runs on"}})
+                        return self._json(403, {"error": {"type": "forbidden", "message": "the voice models and service are shown only on the PC the server runs on"}})
                     self._voice_get(path, parse_qs(urlsplit(self.path).query))
             elif path == "/api/mcp/auth":
                 if self._authorized():
@@ -2327,6 +2327,9 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, voice_api.overview())
                 if path == "/api/voice/download/status":
                     return self._json(200, voice_api.status())
+                if path == "/api/voice/service":
+                    voice_service.ensure_token()
+                    return self._json(200, voice_service.status())
                 return self._json(200, voice_api.plan((query.get("id") or [""])[0]))
             except (voice_settings.VoiceSettingsError, models.Refused, downloads.DownloadError, OSError) as e:
                 return self._voice_error(e)
