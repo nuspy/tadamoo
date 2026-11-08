@@ -131,8 +131,7 @@ class Lifecycle(unittest.TestCase):
             gate.wait(10)
             plain(tries)
         self.engine.restart = slow_restart
-        loader = threading.Thread(target=self.svc.load_at_start)
-        loader.start()
+        self.svc.start_load()
         self.assertTrue(began.wait(5))
         self.assertTrue(self.request("/v1/status")[1]["loading"])
         self.assertEqual(self.request("/metrics")[1]["live"]["state"], "loading")
@@ -143,7 +142,6 @@ class Lifecycle(unittest.TestCase):
         time.sleep(0.3)
         self.assertNotIn("answer", out)                  # waiting for the load, not refused
         gate.set()
-        loader.join(5)
         asker.join(10)
         self.assertEqual(out["answer"][0], 200)
         self.assertEqual(out["answer"][1]["choices"][0]["message"]["content"], "Hello.")

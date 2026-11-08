@@ -30,7 +30,7 @@ from serve.engine.errors import EngineStartError  # noqa: E402
 from serve.engine.flags import flag_index, flag_value  # noqa: E402
 from serve.engine.mock import MockEngine, NoEngine  # noqa: E402
 from serve.engine.process import ProcessEngine  # noqa: E402
-from serve.engine.vision import (EngineVision, Vision, check_gpu, child_env, engine_args, gpu_plan,  # noqa: E402
+from serve.engine.vision import (EngineVision, Vision, check_gpu, child_env, engine_args, gpu_card_name, gpu_plan,  # noqa: E402
                                  gpu_text, gpus_in_play, vision_card, vision_env, vision_line)
 from serve.frontend import ChatTemplate  # noqa: E402
 from serve.handler import Server, serve, stop_sessions  # noqa: E402
@@ -129,11 +129,9 @@ def main() -> int:
             except ValueError as e:
                 fail(f"gpu: {e}")
             card = vision_card(mode)
-            if card is not None:                       # a numbered sidecar card, checked like gpu before it starts
-                try:
-                    gpu_plan(a.engine_bin, str(card))
-                except ValueError as e:
-                    fail(f"vision: {e}")
+            if card is not None:                       # a numbered sidecar card: the engine's sm_120 rule is the
+                if gpu_card_name(card) is None:        # engine's; the sidecar is its own build and says whether
+                    fail(f"vision: GPU {card} is not found by nvidia-smi")   # the sidecar checks the card itself
             for note in plan.get("notes") or []:
                 print(f"[server] {note}", flush=True)
             if plan.get("warning"):
@@ -265,6 +263,8 @@ def main() -> int:
     svc.idle_unload_s = a.idle_unload or 0
     svc.min_free_vram_mib = a.min_free_vram_mib or 0
     svc.reasoning_budget_tokens = a.reasoning_budget_tokens or 0
+    svc.answer_room = a.answer_room
+    svc.thinking_loop_tokens = a.thinking_loop_tokens
     svc.gpu_indices = gpus_in_play(cfg, engine_args(cfg) if cfg.get("args") else [])   # the cards /metrics reads
     svc.gpu_index = svc.gpu_indices[0]
     svc.control_token = write_control_token(a.port, a.control_secret_value) if a.control_secret else ""
@@ -303,23 +303,15 @@ def main() -> int:
 
     failed = threading.Event()                          # --listen-first: the model did not load
 
-    def load_model():
-        """--listen-first: start the engine behind the running HTTP server; requests wait on the fifo meanwhile."""
-        before = loader.system_now(getattr(svc, "gpu_index", 0))
-        try:
-            svc.load_at_start()
-        except EngineStartError as e:
-            print(f"[server] error: {e}", file=sys.stderr, flush=True)
-            if e.log:
-                print(f"[server] engine log: {e.log}", file=sys.stderr, flush=True)
-            failed.set()
+    started = {"before": None, "done": False}
+
+    def after_load():
+        """--listen-first: once the engine has loaded, the memory it took and the ready line (the first load only)."""
+        if started["done"]:
             return
-        except Exception as e:  # noqa: BLE001 - reported, and the server stops
-            print(f"[server] error: the model did not load: {e}", file=sys.stderr, flush=True)
-            failed.set()
-            return
+        started["done"] = True
         warn_tight_ram(engine.info.get("arena_mib"))
-        supervisor.record_memory(svc.supervisor.facts, svc.settings_info.get("running") or {}, before,
+        supervisor.record_memory(svc.supervisor.facts, svc.settings_info.get("running") or {}, started["before"],
                                  loader.system_now(getattr(svc, "gpu_index", 0)))
         say_ready()
         first_calibration()
@@ -335,10 +327,11 @@ def main() -> int:
             sup.calibrate()
 
     if listen_first:
-        svc.loading = True
         print(f"[server] listening on http://{here}:{a.port}/ while the model loads (the Monitor shows Loading)",
               flush=True)
-        threading.Thread(target=load_model, name="load-model", daemon=True).start()
+        started["before"] = loader.system_now(getattr(svc, "gpu_index", 0))
+        svc.on_loaded = after_load
+        svc.start_load()
     elif standby:
         print(f"[server] standby: http://{here}:{a.port}/ answers; no model is loaded until the Loader's Load",
               flush=True)
@@ -368,6 +361,12 @@ def main() -> int:
         pass
     try:
         while not failed.is_set() and not svc.exit_request.is_set():
+            if svc.boot_error is not None:              # the start-up load failed: the requests waiting on it have the error
+                print(f"[server] error: {svc.boot_error}", file=sys.stderr, flush=True)
+                if getattr(svc.boot_error, "log", None):
+                    print(f"[server] engine log: {svc.boot_error.log}", file=sys.stderr, flush=True)
+                failed.set()
+                break
             time.sleep(1)                               # a timed wait keeps Ctrl+C deliverable
         if failed.is_set():
             print("[server] stopping: the model did not load", flush=True)

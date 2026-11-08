@@ -37,6 +37,8 @@ class Fake:
         self.fn, self.requests = fn, []
 
     def chat_completion(self, messages, tools=None, **kw):
+        if messages and str(messages[-1].get("content", "")).startswith("[harness] Time used:"):
+            messages = messages[:-1]                     # the clock note ends every request of a run with a time budget
         self.requests.append({"messages": copy.deepcopy(messages), "tools": tools, **kw})
         reply = self.fn(messages, tools, kw)
         reply.setdefault("usage", USAGE)
@@ -325,7 +327,7 @@ def test_e8_the_on_arm_gives_the_model_the_rewrite_and_the_off_arm_does_not():
     on = e8_optimize.run_prompt(arms["B"], row, 1, Context(client=on_client, power_limit_w=400.0))
     assert not off.success and off.metrics["good"] == 0.0 and off.metrics["optimized"] == 0.0 and off.metrics["model_calls"] == 1
     assert on.success and on.metrics["good"] == 1.0 and on.metrics["optimized"] == 1.0 and on.metrics["protected_kept"] == 1.0
-    assert on.metrics["model_calls"] == off.metrics["model_calls"] + 2, "the helper call and the write are counted"
+    assert on.metrics["model_calls"] == off.metrics["model_calls"] + 3, "the helper call, the write and the check of the answer are counted"
     assert "optimize_seconds" in on.metrics and off.metrics["optimize_seconds"] == 0.0
     assert [r["extra"].get("cache_slot") for r in on_client.requests if r["messages"][0]["content"] == opt.SYSTEM_PROMPT] == ["side"]
 

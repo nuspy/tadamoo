@@ -114,6 +114,7 @@ class BenchmarksPageTest(unittest.TestCase):
         keys |= {f"bn.board.{k}" for k in ("none", "csv_pr", "email", "closed")}
         keys |= {f"bn.class.{c}" for c in CLASS_ORDER} | {f"bn.change.{c}" for c in CLASS_ORDER}
         keys |= {"bn.scoring.verifier", "bn.scoring.judge", "bn.scoring.both"}
+        keys |= {f"bn.start.reasoning.{k}" for k in ("model", "low", "medium", "high")}
         self.assertGreater(len(keys), 150)
         for key in keys:
             self.assertEqual(I18N.count(f'"{key}":'), 2, key)
