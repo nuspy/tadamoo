@@ -70,10 +70,10 @@ from serve.wallet_api import WalletApi, WalletError
 from serve.websearch_api import WebSearchApi, WebSearchError
 from serve.telegram_service import TelegramService, TelegramServiceError
 from serve.personas_api import PersonasApi
-from tadamoo.personas import PersonaError, PersonaStore
-from tadamoo.context_patterns import catalog as context_patterns_catalog
 from serve.rag_api import RagApi, upload_limit
 from tadamoo.rag import RagError, RagStore
+from tadamoo.personas import PersonaError, PersonaStore
+from tadamoo.context_patterns import catalog as context_patterns_catalog
 from serve.capabilities_api import CapabilityApi, CapabilityError
 from serve.intake_prefs import IntakeError, IntakePrefs
 from tadamoo.roles import CODING_ROLE, ROLE_IDS
@@ -155,6 +155,8 @@ def _start_telegram(httpd) -> None:
 
 def stop_sessions() -> None:
     """The server ends: the conversations' processes end with it (the next start finds the conversations again)."""
+    if _TELEGRAM is not None:
+        _TELEGRAM.stop()
     netwatch_api.stop()
     canary_api.shutdown()
     billion_context.stop()
@@ -170,7 +172,9 @@ def stop_sessions() -> None:
         _SESSIONS.shutdown()
 _WALLET = None                                         # the vault and the payment systems, made on first use
 _WEBSEARCH = None                                      # Settings > Web search, made on first use
+_TELEGRAM = None                                       # the Telegram bot and its settings, made on first use
 _PERSONAS = None                                       # Settings > Personalities, made on first use
+_RAG = None                                            # the knowledge archives (the Knowledge tab), made on first use
 _MCP_AUTH = None                                       # the sign-in of the remote MCP servers, made on first use
 _PLANS = None                                          # the planner's service, made on first use
 from serve.util.reqtrace import RequestTrace
@@ -193,7 +197,6 @@ class BadBody(Exception):
         super().__init__(message)
         self.status = status
 
-_RAG = None                                            # the knowledge archives (the Knowledge tab), made on first use
 
 def _size_text(n: int) -> str:
     return f"{n >> 20} MiB" if n >= 1 << 20 else f"{n >> 10} KiB"
@@ -609,14 +612,14 @@ def make_handler(svc: Service, remote: bool = False):
                     if not settings.is_loopback(self.client_address[0]):
                         return self._json(403, {"error": {"type": "forbidden", "message": "the vault is shown only on the PC the server runs on"}})
                     self._json(200, self._wallet().overview())
-            elif path in ("/api/websearch", "/api/websearch/plan", "/api/websearch/job"):
-                if self._authorized():
-                    if not settings.is_loopback(self.client_address[0]):
             elif path == "/api/telegram":
                 if self._authorized():
                     if not settings.is_loopback(self.client_address[0]):
                         return self._json(403, {"error": {"type": "forbidden", "message": "the Telegram settings are shown only on the PC the server runs on"}})
                     self._json(200, self._telegram().overview())
+            elif path in ("/api/websearch", "/api/websearch/plan", "/api/websearch/job"):
+                if self._authorized():
+                    if not settings.is_loopback(self.client_address[0]):
                         return self._json(403, {"error": {"type": "forbidden", "message": "the web search settings are shown only on the PC the server runs on"}})
                     query = parse_qs(urlsplit(self.path).query)
                     try:
@@ -628,6 +631,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/personas" or path.startswith("/api/personas/"):
                 if self._authorized():
                     self._personas_get(path)
+            elif path == "/api/rag" or path.startswith("/api/rag/"):
+                if self._authorized():
+                    self._rag_route(path, "GET")
             elif path in ("/api/voice/models", "/api/voice/download/plan", "/api/voice/download/status", "/api/voice/service", "/api/voice/functions"):
                 if self._authorized():
                     if not settings.is_loopback(self.client_address[0]):
@@ -655,9 +661,6 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/session":
                 # with an API key set the page gets its change secret here, after the key is typed; a page cannot send the key on a navigation
                 if not svc.api_key:
-            elif path == "/api/rag" or path.startswith("/api/rag/"):
-                if self._authorized():
-                    self._rag_route(path, "GET")
                     self._json(404, {"error": {"message": "not found"}})
                 elif self._authorized():
                     if not self._page_may_change_things(navigation=False):
@@ -859,11 +862,14 @@ def make_handler(svc: Service, remote: bool = False):
             if path.startswith("/api/websearch/"):
                 self._websearch_post(path)
                 return
+            if path.startswith("/api/telegram/"):
+                self._telegram_post(path)
+                return
             if path == "/api/personas" or path.startswith("/api/personas/"):
                 self._personas_post(path)
                 return
-            if path.startswith("/api/telegram/"):
-                self._telegram_post(path)
+            if path.startswith("/api/rag/"):
+                self._rag_route(path, "POST")
                 return
             if path.startswith("/api/voice/"):
                 self._voice_post(path)
@@ -895,9 +901,6 @@ def make_handler(svc: Service, remote: bool = False):
             if path == "/api/changes/review":
                 if not settings.is_loopback(self.client_address[0]):
                     self._discard_body()
-            if path.startswith("/api/rag/"):
-                self._rag_route(path, "POST")
-                return
                     self._json(403, {"error": {"type": "forbidden",
                                                "message": "changes can be reviewed only from the PC the server runs on"}})
                     return
@@ -2409,9 +2412,6 @@ def make_handler(svc: Service, remote: bool = False):
             except (voice_settings.VoiceSettingsError, models.Refused, downloads.DownloadError, OSError) as e:
                 self._voice_error(e)
 
-        def _websearch(self) -> WebSearchApi:
-            global _WEBSEARCH
-            if _WEBSEARCH is None:
         def _telegram(self) -> TelegramService:
             return telegram_service(lambda: self._agent_sessions())
 
@@ -2438,6 +2438,9 @@ def make_handler(svc: Service, remote: bool = False):
             except (ValueError, TypeError) as e:
                 return self._json(400, {"error": {"type": "telegram", "message": str(e)}})
 
+        def _websearch(self) -> WebSearchApi:
+            global _WEBSEARCH
+            if _WEBSEARCH is None:
                 _WEBSEARCH = WebSearchApi()
             return _WEBSEARCH
 
@@ -2477,6 +2480,35 @@ def make_handler(svc: Service, remote: bool = False):
             if _PERSONAS is None:
                 _PERSONAS = PersonasApi(PersonaStore(userdata.path("personas"), key_dir=userdata.path("vault")), rag=self._rag_store())
             return _PERSONAS
+
+        def _rag_store(self) -> RagStore:
+            global _RAG
+            if _RAG is None:
+                _RAG = RagStore(userdata.path("rag"), forbidden=[userdata.user_data_dir()])
+            return _RAG
+
+        def _rag(self) -> RagApi:
+            return RagApi(self._rag_store(), self._personas().store)
+
+        def _rag_route(self, path, method):
+            """/api/rag/*: the knowledge archives, from this PC only."""
+            if not settings.is_loopback(self.client_address[0]):
+                if method == "POST":
+                    self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the knowledge archives are used only on the PC the server runs on"}})
+            parts = [p for p in path[len("/api/rag"):].split("/") if p]
+            try:
+                if method == "GET":
+                    return self._json(200, self._rag().route_get(parts))
+                try:
+                    raw = self._body(upload_limit(parts) + 4096)
+                except BadBody as e:
+                    return self._json(e.status, {"error": {"message": str(e)}})
+                return self._json(200, self._rag().route_post(parts, parse_qs(urlsplit(self.path).query), raw))
+            except RagError as e:
+                return self._json(404 if e.code == "not_found" else 400, {"error": {"type": "rag", "code": e.code, "message": str(e)}})
+            except (PersonaError, ValueError, TypeError) as e:
+                return self._json(400, {"error": {"type": "rag", "message": str(e)}})
 
         def _persona_error(self, e: PersonaError):
             return self._json(404 if e.code == "not_found" else 400, {"error": {"type": "personas", "code": e.code, "message": str(e)}})
@@ -2534,35 +2566,6 @@ def make_handler(svc: Service, remote: bool = False):
             global _PERSONAL
             if _PERSONAL is None:
                 _PERSONAL = PersonalMemory(userdata.path("personal-memory"), key_dir=userdata.path("vault"))
-        def _rag_store(self) -> RagStore:
-            global _RAG
-            if _RAG is None:
-                _RAG = RagStore(userdata.path("rag"), forbidden=[userdata.user_data_dir()])
-            return _RAG
-
-        def _rag(self) -> RagApi:
-            return RagApi(self._rag_store(), self._personas().store)
-
-        def _rag_route(self, path, method):
-            """/api/rag/*: the knowledge archives, from this PC only."""
-            if not settings.is_loopback(self.client_address[0]):
-                if method == "POST":
-                    self._discard_body()
-                return self._json(403, {"error": {"type": "forbidden", "message": "the knowledge archives are used only on the PC the server runs on"}})
-            parts = [p for p in path[len("/api/rag"):].split("/") if p]
-            try:
-                if method == "GET":
-                    return self._json(200, self._rag().route_get(parts))
-                try:
-                    raw = self._body(upload_limit(parts) + 4096)
-                except BadBody as e:
-                    return self._json(e.status, {"error": {"message": str(e)}})
-                return self._json(200, self._rag().route_post(parts, parse_qs(urlsplit(self.path).query), raw))
-            except RagError as e:
-                return self._json(404 if e.code == "not_found" else 400, {"error": {"type": "rag", "code": e.code, "message": str(e)}})
-            except (PersonaError, ValueError, TypeError) as e:
-                return self._json(400, {"error": {"type": "rag", "message": str(e)}})
-
             return _PERSONAL
 
         def _memory_worker(self) -> MemoryWorker:
@@ -3417,9 +3420,6 @@ def make_handler(svc: Service, remote: bool = False):
                         return self._json(200, {"session": mgr.set_visuals(parts[1], req.get("images", ""), req.get("charts", ""))})
                     if len(parts) == 3 and parts[2] == "persona":
                         return self._json(200, {"session": mgr.set_persona(parts[1], req.get("persona", ""))})
-                    if len(parts) == 3 and parts[2] == "rename":
-                        return self._json(200, {"session": mgr.rename(parts[1], req.get("title"))})
-                    if len(parts) == 3 and parts[2] == "skill-propose":
                     if len(parts) == 3 and parts[2] == "telegram":
                         if not settings.is_loopback(self.client_address[0]):
                             return self._json(403, {"error": {"type": "forbidden", "message": "a conversation is moved to Telegram only from the PC the server runs on"}})
@@ -3427,6 +3427,9 @@ def make_handler(svc: Service, remote: bool = False):
                             return self._json(200, {"session": self._telegram().move(parts[1], req.get("chat"))})
                         except TelegramServiceError as e:
                             return self._json(e.status, {"error": {"type": "telegram", "code": e.code, "message": str(e)}})
+                    if len(parts) == 3 and parts[2] == "rename":
+                        return self._json(200, {"session": mgr.rename(parts[1], req.get("title"))})
+                    if len(parts) == 3 and parts[2] == "skill-propose":
                         return self._json(200, mgr.skill_propose(parts[1], req.get("turns")))
                     if len(parts) == 3 and parts[2] == "skill-script":
                         return self._json(200, mgr.skill_script(parts[1], req.get("turns"), req.get("name"), req.get("description"), req.get("params")))
@@ -3932,10 +3935,10 @@ def serve(svc: Service, host="127.0.0.1", port=7232) -> ThreadingHTTPServer:
     httpd = _listen(svc, host, port)
     threading.Thread(target=_start_planner, args=(svc, httpd.server_address[1]), daemon=True, name="planner-start").start()
     threading.Thread(target=netwatch_api.start_if_enabled, daemon=True, name="netwatch-start").start()
+    threading.Thread(target=_start_telegram, args=(httpd,), daemon=True, name="telegram-start").start()
     threading.Thread(target=rea_api.start_if_enabled, args=(lambda: _CAPS.rescan() if _CAPS is not None else None,), daemon=True, name="rea-start").start()
     threading.Thread(target=canary_api.reattach, daemon=True, name="canary-reattach").start()
     if getattr(svc, "keys", None) is None:
-    threading.Thread(target=_start_telegram, args=(httpd,), daemon=True, name="telegram-start").start()
         svc.keys = ApiKeys(userdata.path("api-keys.json"), key_dir=userdata.path("vault"))
     if getattr(svc, "remote", None) is None:
         svc.remote = RemoteAccess(userdata.path("remote.json"), httpd.server_address[1], lambda ip, p: _listen(svc, ip, p, remote=True))
