@@ -33,6 +33,18 @@ class ModelsDirTest(Base):
             self.assertEqual(vs.models_dir(), str(first / "voice"))
             self.assertEqual(vs.default_models_dir(), str(first / "voice"))
 
+    def test_the_default_is_written_to_the_file_only_once_a_models_folder_exists_so_the_service_finds_it(self):
+        self.assertEqual(vs.ensure_models_dir(), str(self.root / "data" / "voice-models"))
+        self.assertFalse((self.root / "data" / "voice.json").exists())                        # no models folder yet: nothing is frozen
+        first = self.root / "models"
+        first.mkdir()
+        with mock.patch.object(models, "dirs", return_value=[str(first)]):
+            self.assertEqual(vs.ensure_models_dir(), str(first / "voice"))
+            self.assertEqual(self.stored()["models_dir"], str(first / "voice"))
+        other = self.root / "elsewhere"
+        with mock.patch.object(models, "dirs", return_value=[str(other)]):
+            self.assertEqual(vs.ensure_models_dir(), str(first / "voice"))                    # a stored folder is never replaced
+
     def test_a_chosen_folder_is_kept_and_nothing_is_moved_or_created(self):
         old = self.root / "old"
         (old / "tts" / "kokoro").mkdir(parents=True)

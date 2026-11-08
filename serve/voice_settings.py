@@ -58,6 +58,19 @@ def default_models_dir() -> str:
     return str(Path(dirs[0]) / "voice") if dirs else str(userdata.path("voice-models"))
 
 
+def ensure_models_dir() -> str:
+    """Writes the default models folder into voice.json once a Basalt models folder exists, so the voice service, which reads the file, finds the same folder as the server."""
+    data = _read()
+    chosen = data.get("models_dir")
+    if isinstance(chosen, str) and os.path.isabs(chosen):
+        return chosen
+    if not models.dirs():
+        return default_models_dir()
+    data["models_dir"] = default_models_dir()
+    _write(data)
+    return data["models_dir"]
+
+
 def models_dir() -> str:
     chosen = _read().get("models_dir")
     return chosen if isinstance(chosen, str) and os.path.isabs(chosen) else default_models_dir()
