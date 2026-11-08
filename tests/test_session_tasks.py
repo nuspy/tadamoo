@@ -20,6 +20,7 @@ from test_session import Events, call, say
 def _no_clock(monkeypatch):
     """These tests count the messages the model is sent; the time note has its own tests (test_clock.py)."""
     monkeypatch.setattr("tadamoo.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.capstate.read", lambda agent, **kw: {})
 
 
 

@@ -27,6 +27,7 @@ USAGE = {"prompt_tokens": 100, "completion_tokens": 10, "prompt_tokens_details":
 @pytest.fixture(autouse=True)
 def _no_clock(monkeypatch):
     monkeypatch.setattr("tadamoo.stack.local_now", None)             # these tests read the messages; the clock note has its own tests
+    monkeypatch.setattr("tadamoo.stack.capstate.read", lambda agent, **kw: {})
 
 
 class Fake:

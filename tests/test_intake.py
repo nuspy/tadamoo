@@ -289,6 +289,7 @@ class Sink:
 @pytest.fixture(autouse=True)
 def _no_clock(monkeypatch):
     monkeypatch.setattr("tadamoo.stack.local_now", None)
+    monkeypatch.setattr("tadamoo.stack.capstate.read", lambda agent, **kw: {})
 
 
 def session_with(tmp_path, client, mode="full", unattended=False, permission_mode="default", clock=None):
