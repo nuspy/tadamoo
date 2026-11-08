@@ -31,6 +31,8 @@ import time
 
 import numpy as np
 
+from .. import models_store
+
 log = logging.getLogger("callbridge.engines.chatterbox")
 
 
@@ -93,7 +95,7 @@ class ChatterboxTtsEngine:
         if not os.path.isfile(self._helper):
             raise FileNotFoundError(
                 f"Helper Chatterbox non trovato: {self._helper}")
-        env = os.environ.copy()
+        env = models_store.helper_env("tts")
         # L'helper cerca cloned_voices/ sotto KOKORO_MODEL_DIR: stessa cartella
         # che il compat server usa per elencare/salvare le voci clonate.
         env["KOKORO_MODEL_DIR"] = self.model_dir
@@ -110,7 +112,7 @@ class ChatterboxTtsEngine:
         self._proc = subprocess.Popen(
             [self._python, "-u", self._helper],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, bufsize=0, **popen_kw)
+            stderr=subprocess.PIPE, bufsize=0, env=env, **popen_kw)
         threading.Thread(target=self._drain_stderr, daemon=True,
                          name="chatterbox-stderr").start()
         log.info("Chatterbox: helper avviato in %.2fs (modello si carica alla "

@@ -22,6 +22,7 @@ import time
 
 import numpy as np
 
+from .. import models_store
 from ..tts_client import TtsSegment
 
 log = logging.getLogger("callbridge.engines.tts")
@@ -31,8 +32,16 @@ _SENT_SPLIT = re.compile(r"(.+?(?:[.!?…]+|\n+|$))", re.DOTALL)
 
 
 def _default_kokoro_dir() -> str:
-    """Cartella modelli Kokoro di default: quella scaricata da Handy."""
-    return os.path.expandvars(r"%APPDATA%\com.pais.handy\models")
+    """Cartella modelli Kokoro di default: quella della cartella dei modelli vocali."""
+    return models_store.folder("tts", "kokoro")
+
+
+def _richiedi_file(model_dir: str, precision: str) -> str:
+    """Il .onnx da aprire, o `ModelNotInstalled` se Kokoro non e' nella cartella."""
+    onnx = _pick_onnx(model_dir, precision) if model_dir else None
+    if not onnx or not os.path.isfile(os.path.join(model_dir, "voices-v1.0.bin")):
+        raise models_store.ModelNotInstalled("kokoro", "tts", model_dir or "no models folder")
+    return onnx
 
 
 def available_precisions(model_dir: str) -> dict[str, str]:
@@ -226,7 +235,8 @@ class KokoroTtsEngine:
         helper = _helper_path()
         if not os.path.isfile(helper):
             raise FileNotFoundError(f"Helper Kokoro non trovato: {helper}")
-        env = os.environ.copy()
+        _richiedi_file(self.model_dir, self.precision)
+        env = models_store.helper_env("tts")
         env["KOKORO_MODEL_DIR"] = self.model_dir
         env["KOKORO_PRECISION"] = self.precision
         env["KOKORO_DEVICE"] = "cuda"
@@ -292,12 +302,8 @@ class KokoroTtsEngine:
                 return
             from .device import ensure_ort_cuda, resolve_device  # noqa: F811
             from kokoro_onnx import Kokoro
-            onnx = _pick_onnx(self.model_dir, self.precision)
+            onnx = _richiedi_file(self.model_dir, self.precision)
             voices = os.path.join(self.model_dir, "voices-v1.0.bin")
-            if not onnx or not os.path.isfile(voices):
-                raise FileNotFoundError(
-                    f"Modelli Kokoro non trovati in {self.model_dir} "
-                    "(kokoro*.onnx + voices-v1.0.bin). Imposta kokoro_model_dir.")
             # kokoro-onnx sceglie il provider dall'env ONNX_PROVIDER.
             eff = resolve_device(self.device, self.memory)
             if eff == "cuda":

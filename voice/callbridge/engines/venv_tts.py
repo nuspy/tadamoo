@@ -34,6 +34,7 @@ import time
 
 import numpy as np
 
+from .. import models_store
 from . import catalog
 from .device import resolve_device
 
@@ -104,7 +105,7 @@ class VenvTtsEngine:
         if not os.path.isfile(self._helper):
             raise FileNotFoundError(
                 f"helper {self.spec.name} non trovato: {self._helper}")
-        env = os.environ.copy()
+        env = models_store.helper_env("tts")
         # Gli helper cercano cloned_voices/ e i pesi sotto questa radice.
         env["KOKORO_MODEL_DIR"] = self.model_dir
         env["TTS_MODELS_DIR"] = os.path.join(
@@ -137,9 +138,8 @@ class VenvTtsEngine:
             env[str(k)] = str(v)
         env.update(self._env_cfg)
         if self.spec.hf_cache:
-            # Stessa cartella in cui li mette l'installer (prefetch): cosi' il
-            # motore non riscarica nulla e funziona anche offline.
             env["HF_HUB_CACHE"] = catalog.cache_hf_app()
+        env.update(models_store.OFFLINE_ENV)    # mai un download, qualunque cosa abbiano messo sopra
         popen_kw: dict = {}
         if hasattr(subprocess, "CREATE_NO_WINDOW"):   # niente console pop-up
             popen_kw["creationflags"] = subprocess.CREATE_NO_WINDOW

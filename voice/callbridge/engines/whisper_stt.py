@@ -17,6 +17,7 @@ import time
 
 import numpy as np
 
+from .. import models_store
 from ..memoria import carica_whisper, rilascia
 from ..stt_client import STT_RATE
 
@@ -302,17 +303,8 @@ _MIN_RMS = float(os.environ.get("CALLBRIDGE_STT_MIN_RMS") or 0.012)
 
 
 def _find_silero(path_hint: str) -> str | None:
-    """Percorso del modello silero VAD onnx: hint di config, poi Handy/resources."""
-    import os
-    cands = [path_hint] if path_hint else []
-    cands += [
-        # bundled nel repo (call-bridge/models/), accanto al pacchetto
-        os.path.join(os.path.dirname(__file__), "..", "..", "models",
-                     "silero_vad_v4.onnx"),
-        os.path.expandvars(r"%LOCALAPPDATA%\callAPIcall\models\silero_vad_v4.onnx"),
-        os.path.expandvars(r"%LOCALAPPDATA%\Handy\resources\models\silero_vad_v4.onnx"),
-    ]
-    for c in cands:
+    """Percorso del modello silero VAD onnx: hint di config, poi la cartella dei modelli vocali."""
+    for c in (path_hint, models_store.silero_path()):
         if c and os.path.isfile(c):
             return c
     return None
@@ -485,8 +477,8 @@ class NativeSttClient:
 
     def _make_vad(self):
         if not self._vad_path:
-            log.warning("STT: silero VAD non trovato -> endpointing a energia "
-                        "(meno robusto). Metti silero_vad_v4.onnx nei modelli.")
+            log.warning("STT: %s Endpointing a energia (meno robusto).",
+                        models_store.ModelNotInstalled("silero-vad-v4", "vad"))
             return None
         try:
             v = SileroVad(self._vad_path)
