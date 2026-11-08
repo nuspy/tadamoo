@@ -387,7 +387,7 @@
     const src = s.source || {};
     const srcText = src.kind === "calibration" ? T(src.exact ? "sp.cal.exact" : "sp.cal", when(src.at)) : T("sp.seed");
     const problems = (p.problems || []).map(x => LANG === "it" ? x.text_it : x.text);
-    const editable = INFO && INFO.editable, busy = INFO && INFO.status && ["waiting", "stopping", "starting", "calibrating"].includes(INFO.status.phase);
+    const editable = INFO && INFO.editable, busy = INFO && INFO.status && ["waiting", "stopping", "starting", "calibrating", "voice"].includes(INFO.status.phase);
     const why = !editable ? T("ld.ro." + ((INFO && INFO.reason) || "no_config")) : busy ? T("ld.busy") : problems.length ? T("ld.refused", problems.join(" ")) : "";
     const blocked = !editable || busy;                          // not fitting only warns: the load can go ahead anyway
     const label = problems.length ? T("ld.loadanyway") : T("ld.load");
@@ -553,7 +553,7 @@
     const text = ph === "calibrating" ? T("ld.phase.calibrating", T("ld.step." + (st.step || "decode"))) + (st.job === "length" && st.message ? " · " + st.message : "")
       : ph === "failed" ? T("ld.phase.failed", st.error || "") : T("ld.phase." + ph);
     say(text, ph === "failed" ? "err" : ph === "ready" ? "ok" : "");
-    $$("[data-act=load], [data-act=calibrate], [data-act=length]").forEach(b => { b.disabled = b.disabled || ["waiting", "stopping", "starting", "calibrating"].includes(ph); });
+    $$("[data-act=load], [data-act=calibrate], [data-act=length]").forEach(b => { b.disabled = b.disabled || ["waiting", "stopping", "starting", "calibrating", "voice"].includes(ph); });
   }
   function watch() {
     clearTimeout(poll);
@@ -562,7 +562,7 @@
         const st = await get("api/loader/status");
         INFO.status = st;
         showStatus();
-        if (["waiting", "stopping", "starting", "calibrating"].includes(st.phase)) { poll = setTimeout(tick, 600); return; }
+        if (["waiting", "stopping", "starting", "calibrating", "voice"].includes(st.phase)) { poll = setTimeout(tick, 600); return; }
         await refresh();
         showStatus();
         document.dispatchEvent(new CustomEvent("basalt:loader"));          // a load ended: the technical session may have come or gone (optimize.js asks again)
@@ -761,7 +761,7 @@
     if (m && !(INFO.plan && INFO.plan.model && INFO.plan.model.path && INFO.plan.model.path.replace(/\\/g, "/").toLowerCase() === m.toLowerCase())) replan();
     else renderSide("#ld-side", INFO.plan, "loader");
     await refreshProfiles();
-    if (["waiting", "stopping", "starting", "calibrating"].includes((INFO.status || {}).phase)) watch();
+    if (["waiting", "stopping", "starting", "calibrating", "voice"].includes((INFO.status || {}).phase)) watch();
     if (viewOn === "loader") applyStart();
   }
   let formTouched = false;

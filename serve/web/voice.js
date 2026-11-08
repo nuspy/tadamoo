@@ -18,6 +18,7 @@
     "license-card": () => T("vo.vf.licensecard"), "face-parse": () => T("vo.vf.faceparse"),
   };
   const DEVICES = ["auto", "cpu", "cuda:0", "cuda:1"];
+  const FUNCTIONS = ["stt", "tts", "avatar"];                  // loaded and unloaded together in Models > Voice services
   let S = null, loadFailed = "", timer = 0;
   const ui = {};                                      // per service: the plan shown, the acknowledgements, the line under the card
   const st = id => ui[id] || (ui[id] = { plan: null, planErr: "", checking: false, ack: false, nc: false, msg: "", bad: false });
@@ -125,9 +126,24 @@
     box.append(state, facts(m), el("p", "vo-help", pick(m.notes)));
     if (m.verify) box.append(el("p", "vo-help", T("vo.verify.help", m.verify_fields.map(f => (VERIFY[f] || (() => f))()).join(", "))));
     box.append(placement(svc));
+    if (FUNCTIONS.includes(svc.id)) box.append(enabledRow(svc));
     if (!m.installed) box.append(downloadPart(svc, m));
     box.append(note(s.msg, s.bad));
     return box;
+  }
+  function enabledRow(svc) {
+    const wrap = el("div", "vo-dl"), row = el("label", "vo-check"), input = el("input");
+    input.type = "checkbox"; input.id = "vo-on-" + svc.id; input.checked = !!svc.enabled;
+    input.onchange = async () => {
+      const r = await api("POST", "api/voice/enabled", { service: svc.id, enabled: input.checked });
+      const s = st(svc.id);
+      if (r.ok) { S = r.data; s.msg = ""; } else { s.msg = errText(r); s.bad = true; }
+      paint();
+    };
+    row.append(input, el("span", "", T("vl.enabled")));
+    const go = btn(T("vl.open.tab"), "ghost", () => { view("loader"); document.getElementById("sub-voicesvc").click(); }, "vo-open-" + svc.id);
+    wrap.append(row, el("p", "vo-help", T("vl.enabled.help")), go);
+    return wrap;
   }
   function placement(svc) {
     const p = svc.placement, row = el("div", "vo-place");

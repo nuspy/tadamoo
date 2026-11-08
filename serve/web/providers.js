@@ -41,13 +41,17 @@
 
   /* ---- the two sub-tabs ---- */
   function sub(which) {
-    const prov = which === "providers", cv = which === "converter", lc = which === "llamacpp";
-    panel.hidden = !prov; qwen.hidden = prov || cv || lc;
+    const prov = which === "providers", cv = which === "converter", lc = which === "llamacpp", vc = which === "voicesvc";
+    panel.hidden = !prov; qwen.hidden = prov || cv || lc || vc;
+    const vcPanel = document.getElementById("ld-voicesvc");
+    if (vcPanel) vcPanel.hidden = !vc;
+    const vcTab = document.getElementById("sub-voicesvc");
+    if (vcTab) vcTab.setAttribute("aria-selected", String(vc));
     if (conv) conv.hidden = !cv;
     const lcPanel = document.getElementById("ld-llamacpp");
     if (lcPanel) lcPanel.hidden = !lc;
     document.getElementById("sub-providers").setAttribute("aria-selected", String(prov));
-    document.getElementById("sub-qwen").setAttribute("aria-selected", String(!prov && !cv && !lc));
+    document.getElementById("sub-qwen").setAttribute("aria-selected", String(!prov && !cv && !lc && !vc));
     const tab = document.getElementById("sub-converter");
     if (tab) tab.setAttribute("aria-selected", String(cv));
     const lcTab = document.getElementById("sub-llamacpp");
@@ -62,6 +66,8 @@
   if (convTab) convTab.onclick = () => sub("converter");
   const lcTabBtn = document.getElementById("sub-llamacpp");
   if (lcTabBtn) lcTabBtn.onclick = () => sub("llamacpp");
+  const vcTabBtn = document.getElementById("sub-voicesvc");
+  if (vcTabBtn) vcTabBtn.onclick = () => sub("voicesvc");
 
   /* ---- reading ---- */
   async function refresh() {
@@ -244,6 +250,6 @@
   document.addEventListener("tadamoo:view", e => { if (e.detail === "loader" && !panel.hidden) refresh(); });
   applyT(view.querySelector(".subtabs"));
   const saved = load(SUB_KEY, "qwen");
-  sub(["providers", "converter", "llamacpp"].includes(saved) ? saved : "qwen");
+  sub(["providers", "converter", "llamacpp", "voicesvc"].includes(saved) ? saved : "qwen");
   if (saved.startsWith("engine:")) keep(SUB_KEY, saved);                       // engines.js restores its own tab
 })();

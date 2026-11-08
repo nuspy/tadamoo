@@ -23,7 +23,7 @@ class LlamaCppPage(unittest.TestCase):
         self.assertLess(HTML.index("web/providers.js"), HTML.index("web/llamacpp.js"))
         self.assertIn('"llamacpp"', (WEB / "providers.js").read_text(encoding="utf-8"))
         engines = (WEB / "engines.js").read_text(encoding="utf-8")
-        self.assertIn('"llamacpp"]', engines)
+        self.assertIn('"llamacpp", "voicesvc"]', engines)
         self.assertIn('"ld-llamacpp"', engines)
 
     def test_every_text_is_in_both_languages(self):

@@ -47,3 +47,50 @@
 @media (min-width: 1000px) { .vo-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .vo-card, .vo-box { padding: 12px; } .vo-form .btn, .vo-bar .btn { flex: 1 1 100%; } .vo-field, .vo-place .vo-field { max-width: none; flex-basis: 100%; } }
 @media (prefers-reduced-motion: reduce) { .vo-root *, .vo-root *::before, .vo-root *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+
+/* Models > Voice services and the Voice functions dialog */
+.vl-head { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 0 12px; }
+.vl-head .btn, .vl .btn, .vl-dlg .btn { min-height: 44px; min-width: 44px; padding: 8px 16px; font-size: 15px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.vl-head .btn[hidden], .vl [hidden], .vl-dlg [hidden] { display: none; }
+.vl :focus-visible, .vl-dlg :focus-visible, .vl-head :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.vl { max-width: 980px; }
+.vl-intro { margin: 0 0 16px; color: var(--fg-2); line-height: 1.55; overflow-wrap: anywhere; }
+.vl-h { margin: 0; font: 600 18px/1.3 var(--font-sans); color: var(--fg); overflow-wrap: anywhere; }
+.vl-h2 { margin: 0; font: 600 16px/1.3 var(--font-sans); color: var(--fg); overflow-wrap: anywhere; }
+.vl-help, .vl-line { margin: 0; font-size: 14px; line-height: 1.5; color: var(--fg-2); overflow-wrap: anywhere; }
+.vl-line { color: var(--fg); }
+.vl-bad { color: var(--warn); }
+.vl-note { margin: 0 0 12px; padding: 8px 12px; border-left: 3px solid var(--warn); color: var(--warn); line-height: 1.5; overflow-wrap: anywhere; }
+.vl-box, .vl-card { display: grid; gap: 10px; min-width: 0; margin: 0 0 16px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.vl-card { margin: 0; align-content: start; }
+.vl-pending { border-color: var(--accent); }
+.vl-list { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+.vl-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.vl-chip { display: inline-flex; align-items: center; min-height: 28px; padding: 2px 10px; border: 1px solid var(--line); border-radius: 14px; font-size: 13px; line-height: 1.5; color: var(--fg-2); }
+.vl-ok { border-color: var(--accent); color: var(--fg); }
+.vl-warn { border-color: var(--warn); color: var(--warn); }
+.vl-facts { display: grid; gap: 2px 12px; margin: 0; grid-template-columns: minmax(0, 1fr); }
+.vl-facts dt { margin-top: 6px; font-size: 13px; color: var(--fg-2); }
+.vl-facts dd { margin: 0; color: var(--fg); line-height: 1.5; overflow-wrap: anywhere; }
+.vl-dlg { width: min(680px, calc(100vw - 32px)); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--fg); }
+.vl-dlg::backdrop { background: rgba(5, 7, 9, .72); }
+.vl-dlg-body { display: grid; gap: 14px; padding: 18px 16px calc(16px + env(safe-area-inset-bottom)); }
+.vl-dlg-h { margin: 0; font: 600 19px/1.35 var(--font-sans); overflow-wrap: anywhere; }
+.vl-fn { display: grid; gap: 10px; min-width: 0; margin: 0; padding: 12px; border: 1px solid var(--line-soft); border-radius: 8px; }
+.vl-fn legend { padding: 0 6px; }
+.vl-field { display: grid; gap: 4px; min-width: 0; }
+.vl-field label { font-weight: 600; color: var(--fg); }
+.vl-field select { width: 100%; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font: 16px/1.4 var(--font-sans); }
+.vl-place { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr); }
+.vl-check { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 4px 0; cursor: pointer; color: var(--fg); line-height: 1.4; }
+.vl-check input { width: 24px; height: 24px; margin: 0; flex: none; accent-color: var(--accent); cursor: pointer; }
+.vl-plan { display: grid; gap: 8px; min-width: 0; padding: 12px; border: 1px solid var(--line-soft); border-radius: 8px; }
+.vl-bar { display: flex; flex-wrap: wrap; gap: 8px; }
+@media (min-width: 640px) {
+  .vl-facts { grid-template-columns: max-content minmax(0, 1fr); }
+  .vl-facts dt { margin-top: 0; }
+  .vl-place { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 1000px) { .vl-list { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .vl-card, .vl-box { padding: 12px; } .vl-bar .btn, .vl-head .btn { flex: 1 1 100%; } }
+@media (prefers-reduced-motion: reduce) { .vl *, .vl-dlg *, .vl-head * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
