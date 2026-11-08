@@ -198,3 +198,5 @@ Con Qwen vero: un piano di tre-quattro passi eseguito dall'agente (con strumenti
 3. La chat dei parametri («fai della cartella un parametro») cambia l'elenco sopra; il modulo resta usabile.
 4. Lo script scritto ha una funzione per passo, passa i valori come argomenti, usa `ai()` solo dove serve il linguaggio; salvato come skill personale e lanciato dalla Chat con valori diversi.
 5. Un valore passato davvero tra passi: A conta, C conta, B «dividi {uova} per {presenti}» riceve i numeri nel testo e tra i «valori dati».
+
+6. Scheda di un parametro: i tre pulsanti «Da chi avvia / Con un'espressione Python / Dal modello»; «Controlla l'espressione» con `now()` e con un errore; «Trasforma la descrizione in Python» (descrizione «data e ora di quando parte lo script») deve dare `now()` o simile e passare al pulsante Python. Avviare la skill: i parametri del modello partono in UNA sola chiamata (controllare il registro delle richieste); un parametro «più avanti» non compare tra i valori dell'avvio e lo script lo imposta da sé.

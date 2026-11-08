@@ -1703,7 +1703,7 @@ class SessionManager:
             written = distill.write_script(self._skill_client(), str(name or "")[:60], str(description or "")[:500], params, chosen, steps)
         except TadamooError as exc:
             raise RunError(f"The model could not be reached: {exc}", "model") from None
-        keep = ("name", "label", "explanation", "type", "default", "required", "choices", "item_type", "format")
+        keep = ("name", "label", "explanation", "type", "default", "required", "choices", "item_type", "format", "source", "expr", "describe", "when", "after")
         return {**written, "skill": {"name": str(name or "")[:60], "description": str(description or "")[:500],
                                      "params": [{k: p[k] for k in keep if k in p} for p in params], "source": {"conversation": sid, "requests": sorted(set(turns))}}}
 
@@ -1792,9 +1792,58 @@ class SessionManager:
             written = distill.write_script(self._skill_client(), str(name or "")[:60], str(description or "")[:500], params, src["requests"], steps, plan=src["outline"])
         except TadamooError as exc:
             raise RunError(f"The model could not be reached: {exc}", "model") from None
-        keep = ("name", "label", "explanation", "type", "default", "required", "choices", "item_type", "format")
+        keep = ("name", "label", "explanation", "type", "default", "required", "choices", "item_type", "format", "source", "expr", "describe", "when", "after")
         return {**written, "skill": {"name": str(name or "")[:60], "description": str(description or "")[:500], "params": [{k: p[k] for k in keep if k in p} for p in params],
                                      "source": {"plan": plan_id, **({"conversation": src["session"]} if src["session"] else {})}}}
+
+    def _llm_values(self, items: List[Dict[str, Any]], known: Dict[str, Any]) -> Dict[str, Any]:
+        """The parameters the model sets, all of them in ONE call at the start of a run: {name: value}. `known` are the values already set, so a description can use them."""
+        from tadamoo.personal_skills import distill
+        now = datetime.now().astimezone()
+        spec = "\n".join(f"- {i['name']} ({i['type']}{': one of ' + ', '.join(map(str, i['choices'])) if i.get('choices') else ''}): {i['describe']}" for i in items)
+        messages = [{"role": "system", "content": "You set the values of a program's parameters from short descriptions. Answer with one JSON object {name: value} and nothing else. "
+                                                  "Dates are YYYY-MM-DD, moments are YYYY-MM-DDTHH:MM, lists are JSON lists."},
+                    {"role": "user", "content": f"Now: {now.strftime('%Y-%m-%d %H:%M (%A)')}.\nValues already set: {json.dumps(known, ensure_ascii=False, default=str)}\nSet these:\n{spec}"}]
+        resp = self._skill_client().chat_completion(messages=messages, temperature=0.0, extra={"reasoning_effort": "none"}, timeout=120.0)
+        return distill.parse_json_object(((resp.get("choices") or [{}])[0].get("message") or {}).get("content") or "")
+
+    def skill_param(self, action: Any, spec: Any, known: Any = None) -> Dict[str, Any]:
+        """The tools of the parameter card. `check`: the Python expression tried now, with what it gives or why it fails. `to-python`: the model writes the expression for a
+        description, it is tried, and when it fails the model is told why once; the person sees the expression and what it gives and decides."""
+        from tadamoo.client import TadamooError
+        from tadamoo.personal_skills import expressions
+        from tadamoo.personal_skills.values import check_param
+        if not isinstance(spec, dict) or action not in ("check", "to-python") or (known is not None and not isinstance(known, dict)):
+            raise RunError("Send the parameter and what to do with it: check or to-python.", "bad_param")
+        known = known or {}
+        if action == "check":
+            if "params" in str(spec.get("expr")) and not known:                    # it reads other parameters: it can be tried only with their values
+                try:
+                    expressions.validate(spec.get("expr"))
+                except expressions.ExpressionError as exc:
+                    return {"ok": False, "value": None, "error": str(exc)}
+                return {"ok": True, "value": "(it reads other parameters: it is tried when the script starts)", "error": ""}
+            return check_param(spec, None, known)
+        description = str(spec.get("describe") or "").strip()
+        if not description:
+            raise RunError("Describe how the parameter is to be set first.", "bad_param")
+        messages = [{"role": "system", "content": "You write one Python expression that gives a parameter's value. Answer with the expression only, on one line, no code fence, no explanation. "
+                                                  "Allowed: " + expressions.NAMES_HELP + ". No imports, no statements."},
+                    {"role": "user", "content": f"Parameter type: {spec.get('type', 'text')}. {('Choices: ' + ', '.join(map(str, spec['choices']))) if spec.get('choices') else ''}\n"
+                                                f"Earlier parameters (use as params[\"name\"]): {', '.join(known) or 'none'}.\nDescription: {description}"}]
+        expr, verdict = "", {"ok": False, "error": "", "value": None}
+        for attempt in range(2):
+            try:
+                resp = self._skill_client().chat_completion(messages=messages, temperature=0.0, extra={"reasoning_effort": "none"}, timeout=120.0)
+            except TadamooError as exc:
+                raise RunError(f"The model could not be reached: {exc}", "model") from None
+            text = ((resp.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+            expr = re.sub(r"^```\w*\s*|\s*```$", "", re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()).strip().splitlines()[0].strip() if text.strip() else ""
+            verdict = check_param({**spec, "expr": expr}, None, known)
+            if verdict["ok"]:
+                break
+            messages = messages + [{"role": "assistant", "content": expr}, {"role": "user", "content": f"That does not work: {verdict['error']}. Answer with the corrected expression only."}]
+        return {"expr": expr, **verdict}
 
     def run_skill(self, sid: str, slug: Any, values: Any = None) -> Dict[str, Any]:
         """Runs one of the person's skills in this conversation with the values they gave (a date in words is worked out now; a value left out is the
@@ -1807,7 +1856,7 @@ class SessionManager:
             skill = self.skills.get(slug)
         except SkillError as exc:
             raise RunError(str(exc), "no_skill") from None
-        typed, errors = resolve_values(skill.get("params") or [], values or {}, datetime.now(), self.skills.last_values(slug))
+        typed, errors = resolve_values(skill.get("params") or [], values or {}, datetime.now(), self.skills.last_values(slug), llm=self._llm_values)
         if errors:
             raise RunError("; ".join(f"{k}: {v}" for k, v in errors.items()), "bad_values")
         text = describe(skill, typed)

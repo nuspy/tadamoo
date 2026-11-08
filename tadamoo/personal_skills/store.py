@@ -103,7 +103,7 @@ class PersonalSkills:
         problems = script_check.check(script)
         if problems:
             raise SkillError("The script cannot be saved: " + "; ".join(f"line {p['line']}: {p['message']}" for p in problems[:5]))
-        clean_params = [{k: v for k, v in p.items() if k in ("name", "label", "explanation", "type", "default", "required", "choices", "item_type", "format")} for p in params]
+        clean_params = [{k: v for k, v in p.items() if k in ("name", "label", "explanation", "type", "default", "required", "choices", "item_type", "format", "source", "expr", "describe", "when", "after")} for p in params]
         return {"name": name, "description": " ".join(str(spec.get("description", "")).split())[:500], "params": clean_params,
                 "tools": script_check.tools_used(script), "timeout": _timeout(spec.get("timeout"))}
 

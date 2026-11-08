@@ -70,6 +70,47 @@
     label.addEventListener("input", () => { legend.textContent = label.value || ident.value || T("psk.pf.new"); });
     card.append(field(T("psk.pf.ident"), ident), field(T("psk.pf.label"), label), field(T("psk.pf.explain"), explain), field(T("psk.pf.type"), type), choicesRow, itemsRow,
                 field(T("psk.pf.default"), usual, spec.type === "date" || spec.type === "datetime" ? T("psk.pf.dateHelp") : ""));
+    /* how the value is set: by the person when it starts, by a Python expression, or by the model from a description; and whether at the start or later in the run */
+    const modes = ["value", "python", "llm"], group = "psk-src-" + Math.random().toString(36).slice(2, 8), radios = {};
+    const sourceRow = mk("fieldset", "psk-source"); sourceRow.append(mk("legend", "", T("psk.pf.source")));
+    modes.forEach(m => {
+      const r = mk("input"); r.type = "radio"; r.name = group; r.value = m; r.checked = (spec.source || "value") === m; radios[m] = r;
+      const l = mk("label", "psk-check"); l.append(r, mk("span", "", T("psk.pf.source." + m)));
+      sourceRow.append(l);
+    });
+    const expr = input(spec.expr || "", "psk-mono"), describe = mk("textarea"), exprOut = mk("p", "psk-help");
+    describe.rows = 2; describe.value = spec.describe || "";
+    exprOut.setAttribute("role", "status");
+    const exprRow = field(T("psk.pf.expr"), expr, T("psk.pf.expr.help")), describeRow = field(T("psk.pf.describe"), describe, T("psk.pf.describe.help"));
+    const known = () => (o.known ? o.known() : {});
+    const spec2 = () => ({ name: ident.value.trim().toLowerCase(), type: type.value, source: "python", expr: expr.value.trim(), describe: describe.value.trim(),
+      ...(type.value === "choice" ? { choices: choices.value.split(",").map(x => x.trim()).filter(Boolean) } : {}), ...(type.value === "list" ? { item_type: items.value } : {}) });
+    const shown = v => (Array.isArray(v) ? v.join(", ") : String(v));
+    const checkBtn = button(T("psk.pf.check"), "", async () => {
+      exprOut.textContent = T("psk.pf.checking");
+      const r = await api("POST", "api/agent/skill-param", { action: "check", spec: spec2(), known: known() });
+      exprOut.textContent = !r.ok ? T("psk.err", errText(r)) : r.json.ok ? T("psk.pf.checked", shown(r.json.value)) : T("psk.pf.exprbad", r.json.error);
+    });
+    const convertBtn = button(T("psk.pf.topython"), "", async () => {
+      exprOut.textContent = T("psk.pf.converting");
+      const r = await api("POST", "api/agent/skill-param", { action: "to-python", spec: spec2(), known: known() });
+      if (!r.ok) { exprOut.textContent = T("psk.err", errText(r)); return; }
+      expr.value = r.json.expr || "";
+      exprOut.textContent = r.json.ok ? T("psk.pf.converted", shown(r.json.value)) : T("psk.pf.exprbad", r.json.error);
+      if (r.json.ok) { radios.python.checked = true; syncSource(); }
+    });
+    exprRow.append(checkBtn); describeRow.append(convertBtn);
+    const whenSel = select(["start", "later"], spec.when || "start", w => T("psk.pf.when." + w)), after = input(spec.after || "", "psk-mono");
+    const whenRow = field(T("psk.pf.when"), whenSel, T("psk.pf.when.help")), afterRow = field(T("psk.pf.after"), after, T("psk.pf.after.help"));
+    const syncSource = () => {
+      const m = modes.find(x => radios[x].checked);
+      exprRow.hidden = m !== "python"; describeRow.hidden = m === "value" ? true : m !== "llm" && !describe.value;
+      exprOut.hidden = m === "value"; whenRow.hidden = m === "value"; afterRow.hidden = m === "value" || whenSel.value !== "later";
+    };
+    modes.forEach(m => { radios[m].onchange = syncSource; });
+    whenSel.onchange = syncSource;
+    card.append(sourceRow, describeRow, exprRow, exprOut, whenRow, afterRow);
+    syncSource();
     if (o.seen != null && o.seen !== "") card.append(mk("p", "psk-help", T("psk.make.seen", String(o.seen))));
     if (o.used) card.append(mk("p", "psk-help", T("psk.make.used", o.used)));
     if (o.unverified) card.append(mk("p", "psk-warn", T("psk.make.unverified")));
@@ -84,6 +125,16 @@
         if (type.value === "list") out.item_type = items.value;
         if (usual.value.trim()) out.default = usual.value.trim();
         if (spec.value_seen != null) out.value_seen = spec.value_seen;
+        const mode = modes.find(x => radios[x].checked);
+        if (mode === "python" && !expr.value.trim()) throw new Error(T("psk.pf.needexpr", name));
+        if (mode === "llm" && !describe.value.trim()) throw new Error(T("psk.pf.needdescribe", name));
+        if (mode !== "value") {
+          out.source = mode;
+          if (mode === "python") out.expr = expr.value.trim();
+          if (describe.value.trim()) out.describe = describe.value.trim();
+          out.when = whenSel.value;
+          if (whenSel.value === "later" && after.value.trim()) out.after = after.value.trim();
+        }
         return out;
       },
     };
@@ -232,7 +283,8 @@
     const name = input(skill.name || ""), desc = input(skill.description || "");
     const cards = [];
     const paramBox = mk("div", "psk-params");
-    const addCard = (spec, o) => { const c = paramCard(spec, { ...o, remove: () => { const i = cards.indexOf(c); if (i >= 0) cards.splice(i, 1); } }); cards.push(c); paramBox.append(c.el); return c; };
+    const knownValues = () => Object.fromEntries(cards.map(c => { try { const p = c.read(); return [p.name, p.value_seen != null ? p.value_seen : (p.default != null ? p.default : "")]; } catch (e) { return null; } }).filter(Boolean));
+    const addCard = (spec, o) => { const c = paramCard(spec, { ...o, known: knownValues, remove: () => { const i = cards.indexOf(c); if (i >= 0) cards.splice(i, 1); } }); cards.push(c); paramBox.append(c.el); return c; };
     (skill.params || []).forEach(p => addCard(p, {}));
     const code = mk("textarea", "psk-code"); code.rows = 20; code.spellcheck = false; code.value = skill.script || "";
     const limit = input(skill.timeout || ""); limit.inputMode = "numeric";
@@ -311,7 +363,8 @@
     const asked = mk("details", "psk-asked"); asked.append(mk("summary", "", T("psk.make.requests")), ...proposal.requests.map(q => mk("p", "psk-help", `${q.n}. ${q.raw}`)));
     const name = input(proposal.name || ""), desc = input(proposal.description || "");
     const cards = [], box = mk("div", "psk-params");
-    const addCard = (spec, o) => { const c = paramCard(spec, { ...o, remove: () => { const i = cards.indexOf(c); if (i >= 0) cards.splice(i, 1); } }); cards.push(c); box.append(c.el); return c; };
+    const knownValues = () => Object.fromEntries(cards.map(c => { try { const p = c.read(); return [p.name, p.value_seen != null ? p.value_seen : (p.default != null ? p.default : "")]; } catch (e) { return null; } }).filter(Boolean));
+    const addCard = (spec, o) => { const c = paramCard(spec, { ...o, known: knownValues, remove: () => { const i = cards.indexOf(c); if (i >= 0) cards.splice(i, 1); } }); cards.push(c); box.append(c.el); return c; };
     const cand = value => (proposal.candidates || []).find(c => String(c.value) === String(value));
     const fill = list => {
       cards.splice(0).forEach(c => c.el.remove());

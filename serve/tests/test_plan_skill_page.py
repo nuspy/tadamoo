@@ -49,5 +49,27 @@ class PlanSkillPageTest(unittest.TestCase):
         self.assertRegex(CSS, r"\.psk-check \{[^}]*min-height: 44px")
 
 
+class ParameterCardTest(unittest.TestCase):
+    def test_a_parameter_is_set_by_the_person_by_python_or_by_the_model_with_a_radio_button_each(self):
+        self.assertIn('const modes = ["value", "python", "llm"]', SKILLS)
+        self.assertIn('r.type = "radio"', SKILLS)
+        for field in ("source", "expr", "describe", "when", "after"):
+            self.assertIn(f"out.{field}", SKILLS)
+
+    def test_python_is_checked_and_a_description_can_be_turned_into_python_on_a_button(self):
+        self.assertIn('action: "check"', SKILLS)
+        self.assertIn('action: "to-python"', SKILLS)
+        self.assertIn('api("POST", "api/agent/skill-param"', SKILLS)
+        self.assertIn("radios.python.checked = true", SKILLS)                                    # a converted description becomes the Python way, to be read and kept
+        self.assertIn('T("psk.pf.needexpr", name)', SKILLS)                                       # a Python parameter with no expression is not kept
+
+    def test_the_words_exist_in_both_languages(self):
+        keys = {k for k in re.findall(r'T\("(psk\.pf\.(?:source|expr|describe|check|checking|checked|exprbad|topython|converting|converted|when|after|needexpr|needdescribe)[\w.]*)"', SKILLS) if not k.endswith(".")}
+        keys |= {f"psk.pf.source.{m}" for m in ("value", "python", "llm")} | {f"psk.pf.when.{w}" for w in ("start", "later")}
+        self.assertGreaterEqual(len(keys), 18)
+        for key in sorted(keys):
+            self.assertEqual(I18N.count(f'"{key}":'), 2, key)
+
+
 if __name__ == "__main__":
     unittest.main()
