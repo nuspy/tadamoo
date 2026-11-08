@@ -9,7 +9,7 @@ from .search_code import register_search_code
 from .tree import register_tree
 from .shell import execute_shell_command
 from .background import Jobs, register_job_tools
-from .search import browse_url, format_page, offer_search
+from .search import PageError, browse_url, format_page, offer_search
 from tadamoo.repomap import register_repo_map
 from tadamoo.repodiagram import register_repo_diagram
 
@@ -153,7 +153,16 @@ def create_standard_tool_registry(
     register_job_tools(registry, jobs)
 
     def read_page(url: str):
-        return format_page(browse_url(url, allow_private=allow_private_pages))
+        try:
+            return format_page(browse_url(url, allow_private=allow_private_pages))
+        except PageError as exc:
+            from tadamoo import websearch
+            if allow_private_pages or not websearch.reader_may_help(str(exc)):
+                raise
+            read = websearch.read_after_failure(url, str(exc))
+            if read is None:
+                raise
+            return read
 
     registry.register(
         name="browse_url",

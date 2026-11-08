@@ -66,6 +66,7 @@ from tadamoo.personal_skills.store import SkillError
 from serve.routines_api import RoutinesApi
 from tadamoo.scheduler import RoutineError
 from serve.wallet_api import WalletApi, WalletError
+from serve.websearch_api import WebSearchApi, WebSearchError
 from tadamoo.context_patterns import catalog as context_patterns_catalog
 from serve.capabilities_api import CapabilityApi, CapabilityError
 from serve.intake_prefs import IntakeError, IntakePrefs
@@ -145,6 +146,7 @@ def stop_sessions() -> None:
     if _SESSIONS is not None:
         _SESSIONS.shutdown()
 _WALLET = None                                         # the vault and the payment systems, made on first use
+_WEBSEARCH = None                                      # Settings > Web search, made on first use
 _MCP_AUTH = None                                       # the sign-in of the remote MCP servers, made on first use
 _PLANS = None                                          # the planner's service, made on first use
 from serve.util.reqtrace import RequestTrace
@@ -582,6 +584,17 @@ def make_handler(svc: Service, remote: bool = False):
                     if not settings.is_loopback(self.client_address[0]):
                         return self._json(403, {"error": {"type": "forbidden", "message": "the vault is shown only on the PC the server runs on"}})
                     self._json(200, self._wallet().overview())
+            elif path in ("/api/websearch", "/api/websearch/plan", "/api/websearch/job"):
+                if self._authorized():
+                    if not settings.is_loopback(self.client_address[0]):
+                        return self._json(403, {"error": {"type": "forbidden", "message": "the web search settings are shown only on the PC the server runs on"}})
+                    query = parse_qs(urlsplit(self.path).query)
+                    try:
+                        api = self._websearch()
+                        self._json(200, api.overview() if path == "/api/websearch" else api.plan((query.get("provider") or [""])[0]) if path.endswith("/plan")
+                                   else api.job((query.get("id") or [""])[0]))
+                    except WebSearchError as e:
+                        self._json(404 if e.code == "not_found" else 400, {"error": {"type": "websearch", "code": e.code, "message": str(e)}})
             elif path == "/api/mcp/auth":
                 if self._authorized():
                     self._json(200, self._mcp_auth().overview())
@@ -801,6 +814,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path.startswith("/api/wallet/"):
                 self._wallet_post(path)
+                return
+            if path.startswith("/api/websearch/"):
+                self._websearch_post(path)
                 return
             if path.startswith("/api/memories/"):
                 self._memories_post(path)
@@ -2286,6 +2302,41 @@ def make_handler(svc: Service, remote: bool = False):
             self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
             self.end_headers()
             self.wfile.write(body)
+
+        def _websearch(self) -> WebSearchApi:
+            global _WEBSEARCH
+            if _WEBSEARCH is None:
+                _WEBSEARCH = WebSearchApi()
+            return _WEBSEARCH
+
+        def _websearch_post(self, path):
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the web search settings are changed only from the PC the server runs on"}})
+            try:
+                raw = self._body(1 << 14)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                api, action = self._websearch(), path[len("/api/websearch/"):]
+                if action == "select":
+                    return self._json(200, api.select(req))
+                if action == "key":
+                    return self._json(200, api.set_key(req.get("provider"), req.get("key")))
+                if action == "test":
+                    return self._json(200, api.test(req.get("provider")))
+                if action == "install":
+                    return self._json(200, api.install(req.get("provider")))
+                if action == "uninstall":
+                    return self._json(200, api.uninstall(req.get("provider")))
+                return self._json(404, {"error": {"message": "not found"}})
+            except WebSearchError as e:
+                return self._json(400, {"error": {"type": "websearch", "code": e.code, "message": str(e)}})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"type": "websearch", "message": str(e)}})
 
         def _wallet(self) -> WalletApi:
             global _WALLET
