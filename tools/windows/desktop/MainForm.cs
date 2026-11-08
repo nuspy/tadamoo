@@ -24,6 +24,7 @@ sealed class MainForm : Form
     readonly Options opt;
     readonly EventWaitHandle showEvent;
     readonly NotifyIcon tray;
+    readonly VoiceService voice;    // the voice service: this app's own process, in a job of its own
     readonly WebView2 web = new() { Dock = DockStyle.Fill, Visible = false, DefaultBackgroundColor = Color.FromArgb(14, 17, 20) };
     readonly TableLayoutPanel start = new() { Dock = DockStyle.Fill, Padding = new Padding(32, 24, 32, 24), BackColor = Bg };
     readonly ComboBox profiles = new() { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, Dock = DockStyle.Fill, Font = new Font("Segoe UI", 12f) };
@@ -76,6 +77,7 @@ sealed class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         cfgPath = opt.ConfigFile != null ? Path.GetFullPath(opt.ConfigFile) : Path.Combine(opt.Repo, "tadamoo_config.json");
         EnsureConfig();
+        voice = new VoiceService(opt.Repo, WebPort);
         string data = Environment.GetEnvironmentVariable("TADAMOO_DATA");
         statePath = opt.TestMock ? Path.Combine(Path.GetTempPath(), "tadamoo-desktop-test", "desktop.json")
                   : Path.Combine(string.IsNullOrEmpty(data) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TaDaMoo") : data, "desktop.json");
@@ -88,6 +90,9 @@ sealed class MainForm : Form
         menu.Items.Add(Tr.T("Ricarica con altri parametri…", "Reload with other settings…"), null, (_, _) => { ShowWindow(); if (web.Visible) web.CoreWebView2?.Navigate($"http://127.0.0.1:{serverPort}/#loader"); });
         menu.Items.Add(Tr.T("Avvia solo server (per gli agenti)…", "Start the server alone (for agents)…"), null, async (_, _) => await HeadlessFromTray());
         menu.Items.Add(new ToolStripSeparator());
+        var voiceItem = new ToolStripMenuItem(voice.StatusText) { Enabled = false };
+        menu.Items.Add(voiceItem);
+        menu.Opening += (_, _) => voiceItem.Text = voice.StatusText;
         menu.Items.Add(Tr.T("Spegni", "Turn off"), null, (_, _) => TurnOff(true));
         tray = new NotifyIcon { Icon = Icon, Text = Program.TitleWithRelease.Length > 63 ? Program.AppName : Program.TitleWithRelease, ContextMenuStrip = menu, Visible = true };
         tray.DoubleClick += (_, _) => ShowWindow();
@@ -419,6 +424,8 @@ sealed class MainForm : Form
     async Task Begin()
     {
         if (opt.TestMock) PrepareMock();
+        if (!opt.TestMock || Environment.GetEnvironmentVariable("TADAMOO_VOICE_IN_TEST") == "1")
+            await Task.Run(voice.Start);                   // before the server and any model; a missing Python is only a log line
         start.Visible = false;
         var running = opt.TestMock ? new List<(int, JsonElement)>() : await Task.Run(Native.RunningServers);
         if (running.Count > 0)
@@ -1103,6 +1110,7 @@ sealed class MainForm : Form
             return;
         }
         tray.Visible = false;
+        voice.Stop();
         base.OnFormClosing(e);
     }
 
