@@ -258,3 +258,35 @@ def test_reload_says_when_the_conversation_looks_for_nothing(tmp_path):
     assert commands.run("reload-mcp", "", session)["data"] == {"done": False, "reason": "off"}
     assert commands.run("reload-skills", "", session)["data"] == {"done": False, "reason": "off"}
     assert commands.run("reload-plugins", "", session)["data"] == {"done": False, "reason": "off"}
+
+
+def test_the_process_takes_the_temperature_the_reply_limit_and_the_pictures_level_while_it_lives(tmp_path, monkeypatch):
+    import tadamoo.session as hs
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    real_build = hs.build_agent
+    monkeypatch.setattr(hs, "build_agent", lambda cfg, client=None, summarizer=None, technical=None, _c=Scripted(): real_build(cfg, client=_c))
+    feed, out = Feed(), io.StringIO()
+    t = threading.Thread(target=lambda: main(["--workspace", str(ws), "--history-dir", str(tmp_path / "h"), "--session-id", "p3", "--no-memory", "--no-checkpoints",
+                                              "--attachments-dir", str(tmp_path / "att"), "--outputs-dir", str(tmp_path / "out"),
+                                              "--heartbeat", "0.05"], stdin=feed, stdout=out), daemon=True)
+    t.start()
+    feed.put({"cmd": "settings", "temperature": 0.3, "max_tokens": 2000})
+    feed.put({"cmd": "settings", "temperature": 9})                                # refused
+    feed.put({"cmd": "settings", "max_tokens": 0})                                 # refused: the server turns "no limit" into null before it gets here
+    feed.put({"cmd": "settings", "temperature": None, "max_tokens": None})
+    feed.put({"cmd": "visuals", "images": "high", "charts": "normal"})
+    feed.put({"cmd": "visuals", "images": "high"})                                 # refused: both levels are given
+    feed.put({"cmd": "command", "id": "k1", "name": "status", "args": ""})
+
+    def seen(pred):
+        return [e for e in (json.loads(l) for l in out.getvalue().splitlines()) if pred(e)]
+    deadline = time.monotonic() + 10
+    while not seen(lambda e: e["event"] == "command") and time.monotonic() < deadline:
+        time.sleep(0.05)
+    feed.put({"cmd": "close"})
+    t.join(10)
+    assert seen(lambda e: e["event"] == "settings") == [{"event": "settings", "temperature": 0.3, "max_tokens": 2000},
+                                                        {"event": "settings", "temperature": None, "max_tokens": None}]
+    assert seen(lambda e: e["event"] == "visuals") == [{"event": "visuals", "images": "high", "charts": "normal"}]
+    assert len(seen(lambda e: e.get("code") == "bad_command")) == 3
