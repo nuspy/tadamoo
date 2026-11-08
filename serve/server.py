@@ -268,7 +268,8 @@ def main() -> int:
     svc.gpu_index = svc.gpu_indices[0]
     svc.control_token = write_control_token(a.port, a.control_secret_value) if a.control_secret else ""
     httpd = serve(svc, host=a.host, port=a.port)
-    from serve import billion_context, chatctx, llamacpp_api
+    from serve import billion_context, chatctx, llamacpp_api, voice_settings
+    threading.Thread(target=voice_settings.ensure_models_dir, daemon=True, name="voice-models-dir").start()    # the voice service reads the same folder from voice.json
     threading.Thread(target=billion_context.start, args=(httpd.server_address[1], lambda: chatctx._limit(svc)), daemon=True, name="billion-context-start").start()
     threading.Thread(target=llamacpp_api.start_if_enabled, daemon=True, name="llamacpp-start").start()   # only when the person left it set to start with TaDaMoo
     svc.start_idle_unload()
