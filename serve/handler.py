@@ -591,7 +591,7 @@ def make_handler(svc: Service, remote: bool = False):
                     query = parse_qs(urlsplit(self.path).query)
                     try:
                         api = self._websearch()
-                        self._json(200, api.overview() if path == "/api/websearch" else api.plan((query.get("provider") or [""])[0]) if path.endswith("/plan")
+                        self._json(200, api.overview() if path == "/api/websearch" else api.plan((query.get("provider") or [""])[0]) if path == "/api/websearch/plan"
                                    else api.job((query.get("id") or [""])[0]))
                     except WebSearchError as e:
                         self._json(404 if e.code == "not_found" else 400, {"error": {"type": "websearch", "code": e.code, "message": str(e)}})

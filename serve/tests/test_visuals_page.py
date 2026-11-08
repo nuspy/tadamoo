@@ -41,7 +41,7 @@ class VisualsPageTest(base.PlansApiBase):
     def test_a_diagram_is_drawn_with_the_strict_setting_once_its_block_is_closed_and_kept_for_the_next_redraw(self):
         self.assertIn('securityLevel: "strict"', CHAT)
         self.assertIn('data-ready="${end ? 1 : 0}"', CHAT)
-        self.assertIn("if (drawn.has(code))", CHAT)
+        self.assertIn("if (drawn.has(original))", CHAT)
         self.assertIn('s.src = "web/vendor/mermaid.min.js";', CHAT)
         self.assertNotIn("mermaid.min.js", HTML)                                   # loaded only when an answer holds a diagram
 
