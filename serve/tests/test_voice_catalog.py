@@ -76,11 +76,11 @@ class GroundingTest(unittest.TestCase):
             self.assertTrue(s["url"].endswith("/" + s["name"]))
             self.assertRegex(s["sha256"], r"^[0-9a-f]{64}$")
 
-    def test_the_kokoro_and_diarization_files_are_the_ones_fetch_models_names(self):
-        fetch = (ROOT / "voice/fetch_models.py").read_text(encoding="utf-8")
+    def test_the_kokoro_and_diarization_files_are_the_ones_the_voice_code_names(self):
+        names = {s["name"] for e in vc.CATALOG for s in e["sources"] if s["type"] == "url"}
         for name in ("kokoro-v1.0.fp16.onnx", "voices-v1.0.bin", "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
                      "sherpa-onnx-pyannote-segmentation-3-0.tar.bz2"):
-            self.assertIn(name, fetch)
+            self.assertIn(name, names)
         urls = [s["url"] for e in vc.CATALOG for s in e["sources"] if s["type"] == "url" and not s["url"].startswith(vc._WHISPER_HOST)]
         self.assertEqual(len(urls), 4)
         for u in urls:
