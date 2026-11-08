@@ -8,7 +8,9 @@
   if (!host) return;
 
   const POLL_MS = 1000, ARM_MS = 4000;
-  const NAMES = { duckduckgo: "DuckDuckGo", searxng: "SearXNG", brave: "Brave Search", tavily: "Tavily", exa: "Exa", firecrawl: "Firecrawl", playwright: "Playwright" };
+  const NAMES = { duckduckgo: "DuckDuckGo", searxng: "SearXNG", openwebsearch: "open-websearch", brave: "Brave Search", tavily: "Tavily", exa: "Exa", firecrawl: "Firecrawl", playwright: "Playwright" };
+  const ENGINE_NAMES = { duckduckgo: "DuckDuckGo", bing: "Bing", brave: "Brave", startpage: "Startpage" };
+  const OS_NAMES = { windows: () => T("ws.os.windows"), linux: () => T("ws.os.linux"), macos: () => T("ws.os.macos") };
   const ICONS = {
     ok: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM8 12.5l3 3 5-6",
     pause: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM10 9v6M14 9v6",
@@ -96,18 +98,26 @@
     row.append(input, el("span", "", label));
     return row;
   }
+  function systemBox() {
+    const sys = S.system || {}, rtm = S.runtime || {}, box = el("div", "ws-sys");
+    const os = (OS_NAMES[sys.os] || (() => sys.os || "?"))();
+    box.append(el("p", "ws-sysline", T("ws.sys.line", os, sys.arch || "?")));
+    box.append(el("p", "ws-sysline", rtm.found ? (rtm.source === "private" ? T("ws.node.private", rtm.version) : T("ws.node.system", rtm.version)) : T("ws.node.none")));
+    if (sys.supported === false) {
+      const bad = withIcon("alert", "ws-warn ws-unsupported", T("ws.sys.unsupported") + (sys.note ? " " + sys.note : ""));
+      bad.setAttribute("role", "alert");
+      box.append(bad);
+    }
+    return box;
+  }
   function globalBox() {
     const box = el("div", "ws-global"), now = S.providers.find(p => p.search), rd = S.providers.find(p => p.reader);
     const line = el("p", "ws-now");
     line.append(el("b", "", T("ws.now.search", now ? NAMES[now.id] : "-")), document.createTextNode(" - "), el("span", "", T("ws.now.reader", rd ? NAMES[rd.id] : T("ws.reader.none"))));
-    box.append(line, el("p", "help", T("ws.now.hint")));
+    box.append(line, el("p", "help", T("ws.now.hint")), systemBox());
     const set = el("fieldset", "ws-reader"), lg = el("legend", "", T("ws.reader.label"));
     set.append(lg, radio("ws-reader", "ws-reader-none", T("ws.reader.none"), S.reader === "none", () => change({ reader: "none" })), el("p", "help", T("ws.reader.help")));
     box.append(set);
-    const auto = el("label", "ws-radio"), cb = el("input");
-    cb.type = "checkbox"; cb.id = "ws-autostart"; cb.checked = !!S.autostart; cb.onchange = () => change({ autostart: cb.checked });
-    auto.append(cb, el("span", "", T("ws.autostart")));
-    box.append(auto);
     const note = el("p", "ws-note"); note.id = "ws-gnote"; note.hidden = true; note.setAttribute("role", "status");
     box.append(note);
     return box;
@@ -130,6 +140,7 @@
     if (p.kind === "reader" || p.kind === "both") picks.append(radio("ws-reader", `ws-${pid}-reader`, T("ws.use.reader"), !!p.reader, () => change({ reader: pid }, pid)));
     art.append(picks);
 
+    if (pid === "openwebsearch" && p.search) art.append(engineChoice());
     if (p.builtin) art.append(el("p", "ws-note", T("ws.builtin.none")));
     else {
       if (p.modes.length > 1) art.append(modeChoice(p));
@@ -141,6 +152,14 @@
     return art;
   }
 
+  function engineChoice() {
+    const wrap = field("ws-engine", T("ws.engine.label"), T("ws.engine.help")), sel = el("select");
+    sel.id = "ws-engine";
+    (S.engines || []).forEach(name => { const o = el("option", "", ENGINE_NAMES[name] || name); o.value = name; o.selected = name === S.engine; sel.append(o); });
+    sel.onchange = () => change({ engine: sel.value }, "openwebsearch");
+    wrap.append(sel);
+    return wrap;
+  }
   function modeChoice(p) {
     const box = el("div", "ws-mode"), group = el("div", "ws-seg");
     group.setAttribute("role", "group"); group.setAttribute("aria-label", T("ws.mode.group"));
@@ -210,25 +229,26 @@
   /* ---- the local half: its state, its address, the steps, the install ---- */
   function localState(p) {
     const L = p.local;
-    if (L.how === "npx") return ["none", "ws.st.npx"];
-    if (L.how === "compose") return L.up ? ["ok", "ws.st.up"] : ["none", "ws.st.down"];
-    if (L.running) return L.up ? ["ok", "ws.st.running"] : ["pause", "ws.st.runningdown"];
+    if (L.how === "external") return L.up ? ["ok", "ws.st.up"] : ["none", "ws.st.down"];
+    if (L.running) return ["ok", "ws.st.running"];
     return L.installed ? ["pause", "ws.st.stopped"] : ["none", "ws.st.none"];
   }
-  const missing = L => L.needs.filter(n => !L.needs_present[n]);
+  const supported = () => !S.system || S.system.supported !== false;
   function localBlock(p) {
     const pid = p.id, L = p.local, s = st(pid), box = el("div", "ws-block");
     box.append(el("h4", "", T("ws.local.title")));
     const [ic, key] = localState(p), status = el("p", "ws-status");
-    status.append(el("b", "", T("ws.st.label") + ": "), icon(ic), el("span", "", T(key)));
+    status.append(el("b", "", T("ws.st.label") + ": "), icon(ic), el("span", "", T(key, L.installed)));
     box.append(status);
-    missing(L).forEach(n => box.append(withIcon("alert", "ws-warn", T("ws.need." + n))));
-    if (L.how !== "npx") box.append(addressForm(p, L.url, T("ws.url.label"), "", L.default_url));
+    if (L.how === "external") box.append(addressForm(p, L.url, T("ws.url.label"), "", L.default_url));
 
     const bar = el("div", "ws-bar");
-    bar.append(btn(s.showing ? T("ws.steps.hide") : T("ws.steps.show"), "", () => toggleSteps(pid), `ws-${pid}-steps`));
-    if (L.automatic && (pid !== "searxng" || L.installed)) bar.append(btn(s.armed ? T("ws.remove.sure") : T("ws.remove"), "ghost" + (s.armed ? " ws-armed" : ""), () => remove(pid), `ws-${pid}-remove`));
+    if (!L.automatic) bar.append(btn(s.showing ? T("ws.steps.hide") : T("ws.steps.guide.show"), "", () => toggleSteps(pid), `ws-${pid}-steps`));
+    else if (supported()) bar.append(btn(s.showing ? T("ws.steps.hide") : T("ws.steps.show"), "", () => toggleSteps(pid), `ws-${pid}-steps`));
+    if (L.automatic && L.running) bar.append(btn(T("ws.stop"), "", () => stop(pid), `ws-${pid}-stop`));
+    if (L.automatic && L.installed) bar.append(btn(s.armed ? T("ws.remove.sure") : T("ws.remove"), "ghost" + (s.armed ? " ws-armed" : ""), () => remove(pid), `ws-${pid}-remove`));
     box.append(bar);
+    if (L.automatic && L.running) box.append(el("p", "help", T("ws.stop.help")));
     if (s.showing) box.append(stepsBlock(p));
     const job = el("div", "ws-jobbox"); job.id = `ws-${pid}-job`;
     if (s.job) job.append(jobNode(pid));
@@ -247,23 +267,30 @@
     const pid = p.id, s = st(pid), box = el("div", "ws-steps");
     if (s.planErr) { box.append(withIcon("alert", "ws-warn", s.planErr)); return box; }
     const plan = s.plan;
-    box.append(el("h5", "", T("ws.steps.title")));
-    const ol = el("ol", "ws-steplist");
-    plan.steps.forEach(step => { const li = el("li", ""); li.append(el("span", "ws-steplabel", step.label), el("pre", "ws-cmd", step.command)); ol.append(li); });
-    box.append(ol);
-    if (plan.note) box.append(el("p", "help", plan.note));
     if (!plan.automatic) {
+      if (plan.note) box.append(el("p", "ws-what", plan.note));
       box.append(el("p", "", T("ws.steps.manual")));
       if (p.local.repo) box.append(link(p.local.repo, T("ws.steps.guide")));
       return box;
     }
-    const lacking = missing(p.local), running = s.job && s.job.state === "running";
+    box.append(el("h5", "", T("ws.steps.title")));
+    if (plan.steps.length) {
+      const ol = el("ol", "ws-steplist");
+      plan.steps.forEach(step => { const li = el("li", ""); li.append(el("span", "ws-steplabel", step.label), el("pre", "ws-cmd", step.command)); ol.append(li); });
+      box.append(ol);
+    }
+    if (plan.note) box.append(el("p", "help", plan.note));
+    const running = s.job && s.job.state === "running";
     box.append(withIcon("alert", "ws-warn", T("ws.safety")));
     const install = btn(T("ws.install"), "primary", () => startInstall(pid), `ws-${pid}-install`);
-    install.disabled = lacking.length > 0 || running;
+    install.disabled = !!running || !supported();
     box.append(install);
-    if (lacking.length) box.append(el("p", "help", T("ws.install.missing")));
     return box;
+  }
+  async function stop(pid) {
+    const s = st(pid), r = await api("POST", "api/websearch/stop", { provider: pid });
+    if (r.ok) { S = r.data; s.msg = T("ws.stopped"); s.bad = false; } else { s.msg = errText(r); s.bad = true; }
+    paint();
   }
   async function remove(pid) {
     const s = st(pid);

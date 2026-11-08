@@ -9,7 +9,7 @@ JS = (WEB / "websearch.js").read_text(encoding="utf-8")
 CSS = (WEB / "websearch.css").read_text(encoding="utf-8")
 I18N = (WEB / "i18n.js").read_text(encoding="utf-8")
 SUBTABS = (WEB / "subtabs.js").read_text(encoding="utf-8")
-PROVIDERS = ("duckduckgo", "searxng", "brave", "tavily", "exa", "firecrawl", "playwright")
+PROVIDERS = ("duckduckgo", "searxng", "openwebsearch", "brave", "tavily", "exa", "firecrawl", "playwright")
 
 
 class WebSearchPageTest(unittest.TestCase):
@@ -23,7 +23,7 @@ class WebSearchPageTest(unittest.TestCase):
 
     def test_every_route_of_the_server_is_used_and_the_data_loads_when_the_tab_is_shown(self):
         for route in ('"api/websearch"', '"api/websearch/select"', '"api/websearch/key"', '"api/websearch/test"', 'api/websearch/plan?provider=',
-                      '"api/websearch/install"', 'api/websearch/job?id=', '"api/websearch/uninstall"'):
+                      '"api/websearch/install"', 'api/websearch/job?id=', '"api/websearch/stop"', '"api/websearch/uninstall"'):
             self.assertIn(route, JS)
         self.assertIn('"tadamoo:sub"', JS)
         self.assertIn('e.detail !== "websearch"', JS)
@@ -63,20 +63,47 @@ class WebSearchPageTest(unittest.TestCase):
         self.assertEqual(JS.count('radio("ws-reader"'), 2)                            # none at the top, and the cards of the readers
         self.assertIn('{ reader: "none" }', JS)
         self.assertIn("{ search: pid }", JS)
-        self.assertIn("{ autostart: cb.checked }", JS)
+        self.assertIn("{ engine: sel.value }", JS)
         self.assertIn("{ mode: { [p.id]: m } }", JS)
         self.assertIn("{ urls: { [pid]: input.value.trim() } }", JS)
+
+    def test_nothing_of_the_old_designs_remains(self):
+        for old in ("autostart", "docker", "Docker", "needs_present", "S.tools", "git"):
+            self.assertNotIn(old, JS)
+        for old in ('"ws.need.', '"ws.autostart"', "Docker Desktop", "needs Docker", "Git and"):
+            self.assertNotIn(old, I18N, old)                                         # Docker may be named only to say it is not used
+
+    def test_the_page_shows_the_system_and_node_and_blocks_install_on_an_unsupported_system(self):
+        self.assertIn("S.system", JS)
+        self.assertIn("S.runtime", JS)
+        self.assertIn("sys.supported === false", JS)
+        self.assertIn('setAttribute("role", "alert")', JS)
+        self.assertIn("install.disabled = !!running || !supported()", JS)
+        self.assertIn("else if (supported())", JS)                                    # no steps button for an installer on an unsupported system
+
+    def test_a_program_the_harness_does_not_install_shows_the_note_and_the_address_and_no_install_button(self):
+        steps = JS.split("function stepsBlock", 1)[1].split("async function stop", 1)[0]
+        self.assertLess(steps.index("if (!plan.automatic)"), steps.index("startInstall"))
+        self.assertIn('L.how === "external"', JS)
+        self.assertIn("plan.note", steps)
+
+    def test_a_running_server_can_be_stopped_and_the_page_says_it_stops_by_itself(self):
+        self.assertIn("L.automatic && L.running", JS)
+        self.assertIn('{ provider: pid }', JS)
+        self.assertIn('T("ws.stop.help")', JS)
+        self.assertIn("L.automatic && L.installed", JS)                                # removing is for the installed npm programs only
 
     def test_the_texts_exist_once_in_each_language(self):
         keys = {k for k in re.findall(r'\bT\(\s*"(ws\.[a-z.0-9_]+)"', JS) if not k.endswith(".")} | set(re.findall(r'data-t="(ws\.[a-z.]+)"', HTML))
         keys |= {"sub.websearch", "pal.set.websearch"}
         for pid in PROVIDERS:
             keys |= {f"ws.p.{pid}.what", f"ws.p.{pid}.good", f"ws.p.{pid}.weak"}
-        for name in ("docker", "git", "node"):
-            keys.add(f"ws.need.{name}")
+        for name in ("windows", "linux", "macos"):
+            self.assertIn(f'"ws.os.{name}"', JS)
+            keys.add(f"ws.os.{name}")
         for kind in ("local", "cloud"):
             keys.add(f"ws.mode.{kind}")
-        for name in ("running", "runningdown", "stopped", "none", "up", "down", "npx"):
+        for name in ("running", "stopped", "none", "up", "down"):
             self.assertIn(f'"ws.st.{name}"', JS)                                       # the state of a local program is named by its key
             keys.add(f"ws.st.{name}")
         for key in ("ws.cloud.signup", "ws.cloud.instances", "ws.steps.show", "ws.steps.hide", "ws.remove", "ws.remove.sure", "ws.test", "ws.test.running",
