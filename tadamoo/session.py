@@ -1302,7 +1302,7 @@ class Session:
             if self.ask_only or text.startswith(qs.ANSWER_HEADER) or not callable(getattr(agent.client, "chat_completion", None)):
                 return False
             asked = lf.parse_hint(text)
-            found = None if asked is not None else lf.detect_long_request(text)
+            found = None if asked is not None else lf.detect_long_request(text, min_tokens=self._long_min_tokens(agent))
             if asked is None and found is None:
                 return False
             pieces = lf.separate_texts(asked["text"] if asked is not None else text)
@@ -1340,6 +1340,32 @@ class Session:
         except Exception as exc:
             self._long_asked = None
             it.log.warning("long answer: failed: %s", type(exc).__name__)
+            return False
+
+    @staticmethod
+    def _long_min_tokens(agent: Any) -> int:
+        """The answer length above which a text is written in parts: from what the server measured of this model, else the general threshold."""
+        ask = getattr(agent.client, "length_limit", None)
+        try:
+            return lf.long_min_tokens(int(ask()) if callable(ask) else 0)
+        except Exception:
+            return lf.long_min_tokens(0)
+
+    RESCUE_WORDS = 4000            # a text whose thinking left no room for the answer is taken to be about this long until the estimate says
+
+    def _rescue_long(self, task: Task) -> bool:
+        """The thinking used the whole output and no answer came (`empty`), on a request with no tool work: the text is written in parts, where the
+        thinking cannot take its room. The estimate decides whether it is long; True when the text was written."""
+        agent = task.agent
+        try:
+            if (agent.stop_reason != al.EMPTY or self.ask_only or task.side or task.skill is not None or agent.last_user_text.startswith(qs.ANSWER_HEADER)
+                    or not callable(getattr(agent.client, "chat_completion", None)) or any(t.tool_calls for t in agent.turns[-4:])):
+                return False
+            self._long_request = {"mode": "write", "words": self.RESCUE_WORDS, "text": agent.last_user_text, "reason": "rescue", "prior": self._long_prior(agent)}
+            self._audit("long_answer", {"rescue": "empty"})
+            return self._long_run(task)
+        except Exception as exc:
+            it.log.warning("long answer: rescue failed: %s", type(exc).__name__)
             return False
 
     @staticmethod
@@ -1392,7 +1418,7 @@ class Session:
         kw: Dict[str, Any] = {"prior": prior, "cancel": agent.cancel,
                               "sampling": {k: agent.sampling[k] for k in lf.SAMPLING_FIELDS if agent.sampling.get(k) is not None}}
         if spec.mode == "write":
-            run: lf.LongAnswer = lfw.LongFlow(client, spec, hint_words=words, stated=stated, **kw)
+            run: lf.LongAnswer = lfw.LongFlow(client, spec, hint_words=words, stated=stated, min_tokens=self._long_min_tokens(agent), **kw)
         else:
             run = lf.LongAnswer(client, spec, **kw)
         done: Dict[str, Any] = {}
@@ -1651,6 +1677,7 @@ class Session:
                     return "suspended"
                 continue
             if agent.stop_reason != al.ERROR:
+                self._rescue_long(task)                                    # thinking took the whole output: the text goes in parts
                 return "done"
             status = agent.error_status                                    # a model error never blocks: the model is waited for, and loaded when it is not
             if self.classify_errors and error_classifier.classify(status, agent.error) == error_classifier.DETERMINISTIC:

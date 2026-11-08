@@ -322,8 +322,9 @@ class LongFlow(lf.LongAnswer):
     `LongAnswer`, then `review` and `fix` for each round, `revised` (the whole text, when a fix was put in) and `done`, which carries
     `applied`, `rounds` and `unapplied` (every fix that was found and not put in, with the reason)."""
 
-    def __init__(self, client: Any, spec: lf.Spec, *, hint_words: int = 0, stated: bool = False, **kw: Any) -> None:
+    def __init__(self, client: Any, spec: lf.Spec, *, hint_words: int = 0, stated: bool = False, min_tokens: int = lf.LONG_MIN_TOKENS, **kw: Any) -> None:
         super().__init__(client, spec, **kw)
+        self.min_tokens = min_tokens                            # the answer length above which a text goes in parts
         self.hint_words = hint_words or spec.target_words       # the words the rules found
         self.hinted = bool(hint_words)                          # without them the estimate is bound by nothing but the range of a text
         self.stated = stated                                    # the person chose the length: no estimate is asked
@@ -359,7 +360,7 @@ class LongFlow(lf.LongAnswer):
             if found is None:
                 found, source = {"words": self.hint_words, "reason": "", "bounded": False}, "rule"
         words = max(ESTIMATE_RANGE[0], min(ESTIMATE_RANGE[1], int(found["words"])))
-        long = lf.tokens_for_words(words, self._language) > lf.LONG_MIN_TOKENS
+        long = lf.tokens_for_words(words, self._language) > self.min_tokens
         yield {"event": "estimate", "words": words, "source": source, "reason": found["reason"], "bounded": found["bounded"], "long": long}
         if not long:
             raise NotLong(words)
