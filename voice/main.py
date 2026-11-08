@@ -172,7 +172,7 @@ def _build_ptt(cfg: Config, log: logging.Logger):
     PRIMA di bloccarsi sul mainloop tkinter.
     """
     from callbridge.ptt import PushToTalkManager
-    from callbridge.ptt_overlay import BrainOverlay
+    from callbridge.desktop import platform
 
     brain_full, brain_limited, brain_copilot, brain_lmstudio = _build_brains(cfg, log)
     # NIENTE warm-up dell'agente ACP all'avvio: non si carica alcun modello LLM
@@ -180,7 +180,7 @@ def _build_ptt(cfg: Config, log: logging.Logger):
     # avatar) via `respond` -> `_ensure_started`; il primo turno paga l'avvio.
     # L'overlay (tkinter) DEVE girare sul thread principale: gli prendiamo il
     # mainloop. Hotkey/sessioni girano su thread separati e aggiornano lo stato.
-    overlay = BrainOverlay()
+    overlay = platform().new_overlay()
     # AvatarClient CONDIVISO: uno solo per processo (vincolo VRAM: un worker
     # MuseTalk per volta). Lo usano PTT-avatar (Ctrl+Shift+F1/F2), copilota
     # (Shift+F4) e gli endpoint /avatar//personas della GUI.

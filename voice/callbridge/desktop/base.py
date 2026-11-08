@@ -1,0 +1,139 @@
+"""Interfaces of the desktop layer: global hotkeys, clipboard, foreground app, overlay.
+
+Hotkeys are written as platform-neutral names ("ctrl+alt+up"); each platform
+maps the names to its own key codes.
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Protocol
+
+
+class DesktopUnsupported(RuntimeError):
+    """The desktop feature cannot work here; the message says why."""
+
+
+_MOD_NAMES = {"alt": "alt", "ctrl": "ctrl", "control": "ctrl", "shift": "shift",
+              "win": "win", "super": "win", "meta": "win"}
+_KEY_ALIASES = {"spazio": "space", "escape": "esc", "return": "enter"}
+
+KEY_NAMES = frozenset(
+    ["space", "tab", "enter", "esc", "left", "up", "right", "down"]
+    + list("abcdefghijklmnopqrstuvwxyz0123456789")
+    + [f"f{i}" for i in range(1, 13)])
+
+
+def parse_hotkey(hk: str) -> tuple[frozenset[str], str | None]:
+    """"alt+space" -> ({"alt"}, "space"). The key is None when it is unknown."""
+    mods: set[str] = set()
+    key: str | None = None
+    for tok in (hk or "").lower().replace(" ", "").split("+"):
+        if not tok:
+            continue
+        if tok in _MOD_NAMES:
+            mods.add(_MOD_NAMES[tok])
+        else:
+            tok = _KEY_ALIASES.get(tok, tok)
+            key = tok if tok in KEY_NAMES else None
+    return frozenset(mods), key
+
+
+@dataclass
+class Binding:
+    """A key combination to watch.
+
+    `exact`: the modifiers held must be exactly `mods`.
+    `repeat`: the auto-repeat of the held key calls `on_press` again.
+    `suppress`: the key must not reach the focused app (only where the
+    platform can do it, see `Desktop.can_suppress`).
+    """
+    mods: frozenset[str]
+    key: str
+    on_press: Callable[[], None]
+    on_release: Callable[[], None] | None = None
+    exact: bool = False
+    repeat: bool = False
+    suppress: bool = True
+
+
+class KeyHook(Protocol):
+    """Global hotkeys with their own thread; callbacks run in a worker, in order."""
+
+    def start(self) -> bool: ...
+
+    def stop(self) -> None: ...
+
+
+class ForegroundApp(Protocol):
+    def identity(self) -> tuple[str, str]:
+        """(window class, program name) of the focused window, lowercase; "" when unknown."""
+
+    def is_terminal(self) -> bool: ...
+
+
+class Clipboard(Protocol):
+    def sequence(self) -> int:
+        """Counter that changes whenever the clipboard content changes."""
+
+    def read(self, honor_exclude: bool = True) -> tuple[str, object] | None:
+        """("text", str) | ("image", PIL.Image) | ("excluded", None) | None."""
+
+    def write_text(self, text: str, exclude: bool = False) -> int:
+        """Returns the new sequence number, 0 when the write failed."""
+
+    def write_image(self, img, exclude: bool = False) -> int: ...
+
+    def send_copy(self) -> None:
+        """Copies the selection of the focused app (terminal-safe keys)."""
+
+    def send_paste(self) -> None:
+        """Pastes into the focused app (terminal-safe keys)."""
+
+    def modifiers_down(self) -> bool:
+        """True while Ctrl, Alt, Shift or Win is physically held."""
+
+
+class Overlay(Protocol):
+    """Small always-on-top status and preview card; `mainloop` runs on the main thread."""
+
+    def set_state_fn(self, fn: Callable[[], str]) -> None: ...
+
+    def set_dictation(self, active: bool, level: float = 0.0,
+                      phase: str = "recording") -> None: ...
+
+    def show_clipboard(self, card: dict) -> None: ...
+
+    def post(self, fn: Callable[[], None]) -> None: ...
+
+    def get_root(self): ...
+
+    def mainloop(self) -> None: ...
+
+
+class Desktop(ABC):
+    """The pieces of one platform."""
+
+    name: str = ""
+    # True when a Binding can keep its key away from the focused app.
+    can_suppress: bool = False
+
+    @abstractmethod
+    def available(self) -> tuple[bool, str]:
+        """(usable, reason when not)."""
+
+    @property
+    @abstractmethod
+    def clipboard(self) -> Clipboard: ...
+
+    @property
+    @abstractmethod
+    def foreground(self) -> ForegroundApp: ...
+
+    @abstractmethod
+    def key_hook(self, name: str, bindings: list[Binding]) -> KeyHook: ...
+
+    @abstractmethod
+    def new_overlay(self) -> Overlay: ...

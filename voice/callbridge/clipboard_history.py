@@ -7,12 +7,13 @@
 
 Ogni tasto mostra una finestrella col contenuto selezionato (overlay, stesso
 stile delle icone "In ascolto"/"Elaboro…"). Scorrere mette subito l'elemento
-negli appunti di Windows, quindi anche un Ctrl+V normale incolla quello.
+negli appunti del sistema, quindi anche un Ctrl+V normale incolla quello.
 
 Memoria: tutto cio' che passa dagli appunti (anche un Ctrl+C qualunque) entra
 in cima; un contenuto gia' presente risale in cima invece di duplicarsi.
 Restano gli ultimi 50 testi e le ultime 10 immagini, su disco in
-%LOCALAPPDATA%\\callAPIcall\\clipboard (sopravvivono al riavvio). Cio' che e'
+%LOCALAPPDATA%\\callAPIcall\\clipboard su Windows, ~/.local/share/callAPIcall/clipboard
+su Linux (sopravvivono al riavvio). Cio' che e'
 marcato "da non registrare" (le password dei password manager, i passaggi
 temporanei della dettatura) non entra.
 
@@ -32,9 +33,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import winclip
-from .keyhook import (VK_ALT, VK_CTRL, VK_DOWN, VK_LEFT, VK_RIGHT, VK_UP,
-                      Binding, LowLevelKeyHook)
+from .desktop import Binding, Desktop, DesktopUnsupported, KeyHook, platform
 
 log = logging.getLogger("callbridge.clipboard")
 
@@ -48,7 +47,8 @@ _THUMB = (352, 200)
 
 
 def _default_dir() -> Path:
-    base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    base = (os.environ.get("LOCALAPPDATA") or os.environ.get("XDG_DATA_HOME")
+            or str(Path.home() / ".local" / "share"))
     return Path(base) / "callAPIcall" / "clipboard"
 
 
@@ -141,13 +141,16 @@ class ClipStore:
 class ClipboardHistory:
     """Hotkey Ctrl+Alt+frecce + monitor degli appunti + finestrella overlay."""
 
-    def __init__(self, overlay=None, store: ClipStore | None = None) -> None:
+    def __init__(self, overlay=None, store: ClipStore | None = None,
+                 desktop: Desktop | None = None) -> None:
         self._overlay = overlay
+        self._desk = desktop or platform()
+        self._clip = self._desk.clipboard
         self.store = store or ClipStore()
         self._index = 0                    # elemento selezionato (0 = piu' recente)
         self._lock = threading.RLock()
         self._seen = 0                     # numero di sequenza gia' esaminato
-        self._hook: LowLevelKeyHook | None = None
+        self._hook: KeyHook | None = None
         self._stop = threading.Event()
         self._thumbs: dict[str, bytes] = {}
 
@@ -159,13 +162,17 @@ class ClipboardHistory:
         except Exception as e:  # noqa: BLE001 - cartella non creabile
             log.error("Appunti: cronologia non disponibile: %s", e)
             return False
-        ctrl_alt = frozenset({VK_CTRL, VK_ALT})
-        self._hook = LowLevelKeyHook("appunti", [
-            Binding(ctrl_alt, VK_UP, self._copy, exact=True),
-            Binding(ctrl_alt, VK_DOWN, self._paste, exact=True),
-            Binding(ctrl_alt, VK_LEFT, lambda: self._nav(+1), exact=True, repeat=True),
-            Binding(ctrl_alt, VK_RIGHT, lambda: self._nav(-1), exact=True, repeat=True),
-        ])
+        ctrl_alt = frozenset({"ctrl", "alt"})
+        try:
+            self._hook = self._desk.key_hook("appunti", [
+                Binding(ctrl_alt, "up", self._copy, exact=True),
+                Binding(ctrl_alt, "down", self._paste, exact=True),
+                Binding(ctrl_alt, "left", lambda: self._nav(+1), exact=True, repeat=True),
+                Binding(ctrl_alt, "right", lambda: self._nav(-1), exact=True, repeat=True),
+            ])
+        except DesktopUnsupported as e:
+            log.error("Appunti: cronologia non disponibile: %s", e)
+            return False
         if not self._hook.start():
             self._hook = None
             return False
@@ -186,7 +193,7 @@ class ClipboardHistory:
 
     def _monitor(self) -> None:
         while not self._stop.wait(_POLL_S):
-            if winclip.sequence() != self._seen:
+            if self._clip.sequence() != self._seen:
                 try:
                     self._capture()
                 except Exception as e:  # noqa: BLE001 - il monitor non deve morire
@@ -195,13 +202,13 @@ class ClipboardHistory:
     def _capture(self) -> dict | None:
         """Registra il contenuto attuale degli appunti, se nuovo."""
         with self._lock:
-            seq = winclip.sequence()
+            seq = self._clip.sequence()
             if seq == self._seen:
                 return None
-            content = winclip.read()
+            content = self._clip.read()
             # Il numero si rilegge DOPO: se l'app stava ancora scrivendo, cio'
             # che abbiamo letto e' gia' lo stato finale.
-            self._seen = winclip.sequence()
+            self._seen = self._clip.sequence()
             if content is None or content[0] == "excluded":
                 return None
             kind, value = content
@@ -215,28 +222,27 @@ class ClipboardHistory:
         """Mette l'elemento negli appunti, marcato "da non registrare": non va a
         ricadere in cima alla cronologia ne' nella Win+V di Windows."""
         if entry["kind"] == "text":
-            winclip.write_text(entry["text"], exclude=True)
+            self._clip.write_text(entry["text"], exclude=True)
         else:
-            winclip.write_image(self.store.image(entry), exclude=True)
+            self._clip.write_image(self.store.image(entry), exclude=True)
         with self._lock:
-            self._seen = winclip.sequence()
+            self._seen = self._clip.sequence()
 
     # --- azioni (worker dell'hook, in ordine) -----------------------------
 
-    @staticmethod
-    def _wait_mods_released(timeout: float = 3.0) -> None:
+    def _wait_mods_released(self, timeout: float = 3.0) -> None:
         t_end = time.monotonic() + timeout
-        while winclip.modifiers_down() and time.monotonic() < t_end:
+        while self._clip.modifiers_down() and time.monotonic() < t_end:
             time.sleep(0.02)
 
     def _copy(self) -> None:
         self._wait_mods_released()
-        prima = winclip.sequence()
-        winclip.send_copy()
+        prima = self._clip.sequence()
+        self._clip.send_copy()
         t_end = time.monotonic() + 0.8
-        while winclip.sequence() == prima and time.monotonic() < t_end:
+        while self._clip.sequence() == prima and time.monotonic() < t_end:
             time.sleep(0.02)
-        if winclip.sequence() == prima:
+        if self._clip.sequence() == prima:
             self._show("empty", "Nessuna selezione da copiare")
             return
         time.sleep(0.05)               # l'app finisce di scrivere gli altri formati
@@ -280,7 +286,7 @@ class ClipboardHistory:
         # password marcata "da non registrare", copiata dopo l'ultima voce).
         self._select_into_clipboard(entry)
         time.sleep(0.03)
-        winclip.send_paste()
+        self._clip.send_paste()
         self._show("paste", "Incollato", entry)
 
     # --- overlay -----------------------------------------------------------

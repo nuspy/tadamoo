@@ -26,7 +26,7 @@ class ModelPanel:
     """Pannello di controllo modello LLM, accanto alla finestra avatar."""
 
     def __init__(self, overlay, config) -> None:
-        # `overlay` = BrainOverlay: possiede il root Tk e offre post()/get_root().
+        # `overlay` = overlay del desktop: possiede il root Tk e offre post()/get_root().
         self._overlay = overlay
         self._url = f"http://{config.control_host}:{config.control_port}"
         self._win = None

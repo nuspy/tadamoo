@@ -1,8 +1,8 @@
-"""Hook di tastiera low-level (WH_KEYBOARD_LL) con soppressione pulita.
+"""Windows: hook di tastiera low-level (WH_KEYBOARD_LL) con soppressione pulita.
 
-Estratto dalla dettatura perche' serve anche alla cronologia degli appunti
-(Ctrl+Alt+frecce). Ogni gestore installa il PROPRIO hook, in un thread suo:
-fermarne uno (es. la dettatura dal tab Componenti) non tocca gli altri.
+Implementa `KeyHook` per Windows. Serve alla dettatura e alla cronologia degli
+appunti (Ctrl+Alt+frecce). Ogni gestore installa il PROPRIO hook, in un thread
+suo: fermarne uno (es. la dettatura dal tab Componenti) non tocca gli altri.
 
 Perche' un hook proprio e non la libreria `keyboard`: per sopprimere i combo
 `keyboard` (add_hotkey suppress=True) inietta un 'up' sintetico del tasto, che
@@ -22,6 +22,8 @@ from collections.abc import Callable
 from ctypes import wintypes
 from dataclasses import dataclass
 
+from .base import Binding
+
 log = logging.getLogger("callbridge.keyhook")
 
 # --- costanti Win32 ----------------------------------------------------------
@@ -37,9 +39,8 @@ _HC_ACTION = 0
 VK_CTRL, VK_ALT, VK_SHIFT, VK_WIN = 0x11, 0x12, 0x10, 0x5B
 VK_LEFT, VK_UP, VK_RIGHT, VK_DOWN = 0x25, 0x26, 0x27, 0x28
 
-# Modificatori (vk generico).
-_MOD_VK = {"alt": VK_ALT, "ctrl": VK_CTRL, "control": VK_CTRL,
-           "shift": VK_SHIFT, "win": VK_WIN, "super": VK_WIN, "meta": VK_WIN}
+# Modificatori (nome neutro -> vk generico).
+_MOD_VK = {"alt": VK_ALT, "ctrl": VK_CTRL, "shift": VK_SHIFT, "win": VK_WIN}
 # vk (anche L/R specifici degli eventi hook) -> vk generico del modificatore.
 _GENERIC_MOD = {
     0x12: 0x12, 0xA4: 0x12, 0xA5: 0x12,   # Alt / LMenu / RMenu
@@ -51,9 +52,8 @@ _GENERIC_MOD = {
 _MOD_SIDES = {0x12: (0xA4, 0xA5), 0x11: (0xA2, 0xA3),
               0x10: (0xA0, 0xA1), 0x5B: (0x5B, 0x5C)}
 # Tasti principali di uso comune.
-_KEY_VK = {"space": 0x20, "spazio": 0x20, "tab": 0x09, "enter": 0x0D,
-           "esc": 0x1B, "escape": 0x1B, "left": VK_LEFT, "up": VK_UP,
-           "right": VK_RIGHT, "down": VK_DOWN}
+_KEY_VK = {"space": 0x20, "tab": 0x09, "enter": 0x0D, "esc": 0x1B,
+           "left": VK_LEFT, "up": VK_UP, "right": VK_RIGHT, "down": VK_DOWN}
 for _c in "abcdefghijklmnopqrstuvwxyz":
     _KEY_VK[_c] = ord(_c.upper())
 for _d in "0123456789":
@@ -100,20 +100,6 @@ def _bind_win32(user32, kernel32) -> None:
     kernel32.GetModuleHandleW.restype = wintypes.HMODULE
 
 
-def parse_hotkey(hk: str) -> tuple[frozenset[int], int | None]:
-    """"alt+space" -> ({0x12}, 0x20). None se il tasto principale e' sconosciuto."""
-    mods: set[int] = set()
-    main: int | None = None
-    for tok in (hk or "").lower().replace(" ", "").split("+"):
-        if not tok:
-            continue
-        if tok in _MOD_VK:
-            mods.add(_MOD_VK[tok])
-        else:
-            main = _KEY_VK.get(tok)
-    return frozenset(mods), main
-
-
 _VK_MASK = 0xE8     # tasto non assegnato: nessuna app lo interpreta
 
 
@@ -130,27 +116,15 @@ def mask_menu_key() -> None:
     user32.keybd_event(_VK_MASK, 0, 0x0002, 0)       # KEYEVENTF_KEYUP
 
 
-def needs_menu_mask(mods: frozenset[int]) -> bool:
-    return VK_ALT in mods or VK_WIN in mods
+def needs_menu_mask(mods: frozenset[str]) -> bool:
+    return "alt" in mods or "win" in mods
 
 
 @dataclass
-class Binding:
-    """Combinazione da intercettare (e sopprimere).
-
-    `exact`: i modificatori premuti devono essere ESATTAMENTE `mods` (Ctrl+Alt+↑
-    non scatta con Ctrl+Alt+Shift+↑, che e' di altre app). Con `exact` lo stato
-    dei modificatori viene anche verificato con GetAsyncKeyState: un KEYUP perso
-    (Ctrl+Alt+Canc, blocco schermo) lascerebbe un modificatore "fantasma" e le
-    frecce nude verrebbero inghiottite.
-    `repeat`: l'auto-repeat del tasto tenuto premuto richiama `on_press`.
-    """
+class _Entry:
+    """Una Binding con i modificatori gia' tradotti in vk generici."""
+    binding: Binding
     mods: frozenset[int]
-    vk: int
-    on_press: Callable[[], None]
-    on_release: Callable[[], None] | None = None
-    exact: bool = False
-    repeat: bool = False
 
 
 class LowLevelKeyHook:
@@ -162,10 +136,16 @@ class LowLevelKeyHook:
 
     def __init__(self, name: str, bindings: list[Binding]) -> None:
         self.name = name
-        self._by_vk: dict[int, list[Binding]] = {}
+        self._by_vk: dict[int, list[_Entry]] = {}
         for b in bindings:
-            self._by_vk.setdefault(b.vk, []).append(b)
-        self._active: dict[int, Binding] = {}   # vk premuto -> binding scattato
+            vk = _KEY_VK.get(b.key)
+            mods = frozenset(_MOD_VK.get(m, 0) for m in b.mods)
+            if vk is None or 0 in mods:
+                log.error("%s: combinazione %s+%s non valida", name,
+                          "+".join(sorted(b.mods)), b.key)
+                continue
+            self._by_vk.setdefault(vk, []).append(_Entry(b, mods))
+        self._active: dict[int, _Entry] = {}    # vk premuto -> binding scattato
         self._hook = None
         self._cb = None            # ref al CFUNCTYPE (altrimenti GC -> crash)
         self._thread: threading.Thread | None = None
@@ -239,17 +219,21 @@ class LowLevelKeyHook:
         return any(self._user32.GetAsyncKeyState(vk) & 0x8000
                    for vk in _MOD_SIDES.get(gen, (gen,)))
 
-    def _match(self, vk: int) -> Binding | None:
-        for b in self._by_vk.get(vk, ()):
-            if b.exact:
-                # Modificatori "fantasma" (KEYUP perso) via, prima di confrontare.
+    def _match(self, vk: int) -> _Entry | None:
+        for e in self._by_vk.get(vk, ()):
+            if e.binding.exact:
+                # I modificatori devono essere ESATTAMENTE quelli (Ctrl+Alt+Su non
+                # scatta con Ctrl+Alt+Shift+Su, che e' di altre app). Si verifica
+                # anche con GetAsyncKeyState: un KEYUP perso (Ctrl+Alt+Canc, blocco
+                # schermo) lascerebbe un modificatore "fantasma" e le frecce nude
+                # verrebbero inghiottite.
                 for gen in list(self._held):
                     if not self._mod_down(gen):
                         self._held.discard(gen)
-                if self._held == set(b.mods):
-                    return b
-            elif b.mods.issubset(self._held):
-                return b
+                if self._held == set(e.mods):
+                    return e
+            elif e.mods.issubset(self._held):
+                return e
         return None
 
     def _proc(self, nCode, wParam, lParam):
@@ -279,23 +263,29 @@ class LowLevelKeyHook:
                         attivo = self._active.get(vk)
                         if down:
                             if attivo is None:
-                                b = self._match(vk)
-                                if b is not None:
-                                    self._active[vk] = b
-                                    if needs_menu_mask(b.mods):
+                                e = self._match(vk)
+                                if e is not None:
+                                    b = e.binding
+                                    self._active[vk] = e
+                                    if b.suppress and needs_menu_mask(b.mods):
                                         self._events.put(mask_menu_key)
                                     self._events.put(b.on_press)
-                                    return 1  # sopprime
+                                    if b.suppress:
+                                        return 1  # sopprime
                                 # tasto senza i modificatori giusti: passa
                             else:
-                                if attivo.repeat:
-                                    self._events.put(attivo.on_press)
-                                return 1  # auto-repeat: swallow, resta premuto
+                                b = attivo.binding
+                                if b.repeat:
+                                    self._events.put(b.on_press)
+                                if b.suppress:
+                                    return 1  # auto-repeat: swallow, resta premuto
                         elif up and attivo is not None:
                             del self._active[vk]
-                            if attivo.on_release is not None:
-                                self._events.put(attivo.on_release)
-                            return 1  # sopprime anche l'up
+                            b = attivo.binding
+                            if b.on_release is not None:
+                                self._events.put(b.on_release)
+                            if b.suppress:
+                                return 1  # sopprime anche l'up
         except Exception as e:  # noqa: BLE001 - MAI far fallire l'hook
             log.debug("%s: hook proc errore: %s", self.name, e)
         return self._user32.CallNextHookEx(None, nCode, wParam, lParam)
