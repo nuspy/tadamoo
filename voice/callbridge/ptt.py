@@ -483,7 +483,7 @@ class PushToTalkManager:
         self.brain_full = brain_full
         self.brain_limited = brain_limited if brain_limited is not None else brain_full
         self.brain_lmstudio = brain_lmstudio
-        self.overlay = overlay  # BrainOverlay (o None se UI non disponibile)
+        self.overlay = overlay  # overlay del desktop (o None se UI non disponibile)
         # Pannello companion (modello LLM + nuova sessione) per le sessioni
         # avatar: usa il root Tk dell'overlay. None se overlay assente.
         try:

@@ -12,7 +12,7 @@ niente calibrazione). Cattura via libreria `soundcard` (WASAPI loopback).
 Thread/Tk:
   - thread `copilot-capture`: loopback -> resample 16k -> Handy STT.
   - thread `copilot-brain`:   STT -> coalescing -> cervello -> coda UI.
-  - thread Tk (di BrainOverlay): apre/aggiorna la finestra; tutti gli update UI
+  - thread Tk (dell'overlay): apre/aggiorna la finestra; tutti gli update UI
     passano per `overlay.post(...)` (eseguito nel `_tick` dell'overlay).
 """
 from __future__ import annotations

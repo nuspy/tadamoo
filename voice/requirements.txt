@@ -5,7 +5,7 @@ requests>=2.31
 websocket-client>=1.7   # client WebSocket verso il motore STT/TTS (/stt/stream, /tts/stream)
 flask>=3.0              # server di controllo dell'orchestrator (API per Hermes/skill)
 soxr>=0.3               # resampling audio (HFP <-> 16 kHz STT, 24 kHz TTS -> HFP)
-pynput>=1.7             # hotkey globale per il push-to-talk (default Ctrl+Space)
+pynput>=1.7             # hotkey globali: push-to-talk, e dettatura e appunti su Linux X11
 websockets>=12       # voice gateway WebSocket server per l app Android
 soundcard>=0.4.3      # cattura loopback (audio in uscita del PC) per il copilota Shift+F4
 # Video dell'avatar verso l'app (WebRTC/H.264) e traccia audio Opus.
@@ -44,8 +44,7 @@ nvidia-cufft-cu12
 nvidia-curand-cu12
 aiohttp>=3.10              # server Handy-compat nativo su :8720 (HTTP + WS)
 soundfile>=0.12            # decodifica audio per /transcribe (WAV/FLAC/OGG)
-keyboard>=0.13             # dettatura globale Alt+Spazio (hook a soppressione)
-pywin32>=306               # clipboard (dettatura) su Windows
+pywin32>=306; sys_platform == "win32"   # appunti (dettatura, cronologia) su Windows
 PyYAML>=6.0                # lettura/scrittura config.yaml di Hermes (modello LLM)
 # Vincolo esplicito perche' e' gia' stato violato da un pacchetto ESTRANEO al
 # progetto: mitmproxy richiede typing-extensions<=4.11.0 su Python 3.10 e con la

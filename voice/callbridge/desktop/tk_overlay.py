@@ -1,15 +1,16 @@
-"""Overlay del push-to-talk: piccola finestra con icona cervello 🧠.
+"""Overlay Tk (Windows e X11): piccola finestra di stato sempre in primo piano.
 
-Analoga all'overlay di dettatura di Handy, ma per il dialogo con Hermes.
-Due stati:
-  - "listening": blu fisso  -> il sistema ascolta l'utente
-  - "speaking":  viola pulsante -> Hermes (TTS) sta parlando
-  - "hidden":    finestra nascosta (nessuna sessione attiva)
+Stati: "listening" (blu fisso), "reasoning" (ambra pulsante), "speaking"
+(viola pulsante), "dictation" e "transcribing" (dettatura), "hidden"
+(finestra nascosta). In piu' la finestrella della cronologia appunti.
 
 Deve girare sul THREAD PRINCIPALE (tkinter non e' thread-safe): `main.py`
 crea l'overlay e chiama `mainloop()`. Gli altri thread cambiano stato solo
 tramite `set_state_fn()` (assegnazione di un callable, letta dal tick di tk).
 Se tkinter non e' disponibile, l'overlay diventa un no-op silenzioso.
+
+Cio' che dipende dal sistema (font, icone, finestrella che non prende il
+focus) arriva da `OverlayStyle`.
 """
 
 from __future__ import annotations
@@ -18,8 +19,9 @@ import logging
 import math
 import queue
 from collections.abc import Callable
+from dataclasses import dataclass, field
 
-log = logging.getLogger("callbridge.ptt.overlay")
+log = logging.getLogger("callbridge.overlay")
 
 try:
     import tkinter as tk
@@ -37,29 +39,36 @@ _W, _H = 150, 112
 _CLIP_W = 380         # finestrella della cronologia appunti
 _CLIP_HIDE_MS = 2200  # sparisce da sola dopo l'ultimo tasto
 
-# Icona + colore + testo per stato.
+# Colore + testo per stato; l'icona e' dello stile.
 _STATES = {
-    "listening": ("🧠", _BLUE, "In ascolto"),
-    "reasoning": ("💭", _AMBER, "Elaboro…"),
-    "speaking": ("🗣️", _PURPLE, "Hermes parla"),
-    "dictation": ("🎤", _GREEN, "Dettatura"),
-    "transcribing": ("✍️", _AMBER, "Trascrivo…"),
+    "listening": (_BLUE, "In ascolto"),
+    "reasoning": (_AMBER, "Elaboro…"),
+    "speaking": (_PURPLE, "Hermes parla"),
+    "dictation": (_GREEN, "Dettatura"),
+    "transcribing": (_AMBER, "Trascrivo…"),
 }
 
-# Cronologia appunti: icona + colore per azione (Ctrl+Alt+frecce).
-_CLIP_ACTIONS = {
-    "copy": ("📋", _GREEN),
-    "prev": ("⏪", _BLUE),
-    "next": ("⏩", _BLUE),
-    "paste": ("📥", _PURPLE),
-    "empty": ("📭", _SLATE),
-}
+# Cronologia appunti: colore per azione (Ctrl+Alt+frecce).
+_CLIP_COLORS = {"copy": _GREEN, "prev": _BLUE, "next": _BLUE,
+                "paste": _PURPLE, "empty": _SLATE}
 
 
-class BrainOverlay:
-    """Finestrella sempre-in-primo-piano con l'icona cervello."""
+@dataclass
+class OverlayStyle:
+    """Font, icone e comportamento della finestra che cambiano da un sistema all'altro."""
+    emoji_font: str
+    ui_font: str
+    state_icons: dict[str, str]
+    clip_icons: dict[str, str]
+    # Rende un Toplevel incapace di prendere il focus.
+    no_activate: Callable[[object], None] = field(default=lambda win: None)
 
-    def __init__(self) -> None:
+
+class TkOverlay:
+    """Finestrella sempre-in-primo-piano con l'icona di stato."""
+
+    def __init__(self, style: OverlayStyle) -> None:
+        self._style = style
         # Stato corrente fornito dall'esterno: "hidden" | "listening" | "speaking".
         self.state_fn: Callable[[], str] = lambda: "hidden"
         self._root = None
@@ -137,13 +146,13 @@ class BrainOverlay:
             self._root.geometry(f"{_W}x{_H}+{x}+{y}")
 
             self._label = tk.Label(
-                self._root, text="🧠", bg=_BLUE, fg="white",
-                font=("Segoe UI Emoji", 40),
+                self._root, text=self._style.state_icons.get("listening", ""), bg=_BLUE, fg="white",
+                font=(self._style.emoji_font, 40),
             )
             self._label.pack(pady=(10, 0))
             self._status = tk.Label(
                 self._root, text="", bg=_BLUE, fg="white",
-                font=("Segoe UI", 9),
+                font=(self._style.ui_font, 9),
             )
             self._status.pack()
             # Barra livello voce (usata solo in dettatura): riempimento bianco
@@ -201,7 +210,8 @@ class BrainOverlay:
                 self._root.attributes("-topmost", True)
                 self._visible = True
 
-            icon, color, txt = _STATES.get(state, _STATES["listening"])
+            color, txt = _STATES.get(state, _STATES["listening"])
+            icon = self._style.state_icons.get(state, "")
             if state in ("listening", "dictation"):
                 alpha = 0.93  # fisso mentre ascolta / detta
             else:
@@ -240,7 +250,9 @@ class BrainOverlay:
     def _clip_render(self, card: dict) -> None:
         if self._root is None:
             return
-        icon, color = _CLIP_ACTIONS.get(card.get("action", ""), ("📋", _BLUE))
+        action = card.get("action", "")
+        color = _CLIP_COLORS.get(action, _BLUE)
+        icon = self._style.clip_icons.get(action, "")
         if self._clip_win is None:
             self._clip_build()
         w = self._clip_win
@@ -294,30 +306,16 @@ class BrainOverlay:
         w.withdraw()
         w.head = tk.Frame(w)
         w.head.pack(fill="x", padx=10, pady=(8, 4))
-        w.icon = tk.Label(w.head, font=("Segoe UI Emoji", 18), fg="white")
+        w.icon = tk.Label(w.head, font=(self._style.emoji_font, 18), fg="white")
         w.icon.pack(side="left")
-        w.title = tk.Label(w.head, font=("Segoe UI", 10, "bold"), fg="white")
+        w.title = tk.Label(w.head, font=(self._style.ui_font, 10, "bold"), fg="white")
         w.title.pack(side="left", padx=(6, 0))
-        w.pos = tk.Label(w.head, font=("Segoe UI", 10), fg="white")
+        w.pos = tk.Label(w.head, font=(self._style.ui_font, 10), fg="white")
         w.pos.pack(side="right")
-        w.body = tk.Label(w, font=("Segoe UI", 10), fg="white", justify="left",
+        w.body = tk.Label(w, font=(self._style.ui_font, 10), fg="white", justify="left",
                           anchor="w", wraplength=_CLIP_W - 24)
         w.body.pack(fill="x", padx=12, pady=(0, 8))
-        w.meta = tk.Label(w, font=("Segoe UI", 9), fg="white", anchor="w")
+        w.meta = tk.Label(w, font=(self._style.ui_font, 9), fg="white", anchor="w")
         self._clip_win = w
-        _no_activate(w)
+        self._style.no_activate(w)
 
-
-def _no_activate(win) -> None:
-    """La finestrella non deve MAI prendere il focus: un Ctrl+V che arriva
-    mentre e' attiva incollerebbe dentro di lei invece che nell'app."""
-    try:
-        import ctypes
-        win.update_idletasks()
-        hwnd = ctypes.windll.user32.GetParent(win.winfo_id()) or win.winfo_id()
-        GWL_EXSTYLE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW = -20, 0x08000000, 0x80
-        get = ctypes.windll.user32.GetWindowLongW
-        set_ = ctypes.windll.user32.SetWindowLongW
-        set_(hwnd, GWL_EXSTYLE, get(hwnd, GWL_EXSTYLE) | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW)
-    except Exception as e:  # noqa: BLE001 - estetica, non funzionalita'
-        log.debug("overlay appunti: WS_EX_NOACTIVATE non applicato: %s", e)

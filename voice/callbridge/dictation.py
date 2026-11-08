@@ -5,9 +5,10 @@ finche' resta premuta; al RILASCIO whisper trascrive e il testo viene incollato
 nell'app in primo piano (clipboard + Ctrl+V). NON passa da Hermes: e' pura
 dettatura (voce -> testo digitato), come la trascrizione di Handy.
 
-Alt+Spazio e' una scorciatoia di sistema Windows (menu della finestra): la si
-sopprime con un hook low-level proprio (vedi `keyhook`), senza iniettare
-eventi sintetici.
+Alt+Spazio e' una scorciatoia di sistema Windows (menu della finestra): su
+Windows la si sopprime con un hook low-level proprio, senza iniettare eventi
+sintetici. Hotkey, appunti e incolla passano dal livello `desktop` (Windows e
+Linux X11); questo modulo non conosce il sistema.
 
 La trascrizione usa l'UNICO STT del sistema (`engines/stt_shared`): un processo
 whisper separato (`engines/dictation_stt_helper`), lo stesso che serve le
@@ -26,9 +27,8 @@ import time
 
 import numpy as np
 
-from . import winclip
 from .config import Config
-from .keyhook import Binding, LowLevelKeyHook, parse_hotkey
+from .desktop import Binding, Desktop, DesktopUnsupported, KeyHook, parse_hotkey, platform
 from .stt_client import STT_RATE
 
 log = logging.getLogger("callbridge.dictation")
@@ -40,18 +40,29 @@ def current() -> "DictationManager | None":
     return _current
 
 
+def _open_microphone(callback):
+    """Flusso di ingresso del microfono di sistema (mono, STT_RATE)."""
+    import sounddevice as sd
+    return sd.InputStream(samplerate=STT_RATE, channels=1, dtype="float32",
+                          callback=callback)
+
+
 class DictationManager:
     """Hotkey push-to-hold di dettatura: registra mentre premuta, trascrive al rilascio."""
 
-    def __init__(self, cfg: Config, overlay=None) -> None:
+    def __init__(self, cfg: Config, overlay=None, desktop: Desktop | None = None,
+                 open_stream=_open_microphone) -> None:
         global _current
         self.cfg = cfg
-        self._overlay = overlay          # BrainOverlay: icona 🎤 + livello voce
+        self._overlay = overlay          # overlay del desktop: icona + livello voce
+        self._desk = desktop or platform()
+        self._open_stream = open_stream  # callback -> flusso con start/stop/close
         self._recording = False
         self._frames: list[np.ndarray] = []
         self._stream = None
         self._lock = threading.Lock()
-        self._hook: LowLevelKeyHook | None = None
+        self._hook: KeyHook | None = None
+        self._unsupported = ""           # perche' la dettatura non puo' partire qui
         # L'UNICO STT del sistema (lo stesso delle sessioni voce): non ne
         # esiste piu' uno della dettatura.
         from .engines import _get_stt_engine
@@ -75,11 +86,17 @@ class DictationManager:
             log.info("Dettatura disabilitata (dictation_enabled=false)")
             return False
         hk = self.cfg.dictation_hotkey
-        mods, vk = parse_hotkey(hk)
-        if vk is None:
+        mods, key = parse_hotkey(hk)
+        if key is None:
             log.error("Dettatura: hotkey %r senza tasto principale valido", hk)
             return False
-        hook = LowLevelKeyHook("dettatura", [Binding(mods, vk, self._begin, self._end)])
+        try:
+            hook = self._desk.key_hook(
+                "dettatura", [Binding(mods, key, self._begin, self._end)])
+        except DesktopUnsupported as e:
+            self._unsupported = str(e)
+            log.error("Dettatura non disponibile: %s", e)
+            return False
         if not hook.start():
             log.error("Dettatura: hook non avviato per hotkey %r", hk)
             return False
@@ -111,7 +128,7 @@ class DictationManager:
 
     def status(self) -> dict:
         if self._hook is None:
-            state = "stopped"
+            state = "unsupported" if self._unsupported else "stopped"
         elif self._stt.state == "running":
             state = "running"
         elif self._stt.state == "error":
@@ -126,7 +143,7 @@ class DictationManager:
             "precision": self._stt.info.get("precision"),
             "vram_mb": self._stt.info.get("vram_mb"),
             "pid": self._stt.pid,
-            "detail": self._stt.error,
+            "detail": self._unsupported or self._stt.error,
             "last": self.last,
         }
 
@@ -145,7 +162,6 @@ class DictationManager:
 
     def _begin(self) -> None:
         """Callback di pressione: apre il microfono e inizia a registrare."""
-        import sounddevice as sd
         with self._lock:
             if self._recording:
                 return
@@ -159,8 +175,7 @@ class DictationManager:
                 self._set_overlay(True, min(1.0, rms * 12.0))
 
             try:
-                self._stream = sd.InputStream(
-                    samplerate=STT_RATE, channels=1, dtype="float32", callback=cb)
+                self._stream = self._open_stream(cb)
                 self._stream.start()
             except Exception as e:  # noqa: BLE001 - microfono non disponibile
                 log.error("Dettatura: apertura microfono fallita: %s", e)
@@ -237,26 +252,28 @@ class DictationManager:
     # --- incolla nel testo attivo ---------------------------------------
 
     def _paste(self, text: str) -> None:
-        """Incolla `text` nell'app in primo piano via clipboard + Ctrl+V.
+        """Incolla `text` nell'app in primo piano via clipboard + tasto di incolla
+        (Ctrl+V, o quello dei terminali).
 
         Con `dictation_keep_clipboard` (predefinito) il testo dettato RESTA negli
         appunti come dopo un Ctrl+C: si puo' incollare di nuovo e la cronologia
         degli appunti lo registra. Altrimenti i passaggi sono marcati "da non
         registrare" e il contenuto precedente (testo o immagine) viene rimesso."""
+        clip = self._desk.clipboard
         keep = self.cfg.dictation_keep_clipboard
-        prev = None if keep else winclip.read(honor_exclude=False)
-        if not winclip.write_text(text, exclude=not keep):
+        prev = None if keep else clip.read(honor_exclude=False)
+        if not clip.write_text(text, exclude=not keep):
             return
         try:
             time.sleep(0.05)
-            winclip.send_paste()
+            clip.send_paste()
         except Exception as e:  # noqa: BLE001 - invio tasti fallito
-            log.error("Dettatura: invio Ctrl+V fallito: %s", e)
+            log.error("Dettatura: invio del tasto di incolla fallito: %s", e)
         if prev is not None and prev[0] in ("text", "image"):
             def restore() -> None:
                 time.sleep(0.4)
                 if prev[0] == "text":
-                    winclip.write_text(prev[1], exclude=True)
+                    clip.write_text(prev[1], exclude=True)
                 else:
-                    winclip.write_image(prev[1], exclude=True)
+                    clip.write_image(prev[1], exclude=True)
             threading.Thread(target=restore, daemon=True).start()
