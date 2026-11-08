@@ -878,7 +878,8 @@ class AgentLoop:
             self.add_user_message(user_goal)
         if retrieved:
             self.append(retrieved)     # memories and wiki text go after the goal, at the tail
-            self.taint("memories")
+            if retrieved.get("untrusted"):
+                self.taint("memories")
         run_turns: List[AgentTurn] = []
 
         turn_idx = 0

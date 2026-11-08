@@ -17,7 +17,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 from tadamoo import codeblocks, untrusted
 
 PIN_ORDER = ("system_core", "self", "discipline", "environment", "project_rules", "operating_rules", "knowledge", "user_profile", "vault", "active_skills", "capabilities", "visuals", "files")
-INTERNAL_KEYS = ("pinned", "pin_category", "masked", "stripped", "note", "summary", "ts", "raw", "opt", "explain", "skipped", "compaction", "compacted", "code")
+INTERNAL_KEYS = ("pinned", "pin_category", "masked", "stripped", "note", "summary", "ts", "raw", "opt", "explain", "skipped", "untrusted", "compaction", "compacted", "code")
 ERROR_LINE = re.compile(
     r"(error|exception|traceback|fatal|panic|failed|failure|assertion|segmentation fault|stack trace)"
     r"|^\s+at\s+\S+\(|^\s+File \".*\", line \d+|^E\s{2,}",
