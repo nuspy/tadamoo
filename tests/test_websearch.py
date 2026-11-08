@@ -56,12 +56,12 @@ def home(tmp_path, monkeypatch):
 
 def test_the_choice_has_defaults_is_checked_and_survives_a_restart(tmp_path):
     prefs = ws.Prefs(tmp_path / "w.json")
-    assert prefs.read() == {"search": "duckduckgo", "reader": "none", "mode": {}, "urls": {}, "autostart": True}
-    prefs.write(search="searxng", reader="playwright", mode={"searxng": "local"}, urls={"searxng": "http://127.0.0.1:9000/"}, autostart=False)
+    assert prefs.read() == {"search": "duckduckgo", "reader": "none", "mode": {}, "urls": {}, "engine": "duckduckgo"}
+    prefs.write(search="searxng", reader="playwright", mode={"searxng": "local"}, urls={"searxng": "http://127.0.0.1:9000/"})
     again = ws.Prefs(tmp_path / "w.json").read()
-    assert again["search"] == "searxng" and again["reader"] == "playwright" and again["urls"]["searxng"] == "http://127.0.0.1:9000" and not again["autostart"]
+    assert again["search"] == "searxng" and again["reader"] == "playwright" and again["urls"]["searxng"] == "http://127.0.0.1:9000" 
     for bad in ({"search": "bing"}, {"search": "playwright"}, {"reader": "brave"}, {"mode": {"brave": "local"}}, {"mode": {"searxng": "mars"}},
-                {"urls": {"searxng": "ftp://x"}}, {"urls": {"searxng": "http://user:pw@host"}}, {"urls": {"nobody": "http://x"}}, {"autostart": "yes"}):
+                {"urls": {"searxng": "ftp://x"}}, {"urls": {"searxng": "http://user:pw@host"}}, {"urls": {"nobody": "http://x"}}, {"engine": "yahoo"}):
         with pytest.raises(ValueError):
             prefs.write(**bad)
     (tmp_path / "w.json").write_text("not json", encoding="utf-8")
@@ -74,8 +74,8 @@ def test_each_provider_says_where_to_make_the_account_and_what_runs_here():
         assert p["cloud"] or p["local"], pid
         if p["cloud"] and p["cloud"].get("needs_key"):
             assert p["cloud"]["signup_url"].startswith("https://") and p["cloud"]["keys_url"].startswith("https://"), pid
-    assert ws.PROVIDERS["searxng"]["local"] and ws.PROVIDERS["playwright"]["cloud"] is None and ws.PROVIDERS["brave"]["local"] is None
-    assert ws.provider_ids("search") == ["duckduckgo", "searxng", "brave", "tavily", "exa", "firecrawl"]
+    assert ws.PROVIDERS["searxng"]["local"] and ws.PROVIDERS["openwebsearch"]["cloud"] is None and ws.PROVIDERS["playwright"]["cloud"] is None and ws.PROVIDERS["brave"]["local"] is None
+    assert ws.provider_ids("search") == ["duckduckgo", "searxng", "openwebsearch", "brave", "tavily", "exa", "firecrawl"]
 
 
 def test_a_key_is_kept_in_the_credential_store_never_in_the_choice_file(tmp_path):
@@ -126,31 +126,6 @@ def test_firecrawl_searches_and_reads_with_a_bearer_key_or_none_on_this_pc(stand
     Stand.answer = {"data": {}}
     with pytest.raises(ws.SearchError):
         ws.firecrawl_read(stand, "", "https://x.example/")
-
-
-class Done:
-    def __init__(self, code):
-        self.returncode, self.stdout, self.stderr = code, "", ""
-
-
-def test_a_local_searxng_that_is_not_running_is_started_once_and_waited_for():
-    calls, state = [], {"up": False}
-
-    def run(argv, timeout):
-        calls.append(argv)
-        state["up"] = True
-        return Done(0)
-    ws.ensure_searxng("http://127.0.0.1:8888", run=run, up=lambda u: state["up"], wait_s=2)
-    assert calls == [["docker", "start", "tadamoo-searxng"]]
-    ws.ensure_searxng("http://127.0.0.1:8888", run=run, up=lambda u: True)                  # already up: nothing is run
-    assert len(calls) == 1
-    with pytest.raises(ws.SearchError, match="no container"):
-        ws.ensure_searxng("http://x", run=lambda a, t: Done(1), up=lambda u: False)
-
-    def no_docker(a, t):
-        raise FileNotFoundError("docker")
-    with pytest.raises(ws.SearchError, match="Docker Desktop"):
-        ws.ensure_searxng("http://x", run=no_docker, up=lambda u: False)
 
 
 def test_the_search_tool_follows_the_choice_at_every_call(home, stand, monkeypatch):

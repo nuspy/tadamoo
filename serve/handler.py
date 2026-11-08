@@ -2330,6 +2330,8 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, api.test(req.get("provider")))
                 if action == "install":
                     return self._json(200, api.install(req.get("provider")))
+                if action == "stop":
+                    return self._json(200, api.stop(req.get("provider")))
                 if action == "uninstall":
                     return self._json(200, api.uninstall(req.get("provider")))
                 return self._json(404, {"error": {"message": "not found"}})
