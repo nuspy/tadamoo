@@ -7,7 +7,7 @@ from tadamoo.agent_loop import AgentLoop, FINAL
 from tadamoo.editing import EditError
 from tadamoo.tools import create_standard_tool_registry
 from tadamoo.tools.filesystem import WorkspaceSandbox
-from tests.test_agent_loop import ScriptedClient, call, say
+from test_agent_loop import ScriptedClient, call, say
 
 
 @pytest.fixture

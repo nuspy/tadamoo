@@ -14,7 +14,7 @@ from tadamoo.session import Session, SessionStore
 from tadamoo.stack import AgentConfig, build_agent
 from tadamoo.tools import create_standard_tool_registry
 from serve import longform as lf
-from tests.test_longform_flow import Script, filler, fix, reviewing
+from test_longform_flow import Script, filler, fix, reviewing
 
 
 class Model(Script):
