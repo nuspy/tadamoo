@@ -1,24 +1,25 @@
 """Settings > Web search: what the person chose, the keys, the addresses, a test, and the installers of the programs that run on this PC.
 
 Nothing here installs by itself: an install is a job the person starts after reading its plan, one step at a time, and the output of each step is kept
-for the page to show. A key is write-only (the page is told whether one is set, never what it is). The jobs and the programs they start run as the
-person; the commands are fixed lists, never text from a page or a model."""
+for the page to show. The installers work for the system the harness runs on (Windows, Linux or macOS, found by itself), need no Docker and no
+administrator rights, and put everything in one folder of the user data. A key is write-only (the page is told whether one is set, never what it is).
+The commands are fixed lists, never text from a page or a model."""
 from __future__ import annotations
 
-import secrets
-import subprocess
+import os
 import threading
 import time
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
-from urllib.parse import urlparse
 
 from tadamoo import websearch as ws
+from tadamoo import websearch_runtime as rt
 
 JOB_KEEP = 8
 OUTPUT_LINES = 60
-LOOPBACK = ("127.0.0.1", "localhost", "::1")
+
+Step = Tuple[str, str, Callable[[Callable[[str], None]], None]]
 
 
 class WebSearchError(ValueError):
@@ -27,39 +28,23 @@ class WebSearchError(ValueError):
         self.code = code
 
 
-def _port_of(url: str, default: int) -> int:
-    try:
-        return urlparse(url).port or default
-    except ValueError:
-        return default
-
-
 class WebSearchApi:
     def __init__(self, prefs: Optional[ws.Prefs] = None, keys: Optional[ws.Keys] = None, *, base_dir: Optional[Path] = None,
-                 run: Callable[..., Any] = ws._run, tools: Callable[[], Dict[str, bool]] = ws.tools_present,
-                 up: Callable[[str], bool] = ws.local_up) -> None:
+                 runtime: Optional[rt.Runtime] = None, packages: Optional[rt.Packages] = None, up: Callable[[str], bool] = ws.local_up,
+                 browser: Callable[[str], str] = rt.browser_channel) -> None:
         self.prefs = prefs or ws.Prefs()
         self.keys = keys or ws.Keys()
         self.base = Path(base_dir) if base_dir else ws.user_dir() / "websearch"
-        self._run, self._tools, self._up = run, tools, up
+        self.runtime = runtime or rt.Runtime(self.base)
+        self.packages = packages or rt.Packages(self.base, self.runtime)
+        self._up, self._browser = up, browser
         self._jobs: Dict[str, Dict[str, Any]] = {}
         self._lock = threading.Lock()
 
     # -- what the page shows -----------------------------------------------------------------------------------
 
-    def _container_state(self, name: str) -> Tuple[bool, bool]:
-        """(the container exists, it is running); (False, False) when Docker cannot be asked."""
-        if not self._tools().get("docker"):
-            return False, False
-        try:
-            out = self._run(["docker", "ps", "-a", "--filter", f"name=^{name}$", "--format", "{{.Names}} {{.State}}"], 6.0)
-        except (OSError, subprocess.SubprocessError):
-            return False, False
-        line = (getattr(out, "stdout", "") or "").strip().splitlines()
-        return (bool(line), bool(line) and line[0].split(" ")[-1] == "running") if getattr(out, "returncode", 1) == 0 else (False, False)
-
     def overview(self) -> Dict[str, Any]:
-        saved, present = self.prefs.read(), self._tools()
+        saved, found = self.prefs.read(), self.runtime.find()
         providers = []
         for pid, p in ws.PROVIDERS.items():
             mode = self.prefs.mode_of(pid)
@@ -70,23 +55,26 @@ class WebSearchApi:
             if cloud:
                 entry["cloud"] = {**cloud, "key_set": self.keys.has(pid) if cloud.get("needs_key") else False}
             if local:
+                npm = local["how"] == "npm"
                 url = self.prefs.url_of(pid) if mode == "local" else str(local.get("default_url") or "")
-                installed, running = (self._container_state(local["container"]) if local.get("container") else (False, False))
-                entry["local"] = {"how": local["how"], "needs": local["needs"], "needs_present": {n: present.get(n, False) for n in local["needs"]},
-                                  "default_url": local.get("default_url", ""), "url": url, "up": bool(url) and self._up(url) if local["how"] != "npx" else False,
-                                  "installed": installed, "running": running, "automatic": pid in ("searxng", "playwright"),
-                                  "repo": local.get("repo", "")}
+                server = ws._servers.get(f"{pid}:{local.get('package')}") if npm else None
+                entry["local"] = {"how": local["how"], "needs": local["needs"], "needs_present": {n: bool(found) for n in local["needs"]},
+                                  "default_url": local.get("default_url", ""), "url": url, "up": (bool(url) and self._up(url)) if not npm else False,
+                                  "installed": self.packages.installed(local["package"]) if npm else "", "running": bool(server and server.running),
+                                  "automatic": npm, "repo": local.get("repo", "")}
             providers.append(entry)
-        return {"search": saved["search"], "reader": saved["reader"], "autostart": saved["autostart"], "tools": present, "providers": providers}
+        return {"system": self.runtime.info, "runtime": {"found": bool(found), "version": (found or {}).get("version", ""), "source": (found or {}).get("source", "")},
+                "search": saved["search"], "reader": saved["reader"], "engine": saved["engine"], "engines": list(ws.ENGINES),
+                "providers": providers}
 
     # -- the choice --------------------------------------------------------------------------------------------
 
     def select(self, body: Any) -> Dict[str, Any]:
         if not isinstance(body, dict):
             raise WebSearchError("send an object")
-        changes = {k: body[k] for k in ("search", "reader", "mode", "urls", "autostart") if k in body}
+        changes = {k: body[k] for k in ("search", "reader", "mode", "urls", "engine") if k in body}
         if not changes:
-            raise WebSearchError("say what to change: search, reader, mode, urls or autostart")
+            raise WebSearchError("say what to change: search, reader, mode, urls or engine")
         try:
             self.prefs.write(**changes)
         except ValueError as exc:
@@ -111,7 +99,7 @@ class WebSearchApi:
             raise WebSearchError(f"unknown provider {pid}")
         started = time.monotonic()
         try:
-            if ws.PROVIDERS[pid]["kind"] == "reader":
+            if pid == "playwright":
                 text = ws.playwright_read("https://example.com/")
                 found, what = len(text), "characters"
             elif pid == "duckduckgo":
@@ -137,98 +125,80 @@ class WebSearchApi:
 
     # -- installers ----------------------------------------------------------------------------------------------
 
-    def _searxng_dir(self) -> Path:
-        return self.base / "searxng"
+    def _steps(self, pid: str) -> Tuple[List[Step], str]:
+        """The steps an install of a program on this PC runs, and a note; ([], note) for one the harness cannot install."""
+        local = (ws.PROVIDERS.get(pid) or {}).get("local")
+        if not local:
+            raise WebSearchError(f"{pid} has no version that runs on this PC")
+        if local["how"] != "npm":
+            if pid == "searxng":
+                return [], ("SearXNG is a Python program with no Windows support from its project, so the harness does not install it. On Linux or macOS follow its "
+                            "installation guide (no Docker is needed), then enter the address it listens on and press Test. On Windows use a public instance or run it in WSL.")
+            return [], ("The project's own guide for self-hosting uses Docker, so the harness does not install it: use the cloud service, or set it up by hand and "
+                        "enter its address.")
+        info = self.runtime.info
+        if not info["supported"]:
+            raise WebSearchError(info["note"] or "this system is not supported", "unsupported")
+        steps: List[Step] = list(self.runtime.steps()) + list(self.packages.steps(local["package"]))
+        note = f"Detected system: {info['os']} {info['arch']}."
+        if pid == "playwright":
+            channel = self._browser(info["os"])
+            if channel == "chromium":
+                folder = self.packages.folder(local["package"])
 
-    def _searxng_settings(self) -> str:
-        return ("use_default_settings: true\nserver:\n  secret_key: \"" + secrets.token_hex(32) + "\"\n  limiter: false\n  image_proxy: false\n"
-                "search:\n  formats:\n    - html\n    - json\n")
+                def chromium(say: Callable[[str], None]) -> None:
+                    found = self.runtime.find()
+                    cli = folder / "node_modules" / "playwright" / "cli.js"
+                    if not found or not cli.is_file():
+                        raise rt.RuntimeProblem("the Playwright command line is not where it was expected")
+                    say("$ playwright install chromium")
+                    done = rt._run([found["node"], str(cli), "install", "chromium"], 1800.0, {**os.environ, **self.runtime.env(found)})
+                    for line in ((done.stdout or "") + (done.stderr or "")).strip().splitlines()[-6:]:
+                        say(line)
+                    if done.returncode != 0:
+                        raise rt.RuntimeProblem(f"Chromium could not be downloaded (exit {done.returncode})")
+                steps.append(("Download Chromium for Playwright (large)", "playwright install chromium", chromium))
+                note += " No Edge or Chrome was found, so Playwright needs its own Chromium."
+            else:
+                note += f" It will drive the {'Microsoft Edge' if channel == 'msedge' else 'Google Chrome'} already on this PC."
+        if not steps:
+            note += " Everything it needs is already installed."
+        return steps, note
 
     def plan(self, provider: Any) -> Dict[str, Any]:
         """The steps an install would run, as text for the person to read before starting; `automatic` is false for a program that is set up by hand."""
         pid = str(provider)
-        local = (ws.PROVIDERS.get(pid) or {}).get("local")
-        if not local:
-            raise WebSearchError(f"{pid} has no version that runs on this PC")
-        if pid == "searxng":
-            url = self.prefs.url_of(pid) or local["default_url"]
-            host, port = (urlparse(url).hostname or "127.0.0.1"), _port_of(url, 8888)
-            if host not in LOOPBACK:
-                raise WebSearchError("a SearXNG that the harness installs listens only on this PC: use 127.0.0.1 or localhost as its address")
-            steps = [("docker version", "Check that Docker answers"),
-                     (f"write {self._searxng_dir() / 'settings.yml'}", "Write SearXNG's settings with the JSON format on"),
-                     (f"docker pull {local['image']}", "Download the SearXNG image"),
-                     (f"docker rm -f {local['container']}", "Remove an earlier container of the same name, if there is one"),
-                     (f"docker run -d --name {local['container']} --restart unless-stopped -p 127.0.0.1:{port}:8080 -v {self._searxng_dir()}:/etc/searxng {local['image']}",
-                      "Start the container, reachable only from this PC"),
-                     (f"GET {url}/search?q=test&format=json", "Check that it answers with results")]
-            return {"provider": pid, "automatic": True, "steps": [{"command": c, "label": l} for c, l in steps], "needs": local["needs"]}
-        if pid == "playwright":
-            steps = [("node --version", "Check that Node.js is installed"), (f"npx -y {local['package']} --help", "Download the Playwright MCP server (npm) and check that it starts")]
-            return {"provider": pid, "automatic": True, "steps": [{"command": c, "label": l} for c, l in steps], "needs": local["needs"],
-                    "note": "It drives the Microsoft Edge already on this PC, in a window you do not see; no other browser is downloaded."}
-        steps = [(f"git clone --depth 1 {local['repo']}", "Download the Firecrawl source"), ("docker compose up -d --build", "Build and start its containers (long, large)")]
-        return {"provider": pid, "automatic": False, "steps": [{"command": c, "label": l} for c, l in steps], "needs": local["needs"],
-                "note": "Follow the self-hosting guide of the project, then enter the address it listens on here and press Test."}
+        steps, note = self._steps(pid)
+        return {"provider": pid, "automatic": bool(steps) or ws.PROVIDERS[pid]["local"]["how"] == "npm", "system": self.runtime.info,
+                "steps": [{"command": detail, "label": label} for label, detail, _ in steps], "needs": ws.PROVIDERS[pid]["local"]["needs"], "note": note}
 
     def install(self, provider: Any) -> Dict[str, Any]:
         pid = str(provider)
-        plan = self.plan(pid)
-        if not plan["automatic"]:
+        steps, note = self._steps(pid)
+        if ws.PROVIDERS[pid]["local"]["how"] != "npm":
             raise WebSearchError(f"{pid} is set up by hand: follow its guide and enter its address", "manual")
-        missing = [n for n in plan["needs"] if not self._tools().get(n)]
-        if missing:
-            raise WebSearchError("this needs " + ", ".join(missing) + " on this PC", "missing_tool")
         with self._lock:
             if any(j["provider"] == pid and j["state"] == "running" for j in self._jobs.values()):
                 raise WebSearchError("an install of this is already running", "busy")
             job_id = uuid.uuid4().hex[:10]
-            job = {"id": job_id, "provider": pid, "state": "running", "step": 0, "steps": len(plan["steps"]), "lines": [], "started": time.time()}
+            job = {"id": job_id, "provider": pid, "state": "running", "step": 0, "steps": max(1, len(steps)), "lines": [note], "started": time.time()}
             self._jobs[job_id] = job
             for old in sorted(self._jobs.values(), key=lambda j: j["started"])[:-JOB_KEEP]:
                 self._jobs.pop(old["id"], None)
-        threading.Thread(target=self._install, args=(job, pid), name=f"websearch-install-{pid}", daemon=True).start()
+        threading.Thread(target=self._install, args=(job, pid, steps), name=f"websearch-install-{pid}", daemon=True).start()
         return self.job(job_id)
 
     def _say(self, job: Dict[str, Any], text: str) -> None:
         job["lines"] = (job["lines"] + [text[:400]])[-OUTPUT_LINES:]
 
-    def _step(self, job: Dict[str, Any], argv: List[str], timeout: float, tolerate: bool = False) -> None:
-        job["step"] += 1
-        self._say(job, "$ " + " ".join(argv))
-        done = self._run(argv, timeout)
-        for line in ((getattr(done, "stdout", "") or "") + (getattr(done, "stderr", "") or "")).strip().splitlines()[-6:]:
-            self._say(job, line)
-        if done.returncode != 0 and not tolerate:
-            raise ws.SearchError(f"{argv[0]} failed (exit {done.returncode})")
-
-    def _install(self, job: Dict[str, Any], pid: str) -> None:
+    def _install(self, job: Dict[str, Any], pid: str, steps: List[Step]) -> None:
         try:
-            if pid == "searxng":
-                local = ws.PROVIDERS["searxng"]["local"]
-                url = self.prefs.url_of(pid) or local["default_url"]
-                port = _port_of(url, 8888)
-                self._step(job, ["docker", "version"], 30.0)
+            for label, _detail, run in steps:
                 job["step"] += 1
-                folder = self._searxng_dir()
-                folder.mkdir(parents=True, exist_ok=True)
-                if not (folder / "settings.yml").exists():
-                    (folder / "settings.yml").write_text(self._searxng_settings(), encoding="utf-8")
-                self._say(job, f"wrote {folder / 'settings.yml'}")
-                self._step(job, ["docker", "pull", local["image"]], 1800.0)
-                self._step(job, ["docker", "rm", "-f", local["container"]], 60.0, tolerate=True)
-                self._step(job, ["docker", "run", "-d", "--name", local["container"], "--restart", "unless-stopped", "-p", f"127.0.0.1:{port}:8080",
-                                 "-v", f"{folder}:/etc/searxng", local["image"]], 120.0)
-                job["step"] += 1
-                deadline = time.monotonic() + 60.0
-                while not self._up(url) and time.monotonic() < deadline:
-                    time.sleep(1.0)
-                found = ws.searxng_search(url, "test", 3)
-                self._say(job, f"it answers: {len(found)} results")
-                self.prefs.write(mode={"searxng": "local"}, urls={"searxng": url})
-            elif pid == "playwright":
-                self._step(job, ["node", "--version"], 30.0)
-                self._step(job, ["npx", "-y", ws.PROVIDERS["playwright"]["local"]["package"], "--help"], 600.0)
+                self._say(job, label)
+                run(lambda text: self._say(job, text))
+            job["step"] = job["steps"]
+            self.prefs.write(mode={pid: "local"})
             job["state"] = "done"
         except Exception as exc:                                   # the message goes to the page
             self._say(job, f"stopped: {exc}")
@@ -240,15 +210,16 @@ class WebSearchApi:
             raise WebSearchError("no such install", "not_found")
         return {k: job[k] for k in ("id", "provider", "state", "step", "steps", "lines")}
 
+    def stop(self, provider: Any) -> Dict[str, Any]:
+        """Stops the local servers now; they also stop by themselves when idle and start again when a search needs them."""
+        ws.close_readers()
+        return self.overview()
+
     def uninstall(self, provider: Any) -> Dict[str, Any]:
         pid = str(provider)
-        if pid == "searxng":
-            try:
-                self._run(["docker", "rm", "-f", ws.PROVIDERS["searxng"]["local"]["container"]], 60.0)
-            except (OSError, subprocess.SubprocessError) as exc:
-                raise WebSearchError(f"Docker could not be asked: {exc}") from None
-        elif pid == "playwright":
-            ws.close_readers()
-        else:
+        local = (ws.PROVIDERS.get(pid) or {}).get("local")
+        if not local or local["how"] != "npm":
             raise WebSearchError(f"{pid} was not installed by the harness")
+        ws.close_readers()
+        self.packages.remove(local["package"])
         return self.overview()

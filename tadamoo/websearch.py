@@ -9,9 +9,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
-import subprocess
-import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -21,7 +18,8 @@ from urllib.parse import urlencode, urlparse
 FILE = "websearch.json"
 KEY_PREFIX = "websearch/"
 DEFAULT_SEARCH = "duckduckgo"
-READERS = ("none", "firecrawl", "playwright")
+READERS = ("none", "firecrawl", "playwright", "openwebsearch")
+ENGINES = ("duckduckgo", "bing", "brave", "startpage")      # the engines the open-websearch server can be told to ask
 MODES = ("local", "cloud")
 API_SECONDS = 25.0
 MAX_READER_CHARS = 250_000
@@ -32,7 +30,12 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
     "searxng": {
         "kind": "search",
         "cloud": {"needs_key": False, "needs_url": True, "signup_url": "https://searx.space/", "keys_url": ""},
-        "local": {"how": "docker", "needs": ["docker"], "default_url": "http://127.0.0.1:8888", "container": "tadamoo-searxng", "image": "searxng/searxng"},
+        "local": {"how": "external", "needs": [], "default_url": "http://127.0.0.1:8888"},
+    },
+    "openwebsearch": {
+        "kind": "both",
+        "cloud": None,
+        "local": {"how": "npm", "needs": ["node"], "package": "open-websearch"},
     },
     "brave": {
         "kind": "search", "base": "https://api.search.brave.com/res/v1/web/search", "key_env": "BRAVE_API_KEY",
@@ -52,12 +55,12 @@ PROVIDERS: Dict[str, Dict[str, Any]] = {
     "firecrawl": {
         "kind": "both", "key_env": "FIRECRAWL_API_KEY", "base": "https://api.firecrawl.dev",
         "cloud": {"needs_key": True, "signup_url": "https://www.firecrawl.dev/", "keys_url": "https://www.firecrawl.dev/app/api-keys"},
-        "local": {"how": "compose", "needs": ["docker", "git"], "default_url": "http://127.0.0.1:3002", "repo": "https://github.com/firecrawl/firecrawl"},
+        "local": {"how": "external", "needs": [], "default_url": "http://127.0.0.1:3002", "repo": "https://github.com/firecrawl/firecrawl"},
     },
     "playwright": {
         "kind": "reader",
         "cloud": None,
-        "local": {"how": "npx", "needs": ["node"], "package": "@playwright/mcp@latest"},
+        "local": {"how": "npm", "needs": ["node"], "package": "@playwright/mcp"},
     },
 }
 
@@ -69,11 +72,6 @@ def user_dir() -> Path:
 
 def provider_ids(kind: str = "") -> List[str]:
     return [i for i, p in PROVIDERS.items() if not kind or p["kind"] in (kind, "both")]
-
-
-def tools_present() -> Dict[str, bool]:
-    """Which programs the installers need are on this PC."""
-    return {name: shutil.which(name) is not None for name in ("docker", "git", "node", "npx")}
 
 
 # -- the choice ----------------------------------------------------------------------------------------------------
@@ -105,10 +103,11 @@ class Prefs:
         reader = raw.get("reader") if raw.get("reader") in READERS else "none"
         modes = {k: v for k, v in (raw.get("mode") or {}).items() if k in PROVIDERS and v in MODES} if isinstance(raw.get("mode"), dict) else {}
         urls = {k: v for k, v in (raw.get("urls") or {}).items() if k in PROVIDERS and isinstance(v, str)} if isinstance(raw.get("urls"), dict) else {}
-        return {"search": search, "reader": reader, "mode": modes, "urls": urls, "autostart": raw.get("autostart") is not False}
+        return {"search": search, "reader": reader, "mode": modes, "urls": urls,
+                "engine": raw.get("engine") if raw.get("engine") in ENGINES else ENGINES[0]}
 
     def write(self, **changes: Any) -> Dict[str, Any]:
-        """Applies the changes (`search`, `reader`, `mode` and `urls` as {provider: value}, `autostart`) and returns what is kept; ValueError for a bad one."""
+        """Applies the changes (`search`, `reader`, `mode` and `urls` as {provider: value}, `engine`) and returns what is kept; ValueError for a bad one."""
         now = self.read()
         if "search" in changes:
             if changes["search"] not in provider_ids("search"):
@@ -134,10 +133,10 @@ class Prefs:
                         now["urls"][pid] = url
                     else:
                         now["urls"].pop(pid, None)
-        if "autostart" in changes:
-            if not isinstance(changes["autostart"], bool):
-                raise ValueError("autostart: true or false")
-            now["autostart"] = changes["autostart"]
+        if "engine" in changes:
+            if changes["engine"] not in ENGINES:
+                raise ValueError("engine: one of " + ", ".join(ENGINES))
+            now["engine"] = changes["engine"]
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(json.dumps(now, indent=2), encoding="utf-8")
@@ -258,45 +257,93 @@ def firecrawl_read(base: str, key: str, url: str) -> str:
     return text[:MAX_READER_CHARS]
 
 
-_playwright: Dict[str, Any] = {"client": None}
+# -- the MCP servers that run on this PC, started when a search or a page read needs them ------------------------------
+
+
+def _stack() -> Any:
+    from tadamoo import websearch_runtime as rt
+    base = user_dir() / "websearch"
+    runtime = rt.Runtime(base)
+    return rt, runtime, rt.Packages(base, runtime)
+
+
+_servers: Dict[str, Any] = {}
+
+
+def local_server(provider: str, prefs: Optional[Prefs] = None) -> Any:
+    """The managed process of an npm provider (open-websearch, playwright); made on first use, started by its first call, stopped when idle."""
+    rt, runtime, packages = _stack()
+    package = PROVIDERS[provider]["local"]["package"]
+    prefs = prefs or Prefs()
+
+    def launch() -> Any:
+        if provider == "openwebsearch":
+            argv, env = packages.command(package)
+            return argv, {**env, "MODE": "stdio", "DEFAULT_SEARCH_ENGINE": prefs.read()["engine"]}
+        channel = rt.browser_channel(runtime.info["os"])
+        return packages.command(package, "--browser", channel, "--headless")
+    key = f"{provider}:{package}"
+    if key not in _servers:
+        _servers[key] = rt.ManagedServer(provider, launch)
+    return _servers[key]
+
+
+def _results_of_text(text: str, limit: int) -> List[Dict[str, Any]]:
+    """The results in what the open-websearch search tool returned: its JSON when it is JSON, else the text itself as one result."""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = None
+    rows = data.get("results") if isinstance(data, dict) else data if isinstance(data, list) else None
+    found = _results(rows, "title", "url", "description", limit) if rows is not None else []
+    return found or [{"title": "open-websearch", "url": "", "snippet": text[:8000]}]
+
+
+def openwebsearch_search(query: str, limit: int, prefs: Optional[Prefs] = None) -> List[Dict[str, Any]]:
+    from tadamoo.websearch_runtime import RuntimeProblem
+    prefs = prefs or Prefs()
+    try:
+        text = local_server("openwebsearch", prefs).call("search", {"query": query, "limit": max(1, min(limit, 20)), "engines": [prefs.read()["engine"]]})
+    except RuntimeProblem as exc:
+        raise SearchError(str(exc)) from None
+    except Exception as exc:
+        raise SearchError(f"open-websearch failed: {exc}") from None
+    return _results_of_text(text, limit)
+
+
+def openwebsearch_read(url: str) -> str:
+    from tadamoo.websearch_runtime import RuntimeProblem
+    try:
+        text = local_server("openwebsearch").call("fetchWebContent", {"url": url, "maxChars": 200000, "renderMode": "auto"}, timeout=90.0)
+    except RuntimeProblem as exc:
+        raise SearchError(str(exc)) from None
+    except Exception as exc:
+        raise SearchError(f"open-websearch failed: {exc}") from None
+    return str(text or "")[:MAX_READER_CHARS]
 
 
 def playwright_read(url: str) -> str:
-    """The page through a real browser (Edge, headless) driven by the Playwright MCP server, started on the first use and kept."""
-    from tadamoo.mcp_client import MCPClient
-    client = _playwright["client"]
+    """The page through a real browser driven by the Playwright MCP server (an Edge or Chrome already on the PC, else its own Chromium), no visible window."""
+    from tadamoo.websearch_runtime import RuntimeProblem
+    server = local_server("playwright")
     try:
-        if client is None:
-            client = MCPClient(["npx", "-y", PROVIDERS["playwright"]["local"]["package"], "--browser", "msedge", "--headless"])
-            client.start()
-            client.initialize()
-            _playwright["client"] = client
-        client.call_tool("browser_navigate", {"url": url}, timeout=60.0)
-        text = client.call_tool("browser_snapshot", {}, timeout=60.0)
+        server.call("browser_navigate", {"url": url}, timeout=60.0)
+        text = server.call("browser_snapshot", {}, timeout=60.0)
+    except RuntimeProblem as exc:
+        raise SearchError(str(exc)) from None
     except Exception as exc:
-        close_readers()
         raise SearchError(f"the browser could not read the page: {exc}") from None
     return str(text or "")[:MAX_READER_CHARS]
 
 
 def close_readers() -> None:
-    client, _playwright["client"] = _playwright["client"], None
-    if client is not None:
-        try:
-            client.close()
-        except Exception:
-            pass
-
-
-# -- a program on this PC, started when a search needs it ----------------------------------------------------------
-
-
-def _run(argv: List[str], timeout: float = 120.0) -> subprocess.CompletedProcess:
-    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False)
+    """Stops every local server now (they also stop by themselves when idle and when the harness ends)."""
+    from tadamoo.websearch_runtime import stop_all
+    stop_all()
 
 
 def local_up(url: str, timeout: float = 3.0) -> bool:
-    """Whether something answers at the address of a local program."""
+    """Whether something answers at an address on this PC."""
     try:
         urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "TaDaMoo/1"}), timeout=timeout).close()
         return True
@@ -304,25 +351,6 @@ def local_up(url: str, timeout: float = 3.0) -> bool:
         return True                                         # it answered, even if with an error
     except (urllib.error.URLError, OSError, ValueError):
         return False
-
-
-def ensure_searxng(url: str, run: Callable[..., Any] = _run, up: Callable[[str], bool] = local_up, wait_s: float = 40.0) -> None:
-    """Starts the container the harness made for SearXNG when nothing answers at its address; SearchError says what is missing."""
-    if up(url):
-        return
-    name = PROVIDERS["searxng"]["local"]["container"]
-    try:
-        started = run(["docker", "start", name], 60.0)
-    except (OSError, subprocess.SubprocessError):
-        raise SearchError("SearXNG is not running and Docker cannot be started from here: start Docker Desktop, or install it from Settings > Web search") from None
-    if started.returncode != 0:
-        raise SearchError("SearXNG is not running and there is no container to start: install it from Settings > Web search, and keep Docker Desktop running")
-    deadline = time.monotonic() + wait_s
-    while time.monotonic() < deadline:
-        if up(url):
-            return
-        time.sleep(1.0)
-    raise SearchError("SearXNG was started but does not answer yet: try again in a moment")
 
 
 # -- what the harness uses -----------------------------------------------------------------------------------------
@@ -333,14 +361,9 @@ def search_backend(provider: str, prefs: Prefs, keys: Keys) -> Optional[Callable
     mode = prefs.mode_of(provider)
     if provider == "searxng":
         url = prefs.url_of(provider)
-        if not url:
-            return None
-
-        def run_searx(query: str, limit: int) -> List[Dict[str, Any]]:
-            if mode == "local" and prefs.read()["autostart"]:
-                ensure_searxng(url)
-            return searxng_search(url, query, limit)
-        return run_searx
+        return (lambda q, n: searxng_search(url, q, n)) if url else None
+    if provider == "openwebsearch":
+        return lambda q, n: openwebsearch_search(q, n, prefs)
     if provider == "brave":
         key = keys.get("brave")
         return (lambda q, n: brave_search(key, q, n)) if key else None
