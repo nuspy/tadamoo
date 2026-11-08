@@ -328,10 +328,22 @@ PLAN_RULES = '''This job was a plan: the steps below, in this order, each with t
 - A step marked "proposed" was approved by the person but never run: write it as the call says, and keep it easy to read.'''
 
 
+def how_set(p: Dict[str, Any]) -> str:
+    """What the script writer is told about how a parameter gets its value: the program sets it at the start (from the person, an expression or the model, all
+    together before the script runs), or the script must set it itself later, at the point where what it depends on exists."""
+    source, later = p.get("source", "value"), p.get("when", "start") == "later"
+    how = {"python": f"by this Python expression: {p.get('expr')}", "llm": f"by the model, from this description: {p.get('describe')}"}.get(source, "by the person who starts it")
+    if later:
+        after = f" (after step {p['after']})" if p.get("after") else ""
+        return (f". NOT given at the start{after}: the script sets it itself, when the steps above it have produced what it needs; it is set {how}" +
+                (", so write that expression in the script" if source == "python" else ", so make one ai() call at that point that reads the earlier results" if source == "llm" else ""))
+    return f". Given at the start ({how}): use params.{p['name']} as it comes"
+
+
 def script_prompt(name: str, description: str, params: List[Dict[str, Any]], requests: List[Dict[str, Any]], steps: List[Dict[str, Any]],
                   plan: Optional[str] = None) -> List[Dict[str, str]]:
     plist = "\n".join(f"- params.{p['name']} ({p['type']}{', ' + p.get('item_type', '') if p['type'] == 'list' else ''}): {p.get('explanation') or p.get('label')}; "
-                      f"the value in the requests was {p.get('value_seen')!r}" for p in params) or "(no parameters)"
+                      f"the value in the requests was {p.get('value_seen')!r}{how_set(p)}" for p in params) or "(no parameters)"
     asked = "\n".join(f"Request {r['n']}: {_clip(r['text'], 2000)}" for r in requests)
     recorded = []
     for i, s in enumerate(steps[:MAX_STEPS], 1):

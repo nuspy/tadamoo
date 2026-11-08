@@ -3061,6 +3061,8 @@ def make_handler(svc: Service, remote: bool = False):
                 if parts == ["place", "forget"]:
                     self._agent_sessions().forget_place()
                     return self._json(200, {"forgotten": True})
+                if parts == ["skill-param"]:
+                    return self._json(200, self._agent_sessions().skill_param(req.get("action"), req.get("spec"), req.get("known")))
                 if len(parts) == 2 and parts[0] == "plan-skill" and parts[1] in ("propose", "fill", "chat", "script"):
                     return self._plan_skill(parts[1], req)
                 if parts == ["editor"]:

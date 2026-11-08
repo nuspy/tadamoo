@@ -1283,3 +1283,6 @@ dialog.afolder .brd-b { display: grid; gap: 8px; padding: 12px 16px 16px; }
 .psk-check { display: flex; align-items: flex-start; gap: 8px; min-height: 44px; }
 .psk-talk { display: grid; gap: 6px; }
 .psk-talk textarea { width: 100%; min-height: 56px; }
+.psk-source { margin: 0; padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; }
+.psk-source legend { padding: 0 4px; font-size: 12px; color: var(--fg-2); }
+.psk-param textarea { width: 100%; min-height: 56px; }

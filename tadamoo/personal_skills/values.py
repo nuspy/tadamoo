@@ -9,9 +9,11 @@ from __future__ import annotations
 import calendar
 import re
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 TYPES = ("text", "number", "date", "datetime", "choice", "list", "path", "bool")
+SOURCES = ("value", "python", "llm")          # how a parameter is set: by the person (or its default), by a Python expression, or by the model from a description
+WHENS = ("start", "later")                    # when: at the start of the run, or later in it, from what earlier steps produce
 ITEM_TYPES = ("number", "text", "mixed")
 NAME = re.compile(r"^[a-z_][a-z0-9_]{0,39}$")
 MAX_TEXT = 20000
@@ -226,17 +228,55 @@ def check_spec(spec: Any) -> List[str]:
             parse_value(spec, spec["default"])
         except ValueError_ as exc:
             problems.append(f"{spec.get('name')}: the default does not fit ({exc})")
+    source = spec.get("source", "value")
+    if source not in SOURCES:
+        problems.append(f"{spec.get('name')}: the value is set by {', '.join(SOURCES)}")
+    if spec.get("when", "start") not in WHENS:
+        problems.append(f"{spec.get('name')}: when is {', '.join(WHENS)}")
+    if source == "python":
+        from . import expressions
+        try:
+            expressions.validate(spec.get("expr"))                     # one that reads another parameter is tried only when the run has them
+            verdict = check_param(spec) if "params" not in str(spec.get("expr")) else {"ok": True}
+        except expressions.ExpressionError as exc:
+            verdict = {"ok": False, "error": str(exc)}
+        if not verdict["ok"]:
+            problems.append(f"{spec.get('name')}: the expression does not work ({verdict['error']})")
+    if source == "llm" and not str(spec.get("describe") or "").strip():
+        problems.append(f"{spec.get('name')}: describe how the model is to set it")
     return problems
 
 
+def check_param(spec: Dict[str, Any], now: Optional[datetime] = None, known: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Tries the expression of a parameter now: {"ok", "value" (as the script would get it), "error"}. A parameter set by a Python expression that does not run, or
+    gives something that does not fit its type, is not kept."""
+    from . import expressions
+    now = now or datetime.now()
+    try:
+        raw = expressions.evaluate(spec.get("expr"), now, known)
+        kind = spec.get("type", "text")
+        if isinstance(raw, (datetime, date)) and kind in ("date", "datetime"):      # a date or a moment the expression made is kept as the page writes them
+            moment = raw if isinstance(raw, datetime) else datetime(raw.year, raw.month, raw.day)
+            value = moment.date().isoformat() if kind == "date" else moment.replace(microsecond=0).isoformat(timespec="minutes" if not moment.second else "seconds")
+            return {"ok": True, "value": value, "error": ""}
+        if isinstance(raw, datetime):
+            raw = raw.replace(microsecond=0).isoformat()
+        elif isinstance(raw, date):
+            raw = raw.isoformat()
+        return {"ok": True, "value": parse_value(spec, raw, now), "error": ""}
+    except (expressions.ExpressionError, ValueError_) as exc:
+        return {"ok": False, "value": None, "error": str(exc)}
+
+
 def resolve(specs: List[Dict[str, Any]], given: Dict[str, Any], now: Optional[datetime] = None,
-            last: Optional[Dict[str, Any]] = None) -> Tuple[Dict[str, Any], Dict[str, str]]:
+            last: Optional[Dict[str, Any]] = None, llm: Optional[Callable[[List[Dict[str, Any]], Dict[str, Any]], Dict[str, Any]]] = None) -> Tuple[Dict[str, Any], Dict[str, str]]:
     """The values for a run: what the person gave, else the default (a date written in words is worked out now), else the value
     used last time (`last`). Returns ({name: {"type", "value"}}, {name: what is wrong}). A required parameter with no value at all does
     not stop the run: it comes back with `value` None and `missing` True, for the run to tell the model."""
     now = now or datetime.now()
     values: Dict[str, Any] = {}
     errors: Dict[str, str] = {}
+    asked: List[Dict[str, Any]] = []                      # the parameters the model sets, all at the start, in one call
 
     def blank(v: Any) -> bool:
         return v is None or (isinstance(v, str) and not v.strip()) or (isinstance(v, (list, tuple)) and not v)
@@ -244,6 +284,20 @@ def resolve(specs: List[Dict[str, Any]], given: Dict[str, Any], now: Optional[da
     for spec in specs:
         name, kind = spec["name"], spec.get("type", "text")
         raw = given.get(name)
+        if blank(raw) and spec.get("when", "start") == "later":
+            values[name] = {"type": kind, "value": None, "later": True}      # set in the script, when the steps above it have produced what it needs
+            continue
+        if blank(raw) and spec.get("source") == "python":
+            verdict = check_param(spec, now, {k: v.get("value") for k, v in values.items()})
+            if verdict["ok"]:
+                values[name] = {"type": kind, "value": verdict["value"]}
+            else:
+                errors[name] = verdict["error"]
+            continue
+        if blank(raw) and spec.get("source") == "llm" and llm is not None:
+            asked.append(spec)
+            values[name] = {"type": kind, "value": None, **({"missing": True} if spec.get("required", True) else {})}
+            continue
         if blank(raw):
             raw = spec.get("default")
         if blank(raw) and last:
@@ -258,6 +312,22 @@ def resolve(specs: List[Dict[str, Any]], given: Dict[str, Any], now: Optional[da
                 values[name] = {"type": kind, "value": None, **({"missing": True} if spec.get("required", True) else {})}
             else:
                 errors[name] = str(exc)
+    if asked and llm is not None:
+        try:
+            got = llm([{"name": s["name"], "label": s.get("label") or s["name"], "type": s.get("type", "text"), "describe": s.get("describe", ""),
+                        **({"choices": s["choices"]} if s.get("choices") else {})} for s in asked], {k: v.get("value") for k, v in values.items() if v.get("value") is not None})
+        except Exception as exc:                          # the model could not be asked: they stay missing, and the run says so
+            got = {}
+            for s in asked:
+                errors[s["name"]] = f"the model could not set it ({exc})"
+        for s in asked:
+            raw = (got or {}).get(s["name"])
+            if blank(raw) or s["name"] in errors:
+                continue
+            try:
+                values[s["name"]] = {"type": s.get("type", "text"), "value": parse_value(s, raw, now)}
+            except ValueError_ as exc:
+                errors[s["name"]] = f"the model gave a value that does not fit ({exc})"
     extra = sorted(set(given) - {s["name"] for s in specs})
     for name in extra:
         errors[name] = "is not a parameter of this skill"

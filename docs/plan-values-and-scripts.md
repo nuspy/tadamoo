@@ -36,3 +36,21 @@ as a conversation does (`tadamoo/personal_skills/distill.py`); the plan adds `ta
 - **The parameters** are the values that change between runs, found without the model where possible. The plan's questions to the person are parameters as they are.
   They are changed in a form and by talking to the model ("make the folder a parameter and drop the date").
 - **The result** is saved as a personal skill, with the plan and the conversation recorded as its source.
+
+## How each parameter of a skill is set
+
+Each parameter has one of three ways of getting its value, chosen with a radio button on its card (making a skill, or editing one):
+
+| Way | What it is | When it is worked out |
+| --- | --- | --- |
+| By the person | The value typed when the skill is started, or its default (a date in words is read at each run). | At the start. |
+| By a Python expression | `now()`, `today() - timedelta(days=1)`, `now().strftime("%Y-%m-%d %H:%M")`, `params["city"].upper()`. Read, not run freely: only dates, text, numbers, the parameters above it, a fixed list of functions and methods (`tadamoo/personal_skills/expressions.py`). | At the start, by the program. |
+| By the model, from a description | "the date and hour at which the script starts". | At the start, by the model. |
+
+- **Checking.** The card has *Check the expression*: it tries it now and shows what it gives or why it fails. A parameter whose expression does not work is not saved.
+  *Turn the description into Python* asks the model for an expression, tries it, tells the model once if it fails, and shows the person the expression and what it gives to read and keep.
+- **One call.** At the start of a run every parameter set by Python is worked out locally, and all those set by the model are set in ONE call, with the values already set
+  in it, not one call for each.
+- **Later.** A parameter that depends on what an earlier step produces, or on a moment after a wait, is marked *later* (and optionally *after step X*). It is not set at the
+  start: the script writer is told to set it in the script at that point, by the expression written there, or by one `ai()` call that reads the earlier results.
+  This is decided when the skill is made, because the script is written from it.
