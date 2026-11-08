@@ -13,7 +13,7 @@ I18N = (WEB / "i18n.js").read_text(encoding="utf-8")
 
 class PersonalSkillsPageTest(unittest.TestCase):
     def test_the_list_button_comes_right_after_branches_and_the_script_is_loaded_after_the_chat(self):
-        self.assertRegex(re.sub(r'\n\s*<button[^>]*id="(?:wud-toggle|tech-toggle|priv-toggle|forget-open)"[^\n]*', '', HTML), r'id="branches-open"[^\n]*\n\s*<button[^>]*id="export-open"[^\n]*\n\s*<button[^>]*id="pskills-open"')     # Export is just left of Skills
+        self.assertRegex(re.sub(r'\n\s*<button[^>]*id="(?:wud-toggle|tech-toggle|priv-toggle|forget-open|tgm-move)"[^\n]*', '', HTML), r'id="branches-open"[^\n]*\n\s*<button[^>]*id="export-open"[^\n]*\n\s*<button[^>]*id="pskills-open"')     # Export is just left of Skills
         self.assertLess(HTML.index("web/agentchat.js"), HTML.index("web/pskills.js"))
         self.assertLess(HTML.index("web/slash.js"), HTML.index("web/pskills.js"))
 
