@@ -455,6 +455,8 @@ class BuiltAgent:
             notes = self._notes(goal, self.memory_notes if limit is None else limit)
             self.builder.set_memories([m["content"] for m in notes])
             message = self.builder.memory_message()
+        if message:
+            message["untrusted"] = True                  # notes the project kept may hold text taken from outside; the person's own memories do not
         about = self.personal.message(goal) if self.personal is not None else None
         if about:
             message = {**message, "content": message["content"] + "\n" + about} if message else {"role": "user", "content": about}

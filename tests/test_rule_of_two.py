@@ -252,9 +252,12 @@ def test_attachments_memories_and_planner_notes_are_untrusted(ws):
     assert pm.untrusted_input and pm.two.untrusted == ["planner note"] and not pm.two.private
     pm2, _ = manager()
     agent2 = AgentLoop(client=ScriptedClient(say("ok")), tool_registry=registry, permissions=pm2)
-    agent2.run("hello", retrieved={"role": "user", "content": "notes about you"})
-    assert pm2.two.untrusted == ["memories"] and not pm2.two.private       # memories are not private data: the wallet and the vault are
-    assert not pm2.two.broken
+    agent2.run("hello", retrieved={"role": "user", "content": "notes the project kept", "untrusted": True})
+    assert pm2.two.untrusted == ["memories"] and not pm2.two.private and not pm2.two.broken
+    pm3, _ = manager()
+    agent3 = AgentLoop(client=ScriptedClient(say("ok")), tool_registry=registry, permissions=pm3)
+    agent3.run("hello", retrieved={"role": "user", "content": "what the person told about themselves"})
+    assert not pm3.two.untrusted and not pm3.two.private and not pm3.untrusted_input     # the person's own memories are neither untrusted nor private
 
 
 def test_a_planner_note_from_an_event_taints_the_conversation_a10(tmp_path):

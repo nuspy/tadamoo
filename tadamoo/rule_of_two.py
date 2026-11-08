@@ -1,7 +1,7 @@
 """The Rule of Two, kept as three facts about one conversation.
 
   U  the agent read content from outside the person's control (a page, a file it did not write, a tool's answer, an attachment, a note
-     the planner made from an event, a recalled memory);
+     the planner made from an event, a note the project kept; the person's own memories are neither);
   P  it touched private data or a secret (a stored credential used, a file that holds keys, an attachment; the wallet and the vault hold the private data, the person's memories do not);
   E  the action it is about to take reaches the outside (a web address or query, a form, a request to a server).
 
