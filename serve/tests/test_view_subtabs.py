@@ -33,7 +33,7 @@ class ViewSubtabsTest(unittest.TestCase):
         sections = re.findall(r'<section class="sec [^>]*>', block)
         self.assertGreaterEqual(len(sections), 7)
         for tag in sections:
-            self.assertRegex(tag, r'data-sub="(general|inference|models|privacy|mobile|memories|websearch|voice|benchmarks)"', tag)
+            self.assertRegex(tag, r'data-sub="(general|inference|models|privacy|mobile|memories|personas|websearch|voice|benchmarks)"', tag)
 
     def test_the_monitor_has_no_tasks_or_changes_panel_and_the_requests_list_is_long(self):
         monitor = HTML[HTML.index('id="view-stats"'):HTML.index('id="view-plans"')]

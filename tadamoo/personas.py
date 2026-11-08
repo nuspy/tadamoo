@@ -109,7 +109,7 @@ def clean(data: Dict[str, Any], base: Optional[Dict[str, Any]] = None) -> Dict[s
 class PersonaStore:
     def __init__(self, root: str | Path, key_dir: Optional[str | Path] = None, key: Optional[bytes] = None, clock: Callable[[], float] = time.time) -> None:
         self.root = Path(root)
-        self.key_dir = Path(key_dir) if key_dir else None
+        self.key_dir = Path(key_dir) if key_dir else self.root          # one device key for every personality: beside them when no folder is given
         self._key, self.clock = key, clock
         self._memories: Dict[str, PersonalMemory] = {}
         self._lock = threading.RLock()

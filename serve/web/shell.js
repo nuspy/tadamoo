@@ -82,6 +82,7 @@
       { label: T("pal.set.cloud"), group: T("pal.g.settings"), run: settingsAt("st-planner-h", "privacy") },
       { label: T("pal.set.mobile"), group: T("pal.g.settings"), run: settingsAt("mb-h", "mobile") },
       { label: T("pal.set.memories"), group: T("pal.g.settings"), run: settingsAt("me-h", "memories") },
+      { label: T("pal.set.personas"), group: T("pal.g.settings"), run: settingsAt("pe-h", "personas") },
       { label: T("pal.set.lessons"), group: T("pal.g.settings"), run: settingsAt("ls-h", "memories") },
       { label: T("pal.set.websearch"), group: T("pal.g.settings"), run: settingsAt("ws-h", "websearch") },
       { label: T("pal.set.voice"), group: T("pal.g.settings"), run: settingsAt("vo-h", "voice") },

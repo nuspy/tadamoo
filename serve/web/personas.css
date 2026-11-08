@@ -1,0 +1,42 @@
+/* Settings > Personalities. The notes of a memory use the me-* rules of memories.css. */
+.pe-root { max-width: 1100px; }
+.pe-root :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pe-intro { margin: 0 0 16px; max-width: 880px; color: var(--fg-2); line-height: 1.55; overflow-wrap: anywhere; }
+.pe-help { margin: 0; font-size: 14px; line-height: 1.5; color: var(--fg-2); overflow-wrap: anywhere; }
+.pe-line { margin: 0 0 8px; color: var(--fg); line-height: 1.5; }
+.pe-h { margin: 0 0 8px; font: 600 18px/1.3 var(--font-sans); color: var(--fg); overflow-wrap: anywhere; }
+.pe-h2 { margin: 0 0 8px; font: 600 14px/1.3 var(--font-sans); color: var(--fg); }
+.pe-note { margin: 0 0 12px; padding: 8px 12px; border-left: 3px solid var(--line); color: var(--fg-2); line-height: 1.5; overflow-wrap: anywhere; }
+.pe-note[data-bad="1"] { border-left-color: var(--warn); color: var(--warn); }
+.pe-note[hidden] { display: none; }
+.pe-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+.pe-side, .pe-main { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.pe-names { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.pe-root .btn { min-height: 44px; min-width: 44px; padding: 8px 16px; font-size: 15px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.pe-pick { width: 100%; justify-content: space-between; text-align: left; }
+.pe-pick.on { border-color: var(--accent); }
+.pe-pname { overflow-wrap: anywhere; font-weight: 600; }
+.pe-pcount { font-size: 13px; color: var(--fg-2); white-space: nowrap; }
+.pe-newbtn { width: 100%; }
+.pe-form { display: grid; gap: 12px; margin: 0 0 20px; }
+.pe-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; }
+.pe-row .pe-field { flex: 1 1 220px; }
+.pe-field { display: grid; align-content: start; gap: 4px; min-width: 0; }
+.pe-field label { font-weight: 600; color: var(--fg); }
+.pe-field input, .pe-field select, .pe-field textarea, .pe-memory select, .pe-memory textarea, .pe-memory .me-filter input, .pe-memory .me-add input {
+  width: 100%; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font: 16px/1.4 var(--font-sans); }
+.pe-field textarea { resize: vertical; }
+.pe-count { margin-top: -6px; text-align: right; font-size: 13px; }
+.pe-bar { display: flex; flex-wrap: wrap; gap: 8px; }
+.pe-warn { color: var(--warn); border-color: var(--warn); }
+.pe-memory { padding-top: 16px; border-top: 1px solid var(--line-soft); }
+.pe-memory .me-filter select, .pe-memory .me-add select { width: auto; max-width: 100%; }
+.pe-memory .me-filter input { flex: 1 1 200px; width: auto; }
+.pe-memory .me-add input { flex: 1 1 240px; width: auto; }
+.pe-memory .me-edit select { width: auto; max-width: 100%; }
+.pe-memory .me-nbar .btn, .pe-memory .me-edit .btn, .pe-memory .me-add .btn { min-height: 44px; }
+.pe-memory .pe-bar { margin-top: 14px; }
+@media (min-width: 900px) { .pe-layout { grid-template-columns: 260px minmax(0, 1fr); } }
+@media (max-width: 520px) { .pe-side, .pe-main { padding: 12px; } .pe-bar .btn { flex: 1 1 100%; } .pe-memory .me-add > * { flex-basis: 100%; } }
+@media (prefers-reduced-motion: reduce) { .pe-root *, .pe-root *::before, .pe-root *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+@media (pointer: coarse), (max-width: 520px) { .chathead #persona { min-height: 44px; } }

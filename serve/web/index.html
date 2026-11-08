@@ -16,6 +16,7 @@
 <link rel="stylesheet" href="web/traces.css">
 <link rel="stylesheet" href="web/mobile.css">
 <link rel="stylesheet" href="web/memories.css">
+<link rel="stylesheet" href="web/personas.css">
 <link rel="stylesheet" href="web/lessons.css">
 <link rel="stylesheet" href="web/bench.css">
 <link rel="stylesheet" href="web/websearch.css">
@@ -94,6 +95,7 @@
 <script defer src="web/cron.js"></script>
 <script defer src="web/mobile.js"></script>
 <script defer src="web/memories.js"></script>
+<script defer src="web/personas.js"></script>
 <script defer src="web/lessons.js"></script>
 <script defer src="web/bench.js"></script>
 <script defer src="web/websearch.js"></script>
@@ -402,6 +404,9 @@
         </label>
         <label class="effort coderole" for="coderole" id="coderole-label" hidden><span data-t="cd.role">Role</span>
           <select id="coderole" data-t-title="cd.role.tip"></select>
+        </label>
+        <label class="effort" for="persona" id="persona-label" hidden><span data-t="pe.label">Personality</span>
+          <select id="persona" data-t-title="pe.tip"></select>
         </label>
         <label class="effort" for="effort"><span>Thinking</span>
           <select id="effort">
@@ -933,6 +938,10 @@
     <section class="sec stlessons" data-sub="memories" id="ls-section" aria-labelledby="ls-h">
       <div class="sh"><b id="ls-h" data-t="ls.title">Lessons from earlier tasks</b></div>
       <div class="pad" id="ls-root"></div>
+    </section>
+    <section class="sec stpersonas" data-sub="personas" id="pe-section" aria-labelledby="pe-h">
+      <div class="sh"><b id="pe-h" data-t="pe.title">Personalities</b></div>
+      <div class="pad pe-root" id="pe-root"></div>
     </section>
     <section class="sec stwebsearch" data-sub="websearch" id="ws-section" aria-labelledby="ws-h">
       <div class="sh"><b id="ws-h" data-t="ws.title">Web search</b></div>

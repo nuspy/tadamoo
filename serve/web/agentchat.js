@@ -395,6 +395,11 @@
       case "mode": if (rec) rec.mode = e.mode; paintChip(); noteItem({ s: T("ch.mode.now", T("ag.mode." + e.mode)) }); break;
       case "role": if (rec) rec.role = e.role; noteItem({ s: T("cd.role.now", T("cd.role." + e.role)) }); setControls(); break;
       case "checks": noteItem({ s: T("cd.checks.now", e.safe) }); break;
+      case "persona":
+        if (rec) rec.persona = e.slug;
+        noteItem({ s: T("pe.now", e.slug && window.personaUi ? window.personaUi.name(e.slug) : T("pe.none")) });
+        if (window.personaUi) window.personaUi.paint();
+        break;
       case "effort": if (rec) rec.effort = e.level; noteItem({ s: T("ch.effort.now", effortName(e.level)) }); break;
       case "visuals":
         if (rec) { rec.images = e.images; rec.charts = e.charts; }
@@ -1335,7 +1340,7 @@
   async function ensure() {
     if (sid) return true;
     if (inAgent() && !curPath() && !(await addFolder())) { status(T("ag.noproject")); return false; }
-    const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath(), ...(window.codingUi ? { role: window.codingUi.role() } : {}) } : {}), mode: permMode(), allow: allowRules(), ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), ...chatSettings.live(), worktree: copyMode(), ...visuals(), ...(window.privacy && window.privacy.pending() ? { private: true } : {}) });
+    const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath(), ...(window.codingUi ? { role: window.codingUi.role() } : {}) } : {}), mode: permMode(), allow: allowRules(), ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), ...chatSettings.live(), worktree: copyMode(), ...visuals(), ...(window.personaUi && window.personaUi.pending() ? { persona: window.personaUi.pending() } : {}), ...(window.privacy && window.privacy.pending() ? { private: true } : {}) });
     if (!r.ok) { status(errText(r)); return false; }
     sid = r.json.session.id; rec = r.json.session; keep(lastKey(), sid); after = 0; conversationChanged(true);
     const sampling = chatSettings.live();                                      // what the create call does not carry
