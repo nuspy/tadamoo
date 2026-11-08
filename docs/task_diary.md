@@ -1,7 +1,13 @@
 # Diario dei task
 
-Ultimo aggiornamento: 8 novembre 2026, sera. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
+Ultimo aggiornamento: 9 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «5 novembre» e da «Decisioni tue in attesa».
+
+## 9 novembre
+
+- Bot Telegram (piano voce, fase 9b): fatto e provato con test, con un finto Bot API locale e con un Edge senza finestra a 360, 390 e 1280 px (risposte simulate); non provato con un bot vero. Si imposta in Impostazioni > Voce > Telegram: token (scritto e mai più mostrato, tenuto nel gestore credenziali), interruttore (spento all'inizio, così non ruba i messaggi a Hermes), livello dei permessi, elenco delle persone autorizzate, elenco dei mittenti ignorati con il pulsante Autorizza, canale principale con messaggio di prova, «Importa da Hermes». Solo le persone autorizzate arrivano all'agente; testo inoltrato e file sono dati recintati; i permessi si danno in chat con Si/No e telefonate, pagamenti e azioni irreversibili chiedono un secondo «Conferma». In Chat e Codice il pulsante «Trasferisci su Telegram» sposta la conversazione aperta e «Riporta qui» la rimette; nella lista compare il segno «Telegram». Da fare da te: spegnere il gateway Telegram di Hermes se usa lo stesso token (se no lo stato dice «Un altro programma legge questo bot»). Non fatto: i messaggi vocali non si leggono ancora; il livello dei permessi del bot è un valore del bot (la Chat lo tiene nel browser). Dettagli in `docs/telegram.md`.
+
+- RAG (piano voce, sezioni 2, 5 e 6): fatto e provato con test e con un Edge senza finestra a 360, 390 e 1280 px (risposte del server simulate; non provato sul server vero né nell'app). Nuovo tab di primo livello «Conoscenza»: archivi di documenti separati dalle personalità, collegabili a una o più. Documenti .txt, .md, .html, .epub, .docx, .pdf (il PDF solo se pypdf o PyMuPDF sono già installati, mai installati da qui). Ricerca sempre per parole; per significato solo quando ci sarà un modello di embedding installato (oggi nessuno: il tab dice «solo ricerca testuale»). Quando parli con una personalità collegata, i brani che corrispondono al messaggio entrano come dati recintati e non fidati, con nome di archivio e documento. Non fatto: nessun modello di embedding, il processo dell'agente cerca solo per parole, il nome degli archivi non compare ancora nella pagina della personalità (solo gli id). Dettagli in `docs/rag.md`.
 
 ## 8 novembre (sera)
 

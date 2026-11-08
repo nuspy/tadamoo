@@ -38,7 +38,7 @@ async function get(path) {
 }
 
 /* ---- views: Chat, Monitor (stats), Plans, Hardware, Loader, Settings, Logs ---- */
-const VIEWS = ["chat", "agent", "stats", "plans", "cron", "hardware", "loader", "wallet", "settings", "logs", "security", "canary"];
+const VIEWS = ["chat", "agent", "stats", "plans", "cron", "hardware", "loader", "wallet", "settings", "logs", "security", "canary", "rag"];
 applyT($(".tabs"));                                   // the tab names in the page's language
 $(".tabs").setAttribute("aria-label", T("tab.nav"));
 // pages that live under another tab: Hardware and LOGS under Monitor, Wallet under Settings

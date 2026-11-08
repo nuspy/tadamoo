@@ -14,7 +14,7 @@ Stored as `personas/<slug>/persona.json` in the user data folder (plain text, no
 | `avatar` | A reference string. Empty until avatars are connected. | 200 |
 | `personality` | How it is and how it talks, free text. | 8000 |
 | `system_prompt` | What it must always do, free text. | 8000 |
-| `knowledge` | Ids of knowledge archives. Empty until archives exist. | 50 ids |
+| `knowledge` | Ids of the knowledge archives it draws on, linked from the Knowledge tab (`docs/rag.md`). | 50 ids |
 | `language` | Code such as `en` or `it`, or empty. | |
 | `profile` | A short rolling summary of what it knows about the person. | 1500 |
 
