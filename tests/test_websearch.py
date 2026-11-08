@@ -179,3 +179,11 @@ def test_a_page_the_site_refuses_is_read_by_the_chosen_reader_and_the_answer_say
     assert ws.read_after_failure("https://example.org/", "x") is None
     assert ws.reader_may_help("the page answered 403 Forbidden") and ws.reader_may_help("the page took too long to arrive")
     assert not ws.reader_may_help("the page answered 404 Not Found. This address does not exist") and not ws.reader_may_help("only web addresses (http or https) can be read")
+
+
+def test_a_chosen_provider_that_is_not_ready_is_reported_not_replaced_by_another(home):
+    registry, _ = create_standard_tool_registry(home)
+    handler = registry.get("search_web").handler
+    ws.Prefs().write(search="brave")                                                      # chosen, but no key was ever set
+    with pytest.raises(search.ProviderUnavailable, match="chosen in Settings"):
+        handler("anything")
