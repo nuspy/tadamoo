@@ -1,4 +1,5 @@
-"""The length of a reply a model writes well: measured at the first load, kept with the model, raised by use, shown by the Loader."""
+"""The length of a reply a model writes: measured at the first load from the tokens the server counts, kept with the model, raised by use,
+shown by the Loader."""
 import io
 import contextlib
 import tempfile
@@ -17,56 +18,81 @@ JS = (ROOT / "serve" / "web" / "loader.js").read_text(encoding="utf-8")
 I18N = (ROOT / "serve" / "web" / "i18n.js").read_text(encoding="utf-8")
 
 
-def reply(words, finish="stop", repeated=False, tokens=None):
-    text = " ".join(f"w{i % 977}x{i}" for i in range(words))
-    return {"text": text, "tokens": tokens if tokens is not None else int(words * 1.4), "finish": finish, "repeated": repeated, "seconds": 3.0}
+def text(n_words):
+    return " ".join(f"w{i % 977}x{i}" for i in range(n_words))
 
 
-class Ladder(unittest.TestCase):
-    def run_ladder(self, answers, stop=None, rungs=lengthprobe.RUNGS):
+def got(tokens, finish="length", body=None, repeated=False, ended_by="", cap=30_000):
+    """What `ask` gives back: the text, and the tokens the server counted (not the model's idea of them)."""
+    return {"text": body if body is not None else text(int(tokens / 1.4)), "tokens": tokens, "finish": finish, "repeated": repeated,
+            "seconds": 5.0, "ended_by": ended_by, "cap": cap}
+
+
+LOOP = "and then the river turned back to the same bend, and the same field, and the same old mill. " * 400
+
+
+class Tries(unittest.TestCase):
+    def run_tries(self, answers, stop=None):
         asked = []
 
-        def ask(prompt):
-            asked.append(prompt)
+        def ask(prompt, cap):
+            asked.append((prompt, cap))
             return answers[len(asked) - 1]
-        return lengthprobe.measure(ask, stop, rungs=rungs), asked
+        return lengthprobe.measure(ask, stop), asked
 
-    def test_it_climbs_while_the_model_writes_what_is_asked_and_ends_by_itself(self):
-        result, asked = self.run_ladder([reply(2000), reply(5000), reply(10000), reply(20000), reply(60000)])
-        self.assertEqual(len(asked), 5)
-        self.assertTrue(result["complete"] and result["stopped_by"] == "ladder")
-        self.assertIn("60000 words", asked[-1])
+    def test_nothing_is_asked_in_words_or_tokens_the_model_would_have_to_count(self):
+        for name, prompt in lengthprobe.PROMPTS:
+            self.assertNotRegex(prompt, r"\d[\d,.]*\s*(words|tokens|parole|token)")
+            self.assertIn("Never conclude", prompt)
+
+    def test_a_text_that_reaches_the_cap_clean_is_the_answer_and_the_second_text_is_not_asked(self):
+        result, asked = self.run_tries([got(30_000)])
+        self.assertEqual((len(asked), result["stopped_by"], asked[0][1]), (1, "cap", 30_000))
+        r = result["rungs"][0]
+        self.assertTrue(r["reached_cap"] and r["clean"] and r["clean_tokens"] == 30_000)
+        self.assertEqual([c["clean"] for c in r["checkpoints"]], [True, True, True])
+        self.assertEqual(lengthprobe.summarize(result["rungs"])["reliable_tokens"], 30_000)
+
+    def test_a_model_that_stops_by_itself_shows_where_and_the_other_text_is_tried(self):
+        result, asked = self.run_tries([got(4_200, finish="stop"), got(9_000, finish="stop")])
+        self.assertEqual((len(asked), result["stopped_by"]), (2, "ladder"))
         s = lengthprobe.summarize(result["rungs"])
-        self.assertEqual((s["reliable_words"], s["natural_words"]), (60000, 60000))
+        self.assertEqual((s["natural_tokens"], s["reliable_tokens"], s["reached_cap"]), (9_000, 9_000, False))
+        self.assertEqual([c["reached"] for c in result["rungs"][1]["checkpoints"]], [False, False, False])
 
-    def test_it_stops_at_the_first_try_much_shorter_than_asked_and_keeps_what_the_model_wrote(self):
-        result, asked = self.run_ladder([reply(2000), reply(5000), reply(2600)])
-        self.assertEqual((len(asked), result["stopped_by"]), (3, "short"))
-        s = lengthprobe.summarize(result["rungs"])
-        self.assertEqual(s["natural_words"], 5000)
+    def test_the_tokens_are_the_servers_not_the_texts(self):
+        result, _ = self.run_tries([got(12_345, finish="stop", body="a short text"), got(100, finish="stop")])
+        self.assertEqual(result["rungs"][0]["tokens"], 12_345)
 
-    def test_a_loop_is_not_counted_and_ends_the_ladder(self):
-        result, _ = self.run_ladder([reply(2000), {"text": "the same line again and again. " * 3000, "tokens": 30000, "finish": "stop", "repeated": False, "seconds": 9}])
-        self.assertEqual(result["stopped_by"], "loop")
-        self.assertFalse(result["rungs"][1]["clean"])
-        self.assertEqual(lengthprobe.summarize(result["rungs"])["reliable_words"], 2000)
+    def test_a_loop_says_where_it_began_and_what_came_before_counts(self):
+        body = text(7_000) + " " + LOOP
+        result, _ = self.run_tries([got(14_000, ended_by="loop", body=body), got(3_000, finish="stop")])
+        r = result["rungs"][0]
+        self.assertFalse(r["clean"])
+        self.assertTrue(r["looped"])
+        self.assertLess(r["clean_tokens"], 14_000 * 0.8)
+        self.assertGreater(r["clean_tokens"], 14_000 * 0.2)
+        self.assertEqual([c["clean"] for c in r["checkpoints"]], [r["clean_tokens"] >= 10_000, False, False])
+        self.assertEqual([c["reached"] for c in r["checkpoints"]], [True, False, False])
+        self.assertEqual(lengthprobe.summarize(result["rungs"])["reliable_tokens"], r["clean_tokens"])
 
-    def test_a_repeat_flagged_by_the_server_is_not_counted_either(self):
-        result, _ = self.run_ladder([reply(2000, repeated=True)])
-        self.assertEqual((result["stopped_by"], result["rungs"][0]["clean"]), ("loop", False))
+    def test_a_loop_the_server_cut_without_the_text_check_seeing_it_still_counts_as_one(self):
+        result, _ = self.run_tries([got(9_000, repeated=True), got(2_000, finish="stop")])
+        self.assertEqual((result["rungs"][0]["looped"], result["rungs"][0]["clean_tokens"]), (True, 7_000))
 
-    def test_a_cut_by_the_context_counts_as_clean_and_ends_the_ladder(self):
-        result, asked = self.run_ladder([reply(2000), reply(4000, finish="length")])
-        self.assertEqual((len(asked), result["stopped_by"]), (2, "cap"))
-        self.assertEqual(lengthprobe.summarize(result["rungs"])["reliable_words"], 4000)
+    def test_a_cap_the_context_set_lower_is_the_cap_that_counts(self):
+        result, _ = self.run_tries([got(18_000, cap=18_100)])
+        self.assertTrue(result["rungs"][0]["reached_cap"])
+        self.assertEqual([c["at"] for c in result["rungs"][0]["checkpoints"]], [10_000])
+        self.assertEqual(result["stopped_by"], "cap")
 
-    def test_stop_ends_it_and_a_cancelled_try_is_not_a_result(self):
+    def test_stop_ends_it_and_a_stopped_try_is_not_a_result(self):
         stop = threading.Event()
         stop.set()
-        result, asked = self.run_ladder([], stop)
-        self.assertEqual((asked, result["stopped_by"], result["rungs"]), ([], "stopped", []))
-        result, _ = self.run_ladder([reply(2000), {"text": "x", "tokens": 1, "finish": "cancel", "repeated": False, "seconds": 1}])
-        self.assertEqual((len(result["rungs"]), result["stopped_by"]), (1, "stopped"))
+        result, asked = self.run_tries([], stop)
+        self.assertEqual((asked, result["stopped_by"], result["rungs"], result["complete"]), ([], "stopped", [], False))
+        result, _ = self.run_tries([got(500, finish="cancel", ended_by="stopped")])
+        self.assertEqual((result["rungs"], result["stopped_by"]), ([], "stopped"))
 
 
 class Record(unittest.TestCase):
@@ -79,24 +105,31 @@ class Record(unittest.TestCase):
         self.facts = {"name": "Qwen3.8-Flash-Next", "path": str(Path(self.tmp.name) / "m.basalt"), "meta_hash": "abc123"}
         Path(self.facts["path"]).write_bytes(b"x" * 10)
 
+    def record(self, tokens=30_000):
+        model = lengthprobe.identity(self.facts, quant="IQ3_XXS")
+        r = lengthprobe.judge("entries", 30_000, text(int(tokens / 1.4)), tokens, "length", False, 4.0)
+        return lengthprobe.new_record(model, 65536, "0.2.0", {"rungs": [r], "complete": True, "stopped_by": "cap"})
+
     def test_the_record_names_the_model_in_full_and_survives_a_read(self):
         model = lengthprobe.identity(self.facts, quant="IQ3_XXS")
         self.assertEqual((model["name"], model["quant"], model["size_bytes"], model["meta_hash"]), ("Qwen3.8-Flash-Next", "IQ3_XXS", 10, "abc123"))
         self.assertTrue(Path(model["path"]).is_absolute() and model["path"].endswith("m.basalt") and model["modified"])
-        result = {"rungs": [lengthprobe.judge(2000, reply(1900)["text"], 2700, "stop", False, 4)], "complete": True, "stopped_by": "ladder"}
-        record = lengthprobe.new_record(model, 65536, "0.2.0", result)
-        lengthprobe.write("abc123", record)
+        lengthprobe.write("abc123", self.record(12_000))
         back = lengthprobe.read("abc123")
-        self.assertEqual((back["model"]["path"], back["context"], back["reliable_tokens"], back["engine"]), (model["path"], 65536, 2700, "0.2.0"))
+        self.assertEqual((back["model"]["path"], back["context"], back["reliable_tokens"], back["engine"], back["version"]),
+                         (model["path"], 65536, 12_000, "0.2.0", lengthprobe.VERSION))
         self.assertIsNone(lengthprobe.read("nothing"))
+
+    def test_a_record_of_the_old_method_is_not_used(self):
+        lengthprobe.write("abc123", {**self.record(), "version": 1})
+        self.assertIsNone(lengthprobe.read("abc123"))
 
     def test_the_limit_rises_only_with_a_reply_that_ended_well(self):
         lengths = lengthprobe.Lengths(lambda: self.facts)
         self.assertIsNone(lengths.attach())
         self.assertEqual(lengths.limit_tokens(), 0)
         self.assertFalse(lengths.note({"finish": "stop", "completion_tokens": 9000}))          # no record yet: nothing to raise
-        model = lengthprobe.identity(self.facts)
-        lengths.set(lengthprobe.new_record(model, 1, None, {"rungs": [lengthprobe.judge(2000, reply(2000)["text"], 3000, "stop", False, 1)], "complete": True, "stopped_by": "ladder"}))
+        lengths.set(self.record(3_000))
         self.assertEqual(lengths.limit_tokens(), 3000)
         for done in ({"finish": "length", "completion_tokens": 9000}, {"finish": "stop", "completion_tokens": 9000, "repeated": True},
                      {"finish": "stop", "completion_tokens": 9000, "answer_capped": True}, {"finish": "stop", "completion_tokens": 2500}):
@@ -140,15 +173,16 @@ class FirstLoad(unittest.TestCase):
         self.assertEqual(self.sup.status()["phase"], "ready", self.sup.status())
         record = lengthprobe.read("feed01")
         self.assertIsNotNone(record)
-        self.assertEqual(record["rungs"][0]["asked_words"], 2000)
-        self.assertEqual(record["stopped_by"], "short")                      # the mock writes 300 words of the 2000 asked
+        self.assertEqual([r["prompt"] for r in record["rungs"]], ["entries", "story"])        # the mock stops by itself, so the second text is tried
+        self.assertTrue(all(r["natural"] and not r["reached_cap"] for r in record["rungs"]))
+        self.assertGreater(record["natural_tokens"], 0)
         self.assertEqual(record["model"]["name"], "Mock")
         self.assertGreater(self.svc.lengths.limit_tokens(), 0)
         first = record["measured_at"]
         self.sup.thread = None
         self.run_it()                                                        # a second load finds the record and asks nothing
         self.assertEqual(lengthprobe.read("feed01")["measured_at"], first)
-        self.assertEqual(len(self.engine.requests), 1)
+        self.assertEqual(len(self.engine.requests), 2)
 
     def test_the_setting_turns_the_measurement_off(self):
         self.svc.measure_length = False
@@ -160,15 +194,30 @@ class FirstLoad(unittest.TestCase):
         self.run_it()
         self.assertFalse(self.sup.stop_length())                             # nothing runs
         self.assertTrue(self.sup.measure_length(wait=True))
-        self.assertEqual(len(self.engine.requests), 2)
+        self.assertEqual(len(self.engine.requests), 4)
+
+    def test_a_loop_in_the_text_cancels_the_try_where_it_is_found(self):
+        tok = ByteTokenizer()
+        looping = MockEngine(tok, "Chapter 1. The start of the long story is told in plain words. " + LOOP * 3, max_context=32768)
+        svc = Service(looping, tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
+        svc.supervisor = sup = supervisor.Supervisor(svc, [], mock=False, facts=self.sup.facts)
+        sup.auto_calibrate = False
+        svc.lengths = lengthprobe.Lengths(lambda: sup.facts)
+        with contextlib.redirect_stdout(io.StringIO()):
+            sup.measure_length(wait=True)
+        record = lengthprobe.read("feed01")
+        self.assertTrue(all(r["looped"] for r in record["rungs"]), record["rungs"])
+        self.assertLess(record["reliable_tokens"], 2_000)
+        self.assertFalse(record["reached_cap"])
 
     def test_the_status_and_the_page_carry_the_numbers(self):
         self.run_it()
         self.assertTrue(self.svc.v1_status()["length"]["known"])
         self.assertGreater(self.svc.v1_status()["length"]["limit_tokens"], 0)
         self.assertEqual(Service(self.engine, ByteTokenizer(), ChatTemplate(ROOT / "serve" / "chat_template.jinja")).v1_status()["length"], {"known": False})
-        for key in ("ln.title", "ln.limit", "ln.measure", "ln.stop", "ln.unknown", "ln.help", "ld.step.length", "f.server.measure-length", "h.server.measure-length"):
+        for key in ("ln.title", "ln.limit", "ln.measure", "ln.stop", "ln.unknown", "ln.help", "ln.try", "ln.cp.ok", "ld.step.length", "f.server.measure-length", "h.server.measure-length"):
             self.assertEqual(I18N.count(f'"{key}":'), 2, key)
+        self.assertNotIn("asked_words", JS)
         self.assertIn('data-act="length"', JS)
         self.assertIn("api/loader/length", JS)
 

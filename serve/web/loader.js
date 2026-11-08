@@ -352,8 +352,8 @@
       ? `<dl class="kv spd">
           <dt>${esc(T("ln.limit"))}</dt><dd><b>${nfmt(L.limit_tokens)}</b> tokens</dd>
           <dt>${esc(T("ln.words"))}</dt><dd><b>${nfmt(L.reliable_words)}</b></dd>
-          <dt>${esc(T("ln.natural"))}</dt><dd><b>${nfmt(L.natural_words)}</b></dd>
-          <dt>${esc(T("ln.tries"))}</dt><dd>${(L.rungs || []).map(r => esc(T("ln.try", nfmt(r.asked_words), nfmt(r.words), r.finish, r.clean ? "" : T("ln.looped")))).join("<br>")}</dd>
+          <dt>${esc(T("ln.natural"))}</dt><dd><b>${nfmt(L.natural_tokens)}</b> tokens</dd>
+          <dt>${esc(T("ln.tries"))}</dt><dd>${(L.rungs || []).map(r => esc(T("ln.try", r.prompt, nfmt(r.tokens), nfmt(r.clean_tokens), nfmt(r.cap), r.clean ? "" : T("ln.looped"))) + " " + (r.checkpoints || []).map(c => esc(T(c.clean ? "ln.cp.ok" : c.reached ? "ln.cp.bad" : "ln.cp.no", nfmt(c.at)))).join(" ")).join("<br>")}</dd>
         </dl>
         <p class="setnote">${esc(T("ln.at", when(L.measured_at), (L.model && L.model.quant) || "?"))}</p>`
       : `<p class="setnote">${esc(T("ln.unknown"))}</p>`;

@@ -543,8 +543,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="the most the answer text may take, not counting the thinking, for requests that leave "
                          "max_answer_tokens out (0 = none); the reply then ends as cut")
     ap.add_argument("--measure-length", action=argparse.BooleanOptionalAction, default=True,
-                    help="measure once, when a model is first loaded, how long a reply it writes by itself (a chapter and a book, "
-                         "with the thinking off) and keep it with the model; a reply above it raises the number. Takes minutes of GPU")
+                    help="measure once, when a model is first loaded, how long a reply it writes: a text with no end under a cap of 30000 tokens "
+                         "that the server counts, with the thinking off, kept with the model; a reply above it raises the number. Takes minutes of GPU")
     ap.add_argument("--passage-loop-tokens", type=budget_count, default=12, metavar="N",
                     help="end an answer that writes the same passage of this many tokens again and again (0 = never); "
                          "a passage counts as a loop at --passage-loop-times repeats within --passage-loop-window tokens")

@@ -5,15 +5,19 @@ each model file and keeps the number with the model.
 
 ## The measurement
 
-When a model is loaded for the first time (and `measure-length` is on), the server asks it, with the thinking off, for a chapter of a book of
-about 2,000 words, then 5,000, 10,000, 20,000 and a whole book of 60,000. It stops at the first try that:
+A model cannot count what it writes, so it is not asked for a length. When a model is loaded for the first time (and `measure-length` is on),
+the server asks it, with the thinking off, for a text with no end: numbered encyclopedia entries, one after the other, never concluding. The
+request has a cap of 30,000 tokens, set and counted by the server (less when the context leaves less). What is kept is what came out:
 
-- loops (a stretch of the text is mostly the same units over and over, or the server's passage-loop check fired);
-- is cut by the context or the output cap (nothing longer can be asked);
-- ends by itself with much less than was asked (less than 60 % of the words).
+- **the tokens written**, as the server counted them, and the checkpoints at 10,000, 20,000 and 30,000 tokens: reached or not, and whether the
+  text was still clean there;
+- **where the model stopped by itself**, if it did (`natural_tokens`);
+- **where a loop began**, if one did: the text is looked at every 4,000 characters and the try is cancelled as soon as it is a loop, so GPU time is
+  not spent on it. The tokens before the loop count as reliable.
 
-It takes minutes of GPU and holds the model while it runs. The Loader page shows the step, has a **Stop** button, and **Measure length** repeats it.
-Nothing is measured for the mock engine, or when `measure-length` is off.
+If the first text does not reach the cap clean (it stopped by itself, or looped), a second kind (a novel with no last chapter) is tried too, so
+that the limit of one prompt is not taken for the limit of the model. It takes minutes of GPU and holds the model while it runs. The Loader page
+shows the step, has a **Stop** button, and **Measure length** repeats it. Nothing is measured for the mock engine, or when `measure-length` is off.
 
 ## The record
 
@@ -23,15 +27,17 @@ One JSON file for each model, in the user data folder, `lengths/<hash of the mod
 | --- | --- |
 | `model` | `name`, `quant`, `path` (full), `size_bytes`, `modified`, `meta_hash` |
 | `engine`, `context` | the engine version and the context the measurement ran in |
-| `rungs` | for each try: `asked_words`, `words`, `tokens`, `finish`, `clean`, `natural`, `looped`, `seconds` |
-| `reliable_tokens`, `reliable_words` | the longest reply without a loop |
-| `natural_tokens`, `natural_words` | the longest reply the model ended by itself |
+| `rungs` | for each text: `prompt`, `cap`, `tokens`, `words`, `finish`, `clean_tokens`, `looped`, `natural`, `reached_cap`, `checkpoints`, `seconds` |
+| `reliable_tokens`, `reliable_words` | the most written before any loop |
+| `natural_tokens`, `natural_words` | the most written when the model stopped by itself |
+| `reached_cap` | a text went to the cap, clean |
 | `observed_max_tokens` | raised by use (below) |
-| `complete`, `stopped_by`, `measured_at` | whether the ladder finished, why it stopped, when |
+| `complete`, `stopped_by`, `measured_at` | whether it finished, why it stopped, when |
 
 ## Use
 
 The record is read when the model loads. `GET /v1/status` returns it as `length` (`limit_tokens` is the larger of `reliable_tokens` and
 `observed_max_tokens`; `{"known": false}` before a measurement). A reply, thinking and answer together, that ends by the model's own stop, without
 a loop or a cap, and is longer than the number, becomes the new number. The number only rises. It cuts nothing: it is where the
-harness writes a text in checked parts instead of one reply (see [long answers](../longform.md)).
+harness writes a text in checked parts instead of one reply (see [long answers](../longform.md)). A record made by an older method is ignored
+and measured again.
