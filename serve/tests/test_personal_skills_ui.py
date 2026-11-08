@@ -49,7 +49,7 @@ class PersonalSkillsPageTest(unittest.TestCase):
         self.assertRegex(PSK, r'"psk\.pf\.becomes"')
 
     def test_the_form_runs_a_skill_with_no_approval_step_and_no_access_mode_is_asked(self):
-        self.assertNotIn("approve", PSK.split("/* ---- making a skill from a plan that ended well")[0])           # nothing is approved before a run; the steps of a plan are approved when the skill is made
+        self.assertNotIn("approve", PSK.split("async function makePlan(")[0])           # nothing is approved before a run; the steps of a plan are approved when the skill is made
         self.assertNotIn("riskConfirm", PSK)
         self.assertNotIn("mode.value", PSK)
 
