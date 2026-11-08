@@ -2,7 +2,9 @@
 
 `voice.json` in the user data folder holds only what the person chose:
     {"models_dir": "<absolute path>", "services": {"<service>": {"selected": "<model id>", "device": "auto|cpu|cuda:N", "memory": "vram|ram",
-                                                                  "enabled": true|false}}}
+                                                                  "enabled": true|false}},
+     "brain": {"mode": "direct|harness", "persona": "<slug>", "permission": "plan|read_only|default|auto", "workspace": "<folder>",
+               "base_url": "http://127.0.0.1:<port>", "hotkeys": true|false}}
 A missing value has a default: the folder is `voice/` inside the first models folder of Basalt (else `voice-models/` in the data folder), a
 service uses the default model of serve/voice_catalog.py, on the GPU the service picks (`auto`) in VRAM, or on the CPU in RAM for the
 services that run there. Changing the folder moves nothing: a model is looked for where the folder is now. The file is replaced whole."""
@@ -187,3 +189,81 @@ def set_placement(service, device, memory) -> dict:
         data.setdefault("services", {}).setdefault(service, {}).update({"device": device, "memory": memory})
         _write(data)
     return {"device": device, "memory": memory}
+
+
+# ---------------------------------------------------------------------------------------- the brains of the voice
+BRAIN_MODES = ("direct", "harness")
+PERMISSIONS = ("plan", "read_only", "default", "auto")        # the Chat's own levels (serve/remote.py MODE_ORDER, the Chat's radio buttons)
+_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
+_BRAIN_KEYS = ("mode", "persona", "permission", "workspace", "hotkeys")
+
+
+def brain() -> dict:
+    """What the voice service reads to choose and run its brains. `permission_set` says whether the person ever chose a level for the voice."""
+    stored = _read().get("brain")
+    stored = stored if isinstance(stored, dict) else {}
+    mode, persona, permission = stored.get("mode"), stored.get("persona"), stored.get("permission")
+    workspace = stored.get("workspace")
+    return {"mode": mode if mode in BRAIN_MODES else "direct",
+            "persona": persona if isinstance(persona, str) and _SLUG_RE.match(persona) else "",
+            "permission": permission if permission in PERMISSIONS else "default", "permission_set": permission in PERMISSIONS,
+            "workspace": workspace if isinstance(workspace, str) and os.path.isabs(workspace) else "",
+            "hotkeys": stored.get("hotkeys") is True,
+            "base_url": stored.get("base_url") if isinstance(stored.get("base_url"), str) else ""}
+
+
+def check_brain(req) -> dict:
+    """The fields of a request to change, checked; only the ones named are returned."""
+    if not isinstance(req, dict):
+        raise VoiceSettingsError("body", "Send a JSON object.", "Manda un oggetto JSON.")
+    out: dict = {}
+    for key in req:
+        if key not in _BRAIN_KEYS:
+            raise VoiceSettingsError("field", f"Unknown field: {key}.", f"Campo sconosciuto: {key}.")
+    if "mode" in req:
+        if req["mode"] not in BRAIN_MODES:
+            raise VoiceSettingsError("mode", "The mode is direct or harness.", "La modalità è direct o harness.")
+        out["mode"] = req["mode"]
+    if "permission" in req:
+        if req["permission"] not in PERMISSIONS:
+            raise VoiceSettingsError("permission", "The permission is plan, read_only, default or auto.", "Il permesso è plan, read_only, default o auto.")
+        out["permission"] = req["permission"]
+    if "persona" in req:
+        persona = req["persona"]
+        if not (persona == "" or (isinstance(persona, str) and _SLUG_RE.match(persona))):
+            raise VoiceSettingsError("persona", "Give the personality's id, or nothing.", "Scrivi l'id della personalità, oppure niente.")
+        out["persona"] = persona
+    if "workspace" in req:
+        folder = req["workspace"]
+        if folder != "" and not (isinstance(folder, str) and "\0" not in folder and os.path.isabs(folder) and os.path.isdir(folder)):
+            raise VoiceSettingsError("workspace", "Give the full path of a folder that exists, or nothing.", "Scrivi il percorso completo di una cartella che esiste, oppure niente.")
+        out["workspace"] = os.path.normpath(folder) if folder else ""
+    if "hotkeys" in req:
+        if not isinstance(req["hotkeys"], bool):
+            raise VoiceSettingsError("hotkeys", "hotkeys is true or false.", "hotkeys è true o false.")
+        out["hotkeys"] = req["hotkeys"]
+    return out
+
+
+def set_brain(req) -> dict:
+    changes = check_brain(req)
+    with _lock:
+        data = _read()
+        stored = data.get("brain") if isinstance(data.get("brain"), dict) else {}
+        stored.update(changes)
+        data["brain"] = stored
+        _write(data)
+    return brain()
+
+
+def write_server_address(port: int) -> None:
+    """Where this server listens, for the voice service: written at every start, and only when it changed."""
+    url = f"http://127.0.0.1:{int(port)}"
+    with _lock:
+        data = _read()
+        stored = data.get("brain") if isinstance(data.get("brain"), dict) else {}
+        if stored.get("base_url") == url:
+            return
+        stored["base_url"] = url
+        data["brain"] = stored
+        _write(data)

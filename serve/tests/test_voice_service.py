@@ -234,7 +234,7 @@ class RouteTests(Base):
         self.assertEqual(body["error"]["type"], "forbidden")
         self.assertFalse((self.data / "voice-service.token").exists())
 
-    def test_the_proxy_route_does_not_exist_yet(self):
+    def test_the_proxy_route_answers_post_only(self):
         self.assertEqual(self.get("/api/voice/service/call?path=/status")[0], 404)
 
 

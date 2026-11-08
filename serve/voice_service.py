@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import http.client
 import json
+import hmac
 import os
+import re
 import secrets
 from pathlib import Path
 
@@ -146,3 +148,28 @@ def status() -> dict:
     mine = voice_settings.models_dir()
     theirs = body.get("models_dir")
     return {**out, "running": True, "models_dir_matches": os.path.normcase(os.path.normpath(theirs)) == os.path.normcase(os.path.normpath(mine)) if isinstance(theirs, str) else None, "status": body}
+
+
+# ---------------------------------------------------------------------------------------- the service calling the server
+# The same token, the other way: the service sends it to TaDaMoo's server, which accepts it on loopback for these routes and no others.
+# They are what the two brains need: the model, a personality's text, and an agent conversation.
+SERVICE_ROUTES = (
+    ("POST", re.compile(r"^/v1/chat/completions$")),
+    ("POST", re.compile(r"^/api/personas/[a-z0-9][a-z0-9-]{0,60}/compose$")),
+    ("GET", re.compile(r"^/api/personas$")),
+    ("POST", re.compile(r"^/api/agent/sessions$")),
+    ("GET", re.compile(r"^/api/agent/sessions/[A-Za-z0-9_-]{1,64}/events$")),
+    ("POST", re.compile(r"^/api/agent/sessions/[A-Za-z0-9_-]{1,64}/(send|answer|mode|persona)$")),
+)
+
+
+def accepts_token(given: str, method: str, path: str, client_ip: str) -> bool:
+    """Whether the voice service's token, presented by a client on this PC, opens this request. Constant time; no route outside SERVICE_ROUTES."""
+    from serve import settings
+    if not given or not settings.is_loopback(client_ip):
+        return False
+    route = path.split("?", 1)[0].rstrip("/")
+    if not any(m == method and rx.match(route) for m, rx in SERVICE_ROUTES):
+        return False
+    token = _read_token()
+    return bool(token) and hmac.compare_digest(given.encode("utf-8", "replace"), token.encode("utf-8"))

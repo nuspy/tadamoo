@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 
-from serve import downloads, models, voice_catalog, voice_settings
+from serve import downloads, models, userdata, voice_catalog, voice_proxy, voice_settings
 
 
 def _folder() -> str:
@@ -75,3 +75,23 @@ def status() -> dict:
 
 def cancel() -> dict:
     return {"cancelled": downloads.DOWNLOADS.cancel(), **downloads.DOWNLOADS.status()}
+
+
+def brain_view() -> dict:
+    return voice_settings.brain()
+
+
+def set_brain(req: dict) -> dict:
+    changes = voice_settings.check_brain(req)
+    persona = changes.get("persona")
+    if persona and not (userdata.path("personas") / persona / "persona.json").is_file():
+        raise voice_settings.VoiceSettingsError("persona", "That personality does not exist.", "Quella personalità non esiste.")
+    return voice_settings.set_brain(req)
+
+
+def service_call(req: dict) -> tuple[int, dict]:
+    """The Voice tab's request to the voice service, if it is on the list (serve/voice_proxy.py)."""
+    try:
+        return voice_proxy.call(req)
+    except voice_proxy.Refused as e:
+        return e.status, {"error": {"type": "voice_proxy", "code": e.code, "message": e.message}}
