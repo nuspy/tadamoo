@@ -368,12 +368,14 @@
       if (j.text && (m.text || "").length === len) { m.abstract = j.text; m.abstractOf = len; save(); meter(); }
     } catch (e) { /* the reply stays whole */ }
   }
+  let personaText = "";                                   // the personality's text and the notes for the request in hand: put in the system message
+  document.addEventListener("tadamoo:persona", () => { personaText = ""; });
   function apiMessages(full) {
     const out = [], at = [];
     const usersAfter = [], prefs = absPrefs();
     const codeSaid = (m, i, text) => !agent() && m.codeAbstract && m.codeOf === (m.text || "").length && sentCount() - 1 - i >= prefs.codeKeep ? m.codeAbstract : text;      // old code as its description
     for (let k = messages.length - 1, u = 0; k >= 0; k--) { usersAfter[k] = u; if (messages[k].role === "user") u++; }
-    const sys = chatSettings.system();
+    const sys = [chatSettings.system(), personaText].filter(Boolean).join("\n\n");
     if (sys) { out.push({ role: "system", content: sys }); at.push(-1); }
     messages.forEach((m, i) => {
       if (busy && busy.msg === m) return;
@@ -518,7 +520,10 @@
     const draw = () => { frame = 0; paint(el, m, true); scrollDown(); };
     if (!cont && chatSettings.policy() === "compact") status(T("ctx.compacting"));
     if (!cont) await codeAbstracts();                                  // old code goes to the model as its description
-    const fits = cont ? true : await fitContext(m);
+    if (!cont) {
+      try { personaText = window.personaUi ? await window.personaUi.system(text) : ""; } catch (e) { personaText = ""; m.error = e.message || String(e); }
+    }
+    const fits = cont ? true : (m.error ? false : await fitContext(m));
     if (!cont && busy && busy.msg === m) { render(); el = busy.el = msgs.lastElementChild; paint(el, m, true); }
     if (!fits || controller.signal.aborted) {
       if (controller.signal.aborted) m.stopped = true;
@@ -639,7 +644,7 @@
     const a = agent();
     if (a) { a.newChat(); prompt.focus(); return; }
     if (busy) busy.controller.abort();
-    clearTimeout(indexTimer); keep(ID_KEY, ""); keep(PRIV_KEY, "0"); messages = []; save(); render(); status(T("ch.new")); prompt.focus(); meter();
+    clearTimeout(indexTimer); keep(ID_KEY, ""); keep(PRIV_KEY, "0"); personaText = ""; if (window.personaUi) window.personaUi.reset(); messages = []; save(); render(); status(T("ch.new")); prompt.focus(); meter();
   };
 
   /* ---- images (only when the server reads them) ---- */

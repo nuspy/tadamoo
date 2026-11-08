@@ -22,6 +22,7 @@
       { id: "privacy", view: "settings", label: () => T("sub.privacy") },
       { id: "mobile", view: "settings", label: () => T("sub.mobile") },
       { id: "memories", view: "settings", label: () => T("sub.memories") },
+      { id: "personas", view: "settings", label: () => T("sub.personas") },
       { id: "websearch", view: "settings", label: () => T("sub.websearch") },
       { id: "voice", view: "settings", label: () => T("sub.voice") },
       { id: "benchmarks", view: "settings", label: () => T("sub.benchmarks") },
