@@ -1353,13 +1353,18 @@ class Session:
 
     RESCUE_WORDS = 4000            # a text whose thinking left no room for the answer is taken to be about this long until the estimate says
 
+    def _rescue_ok(self, task: Task) -> bool:
+        """Whether a text could be written in parts for this request: a plain request, with no tool work and no card, asked of a model that can be called."""
+        agent = task.agent
+        return not (self.ask_only or task.side or task.skill is not None or agent.last_user_text.startswith(qs.ANSWER_HEADER)
+                    or not callable(getattr(agent.client, "chat_completion", None)) or any(t.tool_calls for t in agent.turns[-4:]))
+
     def _rescue_long(self, task: Task) -> bool:
         """The thinking used the whole output and no answer came (`empty`), on a request with no tool work: the text is written in parts, where the
         thinking cannot take its room. The estimate decides whether it is long; True when the text was written."""
         agent = task.agent
         try:
-            if (agent.stop_reason != al.EMPTY or self.ask_only or task.side or task.skill is not None or agent.last_user_text.startswith(qs.ANSWER_HEADER)
-                    or not callable(getattr(agent.client, "chat_completion", None)) or any(t.tool_calls for t in agent.turns[-4:])):
+            if agent.stop_reason != al.EMPTY or not self._rescue_ok(task):
                 return False
             self._long_request = {"mode": "write", "words": self.RESCUE_WORDS, "text": agent.last_user_text, "reason": "rescue", "prior": self._long_prior(agent)}
             self._audit("long_answer", {"rescue": "empty"})
@@ -1649,6 +1654,7 @@ class Session:
         self.turn_id = task.turn
         task.interrupt = False
         agent.cancel.clear()
+        agent.empty_defer = lambda t=task: self._rescue_ok(t)             # an empty answer is offered to the long text engine before a lower thinking level
         self.emit({"event": "started", "turn": task.turn, "side": task.side})
         if task.skill is not None:
             task.state_running = True
@@ -1677,7 +1683,14 @@ class Session:
                     return "suspended"
                 continue
             if agent.stop_reason != al.ERROR:
-                self._rescue_long(task)                                    # thinking took the whole output: the text goes in parts
+                if agent.stop_reason == al.EMPTY and agent.empty_deferred:
+                    agent.empty_deferred = False                           # thinking took the whole output: a long text goes in parts first,
+                    if self._rescue_long(task):
+                        return "done"
+                    if agent.empty_retry and not agent.cancel.is_set():    # and else one more try at a lower thinking level, if the person leaves that on
+                        agent.retry_empty()
+                        continue
+                    agent.announce_empty()
                 return "done"
             status = agent.error_status                                    # a model error never blocks: the model is waited for, and loaded when it is not
             if self.classify_errors and error_classifier.classify(status, agent.error) == error_classifier.DETERMINISTIC:
@@ -1838,6 +1851,8 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
                         help="the largest conversation in which the extra model calls (triage, suggestions) are made")
     parser.add_argument("--suggestions", choices=("on", "off"), default="off", help="offer next-prompt chips after an answer (an unattended run never does)")
     parser.add_argument("--offer-checks", action="store_true", help="after the first work that changes files, offer the checks this folder seems to have, once (an unattended run never does)")
+    parser.add_argument("--empty-retry", choices=("on", "off"), default="on",
+                        help="when the thinking uses the whole output and no answer comes, and the text is not long enough to be written in parts, ask again once at a lower thinking level")
     parser.add_argument("--optimize-prompt", choices=("on", "off"), default="off",
                         help="rewrite each message of the person in the technical session before the model reads it (needs --side-slot on the server)")
     parser.add_argument("--heartbeat", type=float, default=HEARTBEAT_S)
@@ -1916,6 +1931,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     session.ask_only = args.ask_only
     session.workspace, session.checks_offer = cfg.workspace, args.offer_checks and not args.ask_only and not args.unattended
     session.intake = it.Intake(args.intake, built.technical, args.side_call_tokens)
+    built.agent.empty_retry = args.empty_retry == "on"
     session.optimizer = opt.Optimizer(built.technical, args.optimize_prompt == "on" and not args.unattended)
     session.task_sink = it.TaskSink(cfg.endpoint, cfg.api_key) if args.report_changes else None
     session.suggester = sg.Suggester(built.technical, args.suggestions == "on" and not args.unattended, args.side_call_tokens)

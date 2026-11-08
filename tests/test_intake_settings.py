@@ -21,17 +21,17 @@ from test_e2e_mock_server import answer, start_server  # noqa: F401  (fixture)
 
 def test_defaults_are_off_chips_on_and_a_bounded_size(tmp_path):
     prefs = IntakePrefs(tmp_path / "i.json")
-    assert prefs.read() == {"intake": "off", "suggestions": True, "optimize_prompt": False, "side_call_tokens": 6000}
+    assert prefs.read() == {"intake": "off", "suggestions": True, "optimize_prompt": False, "empty_retry": True, "side_call_tokens": 6000}
     view = prefs.view()
     assert view["modes"] == ["off", "rules", "full"] and view["defaults"]["intake"] == "off" and view["limits"]["side_call_tokens"] == [500, 200000]
-    assert view["defaults"]["optimize_prompt"] is False
+    assert view["defaults"]["optimize_prompt"] is False and view["defaults"]["empty_retry"] is True
 
 
 def test_values_are_saved_checked_and_a_refused_value_changes_nothing(tmp_path):
     prefs = IntakePrefs(tmp_path / "i.json")
-    saved = prefs.write({"intake": "full", "suggestions": False, "optimize_prompt": True, "side_call_tokens": 9000})
-    assert saved == {"intake": "full", "suggestions": False, "optimize_prompt": True, "side_call_tokens": 9000} and IntakePrefs(tmp_path / "i.json").read() == saved
-    for bad, field in (({"intake": "always"}, "intake"), ({"suggestions": "yes"}, "suggestions"), ({"optimize_prompt": "yes"}, "optimize_prompt"), ({"optimize_prompt": 1}, "optimize_prompt"), ({"side_call_tokens": 10}, "side_call_tokens"),
+    saved = prefs.write({"intake": "full", "suggestions": False, "optimize_prompt": True, "empty_retry": False, "side_call_tokens": 9000})
+    assert saved == {"intake": "full", "suggestions": False, "optimize_prompt": True, "empty_retry": False, "side_call_tokens": 9000} and IntakePrefs(tmp_path / "i.json").read() == saved
+    for bad, field in (({"intake": "always"}, "intake"), ({"suggestions": "yes"}, "suggestions"), ({"optimize_prompt": "yes"}, "optimize_prompt"), ({"optimize_prompt": 1}, "optimize_prompt"), ({"empty_retry": "no"}, "empty_retry"), ({"side_call_tokens": 10}, "side_call_tokens"),
                        ({"side_call_tokens": 2.5}, "side_call_tokens"), ({"side_call_tokens": True}, "side_call_tokens"), ({"side_call_tokens": 10**9}, "side_call_tokens")):
         with pytest.raises(IntakeError) as raised:
             prefs.write(bad)

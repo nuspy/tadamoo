@@ -33,14 +33,15 @@
     if (!state) return;
     const s = state, L = s.limits.side_call_tokens;
     const chips = h("input"); chips.type = "checkbox"; chips.id = "iq-chips"; chips.checked = s.suggestions; chips.setAttribute("aria-describedby", "iq-chips-h");
+    const retry = h("input"); retry.type = "checkbox"; retry.id = "iq-retry"; retry.checked = s.empty_retry; retry.setAttribute("aria-describedby", "iq-retry-h");
     const size = h("input"); size.type = "number"; size.id = "iq-size"; size.min = String(L[0]); size.max = String(L[1]); size.step = "500"; size.inputMode = "numeric";
     size.value = String(s.side_call_tokens); size.setAttribute("aria-describedby", "iq-size-h");
     const label = (id, text) => Object.assign(h("label", "", text), { htmlFor: id });
-    const values = () => ({ suggestions: chips.checked, side_call_tokens: Number(size.value) });
+    const values = () => ({ suggestions: chips.checked, empty_retry: retry.checked, side_call_tokens: Number(size.value) });
     const saveBtn = h("button", "btn primary", T("kn.save")); saveBtn.type = "button"; saveBtn.onclick = () => save(values());
     const defaults = h("button", "btn ghost", T("iq.defaults")); defaults.type = "button";
     defaults.title = T("iq.defaults.tip");
-    defaults.onclick = () => save({ intake: s.defaults.intake, suggestions: s.defaults.suggestions, optimize_prompt: s.defaults.optimize_prompt, side_call_tokens: s.defaults.side_call_tokens });
+    defaults.onclick = () => save({ intake: s.defaults.intake, suggestions: s.defaults.suggestions, optimize_prompt: s.defaults.optimize_prompt, empty_retry: s.defaults.empty_retry, side_call_tokens: s.defaults.side_call_tokens });
     const status = h("p", "setnote kn-status", note); status.setAttribute("role", "status"); status.hidden = !note; status.dataset.bad = noteBad ? "1" : "";
     const help = (id, text) => Object.assign(h("p", "setnote kn-help", text), { id });
     const tokens = window.OptimizePrompt ? window.OptimizePrompt.sideTokens() : 0;
@@ -50,6 +51,8 @@
       h("fieldset", "csgroup", h("legend", "", T("iq.side.title")), sideNote),
       h("fieldset", "csgroup", h("legend", "", T("iq.sugg.title")),
         h("label", "kn-check", chips, h("span", "", T("iq.sugg.on"))), help("iq-chips-h", T("iq.sugg.help"))),
+      h("fieldset", "csgroup", h("legend", "", T("iq.retry.title")),
+        h("label", "kn-check", retry, h("span", "", T("iq.retry.on"))), help("iq-retry-h", T("iq.retry.help"))),
       h("fieldset", "csgroup", h("legend", "", T("iq.size.title")),
         h("div", "kn-field", label("iq-size", T("iq.size")), size, help("iq-size-h", T("iq.size.help")))),
       h("div", "kn-actions", saveBtn, defaults), status);

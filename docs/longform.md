@@ -61,6 +61,10 @@ When the thinking uses the whole output and no answer comes (`empty`), on a requ
 engine: the estimate decides whether the text is long, and if so it is written in parts, where the thinking cannot take its room. The thinking
 itself is never cut.
 
+The parts come first. Only when the estimate says the text is short does the old second try follow: one more call at a lower thinking level with a
+note to answer shortly. That second try is a switch in Settings > Inference > Questions and suggestions ("Ask again at a lower thinking level", on by
+default, for conversations started afterwards); with it off the answer stays empty.
+
 ## The segmented mode
 
 For a final text that is too long for one turn the text is planned, then written one **segment** per model call (about 2000 words, never

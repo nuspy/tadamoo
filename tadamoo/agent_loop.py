@@ -276,6 +276,9 @@ class AgentLoop:
         self.on_event = on_event
         self.on_delta = on_delta                  # the model's text as it is written ("content" or "reasoning"), when set
         self.before_inference = before_inference  # looked at before every model call; it may add messages or ask to be put aside
+        self.empty_retry = True                   # an answer left empty by the thinking is asked for again once, at a lower thinking level (the person's switch)
+        self.empty_defer: Optional[Callable[[], bool]] = None     # asked first: True when the session will write the text in parts, which comes before a lower level
+        self.empty_deferred = False               # the latest run ended empty and left the second try to the session
         self.review: Optional[Callable[[str, str, str], Optional[str]]] = None      # the technical session's look at whether the request was followed as named (tadamoo/review.py)
         self.completion: Optional[Callable[[str, str, str], str]] = None      # "work until done": the note that sends the model back to finish, or "" (tadamoo/completion.py)
         self.lessons_for: Optional[Callable[[str], str]] = None               # the lessons of earlier work that bear on a request, as a note, or "" (tadamoo/lessons.py)
@@ -323,6 +326,7 @@ class AgentLoop:
         """What a person's request is allowed once is allowed again."""
         self._continuations = 0
         self._empty_retried = False
+        self.empty_deferred = False
         self._loop_retried = False
         self._ceiling = self.max_tokens               # raised for the rest of a request by a tool call that was cut
         self._effort_once = ""                        # thinking level for the next model call only
@@ -1249,18 +1253,32 @@ class AgentLoop:
         `empty`, with a notice in `error`."""
         turn.seconds = round(time.monotonic() - t0, 3)
         if not self._empty_retried and not self.cancel.is_set():
-            self._empty_retried = True
-            self._effort_once = LOWER_EFFORT.get(str(self.sampling.get("reasoning_effort") or ""), "low")
-            self.append({"role": "user", "content": SHORT_ANSWER_NOTE, "note": True})
-            self._emit({"type": "answer_empty", "final": False, "effort": self._effort_once})
-            self._audit("answer_empty", {"final": False, "finish_reason": finish, "effort": self._effort_once})
-            self._finish_turn(turn, run_turns)
-            return True
+            if self.empty_defer is not None and self.empty_defer():
+                self.empty_deferred, self._empty_finish = True, finish      # the session tries the text in parts first, then comes back for the lower level
+                self.stop_reason, self.error = EMPTY, EMPTY_NOTICE
+                self._finish_turn(turn, run_turns)
+                return False
+            if self.empty_retry:
+                self.retry_empty(finish)
+                self._finish_turn(turn, run_turns)
+                return True
         self.stop_reason, self.error = EMPTY, EMPTY_NOTICE
-        self._emit({"type": "answer_empty", "final": True})
-        self._audit("answer_empty", {"final": True, "finish_reason": finish})
+        self.announce_empty(finish)
         self._finish_turn(turn, run_turns)
         return False
+
+    def retry_empty(self, finish: str = "") -> None:
+        """Prepares the second try of an empty answer: the next model call thinks at a lower level and is told to answer shortly."""
+        self._empty_retried, self.empty_deferred = True, False
+        self._effort_once = LOWER_EFFORT.get(str(self.sampling.get("reasoning_effort") or ""), "low")
+        self.append({"role": "user", "content": SHORT_ANSWER_NOTE, "note": True})
+        self._emit({"type": "answer_empty", "final": False, "effort": self._effort_once})
+        self._audit("answer_empty", {"final": False, "finish_reason": finish, "effort": self._effort_once})
+
+    def announce_empty(self, finish: str = "") -> None:
+        """Says that the run ends without an answer."""
+        self._emit({"type": "answer_empty", "final": True})
+        self._audit("answer_empty", {"final": True, "finish_reason": finish or getattr(self, "_empty_finish", "")})
 
     def _answer_cut(self, turn: AgentTurn, run_turns: List[AgentTurn], t0: float, content: str) -> bool:
         """The output limit ended an answer that has text and no tool call. It is asked to go on, up to MAX_CONTINUATIONS times per request,
