@@ -17,7 +17,7 @@ Protocollo stdio degli helper del bridge, esteso con lo streaming:
 
 Due famiglie di modelli, scelte dalla VOCE:
   - voce preimpostata (vivian, ryan, ...) -> modello CustomVoice;
-  - qualunque altra -> riferimento in $KOKORO_MODEL_DIR/cloned_voices/ ->
+  - qualunque altra -> riferimento in <models folder>/tts/voices/ ->
     modello Base (cloning). La trascrizione del riferimento migliora molto il
     clone: si legge da `<voce>.txt`, altrimenti si ricava una volta con
     Whisper e si salva li'; se nemmeno quella riesce si clona dal solo timbro
@@ -27,29 +27,15 @@ scarica quello vecchio.
 
 Env:
   QWEN3TTS_SIZE           0.6B | 1.7B           (default 0.6B)
-  QWEN3TTS_CLONE_MODEL    repo HF o cartella del modello Base   (vuoto = ufficiale)
-  QWEN3TTS_PRESET_MODEL   repo HF o cartella del CustomVoice    (vuoto = ufficiale)
-  QWEN3TTS_BACKEND        auto | torch | ggml   (default auto)
-  QWEN3TTS_QUANT          BF16 | Q8_0 | Q4_K_M  (solo ggml; default Q8_0)
   QWEN3TTS_CHUNK          passi del codec per blocco in streaming (12,5/s; default 8)
   TTS_DEVICE              cuda | cpu
 
-Backend:
-  - torch: pesi BF16 Hugging Face, CUDA graphs (~3,7x realtime, ~4 GB per 0.6B);
-  - ggml:  GGUF quantizzati con qwentts.cpp (wheel Windows costruita da
-           tools/qwentts-cpp-win, upstream non la pubblica). Misurato su 0.6B
-           Q8_0: primo audio in 0,05 s, ~16x realtime, ~2,5 GB. Conosce solo i
-           modelli UFFICIALI: con una variante custom si usa torch;
-  - auto:  ggml Q8_0 se la wheel e' installata e il modello e' ufficiale,
-           altrimenti torch.
-`speed` non e' supportato: viene ignorato.
+Backend: torch (pesi BF16 Hugging Face, CUDA graphs, ~3,7x realtime, ~4 GB per
+0.6B). `speed` non e' supportato: viene ignorato.
 
-Modelli: si scaricano da Hugging Face nella cache indicata da HF_HUB_CACHE (il
-bridge passa quella dell'app, %LOCALAPPDATA%\\callAPIcall\\models\\huggingface).
-`python qwen3tts_tts_helper.py --prefetch` scarica SUBITO esattamente cio' che
-il motore caricherebbe con l'env corrente (taglia, backend, quantizzazione,
-entrambe le famiglie): lo usa l'installer, cosi' la prima frase non aspetta
-minuti di download. Con --size 1.7B si sceglie la taglia da riga di comando.
+Modelli (Qwen/Qwen3-TTS-12Hz-<taglia>-Base e -CustomVoice): si leggono solo da
+<models folder>/tts/qwen3tts-<taglia>/ (base/ per il cloning, custom-voice/ per le
+voci preimpostate), in BASALT_VOICE_MODELS_DIR. L'helper non scarica nulla.
 """
 from __future__ import annotations
 
@@ -64,6 +50,8 @@ import os
 import struct
 import sys
 
+import helper_models
+
 # Protezione dello stdout binario PRIMA di importare librerie: faster-qwen3-tts
 # stampa "Warming up predictor..." su stdout e corromperebbe il protocollo.
 _BINARY_OUT = sys.stdout.buffer
@@ -76,7 +64,6 @@ def log(*a) -> None:
     print("[qwen3tts_helper]", *a, file=sys.stderr, flush=True)
 
 
-CLONE_EXTS = (".wav", ".mp3", ".flac", ".ogg")
 FINE_STREAM = 0xFFFFFFFF
 # Voci del modello CustomVoice (minuscole; il modello le dichiara cosi').
 PRESET = ("vivian", "serena", "uncle_fu", "dylan", "eric", "ryan", "aiden",
@@ -107,13 +94,11 @@ _famiglia = ""          # "clone" | "preset"
 _guadagni: dict[str, float] = {}
 
 
-def _repo(famiglia: str) -> str:
-    taglia = (os.environ.get("QWEN3TTS_SIZE") or "0.6B").strip()
-    if famiglia == "preset":
-        return (os.environ.get("QWEN3TTS_PRESET_MODEL") or "").strip() or \
-            f"Qwen/Qwen3-TTS-12Hz-{taglia}-CustomVoice"
-    return (os.environ.get("QWEN3TTS_CLONE_MODEL") or "").strip() or \
-        f"Qwen/Qwen3-TTS-12Hz-{taglia}-Base"
+def _cartella(famiglia: str) -> str:
+    """Cartella locale dei pesi della famiglia, o `ModelNotInstalled`."""
+    taglia = (os.environ.get("QWEN3TTS_SIZE") or "0.6B").strip().lower()
+    return helper_models.require(f"qwen3tts-{taglia}",
+                                 "custom-voice" if famiglia == "preset" else "base")
 
 
 def _carica(famiglia: str):
@@ -121,6 +106,7 @@ def _carica(famiglia: str):
     global _modello, _famiglia
     if _modello is not None and _famiglia == famiglia:
         return _modello
+    cartella = _cartella(famiglia)
     import torch
     if _modello is not None:
         log(f"passo da '{_famiglia}' a '{famiglia}': scarico il modello precedente")
@@ -130,52 +116,17 @@ def _carica(famiglia: str):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
     from faster_qwen3_tts import FasterQwen3TTS
-    repo = _repo(famiglia)
     device = os.environ.get("TTS_DEVICE") or "cuda"
-    backend = _backend(repo, device)
     kw = {"device": device, "dtype": torch.bfloat16 if device == "cuda" else torch.float32}
-    if backend == "ggml":
-        kw = {"backend": "ggml",
-              "quant": (os.environ.get("QWEN3TTS_QUANT") or "Q8_0").strip()}
-    log(f"carico {repo} ({backend}{'/' + kw['quant'] if backend == 'ggml' else ''}, {device})...")
-    _modello = FasterQwen3TTS.from_pretrained(repo, **kw)
+    log(f"carico {cartella} ({device})...")
+    _modello = FasterQwen3TTS.from_pretrained(cartella, **kw)
     _famiglia = famiglia
     log("modello caricato")
     return _modello
 
 
-def _ggml_disponibile() -> bool:
-    """La wheel qwentts-cpp-python e' installata (la DLL si carica dopo)."""
-    import importlib.util
-    return importlib.util.find_spec("qwentts_cpp") is not None
-
-
-def _backend(repo: str, device: str) -> str:
-    """torch | ggml secondo QWEN3TTS_BACKEND, il modello e cio' che e' installato."""
-    scelto = (os.environ.get("QWEN3TTS_BACKEND") or "auto").strip().lower()
-    ufficiale = repo.startswith("Qwen/Qwen3-TTS-12Hz-")
-    if scelto == "torch":
-        return "torch"
-    if not ufficiale:
-        if scelto == "ggml":
-            log(f"{repo}: variante non ufficiale, il runtime GGUF non la conosce -> torch")
-        return "torch"
-    if not _ggml_disponibile():
-        if scelto == "ggml":
-            log("backend ggml richiesto ma qwentts-cpp-python non e' installato -> torch")
-        return "torch"
-    if device != "cuda" and scelto == "auto":
-        return "torch"
-    return "ggml"
-
-
 def _riferimento(voce: str) -> str | None:
-    d = os.path.join(os.environ.get("KOKORO_MODEL_DIR", ""), "cloned_voices")
-    for ext in CLONE_EXTS:
-        p = os.path.join(d, voce + ext)
-        if os.path.isfile(p):
-            return p
-    return None
+    return helper_models.voice_sample(voce)
 
 
 def _trascrizione(rif: str) -> str:
@@ -189,7 +140,8 @@ def _trascrizione(rif: str) -> str:
     try:
         log(f"trascrizione assente per {os.path.basename(rif)}: la ricavo con Whisper")
         import whisper
-        t = (whisper.load_model("small").transcribe(rif).get("text") or "").strip()
+        t = (whisper.load_model(helper_models.whisper_small())
+             .transcribe(rif).get("text") or "").strip()
         if t:
             with open(txt, "w", encoding="utf-8") as f:
                 f.write(t + "\n")
@@ -274,36 +226,7 @@ def _generatore(req: dict):
         yield wavs[0], sr
 
 
-def prefetch() -> int:
-    """Scarica (o verifica in cache) i pesi di entrambe le famiglie."""
-    from huggingface_hub import snapshot_download
-    device = os.environ.get("TTS_DEVICE") or "cuda"
-    quant = (os.environ.get("QWEN3TTS_QUANT") or "Q8_0").strip()
-    log(f"cache: {os.environ.get('HF_HUB_CACHE') or '(predefinita di Hugging Face)'}")
-    for famiglia in ("clone", "preset"):
-        repo = _repo(famiglia)
-        if os.path.isdir(repo):
-            log(f"{famiglia}: cartella locale {repo}, niente da scaricare")
-            continue
-        backend = _backend(repo, device)
-        if backend == "ggml":
-            from qwentts_cpp.models import resolve_gguf_paths
-            talker, codec = resolve_gguf_paths(repo, quant=quant)
-            mb = (talker.stat().st_size + codec.stat().st_size) / 2**20
-            log(f"{famiglia}: {repo} GGUF {quant} pronto ({mb:,.0f} MB)")
-        else:
-            cartella = snapshot_download(repo)
-            mb = sum(f.stat().st_size for f in __import__("pathlib").Path(cartella).rglob("*")
-                     if f.is_file()) / 2**20
-            log(f"{famiglia}: {repo} BF16 pronto ({mb:,.0f} MB)")
-    return 0
-
-
 def main() -> int:
-    if "--prefetch" in sys.argv:
-        if "--size" in sys.argv:
-            os.environ["QWEN3TTS_SIZE"] = sys.argv[sys.argv.index("--size") + 1]
-        return prefetch()
     for riga in sys.stdin:
         riga = riga.strip()
         if not riga:

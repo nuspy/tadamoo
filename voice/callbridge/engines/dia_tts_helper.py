@@ -12,7 +12,7 @@ supporta marcatori non verbali fra parentesi — `(laughs)`, `(sighs)`,
 antepone.
 
 Non ha voci predefinite: senza condizionamento il timbro cambia a ogni
-generazione. Con una voce clonata in $KOKORO_MODEL_DIR/cloned_voices/ si usa il
+generazione. Con una voce clonata in <models folder>/tts/voices/ si usa il
 riferimento come audio prompt, cosi' il timbro resta stabile.
 
 Ambiente: venv `tts-venvs/dia` (torch cu128 + transformers + soundfile).
@@ -32,6 +32,8 @@ import re
 import struct
 import sys
 
+import helper_models
+
 _BINARY_OUT = sys.stdout.buffer
 sys.stdout = sys.stderr
 
@@ -40,29 +42,23 @@ def log(*a) -> None:
     print("[dia_helper]", *a, file=sys.stderr, flush=True)
 
 
-MODELLO = "nari-labs/Dia-1.6B-0626"
+# Pesi: nari-labs/Dia-1.6B-0626, in <models folder>/tts/<id>/ (id del catalogo vocale).
+MODELLO = "dia-1.6b"
 SR = 44100
-CLONE_EXTS = (".wav", ".mp3", ".flac", ".ogg")
 _TURNO = re.compile(r"^\s*\[S\d\]")
 
 _proc = _modello = _device = None
 
 
 def _riferimento(voce: str) -> str | None:
-    if not voce:
-        return None
-    d = os.path.join(os.environ.get("KOKORO_MODEL_DIR", ""), "cloned_voices")
-    for ext in CLONE_EXTS:
-        p = os.path.join(d, voce + ext)
-        if os.path.isfile(p):
-            return p
-    return None
+    return helper_models.voice_sample(voce) if voce else None
 
 
 def _carica():
     global _proc, _modello, _device
     if _modello is not None:
         return
+    cartella = helper_models.require(MODELLO)
     import torch
     from transformers import AutoProcessor, DiaForConditionalGeneration
 
@@ -70,16 +66,17 @@ def _carica():
     if _device == "cuda" and not torch.cuda.is_available():
         log("CUDA non disponibile: si ripiega su CPU")
         _device = "cpu"
-    _proc = AutoProcessor.from_pretrained(MODELLO)
+    _proc = AutoProcessor.from_pretrained(cartella, local_files_only=True)
     # device_map: i pesi vanno dal file al device un tensore alla volta, senza
     # costruire prima il modello da 1,6B in RAM.
     try:
         _modello = DiaForConditionalGeneration.from_pretrained(
-            MODELLO, dtype=torch.float16, device_map=_device)
+            cartella, dtype=torch.float16, device_map=_device,
+            local_files_only=True)
     except Exception as e:  # noqa: BLE001 - percorso classico
         log(f"device_map non riuscito ({type(e).__name__}: {e}): carico e poi sposto")
         _modello = DiaForConditionalGeneration.from_pretrained(
-            MODELLO, dtype=torch.float16).to(_device)
+            cartella, dtype=torch.float16, local_files_only=True).to(_device)
     log(f"modello caricato su {_device}")
 
 

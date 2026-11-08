@@ -7,7 +7,7 @@ l'audio esce a blocchi mentre genera, chiuso da [0xFFFFFFFF][0]):
   stdout: [u32 LE count][u32 LE sample_rate][count * f32 LE]  (count==0 = errore)
   stderr: log
 
-`voice` e' il nome di un riferimento in $KOKORO_MODEL_DIR/cloned_voices/. La
+`voice` e' il nome di un riferimento in <models folder>/tts/voices/. La
 modalita' zero-shot vuole anche la TRASCRIZIONE del riferimento: si legge da un
 file `<voce>.txt` accanto al wav; se manca, la si ricava una volta con Whisper
 e la si salva li'. Con una trascrizione sbagliata la sintesi degenera in
@@ -36,6 +36,9 @@ import os
 import struct
 import sys
 
+import helper_models
+
+# Pesi: FunAudioLLM/Fun-CosyVoice3-0.5B-2512, in <models folder>/tts/cosyvoice-3/.
 _BINARY_OUT = sys.stdout.buffer
 sys.stdout = sys.stderr
 
@@ -44,7 +47,6 @@ def log(*a) -> None:
     print("[cosyvoice_helper]", *a, file=sys.stderr, flush=True)
 
 
-CLONE_EXTS = (".wav", ".mp3", ".flac", ".ogg")
 TOKEN_FINE_PROMPT = "<|endofprompt|>"
 # Lingue dichiarate: zh/en/ja/ko/de/es/fr/it/ru. L'ungherese NON c'e'.
 LINGUE = {"zh", "en", "ja", "ko", "de", "es", "fr", "it", "ru"}
@@ -54,9 +56,8 @@ _sr = 24000
 
 
 def _repo_dir() -> str:
-    return os.path.join(os.environ.get("TTS_VENVS_DIR", "") or
-                        os.path.dirname(os.environ.get("TTS_MODELS_DIR", "")),
-                        "cosyvoice-repo")
+    """Il codice di CosyVoice (non i pesi) sta accanto agli ambienti."""
+    return os.path.join(os.environ.get("TTS_VENVS_DIR", ""), "cosyvoice-repo")
 
 
 def _usa_soundfile() -> None:
@@ -73,12 +74,7 @@ def _usa_soundfile() -> None:
 
 
 def _riferimento(voce: str) -> str | None:
-    d = os.path.join(os.environ.get("KOKORO_MODEL_DIR", ""), "cloned_voices")
-    for ext in CLONE_EXTS:
-        p = os.path.join(d, voce + ext)
-        if os.path.isfile(p):
-            return p
-    return None
+    return helper_models.voice_sample(voce)
 
 
 def _trascrizione(rif: str) -> str:
@@ -91,7 +87,7 @@ def _trascrizione(rif: str) -> str:
             return t
     log(f"trascrizione assente per {os.path.basename(rif)}: la ricavo con Whisper")
     import whisper
-    m = whisper.load_model("small")
+    m = whisper.load_model(helper_models.whisper_small())
     t = (m.transcribe(rif).get("text") or "").strip()
     if t:
         with open(txt, "w", encoding="utf-8") as f:
@@ -103,17 +99,11 @@ def _carica():
     global _modello, _sr
     if _modello is not None:
         return _modello
+    dir_modello = helper_models.require("cosyvoice-3")
     repo = _repo_dir()
     sys.path.insert(0, repo)
     sys.path.insert(0, os.path.join(repo, "third_party", "Matcha-TTS"))
     _usa_soundfile()
-    dir_modello = os.path.join(os.environ.get("TTS_MODELS_DIR", ""),
-                               "Fun-CosyVoice3-0.5B")
-    if not os.path.isdir(dir_modello) or not os.listdir(dir_modello):
-        from huggingface_hub import snapshot_download
-        log("scarico Fun-CosyVoice3-0.5B ...")
-        snapshot_download("FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
-                          local_dir=dir_modello)
     from cosyvoice.cli.cosyvoice import AutoModel
     _modello = AutoModel(model_dir=dir_modello, load_trt=False, fp16=False)
     _sr = _modello.sample_rate

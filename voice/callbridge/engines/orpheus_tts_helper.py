@@ -31,6 +31,8 @@ import os
 import struct
 import sys
 
+import helper_models
+
 _BINARY_OUT = sys.stdout.buffer
 sys.stdout = sys.stderr
 
@@ -39,7 +41,9 @@ def log(*a) -> None:
     print("[orpheus_helper]", *a, file=sys.stderr, flush=True)
 
 
-MODELLO = "unsloth/orpheus-3b-0.1-ft"
+# Pesi: unsloth/orpheus-3b-0.1-ft e il codec hubertsiuzdak/snac_24khz (cartella
+# snac_24khz/), in <models folder>/tts/<id>/ (id del catalogo vocale).
+MODELLO = "orpheus-3b"
 SR = 24000
 VOCI = {"tara", "leah", "jess", "mia", "zoe", "leo", "dan", "zac"}
 
@@ -55,6 +59,8 @@ def _carica():
     global _tok, _modello, _snac, _device
     if _modello is not None:
         return
+    cartella = helper_models.require(MODELLO)
+    cartella_snac = helper_models.require(MODELLO, "snac_24khz")
     import torch
     from snac import SNAC
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -63,17 +69,18 @@ def _carica():
     if _device == "cuda" and not torch.cuda.is_available():
         log("CUDA non disponibile: si ripiega su CPU")
         _device = "cpu"
-    _tok = AutoTokenizer.from_pretrained(MODELLO)
+    _tok = AutoTokenizer.from_pretrained(cartella, local_files_only=True)
     # device_map: i pesi (safetensors) vanno dal file al device un tensore alla
     # volta, senza costruire prima il modello da 3B in RAM (~6 GB in bf16).
     try:
         _modello = AutoModelForCausalLM.from_pretrained(
-            MODELLO, dtype=torch.bfloat16, device_map=_device)
+            cartella, dtype=torch.bfloat16, device_map=_device,
+            local_files_only=True)
     except Exception as e:  # noqa: BLE001 - percorso classico
         log(f"device_map non riuscito ({type(e).__name__}: {e}): carico e poi sposto")
         _modello = AutoModelForCausalLM.from_pretrained(
-            MODELLO, dtype=torch.bfloat16).to(_device)
-    _snac = SNAC.from_pretrained("hubertsiuzdak/snac_24khz").eval().to(_device)
+            cartella, dtype=torch.bfloat16, local_files_only=True).to(_device)
+    _snac = SNAC.from_pretrained(cartella_snac).eval().to(_device)
     log(f"modelli caricati su {_device}")
 
 

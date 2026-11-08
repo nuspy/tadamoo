@@ -552,7 +552,7 @@ class Config:
     # piu' leggero/veloce). Il file deve essere presente in kokoro_model_dir.
     kokoro_precision: str = "fp16"         # "fp32" | "fp16" | "int8"
     # Voci CLONATE (Chatterbox Multilingual, come Handy): quando la voce richiesta
-    # corrisponde a un file in <kokoro_model_dir>/cloned_voices/, la sintesi passa
+    # corrisponde a un file in <cartella modelli>/tts/voices/, la sintesi passa
     # all'helper Chatterbox (subprocess, protocollo stdio binario) invece di Kokoro.
     # I path vuoti fanno autodetect dal venv/helper lasciati da Handy.
     clone_tts_enabled: bool = True         # False = ignora le voci clonate (solo Kokoro)
@@ -590,18 +590,11 @@ class Config:
     dia_gpu_memory: str = "dedicated"
     # Qwen3-TTS (helper nel venv `dia`, runtime faster-qwen3-tts). Taglia dei
     # modelli ufficiali: "0.6B" (piu' veloce, ~4 GB VRAM) o "1.7B" (qualita',
-    # istruzioni di stile sulle voci preimpostate). I due campi *_model
-    # sostituiscono il modello ufficiale con una variante compatibile (repo
-    # Hugging Face o cartella locale): Base per le voci clonate, CustomVoice per
-    # le 9 voci preimpostate. backend "ggml" = GGUF quantizzati via qwentts.cpp
-    # (quant "Q8_0" | "Q4_K_M"), serve il pacchetto qwentts-cpp-python.
+    # istruzioni di stile sulle voci preimpostate). Si legge da
+    # <cartella modelli>/tts/qwen3tts-<taglia>/ (base/ e custom-voice/).
     qwen3tts_device: str = "cuda"
     qwen3tts_gpu_memory: str = "dedicated"
     qwen3tts_size: str = "0.6B"            # "0.6B" | "1.7B"
-    qwen3tts_clone_model: str = ""         # "" = Qwen/Qwen3-TTS-12Hz-<size>-Base
-    qwen3tts_preset_model: str = ""        # "" = Qwen/Qwen3-TTS-12Hz-<size>-CustomVoice
-    qwen3tts_backend: str = "auto"         # "auto" | "torch" | "ggml"
-    qwen3tts_quant: str = "Q8_0"           # solo backend ggml
     # Streaming TTS: i motori che lo sanno fare (catalogo, `streaming=True`)
     # consegnano l'audio A PEZZI mentre generano la frase, invece di attendere
     # la frase intera. Adattivo: si va a pezzi solo quando l'audio gia' pronto

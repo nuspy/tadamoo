@@ -9,7 +9,7 @@ Stesso protocollo stdio degli helper Kokoro/Piper (avviato da tts.rs):
   stderr: log ed errori
 
 Cloning: `voice` e' il nome (senza estensione) di un wav di riferimento in
-$KOKORO_MODEL_DIR/cloned_voices/ (creato da POST /voices/clone). Se la voce
+<models folder>/tts/voices/ (creato da POST /voices/clone). Se la voce
 non esiste si usa la voce builtin del modello. I conditionals del riferimento
 vengono calcolati una volta e tenuti in cache (cambiare voce costa solo la
 prima sintesi).
@@ -31,7 +31,8 @@ vicino — generate() crasha sui testi cortissimi).
 
 Ambiente: il venv dedicato (chatterbox-venv, creato con --system-site-packages
 per riusare il torch CUDA di sistema). Dipendenza: pip install chatterbox-tts.
-Alla prima esecuzione scarica i pesi da HuggingFace (~3 GB, una tantum).
+I pesi si leggono solo da <models folder>/tts/chatterbox/ (BASALT_VOICE_MODELS_DIR):
+l'helper non scarica nulla.
 """
 from __future__ import annotations
 
@@ -46,6 +47,8 @@ import os
 import re
 import struct
 import sys
+
+import helper_models
 
 
 def log(*a) -> None:
@@ -118,13 +121,6 @@ def write_error(stdout) -> None:
     stdout.flush()
 
 
-def cloned_dir() -> str:
-    base = os.environ.get("KOKORO_MODEL_DIR") or "."
-    d = os.path.join(base, "cloned_voices")
-    os.makedirs(d, exist_ok=True)
-    return d
-
-
 def main() -> int:
     # PRIMA di importare qualsiasi cosa: cattura lo stdout BINARIO del
     # protocollo e dirotta sys.stdout su stderr. Le librerie di Chatterbox
@@ -133,6 +129,13 @@ def main() -> int:
     # (count/sr diventano byte ASCII -> lettura di GB inesistenti -> watchdog).
     stdout = sys.stdout.buffer
     sys.stdout = sys.stderr
+
+    # Prima di qualunque import pesante: senza i pesi locali non si va oltre.
+    try:
+        pesi = helper_models.require("chatterbox")
+    except Exception as e:  # noqa: BLE001
+        log(str(e))
+        return 1
 
     try:
         import torch
@@ -148,10 +151,9 @@ def main() -> int:
         device = "cpu" if (forced == "cuda" and not torch.cuda.is_available()) else forced
     else:
         device = "cuda" if torch.cuda.is_available() else "cpu"
-    log(f"caricamento Chatterbox Multilingual su {device} "
-        "(primo avvio: scarica i pesi da HuggingFace)...")
+    log(f"caricamento Chatterbox Multilingual su {device} da {pesi}")
     try:
-        model = ChatterboxMultilingualTTS.from_pretrained(device=device)
+        model = ChatterboxMultilingualTTS.from_local(pesi, device)
     except Exception as e:  # noqa: BLE001
         log(f"caricamento modello fallito: {e}")
         return 1
@@ -189,16 +191,10 @@ def main() -> int:
         try:
             # Voce clonata: prepara i conditionals solo se la voce e' cambiata.
             if voice != current_voice:
-                ref = None
-                if voice:
-                    for ext in (".wav", ".mp3", ".flac", ".ogg"):
-                        cand = os.path.join(cloned_dir(), voice + ext)
-                        if os.path.isfile(cand):
-                            ref = cand
-                            break
+                ref = helper_models.voice_sample(voice) if voice else None
                 if voice and ref is None:
-                    log(f"voce clonata '{voice}' non trovata in {cloned_dir()}: "
-                        "uso la voce builtin")
+                    log(f"voce clonata '{voice}' non trovata nella cartella "
+                        "delle voci: uso la voce builtin")
                 if ref:
                     model.prepare_conditionals(ref)
                     log(f"voce clonata attiva: {os.path.basename(ref)}")

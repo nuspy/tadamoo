@@ -10,8 +10,9 @@ e parla il protocollo stdio binario storico:
   stderr: log
 
 `voice` e' il nome (senza estensione) di un wav di riferimento in
-`<model_dir>/cloned_voices/` (env `KOKORO_MODEL_DIR`). Il modello si carica alla
-prima sintesi (subprocess tenuto caldo); i conditionals della voce sono in cache
+`<models folder>/tts/voices/`. I pesi si leggono solo da
+`<models folder>/tts/chatterbox/`: se mancano, `ModelNotInstalled` parte prima di
+avviare l'helper. Il modello si carica alla prima sintesi (subprocess tenuto caldo); i conditionals della voce sono in cache
 lato helper (cambiare voce costa solo la prima frase).
 
 `ChatterboxTtsEngine.synth()` ha la STESSA firma di `KokoroTtsEngine.synth()`,
@@ -63,10 +64,9 @@ def _read_exact(pipe, n: int) -> bytes:
 class ChatterboxTtsEngine:
     """Helper Chatterbox in subprocess, caldo e condiviso tra le sessioni."""
 
-    def __init__(self, model_dir: str, venv_python: str = "",
+    def __init__(self, venv_python: str = "",
                  helper: str = "", device: str = "cuda",
                  memory: str = "dedicated") -> None:
-        self.model_dir = model_dir
         self._python = venv_python or _default_venv_python()
         self._helper = helper or _default_helper()
         self.device = device
@@ -88,6 +88,7 @@ class ChatterboxTtsEngine:
     def _ensure_proc_locked(self) -> None:
         if self._proc is not None and self._proc.poll() is None:
             return
+        models_store.require("chatterbox")
         if not os.path.isfile(self._python):
             raise FileNotFoundError(
                 f"Python del venv Chatterbox non trovato: {self._python} "
@@ -95,10 +96,8 @@ class ChatterboxTtsEngine:
         if not os.path.isfile(self._helper):
             raise FileNotFoundError(
                 f"Helper Chatterbox non trovato: {self._helper}")
+        # L'helper trova pesi e voci clonate sotto BASALT_VOICE_MODELS_DIR.
         env = models_store.helper_env("tts")
-        # L'helper cerca cloned_voices/ sotto KOKORO_MODEL_DIR: stessa cartella
-        # che il compat server usa per elencare/salvare le voci clonate.
-        env["KOKORO_MODEL_DIR"] = self.model_dir
         env.setdefault("PYTHONUNBUFFERED", "1")
         # Device selezionato (cuda+dedicated -> cuda; altrimenti cpu). L'helper
         # onora CHATTERBOX_DEVICE al posto dell'auto-detect.

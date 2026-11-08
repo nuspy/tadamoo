@@ -18,6 +18,11 @@ I motori pesanti (Chatterbox, XTTS, CosyVoice, Orpheus, Dia) girano come
 subprocess in venv separati e vengono creati PIGRAMENTE, al primo uso: chi usa
 solo Kokoro non paga nulla.
 
+I pesi si leggono solo da `<models folder>/tts/<id modello>/` e le voci clonate
+stanno in `<models folder>/tts/voices/`. Un motore il cui modello manca solleva
+`models_store.ModelNotInstalled` (messaggio in parole semplici): non si ripiega su
+un altro motore e non si scarica nulla.
+
 `attiva()` implementa lo **hot swap**: cambiare motore dalla GUI scarica dalla
 VRAM quello precedente e scalda subito il nuovo. Senza, ogni motore provato
 restava caldo per sempre e la VRAM si riempiva finche' tutto finiva in shared
@@ -31,6 +36,7 @@ import os
 import threading
 import time
 
+from .. import models_store
 from ..sospensione import in_sospensione, richiedi_attivi
 from . import catalog
 from .chatterbox_tts import ChatterboxTtsEngine
@@ -47,10 +53,9 @@ def _piper_dir(cfg, model_dir: str) -> str:
     return getattr(cfg, "piper_model_dir", "") or _default_piper_dir(model_dir)
 
 
-def _nuovo_chatterbox(cfg, model_dir: str) -> ChatterboxTtsEngine:
+def _nuovo_chatterbox(cfg) -> ChatterboxTtsEngine:
     """Oggetto Chatterbox (leggero: non avvia nulla fino a `load`/`synth`)."""
     return ChatterboxTtsEngine(
-        model_dir,
         getattr(cfg, "chatterbox_venv_python", ""),
         getattr(cfg, "chatterbox_helper", ""),
         getattr(cfg, "chatterbox_device", "cuda"),
@@ -72,7 +77,8 @@ def disponibile_senza_router(cfg, s) -> bool:
     if s.id == "chatterbox":
         if not bool(getattr(cfg, "clone_tts_enabled", True)):
             return False
-        return _nuovo_chatterbox(cfg, model_dir).available
+        return (not catalog.modello_mancante(cfg, s)
+                and _nuovo_chatterbox(cfg).available)
     return catalog.disponibile(cfg, s, None)
 
 
@@ -115,7 +121,7 @@ class TtsRouter:
         with self._lock:
             eng = self._venv_engines.get(engine_id)
             if eng is None:
-                eng = VenvTtsEngine(s, self._cfg, self.model_dir)
+                eng = VenvTtsEngine(s, self._cfg)
                 self._venv_engines[engine_id] = eng
             return eng
 
@@ -264,11 +270,12 @@ class TtsRouter:
             return {"selected": engine_id, "previous": precedente,
                     "unloaded": scaricati, "warming": False}
         if not catalog.disponibile(self._cfg, s, self):
-            self._set_stato(engine_id, "error",
-                            "motore non installato (venv/helper mancanti)")
+            perche = (catalog.modello_mancante(self._cfg, s)
+                      or "motore non installato (venv/helper mancanti)")
+            self._set_stato(engine_id, "error", perche)
             return {"selected": engine_id, "previous": precedente,
                     "unloaded": scaricati, "warming": False,
-                    "message": "motore non installato"}
+                    "message": perche}
         self._set_stato(engine_id, "loading")
         threading.Thread(target=self._precarica, args=(engine_id,), daemon=True,
                          name=f"tts-warm-{engine_id}").start()
@@ -385,7 +392,7 @@ class TtsRouter:
     def _get_chatterbox(self) -> ChatterboxTtsEngine:
         with self._lock:
             if self._chatterbox is None:
-                self._chatterbox = _nuovo_chatterbox(self._cfg, self.model_dir)
+                self._chatterbox = _nuovo_chatterbox(self._cfg)
             return self._chatterbox
 
     @property
@@ -402,7 +409,9 @@ class TtsRouter:
         """Path del wav di riferimento se `voice` e' una voce clonata, altrimenti None."""
         if not voice:
             return None
-        d = os.path.join(self.model_dir, "cloned_voices")
+        d = models_store.voices_dir()
+        if not d or os.path.basename(voice) != voice:
+            return None
         for ext in _CLONE_EXTS:
             cand = os.path.join(d, voice + ext)
             if os.path.isfile(cand):
@@ -459,6 +468,9 @@ class TtsRouter:
             from ..text_normalize import normalizza_per_tts
             text = normalizza_per_tts(text)
         eng = (engine or "").strip().lower()
+        if not eng and not (voice or "").strip():
+            # Senza motore e senza voce vale il motore scelto nelle impostazioni.
+            eng = self._attivo
         if not eng:
             # Motore non indicato: lo decide l'AVATAR ATTIVO, che e' l'unica
             # scelta di motore rimasta (non c'e' piu' un motore "di sistema"
@@ -482,10 +494,14 @@ class TtsRouter:
         # Voci proprie di un motore del catalogo (es. "ryan" di Qwen3-TTS, gli
         # speaker di serie di XTTS): finivano a Kokoro, che non le conosce.
         m = self.motore_di_voce(voice)
-        # Solo se disponibile: `_synth_con` ripiega richiamando `synth`, e con un
-        # motore assente si girerebbe in tondo.
-        if m and m not in ("kokoro", "piper", "chatterbox") and self.engine_available(m):
-            return self._synth_con(m, text, voice, lang, speed)
+        if m and m not in ("kokoro", "piper", "chatterbox"):
+            # La voce e' di un motore il cui modello puo' mancare: lo si dice,
+            # invece di farla leggere a Kokoro che non la conosce.
+            self._richiedi_modello(m)
+            # Solo se disponibile: `_synth_con` ripiega richiamando `synth`, e con
+            # un motore assente si girerebbe in tondo.
+            if self.engine_available(m):
+                return self._synth_con(m, text, voice, lang, speed)
         self._solo_questo("kokoro")
         return self._kokoro.synth(text, voice, lang, speed)
 
@@ -559,6 +575,14 @@ class TtsRouter:
         sua = (v.get("voice") or "").strip().lower()
         return eng if (not richiesta or richiesta == sua) else ""
 
+    def _richiedi_modello(self, engine_id: str) -> None:
+        """`ModelNotInstalled` se il modello del motore non e' nella cartella dei
+        modelli (prima di scaricare altri motori o avviare un helper)."""
+        s = catalog.spec(engine_id)
+        mid = catalog.model_id(self._cfg, s) if s is not None else ""
+        if mid:
+            models_store.require(mid)
+
     def _solo_questo(self, engine_id: str) -> None:
         """Lascia in memoria SOLO `engine_id`, scaricando gli altri.
 
@@ -604,6 +628,7 @@ class TtsRouter:
         # memoria proprio nell'istante del picco. Si controlla la disponibilita'
         # (che non alloca), poi si libera, poi si carica.
         if self._venv_disponibile(engine_id):
+            self._richiedi_modello(engine_id)
             self._solo_questo(engine_id)
             eng = self._get_venv_engine(engine_id)
             if eng is not None and eng.available:
@@ -612,6 +637,15 @@ class TtsRouter:
         log.warning("motore '%s' non disponibile: ripiego sulla voce '%s'",
                     engine_id, voice)
         return self.synth(text, voice, lang, speed)
+
+    def usa_cartelle(self, cfg) -> None:
+        """Segue le cartelle dei modelli della config (Kokoro e Piper le leggono
+        a ogni caricamento; i motori in venv le ricevono all'avvio)."""
+        self._kokoro.model_dir = (getattr(cfg, "kokoro_model_dir", "")
+                                  or self._kokoro.model_dir)
+        self.model_dir = self._kokoro.model_dir
+        if self._piper is not None:
+            self._piper.model_dir = _piper_dir(cfg, self.model_dir)
 
     def reconfigure(self, cfg, solo: "set[str] | None" = None) -> None:
         """Applica device/memoria/precisione correnti e scarta i modelli caricati
