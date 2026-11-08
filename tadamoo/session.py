@@ -863,6 +863,11 @@ class Session:
         else:
             self.agent.sampling.pop("reasoning_effort", None)
 
+    def tell(self, note: str) -> None:
+        """A fact about the conversation's own settings, put before the person's next message."""
+        self._pending_note = f"{self._pending_note}\n{note}" if self._pending_note else note
+        self._save()
+
     def set_max_turns(self, value: int) -> None:
         """The most model steps one answer may take, from the next step on; below 1 is no limit."""
         self.agent.max_turns = value
@@ -2058,6 +2063,11 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
             elif name == "effort" and cmd.get("level", "") in ("", *EFFORT_LEVELS):
                 session.set_effort(cmd.get("level", ""))
                 emit({"event": "effort", "level": cmd.get("level", "")})
+            elif name == "visuals" and isinstance(cmd.get("images"), str) and isinstance(cmd.get("charts"), str) and built.visuals_switch is not None:
+                note = built.visuals_switch(cmd["images"], cmd["charts"])
+                if note:
+                    session.tell(note)
+                emit({"event": "visuals", "images": cmd["images"], "charts": cmd["charts"]})
             elif name == "intake" and cmd.get("mode") in it.MODES and session.intake is not None:
                 session.intake.mode = cmd["mode"]
                 emit({"event": "intake_mode", "mode": cmd["mode"]})

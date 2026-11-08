@@ -737,28 +737,65 @@
     src.append(sum, pre);
     node.replaceChildren(fig, src);
   }
+  /* a diagram the drawing library refuses is sent to the server with the library's message; the corrected source is drawn where the first one was, and the person
+     sees the error only when the tries run out. A correction is kept in this browser, so the same diagram is not repaired again. */
+  const FIXES_KEY = "tadamoo.diagram.fixes", MAX_FIXES = 60, TRIES = 2;
+  const fixing = new Map();                             // original source -> its repair in progress, shared by every place that shows it
+  const gaveUp = new Set();                             // sources the server could not repair
+  const hashOf = text => { let h = 5381; for (let i = 0; i < text.length; i++) h = ((h * 33) ^ text.charCodeAt(i)) >>> 0; return h.toString(36) + text.length.toString(36); };
+  function savedFixes() { try { const v = JSON.parse(localStorage.getItem(FIXES_KEY) || "{}"); return v && typeof v === "object" ? v : {}; } catch (e) { return {}; } }
+  function keepFix(original, fixed) {
+    try {
+      const all = savedFixes(); all[hashOf(original)] = fixed;
+      const keys = Object.keys(all); keys.slice(0, Math.max(0, keys.length - MAX_FIXES)).forEach(k => delete all[k]);
+      localStorage.setItem(FIXES_KEY, JSON.stringify(all));
+    } catch (e) { /* no storage: the repair is made again next time */ }
+  }
+  function cleanup() { document.querySelectorAll('[id^="dmmd-"]').forEach(x => x.remove()); }            // what mermaid leaves behind when it fails
+  const reasonOf = e => String((e && e.message) || e).split("\n").map(x => x.trim()).filter(Boolean).slice(0, 3).join(" ").slice(0, 240);
+  function repair(source, why) {
+    if (!fixing.has(source)) {
+      fixing.set(source, fetch("api/diagram/fix", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ source, error: why }) })
+        .then(r => (r.ok ? r.json() : {})).then(j => (j && typeof j.source === "string" ? j.source : "")).catch(() => "")
+        .finally(() => fixing.delete(source)));
+    }
+    return fixing.get(source);
+  }
+  function showError(node, why) {
+    node.dataset.state = "error";
+    if (!node.isConnected) return;
+    const p = document.createElement("p"); p.className = "diagram-err"; p.textContent = T("mmd.error");
+    const reason = document.createElement("code"); reason.className = "diagram-why"; reason.textContent = why;
+    const fix = document.createElement("button"); fix.type = "button"; fix.className = "btn ghost"; fix.textContent = T("mmd.fix");
+    fix.onclick = () => window.chatUi.setPrompt(T("mmd.fixask", why));       // the person reads it and sends it: the model gets the reason, not a guess
+    node.replaceChildren(p, reason, fix);
+  }
   async function drawDiagrams(root) {
     for (const node of root.querySelectorAll('.diagram[data-ready="1"]:not([data-state])')) {
-      const code = node.dataset.src;
-      if (drawn.has(code)) { showDiagram(node, drawn.get(code)); node.dataset.state = "ok"; continue; }
+      const original = node.dataset.src;
+      if (drawn.has(original)) { showDiagram(node, drawn.get(original)); node.dataset.state = "ok"; continue; }
       node.dataset.state = "busy";
-      try {
-        const mermaid = await loadMermaid();
-        const { svg } = await mermaid.render(`mmd-${++drawCount}`, code);
-        drawn.set(code, svg);
-        if (node.isConnected) { showDiagram(node, svg); node.dataset.state = "ok"; }
-      } catch (e) {
-        document.querySelectorAll('[id^="dmmd-"]').forEach(x => x.remove());        // what mermaid leaves behind when it fails
-        node.dataset.state = "error";
-        if (node.isConnected) {
-          const why = String((e && e.message) || e).split("\n").map(x => x.trim()).filter(Boolean).slice(0, 3).join(" ").slice(0, 240);
-          const p = document.createElement("p"); p.className = "diagram-err"; p.textContent = T("mmd.error");
-          const reason = document.createElement("code"); reason.className = "diagram-why"; reason.textContent = why;
-          const fix = document.createElement("button"); fix.type = "button"; fix.className = "btn ghost"; fix.textContent = T("mmd.fix");
-          fix.onclick = () => window.chatUi.setPrompt(T("mmd.fixask", why));       // the person reads it and sends it: the model gets the reason, not a guess
-          node.append(p, reason, fix);
+      let code = savedFixes()[hashOf(original)] || original, why = "";
+      for (let attempt = 0; attempt <= TRIES; attempt++) {
+        try {
+          const mermaid = await loadMermaid();
+          const { svg } = await mermaid.render(`mmd-${++drawCount}`, code);
+          drawn.set(original, svg);
+          if (code !== original) keepFix(original, code);
+          if (node.isConnected) { node.dataset.src = code; showDiagram(node, svg); node.dataset.state = "ok"; }
+          why = "";
+          break;
+        } catch (e) {
+          cleanup();
+          why = reasonOf(e);
+          if (attempt === TRIES || gaveUp.has(original) || !node.isConnected) break;
+          if (!node.querySelector(".diagram-fixing")) { const s = document.createElement("p"); s.className = "diagram-fixing"; s.setAttribute("role", "status"); s.textContent = T("mmd.fixing"); node.replaceChildren(s); }
+          const next = await repair(code, why);
+          if (!next || next === code) { gaveUp.add(original); break; }
+          code = next;
         }
       }
+      if (why) showError(node, why);
     }
   }
   /* the model-only conversation as plain data, and the SVG a diagram was drawn as (empty when it was not): both read by export.js */

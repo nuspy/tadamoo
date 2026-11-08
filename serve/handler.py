@@ -823,6 +823,9 @@ def make_handler(svc: Service, remote: bool = False):
             if path == "/api/past/forget":
                 self._past_forget_post()
                 return
+            if path == "/api/diagram/fix":
+                self._diagram_fix_post()
+                return
             if path == "/api/changes/review":
                 if not settings.is_loopback(self.client_address[0]):
                     self._discard_body()
@@ -2332,6 +2335,22 @@ def make_handler(svc: Service, remote: bool = False):
         def _forgetter(self) -> Forgetter:
             return Forgetter(self._past(), self._personal(), userdata.path(MEMORY_EXPORT))
 
+        def _diagram_fix_post(self):
+            """POST /api/diagram/fix: the page could not draw a diagram; the source and the library's message come back as a corrected source (empty when none)."""
+            try:
+                raw = self._body(1 << 15)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            try:
+                req = json.loads(raw or b"{}")
+            except ValueError:
+                return self._json(400, {"error": {"type": "diagram", "message": "send JSON: {\"source\": ..., \"error\": ...}"}})
+            if not isinstance(req, dict) or not isinstance(req.get("source"), str):
+                return self._json(400, {"error": {"type": "diagram", "message": "send the diagram's source"}})
+            from serve import diagram_fix
+            fixed = diagram_fix.fix(self._agent_sessions().model_client(), req["source"], req.get("error"))
+            return self._json(200, {"source": fixed or ""})
+
         def _past_forget_post(self):
             """POST /api/past/forget: the model-only chat page asks for everything taken from its conversation to be forgotten."""
             if not settings.is_loopback(self.client_address[0]):
@@ -3128,7 +3147,10 @@ def make_handler(svc: Service, remote: bool = False):
                     if len(parts) == 3 and parts[2] == "effort":
                         return self._json(200, {"session": mgr.set_effort(parts[1], req.get("level", ""))})
                     if len(parts) == 3 and parts[2] == "settings":
-                        return self._json(200, {"session": mgr.set_settings(parts[1], req.get("max_turns"), req.get("end_turn_bias"))})
+                        return self._json(200, {"session": mgr.set_settings(parts[1], req.get("max_turns"), req.get("end_turn_bias"),
+                                                                           **{k: req[k] for k in ("temperature", "max_tokens") if k in req})})
+                    if len(parts) == 3 and parts[2] == "visuals":
+                        return self._json(200, {"session": mgr.set_visuals(parts[1], req.get("images", ""), req.get("charts", ""))})
                     if len(parts) == 3 and parts[2] == "rename":
                         return self._json(200, {"session": mgr.rename(parts[1], req.get("title"))})
                     if len(parts) == 3 and parts[2] == "skill-propose":

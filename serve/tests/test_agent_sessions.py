@@ -1184,3 +1184,21 @@ def test_nothing_caps_the_length_of_a_message_the_allow_rules_or_the_attachments
     until(lambda: "done" in kinds(mgr, sid))
     shown = [m for m in mgr.history(sid)["messages"] if m.get("role") == "user"]
     assert any(len(m["content"]) >= len(long_text) for m in shown)
+
+
+def test_the_pictures_and_diagrams_levels_and_the_sampling_of_a_conversation_can_change_while_it_is_open(make, ws):
+    mgr = make()
+    sid = mgr.create(ws, images="", charts="low")["id"]
+    out = mgr.set_visuals(sid, "high", "")
+    assert (out["images"], out["charts"]) == ("high", "")
+    assert [e for e in mgr.events(sid)["events"] if e["event"] == "visuals"][-1]["images"] == "high"
+    with pytest.raises(RunError) as e:
+        mgr.set_visuals(sid, "loads", "")
+    assert e.value.code == "bad_visuals"
+    out = mgr.set_settings(sid, temperature=0.4, max_tokens=3000)
+    assert (out["temperature"], out["max_tokens"]) == (0.4, 3000)
+    assert mgr.set_settings(sid, max_tokens=-1)["max_tokens"] is None and mgr.set_settings(sid, max_tokens=0)["max_tokens"] is None      # 0 or -1: no limit
+    assert mgr.set_settings(sid, temperature=None)["temperature"] is None
+    for bad in ({"temperature": 9}, {"temperature": "hot"}, {"max_tokens": -5}, {"max_tokens": 1.5}):
+        with pytest.raises(RunError):
+            mgr.set_settings(sid, **bad)

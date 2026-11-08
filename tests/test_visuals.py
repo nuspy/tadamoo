@@ -109,3 +109,21 @@ def test_the_instructions_follow_the_levels_and_say_nothing_when_both_are_off():
     both = guidance("high", "very_low")
     assert "page_images" in both and "mermaid" in both and "Never write a picture address" in both
     assert guidance("bogus", "") == ""
+
+
+def test_a_change_of_the_levels_in_a_running_conversation_adds_or_drops_the_picture_tools_and_says_so(tmp_path):
+    from tadamoo.stack import AgentConfig, build_agent
+    ws = tmp_path / "w"
+    ws.mkdir()
+    cfg = AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False, permission_mode="default", max_turns=3,
+                      attachments_dir=str(tmp_path / "att"), outputs_dir=str(tmp_path / "out"), run_id="r1", images="", charts="normal")
+    built = build_agent(cfg)
+    registry = built.agent.tools
+    assert registry.get("page_images") is None and built.visuals_switch("", "normal") == ""        # nothing changed: nothing said
+    note = built.visuals_switch("high", "normal")
+    assert registry.get("page_images") is not None and registry.get("show_image") is not None
+    assert IMAGE_RULES["high"] in note and CHART_RULES["normal"] in note and note.startswith("[harness]")
+    note = built.visuals_switch("", "")
+    assert registry.get("page_images") is None and registry.get("show_image") is None
+    assert "Pictures from the web: off" in note and "Diagrams: off" in note
+    assert built.visuals_switch("bogus", "") == ""                                                   # an unknown level is off, which it already is

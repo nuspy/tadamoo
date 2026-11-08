@@ -101,6 +101,24 @@ def check_end_turn_bias(value: Any) -> float:
     return float(value or 0)
 
 
+def check_temperature(value: Any) -> Optional[float]:
+    """The sampling temperature, 0 to 5; None leaves it to the model file's own sampling."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0.0 <= value <= 5.0:
+        raise RunError("The temperature is a number from 0 to 5, or empty for the model's own.", "bad_temperature")
+    return float(value)
+
+
+def check_reply_tokens(value: Any) -> Optional[int]:
+    """The most one reply may write: a whole number from 1; None, 0 and -1 are no limit of the conversation's own (the server's applies)."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < -1:
+        raise RunError("The most a reply may write is a whole number from 1; 0 or -1 means no limit.", "bad_max_tokens")
+    return value if value >= 1 else None
+
+
 class Live:
     """What exists only while a process runs."""
 
@@ -1083,6 +1101,10 @@ class SessionManager:
             cmd += ["--context-threshold", str(rec["context_threshold"])]
         if rec.get("end_turn_bias"):
             cmd += ["--end-turn-bias", str(rec["end_turn_bias"])]
+        if rec.get("temperature") is not None:
+            cmd += ["--temperature", str(rec["temperature"])]
+        if rec.get("max_tokens"):
+            cmd += ["--max-tokens", str(rec["max_tokens"])]
         if self.attachments_dir and self.outputs_dir and not rec.get("ask_only"):
             cmd += ["--attachments-dir", str(self.attachments_dir), "--outputs-dir", str(self.outputs_dir)]
         elif self.attachments_dir:
@@ -1658,6 +1680,10 @@ class SessionManager:
         from tadamoo.client import TadamooClient
         return TadamooClient(base_url=self.endpoint, api_key=self.api_key or None)
 
+    def model_client(self) -> Any:
+        """A client of the loaded model, for the short jobs the server does for a page."""
+        return self._skill_client()
+
     def skill_propose(self, sid: str, turns: Any) -> Dict[str, Any]:
         """The first step of making a skill from requests: the values that probably change, named and explained."""
         from tadamoo.client import TadamooError
@@ -2060,15 +2086,35 @@ class SessionManager:
             self._push(sid, {"event": "effort", "level": level})
         return self.get(sid)
 
-    def set_settings(self, sid: str, max_turns: Any = None, end_turn_bias: Any = None) -> Dict[str, Any]:
-        """Changes the steps one answer may take and the end-of-turn bias of a conversation, from its next run on; what is not given stays."""
+    def set_visuals(self, sid: str, images: Any, charts: Any) -> Dict[str, Any]:
+        """How much of pictures and diagrams the person wants now ("" is off): the running conversation is told, and one started again takes them."""
+        for name, level in (("images", images), ("charts", charts)):
+            if level not in LEVELS:
+                raise RunError(f"How much {name} are wanted is one of: off, " + ", ".join(LEVELS[1:]) + ".", "bad_visuals")
+        with self._lock:
+            rec = self._record(sid)
+            if rec["state"] == "closed":
+                raise RunError("That conversation is closed.", "closed")
+            self._set(rec, images=images, charts=charts)
+            told = self._tell_if_running(sid, {"cmd": "visuals", "images": images, "charts": charts})
+        if not told:
+            self._push(sid, {"event": "visuals", "images": images, "charts": charts})
+        return self.get(sid)
+
+    def set_settings(self, sid: str, max_turns: Any = None, end_turn_bias: Any = None, **sampling: Any) -> Dict[str, Any]:
+        """Changes the steps one answer may take, the end-of-turn bias, the temperature and the most a reply may write (`temperature` and
+        `max_tokens`: null for the model's own; 0 or -1 tokens is no limit) of a conversation, from its next run on; what is not given stays."""
         changes: Dict[str, Any] = {}
         if max_turns is not None:
             changes["max_turns"] = check_steps(max_turns)
         if end_turn_bias is not None:
             changes["end_turn_bias"] = check_end_turn_bias(end_turn_bias)
+        if "temperature" in sampling:
+            changes["temperature"] = check_temperature(sampling["temperature"])
+        if "max_tokens" in sampling:
+            changes["max_tokens"] = check_reply_tokens(sampling["max_tokens"])
         if not changes:
-            raise RunError("Say the number of steps or the end-of-turn bias.", "bad_steps")
+            raise RunError("Say the number of steps, the end-of-turn bias, the temperature or the most a reply may write.", "bad_steps")
         with self._lock:
             rec = self._record(sid)
             if rec["state"] == "closed":

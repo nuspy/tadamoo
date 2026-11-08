@@ -400,6 +400,7 @@ class BuiltAgent:
     browser: Optional[Any] = None
     plan_gate: Optional[PlanGate] = None
     mode_switch: Optional[Callable[[str], None]] = None
+    visuals_switch: Optional[Callable[[str, str], str]] = None      # the pictures and diagrams levels the person has now; returns the note for the model, empty when nothing changed
     role: Optional[RolePolicy] = None
     checks_switch: Optional[Callable[[List[str], List[str]], None]] = None
     mcp: Optional[Any] = None                 # the MCPHub of cfg.mcp_servers
@@ -793,9 +794,26 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
     if cfg.page_files:
         from tadamoo.visuals import FILES_GUIDANCE
         builder.pin("files", FILES_GUIDANCE)
+    pictures_ready = bool(cfg.attachments_dir and cfg.outputs_dir and cfg.run_id)
     if cfg.images or cfg.charts:
         from tadamoo.visuals import guidance
-        builder.pin("visuals", guidance(cfg.images if cfg.attachments_dir and cfg.outputs_dir and cfg.run_id else "", cfg.charts))
+        builder.pin("visuals", guidance(cfg.images if pictures_ready else "", cfg.charts))
+    visual_levels = {"images": cfg.images if pictures_ready else "", "charts": cfg.charts}
+
+    def switch_visuals(images: str, charts: str) -> str:
+        from tadamoo.visuals import CHART_RULES, IMAGE_RULES, change_note, register_visual_tools
+        from tadamoo.attachments import OutputStore
+        images = images if pictures_ready and images in IMAGE_RULES else ""
+        charts = charts if charts in CHART_RULES else ""
+        if (images, charts) == (visual_levels["images"], visual_levels["charts"]):
+            return ""
+        if images and registry.get("page_images") is None:
+            register_visual_tools(registry, OutputStore(Path(cfg.outputs_dir)), cfg.run_id, cfg.browser_private)
+        elif not images:
+            registry.unregister("page_images")
+            registry.unregister("show_image")
+        visual_levels.update(images=images, charts=charts)
+        return change_note(images, charts)
     lsp_hub = None
     if cfg.lsp:
         from tadamoo.lsp import LspHub, register_lsp_tools
@@ -978,7 +996,7 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         return True
 
     return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index, lsp=lsp_hub, payment_confirm=payment_confirm, browser=browser,
-                      plan_gate=plan_gate, mode_switch=switch_mode, role=role, checks_switch=switch_checks, personal=personal, take_place=take_place,
+                      plan_gate=plan_gate, mode_switch=switch_mode, visuals_switch=switch_visuals, role=role, checks_switch=switch_checks, personal=personal, take_place=take_place,
                       mcp=mcp_hub, mcp_errors=dict(mcp_hub.errors) if mcp_hub is not None else {}, refresh_budget=refresh_budget, technical=quick,
                       memory_min_score=cfg.memory_min_score, memory_notes=cfg.memory_notes, memory_budget_tokens=cfg.memory_budget_tokens, notices=notices,
                       skills=catalog)

@@ -235,19 +235,31 @@ FILES_GUIDANCE = (
     "a text on screen, the text goes in the answer.")
 
 
-def guidance(images: str, charts: str) -> str:
-    """The paragraph added to the instructions for what the person wants of pictures and diagrams; empty when both are off."""
-    parts: List[str] = []
-    if images in IMAGE_RULES:
-        parts.append(
-            f"Pictures from the web: {IMAGE_RULES[images]} Take them from the page of the article you cite when it has a fitting one: read the article, call page_images "
+def _pictures_paragraph(images: str) -> str:
+    if images not in IMAGE_RULES:
+        return ""
+    return (f"Pictures from the web: {IMAGE_RULES[images]} Take them from the page of the article you cite when it has a fitting one: read the article, call page_images "
             "on it, choose the picture that shows what it reports, fetch it with show_image and write ![short caption](tadamoo-file:ID) where it belongs, "
             "then name the source page. If that page has none, look for one on another reliable page about the same fact. Never write a picture address "
             "yourself, never show a picture you did not fetch, and never show one that has nothing to do with the point.")
-    if charts in CHART_RULES:
-        parts.append(
-            f"Diagrams: {CHART_RULES[charts]} Write a diagram as a fenced block with the language mermaid (flowchart TD, sequenceDiagram, stateDiagram-v2, classDiagram, "
+
+
+def _diagrams_paragraph(charts: str) -> str:
+    if charts not in CHART_RULES:
+        return ""
+    return (f"Diagrams: {CHART_RULES[charts]} Write a diagram as a fenced block with the language mermaid (flowchart TD, sequenceDiagram, stateDiagram-v2, classDiagram, "
             "erDiagram, gantt, pie, mindmap, timeline), put quotes around any label with punctuation, keep labels short, use no HTML (no <br/>), and add one line before it "
             "saying what it shows. In a mindmap each node is plain text on its own indented line, with no quotes and no id before it; when unsure of a kind's syntax, use a "
             "flowchart. The page draws it; the person can open its source.")
-    return "\n\n".join(parts)
+
+
+def guidance(images: str, charts: str) -> str:
+    """The paragraph added to the instructions for what the person wants of pictures and diagrams; empty when both are off."""
+    return "\n\n".join(p for p in (_pictures_paragraph(images), _diagrams_paragraph(charts)) if p)
+
+
+def change_note(images: str, charts: str) -> str:
+    """What the conversation is told when the person changes the pictures or diagrams level while it runs: the rules in force now, or that a kind is off."""
+    return ("[harness] The person changed what they want of pictures and diagrams. From now on:\n"
+            + (_pictures_paragraph(images) or "Pictures from the web: off. Do not call page_images or show_image, and do not show pictures.") + "\n\n"
+            + (_diagrams_paragraph(charts) or "Diagrams: off. Do not write mermaid diagrams unless the person asks for one."))

@@ -151,8 +151,8 @@ const chatSettings = (() => {
   const threshold = () => { const v = Number(read().threshold); return Number.isFinite(v) && v >= 30 && v <= 100 ? v / 100 : 0.8; };
   const autoContinue = () => { const v = read().auto_continue, n = v === "" ? AUTO_CONTINUE : Number(v); return Number.isInteger(n) && n >= 0 && n <= 20 ? n : AUTO_CONTINUE; };
   const structured = () => { const f = read().format; return f === "json_object" || f === "json_schema"; };
-  /* what the Agent takes from the panel: the steps one answer may take (-1 or empty: no limit) and the end-of-turn bias (empty: off);
-     a field that is not valid is left out, so the server's own value stays */
+  /* what the Agent takes from the panel: the steps one answer may take (-1 or empty: no limit), the end-of-turn bias (empty: off), the temperature
+     and the most a reply may write (empty, 0 or -1: the model's own, no limit); a field that is not valid is left out, so the server's own value stays */
   function live() {
     const s = read(), out = {};
     const steps = OTHER.find(f => f.key === "max_turns"), bias = SAMPLING.find(f => f.key === "end_turn_bias");
@@ -160,6 +160,11 @@ const chatSettings = (() => {
     else if (!problem(steps, s.max_turns)) out.max_turns = Number(s.max_turns);
     if (s.end_turn_bias === "") out.end_turn_bias = 0;
     else if (!problem(bias, s.end_turn_bias)) out.end_turn_bias = Number(s.end_turn_bias);
+    const temp = SAMPLING.find(f => f.key === "temperature"), room = OTHER.find(f => f.key === "max_tokens");
+    if (s.temperature === "") out.temperature = null;
+    else if (!problem(temp, s.temperature)) out.temperature = Number(s.temperature);
+    if (s.max_tokens === "") out.max_tokens = null;
+    else if (!problem(room, s.max_tokens)) out.max_tokens = Number(s.max_tokens) >= 1 ? Number(s.max_tokens) : null;
     return out;
   }
 
