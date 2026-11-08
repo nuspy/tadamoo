@@ -1707,6 +1707,95 @@ class SessionManager:
         return {**written, "skill": {"name": str(name or "")[:60], "description": str(description or "")[:500],
                                      "params": [{k: p[k] for k in keep if k in p} for p in params], "source": {"conversation": sid, "requests": sorted(set(turns))}}}
 
+    # -- a plan that ran well, made into a personal skill ---------------------------------------------------------------
+
+    def _plan_skill_source(self, plan: Dict[str, Any], plan_id: str) -> Dict[str, Any]:
+        """What a skill is made from for a plan that ended well: the steps of the plan, the tool calls the model made for each in the conversation
+        that ran it (the latest one that did), and which steps have none."""
+        from tadamoo.personal_skills import from_plan
+        if not isinstance(plan, dict) or not from_plan.finished(plan):
+            raise RunError("Only a plan whose steps all ended well can become a script.", "not_finished")
+        with self._lock:
+            ordered = sorted(self.records, key=lambda r: r.get("updated", 0), reverse=True)
+        sid, messages = "", []
+        for rec in ordered:
+            data = self._read_history(rec["id"])
+            if data is None:
+                continue
+            found = self._transcript(rec["id"], data)
+            if from_plan.has_run(found, plan_id):
+                sid, messages = rec["id"], found
+                break
+        return {**from_plan.build(plan, messages, plan_id), "session": sid}
+
+    def plan_skill_propose(self, plan: Dict[str, Any], plan_id: str) -> Dict[str, Any]:
+        """The first step: the values that probably change, named and explained, and for each step of the plan where its work comes from."""
+        from tadamoo.client import TadamooError
+        from tadamoo.personal_skills import distill, from_plan
+        src = self._plan_skill_source(plan, plan_id)
+        try:
+            proposal = distill.propose(self._skill_client(), src["requests"], src["steps"])
+        except TadamooError as exc:
+            raise RunError(f"The model could not be reached: {exc}", "model") from None
+        params = from_plan.merge_params(proposal.get("params") or [], from_plan.input_params(plan))
+        return {**proposal, "name": proposal.get("name") or str(plan.get("title") or "")[:60], "params": params,
+                "requests": [{"n": r["n"], "raw": r["raw"]} for r in src["requests"]], "coverage": src["coverage"], "session": src["session"]}
+
+    def plan_skill_fill(self, plan: Dict[str, Any], plan_id: str, node_ids: Any) -> Dict[str, Any]:
+        """For the steps with no recorded work: the calls the model would make, to be approved by the person one step at a time."""
+        from tadamoo.client import TadamooError
+        from tadamoo.personal_skills import from_plan
+        src = self._plan_skill_source(plan, plan_id)
+        wanted = [row for row in src["coverage"] if row["how"] == "missing" and (not isinstance(node_ids, list) or row["id"] in node_ids)]
+        try:
+            from tadamoo.tools import create_standard_tool_registry
+            names = sorted(create_standard_tool_registry().names())
+        except Exception:                                          # the tools are not known here: any name the model gives is shown for the person to judge
+            names = []
+        out: Dict[str, Any] = {}
+        for row in wanted:
+            try:
+                resp = self._skill_client().chat_completion(messages=from_plan.missing_prompt(plan["nodes"][row["id"]], src["outline"], names), temperature=0.0,
+                                                           extra={"reasoning_effort": "none"}, timeout=300.0)
+            except TadamooError as exc:
+                raise RunError(f"The model could not be reached: {exc}", "model") from None
+            text = ((resp.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+            out[row["id"]] = from_plan.parse_missing(text, names)
+        return {"proposed": out}
+
+    def plan_skill_chat(self, plan: Dict[str, Any], plan_id: str, params: Any, message: Any) -> Dict[str, Any]:
+        """One turn of the talk with the model about which values are parameters: what it says and the list after the change."""
+        from tadamoo.personal_skills import distill, from_plan
+        if not isinstance(params, list) or len(params) > 20 or any(not isinstance(p, dict) for p in params) or not isinstance(message, str) or not message.strip():
+            raise RunError("Send the parameters as they are now and what to change.", "bad_params")
+        src = self._plan_skill_source(plan, plan_id)
+        return from_plan.apply_chat(self._skill_client(), params, message, src["outline"], distill.evidence_text(src["requests"], src["steps"]))
+
+    def plan_skill_script(self, plan: Dict[str, Any], plan_id: str, name: Any, description: Any, params: Any, approved: Any) -> Dict[str, Any]:
+        """The second step: the Python script, written from the plan, the recorded calls, the calls the person approved for the steps with none, and the
+        parameters they kept. Every step with no recorded work must be approved or left to the model (an empty list)."""
+        from tadamoo.client import TadamooError
+        from tadamoo.personal_skills import distill, from_plan
+        from tadamoo.personal_skills.values import check_spec
+        if not isinstance(params, list) or len(params) > 20 or any(not isinstance(p, dict) for p in params):
+            raise RunError("Send the parameters you kept.", "bad_params")
+        for p in params:
+            problems = check_spec(p)
+            if problems:
+                raise RunError("; ".join(problems), "bad_params")
+        src = self._plan_skill_source(plan, plan_id)
+        open_steps = [row["id"] for row in src["coverage"] if row["how"] == "missing" and not (isinstance(approved, dict) and isinstance(approved.get(row["id"]), list))]
+        if open_steps:
+            raise RunError("These steps have no recorded work: approve what each one does, or leave it to the model: " + ", ".join(open_steps), "missing_steps")
+        steps = from_plan.add_approved(src["steps"], src["coverage"], approved)
+        try:
+            written = distill.write_script(self._skill_client(), str(name or "")[:60], str(description or "")[:500], params, src["requests"], steps, plan=src["outline"])
+        except TadamooError as exc:
+            raise RunError(f"The model could not be reached: {exc}", "model") from None
+        keep = ("name", "label", "explanation", "type", "default", "required", "choices", "item_type", "format")
+        return {**written, "skill": {"name": str(name or "")[:60], "description": str(description or "")[:500], "params": [{k: p[k] for k in keep if k in p} for p in params],
+                                     "source": {"plan": plan_id, **({"conversation": src["session"]} if src["session"] else {})}}}
+
     def run_skill(self, sid: str, slug: Any, values: Any = None) -> Dict[str, Any]:
         """Runs one of the person's skills in this conversation with the values they gave (a date in words is worked out now; a value left out is the
         default, else the last one used, else it is told to the model as missing). Nothing asks before it runs: its tool calls are
