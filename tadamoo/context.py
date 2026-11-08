@@ -16,7 +16,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from tadamoo import codeblocks, untrusted
 
-PIN_ORDER = ("system_core", "self", "discipline", "environment", "project_rules", "operating_rules", "knowledge", "user_profile", "vault", "active_skills", "capabilities", "visuals", "files")
+PIN_ORDER = ("system_core", "self", "persona", "discipline", "environment", "project_rules", "operating_rules", "knowledge", "user_profile", "vault", "active_skills", "capabilities", "visuals", "files")
 INTERNAL_KEYS = ("pinned", "pin_category", "masked", "stripped", "note", "summary", "ts", "raw", "opt", "explain", "skipped", "untrusted", "compaction", "compacted", "code")
 ERROR_LINE = re.compile(
     r"(error|exception|traceback|fatal|panic|failed|failure|assertion|segmentation fault|stack trace)"
@@ -474,7 +474,7 @@ class ContextBuilder:
         self.memories = list(memories)
 
     def assemble_system_message(self) -> str:
-        titles = {"self": "# About yourself", "discipline": "# Working rules", "environment": "# Environment", "project_rules": "# Project Rules & Guidelines", "operating_rules": "# Operating rules (they hold for the whole task and are never folded away)", "knowledge": "# Reference Material", "user_profile": "# User Profile",
+        titles = {"self": "# About yourself", "persona": "# Personality", "discipline": "# Working rules", "environment": "# Environment", "project_rules": "# Project Rules & Guidelines", "operating_rules": "# Operating rules (they hold for the whole task and are never folded away)", "knowledge": "# Reference Material", "user_profile": "# User Profile",
                   "vault": "# Vault", "active_skills": "# Available Skills", "capabilities": "# Capabilities", "visuals": "# Pictures and diagrams", "files": "# Files for the person"}
         sections = [self.blocks["system_core"]]
         for category in PIN_ORDER[1:]:
