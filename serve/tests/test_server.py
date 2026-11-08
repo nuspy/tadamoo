@@ -2770,6 +2770,35 @@ class ThinkingBudget(unittest.TestCase):
         extra = self.tok.encode(REASONING_CLOSE, parse_special=True)
         self.assertEqual(second, first + self.tok.encode("Let me see. " + "0" * 256) + extra)
 
+    PASSAGE = "Wait, let me check the sum again: two and two make four. "
+
+    def test_a_passage_written_again_and_again_in_the_thinking_ends_it_at_its_first_copy(self):
+        """5 copies of a 30-token passage within 3000: the thinking is closed after the first copy and the others are not in what the answer reads."""
+        from serve.service import REASONING_CLOSE
+        self.svc.think_ngram = (30, 5, 3000)
+        self.engine.THOUGHT = "First I read the question\n" + self.PASSAGE * 8
+        code, b = self.openai(max_tokens=3000)
+        self.assertEqual(code, 200, b)
+        msg = b["choices"][0]["message"]
+        self.assertEqual(msg["content"], ThinkingEngine.ANSWER)
+        self.assertEqual(b["choices"][0]["finish_reason"], "stop")
+        first, second = self.engine.prompts
+        kept = self.tok.encode("First I read the question\n" + self.PASSAGE)
+        extra = self.tok.encode(REASONING_CLOSE, parse_special=True)
+        self.assertEqual(second, first + kept + extra)                                   # the copies after the first are left out
+
+    def test_a_thinking_without_a_loop_or_with_the_check_off_is_left_alone(self):
+        self.svc.think_ngram = (30, 5, 3000)
+        self.engine.THOUGHT = "First I read the question\n" + self.PASSAGE * 3 + "So the answer is four."
+        code, b = self.openai(max_tokens=3000)
+        self.assertEqual(code, 200, b)
+        self.assertEqual(b["choices"][0]["message"]["reasoning_content"], self.engine.THOUGHT)
+        self.assertEqual(len(self.engine.prompts), 1)
+        self.svc.think_ngram = None
+        self.engine.THOUGHT = "First I read the question\n" + self.PASSAGE * 8
+        code, b = self.openai(max_tokens=3000)
+        self.assertEqual(b["choices"][0]["message"]["reasoning_content"], self.engine.THOUGHT)
+
     def test_a_shorter_run_in_the_thinking_and_any_run_in_the_answer_stay(self):
         self.engine.THOUGHT = "Let me see. " + "0" * 255 + "1" + "0" * 255
         self.engine.ANSWER = "0" * 600

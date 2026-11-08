@@ -58,7 +58,10 @@ def settings_info(a, words: list[str], argv: list[str]) -> dict:
                "server.passage-loop-tokens": getattr(a, "passage_loop_tokens", 12),
                "server.passage-loop-times": getattr(a, "passage_loop_times", 4),
                "server.passage-loop-window": getattr(a, "passage_loop_window", 2000),
-               "server.measure-length": bool(getattr(a, "measure_length", True))}
+               "server.measure-length": bool(getattr(a, "measure_length", True)),
+               "server.thinking-passage-loop-tokens": getattr(a, "thinking_passage_loop_tokens", 30),
+               "server.thinking-passage-loop-times": getattr(a, "thinking_passage_loop_times", 5),
+               "server.thinking-passage-loop-window": getattr(a, "thinking_passage_loop_window", 3000)}
     for name in ("max-context", "kv", "spec", "relaxed-drafting", "expert-cache", "prefill", "resident-experts",
                  "vram-reserve-mib", "ple-io", "pool-workers", "kv-resident", "resident-budget-gib", "mmap-experts",
                  "adapt-swaps", "prefill-cpu-share", "vram-elastic", "keep-vram-commit", "expert-profile-save",

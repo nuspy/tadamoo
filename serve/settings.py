@@ -47,6 +47,7 @@ LOADER_FIELDS = (("server", "port"), ("server", "parallel"), ("server", "slot-fu
                  # what ends or limits the thinking and the answer
                  ("server", "answer-room"), ("server", "thinking-loop-tokens"), ("server", "max-answer-tokens"),
                  ("server", "passage-loop-tokens"), ("server", "passage-loop-times"), ("server", "passage-loop-window"),
+                 ("server", "thinking-passage-loop-tokens"), ("server", "thinking-passage-loop-times"), ("server", "thinking-passage-loop-window"),
                  ("server", "measure-length"))
 # the secret of the changes through /api/*: its own route, never part of the values the pages read back
 CONTROL_FIELDS = (("server", "control-secret"), ("server", "control-secret-value"))
@@ -222,7 +223,8 @@ def check_value(section: str, key: str, value):
     if key == "prompt-cache":
         return _whole(value, what, 0, PROMPT_CACHE_MAX)
     if key in ("prompt-cache-every", "prompt-cache-root", "reasoning-budget-tokens", "thinking-loop-tokens", "max-answer-tokens",
-               "passage-loop-tokens", "passage-loop-times", "passage-loop-window"):
+               "passage-loop-tokens", "passage-loop-times", "passage-loop-window",
+               "thinking-passage-loop-tokens", "thinking-passage-loop-times", "thinking-passage-loop-window"):
         return _whole(value, what, 0, CONTEXT_MAX)
     if key in ("conversation-cache-mib", "conversation-cache-min-free-mib"):
         return _whole(value, what, 0, CACHE_MIB_MAX)
