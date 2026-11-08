@@ -86,6 +86,7 @@
       { label: T("pal.set.lessons"), group: T("pal.g.settings"), run: settingsAt("ls-h", "memories") },
       { label: T("pal.set.websearch"), group: T("pal.g.settings"), run: settingsAt("ws-h", "websearch") },
       { label: T("pal.set.voice"), group: T("pal.g.settings"), run: settingsAt("vo-h", "voice") },
+      { label: T("pal.set.telegram"), group: T("pal.g.settings"), run: settingsAt("tgm-h", "voice") },
       { label: T("pal.set.bench"), group: T("pal.g.settings"), run: settingsAt("bn-h", "benchmarks") },
       { label: T("pal.set.prompt"), group: T("pal.g.settings"), run: settingsAt("ps-h", "inference") },
       { label: T("pal.addr"), group: T("pal.g.actions"), run: async () => { try { await navigator.clipboard.writeText(location.origin + "/"); } catch (e) { /* the clipboard may be blocked */ } } },
