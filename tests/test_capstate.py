@@ -20,7 +20,7 @@ def agent(effort="", level=PermissionLevel.AUTO, plan_mode=False, steps=40, tool
 
 def test_read_gives_plain_values():
     state = capstate.read(agent("high", PermissionLevel.AUTO, True, 0, ("session_send",)), window=32768, unattended=True)
-    assert state == {"window": 32768, "effort": "high", "level": "auto", "plan_mode": True, "unattended": True, "steps": "unlimited", "orchestration": True, "long_answer": "off"}
+    assert state == {"window": 32768, "effort": "high", "level": "auto", "plan_mode": True, "unattended": True, "steps": "unlimited", "max_tokens": "the server's own", "orchestration": True, "long_answer": "off"}
     assert capstate.read(agent(), window=1000, unattended=False)["effort"] == "default"
 
 
@@ -65,3 +65,13 @@ def test_the_note_names_long_answer_only_when_it_changes():
     assert "long_answer=off" in teller.note(base)
     assert teller.note(base) == ""
     assert teller.note({**base, "long_answer": "on (write)"}) == "[state] long_answer=on (write)"
+
+
+def test_the_most_a_reply_may_write_is_told_when_it_changes():
+    a = agent("low")
+    teller = capstate.Teller({"window": 8192})
+    teller.note(capstate.read(a, window=8192, unattended=False))
+    a.max_tokens = 4000
+    assert teller.note(capstate.read(a, window=8192, unattended=False)) == "[state] max_tokens=4000"
+    a.max_tokens = None
+    assert teller.note(capstate.read(a, window=8192, unattended=False)) == "[state] max_tokens=the server's own"

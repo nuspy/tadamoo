@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-FIELDS = ("window", "effort", "level", "plan_mode", "unattended", "steps", "orchestration", "long_answer")
+FIELDS = ("window", "effort", "level", "plan_mode", "unattended", "steps", "max_tokens", "orchestration", "long_answer")
 PROMPT_TOLD = ("window",)         # the fixed block already states these when the session is built
 
 
@@ -42,6 +42,7 @@ def read(agent: Any, *, window: int, unattended: bool) -> Dict[str, Any]:
         "plan_mode": bool(getattr(perms, "plan_mode", False)),
         "unattended": bool(unattended),
         "steps": steps if steps > 0 else "unlimited",
+        "max_tokens": getattr(agent, "max_tokens", None) or "the server's own",
         "orchestration": bool(tools is not None and tools.get("session_send") is not None),
         "long_answer": long_answer(getattr(agent, "incoming", "")),
     }

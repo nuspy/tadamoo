@@ -298,7 +298,7 @@
     forget();
     const h = await api("GET", `/${id}/history`);
     if (!h.ok) { status(errText(h)); return; }
-    sid = id; keep(lastKey(), id); rec = h.json.session; state = rec.state; conversationChanged();
+    sid = id; keep(lastKey(), id); rec = h.json.session; state = rec.state; conversationChanged(); visFromConversation();
     if (inAgent() && rec.workspace && projects.some(x => sameDir(x.path, rec.workspace))) setProject(rec.workspace);
     if (typeof rec.effort === "string") effortSel.value = rec.effort;
     fromHistory(h.json.messages || []);
@@ -396,11 +396,20 @@
       case "role": if (rec) rec.role = e.role; noteItem({ s: T("cd.role.now", T("cd.role." + e.role)) }); setControls(); break;
       case "checks": noteItem({ s: T("cd.checks.now", e.safe) }); break;
       case "effort": if (rec) rec.effort = e.level; noteItem({ s: T("ch.effort.now", effortName(e.level)) }); break;
+      case "visuals":
+        if (rec) { rec.images = e.images; rec.charts = e.charts; }
+        noteItem({ s: T("ch.vis.now", e.images ? T("vis.level." + e.images) : T("vis.off"), e.charts ? T("vis.level." + e.charts) : T("vis.off")) });
+        paintVisNow();
+        break;
       case "settings":
         if (rec && "max_turns" in e) rec.max_turns = e.max_turns;
         if (rec && "end_turn_bias" in e) rec.end_turn_bias = e.end_turn_bias;
+        if (rec && "temperature" in e) rec.temperature = e.temperature;
+        if (rec && "max_tokens" in e) rec.max_tokens = e.max_tokens;
         if ("max_turns" in e) noteItem({ s: T("ch.settings.steps", e.max_turns > 0 ? e.max_turns : T("cs.live.none")) });
         if ("end_turn_bias" in e) noteItem({ s: T("ch.settings.bias", e.end_turn_bias || 0) });
+        if ("temperature" in e) noteItem({ s: T("ch.settings.temp", e.temperature == null ? T("ch.settings.model") : e.temperature) });
+        if ("max_tokens" in e) noteItem({ s: T("ch.settings.room", e.max_tokens == null ? T("ch.settings.model") : e.max_tokens) });
         paintLive();
         break;
       case "command": document.dispatchEvent(new CustomEvent("tadamoo:command", { detail: e })); break;
@@ -1232,6 +1241,25 @@
     sync();
   })();
   const visuals = () => ({ images: vis.imgOn.checked ? vis.imgLevel.value : "", charts: vis.chartOn.checked ? vis.chartLevel.value : "" });
+  /* a change of the boxes reaches the open conversation at once; one that is not open takes them when it starts */
+  let visTimer = 0;
+  function visFromConversation() {                                     // the boxes show what the open conversation has, so one change never overwrites the other kind
+    if (!rec) return;
+    vis.imgOn.checked = !!rec.images; vis.chartOn.checked = !!rec.charts;
+    if (rec.images) vis.imgLevel.value = rec.images;
+    if (rec.charts) vis.chartLevel.value = rec.charts;
+    vis.imgLevel.disabled = !vis.imgOn.checked; vis.chartLevel.disabled = !vis.chartOn.checked;
+  }
+  Object.values(vis).forEach(e => e.addEventListener("change", () => {
+    clearTimeout(visTimer);
+    visTimer = setTimeout(async () => {
+      if (!active() || !sid || !rec) return;
+      const now = visuals();
+      if (now.images === (rec.images || "") && now.charts === (rec.charts || "")) return;
+      const r = await api("POST", `/${sid}/visuals`, now);
+      if (r.ok) { rec = r.json.session; paintVisNow(); } else status(errText(r));
+    }, 400);
+  }));
   const copyMode = () => "auto";                              // the page does not offer a choice: a copy is made only when the server finds another conversation in the same git folder
   let copyShown = false;
   const kindText = s => T("wc." + (["added", "deleted"].includes(s) ? s : "modified"));
@@ -1310,6 +1338,9 @@
     const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath(), ...(window.codingUi ? { role: window.codingUi.role() } : {}) } : {}), mode: permMode(), allow: allowRules(), ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), ...chatSettings.live(), worktree: copyMode(), ...visuals(), ...(window.privacy && window.privacy.pending() ? { private: true } : {}) });
     if (!r.ok) { status(errText(r)); return false; }
     sid = r.json.session.id; rec = r.json.session; keep(lastKey(), sid); after = 0; conversationChanged(true);
+    const sampling = chatSettings.live();                                      // what the create call does not carry
+    const first = {}; ["temperature", "max_tokens"].forEach(k => { if (sampling[k] != null) first[k] = sampling[k]; });
+    if (Object.keys(first).length) { const t = await api("POST", `/${sid}/settings`, first); if (t.ok) rec = t.json.session; }
     await refreshList();
     return true;
   }

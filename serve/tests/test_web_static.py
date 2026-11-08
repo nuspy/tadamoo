@@ -588,3 +588,36 @@ class DiagramAndRuleOfTwoCardTest(unittest.TestCase):
         self.assertIn("b.instructions || b.hook || b.rule_of_two", card)
         self.assertIn('o.value === "two_off" ? T("ch.twooff")', card)
         self.assertEqual((WEB / "i18n.js").read_text(encoding="utf-8").count('"ch.twooff":'), 2)
+
+
+class LiveVisualsTest(unittest.TestCase):
+    """The pictures and diagrams boxes reach the open conversation at once, and the boxes show what that conversation has."""
+
+    def test_a_change_of_a_box_is_sent_to_the_open_conversation(self):
+        js = (WEB / "agentchat.js").read_text(encoding="utf-8")
+        self.assertIn("`/${sid}/visuals`", js)
+        self.assertIn("function visFromConversation()", js)
+        self.assertIn('case "visuals":', js)
+        text = (WEB / "i18n.js").read_text(encoding="utf-8")
+        self.assertEqual(text.count('"ch.vis.now":'), 2)
+        self.assertNotIn("next new conversation", text[text.index('"vis.help"'):text.index('"vis.help"') + 400])
+
+
+class LiveSamplingAndDiagramRepairTest(unittest.TestCase):
+    def test_the_temperature_and_the_reply_limit_reach_the_open_conversation(self):
+        chatset = (WEB / "chatset.js").read_text(encoding="utf-8")
+        live = chatset[chatset.index("function live()"):chatset.index("/* presets: the server's")]
+        self.assertIn("out.temperature", live)
+        self.assertIn("out.max_tokens", live)
+        agent = (WEB / "agentchat.js").read_text(encoding="utf-8")
+        self.assertIn('"temperature" in e', agent)
+        text = (WEB / "i18n.js").read_text(encoding="utf-8")
+        for key in ("ch.settings.temp", "ch.settings.room", "ch.settings.model", "mmd.fixing"):
+            self.assertEqual(text.count(f'"{key}":'), 2, key)
+
+    def test_a_diagram_that_cannot_be_drawn_is_repaired_before_the_person_sees_an_error(self):
+        chat = (WEB / "chat.js").read_text(encoding="utf-8")
+        self.assertIn('"api/diagram/fix"', chat)
+        self.assertIn("const TRIES = 2", chat.replace("MAX_FIXES = 60, TRIES = 2", "const TRIES = 2"))
+        self.assertIn("gaveUp", chat)
+        self.assertIn("keepFix(original, code)", chat)
