@@ -211,6 +211,7 @@ def info(svc, lang: str = "en") -> dict:
                       "warn_mib": loader.RESERVE_WARN_MIB, "vram_total": system.get("vram_total")}
     out["machine"] = loader.machine_settings()
     out["free_share"] = loader.free_share()
+    out["length"] = svc.lengths.summary() if getattr(svc, "lengths", None) is not None else {"known": False}
     runs = loader.read_calibrations(sup.facts)["runs"]
     out["calibrations"] = sorted(({"at": r.get("at"), "fingerprint": fp, "decode_off": r.get("decode_off"),
                                    "decode_on": r.get("decode_on"), "prefill": r.get("prefill"), "mock": r.get("mock")}

@@ -133,6 +133,8 @@ class Service:
         self.reasoning_budget_tokens = 0                 # default thinking budget (0: none)
         self.repeat_ngram = REPEAT_NGRAM                 # see REPEAT_NGRAM
         self.max_answer_tokens = 0                       # default cap on the answer text, apart from the thinking (0: none)
+        self.lengths = None                              # serve.lengthprobe.Lengths: how long a reply this model writes well
+        self.measure_length = True                       # measure it at the model's first load
         self.answer_room = True                          # reserve output space when thinking
         self.thinking_loop_tokens = 256                  # one token repeated this often in the thinking ends it (0: off)
         self.anthropic_think_unasked = True               # "anthropic_thinking": "on_request" -> False
@@ -202,6 +204,23 @@ class Service:
         if isinstance(value, bool) or not isinstance(value, int):
             raise ValueError(f"reasoning_budget_tokens: expected a whole number (0 = none), not {value!r}")
         return value if value > 0 else None
+
+    def apply_limits(self, a) -> None:
+        """The limits of the thinking and the answer from the parsed options (the start, and a reload from the Loader)."""
+        budget = getattr(a, "reasoning_budget_tokens", None)
+        if budget is None or isinstance(budget, int):
+            self.reasoning_budget_tokens = budget or 0
+        if isinstance(getattr(a, "answer_room", None), bool):
+            self.answer_room = a.answer_room
+        for name in ("thinking_loop_tokens", "max_answer_tokens"):
+            value = getattr(a, name, None)
+            if isinstance(value, int) and not isinstance(value, bool):
+                setattr(self, name, value)
+        if isinstance(getattr(a, "measure_length", None), bool):
+            self.measure_length = a.measure_length
+        n, times, window = (getattr(a, "passage_loop_" + k, None) for k in ("tokens", "times", "window"))
+        if all(isinstance(v, int) and not isinstance(v, bool) for v in (n, times, window)):
+            self.repeat_ngram = (n, times, window) if n > 0 and times > 0 and window > 0 else None
 
     def answer_cap(self, req) -> int:
         """The request's `max_answer_tokens`: the most the answer text may take, not counting the thinking (0: none); ValueError for a
@@ -791,6 +810,7 @@ class Service:
                             "requested": self.slot_stats()["conversations"],
                             "side_slot": self.side_slot_info()},
             "dialects": ["/v1/chat/completions", "/v1/messages", "/v1/responses"],
+            "length": self.lengths.summary() if self.lengths is not None else {"known": False},
             "vision": {"enabled": images, "available": images, "error": None},
             "activity": {"requests": self.requests_done + int(busy), "in_flight": int(busy) + int(s.get("queued") or 0),
                          "last_request_at": int(last_at) if last_at else None},
@@ -1346,6 +1366,8 @@ class Service:
             self._count_side(sampling, done, time.time() - t_run)
         if trace is not None:
             trace.run_done(done)
+        if self.lengths is not None:
+            self.lengths.note(done)                     # a reply that ended well above the known length raises it
         yield "done", done
 
 

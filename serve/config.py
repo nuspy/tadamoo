@@ -533,10 +533,21 @@ def build_parser() -> argparse.ArgumentParser:
                     help="default thinking budget for requests that leave reasoning_budget_tokens out (0 = none): at "
                          "the budget the thinking is closed and the answer starts, so set it below the request's "
                          "max_tokens")
-    ap.add_argument("--thinking-loop-tokens", type=budget_count, default=256, metavar="N",
+    ap.add_argument("--thinking-loop-tokens", type=budget_count, default=0, metavar="N",
                     help="end the thinking and let the model answer when it repeats one token this many times in a "
-                         "row inside the thinking (0 = never)")
-    ap.add_argument("--answer-room", action=argparse.BooleanOptionalAction, default=True,
-                    help="reserve space for closing the thinking and the answer when the output cap is at least 1024 tokens; "
-                         "an explicit request budget of 0 opts out")
+                         "row inside the thinking (default 0 = never; the thinking is never cut otherwise)")
+    ap.add_argument("--answer-room", action=argparse.BooleanOptionalAction, default=False,
+                    help="reserve space for closing the thinking and the answer when the output cap is at least 1024 tokens, "
+                         "which cuts a long thinking short (default off); an explicit request budget of 0 opts out")
+    ap.add_argument("--max-answer-tokens", type=budget_count, default=0, metavar="N",
+                    help="the most the answer text may take, not counting the thinking, for requests that leave "
+                         "max_answer_tokens out (0 = none); the reply then ends as cut")
+    ap.add_argument("--measure-length", action=argparse.BooleanOptionalAction, default=True,
+                    help="measure once, when a model is first loaded, how long a reply it writes by itself (a chapter and a book, "
+                         "with the thinking off) and keep it with the model; a reply above it raises the number. Takes minutes of GPU")
+    ap.add_argument("--passage-loop-tokens", type=budget_count, default=12, metavar="N",
+                    help="end an answer that writes the same passage of this many tokens again and again (0 = never); "
+                         "a passage counts as a loop at --passage-loop-times repeats within --passage-loop-window tokens")
+    ap.add_argument("--passage-loop-times", type=budget_count, default=4, metavar="N", help="repeats of a passage that make a loop")
+    ap.add_argument("--passage-loop-window", type=budget_count, default=2000, metavar="N", help="tokens a loop is looked for in")
     return ap
