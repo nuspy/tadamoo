@@ -452,9 +452,38 @@ def test_a_thinking_that_used_the_whole_output_is_rescued_by_writing_the_text_in
     assert [p["event"] for p in ev.progress()][0] == "estimate"
 
 
-def test_a_rescue_is_not_made_when_the_estimate_says_it_is_short_and_not_after_tool_work(tmp_path):
-    model = Measured(empty(), empty(), estimate=900)
+def test_a_short_text_is_asked_again_at_a_lower_thinking_level_after_the_parts_were_not_needed(tmp_path):
+    model = Measured(empty(), say("Eccola."), estimate=900)
     session, ev, built = session_with(tmp_path, model, unattended=True)
     session.send("m1", "Explain how rivers shape the valleys they cross")
     done = ev.wait("done")
-    assert done["stop_reason"] == al.EMPTY and ev.progress()[0]["long"] is False
+    assert done["final"] == "Eccola." and ev.progress()[0]["long"] is False                  # the parts came first, the estimate said short
+    assert len(model.agent_calls) == 2 and "Think very briefly" in str(model.agent_calls[1][-1]["content"])
+
+
+def test_with_the_switch_off_the_thinking_is_left_as_it_is_and_the_answer_stays_empty(tmp_path):
+    model = Measured(empty(), estimate=900)
+    session, ev, built = session_with(tmp_path, model, unattended=True)
+    built.agent.empty_retry = False
+    session.send("m1", "Explain how rivers shape the valleys they cross")
+    done = ev.wait("done")
+    assert done["stop_reason"] == al.EMPTY and len(model.agent_calls) == 1
+
+
+def test_the_switch_off_does_not_stop_the_parts_for_a_long_text(tmp_path):
+    model = Measured(empty())
+    session, ev, built = session_with(tmp_path, model, unattended=True)
+    built.agent.empty_retry = False
+    session.send("m1", "Explain how rivers shape the valleys they cross")
+    done = ev.wait("done")
+    assert done["stop_reason"] == al.FINAL and done["final"].count("Opening paragraph of chapter") == 3 and len(model.agent_calls) == 1
+
+
+def test_where_the_parts_cannot_be_made_an_empty_answer_goes_straight_to_the_lower_level(tmp_path):
+    """No parts for a conversation that only asks: the second try at a lower level is the way."""
+    model = Measured(empty(), say("Fatto."))
+    session, ev, built = session_with(tmp_path, model, unattended=True, )
+    session.ask_only = True
+    session.send("m1", "Explain how rivers shape the valleys they cross")
+    done = ev.wait("done")
+    assert done["final"] == "Fatto." and model.calls == [] and len(model.agent_calls) == 2
