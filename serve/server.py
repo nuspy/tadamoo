@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # also runnable as a script
-from serve import ROOT, loader, loader_api, model_list, service, settings, supervisor  # noqa: E402
+from serve import ROOT, lengthprobe, loader, loader_api, model_list, service, settings, supervisor  # noqa: E402
 from serve.config import (RELAUNCH_EXIT_CODE, build_parser, check_engine_flags, engine_flags_of,  # noqa: E402
                           engine_line, grammar_words, parse_settings, sampling_defaults_from_config, sampling_line)
 from serve.control import write_control_token  # noqa: E402
@@ -262,9 +262,8 @@ def main() -> int:
         return 2
     svc.idle_unload_s = a.idle_unload or 0
     svc.min_free_vram_mib = a.min_free_vram_mib or 0
-    svc.reasoning_budget_tokens = a.reasoning_budget_tokens or 0
-    svc.answer_room = a.answer_room
-    svc.thinking_loop_tokens = a.thinking_loop_tokens
+    svc.apply_limits(a)
+    svc.lengths = lengthprobe.Lengths(lambda: svc.supervisor.facts)
     svc.gpu_indices = gpus_in_play(cfg, engine_args(cfg) if cfg.get("args") else [])   # the cards /metrics reads
     svc.gpu_index = svc.gpu_indices[0]
     svc.control_token = write_control_token(a.port, a.control_secret_value) if a.control_secret else ""
@@ -321,10 +320,7 @@ def main() -> int:
         measurement, when the wizard started this server with the model it measures)."""
         if loader_api.pending_measure(svc):
             return
-        sup = svc.supervisor
-        if sup.auto_calibrate and not loader.read_calibrations(sup.facts)["runs"]:
-            print("[server] first load of this model: measuring its speed for the Loader (Calibrate)", flush=True)
-            sup.calibrate()
+        svc.supervisor.after_load()                     # the model's lengths are read; the first calibration and length are measured
 
     if listen_first:
         print(f"[server] listening on http://{here}:{a.port}/ while the model loads (the Monitor shows Loading)",

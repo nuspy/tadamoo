@@ -10,7 +10,7 @@ import threading
 import time
 from pathlib import Path
 
-from serve import loader, settings
+from serve import lengthprobe, loader, settings
 from serve.config import build_parser, check_engine_flags, engine_flags_of, grammar_words, parse_settings, sampling_defaults_from_config, sampling_line
 from serve.engine.errors import EngineStartError
 from serve.engine.flags import flag_index, flag_value
@@ -51,7 +51,14 @@ def settings_info(a, words: list[str], argv: list[str]) -> dict:
                "server.slot-full-context": bool(a.slot_full_context),
                "server.side-slot": a.side_slot if isinstance(getattr(a, "side_slot", 0), int) else 0,
                "server.grammar": bool(getattr(a, "grammar", True)),
-               "server.reasoning-budget-tokens": getattr(a, "reasoning_budget_tokens", None)}
+               "server.reasoning-budget-tokens": getattr(a, "reasoning_budget_tokens", None),
+               "server.answer-room": bool(getattr(a, "answer_room", False)),
+               "server.thinking-loop-tokens": getattr(a, "thinking_loop_tokens", 0),
+               "server.max-answer-tokens": getattr(a, "max_answer_tokens", 0),
+               "server.passage-loop-tokens": getattr(a, "passage_loop_tokens", 12),
+               "server.passage-loop-times": getattr(a, "passage_loop_times", 4),
+               "server.passage-loop-window": getattr(a, "passage_loop_window", 2000),
+               "server.measure-length": bool(getattr(a, "measure_length", True))}
     for name in ("max-context", "kv", "spec", "relaxed-drafting", "expert-cache", "prefill", "resident-experts",
                  "vram-reserve-mib", "ple-io", "pool-workers", "kv-resident", "resident-budget-gib", "mmap-experts",
                  "adapt-swaps", "prefill-cpu-share", "vram-elastic", "keep-vram-commit", "expert-profile-save",
@@ -132,6 +139,7 @@ class Supervisor:
         self.state = {"phase": "idle", "job": None, "message": "", "started": None, "finished": None, "error": None,
                       "step": None}
         self.thread = None
+        self._length_stop = threading.Event()
 
     # ---- state
     def status(self) -> dict:
@@ -193,9 +201,7 @@ class Supervisor:
             svc.settings_info = settings_info(a, words, self.argv)
             if isinstance(getattr(a, "grammar", None), bool):                 # server options the engine reload applies
                 svc.grammar = a.grammar
-            budget = getattr(a, "reasoning_budget_tokens", None)
-            if budget is None or isinstance(budget, int):
-                svc.reasoning_budget_tokens = budget or 0
+            svc.apply_limits(a)
             svc.standby = False                          # the Loader loaded the model: requests may run now
         finally:
             svc.loading = False
@@ -215,8 +221,7 @@ class Supervisor:
             return
         self._set(phase="ready", finished=time.time())
         print(f"[server] engine reloaded: context {svc.engine.max_context} tokens", flush=True)
-        if self.auto_calibrate and not loader.read_calibrations(self.facts)["runs"]:
-            self.calibrate()                             # the first load of this model
+        self.after_load()
 
     def _reload_mock(self, a, words):
         self._set(phase="starting")
@@ -359,6 +364,112 @@ class Supervisor:
         except Exception as e:  # noqa: BLE001 - reported on the page and in the log
             self._set(phase="failed", error=f"calibration: {e}", finished=time.time(), step=None)
             print(f"[server] error: calibration failed: {e}", file=sys.stderr, flush=True)
+            return
+        self.first_length()                              # the first load of this model goes on to its length
+
+    # ---- the length of a reply this model writes
+    def after_load(self):
+        """The model has loaded: its record of lengths is read, and the first calibration, then the first length
+        measurement, run when the model has none of them."""
+        self.attach_lengths()
+        if self.auto_calibrate and not loader.read_calibrations(self.facts)["runs"]:
+            print("[server] first load of this model: measuring its speed for the Loader (Calibrate)", flush=True)
+            self.calibrate()
+        else:
+            self.first_length()
+
+    def attach_lengths(self):
+        lengths = getattr(self.svc, "lengths", None)
+        if lengths is not None:
+            lengths.attach()
+
+    def first_length(self):
+        """Measure the model's length once, when the setting is on and the model has no record."""
+        key = self.facts.get("meta_hash")
+        if self.mock or not key or not getattr(self.svc, "measure_length", True) or lengthprobe.read(key) is not None:
+            return
+        print("[server] first load of this model: measuring the length of a reply it writes (stop or repeat it from the Loader)", flush=True)
+        self.measure_length()
+
+    def measure_length(self, wait: bool = False) -> bool:
+        """Measure on a thread (or, chained from a calibration or a reload, on this one); False when a job is running."""
+        if self.thread is not None and self.thread is threading.current_thread():
+            with self.lock:
+                self.state.update(phase="waiting", job="length", started=time.time(), finished=None, error=None)
+            self._length_job()
+            return True
+        if not self._begin("length"):
+            return False
+        self.thread = threading.Thread(target=self._length_job, name="length", daemon=True)
+        self.thread.start()
+        if wait:
+            self.thread.join()
+        return True
+
+    def stop_length(self) -> bool:
+        busy = self.status().get("job") == "length" and self.busy()
+        if busy:
+            self._length_stop.set()
+        return busy
+
+    def _ask_length(self, prompt: str) -> dict:
+        from serve.frontend import openai_to_messages
+        svc = self.svc
+        req = {"messages": [{"role": "user", "content": prompt}], "reasoning_effort": "none", "temperature": 0.8, "top_p": 0.95}
+        messages, tools, kw = openai_to_messages(req)
+        svc.load()
+        ids, thinking, max_new = svc.prepare(messages, tools, kw, 0)
+        t0, text, done = time.time(), [], {}
+        for kind, x in svc.run(ids, thinking, tools, max_new, req, self._length_stop):
+            if kind == "event" and x.kind == "content":
+                text.append(x.text or "")
+            if kind == "done":
+                done = x
+        return {"text": "".join(text), "tokens": int(done.get("completion_tokens") or 0), "finish": done.get("finish") or "",
+                "repeated": bool(done.get("repeated")), "seconds": time.time() - t0}
+
+    def _length_job(self):
+        self._length_stop.clear()
+        self._set(phase="calibrating", job="length", step="length", message="")
+        try:
+            record = self._length_record()
+            self._set(phase="ready", finished=time.time(), step=None, message=json.dumps(self.svc.lengths.summary() if record else {}))
+        except Exception as e:  # noqa: BLE001 - reported on the page and in the log
+            self._set(phase="failed", error=f"length: {e}", finished=time.time(), step=None)
+            print(f"[server] error: the length measurement failed: {e}", file=sys.stderr, flush=True)
+
+    def _length_record(self):
+        svc, facts = self.svc, self.facts
+        key = facts.get("meta_hash")
+        if not key:
+            raise RuntimeError("this model has no file to keep the record with")
+        from serve import models
+        path = facts.get("path") or ""
+        model = lengthprobe.identity(facts, quant=models._quant(Path(path).stem, facts.get("name")) if path else None)
+        context = int(getattr(svc.engine, "max_context", 0) or 0)
+        engine = (getattr(svc.engine, "info", {}) or {}).get("version")
+        if getattr(svc, "lengths", None) is None:
+            svc.lengths = lengthprobe.Lengths(lambda: self.facts)
+
+        def keep(result):
+            record = lengthprobe.new_record(model, context, engine, result)
+            lengthprobe.write(key, record)
+            svc.lengths.set(record)
+            return record
+
+        def step(r, rungs):
+            keep({"rungs": rungs, "complete": False, "stopped_by": "running"})
+            self._set(message=f"{r['asked_words']} words asked, {r['words']} written, {r['tokens']} tokens")
+            print(f"[server] length: {r['asked_words']} words asked, {r['words']} written in {r['tokens']} tokens, {r['finish']}"
+                  f"{', looped' if r['looped'] else ''}", flush=True)
+
+        result = lengthprobe.measure(self._ask_length, self._length_stop, step)
+        if not result["rungs"]:
+            return None
+        record = keep(result)
+        print(f"[server] length saved to {lengthprobe.record_path(key)}: a reply of {record['reliable_tokens']} tokens "
+              f"({record['reliable_words']} words) is reliable", flush=True)
+        return record
 
     # ---- the configuration wizard's measurement
     def measure(self, values: dict, wait: bool = False) -> bool:

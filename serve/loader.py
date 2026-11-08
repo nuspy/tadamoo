@@ -82,7 +82,9 @@ ENGINE_DEFAULTS = {"engine.max-context": 4096, "engine.kv": "fp16", "engine.pref
                    "engine.conversation-cache-mib": 0, "engine.conversation-cache-slots": 4,
                    "engine.conversation-cache-min-free-mib": 2560,
                    "engine.rope-scaling": None, "engine.rope-scale": None, "engine.rope-freq-base": 0,
-                   "server.grammar": True, "server.reasoning-budget-tokens": 0}
+                   "server.grammar": True, "server.reasoning-budget-tokens": 0,
+                   "server.answer-room": False, "server.thinking-loop-tokens": 0, "server.max-answer-tokens": 0,
+                   "server.passage-loop-tokens": 12, "server.passage-loop-times": 4, "server.passage-loop-window": 2000, "server.measure-length": True}
 
 # "Valori sicuri" are computed from this PC and the model (safe()); SAFE is what that gives on one example PC (an RTX
 # 5090 with 32 GiB, 128 GiB of RAM, a processor with 8 performance and 16 efficiency cores, the IQ3_XXS file with its

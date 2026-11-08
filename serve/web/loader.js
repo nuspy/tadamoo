@@ -43,6 +43,13 @@
     { group: "server", name: "server.vision-hold", kind: "choice", options: ["keep", "release"] },
     { group: "server", name: "server.grammar", kind: "bool" },
     { group: "server", name: "server.reasoning-budget-tokens", kind: "int", min: 0, max: 2147483639, step: 256 },
+    { group: "server", name: "server.answer-room", kind: "bool" },
+    { group: "server", name: "server.thinking-loop-tokens", kind: "int", min: 0, max: 2147483639, step: 64 },
+    { group: "server", name: "server.max-answer-tokens", kind: "int", min: 0, max: 2147483639, step: 256 },
+    { group: "server", name: "server.measure-length", kind: "bool" },
+    { group: "server", name: "server.passage-loop-tokens", kind: "int", min: 0, max: 2147483639, step: 1 },
+    { group: "server", name: "server.passage-loop-times", kind: "int", min: 0, max: 2147483639, step: 1 },
+    { group: "server", name: "server.passage-loop-window", kind: "int", min: 0, max: 2147483639, step: 100 },
     { group: "advanced", name: "engine.expert-profile-save", kind: "path" },
     { group: "advanced", name: "engine.expert-profile-save-every", kind: "num", min: 0, max: 525600, step: "any" },
   ];
@@ -338,6 +345,26 @@
   function when(iso) {
     try { return new Date(iso).toLocaleString(LANG === "it" ? "it-IT" : "en-US", { dateStyle: "medium", timeStyle: "short" }); } catch (e) { return iso; }
   }
+  function lengthHtml(can) {
+    const L = (INFO && INFO.length) || {};
+    const run = INFO && INFO.status && INFO.status.job === "length" && ["waiting", "starting", "calibrating"].includes(INFO.status.phase);
+    const body = L.known
+      ? `<dl class="kv spd">
+          <dt>${esc(T("ln.limit"))}</dt><dd><b>${nfmt(L.limit_tokens)}</b> tokens</dd>
+          <dt>${esc(T("ln.words"))}</dt><dd><b>${nfmt(L.reliable_words)}</b></dd>
+          <dt>${esc(T("ln.natural"))}</dt><dd><b>${nfmt(L.natural_words)}</b></dd>
+          <dt>${esc(T("ln.tries"))}</dt><dd>${(L.rungs || []).map(r => esc(T("ln.try", nfmt(r.asked_words), nfmt(r.words), r.finish, r.clean ? "" : T("ln.looped")))).join("<br>")}</dd>
+        </dl>
+        <p class="setnote">${esc(T("ln.at", when(L.measured_at), (L.model && L.model.quant) || "?"))}</p>`
+      : `<p class="setnote">${esc(T("ln.unknown"))}</p>`;
+    return `<section class="sec ldlen" aria-label="${esc(T("ln.title"))}">
+        <div class="sh"><b>${esc(T("ln.title"))}</b></div>
+        ${body}
+        <div class="setactions"><p class="setstatus">${esc(T("ln.help"))}</p>
+          <button type="button" class="btn" data-act="length" ${can ? "" : "disabled"}>${esc(T("ln.measure"))}</button>
+          <button type="button" class="btn" data-act="length-stop" ${run ? "" : "disabled"}>${esc(T("ln.stop"))}</button></div>
+      </section>`;
+  }
   function sideHtml(p) {
     const v = p.vram, r = p.ram, c = p.commit, s = p.speed || {}, h = p.engine_holds || {};
     const holds = ((h.ram || h.commit) ? [T("pr.holds", gib((h.commit || 0) + (h.vram || 0)))] : [])
@@ -378,6 +405,7 @@
         <div class="setactions"><p class="setstatus">${esc(T("sp.calibrate.help"))}</p>
           <button type="button" class="btn" data-act="calibrate" ${editable && !busy ? "" : "disabled"}>${esc(T("sp.calibrate"))}</button></div>
       </section>
+      ${lengthHtml(editable && !busy)}
       <div class="sec ldgo">
         <p class="ldwhy" role="status" aria-live="polite" ${why ? "" : "hidden"}>${esc(why)}</p>
         <p class="ldstate setstatus" role="status" aria-live="polite"></p>
@@ -504,6 +532,11 @@
     INFO.status = { phase: "calibrating" };
     watch();
   }
+  async function measureLength(action) {
+    const { r, j } = await post("api/loader/length", { action });
+    if (!r.ok) { say(T("ld.phase.failed", (j.error && j.error.message) || `HTTP ${r.status}`), "err"); return; }
+    if (action === "measure") { INFO.status = { phase: "calibrating", job: "length", step: "length" }; watch(); }
+  }
   function say(text, kind) {
     $$(".ldstate").forEach(e => { e.textContent = text; e.dataset.kind = kind || ""; });
   }
@@ -511,10 +544,10 @@
     const st = (INFO && INFO.status) || {};
     const ph = st.phase || "idle";
     if (ph === "idle") return;
-    const text = ph === "calibrating" ? T("ld.phase.calibrating", T("ld.step." + (st.step || "decode")))
+    const text = ph === "calibrating" ? T("ld.phase.calibrating", T("ld.step." + (st.step || "decode"))) + (st.job === "length" && st.message ? " · " + st.message : "")
       : ph === "failed" ? T("ld.phase.failed", st.error || "") : T("ld.phase." + ph);
     say(text, ph === "failed" ? "err" : ph === "ready" ? "ok" : "");
-    $$("[data-act=load], [data-act=calibrate]").forEach(b => { b.disabled = b.disabled || ["waiting", "stopping", "starting", "calibrating"].includes(ph); });
+    $$("[data-act=load], [data-act=calibrate], [data-act=length]").forEach(b => { b.disabled = b.disabled || ["waiting", "stopping", "starting", "calibrating"].includes(ph); });
   }
   function watch() {
     clearTimeout(poll);
@@ -772,6 +805,8 @@
     if (!b || b.disabled) return;
     if (b.dataset.act === "load") load(readForm(), "#ld-side", "loader", undefined, b.dataset.force === "1");
     if (b.dataset.act === "calibrate") calibrate();
+    if (b.dataset.act === "length") measureLength("measure");
+    if (b.dataset.act === "length-stop") measureLength("stop");
   });
   document.addEventListener("tadamoo:view", e => { if (e.detail === "loader" || e.detail === "settings") refresh(); });
   document.addEventListener("tadamoo:key", () => { if (viewOn === "loader" || viewOn === "settings") refresh(); });

@@ -340,11 +340,12 @@ class SlotContext(unittest.TestCase):
                                       {"server": {"slot-full-context": True}}), 262144)
 
     def test_answer_room_switch(self):
-        """On by default; off by --no-answer-room or the config's "answer-room": false (a switch on by default)."""
-        self.assertTrue(parse([])[0].answer_room)
-        self.assertFalse(parse(["--no-answer-room"])[0].answer_room)
+        """Off by default (the thinking is never cut); on by --answer-room or the config's "answer-room": true."""
+        self.assertFalse(parse([])[0].answer_room)
+        self.assertTrue(parse(["--answer-room"])[0].answer_room)
         self.assertFalse(parse([], {"server": {"answer-room": False}})[0].answer_room)
         self.assertTrue(parse([], {"server": {"answer-room": True}})[0].answer_room)
+        self.assertEqual(parse([])[0].thinking_loop_tokens, 0)
 
 
 class BatchNeedsInt8(unittest.TestCase):
@@ -478,8 +479,8 @@ class EveryOption(unittest.TestCase):
     def test_every_server_option_by_both_paths(self):
         ap = build_parser()
         for name, act in server_options(ap).items():
-            # grammar, fit-max-tokens and answer-room are on by default: their no- forms differ (test_grammar, test_answer_room_switch)
-            if name in ("api-key", "engine-bin", "grammar", "fit-max-tokens", "answer-room"):
+            # grammar and fit-max-tokens are on by default: their no- forms differ (test_grammar); answer-room is off by default
+            if name in ("api-key", "engine-bin", "grammar", "fit-max-tokens", "no-answer-room", "measure-length"):  # no-answer-room is the default itself
                 continue
             v = "localhost" if name == "host" else self.sample(act)
             if isinstance(act, argparse._AppendAction):

@@ -1313,7 +1313,7 @@ def make_handler(svc: Service, remote: bool = False):
             if len(parts) == 3 and parts[0] == "engines":
                 self._engine_post(parts[1], parts[2], raw)
                 return
-            if what not in ("plan", "load", "calibrate"):
+            if what not in ("plan", "load", "calibrate", "length"):
                 self._json(404, {"error": {"message": "not found"}})
                 return
             try:
@@ -1330,6 +1330,21 @@ def make_handler(svc: Service, remote: bool = False):
                     engine_host.HOST.stop()                  # Basalt-Plus's engine takes the GPU back from another one
                     out = loader_api.load(svc, req)
                     self._json(200 if out.get("status") == "saved" else 202, out)
+                elif what == "length":
+                    sup = loader_api.sup_of(svc)
+                    action = (req or {}).get("action") if isinstance(req, dict) else None
+                    if action == "stop":
+                        self._json(200, {"status": "stopping" if sup.stop_length() else "idle"})
+                    elif action != "measure":
+                        self._json(400, {"error": {"type": "invalid_request_error", "message": "action: measure or stop"}})
+                    elif not svc.loaded() or svc.loading:
+                        self._json(409, {"error": {"type": "invalid_request_error", "code": "not_loaded",
+                                                   "message": "load the model first, then measure its length"}})
+                    elif not sup.measure_length():
+                        self._json(409, {"error": {"type": "model_busy", "code": "busy",
+                                                   "message": "a load, a calibration or a measurement is already running"}})
+                    else:
+                        self._json(202, {"status": "measuring"})
                 else:
                     sup = loader_api.sup_of(svc)
                     if not svc.loaded() or svc.loading:

@@ -27,7 +27,7 @@ and `reasoning_budget_tokens` (a cap on thinking tokens; `0` is none). Anthropic
 llama.cpp's `thinking_budget_tokens` are the same budget, and `reasoning_budget_tokens` wins when more than one is
 sent. A request that names none of them takes the server's [`reasoning-budget-tokens`](index.md#server).
 
-With `answer-room` on and an effective output cap of at least 1024 tokens, thinking is limited to the cap minus
+The thinking is never cut by default. With `answer-room` switched on (off by default) and an effective output cap of at least 1024 tokens, thinking is limited to the cap minus
 `min(max(512, cap // 4), cap // 2)`. An 8192-token cap allows up to 6144 thinking tokens; the remaining 2048
 include the closing of the thinking and the answer. Smaller positive budgets stay unchanged. Context fitting uses the reduced
 cap. Explicit request budgets of `0` disable both the server default and automatic budgeting; smaller output caps
@@ -35,11 +35,12 @@ keep their existing behavior. Reserved space reduces empty answers but does not 
 
 ### Thinking loops
 
-When the model repeats one token 256 times in a row inside its thinking, the server ends the thinking with the
+With `thinking-loop-tokens` above 0 (0 = never, the default), when the model repeats one token that many times in a row inside its thinking, the server ends the thinking with the
 template's own close (`\n</think>\n\n`) and the model answers. The reply's `finish_reason` stays honest: `stop` when
 the answer completes, `length` only at `max_tokens`. The server logs `thinking repeated one token N times, ending it`.
 Only the thinking is watched; separators, padding, base64 and digit strings in an answer are never cut. Set
-[`thinking-loop-tokens`](index.md#server) to another count, or `0` to turn the safeguard off.
+[`thinking-loop-tokens`](index.md#server) to a count to turn the safeguard on (256 is a usual one). All of these limits are set in the
+Loader page, section Server, as well as by option.
 
 ### The model file's sampling defaults
 
