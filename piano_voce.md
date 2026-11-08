@@ -7,12 +7,13 @@ Fonte: lettura di `C:\Projects\callAPIcall` (213 commit, branch StreamingTTS, co
 
 **Si porta**: STT e TTS con gli stessi motori, dettatura e appunti avanzati, telefonate (Android Bluetooth e modem GSM), avatar animato e creazione avatar,
 chat e codice in voce, personalità con memorie, RAG, copilota, meeting e videochiamate, analisi di registrazioni con diarizzazione, le API di callAPIcall,
-il gateway vocale per il telefono. Si importano le sei personalità e gli avatar esistenti.
+il gateway vocale per il telefono, il bridge testuale Telegram verso l'agente e il terminale ESP32 (terzo cliente del gateway, hardware facoltativo).
+Si importano le sei personalità e gli avatar esistenti e i valori del bot Telegram, così il bridge è usabile subito.
 
 **Non si porta**: il Control Center Tauri (lo sostituiscono i tab di TaDaMoo), Handy-API (già rimpiazzato in callAPIcall), le skill di Hermes e gli script WSL,
 l'app Capacitor (la sostituisce l'app Flutter), la pubblicazione `myai.tadamoo.com` senza password, i trasporti sperimentali A7670E/EC25, `config.json` di callAPIcall
-(contiene un token Telegram e un `phone_id` veri: si ricrea da zero, e il token va cambiato).
-**Da decidere con l'utente** (vedi §9): bridge Telegram, terminale ESP32.
+(non si copia nel repository di TaDaMoo: contiene un token Telegram e un `phone_id` veri). I valori del bot Telegram si leggono dal disco al momento dell'importazione, sul PC
+dell'utente, e il token va nel gestore credenziali di Windows, mai in un file del repository. Si imposta e si cambia anche da Settings > Voice.
 
 ## 2. Decisioni di fondo
 
@@ -90,7 +91,8 @@ di supporto. Il piano usa proprio questo: le funzioni si caricano **prima**, e i
 | 6 | RAG: archivi, indice ibrido, tab, collegamento alle personalità | 5 |
 | 7 | Rotte compatibili (`/external`, `/analysis`, STT, TTS), analisi con diarizzazione, importazione di personalità e avatar esistenti | 5, 6 |
 | 8 | Telefonate: Android Bluetooth, modem GSM, sicurezza, risposta in arrivo | 5, 7 |
-| 9 | Gateway vocale e tab Avatar nell'app Flutter | 5 |
+| 9 | Gateway vocale e tab Avatar nell'app Flutter; terminale ESP32 (firmware e client del gateway) | 5 |
+| 9b | Bridge Telegram verso l'agente di TaDaMoo, con importazione dei valori del bot e impostazione in Settings > Voice; a richiesta, non all'avvio | 5, 7 |
 | 10 | Avatar: MuseTalk da video, camera virtuale, Wav2Lip, visemi, creazione avatar guidata | 3, 4, 9 |
 | 11 | Accelerazione: RTX Video SDK, interpolazione, esperimento con DLSS vero; opzioni nascoste senza scheda compatibile | 10 |
 | 12 | Meeting (ascolto, verbale, annuncio e consenso, parola con avatar), copilota | 8, 10 |
@@ -103,13 +105,26 @@ di supporto. Il piano usa proprio questo: le funzioni si caricano **prima**, e i
 - **Non si fanno senza il via esplicito**: telefonate vere, meeting veri, caricamento di modelli sulla GPU, uso del microfono. Vanno in `tests/QUEUE_daytime.md` e `QUEUE_live_calls.md`.
 - **Non verificabili qui**: Linux, schede diverse da quella presente, telefoni, modem, Meet/Teams/Zoom reali. Si consegnano "scritti, non provati" e si dichiara.
 
-## 9. Punti ancora aperti
+## 9. Licenze (verificate sui file originali l'8 novembre 2026) e punti ancora aperti
 
-1. **Licenze**: MuseTalk, XTTS, Chatterbox, CosyVoice e Qwen3-TTS hanno licenze diverse (alcune non commerciali). Da controllare prima dell'installatore, e decisione sua.
-2. **Bridge Telegram** (testo, verso l'agente) e **terminale ESP32**: portarli o no.
-3. **callAPIcall ha modifiche non committate** sul branch StreamingTTS: quale snapshot importare (consiglio: lo stato attuale del disco, dopo che l'utente le ha committate).
-4. **Python**: l'installatore di TaDaMoo usa 3.13; il servizio vocale resta in 3.10 con ambienti propri. `audioop` (GSM) non esiste in 3.13.
-5. **Persona Andrea_Taini**: contiene dati personali; l'importazione la mette nel sistema cifrato e non in file in chiaro.
-6. **Esperimento DLSS**: costo e qualità si decidono dopo la misura; può restare spento.
-7. **WebView2** deve concedere il microfono alla pagina dell'app (da verificare).
-8. Documenti da tenere sotto le 300 righe; `docs/` va diviso in cartella `docs/voice/`.
+| Componente | Licenza | Uso commerciale |
+|---|---|---|
+| MuseTalk (codice) | MIT | sì; i pesi "per qualunque scopo, anche commerciale"; i dati di prova no; i modelli di terzi che usa (Whisper, sd-vae, DWPose, face-parsing, SyncNet) seguono ciascuno la propria licenza, e per S3FD il repository non ne indica una |
+| CosyVoice | Apache 2.0 | sì |
+| Chatterbox | MIT | sì |
+| Qwen3-TTS (modelli e tokenizer) | Apache 2.0 secondo il rapporto tecnico e i riferimenti a valle; la scheda ufficiale su Hugging Face non l'ho letta | sì, da riconfermare sulla scheda |
+| XTTS v2 | Coqui Public Model License 1.0: solo uso non commerciale; Coqui ha chiuso e non c'è una via commerciale | **no** |
+
+Non verificate perché non richieste: Kokoro, Piper, Orpheus, Dia, Whisper, RTX Video SDK (ha le sue condizioni NVIDIA).
+Conseguenza per il piano: XTTS non si impacchetta nell'installatore; si scarica solo su richiesta, con avviso "uso non commerciale" nella scelta del motore. Prima di distribuire
+TaDaMoo a terzi serve la decisione dell'utente su cosa includere (c'è già la questione "licenza e destinatari").
+
+Punti ancora aperti:
+1. **Snapshot di callAPIcall**: committato lo stato del disco sul branch StreamingTTS (63ed73eb, locale, senza push); è quello che si importa. Restano fuori `sospeso.on` e `target-nuova`.
+2. **Token Telegram**: oggi è in un commit locale di callAPIcall; il repository remoto su GitHub è pubblico ma quel commit non c'è sul suo ramo principale. Non è esposto finché quel branch non
+   viene pubblicato. Per questo si tiene fuori dal repository di TaDaMoo e si mette nel gestore credenziali.
+3. **Python**: l'installatore di TaDaMoo usa 3.13; il servizio vocale resta in 3.10 con ambienti propri. `audioop` (GSM) non esiste in 3.13.
+4. **Persona Andrea_Taini**: contiene dati personali; l'importazione la mette nel sistema cifrato e non in file in chiaro.
+5. **Esperimento DLSS**: costo e qualità si decidono dopo la misura; può restare spento.
+6. **WebView2** deve concedere il microfono alla pagina dell'app (da verificare).
+7. Documenti da tenere sotto le 300 righe; `docs/` va diviso in cartella `docs/voice/`.
