@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
 from tadamoo import exec_level, nextsteps, persistence, side_uses
-from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings
+from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, voice_api, voice_settings
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX, checked_sampling
 from serve.engine.vision import VISION_MODES
@@ -595,6 +595,11 @@ def make_handler(svc: Service, remote: bool = False):
                                    else api.job((query.get("id") or [""])[0]))
                     except WebSearchError as e:
                         self._json(404 if e.code == "not_found" else 400, {"error": {"type": "websearch", "code": e.code, "message": str(e)}})
+            elif path in ("/api/voice/models", "/api/voice/download/plan", "/api/voice/download/status"):
+                if self._authorized():
+                    if not settings.is_loopback(self.client_address[0]):
+                        return self._json(403, {"error": {"type": "forbidden", "message": "the voice models are shown only on the PC the server runs on"}})
+                    self._voice_get(path, parse_qs(urlsplit(self.path).query))
             elif path == "/api/mcp/auth":
                 if self._authorized():
                     self._json(200, self._mcp_auth().overview())
@@ -817,6 +822,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path.startswith("/api/websearch/"):
                 self._websearch_post(path)
+                return
+            if path.startswith("/api/voice/"):
+                self._voice_post(path)
                 return
             if path.startswith("/api/memories/"):
                 self._memories_post(path)
@@ -2302,6 +2310,50 @@ def make_handler(svc: Service, remote: bool = False):
             self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
             self.end_headers()
             self.wfile.write(body)
+
+        def _voice_error(self, e: Exception):
+            if isinstance(e, voice_settings.VoiceSettingsError):
+                return self._json(400, {"error": e.body()})
+            if isinstance(e, models.Refused):
+                return self._json(e.status, e.body)
+            if isinstance(e, downloads.DownloadError):
+                return self._json(502 if e.code in ("network", "gone") else 400,
+                                  {"error": {"type": "download_error", "code": e.code, "message": e.en, "message_it": e.it}})
+            return self._json(500, {"error": {"type": "server_error", "message": f"{getattr(e, 'strerror', None) or e}"}})
+
+        def _voice_get(self, path, query):
+            try:
+                if path == "/api/voice/models":
+                    return self._json(200, voice_api.overview())
+                if path == "/api/voice/download/status":
+                    return self._json(200, voice_api.status())
+                return self._json(200, voice_api.plan((query.get("id") or [""])[0]))
+            except (voice_settings.VoiceSettingsError, models.Refused, downloads.DownloadError, OSError) as e:
+                return self._voice_error(e)
+
+        def _voice_post(self, path):
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the voice models are changed only from the PC the server runs on"}})
+            try:
+                raw = self._body(1 << 14)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+            except ValueError:
+                return self._json(400, {"error": {"type": "invalid_request_error", "message": "the body is not valid JSON"}})
+            routes = {"/api/voice/select": voice_api.select, "/api/voice/placement": voice_api.placement,
+                      "/api/voice/models-dir": voice_api.set_models_dir, "/api/voice/download": voice_api.download,
+                      "/api/voice/download/cancel": lambda _req: voice_api.cancel()}
+            if path not in routes:
+                return self._json(404, {"error": {"message": "not found"}})
+            try:
+                self._json(202 if path == "/api/voice/download" else 200, routes[path](req))
+            except (voice_settings.VoiceSettingsError, models.Refused, downloads.DownloadError, OSError) as e:
+                self._voice_error(e)
 
         def _websearch(self) -> WebSearchApi:
             global _WEBSEARCH
