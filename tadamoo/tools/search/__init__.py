@@ -299,6 +299,9 @@ def offer_search(registry: Any, secrets: Any = None, hub: Any = None, environ: O
             now, fn_now = chosen()
             if fn_now is not None:
                 provider, backends = now, {**own, now: fn_now}
+            elif now and now != "duckduckgo":
+                raise ProviderUnavailable(f"{now} is the search provider chosen in Settings > Web search, but it is not ready: a key or an address is missing, "
+                                          "or its program is not installed. Tell the person; do not search elsewhere unless they say so")
         try:
             return search_web(query, provider or default, limit, backends=backends)
         except websearch.SearchError as exc:
