@@ -323,6 +323,7 @@ def make_handler(svc: Service, remote: bool = False):
 
         _key_row = None                                      # the device key a phone came with
         _via_key = False                                     # a phone proved itself with a key
+        _via_voice = False                                   # the voice service proved itself with its token (voice_service.accepts_token)
 
         def _outside(self) -> bool:
             """A request that came through the listener for phones."""
@@ -338,6 +339,9 @@ def make_handler(svc: Service, remote: bool = False):
         def _authorized(self) -> bool:
             auth = self.headers.get("Authorization", "")
             given = auth[7:].strip() if auth.lower().startswith("bearer ") else self.headers.get("x-api-key", "")
+            if given and not self.remote_listener and voice_service.accepts_token(given, self.command, self.path, self.client_address[0]):
+                self._via_voice = True
+                return True
             if svc.api_key and key_matches(given, svc.api_key):
                 self._via_key = self.remote_listener
                 return True
@@ -634,7 +638,7 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/rag" or path.startswith("/api/rag/"):
                 if self._authorized():
                     self._rag_route(path, "GET")
-            elif path in ("/api/voice/models", "/api/voice/download/plan", "/api/voice/download/status", "/api/voice/service", "/api/voice/functions"):
+            elif path in ("/api/voice/models", "/api/voice/download/plan", "/api/voice/download/status", "/api/voice/service", "/api/voice/functions", "/api/voice/brain"):
                 if self._authorized():
                     if not settings.is_loopback(self.client_address[0]):
                         return self._json(403, {"error": {"type": "forbidden", "message": "the voice models and service are shown only on the PC the server runs on"}})
@@ -1197,7 +1201,7 @@ def make_handler(svc: Service, remote: bool = False):
             loaded: a program that merely reaches the port, or a page of another site, changes nothing. With no secret set (an
             embedded service) only the checks of each route apply."""
             token = svc.control_token
-            if not token or self._via_key:                                               # a phone's own key is the stronger proof
+            if not token or self._via_key or self._via_voice:                           # a phone's own key is the stronger proof; the voice service's token opens only its routes
                 return True
             given = self.headers.get(CONTROL_HEADER, "")
             if not given:
@@ -2380,6 +2384,8 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, voice_service.status())
                 if path == "/api/voice/functions":
                     return self._json(200, voice_loader.info(svc))
+                if path == "/api/voice/brain":
+                    return self._json(200, voice_api.brain_view())
                 return self._json(200, voice_api.plan((query.get("id") or [""])[0]))
             except (voice_settings.VoiceSettingsError, models.Refused, downloads.DownloadError, OSError) as e:
                 return self._voice_error(e)
@@ -2400,10 +2406,13 @@ def make_handler(svc: Service, remote: bool = False):
                 return self._json(400, {"error": {"type": "invalid_request_error", "message": "the body is not valid JSON"}})
             routes = {"/api/voice/select": voice_api.select, "/api/voice/placement": voice_api.placement,
                       "/api/voice/models-dir": voice_api.set_models_dir, "/api/voice/download": voice_api.download,
-                      "/api/voice/download/cancel": lambda _req: voice_api.cancel(), "/api/voice/enabled": voice_api.set_enabled,
+                      "/api/voice/download/cancel": lambda _req: voice_api.cancel(), "/api/voice/enabled": voice_api.set_enabled, "/api/voice/brain": voice_api.set_brain,
                       "/api/voice/functions/plan": lambda r: voice_loader.plan(svc, r.get("desired")),
                       "/api/voice/functions/apply": lambda r: voice_loader.apply(svc, r),
                       "/api/voice/functions/reload-llm": lambda r: voice_loader.reload_llm(svc, r)}
+            if path == "/api/voice/service/call":                 # the Voice tab's request to the voice service, from the list in voice_proxy
+                status, out = voice_api.service_call(req)
+                return self._json(status, out)
             if path not in routes:
                 return self._json(404, {"error": {"message": "not found"}})
             try:
