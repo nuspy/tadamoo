@@ -2,7 +2,7 @@
 
   U  the agent read content from outside the person's control (a page, a file it did not write, a tool's answer, an attachment, a note
      the planner made from an event, a recalled memory);
-  P  it touched private data or a secret (a stored credential used, a file that holds keys, an attachment, the person's own memories);
+  P  it touched private data or a secret (a stored credential used, a file that holds keys, an attachment; the wallet and the vault hold the private data, the person's memories do not);
   E  the action it is about to take reaches the outside (a web address or query, a form, a request to a server).
 
 When all three are true together the outward action asks the person first, and the question says which facts made it ask. The person

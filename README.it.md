@@ -309,7 +309,7 @@ Tutti e quattro costruiscono l'agente nello stesso punto (`tadamoo/stack.py`): c
   *Automatico*, un'azione irreversibile chiede comunque quando la conversazione ha letto contenuti esterni e può raggiungere un segreto
   o una voce del vault (la regola dei due). Il web si legge liberamente per le notizie; un indirizzo web, una ricerca o un modulo chiede
   solo quando la conversazione ha letto contenuti esterni, ha toccato dati privati (una credenziale salvata, un file con chiavi, un
-  allegato, le tue memorie) e l'azione arriva all'esterno. Impostazioni > Portafoglio regola quanto è rigida. Un segreto salvato non entra
+  allegato) e l'azione arriva all'esterno. Impostazioni > Portafoglio regola quanto è rigida. Un segreto salvato non entra
   mai in un indirizzo o in una ricerca, con nessuna impostazione.
 - **Hook scritti da te** (`hooks.json`): comandi o blocchi fissi su chiamate di strumenti, turni e sessione; un hook che non riesce a
   decidere blocca.

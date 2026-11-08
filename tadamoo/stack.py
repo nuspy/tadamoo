@@ -458,7 +458,6 @@ class BuiltAgent:
         about = self.personal.message(goal) if self.personal is not None else None
         if about:
             message = {**message, "content": message["content"] + "\n" + about} if message else {"role": "user", "content": about}
-            message["private"] = True                    # the person's own memories: the Rule of Two counts them as private data
         return message
 
     def close(self) -> None:
