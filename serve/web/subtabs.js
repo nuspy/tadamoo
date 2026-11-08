@@ -23,6 +23,7 @@
       { id: "mobile", view: "settings", label: () => T("sub.mobile") },
       { id: "memories", view: "settings", label: () => T("sub.memories") },
       { id: "websearch", view: "settings", label: () => T("sub.websearch") },
+      { id: "voice", view: "settings", label: () => T("sub.voice") },
       { id: "benchmarks", view: "settings", label: () => T("sub.benchmarks") },
       { id: "wallet", view: "wallet", label: () => T("tab.wallet") }],
   };
