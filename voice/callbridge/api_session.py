@@ -1,0 +1,117 @@
+"""Blueprint /session/* e /copilot/* — controllo sessioni voce dalla GUI.
+
+Equivalente programmatico delle hotkey (Shift+F1/F2/F3/F4), operante sulla
+STESSA istanza di PushToTalkManager/CopilotController delle hotkey (vedi
+`main.py all` -> `create_app(ptt=..., copilot=...)`). Se l'istanza non e'
+disponibile (es. `main.py serve` con PTT disabilitato) risponde 503.
+
+Endpoint:
+  POST /session/start   {"mode": "half"|"full"|"limited", "avatar": bool}
+  POST /session/stop
+  GET  /session/state   -> {"active", "mode", "phase", "avatar"}
+  POST /copilot/toggle  -> {"active"}
+  GET  /copilot/state   -> {"enabled", "active"}
+"""
+from __future__ import annotations
+
+import logging
+
+from flask import Blueprint, current_app, jsonify, request
+
+log = logging.getLogger("callbridge.api.session")
+
+bp = Blueprint("session", __name__)
+
+
+def _ptt():
+    return current_app.config.get("CB_PTT")
+
+
+def _copilot():
+    return current_app.config.get("CB_COPILOT")
+
+
+@bp.post("/session/start")
+def session_start():
+    ptt = _ptt()
+    if ptt is None:
+        return jsonify({"error": "push-to-talk non disponibile in questa istanza"}), 503
+    body = request.get_json(silent=True) or {}
+    mode = (body.get("mode") or "half").strip().lower()
+    avatar = bool(body.get("avatar"))
+    ok, detail = ptt.start_session(mode, avatar=avatar)
+    if ok:
+        return jsonify({"status": "started", "mode": detail, "avatar": avatar})
+    if detail == "suspended":
+        from .sospensione import MSG_SOSPESO
+        return jsonify({"error": MSG_SOSPESO, "code": "suspended"}), 409
+    if detail == "session_active":
+        return jsonify({"error": "session_active"}), 409
+    if detail == "start_failed":
+        return jsonify({"error": "avvio fallito: modelli Handy non pronti "
+                                 "o device audio non disponibili"}), 503
+    return jsonify({"error": detail}), 400
+
+
+@bp.post("/session/stop")
+def session_stop():
+    ptt = _ptt()
+    if ptt is None:
+        return jsonify({"error": "push-to-talk non disponibile in questa istanza"}), 503
+    had = ptt.stop_session()
+    return jsonify({"status": "stopped" if had else "idle"})
+
+
+@bp.get("/session/state")
+def session_state():
+    ptt = _ptt()
+    if ptt is None:
+        return jsonify({"error": "push-to-talk non disponibile in questa istanza"}), 503
+    return jsonify(ptt.session_state())
+
+
+@bp.post("/copilot/toggle")
+def copilot_toggle():
+    copilot = _copilot()
+    if copilot is None:
+        return jsonify({"error": "copilota non disponibile in questa istanza"}), 503
+    copilot.toggle()
+    return jsonify({"active": copilot.is_active})
+
+
+@bp.get("/copilot/state")
+def copilot_state():
+    copilot = _copilot()
+    cfg = current_app.config["CB_CONFIG"]
+    return jsonify({
+        "enabled": bool(cfg.copilot_enabled and copilot is not None),
+        "active": bool(copilot is not None and copilot.is_active),
+        "project_id": getattr(copilot, "project_id", None),
+        "save_state": getattr(copilot, "save_state", {"state": "idle"}),
+    })
+
+
+@bp.post("/copilot/project")
+def copilot_project():
+    """Collega il copilota a un progetto wikibridge (conoscenza dedicata)."""
+    copilot = _copilot()
+    if copilot is None:
+        return jsonify({"error": "copilota non disponibile in questa istanza"}), 503
+    body = request.get_json(silent=True) or {}
+    copilot.set_project(body.get("project_id"))
+    return jsonify({"project_id": copilot.project_id})
+
+
+@bp.post("/copilot/save-meeting")
+def copilot_save_meeting():
+    """Analizza la sessione copilota (contenuto, accordi, attività) e la
+    inserisce nella sezione riunioni del wiki del progetto."""
+    copilot = _copilot()
+    if copilot is None:
+        return jsonify({"error": "copilota non disponibile in questa istanza"}), 503
+    body = request.get_json(silent=True) or {}
+    ok, detail = copilot.save_meeting_async(
+        project_id=body.get("project_id"), title=body.get("title"))
+    if not ok:
+        return jsonify({"error": detail}), 409
+    return jsonify({"started": True, "save_state": copilot.save_state}), 202
