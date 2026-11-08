@@ -252,13 +252,9 @@ def test_attachments_memories_and_planner_notes_are_untrusted(ws):
     assert pm.untrusted_input and pm.two.untrusted == ["planner note"] and not pm.two.private
     pm2, _ = manager()
     agent2 = AgentLoop(client=ScriptedClient(say("ok")), tool_registry=registry, permissions=pm2)
-    agent2.run("hello", retrieved={"role": "user", "content": "notes about you", "private": True})
-    assert pm2.two.untrusted == ["memories"] and pm2.two.private == ["memories"]
-
-
-def test_the_private_flag_of_a_memory_message_never_reaches_the_server(ws):
-    from tadamoo.context import wire_messages
-    assert wire_messages([{"role": "user", "content": "x", "private": True}]) == [{"role": "user", "content": "x"}]
+    agent2.run("hello", retrieved={"role": "user", "content": "notes about you"})
+    assert pm2.two.untrusted == ["memories"] and not pm2.two.private       # memories are not private data: the wallet and the vault are
+    assert not pm2.two.broken
 
 
 def test_a_planner_note_from_an_event_taints_the_conversation_a10(tmp_path):

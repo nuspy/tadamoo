@@ -719,7 +719,7 @@ class Session:
         self._add_message(agent, text, origin, attachments)
         retrieved = self.built.retrieved_message(text) if origin == "user" else None
         if retrieved:
-            agent.taint("memories", private=bool(retrieved.get("private")))
+            agent.taint("memories")
             agent.append(retrieved)
         self._save()                                   # the message is kept before the model sees it
         task = Task(turn, text, agent, intake={"origin": origin, "attachments": list(attachments or []), "optimize": optimize} if origin == "user" else None,
