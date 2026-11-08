@@ -23,6 +23,7 @@
 <link rel="stylesheet" href="web/websearch.css">
 <link rel="stylesheet" href="web/voice.css">
 <link rel="stylesheet" href="web/telegram.css">
+<link rel="stylesheet" href="web/voicetab.css">
 <link rel="stylesheet" href="web/converter.css">
 <link rel="stylesheet" href="web/engines.css">
 <link rel="stylesheet" href="web/shell.css">
@@ -105,6 +106,7 @@
 <script defer src="web/voice.js"></script>
 <script defer src="web/voiceload.js"></script>
 <script defer src="web/telegram.js"></script>
+<script defer src="web/voicetab.js"></script>
 <script defer src="web/wallet.js"></script>
 <script defer src="web/netwatch.js"></script>
 <script defer src="web/rea.js"></script>
@@ -388,6 +390,17 @@
         <button type="button" class="btn" id="branches-open" aria-haspopup="dialog" aria-expanded="false" aria-controls="branches" data-t="br.open" hidden>Branches</button>
         <button type="button" class="btn" id="export-open" aria-haspopup="dialog" data-t="exp.btn" data-t-title="exp.btn.title">Export</button>
         <button type="button" class="btn" id="tgm-move" aria-haspopup="dialog" aria-expanded="false" aria-controls="tgm-pop" data-t="tgm.move" hidden>Move to Telegram</button>
+    <button class="tab" role="tab" id="tab-voice" data-view="voice" aria-controls="view-voice" aria-selected="false" tabindex="-1" data-t="tab.voice">Voice</button>
+  <div class="view vt" id="view-voice" role="tabpanel" aria-labelledby="tab-voice" hidden>
+    <section class="sec vt-sec" aria-labelledby="vt-h">
+      <div class="sh"><b id="vt-h" data-t="vt.title">Voice</b></div>
+      <div class="pad vt-root" id="vt-root"></div>
+    </section>
+  </div>
+    <section class="sec stvoice" data-sub="voice" id="vb-section" aria-labelledby="vb-h">
+      <div class="sh"><b id="vb-h" data-t="vt.set.title">Voice conversation</b></div>
+      <div class="pad vb-root" id="vb-root"></div>
+    </section>
         <button type="button" class="btn" id="tech-toggle" aria-pressed="true">Technical session: on</button>
         <button type="button" class="btn" id="wud-toggle" aria-pressed="true">Work until done: on</button>
         <button type="button" class="btn" id="priv-toggle" aria-pressed="false">Private</button>
