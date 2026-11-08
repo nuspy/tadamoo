@@ -32,6 +32,7 @@ The token is never returned by a route, never logged and never sent anywhere but
 Every route needs `Authorization: Bearer <token>`, except `GET /health` (`{"status": "ok"}`). The other routes are those of callbridge
 (the call, session, avatar, analysis and meeting routes of the imported code); phone and modem detection is off. `GET /functions` and
 `POST /functions/apply` load, unload and measure the stt, tts and avatar functions (`loading.md`).
+`GET /brain/state` and `POST /brain/say` belong to the brains of the voice and `POST /session/start` takes a `brain` (`chat.md`).
 
 `GET /status` replaces the callbridge status. It loads nothing:
 
@@ -57,6 +58,7 @@ modification time changes, so a choice made in Settings > Voice shows in `/statu
 | `tts` selected engine | `tts_engine`, and the `<engine>_device` / `<engine>_gpu_memory` pair of that engine (`tts_*` for Kokoro); `qwen3tts_size` |
 | `diarization` device | `diarization_device` |
 | `models_dir` | `kokoro_model_dir`, `piper_model_dir`, `diarization_model_dir`, `stt_vad_model` |
+| `brain` (mode, personality, permission, folder, server address, hotkeys) | `brain_mode`, `brain_persona`, `brain_permission`, `brain_workspace`, `tadamoo_base_url` (`chat.md`) |
 
 `ram`, or the device `cpu`, means the CPU. `cuda:N` is not a `Config` field: the service gives the helper processes of that service
 `CUDA_VISIBLE_DEVICES=N`, so a helper sees the chosen GPU as `cuda:0`.
