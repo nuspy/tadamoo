@@ -8,8 +8,9 @@ genera, chiuso da [0xFFFFFFFF][0]) identico agli altri helper del bridge:
   stderr: log
 
 `voice` e' il nome (senza estensione) di un riferimento in
-$KOKORO_MODEL_DIR/cloned_voices/. I latents del riferimento sono in cache:
-cambiare voce costa solo la prima frase.
+<models folder>/tts/voices/. I latents del riferimento sono in cache:
+cambiare voce costa solo la prima frase. I pesi (coqui/XTTS-v2) si leggono solo da
+<models folder>/tts/xtts-v2/ (BASALT_VOICE_MODELS_DIR): nessun download.
 
 Ambiente: venv `tts-venvs/xtts` (coqui-tts + torch cu128, transformers<5 —
 con transformers 5.x manca `isin_mps_friendly` e il modello non carica).
@@ -28,6 +29,8 @@ import os
 import struct
 import sys
 
+import helper_models
+
 # Le librerie stampano su stdout, che qui trasporta audio binario: si dirotta
 # tutto su stderr PRIMA di qualunque import pesante.
 _BINARY_OUT = sys.stdout.buffer
@@ -40,7 +43,6 @@ def log(*a) -> None:
     print("[xtts_helper]", *a, file=sys.stderr, flush=True)
 
 
-CLONE_EXTS = (".wav", ".mp3", ".flac", ".ogg")
 # XTTS non conosce queste lingue: si ripiega sull'inglese avvisando, invece di
 # far esplodere la sintesi a meta' sessione.
 LINGUE = {"en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs",
@@ -72,13 +74,7 @@ def _usa_soundfile() -> None:
 
 
 def _riferimento(voce: str) -> str | None:
-    base = os.environ.get("KOKORO_MODEL_DIR", "")
-    d = os.path.join(base, "cloned_voices")
-    for ext in CLONE_EXTS:
-        p = os.path.join(d, voce + ext)
-        if os.path.isfile(p):
-            return p
-    return None
+    return helper_models.voice_sample(voce)
 
 
 def _rilascia() -> None:
@@ -127,6 +123,7 @@ def _carica():
     global _modello
     if _modello is not None:
         return _modello
+    dir_modello = helper_models.require("xtts-v2")
     import torch
     from TTS.tts.configs.xtts_config import XttsConfig
     from TTS.tts.models.xtts import Xtts
@@ -136,13 +133,6 @@ def _carica():
     if device == "cuda" and not torch.cuda.is_available():
         log("CUDA non disponibile: si ripiega su CPU")
         device = "cpu"
-    root = os.environ.get("TTS_MODELS_DIR", "")
-    dir_modello = os.path.join(root, "xtts_v2")
-    if not os.path.isdir(dir_modello):
-        # Prima esecuzione: scarica i pesi (~1,8 GB) una tantum.
-        from huggingface_hub import snapshot_download
-        log("scarico coqui/XTTS-v2 ...")
-        snapshot_download("coqui/XTTS-v2", local_dir=dir_modello)
     cfg = XttsConfig()
     cfg.load_json(os.path.join(dir_modello, "config.json"))
     m = None

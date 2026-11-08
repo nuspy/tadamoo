@@ -86,6 +86,25 @@ def _get_tts_engine(cfg) -> TtsRouter:
         return _tts_engine
 
 
+def aggiorna_tts(cfg, motori: "set[str] | None" = None, scarica: bool = False) -> None:
+    """Applica al router TTS gia' creato le scelte nuove della config (motore,
+    device, memoria, cartelle dei modelli); senza router non c'e' niente da fare,
+    perche' quando nascera' leggera la config. Non carica nessun modello.
+
+    `motori`: ids dei motori cambiati (None = tutti). `scarica`: chiudi prima gli
+    helper (serve quando cambia la GPU, che gli helper ricevono all'avvio)."""
+    router = _tts_engine
+    if router is None:
+        return
+    if scarica:
+        router.scarica_tutti()
+    router.usa_cartelle(cfg)
+    router.reconfigure(cfg, solo=motori)
+    scelto = (getattr(cfg, "tts_engine", "") or "kokoro").strip().lower()
+    if scelto != router.attivo:
+        router.attiva(scelto, precarica=False)
+
+
 def _release_gpu_memory() -> None:
     """Rilascio IMMEDIATO della VRAM dopo che gli engine in-process hanno scartato
     i modelli (reconfigure). NECESSARIO: il caching allocator di torch (Whisper) e
@@ -111,7 +130,7 @@ def _release_gpu_memory() -> None:
 
 
 def catalogo_motori(cfg) -> list[dict]:
-    """Elenco dei motori TTS (id, nome, disponibilita', `ggml`...) per la GUI.
+    """Elenco dei motori TTS (id, nome, disponibilita', modello e motivo...) per la GUI.
 
     Stessa fonte di `TtsRouter.catalogo()` (`catalog.elenca`), ma NON crea il router
     e non carica nulla: se il router esiste lo interroga, altrimenti legge i file su

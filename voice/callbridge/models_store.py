@@ -14,6 +14,7 @@ import os
 
 ROOT_ENV = "BASALT_VOICE_MODELS_DIR"
 MARKER = ".basalt-model.json"
+VOICES = "voices"
 OFFLINE_ENV = {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "HF_DATASETS_OFFLINE": "1"}
 
 SERVICES = ("stt", "tts", "avatar", "diarization", "vad", "embedding")
@@ -112,6 +113,12 @@ def require(model_id: str, base: str | None = None) -> str:
 def whisper_checkpoint(size: str, base: str | None = None) -> str:
     """The checkpoint file of a Whisper size from the models folder, or `ModelNotInstalled`."""
     return os.path.join(require("whisper-" + size, base), size + ".pt")
+
+
+def voices_dir(base: str | None = None) -> str:
+    """The folder of cloned-voice samples, `<models folder>/tts/voices`; "" when there is no models folder."""
+    base = root() if base is None else base
+    return os.path.join(base, "tts", VOICES) if base else ""
 
 
 def piper_voices(base: str | None = None) -> str:

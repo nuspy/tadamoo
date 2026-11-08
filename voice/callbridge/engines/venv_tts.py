@@ -20,6 +20,9 @@ genera, chiusi da `[0xFFFFFFFF][0]`; un `[0][0]` a meta' e' un errore.
 Il subprocess si avvia pigramente alla prima sintesi e resta caldo: il primo
 uso paga il caricamento del modello (decine di secondi per i modelli grossi),
 i successivi no.
+
+I pesi si leggono solo da `<models folder>/tts/<id modello>/`: se il modello non
+c'e', `ModelNotInstalled` parte PRIMA di avviare l'helper. Nulla si scarica.
 """
 
 from __future__ import annotations
@@ -63,9 +66,8 @@ def _read_exact(pipe, n: int) -> bytes:
 class VenvTtsEngine:
     """Helper TTS in subprocess, caldo e condiviso tra le sessioni."""
 
-    def __init__(self, spec: catalog.EngineSpec, cfg, model_dir: str) -> None:
+    def __init__(self, spec: catalog.EngineSpec, cfg) -> None:
         self.spec = spec
-        self.model_dir = model_dir
         self._cfg = cfg
         self._python = catalog.venv_python(cfg, spec)
         self._helper = catalog.helper_path(spec)
@@ -99,17 +101,16 @@ class VenvTtsEngine:
     def _ensure_proc_locked(self) -> None:
         if self._proc is not None and self._proc.poll() is None:
             return
+        models_store.require(catalog.model_id(self._cfg, self.spec))
         if not os.path.isfile(self._python):
             raise FileNotFoundError(
                 f"venv {self.spec.name} non trovato: {self._python}")
         if not os.path.isfile(self._helper):
             raise FileNotFoundError(
                 f"helper {self.spec.name} non trovato: {self._helper}")
+        # Gli helper trovano pesi e voci clonate sotto BASALT_VOICE_MODELS_DIR.
         env = models_store.helper_env("tts")
-        # Gli helper cercano cloned_voices/ e i pesi sotto questa radice.
-        env["KOKORO_MODEL_DIR"] = self.model_dir
-        env["TTS_MODELS_DIR"] = os.path.join(
-            catalog.venv_root(self._cfg), "modelli")
+        env["TTS_VENVS_DIR"] = catalog.venv_root(self._cfg)
         env.setdefault("PYTHONUNBUFFERED", "1")
         # coqui-TTS, all'import, chiama `espeak-ng --version` e ne prende il
         # quarto token: se espeak-ng e' nel PATH ma non trova la sua data dir
@@ -137,8 +138,6 @@ class VenvTtsEngine:
         for k, v in (self.spec.extra_env or {}).items():
             env[str(k)] = str(v)
         env.update(self._env_cfg)
-        if self.spec.hf_cache:
-            env["HF_HUB_CACHE"] = catalog.cache_hf_app()
         env.update(models_store.OFFLINE_ENV)    # mai un download, qualunque cosa abbiano messo sopra
         popen_kw: dict = {}
         if hasattr(subprocess, "CREATE_NO_WINDOW"):   # niente console pop-up

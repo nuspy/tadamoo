@@ -24,6 +24,8 @@ import logging
 import os
 from dataclasses import dataclass, field
 
+from .. import models_store
+
 log = logging.getLogger("callbridge.engines.catalog")
 
 # Radice dei venv dei motori pesanti (uno per motore, creati a mano).
@@ -37,7 +39,7 @@ class EngineSpec:
     name: str                    # etichetta mostrata all'utente
     engine: str                  # famiglia (== id, tranne alias storici)
     # "builtin"  voci fisse dichiarate qui sotto
-    # "cloned"   le voci clonate in <model_dir>/cloned_voices
+    # "cloned"   le voci clonate in <models folder>/tts/voices
     # "piper"    i modelli .onnx presenti nella cartella Piper
     voices_from: str
     langs: tuple[str, ...]       # ISO 639-1; () = nessun vincolo dichiarato
@@ -54,10 +56,9 @@ class EngineSpec:
     # L'helper sa consegnare l'audio A PEZZI mentre genera ("stream": true nel
     # protocollo stdio). Vedi `VenvTtsEngine.synth_stream`.
     streaming: bool = False
-    # I pesi (Hugging Face) stanno nella cartella modelli dell'APP e non nella
-    # cache personale dell'utente: li scarica l'installer, si ritrovano offline
-    # e restano con l'app. Vedi `cache_hf_app()`.
-    hf_cache: bool = False
+    # Id del modello nel catalogo vocale (models_store.MODELS); `{size}` e' la
+    # taglia scelta in config. I pesi si leggono solo da <models folder>/tts/<id>/.
+    model: str = ""
 
 
 # Catalogo Kokoro: 9 lingue, fisse nel modello.
@@ -91,22 +92,23 @@ SPECS: tuple[EngineSpec, ...] = (
         id="kokoro", name="Kokoro", engine="kokoro",
         voices_from="builtin", voices=_KOKORO_VOICES,
         langs=("it", "en", "fr", "es", "pt", "ja", "zh", "hi"),
-        note="in-process, il piu' veloce", realtime=6.9),
+        model="kokoro", note="in-process, il piu' veloce", realtime=6.9),
     EngineSpec(
         id="piper", name="Piper", engine="piper", voices_from="piper",
-        langs=(), note="un modello .onnx per voce, copre le lingue assenti "
-                       "da Kokoro (es. ungherese)", realtime=5.0),
+        langs=(), model="piper",
+        note="un modello .onnx per voce, copre le lingue assenti "
+             "da Kokoro (es. ungherese)", realtime=5.0),
     EngineSpec(
         id="chatterbox", name="Chatterbox", engine="chatterbox",
         voices_from="cloned",
         langs=("it", "en", "fr", "es", "ru", "de", "pt"),
-        venv="", helper="chatterbox_tts_helper.py",
+        venv="", helper="chatterbox_tts_helper.py", model="chatterbox",
         note="voice cloning, qualita' alta ma lento", realtime=0.6),
     EngineSpec(
         id="xtts", name="XTTS v2", engine="xtts", voices_from="cloned",
         langs=("it", "en", "fr", "es", "ru", "de", "pt", "pl", "tr", "nl",
                "cs", "ar", "zh", "ja", "ko", "hu", "hi"),
-        venv="xtts", helper="xtts_tts_helper.py",
+        venv="xtts", helper="xtts_tts_helper.py", model="xtts-v2",
         note="Coqui, 17 lingue incluso l'ungherese, cloning zero-shot",
         realtime=3.3, streaming=True),
     EngineSpec(
@@ -114,7 +116,7 @@ SPECS: tuple[EngineSpec, ...] = (
         voices_from="cloned",
         langs=("it", "en", "fr", "es", "ru", "de", "ja", "ko", "zh"),
         venv="cosyvoice", helper="cosyvoice_tts_helper.py",
-        note="miglior resa dichiarata sull'italiano; niente ungherese",
+        model="cosyvoice-3", note="miglior resa dichiarata sull'italiano; niente ungherese",
         realtime=0.8, streaming=True),
     EngineSpec(
         id="qwen3tts", name="Qwen3-TTS", engine="qwen3tts",
@@ -123,24 +125,21 @@ SPECS: tuple[EngineSpec, ...] = (
         # Venv condiviso con Dia: stesso torch cu128; transformers fissato a
         # 5.15.1, che va bene a entrambi (verificato).
         venv="dia", helper="qwen3tts_tts_helper.py",
+        model="qwen3tts-{size}",
         note="Alibaba Qwen: cloning zero-shot + 9 voci preimpostate, streaming "
              "(primo audio ~0,25 s), modelli 0.6B / 1.7B",
-        realtime=3.7, streaming=True, hf_cache=True,
-        cfg_env={"QWEN3TTS_SIZE": "qwen3tts_size",
-                 "QWEN3TTS_CLONE_MODEL": "qwen3tts_clone_model",
-                 "QWEN3TTS_PRESET_MODEL": "qwen3tts_preset_model",
-                 "QWEN3TTS_BACKEND": "qwen3tts_backend",
-                 "QWEN3TTS_QUANT": "qwen3tts_quant"}),
+        realtime=3.7, streaming=True,
+        cfg_env={"QWEN3TTS_SIZE": "qwen3tts_size"}),
     EngineSpec(
         id="orpheus", name="Orpheus 3B", engine="orpheus",
         voices_from="builtin", voices=_ORPHEUS_VOICES, langs=("en",),
-        venv="orpheus", helper="orpheus_tts_helper.py",
+        venv="orpheus", helper="orpheus_tts_helper.py", model="orpheus-3b",
         note="tag di espressivita' (<laugh>, <sigh>...) — solo inglese",
         realtime=1.0),
     EngineSpec(
         id="dia", name="Dia 1.6B", engine="dia", voices_from="cloned",
         langs=("en",),
-        venv="dia", helper="dia_tts_helper.py",
+        venv="dia", helper="dia_tts_helper.py", model="dia-1.6b",
         note="dialogo con marcatori non verbali — solo inglese",
         realtime=0.5),
 )
@@ -152,11 +151,17 @@ def spec(engine_id: str) -> EngineSpec | None:
     return _BY_ID.get((engine_id or "").strip().lower())
 
 
-def cache_hf_app() -> str:
-    """Cache Hugging Face dell'app: %LOCALAPPDATA%\callAPIcall\models\huggingface,
-    accanto agli altri modelli scaricati da fetch_models.py."""
-    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-    return os.path.join(base, "callAPIcall", "models", "huggingface")
+def model_id(cfg, s: EngineSpec) -> str:
+    """Id del modello vocale che il motore carica ("" se non ne ha uno)."""
+    size = (getattr(cfg, "qwen3tts_size", "") or "0.6B").strip().lower()
+    return s.model.format(size=size)
+
+
+def modello_mancante(cfg, s: EngineSpec) -> str:
+    """Perche' il modello del motore non e' nella cartella dei modelli, a parole
+    semplici; "" se c'e'."""
+    mid = model_id(cfg, s)
+    return models_store.reason(mid) if mid else ""
 
 
 def venv_root(cfg) -> str:
@@ -177,14 +182,17 @@ def helper_path(s: EngineSpec) -> str:
 def disponibile(cfg, s: EngineSpec, router=None) -> bool:
     """Disponibilita' REALE: il motore puo' sintetizzare adesso?
 
-    Kokoro e Piper li sa il router (sono in-process); per gli altri servono il
-    venv e l'helper su disco. Chatterbox e' un caso a parte: il suo venv non sta
-    sotto tts-venvs/ ma dove l'aveva creato Handy, quindi lo decide il router.
+    Piper lo sa il router (ha le sue voci in una cartella); per gli altri serve il
+    modello nella cartella dei modelli e, per i motori pesanti, il venv e
+    l'helper su disco. Chatterbox e' un caso a parte: il suo venv non sta sotto
+    tts-venvs/ ma dove l'aveva creato Handy, quindi lo decide il router.
     """
-    if s.id == "kokoro":
-        return True
     if s.id == "piper":
         return bool(router is not None and router.piper_available)
+    if modello_mancante(cfg, s):
+        return False
+    if s.id == "kokoro":
+        return True
     if s.id == "chatterbox":
         return bool(router is not None and router.clone_available)
     py = venv_python(cfg, s)
@@ -230,7 +238,8 @@ _xtts_cache: list[str] | None = None
 
 
 def _xtts_speakers(router) -> list[str]:
-    """Nomi dei 58 speaker di serie di XTTS, letti da `speakers_xtts.pth`.
+    """Nomi dei 58 speaker di serie di XTTS, letti da `speakers_xtts.pth` nella
+    cartella del modello.
 
     Si legge il file direttamente invece di avviare l'helper: caricare XTTS
     per un elenco costerebbe gigabyte e decine di secondi. Memoizzato: il file
@@ -239,10 +248,9 @@ def _xtts_speakers(router) -> list[str]:
     if _xtts_cache is not None:
         return _xtts_cache
     _xtts_cache = []
-    base = os.path.join(os.path.expanduser("~"), "AppData", "Local", "tts")
-    p = os.path.join(base, "tts_models--multilingual--multi-dataset--xtts_v2",
-                     "speakers_xtts.pth")
-    if not os.path.isfile(p):
+    where = models_store.folder("tts", "xtts-v2")
+    p = os.path.join(where, "speakers_xtts.pth") if where else ""
+    if not p or not os.path.isfile(p):
         return _xtts_cache
     try:
         import torch
@@ -257,22 +265,13 @@ def _xtts_speakers(router) -> list[str]:
 def _voci_clonate(router) -> list[str]:
     if router is None:
         return []
-    d = os.path.join(getattr(router, "model_dir", "") or "", "cloned_voices")
-    if not os.path.isdir(d):
+    d = models_store.voices_dir()
+    if not d or not os.path.isdir(d):
         return []
     esti = (".wav", ".mp3", ".flac", ".ogg")
     nomi = {os.path.splitext(f)[0] for f in os.listdir(d)
             if f.lower().endswith(esti)}
     return sorted(nomi)
-
-
-def _qwentts_cpp_installato(cfg, s: EngineSpec) -> bool:
-    """La wheel qwentts-cpp-python e' nel venv del motore (senza avviarlo)."""
-    py = venv_python(cfg, s)
-    if not py:
-        return False
-    site = os.path.join(os.path.dirname(os.path.dirname(py)), "Lib", "site-packages")
-    return os.path.isdir(os.path.join(site, "qwentts_cpp"))
 
 
 def elenca(cfg, router=None, disponibile_fn=None, con_voci: bool = True) -> list[dict]:
@@ -298,8 +297,7 @@ def elenca(cfg, router=None, disponibile_fn=None, con_voci: bool = True) -> list
             "realtime": s.realtime,
             "streaming": s.streaming,
             "voices": voci(cfg, s, router) if (ok and con_voci) else [],
-            # Qwen3-TTS: c'e' il runtime GGUF quantizzato (wheel qwentts-cpp-python,
-            # costruita da tools/qwentts-cpp-win)? La GUI offre i GGUF solo allora.
-            "ggml": _qwentts_cpp_installato(cfg, s) if s.id == "qwen3tts" else False,
+            "model": model_id(cfg, s),
+            "reason": "" if ok else (modello_mancante(cfg, s) or "the Python environment of this engine is missing"),
         })
     return out
