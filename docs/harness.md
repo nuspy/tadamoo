@@ -1235,8 +1235,9 @@ wide, not for phones.
   (its own copy when it has one), never one in `.basalt` or `.git`, as an attachment with `nosniff` and a sandboxing policy. The agent is told how to write these links
   (`--page-files`, `FILES_GUIDANCE` in `tadamoo/visuals.py`), only in the conversations of this page.
 - **Pictures and charts in answers**: two switches in *Chat settings → Pictures and charts*, each with a level of presence (very low, low,
-  normal, high, very high, highest), for the next new conversation (`images` and `charts` of `POST /api/agent/sessions`, `--images` and `--charts` of the
-  conversation's process). With pictures on, the agent has `page_images` (the pictures a page shows: its own headline picture, then the article's,
+  normal, high, very high, highest), set at the start (`images` and `charts` of `POST /api/agent/sessions`, `--images` and `--charts` of the
+  conversation's process) and changed while it is open (`POST /api/agent/sessions/<id>/visuals`; the process is sent a `visuals` command, puts the
+  tools in or takes them out, and the model is told the rules now in force before the next message). With pictures on, the agent has `page_images` (the pictures a page shows: its own headline picture, then the article's,
   skipping logos, icons and pixels) and `show_image` (fetches a PNG, JPEG, GIF or WebP up to 8 MB into the conversation's files, with the same address checks
   as `browse_url`: no private address, every redirect checked, the bytes must really be a picture, never an SVG). It is told to take the picture from the
   article it cites when that has one, to write `![caption](tadamoo-file:ID)` and to name the source page. **The page loads a picture only from the
