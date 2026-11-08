@@ -257,10 +257,13 @@ def switch_note(persona: Optional[Dict[str, Any]]) -> str:
 class PersonaUse:
     """The personality one conversation speaks as: the block for its system prompt, its notes put in where they matter, and the change of it while it runs."""
 
-    def __init__(self, store: PersonaStore, local: Callable[[], bool] = lambda: True) -> None:
+    def __init__(self, store: PersonaStore, local: Callable[[], bool] = lambda: True, rag: Optional[Any] = None) -> None:
         self.store, self.local = store, local
         self.persona: Optional[Dict[str, Any]] = None
         self.recall: Optional[Recall] = None
+        from tadamoo.rag.recall import ArchiveRecall                                  # here: tadamoo.rag reads the personalities too
+        self.archives = ArchiveRecall(rag, local) if rag is not None else None        # the passages of its linked knowledge archives (tadamoo/rag)
+        self.fenced = False                                                           # whether the last message holds text from documents
 
     def select(self, slug: str) -> bool:
         """Speaks as `slug` from now on; empty or a personality that is gone speaks as no one. True when something changed."""
@@ -276,20 +279,38 @@ class PersonaUse:
         return prompt_block(self.persona) if self.persona else ""
 
     def message(self, goal: str) -> Optional[str]:
+        """The notes and the archive passages that match `goal`; `fenced` says whether the passages (text from outside) are in it."""
+        parts: List[str] = []
         try:
-            return self.recall.message(goal) if self.recall is not None else None
+            notes = self.recall.message(goal) if self.recall is not None else None
+            if notes:
+                parts.append(notes)
         except Exception:
-            return None                                                    # a memory that cannot be opened never stops the conversation
+            pass                                                           # a memory that cannot be opened never stops the conversation
+        self.fenced = False
+        try:
+            passages = self.archives.message(self.persona.get("knowledge") or [], goal) if self.archives is not None and self.persona else None
+            if passages:
+                parts.append(passages)
+                self.fenced = True
+        except Exception:
+            pass                                                           # nor does an archive that cannot be read
+        return "\n".join(parts) or None
 
     def note(self) -> str:
         return switch_note(self.persona)
 
 
-def compose(store: PersonaStore, slug: str, goal: str) -> Dict[str, str]:
-    """For a conversation that has no harness (the model-only chat): the text to add to its system message, and the notes for this request."""
+def compose(store: PersonaStore, slug: str, goal: str, rag: Optional[Any] = None) -> Dict[str, str]:
+    """For a conversation that has no harness (the model-only chat): the text to add to its system message, and the notes and archive passages for this request."""
     persona = store.get(slug)
     try:
         notes = store.recall(slug).message(goal) or ""
     except Exception:
         notes = ""
-    return {"system": prompt_block(persona), "memory": notes}
+    from tadamoo.rag.recall import compose_message
+    try:
+        passages = compose_message(rag, persona["knowledge"], goal) if rag is not None else ""
+    except Exception:
+        passages = ""
+    return {"system": prompt_block(persona), "memory": "\n".join(p for p in (notes, passages) if p)}

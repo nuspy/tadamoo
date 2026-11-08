@@ -148,7 +148,7 @@ class SessionManager:
                  intake_flags: Optional[Callable[[], List[str]]] = None,
                  gate_flags: Optional[Callable[[], List[str]]] = None, coding: Any = None,
                  compaction_flags: Optional[Callable[[], List[str]]] = None, past: Any = None, exec_level_file: Optional[Path] = None, persistence_file: Optional[Path] = None, lessons_dir: Optional[Path] = None, next_steps_file: Optional[Path] = None, file_owners_path: Optional[Path] = None,
-                 forgetter: Any = None, cards: Any = None, personas_dir: Optional[Path] = None) -> None:
+                 forgetter: Any = None, cards: Any = None, personas_dir: Optional[Path] = None, rag_dir: Optional[Path] = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
@@ -157,6 +157,7 @@ class SessionManager:
         self.skills = PersonalSkills(skills_dir) if skills_dir else None            # the person's skills, which a conversation can run
         self.projects = projects                                # the folders of the Agent tab, whose own registry lists the conversations held in them
         self.personal_dir, self.personal_keys = personal_dir, personal_keys     # the person's own memories and the key that opens them: each conversation takes in the notes that matter
+        self.rag_dir = rag_dir                                  # the knowledge archives (tadamoo/rag) a personality's linked archives are searched in
         self.personas_dir = personas_dir                        # the personalities a conversation may speak as (tadamoo/personas.py); the key that opens their memory is personal_keys
         self.learn = learn                                      # told what the person wrote and what was searched for it, when a turn ends, to learn from
         self._said: Dict[str, Dict[str, Any]] = {}              # per conversation, until its turn ends: what the person wrote and what was searched
@@ -1078,7 +1079,7 @@ class SessionManager:
         if self.personal_dir:
             cmd += ["--personal-memory", str(self.personal_dir)] + (["--personal-memory-keys", str(self.personal_keys)] if self.personal_keys else [])
         if self.personas_dir:
-            cmd += ["--personas-dir", str(self.personas_dir)] + (["--persona", rec["persona"]] if rec.get("persona") else [])
+            cmd += ["--personas-dir", str(self.personas_dir)] + (["--persona", rec["persona"]] if rec.get("persona") else []) + (["--rag-dir", str(self.rag_dir)] if self.rag_dir else [])
             if "--personal-memory-keys" not in cmd and self.personal_keys:
                 cmd += ["--personal-memory-keys", str(self.personal_keys)]
         if rec.get("ask_only"):

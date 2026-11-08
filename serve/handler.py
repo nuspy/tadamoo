@@ -70,6 +70,8 @@ from serve.websearch_api import WebSearchApi, WebSearchError
 from serve.personas_api import PersonasApi
 from tadamoo.personas import PersonaError, PersonaStore
 from tadamoo.context_patterns import catalog as context_patterns_catalog
+from serve.rag_api import RagApi, upload_limit
+from tadamoo.rag import RagError, RagStore
 from serve.capabilities_api import CapabilityApi, CapabilityError
 from serve.intake_prefs import IntakeError, IntakePrefs
 from tadamoo.roles import CODING_ROLE, ROLE_IDS
@@ -172,6 +174,7 @@ class BadBody(Exception):
         super().__init__(message)
         self.status = status
 
+_RAG = None                                            # the knowledge archives (the Knowledge tab), made on first use
 
 def _size_text(n: int) -> str:
     return f"{n >> 20} MiB" if n >= 1 << 20 else f"{n >> 10} KiB"
@@ -628,6 +631,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/session":
                 # with an API key set the page gets its change secret here, after the key is typed; a page cannot send the key on a navigation
                 if not svc.api_key:
+            elif path == "/api/rag" or path.startswith("/api/rag/"):
+                if self._authorized():
+                    self._rag_route(path, "GET")
                     self._json(404, {"error": {"message": "not found"}})
                 elif self._authorized():
                     if not self._page_may_change_things(navigation=False):
@@ -862,6 +868,9 @@ def make_handler(svc: Service, remote: bool = False):
             if path == "/api/changes/review":
                 if not settings.is_loopback(self.client_address[0]):
                     self._discard_body()
+            if path.startswith("/api/rag/"):
+                self._rag_route(path, "POST")
+                return
                     self._json(403, {"error": {"type": "forbidden",
                                                "message": "changes can be reviewed only from the PC the server runs on"}})
                     return
@@ -2413,7 +2422,7 @@ def make_handler(svc: Service, remote: bool = False):
         def _personas(self) -> PersonasApi:
             global _PERSONAS
             if _PERSONAS is None:
-                _PERSONAS = PersonasApi(PersonaStore(userdata.path("personas"), key_dir=userdata.path("vault")))
+                _PERSONAS = PersonasApi(PersonaStore(userdata.path("personas"), key_dir=userdata.path("vault")), rag=self._rag_store())
             return _PERSONAS
 
         def _persona_error(self, e: PersonaError):
@@ -2472,6 +2481,35 @@ def make_handler(svc: Service, remote: bool = False):
             global _PERSONAL
             if _PERSONAL is None:
                 _PERSONAL = PersonalMemory(userdata.path("personal-memory"), key_dir=userdata.path("vault"))
+        def _rag_store(self) -> RagStore:
+            global _RAG
+            if _RAG is None:
+                _RAG = RagStore(userdata.path("rag"), forbidden=[userdata.user_data_dir()])
+            return _RAG
+
+        def _rag(self) -> RagApi:
+            return RagApi(self._rag_store(), self._personas().store)
+
+        def _rag_route(self, path, method):
+            """/api/rag/*: the knowledge archives, from this PC only."""
+            if not settings.is_loopback(self.client_address[0]):
+                if method == "POST":
+                    self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the knowledge archives are used only on the PC the server runs on"}})
+            parts = [p for p in path[len("/api/rag"):].split("/") if p]
+            try:
+                if method == "GET":
+                    return self._json(200, self._rag().route_get(parts))
+                try:
+                    raw = self._body(upload_limit(parts) + 4096)
+                except BadBody as e:
+                    return self._json(e.status, {"error": {"message": str(e)}})
+                return self._json(200, self._rag().route_post(parts, parse_qs(urlsplit(self.path).query), raw))
+            except RagError as e:
+                return self._json(404 if e.code == "not_found" else 400, {"error": {"type": "rag", "code": e.code, "message": str(e)}})
+            except (PersonaError, ValueError, TypeError) as e:
+                return self._json(400, {"error": {"type": "rag", "message": str(e)}})
+
             return _PERSONAL
 
         def _memory_worker(self) -> MemoryWorker:
@@ -3131,7 +3169,7 @@ def make_handler(svc: Service, remote: bool = False):
                                            rule_of_two_prefs=RuleOfTwoPrefs(userdata.path("rule_of_two.json")),
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
                                            skills_dir=userdata.path("personal-skills"), projects=self._projects(),
-                                           personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), personas_dir=userdata.path("personas"), learn=self._memory_worker().offer, past=self._past(),
+                                           personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), personas_dir=userdata.path("personas"), rag_dir=userdata.path("rag"), learn=self._memory_worker().offer, past=self._past(),
                                            exec_level_file=userdata.path(exec_level.FILE), persistence_file=userdata.path(persistence.FILE), next_steps_file=userdata.path(nextsteps.FILE), lessons_dir=userdata.path("lessons"), forgetter=self._forgetter(), cards=self._card_worker())
                 threading.Thread(target=_SESSIONS.index_all_past, name="past-backfill", daemon=True).start()      # the conversations saved before the index
                 self._routines()                          # the clock of the routines starts with the conversations

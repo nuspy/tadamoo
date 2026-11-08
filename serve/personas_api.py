@@ -4,7 +4,7 @@ Only the server's own page reaches it: a personality's notes are about the perso
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from serve.memories_api import MemoriesApi
 from tadamoo import personas as pe
@@ -16,8 +16,9 @@ GOAL_CHARS = 2000
 
 
 class PersonasApi:
-    def __init__(self, store: pe.PersonaStore) -> None:
+    def __init__(self, store: pe.PersonaStore, rag: Optional[Any] = None) -> None:
         self.store = store
+        self.rag = rag                  # the knowledge archives (tadamoo/rag): the passages of a personality's linked ones go in with its notes
 
     def _summary(self, persona: Dict[str, Any]) -> Dict[str, Any]:
         memory = self.store.memory(persona["slug"])
@@ -61,4 +62,4 @@ class PersonasApi:
         goal = req.get("goal", "")
         if not isinstance(goal, str):
             raise pe.PersonaError("goal: the text of the request")
-        return pe.compose(self.store, slug, goal[:GOAL_CHARS])
+        return pe.compose(self.store, slug, goal[:GOAL_CHARS], self.rag)
