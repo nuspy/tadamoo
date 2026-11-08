@@ -367,7 +367,7 @@ code { font-family: var(--font-mono); font-size: .92em; }
 .chathead > b { font-size: 15px; }
 .effort { display: inline-flex; align-items: center; gap: 8px; }
 .effort span { font: 400 12.5px/1 var(--font-sans); color: var(--fg-2); }
-.msgs { flex: 1; min-height: 0; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 20px; font-size: 16px; line-height: 1.6; }
+.msgs { flex: 1; min-height: 0; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 20px; font-size: var(--chat-font, 16px); line-height: 1.6; }
 .chat-empty { margin: auto; max-width: 46ch; text-align: center; color: var(--fg-2); display: flex; flex-direction: column; gap: 8px; }
 .chat-empty b { color: var(--fg); font-size: 18px; }
 .cmsg { display: flex; flex-direction: column; gap: 6px; max-width: 860px; width: 100%; min-width: 0; }
@@ -522,7 +522,7 @@ fieldset:disabled input, fieldset:disabled select { opacity: .7; }
 .ctxm[data-level="full"] { color: #FF8FA3; }
 .cmsg.outside { opacity: .6; }
 .outside-l { font: 400 13px/1.4 var(--font-mono); color: var(--warn); }
-.cmsg.summary { max-width: 860px; }
+.cmsg.summary { max-width: min(860px, var(--chat-width, 860px)); }
 .compacted { border: 1px dashed var(--line); border-radius: 8px; background: var(--bg); }
 .compacted > summary { min-height: 44px; display: flex; align-items: center; padding: 0 12px; cursor: pointer; color: var(--fg-2); font-size: 15px; }
 .compacted > .answer { padding: 4px 14px 12px; font-size: 15px; }

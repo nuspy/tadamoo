@@ -30,8 +30,10 @@ SearchFn = Callable[[str, int], List[Dict[str, Any]]]
 _SEARCH_BACKENDS: Dict[str, SearchFn] = {}
 
 MAX_PAGE_BYTES = 2_000_000
-MAX_PAGE_CHARS = 40_000
-PAGE_SECONDS = 20.0
+MAX_PAGE_CHARS = 250_000
+PAGE_SECONDS = 30.0
+SOCKET_SECONDS = 15.0
+READER_AGENT = "TaDaMoo/1 (+https://tadamoo.com; reader for a person's own research)"
 MAX_REDIRECTS = 5
 MAX_SNIPPET_CHARS = 8000
 TEXT_TYPES = ("text/", "application/json", "application/xml", "application/xhtml+xml", "application/ld+json",
@@ -383,14 +385,25 @@ def _decode(body: bytes, content_type: str) -> str:
         return body.decode("utf-8", errors="replace")
 
 
-def fetch_page(url: str, allow_private: bool = False, user_agent: str = "TaDaMoo/1 (+reader)") -> Dict[str, Any]:
-    """GET a page, following up to MAX_REDIRECTS redirects and checking the address of each hop; returns the raw result."""
+def fetch_page(url: str, allow_private: bool = False, user_agent: str = READER_AGENT) -> Dict[str, Any]:
+    """GET a page, following up to MAX_REDIRECTS redirects and checking the address of each hop; returns the raw result. A site that does not
+    answer in time or drops the connection is tried once more: that is usually a slow moment, not a closed door."""
+    try:
+        return _fetch_once(url, allow_private, user_agent)
+    except PageError as exc:
+        if not str(exc).startswith("could not read "):
+            raise
+        time.sleep(1.0)
+        return _fetch_once(url, allow_private, user_agent)
+
+
+def _fetch_once(url: str, allow_private: bool, user_agent: str) -> Dict[str, Any]:
     deadline = time.monotonic() + PAGE_SECONDS
     current = _validate(url, allow_private)
     for _ in range(MAX_REDIRECTS + 1):
         parts = urlparse(current)
         cls = http.client.HTTPSConnection if parts.scheme == "https" else http.client.HTTPConnection
-        conn = cls(parts.hostname, parts.port, timeout=min(10.0, max(1.0, deadline - time.monotonic())))
+        conn = cls(parts.hostname, parts.port, timeout=min(SOCKET_SECONDS, max(1.0, deadline - time.monotonic())))
         conn._create_connection = functools.partial(_checked_connect, allow_private=allow_private)   # type: ignore[attr-defined]
         try:
             target = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
@@ -405,6 +418,9 @@ def fetch_page(url: str, allow_private: bool = False, user_agent: str = "TaDaMoo
             if resp.status in (301, 302, 303, 307, 308) and resp.getheader("Location"):
                 current = _validate(urljoin(current, resp.getheader("Location")), allow_private)    # every hop is checked
                 continue
+            if resp.status in (404, 410):
+                raise PageError(f"the page answered {resp.status} {resp.reason}. This address does not exist: do not guess addresses, open the ones "
+                                "search_web returned or the links on pages you opened")
             if resp.status >= 400:
                 raise PageError(f"the page answered {resp.status} {resp.reason}")
             content_type = (resp.getheader("Content-Type") or "").split(";")[0].strip().lower()

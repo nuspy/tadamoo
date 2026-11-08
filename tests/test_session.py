@@ -867,10 +867,29 @@ def test_the_rule_of_two_question_has_the_three_levels_and_an_always_answer_stop
     built.permissions.note_private_data(".env")
     session.send("m1", "apri")
     ask = ev.wait("ask")
-    assert [o["value"] for o in ask["options"]] == ["confirm", "chat", "always", "cancel"] and ask["options"][2]["rules"] == ["browse_url"]
+    assert [o["value"] for o in ask["options"]] == ["confirm", "chat", "always", "two_off", "cancel"] and ask["options"][2]["rules"] == ["browse_url"]
+    assert ask["rule_of_two"] is True and "Rule of Two" in ask["question"] and "(a page)" in ask["question"] and ".env" in ask["question"]      # the card can say why it asks
     session.answer(ask["id"], "chat")
     ev.wait("done")
     assert len(ran) == 2 and len([e for e in ev.items if e["event"] == "ask"]) == 1
+
+
+def test_one_answer_stops_the_rule_of_two_for_the_conversation_so_no_outward_tool_asks_again(tmp_path):
+    ran = []
+    client = Scripted(call("browse_url", x="a"), call("search_web", x="b"), say("Fatto."))
+    session, ev, plans, built = with_planner(tmp_path, client, mode="default")
+    for name in ("browse_url", "search_web"):
+        built.agent.tools.register(name, "reaches out", {"type": "object", "properties": {"x": {"type": "string"}}}, EffectClass.PURE,
+                                   lambda **kw: ran.append(kw) or "page", outward=True)
+    built.permissions.two.set_level("ask")
+    built.permissions.note_untrusted_input("memories")
+    built.permissions.note_private_data("memories")
+    session.send("m1", "cerca")
+    ask = ev.wait("ask")
+    session.answer(ask["id"], "two_off")
+    ev.wait("done")
+    assert len(ran) == 2 and len([e for e in ev.items if e["event"] == "ask"]) == 1
+    assert built.permissions.two.level == "off" and {"event": "rule_of_two_off", "scope": "chat"}.items() <= next(e for e in ev.items if e["event"] == "rule_of_two_off").items()
 
 
 def test_an_unattended_session_answers_the_card_itself_parks_what_involves_people_and_does_not_end_the_turn(tmp_path):

@@ -43,6 +43,7 @@
 <script defer src="web/patterns.js"></script>
 <script defer src="web/chatset.js"></script>
 <script defer src="web/chat.js"></script>
+<script defer src="web/chatsize.js"></script>
 <script defer src="web/projects.js"></script>
 <script defer src="web/askcard.js"></script>
 <script defer src="web/singleflight.js"></script>
@@ -407,6 +408,12 @@
           </select>
         </label>
         <button type="button" class="btn" id="cs-open" aria-expanded="false" aria-controls="chatset" data-t="cs.open">Settings</button>
+        <span class="vs-group" id="vs-group" role="group" data-t-aria="vs.group" aria-label="Text size and width of the conversation">
+          <button type="button" class="btn vs-btn" id="vs-font-down" aria-label="Smaller text"><span aria-hidden="true">A&minus;</span></button>
+          <button type="button" class="btn vs-btn" id="vs-font-up" aria-label="Larger text"><span aria-hidden="true">A+</span></button>
+          <button type="button" class="btn vs-btn" id="vs-width-down" aria-label="Narrower conversation"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M3 12h6M15 12h6M6 8l3 4-3 4M18 8l-3 4 3 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <button type="button" class="btn vs-btn" id="vs-width-up" aria-label="Wider conversation"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M3 12h7M14 12h7M7 8l-4 4 4 4M17 8l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </span>
         <div class="ps-panel" id="ps-chat-panel" hidden></div>
       </div>
       <div class="acopy" id="acopy" hidden>
@@ -556,6 +563,7 @@
         <fieldset class="csgroup" id="cs-visuals">
           <legend data-t="vis.title">Pictures and charts</legend>
           <p class="help" data-t="vis.help"></p>
+          <p class="help" id="cs-vis-now" role="status" hidden></p>
           <label class="check"><input type="checkbox" id="cs-img-on"><span data-t="vis.img">Pictures from the web, taken from the article cited when it has one</span></label>
           <label for="cs-img-level" data-t="vis.level">How present</label>
           <select id="cs-img-level"><option value="very_low" data-t="vis.level.very_low">very_low</option><option value="low" data-t="vis.level.low">low</option><option value="normal" selected data-t="vis.level.normal">normal</option><option value="high" data-t="vis.level.high">high</option><option value="very_high" data-t="vis.level.very_high">very_high</option><option value="highest" data-t="vis.level.highest">highest</option></select>

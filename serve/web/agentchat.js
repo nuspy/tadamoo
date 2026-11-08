@@ -140,7 +140,15 @@
     $("#stop").hidden = !(busyNow || state === "busy" || state === "starting" || asking);
     $("#send").disabled = false;
     $("#prompt").placeholder = asking ? T("ch.hint.asking") : busyNow ? T("ch.ph.busy") : T("ch.ph");
+    paintVisNow();
     paintCopy();
+  }
+  /* what the open conversation was started with: the boxes change only the next one, so a mismatch is said, not left to be guessed */
+  function paintVisNow() {
+    const el = $("#cs-vis-now"); if (!el) return;
+    const level = v => (v ? T("vis.level." + v) : T("vis.off"));
+    el.hidden = !(sid && rec);
+    if (sid && rec) el.textContent = T("vis.now", level(rec.images), level(rec.charts));
   }
   modeSel.value = mode;
   modeSel.onchange = () => { mode = modeSel.value; keep(MODE_KEY, mode); if (sid) forget(); applyMode(); };
@@ -589,7 +597,7 @@
     if (b.kind === "plan_mark") return T(key, f.plan, f.step, f.to);
     if (b.kind === "plan_change") return T(key, f.plan, f.title);
     if (b.kind === "plan_archive") return T(key, f.plan);
-    if (b.kind === "permission" && (b.instructions || b.hook)) return b.question;                    // orders found in outside text, or a hook of the person's: the harness's own sentence
+    if (b.kind === "permission" && (b.instructions || b.hook || b.rule_of_two)) return b.question;                    // orders found in outside text, or a hook of the person's: the harness's own sentence
     if (b.kind === "permission") return T(key, b.tool, JSON.stringify(b.args || {}).slice(0, 200));
     if (b.kind === "code") return T(key, f.who);
     if (b.kind === "plan_approval") return T(key, f.mode, f.plan) + (f.outside_content ? "\n\n" + T("ch.q.plan_outside") : "");
@@ -616,7 +624,7 @@
     (f.notes || []).forEach(n => ul.append(mk("li", "aask-h", n)));
     return ul;
   }
-  const optLabel = (b, o) => (b.kind === "capability_choice" ? capLabel(o) : b.kind === "parked_question" ? (o.label || String(o.value || "").replace(/^other:/, "")) : b.mode === "confirm" && (b.instructions || b.hook) && o.label ? o.label : b.mode === "confirm" ? (o.value === "always" ? T("ch.always", o.rule || "") : o.value === "chat" ? T("ch.chat", o.rule || "") : T(o.value === "confirm" ? (b.kind === "permission" ? "ch.once" : "ch.yes") : "ch.no")) : o.label);
+  const optLabel = (b, o) => (b.kind === "capability_choice" ? capLabel(o) : b.kind === "parked_question" ? (o.label || String(o.value || "").replace(/^other:/, "")) : b.mode === "confirm" && (b.instructions || b.hook) && o.label ? o.label : b.mode === "confirm" ? (o.value === "always" ? T("ch.always", o.rule || "") : o.value === "chat" ? T("ch.chat", o.rule || "") : o.value === "two_off" ? T("ch.twooff") : T(o.value === "confirm" ? (b.kind === "permission" ? "ch.once" : "ch.yes") : "ch.no")) : o.label);
 
   /* the sentence of their own for a question left for the person: sent after "other:" */
   function parkedOther(b) {

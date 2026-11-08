@@ -35,9 +35,14 @@ kbd { font: 12px/1 var(--font-mono); padding: 3px 6px; border: 1px solid var(--l
 
 
 /* Chat: a reading column on wide windows, so lines stay short and the input lines up with the messages */
-.msgs { padding-inline: max(16px, calc((100% - 1040px) / 2)); }
-.composer { padding-inline: max(16px, calc((100% - 1040px) / 2 + 0px)); }
-.cmsg { max-width: 1040px; }
+.msgs { padding-inline: max(16px, calc((100% - var(--chat-width, 1040px)) / 2)); }
+.composer { padding-inline: max(16px, calc((100% - var(--chat-width, 1040px)) / 2)); }
+.cmsg { max-width: var(--chat-width, 1040px); }
+.composer textarea { font-size: var(--chat-font, 16px); }
+.vs-group { display: inline-flex; gap: 4px; margin-left: auto; }
+.vs-btn { min-width: var(--btn-h); padding-inline: 8px; justify-content: center; font-weight: 700; }
+.vs-btn:disabled { opacity: .45; }
+@media (pointer: coarse) { .vs-btn { min-width: 44px; min-height: 44px; } }
 
 @media (prefers-reduced-motion: reduce) { .palette, .palette * { transition: none !important; } }
 
