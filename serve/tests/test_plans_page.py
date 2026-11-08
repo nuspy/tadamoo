@@ -39,31 +39,56 @@ class PlansPageTest(unittest.TestCase):
         self.assertIn('e.key === "Delete"', JS)                                        # a picked link is removed by the keyboard too
         for cls in (".pl-port", ".pl-edgehit", ".pl-x", ".linktarget"):
             self.assertIn(cls, CSS)
-        self.assertIn("function depsBox(", JS)                                         # the same by boxes, for the keyboard and the list
+        self.assertNotIn("depsBox", JS)                                                # no "comes after" box: links are drawn, from the round ends
+        self.assertNotIn('"pl.after"', JS)
+        self.assertNotIn('"pl.deps"', JS)
 
-    def test_the_move_arrows_are_for_the_graph_and_the_rows_of_the_list_move_up_and_down(self):
-        self.assertIn('S.mode === "graph" ? el("div", { class: "pl-acts pl-move"', JS)
+    def test_a_step_is_moved_by_hand_and_the_rows_of_the_list_move_up_and_down(self):
+        self.assertNotIn("pl-move", JS)                                                # no arrow buttons: the graph is dragged
+        self.assertNotIn("pl.move.left", JS)
+        self.assertIn('ARROWS[e.key]', JS)                                              # the keys on a picked step stay, for those who cannot drag
         self.assertIn('type: "plan:move", node_id: id, direction: dir', JS)
         self.assertIn('S.snap.order || S.snap.layers.flat()', JS)
         self.assertIn('"plan:move"', re.search(r"const DIRECT = \[([^\]]*)\]", JS).group(1))
 
     def test_every_button_the_page_makes_has_a_tooltip(self):
-        for key in ("pl.tip.graph", "pl.tip.list", "pl.tip.add", "pl.tip.save", "pl.tip.start", "pl.tip.done", "pl.tip.fail", "pl.tip.rewind", "pl.tip.remove",
-                    "pl.tip.approve", "pl.tip.reject", "pl.tip.reset", "pl.tip.mermaid", "pl.tip.new", "pl.tip.open"):
+        for key in ("pl.tip.graph", "pl.tip.list", "pl.tip.save", "pl.tip.start", "pl.tip.done", "pl.tip.fail", "pl.tip.rewind", "pl.tip.remove",
+                    "pl.tip.approve", "pl.tip.reject", "pl.tip.mermaid", "pl.tip.new", "pl.tip.open", "pl.auto.tip", "pl.auto.apply.tip", "pl.auto.cancel.tip"):
             self.assertIn(f'T("{key}")', JS, key)
             self.assertEqual(I18N.count(f'"{key}":'), 2, key)
-        for sym in ("pl.move.left", "pl.move.up", "pl.move.down", "pl.move.right"):
-            self.assertIn(f'title: T(key)', JS)
-            self.assertEqual(I18N.count(f'"{sym}":'), 2)
 
-    def test_a_decision_is_added_with_at_least_two_exits_each_with_a_condition(self):
-        self.assertIn('id: "pl-a-exits"', JS)
-        self.assertIn('if (rows.length < 2 || rows.some(r => !r.title || !r.cond))', JS)             # refused here, as the server refuses it
-        self.assertIn("add[0].conditions[xid] = r.cond", JS)
-        self.assertIn('document.getElementById("pl-a-exits").hidden = ', JS)                          # only a decision shows the exits
-        self.assertIn("if (!(await userDiff({ add_nodes: add }, T(\"pl.add\")))) return;", JS)          # a refused change does not reset the form
-        self.assertIn("#pl-a-exits[hidden]", CSS)
+    def test_a_kind_is_put_on_the_plan_at_once_as_a_draft_with_no_links_and_no_properties(self):
+        self.assertIn("async function putKind(type, at)", JS)
+        self.assertIn("dependencies: [], outputs: []", JS)                                           # not linked to anything yet
+        self.assertIn("state_variables: { draft: true }", JS)                                       # the server keeps it unfinished and does not run it
+        self.assertIn("await userDiff({ add_nodes: [node] }", JS)
+        self.assertNotIn("pl-a-title", JS)                                                           # there is no add form to fill in
+        self.assertNotIn("pl-a-exits", JS)
         self.assertIn("no_route", JS)                                                                # a decision no exit of which holds is shown with its facts
+
+    def test_a_draft_is_set_up_in_the_properties_and_stays_a_draft_until_it_is_complete(self):
+        self.assertIn("delete sv.draft", JS)
+        self.assertIn('T("pl.draft.saved"', JS)
+        self.assertIn(".pl-node.draft", CSS)
+
+    def test_the_properties_live_inside_the_graphs_container_and_the_kinds_and_the_instruction_box_are_fixed_at_the_bottom(self):
+        self.assertIn('el("div", { class: "pl-canvas" }, el("div", { class: "pl-stage" }, ui.graph, ui.list, ui.autoBtn, ui.autoBox), ui.detail)', JS)
+        self.assertIn('el("div", { class: "pl-dock" }, ui.palette, ui.instr)', JS)                    # the kinds just above the instruction box
+        self.assertRegex(CSS, r"\.pl-dock \{[^}]*position: sticky; bottom: 0")
+        self.assertRegex(CSS, r"\.pl-detail \{[^}]*flex: 0 0 270px")
+
+    def test_the_layout_of_the_whole_plan_is_an_icon_at_the_corner_that_closes_and_cancels_on_a_click_outside(self):
+        self.assertIn("PlanKinds.layoutIcon()", JS)
+        self.assertIn("async function applyAuto()", JS)
+        self.assertIn("!ui.autoBox.contains(e.target)", JS)
+        self.assertIn('e.key === "Escape" && S.auto', JS)
+        self.assertIn("if (S.auto && S.auto.at && S.auto.at[id]) return S.auto.at[id];", JS)         # a layout being tried is drawn, not saved
+        self.assertIn("update_nodes: update", JS)
+        self.assertRegex(CSS, r"\.pl-autobtn \{[^}]*position: absolute; top: 6px; right: 6px")
+        for kind in ("lr", "tb", "compact", "lanes"):
+            self.assertEqual(I18N.count(f'"pl.auto.{kind}":'), 2, kind)
+            self.assertEqual(I18N.count(f'"pl.auto.{kind}.d":'), 2, kind)
+        self.assertNotIn("pl.move.reset", JS)                                                        # not a button of each step
 
     def test_the_page_never_writes_markup_and_the_new_texts_exist_in_both_languages(self):
         for banned in ("innerHTML", "insertAdjacentHTML", "document.write", "eval("):

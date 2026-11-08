@@ -57,7 +57,7 @@ class WordsTest(unittest.TestCase):
             self.both(f"pl.unit.{unit}")
 
     def test_the_page_texts_exist_in_both_languages(self):
-        used = set(re.findall(r'T\("(pl\.(?:pal|fact|judged|spec\.need)[\w.]*)"', PLANS + KINDS_JS)) | {"pl.pal.title", "pl.pal.help", "pl.pal.show", "pl.pal.hide"}
+        used = set(re.findall(r'T\("(pl\.(?:pal|fact|judged|spec\.need)[\w.]*)"', PLANS + KINDS_JS)) | {"pl.pal.title", "pl.pal.help"}
         used = {k for k in used if not k.endswith(".")} | {"pl.judged.yes", "pl.judged.no", "pl.judged.unsure"}            # the answer is added to pl.judged. at run time
         self.assertGreaterEqual(len(used), 8)
         for key in sorted(used):
@@ -72,13 +72,10 @@ class WiringTest(unittest.TestCase):
     def test_the_script_is_loaded_before_the_plans_page(self):
         self.assertLess(HTML.index("web/plankinds.js"), HTML.index("web/plans.js"))
 
-    def test_a_kind_is_picked_by_tap_or_drop_and_the_add_form_takes_its_fields_and_place(self):
-        self.assertIn("pick: type => chooseKind(type, null)", PLANS)
-        self.assertIn("chooseKind(type, at)", PLANS)
-        self.assertIn("...(S.addAt ? { position: S.addAt } : {})", PLANS)
-        self.assertIn("...(spec ? { spec } : {})", PLANS)
-        self.assertIn("kindList().map(k => el(\"option\"", PLANS)
-        self.assertNotIn('TYPES.map(t => el("option"', PLANS)
+    def test_a_kind_is_picked_by_tap_or_drop_and_put_on_the_plan_with_the_place_it_was_let_go(self):
+        self.assertIn("pick: type => putKind(type, null)", PLANS)
+        self.assertIn("putKind(type, at)", PLANS)
+        self.assertIn("...(at ? { position: at } : {})", PLANS)
 
     def test_a_touch_never_drags_so_the_page_scrolls_and_a_drag_can_be_cancelled(self):
         self.assertIn('e.pointerType === "touch"', KINDS_JS)
@@ -91,9 +88,14 @@ class WiringTest(unittest.TestCase):
 
     def test_the_palette_buttons_are_big_enough_and_the_page_does_not_scroll_sideways(self):
         self.assertRegex(CSS, r"\.pk-item \{[^}]*min-height: 44px")
-        self.assertRegex(CSS, r"\.pl-paltoggle \{ min-height: 44px")
+        self.assertRegex(CSS, r"\.pk-item \{[^}]*width: 54px")                       # a small square: the icon and its name under it
+        self.assertRegex(CSS, r"\.pk-name \{[^}]*font-size: 9px")
+        self.assertRegex(CSS, r"\.pk-fam \{[^}]*border: 1px solid")                   # each family in a small frame whose legend breaks it
+        self.assertIn('h("fieldset", "pk-fam"', KINDS_JS)
+        self.assertIn('h("legend", "pk-famname"', KINDS_JS)
         self.assertNotRegex(CSS, r"\.pk[\w-]* \{[^}]*min-width:\s*\d{3,}px")
         self.assertIn("@media (max-width: 480px) { .pk-list", CSS)
+        self.assertRegex(CSS, r"\.pk \{[^}]*display: flex")
 
     def test_nothing_the_server_says_is_put_in_the_page_as_html(self):
         self.assertNotIn("innerHTML", KINDS_JS)

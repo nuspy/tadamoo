@@ -39,7 +39,6 @@
 .pl-parents legend { color: var(--fg-2); font-size: 13px; padding: 0 6px; }
 .pl-exit { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 4px; }
 .pl-exit:first-of-type { border-top: 0; margin-top: 0; }
-#pl-a-exits[hidden] { display: none; }
 .plans .help { color: var(--fg-2); font-size: 13px; margin: 6px 0 0; }
 .pl-dform .btn { margin-top: 12px; }
 .pl-dmeta { color: var(--fg-2); margin: 0 0 4px; font: 13px/1.4 var(--font-mono); }
@@ -48,7 +47,6 @@
 details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; font-weight: 600; }
 
 .pl-main { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
-@media (min-width: 981px) { .pl-main { grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); } }
 .pl-canvas, .pl-side { min-width: 0; }
 .pl-side > .sec { margin-bottom: 12px; }
 .pl-graph { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px; overflow: hidden; }
@@ -58,8 +56,6 @@ details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; f
 .pl-node { cursor: grab; outline: none; touch-action: none; }
 .pl-node.dragging { cursor: grabbing; opacity: .85; }
 .pl-node.ghost { cursor: default; }
-.pl-move { align-items: center; }
-.pl-arrow { min-width: 44px; font-size: 18px; }
 .pl-node rect, .pl-node polygon { fill: var(--surface); stroke: var(--fg-2); stroke-width: 2; }
 .pl-node.st-completed rect, .pl-node.st-completed polygon { stroke: var(--pl-done); }
 .pl-node.st-in_progress rect, .pl-node.st-in_progress polygon { stroke: var(--pl-run); }
@@ -206,18 +202,17 @@ details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; f
 .pl-x circle { fill: var(--panel); stroke: var(--pl-fail); stroke-width: 2; }
 .pl-x text { fill: var(--pl-fail); font: 700 16px var(--font-sans); pointer-events: none; }
 .pl-x:focus-visible circle { stroke-width: 4; }
-.pl-deps { max-height: 220px; overflow: auto; }
 
 /* the kinds of step: the palette, the thing being dragged, the fields of a kind, and how the kinds look on the plan */
-.pk { display: grid; gap: 12px; }
-.pk-fam { display: grid; gap: 6px; }
-.pk-famname { font-size: 13px; color: var(--fg-2); }
-.pk-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
-.pk-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 6px 10px; text-align: left; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; cursor: grab; touch-action: manipulation; }
+.pk { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; }
+.pk-fam { margin: 0; min-width: 0; padding: 0 6px 5px; border: 1px solid var(--line); border-radius: 8px; }
+.pk-famname { padding: 0 4px; font-size: 10px; line-height: 1; color: var(--fg-2); }
+.pk-list { list-style: none; margin: 0; padding: 0; display: flex; gap: 4px; }
+.pk-item { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; width: 54px; min-height: 44px; height: 54px; padding: 3px 2px; text-align: center; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; cursor: grab; touch-action: manipulation; }
 .pk-item:hover { border-color: var(--accent); }
 .pk-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .pk-icon { flex: none; color: var(--accent); }
-.pk-name { overflow-wrap: anywhere; }
+.pk-name { max-width: 100%; font-size: 9px; line-height: 1.05; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .pk-ghost { position: fixed; left: 0; top: 0; z-index: 1000; display: flex; align-items: center; gap: 6px; padding: 6px 10px; color: var(--fg); background: var(--raised); border: 1px solid var(--accent); border-radius: 8px; pointer-events: none; box-shadow: 0 4px 16px rgba(0, 0, 0, .35); }
 .pl-graph.pk-over { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .pk-spec { display: grid; gap: 8px; }
@@ -225,10 +220,49 @@ details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; f
 .pk-row input, .pk-row select, .pk-row textarea { width: 100%; min-height: 40px; padding: 8px 10px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font-size: 15px; }
 .pk-dur { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .pk-row .pk-unit { width: auto; }
-.pl-paltoggle { min-height: 44px; }
 .pl-specbox .help { margin: 4px 0; }
 .pk-glyph { color: var(--fg-2); }
 .pl-node.t-wait_duration rect, .pl-node.t-wait_until rect, .pl-node.t-wait_condition rect { fill: var(--raised); }
 .pl-node.t-loop rect { stroke-width: 3; }
 .pl-node.t-set_var rect, .pl-node.t-get_var rect, .pl-node.t-output rect, .pl-node.t-log rect, .pl-node.t-input rect { fill: var(--raised); }
-@media (max-width: 480px) { .pk-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .pk-list { flex-wrap: wrap; } }
+
+/* the define tab: the graph holds the properties of the picked step; the kinds and the instruction box are fixed at the bottom, the kinds just above the box */
+.pl-canvas { display: flex; align-items: flex-start; gap: 8px; }
+.pl-stage { position: relative; flex: 1 1 auto; min-width: 0; }
+.pl-detail { flex: 0 0 270px; max-height: 72vh; overflow: auto; font-size: 12px; }
+.pl-detail .sh { padding: 4px 8px; min-height: 0; font-size: 12px; }
+.pl-detail .pad { padding: 6px 8px; }
+.pl-detail .pl-dform label { margin-top: 5px; font-size: 11px; }
+.pl-detail input, .pl-detail select, .pl-detail textarea { min-height: 28px; padding: 3px 6px; font-size: 12px; }
+.pl-detail .help, .pl-detail .pl-fact, .pl-detail .pl-dmeta { margin: 3px 0; font-size: 11px; line-height: 1.25; }
+.pl-detail .btn { min-height: 28px; padding: 2px 8px; font-size: 12px; }
+.pl-detail .pl-acts { gap: 4px; margin-top: 6px; }
+.pl-detail .pk-row { gap: 2px; }
+.pl-detail .pk-row input, .pl-detail .pk-row select, .pl-detail .pk-row textarea { min-height: 28px; padding: 3px 6px; font-size: 12px; }
+@media (pointer: coarse) { .pl-detail input, .pl-detail select, .pl-detail textarea, .pl-detail .btn, .pl-detail .pk-row input, .pl-detail .pk-row select { min-height: 44px; } }
+@media (max-width: 800px) { .pl-canvas { flex-direction: column; } .pl-detail { flex-basis: auto; width: 100%; max-height: none; } }
+.pl-node.draft rect, .pl-node.draft polygon { stroke-dasharray: 5 3; }
+.pl-dock { position: sticky; bottom: 0; z-index: 6; margin: 0 -16px -16px; padding: 5px 16px 6px; display: grid; gap: 4px; background: var(--panel); border-top: 1px solid var(--line); }
+.pl-dock .pl-instr { margin: 0; padding: 0; border: 0; background: transparent; }
+.pl-dock .pl-instr .sh { min-height: 0; padding: 0 2px; font-size: 11px; line-height: 1.1; }
+.pl-dock .sc-empty { display: none; }
+.pl-dock .sc-note { min-height: 0; font-size: 11px; line-height: 1.1; }
+.pl-dock .sc-log { max-height: 96px; }
+.pl-dock .sc-form { gap: 6px; }
+.pl-dock .sc-form textarea { min-height: 34px; padding: 4px 8px; font-size: 13px; }
+.pl-dock .sc-send { min-height: 34px; min-width: 72px; }
+@media (pointer: coarse) { .pl-dock .sc-form textarea, .pl-dock .sc-send { min-height: 44px; } }
+/* the layout of the whole plan: an icon at the corner of the graph, and the small box it opens */
+.pl-autobtn { position: absolute; top: 6px; right: 6px; z-index: 3; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; color: var(--fg-2); background: var(--raised); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.pl-autobtn:hover, .pl-autobtn[aria-expanded="true"] { color: var(--fg); border-color: var(--accent); }
+.pl-autobtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pl-autobox { position: absolute; top: 44px; right: 6px; z-index: 4; display: grid; gap: 4px; width: min(250px, calc(100% - 12px)); padding: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, .35); }
+.pl-autobox[hidden] { display: none; }
+.pl-autoh { font-size: 12px; }
+.pl-autoopt { display: grid; gap: 0; justify-items: start; min-height: 40px; padding: 3px 8px; text-align: left; }
+.pl-autoopt.sel { border-color: var(--accent); }
+.pl-autoname { font-size: 12px; font-weight: 600; }
+.pl-autod { font-size: 10px; color: var(--fg-2); }
+.pl-autoacts { display: flex; gap: 6px; margin-top: 4px; }
+@media (pointer: coarse) { .pl-autobtn { width: 44px; height: 44px; } .pl-autobox { top: 56px; } .pl-autoopt { min-height: 44px; } }

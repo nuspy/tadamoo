@@ -36,6 +36,36 @@ t("a time field with a unit becomes seconds and an empty optional field is left 
   eq(PK.readSpec(f, { describe: "  market up  ", timeout_s: { value: "2", unit: "h" }, poll_s: "", watch: "indice, volume ,", on_timeout: "skip", expr: "" }),
     { spec: { describe: "market up", watch: ["indice", "volume"], timeout_s: 7200, on_timeout: "skip" }, errors: [] });
 });
+const SNAP = {
+  layers: [["a"], ["b", "c"], ["d"]], order: ["a", "b", "c", "d"],
+  plan: { nodes: { a: { assignee: "agent" }, b: { assignee: "user" }, c: { assignee: "agent" }, d: { assignee: "agent" } } },
+};
+const DIMS = { W: 156, H: 56, GX: 54, GY: 28, PAD: 16, clamp: v => Math.max(0, Math.min(5000, v)) };
+t("the layouts give every step a place, and left to right is the layers as columns", () => {
+  for (const kind of PK.LAYOUTS) eq(Object.keys(PK.arrange(kind, SNAP, DIMS)).sort(), ["a", "b", "c", "d"]);
+  const lr = PK.arrange("lr", SNAP, DIMS);
+  eq([lr.a.x, lr.b.x, lr.d.x], [16, 226, 436]);
+  eq([lr.b.y, lr.c.y], [16, 100]);
+});
+t("top to bottom swaps the axes, so the layers are rows", () => {
+  const tb = PK.arrange("tb", SNAP, DIMS);
+  eq(tb.a.y < tb.b.y && tb.b.y < tb.d.y, true);
+  eq(tb.b.x < tb.c.x, true);
+});
+t("the compact layout is a grid in order that is wider than tall for a plan of any size", () => {
+  const compact = PK.arrange("compact", SNAP, DIMS);
+  eq([compact.a.y, compact.b.y], [16, 16]);
+  eq(compact.a.x < compact.b.x, true);
+});
+t("lanes put each who-does-it in a band of its own, the agent first", () => {
+  const lanes = PK.arrange("lanes", SNAP, DIMS);
+  eq(lanes.a.y < lanes.b.y, true);                 // b is the person's: a band below the agent's
+  eq(lanes.c.y < lanes.b.y, true);
+  eq(lanes.b.x, lanes.c.x);                        // the same layer is the same column in every band
+});
+t("an unknown layout is the usual left to right one", () => {
+  eq(PK.arrange("sideways", SNAP, DIMS), PK.arrange("lr", SNAP, DIMS));
+});
 t("a needed field that is missing or not a number is reported by name", () => {
   eq(PK.readSpec(PK.fieldsOf(KINDS, "wait_duration"), { seconds: "" }).errors, ["seconds"]);
   eq(PK.readSpec(PK.fieldsOf(KINDS, "wait_duration"), { seconds: { value: "abc", unit: "s" } }).errors, ["seconds"]);
