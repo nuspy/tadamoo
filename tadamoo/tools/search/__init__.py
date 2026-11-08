@@ -167,11 +167,17 @@ class _LazyMcpSearch:
 
 
 def provider_key(endpoint: Dict[str, Any], secrets: Any = None, environ: Optional[Mapping[str, str]] = None) -> str:
-    """The person's key for a provider: its environment variable, else the `value` of the vault entry named after the provider."""
+    """The person's key for a provider: its environment variable, else the one set in Settings > Web search, else the `value` of the vault entry
+    named after the provider."""
     env = os.environ if environ is None else environ
     name = endpoint.get("auth_env") or ""
     if name and env.get(name):
         return str(env[name])
+    if environ is None:
+        from tadamoo.websearch import Keys
+        saved = Keys().get(endpoint["id"], environ={})
+        if saved:
+            return saved
     vault = getattr(secrets, "vault", None)
     if vault is not None:
         try:
@@ -266,13 +272,37 @@ def offer_search(registry: Any, secrets: Any = None, hub: Any = None, environ: O
         own.setdefault(provider, fn)
     if str((environ if environ is not None else os.environ).get("TADAMOO_WEB_SEARCH", "")).lower() != "off":
         own.setdefault("duckduckgo", duckduckgo_search)      # the engine of the person's choice when none is set; TADAMOO_WEB_SEARCH=off removes it
+    from tadamoo import websearch
+
+    def chosen() -> Tuple[str, Optional[SearchFn]]:
+        """The provider the person chose in Settings > Web search and its function, read at each call so a change applies to the next search."""
+        try:
+            prefs = websearch.Prefs()
+            pid = prefs.read()["search"]
+            if pid in own:
+                return pid, own[pid]
+            return pid, websearch.search_backend(pid, prefs, websearch.Keys())
+        except Exception:                                  # unreadable settings are the default engine
+            return "", None
+
+    pid, fn = chosen() if environ is None else ("", None)
+    if fn is not None:
+        own.setdefault(pid, fn)
     ready = sorted(set(own) | set(_SEARCH_BACKENDS))
     if not ready:
         return []
-    default = "duckduckgo" if "duckduckgo" in ready else "tavily" if "tavily" in ready else ready[0]
+    default = pid if pid in ready else "duckduckgo" if "duckduckgo" in ready else "tavily" if "tavily" in ready else ready[0]
 
-    def handler(query: str, provider: str = default, limit: int = 5) -> List[Dict[str, Any]]:
-        return search_web(query, provider, limit, backends=own)
+    def handler(query: str, provider: str = "", limit: int = 5) -> List[Dict[str, Any]]:
+        backends = own
+        if not provider and environ is None:
+            now, fn_now = chosen()
+            if fn_now is not None:
+                provider, backends = now, {**own, now: fn_now}
+        try:
+            return search_web(query, provider or default, limit, backends=backends)
+        except websearch.SearchError as exc:
+            raise ProviderUnavailable(f"{provider or default}: {exc}") from None
 
     registry.register(
         name="search_web",
