@@ -180,14 +180,12 @@ def consolida_cpu(modello) -> int:
 #  whisper: dal checkpoint alla destinazione, un tensore alla volta
 # ---------------------------------------------------------------------------
 def _percorso_whisper(nome: str) -> tuple[str, bytes | None]:
-    """(file del checkpoint, alignment_heads) come fa `whisper.load_model`."""
+    """(file del checkpoint, alignment_heads) come fa `whisper.load_model`, ma dalla cartella
+    dei modelli e senza scaricare: `ModelNotInstalled` se la taglia non c'e'."""
     import whisper
+    from . import models_store
     if nome in whisper._MODELS:
-        radice = os.path.join(
-            os.getenv("XDG_CACHE_HOME", os.path.join(os.path.expanduser("~"), ".cache")),
-            "whisper")
-        return whisper._download(whisper._MODELS[nome], radice, False), \
-            whisper._ALIGNMENT_HEADS[nome]
+        return models_store.whisper_checkpoint(nome), whisper._ALIGNMENT_HEADS[nome]
     if os.path.isfile(nome):
         return nome, None
     raise RuntimeError(f"modello whisper non trovato: {nome}")
@@ -207,13 +205,17 @@ def carica_whisper(nome: str, device: str, half: bool):
     sul caricamento originale: meglio lento che muto."""
     import torch
     import whisper
+    from . import models_store
     try:
         return _carica_whisper_diretto(nome, device, half)
+    except models_store.ModelNotInstalled:
+        raise
     except Exception as e:  # noqa: BLE001
         log.warning("whisper: caricamento diretto non riuscito (%s: %s), "
                     "uso whisper.load_model", type(e).__name__, e)
         gc.collect()
-        m = whisper.load_model(nome, device=device)
+        # dal file locale: con un nome `load_model` scaricherebbe
+        m = whisper.load_model(_percorso_whisper(nome)[0], device=device)
         if half and device != "cpu":
             m = m.half()
         return m

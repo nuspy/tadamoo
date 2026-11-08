@@ -296,7 +296,8 @@ class AvatarClient:
                     continue
         except Exception as e:  # noqa: BLE001 - psutil assente: si prosegue
             log.debug("Avatar: pulizia orfani saltata: %s", e)
-        env = dict(os.environ)
+        from . import models_store
+        env = models_store.helper_env("avatar")
         if self.cfg.avatar_audio_device is not None:
             env["AVATAR_AUDIO_DEVICE"] = str(self.cfg.avatar_audio_device)
         if self.cfg.avatar_preview_window:

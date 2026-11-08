@@ -34,6 +34,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .. import models_store
+
 log = logging.getLogger("callbridge.engines.stt_shared")
 
 _CAMPI = ("stt_model", "stt_device", "stt_gpu_memory", "stt_compute_type")
@@ -174,7 +176,7 @@ class SharedSttEngine:
         if self._proc is not None and self._proc.poll() is None:
             return
         modello, dev, mem, comp = self._voluto
-        env = os.environ.copy()
+        env = models_store.helper_env("stt")
         env["DICT_STT_MODEL"] = modello
         env["DICT_STT_DEVICE"] = dev
         env["DICT_STT_MEMORY"] = mem

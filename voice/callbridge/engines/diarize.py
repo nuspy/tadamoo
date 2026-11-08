@@ -32,6 +32,8 @@ import wave
 
 import numpy as np
 
+from .. import models_store
+
 log = logging.getLogger("callbridge.diarize")
 
 SAMPLE_RATE = 16000        # i modelli lavorano a 16 kHz mono
@@ -61,7 +63,7 @@ def models_dir(cfg) -> str:
     esplicita = (getattr(cfg, "diarization_model_dir", "") or "").strip()
     if esplicita:
         return os.path.expandvars(esplicita)
-    return os.path.join(os.path.dirname(__file__), "..", "..", "models", "diarization")
+    return models_store.folder("diarization", "sherpa-diarization")
 
 
 def find_models(cfg) -> tuple[str, str] | None:
@@ -90,7 +92,7 @@ def available(cfg) -> tuple[bool, str]:
     except ImportError:
         return False, "pacchetto `sherpa-onnx` non installato"
     if find_models(cfg) is None:
-        return False, f"modelli assenti in {models_dir(cfg)}"
+        return False, models_store.reason("sherpa-diarization")
     return True, ""
 
 
@@ -135,8 +137,8 @@ class SpeakerDiarizer:
             from .device import ensure_ort_cuda, resolve_device
             trovati = find_models(self.cfg)
             if trovati is None:
-                raise RuntimeError(f"modelli di diarizzazione assenti in "
-                                   f"{models_dir(self.cfg)}")
+                raise models_store.ModelNotInstalled(
+                    "sherpa-diarization", "diarization", models_dir(self.cfg))
             seg, emb = trovati
             device = resolve_device(getattr(self.cfg, "diarization_device", "cpu"))
             if device == "cuda":

@@ -20,13 +20,14 @@ import threading
 
 import numpy as np
 
+from .. import models_store
+
 log = logging.getLogger("callbridge.engines.piper")
 
 
 def _default_piper_dir(kokoro_dir: str) -> str:
-    """Cartella voci Piper: accanto ai modelli Kokoro (come cloned_voices)."""
-    base = kokoro_dir or os.path.expandvars(r"%APPDATA%\com.pais.handy\models")
-    return os.path.join(base, "piper_voices")
+    """Cartella voci Piper: quella della cartella dei modelli vocali."""
+    return models_store.piper_voices()
 
 
 class PiperTtsEngine:
@@ -63,9 +64,11 @@ class PiperTtsEngine:
         with self._lock:
             v = self._voices.get(voice)
             if v is None:
+                path = os.path.join(self.model_dir, voice + ".onnx")
+                if not os.path.isfile(path):
+                    raise models_store.ModelNotInstalled("piper", "tts", f"voice {voice}")
                 from .device import ensure_ort_cuda, resolve_device
                 from piper import PiperVoice
-                path = os.path.join(self.model_dir, voice + ".onnx")
                 eff = resolve_device(self.device, self.memory)
                 if eff == "cuda":
                     ensure_ort_cuda()
