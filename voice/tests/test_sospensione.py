@@ -139,7 +139,7 @@ def _app(monkeypatch, ptt=None, avatar=None):
     app.config["CB_CONFIG"] = types.SimpleNamespace(
         stt_backend="native", tts_backend="native", default_stt_model=None,
         gateway_enabled=True, gateway_port=1, push_to_talk_enabled=True,
-        acp_enabled=True, avatar_preload=False, avatar_enabled=False,
+        brain_mode="direct", brain_persona="", avatar_preload=False, avatar_enabled=False,
         avatar_persona="", handy_compat_enabled=False)
     app.config["CB_PTT"] = ptt
     app.config["CB_AVATAR"] = avatar
@@ -148,8 +148,7 @@ def _app(monkeypatch, ptt=None, avatar=None):
 
 
 class _Ptt:
-    def __init__(self, brain=None, copilot=None):
-        self.brain_full = brain
+    def __init__(self, copilot=None):
         self.copilot = copilot
         self.hotkeys_attive = True
         self.chiamate: list[str] = []
@@ -170,40 +169,8 @@ class _Ptt:
         return {"active": False}
 
 
-class _Acp:
-    def __init__(self, acceso):
-        self.is_ready = acceso
-        self.chiuso = False
-
-    def close(self):
-        self.chiuso = True
-        self.is_ready = False             # come AcpAgentClient.close()
-
-
-def test_acp_elencato_solo_se_era_acceso(monkeypatch):
-    spento = _Acp(False)
-    app = _app(monkeypatch, _Ptt(spento))
-    r = app.test_client().post("/components/suspend").get_json()
-    assert spento.chiuso                              # si chiude comunque
-    assert "agente ACP" not in r["released"]          # ma non si dichiara
-
-    acceso = _Acp(True)
-    app = _app(monkeypatch, _Ptt(acceso))
-    r = app.test_client().post("/components/suspend").get_json()
-    assert r["released"].count("agente ACP") == 1
-
-
-def test_acp_del_copilota_e_chiuso_a_parte(monkeypatch):
-    pieno = _Acp(True)
-    copilota = types.SimpleNamespace(brain=_Acp(True))
-    app = _app(monkeypatch, _Ptt(pieno, copilota))
-    r = app.test_client().post("/components/suspend").get_json()
-    assert pieno.chiuso and copilota.brain.chiuso
-    assert r["released"].count("agente ACP") == 2
-
-
 def test_stato_reale_dopo_sospendi_e_dopo_riprendi(monkeypatch):
-    ptt = _Ptt(_Acp(True))
+    ptt = _Ptt()
     app = _app(monkeypatch, ptt)
     c = app.test_client()
     prima = c.get("/components/status").get_json()
@@ -216,7 +183,7 @@ def test_stato_reale_dopo_sospendi_e_dopo_riprendi(monkeypatch):
     assert dopo["push_to_talk"]["state"] == "suspended"
     assert dopo["voice_engine"]["state"] == "suspended"
     assert dopo["avatar_worker"]["state"] == "suspended"
-    assert dopo["hermes"]["state"] == "suspended"
+    assert dopo["brain"]["state"] == "running"     # the brains talk to TaDaMoo: nothing of theirs is suspended
     # il gateway e' un servizio che il bridge non puo' fermare: stato REALE
     assert dopo["gateway"]["state"] == "stopped"
     # la dettatura non e' mai "suspended"
@@ -242,7 +209,7 @@ def test_la_sospensione_non_ferma_la_dettatura(monkeypatch):
             return {"state": "running"}
 
     monkeypatch.setattr(dictation, "_current", Mgr())
-    app = _app(monkeypatch, _Ptt(_Acp(False)))
+    app = _app(monkeypatch, _Ptt())
     app.test_client().post("/components/suspend")
     assert chiamate == []
 
@@ -270,7 +237,7 @@ def test_hotkey_push_to_talk_seguono_la_sospensione(monkeypatch):
     monkeypatch.setattr(ptt.keyboard, "GlobalHotKeys", ListenerFinto)
     cfg = Config()
     cfg.push_to_talk_enabled = True
-    m = ptt.PushToTalkManager(cfg, brain_full=object())
+    m = ptt.PushToTalkManager(cfg, brains=object())
 
     # avvio con i componenti GIA' sospesi (stato su disco): nessuna hotkey
     engines.sospendi()

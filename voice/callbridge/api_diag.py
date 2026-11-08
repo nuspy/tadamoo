@@ -7,8 +7,7 @@ nella GUI compone questi check in sequenze passo-passo con esito pass/fail.
   POST /diag/echo {"seconds": 3}            registra e riproduce (loop locale)
   GET  /diag/loopback                       cattura loopback (copilota) 1s
   GET  /diag/voice-engine                   health + modelli dei motori voce
-  GET  /diag/hermes                         raggiungibilita' del cervello
-  GET  /diag/acp                            WSL + agente ACP pronto
+  GET  /diag/brain                          TaDaMoo raggiungibile dal servizio vocale
   POST /diag/tts-roundtrip {"text"}         TTS -> STT -> similarita'
 """
 from __future__ import annotations
@@ -17,8 +16,6 @@ import base64
 import difflib
 import io
 import logging
-import shlex
-import subprocess
 import threading
 import wave
 
@@ -131,51 +128,17 @@ def diag_voice_engine():
     return jsonify({"ok": bool(out.get("health")), **out})
 
 
-@bp.get("/diag/hermes")
-def diag_hermes():
-    from .api_components import _hermes_status
-
-    status = _hermes_status(_cfg())
-    return jsonify({"ok": status.get("state") == "running", **status})
-
-
-@bp.get("/diag/acp")
-def diag_acp():
+@bp.get("/diag/brain")
+def diag_brain():
+    """TaDaMoo's server answers the service (the same address and token the two brains use)."""
+    from .tadamoo_api import ApiError, TadamooApi
     cfg = _cfg()
-    if not cfg.acp_enabled:
-        return jsonify({"ok": False, "error": "acp_enabled=false"}), 501
-    # 1) il runtime dell'agente e' raggiungibile?
-    #    - WSL: la distro risponde   - nativo: l'eseguibile hermes esiste
-    if cfg.acp_use_wsl:
-        try:
-            proc = subprocess.run(
-                ["wsl.exe", "-d", cfg.acp_wsl_distro, "--", "true"],
-                capture_output=True, timeout=20,
-            )
-            runtime_ok = proc.returncode == 0
-        except (subprocess.TimeoutExpired, OSError):
-            runtime_ok = False
-        runtime_label = f"wsl:{cfg.acp_wsl_distro}"
-    else:
-        from pathlib import Path
-        toks = shlex.split(cfg.acp_native_command, posix=False)
-        exe = toks[0].strip('"') if toks else ""
-        runtime_ok = bool(exe) and Path(exe).is_file()
-        runtime_label = f"native:{exe}"
-    # 2) l'agente del PTT e' avviato (warm)?
-    ptt = current_app.config.get("CB_PTT")
-    brain = getattr(ptt, "brain_full", None) if ptt else None
-    agent_ready = bool(getattr(brain, "is_ready", False))
-    return jsonify({
-        "ok": runtime_ok and agent_ready,
-        "mode": "wsl" if cfg.acp_use_wsl else "native",
-        "runtime": runtime_label,
-        "runtime_ok": runtime_ok,
-        "wsl_ok": runtime_ok,  # compat con la GUI esistente
-        "agent_ready": agent_ready,
-        "note": None if agent_ready else
-        "agente non avviato: parte col warm-up o alla prima sessione",
-    })
+    out: dict = {"mode": cfg.brain_mode, "base_url": cfg.tadamoo_base_url}
+    try:
+        status, _body = TadamooApi(cfg.tadamoo_base_url, cfg.tadamoo_token, timeout=5).request("GET", "/api/personas")
+    except (ApiError, ValueError) as e:
+        return jsonify({"ok": False, "error": str(e), **out}), 502
+    return jsonify({"ok": status == 200, "status": status, **out}), (200 if status == 200 else 502)
 
 
 @bp.post("/diag/tts-roundtrip")

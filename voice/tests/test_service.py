@@ -58,7 +58,7 @@ def test_health_is_open_and_the_other_routes_need_the_token(env):
     assert env.client.get("/health").get_json() == {"status": "ok"}
     assert env.client.get("/status").status_code == 401
     assert env.client.get("/status", headers={"Authorization": "Bearer wrong"}).status_code == 401
-    assert env.client.get("/hermes/models").status_code == 401
+    assert env.client.get("/brain/state").status_code == 401
     assert env.client.get("/status", headers=AUTH).status_code == 200
 
 

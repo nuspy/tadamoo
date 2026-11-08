@@ -5,14 +5,14 @@ Comandi:
   python main.py ping           verifica la connessione con l'app Android
   python main.py call <numero>  chiama un numero e avvia la conversazione
   python main.py answer         attende una chiamata in arrivo e risponde
-  python main.py serve          avvia il server di controllo (API per Hermes/skill)
+  python main.py serve          avvia il server di controllo (API per il server di TaDaMoo)
   python main.py ptt            push-to-talk (hotkey) + voice gateway per l'app Android
   python main.py gateway        avvia solo il voice gateway (WebSocket per l'app Android)
   python main.py all            ISTANZA UNICA: control server + gateway + push-to-talk
 
-STT/TTS sono i client WebSocket reali verso Handy. Hermes e' reale
-(`HermesClient`, HTTP/SSE verso `hermes_base_url`) se `config.hermes_mode ==
-"http"`, altrimenti uno stub a eco locale (`callbridge/stubs.py`).
+STT/TTS sono i client WebSocket reali verso Handy. Il cervello e' quello di
+`callbridge/brains.py`: diretto (il modello caricato) o harness (l'agente di
+TaDaMoo), scelto in `voice.json`.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ import sys
 from callbridge.config import Config  # noqa: E402
 from callbridge.orchestrator import CallBridge  # noqa: E402
 from callbridge.phone_client import PhoneControlClient  # noqa: E402
-from callbridge.stubs import StubHermes  # noqa: E402
+from callbridge.brains import make_brain  # noqa: E402
 
 
 def _setup_logging() -> None:
@@ -66,7 +66,7 @@ def _cmd_ping(cfg: Config) -> None:
 
 
 def _cmd_call(cfg: Config, number: str) -> None:
-    bridge = CallBridge(cfg, StubHermes())
+    bridge = CallBridge(cfg, make_brain(cfg))
     driver = bridge.start_outgoing_call(number)
     try:
         driver.join()
@@ -77,7 +77,7 @@ def _cmd_call(cfg: Config, number: str) -> None:
 
 
 def _cmd_answer(cfg: Config) -> None:
-    bridge = CallBridge(cfg, StubHermes())
+    bridge = CallBridge(cfg, make_brain(cfg))
     driver = bridge.start_incoming_answer()
     try:
         driver.join()
@@ -91,42 +91,6 @@ def _cmd_serve(cfg: Config) -> None:
     from callbridge.control_server import run_server
 
     run_server(cfg)
-
-
-def _build_brains(cfg: Config, log: logging.Logger):
-    """Crea (brain_full, brain_limited, brain_copilot) per il push-to-talk.
-
-    - COMPLETO (F1/F2): agente Hermes via ACP (tool/azioni) se abilitato,
-      altrimenti il modello scelto da hermes_mode.
-    - LIMITATO (F3, simulazione telefonate): dopo il cutover nativo il phone
-      server HTTP (:8780) non gira piu'; con l'agente ACP abilitato F3 riusa la
-      STESSA istanza del full brain (un solo processo hermes, non due),
-      altrimenti Hermes HTTP / stub.
-    - COPILOTA (Shift+F4): istanza dedicata (l'ACP parte lazy alla 1a
-      attivazione) per non mischiare il contesto col PTT.
-    """
-    from callbridge.brains import (make_full_brain, make_limited_brain,
-                                    make_lmstudio_brain)
-
-    brain_full = make_full_brain(cfg, label="ptt")
-    # Con ACP abilitato, condividi l'unico agente col full brain: crearne uno
-    # nuovo via make_limited_brain(ACP) spawnerebbe un secondo processo hermes.
-    brain_limited = brain_full if cfg.acp_enabled else make_limited_brain(cfg)
-    brain_copilot = None
-    if cfg.copilot_enabled:
-        if getattr(cfg, "copilot_force_external", False):
-            # "Forza LLM esterna senza RAG": si rinuncia al sapere locale delle
-            # persone (che resta in casa) e agli strumenti dell'agente, in
-            # cambio della conoscenza generale di un modello grande.
-            from callbridge.lmstudio_client import LmStudioClient
-            brain_copilot = LmStudioClient(cfg, consumer="copilot", use_rag=False)
-            log.info("Copilota: LLM esterna forzata (provider 'copilot', RAG spento)")
-        else:
-            brain_copilot = (make_full_brain(cfg, label="copilota")
-                             if cfg.copilot_use_acp else make_limited_brain(cfg))
-    # LM Studio diretto (Ctrl+Shift+F4/F5): istanza dedicata, non agentica.
-    brain_lmstudio = make_lmstudio_brain(cfg) if cfg.avatar_chat_enabled else None
-    return brain_full, brain_limited, brain_copilot, brain_lmstudio
 
 
 def _start_gateway_thread(cfg: Config, log: logging.Logger,
@@ -174,10 +138,7 @@ def _build_ptt(cfg: Config, log: logging.Logger):
     from callbridge.ptt import PushToTalkManager
     from callbridge.desktop import platform
 
-    brain_full, brain_limited, brain_copilot, brain_lmstudio = _build_brains(cfg, log)
-    # NIENTE warm-up dell'agente ACP all'avvio: non si carica alcun modello LLM
-    # finche' non serve. L'agente si avvia alla prima richiesta (F1/telefonata/
-    # avatar) via `respond` -> `_ensure_started`; il primo turno paga l'avvio.
+    brains = make_brain(cfg)
     # L'overlay (tkinter) DEVE girare sul thread principale: gli prendiamo il
     # mainloop. Hotkey/sessioni girano su thread separati e aggiornano lo stato.
     overlay = platform().new_overlay()
@@ -189,22 +150,22 @@ def _build_ptt(cfg: Config, log: logging.Logger):
         from callbridge.avatar_client import AvatarClient
         avatar = AvatarClient(cfg)
     copilot = None
-    if brain_copilot is not None:
+    if cfg.copilot_enabled:
+        # Il copilota ascolta l'interlocutore (contenuto non fidato): sempre il cervello diretto, che non ha strumenti.
         from callbridge.copilot import CopilotController
-        copilot = CopilotController(cfg, brain_copilot, overlay, avatar=avatar)
-    manager = PushToTalkManager(cfg, brain_full, brain_limited,
-                                overlay=overlay, copilot=copilot, avatar=avatar,
-                                brain_lmstudio=brain_lmstudio)
+        copilot = CopilotController(cfg, brains.direct, overlay, avatar=avatar)
+    manager = PushToTalkManager(cfg, brains, overlay=overlay, copilot=copilot, avatar=avatar)
     return overlay, manager, copilot, avatar
 
 
 def _run_ptt_mainloop(cfg: Config, log: logging.Logger, prebuilt=None) -> None:
-    """PTT ricco (overlay + F1/F2/F3) sul thread principale (bloccante)."""
+    """PTT ricco (overlay + hotkey dei due cervelli) sul thread principale (bloccante)."""
     overlay, manager, copilot, _avatar = prebuilt or _build_ptt(cfg, log)
     manager.start()
-    print(f"Push-to-talk: {cfg.push_to_talk_hotkey}=agente completo (casse), "
-          f"{cfg.push_to_talk_hotkey_fullduplex}=completo (cuffie), "
-          f"{cfg.push_to_talk_hotkey_limited}=limitato"
+    print(f"Push-to-talk: {cfg.push_to_talk_hotkey}=harness (casse), "
+          f"{cfg.push_to_talk_hotkey_fullduplex}=harness (cuffie), "
+          f"{cfg.push_to_talk_hotkey_direct}=diretto (casse), "
+          f"{cfg.push_to_talk_hotkey_direct_full}=diretto (cuffie)"
           + (f", {cfg.push_to_talk_hotkey_copilot}=copilota" if copilot else "")
           + ". Ctrl+C per uscire.")
     try:
@@ -306,7 +267,7 @@ def _cmd_all(cfg: Config, no_gateway: bool = False) -> None:
                          daemon=True).start()
 
     # Server Handy-compatibile (nativo) su :8720 per i consumatori esterni che
-    # parlavano con Handy (es. la skill Hermes kokoro_tts.py). Solo se abilitato
+    # parlavano con Handy (es. una skill che usava kokoro_tts.py). Solo se abilitato
     # e con Handy spento (stessa porta).
     if cfg.handy_compat_enabled:
         if in_sospensione():

@@ -2,7 +2,7 @@
 
 Replica l'API che Handy esponeva su :8720 (HTTP + WebSocket) usando gli engine
 in-process (`callbridge.engines`), cosi' i consumatori esterni che parlavano
-con Handy restano INVARIATI. In particolare la skill Hermes `kokoro_tts.py`
+con Handy restano INVARIATI. In particolare una skill che usava `kokoro_tts.py`
 apre `ws://127.0.0.1:8720/tts/stream` col protocollo config/text/flush/end.
 
 Implementato con **aiohttp** (HTTP + WS sulla stessa porta, implementazione WS

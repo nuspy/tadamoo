@@ -7,7 +7,7 @@ come Shift+F1:
 
   AI parla:   testo -> Handy TTS -> PCM -> AMR-NB -> FSWRITE -> CMEDPLAY (nella call)
   AI ascolta: CREC (finestra fissa) -> FSREAD -> AMR -> PCM 16k -> Handy STT -> testo
-  cervello:   testo utente -> brain.respond() -> testo risposta -> AI parla ...
+  cervello:   testo utente -> brain.respond_stream() -> testo risposta -> AI parla ...
 
 NB: senza un audio live non c'e' VAD sul downlink, quindi si registra una
 FINESTRA FISSA (`gsm_record_window_s`) per turno. Da rifinire quando arriva la SIM
@@ -103,12 +103,11 @@ class GsmCallSession:
 
     def _think(self, text: str) -> str:
         """Interroga il cervello (qualsiasi tipo) e raccoglie la risposta testuale."""
-        from .brains import respond_stream
         try:
-            chunks = respond_stream(self.brain, text, self.cfg, session_tag="gsm")
+            chunks = self.brain.respond_stream(text, "remote")
             return "".join(c for c in chunks if isinstance(c, str)).strip()
         except Exception as e:  # noqa: BLE001
-            log.error("GSM: brain.respond errore: %s", e)
+            log.error("GSM: brain.respond_stream errore: %s", e)
             return ""
 
     # --- AI parla (TTS -> AMR -> CMEDPLAY) -------------------------------
@@ -232,20 +231,15 @@ def _main() -> None:
     ap = argparse.ArgumentParser(description="Chiamata vocale turn-based via SIM800C")
     ap.add_argument("number", help="numero da chiamare, es. +39333xxxxxxx")
     ap.add_argument("--greeting", default="Pronto, sono l'assistente. Come posso aiutarti?")
-    ap.add_argument("--brain", choices=["stub", "acp", "http"], default="stub")
+    ap.add_argument("--brain", choices=["direct", "harness"], default="")
     args = ap.parse_args()
 
     cfg = Config.load()
 
-    if args.brain == "acp":
-        from .acp_client import AcpAgentClient
-        brain = AcpAgentClient(cfg)
-    elif args.brain == "http":
-        from .hermes_client import HermesClient
-        brain = HermesClient(cfg)
-    else:
-        from .stubs import StubHermes
-        brain = StubHermes()
+    from .brains import make_brain
+    brain = make_brain(cfg)
+    if args.brain:
+        brain.set_mode(args.brain)
 
     session = None
     modem = GsmModem(

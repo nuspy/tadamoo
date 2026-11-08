@@ -385,8 +385,7 @@ def project_context(cfg: Config, project_id: str | None, query: str,
 def project_preamble(cfg: Config, project_id: str | None) -> str:
     """Preamble con il puntatore alla wiki del progetto ('' se nessuno).
 
-    Il path è in forma WSL (/mnt/c/...) perché a leggerlo è l'agente
-    Hermes che gira in WSL.
+    Il path è quello di Windows (slash avanti): a leggerlo è l'agente.
     """
     if not project_id:
         return ""
@@ -401,15 +400,7 @@ def project_preamble(cfg: Config, project_id: str | None) -> str:
         log.warning("wiki del progetto %s non trovata (%s)", project_id, wiki)
         return ""
     win_path = str(wiki).replace("\\", "/")  # es. "C:/Projects/..."
-    if cfg.acp_use_wsl:
-        # forma WSL (/mnt/<drive>/...): a leggerlo è l'agente Hermes in WSL.
-        # La lettera di drive si deriva dal path reale (non piu' "c" fissa: la
-        # knowledge_root puo' stare su un altro disco, es. E:).
-        drive = win_path[0].lower() if len(win_path) > 1 and win_path[1] == ":" else "c"
-        agent_path = f"/mnt/{drive}" + win_path[2:]
-    else:
-        # Hermes nativo su Windows: path Windows (slash avanti, tollerati da Win)
-        agent_path = win_path
+    agent_path = win_path
     return (
         f"[Conoscenza del progetto '{project_id}': leggi {agent_path}/index.md "
         f"e le pagine collegate pertinenti prima di rispondere su questo "

@@ -38,16 +38,10 @@ RESTART_REQUIRED = {
     "gateway_enabled", "gateway_host", "gateway_port", "gateway_auth_token",
     "gateway_media_port",
     "push_to_talk_enabled", "push_to_talk_hotkey",
-    "push_to_talk_hotkey_fullduplex", "push_to_talk_hotkey_limited",
+    "push_to_talk_hotkey_fullduplex", "push_to_talk_hotkey_avatar", "push_to_talk_hotkey_avatar_full",
+    "push_to_talk_hotkey_direct", "push_to_talk_hotkey_direct_full",
     "push_to_talk_hotkey_copilot",
-    # Modalità LM Studio (Ctrl+Shift+F4/F5): brain costruito e hotkey registrate
-    # una sola volta all'avvio. base_url/model/system_prompt sono invece "hot"
-    # (riletti a ogni begin_session in LmStudioClient), quindi NON qui.
-    "avatar_chat_enabled",
-    "push_to_talk_hotkey_lmstudio", "push_to_talk_hotkey_lmstudio_full",
-    "copilot_enabled", "copilot_use_acp",
-    "hermes_mode", "hermes_base_url",
-    "acp_enabled", "acp_wsl_distro", "acp_wsl_command", "acp_cwd",
+    "copilot_enabled",
     "call_transport",
 }
 

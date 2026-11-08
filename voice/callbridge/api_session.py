@@ -1,12 +1,12 @@
 """Blueprint /session/* e /copilot/* — controllo sessioni voce dalla GUI.
 
-Equivalente programmatico delle hotkey (Shift+F1/F2/F3/F4), operante sulla
+Equivalente programmatico delle hotkey (harness Shift+F1/F2, diretto Ctrl+Shift+F4/F5, copilota Shift+F4), operante sulla
 STESSA istanza di PushToTalkManager/CopilotController delle hotkey (vedi
 `main.py all` -> `create_app(ptt=..., copilot=...)`). Se l'istanza non e'
 disponibile (es. `main.py serve` con PTT disabilitato) risponde 503.
 
 Endpoint:
-  POST /session/start   {"mode": "half"|"full"|"limited", "avatar": bool}
+  POST /session/start   {"mode": "half"|"full", "brain": "harness"|"direct" (opzionale), "avatar": bool}
   POST /session/stop
   GET  /session/state   -> {"active", "mode", "phase", "avatar"}
   POST /copilot/toggle  -> {"active"}
@@ -39,9 +39,15 @@ def session_start():
     body = request.get_json(silent=True) or {}
     mode = (body.get("mode") or "half").strip().lower()
     avatar = bool(body.get("avatar"))
-    ok, detail = ptt.start_session(mode, avatar=avatar)
+    brain = (body.get("brain") or "").strip().lower()
+    ok, detail = ptt.start_session(mode, avatar=avatar, brain=brain)
     if ok:
         return jsonify({"status": "started", "mode": detail, "avatar": avatar})
+    if detail.startswith("not_loaded:"):
+        return jsonify({"error": "the speech to text and the speech synthesis must be loaded first (Models > Voice services)",
+                        "code": "not_loaded", "missing": detail.split(":", 1)[1].split(",")}), 409
+    if detail.startswith("unavailable:"):
+        return jsonify({"error": detail.split(":", 1)[1], "code": "unavailable"}), 503
     if detail == "suspended":
         from .sospensione import MSG_SOSPESO
         return jsonify({"error": MSG_SOSPESO, "code": "suspended"}), 409

@@ -1,11 +1,11 @@
-"""Push-to-talk: dialogo diretto utente <-> Hermes via hotkey.
+"""Push-to-talk: dialogo a voce utente <-> cervello (diretto o harness, vedi brains.py) via hotkey.
 
 L'utente preme una combinazione di tasti (default `Ctrl+Space`) per
 aprire/chiudere una sessione di conversazione che usa i device audio di
 **default del sistema operativo** (mic e casse del PC) — distinti
 dall'endpoint Bluetooth HFP usato per le telefonate.
 
-Premi la hotkey: parte la sessione (mic -> STT -> Hermes -> TTS -> casse).
+Premi la hotkey: parte la sessione (mic -> STT -> cervello -> TTS -> casse).
 Premila di nuovo: la sessione si chiude.
 """
 
@@ -14,14 +14,12 @@ from __future__ import annotations
 import logging
 import threading
 import time
-import uuid
 
 from pynput import keyboard
 
 from .audio_hfp import negotiate_sample_rate, resample
 from .config import Config
 from .handy_client import ensure_models_loaded
-from .hermes_client import HermesClient, HermesSession
 from .streaming import StreamingSession
 
 log = logging.getLogger("callbridge.ptt")
@@ -42,6 +40,8 @@ class PushToTalkSession(StreamingSession):
     # Comandi vocali (cambia lingua / nuova conversazione) e auto-rilevamento
     # lingua abilitati nel push-to-talk (nelle telefonate restano off).
     voice_commands_enabled = True
+    # Il microfono e' quello della persona: puo' rispondere a una richiesta di approvazione.
+    utterance_source = "mic"
 
 
 class AvatarPushToTalkSession(PushToTalkSession):
@@ -80,36 +80,15 @@ class AvatarPushToTalkSession(PushToTalkSession):
     stream_tts = True
 
     def __init__(self, *args, avatar=None, avatar_persona: str = "",
-                 pannello=None, **kwargs) -> None:
+                 **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.stream_tts = bool(getattr(self.cfg, "avatar_stream_sentences", True))
         self.avatar = avatar
-        #: Pannello "callAPIcall — Modello": ci si scrive la trascrizione.
-        self.pannello = pannello
-        self._ultimo_sott: dict = {}          # limitatore degli aggiornamenti
         self.avatar_persona = avatar_persona
         # Riferimento all'HfpAudioIO aperto in run(): lo stasha `_uplink` (che
         # qui non riproduce nulla), cosi' il fallback-casse puo' riusare lo
         # stesso stream di uscita invece di aprirne un secondo.
         self._audio_io = None
-
-    def _mostra_testo(self, ruolo: str, testo: str, forza: bool = False) -> None:
-        """Scrive la riga della trascrizione nel pannello "Modello".
-
-        La risposta arriva un pezzo per volta dalla LLM, quindi questo metodo
-        viene chiamato molte volte al secondo. Si limita a ~10 aggiornamenti al
-        secondo: ridisegnare un widget Tk a ogni token e' lavoro sprecato per
-        del testo che l'occhio non riesce comunque a seguire. Il testo vuoto e
-        la chiamata finale (`forza`) passano sempre, cosi' la riga non resta
-        mai monca dell'ultimo pezzo.
-        """
-        if self.pannello is None:
-            return
-        ora = time.monotonic()
-        if not forza and testo and ora - self._ultimo_sott.get(ruolo, 0.0) < 0.1:
-            return
-        self._ultimo_sott[ruolo] = ora
-        self.pannello.mostra_testo(ruolo, testo)
 
     def _uplink(self, audio, tts) -> None:
         # Niente riproduzione automatica sulle casse: l'audio della risposta lo
@@ -474,23 +453,14 @@ class AvatarPushToTalkSession(PushToTalkSession):
 class PushToTalkManager:
     """Ascolta la hotkey globale e apre/chiude la sessione push-to-talk."""
 
-    def __init__(self, config: Config, brain_full, brain_limited=None, overlay=None,
-                 copilot=None, avatar=None, brain_lmstudio=None) -> None:
+    def __init__(self, config: Config, brains, overlay=None,
+                 copilot=None, avatar=None) -> None:
         self.cfg = config
-        # brain_full: agente Hermes COMPLETO (ACP, con tool) -> F1/F2.
-        # brain_limited: modello LIMITATO (phone server) -> F3 (simulazione).
-        # brain_lmstudio: LLM diretto LM Studio (non agentico) -> Ctrl+Shift+F4/F5.
-        self.brain_full = brain_full
-        self.brain_limited = brain_limited if brain_limited is not None else brain_full
-        self.brain_lmstudio = brain_lmstudio
+        # brains: il `ModeBrain` di base; ogni sessione ne prende una copia
+        # (`fork`) nel modo scelto dalla hotkey, dal selettore o dalla config.
+        self.brains = brains
+        self._brain = None      # il cervello della sessione in corso
         self.overlay = overlay  # overlay del desktop (o None se UI non disponibile)
-        # Pannello companion (modello LLM + nuova sessione) per le sessioni
-        # avatar: usa il root Tk dell'overlay. None se overlay assente.
-        try:
-            from .model_panel import ModelPanel
-            self._model_panel = ModelPanel(overlay, config) if overlay is not None else None
-        except Exception:  # noqa: BLE001
-            self._model_panel = None
         self.copilot = copilot  # CopilotController (o None) -> Shift+F4
         # AvatarClient CONDIVISO (uno solo per processo, vincolo VRAM): abilita
         # le hotkey Ctrl+Shift+F1/F2 con avatar. None se avatar disabilitato.
@@ -498,7 +468,7 @@ class PushToTalkManager:
         # True mentre e' attiva una sessione con avatar (per session_state).
         self._avatar_active = False
         self._session: PushToTalkSession | None = None
-        # Callback di chiusura della sessione Hermes (None per lo stub).
+        # Chiusura della sessione del cervello.
         self._session_end = None
         # Mutex logico dell'avvio: il preload (ensure_models_loaded, fino a 180s)
         # avviene SENZA tenere `_lock`, cosi' hotkey ed endpoint /session/* non
@@ -508,17 +478,18 @@ class PushToTalkManager:
         self._last_toggle = 0.0
         self._lock = threading.Lock()
         self._listener: keyboard.GlobalHotKeys | None = None
-        # Modalita' della sessione corrente: "half" | "full" | "limited" | None.
+        # Modalita' della sessione corrente: "half" | "full" | None.
         self._mode: str | None = None
 
     def start(self) -> None:
         """Registra le hotkey globali (non bloccante).
 
-        - F1: agente COMPLETO, half-duplex (casse: mic muto durante
-          reasoning + TTS, niente eco).
-        - F2: agente COMPLETO, full-duplex (cuffie: ascolta sempre,
-          barge-in possibile mentre il TTS parla).
-        - F3: modello LIMITATO (simulazione telefonate), half-duplex.
+        - Shift+F1 / Shift+F2: cervello HARNESS (l'agente di TaDaMoo), half-duplex
+          (casse: mic muto durante risposta e TTS) e full-duplex (cuffie: ascolta
+          sempre, barge-in possibile).
+        - Ctrl+Shift+F1 / F2: harness con l'avatar video (solo con un avatar).
+        - Ctrl+Shift+F4 / F5: cervello DIRETTO (il modello caricato, senza
+          strumenti), half e full-duplex; con l'avatar se c'e'.
         """
         if not self.cfg.push_to_talk_enabled:
             # Il flag serve a evitare conflitti di registrazione (es. hotkey gia'
@@ -535,7 +506,6 @@ class PushToTalkManager:
             return                      # gia' attivo (es. Riprendi senza Sospendi)
         hk_f1 = self._to_pynput(self.cfg.push_to_talk_hotkey)
         hk_f2 = self._to_pynput(self.cfg.push_to_talk_hotkey_fullduplex)
-        hk_f3 = self._to_pynput(self.cfg.push_to_talk_hotkey_limited)
 
         def _ctrl_down() -> bool:
             # pynput NON fa match esatto dei modificatori: con Ctrl+Shift+F1
@@ -549,55 +519,46 @@ class PushToTalkManager:
 
         hotkeys = {
             hk_f1: lambda: None if _ctrl_down() else self._toggle(
-                self.brain_full, half_duplex=True, mode="half"),
+                "harness", half_duplex=True, mode="half"),
             hk_f2: lambda: None if _ctrl_down() else self._toggle(
-                self.brain_full, half_duplex=False, mode="full"),
-            hk_f3: lambda: None if _ctrl_down() else self._toggle(
-                self.brain_limited, half_duplex=True, mode="limited"),
+                "harness", half_duplex=False, mode="full"),
         }
-        # Ctrl+Shift+F1/F2: stessa conversazione completa MA con avatar video.
+        # Ctrl+Shift+F1/F2: stessa conversazione harness MA con avatar video.
         # Solo se un AvatarClient e' disponibile (avatar_enabled=true).
         if self._avatar is not None:
             hk_av = self._to_pynput(self.cfg.push_to_talk_hotkey_avatar)
             hk_avf = self._to_pynput(self.cfg.push_to_talk_hotkey_avatar_full)
-            hotkeys[hk_av] = lambda: self._toggle(self.brain_full, half_duplex=True,
+            hotkeys[hk_av] = lambda: self._toggle("harness", half_duplex=True,
                                                   mode="half", avatar=True)
-            hotkeys[hk_avf] = lambda: self._toggle(self.brain_full, half_duplex=False,
+            hotkeys[hk_avf] = lambda: self._toggle("harness", half_duplex=False,
                                                    mode="full", avatar=True)
-        # Ctrl+Shift+F4/F5: modalita' voce DIRETTA su LM Studio (non agentica),
-        # stesso avatar delle F1/F2. Pattern come le hotkey avatar (contengono
-        # Ctrl, quindi NIENTE guard _ctrl_down).
-        if self.brain_lmstudio is not None:
-            hk_ls = self._to_pynput(self.cfg.push_to_talk_hotkey_lmstudio)
-            hk_lsf = self._to_pynput(self.cfg.push_to_talk_hotkey_lmstudio_full)
-            _use_av = self._avatar is not None  # degrada a sola-voce se avatar off
-            hotkeys[hk_ls] = lambda: self._toggle(self.brain_lmstudio, half_duplex=True,
-                                                  mode="half", avatar=_use_av)
-            hotkeys[hk_lsf] = lambda: self._toggle(self.brain_lmstudio, half_duplex=False,
-                                                   mode="full", avatar=_use_av)
+        # Ctrl+Shift+F4/F5: voce DIRETTA, stesso avatar delle F1/F2. Contengono
+        # Ctrl, quindi NIENTE guard _ctrl_down.
+        hk_d = self._to_pynput(self.cfg.push_to_talk_hotkey_direct)
+        hk_df = self._to_pynput(self.cfg.push_to_talk_hotkey_direct_full)
+        _use_av = self._avatar is not None  # degrada a sola-voce se avatar off
+        hotkeys[hk_d] = lambda: self._toggle("direct", half_duplex=True,
+                                             mode="half", avatar=_use_av)
+        hotkeys[hk_df] = lambda: self._toggle("direct", half_duplex=False,
+                                              mode="full", avatar=_use_av)
         # Shift+F4: copilota da conversazione (apre/chiude la finestra). GUARD:
-        # pynput fa scattare Shift+F4 anche con Ctrl+Shift+F4 (LM Studio) -> ignora
-        # quando Ctrl e' fisicamente premuto, altrimenti F4-LMStudio aprirebbe
-        # anche il copilota.
+        # pynput fa scattare Shift+F4 anche con Ctrl+Shift+F4 (diretto) -> ignora
+        # quando Ctrl e' fisicamente premuto, altrimenti F4 aprirebbe anche il copilota.
         if self.copilot is not None:
-            hotkeys[self._to_pynput(self.cfg.push_to_talk_hotkey_copilot)] = \
-                lambda: None if _ctrl_down() else self._toggle_copilot()
+            hotkeys[self._to_pynput(self.cfg.push_to_talk_hotkey_copilot)] =                 lambda: None if _ctrl_down() else self._toggle_copilot()
         try:
             self._listener = keyboard.GlobalHotKeys(hotkeys)
             self._listener.start()
         except Exception as e:  # noqa: BLE001 - hotkey non valida o backend assente
             log.error("Push-to-talk non avviato: %s", e)
             return
-        log.info("Push-to-talk attivo: %s (completo, half-duplex/casse), "
-                 "%s (completo, full-duplex/cuffie), %s (limitato/simulazione)%s%s%s",
+        log.info("Push-to-talk attivo: %s / %s (harness, casse / cuffie), "
+                 "%s / %s (diretto, casse / cuffie)%s%s",
                  self.cfg.push_to_talk_hotkey, self.cfg.push_to_talk_hotkey_fullduplex,
-                 self.cfg.push_to_talk_hotkey_limited,
+                 self.cfg.push_to_talk_hotkey_direct, self.cfg.push_to_talk_hotkey_direct_full,
                  (f", {self.cfg.push_to_talk_hotkey_avatar}/"
-                  f"{self.cfg.push_to_talk_hotkey_avatar_full} (avatar)"
+                  f"{self.cfg.push_to_talk_hotkey_avatar_full} (harness con avatar)"
                   if self._avatar is not None else ""),
-                 (f", {self.cfg.push_to_talk_hotkey_lmstudio}/"
-                  f"{self.cfg.push_to_talk_hotkey_lmstudio_full} (chat avatar)"
-                  if self.brain_lmstudio is not None else ""),
                  f", {self.cfg.push_to_talk_hotkey_copilot} (copilota)" if self.copilot else "")
 
     @property
@@ -634,25 +595,25 @@ class PushToTalkManager:
 
     # --- API programmatica (control server / GUI) -------------------------
 
-    def start_session(self, mode: str, avatar: bool = False) -> tuple[bool, str]:
+    def start_session(self, mode: str, avatar: bool = False, brain: str = "") -> tuple[bool, str]:
         """Avvia una sessione come le hotkey, ma IDEMPOTENTE (niente toggle:
         se una sessione e' gia' attiva NON la chiude — evita che una chiamata
         API spenga la sessione appena aperta dall'utente con la hotkey).
 
-        mode: "half" (≡F1, casse), "full" (≡F2, cuffie), "limited" (≡F3).
-        avatar: True -> mostra l'avatar video (solo con mode half/full).
+        mode: "half" (casse) o "full" (cuffie).
+        brain: "harness" o "direct"; vuoto = il modo scelto nelle impostazioni.
+        avatar: True -> mostra l'avatar video.
         Ritorna (ok, dettaglio): dettaglio = mode oppure il motivo del rifiuto.
         """
         from .engines import in_sospensione
         if in_sospensione():
             return False, "suspended"
-        if mode not in ("half", "full", "limited"):
+        if mode not in ("half", "full"):
             return False, f"modalita' sconosciuta: {mode}"
-        if avatar and mode not in ("half", "full"):
-            return False, "avatar_requires_half_or_full"
+        if brain and brain not in ("harness", "direct"):
+            return False, f"cervello sconosciuto: {brain}"
         if avatar and self._avatar is None:
             return False, "avatar_unavailable"
-        brain = self.brain_limited if mode == "limited" else self.brain_full
         with self._lock:
             if self._session is not None:
                 return False, "session_active"
@@ -665,7 +626,7 @@ class PushToTalkManager:
         finally:
             with self._lock:
                 self._starting = False
-        # modelli Handy non pronti o device audio non disponibili
+        # modelli non pronti o device audio non disponibili
         return (True, mode) if ok else (False, "start_failed")
 
     def stop_session(self) -> bool:
@@ -676,15 +637,16 @@ class PushToTalkManager:
         return had
 
     def session_state(self) -> dict:
-        """Stato per la GUI: {active, mode, phase, avatar}. La fase replica la
+        """Stato per la GUI: {active, mode, phase, avatar, brain}. La fase replica la
         logica dell'overlay (speaking > reasoning > listening)."""
         with self._lock:
             s = self._session
             if s is None:
                 return {"active": False, "mode": None, "phase": "idle",
-                        "avatar": False}
+                        "avatar": False, "brain": None}
             return {"active": True, "mode": self._mode, "phase": s.phase,
-                    "avatar": self._avatar_active, "language": s.language}
+                    "avatar": self._avatar_active, "language": s.language,
+                    "brain": self._brain.mode if self._brain is not None else None}
 
     def current_language(self) -> str:
         """Lingua della sessione in corso ("" se non ce n'è nessuna)."""
@@ -700,7 +662,7 @@ class PushToTalkManager:
 
     # --- gestione sessione -----------------------------------------------
 
-    def _toggle(self, brain, half_duplex: bool, mode: str,
+    def _toggle(self, brain: str, half_duplex: bool, mode: str,
                 avatar: bool = False) -> None:
         # Lock BREVE per decidere start/stop; il preload lento avviene fuori.
         with self._lock:
@@ -725,7 +687,7 @@ class PushToTalkManager:
             with self._lock:
                 self._starting = False
 
-    def _start_session_reserved(self, brain, half_duplex: bool,
+    def _start_session_reserved(self, brain: str, half_duplex: bool,
                                 mode: str | None = None,
                                 avatar: bool = False) -> bool:
         """Prepara e avvia la sessione. Va chiamato con `_starting=True` gia'
@@ -750,11 +712,6 @@ class PushToTalkManager:
         except Exception as e:  # noqa: BLE001 - device di default non disponibili
             log.error("Push-to-talk: device audio non disponibili: %s", e)
             return False
-        # `StreamingSession._brain` chiama `brain.respond(text)` (1 argomento).
-        # L'AcpAgentClient e lo Stub espongono gia' quella firma; il
-        # `HermesClient` (phone server limitato) ha invece
-        # `respond(session_id, text, direction)` e va avvolto in `HermesSession`
-        # (con notifica "outgoing-call" sintetica, cosi' conosce lingua/voce).
         # Avatar: usa la persona di `avatar_persona` e la sua voce (dal manifest).
         # Se la persona non e' configurata, degrada a sessione normale (warning).
         use_avatar = bool(avatar and self._avatar is not None)
@@ -779,53 +736,36 @@ class PushToTalkManager:
             # Worker caldo da una sessione precedente: la finestra era stata
             # chiusa a fine sessione -> riaprila subito.
             self._avatar.set_preview(True)
-            # Pannello companion (modello LLM + nuova sessione) accanto all'avatar.
-            if self._model_panel is not None:
-                self._model_panel.show()
 
-        hermes_obj = brain
-        session_end = None
-        if isinstance(brain, HermesClient):
-            session_id = f"ptt-{uuid.uuid4().hex[:12]}"
-            brain.notify_outgoing(
-                session_id, "(push-to-talk)", voice, lang,
-            )
-            hsession = HermesSession(brain, session_id, "OUTGOING")
-            hermes_obj = hsession
-            session_end = hsession.end
-        # `end()` generico (verificato: prima era cablato SOLO per HermesClient ->
-        # un brain LM Studio non avrebbe mai flushato la memoria a fine sessione).
-        if session_end is None:
-            session_end = getattr(hermes_obj, "end", None)
-        # Inizio sessione per-avatar (memoria/personalita'): SINCRONO, prima del
-        # thread sessione, cosi' il system prompt e' pronto al primo turno. No-op
-        # se il brain non espone begin_session (es. Hermes/ACP).
-        _begin = getattr(hermes_obj, "begin_session", None)
-        if callable(_begin):
-            try:
-                _begin(persona or None)
-            except Exception as e:  # noqa: BLE001 - non bloccare l'avvio
-                log.warning("begin_session fallito: %s", e)
+        # Il cervello di QUESTA sessione: le due copie condividono i cervelli e il
+        # registro degli scambi, il modo e' proprio (lo cambia un comando vocale).
+        session_brain = self.brains.fork(brain)
+        session_end = getattr(session_brain, "end", None)
+        # Inizio sessione: contesto del cervello nuovo e personalita' dalle impostazioni.
+        try:
+            session_brain.begin_session(None)
+        except Exception as e:  # noqa: BLE001 - non bloccare l'avvio
+            log.warning("begin_session fallito: %s", e)
         if use_avatar:
             session = AvatarPushToTalkSession(
-                self.cfg, hermes_obj, in_idx, out_idx, rate,
+                self.cfg, session_brain, in_idx, out_idx, rate,
                 voice, lang, half_duplex=half_duplex,
                 voice_engine=voice_engine,
                 avatar=self._avatar, avatar_persona=persona,
-                pannello=self._model_panel,
             )
         else:
             session = PushToTalkSession(
-                self.cfg, hermes_obj, in_idx, out_idx, rate,
+                self.cfg, session_brain, in_idx, out_idx, rate,
                 voice, lang, half_duplex=half_duplex,
             )
         with self._lock:
             self._session = session
+            self._brain = session_brain
             self._session_end = session_end
             self._avatar_active = use_avatar
             self._mode = mode or ("half" if half_duplex else "full")
             # Overlay a 3 stati: ascolto (blu) -> reasoning (ambra, a
-            # registrazione finita mentre Hermes elabora) -> parla (viola,
+            # registrazione finita mentre il cervello elabora) -> parla (viola,
             # mentre il TTS riproduce).
             if self.overlay is not None:
                 self.overlay.set_state_fn(lambda s=session: s.phase)
@@ -833,16 +773,10 @@ class PushToTalkManager:
             target=self._run_session, args=(session,),
             name="ptt-session", daemon=True,
         ).start()
-        log.info("Push-to-talk: sessione avviata (%s%s)",
+        log.info("Push-to-talk: sessione avviata (%s, cervello %s%s)",
                  "half-duplex" if half_duplex else "full-duplex",
+                 session_brain.mode,
                  f", avatar={persona}" if use_avatar else "")
-        # Init di sessione: avvisa l'agente (una volta) che e' in modo vocale/
-        # avatar con TTS e di usare le skill dedicate. La risposta non e' parlata.
-        _prime = getattr(hermes_obj, "prime", None)
-        if callable(_prime) and self.cfg.voice_session_init:
-            threading.Thread(
-                target=lambda: _prime(self.cfg.voice_session_init),
-                name="session-init", daemon=True).start()
         return True
 
     def _run_session(self, session: PushToTalkSession) -> None:
@@ -853,9 +787,8 @@ class PushToTalkManager:
                 if self._session is session:
                     self._session = None
                     self._mode = None
+                    self._brain = None
                     self._avatar_active = False
-                    if self._model_panel is not None:
-                        self._model_panel.hide()
                     if self.overlay is not None:
                         self.overlay.set_state_fn(lambda: "hidden")
 
@@ -864,21 +797,20 @@ class PushToTalkManager:
             self._stop_session_locked()
 
     def _stop_session_locked(self) -> None:
-        if self._model_panel is not None:
-            self._model_panel.hide()
         if self._session is not None:
             log.info("Push-to-talk: sessione chiusa")
             self._session.stop()
             self._session = None
             self._mode = None
+            self._brain = None
             self._avatar_active = False
             if self.overlay is not None:
                 self.overlay.set_state_fn(lambda: "hidden")
             if self._session_end is not None:
                 try:
                     self._session_end()
-                except Exception as e:  # noqa: BLE001 - Hermes non raggiungibile
-                    log.warning("Push-to-talk: notifica call-ended fallita: %s", e)
+                except Exception as e:  # noqa: BLE001 - cervello non raggiungibile
+                    log.warning("Push-to-talk: chiusura del cervello fallita: %s", e)
                 self._session_end = None
 
     @staticmethod

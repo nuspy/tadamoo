@@ -1,4 +1,4 @@
-"""Bridge testuale fra il Telegram Wrapper e l'agente Hermes (via ACP).
+"""Bridge testuale fra il Telegram Wrapper e il cervello (brains.py).
 
 Non e' un servizio che parte da solo con CallAPICall: si avvia a mano quando
 serve, con:
@@ -7,16 +7,16 @@ serve, con:
 
 Flusso:
   Telegram Wrapper --[webhook POST, messaggio nuovo]--> questo bridge
-      --[testo taggato "e' Telegram"]--> AcpAgentClient.respond() (Hermes)
-      --[risposta testuale, se Hermes decide di rispondere]--> REST del
+      --[testo taggato "e' Telegram"]--> brain.ask_stream() (cervello di brains.py)
+      --[risposta testuale, se il cervello decide di rispondere]--> REST del
       Telegram Wrapper (`POST /message/send`) sullo stesso chat_id.
 
 Il bridge non decide COSA rispondere né SE rispondere: quella logica (profili,
-tempi, comportamento nei gruppi) vive nello skill `telegram-wrapper` letto da
-Hermes. Il bridge si limita a inoltrare nei due sensi, e a riconoscere la
-convenzione con cui Hermes dice "non rispondo a questo" (vedi
+tempi, comportamento nei gruppi) vive nello skill `telegram-wrapper` letto dal
+cervello. Il bridge si limita a inoltrare nei due sensi, e a riconoscere la
+convenzione con cui il cervello dice "non rispondo a questo" (vedi
 `_NESSUNA_RISPOSTA`): senza questa convenzione, un messaggio di gruppo a cui
-Hermes sceglie di non reagire finirebbe comunque rimandato come messaggio
+cervello sceglie di non reagire finirebbe comunque rimandato come messaggio
 vuoto o come errore.
 """
 from __future__ import annotations
@@ -27,21 +27,21 @@ import threading
 import requests
 from flask import Flask, jsonify, request
 
-from .brains import make_full_brain, respond_stream
+from .brains import make_brain
 from .config import Config
 
 log = logging.getLogger("callbridge.telegram_bridge")
 
-#: Stringa esatta con cui Hermes segnala "ho deciso di non rispondere a
+#: Stringa esatta con cui il cervello segnala "ho deciso di non rispondere a
 #: questo messaggio" (tipicamente in un gruppo dove non e' il caso di
-#: intervenire). Va comunicata a Hermes nel preambolo di ogni messaggio:
+#: intervenire). Va comunicata al cervello nel preambolo di ogni messaggio:
 #: senza una convenzione esplicita, il bridge non ha modo di distinguere
 #: "niente da dire" da "risposta vuota per errore".
 NESSUNA_RISPOSTA = "[NESSUNA RISPOSTA]"
 
 
 def _preambolo(payload: dict) -> str:
-    """Compone il testo taggato che arriva a Hermes: dice chiaramente che e'
+    """Compone il testo taggato che arriva al cervello: dice chiaramente che e'
     un messaggio Telegram, chi lo manda, da dove, e come astenersi."""
     tipo_chat = "gruppo" if payload.get("is_group") else "privata"
     username = payload.get("from_username") or "—"
@@ -61,10 +61,8 @@ class TelegramTextBridge:
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
         # Un solo cervello condiviso per tutti i messaggi, come fa il resto
-        # del bridge (voice_gateway, copilot): l'agente ACP e' una sessione
-        # persistente, aprirne una per messaggio sarebbe uno spawn di Hermes
-        # a ogni riga scritta.
-        self.brain = make_full_brain(cfg, label="telegram-bridge")
+        # del bridge: la conversazione dell'agente e' persistente.
+        self.brain = make_brain(cfg)
         self.app = Flask("telegram_text_bridge")
         self.app.add_url_rule("/telegram/message", methods=["POST"],
                               view_func=self._on_message)
@@ -73,7 +71,7 @@ class TelegramTextBridge:
         payload = request.get_json(silent=True) or {}
         if payload.get("event") != "new_message":
             return jsonify({"status": "ignored"}), 200
-        # Risponde subito al wrapper e processa in background: Hermes puo'
+        # Risponde subito al wrapper e processa in background: il cervello puo'
         # metterci diversi secondi, e non c'e' ragione di far aspettare la
         # POST del wrapper (che non fa nulla con la risposta di questa
         # richiesta, legge solo lo status code per il suo log).
@@ -86,13 +84,11 @@ class TelegramTextBridge:
         is_group = bool(payload.get("is_group"))
         try:
             testo = "".join(
-                chunk for chunk in respond_stream(
-                    self.brain, _preambolo(payload), self.cfg,
-                    session_tag="telegram")
+                chunk for chunk in self.brain.ask_stream(_preambolo(payload))
                 if isinstance(chunk, str)
             ).strip()
-        except Exception as e:  # noqa: BLE001 - Hermes puo' fallire per mille motivi
-            log.error("Bridge Telegram: Hermes ha fallito su chat %s: %s", chat_id, e)
+        except Exception as e:  # noqa: BLE001 - il cervello puo' fallire per mille motivi
+            log.error("Bridge Telegram: il cervello ha fallito su chat %s: %s", chat_id, e)
             return
 
         if not testo or testo == NESSUNA_RISPOSTA:
