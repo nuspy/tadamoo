@@ -412,21 +412,37 @@ class Supervisor:
             self._length_stop.set()
         return busy
 
-    def _ask_length(self, prompt: str) -> dict:
+    def _ask_length(self, prompt: str, cap: int) -> dict:
+        """One try: a text with no end under a cap of `cap` tokens that the server counts. It is cancelled as soon as the text falls into a loop or
+        the person stops it; `ended_by` says which."""
         from serve.frontend import openai_to_messages
         svc = self.svc
         req = {"messages": [{"role": "user", "content": prompt}], "reasoning_effort": "none", "temperature": 0.8, "top_p": 0.95}
         messages, tools, kw = openai_to_messages(req)
         svc.load()
-        ids, thinking, max_new = svc.prepare(messages, tools, kw, 0)
-        t0, text, done = time.time(), [], {}
-        for kind, x in svc.run(ids, thinking, tools, max_new, req, self._length_stop):
+        ids, thinking, max_new = svc.prepare(messages, tools, kw, cap)
+        cancel = threading.Event()
+        t0, text, done, ended, looked, size = time.time(), [], {}, "", 0, 0
+        for kind, x in svc.run(ids, thinking, tools, max_new, req, cancel):
             if kind == "event" and x.kind == "content":
-                text.append(x.text or "")
+                piece = x.text or ""
+                text.append(piece)
+                size += len(piece)
+                if self._length_stop.is_set():
+                    ended = ended or "stopped"
+                    cancel.set()
+                elif size - looked >= lengthprobe.LOOK_EVERY:
+                    looked = size
+                    if lengthprobe.looped_now("".join(text)):
+                        ended = "loop"
+                        cancel.set()
             if kind == "done":
                 done = x
+        if self._length_stop.is_set() and not ended:
+            ended = "stopped"
         return {"text": "".join(text), "tokens": int(done.get("completion_tokens") or 0), "finish": done.get("finish") or "",
-                "repeated": bool(done.get("repeated")), "seconds": time.time() - t0}
+                "repeated": bool(done.get("repeated")), "seconds": time.time() - t0, "ended_by": ended,
+                "cap": int(max_new)}               # the cap in force: the context may have left less than was asked
 
     def _length_job(self):
         self._length_stop.clear()
@@ -459,16 +475,16 @@ class Supervisor:
 
         def step(r, rungs):
             keep({"rungs": rungs, "complete": False, "stopped_by": "running"})
-            self._set(message=f"{r['asked_words']} words asked, {r['words']} written, {r['tokens']} tokens")
-            print(f"[server] length: {r['asked_words']} words asked, {r['words']} written in {r['tokens']} tokens, {r['finish']}"
-                  f"{', looped' if r['looped'] else ''}", flush=True)
+            self._set(message=f"{r['prompt']}: {r['tokens']} tokens written, {r['clean_tokens']} before any loop")
+            print(f"[server] length: text '{r['prompt']}': {r['tokens']} tokens written (cap {r['cap']}), {r['finish']}"
+                  f"{', loop after ' + str(r['clean_tokens']) + ' tokens' if r['looped'] else ''}", flush=True)
 
         result = lengthprobe.measure(self._ask_length, self._length_stop, step)
         if not result["rungs"]:
             return None
         record = keep(result)
-        print(f"[server] length saved to {lengthprobe.record_path(key)}: a reply of {record['reliable_tokens']} tokens "
-              f"({record['reliable_words']} words) is reliable", flush=True)
+        print(f"[server] length saved to {lengthprobe.record_path(key)}: {record['reliable_tokens']} tokens "
+              f"({record['reliable_words']} words) before any loop; the model stopped by itself at {record['natural_tokens']} tokens", flush=True)
         return record
 
     # ---- the configuration wizard's measurement

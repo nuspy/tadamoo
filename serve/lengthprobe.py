@@ -1,9 +1,11 @@
-"""How long a reply this model writes by itself, measured once when the model is first loaded and raised by use.
+"""How long a reply this model writes, measured once when the model is first loaded and raised by use.
 
-The probe asks for a chapter of growing length (and last a whole book), with the thinking off, and keeps for each try the words and tokens
-that came, how it ended (the model stopped, the cap or the context was reached) and whether the text fell into a loop. The record is a JSON
-file by the hash of the model file, with the identity of the model. The number it gives, `reliable_tokens`, is where the harness starts to
-write a text in checked parts; nothing here cuts a reply. A reply (thinking and answer together) that ends well above it raises it."""
+The model cannot count what it writes, so it is not asked for a length. It is asked for a text with no end (numbered entries, one after
+the other, never concluding) under a cap in tokens that the server sets and counts; what is recorded is what came out. A model that
+stops by itself shows where it stops; one that reaches the cap shows that it can go that far; one that falls into a loop shows where the
+loop began, and the try is cancelled there. The checkpoints at 10,000, 20,000 and 30,000 tokens say which of them were reached with a
+clean text. The record is a JSON file by the hash of the model file, with the identity of the model. `reliable_tokens` is where the harness
+starts to write a text in checked parts; nothing here cuts a reply. A reply (thinking and answer together) that ends well above it raises it."""
 from __future__ import annotations
 
 import json
@@ -14,17 +16,23 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-VERSION = 1
-RUNGS = (2000, 5000, 10000, 20000, 60000)      # the words each try asks for; the last is a whole book
-ENOUGH = 0.6                                   # a try that gives less than this share of the words asked ends the ladder
-SLICE = 16_384                                 # characters looked at once for a loop
-SAVE_EVERY_S = 5.0                             # the least time between two writes of a raised number
-TOPICS = ("the history of a river harbour town and the families who lived there",
-          "a long journey by train across a continent, told stage by stage",
-          "how a small company builds, tests and ships a product over one year")
+VERSION = 2
+CHECKPOINTS = (10_000, 20_000, 30_000)        # tokens at which the text is looked at
+CAP = CHECKPOINTS[-1]                         # the most one try may write
+WINDOW = 6_000                                # characters looked at together for a loop
+STEP = 1_500                                  # and the step between two looks
+LOOK_EVERY = 4_000                            # characters written between two looks while a try runs
+SERVER_LOOP_TOKENS = 2_000                    # where the server's own passage check puts the start of a loop it cut
+SAVE_EVERY_S = 5.0                            # the least time between two writes of a raised number
 
-PROMPT = ("Write one chapter of a book about {topic}. It must be about {words} words long. Write continuous prose in full paragraphs, "
-          "with no outline, no notes about the length and no summary at the end. Keep writing until you reach about {words} words.")
+PROMPTS = (
+    ("entries", "Write an encyclopedia of the rivers of the world. Number the entries 1, 2, 3 and so on, each of about two paragraphs, "
+                "in full sentences. Never conclude, never summarize and never say that you are finishing: after each entry write the next one, "
+                "and go on until you are stopped."),
+    ("story", "Write a novel that has no last chapter. Number the chapters 1, 2, 3 and so on, each of several paragraphs of narrative with "
+              "new characters, places and events. Never conclude and never write an ending: after each chapter write the next one, and go on "
+              "until you are stopped."),
+)
 
 
 def record_path(meta_hash: str) -> Path:
@@ -63,59 +71,76 @@ def write(meta_hash: str, record: dict) -> Path:
     return path
 
 
-def looped(text: str) -> bool:
-    """True when a stretch of the text is mostly the same units over and over (the harness's own check, over slices)."""
+def looped_now(text: str) -> bool:
+    """True when the end of the text is mostly the same units over and over (the harness's own check)."""
     from tadamoo.output_guard import repetition_dominated
-    return any(repetition_dominated(text[i:i + SLICE]) for i in range(0, max(1, len(text)), SLICE))
+    return repetition_dominated(text[-16_384:])
 
 
-def judge(asked: int, text: str, tokens: int, finish: str, repeated: bool, seconds: float) -> dict:
-    """One try as the record keeps it. `clean`: no loop. `natural`: the model ended the text itself."""
+def loop_start(text: str) -> Optional[int]:
+    """The character where a loop in the text began (the start of the first stretch that is mostly repeats), or None for a clean text."""
+    from tadamoo.output_guard import repetition_dominated
+    for i in range(0, max(1, len(text) - WINDOW + STEP), STEP):
+        if repetition_dominated(text[i:i + WINDOW]):
+            return i
+    return None
+
+
+def judge(prompt: str, cap: int, text: str, tokens: int, finish: str, repeated: bool, seconds: float, ended_by: str = "") -> dict:
+    """One try as the record keeps it, from the text and the tokens the server counted. `clean_tokens`: the tokens before a loop began (all of
+    them when there was none). `natural`: the model stopped by itself, without a loop."""
+    tokens = int(tokens)
+    start = loop_start(text)
+    if start is not None:
+        clean = int(tokens * start / max(1, len(text)))
+    elif repeated or ended_by == "loop":
+        clean = max(0, tokens - SERVER_LOOP_TOKENS)       # the server or the watch cut a loop that the text check had not placed yet
+    else:
+        clean = tokens
+    looped = start is not None or bool(repeated) or ended_by == "loop"
     words = len(text.split())
-    bad = bool(repeated) or looped(text)
-    return {"asked_words": asked, "words": words, "tokens": int(tokens), "finish": finish, "looped": bad, "clean": not bad,
-            "natural": finish == "stop" and not bad, "seconds": round(seconds, 1)}
+    return {"prompt": prompt, "cap": cap, "tokens": tokens, "words": words, "finish": finish, "looped": looped, "clean": not looped,
+            "clean_tokens": clean, "clean_words": int(words * clean / tokens) if tokens else 0,
+            "natural": finish == "stop" and not looped,
+            "reached_cap": tokens >= cap * 0.98 and finish == "length" and not looped,
+            "checkpoints": [{"at": c, "reached": tokens >= c, "clean": clean >= c} for c in CHECKPOINTS if c <= cap],
+            "seconds": round(seconds, 1)}
 
 
 def summarize(rungs: List[dict]) -> dict:
-    """The numbers the rest of the program uses, from the tries so far: the longest clean reply in tokens and words, and the longest
-    one the model ended by itself."""
-    clean = [r for r in rungs if r["clean"]]
-    natural = [r for r in rungs if r["natural"]]
-    best = max(clean, key=lambda r: r["tokens"], default=None)
-    own = max(natural, key=lambda r: r["tokens"], default=None)
-    return {"reliable_tokens": best["tokens"] if best else 0, "reliable_words": best["words"] if best else 0,
-            "natural_tokens": own["tokens"] if own else 0, "natural_words": own["words"] if own else 0}
+    """The numbers the rest of the program uses: the most tokens (and words) written before any loop, the most written when the model stopped by
+    itself, and whether a try reached the cap clean."""
+    best = max(rungs, key=lambda r: r["clean_tokens"], default=None)
+    own = max((r for r in rungs if r["natural"]), key=lambda r: r["tokens"], default=None)
+    return {"reliable_tokens": best["clean_tokens"] if best else 0, "reliable_words": best["clean_words"] if best else 0,
+            "natural_tokens": own["tokens"] if own else 0, "natural_words": own["words"] if own else 0,
+            "reached_cap": any(r["reached_cap"] for r in rungs)}
 
 
-def measure(ask: Callable[[str], dict], stop: threading.Event | None = None, on_step: Callable[[dict, list], None] | None = None,
-            rungs=RUNGS) -> dict:
-    """Run the ladder. `ask(prompt)` returns {"text", "tokens", "finish", "repeated", "seconds"}. It stops at the first try that
-    loops, that is cut by the cap or the context, or that gives much less than was asked. Returns {"rungs", "complete", "stopped_by"}."""
+def measure(ask: Callable[[str, int], dict], stop: threading.Event | None = None, on_step: Callable[[dict, list], None] | None = None,
+            cap: int = CAP, prompts=PROMPTS) -> dict:
+    """Run the tries. `ask(prompt, cap)` returns {"text", "tokens", "finish", "repeated", "seconds", "ended_by"} with the tokens as the server
+    counted them. The first text with no end runs to the cap, to a stop of the model's own or to a loop; when it does not reach the cap clean,
+    the second kind of text is tried too. Returns {"rungs", "complete", "stopped_by"}; `got["cap"]` is the cap in force when the context left less than asked."""
     done: List[dict] = []
     why = "ladder"
-    for i, words in enumerate(rungs):
+    for name, prompt in prompts:
         if stop is not None and stop.is_set():
             why = "stopped"
             break
-        got = ask(PROMPT.format(topic=TOPICS[i % len(TOPICS)], words=words))
-        if got.get("finish") == "cancel":
+        got = ask(prompt, cap)
+        if got.get("ended_by") == "stopped" or got.get("finish") == "cancel" and got.get("ended_by") != "loop":
             why = "stopped"
             break
-        r = judge(words, got.get("text") or "", got.get("tokens") or 0, got.get("finish") or "", got.get("repeated"), got.get("seconds") or 0.0)
+        r = judge(name, int(got.get("cap") or cap), got.get("text") or "", got.get("tokens") or 0, got.get("finish") or "", got.get("repeated"),
+                  got.get("seconds") or 0.0, got.get("ended_by") or "")
         done.append(r)
         if on_step is not None:
             on_step(r, done)
-        if not r["clean"]:
-            why = "loop"
+        if r["reached_cap"]:
+            why = "cap"                                        # it went as far as it was let, with a clean text
             break
-        if r["finish"] != "stop":
-            why = "cap"                                        # the context or the cap ended it: nothing longer can be asked
-            break
-        if r["words"] < ENOUGH * words:
-            why = "short"                                      # the model ended by itself well before the length asked
-            break
-    return {"rungs": done, "complete": why in ("ladder", "cap", "short", "loop"), "stopped_by": why}
+    return {"rungs": done, "complete": why != "stopped", "stopped_by": why}
 
 
 def new_record(model: dict, context: int, engine: str | None, result: dict) -> dict:
@@ -183,7 +208,8 @@ class Lengths:
         if not r:
             return {"known": False}
         return {"known": True, "limit_tokens": self.limit_tokens(), "reliable_tokens": r.get("reliable_tokens"),
-                "reliable_words": r.get("reliable_words"), "natural_words": r.get("natural_words"),
-                "observed_max_tokens": r.get("observed_max_tokens"), "measured_at": r.get("measured_at"),
+                "reliable_words": r.get("reliable_words"), "natural_tokens": r.get("natural_tokens"), "natural_words": r.get("natural_words"),
+                "reached_cap": r.get("reached_cap"), "observed_max_tokens": r.get("observed_max_tokens"), "measured_at": r.get("measured_at"),
                 "complete": r.get("complete"), "stopped_by": r.get("stopped_by"), "model": r.get("model"),
-                "rungs": [{k: x[k] for k in ("asked_words", "words", "tokens", "finish", "clean")} for x in r.get("rungs", [])]}
+                "rungs": [{k: x.get(k) for k in ("prompt", "cap", "tokens", "clean_tokens", "finish", "clean", "natural", "checkpoints")}
+                          for x in r.get("rungs", [])]}
