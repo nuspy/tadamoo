@@ -436,3 +436,29 @@ def test_a_question_step_cannot_be_completed_without_the_answer(world):
     assert "importo" in refused and client.snapshot(pid)["plan"]["nodes"]["q1"]["status"] == "pending"
     reg.execute("plan_mark", {"plan_id": pid, "node_id": "q1", "status": "completed", "outputs": {"importo": 300}})
     assert client.snapshot(pid)["plan"]["shared_state"]["importo"] == 300
+
+
+def test_a_step_is_handed_the_values_of_the_steps_above_it_in_its_own_words_and_must_produce_what_it_says(world):  # noqa: F811
+    """A counts the eggs, C the people; B divides {uova} by {presenti}: B is given both, in its description and as values, and B must produce its result."""
+    client, agent, build = world
+    reg, ask = build()
+    t = title()
+    create_with_quote(reg, agent, t, [{"title": "Conta le uova"}, {"title": "Conta i presenti"},
+                                      {"title": "Dividi", "after": [1, 2], "description": "Dividi {uova} per {presenti} e dimmi quante a testa"}])
+    pid = next(p["plan_id"] for p in client.list() if p["title"] == t)
+    for node, produces in (("s1", [{"name": "uova", "type": "number"}]), ("s2", [{"name": "presenti", "type": "number"}]), ("s3", [{"name": "a_testa", "type": "number"}])):
+        client.event(pid, {"type": "plan:update_node", "node_id": node, "changes": {"produces": produces}})
+    reg.execute("plan_get", {"plan_id": pid})
+    for node, value in (("s1", {"uova": 30}), ("s2", {"presenti": 12})):
+        agent.last_user_text = "segnalo fatto il passo, completalo"
+        reg.execute("plan_get", {"plan_id": pid})
+        refused = reg.execute("plan_mark", {"plan_id": pid, "node_id": node, "status": "completed", "quote": "completalo"})
+        assert "must produce" in refused                                                    # no outputs: refused, and said which
+        done = reg.execute("plan_mark", {"plan_id": pid, "node_id": node, "status": "completed", "outputs": value, "quote": "completalo"})
+        assert "must produce" not in done
+    agent.last_user_text = "inizia il passo tre, dividi"
+    reg.execute("plan_get", {"plan_id": pid})
+    started = reg.execute("plan_step_start", {"plan_id": pid, "node_id": "s3", "quote": "inizia il passo tre"})
+    assert "Dividi 30 per 12 e dimmi quante a testa" in started                             # the words carry the values
+    assert '"uova": 30' in started and '"presenti": 12' in started                        # and so do the values given
+    assert "plan_mark must carry outputs with: a_testa (number)" in started

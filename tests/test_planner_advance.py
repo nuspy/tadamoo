@@ -168,3 +168,59 @@ def test_a_draft_steps_title_and_links_are_kept_and_it_can_be_linked_later():
     dag = plan(n("a", "action"), n("d", "decision", state_variables=dict(DRAFT)))
     dag.add_edge("a", "d") if hasattr(dag, "add_edge") else None
     assert dag.nodes["d"].status == "pending" and "d" not in dag.ready_nodes(T0)
+
+
+# -- values: where a step reads them from, where it sets them, and what a step must produce --------------------------------
+
+def test_a_step_that_says_what_it_produces_must_complete_with_those_values_of_those_types():
+    dag = plan(n("a", "action", produces=[{"name": "uova", "type": "number"}, "nota"]))
+    with pytest.raises(Exception, match="must produce uova"):
+        dag.mark("a", "completed", {"nota": "ok"}, T0)
+    with pytest.raises(Exception, match="uova should be number"):
+        dag.mark("a", "completed", {"uova": "trenta", "nota": "x"}, T0)
+    dag.mark("a", "completed", {"uova": 30, "nota": "x"}, T0)
+    assert dag.shared_state == {"uova": 30, "nota": "x"} and dag.nodes["a"].state_variables["outputs"] == {"uova": 30, "nota": "x"}
+    assert dag.nodes["a"].produces == [{"name": "uova", "type": "number"}, {"name": "nota", "type": "any"}]
+
+
+def test_what_a_step_produces_is_checked_when_it_is_written_and_kept_with_the_step():
+    from tadamoo.planner.dag import node_to_dict
+    for bad in ("uova", [{"name": "1x"}], [{"name": "x", "type": "date"}], ["x", "x"]):
+        with pytest.raises(Exception):
+            n("b", "action", produces=bad)
+    node = n("b", "action", produces=["x"])
+    assert node_to_dict(node)["produces"] == [{"name": "x", "type": "any"}]
+    assert "produces" not in node_to_dict(n("c", "action"))
+
+
+def test_read_value_reads_the_clock_a_value_of_the_plan_what_another_step_wrote_and_a_shared_value():
+    from tadamoo.planner import nodes
+    nodes.GLOBALS = nodes.GlobalValues()
+    nodes.GLOBALS.set("cartella", "docs")
+    dag = plan(n("a", "action"), n("t", "get_var", {"name": "weekday", "source": "clock"}), n("g", "get_var", {"name": "cartella", "source": "global", "into": "dove"}),
+               n("s", "get_var", {"name": "uova", "source": "step", "step": "a", "into": "totale"}, parents=["a"]))
+    dag.mark("a", "completed", {"uova": 30}, T0)
+    done = dag.advance(T0)
+    assert set(done["done"]) == {"t", "g", "s"}
+    assert dag.shared_state["weekday"] in ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+    assert dag.shared_state["dove"] == "docs" and dag.shared_state["totale"] == 30
+    with pytest.raises(Exception, match="the clock gives"):
+        n("x", "get_var", {"name": "yesterday", "source": "clock"})
+    with pytest.raises(Exception):
+        n("y", "get_var", {"name": "uova", "source": "step"})                            # a step is named
+
+
+def test_set_value_can_set_a_value_shared_by_all_plans_and_another_plan_reads_it(tmp_path):
+    from tadamoo.planner import nodes
+    nodes.GLOBALS = nodes.GlobalValues(tmp_path / "g.json")
+    first = plan(n("s", "set_var", {"name": "ultimo", "value": 12, "target": "global"}))
+    assert first.advance(T0)["done"] == ["s"] and "ultimo" not in first.shared_state
+    nodes.GLOBALS = nodes.GlobalValues(tmp_path / "g.json")                               # a new process reads the file
+    second = plan(n("r", "get_var", {"name": "ultimo", "source": "global"}))
+    assert second.advance(T0)["done"] == ["r"] and second.shared_state["ultimo"] == 12
+
+
+def test_a_variable_that_is_not_there_yet_keeps_the_read_waiting_and_says_why():
+    dag = plan(n("g", "get_var", {"name": "assente"}))
+    dag.advance(T0)
+    assert dag.nodes["g"].status == "pending" and "no value yet" in dag.nodes["g"].state_variables["auto_error"]

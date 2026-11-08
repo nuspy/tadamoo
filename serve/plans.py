@@ -49,6 +49,8 @@ class PlanService:
                  pump_batch: int = 10, pump_window: float = 300.0, pump_poll: float = 1.0) -> None:
         self.dir = Path(data_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
+        from tadamoo.planner import nodes as plan_nodes
+        plan_nodes.GLOBALS = plan_nodes.GlobalValues(self.dir / "globals.json")      # the values every plan can read and set
         self.client_factory = client_factory
         self.vault_factory = vault_factory                 # the vault the sources' credentials are read from; the server's own by default
         self.pump_batch, self.pump_window, self.pump_poll = pump_batch, pump_window, pump_poll
