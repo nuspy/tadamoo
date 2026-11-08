@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
 from tadamoo import exec_level, nextsteps, persistence, side_uses
+from tadamoo import telegram as tg
 from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, voice_api, voice_loader, voice_service, voice_settings
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX, checked_sampling
@@ -67,6 +68,7 @@ from serve.routines_api import RoutinesApi
 from tadamoo.scheduler import RoutineError
 from serve.wallet_api import WalletApi, WalletError
 from serve.websearch_api import WebSearchApi, WebSearchError
+from serve.telegram_service import TelegramService, TelegramServiceError
 from serve.personas_api import PersonasApi
 from tadamoo.personas import PersonaError, PersonaStore
 from tadamoo.context_patterns import catalog as context_patterns_catalog
@@ -132,6 +134,23 @@ def _start_planner(svc: Service, port: int) -> None:
         _plans_service(svc, port).start()
     except Exception as exc:                                   # the planner never keeps the server from starting
         print(f"planner: not started ({type(exc).__name__}: {exc})", file=sys.stderr, flush=True)
+
+
+def telegram_service(sessions) -> TelegramService:
+    """The Telegram bot's service, made on first use; `sessions` gives the conversations it talks to."""
+    global _TELEGRAM
+    if _TELEGRAM is None:
+        _TELEGRAM = TelegramService(tg.Settings(userdata.path("telegram.json")), tg.Token(folder=userdata.user_data_dir()), sessions,
+                                    attachments_dir=userdata.path("attachments"), state_dir=userdata.path("telegram"))
+    return _TELEGRAM
+
+
+def _start_telegram(httpd) -> None:
+    """With the server: the bot listens when the person turned it on and a token is kept. The conversations are taken from a handler that has no request."""
+    handler = httpd.RequestHandlerClass
+    bare = handler.__new__(handler)
+    bare.server = httpd
+    telegram_service(bare._agent_sessions).start_if_enabled()
 
 
 def stop_sessions() -> None:
@@ -593,6 +612,11 @@ def make_handler(svc: Service, remote: bool = False):
             elif path in ("/api/websearch", "/api/websearch/plan", "/api/websearch/job"):
                 if self._authorized():
                     if not settings.is_loopback(self.client_address[0]):
+            elif path == "/api/telegram":
+                if self._authorized():
+                    if not settings.is_loopback(self.client_address[0]):
+                        return self._json(403, {"error": {"type": "forbidden", "message": "the Telegram settings are shown only on the PC the server runs on"}})
+                    self._json(200, self._telegram().overview())
                         return self._json(403, {"error": {"type": "forbidden", "message": "the web search settings are shown only on the PC the server runs on"}})
                     query = parse_qs(urlsplit(self.path).query)
                     try:
@@ -837,6 +861,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path == "/api/personas" or path.startswith("/api/personas/"):
                 self._personas_post(path)
+                return
+            if path.startswith("/api/telegram/"):
+                self._telegram_post(path)
                 return
             if path.startswith("/api/voice/"):
                 self._voice_post(path)
@@ -2385,6 +2412,32 @@ def make_handler(svc: Service, remote: bool = False):
         def _websearch(self) -> WebSearchApi:
             global _WEBSEARCH
             if _WEBSEARCH is None:
+        def _telegram(self) -> TelegramService:
+            return telegram_service(lambda: self._agent_sessions())
+
+        def _telegram_post(self, path):
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the Telegram settings are changed only from the PC the server runs on"}})
+            try:
+                raw = self._body(1 << 14)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                api, action = self._telegram(), path[len("/api/telegram/"):]
+                routes = {"settings": lambda: api.set_settings(req), "token": lambda: api.set_token(req.get("token")), "allow": lambda: api.allow(req),
+                          "pairing": lambda: api.pairing(req), "import": api.import_hermes, "test": api.test, "send-test": lambda: api.send_test(req.get("text"))}
+                if action not in routes:
+                    return self._json(404, {"error": {"message": "not found"}})
+                return self._json(200, routes[action]())
+            except TelegramServiceError as e:
+                return self._json(e.status, {"error": {"type": "telegram", "code": e.code, "message": str(e)}})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"type": "telegram", "message": str(e)}})
+
                 _WEBSEARCH = WebSearchApi()
             return _WEBSEARCH
 
@@ -3367,6 +3420,13 @@ def make_handler(svc: Service, remote: bool = False):
                     if len(parts) == 3 and parts[2] == "rename":
                         return self._json(200, {"session": mgr.rename(parts[1], req.get("title"))})
                     if len(parts) == 3 and parts[2] == "skill-propose":
+                    if len(parts) == 3 and parts[2] == "telegram":
+                        if not settings.is_loopback(self.client_address[0]):
+                            return self._json(403, {"error": {"type": "forbidden", "message": "a conversation is moved to Telegram only from the PC the server runs on"}})
+                        try:
+                            return self._json(200, {"session": self._telegram().move(parts[1], req.get("chat"))})
+                        except TelegramServiceError as e:
+                            return self._json(e.status, {"error": {"type": "telegram", "code": e.code, "message": str(e)}})
                         return self._json(200, mgr.skill_propose(parts[1], req.get("turns")))
                     if len(parts) == 3 and parts[2] == "skill-script":
                         return self._json(200, mgr.skill_script(parts[1], req.get("turns"), req.get("name"), req.get("description"), req.get("params")))
@@ -3875,6 +3935,7 @@ def serve(svc: Service, host="127.0.0.1", port=7232) -> ThreadingHTTPServer:
     threading.Thread(target=rea_api.start_if_enabled, args=(lambda: _CAPS.rescan() if _CAPS is not None else None,), daemon=True, name="rea-start").start()
     threading.Thread(target=canary_api.reattach, daemon=True, name="canary-reattach").start()
     if getattr(svc, "keys", None) is None:
+    threading.Thread(target=_start_telegram, args=(httpd,), daemon=True, name="telegram-start").start()
         svc.keys = ApiKeys(userdata.path("api-keys.json"), key_dir=userdata.path("vault"))
     if getattr(svc, "remote", None) is None:
         svc.remote = RemoteAccess(userdata.path("remote.json"), httpd.server_address[1], lambda ip, p: _listen(svc, ip, p, remote=True))
