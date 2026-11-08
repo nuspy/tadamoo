@@ -7,6 +7,9 @@
 .ws-root .btn { min-height: 44px; min-width: 44px; padding: 8px 16px; font-size: 15px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .ws-global { display: grid; gap: 8px; margin: 0 0 20px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .ws-now { margin: 0; line-height: 1.5; color: var(--fg); overflow-wrap: anywhere; }
+.ws-sys { display: grid; gap: 4px; padding: 8px 0; border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }
+.ws-sysline { margin: 0; color: var(--fg); line-height: 1.5; overflow-wrap: anywhere; }
+.ws-unsupported { margin-top: 4px; padding: 8px 12px; border: 1px solid var(--warn); border-radius: 6px; font-weight: 600; }
 .ws-reader { margin: 0; padding: 0; border: 0; min-width: 0; display: grid; gap: 4px; }
 .ws-reader legend { padding: 0; font-weight: 600; color: var(--fg); line-height: 1.4; }
 .ws-radio { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 4px 0; cursor: pointer; color: var(--fg); }
@@ -38,7 +41,7 @@
 .ws-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; }
 .ws-field { display: grid; gap: 4px; flex: 1 1 260px; max-width: 520px; min-width: 0; }
 .ws-field label { font-weight: 600; color: var(--fg); }
-.ws-field input { width: 100%; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font: 16px/1.4 var(--font-sans); }
+.ws-field input, .ws-field select { width: 100%; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font: 16px/1.4 var(--font-sans); }
 .ws-keystate, .ws-status, .ws-testout { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin: 0; color: var(--fg); line-height: 1.5; min-width: 0; }
 .ws-keystate { flex-basis: 100%; }
 .ws-warn { display: flex; align-items: flex-start; gap: 8px; color: var(--warn); line-height: 1.5; overflow-wrap: anywhere; }
