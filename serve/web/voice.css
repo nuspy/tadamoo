@@ -1,0 +1,49 @@
+/* Settings > Voice */
+.vo-root { max-width: 980px; }
+.vo-root :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.vo-intro { margin: 0 0 16px; color: var(--fg-2); line-height: 1.55; overflow-wrap: anywhere; }
+.vo-root .btn { min-height: 44px; min-width: 44px; padding: 8px 16px; font-size: 15px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.vo-help, .vo-line { margin: 0; font-size: 14px; line-height: 1.5; color: var(--fg-2); overflow-wrap: anywhere; }
+.vo-line { color: var(--fg); }
+.vo-h { margin: 0; font: 600 18px/1.3 var(--font-sans); color: var(--fg); overflow-wrap: anywhere; }
+.vo-h2 { margin: 0; font: 600 16px/1.3 var(--font-sans); color: var(--fg); overflow-wrap: anywhere; }
+.vo-h3 { margin: 0; font: 600 14px/1.3 var(--font-sans); color: var(--fg); overflow-wrap: anywhere; }
+.vo-box, .vo-card { display: grid; gap: 12px; min-width: 0; margin: 0 0 16px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.vo-box[hidden] { display: none; }
+.vo-list { display: grid; align-items: start; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+.vo-card { margin: 0; align-content: start; }
+.vo-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; }
+.vo-field { display: grid; gap: 4px; flex: 1 1 260px; max-width: 520px; min-width: 0; }
+.vo-field label { font-weight: 600; color: var(--fg); }
+.vo-field input, .vo-field select { width: 100%; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font: 16px/1.4 var(--font-sans); }
+.vo-note { margin: 0; padding: 8px 12px; border-left: 3px solid var(--line); color: var(--fg-2); line-height: 1.5; overflow-wrap: anywhere; }
+.vo-note[data-bad="1"] { border-left-color: var(--warn); color: var(--warn); }
+.vo-note[hidden] { display: none; }
+.vo-state { display: flex; flex-wrap: wrap; gap: 8px; }
+.vo-chip { display: inline-flex; align-items: center; min-height: 28px; padding: 2px 10px; border: 1px solid var(--line); border-radius: 14px; font-size: 13px; line-height: 1.5; color: var(--fg-2); }
+.vo-ok { border-color: var(--accent); color: var(--fg); }
+.vo-warn { border-color: var(--warn); color: var(--warn); }
+.vo-facts { display: grid; gap: 2px 12px; margin: 0; grid-template-columns: minmax(0, 1fr); }
+.vo-facts dt { margin-top: 6px; font-size: 13px; color: var(--fg-2); }
+.vo-facts dd { margin: 0; color: var(--fg); line-height: 1.5; overflow-wrap: anywhere; }
+.vo-place { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.vo-place .vo-field { flex: 1 1 200px; max-width: 320px; }
+.vo-dl, .vo-plan { display: grid; gap: 10px; min-width: 0; }
+.vo-plan { padding: 12px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--panel); }
+.vo-license { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 8px; }
+.vo-problems { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--warn); border-radius: 8px; color: var(--warn); }
+.vo-problems ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; line-height: 1.5; overflow-wrap: anywhere; }
+.vo-checks { display: grid; gap: 4px; }
+.vo-check { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 4px 0; cursor: pointer; color: var(--fg); line-height: 1.4; }
+.vo-check input { width: 24px; height: 24px; margin: 0; flex: none; accent-color: var(--accent); cursor: pointer; }
+.vo-bar { display: flex; flex-wrap: wrap; gap: 8px; }
+.vo-progress { height: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); overflow: hidden; }
+.vo-fill { height: 100%; background: var(--accent); }
+.vo-run .btn { justify-self: start; }
+@media (min-width: 640px) {
+  .vo-facts { grid-template-columns: max-content minmax(0, 1fr); }
+  .vo-facts dt { margin-top: 0; }
+}
+@media (min-width: 1000px) { .vo-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .vo-card, .vo-box { padding: 12px; } .vo-form .btn, .vo-bar .btn { flex: 1 1 100%; } .vo-field, .vo-place .vo-field { max-width: none; flex-basis: 100%; } }
+@media (prefers-reduced-motion: reduce) { .vo-root *, .vo-root *::before, .vo-root *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
