@@ -1,7 +1,8 @@
 """TaDaMoo's voice settings (`voice.json`) turned into what the voice service uses.
 
 The file is the one serve/voice_settings.py writes:
-    {"models_dir": "<absolute path>", "services": {"<service>": {"selected": "<model id>", "device": "auto|cpu|cuda:N", "memory": "vram|ram"}}}
+    {"models_dir": "<absolute path>", "services": {"<service>": {"selected": "<model id>", "device": "auto|cpu|cuda:N", "memory": "vram|ram",
+                                                                  "enabled": true|false}}}
 This module reads it without importing `serve` or `tadamoo` (the service has its own interpreter). A missing, unreadable or damaged file,
 or a bad value in it, gives the defaults: the service never fails because of its settings.
 
@@ -29,6 +30,7 @@ class Choice:
     model: str            # the catalog id, "" when the service has none
     device: str           # auto | cpu | cuda:N
     memory: str           # vram | ram
+    enabled: bool | None = None   # the stored boolean, None when the file has none (see is_enabled)
 
     @property
     def engine(self) -> str:
@@ -69,7 +71,8 @@ def _choice(service: str, stored) -> Choice:
         memory = "ram" if device == "cpu" else "vram"
     if device == "cpu" and memory == "vram":
         memory = "ram"
-    return Choice(service, model, device, memory)
+    enabled = stored.get("enabled")
+    return Choice(service, model, device, memory, enabled if isinstance(enabled, bool) else None)
 
 
 def load(path, default_models_dir: str = "") -> Settings:
@@ -84,6 +87,14 @@ def load(path, default_models_dir: str = "") -> Settings:
         models_dir = default_models_dir or str(Path(path).resolve().parent / "voice-models")
     stored = data.get("services") if isinstance(data.get("services"), dict) else {}
     return Settings(models_dir, {s: _choice(s, stored.get(s)) for s in ms.SERVICES})
+
+
+def is_enabled(choice: Choice, models_dir: str) -> bool:
+    """Whether the function is loaded with the others: the stored boolean, else on for an installed STT only (read when asked, so a model
+    installed after the file was read counts)."""
+    if choice.enabled is not None:
+        return choice.enabled
+    return choice.service == "stt" and ms.is_installed(choice.model, models_dir)
 
 
 def _config_device(choice: Choice) -> str:

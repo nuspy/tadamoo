@@ -2,7 +2,8 @@
 
     python -m voice.service --settings <voice.json> --host 127.0.0.1 --port P --token-file F --info-file I [--default-models-dir D]
 
-It starts with no model loaded and no hardware touched. Settings come from TaDaMoo's `voice.json` (voice/settings_bridge.py) and are read
+It starts with no model loaded and no hardware touched, except that an enabled STT with its model installed loads at once (dictation and the
+clipboard do not wait for the VRAM plan); the other functions load on `POST /functions/apply`. Settings come from TaDaMoo's `voice.json` (voice/settings_bridge.py) and are read
 again when the file changes. Every route but /health needs `Authorization: Bearer <the token in F>`. Models are read only from the
 models folder and never downloaded (voice/callbridge/models_store.py). When the server listens it prints one JSON line on stdout,
 `{"ready": true, "port": P, "pid": N}`, and writes `{host, port, pid, started}` to I; I is removed again on a clean stop."""
@@ -23,7 +24,7 @@ import voice  # noqa: F401  (puts voice/ on sys.path so that `callbridge` import
 from callbridge import models_store  # noqa: E402
 from callbridge.config import Config  # noqa: E402
 
-from voice import settings_bridge  # noqa: E402
+from voice import functions, settings_bridge  # noqa: E402
 
 log = logging.getLogger("voice.service")
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
@@ -117,6 +118,8 @@ def build_app(settings_path, token: str, default_models_dir: str = "", host: str
     state = State(settings_path, config, default_models_dir)
     app = create_app(config, status_fn=state.status)
     app.before_request(lambda: state.refresh())
+    state.functions = functions.Functions(state, app=app)
+    functions.register(app, state.functions)
     return app, state
 
 
@@ -169,6 +172,7 @@ def serve(args) -> int:
     sys.stdout.write(json.dumps({"ready": True, "port": port, "pid": os.getpid()}) + "\n")
     sys.stdout.flush()
     log.info("standby on %s:%d (models folder %s)", host, port, state.settings.models_dir)
+    threading.Thread(target=state.functions.autostart, name="voice-autostart", daemon=True).start()
     try:
         while not stop.wait(0.5):
             pass
