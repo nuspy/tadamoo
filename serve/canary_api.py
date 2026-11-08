@@ -465,7 +465,7 @@ def status(ctx: Context) -> Dict[str, Any]:
         "sessions": st.get("sessions_this_run", 0), "monitor": st.get("monitor", ""), "findings": counts(rows), "findings_total": len(rows),
         "netwatch": {"enabled": bool(nw.store.settings["enabled"]), "by_canary": bool(g.get("netwatch_by_canary"))},
         "effective": effective(s, ctx),
-        "runtimes": [{"id": r["id"], "name": r["name"], "base_url": r["default_base_url"]} for r in cat.runtimes.values()],
+        "runtimes": [{"id": r["id"], "name": r["name"]} for r in cat.runtimes.values()],
         "vendors": [{"id": v["id"], "name": v["name"]} for v in cat.vendors.values()],
         "harnesses": harnesses(),
         "duration_ends": (g["started"] + s["duration_minutes"] * 60) if g.get("started") and pid and s.get("duration_minutes") else None,
