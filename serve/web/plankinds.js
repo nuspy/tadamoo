@@ -74,7 +74,34 @@
     return "";
   }
 
-  const api = { ICONS, fieldsOf, defaultsOf, splitDuration, joinDuration, readSpec, brief, UNITS, TIME_FIELDS };
+  /* ---- the layouts of a whole plan (pure): {id: {x, y}} for each step, from the plan's layers and its order. `d`: the size of a step, the gaps and the margin. ---- */
+  const LAYOUTS = ["lr", "tb", "compact", "lanes"];
+  function arrange(kind, snap, d) {
+    const nodes = snap.plan.nodes, out = {};
+    const layers = snap.layers.map(ids => ids.filter(id => nodes[id])), flat = (snap.order || snap.layers.flat()).filter(id => nodes[id]);
+    const at = (x, y) => ({ x: d.clamp(Math.round(x)), y: d.clamp(Math.round(y)) });
+    if (kind === "tb") {
+      layers.forEach((ids, i) => ids.forEach((id, j) => { out[id] = at(d.PAD + j * (d.W + d.GX), d.PAD + i * (d.H + d.GY * 1.5)); }));
+    } else if (kind === "compact") {
+      const cols = Math.max(1, Math.ceil(Math.sqrt(flat.length * 1.6)));
+      flat.forEach((id, i) => { out[id] = at(d.PAD + (i % cols) * (d.W + d.GX / 2), d.PAD + Math.floor(i / cols) * (d.H + d.GY)); });
+    } else if (kind === "lanes") {
+      let top = d.PAD;
+      ["agent", "user", "third_party"].filter(a => flat.some(id => nodes[id].assignee === a)).forEach(a => {
+        let tallest = 1;
+        layers.forEach((ids, i) => {
+          const mine = ids.filter(id => nodes[id].assignee === a);
+          tallest = Math.max(tallest, mine.length);
+          mine.forEach((id, j) => { out[id] = at(d.PAD + i * (d.W + d.GX), top + j * (d.H + d.GY)); });
+        });
+        top += tallest * (d.H + d.GY) + d.GY;
+      });
+    } else {
+      layers.forEach((ids, i) => ids.forEach((id, j) => { out[id] = at(d.PAD + i * (d.W + d.GX), d.PAD + j * (d.H + d.GY)); }));
+    }
+    return out;
+  }
+  const api = { ICONS, fieldsOf, defaultsOf, splitDuration, joinDuration, readSpec, brief, UNITS, TIME_FIELDS, arrange, LAYOUTS };
   root.PlanKinds = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (typeof document === "undefined" || !document.createElement) return;
@@ -98,6 +125,17 @@
     s.append(p);
     return s;
   }
+  /* the icon of the button that arranges the whole plan: boxes joined by lines */
+  const LAYOUT_PATH = "M3 3h7v5H3z M14 3h7v5h-7z M8.5 16h7v5h-7z M6.5 8v4h11V8 M12 12v4";
+  function layoutIcon() {
+    const s = document.createElementNS(SVGNS, "svg");
+    s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("width", "20"); s.setAttribute("height", "20"); s.setAttribute("aria-hidden", "true"); s.setAttribute("class", "pk-icon");
+    const p = document.createElementNS(SVGNS, "path");
+    p.setAttribute("d", LAYOUT_PATH); p.setAttribute("fill", "none"); p.setAttribute("stroke", "currentColor"); p.setAttribute("stroke-width", "1.8");
+    p.setAttribute("stroke-linecap", "round"); p.setAttribute("stroke-linejoin", "round");
+    s.append(p);
+    return s;
+  }
   /* the same icon as a group inside the plan's own svg */
   function iconGroup(type, x, y, scale) {
     const g = document.createElementNS(SVGNS, "g");
@@ -115,12 +153,12 @@
   function palette(kinds, opts) {
     const T = opts.T, families = [];
     kinds.forEach(k => { if (!families.includes(k.family)) families.push(k.family); });
-    const box = h("div", "pk", ...families.map(fam => h("div", "pk-fam",
-      h("b", "pk-famname", T("pl.fam." + fam)),
+    const box = h("div", "pk", ...families.map(fam => h("fieldset", "pk-fam",
+      h("legend", "pk-famname", T("pl.fam." + fam)),
       h("ul", "pk-list", ...kinds.filter(k => k.family === fam).map(k => h("li", "", item(k)))))));
     let drag = null, justDragged = false;
     function item(k) {
-      const b = h("button", "pk-item", icon(k.type), h("span", "pk-name", T("pl.type." + k.type)));
+      const b = h("button", "pk-item", icon(k.type, 22), h("span", "pk-name", T("pl.type." + k.type)));
       b.type = "button"; b.dataset.kind = k.type;
       b.title = T("pl.kind." + k.type + ".d"); b.setAttribute("aria-label", `${T("pl.type." + k.type)}. ${T("pl.kind." + k.type + ".d")}`);
       b.addEventListener("click", () => { if (justDragged) { justDragged = false; return; } opts.pick(k.type); });
@@ -204,5 +242,5 @@
       collect() { return readSpec(fields, Object.fromEntries(Object.entries(inputs).map(([k, i]) => [k, i.get()]))); },
     };
   }
-  api.icon = icon; api.iconGroup = iconGroup; api.palette = palette; api.specForm = specForm;
+  api.icon = icon; api.iconGroup = iconGroup; api.layoutIcon = layoutIcon; api.palette = palette; api.specForm = specForm;
 })(typeof window !== "undefined" ? window : globalThis);

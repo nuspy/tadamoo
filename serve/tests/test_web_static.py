@@ -512,7 +512,7 @@ class CanvasMoveTest(unittest.TestCase):
     css = (WEB / "plans.css").read_text(encoding="utf-8")
 
     def test_pointer_keyboard_and_buttons_all_save_the_position_through_the_node_update(self):
-        for needle in ('"pointerdown"', '"pointermove"', '"pointerup"', "ArrowLeft", "ArrowDown", "ARROWS[e.key]", "moveBy(", "resetPosition(", "pl-arrow"):
+        for needle in ('"pointerdown"', '"pointermove"', '"pointerup"', "ArrowLeft", "ArrowDown", "ARROWS[e.key]", "moveBy("):
             self.assertIn(needle, self.js, needle)
         save = self.js[self.js.index("async function savePosition"):self.js.index("/* by one step")]
         self.assertIn('type: "plan:update_node"', save)
@@ -525,9 +525,9 @@ class CanvasMoveTest(unittest.TestCase):
         self.assertIn("S.selected === n.id && ARROWS[e.key]", self.js)             # the arrows act on the selected step
 
     def test_the_buttons_are_touch_sized_and_nothing_animates_for_those_who_asked_for_less_motion(self):
-        self.assertIn("min-width: 44px", re.search(r"\.pl-arrow \{([^}]*)\}", self.css).group(1))
+        self.assertIn("width: 44px", re.search(r"@media \(pointer: coarse\) \{ \.pl-autobtn \{([^}]*)\}", self.css).group(1))     # the corner icon is touch sized
         reduce = self.css[self.css.index("prefers-reduced-motion: reduce"):]
         self.assertIn("transition: none", reduce)
         text = (WEB / "i18n.js").read_text(encoding="utf-8")
-        for key in ("pl.move", "pl.move.left", "pl.move.right", "pl.move.up", "pl.move.down", "pl.move.reset", "pl.moved"):
+        for key in ("pl.moved", "pl.auto.title"):
             self.assertEqual(text.count(f'"{key}"'), 2, key)

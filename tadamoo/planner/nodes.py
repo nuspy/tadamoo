@@ -122,8 +122,16 @@ def _value(spec: Dict[str, Any]) -> None:
         raise PlanError("'value' is a text, a number, true/false, or a small list or object of those")
 
 
-def clean_spec(node_type: Any, spec: Any) -> Dict[str, Any]:
-    """The spec a kind of step may carry, checked and filled with its defaults; raises PlanError naming what is wrong."""
+def clean_spec(node_type: Any, spec: Any, draft: bool = False) -> Dict[str, Any]:
+    """The spec a kind of step may carry, checked and filled with its defaults; raises PlanError naming what is wrong. A `draft` step (put on the
+    plan before it is set up) keeps what it was given when that is not yet complete."""
+    if draft:
+        try:
+            return clean_spec(node_type, spec)
+        except PlanError:
+            kind = getattr(node_type, "value", node_type)
+            allowed = {f["name"] for f in NODE_SPECS.get(kind, {"fields": []})["fields"]}
+            return {k: v for k, v in (spec if isinstance(spec, dict) else {}).items() if k in allowed}
     kind = getattr(node_type, "value", node_type)
     if kind not in NODE_SPECS:
         raise PlanError(f"unknown kind of step '{kind}' (a plan written by a newer version?)")
@@ -224,7 +232,7 @@ def _brief(value: Any) -> str:
 
 
 def _startable(dag: Any, node: Any) -> bool:
-    if node.status != "pending" or dag._blockers(node):
+    if node.status != "pending" or node.state_variables.get("draft") or dag._blockers(node):
         return False
     parents = [dag.nodes[p].status for p in node.dependencies]
     return all(s in ("completed", "skipped") for s in parents) and (not parents or "completed" in parents)

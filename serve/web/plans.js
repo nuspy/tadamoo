@@ -20,11 +20,11 @@
     plans: [], id: "", snap: null, selected: "", proposal: "", mode: "", seq: 0, running: false, ready: false,
     settings: null, refreshTimer: null, abort: null, flash: {}, align: null, rewindAsk: null, rewindFocus: false,
     local: {}, drag: null, refocus: "", justDragged: false,
-    tab: "define", adding: false, edge: "", delArmed: "", rowFocus: "",
-    addKind: "", addAt: null, specForm: null, kindsKey: "",
+    tab: "define", edge: "", delArmed: "", rowFocus: "", auto: null,
+    kindsKey: "",
   };
   const TABS = ["aims", "details", "events", "define"];
-  const COL_KEY = "tadamoo.plans.col", PAL_KEY = "tadamoo.plans.pal";
+  const COL_KEY = "tadamoo.plans.col";
   const keep = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* not kept */ } };
   const recall = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } };
 
@@ -101,18 +101,17 @@
 
     ui.modeGraph = el("button", { type: "button", class: "btn pl-btn", "aria-pressed": "false", title: T("pl.tip.graph"), text: T("pl.view.graph"), onclick: () => setMode("graph") });
     ui.modeList = el("button", { type: "button", class: "btn pl-btn", "aria-pressed": "false", title: T("pl.tip.list"), text: T("pl.view.list"), onclick: () => setMode("list") });
-    ui.addBtn = el("button", { type: "button", class: "btn pl-btn", id: "pl-add-open", "aria-expanded": "false", "aria-controls": "pl-add", title: T("pl.tip.add"), text: T("pl.add"), onclick: toggleAdd });
     ui.summary = el("p", { class: "pl-summary" });
     ui.graph = el("div", { class: "pl-graph", role: "group", "aria-label": T("pl.graph.label") });
     ui.list = el("ol", { class: "pl-list", "aria-label": T("pl.list.label") });
     ui.detail = el("section", { class: "sec pl-detail", "aria-labelledby": "pl-detail-h" });
     ui.proposals = el("section", { class: "sec pl-props", "aria-labelledby": "pl-props-h" });
     ui.offers = el("section", { class: "sec pl-offers", "aria-labelledby": "pl-offers-h" });
-    ui.add = el("section", { class: "sec pl-add", id: "pl-add", hidden: true });
-    ui.palToggle = el("button", { type: "button", class: "btn ghost pl-paltoggle", "aria-controls": "pl-pal-body", onclick: () => setPalette(ui.palBody.hidden) });
-    ui.palBody = el("div", { class: "pad", id: "pl-pal-body" });
-    ui.palette = el("section", { class: "sec pl-palette", "aria-labelledby": "pl-pal-h", hidden: true },
-      el("div", { class: "sh" }, el("b", { id: "pl-pal-h", text: T("pl.pal.title") }), el("span", { class: "grow" }), ui.palToggle), el("p", { class: "help pad", text: T("pl.pal.help") }), ui.palBody);
+    ui.palBody = el("div", { id: "pl-pal-body" });
+    ui.palette = el("div", { class: "pl-palette", role: "group", "aria-label": T("pl.pal.title"), title: T("pl.pal.help"), hidden: true }, ui.palBody);
+    ui.autoBtn = el("button", { type: "button", class: "pl-autobtn", id: "pl-auto-open", "aria-expanded": "false", "aria-controls": "pl-auto", title: T("pl.auto.tip"), "aria-label": T("pl.auto.title"),
+      onclick: () => openAuto(!S.auto) }, PlanKinds.layoutIcon());
+    ui.autoBox = el("div", { class: "pl-autobox", id: "pl-auto", role: "group", "aria-label": T("pl.auto.title"), hidden: true });
     ui.manage = el("section", { class: "sec pl-manage" });
     ui.history = el("section", { class: "sec pl-history", "aria-labelledby": "pl-hist-h" });
     ui.logHost = el("div", { class: "pad", id: "pl-log-root" });
@@ -136,17 +135,20 @@
     });
     const panel = (k, ...kids) => (ui["panel_" + k] = el("div", { class: "pl-panel", role: "tabpanel", id: "pl-panel-" + k, "aria-labelledby": "pl-tab-" + k }, ...kids));
     ui.defineBar = el("div", { class: "pl-bar" },
-      el("div", { class: "pl-modes", role: "group", "aria-label": T("pl.view.label") }, ui.modeGraph, ui.modeList), ui.addBtn);
+      el("div", { class: "pl-modes", role: "group", "aria-label": T("pl.view.label") }, ui.modeGraph, ui.modeList));
     ui.instr = el("section", { class: "sec pl-instr", "aria-labelledby": "pl-instr-h", hidden: true },
-      el("div", { class: "sh" }, el("b", { id: "pl-instr-h", text: T("sc.title.plan") })), el("p", { class: "help pad", text: T("sc.help.plan") }), el("div", { class: "pad", id: "pl-instr-root" }));
+      el("div", { class: "sh", title: T("sc.help.plan") }, el("b", { id: "pl-instr-h", text: T("sc.title.plan") })), el("div", { id: "pl-instr-root" }));
     ui.main = el("section", { class: "sec plmain", "aria-labelledby": "pl-h" },
       el("div", { class: "sh" }, ui.title, connEl),
       ui.pick, ui.tabs, statusEl,
       panel("aims", ui.horizon, ui.align),
       panel("details", ui.manage, ui.archived),
       panel("events", ui.triage),
-      panel("define", ui.defineBar, ui.palette, ui.add, ui.instr, ui.summary,
-        el("div", { class: "pl-main" }, el("div", { class: "pl-canvas" }, ui.graph, ui.list), el("div", { class: "pl-side" }, ui.detail, ui.proposals, ui.offers, ui.chatlog, ui.history))));
+      panel("define", ui.defineBar, ui.summary,
+        el("div", { class: "pl-main" },
+          el("div", { class: "pl-canvas" }, el("div", { class: "pl-stage" }, ui.graph, ui.list, ui.autoBtn, ui.autoBox), ui.detail),
+          el("div", { class: "pl-side" }, ui.proposals, ui.offers, ui.chatlog, ui.history)),
+        el("div", { class: "pl-dock" }, ui.palette, ui.instr)));
     root.replaceChildren(ui.col, ui.main);
     ui.runlog = RunLog.mount(ui.logHost, { id: "pl-log", emptyKey: "rl.empty.plan", labelKey: "rl.title.plan", placeholderKey: "rl.ph.plan", noReplyKey: "rl.noreply.plan", send: null, after: refreshSoon });
     SessChat.mount(document.getElementById("pl-instr-root"), {
@@ -154,8 +156,6 @@
       target: () => (S.id && S.snap ? `${plan().title} (id ${S.id})` : ""),
       onDone: () => document.dispatchEvent(new CustomEvent("tadamoo:edited")) });
     document.addEventListener("tadamoo:edited", () => { if (S.id) refreshSoon(); });
-    setPalette(recall(PAL_KEY, narrow() ? "0" : "1") === "1");
-    buildAdd();
     buildTriage();
     buildArchived();
     setMode(narrow() ? "list" : "graph", true);
@@ -219,12 +219,6 @@
     if (k === "details") loadArchived();
     if (k === "events") loadTele();
   }
-  function toggleAdd() {
-    S.adding = !S.adding;
-    render();
-    if (S.adding) { const t = document.getElementById("pl-a-title"); if (t) t.focus(); }
-  }
-
   function setMode(mode, quiet) {
     S.mode = mode;
     ui.modeGraph.setAttribute("aria-pressed", String(mode === "graph"));
@@ -392,6 +386,7 @@
   /* where a step is drawn when it has a place of its own: being dragged, moved and not yet saved, or saved in the step */
   function placeOf(id) {
     if (S.drag && S.drag.id === id) return S.drag;
+    if (S.auto && S.auto.at && S.auto.at[id]) return S.auto.at[id];
     if (S.local[id]) return S.local[id];
     const n = S.snap && S.snap.plan.nodes[id];
     return n && n.position ? n.position : null;
@@ -466,7 +461,7 @@
       if (!p) return;
       const status = ghost ? "pending" : n.status;
       const g = svg("g", {
-        class: `pl-node t-${n.type} st-${status} ${ghost ? "ghost hl-added" : hlClass(n.id)} ${S.selected === n.id ? "sel" : ""}${S.drag && S.drag.id === n.id ? " dragging" : ""}`,
+        class: `pl-node t-${n.type} st-${status} ${ghost ? "ghost hl-added" : hlClass(n.id)} ${S.selected === n.id ? "sel" : ""}${S.drag && S.drag.id === n.id ? " dragging" : ""}${n.state_variables && n.state_variables.draft ? " draft" : ""}`,
         "data-id": n.id, tabindex: "0", role: "button", "aria-pressed": String(S.selected === n.id),
         "aria-label": `${n.title}. ${T("pl.type." + n.type)}, ${T("pl.status." + status)}, ${T("pl.assignee." + n.assignee)}`,
       }, svg("title", {}, document.createTextNode(`${n.title}\n${n.description || ""}`)), shape(n.type, p.x, p.y));
@@ -474,7 +469,7 @@
       label.textContent = clip(n.title, 20);
       const sub = svg("text", { x: p.x + W / 2, y: p.y + H / 2 + 14, class: "pl-s", "text-anchor": "middle" });
       const words = PlanKinds.brief(n.type, n.spec);
-      sub.textContent = `${ICON[status]} ${T("pl.status." + status)} · ${words ? clip(words, 16) : T("pl.assignee.short." + n.assignee)}`;
+      sub.textContent = n.state_variables && n.state_variables.draft ? T("pl.draft") : `${ICON[status]} ${T("pl.status." + status)} · ${words ? clip(words, 16) : T("pl.assignee.short." + n.assignee)}`;
       g.append(label, sub, PlanKinds.iconGroup(n.type, p.x + 6, p.y + 3, 0.45));
       g.addEventListener("click", () => { if (S.justDragged) { S.justDragged = false; return; } select(n.id); });
       g.addEventListener("keydown", e => {
@@ -609,10 +604,6 @@
       savePosition(id, to);
     }
   }
-  function resetPosition(id) {
-    delete S.local[id];
-    savePosition(id, null);
-  }
   function startDrag(e, id, lay) {
     if (e.button !== undefined && e.button !== 0) return;
     const svgEl = S.svg, ctm = svgEl && svgEl.getScreenCTM();
@@ -648,19 +639,58 @@
     window.addEventListener("pointercancel", up);
   }
 
+
+  /* ---- the layout of the whole plan: an icon at the corner of the graph opens the kinds of layout; choosing one shows it, Apply keeps it, a click outside
+     (or Escape) puts everything back ---- */
+  const AUTO = PlanKinds.LAYOUTS;
+  const autoPlace = kind => PlanKinds.arrange(kind, S.snap, { W, H, GX, GY, PAD, clamp });
+  function openAuto(open) {
+    S.auto = open ? { kind: "", at: null } : null;
+    ui.autoBox.hidden = !open;
+    ui.autoBtn.setAttribute("aria-expanded", String(!!open));
+    if (open) drawAutoBox();
+    drawGraph();
+  }
+  function drawAutoBox() {
+    ui.autoBox.replaceChildren(
+      el("b", { class: "pl-autoh", text: T("pl.auto.title") }),
+      ...AUTO.map(k => el("button", { type: "button", class: "btn pl-autoopt" + (S.auto && S.auto.kind === k ? " sel" : ""), "aria-pressed": String(!!S.auto && S.auto.kind === k),
+        title: T("pl.auto." + k + ".d"), onclick: () => previewAuto(k) },
+        el("span", { class: "pl-autoname", text: T("pl.auto." + k) }), el("span", { class: "pl-autod", text: T("pl.auto." + k + ".d") }))),
+      el("div", { class: "pl-autoacts" },
+        el("button", { type: "button", class: "btn primary pl-btn", id: "pl-auto-apply", disabled: !(S.auto && S.auto.kind), title: T("pl.auto.apply.tip"), text: T("pl.auto.apply"), onclick: applyAuto }),
+        el("button", { type: "button", class: "btn pl-btn", title: T("pl.auto.cancel.tip"), text: T("pl.auto.cancel"), onclick: () => openAuto(false) })));
+  }
+  function previewAuto(kind) {
+    S.auto = { kind, at: autoPlace(kind) };
+    drawAutoBox();
+    drawGraph();
+  }
+  async function applyAuto() {
+    if (!S.auto || !S.auto.at) return;
+    const update = {};
+    Object.entries(S.auto.at).forEach(([id, pos]) => { update[id] = { position: pos }; });
+    const kind = S.auto.kind;
+    openAuto(false);
+    S.local = {};
+    await userDiff({ update_nodes: update }, T("pl.auto." + kind));
+  }
+  document.addEventListener("pointerdown", e => {
+    if (S.auto && ui.autoBox && !ui.autoBox.contains(e.target) && !ui.autoBtn.contains(e.target)) openAuto(false);
+  }, true);
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && S.auto) { openAuto(false); ui.autoBtn.focus(); } });
+
   function drawList() {
     const order = S.snap.order || S.snap.layers.flat();
     const nodes = S.snap.plan.nodes;
     ui.list.replaceChildren(...order.map((id, i) => {
       const n = nodes[id];
-      const deps = n.dependencies.length ? T("pl.after", n.dependencies.map(d => nodes[d].title).join(", ")) : T("pl.start");
       const step = (dir, sym, tip, off) => el("button", { type: "button", class: "btn pl-rowbtn", text: sym, title: tip, "aria-label": `${tip}: ${n.title}`, disabled: off,
         "data-row": `${id}:${dir}`, onclick: () => moveStep(id, dir) });
       return el("li", { class: `pl-li st-${n.status} ${hlClass(id)}` },
         el("button", { type: "button", class: "pl-libtn" + (S.selected === id ? " sel" : ""), "aria-pressed": String(S.selected === id), onclick: () => select(id) },
           el("span", { class: "pl-li-title", text: n.title }),
-          el("span", { class: "pl-li-meta", text: `${ICON[n.status]} ${T("pl.status." + n.status)} \u00B7 ${T("pl.type." + n.type)} \u00B7 ${T("pl.assignee." + n.assignee)}` }),
-          el("span", { class: "pl-li-deps", text: deps })),
+          el("span", { class: "pl-li-meta", text: `${n.state_variables.draft ? T("pl.draft") + " \u00B7 " : ""}${ICON[n.status]} ${T("pl.status." + n.status)} \u00B7 ${T("pl.type." + n.type)} \u00B7 ${T("pl.assignee." + n.assignee)}` })),
         el("div", { class: "pl-rowmove", role: "group", "aria-label": T("pl.row.group") }, step(-1, "\u2191", T("pl.row.up"), i === 0), step(1, "\u2193", T("pl.row.down"), i === order.length - 1)));
     }));
     if (S.rowFocus) {
@@ -733,6 +763,7 @@
     ui.detail.append(el("form", { class: "pad pl-dform", onsubmit: e => { e.preventDefault(); saveNode(n.id, cond, specForm); } },
       S.rewindAsk ? rewindBox(S.rewindAsk) : [],
       el("p", { class: "pl-dmeta", text: `${T("pl.type." + n.type)} · ${ICON[n.status]} ${T("pl.status." + n.status)}${isReady ? " · " + T("pl.ready") : ""}` }),
+      n.state_variables.draft ? el("p", { class: "pl-fact", text: T("pl.draft.help") }) : [],
       ...facts.map(f => el("p", { class: "pl-fact", text: f })),
       el("label", { for: "pl-d-title", text: T("pl.f.title") }), title,
       el("label", { for: "pl-d-desc", text: T("pl.f.desc") }), desc,
@@ -743,35 +774,13 @@
       el("label", { for: "pl-d-wait", text: T("pl.f.wait") }), wait,
       el("p", { class: "help", text: T("pl.f.retry.help") }),
       done ? el("p", { class: "help", text: T("pl.completed.help") }) : el("button", { class: "btn primary pl-btn", title: T("pl.tip.save"), text: T("pl.save") }),
-      depsBox(n, done),
       el("label", { for: "pl-d-out", text: T("pl.f.out") }), out,
       el("div", { class: "pl-acts", role: "group", "aria-label": T("pl.progress") },
         el("button", { type: "button", class: "btn pl-btn", title: T("pl.tip.start"), text: T("pl.start.btn"), onclick: () => mark(n.id, "in_progress") }),
         el("button", { type: "button", class: "btn pl-btn", title: T("pl.tip.done"), text: T("pl.done"), onclick: () => mark(n.id, "completed", out) }),
         el("button", { type: "button", class: "btn pl-btn", title: T("pl.tip.fail"), text: T("pl.fail"), onclick: () => mark(n.id, "failed") }),
         el("button", { type: "button", class: "btn pl-btn", title: T("pl.tip.rewind"), text: T("pl.rewind"), onclick: () => rewind(n.id) }),
-        removeButton(n)),
-      S.mode === "graph" ? el("div", { class: "pl-acts pl-move", role: "group", "aria-label": T("pl.move") },
-        [["\u2190", -1, 0, "pl.move.left"], ["\u2191", 0, -1, "pl.move.up"], ["\u2193", 0, 1, "pl.move.down"], ["\u2192", 1, 0, "pl.move.right"]].map(([sym, dx, dy, key]) =>
-          el("button", { type: "button", class: "btn pl-btn pl-arrow", text: sym, title: T(key), "aria-label": T(key), onclick: () => moveBy(n.id, dx * STEP, dy * STEP, false) })),
-        n.position ? el("button", { type: "button", class: "btn pl-btn", title: T("pl.tip.reset"), text: T("pl.move.reset"), onclick: () => resetPosition(n.id) }) : []) : []));
-  }
-
-  /* what a step waits for, as boxes: the way to draw and remove links from the keyboard and from the list */
-  function depsBox(n, done) {
-    const others = Object.values(S.snap.plan.nodes).filter(o => o.id !== n.id);
-    if (!others.length) return [];
-    return el("fieldset", { class: "pl-parents pl-deps" }, el("legend", { text: T("pl.deps") }),
-      others.map(o => el("label", { class: "pl-check" },
-        el("input", { type: "checkbox", id: "pl-dep-" + o.id, checked: n.dependencies.includes(o.id), disabled: done, onchange: e => setDependency(n.id, o.id, e.target.checked) }),
-        el("span", { text: o.title }))));
-  }
-  async function setDependency(id, parent, on) {
-    const box = document.getElementById("pl-dep-" + parent);
-    if (box) box.blur();                                                  // a field in use is not redrawn: leave it so the boxes show what the server decided
-    await userDiff(on ? { add_edges: [[parent, id]] } : { remove_edges: [[parent, id]] }, T(on ? "pl.link.added" : "pl.link.removed"));
-    const again = document.getElementById("pl-dep-" + parent);
-    if (again) again.focus();
+        removeButton(n))));
   }
 
   function removeButton(n) {
@@ -803,15 +812,24 @@
       try { changes.conditions = JSON.parse(cond.value || "{}"); } catch (e) { say(T("pl.badjson"), true); return; }
     }
     if (!changes.title) { say(T("pl.f.title.required"), true); return; }
+    const was = S.snap.plan.nodes[id], isDraft = !!(was && was.state_variables && was.state_variables.draft);
+    let missing = [];
     if (specForm) {
       const got = specForm.collect();
-      if (got.errors.length) { say(T("pl.spec.need", got.errors.map(n => T("pl.spec." + n)).join(", ")), true); return; }
-      changes.spec = got.spec;
+      if (got.errors.length) {
+        if (!isDraft) { say(T("pl.spec.need", got.errors.map(n => T("pl.spec." + n)).join(", ")), true); return; }
+        missing = got.errors;
+      } else changes.spec = got.spec;
     }
     const tries = Number(document.getElementById("pl-d-tries").value) || 1, wait = Number(document.getElementById("pl-d-wait").value) || 0;
     const old = (S.snap.plan.nodes[id] || {}).retry_policy || {};
     changes.retry_policy = { max_attempts: tries, wait_seconds: wait, backoff: old.backoff || 2 };
-    await event({ type: "plan:update_node", node_id: id, changes }, T("pl.saved"));
+    if (isDraft && !missing.length) { const sv = { ...was.state_variables }; delete sv.draft; changes.state_variables = sv; }
+    const r = await event({ type: "plan:update_node", node_id: id, changes }, missing.length ? null : T("pl.saved"));
+    if (isDraft && r && !r.ok && !missing.length) {                                         // not complete yet: what was typed is kept, the step stays a draft
+      const { title, description, assignee, retry_policy } = changes;
+      await event({ type: "plan:update_node", node_id: id, changes: { title, description, assignee, retry_policy } }, null);
+    } else if (r && r.ok && missing.length) say(T("pl.draft.saved", missing.map(n => T("pl.spec." + n)).join(", ")));
   }
   function noRouteText(f) {
     const exits = (f.exits || []).map(x => x.condition + " → " + (x.holds === true ? T("pl.nr.holds") : x.holds === false ? T("pl.nr.not") : T("pl.nr.unreadable", x.error || "")));
@@ -902,43 +920,15 @@
   }
 
   /* ---- add a task ---- */
-  function buildAdd() {
-    ui.addForm = el("form", { class: "pad pl-dform", onsubmit: addNode });
-    ui.add.replaceChildren(head(T("pl.add")), ui.addForm);
-  }
-  function drawAddForm() {
-    if (!S.snap) { ui.addForm.replaceChildren(); return; }
-    const nodes = Object.values(S.snap.plan.nodes);
-    ui.addForm.replaceChildren(
-      el("label", { for: "pl-a-title", text: T("pl.f.title") }), el("input", { id: "pl-a-title", required: true, maxlength: "200", autocomplete: "off" }),
-      el("label", { for: "pl-a-desc", text: T("pl.f.desc") }), el("textarea", { id: "pl-a-desc", rows: "2" }),
-      el("label", { for: "pl-a-type", text: T("pl.f.type") }),
-      el("select", { id: "pl-a-type", onchange: () => { S.addKind = document.getElementById("pl-a-type").value; fillSpecBox(); } },
-        kindList().map(k => el("option", { value: k.type, text: T("pl.type." + k.type), selected: k.type === (S.addKind || "action") }))),
-      el("div", { id: "pl-a-spec", class: "pl-specbox" }),
-      exitsBox(),
-      el("label", { for: "pl-a-assignee", text: T("pl.f.assignee") }),
-      el("select", { id: "pl-a-assignee" }, ["agent", "user", "third_party"].map(a => el("option", { value: a, text: T("pl.assignee." + a) }))),
-      nodes.length ? el("fieldset", { class: "pl-parents" }, el("legend", { text: T("pl.f.parents") }),
-        nodes.map(n => el("label", { class: "pl-check" }, el("input", { type: "checkbox", name: "parent", value: n.id }), el("span", { text: n.title })))) : [],
-      el("button", { class: "btn primary pl-btn", text: T("pl.add.btn") }));
-    fillSpecBox();
-  }
   /* the kinds of step the server offers, and the fields of the one chosen */
   const kindList = () => (S.snap && S.snap.kinds) || TYPES.map(t => ({ type: t, family: "action", fields: [] }));
-  function fillSpecBox() {
-    const type = document.getElementById("pl-a-type").value, fields = PlanKinds.fieldsOf(kindList(), type);
-    S.specForm = fields.length ? PlanKinds.specForm(fields, {}, "pl-a-sp", T, false) : null;
-    document.getElementById("pl-a-spec").replaceChildren(el("p", { class: "help", text: T("pl.kind." + type + ".d") }), ...(S.specForm ? [S.specForm.el] : []));
-    document.getElementById("pl-a-exits").hidden = type !== "decision";
-  }
   /* what the plan did and wrote, as a conversation with whoever works on it */
   function drawLog() {
     const snap = S.snap, ref = (snap.schedule && snap.schedule.session_ref) || snap.created_by || "";
     ui.runlog.setSend(ref ? text => RunLog.sendToSession(ref, T("rl.about.plan", snap.plan.title, snap.plan.plan_id, text)) : null);
     ui.runlog.set(RunLog.planEntries(snap.plan.journal, snap.history, a => T("pl.actor." + a)));
   }
-  /* the palette: a kind picked by tap or keys opens the add form with it; one dragged onto the plan opens it with the place it was let go */
+  /* the palette: a kind dragged onto the plan, or tapped, is put on the plan at once, with the place it was let go; it needs no links and no properties yet */
   function drawPalette() {
     const kinds = kindList(), key = kinds.map(k => k.type).join(",") + document.documentElement.lang;
     if (key === S.kindsKey) return;
@@ -946,83 +936,30 @@
     if (ui.palBox && ui.palBox.dispose) ui.palBox.dispose();
     ui.palBody.replaceChildren(ui.palBox = PlanKinds.palette(kinds, {
       T, canvas: () => ui.graph, over: e => { const hit = document.elementFromPoint(e.clientX, e.clientY); return !!(hit && ui.graph.contains(hit)); },
-      pick: type => chooseKind(type, null),
+      pick: type => putKind(type, null),
       drop: (type, e) => {
         const svgEl = S.svg, ctm = svgEl && svgEl.getScreenCTM();
         let at = null;
         if (ctm) { const pt = svgEl.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; const q = pt.matrixTransform(ctm.inverse()); at = { x: clamp(q.x - W / 2), y: clamp(q.y - H / 2) }; }
-        chooseKind(type, at);
+        putKind(type, at);
       },
     }));
   }
-  function chooseKind(type, at) {
-    S.addKind = type; S.addAt = at; S.adding = true;
-    S.tab = "define";
-    render();
-    const title = document.getElementById("pl-a-title");
-    if (title) title.focus();
-    say(T(at ? "pl.pal.dropped" : "pl.pal.picked", T("pl.type." + type)));
-  }
-  function setPalette(open) {
-    ui.palBody.hidden = !open;
-    ui.palToggle.setAttribute("aria-expanded", String(open));
-    ui.palToggle.textContent = T(open ? "pl.pal.hide" : "pl.pal.show");
-    keep(PAL_KEY, open ? "1" : "0");
-  }
-  /* A decision is made with its exits: at least two steps, each with the condition that picks it. */
-  const MAX_EXITS = 6;
-  function exitRow(n) {
-    return el("div", { class: "pl-exit" },
-      el("label", { for: "pl-a-xt" + n, text: T("pl.dec.exit.title", n) }), el("input", { id: "pl-a-xt" + n, name: "exit-title", maxlength: "200", autocomplete: "off" }),
-      el("label", { for: "pl-a-xc" + n, text: T("pl.dec.exit.cond", n) }), el("input", { id: "pl-a-xc" + n, name: "exit-cond", maxlength: "300", autocomplete: "off", spellcheck: "false", placeholder: "len(invitati_confermati) >= 2" }));
-  }
-  function exitsBox() {
-    const box = el("fieldset", { id: "pl-a-exits", class: "pl-parents", hidden: true }, el("legend", { text: T("pl.dec.exits") }), el("p", { class: "help", text: T("pl.dec.help") }), exitRow(1), exitRow(2));
-    const more = el("button", { type: "button", class: "btn pl-btn", text: T("pl.dec.add"), onclick: () => {
-      const n = box.querySelectorAll(".pl-exit").length + 1;
-      if (n <= MAX_EXITS) box.insertBefore(exitRow(n), more);
-      more.hidden = n >= MAX_EXITS;
-    } });
-    box.append(more);
-    return box;
-  }
-  async function addNode(e) {
-    e.preventDefault();
-    const f = ui.addForm;
-    const title = f.querySelector("#pl-a-title").value.trim();
-    if (!title) return;
+  /* a step put on the plan before it is set up is a draft: the server keeps whatever it is given and does not run it until it is complete */
+  async function putKind(type, at) {
+    if (!S.snap) return;
+    const fields = PlanKinds.fieldsOf(kindList(), type);
+    const needs = fields.length > 0 || type === "decision" || type === "sensor";
     const id = "n_" + Math.random().toString(36).slice(2, 8);
-    const parents = [...f.querySelectorAll("input[name=parent]:checked")].map(i => i.value);
-    const type = f.querySelector("#pl-a-type").value;
-    const base = { description: f.querySelector("#pl-a-desc").value, assignee: f.querySelector("#pl-a-assignee").value };
-    let spec;
-    if (S.specForm) {
-      const got = S.specForm.collect();
-      if (got.errors.length) { say(T("pl.spec.need", got.errors.map(n => T("pl.spec." + n)).join(", ")), true); return; }
-      spec = got.spec;
-    }
-    const add = [{ id, type, title, ...base, dependencies: parents, outputs: [], ...(spec ? { spec } : {}), ...(S.addAt ? { position: S.addAt } : {}) }];
-    if (type === "decision") {
-      const rows = [...f.querySelectorAll("#pl-a-exits .pl-exit")].map(r => ({ title: r.querySelector("[name=exit-title]").value.trim(), cond: r.querySelector("[name=exit-cond]").value.trim() }))
-        .filter(r => r.title || r.cond);
-      if (rows.length < 2 || rows.some(r => !r.title || !r.cond)) { say(T("pl.dec.need"), true); return; }
-      add[0].conditions = {};
-      rows.forEach((r, i) => {
-        const xid = `${id}_x${i + 1}`;
-        add[0].outputs.push(xid);
-        add[0].conditions[xid] = r.cond;
-        add.push({ id: xid, type: "action", title: r.title, description: "", assignee: "agent", dependencies: [], outputs: [] });
-      });
-    }
-    if (!(await userDiff({ add_nodes: add }, T("pl.add")))) return;
-    f.reset();
-    S.adding = false;
-    S.addKind = ""; S.addAt = null; S.specForm = null;
+    const node = { id, type, title: T("pl.type." + type), description: "", assignee: type === "input" ? "user" : "agent", dependencies: [], outputs: [],
+      ...(needs ? { state_variables: { draft: true } } : {}), ...(at ? { position: at } : {}) };
+    if (!(await userDiff({ add_nodes: [node] }, T("pl.add")))) return;
     S.selected = id;
     S.edge = "";
+    S.tab = "define";
     render();
+    say(T(at ? "pl.pal.dropped" : "pl.pal.picked", T("pl.type." + type)));
   }
-
   async function createPlan(e) {
     e.preventDefault();
     const title = document.getElementById("pl-new-title").value.trim();
@@ -1423,8 +1360,6 @@
     ui.pick.hidden = has;
     ui.tabs.hidden = !has;
     TABS.forEach(k => { ui["panel_" + k].hidden = !has || S.tab !== k; });
-    ui.addBtn.setAttribute("aria-expanded", String(S.adding));
-    ui.add.hidden = !has || !S.adding;
     ui.instr.hidden = !has;
     ui.palette.hidden = !has;
     if (!has) return;
@@ -1449,7 +1384,6 @@
     drawAlign();
     drawHorizon();
     drawManage();
-    if (!ui.addForm.contains(document.activeElement)) drawAddForm();
   }
 
   /* ---- start when the view is shown; stop the stream when it is left ---- */

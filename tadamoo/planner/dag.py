@@ -326,7 +326,8 @@ def clean_conditions(node_type: Any, conditions: Any) -> Dict[str, Any]:
     return dict(conditions)
 
 
-def clean_field(node_type: Any, key: str, value: Any) -> Any:
+def clean_field(node_type: Any, key: str, value: Any, draft: bool = False) -> Any:
+    """A field of a step, checked. `draft`: the step is not set up yet (state_variables.draft), so its spec may be incomplete."""
     if key == "retry_policy":
         return clean_retry_policy(value)
     if key == "position":
@@ -344,7 +345,7 @@ def clean_field(node_type: Any, key: str, value: Any) -> Any:
         return clean_repeat(value)
     if key == "spec":
         from tadamoo.planner import nodes
-        return nodes.clean_spec(node_type, value)
+        return nodes.clean_spec(node_type, value, draft)
     return value
 
 
@@ -532,6 +533,8 @@ class PlanDAG:
 
     def _decision_problems(self, node: PlanNode) -> List[str]:
         nid, problems = node.id, []
+        if node.state_variables.get("draft"):
+            return problems                                 # a step put on the plan and not set up yet is checked when it is
         if len(node.outputs) < 2:
             problems.append(f"decision '{nid}' needs at least two exits, it has {len(node.outputs)}")
         for c in node.outputs:
@@ -667,7 +670,8 @@ class PlanDAG:
             raise PlanError(f"'{node_id}' is already completed; rewind it to change it")
         if "assignee" in changes:
             changes["assignee"] = Assignee(changes["assignee"])
-        changes = {k: clean_field(node.type, k, v) for k, v in changes.items()}      # all checked before any is applied
+        draft = bool((changes["state_variables"] if isinstance(changes.get("state_variables"), dict) else node.state_variables).get("draft"))
+        changes = {k: clean_field(node.type, k, v, draft) for k, v in changes.items()}      # all checked before any is applied
         if enforce and node.type == NodeType.DECISION and "conditions" in changes:
             probe = copy.copy(node)
             probe.conditions = changes["conditions"]
@@ -741,7 +745,7 @@ class PlanDAG:
         now = time.time() if now is None else now
         for nid in self.topological_order():
             n = self.nodes[nid]
-            if (n.status != "pending" or n.type.value in nodes.AUTO or self._blockers(n) or n.state_variables.get("retry_at", 0) > now
+            if (n.status != "pending" or n.state_variables.get("draft") or n.type.value in nodes.AUTO or self._blockers(n) or n.state_variables.get("retry_at", 0) > now
                     or n.state_variables.get("repeat_at", 0) > now):
                 continue
             parents = [self.nodes[p].status for p in n.dependencies]
@@ -1110,7 +1114,7 @@ def node_from_dict(nd: Dict[str, Any]) -> PlanNode:
         call_request=clean_field(node_type, "call_request", nd.get("call_request")),
         wiki_query=clean_field(node_type, "wiki_query", nd.get("wiki_query")),
         repeat=clean_field(node_type, "repeat", nd.get("repeat")),
-        spec=clean_field(node_type, "spec", nd.get("spec")),
+        spec=clean_field(node_type, "spec", nd.get("spec"), bool((nd.get("state_variables") or {}).get("draft"))),
     )
     if node_type == NodeType.INPUT:
         node.assignee = Assignee.USER                       # a question is answered by the person

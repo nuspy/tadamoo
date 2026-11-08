@@ -178,3 +178,13 @@ Provati solo con il motore finto. Da fare con Qwen3.8-Flash-Next vero, a te dava
 3. Riavviare TaDaMoo: il file viene letto (`GET /v1/status` > `length.known` vero, nessuna nuova misura). «Misura la lunghezza» la ripete.
 4. Una risposta lunga vera, ragionamento e testo insieme sopra `limit_tokens`: il numero sale (`observed_max_tokens`) solo se la risposta è finita da sola.
 5. Chat dell'agente: chiedere «Spiegami in dettaglio come…» con ragionamento alto finché il pensiero consuma tutto il tetto: deve comparire il testo scritto a parti invece di «risposta vuota».
+
+## Pagina dei Piani rifatta (8 novembre; provata con le stringhe del codice e il calcolo delle disposizioni in node, NON su una finestra vera: il browser non era raggiungibile)
+
+A 360×640, 390×844 e oltre 1280, senza scroll orizzontale, con un piano vero:
+
+1. In fondo alla pagina restano fissi, uno sopra l'altro, la fila dei tipi di passo (cinque cornici piccole con la scritta nel bordo: Passi, Attese, Valori, Flusso, Domande e risultati; ogni tipo è un quadrato con l'icona e il nome piccolo sotto) e sotto la casella «Cambia questo piano con un'istruzione» (compatta). Le icone stanno su una riga a schermo largo.
+2. Trascinare un tipo sul grafico con il mouse: il passo compare subito, tratteggiato, «da impostare», senza collegamenti; con un dito (tocco) il passo compare con un tocco. Le proprietà si aprono dentro il contenitore del grafico, a destra (sotto a schermo stretto), piccole.
+3. Collegare due passi con il filo dai capi tondi; un passo con più ingressi e più uscite; nessuna voce «viene dopo» in nessun punto (neanche nella lista).
+4. Compilare le proprietà di un passo «Attendi un tempo» e salvare: il tratteggio sparisce solo quando il passo è completo; con un campo vuoto il salvataggio tiene il resto e dice cosa manca.
+5. L'icona in alto a destra del grafico apre il riquadro delle disposizioni (Da sinistra a destra, Dall'alto in basso, Compatta, Corsie): sceglierne una la mostra; «Applica» la salva; un clic fuori dal riquadro, o Esc, la annulla e rimette i passi com'erano. Niente frecce per spostare i passi; si spostano a mano.

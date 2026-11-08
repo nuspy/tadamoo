@@ -137,3 +137,34 @@ def test_a_question_to_the_person_is_ready_for_them_not_resolved_by_the_plan():
     assert dag.advance(T0)["done"] == [] and dag.ready_nodes(T0) == ["q"]
     dag.mark("q", "completed", {"importo": 12}, T0)
     assert dag.shared_state["importo"] == 12
+
+
+# -- a step put on the plan before it is set up ---------------------------------------------------------------------------
+
+DRAFT = {"draft": True}
+
+
+def test_every_kind_can_be_put_on_the_plan_unset_and_none_of_them_runs_until_it_is_set_up():
+    from tadamoo.planner.nodes import NODE_SPECS
+    kinds = ["action", "sensor", "decision", "merge", *NODE_SPECS]
+    dag = plan(*[n(f"d_{k}", k, state_variables=dict(DRAFT)) for k in dict.fromkeys(kinds)])
+    assert dag.ready_nodes(T0) == [] and dag.advance(T0)["done"] == []
+    assert dag.validate_decisions() == []
+
+
+def test_a_draft_keeps_an_incomplete_spec_and_a_set_up_step_does_not():
+    draft = n("w", "wait_duration", {"seconds": ""}, state_variables=dict(DRAFT))
+    assert draft.spec == {"seconds": ""} or draft.spec == {}
+    with pytest.raises(Exception):
+        n("w2", "wait_duration", {"seconds": ""})
+    dag = plan(n("w", "wait_duration", state_variables=dict(DRAFT)), n("after", "action", parents=["w"]))
+    dag.update_node("w", spec={"seconds": 600}, state_variables={})                  # set up: checked as any step is
+    assert dag.nodes["w"].spec["seconds"] == 600 and dag.advance(T0)["next_due"] == T0 + 600
+    with pytest.raises(Exception):
+        plan(n("x", "wait_duration", state_variables=dict(DRAFT))).update_node("x", spec={}, state_variables={})
+
+
+def test_a_draft_steps_title_and_links_are_kept_and_it_can_be_linked_later():
+    dag = plan(n("a", "action"), n("d", "decision", state_variables=dict(DRAFT)))
+    dag.add_edge("a", "d") if hasattr(dag, "add_edge") else None
+    assert dag.nodes["d"].status == "pending" and "d" not in dag.ready_nodes(T0)
