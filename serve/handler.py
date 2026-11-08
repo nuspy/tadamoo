@@ -67,6 +67,8 @@ from serve.routines_api import RoutinesApi
 from tadamoo.scheduler import RoutineError
 from serve.wallet_api import WalletApi, WalletError
 from serve.websearch_api import WebSearchApi, WebSearchError
+from serve.personas_api import PersonasApi
+from tadamoo.personas import PersonaError, PersonaStore
 from tadamoo.context_patterns import catalog as context_patterns_catalog
 from serve.capabilities_api import CapabilityApi, CapabilityError
 from serve.intake_prefs import IntakeError, IntakePrefs
@@ -147,6 +149,7 @@ def stop_sessions() -> None:
         _SESSIONS.shutdown()
 _WALLET = None                                         # the vault and the payment systems, made on first use
 _WEBSEARCH = None                                      # Settings > Web search, made on first use
+_PERSONAS = None                                       # Settings > Personalities, made on first use
 _MCP_AUTH = None                                       # the sign-in of the remote MCP servers, made on first use
 _PLANS = None                                          # the planner's service, made on first use
 from serve.util.reqtrace import RequestTrace
@@ -595,6 +598,9 @@ def make_handler(svc: Service, remote: bool = False):
                                    else api.job((query.get("id") or [""])[0]))
                     except WebSearchError as e:
                         self._json(404 if e.code == "not_found" else 400, {"error": {"type": "websearch", "code": e.code, "message": str(e)}})
+            elif path == "/api/personas" or path.startswith("/api/personas/"):
+                if self._authorized():
+                    self._personas_get(path)
             elif path in ("/api/voice/models", "/api/voice/download/plan", "/api/voice/download/status", "/api/voice/service"):
                 if self._authorized():
                     if not settings.is_loopback(self.client_address[0]):
@@ -822,6 +828,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path.startswith("/api/websearch/"):
                 self._websearch_post(path)
+                return
+            if path == "/api/personas" or path.startswith("/api/personas/"):
+                self._personas_post(path)
                 return
             if path.startswith("/api/voice/"):
                 self._voice_post(path)
@@ -2395,6 +2404,56 @@ def make_handler(svc: Service, remote: bool = False):
             except (ValueError, TypeError) as e:
                 return self._json(400, {"error": {"type": "websearch", "message": str(e)}})
 
+        def _personas(self) -> PersonasApi:
+            global _PERSONAS
+            if _PERSONAS is None:
+                _PERSONAS = PersonasApi(PersonaStore(userdata.path("personas"), key_dir=userdata.path("vault")))
+            return _PERSONAS
+
+        def _persona_error(self, e: PersonaError):
+            return self._json(404 if e.code == "not_found" else 400, {"error": {"type": "personas", "code": e.code, "message": str(e)}})
+
+        def _personas_get(self, path):
+            if not settings.is_loopback(self.client_address[0]):
+                return self._json(403, {"error": {"type": "forbidden", "message": "the personalities are shown only on the PC the server runs on"}})
+            slug = path[len("/api/personas"):].strip("/")
+            q = parse_qs(urlsplit(self.path).query)
+            try:
+                if not slug:
+                    return self._json(200, self._personas().overview())
+                return self._json(200, self._personas().get(slug, (q.get("q") or [""])[0][:200], (q.get("kind") or [""])[0], (q.get("section") or [""])[0]))
+            except PersonaError as e:
+                return self._persona_error(e)
+
+        def _personas_post(self, path):
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the personalities are changed only from the PC the server runs on"}})
+            try:
+                raw = self._body(1 << 17)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                api, parts = self._personas(), [p for p in path[len("/api/personas"):].split("/") if p]
+                if not parts:
+                    return self._json(200, api.create(req))
+                if len(parts) == 2 and parts[1] == "update":
+                    return self._json(200, api.update(parts[0], req))
+                if len(parts) == 2 and parts[1] == "delete":
+                    return self._json(200, api.delete(parts[0], req))
+                if len(parts) == 2 and parts[1] == "compose":
+                    return self._json(200, api.compose(parts[0], req))
+                if len(parts) == 3 and parts[1] == "memory":
+                    return self._json(200, api.memory(parts[0], parts[2], req))
+                return self._json(404, {"error": {"message": "not found"}})
+            except PersonaError as e:
+                return self._persona_error(e)
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": {"type": "personas", "message": str(e)}})
+
         def _wallet(self) -> WalletApi:
             global _WALLET
             if _WALLET is None:
@@ -3066,7 +3125,7 @@ def make_handler(svc: Service, remote: bool = False):
                                            rule_of_two_prefs=RuleOfTwoPrefs(userdata.path("rule_of_two.json")),
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
                                            skills_dir=userdata.path("personal-skills"), projects=self._projects(),
-                                           personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), learn=self._memory_worker().offer, past=self._past(),
+                                           personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), personas_dir=userdata.path("personas"), learn=self._memory_worker().offer, past=self._past(),
                                            exec_level_file=userdata.path(exec_level.FILE), persistence_file=userdata.path(persistence.FILE), next_steps_file=userdata.path(nextsteps.FILE), lessons_dir=userdata.path("lessons"), forgetter=self._forgetter(), cards=self._card_worker())
                 threading.Thread(target=_SESSIONS.index_all_past, name="past-backfill", daemon=True).start()      # the conversations saved before the index
                 self._routines()                          # the clock of the routines starts with the conversations
@@ -3210,7 +3269,7 @@ def make_handler(svc: Service, remote: bool = False):
                                                                       req.get("images", ""), req.get("charts", ""),
                                                                       req.get("unattended") is True, req.get("role", "general"), req.get("private") is True,
                                                                       req.get("alias", ""), req.get("cross_commands"), req.get("parent", ""), req.get("rules"),
-                                                                      req.get("budget_day_tokens"))})
+                                                                      req.get("budget_day_tokens"), req.get("persona", ""))})
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "apply":
                         return self._json(200, mgr.copy_apply(parts[1], req.get("paths")))
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "discard":
@@ -3259,6 +3318,8 @@ def make_handler(svc: Service, remote: bool = False):
                                                                            **{k: req[k] for k in ("temperature", "max_tokens") if k in req})})
                     if len(parts) == 3 and parts[2] == "visuals":
                         return self._json(200, {"session": mgr.set_visuals(parts[1], req.get("images", ""), req.get("charts", ""))})
+                    if len(parts) == 3 and parts[2] == "persona":
+                        return self._json(200, {"session": mgr.set_persona(parts[1], req.get("persona", ""))})
                     if len(parts) == 3 and parts[2] == "rename":
                         return self._json(200, {"session": mgr.rename(parts[1], req.get("title"))})
                     if len(parts) == 3 and parts[2] == "skill-propose":

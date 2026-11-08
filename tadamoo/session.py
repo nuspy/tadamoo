@@ -2068,6 +2068,11 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                 if note:
                     session.tell(note)
                 emit({"event": "visuals", "images": cmd["images"], "charts": cmd["charts"]})
+            elif name == "persona" and isinstance(cmd.get("slug"), str) and built.persona_switch is not None:
+                note = built.persona_switch(cmd["slug"])
+                if note:
+                    session.tell(note)
+                emit({"event": "persona", "slug": cmd["slug"]})
             elif name == "intake" and cmd.get("mode") in it.MODES and session.intake is not None:
                 session.intake.mode = cmd["mode"]
                 emit({"event": "intake_mode", "mode": cmd["mode"]})

@@ -214,6 +214,8 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--no-checkpoints", action="store_true")
     parser.add_argument("--personal-memory", default="", help="the folder of the person's own memories (long-term and short-term): what the person switched on is put in the answers where it matters")
     parser.add_argument("--personal-memory-keys", default="", help="the folder of the device key that opens them (the vault's)")
+    parser.add_argument("--personas-dir", default="", help="the folder of the personalities (tadamoo/personas.py): with it the conversation can speak as one and change it while it runs")
+    parser.add_argument("--persona", default="", help="the personality (a folder of --personas-dir) the conversation speaks as from the start: its text is pinned and its notes are put in where they matter")
     parser.add_argument("--exec-level-file", default="", help="the file that holds how freely the code the model writes runs (contained, free or admin; tadamoo/exec_level.py); empty: contained")
     parser.add_argument("--personal-skills-dir", default="", help="the folder of the person's personal skills: the conversation can write one with create_skill")
     parser.add_argument("--persistence-file", default="", help="where the person's choice for \"work until done\" is kept (tadamoo/persistence.py)")
@@ -246,7 +248,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
         hooks_file=args.hooks, workspace_hooks=args.workspace_hooks, after_plan=args.after_plan, images=args.images, charts=args.charts, page_files=args.page_files,
         tool_timeout=tool_timeout, tool_timeouts=tool_timeouts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
-        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys, past_index=args.past_index, persistence_file=args.persistence_file, next_steps_file=args.next_steps_file, rules_file=args.rules_file, orchestration=args.orchestration, file_owners_path=args.file_owners, lessons_dir=args.lessons_dir, personal_skills_dir=args.personal_skills_dir, exec_level_file=args.exec_level_file,
+        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys, personas_dir=args.personas_dir, persona=args.persona, past_index=args.past_index, persistence_file=args.persistence_file, next_steps_file=args.next_steps_file, rules_file=args.rules_file, orchestration=args.orchestration, file_owners_path=args.file_owners, lessons_dir=args.lessons_dir, personal_skills_dir=args.personal_skills_dir, exec_level_file=args.exec_level_file,
     )
 
 
@@ -304,6 +306,8 @@ class AgentConfig:
     use_checkpoints: bool = True
     personal_memory_dir: str = ""       # the person's own memories (tadamoo/personal_memory.py); empty: the conversation has none
     personal_memory_keys: str = ""      # where the device key that opens them is (default: the same folder)
+    personas_dir: str = ""              # the personalities (tadamoo/personas.py); empty: the conversation cannot speak as one
+    persona: str = ""                   # the one it speaks as from the start
     exec_level_file: str = ""           # where the person's choice of how freely code runs is kept (tadamoo/exec_level.py); empty: contained
     lessons_dir: Optional[str] = None   # the folder of the global lessons; None: the conversation keeps none, "": only the project's own
     self_block: bool = True             # the fixed block "what you are" in the prompt and the self_status tool (tadamoo/awareness.py)
@@ -400,6 +404,10 @@ class BuiltAgent:
     browser: Optional[Any] = None
     plan_gate: Optional[PlanGate] = None
     mode_switch: Optional[Callable[[str], None]] = None
+    persona_use: Optional[Any] = None         # the personality this conversation speaks as (tadamoo/personas.py PersonaUse); its notes go in with the person's own
+    persona_switch: Optional[Callable[[str], str]] = None           # the personality the person has now; returns the note for the model, empty when nothing changed
+    persona_use: Optional[Any] = None         # the personality this conversation speaks as (tadamoo/personas.py PersonaUse); its notes go in with the person's own
+    persona_switch: Optional[Callable[[str], str]] = None           # the personality the person has now; returns the note for the model, empty when nothing changed
     visuals_switch: Optional[Callable[[str, str], str]] = None      # the pictures and diagrams levels the person has now; returns the note for the model, empty when nothing changed
     role: Optional[RolePolicy] = None
     checks_switch: Optional[Callable[[List[str], List[str]], None]] = None
@@ -461,6 +469,9 @@ class BuiltAgent:
         about = self.personal.message(goal) if self.personal is not None else None
         if about:
             message = {**message, "content": message["content"] + "\n" + about} if message else {"role": "user", "content": about}
+        mine = self.persona_use.message(goal) if self.persona_use is not None else None
+        if mine:
+            message = {**message, "content": message["content"] + "\n" + mine} if message else {"role": "user", "content": mine}
         return message
 
     def close(self) -> None:
@@ -863,6 +874,18 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         stays = lambda: getattr(client, "stays_local", lambda: True)()           # the notes leave this PC only when the person allowed it
         personal = Recall(notes, local=stays)
         register_personal_tools(registry, notes, local=stays)
+    persona_use = None
+    if cfg.personas_dir:
+        from tadamoo.personas import PersonaStore, PersonaUse
+        persona_use = PersonaUse(PersonaStore(cfg.personas_dir, key_dir=cfg.personal_memory_keys or None), local=lambda: getattr(client, "stays_local", lambda: True)())
+        if persona_use.select(cfg.persona):
+            builder.pin("persona", persona_use.block())
+
+    def switch_persona(slug: str) -> str:
+        if persona_use is None or not persona_use.select(slug):
+            return ""
+        builder.pin("persona", persona_use.block())
+        return persona_use.note()
     from tadamoo import exec_level
     exec_level.configure(cfg.exec_level_file or None)
     persistence.configure(cfg.persistence_file or None)
@@ -996,7 +1019,7 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         return True
 
     return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index, lsp=lsp_hub, payment_confirm=payment_confirm, browser=browser,
-                      plan_gate=plan_gate, mode_switch=switch_mode, visuals_switch=switch_visuals, role=role, checks_switch=switch_checks, personal=personal, take_place=take_place,
+                      plan_gate=plan_gate, mode_switch=switch_mode, visuals_switch=switch_visuals, persona_use=persona_use, persona_switch=switch_persona, role=role, checks_switch=switch_checks, personal=personal, take_place=take_place,
                       mcp=mcp_hub, mcp_errors=dict(mcp_hub.errors) if mcp_hub is not None else {}, refresh_budget=refresh_budget, technical=quick,
                       memory_min_score=cfg.memory_min_score, memory_notes=cfg.memory_notes, memory_budget_tokens=cfg.memory_budget_tokens, notices=notices,
                       skills=catalog)

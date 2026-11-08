@@ -148,7 +148,7 @@ class SessionManager:
                  intake_flags: Optional[Callable[[], List[str]]] = None,
                  gate_flags: Optional[Callable[[], List[str]]] = None, coding: Any = None,
                  compaction_flags: Optional[Callable[[], List[str]]] = None, past: Any = None, exec_level_file: Optional[Path] = None, persistence_file: Optional[Path] = None, lessons_dir: Optional[Path] = None, next_steps_file: Optional[Path] = None, file_owners_path: Optional[Path] = None,
-                 forgetter: Any = None, cards: Any = None) -> None:
+                 forgetter: Any = None, cards: Any = None, personas_dir: Optional[Path] = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
@@ -157,6 +157,7 @@ class SessionManager:
         self.skills = PersonalSkills(skills_dir) if skills_dir else None            # the person's skills, which a conversation can run
         self.projects = projects                                # the folders of the Agent tab, whose own registry lists the conversations held in them
         self.personal_dir, self.personal_keys = personal_dir, personal_keys     # the person's own memories and the key that opens them: each conversation takes in the notes that matter
+        self.personas_dir = personas_dir                        # the personalities a conversation may speak as (tadamoo/personas.py); the key that opens their memory is personal_keys
         self.learn = learn                                      # told what the person wrote and what was searched for it, when a turn ends, to learn from
         self._said: Dict[str, Dict[str, Any]] = {}              # per conversation, until its turn ends: what the person wrote and what was searched
         self._no_learning: set = set()                          # conversations that are not the person's talking (a routine's)
@@ -936,8 +937,9 @@ class SessionManager:
                context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto", effort: Any = "",
                images: Any = "", charts: Any = "", unattended: bool = False, role: Any = GENERAL_ROLE, private: bool = False,
                alias: Any = "", cross_commands: Any = None, parent: Any = "", operating_rules: Any = None,
-               budget_day_tokens: Any = None) -> Dict[str, Any]:
+               budget_day_tokens: Any = None, persona: Any = "") -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
+        persona = self._check_persona(persona)
         if budget_day_tokens is not None and (not isinstance(budget_day_tokens, int) or isinstance(budget_day_tokens, bool) or budget_day_tokens < 1):
             raise RunError("The day's budget is a whole number of tokens from 1, or empty for no limit.", "bad_budget")
         depth = 0
@@ -987,7 +989,7 @@ class SessionManager:
             raise RunError("The copy of the folder is off, auto or always.", "bad_worktree")
         sid = secrets.token_hex(4)
         copy = self._copy_for(sid, path, worktree)
-        rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "role": role, "effort": effort, "images": images, "charts": charts,
+        rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "role": role, "effort": effort, "images": images, "charts": charts, "persona": persona,
                "allow": [r.strip() for r in rules], "ask_only": bool(ask_only), "max_turns": max_turns, "unattended": unattended is True, "parent": parent or "", "depth": depth,
                "budget_day_tokens": budget_day_tokens,
                "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": 0}
@@ -1075,6 +1077,10 @@ class SessionManager:
             cmd += ["--next-steps-file", str(self.next_steps_file)]
         if self.personal_dir:
             cmd += ["--personal-memory", str(self.personal_dir)] + (["--personal-memory-keys", str(self.personal_keys)] if self.personal_keys else [])
+        if self.personas_dir:
+            cmd += ["--personas-dir", str(self.personas_dir)] + (["--persona", rec["persona"]] if rec.get("persona") else [])
+            if "--personal-memory-keys" not in cmd and self.personal_keys:
+                cmd += ["--personal-memory-keys", str(self.personal_keys)]
         if rec.get("ask_only"):
             cmd.append("--ask-only")
         elif self.vault_dir:
@@ -2084,6 +2090,28 @@ class SessionManager:
             told = self._tell_if_running(sid, {"cmd": "effort", "level": level})
         if not told:
             self._push(sid, {"event": "effort", "level": level})
+        return self.get(sid)
+
+    def _check_persona(self, slug: Any) -> str:
+        """The personality a conversation speaks as: empty for none, else one that exists."""
+        if slug in (None, ""):
+            return ""
+        from tadamoo.personas import PersonaStore
+        if not isinstance(slug, str) or self.personas_dir is None or not PersonaStore(self.personas_dir).exists(slug):
+            raise RunError("That personality is not there.", "bad_persona")
+        return slug
+
+    def set_persona(self, sid: str, slug: Any) -> Dict[str, Any]:
+        """The personality the conversation speaks as from its next message ("" is none): the running conversation is told, and one started again takes it."""
+        slug = self._check_persona(slug)
+        with self._lock:
+            rec = self._record(sid)
+            if rec["state"] == "closed":
+                raise RunError("That conversation is closed.", "closed")
+            self._set(rec, persona=slug)
+            told = self._tell_if_running(sid, {"cmd": "persona", "slug": slug})
+        if not told:
+            self._push(sid, {"event": "persona", "slug": slug})
         return self.get(sid)
 
     def set_visuals(self, sid: str, images: Any, charts: Any) -> Dict[str, Any]:
