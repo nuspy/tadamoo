@@ -17,6 +17,7 @@ the model file's sampling defaults. For what a setting does to speed, memory and
 - [Control vectors](#control-vectors)
 - [Sampling and thinking](sampling.md)
 - [The adaptive tier](adaptive.md)
+- [Web search](web-search.md)
 - [Example configurations](examples.md)
 - [Diagnostics, measurement and `--exp` flags](diagnostics.md)
 
