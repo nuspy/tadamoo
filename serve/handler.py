@@ -2698,7 +2698,7 @@ def make_handler(svc: Service, remote: bool = False):
                 return self._json(400, {"error": {"message": str(e), "field": "path"}})
             running = _SESSIONS.running_count() if _SESSIONS is not None else 0
             try:
-                if path.endswith("/check"):
+                if path == "/api/sessions-base/check":
                     return self._json(200, sessions_move.inspect(userdata.sessions_base(), Path(req["path"].strip()), running))
                 self._json(200, sessions_move.move(userdata.sessions_base(), Path(req["path"].strip()), running))
             except sessions_move.MoveError as e:

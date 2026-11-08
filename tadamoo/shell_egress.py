@@ -32,7 +32,21 @@ ENDPOINTS = {
                       r"wtfismyip\.com|myip\.com|myexternalip\.com|ipecho\.net|ipapi\.co|api\.my-ip\.io|whatismyip\.[a-z]+|ip\.sb|httpbin\.org|"
                       r"myip\.opendns\.com|ipconfig\.io)$",
 }
+ENDPOINTS["cloud_metadata"] = (r"^(?:169\.254\.169\.254|169\.254\.170\.2|100\.100\.100\.200|fd00:ec2::254|metadata\.google\.internal|"
+                              r"metadata\.tencentyun\.com)$")
 ENDPOINT_RES = {k: re.compile(v, re.I) for k, v in ENDPOINTS.items()}
+
+# hosts that open-weight models were seen writing into commands unprompted, in public reports (a name here is not a verdict on its owner)
+REPORTED_HOSTS = {
+    "routify-file-proxy-sg.oss-ap-southeast-1.aliyuncs.com": "Cohere, Oct 2026, Qwen3.8-Flash-Next (also forum and issue reports)",
+    "sanmaohe.oss-cn-beijing.aliyuncs.com": "Cohere, Oct 2026, Qwen3.8-Flash-Next, the traced command",
+    "sanmaoheihei-oss.oss-cn-hangzhou.oss-cn-beijing.aliyuncs.com": "Cohere, Oct 2026, Qwen3.8-Flash-Next, a sampled completion",
+}
+
+
+def reported_host(host: str) -> str:
+    """Where a host was reported as written unprompted by a model, or an empty string."""
+    return REPORTED_HOSTS.get(host.lower().strip(".*"), "")
 
 NET_TOOLS = {"curl", "wget", "nc", "ncat", "netcat", "ssh", "scp", "sftp", "rsync", "ftp", "tftp", "telnet", "socat", "iwr", "irm",
              "invoke-webrequest", "invoke-restmethod", "bitsadmin", "certutil", "aria2c", "httpie", "http", "https", "lynx", "w3m", "gh", "aws",
@@ -164,7 +178,7 @@ def analyse(command: str, known_hosts: set[str] | None = None, _depth: int = 0) 
     """What one command does about the network.
 
     {"reach": bool, "upload": bool, "dns": bool, "hosts": [...], "endpoints": {host: class}, "probe": [...], "obfuscated": bool, "markers": [...],
-     "evidence": {...}}. `probe` holds "capability", "resolver", "address", "lookup", "connectivity". Encoded parts are read and analysed too."""
+     "evidence": {...}}. `probe` holds "capability", "resolver", "address", "lookup", "connectivity", "metadata". Encoded parts are read and analysed too."""
     text = refang(command)
     known = {h.lower() for h in (known_hosts or ())}
     res = {"reach": False, "upload": False, "dns": False, "hosts": [], "endpoints": {}, "probe": [], "obfuscated": False,
@@ -250,6 +264,8 @@ def analyse(command: str, known_hosts: set[str] | None = None, _depth: int = 0) 
             res["endpoints"][h] = cls
             if cls == "address_lookup":
                 probe("lookup")
+            elif cls == "cloud_metadata":
+                probe("metadata")
     if OBFUSCATION_RE.search(text):
         res["obfuscated"] = True
     if _depth < 2:
