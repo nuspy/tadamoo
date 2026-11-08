@@ -441,6 +441,8 @@ class NativeTtsClient:
         self._engine = engine
         self._cfg = cfg
         self.audio: queue.Queue[TtsSegment] = queue.Queue()
+        # Messaggi per chi ascolta quando un modello manca (ModelNotInstalled).
+        self.errors: queue.Queue[str] = queue.Queue()
         self.generation = 0
         self._voice = "if_sara"
         self._lang = "it"
@@ -603,6 +605,7 @@ class NativeTtsClient:
                                        self._engine.synth(sent, voice, lang, speed))
                     except Exception as e:  # noqa: BLE001 - sintesi fallita
                         log.error("TTS nativo: sintesi fallita per %r: %s", sent[:60], e)
+                        self._segnala(e)
                         continue
                     if pausa > 0:
                         # Il silenzio va in coda allo STESSO segmento: un segmento a
@@ -618,6 +621,11 @@ class NativeTtsClient:
                 self._frase_in_corso = 0
 
     # --- streaming ---------------------------------------------------------
+
+    def _segnala(self, e: Exception) -> None:
+        """Un modello mancante si dice a chi ascolta; gli altri errori restano a log."""
+        if isinstance(e, models_store.ModelNotInstalled):
+            self.errors.put(str(e))
 
     def _consegna(self, seg: TtsSegment) -> None:
         """Accoda un segmento e aggiorna la stima dell'audio gia' pronto per chi
@@ -680,6 +688,7 @@ class NativeTtsClient:
                 primo = False
         except Exception as e:  # noqa: BLE001 - sintesi fallita
             log.error("TTS nativo: streaming fallito per %r: %s", sent[:60], e)
+            self._segnala(e)
         finally:
             stream.close()          # svuota la pipe dell'helper se ci si ferma prima
             if self._finisci_frase == frase:

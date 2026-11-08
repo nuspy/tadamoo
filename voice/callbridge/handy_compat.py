@@ -31,12 +31,14 @@ import json
 import logging
 import os
 import queue
+import re
 import threading
 import time
 import wave
 
 import numpy as np
 
+from . import models_store
 from .config import Config
 from .engines import _get_stt_engine, _get_tts_engine
 from .engines import catalog
@@ -111,26 +113,37 @@ def _resample(x: np.ndarray, sr_in: int, sr_out: int) -> np.ndarray:
                      np.linspace(0, 1, len(x), endpoint=False), x).astype(np.float32)
 
 
-def _cloned_dir(tts_engine) -> str:
-    """Cartella delle voci clonate (accanto ai modelli Kokoro), come Handy."""
-    return os.path.join(tts_engine.model_dir, "cloned_voices")
+_CLONE_EXTS = ("wav", "mp3", "flac", "ogg")
+_CLONE_NAME = re.compile(r"^\w[\w .-]{0,63}$")
 
 
-def _list_cloned(tts_engine) -> list[dict]:
+def _cloned_dir() -> str:
+    """Cartella dei campioni delle voci clonate: <cartella modelli>/tts/voices."""
+    return models_store.voices_dir()
+
+
+def _model_missing(e: Exception) -> dict | None:
+    """Il corpo di errore di una risposta 409 quando manca un modello, altrimenti None."""
+    if isinstance(e, models_store.ModelNotInstalled):
+        return {"status": "error", "code": "model_not_installed", "model": e.model, "message": str(e)}
+    return None
+
+
+def _list_cloned() -> list[dict]:
     """Voci clonate presenti su disco (forma Handy: name/format/size/modified)."""
-    d = _cloned_dir(tts_engine)
+    d = _cloned_dir()
     out = []
     try:
         for fn in sorted(os.listdir(d)):
             ext = os.path.splitext(fn)[1].lstrip(".").lower()
-            if ext not in ("wav", "mp3", "flac", "ogg"):
+            if ext not in _CLONE_EXTS:
                 continue
             p = os.path.join(d, fn)
             st = os.stat(p)
             out.append({"name": os.path.splitext(fn)[0], "format": ext,
                         "size_bytes": st.st_size,
                         "modified": int(st.st_mtime)})
-    except FileNotFoundError:
+    except OSError:
         pass
     return out
 
@@ -248,7 +261,8 @@ def build_app(cfg: Config):
             return web.json_response({"status": "ready", **info})
         except Exception as e:  # noqa: BLE001
             log.error("models/load nativo: %s", e)
-            return web.json_response({"status": "error", "message": str(e)})
+            return web.json_response(_model_missing(e) or {"status": "error", "message": str(e)},
+                                     status=409 if _model_missing(e) else 200)
 
     async def models_unload(req):
         """Libera la memoria dei motori TTS (prima era un no-op che mentiva)."""
@@ -285,7 +299,8 @@ def build_app(cfg: Config):
                 tts_engine.synth, text, voice, lang, cfg.tts_speed, engine)
         except Exception as e:  # noqa: BLE001
             log.error("tts/test nativo: %s", e)
-            return web.json_response({"status": "error", "message": str(e)})
+            return web.json_response(_model_missing(e) or {"status": "error", "message": str(e)},
+                                     status=409 if _model_missing(e) else 200)
         wav = _pcm_f32_to_wav_bytes(samples, sr)
         return web.json_response({
             "status": "ok", "voice": voice, "engine": engine or "auto",
@@ -386,10 +401,10 @@ def build_app(cfg: Config):
             _persisti("default_voice", voce)
         return web.json_response({"status": "ok", "voice": sel["voice"]})
 
-    # --- voci clonate (gestione file in models/cloned_voices) ------------
+    # --- voci clonate (campioni in <cartella modelli>/tts/voices) --------
 
     async def voices_cloned(_req):
-        return web.json_response({"voices": _list_cloned(tts_engine)})
+        return web.json_response({"voices": _list_cloned()})
 
     async def voice_clone(req):
         body = await req.json()
@@ -398,23 +413,29 @@ def build_app(cfg: Config):
         b64 = body.get("audio_b64") or ""
         if not name or not b64:
             return web.json_response({"status": "error", "message": "name/audio mancante"})
+        if not _CLONE_NAME.match(name) or fmt.lower() not in _CLONE_EXTS:
+            return web.json_response({"status": "error", "message": "nome o formato non valido"},
+                                     status=400)
+        d = _cloned_dir()
+        if not d:
+            return web.json_response({"status": "error", "message": "nessuna cartella dei modelli vocali"},
+                                     status=409)
         try:
             raw = base64.b64decode(b64)
-            d = _cloned_dir(tts_engine)
             os.makedirs(d, exist_ok=True)
-            with open(os.path.join(d, f"{name}.{fmt}"), "wb") as f:
+            with open(os.path.join(d, f"{name}.{fmt.lower()}"), "wb") as f:
                 f.write(raw)
         except Exception as e:  # noqa: BLE001
             return web.json_response({"status": "error", "message": str(e)})
         return web.json_response({"status": "ok",
-                                  "voices": [v["name"] for v in _list_cloned(tts_engine)]})
+                                  "voices": [v["name"] for v in _list_cloned()]})
 
     async def voice_clone_delete(req):
         name = req.match_info.get("name", "")
-        d = _cloned_dir(tts_engine)
+        d = _cloned_dir()
         removed = False
         try:
-            for fn in os.listdir(d):
+            for fn in (os.listdir(d) if d else ()):
                 if os.path.splitext(fn)[0] == name:
                     os.remove(os.path.join(d, fn))
                     removed = True
@@ -423,7 +444,7 @@ def build_app(cfg: Config):
         if not removed:
             return web.json_response({"status": "error", "message": "voce non trovata"})
         return web.json_response({"status": "ok",
-                                  "voices": [v["name"] for v in _list_cloned(tts_engine)]})
+                                  "voices": [v["name"] for v in _list_cloned()]})
 
     # --- WebSocket TTS ---------------------------------------------------
 
@@ -436,6 +457,12 @@ def build_app(cfg: Config):
 
         async def pump():
             while not ws.closed:
+                try:
+                    await ws.send_json({"type": "error", "code": "model_not_installed",
+                                        "message": client.errors.get_nowait()})
+                    continue
+                except queue.Empty:
+                    pass
                 try:
                     seg = client.audio.get_nowait()
                 except queue.Empty:
