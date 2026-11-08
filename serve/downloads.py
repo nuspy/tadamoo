@@ -1,4 +1,5 @@
-"""Downloading the catalog's models from Hugging Face (serve/catalog.py), from the Download panel of the web page.
+"""Downloading the catalog's models from Hugging Face (serve/catalog.py), from the Download panel of the web page, and the voice models
+(serve/voice_catalog.py) from Hugging Face or from a URL with a fixed SHA-256.
 
 A download is planned first (the files at the catalog's pinned revision, their sizes and SHA-256 as Hugging Face
 reports them, the disk and the access), and starts only from that plan: the caller sends back the plan's token, with
@@ -7,7 +8,8 @@ an interrupted download continues from the `.part` with an HTTP range request. O
 
 The Hugging Face token is read from the environment or the file `huggingface-cli login` writes, or held in memory for
 the session when it is pasted in the page. It is sent only to Hugging Face, is dropped from a redirect to another host,
-and is never written, logged or returned. A redirect may go to any http or https host (the files come from a CDN)."""
+and is never written, logged or returned. A redirect may go to any http or https host (the files come from a CDN). The token goes
+only to Hugging Face: a URL source never gets it."""
 from __future__ import annotations
 
 import errno
@@ -26,7 +28,7 @@ import urllib.request
 from collections import deque
 from pathlib import Path
 
-from serve import catalog
+from serve import catalog, voice_catalog
 
 ENDPOINT = "https://huggingface.co"          # tests point it at a local server
 CHUNK = 1 << 20
@@ -48,6 +50,11 @@ _whoami_cache: dict = {}
 
 def _say(code: str, it: str, en: str) -> dict:
     return {"code": code, "text_it": it, "text": en}
+
+
+def find_entry(entry_id: str) -> dict | None:
+    """A model of the Download panel's catalog, else a voice model."""
+    return catalog.find(entry_id) or voice_catalog.download_entry(entry_id)
 
 
 class _Io(Exception):
@@ -246,6 +253,38 @@ def repo_tree(repo: str, revision: str) -> dict[str, dict]:
     return out
 
 
+def resolve_revision(repo: str, revision: str) -> str:
+    """The commit a revision name points to now (a 40-hex revision is returned as it is)."""
+    if _REV_RE.match(revision):
+        return revision
+    if not _REPO_RE.match(repo) or not re.match(r"^[A-Za-z0-9._-]{1,64}$", revision):
+        raise DownloadError("catalog", "Voce di catalogo non valida.", "Invalid catalog entry.")
+    token, _ = hf_token()
+    try:
+        with _api_open(urllib.request.Request(f"{ENDPOINT}/api/models/{repo}/revision/{revision}", headers=_headers(token))) as r:
+            sha = str(json.loads(r.read().decode("utf-8", "replace")).get("sha") or "")
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            raise DownloadError("gone", "Il repository o la revisione non esiste più su Hugging Face.",
+                                "The repository or revision no longer exists on Hugging Face.") from None
+        raise _network(e) from None
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        raise _network(e) from None
+    if not _REV_RE.match(sha):
+        raise DownloadError("gone", "Hugging Face non ha indicato una revisione valida.", "Hugging Face did not name a valid revision.")
+    return sha
+
+
+def url_size(url: str) -> int:
+    """The size a server reports for a URL (HEAD, no token), 0 when it does not say."""
+    try:
+        with _api_open(urllib.request.Request(url, method="HEAD", headers=_headers(None))) as r:
+            return int(r.headers.get("Content-Length") or 0)
+    except (urllib.error.URLError, OSError, ValueError):
+        raise DownloadError("network", "Nessuna risposta dal server dei file: controlla la connessione.",
+                            "No answer from the file server: check the connection.") from None
+
+
 def access_check(repo: str, revision: str, path: str) -> str:
     """ok | token (none or refused) | terms (account fine, terms of a gated repository not accepted) | missing | offline."""
     token, _ = hf_token()
@@ -269,6 +308,55 @@ def safe_name(path: str) -> str:
     return name
 
 
+def safe_relpath(rel: str) -> str:
+    """A path inside the download folder, '/'-separated, every part a valid name."""
+    parts = rel.split("/")
+    for part in parts:
+        safe_name(part)
+    return "/".join(parts)
+
+
+def _dest_path(folder: str, name: str) -> str:
+    return os.path.join(folder, *name.split("/"))
+
+
+def _source_files(entry: dict, problems: list) -> list[dict]:
+    """The files of an entry made of sources (Hugging Face repositories and URLs): path, name inside the folder, size, SHA-256 and
+    the address to fetch. What cannot be planned is a problem, not a guess."""
+    out: list[dict] = []
+    why = entry.get("why_not")
+    if why:
+        problems.append(_say("verify", why["it"], why["en"]))
+        return out
+    for src in entry["sources"]:
+        try:
+            if src["type"] == "url":
+                size = src.get("size") or url_size(src["url"])
+                if not size:
+                    problems.append(_say("size", f"Il server non dice la dimensione di {src['name']}.",
+                                         f"The server does not report the size of {src['name']}."))
+                out.append({"path": src["name"], "name": safe_relpath(src["name"]), "size": size, "sha256": src["sha256"],
+                            "url": src["url"]})
+                continue
+            rev = resolve_revision(src["repo"], src["revision"])
+            tree = repo_tree(src["repo"], rev)
+            wanted = src["files"] or sorted(p for p in tree if not any(part.startswith(".") for part in p.split("/")))
+            for path in wanted:
+                info = tree.get(path)
+                if info is None:
+                    problems.append(_say("missing_file", f"Il file {path} non c'è più nel repository.",
+                                         f"The file {path} is no longer in the repository."))
+                    continue
+                rel = "/".join(x for x in (src.get("subdir"), path) if x)
+                out.append({"path": path, "name": safe_relpath(rel), "size": info["size"], "sha256": info["sha256"],
+                            "url": _resolve_url(src["repo"], rev, path), "repo": src["repo"], "revision": rev})
+        except DownloadError as e:
+            problems.append(_say(e.code, e.it, e.en))
+    if not out and not problems:
+        problems.append(_say("missing_file", "Nessun file da scaricare.", "No file to download."))
+    return out
+
+
 def _inside(path: str, folders: list[str]) -> bool:
     p = os.path.normcase(os.path.abspath(path))
     for f in folders:
@@ -281,10 +369,20 @@ def _inside(path: str, folders: list[str]) -> bool:
     return False
 
 
+def _local_state(f: dict, folder: str) -> dict:
+    """Adds what is already on the disk: `have` (the finished file, of the expected size) and `part` (bytes of its .part)."""
+    final = _dest_path(folder, f["name"]) if folder else ""
+    f["have"] = bool(final) and os.path.isfile(final) and f["size"] > 0 and os.path.getsize(final) == f["size"]
+    f["part"] = 0
+    if folder and not f["have"] and os.path.isfile(final + ".part"):
+        f["part"] = min(os.path.getsize(final + ".part"), f["size"])
+    return f
+
+
 def plan(entry_id: str, dest: str | None = None, folders: list[str] | None = None) -> dict:
     """What a download of this entry would do and need, and the token a confirmation must carry back."""
     from serve import models
-    entry = catalog.find(entry_id)
+    entry = find_entry(entry_id)
     if entry is None:
         raise models.Refused(404, {"error": {"type": "not_found", "message": "no such model in the catalog"}})
     if entry["convert"] == "no" or not entry["files"]:
@@ -301,26 +399,26 @@ def plan(entry_id: str, dest: str | None = None, folders: list[str] | None = Non
     elif not os.access(root, os.W_OK):
         problems.append(_say("dest", "Nella cartella di destinazione non si può scrivere.",
                              "The destination folder is not writable."))
-    folder = os.path.join(root, entry["folder"]) if root else ""
+    folder = _dest_path(root, entry["folder"]) if root else ""
     files, tree = [], {}
-    try:
-        tree = repo_tree(entry["repo"], entry["revision"])
-    except DownloadError as e:
-        problems.append(_say(e.code, e.it, e.en))
-    for path in entry["files"]:
-        info = tree.get(path)
-        if tree and info is None:
-            problems.append(_say("missing_file", f"Il file {path} non c'è più nel repository.",
-                                 f"The file {path} is no longer in the repository."))
-        size = (info or {}).get("size") or 0
-        name = safe_name(path)
-        final = os.path.join(folder, name) if folder else ""
-        have = bool(final) and os.path.isfile(final) and size > 0 and os.path.getsize(final) == size
-        part = 0
-        if folder and not have and os.path.isfile(final + ".part"):
-            part = min(os.path.getsize(final + ".part"), size)
-        files.append({"path": path, "name": name, "size": size, "sha256": (info or {}).get("sha256"), "have": have,
-                      "part": part})
+    if "sources" in entry:
+        files = _source_files(entry, problems)
+        tree = {f["path"]: f for f in files}
+        for f in files:
+            _local_state(f, folder)
+    else:
+        try:
+            tree = repo_tree(entry["repo"], entry["revision"])
+        except DownloadError as e:
+            problems.append(_say(e.code, e.it, e.en))
+        for path in entry["files"]:
+            info = tree.get(path)
+            if tree and info is None:
+                problems.append(_say("missing_file", f"Il file {path} non c'è più nel repository.",
+                                     f"The file {path} is no longer in the repository."))
+            f = {"path": path, "name": safe_name(path), "size": (info or {}).get("size") or 0,
+                 "sha256": (info or {}).get("sha256")}
+            files.append(_local_state(f, folder))
     total = sum(f["size"] for f in files)
     remaining = sum(f["size"] - (f["size"] if f["have"] else f["part"]) for f in files)
     free = None
@@ -337,9 +435,9 @@ def plan(entry_id: str, dest: str | None = None, folders: list[str] | None = Non
                              f"{free / 2**30:.0f} GB free."))
     token, source = hf_token()
     access = "ok"
-    todo = next((f for f in files if not f["have"] and f["size"]), None)
-    if todo is not None and tree:
-        access = access_check(entry["repo"], entry["revision"], todo["path"])
+    todo = next((f for f in files if not f["have"] and f["size"] and f.get("url", ENDPOINT).startswith(ENDPOINT)), None)
+    if todo is not None and tree:                      # a file from another server has no Hugging Face account to check
+        access = access_check(todo.get("repo") or entry["repo"], todo.get("revision") or entry["revision"], todo["path"])
         if access == "token":
             problems.append(_say("token", "Questo repository richiede un token Hugging Face valido." if token
                                  else "Questo repository richiede un account e un token Hugging Face.",
@@ -356,14 +454,15 @@ def plan(entry_id: str, dest: str | None = None, folders: list[str] | None = Non
         elif access == "offline":
             problems.append(_say("network", "Nessuna risposta da Hugging Face: controlla la connessione.",
                                  "No answer from Hugging Face: check the connection."))
-    lic = dict(catalog.LICENSES[entry["license"]])
+    lic = dict(entry.get("license_info") or catalog.LICENSES[entry["license"]])
     out = {"id": entry["id"], "name": entry["name"], "repo": entry["repo"], "revision": entry["revision"],
            "kind": entry["kind"], "convert": entry["convert"], "gated": entry["gated"],
            "uncensored": entry["uncensored"], "dest": root, "folder": folder, "files": files, "total_bytes": total,
            "remaining_bytes": remaining, "free_bytes": free, "need_bytes": need, "problems": problems,
            "access": access, "token_source": source, "license": lic, "in_models_dirs": bool(root) and _inside(root, known),
+           "noncommercial": bool(entry.get("noncommercial")), "marker": bool(entry.get("marker")),
            "ok": not problems and bool(files) and all(f["size"] for f in files)}
-    out["token"] = hashlib.sha256(json.dumps([entry["id"], folder, [(f["path"], f["size"], f["sha256"]) for f in files]],
+    out["token"] = hashlib.sha256(json.dumps([entry["id"], folder, [(f["path"], f["size"], f["sha256"], f.get("url")) for f in files]],
                                              sort_keys=True).encode()).hexdigest()
     return out
 
@@ -399,13 +498,18 @@ class Downloader:
             self.log.append(text)
             del self.log[:-LOG_LINES * 2]
 
-    def start(self, entry_id: str, dest: str | None, token, confirm, ack, folders=None) -> dict:
+    def start(self, entry_id: str, dest: str | None, token, confirm, ack, folders=None, noncommercial=None) -> dict:
         from serve import models
         p = plan(entry_id, dest, folders)
         if confirm is not True or ack is not True or not token:
             raise models.Refused(409, {"error": {"type": "confirmation_required", "code": "confirm",
                                                  "message": "a download starts only from its plan: send it back with "
                                                             "confirm: true, ack: true and its token"}, "plan": p})
+        if p["noncommercial"] and noncommercial is not True:
+            raise models.Refused(409, {"error": {"type": "confirmation_required", "code": "noncommercial",
+                                                 "message": "this model's license allows non-commercial use only: send "
+                                                            "noncommercial: true to confirm that is all you will use it for"},
+                                       "plan": p})
         if token != p["token"]:
             raise models.Refused(409, {"error": {"type": "plan_changed", "code": "plan_changed",
                                                  "message": "the plan changed since it was shown: look at it again"},
@@ -454,6 +558,8 @@ class Downloader:
                 self._set(phase="cancelled", finished=time.time(), speed_bps=0.0, eta_s=None)
                 self._line("cancelled; the partial files stay and the download continues from them")
             else:
+                if p.get("marker"):
+                    self._marker(p)
                 self._set(phase="done", finished=time.time(), speed_bps=0.0, eta_s=0, file=None)
                 self._line("done: " + p["folder"])
         except DownloadError as e:
@@ -466,6 +572,14 @@ class Downloader:
                                 "The disk is full." if full else f"Write error: {e}")
             self._set(phase="failed", finished=time.time(), error=err.body(), speed_bps=0.0, eta_s=None)
             self._line("failed: " + err.en)
+
+    def _marker(self, p: dict) -> None:
+        """Records what a finished download wrote, so a later look can tell the model is whole."""
+        body = {"id": p["id"], "files": [{"name": f["name"], "size": f["size"], "sha256": f["sha256"]} for f in p["files"]]}
+        tmp = os.path.join(p["folder"], voice_catalog.MARKER + ".part")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(body, fh, indent=2)
+        os.replace(tmp, os.path.join(p["folder"], voice_catalog.MARKER))
 
     def _progress(self, delta: int) -> None:
         now = time.time()
@@ -481,10 +595,11 @@ class Downloader:
             self.state["eta_s"] = int(left / speed) if speed > 1 else None
 
     def _file(self, p: dict, f: dict) -> None:
-        final = os.path.join(p["folder"], f["name"])
+        final = _dest_path(p["folder"], f["name"])
+        os.makedirs(os.path.dirname(final), exist_ok=True)
         part = final + ".part"
         size = f["size"]
-        url = _resolve_url(p["repo"], p["revision"], f["path"])
+        url = f.get("url") or _resolve_url(p["repo"], p["revision"], f["path"])
         stalls = 0
         have = os.path.getsize(part) if os.path.isfile(part) else 0
         if have > size:
@@ -492,7 +607,7 @@ class Downloader:
             self._progress(-have)
             have = 0
         while have < size and not self.cancel_flag.is_set():
-            token, _ = hf_token()
+            token = hf_token()[0] if url.startswith(ENDPOINT) else None
             extra = {"Range": f"bytes={have}-"} if have else {}
             req = urllib.request.Request(url, headers=_headers(token, extra))
             before = have
