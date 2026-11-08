@@ -136,8 +136,12 @@ def create_app(
     ptt: PushToTalkManager | None = None,
     copilot=None,
     avatar=None,
+    status_fn=None,
 ) -> Flask:
     """Costruisce l'app Flask del server di controllo.
+
+    `status_fn`, se passato, e' il corpo di GET /status al posto di `bridge.status()`
+    (il servizio vocale riporta i modelli scelti e installati, senza toccare telefono e Handy).
 
     `bridge` puo' essere passato dall'esterno (es. per condividere Hermes
     vero); se assente ne viene creato uno con lo StubHermes.
@@ -240,7 +244,7 @@ def create_app(
 
     @app.get("/status")
     def status():
-        return jsonify(bridge.status())
+        return jsonify(status_fn() if status_fn is not None else bridge.status())
 
     @app.post("/prepare")
     def prepare():

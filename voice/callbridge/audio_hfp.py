@@ -14,12 +14,22 @@ import queue
 import threading
 
 import numpy as np
-import sounddevice as sd
 import soxr
 
 from . import ks_native
 
 log = logging.getLogger("callbridge.audio")
+
+
+class _LazySounddevice:
+    """`sounddevice` on first use: importing it initializes PortAudio, which a service in standby must not do."""
+
+    def __getattr__(self, name):
+        import sounddevice
+        return getattr(sounddevice, name)
+
+
+sd = _LazySounddevice()
 
 # Pattern specifici del telefono target: hanno priorita' nell'autodetect.
 # Solo modelli di TELEFONO (non "andrea", che e' anche negli auricolari Buds):
