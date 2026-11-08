@@ -73,9 +73,9 @@ exist. `voice/callbridge/models_store.py` holds this rule and a table of ids and
 
 - A loader that does not find its model raises `ModelNotInstalled`: `<Model name> is not installed: install it from Settings > Voice.`
   This covers the Whisper checkpoint (`<size>.pt`), Kokoro (the `.onnx` and `voices-v1.0.bin`, checked before a GPU helper is started),
-  a Piper voice and the diarization models. The Whisper fallback loads the local file, never a name.
-- Silero VAD is the one exception to raising: without it speech detection falls back to the energy detector, and a warning gives the
-  same message.
+  a Piper voice and the diarization models. The Whisper fallback loads the local file, never a name. The other TTS engines are in `tts.md`.
+- Silero VAD is the one exception to raising: without it speech detection falls back to the energy detector, a warning gives the same
+  message, and `/status` shows the `vad` service as `degraded` with the reason.
 - The service and every helper process it starts get `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`, `HF_DATASETS_OFFLINE=1` and
   `BASALT_VOICE_MODELS_DIR` (`models_store.helper_env`); the helpers of the heavy TTS engines get them last, so nothing set before can
   turn them off.
