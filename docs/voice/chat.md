@@ -70,11 +70,6 @@ Server (this PC only): `GET` and `POST /api/voice/brain`, and `POST /api/voice/s
 `GET /status /functions /brain/state /session/state /diag/brain` and `POST /session/start /session/stop /session/new /brain/say`, with the bodies checked.
 The browser never holds the token or the port.
 
-## Removed
-
-The ACP client, the Hermes HTTP client and its stub, the LM Studio direct client, the Tk model panel, the `/hermes/*` and `/avatar/llm/*` routes,
-`/diag/acp` and the `acp_*`, `hermes_*` settings. The push-to-talk "limited" mode (F3) is gone with them.
-
 ## What is proven and what is not
 
 Tests use stand-ins: a fake TaDaMoo API (`voice/tests/fakes.py`), a loopback stand-in for the client, and the service in-process. They cover the prompt,
