@@ -1,0 +1,58 @@
+# Call-bridge — dipendenze Python (host Windows)
+sounddevice>=0.4.6
+numpy>=1.24
+requests>=2.31
+websocket-client>=1.7   # client WebSocket verso il motore STT/TTS (/stt/stream, /tts/stream)
+flask>=3.0              # server di controllo dell'orchestrator (API per Hermes/skill)
+soxr>=0.3               # resampling audio (HFP <-> 16 kHz STT, 24 kHz TTS -> HFP)
+pynput>=1.7             # hotkey globale per il push-to-talk (default Ctrl+Space)
+websockets>=12       # voice gateway WebSocket server per l app Android
+soundcard>=0.4.3      # cattura loopback (audio in uscita del PC) per il copilota Shift+F4
+# Video dell'avatar verso l'app (WebRTC/H.264) e traccia audio Opus.
+# ERANO INSTALLATI A MANO e non dichiarati qui: su una macchina ricostruita da
+# questo file il bridge parte benissimo e il video semplicemente non esiste —
+# voice_gateway.py intercetta l'ImportError e risponde "video non disponibile
+# (aiortc)", che sembra una scelta di configurazione invece di una dipendenza
+# mancante. `av` va dichiarato anche se aiortc se lo porta dietro, perche'
+# avatar_webrtc.py lo importa direttamente (VideoFrame, AudioFrame, AudioResampler).
+aiortc>=1.15          # WebRTC: negoziazione, H.264, Opus, NACK/PLI/REMB
+av>=17                # PyAV: fotogrammi e ricampionamento audio
+pyserial>=3.5         # driver AT del modem GSM/GPRS USB (SIM800C su COM, callbridge/gsm_modem.py)
+yt-dlp>=2026.1
+playwright>=1.49
+google-auth-oauthlib>=1.2
+google-api-python-client>=2.100
+msal>=1.28
+
+# --- MonolitOne: motori STT/TTS NATIVI in-process (ex Handy) ---
+openai-whisper>=20240930   # STT nativo (whisper su torch); modello scaricato al 1o uso
+# Diarizzazione (chi parla quando) per la sezione Analisi. Si porta il proprio
+# onnxruntime (CPU) e convive con onnxruntime-gpu. I modelli NON sono nel wheel:
+# `python fetch_models.py` li scarica insieme agli altri.
+sherpa-onnx>=1.13          # pyannote-segmentation + speaker embedding, offline
+kokoro-onnx>=0.4           # TTS nativo Kokoro in-process (onnxruntime)
+piper-tts>=1.2             # TTS nativo Piper (opzionale, accanto a Kokoro)
+# GPU per gli engine onnxruntime (Kokoro/Piper): onnxruntime-gpu (build CUDA 12) +
+# i runtime CUDA 12 da pip. Coesistono con il torch CUDA 13 di whisper (DLL con
+# nomi diversi: cudart64_12 vs 13). Il codice chiama ort.preload_dlls() per
+# caricarli. Su CPU-only questi non servono (Kokoro/Piper girano su CPU).
+onnxruntime-gpu>=1.22      # sostituisce onnxruntime (include CPU EP + CUDA EP)
+nvidia-cuda-runtime-cu12   # cudart64_12.dll  (EP CUDA di onnxruntime)
+nvidia-cublas-cu12         # cublas/cublasLt64_12.dll
+nvidia-cudnn-cu12          # cudnn64_9.dll
+nvidia-cufft-cu12
+nvidia-curand-cu12
+aiohttp>=3.10              # server Handy-compat nativo su :8720 (HTTP + WS)
+soundfile>=0.12            # decodifica audio per /transcribe (WAV/FLAC/OGG)
+keyboard>=0.13             # dettatura globale Alt+Spazio (hook a soppressione)
+pywin32>=306               # clipboard (dettatura) su Windows
+PyYAML>=6.0                # lettura/scrittura config.yaml di Hermes (modello LLM)
+# Vincolo esplicito perche' e' gia' stato violato da un pacchetto ESTRANEO al
+# progetto: mitmproxy richiede typing-extensions<=4.11.0 su Python 3.10 e con la
+# sua installazione pip ha fatto DOWNGRADE, rompendo pydantic 2.12 (che importa
+# typing_extensions.Sentinel, aggiunto in 4.13). Effetto: chat avatar e TTS XTTS
+# morti con "cannot import name 'Sentinel'", senza che nulla qui fosse cambiato.
+typing_extensions>=4.13    # richiesto da pydantic/openai (Sentinel)
+# torch (backend di openai-whisper): NON qui — va installato con la wheel CUDA
+# giusta per la GPU (vedi installer: pip install torch --index-url .../cu130).
+# Su CPU-only: `pip install torch` (default) va bene ma la trascrizione e' piu' lenta.

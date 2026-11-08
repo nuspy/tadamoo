@@ -1,0 +1,26 @@
+.DS_Store
+*.log
+.idea/
+.vscode/
+*.pyc
+.ipynb_checkpoints
+results/
+models/
+# NOSTRA aggiunta (copia vendorizzata): il pattern `models/` qui sopra matcha a
+# qualsiasi livello, quindi escludeva anche musetalk/models/ — che non sono i
+# pesi ma il CODICE di unet/vae/syncnet. Upstream non se ne accorge perche' li'
+# quei file erano gia' tracciati prima del pattern, e git non ignora cio' che
+# gia' traccia. Per noi, che li aggiungiamo ora, servirebbe il --force: meglio
+# dirlo qui.
+!musetalk/models/
+!musetalk/models/*.py
+**/__pycache__/
+*.py[cod]
+*$py.class
+dataset/
+ffmpeg*
+ffmprobe*
+ffplay*
+debug
+exp_out
+.gradio
