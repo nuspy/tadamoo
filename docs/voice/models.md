@@ -46,7 +46,7 @@ request and renamed only when the SHA-256 matches, one download at a time, the t
 `voice.json` in the user data folder, replaced whole on every write:
 
 ```json
-{"models_dir": "D:\\Models\\voice", "services": {"tts": {"selected": "kokoro", "device": "auto", "memory": "vram"}}}
+{"models_dir": "D:\\Models\\voice", "services": {"tts": {"selected": "kokoro", "device": "auto", "memory": "vram", "enabled": true}}}
 ```
 
 - `models_dir`: an absolute path, existing or creatable. Default: `voice/` in the first models folder of Basalt, else `voice-models/` in
@@ -54,6 +54,8 @@ request and renamed only when the SHA-256 matches, one download at a time, the t
 - `selected`: a model id of that service; the default is Whisper small for `stt`, Kokoro for `tts`, MuseTalk for `avatar`.
 - `device`: `auto`, `cpu` or `cuda:N`; `memory`: `vram` or `ram`. The CPU with `vram` is refused. `diarization`, `vad` and `embedding`
   default to the CPU and RAM, the others to `auto` and `vram`.
+
+- `enabled`: a boolean, whether the function is loaded with the others (`loading.md`); off when absent, except for an installed `stt`.
 
 An unknown or invalid value is refused with a 400 whose body has `code`, `message` and `message_it`.
 
@@ -64,6 +66,7 @@ An unknown or invalid value is refused with a 400 whose body has `code`, `messag
 | `GET /api/voice/models` | the folder, the services with their models (`installed`, `verify`, `downloadable`, license, languages, notes) and the download status |
 | `POST /api/voice/select` | `{service, model}` |
 | `POST /api/voice/placement` | `{service, device, memory}` |
+| `POST /api/voice/enabled` | `{service, enabled}` |
 | `POST /api/voice/models-dir` | `{path}` |
 | `GET /api/voice/download/plan?id=` | the plan of one model |
 | `POST /api/voice/download` | `{id, token, confirm, ack, noncommercial}`; 202 with the status |

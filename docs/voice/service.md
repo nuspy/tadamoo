@@ -2,7 +2,7 @@
 
 A Python process of its own (`voice/service.py`) that serves the control routes of `voice/callbridge/control_server.py` on loopback.
 The desktop app starts it (see `desktop-app.md`); the server reaches it through two files. It starts in standby: no model is loaded and
-no audio, GPU or phone hardware is opened. Importing the service pulls in no audio library, no torch and no onnxruntime.
+no audio, GPU or phone hardware is opened, except that an enabled STT whose model is installed loads at once (`loading.md`). Importing the service pulls in no audio library, no torch and no onnxruntime.
 
 ## Start
 
@@ -30,7 +30,8 @@ The token is never returned by a route, never logged and never sent anywhere but
 ## Routes of the service
 
 Every route needs `Authorization: Bearer <token>`, except `GET /health` (`{"status": "ok"}`). The other routes are those of callbridge
-(the call, session, avatar, analysis and meeting routes of the imported code); phone and modem detection is off.
+(the call, session, avatar, analysis and meeting routes of the imported code); phone and modem detection is off. `GET /functions` and
+`POST /functions/apply` load, unload and measure the stt, tts and avatar functions (`loading.md`).
 
 `GET /status` replaces the callbridge status. It loads nothing:
 
@@ -85,7 +86,8 @@ exist. `voice/callbridge/models_store.py` holds this rule and a table of ids and
 
 `serve/voice_service.py` has `info()`, `token_path()`, `ensure_token()` and `status()`. `GET /api/voice/service` (loopback only)
 returns `{running, port, pid, status}`; `status` is the service's `/status` when it answers, else `{"reason": ...}` saying why it is not
-reachable. It also creates the token file when it is missing. There is no route that forwards a call to the service yet.
+reachable. It also creates the token file when it is missing. `call(method, route, body)` sends one request with the token to the running
+service (`ServiceDown` when it is not there); `serve/voice_loader.py` uses it for the functions (`loading.md`).
 
 ## Tests
 
