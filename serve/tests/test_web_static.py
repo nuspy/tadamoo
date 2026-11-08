@@ -542,3 +542,49 @@ class MonitorDrawTest(unittest.TestCase):
         top = set(re.findall(r"^const (\w+) = ", js, re.M))
         for name in sorted(top):
             self.assertIsNone(re.search(rf"^[ ]+(?:const|let) {name}\b", js, re.M), f"a local {name} hides the helper of that name")
+
+
+class ConversationSizeTest(unittest.TestCase):
+    """Four buttons set the text size and the width of the conversation for Chat and Agent alike, and the last choice is kept."""
+
+    def setUp(self):
+        self.js = (WEB / "chatsize.js").read_text(encoding="utf-8")
+        self.html = (WEB / "index.html").read_text(encoding="utf-8")
+        self.shell = (WEB / "shell.css").read_text(encoding="utf-8")
+        self.i18n = (WEB / "i18n.js").read_text(encoding="utf-8")
+
+    def test_the_buttons_are_in_the_header_both_views_share_and_the_script_is_loaded(self):
+        head = self.html[self.html.index('class="sh chathead"'):self.html.index('id="acopy"')]
+        for ident in ("vs-font-down", "vs-font-up", "vs-width-down", "vs-width-up"):
+            self.assertIn(f'id="{ident}"', head)
+            self.assertIn(f'wire("{ident}"', self.js)
+        self.assertLess(head.index('id="cs-open"'), head.index('id="vs-group"'))                  # the last thing in the corner
+        self.assertIn('src="web/chatsize.js"', self.html)
+
+    def test_one_pair_of_variables_sets_both_views_and_survives_the_session(self):
+        self.assertIn("var(--chat-width, 1040px)", self.shell)
+        self.assertIn("var(--chat-font, 16px)", (WEB / "app.css").read_text(encoding="utf-8"))
+        self.assertIn('"tadamoo.chat.size"', self.js)
+        self.assertIn("try {", self.js)                                                         # storage can be missing
+        self.assertEqual(self.js.count("localStorage.getItem"), 1)                              # one store for both views
+
+    def test_the_names_exist_in_both_languages_and_the_buttons_are_touch_sized(self):
+        for key in ("vs.group", "vs.font-down", "vs.font-up", "vs.width-down", "vs.width-up", "vs.now"):
+            self.assertEqual(self.i18n.count(f'"{key}":'), 2, key)
+        self.assertIn("min-width: 44px; min-height: 44px", self.shell[self.shell.index("pointer: coarse) { .vs-btn"):])
+
+
+class DiagramAndRuleOfTwoCardTest(unittest.TestCase):
+    def test_a_diagram_that_cannot_be_drawn_says_why_and_offers_to_have_it_fixed(self):
+        chat = (WEB / "chat.js").read_text(encoding="utf-8")
+        self.assertIn("diagram-why", chat)
+        self.assertIn('T("mmd.fixask", why)', chat)
+        text = (WEB / "i18n.js").read_text(encoding="utf-8")
+        for key in ("mmd.fix", "mmd.fixask", "vis.now"):
+            self.assertEqual(text.count(f'"{key}":'), 2, key)
+
+    def test_the_card_of_the_rule_of_two_shows_the_reason_and_can_stop_the_check(self):
+        card = (WEB / "agentchat.js").read_text(encoding="utf-8")
+        self.assertIn("b.instructions || b.hook || b.rule_of_two", card)
+        self.assertIn('o.value === "two_off" ? T("ch.twooff")', card)
+        self.assertEqual((WEB / "i18n.js").read_text(encoding="utf-8").count('"ch.twooff":'), 2)

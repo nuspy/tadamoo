@@ -533,13 +533,15 @@ class Session:
         shown = "" if free else str(value)
         if payload.get("kind") == "parked_question":
             shown = str(options[value].get("label")) if value in options else str(value)[len(prefix):]
-        if payload.get("kind") == "permission" and value in ("confirm", "chat", "always"):
+        if payload.get("kind") == "permission" and value in ("confirm", "chat", "always", "two_off"):
             self._granted.append(self._call_key(str(payload.get("tool")), payload.get("arguments") or {}))
             self._remember_rules(str(value), options.get(str(value), {}).get("rules") or [])
+            if value == "two_off":
+                self._stop_rule_of_two()
         what = str(payload.get("question") or "")[:200]
         note = f"[harness] The user answered a question that was pending ({what}): {shown or 'answered'}."
         if payload.get("kind") == "permission":
-            note += " If it is allowed now, run the call again." if value in ("confirm", "chat", "always") else " Do not run it."
+            note += " If it is allowed now, run the call again." if value in ("confirm", "chat", "always", "two_off") else " Do not run it."
         self._pending_note = f"{self._pending_note}\n{note}" if self._pending_note else note
         self._save()
         self.emit({"event": "pending_done", "id": item["id"], "value": shown})
@@ -638,6 +640,8 @@ class Session:
         if rules:
             options += [{"label": f"Allow in this conversation ({label})", "value": "chat", "rule": label, "rules": rules},
                         {"label": f"Always allow ({label})", "value": "always", "rule": label, "rules": rules}]
+        if two:
+            options.append({"label": "Stop this check in this conversation", "value": "two_off"})    # the person's own choice of risk, one step
         options.append({"label": "Deny", "value": "cancel"})
         key = self._call_key(tool, arguments)
         if key in self._granted:                                      # the person approved this very call after it was left pending
@@ -646,7 +650,14 @@ class Session:
         answer = self._ask({"mode": "confirm", "kind": "permission", "tool": tool, "arguments": arguments, **({"rule_of_two": True} if two else {}),
                             "question": f"{two}" + "\n\n" + f"Allow {tool} {shown}?" if two else f"Allow {tool} {shown}?", "options": options})
         self._remember_rules(answer, rules)
-        return answer in ("confirm", "chat", "always")
+        if answer == "two_off":
+            self._stop_rule_of_two()
+        return answer in ("confirm", "chat", "always", "two_off")
+
+    def _stop_rule_of_two(self) -> None:
+        """The person stopped the Rule of Two's question for this conversation: it is off here and for the next starts of this conversation."""
+        self.built.permissions.two.set_level("off")
+        self.emit({"event": "rule_of_two_off", "scope": "chat"})
 
     def _remember_rules(self, answer: str, rules: List[str]) -> None:
         if answer not in ("chat", "always"):

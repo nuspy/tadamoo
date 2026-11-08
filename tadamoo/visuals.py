@@ -17,7 +17,7 @@ from html.parser import HTMLParser
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
-from tadamoo.tools.search import PAGE_SECONDS, MAX_REDIRECTS, PageError, _checked_connect, _validate, fetch_page
+from tadamoo.tools.search import PAGE_SECONDS, MAX_REDIRECTS, READER_AGENT, PageError, _checked_connect, _validate, fetch_page
 
 MAX_IMAGE_BYTES = 8_000_000
 MAX_LISTED = 8
@@ -52,7 +52,7 @@ def fetch_image(url: str, allow_private: bool = False) -> Tuple[bytes, str, str]
         try:
             target = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
             try:
-                conn.request("GET", target, headers={"User-Agent": "TaDaMoo/1 (+reader)", "Accept": "image/png,image/jpeg,image/gif,image/webp;q=0.9,*/*;q=0.1"})
+                conn.request("GET", target, headers={"User-Agent": READER_AGENT, "Accept": "image/png,image/jpeg,image/gif,image/webp;q=0.9,*/*;q=0.1"})
                 resp = conn.getresponse()
             except PageError:
                 raise
@@ -247,6 +247,7 @@ def guidance(images: str, charts: str) -> str:
     if charts in CHART_RULES:
         parts.append(
             f"Diagrams: {CHART_RULES[charts]} Write a diagram as a fenced block with the language mermaid (flowchart TD, sequenceDiagram, stateDiagram-v2, classDiagram, "
-            "erDiagram, gantt, pie, mindmap, timeline), put quotes around any label with punctuation, keep labels short, use no HTML, and add one line before it "
-            "saying what it shows. The page draws it; the person can open its source.")
+            "erDiagram, gantt, pie, mindmap, timeline), put quotes around any label with punctuation, keep labels short, use no HTML (no <br/>), and add one line before it "
+            "saying what it shows. In a mindmap each node is plain text on its own indented line, with no quotes and no id before it; when unsure of a kind's syntax, use a "
+            "flowchart. The page draws it; the person can open its source.")
     return "\n\n".join(parts)

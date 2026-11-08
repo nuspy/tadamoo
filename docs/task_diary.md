@@ -1,7 +1,17 @@
 # Diario dei task
 
-Ultimo aggiornamento: 7 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
+Ultimo aggiornamento: 8 novembre 2026, sera. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «5 novembre» e da «Decisioni tue in attesa».
+
+## 8 novembre (sera)
+
+- Misura della lunghezza di una risposta: il numero 1.327 era sbagliato. Il modello chiudeva da solo la risposta e io lo prendevo per il suo limite. Ora, quando chiude, gli si chiede di proseguire con il suo testo davanti, fino a 30.000 token, a un ciclo o al suo rifiuto. «Dove chiude una risposta» è un numero a parte. Un numero che nessun limite ha fermato non vale come limite. Si registrano anche le impostazioni (drafting rilassato e altro) e la pagina avvisa se sono cambiate. I record vecchi si rifanno da soli. Fatto, con prove; la prova sul modello vero resta da fare da te (Models, «Misura la lunghezza»).
+- Monitor: lo stato del server era sempre «Offline» e la tabella delle richieste restava vuota. Causa: nel porting dal server originale avevo messo in `draw()` un nome locale che nascondeva la funzione `gib`; l'errore veniva preso per «server spento». Corretto e provato sul server vero con un Edge senza finestra: lo stato ora è «Idle» e le richieste ci sono. C'è un test che cerca questo tipo di errore.
+- Domande «Allow search_web»: non era rotto il livello Automatico. La conversazione parte con i tuoi ricordi personali, che contano come dati privati e come contenuto esterno insieme; così la Regola dei Due chiede conferma al primo strumento che esce dal PC. La scheda non diceva il motivo. Ora lo dice e ha un pulsante «Ferma questo controllo in questa chat». La scelta di fondo (i ricordi personali fanno scattare la regola) l'ho lasciata: decidi tu.
+- Pagine web: le pagine di Wikipedia erano tagliate a 40.000 caratteri (ora 250.000); un sito lento viene riprovato una volta; un 404 dice di non indovinare gli indirizzi. Gli errori 404 della ricerca sulle sostanze erano indirizzi inventati dal modello, non censura; nessun 403 di Wikipedia nei registri.
+- Diagrammi: quello che non si disegnava era una mindmap con sintassi sbagliata scritta dal modello. Ora l'errore mostra il motivo e un pulsante «Chiedi al modello di correggerlo». Le istruzioni sulla mindmap sono più precise.
+- Immagini dagli articoli: la conversazione in uso era partita con le immagini spente; le caselle valgono solo per le conversazioni nuove. Ora la pagina dice con cosa è partita la conversazione aperta.
+- Quattro pulsanti in alto a destra di Chat e Agent: testo più piccolo/grande e conversazione più stretta/larga. Stessa scelta per le due viste, ricordata da una sessione all'altra.
 
 ## 7 novembre
 

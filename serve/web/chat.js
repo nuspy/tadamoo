@@ -750,7 +750,14 @@
       } catch (e) {
         document.querySelectorAll('[id^="dmmd-"]').forEach(x => x.remove());        // what mermaid leaves behind when it fails
         node.dataset.state = "error";
-        if (node.isConnected) { const p = document.createElement("p"); p.className = "diagram-err"; p.textContent = T("mmd.error"); node.append(p); }
+        if (node.isConnected) {
+          const why = String((e && e.message) || e).split("\n").map(x => x.trim()).filter(Boolean).slice(0, 3).join(" ").slice(0, 240);
+          const p = document.createElement("p"); p.className = "diagram-err"; p.textContent = T("mmd.error");
+          const reason = document.createElement("code"); reason.className = "diagram-why"; reason.textContent = why;
+          const fix = document.createElement("button"); fix.type = "button"; fix.className = "btn ghost"; fix.textContent = T("mmd.fix");
+          fix.onclick = () => window.chatUi.setPrompt(T("mmd.fixask", why));       // the person reads it and sends it: the model gets the reason, not a guess
+          node.append(p, reason, fix);
+        }
       }
     }
   }
