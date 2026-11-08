@@ -7,13 +7,15 @@ Fonte: lettura di `C:\Projects\callAPIcall` (213 commit, branch StreamingTTS, co
 
 **Si porta**: STT e TTS con gli stessi motori, dettatura e appunti avanzati, telefonate (Android Bluetooth e modem GSM), avatar animato e creazione avatar,
 chat e codice in voce, personalità con memorie, RAG, copilota, meeting e videochiamate, analisi di registrazioni con diarizzazione, le API di callAPIcall,
-il gateway vocale per il telefono, il bridge testuale Telegram verso l'agente e il terminale ESP32 (terzo cliente del gateway, hardware facoltativo).
-Si importano le sei personalità e gli avatar esistenti e i valori del bot Telegram, così il bridge è usabile subito.
+il gateway vocale per il telefono, il bot Telegram verso l'agente (sempre in ascolto) e il terminale ESP32 (terzo cliente del gateway, hardware facoltativo).
+Si importano le sei personalità e gli avatar esistenti e i valori del bot Telegram che Hermes usa oggi, così il bot è usabile subito.
 
 **Non si porta**: il Control Center Tauri (lo sostituiscono i tab di TaDaMoo), Handy-API (già rimpiazzato in callAPIcall), le skill di Hermes e gli script WSL,
 l'app Capacitor (la sostituisce l'app Flutter), la pubblicazione `myai.tadamoo.com` senza password, i trasporti sperimentali A7670E/EC25, `config.json` di callAPIcall
-(non si copia nel repository di TaDaMoo: contiene un token Telegram e un `phone_id` veri). I valori del bot Telegram si leggono dal disco al momento dell'importazione, sul PC
-dell'utente, e il token va nel gestore credenziali di Windows, mai in un file del repository. Si imposta e si cambia anche da Settings > Voice.
+(non si copia nel repository di TaDaMoo: contiene valori veri del vecchio Telegram Wrapper). Il bot Telegram è quello che Hermes usa oggi: i valori vivono nel suo `.env`
+(`TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USERS`, `TELEGRAM_HOME_CHANNEL`), non in callAPIcall. Si leggono dal disco al momento dell'importazione, sul PC dell'utente: il token va nel gestore
+credenziali di Windows, mai in un file del repository; gli utenti autorizzati e il canale principale vanno nelle impostazioni. Si cambiano anche da Settings > Voice.
+**Fuori da questo piano, in tabella di marcia**: il Telegram Wrapper (client TDLib sull'account dell'utente, con videochiamate Telegram), oggi non funzionante e da rivedere.
 
 ## 2. Decisioni di fondo
 
@@ -88,6 +90,9 @@ di supporto. Il piano usa proprio questo: le funzioni si caricano **prima**, e i
 - Telefonate: dall'agente sempre con approvazione manuale o automatica scelta in Voice e presentazione come IA all'inizio; mai un secondo tentativo automatico; chiamate fatte
   a mano dalla GUI senza approvazione; risposta in arrivo spenta di default. Il numero va validato, una chiamata alla volta.
 - Meeting: annuncio dell'assistente IA e consenso obbligatori; senza consenso il bot esce. Il bot parla con voce e avatar come camera solo dopo l'annuncio.
+- Bot Telegram: sempre in ascolto, ma **solo per gli utenti autorizzati** (lista in Settings > Voice, come `TELEGRAM_ALLOWED_USERS` di Hermes); gli altri non arrivano all'agente e ne resta
+  traccia con il loro ID, per poterli autorizzare. I messaggi dell'utente autorizzato sono i suoi prompt; testo inoltrato, file e link dentro sono contenuto non fidato. I permessi si danno
+  rispondendo su Telegram, con il livello di Chat impostato in Settings > Voice; telefonate, denaro e azioni irreversibili chiedono sempre una conferma esplicita con riepilogo.
 - Tutto in ascolto su 127.0.0.1 con token; le rotte del servizio non si raggiungono dalla rete se non tramite il server di TaDaMoo. Il microfono e la camera non vanno al browser dell'agente.
 
 ## 7. Fasi (ordine scelto per dipendenze; l'utente userà il programma solo a fine lavoro)
@@ -104,7 +109,7 @@ di supporto. Il piano usa proprio questo: le funzioni si caricano **prima**, e i
 | 7 | Rotte compatibili (`/external`, `/analysis`, STT, TTS), analisi con diarizzazione, importazione di personalità e avatar esistenti | 5, 6 |
 | 8 | Telefonate: Android Bluetooth, modem GSM, sicurezza, risposta in arrivo | 5, 7 |
 | 9 | Gateway vocale e tab Avatar nell'app Flutter; terminale ESP32 (firmware e client del gateway) | 5 |
-| 9b | Bridge Telegram verso l'agente di TaDaMoo, con importazione dei valori del bot e impostazione in Settings > Voice; a richiesta, non all'avvio | 5, 7 |
+| 9b | Bot Telegram come Hermes (long polling, utenti autorizzati, canale principale, risposte che si compongono man mano), sempre in ascolto dall'avvio; stesse funzioni della Chat; pulsante "Trasferisci su Telegram"; importazione dei valori dal `.env` di Hermes; impostazione in Settings > Voice | 5, 7 |
 | 10 | Avatar: MuseTalk da video, camera virtuale, Wav2Lip, visemi, creazione avatar guidata | 3, 4, 9 |
 | 11 | Accelerazione: RTX Video SDK, interpolazione, esperimento con DLSS vero; opzioni nascoste senza scheda compatibile | 10 |
 | 12 | Meeting (ascolto, verbale, annuncio e consenso, parola con avatar), copilota | 8, 10 |
@@ -133,8 +138,11 @@ TaDaMoo a terzi serve la decisione dell'utente su cosa includere (c'è già la q
 
 Punti ancora aperti:
 1. **Snapshot di callAPIcall**: committato lo stato del disco sul branch StreamingTTS (63ed73eb, locale, senza push); è quello che si importa. Restano fuori `sospeso.on` e `target-nuova`.
-2. **Token Telegram**: oggi è in un commit locale di callAPIcall; il repository remoto su GitHub è pubblico ma quel commit non c'è sul suo ramo principale. Non è esposto finché quel branch non
-   viene pubblicato. Per questo si tiene fuori dal repository di TaDaMoo e si mette nel gestore credenziali.
+2. **Bot Telegram e Hermes**: un bot può avere un solo ricevitore di aggiornamenti alla volta (long polling). Finché il gateway Telegram di Hermes è acceso con lo stesso token, i due si
+   contendono i messaggi: quando TaDaMoo prende il bot, il gateway Telegram di Hermes va spento a cura dell'utente (non si modifica la configurazione di Hermes), oppure TaDaMoo usa un secondo bot.
+   Il token si tiene fuori dal repository di TaDaMoo, nel gestore credenziali. Trasferimento di una chat: ogni chat Telegram autorizzata corrisponde a una conversazione; il pulsante "Trasferisci
+   su Telegram" (in alto, vicino a esporta e ai pulsanti di dimensione) lega la conversazione corrente alla chat Telegram dell'utente, da lì risposte e prompt passano da Telegram, e "Riporta qui" la slega.
+   Da confermare in revisione.
 3. **Python**: l'installatore di TaDaMoo usa 3.13; il servizio vocale resta in 3.10 con ambienti propri. `audioop` (GSM) non esiste in 3.13.
 4. **Persona Andrea_Taini**: contiene dati personali; l'importazione la mette nel sistema cifrato e non in file in chiaro.
 5. **Esperimento DLSS**: costo e qualità si decidono dopo la misura; può restare spento.
