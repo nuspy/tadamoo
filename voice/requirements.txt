@@ -25,10 +25,10 @@ google-api-python-client>=2.100
 msal>=1.28
 
 # --- MonolitOne: motori STT/TTS NATIVI in-process (ex Handy) ---
-openai-whisper>=20240930   # STT nativo (whisper su torch); modello scaricato al 1o uso
+openai-whisper>=20240930   # STT nativo (whisper su torch); il modello si installa da Settings > Voice
 # Diarizzazione (chi parla quando) per la sezione Analisi. Si porta il proprio
 # onnxruntime (CPU) e convive con onnxruntime-gpu. I modelli NON sono nel wheel:
-# `python fetch_models.py` li scarica insieme agli altri.
+# si installano da Settings > Voice, su richiesta.
 sherpa-onnx>=1.13          # pyannote-segmentation + speaker embedding, offline
 kokoro-onnx>=0.4           # TTS nativo Kokoro in-process (onnxruntime)
 piper-tts>=1.2             # TTS nativo Piper (opzionale, accanto a Kokoro)

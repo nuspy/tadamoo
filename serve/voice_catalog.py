@@ -1,6 +1,7 @@
 """The voice models TaDaMoo can install on request: speech to text, speech synthesis, avatar, diarization, voice activity, embedding.
 
-Every entry was read from the voice service's own code (voice/callbridge/engines, voice/fetch_models.py, voice/avatar). What that code
+Every entry was read from the voice service's own code (voice/callbridge/engines, voice/avatar) and from the download script of the
+original project. What that code
 does not state is not guessed: the entry carries `verify` (the names of the fields to check) and a download is refused until its
 sources are complete. A Hugging Face source stays at revision "main"; serve/downloads.py resolves the commit and takes each file's size
 and SHA-256 from Hugging Face when a download is planned. A URL source needs a fixed SHA-256. Sizes here are for display only.
@@ -60,7 +61,7 @@ _WHISPER = {
     "medium": "345ae4da62f9b3d59415adc60127b97c714f32e89e936602e85993674d08dcb1",
     "large-v3": "e5b1a55b89c1367dacf97e3e19bfd829a01529dbfdeefa8caeb59b3f1b81dadb",
 }
-_WHISPER_BYTES = {"large-v3": 2_900_000_000}          # fetch_models.py: "~2,9 GB"
+_WHISPER_BYTES = {"large-v3": 2_900_000_000}          # the original download script: "~2,9 GB"
 _WHISPER_VENV = _t("Runs inside the voice service with torch (openai-whisper); a CUDA build of torch is needed to use the GPU.",
                    "Gira dentro il servizio vocale con torch (openai-whisper); per usare la GPU serve la build CUDA di torch.")
 
