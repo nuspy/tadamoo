@@ -343,12 +343,10 @@ class ChatRequests(Http):
 
     def test_a_refused_request_is_logged_with_its_error(self):
         self.start(telemetry=False)
-        tool = {"type": "function", "function": {"name": "f", "parameters": {"type": "object", "properties": {}}}}
-        code, reply, _ = self.call("/v1/chat/completions", {**self.CHAT, "response_format": {"type": "json_object"},
-                                                           "tools": [tool]})
+        code, reply, _ = self.call("/v1/chat/completions", {**self.CHAT, "top_k": -3})
         self.assertEqual(code, 400)
         self.assertEqual(self.kinds(), ["request", "error", "finish"])
-        self.assertIn("response_format", self.events("error")[0]["data"]["message"])
+        self.assertIn("top_k", self.events("error")[0]["data"]["message"])
 
     def test_a_body_that_is_not_json_is_kept_as_it_came(self):
         self.start(telemetry=False)

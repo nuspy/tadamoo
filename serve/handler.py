@@ -21,10 +21,10 @@ from serve.api.responses import error_body as responses_error_body
 from tadamoo import exec_level, nextsteps, persistence, side_uses
 from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings
 from serve import lang as lang_mod
-from serve.config import PARALLEL_MAX
+from serve.config import PARALLEL_MAX, checked_sampling
 from serve.engine.vision import VISION_MODES
 from serve.api.anthropic import anthropic_collect, anthropic_events
-from serve.engine.errors import EngineDied, EngineStarting, EngineStuck, GpuBusy, ModelBusy
+from serve.engine.errors import EngineDied, EngineError, EngineStarting, EngineStuck, GpuBusy, ModelBusy
 from serve.api.grammar import REQUEST_KEY as GRAMMAR_KEY
 from serve.api.logit_bias import REQUEST_KEY as BIAS_KEY, add_end_turn, checked as checked_bias
 from serve.frontend import anthropic_to_messages, forced_call, openai_to_messages
@@ -630,7 +630,7 @@ def make_handler(svc: Service, remote: bool = False):
             elif path in ("/health", "/api/health"):
                 self._json(200, {"status": "ok", "max_context": svc.engine.max_context, "model": svc.model,
                                  "images": svc.vision is not None, "api_key": bool(svc.api_key),
-                                 "loaded": svc.loaded(), "standby": bool(getattr(svc, "standby", False)),
+                                 "loaded": svc.loaded(), "loading": svc.loading, "standby": bool(getattr(svc, "standby", False)),
                                  # a test server (--mock-engine): the scripts and the app never take it for TaDaMoo
                                  "mock": type(svc.engine).__name__ == "MockEngine"
                                  or bool(getattr(getattr(svc, "supervisor", None), "mock", False)),
@@ -1005,6 +1005,11 @@ def make_handler(svc: Service, remote: bool = False):
                     self._count_tokens(req)
                 else:
                     self._json(404, {"error": {"message": "not found"}})
+            except EngineError as e:                         # the engine failed: not the request's fault
+                if path == "/v1/responses":
+                    self._json(500, responses_error_body(str(e), "server_error", code="server_error"))
+                else:
+                    self._json(500, {"error": {"type": "server_error", "message": str(e)}})
             except BadBody as e:
                 if path == "/v1/responses":
                     self._json(e.status, responses_error_body(str(e)))
@@ -1038,6 +1043,11 @@ def make_handler(svc: Service, remote: bool = False):
             model = parse_qs(urlsplit(self.path).query).get("model", [svc.model])[0]
             if model != svc.model:
                 self._json(404, {"error": {"message": "model not found"}})
+                return
+            try:
+                svc.wait_load()                              # a load in progress is waited for, not refused
+            except (GpuBusy, EngineDied) as e:
+                self._json(503, {"error": {"type": "server_error", "message": str(e)}})
                 return
             if not svc.loaded() and not getattr(svc.engine, "unloaded", False):
                 self._json(503, {"error": {"message": "the engine is not running"}})
@@ -3293,8 +3303,7 @@ def make_handler(svc: Service, remote: bool = False):
                 return self._openai_long(req)
             messages, tools, kw = openai_to_messages(req)
             tools, force = forced_call(req.get("tool_choice"), tools)   # a bad choice is a 400 before streaming
-            if check_format(req.get("response_format")) and tools:
-                raise ValueError("structured response_format with tools is not supported")
+            check_format(req.get("response_format"))
             retries = structured_retries(req)                 # 0: the engine's grammar alone; tries only when a request asks
             validator = json_validator(req.get("response_format")) if retries else None
             trace = self.trace
@@ -3308,6 +3317,7 @@ def make_handler(svc: Service, remote: bool = False):
                                                req.get("response_format"))
             asked = int(req.get("max_completion_tokens") or req.get("max_tokens") or 0)   # 0/-1: the rest of the context
             svc.reasoning_budget(req)                         # a bad value is a 400 before streaming
+            checked_sampling(req)                             # likewise a sampling value out of range
             svc.answer_cap(req)                               # likewise a bad answer cap
             stop_strings(req)                                 # likewise a bad stop
             check_cache_slot(req)                             # likewise a bad cache_slot
@@ -3406,6 +3416,8 @@ def make_handler(svc: Service, remote: bool = False):
                     yield from asm.finish(done)
             try:
                 items = primed(events(), ids)
+            except EngineError:
+                raise
             except ValueError as e:                          # too long for the context: found when the engine counted
                 err = ResponsesError(str(e), "input", "context_length_exceeded" if "context" in str(e) else None)
                 return self._json(err.status, err.body())
@@ -3415,8 +3427,11 @@ def make_handler(svc: Service, remote: bool = False):
                 except EngineDied as e:
                     return self._json(503, responses_error_body(f"{e}; the next request restarts it", "server_error",
                                                                 code="server_error"))
-                except ValueError as e:                      # the engine's ERR line
+                except EngineError as e:                     # the engine failed
                     return self._json(500, responses_error_body(str(e), "server_error", code="server_error"))
+                except ValueError as e:                      # the engine refused the request
+                    err = ResponsesError(str(e), "input", "context_length_exceeded" if "context" in str(e) else None)
+                    return self._json(err.status, err.body())
                 return self._json(200, result)
             self._sse()
             last = time.monotonic()
@@ -3467,12 +3482,9 @@ def make_handler(svc: Service, remote: bool = False):
                 raise ResponsesError(str(e), "tool_choice") from None
             kw = responses_api.template_kwargs(req)
             try:
-                structured = check_format(responses_api.text_format(req))
+                check_format(responses_api.text_format(req))
             except ValueError as e:
                 raise ResponsesError(str(e).replace("response_format", "text.format"), "text.format") from None
-            if structured and tools:
-                raise ResponsesError("a JSON text.format with tools is not supported", "text.format",
-                                     "unsupported_parameter")
             try:
                 svc.require_grammar(responses_api.text_format(req))
             except ValueError as e:
@@ -3487,6 +3499,10 @@ def make_handler(svc: Service, remote: bool = False):
                 svc.reasoning_budget(req)                    # a bad value is a 400 before streaming
             except ValueError as e:
                 raise ResponsesError(str(e), "reasoning_budget_tokens") from None
+            try:
+                checked_sampling(req)
+            except ValueError as e:
+                raise ResponsesError(str(e), str(e).split(":")[0]) from None
             try:
                 stop_strings(req)
             except ValueError as e:
@@ -3522,14 +3538,13 @@ def make_handler(svc: Service, remote: bool = False):
             tools, force = forced_call(req.get("tool_choice"), tools)   # "any" / {"type": "tool", "name": N}
             max_new = int(req.get("max_tokens") or 0)                  # 0/-1: the rest of the context
             response_format = anthropic_format(req)            # structured outputs
-            if response_format and tools:
-                raise ValueError("a JSON output format with tools is not supported")
             try:
                 svc.require_grammar(response_format)
             except ValueError as e:
                 raise ValueError(str(e).replace("response_format json_schema and json_object", "output_config.format json_schema")) from None
             req[GRAMMAR_KEY] = svc.grammar_for(tools, req.get("tool_choice"), req.get("tools"), response_format)
             svc.reasoning_budget(req)                         # a bad value is a 400 before streaming
+            checked_sampling(req)                             # likewise a sampling value out of range
             stop_strings(req)                                 # likewise a bad stop
             check_cache_slot(req)                             # likewise a bad cache_slot
             ids, thinking, max_new = svc.prepare(messages, tools, kw, max_new, force=force)

@@ -193,7 +193,7 @@ class Loading(unittest.TestCase):
         self.assertEqual(loaded, [1])
 
     def test_post_load_waits_in_the_same_state(self):
-        t, out = self.in_thread(lambda: self.post("/load", {}))
+        t, out = self.in_thread(lambda: self.post("/api/control/load", {}))
         self.wait_loading()
         self.engine.go.set()
         t.join(10)
@@ -222,10 +222,10 @@ class Loading(unittest.TestCase):
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read().decode())
 
-    def test_props_and_v1_load_sent_mid_load_wait_for_it(self):
+    def test_props_and_the_load_route_sent_mid_load_wait_for_it(self):
         self.engine.unloaded = False                     # as a ProcessEngine is while its start runs
         self.svc.start_load()
-        calls = {"props": lambda: self.get_status("/props"), "v1_load": lambda: self.post("/v1/load", {})}
+        calls = {"props": lambda: self.get_status("/props"), "control_load": lambda: self.post("/api/control/load", {})}
         threads = {n: self.in_thread(f) for n, f in calls.items()}
         self.wait_loading()
         time.sleep(0.3)
@@ -237,7 +237,7 @@ class Loading(unittest.TestCase):
         for n, (_, out) in threads.items():
             self.assertEqual(out[0][0], 200, n)
         self.assertEqual(threads["props"][1][0][1]["total_slots"], self.svc.slot_stats()["total"])
-        self.assertEqual(threads["v1_load"][1][0][1]["status"], "loaded")
+        self.assertEqual(threads["control_load"][1][0][1]["status"], "loaded")
 
     def test_props_sent_mid_load_gets_the_failed_loads_503(self):
         self.engine.fail = "the engine exited before it was ready"

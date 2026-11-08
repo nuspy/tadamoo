@@ -127,7 +127,7 @@ class NoModel(unittest.TestCase):
 
     def test_a_server_without_a_model_answers(self):
         """A real server process: --standby with only the engine binary, as the desktop app starts it on a new PC."""
-        with tempfile.TemporaryDirectory() as d:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
             env = {**os.environ, "TADAMOO_DATA": d, "TADAMOO_CACHE": d, "PYTHONUTF8": "1"}
             p = subprocess.Popen([sys.executable, "-m", "serve.server", "--standby", "--engine-bin",
                                   str(Path(d) / "basalt.exe"), "--port", str(PORT)], cwd=ROOT, env=env,
@@ -153,7 +153,10 @@ class NoModel(unittest.TestCase):
                 c.close()
                 self.assertTrue(info["standby"])
             finally:
-                p.terminate()
+                if os.name == "nt":                      # terminate() leaves the server's own child processes running, holding files
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)], capture_output=True)
+                else:
+                    p.terminate()
                 try:
                     p.wait(timeout=10)
                 except subprocess.TimeoutExpired:

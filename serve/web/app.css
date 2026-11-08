@@ -897,6 +897,7 @@ body[data-view="logs"] main { padding-bottom: calc(12px + env(safe-area-inset-bo
 
 /* nine tabs: three to a row in a very narrow window */
 @media (max-width: 520px) {
+  .detail { display: none; }
   .tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   .rl-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
   .rl-tools .rl-pause, .rl-tools .rl-save > .btn { width: 100%; }

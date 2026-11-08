@@ -3,10 +3,10 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const num = v => typeof v === "number" && Number.isFinite(v);
-const fmt = (v, d = 0) => num(v) ? v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }) : "—";
+const fmt = (v, d = 0) => num(v) ? v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }) : "-";
 const p2 = n => String(n).padStart(2, "0");
 const clock = ms => { const d = new Date(ms); return `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, "0")}`; };
-const gib = n => num(n) ? (n / 1024 ** 3).toFixed(1) : "—";
+const gib = n => num(n) ? (n / 1024 ** 3).toFixed(1) : "-";
 const HIST = 60;
 let perStream = Array(HIST).fill(0);   // mean tok/s per decoding slot, one sample per poll
 
@@ -99,7 +99,7 @@ function drawChart(c, now, last, lastNote) {
   if (h == null) {
     const live = num(now) && now > 0, shown = live ? now : last;
     label.textContent = `${c.name}, ${live ? "now" : `last request${lastNote ? ` · ${lastNote}` : ""}`}`;
-    read.innerHTML = num(shown) ? `${fmt(shown, c.id === "decode" ? 1 : 0)}${unit}` : "—";
+    read.innerHTML = num(shown) ? `${fmt(shown, c.id === "decode" ? 1 : 0)}${unit}` : "-";
     return;
   }
   const v = c.v[h], x = h / (HIST - 1) * 100, y = 100 - clamp(v, 0, c.max) / c.max * 100, ago = HIST - 1 - h;
@@ -129,7 +129,7 @@ const share = r => {      // the tier split of the routed lookups: [vram, peer, 
   const peer = num(r.pcie_share) ? r.pcie_share : 0;
   return [r.hit_rate * (1 - peer), peer, (1 - r.hit_rate) * (1 - peer)];
 };
-const pct = f => num(f) ? `${(f * 100).toFixed(1)}%` : "—";
+const pct = f => num(f) ? `${(f * 100).toFixed(1)}%` : "-";
 const text = (id, v) => { const e = $(id); if (e.textContent !== v) e.textContent = v; };
 
 function draw() {
@@ -141,11 +141,15 @@ function draw() {
   const sl = live.slots || {}, multi = sl.total > 1, slotRows = M.slots || [], dec = slotRows.filter(s => s.state === "decoding").length;
 
   const name = (live.state || "idle")[0].toUpperCase() + (live.state || "idle").slice(1);
-  setState(live.state || "idle", live.queued > 0 ? `${name} · ${live.queued} queued` : name);
+  const ld = live.state === "loading" ? live.load || {} : null;
+  const gib = ld ? Object.entries(ld.gib || {}).map(([k, v]) => `${k} ${v.toFixed(1)} GiB`).join(" · ") : "";
+  setState(live.state || "idle", ld ? ld.kind === "wake" ? "Waking up" : `Loading weights${num(ld.percent) ? ` · ${ld.percent}%` : ""}`
+    : live.queued > 0 ? `${name} · ${live.queued} queued` : name);
+  text("#detail", gib); $("#detail").hidden = !gib;
   text("#model", eng.model || "");
 
   const last = r0 && num(r0.decode_tok_s) ? r0.decode_tok_s : null, tok = generating && num(live.tok_s) ? live.tok_s : last;
-  $("#v-tok").textContent = num(tok) ? tok.toFixed(1) : "—";
+  $("#v-tok").textContent = num(tok) ? tok.toFixed(1) : "-";
   $("#v-tok").classList.toggle("idle", !generating);
   $("#heat").style.left = clamp((tok || 0) / 800, 0, 1) * 100 + "%";
   CHARTS[0].name = multi ? "Tok/s (aggregate)" : "Decode";
@@ -155,10 +159,10 @@ function draw() {
   $("#s-busy").hidden = !multi;
   $("#s-busy").innerHTML = `<b>${sl.active || 0}</b> of ${sl.total} slots busy${dec && num(live.tok_s) ? ` · ${fmt(live.tok_s / dec)} per stream` : ""}`;
   text("#limit", num(g0.power_limit) ? `@ ${Math.round(g0.power_limit)} W` : "");
-  $("#v-acc").innerHTML = r0 && r0.drafts_offered > 0 ? `${(r0.drafts_accepted / r0.drafts_offered * 100).toFixed(0)}<small>%</small>` : "—";
+  $("#v-acc").innerHTML = r0 && r0.drafts_offered > 0 ? `${(r0.drafts_accepted / r0.drafts_offered * 100).toFixed(0)}<small>%</small>` : "-";
   const ctx = multi ? slotRows.reduce((a, s) => a + (s.is_processing ? s.ctx_used : 0), 0)
     : busy ? (live.prompt_tokens || 0) + (live.generated || 0) : r0 ? (r0.prompt_tokens || 0) + (r0.output_tokens || 0) : null;
-  text("#v-ctx", num(ctx) ? fmt(ctx) : "—");
+  text("#v-ctx", num(ctx) ? fmt(ctx) : "-");
   text("#s-ctx", num(eng.max_context) ? `of ${fmt(slotRows.length > 1 && num(slotRows[0].n_ctx) ? slotRows[0].n_ctx : eng.max_context)} tokens${slotRows.length > 1 ? " (per slot)" : ""}` : "");
 
   const h = M.history || {};
@@ -168,18 +172,18 @@ function draw() {
   const lastRead = r0 ? (r0.prompt_tokens || 0) - (r0.reused || 0) : 0;   // short prompts are dominated by fixed cost, so show the size
   drawChart(CHARTS[1], live.state === "reading" ? live.prefill_tok_s_mean : null, lastPrefill, lastPrefill != null ? `${fmt(lastRead)} tokens` : "");
 
-  text("#s-load", num(g0.util) ? `${Math.round(g0.util)}%` : "—");
-  text("#s-vram", num(g0.mem_used) ? `${gib(g0.mem_used)} / ${gib(g0.mem_total)} GiB` : "—");
-  text("#s-temp", num(g0.temp) ? `${Math.round(g0.temp)} °C` : "—");
-  text("#s-pow", num(g0.power) ? `${Math.round(g0.power)}${num(g0.power_limit) ? ` / ${Math.round(g0.power_limit)}` : ""} W` : "—");
-  text("#s-cpu", num(hw.cpu) ? `${Math.round(hw.cpu)}%` : "—");
-  text("#s-ram", num(hw.ram_total) ? `${gib(hw.ram_used)} / ${gib(hw.ram_total)} GiB` : "—");
-  text("#s-disk", num(hw.disk_read_mb) ? `${hw.disk_read_mb.toFixed(1)} MB/s` : "—");
+  text("#s-load", num(g0.util) ? `${Math.round(g0.util)}%` : "-");
+  text("#s-vram", num(g0.mem_used) ? `${gib(g0.mem_used)} / ${gib(g0.mem_total)} GiB` : "-");
+  text("#s-temp", num(g0.temp) ? `${Math.round(g0.temp)} °C` : "-");
+  text("#s-pow", num(g0.power) ? `${Math.round(g0.power)}${num(g0.power_limit) ? ` / ${Math.round(g0.power_limit)}` : ""} W` : "-");
+  text("#s-cpu", num(hw.cpu) ? `${Math.round(hw.cpu)}%` : "-");
+  text("#s-ram", num(hw.ram_total) ? `${gib(hw.ram_used)} / ${gib(hw.ram_total)} GiB` : "-");
+  text("#s-disk", num(hw.disk_read_mb) ? `${hw.disk_read_mb.toFixed(1)} MB/s` : "-");
 
   const sh = share(r0);
   [["vram", 0], ["peer", 1], ["cpu", 2]].forEach(([k, i]) => {
     $("#tr-" + k).style.width = sh ? sh[i] * 100 + "%" : "0";
-    text("#tl-" + k, sh ? pct(sh[i]) : "—");
+    text("#tl-" + k, sh ? pct(sh[i]) : "-");
   });
 
   drawRequests(live, reqs, busy, multi);
@@ -189,7 +193,7 @@ function draw() {
 
 function drawRequests(live, reqs, busy, multi) {
   const rows = [];
-  if (busy && !multi) rows.push({ t: Date.now() / 1000 - (live.elapsed_s || 0), id: "Running", path: "—", out: live.generated, tps: live.tok_s, dur: live.elapsed_s, live: true });
+  if (busy && !multi) rows.push({ t: Date.now() / 1000 - (live.elapsed_s || 0), id: "Running", path: "-", out: live.generated, tps: live.tok_s, dur: live.elapsed_s, live: true });
   reqs.forEach(r => rows.push({ t: r.time, id: r.id, path: (r.path || "").replace("/v1/", "").replace("chat/completions", "chat"), out: r.output_tokens, tps: r.decode_tok_s, dur: r.duration_s, finish: r.finish }));
   const total = rows.length; rows.length = Math.min(rows.length, 6);   // with slots, the lanes show what is running
   const tb = $("#t-req"); tb.replaceChildren();
@@ -197,9 +201,9 @@ function drawRequests(live, reqs, busy, multi) {
     const tr = document.createElement("tr"); if (r.live) tr.className = "live";
     // a request that did not simply stop is marked on its id, with the engine's reason as the tooltip
     const odd = r.finish && r.finish !== "stop" ? (r.finish === "error" ? "err" : "warn") : "";
-    const id = `${r.id || "—"}${odd ? ` · ${r.finish}` : ""}`;
-    [[clock(r.t * 1000).slice(0, 8), ""], [id, "f " + odd], [r.path || "—", ""], [num(r.out) ? fmt(r.out) : "—", "n"],
-     [num(r.tps) ? r.tps.toFixed(1) : "—", r.live ? "n f live" : "n f"], [num(r.dur) ? `${r.dur.toFixed(1)} s` : "—", "n"]].forEach(([t, c]) => {
+    const id = `${r.id || "-"}${odd ? ` · ${r.finish}` : ""}`;
+    [[clock(r.t * 1000).slice(0, 8), ""], [id, "f " + odd], [r.path || "-", ""], [num(r.out) ? fmt(r.out) : "-", "n"],
+     [num(r.tps) ? r.tps.toFixed(1) : "-", r.live ? "n f live" : "n f"], [num(r.dur) ? `${r.dur.toFixed(1)} s` : "-", "n"]].forEach(([t, c]) => {
       const td = document.createElement("td"); td.textContent = t; if (c) td.className = c.trim(); tr.append(td);
     });
     tb.append(tr);
@@ -210,22 +214,22 @@ function drawRequests(live, reqs, busy, multi) {
 
 function drawHardware(eng, st, hw, gpus, names, sh) {
   const meter = f => `<div class="meter"><i style="width:${(clamp(f || 0, 0, 1) * 100).toFixed(1)}%"></i></div>`;
-  const val = (x, unit) => num(x) ? `<div class="dv">${Math.round(x)}${unit ? `<small>${unit}</small>` : ""}</div>` : `<div class="dv none">—</div>`;
+  const val = (x, unit) => num(x) ? `<div class="dv">${Math.round(x)}${unit ? `<small>${unit}</small>` : ""}</div>` : `<div class="dv none">-</div>`;
   const mem = (used, total, share) => {
     const ok = num(used) && num(total) && total > 0;
-    return `<div class="dm"><span>${ok ? `${gib(used)} / ${gib(total)} GiB` : "—"}</span><i>${ok ? `${(used / total * 100).toFixed(0)}%` : ""}</i>${meter(ok ? used / total : 0)}
+    return `<div class="dm"><span>${ok ? `${gib(used)} / ${gib(total)} GiB` : "-"}</span><i>${ok ? `${(used / total * 100).toFixed(0)}%` : ""}</i>${meter(ok ? used / total : 0)}
       <div class="lk">${meter(share)}<i>${num(share) ? `${pct(share)} of lookups` : "No lookups yet"}</i></div></div>`;
   };
   const experts = (slots, mib, note) => num(mib) && mib > 0
     ? `<div class="dx"><b>${num(slots) ? `${fmt(slots)} slots` : note}</b><span>${(mib / 1024).toFixed(1)} GiB${num(slots) ? "" : " pinned"}</span></div>`
-    : `<div class="dv none">—</div>`;
+    : `<div class="dv none">-</div>`;
   const peerSlots = (eng.expert_slots || 0) - (eng.expert_slots_primary || 0), peerMib = (eng.expert_cache_mib || 0) - (eng.expert_cache_primary_mib || 0);
   const tier = [[eng.expert_slots_primary, eng.expert_cache_primary_mib, sh && sh[0]], [peerSlots, peerMib, sh && sh[1]]];
   const label = [...gpus.map((g, i) => [names[g.index] || `CUDA${g.index}`, `CUDA${g.index} · ${i === 0 ? "Primary" : "Peer experts"}`]), ["System RAM", "Host · CPU load"]];
   const row = cells => `<div class="dl"><div class="dn"><b></b><span></span></div>${cells}</div>`;
   const rows = gpus.map((g, i) => row(
       mem(g.mem_used, g.mem_total, tier[i] && tier[i][2]) + val(g.util, "%")
-      + (num(g.power) ? `<div class="dv">${Math.round(g.power)}<small>/ ${num(g.power_limit) ? Math.round(g.power_limit) : "—"} W</small></div>` : val(null))
+      + (num(g.power) ? `<div class="dv">${Math.round(g.power)}<small>/ ${num(g.power_limit) ? Math.round(g.power_limit) : "-"} W</small></div>` : val(null))
       + val(g.temp, "°C")
       + (num(g.pcie_gen) ? `<div class="dv">Gen${g.pcie_gen}<small>x${g.pcie_width}</small></div>` : val(null))
       + (tier[i] ? experts(tier[i][0], tier[i][1]) : val(null))));
@@ -235,14 +239,14 @@ function drawHardware(eng, st, hw, gpus, names, sh) {
   // device names come from the driver, so they are set as text
   $$("#h-dev .dl:not(.head) .dn").forEach((d, i) => { d.querySelector("b").textContent = label[i][0]; d.querySelector("span").textContent = label[i][1]; });
 
-  text("#h-cpu", st.cpu_name || "—");
-  text("#h-cores", st.cores && st.threads ? `${st.cores} cores · ${st.threads} threads` : num(st.threads) ? `${st.threads} threads` : "—");
-  text("#h-load", num(hw.cpu) ? `${Math.round(hw.cpu)}%` : "—");
-  text("#h-driver", st.driver ? `${st.driver}${st.cuda ? ` · CUDA ${st.cuda}` : ""}` : "—");
-  text("#h-model", eng.model || "—");
-  text("#h-ctx", num(eng.max_context) ? `${fmt(eng.max_context)} tokens${eng.kv ? ` · kv ${eng.kv}` : ""}` : "—");
-  text("#h-draft", num(eng.spec) ? (eng.spec > 0 ? `Up to ${eng.spec} tokens` : "Off") : "—");
-  text("#h-build", eng.version || "—");
+  text("#h-cpu", st.cpu_name || "-");
+  text("#h-cores", st.cores && st.threads ? `${st.cores} cores · ${st.threads} threads` : num(st.threads) ? `${st.threads} threads` : "-");
+  text("#h-load", num(hw.cpu) ? `${Math.round(hw.cpu)}%` : "-");
+  text("#h-driver", st.driver ? `${st.driver}${st.cuda ? ` · CUDA ${st.cuda}` : ""}` : "-");
+  text("#h-model", eng.model || "-");
+  text("#h-ctx", num(eng.max_context) ? `${fmt(eng.max_context)} tokens${eng.kv ? ` · kv ${eng.kv}` : ""}` : "-");
+  text("#h-draft", num(eng.spec) ? (eng.spec > 0 ? `Up to ${eng.spec} tokens` : "Off") : "-");
+  text("#h-build", eng.version || "-");
 }
 
 const PANE = { req: "0", log: "0 lines" };
@@ -362,15 +366,15 @@ function drawSlots(M, multi) {
     q(".l-st").title = pre ? `${kfmt(s.prefill_done)} of ${kfmt(s.prompt_tokens)} prompt tokens read` : "";
     const tps = q(".l-tps"); tps.replaceChildren();
     if (s.state === "decoding") tps.append(fmt(s.tok_s), Object.assign(document.createElement("small"), { textContent: "tok/s" }));
-    else tps.append("—");
-    text2(q(".l-tok"), s.is_processing ? `${fmt(s.generated)} tokens` : "—");
+    else tps.append("-");
+    text2(q(".l-tok"), s.is_processing ? `${fmt(s.generated)} tokens` : "-");
     const f = s.n_ctx ? s.ctx_used / s.n_ctx : 0, m = q(".meter");
     m.firstChild.style.width = clamp(f, 0, 1) * 100 + "%"; m.classList.toggle("hot", f > .8);
     text2(q(".l-ctx").lastChild, `${kfmt(s.ctx_used || 0)} / ${kfmt(s.n_ctx || 0)}`);
-    text2(q(".l-acc"), s.drafts_offered > 20 ? `${(s.drafts_accepted / s.drafts_offered * 100).toFixed(0)}%` : "—");
+    text2(q(".l-acc"), s.drafts_offered > 20 ? `${(s.drafts_accepted / s.drafts_offered * 100).toFixed(0)}%` : "-");
     const rq = q(".l-req"); rq.replaceChildren();
-    if (s.is_processing) { const b = document.createElement("b"); b.textContent = API[s.api] || s.api || "—"; rq.append(b, ` · ${s.model || "—"}`); }
-    else rq.append("—");
+    if (s.is_processing) { const b = document.createElement("b"); b.textContent = API[s.api] || s.api || "-"; rq.append(b, ` · ${s.model || "-"}`); }
+    else rq.append("-");
   });
   text("#slot-count", `${(live.slots || {}).active || 0} of ${sl.length} busy`);
   text("#slot-note", sl.length ? `${kfmt(sl[0].n_ctx)} context each` : "");
@@ -379,7 +383,7 @@ function drawSlots(M, multi) {
   const tb = $("#t-queue"); tb.replaceChildren();
   queue.slice(0, 3).forEach(r => {
     const tr = document.createElement("tr");
-    [[`${(r.waited_s || 0).toFixed(1)} s`, "f"], [API[r.api] || r.api || "—", ""], [r.model || "—", ""], [num(r.prompt_tokens) ? fmt(r.prompt_tokens) : "—", "n"]].forEach(([t, c]) => {
+    [[`${(r.waited_s || 0).toFixed(1)} s`, "f"], [API[r.api] || r.api || "-", ""], [r.model || "-", ""], [num(r.prompt_tokens) ? fmt(r.prompt_tokens) : "-", "n"]].forEach(([t, c]) => {
       const td = document.createElement("td"); td.textContent = t; if (c) td.className = c; tr.append(td);
     });
     tb.append(tr);

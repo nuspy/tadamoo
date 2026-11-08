@@ -360,7 +360,7 @@ def test_the_agent_runs_as_a_subprocess_over_stdio_against_the_real_server(tmp_p
         assert read_until(3)["result"]["stopReason"] == "end_turn"
         texts = [m["params"]["update"]["content"]["text"] for m in seen
                  if m.get("method") == "session/update" and m["params"]["update"]["sessionUpdate"] == "agent_message_chunk"]
-        assert texts == ["Fatto: è scritto", "Controllato: è scritto"]       # the answer, then the one after the comparison with the request
+        assert texts == ["Fatto: è scritto"]                                 # the comparison with the request is hidden unless it says no
         assert (ws / "é.txt").read_text(encoding="utf-8") == "ciao è"
         diffs = [c for m in seen if m.get("method") == "session/update"
                  for c in m["params"]["update"].get("content", []) if isinstance(c, dict) and c.get("type") == "diff"]

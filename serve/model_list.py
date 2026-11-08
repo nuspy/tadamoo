@@ -142,14 +142,15 @@ def served(svc, local: bool) -> list[dict]:
     """The served model in the OpenAI shape, then one entry per alias; empty when it is not listed (the engine is
     down and does not load on use, or a standby server has no model)."""
     loaded = svc.loaded()
-    if not loaded and not (getattr(svc, "idle_unload_s", 0) or getattr(svc.engine, "unloaded", False)):
+    loading = bool(getattr(svc, "loading", False))             # listed while it loads
+    if not loaded and not loading and not (getattr(svc, "idle_unload_s", 0) or getattr(svc.engine, "unloaded", False)):
         return []
     path = served_path(svc)
     ctx = _context(svc)
     model = {"id": svc.model, "object": "model", "created": _mtime(path) if path else STARTED, "owned_by": OWNER,
              "display_name": svc.model,
              # like llama-server's router: listed, and "unloaded" when it loads on use
-             "status": {"value": "loaded" if loaded else "unloaded"},
+             "status": {"value": "loading" if loading else "loaded" if loaded else "unloaded"},
              "meta": {"n_ctx": ctx}, "context_length": ctx,
              "architecture": {"input_modalities": ["text", "image"] if svc.vision is not None else ["text"],
                               "output_modalities": ["text"]}}

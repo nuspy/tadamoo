@@ -91,6 +91,12 @@ def lib(name: str) -> Any:
         raise CanaryError("The Openweight Canary add-on is not installed.", "no_addon")
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
+    loaded = sys.modules.get("canary")
+    if loaded is not None and Path(getattr(loaded, "__file__", "") or "").resolve().parent.parent != Path(root).resolve():
+        for key in [k for k in sys.modules if k == "canary" or k.startswith("canary.")]:
+            del sys.modules[key]                       # imported from another copy: follow the folder chosen now
+        sys.path.remove(str(root))
+        sys.path.insert(0, str(root))
     return importlib.import_module("canary." + name)
 
 
