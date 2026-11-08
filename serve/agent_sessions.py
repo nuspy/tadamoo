@@ -2115,6 +2115,28 @@ class SessionManager:
             self._push(sid, {"event": "persona", "slug": slug})
         return self.get(sid)
 
+    def set_telegram(self, sid: str, chat: Any) -> Dict[str, Any]:
+        """Moves the conversation to a Telegram chat (its answers go there and what is written there comes here), or back with None. A chat holds one
+        moved conversation: the one that was there is brought back."""
+        if chat is not None and (not isinstance(chat, int) or isinstance(chat, bool) or chat == 0):
+            raise RunError("A Telegram chat is a whole number.", "bad_chat")
+        with self._lock:
+            rec = self._record(sid)
+            if rec["state"] == "closed":
+                raise RunError("That conversation is closed.", "closed")
+            if chat is not None:
+                for other in self.records:
+                    if other["id"] != sid and other.get("telegram_chat") == chat:
+                        self._set(other, telegram_chat=None)
+            self._set(rec, telegram_chat=chat)
+        self._push(sid, {"event": "telegram", "chat": chat})
+        return self.get(sid)
+
+    def telegram_moved(self) -> Dict[str, int]:
+        """The conversations that are moved to a Telegram chat now, by conversation: the chat's id."""
+        with self._lock:
+            return {r["id"]: r["telegram_chat"] for r in self.records if isinstance(r.get("telegram_chat"), int) and r["state"] != "closed"}
+
     def set_visuals(self, sid: str, images: Any, charts: Any) -> Dict[str, Any]:
         """How much of pictures and diagrams the person wants now ("" is off): the running conversation is told, and one started again takes them."""
         for name, level in (("images", images), ("charts", charts)):
