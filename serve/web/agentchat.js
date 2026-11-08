@@ -173,6 +173,7 @@
     const open = mk("button", "cv-open");
     open.type = "button";
     open.append(mk("span", "cv-t", name), mk("span", "cv-s", `${T("ch.state." + s.state)} \u00B7 ${when(s.updated)}`));
+    if (s.telegram_chat) open.append(mk("span", "cv-tgm", T("tgm.badge")));
     open.onclick = () => { if (s.id !== sid) openSession(s.id); };
     const star = mk("button", "cv-fav", s.favorite ? "\u2605" : "\u2606");
     star.type = "button";
@@ -399,6 +400,11 @@
         if (rec) rec.persona = e.slug;
         noteItem({ s: T("pe.now", e.slug && window.personaUi ? window.personaUi.name(e.slug) : T("pe.none")) });
         if (window.personaUi) window.personaUi.paint();
+        break;
+      case "telegram":
+        if (rec) rec.telegram_chat = e.chat;
+        noteItem({ s: T(e.chat ? "tgm.now" : "tgm.now.off") });
+        if (window.telegramUi) window.telegramUi.paint();
         break;
       case "effort": if (rec) rec.effort = e.level; noteItem({ s: T("ch.effort.now", effortName(e.level)) }); break;
       case "visuals":

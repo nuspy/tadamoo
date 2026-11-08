@@ -1,0 +1,38 @@
+/* Settings > Voice > Telegram, and the Move to Telegram button of the Chat and Code header. */
+.tgm-root { max-width: 900px; }
+.tgm-root :focus-visible, .tgm-pop :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tgm-intro { margin: 0 0 16px; max-width: 820px; color: var(--fg-2); line-height: 1.55; overflow-wrap: anywhere; }
+.tgm-help { margin: 0 0 8px; font-size: 14px; line-height: 1.5; color: var(--fg-2); overflow-wrap: anywhere; }
+.tgm-h { margin: 0 0 8px; font: 600 16px/1.3 var(--font-sans); color: var(--fg); }
+.tgm-box { margin: 0 0 16px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); min-width: 0; }
+.tgm-statebox { margin: 0 0 16px; }
+.tgm-state { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 28px; }
+.tgm-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--fg-3); border: 2px solid var(--fg-3); flex: none; }
+.tgm-dot[data-state="running"] { background: #3fb950; border-color: #3fb950; }
+.tgm-dot[data-state="conflict"], .tgm-dot[data-state="bad_token"], .tgm-dot[data-state="error"] { background: transparent; border-color: var(--warn); border-style: dashed; }
+.tgm-bot { color: var(--fg-2); }
+.tgm-statemsg { margin: 4px 0 0; color: var(--warn); }
+.tgm-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin: 8px 0; }
+.tgm-row .tgm-field { flex: 1 1 200px; }
+.tgm-field { display: grid; gap: 4px; min-width: 0; margin: 0 0 8px; }
+.tgm-field label { font-weight: 600; color: var(--fg); }
+.tgm-field input, .tgm-field select { width: 100%; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font: 16px/1.4 var(--font-sans); }
+.tgm-root .btn, .tgm-pop .btn { min-height: 44px; min-width: 44px; padding: 8px 16px; font-size: 15px; display: inline-flex; align-items: center; justify-content: center; }
+.tgm-switch { display: flex; align-items: center; gap: 12px; min-height: 44px; font-weight: 600; cursor: pointer; }
+.tgm-switch input { width: 24px; height: 24px; flex: none; accent-color: var(--accent); }
+.tgm-note { margin: 8px 0 0; padding: 8px 12px; border-left: 3px solid var(--line); color: var(--fg-2); line-height: 1.5; overflow-wrap: anywhere; }
+.tgm-note[data-bad="1"] { border-left-color: var(--warn); color: var(--warn); }
+.tgm-note[hidden] { display: none; }
+.tgm-list { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 8px; }
+.tgm-item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 8px; }
+.tgm-id { font-weight: 600; overflow-wrap: anywhere; }
+.tgm-who { display: grid; gap: 2px; min-width: 0; flex: 1 1 200px; }
+.tgm-line { color: var(--fg); overflow-wrap: anywhere; }
+.tgm-pair .tgm-row { margin: 0; }
+.cv-tgm { align-self: flex-start; margin-top: 2px; padding: 0 6px; font: 600 10px/16px var(--font-sans); color: var(--accent); border: 1px solid var(--accent); border-radius: 8px; }
+.tgm-pop { position: fixed; z-index: 60; display: grid; gap: 8px; max-width: calc(100vw - 32px); min-width: 220px; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .25); }
+.tgm-pop[hidden] { display: none; }
+.tgm-pop .btn { justify-content: flex-start; overflow-wrap: anywhere; }
+.chathead #tgm-move { flex: none; white-space: nowrap; }
+@media (pointer: coarse), (max-width: 520px) { .chathead #tgm-move { min-height: 44px; } .tgm-box { padding: 12px; } .tgm-row .btn { flex: 1 1 100%; } }
+@media (prefers-reduced-motion: reduce) { .tgm-root *, .tgm-pop * { transition: none !important; animation: none !important; } }

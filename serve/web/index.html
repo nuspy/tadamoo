@@ -22,6 +22,7 @@
 <link rel="stylesheet" href="web/bench.css">
 <link rel="stylesheet" href="web/websearch.css">
 <link rel="stylesheet" href="web/voice.css">
+<link rel="stylesheet" href="web/telegram.css">
 <link rel="stylesheet" href="web/converter.css">
 <link rel="stylesheet" href="web/engines.css">
 <link rel="stylesheet" href="web/shell.css">
@@ -103,6 +104,7 @@
 <script defer src="web/websearch.js"></script>
 <script defer src="web/voice.js"></script>
 <script defer src="web/voiceload.js"></script>
+<script defer src="web/telegram.js"></script>
 <script defer src="web/wallet.js"></script>
 <script defer src="web/netwatch.js"></script>
 <script defer src="web/rea.js"></script>
@@ -385,6 +387,7 @@
         <button type="button" class="btn" id="new-chat" data-t="ch.newbtn">New conversation</button>
         <button type="button" class="btn" id="branches-open" aria-haspopup="dialog" aria-expanded="false" aria-controls="branches" data-t="br.open" hidden>Branches</button>
         <button type="button" class="btn" id="export-open" aria-haspopup="dialog" data-t="exp.btn" data-t-title="exp.btn.title">Export</button>
+        <button type="button" class="btn" id="tgm-move" aria-haspopup="dialog" aria-expanded="false" aria-controls="tgm-pop" data-t="tgm.move" hidden>Move to Telegram</button>
         <button type="button" class="btn" id="tech-toggle" aria-pressed="true">Technical session: on</button>
         <button type="button" class="btn" id="wud-toggle" aria-pressed="true">Work until done: on</button>
         <button type="button" class="btn" id="priv-toggle" aria-pressed="false">Private</button>
@@ -966,6 +969,10 @@
     <section class="sec stvoice" data-sub="voice" id="vo-section" aria-labelledby="vo-h">
       <div class="sh"><b id="vo-h" data-t="vo.title">Voice models</b></div>
       <div class="pad vo-root" id="vo-root"></div>
+    </section>
+    <section class="sec stvoice" data-sub="voice" id="tgm-section" aria-labelledby="tgm-h">
+      <div class="sh"><b id="tgm-h" data-t="tgm.title">Telegram</b></div>
+      <div class="pad tgm-root" id="tgm-root"></div>
     </section>
     <section class="sec stbench" data-sub="benchmarks" id="bn-section" aria-labelledby="bn-h">
       <div class="sh"><b id="bn-h" data-t="bn.title">Benchmarks</b></div>
