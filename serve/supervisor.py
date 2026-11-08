@@ -17,7 +17,7 @@ from serve.engine.flags import flag_index, flag_value
 from serve.engine.vision import EngineVision, Vision, child_env, engine_args, gpus_in_play, vision_env
 
 RELOAD_WAIT_S = 300.0          # how long a reload waits for the running request to finish
-BUSY = ("waiting", "stopping", "starting", "calibrating", "measuring")   # a job runs: no other may start
+BUSY = ("waiting", "stopping", "starting", "calibrating", "measuring", "voice")   # a job runs: no other may start
 MEASURE_ANSWER = 384           # tokens of each answer the wizard's measurement times
 SPEC_TRIES = (5, 7, 8)         # maximum verify windows the wizard's measurement tries (set at the start: one reload each)
 CALIBRATION_ANSWER = 512       # tokens of the reasoning-off answer
@@ -155,18 +155,29 @@ class Supervisor:
         with self.lock:
             self.state.update(kw)
 
-    def _begin(self, job: str) -> bool:
+    def _begin(self, job: str, held: bool = False) -> bool:
         with self.lock:
-            if self.state["phase"] in BUSY:
+            if self.state["phase"] in BUSY and not (held and self.state["job"] == "voice"):
                 return False
             self.state = {"phase": "waiting", "job": job, "message": "", "started": time.time(), "finished": None,
                           "error": None, "step": None}
             return True
 
     # ---- reload
-    def reload(self, wait: bool = False) -> bool:
-        """Restart the engine with the --config file's settings on a thread; False when a job is running."""
-        if not self._begin("reload"):
+    def hold(self, job: str, phase: str) -> bool:
+        """Take the job slot for work the server does itself (the voice functions); False when a job is running."""
+        if not self._begin(job):
+            return False
+        self._set(phase=phase)
+        return True
+
+    def release(self, error: str | None = None) -> None:
+        self._set(phase="failed" if error else "idle", error=error, finished=time.time())
+
+    def reload(self, wait: bool = False, held: bool = False) -> bool:
+        """Restart the engine with the --config file's settings on a thread; False when a job is running.
+        `held`: the slot taken by `hold` passes to the reload without a moment in between."""
+        if not self._begin("reload", held):
             return False
         self.thread = threading.Thread(target=self._reload, name="engine-reload", daemon=True)
         self.thread.start()
