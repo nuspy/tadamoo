@@ -100,6 +100,7 @@
 <script defer src="web/bench.js"></script>
 <script defer src="web/websearch.js"></script>
 <script defer src="web/voice.js"></script>
+<script defer src="web/voiceload.js"></script>
 <script defer src="web/wallet.js"></script>
 <script defer src="web/netwatch.js"></script>
 <script defer src="web/rea.js"></script>
@@ -848,15 +849,21 @@
   </div>
 
   <div class="view loader" id="view-loader" role="tabpanel" aria-labelledby="tab-loader" hidden>
+    <div class="vl-head" id="vl-head">
+      <button type="button" class="btn" id="vl-open" data-t="vl.open">Voice functions</button>
+      <button type="button" class="btn primary" id="vl-reload" data-t="vl.reload" hidden>Change services in memory</button>
+    </div>
     <div class="subtabs" role="tablist" aria-label="Models">
       <button type="button" class="btn subtab" role="tab" id="sub-providers" aria-selected="false" aria-controls="ld-providers" data-t="pv.sub.providers">Providers</button>
       <button type="button" class="btn subtab" role="tab" id="sub-qwen" aria-selected="true" aria-controls="ld-qwen" data-t="pv.sub.qwen">Qwen Loader</button>
       <button type="button" class="btn subtab" role="tab" id="sub-converter" aria-selected="false" aria-controls="ld-converter" data-t="pv.sub.converter">Model converter</button>
       <button type="button" class="btn subtab" role="tab" id="sub-llamacpp" aria-selected="false" aria-controls="ld-llamacpp" data-t="pv.sub.llamacpp">llama.cpp</button>
+      <button type="button" class="btn subtab" role="tab" id="sub-voicesvc" aria-selected="false" aria-controls="ld-voicesvc" data-t="vl.sub">Voice services</button>
     </div>
     <div class="pv" id="ld-providers" role="tabpanel" aria-labelledby="sub-providers" hidden></div>
     <div id="ld-converter" role="tabpanel" aria-labelledby="sub-converter" hidden></div>
     <div class="eng-panel" id="ld-llamacpp" role="tabpanel" aria-labelledby="sub-llamacpp" hidden></div>
+    <div class="vl" id="ld-voicesvc" role="tabpanel" aria-labelledby="sub-voicesvc" hidden></div>
     <div id="ld-qwen" role="tabpanel" aria-labelledby="sub-qwen">
     <p class="sec setnote warnnote ldgpu" id="ld-gpu" role="alert" hidden></p>
     <p class="sec setnote ldstandby" id="ld-standby" data-t="ld.standby" role="status" hidden></p>

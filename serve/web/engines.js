@@ -18,7 +18,7 @@
     return e;
   };
   const tr = (key, ...args) => { const t = T(key, ...args); return t === key ? "" : t; };
-  const BUILT_IN = ["providers", "qwen", "converter", "llamacpp"];
+  const BUILT_IN = ["providers", "qwen", "converter", "llamacpp", "voicesvc"];
   const DETAIL = ["start_failed", "start_timeout", "load_failed", "flag_unsupported", "control_unsupported", "in_use", "copy_failed",
     "source_incomplete", "source_missing", "config_unreadable", "model_unsupported", "spawn_failed"];
   const KV = ["fp16", "int8", "q4_0", "k8v4"];
@@ -59,7 +59,7 @@
       const t = document.getElementById("sub-" + name);
       if (t) t.setAttribute("aria-selected", "false");
     }
-    for (const pid of ["ld-providers", "ld-qwen", "ld-converter", "ld-llamacpp"]) { const p = document.getElementById(pid); if (p) p.hidden = true; }
+    for (const pid of ["ld-providers", "ld-qwen", "ld-converter", "ld-llamacpp", "ld-voicesvc"]) { const p = document.getElementById(pid); if (p) p.hidden = true; }
     keep(SUB_KEY, "engine:" + id);
   }
 
