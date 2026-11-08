@@ -51,13 +51,25 @@ di supporto. Il piano usa proprio questo: le funzioni si caricano **prima**, e i
   caricarlo (VRAM o RAM, con la GPU se ce n'è più di una). Si configura nel Loader (tab "Servizi vocali") e in Settings > Voice; le due viste scrivono gli stessi valori.
 - Limite noto: su Windows il driver non dice la memoria per processo; il conto per funzione è la stima dichiarata e poi quella misurata dal servizio prima e dopo il caricamento.
 
+### Modelli: solo su richiesta esplicita
+
+- **Nessun modello viene scaricato da solo**, neanche Whisper: pesano gigabyte. Chi sceglie un modello non presente vede **"Scarica e installa"** accanto alla scelta, con peso, spazio
+  su disco, licenza e collocazione prevista. Senza il modello, la funzione resta spenta e dice cosa manca (dettatura e STT "attivi dall'avvio" valgono dopo il primo download).
+- **Si riusa il sistema di download che c'è già** (`serve/downloads.py`, `serve/catalog.py`): piano prima (file alla revisione fissata, dimensioni e SHA-256 dichiarati da Hugging Face,
+  disco libero, accesso), poi si parte solo con la conferma e con la presa d'atto della licenza; file `.part` ripresi con richiesta di intervallo, rinominati solo a SHA-256 corretto;
+  il token di Hugging Face non viene mai scritto né registrato. Si estende alle sorgenti che non sono su Hugging Face (rilasci su GitHub, modelli di diarizzazione) con indirizzo e SHA-256 fissati.
+- **Dove si installano**: nella cartella dei modelli di Basalt, in una sottocartella dedicata (`<cartella modelli>/voice/<servizio>/<modello>`), quindi dentro la stessa struttura. La cartella è
+  **impostabile in Settings > Voice**; il valore predefinito è quella già configurata per i modelli. Cambiarla non sposta niente da solo: i modelli già scaricati si vedono dove sono.
+- **Licenze**: i modelli Apache 2.0 e MIT si scaricano con la presa d'atto normale. XTTS v2 chiede in più di confermare "uso non commerciale". Le altre licenze mostrano il loro testo prima del download.
+- Il servizio vocale e il Loader leggono la stessa cartella; il Loader mostra un modello vocale come "da scaricare" quando manca.
+
 ## 4. Struttura nel repository
 
 - `voice/` (nuovo pacchetto Python del servizio): `engines/` (STT e TTS con catalogo unico, come `catalog.py`), `avatar/`, `telephony/`, `meetings/`, `copilot/`, `desktop/` (dettatura,
   appunti, comandi globali, overlay, con interfacce Windows e X11), `personas/`, `rag/`, `gateway/`, `api/`. Gli ambienti pesanti in `tts-venvs/` e `avatar/venv` creati dall'installatore.
 - Lato server: `serve/voice_api.py` (rotte, proxy verso il servizio con il token), `serve/voice_loader.py` (ordine di caricamento, riserva, misure), pagine `serve/web/voice*.js`,
   `rag.js`, `personas.js`, tab del Loader. Lato app C#: gestione del processo del servizio, voci di tray, dialog.
-- Dati utente in `%APPDATA%\TaDaMoo\voice\`: personalità, avatar, archivi RAG, voci clonate, impostazioni. Modelli scaricati su richiesta e mai impacchettati.
+- Dati utente in `%APPDATA%\TaDaMoo\voice\`: personalità, avatar, archivi RAG, voci clonate, impostazioni. Modelli scaricati su richiesta esplicita (vedi §3) e mai impacchettati.
 
 ## 5. Interfaccia
 
@@ -116,7 +128,7 @@ di supporto. Il piano usa proprio questo: le funzioni si caricano **prima**, e i
 | XTTS v2 | Coqui Public Model License 1.0: solo uso non commerciale; Coqui ha chiuso e non c'è una via commerciale | **no** |
 
 Non verificate perché non richieste: Kokoro, Piper, Orpheus, Dia, Whisper, RTX Video SDK (ha le sue condizioni NVIDIA).
-Conseguenza per il piano: XTTS non si impacchetta nell'installatore; si scarica solo su richiesta, con avviso "uso non commerciale" nella scelta del motore. Prima di distribuire
+Decisione dell'utente: i modelli Apache 2.0 e MIT si possono usare liberamente. Nessun modello si impacchetta né si scarica da solo (§3); XTTS si scarica solo su richiesta esplicita, con la conferma "uso non commerciale". Prima di distribuire
 TaDaMoo a terzi serve la decisione dell'utente su cosa includere (c'è già la questione "licenza e destinatari").
 
 Punti ancora aperti:
