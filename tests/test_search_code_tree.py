@@ -11,7 +11,7 @@ from tadamoo.permissions import PermissionManager, PermissionLevel
 from tadamoo.tools import EffectClass, create_standard_tool_registry
 from tadamoo.tools.filesystem import WorkspaceSandbox
 from tadamoo.tools.search_code import MAX_HITS
-from tests.test_agent_loop import ScriptedClient, call, say
+from test_agent_loop import ScriptedClient, call, say
 
 
 @pytest.fixture
