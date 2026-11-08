@@ -128,6 +128,30 @@ def helper_env(settings: Settings) -> dict[str, dict[str, str]]:
     return env
 
 
+_TTS_FIELDS = ("tts_engine", "qwen3tts_size", "kokoro_model_dir", "piper_model_dir")
+
+
+def tts_snapshot(config) -> dict:
+    """What decides how the TTS engines run: the chosen engine, each engine's placement, the model folders and the GPU the helpers get."""
+    snap = {k: getattr(config, k, None) for k in _TTS_FIELDS}
+    for engine, prefix in _TTS_KEYS.items():
+        snap[engine] = (getattr(config, f"{prefix}_device", None), getattr(config, f"{prefix}_gpu_memory", None))
+    snap["gpu"] = dict(ms._service_env.get("tts", {}))
+    return snap
+
+
+def tts_changes(before: dict, after: dict) -> tuple[set | None, bool]:
+    """(the engines whose settings changed, None for all of them; whether the GPU of the helpers changed)."""
+    if before["gpu"] != after["gpu"]:
+        return None, True
+    if before["kokoro_model_dir"] != after["kokoro_model_dir"] or before["piper_model_dir"] != after["piper_model_dir"]:
+        return None, False
+    changed = {e for e in _TTS_KEYS if before[e] != after[e]}
+    if before["qwen3tts_size"] != after["qwen3tts_size"]:
+        changed.add("qwen3tts")
+    return changed, False
+
+
 def apply(config, settings: Settings) -> dict:
     """Set the overrides on a `Config` (only the fields it has) and give the helper processes their environment; returns what was set."""
     applied = {k: v for k, v in overrides(settings).items() if hasattr(config, k)}

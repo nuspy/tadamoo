@@ -79,7 +79,13 @@ class State:
                 return
             self._stamp = stamp
             self.settings = settings_bridge.load(self.path, self.default_models_dir)
+            before = settings_bridge.tts_snapshot(self.config)
             settings_bridge.apply(self.config, self.settings)
+            after = settings_bridge.tts_snapshot(self.config)
+            engines = sys.modules.get("callbridge.engines")
+            if before != after and engines is not None:
+                # A TTS router that already exists takes the new choice at once; nothing is loaded.
+                engines.aggiorna_tts(self.config, *settings_bridge.tts_changes(before, after))
 
     def status(self) -> dict:
         """Per service: the model chosen, its placement, whether it is installed and, when not, why. Nothing is loaded here."""
@@ -93,6 +99,9 @@ class State:
                      "engine": c.engine, "device": c.device, "memory": c.memory, "installed": installed}
             if not installed:
                 entry["reason"] = models_store.reason(c.model, root) if c.model else "this service has no model in the catalog yet"
+                if name == "vad":
+                    entry["degraded"] = True
+                    entry["degraded_reason"] = entry["reason"] + " Speech detection uses the energy detector instead."
             services[name] = entry
         return {"service": "voice", "state": "standby", "pid": os.getpid(), "started": self.started, "models_dir": root,
                 "offline": os.environ.get("HF_HUB_OFFLINE") == "1", "services": services}
