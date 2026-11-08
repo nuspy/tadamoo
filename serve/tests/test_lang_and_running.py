@@ -30,7 +30,7 @@ PORT = 7283                     # a free port of this repository's test range
 
 class Isolated(unittest.TestCase):
     def setUp(self):
-        self.dir = tempfile.TemporaryDirectory()
+        self.dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)    # a server the script started may still hold a log for a moment
         self.env = mock.patch.dict(os.environ, {"TADAMOO_DATA": self.dir.name, "TADAMOO_CACHE": self.dir.name})
         self.env.start()
 
