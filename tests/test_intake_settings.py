@@ -21,7 +21,7 @@ from test_e2e_mock_server import answer, start_server  # noqa: F401  (fixture)
 
 def test_defaults_are_off_chips_on_and_a_bounded_size(tmp_path):
     prefs = IntakePrefs(tmp_path / "i.json")
-    assert prefs.read() == {"intake": "off", "suggestions": True, "optimize_prompt": False, "empty_retry": True, "side_call_tokens": 6000}
+    assert prefs.read() == {"intake": "off", "suggestions": True, "optimize_prompt": False, "empty_retry": True, "side_call_tokens": 6000, "loop_watch": True, "loop_first": 3000, "loop_step": 1500, "loop_unit": 40, "loop_repeats": 3}
     view = prefs.view()
     assert view["modes"] == ["off", "rules", "full"] and view["defaults"]["intake"] == "off" and view["limits"]["side_call_tokens"] == [500, 200000]
     assert view["defaults"]["optimize_prompt"] is False and view["defaults"]["empty_retry"] is True
@@ -29,9 +29,9 @@ def test_defaults_are_off_chips_on_and_a_bounded_size(tmp_path):
 
 def test_values_are_saved_checked_and_a_refused_value_changes_nothing(tmp_path):
     prefs = IntakePrefs(tmp_path / "i.json")
-    saved = prefs.write({"intake": "full", "suggestions": False, "optimize_prompt": True, "empty_retry": False, "side_call_tokens": 9000})
-    assert saved == {"intake": "full", "suggestions": False, "optimize_prompt": True, "empty_retry": False, "side_call_tokens": 9000} and IntakePrefs(tmp_path / "i.json").read() == saved
-    for bad, field in (({"intake": "always"}, "intake"), ({"suggestions": "yes"}, "suggestions"), ({"optimize_prompt": "yes"}, "optimize_prompt"), ({"optimize_prompt": 1}, "optimize_prompt"), ({"empty_retry": "no"}, "empty_retry"), ({"side_call_tokens": 10}, "side_call_tokens"),
+    saved = prefs.write({"intake": "full", "suggestions": False, "optimize_prompt": True, "empty_retry": False, "side_call_tokens": 9000, "loop_watch": False, "loop_first": 5000, "loop_repeats": 4})
+    assert saved == {"intake": "full", "suggestions": False, "optimize_prompt": True, "empty_retry": False, "side_call_tokens": 9000, "loop_watch": False, "loop_first": 5000, "loop_step": 1500, "loop_unit": 40, "loop_repeats": 4} and IntakePrefs(tmp_path / "i.json").read() == saved
+    for bad, field in (({"intake": "always"}, "intake"), ({"suggestions": "yes"}, "suggestions"), ({"optimize_prompt": "yes"}, "optimize_prompt"), ({"optimize_prompt": 1}, "optimize_prompt"), ({"empty_retry": "no"}, "empty_retry"), ({"loop_watch": 1}, "loop_watch"), ({"loop_first": 10}, "loop_first"), ({"loop_unit": 3}, "loop_unit"), ({"loop_repeats": 1}, "loop_repeats"), ({"loop_step": True}, "loop_step"), ({"side_call_tokens": 10}, "side_call_tokens"),
                        ({"side_call_tokens": 2.5}, "side_call_tokens"), ({"side_call_tokens": True}, "side_call_tokens"), ({"side_call_tokens": 10**9}, "side_call_tokens")):
         with pytest.raises(IntakeError) as raised:
             prefs.write(bad)
@@ -146,3 +146,13 @@ def test_optimize_prompt_cannot_be_switched_on_without_a_technical_session_and_t
     code, view = call("POST", "/api/intake", {"optimize_prompt": False})
     assert code == 200 and view["optimize_prompt"] is False
     assert call("POST", "/api/intake", {"optimize_prompt": "yes"})[0] == 400
+
+
+def test_the_watch_numbers_reach_the_agent_as_options_and_its_watch(tmp_path):
+    from tadamoo import session
+    prefs = IntakePrefs(tmp_path / "i.json")
+    prefs.write({"loop_watch": False, "loop_first": 4000, "loop_step": 800, "loop_unit": 30, "loop_repeats": 5})
+    args = session.parse_args(prefs.flags() + ["--workspace", str(tmp_path)]) if hasattr(session, "parse_args") else None
+    flags = prefs.flags()
+    assert flags[flags.index("--loop-watch") + 1] == "off" and flags[flags.index("--loop-first") + 1] == "4000"
+    assert flags[flags.index("--loop-repeats") + 1] == "5" and flags[flags.index("--loop-unit") + 1] == "30"

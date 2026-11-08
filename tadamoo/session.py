@@ -1853,6 +1853,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--offer-checks", action="store_true", help="after the first work that changes files, offer the checks this folder seems to have, once (an unattended run never does)")
     parser.add_argument("--empty-retry", choices=("on", "off"), default="on",
                         help="when the thinking uses the whole output and no answer comes, and the text is not long enough to be written in parts, ask again once at a lower thinking level")
+    parser.add_argument("--loop-watch", choices=("on", "off"), default="on",
+                        help="end a model reply as soon as it is plainly repeating itself, and ask again once with a higher repetition penalty")
+    parser.add_argument("--loop-first", type=int, default=3000, metavar="CHARS", help="characters of a reply at which the first look for an exact loop is made")
+    parser.add_argument("--loop-step", type=int, default=1500, metavar="CHARS", help="new characters between two looks")
+    parser.add_argument("--loop-unit", type=int, default=40, metavar="CHARS", help="the shortest unit that counts as repeated")
+    parser.add_argument("--loop-repeats", type=int, default=3, metavar="N", help="copies in a row that make a loop in the reasoning (the answer needs one more)")
     parser.add_argument("--optimize-prompt", choices=("on", "off"), default="off",
                         help="rewrite each message of the person in the technical session before the model reads it (needs --side-slot on the server)")
     parser.add_argument("--heartbeat", type=float, default=HEARTBEAT_S)
@@ -1932,6 +1938,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     session.workspace, session.checks_offer = cfg.workspace, args.offer_checks and not args.ask_only and not args.unattended
     session.intake = it.Intake(args.intake, built.technical, args.side_call_tokens)
     built.agent.empty_retry = args.empty_retry == "on"
+    built.agent.watch_options = {"enabled": args.loop_watch == "on", "period_first": args.loop_first, "step": args.loop_step, "unit": args.loop_unit,
+                                 "repeats": {"reasoning": args.loop_repeats, "content": args.loop_repeats + 1}}
     session.optimizer = opt.Optimizer(built.technical, args.optimize_prompt == "on" and not args.unattended)
     session.task_sink = it.TaskSink(cfg.endpoint, cfg.api_key) if args.report_changes else None
     session.suggester = sg.Suggester(built.technical, args.suggestions == "on" and not args.unattended, args.side_call_tokens)

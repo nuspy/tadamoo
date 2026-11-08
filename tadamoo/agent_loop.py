@@ -276,6 +276,7 @@ class AgentLoop:
         self.on_event = on_event
         self.on_delta = on_delta                  # the model's text as it is written ("content" or "reasoning"), when set
         self.before_inference = before_inference  # looked at before every model call; it may add messages or ask to be put aside
+        self.watch_options: Dict[str, Any] = {}   # RepetitionWatch's own numbers (the person's settings); empty: its defaults
         self.empty_retry = True                   # an answer left empty by the thinking is asked for again once, at a lower thinking level (the person's switch)
         self.empty_defer: Optional[Callable[[], bool]] = None     # asked first: True when the session will write the text in parts, which comes before a lower level
         self.empty_deferred = False               # the latest run ended empty and left the second try to the session
@@ -1191,10 +1192,11 @@ class AgentLoop:
         ceiling, cut_tries = self._ceiling, 0
         done = _Completion()
         while True:
-            watch = RepetitionWatch() if self.on_delta else None
+            watch = RepetitionWatch(**self.watch_options) if self.on_delta else None
             try:
                 resp = self._ask(ceiling, dict(extra), watch)
             except RepetitionAbort:
+                self._audit("repetition", {**(watch.found if watch is not None else {}), "retried": self._loop_retried})
                 if self._loop_retried:
                     done.degenerate = True
                     return done

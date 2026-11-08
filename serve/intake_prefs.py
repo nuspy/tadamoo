@@ -10,7 +10,8 @@ from typing import Any, Dict, List
 
 from tadamoo.intake import DEFAULT_MODE, DEFAULT_SIDE_CALL_TOKENS, MODES
 
-LIMITS = {"side_call_tokens": (500, 200_000)}
+LIMITS = {"side_call_tokens": (500, 200_000), "loop_first": (500, 200_000), "loop_step": (100, 50_000), "loop_unit": (10, 2_000), "loop_repeats": (2, 10)}
+LOOP_DEFAULTS = {"loop_first": 3000, "loop_step": 1500, "loop_unit": 40, "loop_repeats": 3}      # the watch for a stream that repeats itself
 
 
 class IntakeError(ValueError):
@@ -38,7 +39,14 @@ class IntakePrefs:
                 "suggestions": data.get("suggestions") is not False,
                 "optimize_prompt": data.get("optimize_prompt") is True,
                 "empty_retry": data.get("empty_retry") is not False,
+                "loop_watch": data.get("loop_watch") is not False,
+                **{k: (data.get(k) if self._whole(data.get(k), k) else LOOP_DEFAULTS[k]) for k in LOOP_DEFAULTS},
                 "side_call_tokens": tokens if ok else DEFAULT_SIDE_CALL_TOKENS}
+
+    @staticmethod
+    def _whole(value: Any, key: str) -> bool:
+        lo, hi = LIMITS[key]
+        return isinstance(value, int) and not isinstance(value, bool) and lo <= value <= hi
 
     def write(self, changes: Dict[str, Any]) -> Dict[str, Any]:
         """Saves the values given and keeps the others; a wrong value is refused whole, with the reason."""
@@ -59,6 +67,15 @@ class IntakePrefs:
             if not isinstance(changes["empty_retry"], bool):
                 raise IntakeError("This is on or off.", "empty_retry")
             now["empty_retry"] = changes["empty_retry"]
+        if "loop_watch" in changes:
+            if not isinstance(changes["loop_watch"], bool):
+                raise IntakeError("This is on or off.", "loop_watch")
+            now["loop_watch"] = changes["loop_watch"]
+        for key in LOOP_DEFAULTS:
+            if key in changes:
+                if not self._whole(changes[key], key):
+                    raise IntakeError(f"This is a whole number from {LIMITS[key][0]} to {LIMITS[key][1]}.", key)
+                now[key] = changes[key]
         if "side_call_tokens" in changes:
             value, (lo, hi) = changes["side_call_tokens"], LIMITS["side_call_tokens"]
             if isinstance(value, bool) or not isinstance(value, int) or not lo <= value <= hi:
@@ -71,11 +88,13 @@ class IntakePrefs:
         return self.read()
 
     def view(self) -> Dict[str, Any]:
-        return {**self.read(), "modes": list(MODES), "defaults": {"intake": DEFAULT_MODE, "suggestions": True, "optimize_prompt": False, "empty_retry": True, "side_call_tokens": DEFAULT_SIDE_CALL_TOKENS},
+        return {**self.read(), "modes": list(MODES), "defaults": {"intake": DEFAULT_MODE, "suggestions": True, "optimize_prompt": False, "empty_retry": True, "side_call_tokens": DEFAULT_SIDE_CALL_TOKENS,
+                                                                                 "loop_watch": True, **LOOP_DEFAULTS},
                 "limits": {k: list(v) for k, v in LIMITS.items()}}
 
     def flags(self) -> List[str]:
         """The options a conversation's process is started with."""
         v = self.read()
         return ["--intake", v["intake"], "--side-call-tokens", str(v["side_call_tokens"]), "--suggestions", "on" if v["suggestions"] else "off",
-                "--optimize-prompt", "on" if v["optimize_prompt"] else "off", "--empty-retry", "on" if v["empty_retry"] else "off"]
+                "--optimize-prompt", "on" if v["optimize_prompt"] else "off", "--empty-retry", "on" if v["empty_retry"] else "off",
+                "--loop-watch", "on" if v["loop_watch"] else "off", *[a for k in LOOP_DEFAULTS for a in ("--" + k.replace("_", "-"), str(v[k]))]]

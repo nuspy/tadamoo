@@ -5,7 +5,7 @@ import json
 import pytest
 
 from tadamoo.agent_loop import AgentLoop, DEGENERATE, FINAL
-from tadamoo.output_guard import RepetitionAbort, RepetitionWatch, raised_penalty, repetition_dominated
+from tadamoo.output_guard import RepetitionAbort, RepetitionWatch, raised_penalty, repetition_dominated, trailing_period
 from tadamoo.tools import create_standard_tool_registry
 
 LOOP = "I think the answer is that we should consider the following option again. "
@@ -46,13 +46,47 @@ def test_a_line_of_rules_or_blanks_is_not_a_repeat():
     assert not repetition_dominated(prose(10) + "\n" + "-" * 300 + "\n" + " " * 300)
 
 
-def test_the_watch_looks_at_16k_characters_and_then_at_each_doubling():
+def test_an_exact_loop_is_seen_within_a_few_thousand_characters_not_sixteen():
     watch = RepetitionWatch()
     for _ in range(200):
         if watch.feed("content", LOOP * 3):                       # 228 characters a piece
             break
-    assert watch.kind == "content"
-    assert 16_384 <= len(watch.text["content"]) < 16_384 + 228    # stopped at the first look past 16k, not before
+    assert watch.kind == "content" and watch.found["by"] == "exact" and watch.found["unit_chars"] > 0
+    assert 3_000 <= len(watch.text["content"]) < 3_000 + 1_500 + 228
+
+
+def test_a_loose_loop_that_is_not_an_exact_copy_is_still_seen_at_16k_and_each_doubling():
+    watch = RepetitionWatch(period_first=10 ** 9)                 # only the loose look
+    for i in range(400):
+        if watch.feed("content", f"{LOOP} variant {i % 3} of the same long sentence again. " * 2):
+            break
+    assert watch.kind == "content" and watch.found["by"] == "loose"
+    assert len(watch.text["content"]) >= 16_384
+
+
+def test_trailing_period_finds_the_unit_the_end_repeats_and_nothing_in_prose_or_rules():
+    unit = "the river turned back to the same old bend and the same old mill. "
+    assert trailing_period(prose(40) + unit * 3) == len(unit)
+    assert trailing_period(prose(40) + unit * 2) == 0                                       # two copies are not enough for the reasoning
+    assert trailing_period(prose(80)) == 0
+    assert trailing_period("-" * 400 + " " * 400) == 0
+    assert trailing_period(prose(40) + unit * 3, repeats=4) == 0
+
+
+def test_the_answer_needs_one_copy_more_than_the_reasoning():
+    unit = "the river turned back to the same old bend and the same old mill. "
+    for kind, copies in (("reasoning", 3), ("content", 4)):
+        watch = RepetitionWatch(period_first=500, step=100)
+        assert not watch.feed(kind, prose(30))
+        assert not watch.feed(kind, unit * (copies - 1) + "and so it ended differently, in a new place.")
+        assert watch.feed(kind, unit * (copies + 1)), kind
+
+
+def test_the_watch_can_be_turned_off_and_its_numbers_set():
+    off = RepetitionWatch(enabled=False)
+    assert not any(off.feed("content", LOOP * 3) for _ in range(200))
+    late = RepetitionWatch(period_first=50_000, first=10 ** 9)
+    assert not any(late.feed("content", LOOP * 3) for _ in range(150))
 
 
 def test_a_text_that_is_fine_is_passed_and_looked_at_again_at_the_next_doubling():
