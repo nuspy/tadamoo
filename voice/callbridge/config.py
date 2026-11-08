@@ -198,7 +198,6 @@ class Config:
     )
     direct_history_turns: int = 8           # recent turns kept in the rolling context
     direct_max_tokens: int = 400
-    direct_rag_chunks: int = 4              # archive excerpts added to a turn at most
     agent_max_wait_s: float = 900.0         # how long one spoken request waits for the harness turn to end
     agent_poll_s: float = 0.7
     # Models of the services that read text with an OpenAI-compatible server (persona ingestion, the external LLM registry).
