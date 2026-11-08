@@ -27,7 +27,6 @@ from dataclasses import dataclass
 import numpy as np
 
 from .audio_hfp import resample
-from .brains import respond_stream
 from .config import Config
 from .handy_client import ensure_models_loaded
 from .stt_client import STT_RATE, HandySttClient
@@ -61,8 +60,7 @@ def _copilot_respond(brain, text: str, cfg: Config, n: int,
     if project_id:
         from .knowledge_client import project_context
         pre = project_context(cfg, project_id, query=text) + pre
-    yield from respond_stream(brain, text, cfg, preamble=pre,
-                              session_tag="copilot", lang=cfg.copilot_lang)
+    yield from brain.ask_stream(pre + text)
 
 
 class CopilotSession:

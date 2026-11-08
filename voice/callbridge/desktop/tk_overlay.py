@@ -31,8 +31,8 @@ except Exception as e:  # noqa: BLE001 - ambiente senza Tk
     _TK_OK = False
 
 _BLUE = "#2563eb"    # ascolto
-_AMBER = "#d97706"   # reasoning (Hermes elabora)
-_PURPLE = "#7c3aed"  # Hermes parla
+_AMBER = "#d97706"   # reasoning (il cervello elabora)
+_PURPLE = "#7c3aed"  # il cervello parla
 _GREEN = "#16a34a"   # dettatura (Alt+Spazio)
 _SLATE = "#475569"   # appunti: niente da mostrare
 _W, _H = 150, 112
@@ -43,7 +43,7 @@ _CLIP_HIDE_MS = 2200  # sparisce da sola dopo l'ultimo tasto
 _STATES = {
     "listening": (_BLUE, "In ascolto"),
     "reasoning": (_AMBER, "Elaboro…"),
-    "speaking": (_PURPLE, "Hermes parla"),
+    "speaking": (_PURPLE, "Parlo"),
     "dictation": (_GREEN, "Dettatura"),
     "transcribing": (_AMBER, "Trascrivo…"),
 }
@@ -98,7 +98,7 @@ class TkOverlay:
                       phase: str = "recording") -> None:
         """Segnala che la dettatura (Alt+Spazio) e' in corso + livello voce
         (0..1). `phase`: "recording" (tasto premuto) o "transcribing" (whisper
-        sta lavorando, dopo il rilascio). Ha precedenza sull'overlay Hermes.
+        sta lavorando, dopo il rilascio). Ha precedenza sull'overlay della conversazione.
         Thread-safe (solo assegnazioni, lette dal _tick)."""
         self._dict_active = bool(active)
         self._dict_level = max(0.0, min(1.0, float(level)))
@@ -190,7 +190,7 @@ class TkOverlay:
             except Exception:  # noqa: BLE001 - un comando non deve fermare il tick
                 log.exception("Comando overlay fallito")
 
-        # La dettatura (Alt+Spazio) ha precedenza sull'overlay Hermes.
+        # La dettatura (Alt+Spazio) ha precedenza sull'overlay della conversazione.
         if self._dict_active:
             state = ("transcribing" if self._dict_phase == "transcribing"
                      else "dictation")

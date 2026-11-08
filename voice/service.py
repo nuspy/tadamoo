@@ -24,7 +24,9 @@ import voice  # noqa: F401  (puts voice/ on sys.path so that `callbridge` import
 from callbridge import models_store  # noqa: E402
 from callbridge.config import Config  # noqa: E402
 
-from voice import functions, settings_bridge  # noqa: E402
+from callbridge.brains import make_brain  # noqa: E402
+
+from voice import brain_service, functions, settings_bridge  # noqa: E402
 
 log = logging.getLogger("voice.service")
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
@@ -63,6 +65,9 @@ class State:
         self._lock = threading.Lock()
         self._stamp: tuple | None = None
         self.settings = settings_bridge.load(self.path, default_models_dir)
+        self.brains = make_brain(config)
+        self.functions = None
+        self.session = brain_service.Session(self)
         self.refresh(force=True)
 
     def _file_stamp(self) -> tuple | None:
@@ -87,6 +92,7 @@ class State:
             if before != after and engines is not None:
                 # A TTS router that already exists takes the new choice at once; nothing is loaded.
                 engines.aggiorna_tts(self.config, *settings_bridge.tts_changes(before, after))
+        self.session.sync_hotkeys(self.settings.brain.hotkeys)
 
     def status(self) -> dict:
         """Per service: the model chosen, its placement, whether it is installed and, when not, why. Nothing is loaded here."""
@@ -114,12 +120,14 @@ def build_app(settings_path, token: str, default_models_dir: str = "", host: str
     models_store.apply_offline()
     config = Config()
     config.control_host, config.control_port, config.control_auth_token = host, port, token
+    config.tadamoo_token = token                        # the same token, sent to TaDaMoo's server (it accepts it on loopback for the brains' routes)
     config.call_transport = "off"                       # no phone or modem detection at start
     state = State(settings_path, config, default_models_dir)
-    app = create_app(config, status_fn=state.status)
+    app = create_app(config, status_fn=state.status, ptt=state.session)
     app.before_request(lambda: state.refresh())
     state.functions = functions.Functions(state, app=app)
     functions.register(app, state.functions)
+    brain_service.register(app, state)
     return app, state
 
 

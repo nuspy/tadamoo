@@ -1,11 +1,8 @@
 """Server HTTP di controllo dell'orchestrator.
 
 L'orchestrator e' **server** per:
-  - i comandi che partono da Hermes (e dalla skill per agenti)
+  - i comandi che partono dal server di TaDaMoo (e dall'agente)
   - le chiamate in uscita
-
-Hermes e la skill sono **client** di questa API. Le chiamate in *arrivo*
-seguono il verso opposto (l'orchestrator notifica Hermes — vedi Task #11).
 
 Endpoint:
   GET  /health             - liveness (senza auth)
@@ -29,105 +26,14 @@ import time
 
 from flask import Flask, jsonify, request
 
+from .brains import make_brain
 from .config import Config
 from .handy_client import HandyError
-from .hermes_client import HermesClient
 from .orchestrator import CallBridge
 from .ptt import PushToTalkManager
-from .stubs import StubHermes
 from .util import is_valid_phone_number, normalize_phone_number
 
 log = logging.getLogger("callbridge.control")
-
-
-def _hermes_models(config: Config) -> dict:
-    """Modelli LLM di Hermes RAGGRUPPATI per provider (per il dropdown a rami).
-
-    Fonte: sezione `providers` del config.yaml di Hermes (autorevole) + merge dei
-    `/v1/models` live per i provider LOCALI (lmstudio/diffusiongemma) cosi' i
-    modelli appena caricati appaiono. `current` = modello/provider ACP attuale.
-    """
-    import os
-
-    providers = []
-    current = {"model": config.acp_model, "provider": config.acp_provider}
-
-    # Modelli CARICABILI dal manager vLLM (lazy-start: l'istanza puo' essere spenta,
-    # ma il selettore deve comunque mostrare cosa e' disponibile in E:\AI\Models\vllm).
-    vllm_loadable: set[str] = set()
-    mgr = (getattr(config, "vllm_manager_url", "") or "").rstrip("/")
-    if mgr:
-        try:
-            import requests
-            r = requests.get(mgr + "/api/models/local", timeout=2)
-            for m in (r.json() or {}).get("models", []):
-                if m.get("loadable") and m.get("source") == "dir" and m.get("model"):
-                    vllm_loadable.add(str(m["model"]))
-        except Exception:  # noqa: BLE001 - manager non raggiungibile
-            pass
-
-    def _is_vllm(prov: str, base: str) -> bool:
-        # provider vLLM per nome o per porta nell'intervallo istanze (8000-8100)
-        if prov == "vllm":
-            return True
-        import re
-        m = re.search(r":(\d+)", base or "")
-        return bool(m and 8000 <= int(m.group(1)) <= 8100)
-
-    path = os.path.join(config.acp_hermes_home or "", "config.yaml")
-    try:
-        import yaml
-        data = yaml.safe_load(open(path, encoding="utf-8")) or {}
-        # Modello EFFETTIVO dell'agente = model.default/provider (acp ignora -m).
-        md = data.get("model") or {}
-        current = {"model": md.get("default"), "provider": md.get("provider")}
-        for prov, pd in (data.get("providers") or {}).items():
-            pd = pd or {}
-            models = set((pd.get("models") or {}).keys())
-            base = (pd.get("base_url") or "").rstrip("/")
-            if base and ("127.0.0.1" in base or "localhost" in base):
-                try:
-                    import requests
-                    r = requests.get(base + "/models", timeout=2)
-                    for m in (r.json() or {}).get("data", []):
-                        mid = str(m.get("id") or "")
-                        if mid and "embed" not in mid.lower():
-                            models.add(mid)
-                except Exception:  # noqa: BLE001 - provider locale non pronto
-                    pass
-            # vLLM: aggiungi i modelli caricabili dal manager (visibili anche a istanza spenta)
-            if _is_vllm(prov, base):
-                models |= vllm_loadable
-            if models:
-                providers.append({"provider": prov, "models": sorted(models),
-                                  "local": _is_vllm(prov, base) or bool(
-                                      base and ("127.0.0.1" in base or "localhost" in base))})
-    except Exception as e:  # noqa: BLE001 - config.yaml assente/illeggibile
-        log.warning("hermes_models: lettura config.yaml fallita: %s", e)
-    # Quantizzazione e peso accanto a ogni voce: nei menu ci sono modelli con lo
-    # STESSO nome e quantizzazioni diverse, che pesano (e stanno in VRAM)
-    # diversamente. `models` resta la lista di id di prima, per i consumatori
-    # che non leggono `models_info`.
-    from . import llm_backend
-    try:
-        # `ask_cli` solo se LM Studio è già acceso: `lms ls` (unica fonte del
-        # peso) altrimenti lo farebbe partire solo per riempire un menu.
-        lm_meta = llm_backend.lmstudio_catalog(
-            config, ask_cli=llm_backend.lmstudio_up(config))
-        vl_meta = llm_backend.vllm_catalog(config)
-        caldi = llm_backend.lmstudio_loaded(config) or []
-        for p in providers:
-            meta = vl_meta if _is_vllm(p["provider"], "") else lm_meta
-            p["models_info"] = [
-                dict(llm_backend.describe(m, meta.get(m)), loaded=m in caldi)
-                for m in p["models"]]
-        current["loaded"] = caldi
-    except Exception as e:  # noqa: BLE001 - metadati sono un di piu', mai bloccanti
-        log.debug("hermes_models: metadati non disponibili: %s", e)
-    # `override` = checkbox "Override Hermes model": a False la GUI mostra il
-    # modello di Hermes in sola lettura (callAPIcall non lo decide piu').
-    return {"providers": providers, "current": current,
-            "override": bool(getattr(config, "acp_model_override", True))}
 
 
 def create_app(
@@ -143,8 +49,8 @@ def create_app(
     `status_fn`, se passato, e' il corpo di GET /status al posto di `bridge.status()`
     (il servizio vocale riporta i modelli scelti e installati, senza toccare telefono e Handy).
 
-    `bridge` puo' essere passato dall'esterno (es. per condividere Hermes
-    vero); se assente ne viene creato uno con lo StubHermes.
+    `bridge` puo' essere passato dall'esterno; se assente ne viene creato uno
+    con il cervello di processo (`brains.make_brain`).
 
     `ptt` e `copilot` sono il PushToTalkManager e il CopilotController
     dell'istanza unica (`main.py all`): servono agli endpoint /session/* e
@@ -158,7 +64,7 @@ def create_app(
     # Limite di dimensione degli upload (clip persona mp4, media analisi): senza,
     # un body enorme puo' esaurire memoria/disco. 2 GiB copre i video lunghi.
     app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 ** 3
-    bridge = bridge or CallBridge(config, StubHermes())
+    bridge = bridge or CallBridge(config, make_brain(config))
     # Riferimenti condivisi per i blueprint (sessioni, copilota, avatar, diag).
     app.config["CB_CONFIG"] = config
     app.config["CB_BRIDGE"] = bridge
@@ -190,12 +96,10 @@ def create_app(
     _gsm_brain_lock = threading.Lock()
 
     def _gsm_brain():
-        # Lock: due /call concorrenti creerebbero due AcpAgentClient (= due
-        # processi hermes) senza questa sezione critica.
+        # Lock: due /call concorrenti creerebbero due cervelli senza questa sezione critica.
         with _gsm_brain_lock:
             if "b" not in _gsm_brain_cache:
-                from .brains import make_full_brain
-                _gsm_brain_cache["b"] = make_full_brain(config, label="gsm")
+                _gsm_brain_cache["b"] = make_brain(config)
             return _gsm_brain_cache["b"]
 
     router = None
@@ -248,7 +152,7 @@ def create_app(
 
     @app.post("/prepare")
     def prepare():
-        """Hermes avvisa che sta per chiamare: carica i modelli e rispondi."""
+        """Chi sta per chiamare avvisa prima: carica i modelli e rispondi."""
         body = request.get_json(silent=True) or {}
         try:
             result = bridge.prepare(
@@ -334,13 +238,6 @@ def create_app(
         except HandyError as e:
             return jsonify({"error": str(e)}), 502
 
-    # --- LLM di Hermes: modello per sessione + nuova conversazione -------
-
-    @app.get("/hermes/models")
-    def hermes_models():
-        """Modelli disponibili raggruppati per provider + modello ACP corrente."""
-        return jsonify(_hermes_models(config))
-
     @app.get("/engines/catalog")
     def engines_catalog():
         """Elenco dei motori TTS dal BRIDGE (sempre acceso), non dal server voci
@@ -366,23 +263,6 @@ def create_app(
         except Exception as e:  # noqa: BLE001 - motori non inizializzati
             log.warning("engines_status: %s", e)
             return jsonify({"error": str(e)}), 500
-
-    @app.get("/avatar/llm/models")
-    def avatar_llm_models():
-        """Modelli selezionabili per la CHAT AVATAR (F4/F5), per backend.
-
-        Per LM Studio e vLLM: quali sono gia' caricati (`loaded` -> sono quelli
-        che verrebbero usati adesso) e quali si possono caricare (`available`).
-        `?include=lmstudio|vllm|all` interroga un backend anche se spento — per
-        LM Studio significa ACCENDERLO (lo fa la sua CLI), quindi la GUI lo passa
-        solo quando l'utente sceglie quel backend.
-        """
-        from .llm_backend import list_models
-        try:
-            return jsonify(list_models(config, request.args.get("include", "")))
-        except Exception as e:  # noqa: BLE001 - backend giu'/CLI assente
-            log.warning("avatar_llm_models: %s", e)
-            return jsonify({"error": str(e)}), 502
 
     @app.get("/session/language")
     def session_language_get():
@@ -419,68 +299,10 @@ def create_app(
         log.info("Lingua sessione -> %s (dal pannello)", code)
         return jsonify({"status": "ok", "language": code})
 
-    @app.post("/avatar/llm/swap")
-    def avatar_llm_swap():
-        """Carica per la CHAT AVATAR il modello scelto AL POSTO di quello caldo.
-
-        Stessa regola di `/hermes/model`: senza `confirm: true` risponde 409
-        `confirm_required` dicendo cosa verrebbe scaricato. Senza questa chiamata
-        esplicita il modello già in memoria resta e viene usato così com'è.
-        """
-        body = request.get_json(silent=True) or {}
-        model = (body.get("model") or "").strip()
-        if not model:
-            return jsonify({"error": "campo 'model' mancante"}), 400
-        from . import llm_backend
-        check = llm_backend.swap_check(config, model, "lmstudio")
-        if check["needs_confirm"] and not bool(body.get("confirm")):
-            return jsonify({"code": "confirm_required", **check}), 409
-        ok, msg = llm_backend.swap_lmstudio(config, model)
-        if not ok:
-            return jsonify({"error": msg, "code": "swap_failed"}), 502
-        return jsonify({"status": "ok", "model": model, "note": msg})
-
-    @app.post("/hermes/model")
-    def hermes_set_model():
-        """Cambia il modello LLM dell'agente ACP (riavvia l'agente col nuovo -m).
-
-        Se in memoria c'è GIÀ un altro modello, non si scarica nulla di
-        iniziativa: si risponde 409 `confirm_required` con cosa verrebbe
-        scaricato. Il chiamante ripete con `confirm: true` per procedere allo
-        swap, oppure lascia perdere e resta caldo quello di prima.
-        """
-        body = request.get_json(silent=True) or {}
-        model = (body.get("model") or "").strip()
-        provider = body.get("provider")
-        if not model:
-            return jsonify({"error": "campo 'model' mancante"}), 400
-        if not bool(getattr(config, "acp_model_override", True)):
-            return jsonify({
-                "error": "override del modello Hermes disattivato: il modello "
-                         "dell'agente lo decide Hermes (config.yaml)",
-                "code": "override_disabled",
-            }), 409
-        brain = getattr(ptt, "brain_full", None) if ptt is not None else None
-        fn = getattr(brain, "set_model", None)
-        if not callable(fn):
-            return jsonify({"error": "brain non supporta il cambio modello"}), 400
-        from . import llm_backend
-        check = llm_backend.swap_check(config, model, provider or "")
-        if check["needs_confirm"]:
-            if not bool(body.get("confirm")):
-                return jsonify({"code": "confirm_required", **check}), 409
-            ok, msg = llm_backend.swap_lmstudio(config, model, provider or "")
-            if not ok:
-                return jsonify({"error": msg, "code": "swap_failed"}), 502
-            log.info("Hermes: swap confermato -> %s (%s)", model, msg)
-        fn(model, provider)
-        return jsonify({"status": "ok", "model": model, "provider": provider,
-                        "note": "agente ACP in riavvio col nuovo modello"})
-
     @app.post("/session/new")
     def session_new():
-        """Nuova conversazione Hermes: azzera il contesto dell'agente ACP."""
-        brain = getattr(ptt, "brain_full", None) if ptt is not None else None
+        """Nuova conversazione: azzera il contesto dei due cervelli."""
+        brain = getattr(ptt, "brains", None) if ptt is not None else None
         fn = getattr(brain, "reset_session", None)
         reset = False
         if callable(fn):
@@ -513,65 +335,25 @@ def run_server(
     """Avvia il server di controllo, il watcher delle chiamate in arrivo e il
     push-to-talk (bloccante).
 
-    Se `bridge` non e' passato, ne viene creato uno con il client Hermes scelto
-    in base a `config.hermes_mode`:
-      - `"http"`  -> `HermesClient` verso `hermes_base_url` (vedi skill/SKILL.md)
-      - altro     -> `StubHermes` (eco locale, utile per i test)
+    Se `bridge` non e' passato, ne viene creato uno con il cervello di processo
+    (`brains.make_brain`).
 
-    `start_ptt=False` quando il push-to-talk "ricco" (overlay, F1/F2/F3, ACP)
+    `start_ptt=False` quando il push-to-talk "ricco" (overlay, hotkey)
     e' gestito altrove nello stesso processo (vedi `main.py all`): evita la
     doppia registrazione delle hotkey.
     """
+    brains = make_brain(config)
     if bridge is None:
-        if config.acp_enabled:
-            # Agente ACP nativo: dopo il cutover il phone server HTTP (:8780) non
-            # gira piu'. AcpAgentClient parte lazy (nessun processo finche' non
-            # arriva una chiamata), quindi non prolifera processi hermes.
-            from .brains import make_full_brain
-            log.info("Hermes integration: agente ACP (nativo)")
-            hermes = make_full_brain(config, label="orchestrator")
-        elif config.hermes_mode == "http":
-            log.info("Hermes integration: HTTP (%s)", config.hermes_base_url)
-            hermes = HermesClient(config)
-        else:
-            log.info("Hermes integration: stub (eco locale)")
-            hermes = StubHermes()
-        bridge = CallBridge(config, hermes)
+        bridge = CallBridge(config, brains)
     # Mentre il server e' attivo, l'orchestrator vigila anche sulle chiamate
     # in arrivo (le accetta e le gestisce in autonomia — Task #11)
     bridge.start_incoming_watcher()
-    # ...e (se abilitato e non gestito altrove) sulla hotkey push-to-talk per il
-    # dialogo diretto utente <-> Hermes. Disabilitato quando la combinazione e'
-    # gia' registrata da un altro programma (es. Handy possiede Ctrl+Space).
-    #
-    # Il PTT usa due "cervelli":
-    #   brain_full    (F1/F2) = agente completo via ACP (con tools/skills) se
-    #                 acp_enabled=true, altrimenti HermesClient/stub.
-    #   brain_limited (F3)    = HermesClient (phone server, senza tools).
+    # ...e (se abilitato e non gestito altrove) sulle hotkey push-to-talk per il
+    # dialogo a voce con i due cervelli (harness F1/F2, diretto F4/F5).
     if not start_ptt:
         log.info("Push-to-talk gestito esternamente (start_ptt=False)")
     elif config.push_to_talk_enabled:
-        from .brains import (make_full_brain, make_limited_brain,
-                             make_lmstudio_brain)
-        brain_full = make_full_brain(config, label="ptt")
-        # Con ACP abilitato F3 condivide l'unico agente col full brain (dopo il
-        # cutover nativo il phone server :8780 non gira; evita un 2o processo).
-        brain_limited = (brain_full if config.acp_enabled
-                         else make_limited_brain(config))
-        brain_lmstudio = (make_lmstudio_brain(config)
-                          if config.avatar_chat_enabled else None)
-        # Avvia warm-up ACP in background (non blocca il server).
-        # NIENTE `import threading` qui: il modulo lo importa gia' in cima, e
-        # un import LOCALE rende `threading` una variabile locale per tutta la
-        # funzione — quindi ogni uso PRECEDENTE esplode con
-        # "local variable 'threading' referenced before assignment", e il
-        # control server non parte affatto. Successo davvero.
-        # NIENTE warm-up dell'agente ACP all'avvio: non si carica alcun modello
-        # LLM finche' non serve. L'agente si avvia pigramente alla prima richiesta
-        # (telefonata, avatar Hermes, chat) via `respond` -> `_ensure_started`;
-        # il primo turno di quella funzione paga l'avvio dell'agente.
-        manager = PushToTalkManager(config, brain_full, brain_limited,
-                                    brain_lmstudio=brain_lmstudio)
+        manager = PushToTalkManager(config, brains)
         manager.start()
         ptt = ptt or manager  # esponi anche /session/* in modalita' standalone
     else:

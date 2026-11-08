@@ -1,10 +1,10 @@
-"""Sessione di streaming audio <-> STT/TTS <-> Hermes.
+"""Sessione di streaming audio <-> STT/TTS <-> cervello (brains.py).
 
 Modello a thread condiviso tra le telefonate (`CallSession`, vedi
 orchestrator.py) e il push-to-talk (`PushToTalkSession`, vedi ptt.py):
 
   - downlink: audio in  -> (resample 16 kHz) -> Handy STT WebSocket
-  - brain:    enunciato STT -> Hermes (streaming) -> Handy TTS WebSocket
+  - brain:    enunciato STT -> cervello (streaming) -> Handy TTS WebSocket
   - uplink:   Handy TTS WebSocket -> (resample) -> audio out
 
 Le sottoclassi possono aggiungere thread extra tramite `_extra_threads()`
@@ -53,17 +53,19 @@ def _rms(samples: np.ndarray) -> float:
 
 
 class StreamingSession:
-    """Loop di streaming bidirezionale audio <-> Handy <-> Hermes.
+    """Loop di streaming bidirezionale audio <-> Handy <-> cervello.
 
     `in_idx` / `out_idx` sono indici di device sounddevice (`None` = device
-    di default del sistema operativo). `hermes` e' duck-typed:
-    `respond(text) -> Iterator[str]`.
+    di default del sistema operativo). `brain` e' duck-typed:
+    `respond_stream(text, source) -> Iterator[str]` (vedi brains.py).
     """
 
     # Comandi vocali (cambio lingua, nuova conversazione) e auto-rilevamento
     # lingua: attivi SOLO nelle sessioni push-to-talk (le sottoclassi PTT lo
     # abilitano). Nelle telefonate resta False (la lingua la decide il prefisso).
     voice_commands_enabled = False
+    # Where the words come from: "mic" is the person's own microphone (an approval can be answered by it), "remote" the other end of a call.
+    utterance_source = "remote"
     # Al cambio lingua mantieni la voce corrente (True) invece di scegliere la
     # voce standard della lingua: usato dall'avatar per non perdere il timbro
     # clonato della persona (cambia solo la lingua di sintesi/risposta).
@@ -81,7 +83,7 @@ class StreamingSession:
     def __init__(
         self,
         config: Config,
-        hermes,
+        brain,
         in_idx: int | None,
         out_idx: int | None,
         audio_rate: int,
@@ -91,7 +93,7 @@ class StreamingSession:
         voice_engine: str = "",
     ) -> None:
         self.cfg = config
-        self.hermes = hermes
+        self.brain = brain
         self.in_idx = in_idx
         self.out_idx = out_idx
         self.audio_rate = audio_rate
@@ -119,7 +121,7 @@ class StreamingSession:
         # _tts_active: il TTS sta riproducendo audio in questo momento.
         self._tts_active = threading.Event()
         # _processing: turno in elaborazione (half-duplex). Set dal momento in
-        # cui l'enunciato viene inviato a Hermes fino a fine riproduzione audio.
+        # cui l'enunciato viene inviato al cervello fino a fine riproduzione audio.
         # Mentre e' attivo il microfono e' muto (non si ascolta).
         self._processing = threading.Event()
         # _barge_in: richiesta di abortire il segmento TTS in riproduzione.
@@ -230,11 +232,10 @@ class StreamingSession:
             stt.start()
             tts.start()
             configure_tts(tts, self.cfg, self.voice, self.lang, self.voice_engine)
-            # Allinea la lingua di RISPOSTA dell'agente a quella della sessione
-            # (il preambolo ACP di default e' cablato sull'italiano): cosi' "la
-            # lingua indicata nell'interfaccia" viene davvero usata. Fatto per
-            # OGNI sessione (anche telefonate) perche' l'agente ACP e' condiviso:
-            # evita che una sessione erediti la lingua di quella precedente.
+            # Allinea la lingua di RISPOSTA del cervello a quella della sessione:
+            # cosi' "la lingua indicata nell'interfaccia" viene davvero usata.
+            # Fatto per OGNI sessione (anche telefonate) perche' il cervello e'
+            # condiviso: evita che una sessione erediti la lingua di quella precedente.
             self._set_reply_language(self._lang_code)
         except Exception as e:  # noqa: BLE001
             # Qualunque errore in apertura: chiudi ENTRAMBI i WebSocket (uno dei
@@ -336,7 +337,7 @@ class StreamingSession:
             stt.send_audio(chunk)
 
     def _brain(self, stt: HandySttClient, tts: HandyTtsClient) -> None:
-        """Enunciato STT -> Hermes (streaming) -> Handy TTS, con barge-in."""
+        """Enunciato STT -> cervello (streaming) -> Handy TTS, con barge-in."""
         while not self._stop.is_set():
             # Cambio lingua chiesto dal pannello/GUI: si applica QUI, sul thread
             # che possiede il TTS, e anche quando non si sta parlando — se
@@ -361,7 +362,7 @@ class StreamingSession:
 
             # In half-duplex (turn-based) lo STT spezza una frase lunga su pause
             # brevi in piu' enunciati: li uniamo in un solo turno aspettando una
-            # pausa di silenzio credibile, cosi' si fa UNA sola richiesta a Hermes.
+            # pausa di silenzio credibile, cosi' si fa UNA sola richiesta al cervello.
             if self.half_duplex:
                 utterance = coalesce_utterances(
                     stt.utterances, utterance, self.cfg.ptt_turn_pause_s,
@@ -418,8 +419,8 @@ class StreamingSession:
                     if self.voice_commands_enabled:
                         self._maybe_auto_language(utterance, tts)
                     self._run_llm_turn(utterance, stt, tts)
-            except Exception as e:  # noqa: BLE001 - errore lato Hermes
-                log.error("Hermes ha fallito sull'enunciato: %s", e)
+            except Exception as e:  # noqa: BLE001 - errore lato cervello
+                log.error("Il cervello ha fallito sull'enunciato: %s", e)
             finally:
                 if self.half_duplex:
                     # Risposta finita: NON e' piu' "elaborazione". Si entra in una
@@ -483,7 +484,7 @@ class StreamingSession:
         # mentre l'agente genera il resto -> primo audio molto prima. L'attesa di
         # fine avviene DOPO tutta la generazione (non tra le frasi), cosi' le
         # pause di generazione non riaprono il microfono a meta' risposta.
-        for text_chunk in self.hermes.respond(utterance):
+        for text_chunk in self.brain.respond_stream(utterance, self.utterance_source):
             if self._stop.is_set():
                 interrupted = True
                 break
@@ -566,14 +567,13 @@ class StreamingSession:
                  _tot - _fuori_llm, _fuori_llm, len(spoken_parts),
                  " (interrotto)" if interrupted else "")
         if not spoken_parts:
-            # Nessun parlato: l'agente ha prodotto solo una chiamata-tool (in
-            # TESTO, non eseguita dall'ACP) oppure proprio nulla.
+            # Nessun parlato: il cervello ha prodotto solo codice o markup
+            # (niente da leggere a voce) oppure proprio nulla.
             raw = "".join(raw_parts)
             if raw.strip():
-                log.warning("Solo tool-call in testo (ACP non l'ha eseguita "
-                            "-> nessuna risposta): %r", raw[:400])
+                log.warning("Niente di pronunciabile nella risposta: %r", raw[:400])
             else:
-                log.warning("Agente: risposta VUOTA (nessun testo).")
+                log.warning("Cervello: risposta VUOTA (nessun testo).")
         if streaming:
             if full:
                 self._last_response = full  # anti-eco
@@ -630,7 +630,7 @@ class StreamingSession:
     def _set_reply_language(self, code: str) -> None:
         """Comunica all'agente la lingua in cui rispondere (se lo supporta)."""
         info = LANG_TABLE.get(code)
-        fn = getattr(self.hermes, "set_reply_language", None)
+        fn = getattr(self.brain, "set_reply_language", None)
         if info and callable(fn):
             try:
                 fn(info["reply"])
@@ -694,8 +694,14 @@ class StreamingSession:
             if info is None:
                 return "Non conosco quella lingua."
             return info["switch"]
+        if cmd["kind"] == "brain":
+            fn = getattr(self.brain, "set_mode", None)
+            if callable(fn) and fn(cmd["mode"]):
+                from .spoken import saying
+                return saying(cmd["mode"], self._lang_code)
+            return ""
         if cmd["kind"] == "new_session":
-            fn = getattr(self.hermes, "reset_session", None)
+            fn = getattr(self.brain, "reset_session", None)
             ok = False
             if callable(fn):
                 try:
@@ -735,7 +741,7 @@ class StreamingSession:
                            start_timeout: float = 12.0, quiet: float = 1.5) -> None:
         """Attende l'avvio e poi il completamento della riproduzione TTS.
 
-        Aspetta fino a `start_timeout` che arrivi il primo audio (Hermes puo'
+        Aspetta fino a `start_timeout` che arrivi il primo audio (il cervello puo'
         metterci a generare); se non arriva nulla, la risposta era vuota -> esce.
         Poi attende che coda audio vuota e nessun segmento in riproduzione per
         `quiet` secondi = riproduzione completata.

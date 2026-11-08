@@ -39,7 +39,7 @@ class Config:
     handy_port: int = 8720                 # porta API di Handy (HANDY_API_PORT)
 
     # --- Server di controllo dell'orchestrator ---
-    # L'orchestrator e' SERVER per i comandi da Hermes e per le chiamate in uscita.
+    # L'orchestrator e' SERVER per i comandi del server di TaDaMoo e per le chiamate in uscita.
     control_host: str = "127.0.0.1"
     control_port: int = 8770
     control_auth_token: str = "change-me-control-token"
@@ -56,21 +56,15 @@ class Config:
     push_to_talk_enabled: bool = True
     # Hotkey half-duplex: durante il TTS il microfono viene ignorato (no eco
     # con le casse). Hotkey full-duplex: ascolta sempre (ideale con le cuffie).
-    push_to_talk_hotkey: str = "shift+f1"            # agente completo, casse (half-duplex)
-    push_to_talk_hotkey_fullduplex: str = "shift+f2"  # agente completo, cuffie (full-duplex)
-    push_to_talk_hotkey_limited: str = "shift+f3"     # modello limitato (simulazione chiamate)
-    # Varianti con avatar video (MuseTalk): stessa conversazione completa ma con
-    # il labiale sincronizzato sull'avatar, come nelle video call. Registrate
-    # solo se avatar_enabled=true. Convivono con shift+f1/f2 (match esatto dei
-    # modificatori in pynput). La persona mostrata e' `avatar_persona`.
-    push_to_talk_hotkey_avatar: str = "ctrl+shift+f1"       # completo + avatar, half-duplex
-    push_to_talk_hotkey_avatar_full: str = "ctrl+shift+f2"  # completo + avatar, full-duplex
-    # Modalita' voce DIRETTA su LM Studio (NON agentica, near-real-time): stessa
-    # sessione avatar/voce ma il "cervello" e' l'LLM di LM Studio via API
-    # OpenAI-compatibile, senza Hermes/ACP. Memoria e personalita' sono per-avatar
-    # (vedi lmstudio_* piu sotto). Registrate solo se avatar_chat_enabled=true.
-    push_to_talk_hotkey_lmstudio: str = "ctrl+shift+f4"       # LM Studio diretto, half-duplex
-    push_to_talk_hotkey_lmstudio_full: str = "ctrl+shift+f5"  # LM Studio diretto, full-duplex
+    # Hotkey of the HARNESS brain (the TaDaMoo agent): speakers (half-duplex) and headphones (full-duplex).
+    push_to_talk_hotkey: str = "shift+f1"
+    push_to_talk_hotkey_fullduplex: str = "shift+f2"
+    # Harness with the video avatar; registered only when an avatar client exists.
+    push_to_talk_hotkey_avatar: str = "ctrl+shift+f1"
+    push_to_talk_hotkey_avatar_full: str = "ctrl+shift+f2"
+    # Hotkeys of the DIRECT brain (the loaded model, no tools), with the avatar when there is one.
+    push_to_talk_hotkey_direct: str = "ctrl+shift+f4"
+    push_to_talk_hotkey_direct_full: str = "ctrl+shift+f5"
     # Pausa di silenzio (s) che chiude il turno parlato in half-duplex: gli
     # spezzoni STT separati da meno di tanto vengono uniti in un solo enunciato.
     ptt_turn_pause_s: float = 1.5
@@ -101,9 +95,6 @@ class Config:
     # mai catturata, quindi non innesca risposte. Niente TTS (output solo testo).
     copilot_enabled: bool = True
     push_to_talk_hotkey_copilot: str = "shift+f4"
-    # True = usa l'agente completo ACP (con tool/ricerche) anche per il copilota
-    # (istanza dedicata, avviata alla prima attivazione). False = modello HTTP/stub.
-    copilot_use_acp: bool = True
     # "Forza LLM esterna senza RAG": il copilota lascia l'agente locale e parla
     # col provider assegnato a `copilot` nel tab Provider LLM. Si RINUNCIA al
     # sapere delle persone (che vive in locale e non va spedito fuori) e agli
@@ -192,131 +183,35 @@ class Config:
     # questo tempo (hang GPU), start() esce con errore invece di bloccarsi.
     avatar_prepare_stall_s: float = 300.0
 
-    # --- Hermes ---
-    # Hermes e' SERVER per le chiamate (vedi skill/SKILL.md per la spec).
-    # L'orchestrator chiama: /incoming-call, /outgoing-call, /utterance (SSE),
-    # /call-ended, /health su hermes_base_url.
-    hermes_base_url: str = "http://127.0.0.1:8780"
-    hermes_mode: str = "stub"              # "stub" = no-op locale | "http" = HermesClient
-
-    # --- Agente Hermes COMPLETO via ACP (con tool/azioni) ---
-    # Per la voce interna (F1/F2) e le chiamate vere: dialogo col full agent.
-    # L'orchestrator lancia `hermes acp` in WSL e parla JSON-RPC su stdio.
-    acp_enabled: bool = True
-    acp_wsl_distro: str = "Ubuntu"
-    # Comando eseguito in WSL (login shell). `--accept-hooks` auto-approva i
-    # hook shell (autonomia). Aggiungere `-m MODEL --provider PROVIDER` se serve
-    # forzare il modello/provider (es. LM Studio locale).
-    acp_wsl_command: str = (
-        "cd /home/ataini && exec /home/ataini/.hermes/hermes-agent/venv/bin/python "
-        "-m hermes_cli.main acp --accept-hooks"
+    # --- The brains of the voice (voice/callbridge/brains.py) ---
+    # TaDaMoo's own server, on this PC: the direct brain talks to its /v1/chat/completions, the harness brain to /api/agent/sessions. The
+    # token is the voice service's own (voice-service.token); settings_bridge fills these fields from voice.json.
+    tadamoo_base_url: str = "http://127.0.0.1:7242"
+    tadamoo_token: str = ""
+    brain_mode: str = "direct"              # direct | harness: the brain a session starts with
+    brain_persona: str = ""                 # slug of the personality both brains speak as; "" = none
+    brain_permission: str = "default"       # plan | read_only | default | auto: what the harness conversation may do without asking
+    brain_workspace: str = ""               # folder of the harness conversation; "" = the server's default
+    direct_system_prompt: str = (
+        "You are talking by voice, in real time. Answer briefly and naturally, in plain sentences with punctuation: "
+        "no markdown, lists, symbols or code."
     )
-    acp_cwd: str = "/home/ataini"          # cwd passato a session/new (modo WSL)
-    # --- Modo NATIVO (Hermes installato su Windows, niente WSL) ---
-    # Se acp_use_wsl=False si lancia direttamente l'eseguibile Hermes nativo
-    # (nessun wsl.exe). Path tipico post-installer: %LOCALAPPDATA%\hermes.
-    # Stringa stile shell (gli argomenti extra tipo `-m MODEL` si aggiungono qui);
-    # viene splittata con shlex(posix=False) per gestire i path Windows.
-    acp_use_wsl: bool = False
-    acp_native_command: str = (
-        r'"C:\Users\atain\AppData\Local\hermes\hermes-agent\venv\Scripts\hermes.exe" '
-        "acp --accept-hooks"
-    )
-    acp_cwd_native: str = r"C:\Users\atain"          # cwd passato a session/new (nativo)
-    # HERMES_HOME passato al processo nativo (config/skills/cron migrati qui).
-    acp_hermes_home: str = r"C:\Users\atain\AppData\Local\hermes"
-    # Modello/provider LLM dell'agente ACP: iniettati come `-m MODEL --provider
-    # PROVIDER` PRIMA del subcomando `acp` (percio' acp_native_command NON deve
-    # contenerli). "" = usa il default di config.yaml di Hermes. Cambiabili a
-    # runtime (GUI/pannello avatar): il cambio RIAVVIA l'agente ACP.
-    acp_model: str = "gemma-4-12b-obliterated"
-    acp_provider: str = "lmstudio"
-    # Checkbox GUI "Override Hermes model". False = callAPIcall NON decide il
-    # modello dell'agente: niente `-m/--provider` allo spawn e nessuna scrittura
-    # di `model.default` nel config.yaml di Hermes -> vale il default di Hermes.
-    # True = comportamento storico (acp_model/acp_provider imposti dalla GUI).
-    # Persistito in config.json come ogni altro campo: lo stato scelto resta.
-    acp_model_override: bool = True
-    # Avvio di `hermes acp` lento (carica tool/MCP, anche server MCP che falliscono
-    # in retry): timeout di init generoso.
-    acp_init_timeout_s: float = 240.0
-    acp_response_timeout_s: float = 300.0  # tetto attesa risposta (ricerche lunghe)
-    # Istruzione iniettata nel prompt vocale: l'agente deve rispondere SOLO con
-    # testo (l'audio lo genera l'orchestratore via Handy/Kokoro), niente tool TTS.
-    # NB: un preamble "pesante" (regole tassative, "solo testo", ecc.) DISTURBA il
-    # tool-calling dell'agente (gli fa emettere le chiamate-tool come testo non
-    # eseguito). Tenerlo MINIMALE: i tool restano funzionanti come da tastiera e la
-    # pulizia del parlato (markdown/markup/marcatori) la fa gia' il sanitizer TTS.
-    acp_voice_preamble: str = (
-        "[Conversazione a voce: rispondi in italiano, breve e naturale.]\n\n"
-    )
-    # Messaggio di INIT inviato all'agente all'apertura di una sessione (una
-    # volta, la risposta NON viene pronunciata dal TTS): avvisa che e' in modo
-    # vocale/avatar/chiamata e di usare le skill dedicate. Configurabile in GUI.
-    # "" = niente init.
-    voice_session_init: str = (
-        "[SETUP SESSIONE: da ora sei in conversazione VOCALE in tempo reale, con "
-        "AVATAR video e sintesi vocale (TTS). Applica la skill 'voice-mode': "
-        "rispondi in testo semplice (niente markdown/elenchi/simboli), breve e "
-        "naturale come si parla. Usa pure gli altri strumenti/skill quando "
-        "servono. Rispondi solo: ok.]"
-    )
-    call_session_init: str = (
-        "[SETUP SESSIONE: da ora sei in una TELEFONATA in tempo reale (solo voce). "
-        "Applica la skill 'voice-mode': frasi brevi e parlate, testo semplice, "
-        "niente markdown. Usa gli strumenti/skill quando servono. Rispondi solo: ok.]"
-    )
-
-    # --- Modalita' voce DIRETTA su LM Studio (Ctrl+Shift+F4/F5) ---
-    # Conversazione NON agentica near-real-time contro l'API OpenAI-compatibile di
-    # LM Studio, senza Hermes/ACP. Il "cervello" e' LmStudioClient (history in
-    # processo, compattazione a rolling summary, memoria/personalita' per-avatar).
-    # Accende la CHAT AVATAR (hotkey Ctrl+Shift+F4/F5 + il suo brain non
-    # agentico). NON ha nulla a che vedere con quale backend risponde: quello lo
-    # decide `avatar_llm_backend` (LM Studio o vLLM). Si chiamava
-    # `lmstudio_enabled` — nome storico che faceva credere il contrario, al punto
-    # che spegnerlo "perché uso vLLM" spegneva l'intera modalità: il vecchio nome
-    # resta accettato in config.json per compatibilità (vedi `load`).
-    avatar_chat_enabled: bool = True
+    direct_history_turns: int = 8           # recent turns kept in the rolling context
+    direct_max_tokens: int = 400
+    direct_rag_chunks: int = 4              # archive excerpts added to a turn at most
+    agent_max_wait_s: float = 900.0         # how long one spoken request waits for the harness turn to end
+    agent_poll_s: float = 0.7
+    # Models of the services that read text with an OpenAI-compatible server (persona ingestion, the external LLM registry).
     lmstudio_base_url: str = "http://127.0.0.1:1234/v1"
-    lmstudio_model: str = ""                # "" = primo modello caricato in LM Studio
-    lmstudio_api_key: str = "lm-studio"     # LM Studio ignora la chiave ma openai la vuole
-    # System prompt base (la personalita' dell'avatar, se presente, si aggiunge a
-    # questo a inizio sessione).
-    lmstudio_system_prompt: str = (
-        "Sei un interlocutore vocale in tempo reale. Rispondi in italiano, breve e "
-        "naturale come si parla, in testo semplice (niente markdown, elenchi o simboli). "
-        "Frasi corte con punteggiatura per aiutare la sintesi vocale."
-    )
-    # Compattazione: quando la history stimata supera questa soglia di token, i
-    # turni piu' vecchi vengono riassunti in background; gli ultimi N restano interi.
-    lmstudio_context_compaction_tokens: int = 6000
-    # Frazione del contesto REALE del modello caricato oltre la quale si
-    # compatta. La soglia effettiva e' il minimo fra questa e il tetto qui
-    # sopra: cosi' il contesto scorre da solo qualunque modello si scelga,
-    # senza dover riconfigurare nulla a ogni cambio.
-    lmstudio_context_compaction_ratio: float = 0.6
-    lmstudio_history_window: int = 8        # turni recenti tenuti verbatim
+    lmstudio_model: str = ""                # "" = the first model the server has loaded
+    lmstudio_api_key: str = "lm-studio"
     lmstudio_response_timeout_s: float = 120.0
-    # SPERIMENTALE: se True, dentro la STESSA sessione manda system+history solo al
-    # PRIMO turno; ai turni successivi invia SOLO il nuovo messaggio utente,
-    # assumendo che LM Studio conservi il contesto tra le richieste. ATTENZIONE:
-    # /v1/chat/completions e' stateless per contratto -> se il server NON mantiene
-    # lo stato, il modello perde memoria dei turni precedenti. Rimettere a False
-    # (comportamento classico: riinvio dell'intero contesto a ogni turno) se la
-    # conversazione perde il filo.
-    lmstudio_stateful_server: bool = False
-    # --- Personalita'/sapere da documenti (Fase 5) + RAG per-battuta ---
-    # Pipeline OFFLINE (persona_ingest): documenti/libri -> testo -> chunk ->
-    # embeddings (RAG locale) + estrazione LLM della personalita'. A conversazione
-    # LmStudioClient recupera i chunk pertinenti e li inietta (RAG).
-    # embed_model = id del modello di embedding caricato in LM Studio; "" =
-    # nessun semantico -> il retrieval usa il fallback lessicale (sempre attivo).
+    # Embeddings of persona ingestion: the id of the embedding model; "" = lexical retrieval only.
     lmstudio_embed_model: str = ""
     # --- Backend LLM della chat avatar: LM Studio OPPURE vLLM ---
     # Scelta ESPLICITA dalla GUI. "" = auto (retrocompatibile: vLLM se
     # `vllm_model` e' valorizzato, altrimenti LM Studio). Vale SOLO per la chat
-    # avatar (F4/F5): l'agente Hermes ha il suo provider (`acp_provider`).
+    # avatar.
     #
     # Regole di prontezza applicate a ogni warm-up/inizio sessione (llm_backend.py):
     #  - backend giu'            -> lo si avvia (LM Studio: `lms server start`)
@@ -338,9 +233,6 @@ class Config:
     vllm_manager_url: str = "http://127.0.0.1:7860"
     vllm_model: str = ""                     # es. sahilchachra/Qwen3.6-35B-A3B-uncensored-heretic-AWQ
     vllm_ensure_timeout_s: float = 300.0     # quanto attendiamo il cold start (pesi + JIT)
-    # Checkbox GUI "Chat Avatar reasoning": True = l'avatar ragiona (enable_thinking),
-    # False = risposta diretta a bassa latenza (default per la voce).
-    avatar_chat_reasoning: bool = False
     persona_rag_top_k: int = 4               # chunk iniettati per battuta
     persona_ingest_chunk_tokens: int = 1800  # ~dimensione blocco (stima 4 char/token)
     persona_ingest_overlap_tokens: int = 200
@@ -354,13 +246,13 @@ class Config:
 
     # --- Voice gateway per l'app Android (Task #20) ---
     # WebSocket che riceve audio dall'app remota (via Tailscale/LAN), fa
-    # STT -> Hermes -> TTS e rimanda testo+audio. Un turno per volta (viva voce)
+    # STT -> cervello -> TTS e rimanda testo+audio. Un turno per volta (viva voce)
     # o full-duplex (auricolare/bluetooth).
     gateway_enabled: bool = True
     gateway_host: str = "0.0.0.0"          # 0.0.0.0 per essere raggiungibile via Tailscale
     gateway_port: int = 8771
     gateway_auth_token: str = "change-me-control-token"  # token condiviso con l'app
-    # Server HTTP per i media (immagini/video generati da Hermes): l'app li
+    # Server HTTP per i media (immagini/video generati dall'agente): l'app li
     # scarica via URL (meglio del base64 sul WebSocket, soprattutto per i video).
     gateway_media_port: int = 8772
 
@@ -392,7 +284,7 @@ class Config:
     # --- Meeting bot (endpoint /meetbot/* e /meetings/*) ---
     meetbot_enabled: bool = True
     meetbot_backend: str = "windows"       # "windows" (loopback) | "wsl" (futuro)
-    meetbot_display_name: str = "Hermes Bot"
+    meetbot_display_name: str = "TaDaMoo Bot"
     meetbot_artifacts_dir: str = "artifacts/meetings"
 
     # --- Calendari (auto-join riunioni: OAuth, vedi INSTALL.md) ---
@@ -433,10 +325,8 @@ class Config:
     analysis_ytdlp_path: str = "yt-dlp"
     analysis_segment_s: int = 300          # durata segmenti per /transcribe
     analysis_chunk_chars: int = 10000      # chunk del map-reduce di analisi
-    # Attesa della risposta del cervello per OGNI chunk. Non e' quella della voce
-    # (`acp_response_timeout_s`, 300 s): li' cinque minuti di silenzio sono un
-    # guasto, qui il modello sta leggendo un pezzo di trascrizione e con uno
-    # "thinking" 300 s non bastano — e allo scadere il turno esce VUOTO.
+    # Attesa della risposta del cervello per OGNI chunk: il modello legge un pezzo
+    # di trascrizione e un modello "thinking" ha bisogno di piu' tempo.
     analysis_response_timeout_s: float = 1800.0
 
     # --- Diarizzazione: chi parla quando ("Speaker 1", "Speaker 2", ...) ---
@@ -459,12 +349,6 @@ class Config:
     # Oltre questa durata si salta: l'audio va tutto in RAM in float32
     # (~230 MB/ora) e il beneficio non vale il rischio di far fuori il bridge.
     diarization_max_minutes: int = 240
-
-    # --- Controllo componenti dalla GUI (endpoint /components/*) ---
-    # Comandi (eseguiti in `wsl -d acp_wsl_distro -- bash -lc ...`) per avviare/
-    # fermare il servizio Hermes ("" = controllo disabilitato, solo monitoraggio).
-    hermes_start_cmd: str = ""
-    hermes_stop_cmd: str = ""
 
     # --- Motore STT/TTS NATIVO (integrazione di Handy in-process) ---
     # Elimina la dipendenza dal processo Handy portando STT/TTS dentro il bridge.
@@ -610,7 +494,7 @@ class Config:
     tts_prefer_piper: bool = False
     # Server Handy-compatibile: replica l'API di Handy (HTTP + WS /tts/stream e
     # /stt/stream) sui motori nativi, cosi' i consumatori esterni che parlavano
-    # con Handy su :8720 (es. la skill Hermes kokoro_tts.py) funzionano invariati.
+    # con Handy su :8720 (es. una skill che usava kokoro_tts.py) funzionano invariati.
     # Va abilitato SOLO con Handy spento (stessa porta). Default off in convivenza.
     handy_compat_enabled: bool = False
     handy_compat_host: str = "127.0.0.1"
@@ -642,7 +526,7 @@ class Config:
     telegram_wrapper_url: str = "http://127.0.0.1:8888"
     telegram_wrapper_token: str = ""        # deve combaciare con rest.auth_token nel settings.json del wrapper
     telegram_bridge_host: str = "127.0.0.1"
-    telegram_bridge_port: int = 8790        # il wrapper deve avere acp.server_port su questo stesso valore
+    telegram_bridge_port: int = 8790        # il wrapper deve avere questa porta come server_port
 
     @classmethod
     def load(cls, path: str | os.PathLike[str] | None = None) -> "Config":
@@ -655,11 +539,6 @@ class Config:
             # BOM, e con `utf-8` json.loads muore su "Unexpected UTF-8 BOM"
             # prima ancora che il bridge parta. Il BOM si mangia e si prosegue.
             data = json.loads(json_path.read_text(encoding="utf-8-sig"))
-            # Nomi storici ancora presenti nelle config esistenti: si accettano
-            # solo se il nome nuovo non c'è, così un file già migrato vince.
-            for vecchio, nuovo in (("lmstudio_enabled", "avatar_chat_enabled"),):
-                if vecchio in data and nuovo not in data:
-                    data[nuovo] = data[vecchio]
             for f in fields(cls):
                 if f.name in data:
                     setattr(cfg, f.name, data[f.name])

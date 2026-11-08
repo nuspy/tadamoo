@@ -1,13 +1,13 @@
 """Sanitizzazione del testo destinato al TTS.
 
-Quando il "cervello" e' l'agente completo via ACP, lo stream di risposta puo'
+Quando il "cervello" e' un agente con strumenti, lo stream di risposta puo'
 contenere materiale che NON va letto ad alta voce:
   - blocchi di ragionamento/meta: <think>...</think>, <reasoning>...</reasoning>;
   - **chiamate ai tool / azioni dell'agente**, emesse come TESTO:
         AssistantAction <function=memory> <parameter=action>add</parameter>
         <parameter=content>...</parameter> </function> EndActions
         [TOOL_RESULT]{"output": "..."}[END_TOOL_RESULT]
-    (era questo che veniva pronunciato: "le istruzioni/parametri per Hermes");
+    (era questo che veniva pronunciato: "le istruzioni/parametri per l'agente");
   - formattazione markdown: **grassetto**, *corsivo*, `code`, # titoli, elenchi,
     citazioni, link [testo](url), blocchi ```code```.
 

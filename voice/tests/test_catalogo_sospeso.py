@@ -50,12 +50,12 @@ def test_catalogo_motori_con_router_esistente_lo_interroga(monkeypatch):
 def test_endpoint_engines_catalog_funziona_da_sospeso(monkeypatch):
     from callbridge.control_server import create_app
     from callbridge.orchestrator import CallBridge
-    from callbridge.stubs import StubHermes
+    from fakes import FakeBrain
     cfg = Config()
     cfg.call_transport = "off"
     cfg.control_auth_token = ""
     monkeypatch.setattr(engines, "_tts_engine", None)
-    app = create_app(cfg, bridge=CallBridge(cfg, StubHermes()))
+    app = create_app(cfg, bridge=CallBridge(cfg, FakeBrain()))
     sospensione.sospendi()
     r = app.test_client().get("/engines/catalog")
     assert r.status_code == 200

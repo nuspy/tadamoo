@@ -2,7 +2,7 @@
 
 TIENI PREMUTA la hotkey (default Alt+Spazio): registra dal microfono di sistema
 finche' resta premuta; al RILASCIO whisper trascrive e il testo viene incollato
-nell'app in primo piano (clipboard + Ctrl+V). NON passa da Hermes: e' pura
+nell'app in primo piano (clipboard + Ctrl+V). NON passa dal cervello: e' pura
 dettatura (voce -> testo digitato), come la trascrizione di Handy.
 
 Alt+Spazio e' una scorciatoia di sistema Windows (menu della finestra): su

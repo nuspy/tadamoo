@@ -60,13 +60,11 @@ def riprendi() -> None:
 # silenzio. UN solo elenco, qui. Ogni voce e' un prefisso di percorso (POST/PUT).
 ENDPOINT_BLOCCATI = (
     "/call",                 # chiamata in uscita (apre sessione e motori)
-    "/prepare",              # Hermes prepara una chiamata (carica i motori)
+    "/prepare",              # prepara una chiamata (carica i motori)
     "/models/load",          # «Load models»
     "/session/start",        # sessione voce
     "/copilot/toggle",       # copilota
     "/avatar/start",         # worker avatar
-    "/hermes/model",         # cambio modello: riavvia l'agente ACP
-    "/avatar/llm/swap",      # carica un modello in LM Studio (`lms load`, llm_backend.py:845)
     "/analysis/start",       # analisi: trascrizione sul server voci + diarizzazione
     "/meetbot/join",         # meetbot: STT/TTS sul server voci
     "/external/call",        # chiamata pilotata dall'esterno

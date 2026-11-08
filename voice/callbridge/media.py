@@ -1,17 +1,17 @@
 """Bridge media per l'app Android (Task #21).
 
-Piccolo server HTTP che serve all'app i file generati da Hermes (immagini/video)
+Piccolo server HTTP che serve all'app i file generati dall'agente (immagini/video)
 tramite URL, invece di mandarli inline sul WebSocket (molto meglio per i video,
 e necessario per il salvataggio locale + lo streaming con seek).
 
 Flusso:
-  - Hermes include nel testo di risposta un tag `[[media:image:SRC]]` o
+  - L'agente include nel testo di risposta un tag `[[media:image:SRC]]` o
     `[[media:video:SRC]]` (SRC = path locale o URL). Vedi voice_gateway.py.
   - Il gateway registra il file qui (`register_file`) e manda all'app
     `{type:"media", kind, token, port}`. L'app scarica da
     `http://<host>:<port>/media/<token>`.
   - L'app puo' anche inviare un'immagine: viene salvata con `save_incoming_image`
-    e il path passato a Hermes nell'enunciato successivo.
+    e il path passato all'agente nell'enunciato successivo.
   - `GET /poster/<persona>` serve l'immagine fissa dell'avatar: l'app la mostra
     quando il video e' acceso ma l'audio no, invece di tenere aperto un flusso
     WebRTC per una faccia immobile. Sta qui e non sul control server (:8770)

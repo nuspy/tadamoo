@@ -1,11 +1,10 @@
 """Blueprint /components/* — stato e controllo dei componenti dalla GUI.
 
-  GET  /components/status                stato di main/gateway/voice_engine/hermes/avatar
+  GET  /components/status                stato di main/gateway/voice_engine/brain/avatar
   POST /components/main/restart          exit(42) -> il supervisore run-ptt rilancia
   POST /components/main/stop             sentinella ptt.stop + exit -> resta giu'
                                          (fino al riavvio di Windows: run-ptt
                                          scarta una sentinella pre-boot)
-  POST /components/hermes/start|stop|restart   (richiede hermes_*_cmd)
   POST /components/gateway/restart       -> 409 restart_main_instead (v1)
   (dettatura Alt+Spazio: nessun endpoint di controllo. E' SEMPRE attiva e
    calda, parte con il main, e lo STT che usa - unico, condiviso con le sessioni
@@ -89,23 +88,9 @@ def _voice_engine_status(cfg) -> dict:
     return {"state": "running", "mode": mode, "models": models}
 
 
-def _hermes_status(cfg) -> dict:
-    if cfg.acp_enabled:
-        # Modalita' agente ACP: lo stato utile e' quello dell'agente WSL.
-        ptt = current_app.config.get("CB_PTT")
-        brain = getattr(ptt, "brain_full", None) if ptt else None
-        ready = bool(getattr(brain, "is_ready", False))
-        return {"state": "running" if ready else "stopped",
-                "mode": "acp",
-                "detail": None if ready else "agente ACP non avviato (warm-up?)"}
-    try:
-        resp = requests.get(f"{cfg.hermes_base_url}/health", timeout=3)
-        return {"state": "running" if resp.ok else "error", "mode": "http",
-                "detail": None if resp.ok else f"HTTP {resp.status_code}"}
-    except requests.Timeout:
-        return {"state": "blocked", "mode": "http", "detail": "health in timeout"}
-    except requests.RequestException as e:
-        return {"state": "stopped", "mode": "http", "detail": str(e)}
+def _brain_status(cfg) -> dict:
+    """The brains need no process of their own: they speak to TaDaMoo's server. The state says which one answers by default."""
+    return {"state": "running", "mode": cfg.brain_mode, "persona": cfg.brain_persona or None}
 
 
 def _avatar_status(avatar, proc_alive: bool) -> dict:
@@ -188,7 +173,7 @@ def components_status():
             "port": cfg.gateway_port,
         },
         "voice_engine": _sospeso_se_fermo(_voice_engine_status(cfg), sospeso),
-        "hermes": _sospeso_se_fermo(_hermes_status(cfg), sospeso),
+        "brain": _sospeso_se_fermo(_brain_status(cfg), sospeso),
         "avatar_worker": _sospeso_se_fermo(_avatar_status(avatar, avatar_running),
                                            sospeso),
         "push_to_talk": _ptt_status(cfg, ptt, sospeso),
@@ -206,17 +191,10 @@ def _dictation_status() -> dict:
 
 
 def _cleanup_children(app) -> None:
-    """Chiude best-effort i processi figli (agente ACP, worker avatar) prima di
+    """Chiude best-effort i processi figli (worker avatar) prima di
     os._exit: os._exit salta finally/atexit, quindi senza questo i figli
     restano orfani (RAM / VRAM occupata) e ad ogni restart dalla GUI se ne
     accumula uno nuovo (il warm-up ne rispawna un altro)."""
-    ppt = app.config.get("CB_PTT")
-    brain = getattr(ppt, "brain_full", None) if ppt is not None else None
-    if brain is not None and hasattr(brain, "close"):
-        try:
-            brain.close()
-        except Exception:  # noqa: BLE001
-            log.warning("cleanup: chiusura agente ACP fallita", exc_info=True)
     avatar = app.config.get("CB_AVATAR")
     if avatar is not None and hasattr(avatar, "stop"):
         try:
@@ -298,7 +276,7 @@ def suspend_all():
     si lascia in piedi solo quanto basta a riprendere da soli.
 
     Va giù: worker avatar (MuseTalk), motori TTS (i loro processi escono: è
-    l'unico modo di restituire anche il contesto CUDA), agente ACP, sessione
+    l'unico modo di restituire anche il contesto CUDA), sessione
     voce, modelli di diarizzazione.
     Resta su: questo bridge (quindi la GUI, le hotkey e il push-to-talk), lo
     **STT**, che deve continuare a trascrivere, la **dettatura**, che resta
@@ -355,22 +333,6 @@ def suspend_all():
             fatto.append("worker avatar")
         except Exception as e:  # noqa: BLE001
             errori["avatar"] = str(e)
-
-    # Agenti ACP: quello del push-to-talk e quello del copilota (istanza a parte).
-    # Si chiude sempre, ma si elenca SOLO quello che era avviato.
-    visti: set[int] = set()
-    for brain in (getattr(ptt, "brain_full", None),
-                  getattr(getattr(ptt, "copilot", None), "brain", None)):
-        if brain is None or id(brain) in visti or not hasattr(brain, "close"):
-            continue
-        visti.add(id(brain))
-        try:
-            era_acceso = bool(getattr(brain, "is_ready", False))
-            brain.close()
-            if era_acceso:
-                fatto.append("agente ACP")
-        except Exception as e:  # noqa: BLE001
-            errori["acp"] = str(e)
 
     # Watcher delle chiamate in arrivo: si ferma da solo (guarda la sentinella);
     # si elenca solo se stava vigilando.
@@ -545,32 +507,6 @@ def system_restart():
         return jsonify({"error": f"avvio restart fallito: {e}"}), 500
     log.warning("Restart completo richiesto dalla GUI: %s", script)
     return jsonify({"status": "ok", "note": "restart completo avviato (~1-2 min)"})
-
-
-@bp.post("/components/hermes/<action>")
-def hermes_control(action: str):
-    cfg = _cfg()
-    if action not in ("start", "stop", "restart"):
-        return jsonify({"error": "azione sconosciuta"}), 400
-    cmds = []
-    if action in ("stop", "restart") and cfg.hermes_stop_cmd:
-        cmds.append(cfg.hermes_stop_cmd)
-    if action in ("start", "restart") and cfg.hermes_start_cmd:
-        cmds.append(cfg.hermes_start_cmd)
-    if not cmds:
-        return jsonify({"error": "hermes_start_cmd/hermes_stop_cmd non configurati"}), 501
-    for cmd in cmds:
-        try:
-            if cfg.acp_use_wsl:
-                subprocess.run(["wsl.exe", "-d", cfg.acp_wsl_distro, "--",
-                                "bash", "-lc", cmd],
-                               capture_output=True, timeout=60)
-            else:
-                # Hermes nativo: il comando gira nella shell di Windows.
-                subprocess.run(cmd, shell=True, capture_output=True, timeout=60)
-        except subprocess.TimeoutExpired:
-            return jsonify({"error": f"comando in timeout: {cmd}"}), 504
-    return jsonify({"status": "ok", "action": action})
 
 
 @bp.post("/components/gateway/restart")

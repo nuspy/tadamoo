@@ -12,12 +12,10 @@ from __future__ import annotations
 import logging
 import threading
 import time
-import uuid
 
 from .audio_hfp import find_hfp_devices, negotiate_sample_rate
 from .config import Config
 from .handy_client import HandyControlClient, HandyError
-from .hermes_client import HermesClient, HermesSession
 from .lang_map import voice_lang_for_number
 from .phone_client import PhoneControlClient, PhoneError
 from .streaming import StreamingSession
@@ -32,7 +30,7 @@ class CallSession(StreamingSession):
     def __init__(
         self,
         config: Config,
-        hermes,
+        brain,
         in_idx: int,
         out_idx: int,
         hfp_rate: int,
@@ -40,7 +38,7 @@ class CallSession(StreamingSession):
         lang: str,
         phone: PhoneControlClient,
     ) -> None:
-        super().__init__(config, hermes, in_idx, out_idx, hfp_rate, voice, lang)
+        super().__init__(config, brain, in_idx, out_idx, hfp_rate, voice, lang)
         self.phone = phone
 
     def _extra_threads(self) -> list[threading.Thread]:
@@ -66,16 +64,12 @@ class CallSession(StreamingSession):
 class CallBridge:
     """Orchestratore: lifecycle delle chiamate + sessioni di streaming.
 
-    `hermes` e' un oggetto duck-typed con `respond(text) -> Iterator[str]`
-    (vedi stubs.StubHermes; l'integrazione vera e' il Task #6).
+    `brain` e' il cervello (vedi brains.py): `respond_stream(text, source)`.
     """
 
-    def __init__(self, config: Config, hermes) -> None:
-        """`hermes` puo' essere un `HermesClient` (HTTP verso il server agente)
-        oppure uno stub con `.respond(text) -> Iterator[str]` (es. StubHermes).
-        """
+    def __init__(self, config: Config, brain) -> None:
         self.cfg = config
-        self.hermes = hermes
+        self.brain = brain
         # True mentre il watcher delle chiamate in arrivo e' fermo per la
         # sospensione (lo mostra /components/status).
         self.watcher_sospeso = False
@@ -101,7 +95,7 @@ class CallBridge:
     ) -> threading.Thread:
         """Avvia una chiamata in uscita. Non bloccante: ritorna il thread driver.
 
-        `brain` scavalca `self.hermes` per QUESTA chiamata (es. l'ExternalBrain
+        `brain` scavalca `self.brain` per QUESTA chiamata (es. l'ExternalBrain
         delle chiamate pilotate via REST)."""
         voice = voice or self.cfg.default_voice
         lang = lang or self.cfg.default_lang
@@ -245,7 +239,7 @@ class CallBridge:
 
     def _handle_incoming_call(self) -> None:
         """Flusso completo per una chiamata in arrivo: prefisso -> lingua,
-        carica i modelli, notifica Hermes, accetta, avvia la sessione."""
+        carica i modelli, accetta, avvia la sessione."""
         with self._session_lock:
             if self._session is not None:
                 log.warning("Chiamata in arrivo ignorata: sessione gia' attiva")
@@ -291,7 +285,7 @@ class CallBridge:
             self._safe_hangup()
             return
 
-        # 5. esegui la sessione di streaming (la notifica a Hermes parte qui)
+        # 5. esegui la sessione di streaming
         self._run_session(in_idx, out_idx, rate, voice, lang,
                           direction="INCOMING", number=number)
 
@@ -323,10 +317,7 @@ class CallBridge:
     ) -> None:
         """Avvia una sessione di streaming.
 
-        Se `self.hermes` e' un `HermesClient`, genera un `session_id`, notifica
-        il lato agente (incoming/outgoing) e crea una `HermesSession`. Lo
-        StubHermes non ha sessioni: viene passato direttamente. `brain`
-        scavalca `self.hermes` per questa sessione (chiamate esterne).
+        `brain` scavalca `self.brain` per questa sessione (chiamate esterne).
         """
         # Prenota lo slot sessione ATOMICAMENTE prima di qualunque lavoro: una
         # outgoing (dal control server) e una incoming (dal watcher) concorrenti
@@ -340,34 +331,15 @@ class CallBridge:
                 return
             self._session_busy = True
 
-        session_id = ""
         session: CallSession | None = None
         try:
-            if brain is not None:
-                hermes_for_session = brain
-            elif isinstance(self.hermes, HermesClient):
-                session_id = uuid.uuid4().hex
-                if direction == "INCOMING":
-                    self.hermes.notify_incoming(session_id, number, voice, lang)
-                else:
-                    self.hermes.notify_outgoing(session_id, number, voice, lang)
-                hermes_for_session: object = HermesSession(
-                    self.hermes, session_id, direction)
-            else:
-                hermes_for_session = self.hermes
+            brain_for_session = brain if brain is not None else self.brain
 
             session = CallSession(
-                self.cfg, hermes_for_session, in_idx, out_idx, rate, voice, lang,
+                self.cfg, brain_for_session, in_idx, out_idx, rate, voice, lang,
                 self.phone)
             with self._session_lock:
                 self._session = session
-            # Init di chiamata: avvisa l'agente (se lo supporta, es. ACP) che e'
-            # in una telefonata vocale e di usare le skill dedicate.
-            _prime = getattr(hermes_for_session, "prime", None)
-            if callable(_prime) and self.cfg.call_session_init:
-                import threading as _t
-                _t.Thread(target=lambda: _prime(self.cfg.call_session_init),
-                          name="call-init", daemon=True).start()
             session.run()
         except Exception as e:  # noqa: BLE001
             # Senza questo guard un'eccezione (es. device HFP sparito) lascerebbe
@@ -375,8 +347,6 @@ class CallBridge:
             log.error("Sessione %s fallita: %s", direction, e)
             self._safe_hangup()
         finally:
-            if isinstance(self.hermes, HermesClient) and session_id:
-                self.hermes.call_ended(session_id)
             with self._session_lock:
                 if self._session is session:
                     self._session = None

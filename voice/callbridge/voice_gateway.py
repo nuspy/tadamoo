@@ -1,12 +1,12 @@
 """Voice gateway per l'app Android (Task #20).
 
 WebSocket server che fa da ponte tra l'app remota (raggiungibile via Tailscale
-o qualsiasi rete) e Handy/Hermes. Replica il comportamento di Shift+F1 ma con
+o qualsiasi rete) e Handy/il cervello. Replica il comportamento di Shift+F1 ma con
 l'audio che arriva/parte dall'app invece che dal mic/casse del PC.
 
 UN TURNO PER VOLTA (sia "hold" sia "continua"):
   app -> audio (frame PCM16) -> [STT Handy] -> testo utente
-       -> [Hermes] -> testo risposta (streaming)
+       -> [cervello] -> testo risposta (streaming)
        -> [TTS Handy] -> audio risposta (streaming)
   -> rimanda all'app: transcript (tuo testo), reply (testo a pezzi), audio.
 
@@ -19,13 +19,13 @@ Protocollo (JSON testo + frame binari):
                                           # in "continuous" il turno si chiude
                                           # da solo sulla pausa (VAD lato Handy)
   gw->app  {"type":"transcript","text":"..."}      # cosa hai detto
-  gw->app  {"type":"reply","chunk":"..."}          # risposta di Hermes, a pezzi
+  gw->app  {"type":"reply","chunk":"..."}          # risposta del cervello, a pezzi
   gw->app  {"type":"audio_start","sample_rate":24000}
   gw->app  <frame binari int16 LE mono>            # audio della risposta
   gw->app  {"type":"audio_end"}
   app->gw  {"type":"file","path":"..."}             # allegato (gia' su /upload)
   gw->app  {"type":"file_ok","name":"..."}          # allegato preso in carico
-  app->gw  {"type":"brain","brain":"chat"|"hermes"} # cambia CHI risponde, a caldo
+  app->gw  {"type":"brain","brain":"direct"|"harness"} # cambia CHI risponde, a caldo
   gw->app  {"type":"brain","brain":"..."}           # conferma di chi risponde
   gw->app  {"type":"done"}                          # turno finito (pronto al prossimo)
   gw->app  {"type":"error","message":"..."}
@@ -45,8 +45,7 @@ from pathlib import Path
 import numpy as np
 import requests
 
-from .brains import (make_full_brain, make_lmstudio_brain,
-                     respond_stream)
+from .brains import make_brain
 from .config import Config
 from .handy_client import ensure_models_loaded
 from .stt_client import STT_RATE, HandySttClient
@@ -164,16 +163,13 @@ def _frase_vera(coda, detto: str = "") -> str:
 class _Connection:
     """Gestisce una connessione app: piu' turni in sequenza."""
 
-    def __init__(self, ws, cfg: Config, brain, brain_chat=None) -> None:
+    def __init__(self, ws, cfg: Config, brain) -> None:
         self.ws = ws
         self.cfg = cfg
-        # Due cervelli, come le hotkey sul PC: `brain` e' l'agente COMPLETO
-        # (ACP/Hermes, con tool e skill), `brain_chat` la voce diretta su LM
-        # Studio (non agentica, near-real-time). L'app sceglie col campo
-        # `brain` del messaggio video_start: "hermes" oppure "chat".
-        self.brain_hermes = brain
-        self.brain_chat = brain_chat
-        self.brain = brain
+        # Il cervello di questa connessione: una copia del cervello di processo
+        # con il suo modo. L'app sceglie col campo `brain` del messaggio
+        # video_start (o a caldo con {"type":"brain"}): "direct" oppure "harness".
+        self.brain = brain.fork()
         self.stt: HandySttClient | None = None
         self.tts: HandyTtsClient | None = None
         # Allegati che l'app ha mandato e che il prossimo enunciato deve
@@ -264,7 +260,7 @@ class _Connection:
         return utterance
 
     def _emit_media(self, kind: str, src: str) -> None:
-        """Manda all'app un media generato da Hermes (via URL del media server)."""
+        """Manda all'app un media generato dall'agente (via URL del media server)."""
         from . import media as media_mod
         if src.startswith(("http://", "https://")):
             self._send_json({"type": "media", "kind": kind, "url": src})
@@ -277,7 +273,7 @@ class _Connection:
             log.warning("Gateway: media non trovato: %s", src)
 
     def _stream_reply(self, utterance: str, bargein=None, motore=None) -> None:
-        """Hermes -> filtro tag media -> testo all'app + TTS; media -> URL all'app.
+        """cervello -> filtro tag media -> testo all'app + TTS; media -> URL all'app.
 
         L'app riceve il testo GREZZO (rende il markdown); il TTS riceve solo il
         testo SANITIZZATO. Testo, media e frasi TTS li produce ora
@@ -307,8 +303,7 @@ class _Connection:
                     self.tts.send_text(sentence)
 
         try:
-            for chunk in respond_stream(self.brain, self._with_attachment(utterance),
-                                        self.cfg, session_tag="app"):
+            for chunk in self.brain.respond_stream(self._with_attachment(utterance), "remote"):
                 if bargein and bargein():
                     return
                 if not isinstance(chunk, str):
@@ -319,9 +314,9 @@ class _Connection:
                 motore.fine_risposta()
             else:
                 self.tts.flush()
-        except Exception as e:  # noqa: BLE001 - errore lato Hermes
-            log.error("Gateway: Hermes ha fallito: %s", e)
-            self._send_json({"type": "error", "message": f"Hermes: {e}"})
+        except Exception as e:  # noqa: BLE001 - errore lato cervello
+            log.error("Gateway: il cervello ha fallito: %s", e)
+            self._send_json({"type": "error", "message": f"cervello: {e}"})
 
     def run(self) -> None:
         # 1) autenticazione
@@ -463,7 +458,7 @@ class _Connection:
             self._send_json({"type": "done"})
             return
 
-        # 2) Hermes (streaming) -> testo+media all'app + TTS
+        # 2) cervello (streaming) -> testo+media all'app + TTS
         self._stream_reply(utterance)
 
         # 3) inoltra TUTTO l'audio TTS (fino a fine sintesi, non solo l'inizio)
@@ -471,27 +466,19 @@ class _Connection:
         self._send_json({"type": "done"})
 
     def _scegli_cervello(self, quale: str | None) -> None:
-        """Applica la modalita' chiesta dall'app: "chat" oppure "hermes".
+        """Applica la modalita' chiesta dall'app: "direct" oppure "harness".
 
-        "chat"   -> voce diretta su LM Studio, non agentica: risponde in
-                    un paio di secondi, e' quella che serve a conversare.
-        "hermes" -> agente completo via ACP, con tool e skill: piu' lento
-                    (l'avvio dell'agente puo' durare minuti) ma sa agire.
+        "direct"  -> il modello caricato, senza strumenti: risponde in un paio
+                     di secondi, e' quello che serve a conversare.
+        "harness" -> l'agente di TaDaMoo, con permessi e strumenti: piu' lento
+                     ma sa agire.
 
         Prima il campo veniva solo LOGGATO e il gateway rispondeva sempre
         con l'agente completo: l'app chiedeva "chat" e restava ad aspettare.
         """
         quale = (quale or "").strip().lower()
-        if quale == "chat" and self.brain_chat is not None:
-            self.brain = self.brain_chat
-        elif quale == "hermes":
-            self.brain = self.brain_hermes
-        elif quale == "chat":
-            log.warning("Gateway: chiesto brain 'chat' ma non e' disponibile: "
-                        "uso l'agente completo")
-            self.brain = self.brain_hermes
-        else:
-            return                      # campo assente: si tiene quello corrente
+        if not self.brain.set_mode(quale):
+            return                      # campo assente o sconosciuto: si tiene quello corrente
         log.info("Gateway: cervello del turno -> %s", quale)
 
     def _messaggio_collaterale(self, msg: dict) -> bool:
@@ -536,8 +523,8 @@ class _Connection:
             return True
         if tipo == "brain":
             # Cambio di cervello A CALDO. Prima la scelta viaggiava solo
-            # nell'handshake WebRTC (`video_start`), quindi passare da chat ad
-            # Hermes voleva dire chiudere e riaprire il flusso: riquadro nero,
+            # nell'handshake WebRTC (`video_start`), quindi passare da diretto ad
+            # harness voleva dire chiudere e riaprire il flusso: riquadro nero,
             # nuova negoziazione ICE, e il primo fotogramma da aspettare di
             # nuovo. Qui invece si cambia l'interlocutore e basta.
             #
@@ -547,9 +534,7 @@ class _Connection:
             # successivo. Il contrario — troncare a meta' — sarebbe peggio
             # dell'attesa che si vuole togliere.
             self._scegli_cervello(msg.get("brain"))
-            self._send_json({"type": "brain",
-                             "brain": "hermes" if self.brain is self.brain_hermes
-                                      else "chat"})
+            self._send_json({"type": "brain", "brain": self.brain.mode})
             return True
         return False
 
@@ -558,7 +543,7 @@ class _Connection:
 
         Il worker avatar vive nel BRIDGE (uno solo, per la VRAM): qui lo si
         comanda via HTTP sul control server. `brain` sceglie chi risponde —
-        "chat" e' l'avatar diretto, "hermes" l'agente completo.
+        "direct" e' il modello caricato, "harness" l'agente di TaDaMoo.
         """
         try:
             from .avatar_webrtc import FrameServer, SessioneVideo
@@ -639,15 +624,14 @@ class _Connection:
         (RAG). Il cervello del gateway veniva creato e usato nudo, quindi
         rispondeva come un assistente qualunque.
 
-        Solo sul cervello CHAT: l'agente ACP la sua identita' ce l'ha nel
-        proprio config e non espone questo hook.
+        `persona` e' lo slug di una personalita' di TaDaMoo; un nome che non lo
+        e' non cambia la personalita' delle impostazioni.
         """
-        b = self.brain_chat
-        if not persona or b is None or not hasattr(b, "begin_session"):
+        if not persona:
             return
         try:
-            b.begin_session(persona)
-            log.info("Gateway: identita' '%s' caricata sul cervello chat", persona)
+            self.brain.begin_session(persona)
+            log.info("Gateway: identita' '%s' caricata sul cervello", persona)
         except Exception as e:  # noqa: BLE001 - meglio generico che muto
             log.warning("Gateway: identita' di '%s' non caricata: %s", persona, e)
 
@@ -810,7 +794,7 @@ class _Connection:
         """Auricolare/Bluetooth: sessione full-duplex (parla e ascolta insieme).
 
         Un thread riceve l'audio dall'app e lo passa allo STT in continuo; il
-        loop principale, a ogni enunciato finalizzato, interroga Hermes e
+        loop principale, a ogni enunciato finalizzato, interroga il cervello e
         rimanda testo+audio. Nessun mute durante il TTS (no eco con auricolare/BT).
         Barge-in: se l'utente riparla mentre l'assistente risponde, si interrompe.
         Termina su {stop}/{close} dall'app.
@@ -1179,7 +1163,7 @@ class _Connection:
                            start_timeout: float = 20.0, quiet: float = 5.0) -> None:
         """Inoltra all'app TUTTI i segmenti audio TTS fino a fine sintesi.
 
-        Attende fino a `start_timeout` il primo segmento (Hermes + sintesi), poi
+        Attende fino a `start_timeout` il primo segmento (cervello + sintesi), poi
         inoltra finche' la coda resta vuota per `quiet` secondi. `barge_in` (se
         dato) e' un callable: se ritorna True si interrompe subito.
 
@@ -1393,7 +1377,7 @@ class _Connection:
                     detto=motore.copione.detto(6.0),
                     anticipo_s=motore.copione.anticipo_s(),
                     integra_da_s=getattr(self.cfg, "duplex_integra_da_s", 2.5),
-                    # Solo col cervello `chat`: Hermes puo' aver gia' eseguito
+                    # Solo col cervello diretto: l'agente puo' aver gia' eseguito
                     # azioni, e riscrivere il seguito di un agente e' un
                     # problema di un'altra categoria.
                     consenti_cambia=(getattr(self.cfg, "duplex_integra", False)
@@ -1463,7 +1447,7 @@ class _Connection:
         futuro, si lascia finire la frase in corso (i secondi che servono al
         cervello per scrivere il seguito) e si sostituisce il resto.
 
-        Solo col cervello `chat`: con Hermes l'agente può aver già eseguito
+        Solo col cervello diretto: con l'harness l'agente può aver già eseguito
         azioni, e riscriverne la continuazione è un problema di un'altra
         categoria. Ritorna False quando non si può fare, e il chiamante
         degrada ad ACCODA.
@@ -1687,27 +1671,18 @@ def run_gateway(cfg: Config) -> None:
 
     from .media import start_media_server
 
-    # Server HTTP per i media (immagini/video generati da Hermes).
+    # Server HTTP per i media (immagini/video generati dall'agente).
     try:
         start_media_server(cfg.gateway_host, cfg.gateway_media_port,
                            cfg.avatar_dir, cfg.control_port)
     except OSError as e:  # porta occupata: i media non funzioneranno, ma la voce sì
         log.error("Media server non avviato (%s): media disabilitati", e)
 
-    brain = make_full_brain(cfg, label="gateway")
-    # Cervello della voce DIRETTA, lo stesso di Ctrl+Shift+F4 sul PC. Si crea
-    # qui una volta sola: e' leggero (nessun processo agente) e senza di lui
-    # l'app che chiede "chat" veniva servita comunque dall'agente completo,
-    # che con l'avvio dell'ACP puo' metterci minuti.
-    try:
-        brain_chat = make_lmstudio_brain(cfg)
-    except Exception as e:  # noqa: BLE001 - l'app resta usabile con l'agente
-        log.warning("Gateway: cervello chat non disponibile: %s", e)
-        brain_chat = None
+    brain = make_brain(cfg)
 
     def handler(ws):
         try:
-            _Connection(ws, cfg, brain, brain_chat).run()
+            _Connection(ws, cfg, brain).run()
         except Exception as e:  # noqa: BLE001 - non far cadere il server
             log.error("Gateway: errore connessione: %s", e)
 

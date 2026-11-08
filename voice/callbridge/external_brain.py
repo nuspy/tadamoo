@@ -4,7 +4,7 @@ Serve alle integrazioni tipo PGDCA (E:/Projects/OpenAGI): il chiamante
 esterno piazza la chiamata con `POST /external/call`, spinge le battute con
 `/say`, legge cio' che dice l'interlocutore con `/heard` e chiude con
 `/hangup` (vedi api_external.py). Qui dentro c'e' solo il ponte: un "brain"
-duck-typed (`respond(text) -> Iterator[str]`) che invece di interrogare un
+duck-typed (`respond_stream(text, source) -> Iterator[str]`) che invece di interrogare un
 agente aspetta la prossima battuta dalla coda REST.
 
 Regole:
@@ -96,7 +96,7 @@ class ExternalBrain:
         # va detto al primo turno, prima di ogni battuta dalla coda.
         self.greeting_pending = True
 
-    def respond(self, text: str):
+    def respond_stream(self, text: str, source: str = "remote"):
         s = self.session
         if s.status == "calling":
             s.status = "active"

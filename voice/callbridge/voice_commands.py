@@ -9,6 +9,8 @@ nelle telefonate):
          francese", "switch to english", ...
        - nuova conversazione: "nuova sessione", "inizia una nuova
          conversazione", "new session", ...
+       - cambio di cervello: "switch to the agent", "switch to direct",
+         "passa all'agente", "passa al diretto", ...
   2. `detect_language(text)` — euristica leggera per l'auto-rilevamento della
      lingua parlata dall'utente (per cambiare voce/lingua TTS in automatico).
 
@@ -150,6 +152,11 @@ _NEW_SESSION = re.compile(
     re.IGNORECASE,
 )
 
+# Brain switch: a verb that moves, and the name of a brain. The harness is the TaDaMoo agent; direct is the plain conversation with the model.
+_BRAIN_VERB = r"(?:switch|go|change|move|use|talk|speak|back|pass[ai](?:re)?|vai|usa|us[ai]|torna|parl[ai](?:re)?|cambia(?:re)?)"
+_BRAIN_HARNESS = re.compile(r"\b" + _BRAIN_VERB + r"\b.*\b(?:agent|harness|agente)\b", re.IGNORECASE)
+_BRAIN_DIRECT = re.compile(r"\b" + _BRAIN_VERB + r"\b.*\b(?:direct|direttamente|diretto|diretta)\b", re.IGNORECASE)
+
 _GENDER_F = re.compile(r"\b(femmin[ae]|donna|female|woman)\b", re.IGNORECASE)
 _GENDER_M = re.compile(r"\b(maschi[oale]|uomo|male|man)\b", re.IGNORECASE)
 
@@ -178,7 +185,8 @@ def parse_command(text: str) -> dict | None:
     Ritorna:
       {"kind": "lang", "lang": <codice>, "gender": "f"|"m"|None}
       {"kind": "new_session"}
-      None  -> non e' un comando (passa all'agente)
+      {"kind": "brain", "mode": "harness"|"direct"}
+      None  -> non e' un comando (passa al cervello)
 
     I comandi sono brevi: un enunciato lungo e' conversazione, non un comando
     (evita falsi positivi tipo "ti spiego come cambiare lingua sul telefono").
@@ -189,6 +197,12 @@ def parse_command(text: str) -> dict | None:
     n_words = len(re.findall(r"\w+", t))
     if n_words > 9:
         return None
+
+    # Cambio di cervello: comando corto, verbo di spostamento + nome del cervello.
+    if _BRAIN_HARNESS.search(t):
+        return {"kind": "brain", "mode": "harness"}
+    if _BRAIN_DIRECT.search(t):
+        return {"kind": "brain", "mode": "direct"}
 
     # Nuova conversazione: comando corto e specifico.
     if _NEW_SESSION.search(t) and n_words <= 7:

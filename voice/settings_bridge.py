@@ -2,7 +2,9 @@
 
 The file is the one serve/voice_settings.py writes:
     {"models_dir": "<absolute path>", "services": {"<service>": {"selected": "<model id>", "device": "auto|cpu|cuda:N", "memory": "vram|ram",
-                                                                  "enabled": true|false}}}
+                                                                  "enabled": true|false}},
+     "brain": {"mode": "direct|harness", "persona": "<slug>", "permission": "plan|read_only|default|auto", "workspace": "<folder>",
+               "base_url": "http://127.0.0.1:<port>", "hotkeys": true|false}}
 This module reads it without importing `serve` or `tadamoo` (the service has its own interpreter). A missing, unreadable or damaged file,
 or a bad value in it, gives the defaults: the service never fails because of its settings.
 
@@ -18,6 +20,10 @@ from pathlib import Path
 from callbridge import models_store as ms
 
 _DEVICE_RE = re.compile(r"^(auto|cpu|cuda:[0-9]{1,2})$")
+BRAIN_MODES = ("direct", "harness")
+PERMISSIONS = ("plan", "read_only", "default", "auto")
+_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
+_BASE_URL_RE = re.compile(r"^http://(?:127\.0\.0\.1|localhost|\[::1\]):[0-9]{1,5}/?$")
 MEMORY = ("vram", "ram")
 # Config field prefix of each TTS engine's (device, memory) pair.
 _TTS_KEYS = {"kokoro": "tts", "piper": "piper", "chatterbox": "chatterbox", "xtts": "xtts", "cosyvoice": "cosyvoice",
@@ -46,9 +52,21 @@ class Choice:
 
 
 @dataclass(frozen=True)
+class Brain:
+    """How the voice talks to TaDaMoo: which brain answers by default, as which personality, with what permission, and where the server is."""
+    mode: str = "direct"
+    persona: str = ""
+    permission: str = "default"
+    workspace: str = ""
+    base_url: str = ""          # TaDaMoo's address on this PC; "" keeps the config's default
+    hotkeys: bool = False       # whether the service registers the global push-to-talk hotkeys
+
+
+@dataclass(frozen=True)
 class Settings:
     models_dir: str
     services: dict[str, Choice]
+    brain: Brain = Brain()
 
 
 def _read(path) -> dict:
@@ -75,6 +93,18 @@ def _choice(service: str, stored) -> Choice:
     return Choice(service, model, device, memory, enabled if isinstance(enabled, bool) else None)
 
 
+def _brain(stored) -> Brain:
+    stored = stored if isinstance(stored, dict) else {}
+    mode, persona, permission = stored.get("mode"), stored.get("persona"), stored.get("permission")
+    workspace, base_url, hotkeys = stored.get("workspace"), stored.get("base_url"), stored.get("hotkeys")
+    return Brain(mode if mode in BRAIN_MODES else "direct",
+                 persona if isinstance(persona, str) and _SLUG_RE.match(persona) else "",
+                 permission if permission in PERMISSIONS else "default",
+                 workspace if isinstance(workspace, str) and os.path.isabs(workspace) else "",
+                 base_url.rstrip("/") if isinstance(base_url, str) and _BASE_URL_RE.match(base_url) else "",
+                 hotkeys is True)
+
+
 def load(path, default_models_dir: str = "") -> Settings:
     """The settings in `path`; a value that is missing or invalid takes its default.
 
@@ -86,7 +116,7 @@ def load(path, default_models_dir: str = "") -> Settings:
     else:
         models_dir = default_models_dir or str(Path(path).resolve().parent / "voice-models")
     stored = data.get("services") if isinstance(data.get("services"), dict) else {}
-    return Settings(models_dir, {s: _choice(s, stored.get(s)) for s in ms.SERVICES})
+    return Settings(models_dir, {s: _choice(s, stored.get(s)) for s in ms.SERVICES}, _brain(data.get("brain")))
 
 
 def is_enabled(choice: Choice, models_dir: str) -> bool:
@@ -127,6 +157,10 @@ def overrides(settings: Settings) -> dict:
     out["diarization_device"] = _config_device(dia)
     vad = ms.folder("vad", "silero-vad-v4", root)
     out["stt_vad_model"] = os.path.join(vad, "silero_vad_v4.onnx")
+    b = settings.brain
+    out["brain_mode"], out["brain_persona"], out["brain_permission"], out["brain_workspace"] = b.mode, b.persona, b.permission, b.workspace
+    if b.base_url:
+        out["tadamoo_base_url"] = b.base_url
     return out
 
 

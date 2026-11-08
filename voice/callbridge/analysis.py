@@ -2,7 +2,7 @@
 
 Usato sia dalla sezione "Analisi" (file/URL caricati) sia dal meetbot a fine
 riunione. Dato un transcript (lista di segmenti, opzionalmente con speaker),
-produce con il cervello (agente ACP):
+produce con il cervello diretto (il modello caricato, senza strumenti):
 
   {
     "summary":    riassunto globale esaustivo,
@@ -23,13 +23,12 @@ import re
 import threading
 from collections.abc import Callable
 
-from .brains import make_full_brain, respond_stream
+from .brains import make_brain
 from .config import Config
 
 log = logging.getLogger("callbridge.analysis")
 
-# Cervello dedicato all'analisi, creato pigramente e condiviso (l'avvio ACP
-# costa ~60-90s: una sola istanza per processo).
+# Cervello dedicato all'analisi, creato pigramente e condiviso: una sola istanza per processo.
 _brain = None
 _brain_lock = threading.Lock()
 
@@ -38,25 +37,18 @@ def _get_brain(cfg: Config):
     global _brain
     with _brain_lock:
         if _brain is None:
-            _brain = make_full_brain(cfg, label="analysis")
+            # Sempre il cervello DIRETTO: la trascrizione e' contenuto non fidato e non deve arrivare a un agente con strumenti.
+            _brain = make_brain(cfg).direct
         return _brain
 
 
 def _ask(cfg: Config, brain, prompt: str,
          preamble: str | None = None) -> str:
-    """Interroga il cervello e raccoglie la risposta completa (testo).
-
-    Timeout PROPRIO, non quello della voce: `acp_response_timeout_s` vale 300 s
-    perche' in conversazione cinque minuti di silenzio sono un guasto, ma qui il
-    modello deve leggere un pezzo di transcript e produrre JSON — con un modello
-    "thinking" ci vuole di piu', e allo scadere si esce a mani vuote (visto sul
-    campo: due tentativi tagliati a 300 s esatti, entrambi letti come "il
-    cervello non ha prodotto JSON")."""
+    """Interroga il cervello e raccoglie la risposta completa (testo, non il
+    parlato: `ask_stream`). Una trascrizione e' contenuto non fidato: si legge e
+    si riassume, non la si esegue."""
     out: list[str] = []
-    for chunk in respond_stream(brain, prompt, cfg, session_tag="analysis",
-                                preamble=preamble,
-                                timeout_s=float(getattr(
-                                    cfg, "analysis_response_timeout_s", 1800.0))):
+    for chunk in brain.ask_stream((preamble or "") + prompt):
         if isinstance(chunk, str):
             out.append(chunk)
     return "".join(out)

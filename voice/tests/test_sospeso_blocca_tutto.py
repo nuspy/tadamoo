@@ -77,7 +77,7 @@ def test_sessione_da_api_sospesa_409(sospeso):
     from callbridge import api_session
     from callbridge.ptt import PushToTalkManager
 
-    m = PushToTalkManager(Config(), brain_full=object())
+    m = PushToTalkManager(Config(), brains=object())
     app = flask.Flask(__name__)
     app.config["CB_PTT"] = m
     app.register_blueprint(api_session.bp)
@@ -95,12 +95,6 @@ def test_avatar_non_parte(sospeso):
     assert a.start("Shan") is False and a.last_error == MSG_SOSPESO
     assert a.start_async("Shan") is False and a.preparing is None
     assert a._proc is None                           # nessun worker lanciato
-
-
-def test_agente_acp_non_parte(sospeso):
-    from callbridge.acp_client import AcpAgentClient
-    ag = AcpAgentClient(Config())
-    assert ag._ensure_started() is False and ag._proc is None
 
 
 def test_tts_non_si_carica_ne_sintetizza(sospeso):
@@ -160,8 +154,8 @@ def test_chiamata_gsm_in_arrivo_non_riceve_risposta(sospeso):
 
 def test_watcher_chiamate_in_arrivo_si_ferma_e_riparte():
     from callbridge.orchestrator import CallBridge
-    from callbridge.stubs import StubHermes
-    b = CallBridge(Config(), StubHermes())
+    from fakes import FakeBrain
+    b = CallBridge(Config(), FakeBrain())
     interrogazioni: list[float] = []
     b._wait_for_incoming = lambda timeout=None: (interrogazioni.append(timeout) or False)
     sospensione.sospendi()
@@ -185,7 +179,7 @@ def test_stato_chiamate_in_arrivo_in_components_status(monkeypatch):
     monkeypatch.setattr(api_components, "_tcp_open", lambda *a, **k: False)
     monkeypatch.setattr(api_components, "_voice_engine_status",
                         lambda cfg: {"state": "stopped"})
-    monkeypatch.setattr(api_components, "_hermes_status",
+    monkeypatch.setattr(api_components, "_brain_status",
                         lambda cfg: {"state": "stopped"})
     app = flask.Flask(__name__)
     cfg = Config()

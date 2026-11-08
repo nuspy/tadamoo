@@ -1,6 +1,6 @@
 """Client WebSocket per lo streaming TTS di Handy (`WS /tts/stream`).
 
-Invia il testo di risposta di Hermes a pezzi (man mano che viene generato) e
+Invia il testo di risposta del cervello a pezzi (man mano che viene generato) e
 riceve l'audio sintetizzato frase per frase. Pensato per l'uso in un
 orchestratore a thread: il testo si invia dal thread "cervello", i segmenti
 audio si consumano dal thread che scrive l'uplink HFP.
@@ -54,7 +54,7 @@ class HandyTtsClient:
         tts = HandyTtsClient("ws://127.0.0.1:8720/tts/stream")
         tts.start()
         tts.configure(voice="if_sara", lang="it")
-        tts.send_text("Ciao, ")      # man mano che Hermes genera il testo
+        tts.send_text("Ciao, ")      # man mano che il cervello genera il testo
         tts.send_text("come stai?")
         tts.flush()                  # forza la sintesi del testo bufferizzato
         seg = tts.audio.get()        # TtsSegment, dal thread dell'uplink
