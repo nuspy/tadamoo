@@ -24,6 +24,7 @@ import secrets
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from tadamoo.cron_templates import PLACEHOLDER, render_template
 from tadamoo.integrations._http import ServiceError
 from tadamoo.integrations.planner_client import PlannerClient
 from tadamoo.planner import nodes as nodes_mod
@@ -593,8 +594,20 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         except Exception as exc:
             return failure(exc)
         link_task(plan_id, node, "running")
-        return (f'Step {node_id} started ({how}): "{node["title"]}". {node.get("description") or ""}\n'
-                "Do it with your tools, read the result, then mark the step completed or failed with plan_mark.")
+        inherited: Dict[str, Any] = {}
+        for parent in node.get("dependencies") or []:
+            inherited.update(((snap["plan"]["nodes"].get(parent) or {}).get("state_variables") or {}).get("outputs") or {})
+        values = {**(snap["plan"].get("shared_state") or {}), **inherited, "plan_title": snap["plan"]["title"]}
+        named = set(PLACEHOLDER.findall(node.get("description") or ""))
+        given = {**inherited, **{k: v for k, v in values.items() if k in named}}
+        produce = node.get("produces") or []
+        lines = [f'Step {node_id} started ({how}): "{node["title"]}". {render_template(node.get("description") or "", values)}']
+        if given:
+            lines.append("Values given to this step by the steps above it: " + json.dumps(given, ensure_ascii=False)[:1500])
+        if produce:
+            lines.append("When you complete it, plan_mark must carry outputs with: " + ", ".join(f"{p['name']} ({p['type']})" for p in produce) + ".")
+        lines.append("Do it with your tools, read the result, then mark the step completed or failed with plan_mark.")
+        return "\n".join(lines)
 
     def plan_propose_change(plan_id: str, title: str, diff: Dict[str, Any], rationale: str = "", quote: str = "") -> str:
         if (msg := need_read(plan_id)):

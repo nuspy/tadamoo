@@ -37,10 +37,12 @@ NODE_SPECS: Dict[str, Dict[str, Any]] = {
     "loop": {"family": "flow", "auto": False, "summary": "Does its work again and again while a condition holds", "fields": [
         {"name": "while", "kind": "expression", "required": True}, {"name": "every", "kind": "number", "min": 60, "max": 30 * 86400, "default": 300},
         {"name": "max_iter", "kind": "integer", "min": 1, "max": MAX_ITER, "default": 1000}]},
-    "set_var": {"family": "data", "auto": True, "summary": "Sets a value of the plan", "fields": [
-        {"name": "name", "kind": "name", "required": True}, {"name": "value", "kind": "json"}, {"name": "expr", "kind": "expression"}]},
-    "get_var": {"family": "data", "auto": True, "summary": "Reads a value of the plan, optionally into another name", "fields": [
-        {"name": "name", "kind": "name", "required": True}, {"name": "into", "kind": "name"}]},
+    "set_var": {"family": "data", "auto": True, "summary": "Sets a value, in the plan or in the values shared by all plans", "fields": [
+        {"name": "name", "kind": "name", "required": True}, {"name": "value", "kind": "json"}, {"name": "expr", "kind": "expression"},
+        {"name": "target", "kind": "choice", "choices": ["plan", "global"], "default": "plan"}]},
+    "get_var": {"family": "data", "auto": True, "summary": "Reads a value: a value of the plan, the clock, a value shared by all plans or a value another step wrote", "fields": [
+        {"name": "name", "kind": "name", "required": True}, {"name": "into", "kind": "name"},
+        {"name": "source", "kind": "choice", "choices": ["variable", "clock", "global", "step"], "default": "variable"}, {"name": "step", "kind": "name"}]},
     "input": {"family": "io", "auto": False, "summary": "Asks the person for a value", "fields": [
         {"name": "prompt", "kind": "textarea", "required": True, "max": 300}, {"name": "into", "kind": "name", "required": True},
         {"name": "kind", "kind": "choice", "choices": ["text", "number", "choice"], "default": "text"}, {"name": "choices", "kind": "names", "max": 10}]},
@@ -170,10 +172,22 @@ def clean_spec(node_type: Any, spec: Any, draft: bool = False) -> Dict[str, Any]
             check_expression(spec["expr"])
         _value(spec)
         out.update({k: spec[k] for k in ("value", "expr") if spec.get(k) is not None})
+        target = spec.get("target", "plan")
+        if target not in ("plan", "global"):
+            raise PlanError("'target' is plan or global")
+        out["target"] = target
     elif kind == "get_var":
         out["name"] = _name(spec, "name", True)
         if _name(spec, "into"):
             out["into"] = spec["into"]
+        source = spec.get("source", "variable")
+        if source not in ("variable", "clock", "global", "step"):
+            raise PlanError("'source' is variable, clock, global or step")
+        out["source"] = source
+        if source == "clock" and spec["name"] not in CLOCK_NAMES:
+            raise PlanError(f"the clock gives {', '.join(CLOCK_NAMES)}")
+        if source == "step":
+            out["step"] = _name(spec, "step", True)
     elif kind == "input":
         ask = _text(spec, "prompt", 300, True)
         into, form = _name(spec, "into", True), spec.get("kind", "text")
@@ -224,6 +238,118 @@ def repeat_of(node: Any) -> Optional[Dict[str, Any]]:
 def _template_context(dag: Any, now: float) -> Dict[str, Any]:
     return {**{k: v for k, v in dag.shared_state.items() if isinstance(k, str)}, "plan_id": dag.plan_id, "plan_title": dag.title,
             "date": datetime.fromtimestamp(now).astimezone().strftime("%Y-%m-%d %H:%M")}
+
+
+# -- values: where a step reads them from and where it sets them ----------------------------------------------------------
+
+CLOCK_NAMES = ("now", "date", "time", "weekday", "hour", "timestamp")
+
+
+class GlobalValues:
+    """The values every plan can read and set (`target: global`, `source: global`): small plain data, kept in one JSON file when it has a path."""
+    LIMIT = 200
+
+    def __init__(self, path: Any = None) -> None:
+        self.path, self._data = path, {}
+
+    def _load(self) -> Dict[str, Any]:
+        if self.path is not None:
+            try:
+                import json
+                data = json.loads(open(self.path, encoding="utf-8").read())
+                if isinstance(data, dict):
+                    self._data = data
+            except (OSError, ValueError):
+                pass
+        return self._data
+
+    def get(self, name: str, default: Any = None) -> Any:
+        return self._load().get(name, default)
+
+    def has(self, name: str) -> bool:
+        return name in self._load()
+
+    def set(self, name: str, value: Any) -> None:
+        data = self._load()
+        if len(data) >= self.LIMIT and name not in data:
+            raise PlanError(f"the shared values hold at most {self.LIMIT} names")
+        data[name] = value
+        if self.path is not None:
+            import json
+            import os
+            import tempfile
+            directory = os.path.dirname(os.fspath(self.path)) or "."
+            os.makedirs(directory, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=directory, prefix="globals.", suffix=".json")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=1)
+            os.replace(tmp, self.path)
+
+
+GLOBALS = GlobalValues()
+
+
+def clock_value(name: str, now: float) -> Any:
+    moment = datetime.fromtimestamp(now).astimezone()
+    return {"now": moment.strftime("%Y-%m-%d %H:%M"), "date": moment.strftime("%Y-%m-%d"), "time": moment.strftime("%H:%M"),
+            "weekday": moment.strftime("%A").lower(), "hour": moment.hour, "timestamp": int(now)}[name]
+
+
+def read_value(dag: Any, spec: Dict[str, Any], now: float) -> Any:
+    """(found, value) for a get_var: from the plan's values, the clock, the values shared by all plans, or the output another step wrote."""
+    source, name = spec.get("source", "variable"), spec["name"]
+    if source == "clock":
+        return True, clock_value(name, now)
+    if source == "global":
+        return GLOBALS.has(name), GLOBALS.get(name)
+    if source == "step":
+        step = dag.nodes.get(spec.get("step"))
+        outputs = (step.state_variables.get("outputs") if step is not None else None) or {}
+        return name in outputs, outputs.get(name)
+    return name in dag.shared_state, dag.shared_state.get(name)
+
+
+PRODUCE_TYPES = ("number", "text", "bool", "list", "object", "any")
+MAX_PRODUCES = 12
+
+
+def clean_produces(value: Any) -> List[Dict[str, str]]:
+    """The values a step must write when it completes: a list of {"name", "type"} (or just names, which are of any type)."""
+    if value is None or value == []:
+        return []
+    if not isinstance(value, list) or len(value) > MAX_PRODUCES:
+        raise PlanError(f"'produces' is a list of at most {MAX_PRODUCES} values, each with a name and a type")
+    out: List[Dict[str, str]] = []
+    for item in value:
+        if isinstance(item, str):
+            item = {"name": item}
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"].isidentifier():
+            raise PlanError("a value a step produces has a name of letters, digits and _, starting with a letter")
+        kind = item.get("type", "any")
+        if kind not in PRODUCE_TYPES:
+            raise PlanError(f"the type of '{item['name']}' is one of {', '.join(PRODUCE_TYPES)}")
+        if any(o["name"] == item["name"] for o in out):
+            raise PlanError(f"'{item['name']}' is listed twice")
+        out.append({"name": item["name"], "type": kind})
+    return out
+
+
+def _is_type(value: Any, kind: str) -> bool:
+    if kind == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return {"text": isinstance(value, str), "bool": isinstance(value, bool), "list": isinstance(value, list), "object": isinstance(value, dict)}.get(kind, True)
+
+
+def check_produced(produces: List[Dict[str, str]], outputs: Optional[Dict[str, Any]]) -> None:
+    """A step that says what it produces completes with exactly those values, of those types."""
+    given = outputs or {}
+    missing = [p["name"] for p in produces if p["name"] not in given]
+    if missing:
+        raise PlanError("this step must produce " + ", ".join(f"{p['name']} ({p['type']})" for p in produces if p["name"] in missing)
+                        + ": complete it with outputs {" + ", ".join(f"{m}: ..." for m in missing) + "}")
+    wrong = [p["name"] for p in produces if not _is_type(given[p["name"]], p["type"])]
+    if wrong:
+        raise PlanError("these values are not of the type the step says: " + ", ".join(f"{w} should be {next(p['type'] for p in produces if p['name'] == w)}" for w in wrong))
 
 
 def _brief(value: Any) -> str:
@@ -302,14 +428,19 @@ def _resolve(dag: Any, node: Any, now: float, due: List[float], judge: List[str]
         except PlanError as exc:
             sv["auto_error"] = str(exc)[:200]
             return False
+        if spec.get("target") == "global":
+            GLOBALS.set(spec["name"], value)
+            sv["value"] = value
+            return _complete(dag, node, now, None, f"{spec['name']} = {_brief(value)} (shared by all plans)")
         return _complete(dag, node, now, {spec["name"]: value}, f"{spec['name']} = {_brief(value)}")
     elif kind == "get_var":
-        if spec["name"] not in dag.shared_state:
+        found, value = read_value(dag, spec, now)
+        if not found:
             sv["auto_error"] = f"'{spec['name']}' has no value yet"
             return False
-        value = dag.shared_state[spec["name"]]
         sv["value"] = value
-        return _complete(dag, node, now, {spec["into"]: value} if spec.get("into") else None, f"{spec['name']} is {_brief(value)}")
+        return _complete(dag, node, now, {spec.get("into") or spec["name"]: value} if spec.get("into") or spec.get("source", "variable") != "variable" else None,
+                         f"{spec['name']} is {_brief(value)}")
     elif kind == "output":
         try:
             value = render_template(spec["template"], _template_context(dag, now)) if spec.get("template") else _value_of(dag, node)

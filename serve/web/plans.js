@@ -734,6 +734,7 @@
     const cond = n.type === "decision" || n.type === "sensor"
       ? el("textarea", { id: "pl-d-cond", rows: "4", disabled: done, spellcheck: "false", text: JSON.stringify(n.conditions, null, 2) })
       : null;
+    const produces = el("input", { id: "pl-d-produces", value: (n.produces || []).map(p => p.type === "any" ? p.name : `${p.name}:${p.type}`).join(", "), disabled: done, autocomplete: "off", spellcheck: "false", placeholder: "uova:number, presenti:number" });
     const policy = n.retry_policy || {};
     const tries = el("input", { id: "pl-d-tries", type: "number", min: "1", max: "10", inputmode: "numeric", disabled: done, value: String(policy.max_attempts || 3) });
     const wait = el("input", { id: "pl-d-wait", type: "number", min: "0", max: "604800", inputmode: "numeric", disabled: done, value: String(policy.wait_seconds ?? 30) });
@@ -768,6 +769,7 @@
       el("label", { for: "pl-d-title", text: T("pl.f.title") }), title,
       el("label", { for: "pl-d-desc", text: T("pl.f.desc") }), desc,
       el("label", { for: "pl-d-assignee", text: T("pl.f.assignee") }), assignee,
+      n.type === "action" ? [el("label", { for: "pl-d-produces", text: T("pl.f.produces") }), produces, el("p", { class: "help", text: T("pl.f.produces.help") })] : [],
       specForm ? el("fieldset", { class: "pl-parents pl-spec" }, el("legend", { text: T("pl.type." + n.type) }), el("p", { class: "help", text: T("pl.kind." + n.type + ".d") }), specForm.el) : [],
       cond ? [el("label", { for: "pl-d-cond", text: T("pl.f.cond") }), cond, el("p", { class: "help", text: T(n.type === "sensor" ? "pl.f.cond.sensor.help" : "pl.f.cond.help") })] : [],
       el("label", { for: "pl-d-tries", text: T("pl.f.tries") }), tries,
@@ -820,6 +822,12 @@
         if (!isDraft) { say(T("pl.spec.need", got.errors.map(n => T("pl.spec." + n)).join(", ")), true); return; }
         missing = got.errors;
       } else changes.spec = got.spec;
+    }
+    const field = document.getElementById("pl-d-produces");
+    if (field) {
+      const parts = field.value.split(",").map(x => x.trim()).filter(Boolean).map(x => x.split(":").map(y => y.trim()));
+      if (parts.some(p => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(p[0]) || p.length > 2)) { say(T("pl.produces.bad"), true); return; }
+      changes.produces = parts.map(p => ({ name: p[0], type: p[1] || "any" }));
     }
     const tries = Number(document.getElementById("pl-d-tries").value) || 1, wait = Number(document.getElementById("pl-d-wait").value) || 0;
     const old = (S.snap.plan.nodes[id] || {}).retry_policy || {};

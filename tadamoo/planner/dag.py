@@ -187,9 +187,10 @@ class PlanNode:
     wiki_query: Optional[str] = None                     # what this step wants from the knowledge wiki, when there is one
     repeat: Optional[Dict[str, Any]] = None              # {"every", "max_runs", "reset_from", "stop_when"}: completing the step re-arms it instead of finishing it
     spec: Dict[str, Any] = field(default_factory=dict)   # what the kinds beyond action/sensor/decision/merge need (tadamoo/planner/nodes.py)
+    produces: List[Dict[str, str]] = field(default_factory=list)   # the values this step must write when it completes: [{"name", "type"}]
 
 
-EDITABLE = ("title", "description", "assignee", "conditions", "state_variables", "retry_policy", "position", "call_request", "wiki_query", "repeat", "spec")
+EDITABLE = ("title", "description", "assignee", "conditions", "state_variables", "retry_policy", "position", "call_request", "wiki_query", "repeat", "spec", "produces")
 
 # -- what a node may carry ---------------------------------------------------------------------------------
 
@@ -346,6 +347,9 @@ def clean_field(node_type: Any, key: str, value: Any, draft: bool = False) -> An
     if key == "spec":
         from tadamoo.planner import nodes
         return nodes.clean_spec(node_type, value, draft)
+    if key == "produces":
+        from tadamoo.planner import nodes
+        return nodes.clean_produces(value)
     return value
 
 
@@ -814,6 +818,9 @@ class PlanDAG:
                         raise PlanError("; ".join(problems))
                 if node.type == NodeType.INPUT and (node.spec["into"] not in (outputs or {}) and node.spec["into"] not in self.shared_state):
                     raise PlanError(f"this step asks the person for '{node.spec['into']}': complete it with outputs {{{node.spec['into']}: their answer}}")
+                if node.produces:
+                    from tadamoo.planner import nodes
+                    nodes.check_produced(node.produces, outputs)
                 if outputs:
                     outputs = clean_outputs(outputs)
                     merged = {**self.shared_state, **outputs}
@@ -1093,6 +1100,7 @@ def node_to_dict(n: PlanNode) -> Dict[str, Any]:
         "wiki_query": n.wiki_query,
         "repeat": n.repeat,
         **({"spec": n.spec} if n.spec else {}),
+        **({"produces": n.produces} if n.produces else {}),
     }
 
 
@@ -1115,6 +1123,7 @@ def node_from_dict(nd: Dict[str, Any]) -> PlanNode:
         wiki_query=clean_field(node_type, "wiki_query", nd.get("wiki_query")),
         repeat=clean_field(node_type, "repeat", nd.get("repeat")),
         spec=clean_field(node_type, "spec", nd.get("spec"), bool((nd.get("state_variables") or {}).get("draft"))),
+        produces=clean_field(node_type, "produces", nd.get("produces")),
     )
     if node_type == NodeType.INPUT:
         node.assignee = Assignee.USER                       # a question is answered by the person
