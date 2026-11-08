@@ -15,6 +15,7 @@ class NgramLoop:
         self.seen: Dict[Tuple[int, ...], Deque[int]] = {}      # a group -> the positions counted for it, oldest first
         self.order: Deque[Tuple[int, Tuple[int, ...]]] = deque()
         self.pos = 0
+        self.first_hit: int | None = None      # when a loop is found: the position at which the first full copy of the passage ended
 
     def push(self, token: int) -> bool:
         """Adds a token; True when it completes a group seen `times` times."""
@@ -37,4 +38,7 @@ class NgramLoop:
                 held.popleft()
                 if not held:
                     del self.seen[old]
-        return len(positions) >= self.times
+        if len(positions) >= self.times:
+            self.first_hit = max(1, positions[1] - self.n)     # the second window begins where the first copy ends
+            return True
+        return False

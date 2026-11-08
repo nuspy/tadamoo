@@ -10,7 +10,8 @@ from serve.frontend import ChatTemplate
 from serve.util.text import ByteTokenizer
 
 LIMITS = ("reasoning-budget-tokens", "answer-room", "measure-length", "thinking-loop-tokens", "max-answer-tokens",
-          "passage-loop-tokens", "passage-loop-times", "passage-loop-window")
+          "passage-loop-tokens", "passage-loop-times", "passage-loop-window",
+          "thinking-passage-loop-tokens", "thinking-passage-loop-times", "thinking-passage-loop-window")
 JS = (ROOT / "serve" / "web" / "loader.js").read_text(encoding="utf-8")
 I18N = (ROOT / "serve" / "web" / "i18n.js").read_text(encoding="utf-8")
 

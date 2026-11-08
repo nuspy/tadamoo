@@ -539,6 +539,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--answer-room", action=argparse.BooleanOptionalAction, default=False,
                     help="reserve space for closing the thinking and the answer when the output cap is at least 1024 tokens, "
                          "which cuts a long thinking short (default off); an explicit request budget of 0 opts out")
+    ap.add_argument("--thinking-passage-loop-tokens", type=budget_count, default=30, metavar="N",
+                    help="end the thinking, at the first copy, when it writes the same passage of this many tokens again and again (0 = never); "
+                         "a loop is --thinking-passage-loop-times copies within --thinking-passage-loop-window tokens. The copies are left out of what the answer reads")
+    ap.add_argument("--thinking-passage-loop-times", type=budget_count, default=5, metavar="N", help="copies of a passage in the thinking that make a loop")
+    ap.add_argument("--thinking-passage-loop-window", type=budget_count, default=3000, metavar="N", help="tokens of the thinking a loop is looked for in")
     ap.add_argument("--max-answer-tokens", type=budget_count, default=0, metavar="N",
                     help="the most the answer text may take, not counting the thinking, for requests that leave "
                          "max_answer_tokens out (0 = none); the reply then ends as cut")

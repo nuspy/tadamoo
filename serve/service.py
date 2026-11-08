@@ -137,6 +137,7 @@ class Service:
         self.measure_length = True                       # measure it at the model's first load
         self.answer_room = True                          # reserve output space when thinking
         self.thinking_loop_tokens = 256                  # one token repeated this often in the thinking ends it (0: off)
+        self.think_ngram = None                          # (tokens, times, window): a passage written again and again in the thinking ends it at its first copy (None: off)
         self.anthropic_think_unasked = True               # "anthropic_thinking": "on_request" -> False
         self.stop_ids = set(tokenizer.encode(IM_END, parse_special=True) +
                             tokenizer.encode("<|endoftext|>", parse_special=True))
@@ -218,6 +219,9 @@ class Service:
                 setattr(self, name, value)
         if isinstance(getattr(a, "measure_length", None), bool):
             self.measure_length = a.measure_length
+        n, times, window = (getattr(a, "thinking_passage_loop_" + k, None) for k in ("tokens", "times", "window"))
+        if all(isinstance(v, int) and not isinstance(v, bool) for v in (n, times, window)):
+            self.think_ngram = (n, times, window) if n > 0 and times > 0 and window > 0 else None
         n, times, window = (getattr(a, "passage_loop_" + k, None) for k in ("tokens", "times", "window"))
         if all(isinstance(v, int) and not isinstance(v, bool) for v in (n, times, window)):
             self.repeat_ngram = (n, times, window) if n > 0 and times > 0 and window > 0 else None
@@ -1118,6 +1122,8 @@ class Service:
                             else self.engine.generate(prompt, max_new - n, sampling, cancel)
                         seg, wrap, leaving = [], False, False   # this pass's tokens; budget reached; consumer left
                         looped = False                  # the wrap is for a repeated token, not the budget
+                        think_guard = NgramLoop(*self.think_ngram) if self.think_ngram else None    # a passage written again and again in the thinking
+                        think_at, think_hit, think_keep = [], False, None     # seg length at each thinking token; a loop was found; seg kept up to its first copy
                         ended_thinking = False          # the turn ended inside the thinking
                         opens = False                   # the thinking is over: write the forced call's opening
                         try:
@@ -1156,6 +1162,9 @@ class Service:
                                     run_id = t
                                 else:
                                     run_n = 0
+                                if think_guard is not None and parser.state == "reasoning":
+                                    think_at.append(len(seg))
+                                    think_hit = think_hit or think_guard.push(t)
                                 thinking_n += parser.state == "reasoning"
                                 writing = parser.state == "content"     # this token is answer text
                                 answer_n += writing
@@ -1191,6 +1200,10 @@ class Service:
                                         break
                                 if (self.thinking_loop_tokens and run_n >= self.thinking_loop_tokens
                                         and parser.state == "reasoning" and not parser.buf and not detok.pending()):
+                                    wrap = looped = True
+                                    break
+                                if think_hit and parser.state == "reasoning" and not parser.buf and not detok.pending():
+                                    think_keep = think_at[think_guard.first_hit - 1]     # the thinking is kept up to the first copy of the passage
                                     wrap = looped = True
                                     break
                                 if budget and parser.state == "reasoning":
@@ -1246,7 +1259,12 @@ class Service:
                             force = None
                             if max_new - n - len(extra) < 1:
                                 break                   # no room to answer: "length"
-                            if looped:
+                            if think_keep is not None:
+                                dropped = len(seg) - think_keep
+                                seg = seg[:think_keep]
+                                print(f"[server] thinking wrote a passage of {think_guard.n} tokens {think_guard.times} times within {think_guard.window} tokens: "
+                                      f"ended at its first copy, {dropped} tokens left out of what the answer reads (thinking-passage-loop-tokens, 0 = off)", flush=True)
+                            elif looped:
                                 print(f"[server] thinking repeated one token {run_n} times, ending it", flush=True)
                             else:
                                 print(f"[server] thinking budget reached ({thought} tokens), wrapping up", flush=True)

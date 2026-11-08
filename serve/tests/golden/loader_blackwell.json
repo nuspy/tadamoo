@@ -41,6 +41,9 @@
   "server.side-slot": 30000,
   "server.slot-full-context": false,
   "server.thinking-loop-tokens": 0,
+  "server.thinking-passage-loop-times": 5,
+  "server.thinking-passage-loop-tokens": 30,
+  "server.thinking-passage-loop-window": 3000,
   "server.vision": "off",
   "server.vision-hold": "keep",
   "server.vision-projector": "auto"
@@ -90,6 +93,9 @@
   "server.passage-loop-tokens",
   "server.passage-loop-times",
   "server.passage-loop-window",
+  "server.thinking-passage-loop-tokens",
+  "server.thinking-passage-loop-times",
+  "server.thinking-passage-loop-window",
   "server.measure-length"
  ],
  "gpu": {
@@ -271,6 +277,9 @@
     "server.side-slot": 0,
     "server.slot-full-context": false,
     "server.thinking-loop-tokens": 0,
+    "server.thinking-passage-loop-times": 5,
+    "server.thinking-passage-loop-tokens": 30,
+    "server.thinking-passage-loop-window": 3000,
     "server.vision": "dynamic",
     "server.vision-hold": "keep",
     "server.vision-projector": "auto"
@@ -456,6 +465,9 @@
     "server.side-slot": 30000,
     "server.slot-full-context": false,
     "server.thinking-loop-tokens": 0,
+    "server.thinking-passage-loop-times": 5,
+    "server.thinking-passage-loop-tokens": 30,
+    "server.thinking-passage-loop-window": 3000,
     "server.vision": "off",
     "server.vision-hold": "keep",
     "server.vision-projector": "auto"
@@ -731,6 +743,9 @@
    "server.side-slot": 30000,
    "server.slot-full-context": false,
    "server.thinking-loop-tokens": 0,
+   "server.thinking-passage-loop-times": 5,
+   "server.thinking-passage-loop-tokens": 30,
+   "server.thinking-passage-loop-window": 3000,
    "server.vision": "dynamic",
    "server.vision-hold": "keep",
    "server.vision-projector": "auto"
