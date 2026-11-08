@@ -52,21 +52,28 @@ def steps_of(messages: List[Dict[str, Any]], requests: List[Dict[str, Any]], tur
         if req is None:
             continue
         end = next((r["index"] for r in requests if r["n"] == n + 1), len(messages))
-        results = {m.get("tool_call_id"): str(m.get("content") or "") for m in messages[req["index"] + 1:end] if m.get("role") == "tool"}
-        for m in messages[req["index"] + 1:end]:
-            if m.get("role") != "assistant":
-                continue
-            for call in m.get("tool_calls") or []:
-                fn = call.get("function") or {}
-                try:
-                    args = json.loads(fn.get("arguments") or "{}")
-                except ValueError:
-                    args = {}
-                result = results.get(call.get("id"), "")
-                steps.append({"turn": n, "kind": "tool", "name": fn.get("name", ""), "arguments": args if isinstance(args, dict) else {},
-                              "result": result, "ok": not result.startswith(FAILED)})
-            if not m.get("tool_calls") and str(m.get("content") or "").strip():
-                steps.append({"turn": n, "kind": "answer", "text": str(m["content"]).strip()})
+        steps.extend(steps_in(messages, req["index"] + 1, end, n))
+    return steps
+
+
+def steps_in(messages: List[Dict[str, Any]], lo: int, hi: int, turn: int) -> List[Dict[str, Any]]:
+    """The tool calls and the answers in words of `messages[lo:hi]`, in order, each marked with the request (or plan step) `turn` they belong to."""
+    steps: List[Dict[str, Any]] = []
+    results = {m.get("tool_call_id"): str(m.get("content") or "") for m in messages[lo:hi] if m.get("role") == "tool"}
+    for m in messages[lo:hi]:
+        if m.get("role") != "assistant":
+            continue
+        for call in m.get("tool_calls") or []:
+            fn = call.get("function") or {}
+            try:
+                args = json.loads(fn.get("arguments") or "{}")
+            except ValueError:
+                args = {}
+            result = results.get(call.get("id"), "")
+            steps.append({"turn": turn, "kind": "tool", "name": fn.get("name", ""), "arguments": args if isinstance(args, dict) else {},
+                          "result": result, "ok": not result.startswith(FAILED)})
+        if not m.get("tool_calls") and str(m.get("content") or "").strip():
+            steps.append({"turn": turn, "kind": "answer", "text": str(m["content"]).strip()})
     return steps
 
 
@@ -312,7 +319,17 @@ Rules:
 - Answer with the program in one ```python block, nothing else.'''
 
 
-def script_prompt(name: str, description: str, params: List[Dict[str, Any]], requests: List[Dict[str, Any]], steps: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+PLAN_RULES = '''This job was a plan: the steps below, in this order, each with the values it reads and the values it produces. Structure the program as plain code:
+- One function for each plan step, named `step_<id>`, that takes the values it reads as arguments and returns a dict of the values it produces, named as the plan names them.
+- `main(params)` calls the step functions in the plan's order and passes each value on as an argument; it keeps what the steps return in ordinary variables.
+- A decision is an `if`/`elif` on those values, with the plan's own condition as the Python expression. A wait is `time.sleep` for a short one, else say so with `say()`.
+- A step for the person, or one that asks for a value, is `ask()`. A step whose recorded work was only words (a choice, a judgement, a summary) is an `ai()` call
+  with exactly the text it needs and the values it reads: the model is used to decide what the words ask, never to find out again what to do.
+- A step marked "proposed" was approved by the person but never run: write it as the call says, and keep it easy to read.'''
+
+
+def script_prompt(name: str, description: str, params: List[Dict[str, Any]], requests: List[Dict[str, Any]], steps: List[Dict[str, Any]],
+                  plan: Optional[str] = None) -> List[Dict[str, str]]:
     plist = "\n".join(f"- params.{p['name']} ({p['type']}{', ' + p.get('item_type', '') if p['type'] == 'list' else ''}): {p.get('explanation') or p.get('label')}; "
                       f"the value in the requests was {p.get('value_seen')!r}" for p in params) or "(no parameters)"
     asked = "\n".join(f"Request {r['n']}: {_clip(r['text'], 2000)}" for r in requests)
@@ -321,11 +338,13 @@ def script_prompt(name: str, description: str, params: List[Dict[str, Any]], req
         if s["kind"] == "answer":
             recorded.append(f"{i}. [answer to request {s['turn']}] {_clip(s['text'], 1500)}")
         elif s["ok"]:
-            recorded.append(f"{i}. [request {s['turn']}] tool {s['name']} with arguments {_clip(json.dumps(_substitute(s['arguments'], params), ensure_ascii=False), SHOW_ARGUMENT)}\n"
+            recorded.append(f"{i}. [request {s['turn']}]{' (proposed, never run)' if s.get('proposed') else ''} tool {s['name']} with arguments {_clip(json.dumps(_substitute(s['arguments'], params), ensure_ascii=False), SHOW_ARGUMENT)}\n"
                             f"   it returned: {_clip(s['result'].strip(), SHOW_RESULT * 2)}")
         else:
             recorded.append(f"{i}. [request {s['turn']}] tool {s['name']} FAILED and was not part of the way: {_clip(s['result'].strip(), 160)}")
-    user = (f"Skill: {name}. {description}\n\nParameters:\n{plist}\n\nThe requests:\n{asked}\n\nWhat was done, in order:\n" + "\n".join(recorded) + "\n\n" + SCRIPT_RULES)
+    outline = f"\n\nThe plan:\n{plan}" if plan else ""
+    user = (f"Skill: {name}. {description}\n\nParameters:\n{plist}\n\nThe requests:\n{asked}{outline}\n\nWhat was done, in order:\n" + "\n".join(recorded)
+            + "\n\n" + SCRIPT_RULES + ("\n" + PLAN_RULES if plan else ""))
     return [{"role": "system", "content": "You write small, exact Python programs from a record of what was done. You prefer plain code to model calls."},
             {"role": "user", "content": user}]
 
@@ -337,10 +356,10 @@ def extract_code(text: str) -> str:
 
 
 def write_script(client: Any, name: str, description: str, params: List[Dict[str, Any]], requests: List[Dict[str, Any]], steps: List[Dict[str, Any]],
-                 repairs: int = 2) -> Dict[str, Any]:
+                 repairs: int = 2, plan: Optional[str] = None) -> Dict[str, Any]:
     """The second model call: the script. When the check finds problems, the model is told them and asks again, up to `repairs` times;
     what is left is returned for the person to see. Returns {"script", "problems", "unused"}."""
-    messages = script_prompt(name, description, params, requests, steps)
+    messages = script_prompt(name, description, params, requests, steps, plan)
     script, problems = "", []
     for attempt in range(repairs + 1):
         resp = client.chat_completion(messages=messages, temperature=0.0, extra={"reasoning_effort": "none"}, timeout=900.0, max_tokens=8000)

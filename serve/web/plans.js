@@ -134,8 +134,10 @@
       document.getElementById("pl-tab-" + S.tab).focus();
     });
     const panel = (k, ...kids) => (ui["panel_" + k] = el("div", { class: "pl-panel", role: "tabpanel", id: "pl-panel-" + k, "aria-labelledby": "pl-tab-" + k }, ...kids));
+    ui.skillBtn = el("button", { type: "button", class: "btn pl-btn", id: "pl-skill", hidden: true, title: T("pl.skill.tip"), text: T("pl.skill"),
+      onclick: () => { if (S.id && window.pskills) window.pskills.makePlan(S.id); } });
     ui.defineBar = el("div", { class: "pl-bar" },
-      el("div", { class: "pl-modes", role: "group", "aria-label": T("pl.view.label") }, ui.modeGraph, ui.modeList));
+      el("div", { class: "pl-modes", role: "group", "aria-label": T("pl.view.label") }, ui.modeGraph, ui.modeList), el("span", { class: "grow" }), ui.skillBtn);
     ui.instr = el("section", { class: "sec pl-instr", "aria-labelledby": "pl-instr-h", hidden: true },
       el("div", { class: "sh", title: T("sc.help.plan") }, el("b", { id: "pl-instr-h", text: T("sc.title.plan") })), el("div", { id: "pl-instr-root" }));
     ui.main = el("section", { class: "sec plmain", "aria-labelledby": "pl-h" },
@@ -1376,6 +1378,7 @@
     ui.summary.textContent = T("pl.summary", nodes.length, nodes.filter(n => n.status === "completed").length, S.snap.ready.length,
       Object.keys(S.snap.plan.shared_state).length);
     if (S.snap.watch_degraded) ui.summary.textContent += " · " + T("pl.degraded." + S.snap.watch_degraded);
+    ui.skillBtn.hidden = !(nodes.length && nodes.every(n => n.status === "completed" || n.status === "skipped") && nodes.some(n => n.status === "completed"));   // a plan that ended well
     drawGraph();
     drawList();
     const editing = ui.detail.contains(document.activeElement) && document.activeElement.matches("input, textarea, select");

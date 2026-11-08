@@ -188,3 +188,13 @@ A 360×640, 390×844 e oltre 1280, senza scroll orizzontale, con un piano vero:
 3. Collegare due passi con il filo dai capi tondi; un passo con più ingressi e più uscite; nessuna voce «viene dopo» in nessun punto (neanche nella lista).
 4. Compilare le proprietà di un passo «Attendi un tempo» e salvare: il tratteggio sparisce solo quando il passo è completo; con un campo vuoto il salvataggio tiene il resto e dice cosa manca.
 5. L'icona in alto a destra del grafico apre il riquadro delle disposizioni (Da sinistra a destra, Dall'alto in basso, Compatta, Corsie): sceglierne una la mostra; «Applica» la salva; un clic fuori dal riquadro, o Esc, la annulla e rimette i passi com'erano. Niente frecce per spostare i passi; si spostano a mano.
+
+## Piano che diventa script (8 novembre sera; provato con modello e storia finti)
+
+Con Qwen vero: un piano di tre-quattro passi eseguito dall'agente (con strumenti veri) fino alla fine; poi il pulsante «Trasforma in script» in cima al piano.
+
+1. Compare solo a piano finito bene. La finestra mostra, per ogni passo, da dove viene il lavoro (chiamate registrate, solo parole, chiede a te, lo fa il piano, niente di registrato).
+2. Su un passo senza registro: «Proponi cosa fa questo passo» dà chiamate da spuntare; non si può scrivere lo script finché ogni passo senza registro è deciso (approvato o lasciato al modello).
+3. La chat dei parametri («fai della cartella un parametro») cambia l'elenco sopra; il modulo resta usabile.
+4. Lo script scritto ha una funzione per passo, passa i valori come argomenti, usa `ai()` solo dove serve il linguaggio; salvato come skill personale e lanciato dalla Chat con valori diversi.
+5. Un valore passato davvero tra passi: A conta, C conta, B «dividi {uova} per {presenti}» riceve i numeri nel testo e tra i «valori dati».

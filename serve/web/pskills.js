@@ -286,11 +286,24 @@
 
   /* ---- making a skill from the requests the person chose ---- */
   async function make(sid, turns) {
+    return makeFrom({
+      propose: signal => api("POST", `api/agent/sessions/${sid}/skill-propose`, { turns }, signal),
+      script: (body, signal) => api("POST", `api/agent/sessions/${sid}/skill-script`, { turns, ...body }, signal),
+    });
+  }
+  async function makePlan(planId) {
+    return makeFrom({
+      propose: signal => api("POST", "api/agent/plan-skill/propose", { plan_id: planId }, signal),
+      script: (body, signal, approved) => api("POST", "api/agent/plan-skill/script", { plan_id: planId, ...body, approved }, signal),
+      extras: planExtras(planId),
+    });
+  }
+  async function makeFrom(src) {
     const w = windowOf(T("psk.make.title"), true);
     const wait = (text, abort) => { w.body.replaceChildren(mk("p", "psk-lead", text)); w.foot.replaceChildren(...(abort ? [button(T("psk.sel.cancel"), "ghost", abort)] : [])); };
     const controller = new AbortController();
     wait(T("psk.make.finding"), () => { controller.abort(); w.close(); });
-    const r = await api("POST", `api/agent/sessions/${sid}/skill-propose`, { turns }, controller.signal);
+    const r = await src.propose(controller.signal);
     if (r.aborted) return;
     if (!r.ok) { w.body.replaceChildren(mk("p", "psk-warn", T("psk.err", errText(r)))); w.foot.replaceChildren(button(T("psk.close"), "ghost", w.close)); return; }
     const proposal = r.json;
@@ -300,23 +313,30 @@
     const cards = [], box = mk("div", "psk-params");
     const addCard = (spec, o) => { const c = paramCard(spec, { ...o, remove: () => { const i = cards.indexOf(c); if (i >= 0) cards.splice(i, 1); } }); cards.push(c); box.append(c.el); return c; };
     const cand = value => (proposal.candidates || []).find(c => String(c.value) === String(value));
-    (proposal.params || []).forEach(p => {
-      const c = cand(p.value_seen);
-      addCard(p, { keep: true, seen: p.value_seen, unverified: p.unverified, used: c ? c.used_in.map(u => `${u.tool}.${u.argument}`).slice(0, 4).join(", ") : "" });
-    });
+    const fill = list => {
+      cards.splice(0).forEach(c => c.el.remove());
+      (list || []).forEach(p => {
+        const c = cand(p.value_seen);
+        addCard(p, { keep: true, seen: p.value_seen, unverified: p.unverified, used: c ? c.used_in.map(u => `${u.tool}.${u.argument}`).slice(0, 4).join(", ") : "" });
+      });
+    };
+    fill(proposal.params);
     w.body.append(asked, field(T("psk.field.name"), name), field(T("psk.field.desc"), desc), mk("h3", "", T("psk.make.params")), mk("p", "psk-help", T("psk.make.params.help")));
     if (proposal.note) w.body.append(mk("p", "psk-warn", proposal.note));
     if (!(proposal.params || []).length) w.body.append(mk("p", "psk-help", T("psk.make.none")));
     w.body.append(box, button(T("psk.make.add"), "", () => addCard({ type: "text" }, { keep: true })));
+    const extra = src.extras ? src.extras({ w, proposal, params: () => cards.filter(c => c.kept()).map(c => c.read()), setParams: fill }) : null;
     const status = mk("p", "psk-status"); status.setAttribute("role", "status");
     const write = button(T("psk.make.write"), "primary", async () => {
       status.textContent = "";
       let params;
       try { params = cards.filter(c => c.kept()).map(c => c.read()); } catch (e) { status.textContent = e.message; return; }
       if (new Set(params.map(p => p.name)).size !== params.length) { status.textContent = T("psk.pf.dup"); return; }
+      const open = extra && extra.check ? extra.check() : "";
+      if (open) { status.textContent = open; return; }
       const ctl = new AbortController();
       wait(T("psk.make.writing"), () => { ctl.abort(); w.close(); });
-      const s = await api("POST", `api/agent/sessions/${sid}/skill-script`, { turns, name: name.value.trim(), description: desc.value.trim(), params }, ctl.signal);
+      const s = await src.script({ name: name.value.trim(), description: desc.value.trim(), params }, ctl.signal, extra && extra.read ? extra.read() : null);
       if (s.aborted) return;
       if (!s.ok) { w.body.replaceChildren(mk("p", "psk-warn", T("psk.err", errText(s)))); w.foot.replaceChildren(button(T("psk.close"), "ghost", w.close)); return; }
       w.close();
@@ -325,8 +345,75 @@
     w.foot.append(status, write, button(T("psk.sel.cancel"), "ghost", w.close));
   }
 
+  /* ---- making a skill from a plan that ended well: where each step's work comes from, the steps with no record approved one by one, and a talk about the parameters ---- */
+  function planExtras(planId) {
+    return ctx => {
+      const { w, proposal } = ctx;
+      const decided = {};                                                     // step id -> the calls approved, [] to leave the step to the model, absent: not decided yet
+      const box = mk("div", "psk-plan");
+      box.append(mk("h3", "", T("psk.plan.cover")), mk("p", "psk-help", T("psk.plan.cover.help")));
+      (proposal.coverage || []).forEach(row => {
+        const line = mk("div", "psk-cover");
+        line.append(mk("b", "", row.title || row.id), mk("span", "psk-chip " + row.how, T("psk.plan.how." + row.how)));
+        if (row.tools && row.tools.length) line.append(mk("span", "psk-help", row.tools.join(", ")));
+        box.append(line);
+        if (row.how !== "missing") return;
+        const calls = mk("div", "psk-calls"), status = mk("p", "psk-help", T("psk.plan.undecided"));
+        const model = mk("input"); model.type = "checkbox";
+        const modelRow = mk("label", "psk-check"); modelRow.append(model, mk("span", "", T("psk.plan.model")));
+        const pick = [];
+        const settle = () => {
+          const chosen = pick.filter(c => c.box.checked).map(c => c.call);
+          if (model.checked) { decided[row.id] = []; status.textContent = T("psk.plan.tomodel"); }
+          else if (chosen.length) { decided[row.id] = chosen; status.textContent = T("psk.plan.approved", chosen.length); }
+          else { delete decided[row.id]; status.textContent = T("psk.plan.undecided"); }
+        };
+        model.onchange = settle;
+        const ask = button(T("psk.plan.propose"), "", async () => {
+          ask.disabled = true; status.textContent = T("psk.plan.proposing");
+          const r = await api("POST", "api/agent/plan-skill/fill", { plan_id: planId, nodes: [row.id] });
+          ask.disabled = false;
+          if (!r.ok) { status.textContent = T("psk.err", errText(r)); return; }
+          calls.replaceChildren();
+          pick.length = 0;
+          const list = (r.json.proposed || {})[row.id] || [];
+          if (!list.length) status.textContent = T("psk.plan.nocalls");
+          list.forEach(call => {
+            const c = mk("input"); c.type = "checkbox"; c.onchange = () => { if (c.checked) model.checked = false; settle(); };
+            const line2 = mk("label", "psk-check"); line2.append(c, mk("span", "", `${call.name}(${JSON.stringify(call.arguments).slice(0, 160)})${call.why ? " - " + call.why : ""}`));
+            calls.append(line2); pick.push({ box: c, call: { name: call.name, arguments: call.arguments } });
+          });
+          if (list.length) status.textContent = T("psk.plan.undecided");
+        });
+        box.append(ask, calls, modelRow, status);
+      });
+      const talk = mk("div", "psk-talk"), log = mk("div", "psk-help"), ta = mk("textarea"), send = button(T("psk.plan.chat.send"), "", async () => {
+        const message = ta.value.trim();
+        if (!message) return;
+        send.disabled = true; log.textContent = T("psk.plan.chat.wait");
+        let params;
+        try { params = ctx.params(); } catch (e) { log.textContent = e.message; send.disabled = false; return; }
+        const r = await api("POST", "api/agent/plan-skill/chat", { plan_id: planId, params, message });
+        send.disabled = false;
+        if (!r.ok) { log.textContent = T("psk.err", errText(r)); return; }
+        log.textContent = r.json.reply || "";
+        if (r.json.changed) { ctx.setParams(r.json.params); ta.value = ""; }
+      });
+      ta.rows = 2; ta.placeholder = T("psk.plan.chat.ph"); ta.setAttribute("aria-label", T("psk.plan.chat.title"));
+      talk.append(mk("h3", "", T("psk.plan.chat.title")), mk("p", "psk-help", T("psk.plan.chat.help")), ta, send, log);
+      w.body.append(box, talk);
+      return {
+        check: () => {
+          const open = (proposal.coverage || []).filter(r => r.how === "missing" && !(r.id in decided)).map(r => r.title || r.id);
+          return open.length ? T("psk.plan.need", open.join(", ")) : "";
+        },
+        read: () => decided,
+      };
+    };
+  }
+
   window.pskills = {
-    openList, make, edit: editor, runForm, skillBy, valueField,
+    openList, make, makePlan, edit: editor, runForm, skillBy, valueField,
     use: async text => {                                             // /skilluse name  [key=value ...]
       const m = /^(?:"([^"]+)"|(\S+))(?:\s+(.*))?$/.exec(text.trim());
       if (!m) { openList(); return; }

@@ -1275,3 +1275,11 @@ dialog.afolder .brd-b { display: grid; gap: 8px; padding: 12px 16px 16px; }
 .cn-frame { display: flex; flex-direction: column; }
 .cn-frame[hidden] { display: none; }
 .cn-frame iframe { flex: 1; width: 100%; min-height: calc(100vh - 150px); border: 0; background: transparent; }
+.psk-plan { display: grid; gap: 6px; }
+.psk-cover { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.psk-chip { padding: 1px 8px; font-size: 11px; color: var(--fg-2); border: 1px solid var(--line); border-radius: 10px; }
+.psk-chip.missing { color: var(--warn); border-color: var(--warn); }
+.psk-calls { display: grid; gap: 4px; }
+.psk-check { display: flex; align-items: flex-start; gap: 8px; min-height: 44px; }
+.psk-talk { display: grid; gap: 6px; }
+.psk-talk textarea { width: 100%; min-height: 56px; }

@@ -1735,6 +1735,24 @@ def make_handler(svc: Service, remote: bool = False):
         def _plan_service(self):
             return _plans_service(svc, self.server.server_address[1])
 
+        def _plan_skill(self, action, req):
+            """POST /api/agent/plan-skill/propose | fill | chat | script: a plan that ended well, made into a personal skill (see tadamoo/personal_skills/from_plan.py)."""
+            plan_id = req.get("plan_id")
+            if not isinstance(plan_id, str) or not plan_id:
+                return self._json(400, {"error": {"message": "send the plan_id"}})
+            try:
+                plan = self._plan_service().snapshot(plan_id)["plan"]
+            except Exception as exc:
+                return self._plan_error(exc)
+            mgr = self._agent_sessions()
+            if action == "propose":
+                return self._json(200, mgr.plan_skill_propose(plan, plan_id))
+            if action == "fill":
+                return self._json(200, mgr.plan_skill_fill(plan, plan_id, req.get("nodes")))
+            if action == "chat":
+                return self._json(200, mgr.plan_skill_chat(plan, plan_id, req.get("params"), req.get("message")))
+            return self._json(200, mgr.plan_skill_script(plan, plan_id, req.get("name"), req.get("description"), req.get("params"), req.get("approved")))
+
         def _plan_error(self, exc):
             if isinstance(exc, KeyError):
                 self._json(404, {"error": {"message": f"not found: {exc.args[0] if exc.args else ''}"}})
@@ -3043,6 +3061,8 @@ def make_handler(svc: Service, remote: bool = False):
                 if parts == ["place", "forget"]:
                     self._agent_sessions().forget_place()
                     return self._json(200, {"forgotten": True})
+                if len(parts) == 2 and parts[0] == "plan-skill" and parts[1] in ("propose", "fill", "chat", "script"):
+                    return self._plan_skill(parts[1], req)
                 if parts == ["editor"]:
                     return self._json(200, tab_editor.instruct(self._agent_sessions(), req.get("kind"), req.get("target"), req.get("instruction")))
                 if parts == ["projects"]:
