@@ -2878,8 +2878,8 @@ class ThinkingBudget(unittest.TestCase):
 
     def test_answer_room_preserves_explicit_opt_outs_and_budget_precedence(self):
         self.engine.THOUGHT = ThinkingEngine.THOUGHT * 4
-        self.svc.reasoning_budget_tokens = 20
         for fields in ({"reasoning_budget_tokens": 0, "thinking_budget_tokens": 10},
+                       {"reasoning_budget_tokens": -1, "thinking_budget_tokens": 10},
                        {"thinking_budget_tokens": 0, "thinking": {"budget_tokens": 10}},
                        {"thinking": {"budget_tokens": 0}}):
             with self.subTest(fields=fields):
@@ -2887,14 +2887,11 @@ class ThinkingBudget(unittest.TestCase):
                 self.assertEqual(code, 200, b)
                 self.assertEqual(b["choices"][0]["message"]["reasoning_content"], self.engine.THOUGHT)
 
-    def test_answer_room_keeps_smaller_budgets_and_clamps_server_defaults(self):
+    def test_answer_room_keeps_smaller_budgets_and_clamps_a_request_without_one(self):
         from serve.service import REASONING_CLOSE
         self.engine.THOUGHT = ThinkingEngine.THOUGHT * 4
-        for default, fields, expected in ((0, {"reasoning_budget_tokens": 100}, 100),
-                                          (100, {}, 100), (1000, {}, 512),
-                                          (1000, {"reasoning_budget_tokens": 100}, 100)):
-            with self.subTest(default=default, fields=fields):
-                self.svc.reasoning_budget_tokens = default
+        for fields, expected in (({"reasoning_budget_tokens": 100}, 100), ({}, 512), ({"reasoning_budget_tokens": 1000}, 512)):
+            with self.subTest(fields=fields):
                 code, b = self.openai(max_tokens=1024, **fields)
                 self.assertEqual(code, 200, b)
                 self.assertEqual(b["choices"][0]["message"]["reasoning_content"],
@@ -3002,21 +2999,16 @@ class ThinkingBudget(unittest.TestCase):
         self.assertEqual(b["choices"][0]["message"]["reasoning_content"], ThinkingEngine.THOUGHT)
         self.assertEqual(len(self.engine.prompts), 1)
 
-    def test_the_config_default_and_a_request_that_turns_it_off(self):
-        self.svc.reasoning_budget_tokens = 20                          # what --reasoning-budget-tokens sets
-        code, b = self.openai()
+    def test_a_request_budget_cuts_the_thinking_and_0_or_minus_1_is_no_limit(self):
+        code, b = self.openai(reasoning_budget_tokens=20)
         self.assertEqual(len(self.engine.prompts), 2)
         self.assertTrue(b["choices"][0]["message"]["reasoning_content"].startswith(ThinkingEngine.THOUGHT[:20] + "\n"))
-        code, b = self.openai(reasoning_budget_tokens=0)
-        self.assertEqual(b["choices"][0]["message"]["reasoning_content"], ThinkingEngine.THOUGHT)
-        self.assertEqual(len(self.engine.prompts), 3)
-
-    def test_the_launch_default_applies_on_the_anthropic_path_too(self):
-        self.svc.reasoning_budget_tokens = 20
-        code, raw = self.post("/v1/messages", {"model": "qwen3.8-flash-next", "max_tokens": 400, "stream": True,
-                                                "messages": [{"role": "user", "content": "2+2?"}]})
-        self.assertEqual(code, 200)
-        self.assertEqual(self.anthropic_thinking(raw).startswith(ThinkingEngine.THOUGHT[:20]), True)
+        for value in (0, -1):
+            before = len(self.engine.prompts)
+            code, b = self.openai(reasoning_budget_tokens=value)
+            self.assertEqual(code, 200, b)
+            self.assertEqual(b["choices"][0]["message"]["reasoning_content"], ThinkingEngine.THOUGHT)
+            self.assertEqual(len(self.engine.prompts), before + 1)
 
     def anthropic_thinking(self, raw):
         evs = [json.loads(line[6:]) for line in raw.splitlines() if line.startswith("data: {")]

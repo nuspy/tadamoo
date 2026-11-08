@@ -117,6 +117,11 @@ class LongAnswerApi(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("max_answer_tokens", raw)
 
+    def test_zero_and_minus_one_are_no_answer_cap(self):
+        for value in (0, -1):
+            status, raw = self.post({"messages": [{"role": "user", "content": "hi"}], "max_answer_tokens": value})
+            self.assertEqual(status, 200, raw)
+
 
 class Guards(unittest.TestCase):
     def reply(self, text, limit=None, thinking=False, **req):

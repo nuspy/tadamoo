@@ -23,14 +23,14 @@ the sampler as sent.
 
 Other request fields the API reads: `max_tokens` / `max_completion_tokens` (the Anthropic `max_tokens`; `0` or
 `-1` means the rest of the context), `stop` / `stop_sequences`, `logit_bias`, `reasoning_effort`, `enable_thinking`
-and `reasoning_budget_tokens` (a cap on thinking tokens; `0` is none). Anthropic's `thinking.budget_tokens` and
+and `reasoning_budget_tokens` (a cap on thinking tokens; `0` or `-1` is no limit). Anthropic's `thinking.budget_tokens` and
 llama.cpp's `thinking_budget_tokens` are the same budget, and `reasoning_budget_tokens` wins when more than one is
-sent. A request that names none of them takes the server's [`reasoning-budget-tokens`](index.md#server).
+sent. A request that names none of them has no thinking budget.
 
 The thinking is never cut by default. With `answer-room` switched on (off by default) and an effective output cap of at least 1024 tokens, thinking is limited to the cap minus
 `min(max(512, cap // 4), cap // 2)`. An 8192-token cap allows up to 6144 thinking tokens; the remaining 2048
 include the closing of the thinking and the answer. Smaller positive budgets stay unchanged. Context fitting uses the reduced
-cap. Explicit request budgets of `0` disable both the server default and automatic budgeting; smaller output caps
+cap. Explicit request budgets of `0` or `-1` disable automatic budgeting; smaller output caps
 keep their existing behavior. Reserved space reduces empty answers but does not guarantee a complete answer.
 
 ### Thinking loops

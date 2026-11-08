@@ -867,7 +867,6 @@ si scrivono nelle sezioni `server` / `engine` di `tadamoo_config.json`. Valgono 
 | **Conversazioni parcheggiate, al massimo** (`engine.conversation-cache-slots`) | quante conversazioni si parcheggiano per volta | 4 predefinito; 0 spegne la cache |
 | **RAM libera al parcheggio** (`engine.conversation-cache-min-free-mib`, MiB) | il margine di RAM fisica che resta libero quando si parcheggia una conversazione | 2.560 predefinito |
 | **Grammatica** (`server.grammar`) | tiene ogni chiamata di strumento e ogni formato di risposta JSON al suo schema dentro il motore | acceso di default; vale al prossimo Carica |
-| **Budget di ragionamento predefinito** (`server.reasoning-budget-tokens`) | il budget di ragionamento per le richieste che non ne indicano uno; 0 = nessuno | tienilo sotto il `max_tokens` delle richieste; vale al prossimo Carica |
 
 Una regola in più vale per il PC, non per il profilo: la **quota di RAM e commit lasciata libera** agli altri
 programmi (15% se la configurazione guidata non ha avuto un'altra risposta, dal 5 al 50%, almeno 2 GB). Ogni piano,
@@ -885,7 +884,7 @@ richieste.
 | impostazione | campo della richiesta | cosa fa | consiglio |
 |---|---|---|---|
 | **Thinking** (accanto al messaggio; effort) | `reasoning_effort` | quanto il modello ragiona prima di rispondere: High (predefinito), Medium, Low, Off | High per i problemi difficili, Low/Off per risposte rapide e chiamate di servizio (molto più veloce) |
-| **Budget di ragionamento** | `reasoning_budget_tokens` | dopo N token di ragionamento il ragionamento si chiude e il modello risponde; vuoto o 0 = nessun limite | 2.000-8.000 per limitare le risposte lente; troppo basso taglia il ragionamento |
+| **Budget di ragionamento** | `reasoning_budget_tokens` | dopo N token di ragionamento il ragionamento si chiude e il modello risponde; vuoto, 0 o -1 = nessun limite | 2.000-8.000 per limitare le risposte lente; troppo basso taglia il ragionamento |
 | **Token massimi in uscita** | `max_tokens` | la risposta più lunga, ragionamento compreso | vuoto per lo spazio del contesto; impostalo per risposte brevi e prevedibili |
 | **Prompt di sistema** | il primo messaggio `system` | istruzioni tenute in testa a ogni conversazione | breve e preciso |
 | **Stringhe di stop** | `stop` | la risposta finisce prima di una di queste stringhe | per formati che finiscono con un segnale |

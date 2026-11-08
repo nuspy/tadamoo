@@ -832,7 +832,6 @@ Set in the Loader (each with its reason and the live prediction), saved in load 
 | **Parked conversations, at most** (`engine.conversation-cache-slots`) | how many conversations are parked at a time | 4 by default; 0 turns the cache off |
 | **RAM kept free when parking** (`engine.conversation-cache-min-free-mib`, MiB) | the physical RAM floor kept free when a conversation is parked | 2,560 by default |
 | **Grammar** (`server.grammar`) | holds every tool call and JSON response format to its schema inside the engine | on by default; applies at the next Load |
-| **Default thinking budget** (`server.reasoning-budget-tokens`) | the thinking budget for requests that name none; 0 = none | keep it below the requests' `max_tokens`; applies at the next Load |
 
 One more rule is per PC, not per profile: the **share of RAM and commit kept free** for other programs (15% unless the
 wizard was told otherwise, 5-50%, at least 2 GB). Every plan, "Valori sicuri" and the wizard keep it free, and a load
@@ -848,7 +847,7 @@ engine's. API clients send the same fields in their requests.
 | setting | request field | what it does | guidance |
 |---|---|---|---|
 | **Thinking** (beside the message box; effort) | `reasoning_effort` | how much the model reasons before answering: High (default), Medium, Low, Off | High for hard problems, Low/Off for quick replies and helper calls (much faster) |
-| **Reasoning budget** | `reasoning_budget_tokens` | after N thinking tokens the thinking is closed and the model answers; empty or 0 = no limit | 2,000-8,000 to bound slow answers; too low cuts the reasoning short |
+| **Reasoning budget** | `reasoning_budget_tokens` | after N thinking tokens the thinking is closed and the model answers; empty, 0 or -1 = no limit | 2,000-8,000 to bound slow answers; too low cuts the reasoning short |
 | **Max output tokens** | `max_tokens` | the longest answer, thinking included | leave empty for the context's room; set it for short, predictable replies |
 | **System prompt** | first `system` message | instructions kept at the head of every conversation | short and specific |
 | **Stop strings** | `stop` | the answer ends before any of these strings | for formats that end with a marker |
