@@ -168,3 +168,13 @@ La pagina è provata con un DOM finto e con letture dei file, non su una finestr
 4. Piani e Cron Jobs: la casella «Cambia con un'istruzione» (una vera, con Qwen) e il «Log e risultati» come chat con risposta; «Apri come chat» su un'esecuzione.
 5. Chat: Risposta lunga resta accesa tra i messaggi di una conversazione e non in un'altra; il prompt non compare due volte inviando di seguito.
 6. Impostazioni > Generale > «Dove sono tenute le conversazioni»: Controlla, Sposta (con una cartella di prova), riavvio, e che l'elenco delle conversazioni sia intatto.
+
+## Lunghezza delle risposte e limiti del ragionamento (8 novembre; nessun avvio fatto per scriverli)
+
+Provati solo con il motore finto. Da fare con Qwen3.8-Flash-Next vero, a te davanti al PC (la misura tiene la GPU per minuti):
+
+1. Loader > Server: i campi «Tieni spazio per la risposta», «Chiudi il ragionamento se un token si ripete», «Limite predefinito della risposta» e i tre del ciclo nella risposta ci sono, sono spenti o a zero di serie, si salvano e dopo «Carica» si vedono in `GET /v1/status` o nel log di avvio.
+2. Primo caricamento di un modello senza file di lunghezza: dopo la calibrazione parte da sola la misura (capitolo da 2.000 parole, poi 5.000, 10.000, 20.000 e il libro). Il Loader mostra il passo e «Ferma» funziona. Alla fine controllare `lengths/<hash>.json` nella cartella dati: nome, quantizzazione, percorso completo, prove, `reliable_tokens`, `natural_words`.
+3. Riavviare TaDaMoo: il file viene letto (`GET /v1/status` > `length.known` vero, nessuna nuova misura). «Misura la lunghezza» la ripete.
+4. Una risposta lunga vera, ragionamento e testo insieme sopra `limit_tokens`: il numero sale (`observed_max_tokens`) solo se la risposta è finita da sola.
+5. Chat dell'agente: chiedere «Spiegami in dettaglio come…» con ragionamento alto finché il pensiero consuma tutto il tetto: deve comparire il testo scritto a parti invece di «risposta vuota».
