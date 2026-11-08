@@ -351,14 +351,19 @@
   function lengthHtml(can) {
     const L = (INFO && INFO.length) || {};
     const run = INFO && INFO.status && INFO.status.job === "length" && ["waiting", "starting", "calibrating"].includes(INFO.status.phase);
+    const S = L.settings || {}, runNow = (INFO && INFO.running) || {};
+    const rd = v => (v === true ? 0.5 : Number(v || 0));
+    const differs = "relaxed_drafting" in S && "engine.relaxed-drafting" in runNow && rd(S.relaxed_drafting) !== rd(runNow["engine.relaxed-drafting"]);
     const body = L.known
       ? `<dl class="kv spd">
-          <dt>${esc(T("ln.limit"))}</dt><dd><b>${nfmt(L.limit_tokens)}</b> tokens</dd>
-          <dt>${esc(T("ln.words"))}</dt><dd><b>${nfmt(L.reliable_words)}</b></dd>
+          <dt>${esc(T("ln.limit"))}</dt><dd>${L.limit_tokens > 0 ? `<b>${nfmt(L.limit_tokens)}</b> tokens` : esc(T("ln.unbounded", nfmt(L.reliable_tokens)))}</dd>
+          ${L.bounded ? `<dt>${esc(T("ln.words"))}</dt><dd><b>${nfmt(L.reliable_words)}</b></dd>` : ""}
+          <dt>${esc(T("ln.first"))}</dt><dd><b>${nfmt(L.first_stop_tokens)}</b> tokens</dd>
           <dt>${esc(T("ln.natural"))}</dt><dd><b>${nfmt(L.natural_tokens)}</b> tokens</dd>
-          <dt>${esc(T("ln.tries"))}</dt><dd>${(L.rungs || []).map(r => esc(T("ln.try", r.prompt, nfmt(r.tokens), nfmt(r.clean_tokens), nfmt(r.cap), r.clean ? "" : T("ln.looped"))) + " " + (r.checkpoints || []).map(c => esc(T(c.clean ? "ln.cp.ok" : c.reached ? "ln.cp.bad" : "ln.cp.no", nfmt(c.at)))).join(" ")).join("<br>")}</dd>
+          <dt>${esc(T("ln.tries"))}</dt><dd>${(L.rungs || []).map(r => esc(T("ln.try", r.prompt, nfmt(r.tokens), nfmt(r.clean_tokens), nfmt(r.cap), r.clean ? "" : T("ln.looped"), r.pieces || 1)) + " " + (r.checkpoints || []).map(c => esc(T(c.clean ? "ln.cp.ok" : c.reached ? "ln.cp.bad" : "ln.cp.no", nfmt(c.at)))).join(" ")).join("<br>")}</dd>
         </dl>
-        <p class="setnote">${esc(T("ln.at", when(L.measured_at), (L.model && L.model.quant) || "?"))}</p>`
+        <p class="setnote">${esc(T("ln.at", when(L.measured_at), (L.model && L.model.quant) || "?"))}${"relaxed_drafting" in S ? " · " + esc(T("ln.with", rd(S.relaxed_drafting) || T("ln.off"), S.temperature)) : ""}</p>
+        ${differs ? `<p class="setnote" role="status">${esc(T("ln.differs", rd(S.relaxed_drafting) || T("ln.off"), rd(runNow["engine.relaxed-drafting"]) || T("ln.off")))}</p>` : ""}`
       : `<p class="setnote">${esc(T("ln.unknown"))}</p>`;
     return `<section class="sec ldlen" aria-label="${esc(T("ln.title"))}">
         <div class="sh"><b>${esc(T("ln.title"))}</b></div>
