@@ -142,10 +142,10 @@ function draw() {
 
   const name = (live.state || "idle")[0].toUpperCase() + (live.state || "idle").slice(1);
   const ld = live.state === "loading" ? live.load || {} : null;
-  const gib = ld ? Object.entries(ld.gib || {}).map(([k, v]) => `${k} ${v.toFixed(1)} GiB`).join(" · ") : "";
+  const loadGib = ld ? Object.entries(ld.gib || {}).map(([k, v]) => `${k} ${v.toFixed(1)} GiB`).join(" · ") : "";
   setState(live.state || "idle", ld ? ld.kind === "wake" ? "Waking up" : `Loading weights${num(ld.percent) ? ` · ${ld.percent}%` : ""}`
     : live.queued > 0 ? `${name} · ${live.queued} queued` : name);
-  text("#detail", gib); $("#detail").hidden = !gib;
+  text("#detail", loadGib); $("#detail").hidden = !loadGib;
   text("#model", eng.model || "");
 
   const last = r0 && num(r0.decode_tok_s) ? r0.decode_tok_s : null, tok = generating && num(live.tok_s) ? live.tok_s : last;

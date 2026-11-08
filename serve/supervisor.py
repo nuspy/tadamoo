@@ -415,12 +415,12 @@ class Supervisor:
             self._length_stop.set()
         return busy
 
-    def _ask_length(self, prompt: str, cap: int) -> dict:
-        """One try: a text with no end under a cap of `cap` tokens that the server counts. It is cancelled as soon as the text falls into a loop or
-        the person stops it; `ended_by` says which."""
+    def _ask_length(self, history: list, cap: int) -> dict:
+        """One piece of a try: the conversation so far (the request for a text with no end, and what the model wrote of it), under a cap of `cap`
+        tokens that the server counts. It is cancelled as soon as the piece falls into a loop or the person stops it; `ended_by` says which."""
         from serve.frontend import openai_to_messages
         svc = self.svc
-        req = {"messages": [{"role": "user", "content": prompt}], "reasoning_effort": "none", "temperature": 0.8, "top_p": 0.95}
+        req = {"messages": history, "reasoning_effort": "none", "temperature": 0.8, "top_p": 0.95}
         messages, tools, kw = openai_to_messages(req)
         svc.load()
         ids, thinking, max_new = svc.prepare(messages, tools, kw, cap)
@@ -470,15 +470,19 @@ class Supervisor:
         if getattr(svc, "lengths", None) is None:
             svc.lengths = lengthprobe.Lengths(lambda: self.facts)
 
+        running = (getattr(svc, "settings_info", None) or {}).get("running") or {}
+        settings = {"relaxed_drafting": running.get("engine.relaxed-drafting"), "spec": running.get("engine.spec"), "temperature": 0.8, "top_p": 0.95,
+                    "reasoning_effort": "none"}
+
         def keep(result):
-            record = lengthprobe.new_record(model, context, engine, result)
+            record = lengthprobe.new_record(model, context, engine, result, settings)
             lengthprobe.write(key, record)
             svc.lengths.set(record)
             return record
 
         def step(r, rungs):
             keep({"rungs": rungs, "complete": False, "stopped_by": "running"})
-            self._set(message=f"{r['prompt']}: {r['tokens']} tokens written, {r['clean_tokens']} before any loop")
+            self._set(message=f"{r['prompt']}: {r['tokens']} tokens written in {r['pieces']} piece(s), {r['clean_tokens']} before any loop")
             print(f"[server] length: text '{r['prompt']}': {r['tokens']} tokens written (cap {r['cap']}), {r['finish']}"
                   f"{', loop after ' + str(r['clean_tokens']) + ' tokens' if r['looped'] else ''}", flush=True)
 
@@ -486,8 +490,9 @@ class Supervisor:
         if not result["rungs"]:
             return None
         record = keep(result)
-        print(f"[server] length saved to {lengthprobe.record_path(key)}: {record['reliable_tokens']} tokens "
-              f"({record['reliable_words']} words) before any loop; the model stopped by itself at {record['natural_tokens']} tokens", flush=True)
+        print(f"[server] length saved to {lengthprobe.record_path(key)}: {record['reliable_tokens']} tokens ({record['reliable_words']} words) "
+              f"before any loop, {'a limit' if record['bounded'] else 'not a limit (the model would not go on)'}; "
+              f"first closed a reply at {record['first_stop_tokens']} tokens", flush=True)
         return record
 
     # ---- the configuration wizard's measurement

@@ -531,3 +531,14 @@ class CanvasMoveTest(unittest.TestCase):
         text = (WEB / "i18n.js").read_text(encoding="utf-8")
         for key in ("pl.moved", "pl.auto.title"):
             self.assertEqual(text.count(f'"{key}"'), 2, key)
+
+
+class MonitorDrawTest(unittest.TestCase):
+    """draw() paints the whole Monitor from one metrics reply, and the poll that calls it shows Offline when it throws, so a name in it that hides a helper
+    takes the state pill and every table below it down with it."""
+
+    def test_nothing_inside_the_script_hides_a_helper_it_goes_on_to_call(self):
+        js = (WEB / "app.js").read_text(encoding="utf-8")
+        top = set(re.findall(r"^const (\w+) = ", js, re.M))
+        for name in sorted(top):
+            self.assertIsNone(re.search(rf"^[ ]+(?:const|let) {name}\b", js, re.M), f"a local {name} hides the helper of that name")
