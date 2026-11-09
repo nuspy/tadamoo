@@ -123,6 +123,9 @@ class AvatarEngine(ABC):
         """Frames for this audio (PCM16 mono): objects with width, height and bgr() like `avatar_client.Frame`, `resolution` pixels high."""
         raise NotImplementedForNow(f"{self.info.id}: render is not written yet")
 
+    def unload(self) -> None:
+        """Stop what this engine started and free what it loaded. An engine that starts nothing on its own has nothing to do."""
+
     def export_for_device(self, avatar_dir: Path, target: str) -> list[Path]:
         """The files a device of `target` needs to draw this avatar itself, as paths inside `avatar_dir`."""
         raise NotImplementedForNow(f"{self.info.id}: export_for_device is not written yet")

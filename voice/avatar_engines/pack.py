@@ -42,8 +42,43 @@ class EngineNotReady(RuntimeError):
 
 
 # ---- where things are
-def python() -> str:
-    return os.environ.get(ENV_PYTHON, "").strip()
+PYTHON_FILE = "python.json"                    # <models folder>/avatar-engines/python.json: the Python of the engines, chosen in the page
+
+
+def _engines_root(base: str | None = None) -> Path | None:
+    where = base if base is not None else models_store.root()
+    return Path(where) / "avatar-engines" if where else None
+
+
+def stored_python(base: str | None = None) -> str:
+    root = _engines_root(base)
+    try:
+        value = json.loads((root / PYTHON_FILE).read_text(encoding="utf-8")).get("python", "") if root else ""
+    except (OSError, ValueError, AttributeError):
+        return ""
+    return value.strip() if isinstance(value, str) else ""
+
+
+def python(base: str | None = None) -> str:
+    """The Python of the engine environment: the variable TADAMOO_AVATAR_ENGINES_PYTHON, else the path chosen in the page."""
+    return os.environ.get(ENV_PYTHON, "").strip() or stored_python(base)
+
+
+def python_source(base: str | None = None) -> str:
+    return "env" if os.environ.get(ENV_PYTHON, "").strip() else "stored" if stored_python(base) else "none"
+
+
+def set_python(path: str, base: str | None = None) -> str:
+    """Keep the path of the engine Python (an existing file); "" forgets it. ValueError with a plain reason."""
+    root = _engines_root(base)
+    if root is None:
+        raise ValueError("there is no models folder to keep it in: choose one in Settings > Voice")
+    path = (path or "").strip().strip('"')
+    if path and (not os.path.isabs(path) or not Path(path).is_file()):
+        raise ValueError("give the full path of a python executable that exists")
+    root.mkdir(parents=True, exist_ok=True)
+    (root / PYTHON_FILE).write_text(json.dumps({"python": path}), encoding="utf-8")
+    return path
 
 
 def engine_dir(engine: str, base: str | None = None) -> Path | None:
@@ -322,13 +357,66 @@ class PackEngine(AvatarEngine):
         finally:
             self._job = None
 
+    # ---- the setup: what the engine needs on this PC, and the explicit check that loads it once
+    mark_name = "check.json"                            # <models folder>/avatar-engines/<engine>/: written when the check passed
+    train_models: tuple = ()                            # catalog ids only a training needs
+
+    def check_mark(self, base: str | None = None) -> dict | None:
+        root = engine_dir(self.key, base)
+        try:
+            data = json.loads((root / self.mark_name).read_text(encoding="utf-8")) if root else None
+        except (OSError, ValueError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    def write_check_mark(self, base: str | None, done: dict) -> dict:
+        from datetime import datetime, timezone
+        mark = {**{k: v for k, v in done.items() if k != "event"}, "checked": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        root = engine_dir(self.key, base)
+        root.mkdir(parents=True, exist_ok=True)
+        (root / self.mark_name).write_text(json.dumps(mark), encoding="utf-8")
+        return mark
+
+    def setup_checks(self, base: str | None = None) -> list[dict]:
+        """One item per prerequisite, each {id, ok, en, it} and, for a catalog entry, `model`: the Python, ffmpeg, each file, and whether the check passed."""
+        def item(id_: str, ok: bool, en: str, it: str, **extra) -> dict:
+            return {"id": id_, "ok": ok, "en": en, "it": it, **extra}
+        exe = python(base)
+        py_ok = bool(exe) and Path(exe).is_file()
+        have_ffmpeg = shutil.which("ffmpeg") is not None
+        out = [item("python", py_ok, f"the engine Python is set ({exe})" if py_ok else f"the engine Python is not set or not there: choose it here or set {ENV_PYTHON}",
+                    f"il Python dei motori è impostato ({exe})" if py_ok else f"il Python dei motori non è impostato o non c'è: sceglilo qui o imposta {ENV_PYTHON}"),
+               item("ffmpeg", have_ffmpeg, "ffmpeg is on the PATH" if have_ffmpeg else "ffmpeg is not on the PATH", "ffmpeg è nel PATH" if have_ffmpeg else "ffmpeg non è nel PATH")]
+        for model_id in self.models + self.train_models:
+            have = models_store.is_installed(model_id, base)
+            name = models_store.MODELS[model_id][2]
+            out.append(item(model_id, have, f"{name} is installed" if have else f"{name} is not installed", f"{name} è installato" if have else f"{name} non è installato",
+                            model=model_id, scope="training" if model_id in self.train_models else "render"))
+        return out + self.check_items(base, item)
+
+    def check_items(self, base, item) -> list[dict]:
+        mark = self.check_mark(base)
+        when = (mark or {}).get("checked", "")
+        return [item("check", mark is not None, f"the environment loaded the engine on {when}" if mark else
+                     "the environment has not loaded the engine yet: press Check (it loads the models once)",
+                     f"l'ambiente ha caricato il motore il {when}" if mark else "l'ambiente non ha ancora caricato il motore: premi Controlla (carica i modelli una volta)")]
+
+    def check_environment(self, progress: Callable[[str, float], None] | None = None, base: str | None = None) -> dict:
+        """Load the engine once in its environment to prove it (the person asks for this) and record that it passed. EngineNotReady when something is missing,
+        EngineFailed with what the process said when it does not load."""
+        problems = environment_problems() + not_installed(self.models, base)
+        if problems:
+            raise EngineNotReady("; ".join(p[0] for p in problems))
+        relay = (lambda e: progress(str(e.get("phase") or "loading"), float(e.get("percent") or 0.0))) if progress else None
+        return self.write_check_mark(base, self._run(self.check_command(base), f"{self.info.name} check", relay))
+
     # ---- the interface
     def prepare(self, avatar_dir: Path, progress: Callable[[str, float], None]) -> None:
         """Choose the avatar to draw and load the engine's models once to prove the environment (this is the explicit request to load them)."""
         problems = self.problems(avatar_dir)
         if problems:
             raise EngineNotReady("; ".join(p[0] for p in problems))
-        self._run(self.check_command(), f"{self.info.name} check", lambda e: progress(str(e.get("phase") or "loading"), float(e.get("percent") or 0.0)))
+        self.check_environment(progress)
         self._avatar = Path(avatar_dir)
         progress("ready", 100.0)
 
@@ -354,3 +442,8 @@ class PackEngine(AvatarEngine):
         job = self._job
         if job is not None:
             job.stop()
+
+    def unload(self) -> None:
+        """Stop what is running and forget the avatar: a pack engine keeps no process or model between calls, so this is all there is to free."""
+        self.stop()
+        self._avatar = None

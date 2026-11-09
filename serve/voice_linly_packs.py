@@ -4,6 +4,9 @@ Nothing here is vendored: TaDaMoo's catalog (voice_catalog.py) offers each pack 
 commit, with the SHA-256 of the blob (computed from the raw bytes with `git show <commit>:<path>`). Each list is the import closure of the upstream script the
 engine runs plus the data files that code opens (found by reading the code, not by running it); demo media, web UIs and other engines are left out.
 Sizes are the blob sizes. A file of zero bytes is left out: the downloader needs a size.
+
+Licence note (kept here, not on the page): Linly-Talker is MIT, but its tree has no licence file for the projects its code comes from (Wav2Lip and primepake/wav2lip_288x288,
+SadTalker, ER-NeRF, with DeepSpeech feature code that points to the original's restrictions), so none of it is vendored; see docs/voice/engines-pc.md.
 """
 from __future__ import annotations
 

@@ -30,6 +30,21 @@ confirmed, its pack moves to `voice/avatar_engines/vendor/<engine>/` with a `VEN
 - The gateway does not serve these engines yet: the descriptors keep `integrated=False`, so `selection.for_mode` still answers with the integrated engine of a mode.
   Choosing one in Settings stores the choice and shows its availability.
 
+## Loading, and the Set up panel
+
+- Only the selected engine is loaded. `ActiveEngine` (`voice/avatar_engines/active.py`) makes one engine the one in use and unloads the previous one first
+  (`AvatarEngine.unload`: its process tree stopped, its avatar forgotten); a pack engine keeps no process or model between calls, so a render starts a runner and
+  ends it. Listing engines or reading their status starts nothing.
+- Each engine card has a Set up panel (`serve/web/voicesetup.js`), asked nothing until opened. It lists, item by item, the engine Python, ffmpeg, each catalog file and
+  (ER-NeRF) PyTorch3D and the four CUDA modules; Install runs the server's download flow (plan, licence acknowledgement, confirm, SHA-256) for a file that has a source and
+  says where to put the others by hand; Check loads the engine once in its environment and records it (`check.json`, `modules.json` for ER-NeRF).
+- The engine Python is the variable `TADAMOO_AVATAR_ENGINES_PYTHON`, else the path saved from the panel in `<models folder>/avatar-engines/python.json`.
+- Routes of the voice service (`voice/avatar_engines/setup_routes.py`, on the proxy's list): `GET /avatar/engines/<engine>/setup`, `POST /avatar/engines/<engine>/check`,
+  `POST /avatar/engines/python`. ER-NeRF is trained from the Avatar card's section through `/avatar/train/plan|start|cancel` and `status`
+  (`voice/avatar_training.py`): the same plan, confirm, progress and cancel as the other personalised engines, with the steps `check`, `prepare`, `head`, `torso`.
+- Licence notes are kept here and in the code, not on the page: the page shows only the restrictions that protect the person (Wav2Lip v2 is non-commercial; its face
+  detector is run by ultralytics, AGPL-3.0).
+
 ## Wav2Lip v2 (`wav2lip_v288`)
 
 - Runs Linly-Talker's `TFG/Wav2Lipv2.py` on the avatar's `poster.jpg` and the audio (`run`, then the video is decoded). Native size 288 px per the Linly-Talker
