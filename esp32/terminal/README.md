@@ -248,7 +248,7 @@ l'architettura:
 
 1. **ponte P4↔C6**: `iperf3` nei due sensi, atteso ~36 Mbit/s. Sotto i
    20 Mbit/s stabili il video va ripensato prima di tutto il resto.
-2. **tailnet**: MicroLink sul P4 e `ping` del PC a `100.110.144.5`. Da
+2. **tailnet**: MicroLink sul P4 e `ping` del PC a `<indirizzo Tailscale del PC>`. Da
    annotare: percorso diretto o via DERP, RTT, e SRAM interna libera col
    tunnel attivo.
 3. decoder `esp_h264` software su un file 362×480 **con il display acceso**,
