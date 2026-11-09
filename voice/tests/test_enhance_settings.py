@@ -32,6 +32,12 @@ def test_the_sdk_path_must_be_a_dll_path():
     assert parse({"rtx_video_path": "C:\\sdk\\run.exe"}).rtx_video_path == ""
 
 
+def test_a_network_device_or_relative_sdk_path_reads_as_nothing():
+    for bad in ("\\\\server\\share\\rtxvideo.dll", "//server/share/rtxvideo.dll", "\\\\?\\C:\\sdk\\rtxvideo.dll", "sdk\\rtxvideo.dll", "rtxvideo.dll",
+                "C:\\sdk\\a\x00.dll", "C:\\sdk\\a\n.dll"):
+        assert parse({"rtx_video_path": bad}).rtx_video_path == "", bad
+
+
 def test_with_nothing_on_the_worker_keeps_its_own_size_and_rate():
     p = plan(S(), 25, 480)
     assert not p.active and (p.worker_height, p.worker_fps, p.out_per_in) == (0, 0, 1)

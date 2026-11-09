@@ -90,14 +90,37 @@ class Changes(Base):
         self.assertEqual((got["enhance"]["upscale"], got["enhance"]["scale"]), ("rtx_video", 2.0))
         self.refused({"scale": 1.5}, "scale")
 
-    def test_the_sdk_path_is_a_full_path_to_a_dll_or_nothing(self):
-        path = str(self.root / "sdk" / "rtxvideo.dll")
+    def test_the_sdk_path_is_a_full_path_to_a_dll_that_exists_or_nothing(self):
+        (self.root / "sdk").mkdir()
+        dll = self.root / "sdk" / "rtxvideo.dll"
+        dll.write_bytes(b"MZ")
+        path = str(dll)
         self.assertEqual(voice_avatar.update({"enhance": {"rtx_video_path": path}})["enhance"]["rtx_video_path"], path)
         self.refused({"rtx_video_path": "rtxvideo.dll"}, "rtx_video_path")
         self.refused({"rtx_video_path": str(self.root / "run.exe")}, "rtx_video_path")
         self.refused({"rtx_video_path": 7}, "rtx_video_path")
-        self.refused({"rtx_video_path": path + "\0"}, "rtx_video_path")
+        self.refused({"rtx_video_path": path + chr(0)}, "rtx_video_path")
+        self.refused({"rtx_video_path": path.replace(".dll", chr(10) + ".dll")}, "rtx_video_path")
+        self.refused({"rtx_video_path": str(self.root / "sdk" / "gone.dll")}, "rtx_video_path")          # a path to nothing
+        self.assertEqual(self.stored()["avatar"]["enhance"]["rtx_video_path"], path)                      # no refusal changed it
         self.assertEqual(voice_avatar.update({"enhance": {"rtx_video_path": ""}})["enhance"]["rtx_video_path"], "")
+
+    def test_a_network_or_device_path_is_refused(self):
+        for bad in (r"\\server\share\rtxvideo.dll", "//server/share/rtxvideo.dll", r"\\?\C:\sdk\rtxvideo.dll", r"\\.\C:\rtxvideo.dll", "sdk/rtxvideo.dll",
+                    "C:rtxvideo.dll", "ftp://x/a.dll", "http://x/a.dll"):
+            self.assertFalse(vs.sdk_path_ok(bad), bad)
+            self.refused({"rtx_video_path": bad}, "rtx_video_path")
+        for good in (r"C:\sdk\rtxvideo.dll","D:/sdk/RTXVIDEO.DLL", "/opt/sdk/rtxvideo.dll"):
+            self.assertTrue(vs.sdk_path_ok(good), good)
+
+    def test_a_dll_that_went_away_later_does_not_reset_the_other_settings(self):
+        dll = self.root / "rtxvideo.dll"
+        dll.write_bytes(b"MZ")
+        voice_avatar.update({"enhance": {"upscale": "basic", "scale": 2, "rtx_video_path": str(dll)}})
+        dll.unlink()
+        got = voice_avatar.view()["enhance"]
+        self.assertEqual((got["upscale"], got["rtx_video_path"]), ("basic", str(dll)))            # the stored path stays; the service reports sdk_not_found
+        self.assertEqual(voice_avatar.update({"enhance": {"interpolate": "basic"}})["enhance"]["interpolate"], "basic")
 
     def test_a_refused_request_writes_nothing_and_a_good_one_replaces_the_file_whole(self):
         voice_avatar.update({"enhance": {"upscale": "basic"}})
