@@ -95,6 +95,18 @@ LICENSES = {
                                "brings the AGPL duties. The licence of the face-detection weights themselves is not stated in anything read here. Verify both before you distribute.",
                          "it": "Il pacchetto ultralytics che carica questo file è codice AGPL-3.0: usarlo per sé è permesso, ma offrirlo in rete o distribuirlo comporta gli obblighi "
                                "della AGPL. La licenza dei pesi di rilevamento del volto non è dichiarata in nulla di ciò che è stato letto qui. Verificare entrambe prima di distribuire."},
+    "orpheus-llama": {"name": "Orpheus 3B: Apache-2.0 on its card, fine-tuned from Llama 3.2; SNAC codec MIT", "url": "",
+                      "en": "The card of the model installed (unsloth's copy of canopylabs/orpheus-3b-0.1-ft) says Apache-2.0. The model was fine-tuned from Meta's "
+                            "Llama-3.2-3B-Instruct, so the Llama 3.2 Community License (attribution, an acceptable-use policy) may apply too: that was not checked. The "
+                            "SNAC codec is MIT. This is a summary, not legal advice: the license texts govern.",
+                      "it": "La scheda del modello installato (la copia di unsloth di canopylabs/orpheus-3b-0.1-ft) dice Apache-2.0. Il modello deriva da Llama-3.2-3B-Instruct "
+                            "di Meta, quindi può applicarsi anche la Llama 3.2 Community License (attribuzione, una politica d'uso accettabile): non è stato verificato. Il "
+                            "codec SNAC è MIT. È un riassunto, non una consulenza legale: fanno fede i testi delle licenze."},
+    "dia-dac": {"name": "Dia 1.6B (Apache-2.0) and the DAC codec (MIT)", "url": "",
+                "en": "Dia 1.6B (the 0626 release) is Apache-2.0 on its card. The DAC 44 kHz codec that its processor loads is Descript's: the Hugging Face copy states no "
+                      "license (its card says \"More Information Needed\"), the descript-audio-codec repository on GitHub is MIT. This is a summary, not legal advice.",
+                "it": "Dia 1.6B (la versione 0626) è Apache-2.0 secondo la sua scheda. Il codec DAC 44 kHz che il suo processore carica è di Descript: la copia su Hugging Face "
+                      "non dichiara una licenza (la scheda dice \"More Information Needed\"), il repository descript-audio-codec su GitHub è MIT. È un riassunto, non una consulenza legale."},
     "verify": {"name": "License not verified", "url": "",
                "en": "The license of this model has not been checked yet. Read the model's page on its source before you use it, "
                      "and do not rely on this download for any use the license may forbid.",
@@ -367,6 +379,42 @@ _QWEN = {
     },
 }
 
+# unsloth/orpheus-3b-0.1-ft at eae2b6e5e429c81b95ac42a883ac64f126583d43
+_ORPHEUS_FILES = [
+    ("config.json", "48720eff2b6096b5b332b87f4a2c23f1c073059c4c34571ba2a0c857487511f1", 890),
+    ("generation_config.json", "7743d26d00c238b85ae33b7c4bd0064c5dc7aceb6b28aae7e70e173ba668298a", 230),
+    ("model-00001-of-00002.safetensors", "1064bbba044a8ba0f5e1c88a9f301399c958875ca0db5fb216b7c7d39c91a6ca", 4_991_037_968),
+    ("model-00002-of-00002.safetensors", "6fac70f10fa2d2c37e06952366d43a0a4363b7e9e5fe48572b29f4a21b3479a9", 1_610_725_592),
+    ("model.safetensors.index.json", "38b3093cc8266199752dbd76dda1ccd5bc0702d0d6b75f25a2286536f709163a", 20_919),
+    ("special_tokens_map.json", "f17390e64274b3117a7f99afa87eb1de93097b820842c68bd626aff53d73d7f5", 508),
+    ("tokenizer.json", "fc3fecb199b4170636dbfab986d25f628157268d37b861f9cadaca60b1353bce", 22_849_547),
+    ("tokenizer_config.json", "d670e34e9ea7f2e30083a94cc83f1aefc3baa4c93116616fde446322514f5894", 5_407_514),
+    ("chat_template.jinja", "5816fce10444e03c2e9ee1ef8a4a1ea61ae7e69e438613f3b17b69d0426223a4", 3_827),
+]
+# hubertsiuzdak/snac_24khz at d73ad176a12188fcf4f360ba3bf2c2fbbe8f58ec
+_SNAC_FILES = [
+    ("config.json", "e119b9366d4f5e73c6ca5f31137c4ff361578bbb132953a5203afe037c4012be", 300),
+    ("pytorch_model.bin", "4b8164cc6606bfa627f1a784734c1e539891518f1191ed9194fe1e3b9b4bff40", 79_488_254),
+]
+# nari-labs/Dia-1.6B-0626 at ef2795fcc29c5abe6ffc91fd33808588b49bbc66
+_DIA_FILES = [
+    ("config.json", "4f4e9c50e6898fa79d6fe16e9991bebef07a4d3dd6926eee5eb7f7e39c88e04f", 1_396),
+    ("generation_config.json", "df7c1f7e4dc1c3e35811b7b2e49abd89d8a8b9599ec732eb6b0d17d678548ac4", 238),
+    ("model-00001-of-00002.safetensors", "9cf8f82d9f87d408f5da9cc0d73a3e9c4d9ca3633a4df3be4d283277b7ff1b1a", 4_993_046_400),
+    ("model-00002-of-00002.safetensors", "54bf3a47ac13e28ba6193659d57bc63a46875685b211b071f782c32efc834343", 1_451_637_544),
+    ("model.safetensors.index.json", "89664ffd667582a41e71c9aa1a4ba9de8187ec9dcd1e7711d97ec57d6e32dec5", 30_833),
+    ("preprocessor_config.json", "7dfa85b765a7c5b3fb3907abf43ece88cd9edcbf39402e3e32e056b3275e5433", 243),
+    ("audio_tokenizer_config.json", "1552f8bdccdfe0a98a8e93f9eb369de315e66a07b1530eba0be41513e2ee8f5e", 98),
+    ("special_tokens_map.json", "4373f3b7455d5a34196fca520de10a0af2af9d7cc05f6177b4be73a8bcfb3f74", 277),
+    ("tokenizer_config.json", "6c84315ff3c5214a5846bc3c08cb23fe01146906e4abf395519316732d602e64", 803),
+]
+# descript/dac_44khz at c1bc521685adf9cfe247bc39a5ca58917eda1ac4
+_DAC_FILES = [
+    ("config.json", "4eb55fb9af1990b8d608184ad29b70e358589719af7ea8d3c06998f7c2264a64", 541),
+    ("model.safetensors", "6128ebff483a41422b0164d079a3773b0d8d82e64c4293d775994cbf8baf913a", 306_507_276),
+    ("preprocessor_config.json", "c7d295758ce5777d6d88fef1996e94adc8ef3e2237ddfc5ecc24d1407aaddd7d", 206),
+]
+
 CATALOG = [_whisper(s) for s in _WHISPER] + [
     _entry("kokoro", "tts", "kokoro", "Kokoro", "kokoro", "apache-2.0",
            [_url(_KOKORO_BASE + "kokoro-v1.0.fp16.onnx", "kokoro-v1.0.fp16.onnx", "c1610a859f3bdea01107e73e50100685af38fff88f5cd8e5c56df109ec880204", 177_464_787),
@@ -432,15 +480,34 @@ CATALOG = [_whisper(s) for s in _WHISPER] + [
                     "variante addestrata con rinforzo, che il codice non carica), il normalizzatore di testo ttsfrd facoltativo. L'elenco viene dal codice al commit che usa "
                     "l'helper, non da una prova.")),
     _qwen("0.6B"), _qwen("1.7B"),
-    _entry("orpheus-3b", "tts", "orpheus", "Orpheus 3B", "orpheus", "verify", [_hf("unsloth/orpheus-3b-0.1-ft"), _hf("hubertsiuzdak/snac_24khz", subdir="snac_24khz")],
-           languages=("en",), verify=("license", "size"),
-           venv=_t("Own Python environment (tts-venvs/orpheus), torch with CUDA.", "Ambiente Python proprio (tts-venvs/orpheus), torch con CUDA."),
-           notes=_t("Eight fixed voices and expressive tags such as <laugh>; English only. It also needs the SNAC audio codec, installed with it.",
-                    "Otto voci fisse e tag espressivi come <laugh>; solo inglese. Serve anche il codec audio SNAC, installato insieme.")),
-    _entry("dia-1.6b", "tts", "dia", "Dia 1.6B", "dia", "verify", [_hf("nari-labs/Dia-1.6B-0626")], languages=("en",), verify=("license", "size"),
-           venv=_t("Own Python environment (tts-venvs/dia, shared with Qwen3-TTS), torch with CUDA.",
-                   "Ambiente Python proprio (tts-venvs/dia, condiviso con Qwen3-TTS), torch con CUDA."),
-           notes=_t("Dialogue with non-verbal markers; English only.", "Dialogo con marcatori non verbali; solo inglese.")),
+    _entry("orpheus-3b", "tts", "orpheus", "Orpheus 3B", "orpheus", "orpheus-llama",
+           [_pinned("unsloth/orpheus-3b-0.1-ft", "eae2b6e5e429c81b95ac42a883ac64f126583d43", _ORPHEUS_FILES),
+            _pinned("hubertsiuzdak/snac_24khz", "d73ad176a12188fcf4f360ba3bf2c2fbbe8f58ec", _SNAC_FILES, subdir="snac_24khz")],
+           size=_total(_ORPHEUS_FILES, _SNAC_FILES), languages=("en",), verify=("license",),
+           venv=_t("Own Python environment (tts-venvs/orpheus), torch with CUDA, transformers and the snac package.",
+                   "Ambiente Python proprio (tts-venvs/orpheus), torch con CUDA, transformers e il pacchetto snac."),
+           notes=_t("Eight fixed voices and expressive tags such as <laugh>; English only. It also needs the SNAC audio codec, installed with it in snac_24khz/. "
+                    "The official canopylabs repositories are gated on Hugging Face (a login and accepted terms, and they list no file hashes), so the entry uses unsloth's "
+                    "open copy of orpheus-3b-0.1-ft, as the helper does. The multilingual research releases (canopylabs/3b-es_it-ft-research_release for Italian, and the "
+                    "French, German, Korean, Chinese and Hindi ones) are gated too and are not in the catalog.",
+                    "Otto voci fisse e tag espressivi come <laugh>; solo inglese. Serve anche il codec audio SNAC, installato insieme in snac_24khz/. "
+                    "I repository ufficiali di canopylabs sono ad accesso controllato su Hugging Face (un accesso e termini accettati, e non elencano gli hash dei file), "
+                    "quindi la voce usa la copia aperta di unsloth di orpheus-3b-0.1-ft, come fa l'helper. Le versioni multilingue di ricerca (canopylabs/3b-es_it-ft-research_release "
+                    "per l'italiano, e quelle per francese, tedesco, coreano, cinese e hindi) sono ad accesso controllato anch'esse e non sono nel catalogo.")),
+    _entry("dia-1.6b", "tts", "dia", "Dia 1.6B", "dia", "dia-dac",
+           [_pinned("nari-labs/Dia-1.6B-0626", "ef2795fcc29c5abe6ffc91fd33808588b49bbc66", _DIA_FILES),
+            _pinned("descript/dac_44khz", "c1bc521685adf9cfe247bc39a5ca58917eda1ac4", _DAC_FILES, subdir="dac_44khz")],
+           size=_total(_DIA_FILES, _DAC_FILES), languages=("en",), verify=("dac-local",),
+           venv=_t("Own Python environment (tts-venvs/dia, shared with Qwen3-TTS), torch with CUDA, a transformers release that has DiaForConditionalGeneration.",
+                   "Ambiente Python proprio (tts-venvs/dia, condiviso con Qwen3-TTS), torch con CUDA, una versione di transformers che ha DiaForConditionalGeneration."),
+           notes=_t("Dialogue with non-verbal markers; English only. The model is the Hugging Face (transformers) format of the 0626 release; the repository's duplicate "
+                    "dia-v1.pth and pytorch_model.bin (6.4 GB each) are left out. Its weights are stored in 32 bits and the helper loads them in 16. The processor also needs "
+                    "Descript's DAC 44 kHz codec: audio_tokenizer_config.json names it as descript/dac_44khz on the Hub, so it is installed in dac_44khz/, but the helper "
+                    "loads the processor with local_files_only and does not point it to that folder yet (to do in the engine, not proven).",
+                    "Dialogo con marcatori non verbali; solo inglese. Il modello è il formato Hugging Face (transformers) della versione 0626; dia-v1.pth e pytorch_model.bin "
+                    "del repository (6,4 GB ciascuno, doppioni) non ci sono. I pesi sono in 32 bit e l'helper li carica in 16. Il processore ha bisogno anche del codec DAC 44 kHz "
+                    "di Descript: audio_tokenizer_config.json lo nomina come descript/dac_44khz sull'Hub, quindi si installa in dac_44khz/, ma l'helper carica il processore con "
+                    "local_files_only e non lo punta ancora a quella cartella (da fare nel motore, non provato).")),
     _entry("musetalk-v15", "avatar", "musetalk", "MuseTalk v1.5 weights", "musetalk", "musetalk",
            [_pinned("TMElyralab/MuseTalk", "2bcb936e2fddb4d86db4c62fd45b387d0c061571",
                     [("musetalkV15/musetalk.json", "5b6923aee04d71692e0e9846c471e0a4ea07a4f686d39545e472bd4ba17e1b47"),

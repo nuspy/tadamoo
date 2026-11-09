@@ -10,10 +10,10 @@ from serve import voice_catalog as vc
 ROOT = Path(__file__).resolve().parents[2]
 SHA = re.compile(r"^[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
-SIZED = {"chatterbox", "xtts-v2", "cosyvoice-3", "qwen3tts-0.6b", "qwen3tts-1.7b"}                                                                          # entries whose pinned sources record each file's size
-PINNED = {"piper", "musetalk-v15", "sherpa-diarization", "multilingual-e5-small", "chatterbox", "xtts-v2", "cosyvoice-3", "qwen3tts-0.6b", "qwen3tts-1.7b"}              # entries whose Hugging Face sources are grounded
+SIZED = {"chatterbox", "xtts-v2", "cosyvoice-3", "qwen3tts-0.6b", "qwen3tts-1.7b", "orpheus-3b", "dia-1.6b"}                                                                          # entries whose pinned sources record each file's size
+PINNED = {"piper", "musetalk-v15", "sherpa-diarization", "multilingual-e5-small", "chatterbox", "xtts-v2", "cosyvoice-3", "qwen3tts-0.6b", "qwen3tts-1.7b", "orpheus-3b", "dia-1.6b"}              # entries whose Hugging Face sources are grounded
 CHOSEN_REPOS = {"rhasspy/piper-voices", "vivym/face-parsing-bisenet", "csukuangfj/sherpa-onnx-pyannote-segmentation-3-0",
-                "intfloat/multilingual-e5-small", "ResembleAI/chatterbox"}                                              # repositories chosen from a search, not named by the voice code
+                "intfloat/multilingual-e5-small", "ResembleAI/chatterbox", "descript/dac_44khz"}                                              # repositories chosen from a search, not named by the voice code
 
 
 class CatalogShapeTest(unittest.TestCase):
@@ -113,9 +113,10 @@ class LicenseAndVerifyTest(unittest.TestCase):
                 "whisper-large-v3": "mit", "sherpa-diarization": "pyannote-camplus", "multilingual-e5-small": "mit"}
         for model, lic in want.items():
             self.assertEqual(vc.find(model)["license"], lic)
-        for model in ("orpheus-3b", "dia-1.6b"):                                          # not grounded yet
-            self.assertEqual(vc.find(model)["license"], "verify")
-            self.assertIn("license", vc.find(model)["verify"])
+        self.assertEqual((vc.find("orpheus-3b")["license"], vc.find("orpheus-3b")["verify"]), ("orpheus-llama", ("license",)))     # the Llama 3.2 base terms are unchecked
+        self.assertIn("Llama 3.2 Community License", vc.license_of(vc.find("orpheus-3b"))["en"])
+        self.assertEqual(vc.find("dia-1.6b")["license"], "dia-dac")
+        self.assertFalse(vc.find("orpheus-3b")["noncommercial"] or vc.find("dia-1.6b")["noncommercial"])
 
     def test_the_non_commercial_entries_say_so_in_their_license_text(self):
         self.assertEqual([e["id"] for e in vc.CATALOG if e["noncommercial"]], ["xtts-v2", "musetalk-v15", "wav2lip-int8", "wav2lipv2-code", "wav2lipv2-weights"])
@@ -230,6 +231,26 @@ class LicenseAndVerifyTest(unittest.TestCase):
         a, b = (vc.find(f"qwen3tts-{n}")["sources"][0]["pins"] for n in ("0.6b", "1.7b"))
         self.assertEqual(a["speech_tokenizer/model.safetensors"], b["speech_tokenizer/model.safetensors"])      # the same codec in every repository
         self.assertNotEqual(a["model.safetensors"], b["model.safetensors"])
+
+    def test_orpheus_has_the_model_and_the_snac_codec_in_the_folders_the_helper_reads(self):
+        e = vc.find("orpheus-3b")
+        model, snac = e["sources"]
+        self.assertEqual((model["repo"], model["subdir"], snac["repo"], snac["subdir"]), ("unsloth/orpheus-3b-0.1-ft", "", "hubertsiuzdak/snac_24khz", "snac_24khz"))
+        for name in ("config.json", "model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors", "model.safetensors.index.json", "tokenizer.json"):
+            self.assertIn(name, model["files"])
+        self.assertEqual(sorted(snac["files"]), ["config.json", "pytorch_model.bin"])
+        self.assertTrue(all(not s["repo"].startswith("canopylabs/") for s in e["sources"]))                   # the official repositories are gated and hide the hashes
+        self.assertIn("gated", e["notes"]["en"])
+
+    def test_dia_has_the_transformers_files_of_the_0626_release_and_the_dac_codec(self):
+        e = vc.find("dia-1.6b")
+        model, dac = e["sources"]
+        self.assertEqual((model["repo"], model["subdir"], dac["repo"], dac["subdir"]), ("nari-labs/Dia-1.6B-0626", "", "descript/dac_44khz", "dac_44khz"))
+        for name in ("config.json", "model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors", "audio_tokenizer_config.json", "tokenizer_config.json"):
+            self.assertIn(name, model["files"])
+        self.assertFalse([n for n in model["files"] if n in ("dia-v1.pth", "pytorch_model.bin")])           # 6.4 GB duplicates
+        self.assertEqual(sorted(dac["files"]), ["config.json", "model.safetensors", "preprocessor_config.json"])
+        self.assertEqual(e["verify"], ("dac-local",))                                                         # the helper does not point the processor to the local codec yet
 
     def test_the_piper_voices_are_onnx_and_json_pairs_that_land_flat_in_the_folder(self):
         e = vc.find("piper")
