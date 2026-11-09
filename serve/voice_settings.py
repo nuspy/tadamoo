@@ -400,6 +400,112 @@ def merge_enhance(stored, req) -> dict:
     return check_enhance({**enhance(stored), **req})
 
 
+# ---------------------------------------------------------------------------------------- the avatar's engines (voice.json avatar.engines, resolution, fps_hint)
+# A copy of what a request is checked against from voice/avatar_engines/registry.py (the server cannot import the voice package):
+# id -> (targets it runs on, the heights it offers, its default height). voice/tests/test_avatar_engines_selection.py keeps the two equal.
+AVATAR_TARGETS = ("pc", "web", "android", "esp32")
+AVATAR_ENGINES = {"visemes": (("pc", "web", "android", "esp32"), (96, 144, 192, 240, 288, 384, 480), 240),
+                  "wav2lip_gan96": (("pc", "web", "android"), (96, 144, 192, 288, 384, 480), 96),
+                  "wav2lip_v288": (("pc", "web", "android"), (144, 192, 288, 384, 480), 288),
+                  "ultralight": (("pc", "web", "android"), (160, 256, 384, 480), 256),
+                  "feathertalk": (("pc", "web", "android"), (144, 192, 288, 384, 480), 144),
+                  "musetalk_15": (("pc", "web"), (256, 384, 480, 720), 480),
+                  "sadtalker": (("pc",), (256, 384, 512), 256),
+                  "er_nerf": (("pc",), (256, 384, 512), 256)}
+AVATAR_DEFAULT_ENGINES = {"pc": "musetalk_15", "web": "visemes", "android": "wav2lip_gan96", "esp32": "visemes"}
+AVATAR_DEFAULT_RESOLUTION = {"pc": 480, "web": 240, "android": 96, "esp32": 96}
+AVATAR_FPS = (5, 60)
+AVATAR_DEFAULT_FPS = 25
+AVATAR_ENGINE_KEYS = ("engines", "resolution", "fps_hint")
+
+
+def _avatar_height(target: str, engine: str, current=None) -> int:
+    """The height for `engine` on `target`: `current` when the engine offers it, else the target's default when it does, else the engine's own."""
+    _targets, heights, own = AVATAR_ENGINES[engine]
+    for height in (current, AVATAR_DEFAULT_RESOLUTION[target]):
+        if _whole(height) and height in heights:
+            return height
+    return own
+
+
+def avatar_selection(stored=None) -> dict:
+    """{engines, resolution, fps_hint} from a stored `avatar` object; each value that is missing or invalid takes its default."""
+    stored = stored if isinstance(stored, dict) else {}
+    engines_in = stored.get("engines") if isinstance(stored.get("engines"), dict) else {}
+    heights_in = stored.get("resolution") if isinstance(stored.get("resolution"), dict) else {}
+    engines, heights = {}, {}
+    for target in AVATAR_TARGETS:
+        wanted = engines_in.get(target)
+        ok = isinstance(wanted, str) and wanted in AVATAR_ENGINES and target in AVATAR_ENGINES[wanted][0]
+        engines[target] = wanted if ok else AVATAR_DEFAULT_ENGINES[target]
+        heights[target] = _avatar_height(target, engines[target], heights_in.get(target))
+    fps = stored.get("fps_hint")
+    return {"engines": engines, "resolution": heights, "fps_hint": fps if _whole(fps) and AVATAR_FPS[0] <= fps <= AVATAR_FPS[1] else AVATAR_DEFAULT_FPS}
+
+
+def _check_target(target) -> str:
+    if target not in AVATAR_TARGETS:
+        raise VoiceSettingsError("target", f"The target is one of {', '.join(AVATAR_TARGETS)}.", f"La destinazione è una tra {', '.join(AVATAR_TARGETS)}.")
+    return target
+
+
+def _check_avatar_engine(target: str, engine) -> str:
+    if not isinstance(engine, str) or engine not in AVATAR_ENGINES:
+        raise VoiceSettingsError("engine", "This engine is not known.", "Questo motore non è conosciuto.")
+    if target not in AVATAR_ENGINES[engine][0]:
+        runs = ", ".join(AVATAR_ENGINES[engine][0])
+        raise VoiceSettingsError("engine", f"{engine} does not run on {target}: it runs on {runs}.", f"{engine} non gira su {target}: gira su {runs}.")
+    return engine
+
+
+def _check_avatar_height(engine: str, height) -> int:
+    heights = AVATAR_ENGINES[engine][1]
+    if not _whole(height) or height not in heights:
+        shown = ", ".join(map(str, heights))
+        raise VoiceSettingsError("resolution", f"{engine} draws at {shown} pixels high.", f"{engine} disegna a {shown} pixel di altezza.")
+    return height
+
+
+def merge_avatar_selection(stored, req: dict) -> dict:
+    """The stored selection changed by the fields of `req` (`engines` and `resolution` as {target: value}, `fps_hint`), the whole checked together:
+    an engine that does not run on its target or a height it does not offer is refused. A target whose engine changes and whose height is not in
+    `req` keeps its height when the new engine offers it, else takes a default."""
+    now = avatar_selection(stored)
+    engines, heights = dict(now["engines"]), dict(now["resolution"])
+    for key in ("engines", "resolution"):
+        if key in req and not isinstance(req[key], dict):
+            raise VoiceSettingsError(key, f"{key} is an object with a value per target.", f"{key} è un oggetto con un valore per destinazione.")
+    for target, engine in (req.get("engines") or {}).items():
+        _check_target(target)
+        engines[target] = _check_avatar_engine(target, engine)
+        heights[target] = _avatar_height(target, engine, heights[target])
+    for target, height in (req.get("resolution") or {}).items():
+        _check_target(target)
+        heights[target] = _check_avatar_height(engines[target], height)
+    fps = req.get("fps_hint", now["fps_hint"])
+    if not _whole(fps) or not AVATAR_FPS[0] <= fps <= AVATAR_FPS[1]:
+        raise VoiceSettingsError("fps_hint", f"fps_hint is a whole number from {AVATAR_FPS[0]} to {AVATAR_FPS[1]}.", f"fps_hint è un numero intero da {AVATAR_FPS[0]} a {AVATAR_FPS[1]}.")
+    return {"engines": engines, "resolution": heights, "fps_hint": fps}
+
+
+def select_avatar_engine(req) -> dict:
+    """Set one target's engine (and height); returns the whole selection. `req` is {target, engine, resolution?}."""
+    if not isinstance(req, dict) or set(req) - {"target", "engine", "resolution"} or "target" not in req or "engine" not in req:
+        raise VoiceSettingsError("body", "Send target, engine and, if you want one, resolution.", "Manda target, engine e, se vuoi, resolution.")
+    target = _check_target(req["target"])
+    change: dict = {"engines": {target: req["engine"]}}
+    if req.get("resolution") is not None:
+        change["resolution"] = {target: req["resolution"]}
+    with _lock:
+        data = _read()
+        stored = data.get("avatar") if isinstance(data.get("avatar"), dict) else {}
+        merged = merge_avatar_selection(stored, change)
+        stored.update(merged)
+        data["avatar"] = stored
+        _write(data)
+    return merged
+
+
 # ---------------------------------------------------------------------------------------- meetings and the copilot
 CONSENT_MODES = ("window", "explicit")
 CONSENT_WINDOW = (20, 300, 45)                  # lowest, highest, default seconds; voice/callbridge/meetbot/consent.py holds the same numbers (a test compares)

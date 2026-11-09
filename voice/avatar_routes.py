@@ -6,6 +6,7 @@
     POST /avatar/speak {text, lang?}         say a sentence with the personality's voice; POST /avatar/lipsync, /avatar/interrupt, /avatar/stream
     GET  /avatar/preview.mjpg                the rendered frames as MJPEG (multipart/x-mixed-replace), one stream per watcher
     GET  /avatar/output                      the preview and the virtual camera
+    GET  /avatar/engines                     every engine with its availability for the avatar of the personality, and the selection this service runs with
     GET  /avatar/enhance                     the acceleration of the video: what this PC can do (and why not), the settings, the plan, the measured cost
     POST /avatar/wizard/start                a draft; POST /avatar/wizard/<draft>/<foto|pose|video|voce> (multipart, field `file`);
     POST /avatar/wizard/<draft>/elabora {name, language?}   make the avatar; GET and DELETE /avatar/wizard/<draft>
@@ -34,6 +35,7 @@ from callbridge.avatar_store import StoreError, valid_name
 from callbridge.sospensione import MSG_SOSPESO, in_sospensione
 
 from voice import persona_link
+from voice.avatar_engines import registry as engine_registry, selection as engine_selection
 from voice.avatar_service import AvatarService, Unavailable
 from voice.avatar_wizard import STEPS, WizardError
 
@@ -194,6 +196,14 @@ def register(app, svc: AvatarService) -> None:
     @app.get("/avatar/enhance")
     def avatar_enhance_state():
         return jsonify(svc.enhance_state())
+
+    @app.get("/avatar/engines")
+    def avatar_engines():
+        link = svc.link()
+        folder = svc.store.path(link.avatar) if link.avatar else None
+        return jsonify({"avatar": link.avatar, "engines": engine_registry.describe(folder if folder and folder.is_dir() else None),
+                        "selection": engine_selection.parse({"engines": svc.config.avatar_engines, "resolution": svc.config.avatar_resolution,
+                                                              "fps_hint": svc.config.avatar_fps_hint}).as_dict()})
 
     @app.get("/avatar/preview.mjpg")
     def avatar_preview():
