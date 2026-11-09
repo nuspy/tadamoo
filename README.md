@@ -696,8 +696,9 @@ listed model; it only says how to load it. Loading the asked model on request is
 
 **API key.** The server listens on 127.0.0.1 only and needs no key: clients that insist on one can send any value.
 `--api-key KEY` (command line only, never in a config file) makes `/v1/*` require it as `Authorization: Bearer KEY`
-or `x-api-key: KEY`; it is needed to listen on another address (`--host 0.0.0.0`). The server answers to any `Host` name
-and any web page's `Origin`, and `/v1/*` carries `Access-Control-Allow-Origin: *`. The scripts and the app start the server on 127.0.0.1 without a key.
+or `x-api-key: KEY`; it is needed to listen on another address (`--host 0.0.0.0`). `/v1/*` carries `Access-Control-Allow-Origin: *`.
+Elsewhere a page of another site is refused, and without a key so is a DNS name that is not this PC's (`--allowed-hosts` adds names; see
+[server security](docs/server-security.md)). The scripts and the app start the server on 127.0.0.1 without a key.
 
 **Streaming.** `"stream": true` streams server-sent events in each API's own format (OpenAI `chat.completion.chunk`,
 Responses events, Anthropic `message_start` / `content_block_delta` / ...), reasoning included as

@@ -12,8 +12,11 @@ which stays the OpenAI and Anthropic interface of the loaded model, and nothing 
 | `local` | the same, and only from this PC, whatever the key |
 
 - With a key set, a request without it is `401 unauthorized`. The voice service's own token opens nothing here.
-- With no key set, a request from another PC is `403 loopback_only`, and so is a request that names a host other than this PC
-  (`Host`), or that comes from a page of another site (`Origin`).
+- With no key set, a request from another PC is `403 loopback_only`, and a request whose `Host` is not `localhost`, `127.0.0.1` or
+  `[::1]` is `403 forbidden`.
+- Unless it sends the API key or the control secret in a header, the server's origin guard refuses first (`403 forbidden`, with `reason`) a
+  request from a page of another site (`Origin`, or `Sec-Fetch-Site: cross-site` on a write) and, with no key set, a DNS name that is not
+  this PC's ([server security](../server-security.md)). The same guard covers `/api/*`, `/api/voice/*`, `/api/telegram/*` and the gateway WebSocket.
 - The listener for phones offers none of these routes (`403`).
 - A route marked "gated like a join" is also refused with `403 programs_join_off` (texts in `error` and `message_it`) unless the person turned on `meetings.allow_programs_join` in Settings > Voice > Meetings; it is read at every request.
 - An upload is read away when the request is refused, so the caller sees the answer and not a reset.
