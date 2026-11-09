@@ -6,6 +6,7 @@
     POST /avatar/speak {text, lang?}         say a sentence with the personality's voice; POST /avatar/lipsync, /avatar/interrupt, /avatar/stream
     GET  /avatar/preview.mjpg                the rendered frames as MJPEG (multipart/x-mixed-replace), one stream per watcher
     GET  /avatar/output                      the preview and the virtual camera
+    GET  /avatar/enhance                     the acceleration of the video: what this PC can do (and why not), the settings, the plan, the measured cost
     POST /avatar/wizard/start                a draft; POST /avatar/wizard/<draft>/<foto|pose|video|voce> (multipart, field `file`);
     POST /avatar/wizard/<draft>/elabora {name, language?}   make the avatar; GET and DELETE /avatar/wizard/<draft>
     POST /avatar/prepare {avatar, clip?}     prepare a clip for MuseTalk (one at a time); GET /avatar/prepare; POST /avatar/prepare/cancel
@@ -53,12 +54,16 @@ def _body() -> dict:
 
 
 def register(app, svc: AvatarService) -> None:
-    def follow_camera():
+    def follow_settings():
         try:
             svc.sync_camera()
         except Exception as e:                                                   # noqa: BLE001 (a camera that fails must not fail the request)
             log.warning("camera: %s", e)
-    app.before_request(follow_camera)
+        try:
+            svc.sync_enhance()
+        except Exception as e:                                                   # noqa: BLE001 (the acceleration is never needed to answer)
+            log.warning("enhance: %s", e)
+    app.before_request(follow_settings)
 
     def known(name):
         try:
@@ -185,6 +190,10 @@ def register(app, svc: AvatarService) -> None:
     @app.get("/avatar/output")
     def avatar_output_state():
         return jsonify(svc.outputs())
+
+    @app.get("/avatar/enhance")
+    def avatar_enhance_state():
+        return jsonify(svc.enhance_state())
 
     @app.get("/avatar/preview.mjpg")
     def avatar_preview():

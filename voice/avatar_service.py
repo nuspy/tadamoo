@@ -15,6 +15,8 @@ from pathlib import Path
 from callbridge import avatar_output, models_store
 from callbridge.avatar_client import AvatarClient
 from callbridge.avatar_store import AvatarStore
+from callbridge.enhance import capability as enhance_capability
+from callbridge.enhance import settings as enhance_settings
 from callbridge.tadamoo_api import TadamooApi
 
 from voice import persona_link
@@ -37,6 +39,8 @@ class AvatarService:
         self.state, self.app = state, app
         self.config = state.config
         self._api_factory = api_factory
+        self.enhance_gpu = enhance_capability.gpu                 # replaceable: (index) -> GpuInfo
+        self._enhance_key: tuple | None = None
         self.preview: avatar_output.Preview | None = None
         self.camera: avatar_output.VirtualCamera | None = None
         self._lock = threading.Lock()
@@ -79,6 +83,28 @@ class AvatarService:
         link = persona_link.resolve(self.state.settings.brain.persona, self._api(), self.store)
         persona_link.apply(self.config, link)
         return link
+
+    # ---- the acceleration of the video
+    def _enhance_report(self, settings: enhance_settings.EnhanceSettings) -> dict:
+        index = self.config.avatar_gpu_index or 0
+        return enhance_capability.report(self.enhance_gpu(index), dll_path=settings.rtx_video_path)
+
+    def sync_enhance(self) -> None:
+        """Apply `avatar.enhance` of voice.json to the client when it (or the GPU reading) changed. Cheap when nothing did."""
+        settings = enhance_settings.parse(self.config.avatar_enhance)
+        client = self.client()
+        key = (settings, self.config.avatar_fps, self.config.avatar_output_height, self.config.avatar_gpu_index)
+        if key == self._enhance_key:
+            return
+        client.configure_enhance(settings, self._enhance_report(settings) if settings.active else {})      # the GPU is read only when a stage is on
+        self._enhance_key = key
+
+    def enhance_state(self) -> dict:
+        """What the Settings card shows: the capabilities with their reasons, the settings, the plan and the measured cost."""
+        self.sync_enhance()
+        settings = enhance_settings.parse(self.config.avatar_enhance)
+        return {"capabilities": self._enhance_report(settings), "settings": settings.as_dict(), "status": self.client().enhancer.status(),
+                "basic": "The basic providers are plain CPU resizing and blending: they are not neural."}
 
     # ---- the camera
     def sync_camera(self) -> None:

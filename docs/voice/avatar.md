@@ -22,6 +22,7 @@ and the personality's avatar folder has their files.
 | The avatars folder | `voice/callbridge/avatar_store.py` |
 | The weights it needs | `voice/callbridge/avatar_weights.py` |
 | Preview (MJPEG) and virtual camera | `voice/callbridge/avatar_output.py` |
+| Acceleration (smaller and slower drawing, restored on this PC) | `voice/callbridge/enhance/`, `acceleration.md` |
 | The service object, the personality link | `voice/avatar_service.py`, `voice/persona_link.py` |
 | The creation wizard | `voice/avatar_wizard.py` |
 | Mouth sprites from a photo, the phone's files and manifest | `voice/callbridge/avatar_visemes.py`, `avatar_assets.py`, `avatar_prep.py` |

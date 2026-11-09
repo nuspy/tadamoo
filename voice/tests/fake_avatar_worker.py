@@ -44,7 +44,8 @@ def frames_loop(port, stop):
 def main():
     note(started=True, models=os.environ.get("MUSETALK_MODELS"), code=os.environ.get("AVATAR_CODE_DIR"), pythonpath=os.environ.get("PYTHONPATH"),
          hf_offline=os.environ.get("HF_HUB_OFFLINE"), tf_offline=os.environ.get("TRANSFORMERS_OFFLINE"), cwd=os.getcwd(),
-         cuda=os.environ.get("CUDA_VISIBLE_DEVICES"), state=os.environ.get("AVATAR_STATE_DIR"))
+         cuda=os.environ.get("CUDA_VISIBLE_DEVICES"), state=os.environ.get("AVATAR_STATE_DIR"),
+         fps=os.environ.get("AVATAR_FPS"), height=os.environ.get("AVATAR_OUTPUT_HEIGHT"))
     emit("ready")
     cancelled = set()
     frames_stop = {"ev": None}

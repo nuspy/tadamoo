@@ -1,0 +1,13 @@
+/* The Avatar acceleration card of Settings > Voice. Mobile first: one column, every target 44px or more, nothing wider than the screen. */
+.ae-body { display: grid; gap: 12px; min-width: 0; }
+.ae-set { display: grid; gap: 4px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.ae-legend { margin: 0; padding: 0; font: 600 16px/1.4 var(--font-sans); color: var(--fg); }
+.ae-opt { min-height: 44px; align-items: center; }
+.ae-opt span { min-width: 0; overflow-wrap: anywhere; }
+.ae-opt input:disabled + span { color: var(--fg-2); }
+.ae-why { margin: 0 0 6px 36px; padding-left: 8px; border-left: 3px solid var(--line); }
+.ae-status { display: grid; gap: 6px; min-width: 0; }
+.ae-status:empty { display: none; }
+#ae-refresh { justify-self: start; min-height: 44px; min-width: 44px; }
+.vt-card .vt-field input[type="text"]:focus-visible, .vt-card .vt-field select:focus-visible, .ae-opt input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 520px) { #ae-refresh { justify-self: stretch; } }
