@@ -31,7 +31,7 @@ ITERS = 200000                      # `iters` of the wrapper's Options (TFG/NeRF
 ITERS_RANGE = (1000, 1_000_000)
 MODULES_MARK = "modules.json"       # written when the build check passed: <models folder>/avatar-engines/ernerf/modules.json
 VIDEO = "video.mp4"
-TRAIN_MODELS = ("ernerf-bfm", "ernerf-face-parsing")
+TRAIN_MODELS = ("ernerf-bfm", "ernerf-face-parsing", "ernerf-resnet18")
 BFM_INFO = "3DMM_info.npy"          # made by convert_BFM.py from the Basel Face Model; the face tracker reads it
 
 
@@ -50,6 +50,11 @@ class ErNerfEngine(PackEngine):
         self._cancelled = False
 
     # ---- places and marks
+    def env_extra(self, base: str | None = None) -> dict:
+        """TORCH_HOME is the engine's own folder, where the catalog puts the ResNet-18 weights the face-parsing code would otherwise fetch from the network."""
+        root = engine_dir(self.key, base)
+        return {"TORCH_HOME": str(root / "torch-home")} if root else {}
+
     def folder(self, avatar_dir) -> Path:
         return Path(avatar_dir) / TRAINED_DIR / self.ID
 
@@ -201,7 +206,7 @@ class ErNerfEngine(PackEngine):
                 part = float(event.get("percent") or 0.0) / 100.0 * stage.weight / total * 100.0
                 progress(stage.id, min(100.0, base_pct + part))
             progress(stage.id, base_pct)
-            self._job = Job(list(stage.argv), stage.cwd, process_env(code), stage.id, relay, self._spawn, stage.needs_done)
+            self._job = Job(list(stage.argv), stage.cwd, process_env(code, self.env_extra(models_base)), stage.id, relay, self._spawn, stage.needs_done)
             try:
                 done = self._job.run()
             finally:

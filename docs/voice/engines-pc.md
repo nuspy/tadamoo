@@ -83,7 +83,9 @@ Anything given to others or used commercially needs the licences settled first.
   folder. Weights, catalog entries: `ernerf-audio-encoder` (`checkpoints/audio_visual_encoder.pth`), `ernerf-face-parsing` (the BiSeNet `79999_iter.pth`: the copy in the same Hugging Face repository, same name and size as the AD-NeRF file ER-NeRF's README names, not compared byte for
   byte) and `ernerf-bfm` (the four AD-NeRF files `exp_info.npy`, `keys_info.npy`, `sub_mesh.obj`, `topology_info.npy`, pinned to a GitHub commit). The rest of the 3DMM folder is the person's:
   the Basel Face Model file `01_MorphableModel.mat` (a registration with the university) and the `3DMM_info.npy` that `convert_BFM.py` makes from it; a training plan has a check `bfm` for it.
-  The face-parsing code also fetches `resnet18-5c106cde.pth` from download.pytorch.org unless it is in the PyTorch hub cache (not handled here).
+  The face-parsing code would fetch `resnet18-5c106cde.pth` from download.pytorch.org, so it is the catalog entry `ernerf-resnet18` (Linly-Talker repository, same commit; its SHA-256 starts with
+  `5c106cde` as torchvision's name convention says, checked on the file) in `<models folder>/avatar-engines/ernerf/torch-home/hub/checkpoints/`, and ER-NeRF's processes get
+  `TORCH_HOME` set to `.../ernerf/torch-home` (`ErNerfEngine.env_extra`, no other engine does): nothing is fetched at run time. A training plan checks the file.
 - A training is four steps (`ErNerfEngine.training_plan`, `prepare`): the build check, the upstream `data_utils/process.py`, then the head and the torso with
   `runners/ernerf_train.py`. Files go to `<avatar>/engines/er_nerf/` (`data/`, `head/`, `torso/`, `trained.json`). The data path must have no space: the upstream
   preparation does not quote it.
