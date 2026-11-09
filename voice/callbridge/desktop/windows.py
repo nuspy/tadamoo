@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import ctypes
 import logging
+from collections.abc import Callable, Mapping
 
 from . import win_clipboard
 from .base import Binding, Clipboard, Desktop, ForegroundApp, KeyHook, Overlay
 from .tk_overlay import OverlayStyle, TkOverlay
 from .win_keyhook import LowLevelKeyHook
+from .win_pynput_keys import PynputHotKeys
 
 log = logging.getLogger("callbridge.overlay")
 
@@ -83,6 +85,9 @@ class WindowsDesktop(Desktop):
 
     def key_hook(self, name: str, bindings: list[Binding]) -> KeyHook:
         return LowLevelKeyHook(name, bindings)
+
+    def push_to_talk_keys(self, name: str, hotkeys: Mapping[str, Callable[[], None]]) -> KeyHook:
+        return PynputHotKeys(name, hotkeys)
 
     def new_overlay(self) -> Overlay:
         return TkOverlay(OverlayStyle(
