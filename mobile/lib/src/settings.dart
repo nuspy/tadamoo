@@ -18,6 +18,12 @@ class AppSettings extends ChangeNotifier {
   String get language => _prefs.getString('language') ?? '';
   String get mode => _prefs.getString('mode') ?? 'default';
 
+  /// The Avatar tab: how the avatar is drawn ('video' from the PC, 'wav2lip' or 'visemes' on the phone), who answers ('direct' or 'harness')
+  /// and the personality ('' until the person chooses one; the PC's own default then stands).
+  String get avatarMode => _prefs.getString('avatarMode') ?? 'video';
+  String get avatarBrain => _prefs.getString('avatarBrain') ?? '';
+  String get avatarPersona => _prefs.getString('avatarPersona') ?? '';
+
   /// The role the person last chose for conversations in a folder ('' until they choose one).
   String get agentRole => _prefs.getString('agentRole') ?? '';
 
@@ -67,6 +73,21 @@ class AppSettings extends ChangeNotifier {
 
   Future<void> setMode(String value) async {
     await _prefs.setString('mode', value);
+    notifyListeners();
+  }
+
+  Future<void> setAvatarMode(String value) async {
+    await _prefs.setString('avatarMode', value);
+    notifyListeners();
+  }
+
+  Future<void> setAvatarBrain(String value) async {
+    await _prefs.setString('avatarBrain', value);
+    notifyListeners();
+  }
+
+  Future<void> setAvatarPersona(String value) async {
+    await _prefs.setString('avatarPersona', value);
     notifyListeners();
   }
 }

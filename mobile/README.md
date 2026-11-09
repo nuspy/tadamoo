@@ -13,6 +13,7 @@ A phone version of the Basalt conversation page, built with Flutter for Android 
 - **Files in answers**: a link to a file the agent made, or to a file in the folder, is a button that saves it with the phone's "Save as" window. Pictures the agent kept are shown; diagrams show their source.
 - **The + button**: *Image* (the phone's photo picker), *Photo* (the Camera app), *Documents/Files*: *Local* (the phone's document window), *Server* (the same window, opened on "Basalt - PC", the folders added on the PC, then the drives) and *Network* (the devices Tailscale sees, or an address you type; signs in over SMB and lets you mark files).
 - **Voice**: the microphone writes what you say with the phone's own speech recognition; answers can be read aloud with its own voice, one by one or automatically. The language follows the phone unless you set it.
+- **Avatar**: talk with the PC's voice. Hold the button and speak: the PC's own speech recognition, brain and speech synthesis answer, the words show on the screen and a typed sentence works too. *Direct* is the loaded model, *Harness* is the PC's agent (its permission questions stay on the screen); the personality is one of the PC's. When the avatar function is loaded on the PC the tab shows its video (WebRTC); when it is not, the tab works by voice only and switches to the video by itself when the avatar starts. It reconnects by itself. The mode selector keeps *Video from the PC*, *Wav2Lip on the phone* and *Visemes on a photo*; the last two are saved but not available in this build. The tab uses the same address and key as the rest of the app, through the server (`GET /api/voice/gateway/ws`); see `docs/voice/gateway.md`.
 - **Cron Jobs**: switch the jobs on and off, start one now and dismiss the requests waiting for you. Jobs are written on the PC.
 - **Settings**: the server's address (IP:port) and this phone's key, a QR scan, a test of the link.
 
@@ -25,6 +26,8 @@ A phone version of the Basalt conversation page, built with Flutter for Android 
 The key is the phone's own: take it away on the PC and the phone stops working at once. A phone can use the model, the conversations, the files of the PC, the routines and the plans, and works in any folder; what answers only to the PC itself (the wallet, the vault, the settings, the loading of models) stays there. A phone with a key also uses the personal skills and answers install requests; the rest of the capabilities stays on the PC.
 
 ## Build
+
+The Avatar tab needs three plugins (`record`, `flutter_pcm_sound`, `flutter_webrtc`); `flutter pub get` fetches them, and `lib/src/avatar_platform.dart` is the only file that uses them. Android needs `minSdk` 23 or more for WebRTC.
 
 ```
 cd mobile
@@ -41,7 +44,7 @@ python mobile/tool/mock_server.py      # prints PORT and FOLDER; leave it runnin
 flutter test --dart-define=BASALT_TEST_URL=http://127.0.0.1:<PORT> --dart-define=BASALT_TEST_FOLDER=<FOLDER>
 ```
 
-`new_chat_test.dart` checks what a new conversation sends; `protocol_test.dart` runs the app's side of the protocol against a real server with a scripted model; `answer_view_test.dart` checks how an answer is drawn. Without `BASALT_TEST_URL` the protocol tests are skipped.
+`gateway_client_test.dart`, `avatar_controller_test.dart` and `avatar_screen_test.dart` check the Avatar tab against a fake gateway, fake devices and a fake PC (no plugin needed); `new_chat_test.dart` checks what a new conversation sends; `protocol_test.dart` runs the app's side of the protocol against a real server with a scripted model; `answer_view_test.dart` checks how an answer is drawn. Without `BASALT_TEST_URL` the protocol tests are skipped.
 
 ## Notes
 
