@@ -125,14 +125,39 @@ quindi non va toccato. Le app già presenti non vanno toccate.
 
 ## L'app `avatar`
 
-Stato: **scheletro dell'interfaccia**, senza rete.
+Stato: **non compilata** (nessun ESP-IDF in questo albero), con rete e volto.
 
-- palco della persona a sinistra (poster, poi il video H.264 decodificato);
-- a destra: stato (pallino **più** testo — lo stato non dipende dal solo
-  colore), il tasto "Tieni premuto e parla" alto 140 px, e l'ultima frase
-  riconosciuta;
-- i punti dove innestare la rete sono marcati `TODO(rete)` con i vincoli del
-  gateway già verificati accanto.
+- il palco in alto (46% dell'area utile, circa 456×335 px su 480×800): il volto
+  del modo `visemes`, altrimenti un testo ("Solo voce");
+- sotto: stato (pallino **più** testo, non dipende dal solo colore), l'ultima
+  frase e il tasto in basso (120 px). Senza microfono manda un turno scritto;
+  mentre il PC parla lo stesso tasto interrompe la risposta;
+- `components/gateway_client` parla il protocollo di `docs/voice/gateway.md`:
+  l'`auth` porta `render_modes` e `device:"esp32"`, i messaggi lunghi (la
+  timeline dei visemi) si ricompongono dai pezzi del WebSocket (tetto 32 KB,
+  oltre si scarta il messaggio intero), i tipi sconosciuti si ignorano;
+- `components/apps/avatar/AvatarFace`: una faccia disegnata con LVGL la cui
+  bocca segue la timeline (apertura e larghezza per visema, con dissolvenza di
+  60 ms) sul **clock dell'audio**: la posizione di riproduzione, non l'arrivo
+  dei messaggi. Senza altoparlante il clock è virtuale (corre alla frequenza
+  dell'audio finché c'è audio ricevuto da "riprodurre"); quando ci sarà un
+  codec va dato `AvatarFace::played()`;
+- `components/avatar_core`: il C puro (timeline, clock, ricomposizione dei
+  frame), compilato anche sul PC da `test_host/`.
+
+Dichiara solo `visemes`, e solo se il controllo del renderer all'avvio è
+passato (`vt_selftest`, memoria, oggetti LVGL creati); altrimenti dichiara
+niente e il PC manda la sola voce. `wav2lip` e `video` non sono dichiarati.
+Non scarica le sprite dell'avatar né la foto: il volto è lo stesso per tutti.
+Chiudere l'app chiude la connessione (la dichiarazione vale per il volto che
+c'era); riaprirla ricontrolla e dichiara di nuovo.
+
+Prova sul PC delle parti pure (clang o gcc, nessun ESP-IDF):
+
+```
+cd test_host
+clang -std=c11 -Wall -Wextra -Werror -I../components/avatar_core/include   test_avatar_core.c ../components/avatar_core/viseme_timeline.c   ../components/avatar_core/ws_reasm.c -o test_avatar_core && ./test_avatar_core
+```
 
 ## Compilare e installare
 
@@ -228,4 +253,5 @@ l'architettura:
    tunnel attivo.
 3. decoder `esp_h264` software su un file 362×480 **con il display acceso**,
    contando i fps (il DPB sta in PSRAM e il DSI ne tira già ~73 MB/s).
-4. WebSocket al gateway (`:8771`) e PCM16 dal microfono: l'app diventa viva.
+4. microfono e altoparlante (PCM16): oggi l'audio ricevuto si conta soltanto,
+   e il volto va sul clock virtuale.

@@ -4,6 +4,7 @@
 
 #include "lvgl.h"
 #include "esp_brookesia.hpp"
+#include "AvatarFace.hpp"
 
 /**
  * Terzo terminale di callAPIcall, accanto al PC e all'app Android.
@@ -21,6 +22,10 @@
  * manda quindi un **turno scritto** (`{"type":"text"}`, che il gateway accetta),
  * cosi' la catena device -> agente -> risposta si prova per intero; quando
  * l'hardware audio arrivera', al suo posto andranno i frame PCM del microfono.
+ *
+ * Il volto: se il renderer (AvatarFace) supera il proprio controllo l'app
+ * dichiara `visemes` nell'auth e disegna una bocca che segue la timeline del PC;
+ * altrimenti dichiara niente e resta la sola voce.
  */
 class AppAvatar: public ESP_Brookesia_PhoneApp
 {
@@ -48,6 +53,8 @@ private:
     void mostraStato(Stato stato, const char *dettaglio = nullptr);
     void mostraTesto(const char *testo);
     void avviaTurno(void);
+    /** Il PC ha scelto un modo di disegno (ready o render_mode). */
+    void applicaModo(const char *modo);
 
     static void ptt_event_cb(lv_event_t *e);
     /** Riceve gli eventi del gateway: gira nel task del WebSocket. */
@@ -63,9 +70,16 @@ private:
     lv_obj_t *_stato_label = nullptr;
     lv_obj_t *_ptt = nullptr;           // premi per parlare (o per il turno scritto)
     lv_obj_t *_trascrizione = nullptr;
+    lv_obj_t *_ptt_testo = nullptr;
 
     uint16_t _width = 0;
     uint16_t _height = 0;
+    int _palco_w = 0;
+    int _palco_h = 0;
+
+    AvatarFace _face;
+    // Ultimo modo che il PC ha scelto e che non si sa disegnare: gia' segnalato.
+    char _modo_rifiutato[16] = "";
 
     // La risposta arriva a pezzi: si accumula qui per mostrarla mentre cresce.
     std::string _risposta;
