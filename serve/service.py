@@ -99,6 +99,7 @@ class Service:
         self.embeddings = threading.local()           # this request's image embeddings file
         self.api_key = ""                              # when set, /v1/* requires it
         self.control_token = ""                        # the secret of the changes through /api/*; empty: not required (--control-secret sets it)
+        self.allowed_hosts = ()                        # names besides IP addresses, localhost and the PC's own that may reach this server (--allowed-hosts)
         # put a non-default reasoning effort in a system turn before the answer so the cached prefix survives
         self.effort_end = False
         self.reqlog = RequestLog()                      # what each request sent, the model wrote and the server did

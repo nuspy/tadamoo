@@ -121,9 +121,9 @@ class Plain(unittest.TestCase):
         self.assertEqual(self.post(None, raw=b"{not json")[0], 400)
         self.assertEqual(self.post(None, raw=b"\xff\xfe")[0], 400)
 
-    def test_any_content_type_and_any_origin_may_export(self):
+    def test_any_content_type_and_this_servers_page_may_export_and_another_site_may_not(self):
         self.assertEqual(self.post(None, raw=json.dumps(body()).encode(), headers={"Content-Type": "text/plain"})[0], 200)
-        self.assertEqual(self.post(body(), headers={"Origin": "http://evil.example"})[0], 200)
+        self.assertEqual(self.post(body(), headers={"Origin": "http://evil.example"})[0], 403)          # serve/origin_guard.py
         self.assertEqual(self.post(body(), headers={"Origin": self.base})[0], 200)
 
     def test_a_body_over_the_limit_is_refused(self):

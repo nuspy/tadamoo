@@ -267,6 +267,7 @@ def main() -> int:
     svc.gpu_indices = gpus_in_play(cfg, engine_args(cfg) if cfg.get("args") else [])   # the cards /metrics reads
     svc.gpu_index = svc.gpu_indices[0]
     svc.control_token = write_control_token(a.port, a.control_secret_value) if a.control_secret else ""
+    svc.allowed_hosts = tuple(dict.fromkeys(a.allowed_hosts or ()))
     httpd = serve(svc, host=a.host, port=a.port)
     from serve import billion_context, chatctx, llamacpp_api, voice_settings
     threading.Thread(target=voice_settings.ensure_models_dir, daemon=True, name="voice-models-dir").start()    # the voice service reads the same folder from voice.json

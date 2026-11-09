@@ -11,6 +11,7 @@ from pathlib import Path
 from serve import ROOT
 from serve.engine.flags import flag_index, flag_value
 from serve.engine.vision import VISION_MODES, VISION_USAGE, vision_mode
+from serve.origin_guard import check_hostname
 from serve.util.console import tagged
 
 
@@ -376,6 +377,14 @@ def vision_setting(text: str) -> str:
         raise argparse.ArgumentTypeError(str(e)) from None
 
 
+def _allowed_host(text: str) -> str:
+    """argparse type: a bare host name for --allowed-hosts."""
+    try:
+        return check_hostname(text)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from None
+
+
 def parallel_count(text: str) -> int:
     """argparse type: a whole number of request slots, 1..PARALLEL_MAX."""
     try:
@@ -491,6 +500,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--control-secret-value", default="", metavar="TEXT",
                     help="with --control-secret, use this text as the secret instead of a random one made at each start; it is "
                          "saved in the --config file by the Loader, and written to the data folder like the random one")
+    ap.add_argument("--allowed-hosts", action="append", type=_allowed_host, metavar="NAME",
+                    help="a host name (besides IP addresses, localhost and this PC's own name) by which browsers may reach the server, "
+                         "such as the Tailscale MagicDNS name; give it once per name (a list in the --config file)")
     ap.add_argument("--debug", action="store_true",
                     help="log one line per request and the raw model text after each reply")
     ap.add_argument("--request-lines", action="store_true",
