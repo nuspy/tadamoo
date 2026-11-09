@@ -10,8 +10,8 @@ from serve import voice_catalog as vc
 ROOT = Path(__file__).resolve().parents[2]
 SHA = re.compile(r"^[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
-SIZED = {"chatterbox"}                                                                          # entries whose pinned sources record each file's size
-PINNED = {"piper", "musetalk-v15", "sherpa-diarization", "multilingual-e5-small", "chatterbox"}              # entries whose Hugging Face sources are grounded
+SIZED = {"chatterbox", "xtts-v2"}                                                                          # entries whose pinned sources record each file's size
+PINNED = {"piper", "musetalk-v15", "sherpa-diarization", "multilingual-e5-small", "chatterbox", "xtts-v2"}              # entries whose Hugging Face sources are grounded
 CHOSEN_REPOS = {"rhasspy/piper-voices", "vivym/face-parsing-bisenet", "csukuangfj/sherpa-onnx-pyannote-segmentation-3-0",
                 "intfloat/multilingual-e5-small", "ResembleAI/chatterbox"}                                              # repositories chosen from a search, not named by the voice code
 
@@ -197,6 +197,14 @@ class LicenseAndVerifyTest(unittest.TestCase):
             self.assertIn(name, s["files"])
         self.assertEqual(s["revision"], "5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18")
         self.assertEqual(s["pins"]["s3gen.pt"], "9b9ff07e60b20c136e2b1b3d7563a24604e8d2c4c267888d1ee929dd0151d2a3")
+
+    def test_xtts_has_the_files_the_helper_loads_and_the_license_text_in_its_folder(self):
+        e = vc.find("xtts-v2")
+        (s,) = e["sources"]
+        self.assertEqual((s["repo"], s["subdir"], s["revision"]), ("coqui/XTTS-v2", "", "6c2b0d75eae4b7047358e3b6bd9325f857d43f77"))
+        self.assertEqual(sorted(s["files"]), ["LICENSE.txt", "config.json", "dvae.pth", "mel_stats.pth", "model.pth", "speakers_xtts.pth", "vocab.json"])
+        self.assertEqual(s["pins"]["model.pth"], "c7ea20001c6a0a841c77e252d8409f6a74fb423e79b3206a0771ba5989776187")
+        self.assertTrue(e["noncommercial"])
 
     def test_the_piper_voices_are_onnx_and_json_pairs_that_land_flat_in_the_folder(self):
         e = vc.find("piper")
