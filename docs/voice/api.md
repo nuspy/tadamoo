@@ -103,6 +103,28 @@ These answer `501` with `code: not_available_yet` and the reason, and reach no s
   callAPIcall's `409` for the active avatar is not offered.
 - A body is at most 128 KiB; a field the store refuses is `400` with its reason.
 
+## Calls from the phone app
+
+`POST /api/voice/phone/call {number, greeting?, lang?}` is not a callAPIcall route; it is how the person's phone starts a call as the person.
+The origin of a call is decided here from the channel, never from what the client says: the request must come through the **listener for
+phones** with a key (a device key or the server's key, phones turned on), and the person must have turned on **Let my phone place calls through
+this PC** (`telephony.phone_calls`, off by default). Then the server sends `POST /call` to the service, the route for a call by hand (origin
+`user`: no approval, the first sentence still says the caller is an AI, an emergency number is refused). `X-Call-Origin` is neither read nor
+passed on, and the body is cut to `number`, `greeting` and `lang`: the phone cannot choose the line, the voice or its own origin.
+
+| Answer | When |
+|---|---|
+| `200 {status: "calling", transport}` | the call started |
+| `403 phone_only` | not through the listener for phones with a key: a program on this PC, with any key or header, is refused and uses `/external/call`, where it is a `program` |
+| `403 phone_calls_off` | the switch is off |
+| `400 bad_request` | another field, or a number over 40 characters or with control characters |
+| `409`, `403`, `502`, `500` | the service's own answer for the call (busy, emergency number, no transport, ...) |
+| `503 voice_service_down` | the service cannot be reached |
+
+The risk is the person's to take: with the switch on, whoever holds a phone key can place calls on this PC's line to any number, premium-rate
+ones included (the deny-list of premium prefixes applies to the agent and to programs, not to a call by hand). Taking the key away in Settings >
+Phones ends it. The Flutter app needs no change for the origin (no header is sent); it only has to post this route with its key.
+
 ## Analysis of a recording
 
 `/analysis/*` runs inside the voice service (`voice/callbridge/api_analysis.py`), one job at a time.
@@ -127,5 +149,5 @@ program runs on this PC). The default is not changed here.
 ## Tests
 
 `serve/tests/test_voice_compat.py` (the table, who may use it, files, waits, personalities, 501, the token, with a stand-in service),
-`serve/tests/test_voice_compat_programs_join.py` (the gate), `serve/tests/test_external_surface.py` (the paths outside `/v1`), `voice/tests/test_analysis_service.py` and `test_speech_routes.py`
+`serve/tests/test_voice_compat_programs_join.py` (the gate), `serve/tests/test_voice_phone_call.py` (the phone's call and its origin), `serve/tests/test_external_surface.py` (the paths outside `/v1`), `voice/tests/test_analysis_service.py` and `test_speech_routes.py`
 (the service side with stand-ins for the STT, the diarizer and the model).

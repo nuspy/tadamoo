@@ -22,6 +22,7 @@ route answers 409 `telephony_off`. When incoming auto-answer is on, the modem is
 | `outgoing_approval` | `manual`, `auto` | `manual` | calls started by the agent or by a program: asked, or approved by the service |
 | `ai_disclosure_on_start` | true, false | true | the first sentence of every call says the caller is an AI |
 | `incoming_auto_answer` | true, false | false | the AI answers a call that rings (GSM and Android) |
+| `phone_calls` | true, false | false | the phone app with its key may start a call by hand through this PC (a setting of the server, the service does not read it) |
 | `on_behalf_of` | text, 80 characters | empty | the name the AI gives when it calls |
 | `premium_prefixes` | list of digit prefixes, up to 200 | the built-in list (IT, US/CA, UK, FR, DE, satellite and international premium) | numbers the agent and programs never call; `[]` turns the block off |
 | `auto_contacts_only` | true, false | false | with `auto`, only the numbers in `contacts` are approved without asking; any other number asks as in `manual` |
@@ -34,7 +35,7 @@ A damaged value reads as its default. The service reads the file again when it c
 
 | Origin | How | Approval |
 |---|---|---|
-| `user` | `POST /call` (the GUI, by hand) | none |
+| `user` | `POST /call` (by hand); the phone app's call arrives here too, through `POST /api/voice/phone/call`, which the server accepts only on the listener for phones with a key and with `phone_calls` on | none |
 | `agent` | `POST /external/call` with `X-Call-Origin: agent` (the phone tools of the agent, which ask the person in the chat) | `manual`: recorded as asked by the agent; `auto`: approved |
 | `program` | `POST /external/call` without the header | `manual`: waits for the person; `auto`: approved |
 

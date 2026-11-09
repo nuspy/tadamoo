@@ -211,13 +211,16 @@
     if (!TEL.ai_disclosure_on_start) box.append(note(T("vo.tel.disclosure.warn"), true));
     box.append(telCheck("vo-tel-answer", T("vo.tel.answer"), TEL.incoming_auto_answer, "incoming_auto_answer"), el("p", "vo-help", T("vo.tel.answer.help")));
     if (TEL.incoming_auto_answer) box.append(note(T("vo.tel.answer.warn"), true));
+    box.append(telCheck("vo-tel-phone", T("vo.tel.phone"), TEL.phone_calls, "phone_calls"), el("p", "vo-help", T("vo.tel.phone.help")));
+    if (TEL.phone_calls) box.append(note(T("vo.tel.phone.warn"), true));
     const who = el("input"), form = el("div", "vo-form");
     who.type = "text"; who.value = TEL.on_behalf_of; who.maxLength = 80; who.autocomplete = "off";
     form.append(field("vo-tel-behalf", T("vo.tel.behalf"), who), btn(T("vo.tel.save"), "primary", () => saveTel({ on_behalf_of: who.value.trim() }), "vo-tel-save"));
     box.append(form, listsForm(), note(telMsg.text, telMsg.bad), telLiveBox());
     return box;
   }
-  const linesOf = area => area.value.split(/?
+  const linesOf = area => area.value.split(/
+?
 /).map(x => x.trim()).filter(Boolean);
   function listsForm() {
     const form = el("div", "vo-form vo-lists"), contacts = el("textarea"), prefixes = el("textarea");
