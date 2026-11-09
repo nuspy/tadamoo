@@ -17,6 +17,7 @@ WIZARD_TIMEOUT_S = 120.0                                    # making an avatar: 
 AVATAR_NAME = r"[A-Za-z0-9][A-Za-z0-9_-]{0,59}"
 DRAFT = r"[0-9a-f]{32}"
 LANG = re.compile(r"[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})?")
+TRAIN_ENGINES = ("ultralight", "feathertalk", "er_nerf")
 
 
 class Refused(Exception):
@@ -77,6 +78,52 @@ def _avatar_prepare(body: Any) -> dict:
     if not isinstance(name, str) or not re.fullmatch(AVATAR_NAME, name) or (clip is not None and not (isinstance(clip, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_ -]{0,79}\.mp4", clip))):
         raise Refused(400, "bad_request", "Send the avatar's name and, if it has several, the clip's file name.")
     return {"avatar": name, **({"clip": clip} if clip else {})}
+
+
+def _train_plan(body: Any) -> dict:
+    body = _fields(body, ("avatar", "engine", "epochs", "asr", "fresh"), ("avatar", "engine"))
+    epochs = body.get("epochs")
+    if (not isinstance(body["avatar"], str) or not re.fullmatch(AVATAR_NAME, body["avatar"]) or body["engine"] not in TRAIN_ENGINES
+            or (epochs is not None and not (isinstance(epochs, int) and not isinstance(epochs, bool) and 1 <= epochs <= 400))
+            or body.get("asr", "feather_hubert") not in ("wenet", "hubert", "feather_hubert") or not isinstance(body.get("fresh", False), bool)):
+        raise Refused(400, "bad_request", "Send the avatar's name, an engine (ultralight, feathertalk or er_nerf) and, if you want them, epochs (1 to 400), asr and fresh.")
+    return body
+
+
+def _train_setup(body: Any) -> dict:
+    body = _fields(body, ("engine", "asr", "avatar", "probe"), ("engine",))
+    if (body["engine"] not in TRAIN_ENGINES or body.get("asr", "feather_hubert") not in ("wenet", "hubert", "feather_hubert") or not isinstance(body.get("probe", False), bool)
+            or (body.get("avatar") is not None and not (isinstance(body["avatar"], str) and re.fullmatch(AVATAR_NAME, body["avatar"])))):
+        raise Refused(400, "bad_request", "Send an engine (ultralight or feathertalk) and, if you want them, asr, avatar and probe.")
+    return body
+
+
+def _train_python(body: Any) -> dict:
+    body = _fields(body, ("path",), ("path",))
+    if not isinstance(body["path"], str) or len(body["path"]) > 1000 or any(ord(c) < 32 for c in body["path"]):
+        raise Refused(400, "bad_request", "Send the full path of the Python, or an empty text to forget it.")
+    return body
+
+
+def _train_export(body: Any) -> dict:
+    body = _fields(body, ("avatar", "engine"), ("avatar", "engine"))
+    if not isinstance(body["avatar"], str) or not re.fullmatch(AVATAR_NAME, body["avatar"]) or body["engine"] not in TRAIN_ENGINES:
+        raise Refused(400, "bad_request", "Send the avatar's name and an engine (ultralight or feathertalk).")
+    return body
+
+
+def _train_start(body: Any) -> dict:
+    body = _fields(body, ("token", "confirm"), ("token", "confirm"))
+    if not isinstance(body["token"], str) or not re.fullmatch(r"[0-9a-f]{64}", body["token"]) or not isinstance(body["confirm"], bool):
+        raise Refused(400, "bad_request", "Send the token of the plan and confirm: true.")
+    return body
+
+
+def _python_path(body: Any) -> dict:
+    body = _fields(body, ("path",), ("path",))
+    if not isinstance(body["path"], str) or len(body["path"]) > 520 or "\0" in body["path"]:
+        raise Refused(400, "bad_request", "Send the path of the Python, or an empty text to forget it.")
+    return body
 
 
 def _avatar_finish(body: Any) -> dict:
@@ -146,6 +193,14 @@ ROUTES: dict[tuple[str, str], Callable[[Any], Any]] = {
     ("GET", "/avatar/prepare"): _none,
     ("POST", "/avatar/prepare"): _avatar_prepare,
     ("POST", "/avatar/prepare/cancel"): _none,
+    ("POST", "/avatar/train/plan"): _train_plan,
+    ("POST", "/avatar/train/start"): _train_start,
+    ("POST", "/avatar/train/setup"): _train_setup,
+    ("POST", "/avatar/train/python"): _train_python,
+    ("POST", "/avatar/train/export"): _train_export,
+    ("GET", "/avatar/train/status"): _none,
+    ("POST", "/avatar/train/cancel"): _none,
+    ("POST", "/avatar/engines/python"): _python_path,
     ("POST", "/avatar/speak"): _avatar_speak,
     ("POST", "/avatar/start"): _avatar_start,
     ("POST", "/avatar/wizard/start"): _none,
@@ -162,6 +217,8 @@ ROUTES: dict[tuple[str, str], Callable[[Any], Any]] = {
 #: (method, pattern of the service route) for the routes that carry an id: the person's answer to a call a program asked for
 PATTERNS: list[tuple[str, "re.Pattern[str]", Callable[[Any], Any]]] = [
     ("POST", re.compile(r"/call/approvals/[0-9a-f]{16}/(?:approve|deny)"), _none),
+    ("GET", re.compile(r"/avatar/engines/(?:wav2lip_v288|sadtalker|er_nerf)/setup"), _none),
+    ("POST", re.compile(r"/avatar/engines/(?:wav2lip_v288|sadtalker|er_nerf)/check"), _none),
     ("GET", re.compile(rf"/avatar/wizard/{DRAFT}"), _none),
     ("DELETE", re.compile(rf"/avatar/wizard/{DRAFT}"), _none),
     ("POST", re.compile(rf"/avatar/wizard/{DRAFT}/elabora"), _avatar_finish),

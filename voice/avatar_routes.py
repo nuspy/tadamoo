@@ -7,10 +7,14 @@
     GET  /avatar/preview.mjpg                the rendered frames as MJPEG (multipart/x-mixed-replace), one stream per watcher
     GET  /avatar/output                      the preview and the virtual camera
     GET  /avatar/engines                     every engine with its availability for the avatar of the personality, and the selection this service runs with
+    GET  /avatar/engines/<engine>/setup, POST /avatar/engines/<engine>/check, POST /avatar/engines/python {path}   the Set up panel of a PC engine (setup_routes.py)
     GET  /avatar/enhance                     the acceleration of the video: what this PC can do (and why not), the settings, the plan, the measured cost
     POST /avatar/wizard/start                a draft; POST /avatar/wizard/<draft>/<foto|pose|video|voce> (multipart, field `file`);
     POST /avatar/wizard/<draft>/elabora {name, language?}   make the avatar; GET and DELETE /avatar/wizard/<draft>
     POST /avatar/prepare {avatar, clip?}     prepare a clip for MuseTalk (one at a time); GET /avatar/prepare; POST /avatar/prepare/cancel
+    POST /avatar/train/plan {avatar, engine, epochs?, asr?, fresh?}   what training a personalised engine (ultralight, feathertalk) would do and need, and a token
+    POST /avatar/train/start {token, confirm}   start that plan (one training at a time); GET /avatar/train/status; POST /avatar/train/cancel
+    POST /avatar/train/setup {engine, asr?, avatar?, probe?}, POST /avatar/train/python {path}, POST /avatar/train/export {avatar, engine}   the Set up panel
     POST /avatar/visemes {text, duration_s, lang?}   the viseme timeline of a sentence (the phone's "visemes" mode)
     GET  /avatar/<name>/assets.zip           the phone's files: poster, Wav2Lip face and box, the viseme sprites and manifest.json
     GET  /avatar/<name>/sprites.png          every mouth sprite over the photo, labelled, in one picture (for the creation page)
@@ -35,8 +39,9 @@ from callbridge.avatar_store import StoreError, valid_name
 from callbridge.sospensione import MSG_SOSPESO, in_sospensione
 
 from voice import persona_link
-from voice.avatar_engines import registry as engine_registry, selection as engine_selection
+from voice.avatar_engines import registry as engine_registry, selection as engine_selection, setup_routes as engine_setup
 from voice.avatar_service import AvatarService, Unavailable
+from voice.avatar_training import TrainingError
 from voice.avatar_wizard import STEPS, WizardError
 
 log = logging.getLogger("voice.avatar.routes")
@@ -99,6 +104,8 @@ def register(app, svc: AvatarService) -> None:
         job = client.prepare_state()
         if client._active_persona == name or client.preparing == name or (job and job["state"] == "running" and job["avatar"] == name):
             return _err("this avatar is in use: stop it first", "in_use", 409)
+        if svc.app.config.get("CB_AVATAR_TRAINING") is not None and svc.trainer().busy_with(name):
+            return _err("this avatar is being trained: cancel the training first", "in_use", 409)
         freed = svc.store.delete(name)
         return jsonify({"ok": True, "freed_bytes": freed})
 
@@ -205,6 +212,8 @@ def register(app, svc: AvatarService) -> None:
                         "selection": engine_selection.parse({"engines": svc.config.avatar_engines, "resolution": svc.config.avatar_resolution,
                                                               "fps_hint": svc.config.avatar_fps_hint}).as_dict()})
 
+    engine_setup.register(app)                                                   # GET /avatar/engines/<engine>/setup, POST .../check, POST /avatar/engines/python
+
     @app.get("/avatar/preview.mjpg")
     def avatar_preview():
         svc.client()
@@ -302,6 +311,47 @@ def register(app, svc: AvatarService) -> None:
     @app.post("/avatar/prepare/cancel")
     def prepare_cancel():
         return jsonify({"cancelling": svc.client().cancel_prepare()})
+
+    # ---- training a personalised engine
+    def training(call):
+        try:
+            return jsonify(call(svc.trainer()))
+        except TrainingError as e:
+            return jsonify({"error": str(e), "code": e.code, **e.extra}), e.status
+        except Unavailable as e:
+            return _err(str(e), e.code, e.status)
+
+    @app.post("/avatar/train/plan")
+    def train_plan():
+        body = _body()
+        return training(lambda jobs: jobs.plan(body.get("avatar"), body.get("engine"), body.get("epochs"), body.get("asr"), body.get("fresh")))
+
+    @app.post("/avatar/train/start")
+    def train_start():
+        body = _body()
+        return training(lambda jobs: jobs.start(body.get("token"), body.get("confirm")))
+
+    @app.post("/avatar/train/setup")
+    def train_setup():
+        body = _body()
+        return training(lambda jobs: jobs.setup(body.get("engine"), body.get("asr"), body.get("avatar"), body.get("probe") is True))
+
+    @app.post("/avatar/train/python")
+    def train_python():
+        return training(lambda jobs: jobs.set_python(_body().get("path")))
+
+    @app.post("/avatar/train/export")
+    def train_export():
+        body = _body()
+        return training(lambda jobs: jobs.export(body.get("avatar"), body.get("engine")))
+
+    @app.get("/avatar/train/status")
+    def train_status():
+        return training(lambda jobs: jobs.status())
+
+    @app.post("/avatar/train/cancel")
+    def train_cancel():
+        return training(lambda jobs: jobs.cancel())
 
     # ---- visemes and the phone's assets
     @app.post("/avatar/visemes")

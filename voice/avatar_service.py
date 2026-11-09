@@ -20,6 +20,7 @@ from callbridge.enhance import settings as enhance_settings
 from callbridge.tadamoo_api import TadamooApi
 
 from voice import persona_link
+from voice.avatar_training import TrainingJobs
 from voice.avatar_wizard import Wizard
 
 log = logging.getLogger("voice.avatar")
@@ -60,6 +61,16 @@ class AvatarService:
                 self.preview = avatar_output.Preview(client.frames)
                 self.camera = avatar_output.VirtualCamera(client.frames, fps=int(self.config.avatar_fps or 25))
             return client
+
+    def trainer(self) -> TrainingJobs:
+        """The one training job manager of this process (voice/avatar_training.py): one training at a time, whatever the avatar."""
+        if not self.config.avatars_dir:
+            raise Unavailable("there is no user data folder for the avatars", 409, "no_folder")
+        with self._lock:
+            jobs = self.app.config.get("CB_AVATAR_TRAINING")
+            if jobs is None:
+                jobs = self.app.config["CB_AVATAR_TRAINING"] = TrainingJobs(self.store, gpu=int(self.config.avatar_gpu_index or 0))
+            return jobs
 
     def wizard(self) -> Wizard:
         drafts = Path(self.config.avatars_dir).parent / "avatar-drafts" if self.config.avatars_dir else None
