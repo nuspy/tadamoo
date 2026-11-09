@@ -148,7 +148,7 @@ class SessionManager:
                  intake_flags: Optional[Callable[[], List[str]]] = None,
                  gate_flags: Optional[Callable[[], List[str]]] = None, coding: Any = None,
                  compaction_flags: Optional[Callable[[], List[str]]] = None, past: Any = None, exec_level_file: Optional[Path] = None, persistence_file: Optional[Path] = None, lessons_dir: Optional[Path] = None, next_steps_file: Optional[Path] = None, file_owners_path: Optional[Path] = None,
-                 forgetter: Any = None, cards: Any = None, personas_dir: Optional[Path] = None, rag_dir: Optional[Path] = None) -> None:
+                 forgetter: Any = None, cards: Any = None, personas_dir: Optional[Path] = None, rag_dir: Optional[Path] = None, persona_learning: Any = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
@@ -160,6 +160,7 @@ class SessionManager:
         self.rag_dir = rag_dir                                  # the knowledge archives (tadamoo/rag) a personality's linked archives are searched in
         self.personas_dir = personas_dir                        # the personalities a conversation may speak as (tadamoo/personas.py); the key that opens their memory is personal_keys
         self.learn = learn                                      # told what the person wrote and what was searched for it, when a turn ends, to learn from
+        self.persona_learning = persona_learning                # told when a turn of a conversation that speaks as a personality ends, so that the personality learns from it once it is over (serve/persona_learning_worker.py)
         self._said: Dict[str, Dict[str, Any]] = {}              # per conversation, until its turn ends: what the person wrote and what was searched
         self._no_learning: set = set()                          # conversations that are not the person's talking (a routine's)
         self.next_steps_file = next_steps_file                  # the choice for the card of next steps after a task: one file, read again by each conversation
@@ -1253,6 +1254,8 @@ class SessionManager:
                 if not event.get("more"):
                     threading.Thread(target=self._flush_heard, args=(sid,), name="learn-flush", daemon=True).start()
                     threading.Thread(target=self._index_and_card, args=(sid,), name="past-index", daemon=True).start()
+                    if self.persona_learning is not None and rec.get("persona") and not rec.get("private") and not rec.get("unattended") and sid not in self._no_learning:
+                        self.persona_learning.touch(sid, rec["persona"])
                 asked = event.get("stop_reason") == "asked"
                 state = "busy" if event.get("more") else "idle"      # other requests are still waiting: the conversation is still at work
                 self._set(rec, state=state, blocked=None, ask=None, turns=rec.get("turns", 0) + 1, **({} if asked else {"question": None}),
@@ -1639,6 +1642,19 @@ class SessionManager:
         with self._lock:
             todo = [r["id"] for r in self.records if (r.get("updated") or 0) > kept.get(r["id"], -1) + 1e-6 and r["id"] not in self._no_learning and not r.get("unattended") and not r.get("private")]
         return sum(1 for sid in todo if self.index_past(sid))
+
+    def learning_source(self, sid: str) -> Optional[Dict[str, Any]]:
+        """For a personality that learns from a conversation: who it speaks as, whether it is private (or not the person's talking), and what was said
+        (whole, as `_transcript` gives it); None when the conversation is gone."""
+        try:
+            with self._lock:
+                rec = dict(self._record(sid))
+                barred = sid in self._no_learning
+            data = self._read_history(sid)
+            return {"persona": rec.get("persona") or "", "private": bool(rec.get("private") or rec.get("unattended") or barred),
+                    "messages": self._transcript(sid, data) if data else []}
+        except RunError:
+            return None
 
     def _hear(self, sid: str, rec: Dict[str, Any], text: str) -> None:
         if self.learn is None or sid in self._no_learning or rec.get("private"):

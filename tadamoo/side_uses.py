@@ -67,6 +67,8 @@ USES: Tuple[Use, ...] = (
     Use("conversation_card", needs_session=True,
         params=(Param("max_tokens", 600, 200, 2000), Param("timeout_s", 60, 10, 600, False), Param("idle_s", 300, 30, 7200), Param("gap_s", 20, 5, 600)),
         prompt="tadamoo.cards:SYSTEM"),
+    Use("persona_learning", params=(Param("max_tokens", 900, 200, 4000), Param("timeout_s", 120, 10, 600, False), Param("idle_s", 300, 30, 7200)),
+        prompt="tadamoo.persona_learning:SYSTEM"),
     Use("memory_rank", needs_session=True, params=(Param("candidates", 12, 4, 40), Param("timeout_s", 8, 2, 60, False)), prompt="tadamoo.memory_rank:SYSTEM"),
     Use("progress", needs_session=True, params=(Param("every_steps", 8, 2, 60), Param("timeout_s", 10, 2, 60, False)), prompt="tadamoo.progress:SYSTEM"),
     Use("planner", params=(Param("timeout_s", 120, 10, 600, False),)),
