@@ -16,7 +16,7 @@ which stays the OpenAI and Anthropic interface of the loaded model, and nothing 
   `[::1]` is `403 forbidden`.
 - Unless it sends the API key or the control secret in a header, the server's origin guard refuses first (`403 forbidden`, with `reason`) a
   request from a page of another site (`Origin`, or `Sec-Fetch-Site: cross-site` on a write) and, with no key set, a DNS name that is not
-  this PC's ([server security](../server-security.md)). The same guard covers `/api/*`, `/api/voice/*`, `/api/telegram/*` and the gateway WebSocket.
+  this PC's ([server security](../server-security.md)). The same guard covers `/api/*`, `/api/voice/*`, `/api/telegram/*` and the gateway WebSocket (its messages, `render_modes` among them, are in [gateway](gateway.md)).
 - The listener for phones offers none of these routes (`403`).
 - A route marked "gated like a join" is also refused with `403 programs_join_off` (texts in `error` and `message_it`) unless the person turned on `meetings.allow_programs_join` in Settings > Voice > Meetings; it is read at every request.
 - An upload is read away when the request is refused, so the caller sees the answer and not a reset.
