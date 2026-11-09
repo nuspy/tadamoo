@@ -18,7 +18,7 @@ KINDS = ("generic", "personalized")
 MODES = ("visemes", "wav2lip", "video")        # the render modes of the gateway (docs/voice/gateway.md)
 LANGS = ("en", "it")
 # what status_of looks for; see status.py
-REQUIREMENTS = ("viseme_sprites", "wav2lip_assets", "musetalk_prepared", "trained", "none")
+REQUIREMENTS = ("viseme_sprites", "wav2lip_assets", "musetalk_prepared", "trained", "engine_pack", "none")
 
 
 class NotImplementedForNow(NotImplementedError):
