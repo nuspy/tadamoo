@@ -1,0 +1,2 @@
+# vendored upstream files are kept byte for byte on every checkout (their SHA-256 is in VENDORED.md)
+* -text

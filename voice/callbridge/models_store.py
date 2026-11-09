@@ -42,8 +42,40 @@ MODELS = {
     "dia-1.6b": ("tts", "dia", "Dia 1.6B", ()),
     "musetalk-v15": ("avatar", "musetalk", "MuseTalk v1.5 weights", ()),
     "wav2lip-int8": ("avatar", "wav2lip", "Wav2Lip INT8 (for the phones)", ("wav2lip_int8.onnx",)),
+    "ultralight-wenet-encoder": ("avatar", "ultralight", "Ultralight wenet audio encoder", ("encoder.onnx",)),
+    "engine-landmarks": ("avatar", "ultralight", "Face detector and landmark weights", ("scrfd_2.5g_kps.onnx", "checkpoint_epoch_335.pth.tar")),
+    "feathertalk-weights": ("avatar", "feathertalk", "FeatherHuBERT weights", ("feather_hubert.pth",)),
+    "wav2lipv2-code": ("avatar", "wav2lipv2", "Wav2Lip v2 code (Linly-Talker)", ("TFG/Wav2Lipv2.py", "src/modelsv2/wav2lip_v2.py")),
+    "wav2lipv2-weights": ("avatar", "wav2lipv2", "Wav2Lip v2 288 px weights", ("wav2lipv2.pth",)),
+    "wav2lipv2-yolo-face": ("avatar", "wav2lipv2", "YOLOv8n-face weights", ("yolov8n-face.pt",)),
+    "wav2lipv2-landmarks": ("avatar", "wav2lipv2", "WFLW HRNet18 landmark weights", ("config.yaml", "model.pth")),
+    "sadtalker-code": ("avatar", "sadtalker", "SadTalker code (Linly-Talker)", ("TFG/SadTalker.py", "src/config/facerender.yaml")),
+    "sadtalker-weights": ("avatar", "sadtalker", "SadTalker 256 px weights", ("SadTalker_V0.0.2_256.safetensors", "mapping_00229-model.pth.tar")),
+    "sadtalker-gfpgan": ("avatar", "sadtalker", "SadTalker face detector and aligner weights", ("alignment_WFLW_4HG.pth", "detection_Resnet50_Final.pth")),
+    "ernerf-code": ("avatar", "ernerf", "ER-NeRF code (Linly-Talker)", ("TFG/NeRFTalk.py", "NeRF/nerf_triplane/network.py")),
+    "ernerf-audio-encoder": ("avatar", "ernerf", "ER-NeRF audio encoder weights", ("audio_visual_encoder.pth",)),
+    "ernerf-bfm": ("avatar", "ernerf", "ER-NeRF 3DMM face model files", ("3DMM_info.npy", "keys_info.npy", "topology_info.npy")),
+    "ernerf-face-parsing": ("avatar", "ernerf", "ER-NeRF face parsing weights", ("79999_iter.pth",)),
     "sherpa-diarization": ("diarization", "sherpa-onnx", "sherpa-onnx diarization", (_SEG, _CAMPP)),
     "silero-vad-v4": ("vad", "silero", "Silero VAD v4", ("silero_vad_v4.onnx",)),
+}
+
+# Where an engine pack goes when it is not `<service>/<id>` (serve/voice_catalog.py `folder`).
+FOLDERS = {
+    "ultralight-wenet-encoder": "avatar-engines/ultralight/weights",
+    "engine-landmarks": "avatar-engines/landmarks",
+    "feathertalk-weights": "avatar-engines/feathertalk/weights",
+    "wav2lipv2-code": "avatar-engines/wav2lipv2/code",
+    "wav2lipv2-weights": "avatar-engines/wav2lipv2/checkpoints",
+    "wav2lipv2-yolo-face": "avatar-engines/wav2lipv2/models/yolov8n-face",
+    "wav2lipv2-landmarks": "avatar-engines/wav2lipv2/models/wflw/hrnet18_256x256_p1",
+    "sadtalker-code": "avatar-engines/sadtalker/code",
+    "sadtalker-weights": "avatar-engines/sadtalker/checkpoints",
+    "sadtalker-gfpgan": "avatar-engines/sadtalker/code/gfpgan/weights",
+    "ernerf-code": "avatar-engines/ernerf/code",
+    "ernerf-audio-encoder": "avatar-engines/ernerf/code/checkpoints",
+    "ernerf-bfm": "avatar-engines/ernerf/code/NeRF/data_utils/face_tracking/3DMM",
+    "ernerf-face-parsing": "avatar-engines/ernerf/code/NeRF/data_utils/face_parsing",
 }
 
 
@@ -65,7 +97,9 @@ def root() -> str:
 def folder(service: str, model_id: str, base: str | None = None) -> str:
     """`<models folder>/<service>/<model id>`, or "" when there is no models folder."""
     base = root() if base is None else base
-    return os.path.join(base, service, model_id) if base else ""
+    if not base:
+        return ""
+    return os.path.join(base, *FOLDERS[model_id].split("/")) if model_id in FOLDERS else os.path.join(base, service, model_id)
 
 
 def _probes(model_id: str) -> tuple:
