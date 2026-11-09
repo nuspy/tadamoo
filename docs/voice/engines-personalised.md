@@ -91,10 +91,45 @@ Install button fixes it, or the folder to put a file in), where the Python came 
 Python, so only on request). `POST /avatar/train/python {path}` chooses the Python (an existing file; nothing is run). The Install button opens the catalog's own plan: files, size, folder,
 licence text, the acknowledgement, then the download with its SHA-256 check.
 
+## On a phone
+
+The phone draws a trained person with the same chain as the other on-device engines: the engine, then the visemes, then the PC's video (the emergency), then voice only. It is one more
+`render_modes` entry (`ultralight`, `feathertalk`), declared only when its package is on the phone and verified and its self-test passed there with exactly that package.
+
+**What can run.** FeatherTalk: FeatherHuBERT is an ONNX model that takes the waveform (the released weights have 3.36 million parameters, 256 channels and 8 blocks, so about 13 MB), so it runs with ONNX Runtime. Ultralight with wenet: Kaldi's 80-band
+filter bank (`phone/fbank.onnx`, a fixed ONNX graph the PC builds and checks against torchaudio, largest difference 7e-5) then the wenet encoder the person installed (`encoder.onnx`,
+stateless chunks of 67 frames as `wenet_infer.py` uses it). Ultralight with HuBERT Large (about 1.2 GB) cannot run on a phone: the export refuses it and the engine is never declared.
+The phone draws over the first frame of the person's video, not over a moving video: the model input is made once, the head is still (the idle motion of the other engines applies), and the face
+the model draws is laid over it like the Wav2Lip face.
+
+**The package** (`voice/avatar_engines/phone_export.py`). `POST /avatar/train/export` and the end of a training make it after the ONNX export (`phone` in the answer and in the job state
+says whether it was made or why not; a failure never undoes the training). In `<avatar>/engines/<engine>/export/`: `phone.json` (sha256 and size of each file, the models' input and output
+names and shapes, fps, size, where the face sits in the frame as a 2 x 3 matrix with the rectangle the model redraws, the audio front end, the self-test), `phone/template.bin` (6 x S x S bytes: the
+face, then the same face with its mouth rectangle black, blue first, cut exactly as the upstream `inference.py` cuts it: checked against the vendored `face_utils`), `phone/fbank.onnx` (wenet only),
+`phone/selftest/*` (a synthetic voice and model inputs). The self-test numbers are measured on the PC with onnxruntime on the CPU (mean, standard deviation and 16 values of each stage's output)
+and the models must repeat them when run again from the files. All files are in `export.json`, so the avatar's manifest carries them under `engines` (not in `files` or the zip).
+`GET /avatar/<name>/engines/<engine>/files/<path>` serves one of them (only a file the manifest lists, with Range and ETag); the server relays it to a phone with its key.
+
+**On the phone** (`personal_engine.dart`, `personal_pack.dart`, `avatar_assets.dart`; `PersonalEngine.kt`, `PersonalChannel.kt`). The store downloads the files one by one with resume and keeps one only when
+its size and SHA-256 are the ones `phone.json` says and the avatar's manifest agrees. Kotlin checks the folder is inside the app's own and every file again before opening a model. The
+self-test runs each stage of `phone.json` on the phone's ONNX Runtime and compares with the PC's numbers (`|a - b| <= 0.002 + 0.02 x max|b|`), then plays the synthetic voice through the whole path (twice, the
+second is timed): it passes only if the frames per second reach the frame rate the model was trained at (FeatherTalk 25, Ultralight 20). While drawing, each frame reports what it cost; when the mean
+of 25 frames is above the time a frame stands for, the renderer gives the mode up (`render_failed`, `too_slow`) and the PC moves to the visemes. Not declared again until the test passes again.
+
+**The audio is not the same as on the PC.** The PC normalises the whole voice at once and FeatherHuBERT's GroupNorm layers look at all of the time axis; the phone gets the voice as it arrives, normalises
+with what has arrived and encodes blocks of 32 features with 64 before them (`block_tokens`, `context_tokens` of `phone.json`). The frame for time t needs 0.4 s of voice after it. The features are therefore close
+to the offline ones, not equal, and by how much is not measured. The arithmetic of both front ends (which samples make which feature, the padding, the frame count) is tested against the upstream procedures in
+`voice/tests/test_avatar_phone_frontends.py` with stand-in encoders.
+
 ## What is not proven
 
 No GPU, model, real video or network was used: the tests run fake scripts that take the arguments of the real ones. Not proven: that the upstream scripts run end to end here,
-how long a training takes, the memory it needs, the quality of either model (Italian included), an ONNX or MNN file on a phone. Known upstream defect, left unedited: both `train.py` need the VGG19 file.
+how long a training takes, the memory it needs, the quality of either model (Italian included). Known upstream defect, left unedited: both `train.py` need the VGG19 file.
+
+On a phone, proven with stand-ins only: the package (tiny ONNX graphs with the real input names and shapes, onnxruntime on the CPU), the face cut and the filter bank against the upstream code and torchaudio, the front ends'
+arithmetic, the phone's file checks, the declaration and the fallback (Dart tests with a fake runtime). Not proven: the Kotlin (written, not compiled), a real FeatherHuBERT or wenet encoder or UNet run on a phone
+and its speed (the encoder and the model must together reach 25 or 20 frames a second, nothing says they do), the wenet encoder's input and output names beyond what `wenet_infer.py` shows, how close the streamed features
+are to the offline ones, how a still head looks, ONNX opset 17 on the app's ONNX Runtime 1.22, the memory of the models beside the app.
 
 ## Windows
 

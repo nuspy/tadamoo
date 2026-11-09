@@ -164,8 +164,9 @@ the face assets, the first frames of the person's video (`frames/<n>.jpg`) with 
 that frame), which the phone loops forward and back to pick the picture to draw over; `size`, the side of the square face the model draws, pasted back into the frame;
 and `fps`, the video rate the model was trained at (Ultralight: 20 with wenet, 25 with HuBERT; FeatherTalk: 25). `shapes` are the model's inputs as exported. Ultralight's
 entry is the same with `audio_encoder` `wenet`, `size` 160, `model_file` `unet.onnx`, `encoder_file` `encoder.onnx` and `audio` `[1,128,16,32]`. For FeatherTalk, MNN files
-replace the ONNX ones when the PC had MNNConvert. These files are not in `files` and not in `assets.zip` (they are large and only for the engine's own device); the route that
-serves them to a phone is not built yet, and the gateway does not offer the engine id as a mode yet. Not proven: a phone running either model.
+replace the ONNX ones when the PC had MNNConvert. These files are not in `files` and not in `assets.zip` (they are large and only for the engine's own device); a phone fetches each with `GET /api/voice/avatar/<name>/engines/<engine>/files/<path>`
+(only a file the entry lists; Range and ETag), starting with `phone.json` (`input.phone`: `{version, file}`), which holds the sha256 and size of every other file, the shapes, the face geometry and the self-test (`engines-personalised.md`, On a phone).
+The gateway takes the engine id in a device's `render_modes` (`PERSONAL_MODES`) and offers it when the avatar's manifest names it; it sends the voice and nothing else, as for `wav2lip`, `engine` is empty and a `render_failed` for it moves to the next mode. Not proven: a phone running either model.
 
 ## Limits
 
