@@ -16,6 +16,10 @@ settings are the card Settings > Voice > Spoken language (`language` in `voice.j
   "italiano", "日本語") hold the language until "back to automatic" ("torna automatico", "retour en automatique", "automatisch", "volver a
   automático", "follow my language"...). While locked, detection is ignored and the recognizer is hinted with the held language.
   A lone word "automatico" in a conversation is not a command unless the language is locked.
+  The way out is heard in any language: while the language is locked, a short utterance (4 words or fewer) that the hinted recognizer did not turn
+  into a language command is transcribed once more with detection and no hint, and that text is used when it is a command ("Torna automatico"
+  under an English lock). Cost: one extra transcription of a short audio, only for short utterances that were not commands while locked; follow
+  mode and long utterances pay nothing. The follower stays locked unless a command matched.
 - **Meetings and calls.** The language is the one set (the plan, the persona, the call's language) and never follows the speech: those sessions
   have no language state, whatever whisper hears.
 
@@ -51,7 +55,8 @@ The map `language.voices` holds `language -> a voice name of the selected engine
   change, a line `[state] reply_language=fr` after the notes of the turn (never in a cached prefix). The harness has no field for it: the
   line goes in front of the person's message in the next turn, and again in a new conversation. The line is made from a validated code, never from
   the speech.
-- The synthesis `lang` and the recognizer's hint follow the language; in follow mode the recognizer stays automatic. A fixed `stt_language`
+- The synthesis `lang` is spelled the way each engine takes it: Kokoro's codes (en->en-us, pt->pt-br, zh->cmn, in
+  `engines/kokoro_lang.py`, used by the engine and its GPU helper), the ISO code for the others. The recognizer's hint follows the language; in follow mode the recognizer stays automatic. A fixed `stt_language`
   in the config turns following off (the avatar cannot follow what a forced recognizer hears) and is reported as a warning, as is an
   English-only (`.en`) recognizer model with another language enabled.
 - The lip-sync takes the language of the voice: the visemes of the gateway carry `lang` of the language spoken.

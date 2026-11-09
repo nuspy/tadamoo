@@ -47,13 +47,13 @@ Errors made here are `{"error": "<text>", "code": "<code>"}`, the form callAPIca
 | `/analysis/list`, `/analysis/<id>`, `/analysis/<id>/transcript` | GET | api | |
 | `/analysis/<id>/speakers` | POST | api | `{names: {"Speaker 1": "Ada"}}` |
 | `/analysis/<id>` | DELETE | api | |
-| `/transcribe` | POST | api | multipart audio; `?lang=`, `?segments=1`, `?words=1` |
+| `/transcribe` | POST | api | multipart audio; `?lang=`, `?segments=1`, `?words=1`; with `segments=1` and no `lang` the answer also has `language` and `language_probability` (what the engine heard) |
 | `/tts/test` | POST | api | `{text, voice?, lang?, engine?}` gives `audio_b64` (WAV) |
-| `/tts/models`, `/tts/voices?model=` | GET | api | |
+| `/tts/models`, `/tts/voices?model=` | GET | api | `/tts/test` takes `lang` as ISO ("en", "pt", "zh") or as Kokoro spells it ("en-us"); Piper is `is_downloaded` when one voice (.onnx and .onnx.json) is installed |
 | `/voices/cloned` | GET | api | |
 | `/voices/clone`, `/voices/cloned/<name>` | POST, DELETE | local | samples in `<models folder>/tts/voices` |
 | `/models/status`, `/models/available` | GET | api | |
-| `/session/state`, `/session/language` | GET | local | the language, its mode and the languages enabled: `docs/voice/language.md` |
+| `/session/state`, `/session/language` | GET | local | the language, its mode and the languages enabled (`{}` fields when no session runs): `docs/voice/language.md` |
 | `/session/start`, `/stop`, `/new`, `/language` | POST | local | `/language` takes a language the person enabled, or `auto` |
 | `/meetbot/join` | POST | local | the meeting bot; a join needs `rights_confirmed: true` and the announcement and consent rule apply. Refused with `403 programs_join_off` unless `meetings.allow_programs_join` is on (`meetings.md`) |
 | `/meetbot/leave` | POST | local | |
