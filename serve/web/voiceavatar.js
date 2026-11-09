@@ -1,11 +1,13 @@
 "use strict";
 /* The Avatar card of the Voice tab and the camera setting of Settings > Voice. The card shows the avatar function and the personality's avatar,
    the rendered picture (an MJPEG stream relayed by the server), a sentence to try, the avatars on this PC (prepare a clip, load one, give it to a
-   personality, delete) and the guided creation of a new one: name, photo, poses, a short video, a voice sample, then the avatar is made.
+   personality, delete) and the guided creation of a new one: name, photo (the only thing needed: the avatar for the phone and the ESP32 is made from
+   it at once, with no GPU), an optional voice sample, an optional short video (real mouth shapes and the emergency video from the PC), then the
+   avatar is made and the page shows what it can do. The PC video (MuseTalk) is prepared only when the person asks for it.
    Every request goes through the server: JSON ones on the proxy's list (serve/voice_proxy.py), files and the picture on /api/voice/avatar/*
    (serve/voice_avatar.py). Everything the server says enters the page as text. voicetab.js mounts the card and calls update() on its poll. */
 (function () {
-  const STEPS = ["name", "foto", "pose", "video", "voce", "make"];
+  const STEPS = ["name", "foto", "voce", "video", "make"];
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; return b; };
   const clear = node => { while (node.firstChild) node.firstChild.remove(); return node; };
@@ -20,6 +22,7 @@
   let ctx = null, card = null, S = null, list = null, listSig = "", cam = null, camMsg = "", busy = false;
   let wiz = null, mouth = null, say = { busy: false, msg: "", bad: false }, sayText = "", rowMsg = {}, askDelete = "", useMsg = {}, stream = null;
   const posters = new Map();                                 // name -> {sig, url}
+  const sheets = new Map();                                  // name -> {sig, url}: the mouth sprites over the photo
   const parts = {}, sigs = {}, pick = {};
   const changed = (id, value) => { const v = sigOf(value); if (sigs[id] === v) return false; sigs[id] = v; return true; };
 
@@ -83,6 +86,19 @@
     } catch (e) { return ""; }
   }
   async function fillPoster(img, name, sig) { const url = await posterUrl(name, sig); if (url && img.isConnected) img.src = url; }
+  async function sheetUrl(name, sig) {
+    const have = sheets.get(name);
+    if (have && have.sig === sig) return have.url;
+    try {
+      const r = await fetch(`api/voice/avatar/${encodeURIComponent(name)}/sprites.png`, { headers: authHeaders(), cache: "no-store" });
+      if (!r.ok) return "";
+      const url = URL.createObjectURL(await r.blob());
+      if (have) URL.revokeObjectURL(have.url);
+      sheets.set(name, { sig, url });
+      return url;
+    } catch (e) { return ""; }
+  }
+  async function fillSheet(img, name, sig) { const url = await sheetUrl(name, sig); if (url && img.isConnected) img.src = url; else if (img.isConnected) img.hidden = true; }
 
   // ---------------------------------------------------------------- the card
   const loaded = () => !!(S && S.loaded);
@@ -246,6 +262,7 @@
       chips.append(el("span", "vt-chip", row.clips.length ? T("va.row.clips", row.clips.length) : T("va.row.noclip")));
       if (row.clips.length) chips.append(el("span", "vt-chip " + (row.prepared.length === row.clips.length ? "vt-ok" : ""), row.prepared.length === row.clips.length ? T("va.row.prepared") : T("va.row.notprepared")));
       if (row.wav2lip) chips.append(el("span", "vt-chip", T("va.row.phone")));
+      if (row.visemes) chips.append(el("span", "vt-chip", T("va.row.visemes")));
       if (row.voice && row.voice.voice) chips.append(el("span", "vt-chip", T("va.row.voice", `${row.voice.voice} (${row.voice.engine})`)));
       chips.append(el("span", "vt-chip", mb(row.size_bytes)));
       if (S && S.persona === row.name) chips.append(el("span", "vt-chip vt-ok", T("va.is.loaded")));
@@ -312,7 +329,7 @@
     });
   }
   async function openWizard() {
-    wiz = { step: 0, draft: "", name: "", sent: {}, poses: 0, msg: "", bad: false, progress: null, result: null, making: false, starting: true };
+    wiz = { step: 0, draft: "", name: "", sent: {}, msg: "", bad: false, progress: null, result: null, making: false, starting: true };
     paintList(); paintWizard();
     const r = await ctx.svc("POST", "/avatar/wizard/start");
     if (!wiz) return;
@@ -341,8 +358,7 @@
         const r = await upload(step, file, p => { prog.value = p; status.textContent = T("va.uploading", p); status.hidden = false; });
         if (!wiz) return;
         if (r.ok) {
-          if (step === "pose") wiz.poses += 1;
-          wiz.sent[step] = T("va.uploaded", step === "pose" ? String(wiz.poses) : file.name);
+          wiz.sent[step] = T("va.uploaded", file.name);
           status.textContent = wiz.sent[step]; status.dataset.bad = ""; status.hidden = false;
         } else { status.textContent = msgOf(r); status.dataset.bad = "1"; status.hidden = false; break; }
       }
@@ -372,11 +388,10 @@
       f.append(lab, input, el("p", "vt-help", T("va.name.help")));
       wrap.append(f);
     } else if (name === "foto") wrap.append(fileStep("foto", T("va.foto.help"), "image/*", false));
-    else if (name === "pose") wrap.append(fileStep("pose", T("va.pose.help"), "image/*", true));
-    else if (name === "video") wrap.append(fileStep("video", T("va.video.help"), "video/mp4,.mp4", false));
     else if (name === "voce") wrap.append(fileStep("voce", T("va.voce.help"), "audio/*,.wav,.mp3,.flac,.ogg", false));
+    else if (name === "video") wrap.append(fileStep("video", T("va.video.help"), "video/mp4,.mp4", false));
     else {
-      wrap.append(el("p", "vt-help", T("va.make.sum", w.name.trim(), w.poses ? T("va.make.poses", w.poses) : "", w.sent.video ? T("va.make.video") : "", w.sent.voce ? T("va.make.voice") : "")));
+      wrap.append(el("p", "vt-help", T("va.make.sum", w.name.trim(), w.sent.voce ? T("va.make.voice") : "", w.sent.video ? T("va.make.video") : "")));
     }
     wrap.append(note(w.msg, w.bad));
     const nav = el("div", "va-nav");
@@ -395,7 +410,7 @@
     const nav = document.getElementById("va-nav");
     if (!nav || !wiz) return;
     clear(nav);
-    const w = wiz, step = STEPS[w.step], optional = ["pose", "video", "voce"].includes(step);
+    const w = wiz, step = STEPS[w.step], optional = ["voce", "video"].includes(step);
     nav.append(btn(T("va.cancel"), "ghost", closeWizard));
     if (w.step > 0) nav.append(btn(T("va.back"), "ghost", () => { w.step -= 1; w.msg = ""; paintWizard(); }));
     if (step === "make") {
@@ -408,7 +423,7 @@
       nav.append(next);
     }
   }
-  const wizSent = step => step === "pose" ? wiz.poses > 0 : !!wiz.sent[step];
+  const wizSent = step => !!wiz.sent[step];
   async function makeIt() {
     const w = wiz;
     w.making = true; w.msg = ""; paintWizardButtons();
@@ -432,6 +447,7 @@
     const help = el("p", "vt-help", T("va.mouth.left")), save = btn(T("va.mouth.save"), "", async () => {
       const r = await ctx.svc("POST", `/personas/${name}/wav2lip/bocca`, { p1: mouth.p1, p2: mouth.p2 });
       help.textContent = r.ok ? T("va.mouth.saved") : msgOf(r);
+      if (r.ok) { res.stamp = Date.now(); const sheet = view.querySelector(".va-sheet"); if (sheet) { sheet.hidden = false; fillSheet(sheet, name, "mouth-" + res.stamp); } }
     });
     save.disabled = true;
     img.onclick = ev => {
@@ -440,7 +456,7 @@
       place(d1, mouth.p1); place(d2, mouth.p2);
       save.disabled = !(mouth.p1 && mouth.p2);
     };
-    view.append(el("p", "vt-help", T("va.mouth.help")), stage, help, save);
+    view.append(modesView(res), el("p", "vt-help", T("va.mouth.help")), stage, help, save);
     if (res.voice && res.voice.engine) view.append(el("p", "vt-help", T("va.voice.set", res.voice.engine)));
     else if (res.voice_note) view.append(note(T("va.voice.note", res.voice_note), false));
     const row = list && list.avatars.find(a => a.name === name);
@@ -450,6 +466,26 @@
     fillResultActions(actions, res);
     view.append(actions, el("p", "vt-help", res.clips.length ? T("va.prepare.why") : T("va.nopic")));
     return view;
+  }
+  function modesView(res) {
+    const box = el("div", "va-modes"), have = res.render_modes || [];
+    box.append(el("h5", "va-h", T("va.modes")));
+    const ul = el("ul", "va-mode-list");
+    for (const m of ["visemes", "wav2lip", "video"]) {
+      const li = el("li", "va-mode"), on = have.includes(m);
+      li.dataset.mode = m; li.dataset.on = on ? "1" : "";
+      li.append(el("strong", "", `${T("va.mode." + m)}: ${on ? T("va.mode.yes") : T("va.mode.no")}`), el("span", "vt-help", T("va.mode." + m + ".help")));
+      ul.append(li);
+    }
+    box.append(ul);
+    if (have.includes("visemes")) {
+      box.append(el("h5", "va-h", T("va.sheet.title")));
+      const sheet = el("img", "va-sheet");
+      sheet.alt = T("va.sheet.alt", res.display_name);
+      fillSheet(sheet, res.avatar, "new-" + res.stamp);
+      box.append(sheet);
+    }
+    return box;
   }
   function fillResultActions(actions, res) {
     clear(actions);

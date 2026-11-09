@@ -66,6 +66,12 @@ class VoicePageTest(unittest.TestCase):
         for key in sorted(keys):
             self.assertEqual(I18N.count(f'"{key}":'), 2, key)
 
+    def test_a_file_for_the_phones_is_listed_but_cannot_be_chosen_as_the_function_model_and_the_avatar_function_has_its_emergency_name(self):
+        self.assertIn("svc.models.filter(x => x.selectable !== false)", JS)
+        self.assertIn('"vo.phones.file"', I18N)
+        self.assertEqual(I18N.count('"vo.svc.avatar": "Avatar video from the PC (emergency, uses VRAM)"'), 1)
+        self.assertEqual(I18N.count("\"vo.svc.avatar\": \"Video dell'avatar dal PC (emergenza, usa VRAM)\""), 1)
+
     def test_the_styles_are_mobile_first_with_touch_sized_targets(self):
         self.assertIn(".vo-root .btn { min-height: 44px; min-width: 44px;", CSS)
         self.assertIn("min-height: 44px", CSS.split(".vo-field input")[1].split("}")[0])

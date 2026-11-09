@@ -58,8 +58,10 @@ class AvatarPage(unittest.TestCase):
         self.assertIn("api/voice/avatar/wizard/${wiz.draft}/${step}", JS)
         self.assertIn("api/voice/avatar/${encodeURIComponent(name)}/poster", JS)
         self.assertIn('"api/voice/avatar"', JS)
-        for steps in ("foto", "pose", "video", "voce"):
-            self.assertIn(steps, JS)
+        self.assertIn('const STEPS = ["name", "foto", "voce", "video", "make"];', JS)            # the photo first, the voice and the video optional
+        self.assertNotIn('"pose"', JS)
+        self.assertIn("api/voice/avatar/${encodeURIComponent(name)}/sprites.png", JS)
+        self.assertTrue(voice_avatar.SPRITES.fullmatch("/api/voice/avatar/Ada/sprites.png"))
         self.assertTrue(voice_avatar.UPLOAD.fullmatch("/api/voice/avatar/wizard/" + "0" * 32 + "/video"))
         self.assertTrue(voice_avatar.POSTER.fullmatch("/api/voice/avatar/Ada/poster"))
         self.assertIn("voice_avatar.get(self, path)", HANDLER)
@@ -83,11 +85,22 @@ class AvatarPage(unittest.TestCase):
             self.assertEqual(sorted(re.findall(r"\{\d\}", en[key])), sorted(re.findall(r"\{\d\}", it[key])), key)
         used = {k for k in re.findall(r'\bT\(\s*"(va\.[\w.]+)"', JS) if not k.endswith(".")}      # "va.phase." + x is built from a name
         self.assertFalse(used - set(en), used - set(en))
-        for step in ("name", "foto", "pose", "video", "voce", "make"):
+        for step in ("name", "foto", "voce", "video", "make"):
             self.assertIn(f"va.s.{step}", en)
+        for mode in ("visemes", "wav2lip", "video"):
+            self.assertIn(f"va.mode.{mode}", en)
+            self.assertIn(f"va.mode.{mode}.help", it)
+        self.assertNotIn("va.s.pose", en)
         for phase in ("extract", "landmark", "latents", "masks"):
             self.assertIn(f"va.phase.{phase}", en)
         self.assertNotIn("Object.assign(STRINGS", JS)                                    # the strings are in i18n.js, where the other pages keep theirs
+
+    def test_the_result_says_which_modes_the_avatar_has_and_the_pc_video_is_prepared_only_when_asked(self):
+        self.assertIn("function modesView(res)", JS)
+        self.assertIn('["visemes", "wav2lip", "video"]', JS)
+        self.assertIn("res.render_modes", JS)
+        self.assertEqual(JS.count('"/avatar/prepare"'), 2)                              # the two prepare buttons; finishing the wizard prepares nothing
+        self.assertIn(".va-sheet", CSS)
 
     def test_no_emoji(self):
         for text in (JS, CSS):
