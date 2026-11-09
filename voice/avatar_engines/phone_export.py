@@ -9,7 +9,7 @@
     phone/selftest/*        the synthetic audio and model inputs of the self-test
 
 The phone draws over the template frame, not over a moving video: the model input is made once, the template's own geometry is `template.inv`. What can
-run on a phone: FeatherTalk (FeatherHuBERT is an ONNX model of 14 M parameters that takes the waveform) and Ultralight with wenet (the filter bank above, then
+run on a phone: FeatherTalk (FeatherHuBERT is an ONNX model that takes the waveform, 3.36 M parameters in the released weights) and Ultralight with wenet (the filter bank above, then
 the wenet encoder the person installed). Ultralight with HuBERT Large (about 1.2 GB) cannot, and is refused. Nothing here loads a model other than to
 measure the outputs the phone must reproduce (onnxruntime on the CPU); see docs/voice/engines-personalised.md."""
 from __future__ import annotations
