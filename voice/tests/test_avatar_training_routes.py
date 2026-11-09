@@ -5,7 +5,7 @@ import time
 import pytest
 
 from callbridge import models_store
-from voice.avatar_engines import personalised, registry, ultralight
+from voice.avatar_engines import personalised, registry
 from voice.avatar_engines.personalised import PYTHON_ENV
 from voice.avatar_training import TrainingJobs
 from voice.tests.test_avatar_service import _isolated, rig  # noqa: F401 (fixtures)
@@ -20,7 +20,6 @@ CLIP = {"seconds": 240.0, "fps": 25.0, "width": 160, "height": 160}
 def trained_rig(rig, monkeypatch):
     monkeypatch.setenv(PYTHON_ENV, PY)
     monkeypatch.delenv("FAKE_HANG", raising=False)
-    monkeypatch.setattr(ultralight, "HAS_WAIT3", True)
     monkeypatch.setattr(models_store, "_service_env", {})
     saved = {n: registry.ENGINES["feathertalk"].__dict__.get(n) for n in ("convert_cmd", "audio_cmd", "which", "vendor")}
     put_pack(rig.models, "feathertalk")

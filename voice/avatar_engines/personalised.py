@@ -319,7 +319,7 @@ class PersonalisedEngine(AvatarEngine):
 
     def env(self, base: str) -> dict:
         env = models_store.helper_env("", None)
-        env.update({"PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1", "TORCH_HOME": str(Path(base) / PACKS_DIR / "torch-home"),
+        env.update({"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1", "PYTHONUNBUFFERED": "1", "TORCH_HOME": str(Path(base) / PACKS_DIR / "torch-home"),
                     "HF_HOME": str(Path(base) / PACKS_DIR / "hf-home")})
         return env
 

@@ -8,7 +8,7 @@ import psutil
 import pytest
 
 from callbridge import models_store
-from voice.avatar_engines import personalised, registry, ultralight
+from voice.avatar_engines import personalised, registry
 from voice.avatar_engines.active import ActiveEngine
 from voice.avatar_engines.personalised import PYTHON_ENV, Cancelled
 
@@ -23,7 +23,6 @@ ATTRS = ("convert_cmd", "audio_cmd", "which", "vendor")
 def _env(monkeypatch):
     monkeypatch.setenv(PYTHON_ENV, PY)
     monkeypatch.delenv("FAKE_HANG_RENDER", raising=False)
-    monkeypatch.setattr(ultralight, "HAS_WAIT3", True)
     monkeypatch.setattr(models_store, "_service_env", {})
     monkeypatch.delenv(models_store.ROOT_ENV, raising=False)
     saved = {(e.ID, n): e.__dict__.get(n) for e in (A, B) for n in ATTRS}

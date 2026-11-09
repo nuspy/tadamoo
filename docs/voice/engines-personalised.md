@@ -7,7 +7,7 @@ A personalised engine draws one person's face and mouth from the audio. It learn
 
 | What | Where | How it arrives |
 |---|---|---|
-| The upstream scripts | `voice/avatar_engines/vendor/<engine>/` | in the repository, byte for byte; `VENDORED.md` lists origin, commit, SHA-256 of every file, no patch |
+| The upstream scripts | `voice/avatar_engines/vendor/<engine>/` | in the repository, byte for byte except the patches `VENDORED.md` records (one, below); it lists origin, commit and the SHA-256 of every file |
 | Face detector and landmark weights | `<models folder>/avatar-engines/landmarks/` | catalog entry `engine-landmarks`, Install button |
 | FeatherHuBERT weights | `<models folder>/avatar-engines/feathertalk/weights/` | entry `feathertalk-weights`, Install button |
 | Ultralight's wenet encoder | `<models folder>/avatar-engines/ultralight/weights/encoder.onnx` | by hand: the README names a Google Drive file, no address or SHA-256 |
@@ -54,7 +54,7 @@ Progress is read from the `Epoch n/N` of the output. The job reports the phase, 
 - the duration, labelled an estimate: frames (minutes x 60 x fps) x epochs x seconds per frame per epoch. Neither project states a speed. Until a training has been timed on this PC the range is
   an assumption made here (0.003 to 0.02 s per frame per epoch); after one it is the measured figure (`avatar-engine-timing.json`). Preprocessing is not included. Epochs default to 200, the value of the upstream examples;
 - the GPU memory: `null`, "not measured", because the upstream documents state no figure; the free memory now is shown;
-- what will be created, and the checks: idle, the weights, the Python, ffmpeg, the VGG19 file, the GPU readable, and for Ultralight that `os.wait3` exists (see below).
+- what will be created, and the checks: idle, the weights, the Python, ffmpeg, the VGG19 file, the GPU readable.
 
 `POST /avatar/train/start {token, confirm: true}` starts it only if the token belongs to a plan that is unchanged and has no failed check. One training runs at a time.
 `POST /avatar/train/cancel` ends it and every process it started; stopping the service does the same. The dataset and checkpoints stay, and a new plan continues from them (`fresh` discards them).
@@ -75,6 +75,12 @@ licence text, the acknowledgement, then the download with its SHA-256 check.
 ## What is not proven
 
 No GPU, model, real video or network was used: the tests run fake scripts that take the arguments of the real ones. Not proven: that the upstream scripts run end to end here,
-how long a training takes, the memory it needs, the quality of either model (Italian included), an ONNX or MNN file on a phone. Known upstream defects, left unedited: Ultralight's
-`data_utils/get_landmark.py` imports `os.wait3`, which Windows does not have, so its preprocessing cannot run on Windows (the plan says so before anything starts); both `train.py`
-need the VGG19 file.
+how long a training takes, the memory it needs, the quality of either model (Italian included), an ONNX or MNN file on a phone. Known upstream defect, left unedited: both `train.py` need the VGG19 file.
+
+## Windows
+
+The scripts are made to run on Windows with one patch and one setting. Patch (recorded in `vendor/ultralight/VENDORED.md`, Patches): `data_utils/get_landmark.py` had `from os import wait3`, never
+used and missing on Windows, so the import was removed; `voice/tests/test_avatar_engine_vendor.py` checks that putting the line back gives the upstream blob. Setting: the scripts run with `PYTHONUTF8=1`, because
+`data_utils/wenet_infer.py` reads its UTF-8 word list with `open()` and no encoding, which on Windows would use the locale's. Scanned and found fine: no `fork`, `wait*`, `fcntl`, signals,
+`os.system`, `shell=True` or hard-coded `/` paths; `ffmpeg` is started as a list; `DataLoader` workers use spawn on Windows (slower start, the scripts have the `__main__` guard).
+`FeatherTalk-CPP/convert_mnn_models.sh` is a shell script: it is not run here (MNN conversion uses `TADAMOO_MNNCONVERT`). Not proven on a real Windows run.

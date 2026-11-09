@@ -18,7 +18,6 @@ ENGINE = registry.ENGINES["ultralight"]
 
 @pytest.fixture(autouse=True)
 def _env(monkeypatch):
-    monkeypatch.setattr(ultralight, "HAS_WAIT3", True)
     monkeypatch.setenv(PYTHON_ENV, PY)
     monkeypatch.setattr(models_store, "_service_env", {})
     monkeypatch.delenv(models_store.ROOT_ENV, raising=False)
@@ -104,14 +103,12 @@ def test_a_checkpoint_without_the_trained_mark_does_not_count(models, avatar):
     assert ENGINE.status_of(avatar, str(models))["trained"] is False
 
 
-def test_the_preflight_names_ffmpeg_the_vgg_file_and_the_platform(models, monkeypatch):
+def test_the_preflight_names_ffmpeg_and_the_vgg_file_and_has_no_platform_check(models):
     put_pack(models, "ultralight", vgg=False)
     opts = ENGINE.options()
     checks = {c.id: c for c in ENGINE.preflight(str(models), opts, which=lambda n: None)}
-    assert not checks["ffmpeg"].ok and not checks["vgg19"].ok and "vgg19-dcbb9e9d.pth" in checks["vgg19"].en and checks["platform"].ok
-    monkeypatch.setattr(ultralight, "HAS_WAIT3", False)
-    bad = {c.id: c for c in ENGINE.preflight(str(models), opts, which=lambda n: "x")}["platform"]
-    assert not bad.ok and "os.wait3" in bad.en
+    assert not checks["ffmpeg"].ok and not checks["vgg19"].ok and "vgg19-dcbb9e9d.pth" in checks["vgg19"].en
+    assert "platform" not in checks                        # the vendored preprocessing imports nothing that only Linux has (vendor/ultralight/VENDORED.md, Patches)
 
 
 # ---------------------------------------------------------------------------------------- the command lines
@@ -279,3 +276,8 @@ def test_the_staging_copies_what_changed_and_names_a_weight_that_is_missing(mode
     (models / "avatar-engines" / "landmarks" / "scrfd_2.5g_kps.onnx").unlink()
     with pytest.raises(EngineError, match="scrfd_2.5g_kps.onnx is missing"):
         ENGINE.stage(str(models), ENGINE.options("wenet"))
+
+
+def test_the_scripts_run_with_utf8_as_their_default_text_encoding(models):
+    """wenet_infer.py reads a UTF-8 word list with open() and no encoding: on Windows that needs UTF-8 mode."""
+    assert ENGINE.env(str(models))["PYTHONUTF8"] == "1" and registry.get("feathertalk").env(str(models))["PYTHONUTF8"] == "1"
