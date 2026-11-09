@@ -67,8 +67,14 @@ def _trained(info, folder: Path, base) -> list[tuple]:
     return [("this avatar has not been trained for this engine", "questo avatar non è stato addestrato per questo motore")]
 
 
+def _engine_pack(info, folder: Path, base) -> list[tuple]:
+    """What the engine itself reports as missing (its pack, weights, environment, photo, trained checkpoint): see pack.py."""
+    from . import registry
+    return registry.get(info.id).problems(folder, base)
+
+
 REQUIREMENTS = {"viseme_sprites": _viseme_sprites, "wav2lip_assets": _wav2lip_assets, "musetalk_prepared": _musetalk_prepared,
-                "trained": _trained, "none": lambda info, folder, base: []}
+                "trained": _trained, "engine_pack": _engine_pack, "none": lambda info, folder, base: []}
 
 
 def of(info, avatar_dir, models_base=None) -> dict:

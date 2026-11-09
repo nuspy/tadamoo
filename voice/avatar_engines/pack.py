@@ -1,0 +1,356 @@
+"""What the PC engines that run upstream code have in common: where their files are, what is missing, one process at a time, and the frames they make.
+
+An engine pack is the upstream code of a project installed on request under `<models folder>/avatar-engines/<engine>/code/` (serve/voice_catalog.py),
+with its weights in folders beside it. The engine runs the upstream scripts through the runners of `runners/` as a subprocess of the Python environment
+named by TADAMOO_AVATAR_ENGINES_PYTHON: offline, with the code pack as its working directory, one at a time with every other engine, and the whole
+process tree killed on stop. Nothing is started, loaded or fetched by importing this module or by asking an engine for its status."""
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import tempfile
+import threading
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, Iterator
+
+from callbridge import models_store
+from callbridge.avatar_client import Frame, HEADER, MAGIC, MAX_SIDE
+
+from .base import AvatarEngine, EngineInfo
+
+ENV_PYTHON = "TADAMOO_AVATAR_ENGINES_PYTHON"
+RUNNERS = Path(__file__).resolve().parent / "runners"
+TAIL_LINES = 12
+_PERCENT = re.compile(r"(\d{1,3})%\|")                 # a tqdm bar: " 42%|####   | 21/50"
+
+
+class EngineBusy(RuntimeError):
+    """Another engine process is running: they run one at a time."""
+
+
+class EngineFailed(RuntimeError):
+    """The engine's process failed; the message is what it said."""
+
+
+class EngineNotReady(RuntimeError):
+    """The engine cannot run now; the message says what is missing."""
+
+
+# ---- where things are
+def python() -> str:
+    return os.environ.get(ENV_PYTHON, "").strip()
+
+
+def engine_dir(engine: str, base: str | None = None) -> Path | None:
+    """`<models folder>/avatar-engines/<engine>`, or None when there is no models folder."""
+    where = models_store.folder("avatar", f"{engine}-code", base)
+    return Path(where).parent if where else None
+
+
+def code_dir(engine: str, base: str | None = None) -> Path | None:
+    where = models_store.folder("avatar", f"{engine}-code", base)
+    return Path(where) if where else None
+
+
+def not_installed(model_ids, base: str | None = None) -> list[tuple]:
+    """(en, it) for each catalog entry of `model_ids` that is not in the models folder."""
+    out = []
+    for model_id in model_ids:
+        if models_store.is_installed(model_id, base):
+            continue
+        name, where = models_store.MODELS[model_id][2], models_store.folder("avatar", model_id, base)
+        out.append((f"{name} is not installed: install it from Settings > Voice" + (f" or put it in {where}" if where else ""),
+                    f"{name} non è installato: installarlo da Settings > Voice" + (f" o metterlo in {where}" if where else "")))
+    return out
+
+
+def environment_problems() -> list[tuple]:
+    out = []
+    exe = python()
+    if not exe:
+        out.append((f"the engine environment is not set: its Python is named by {ENV_PYTHON}", f"l'ambiente dei motori non è impostato: il suo Python è indicato da {ENV_PYTHON}"))
+    elif not Path(exe).is_file():
+        out.append((f"the engine environment's Python is not there: {exe}", f"il Python dell'ambiente dei motori non c'è: {exe}"))
+    if shutil.which("ffmpeg") is None:
+        out.append(("ffmpeg is not on the PATH", "ffmpeg non è nel PATH"))
+    return out
+
+
+def photo_problems(avatar_dir: Path | None) -> list[tuple]:
+    if avatar_dir is None or not (avatar_dir / "poster.jpg").is_file():
+        return [("this avatar has no photo to draw from", "questo avatar non ha una foto da cui disegnare")]
+    return []
+
+
+# ---- the process
+_ONE_AT_A_TIME = threading.Lock()                       # the GPU is shared: one engine process at a time, whichever engine
+
+
+def parse_line(line: str) -> dict | None:
+    """The event a line of the process stands for: a JSON object with "event" (the runners' own), or a tqdm bar as a progress event; None otherwise."""
+    line = line.strip()
+    if line.startswith("{"):
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            return None
+        return msg if isinstance(msg, dict) and msg.get("event") else None
+    found = _PERCENT.search(line)
+    if found:
+        return {"event": "progress", "phase": "", "percent": min(100, int(found.group(1)))}
+    return None
+
+
+def kill_tree(proc) -> None:
+    """End the process and everything it started."""
+    if proc.poll() is None:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True, timeout=15, check=False)
+        else:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        try:
+            proc.kill()
+        except OSError:
+            pass
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def spawn(cmd, cwd, env) -> subprocess.Popen:
+    flags = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {"start_new_session": True}
+    return subprocess.Popen(cmd, cwd=str(cwd), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            encoding="utf-8", errors="replace", bufsize=1, **flags)
+
+
+def process_env(code: Path) -> dict:
+    """Offline, the models folder known, the environment's own scripts first on the PATH, the code pack importable."""
+    env = models_store.helper_env("avatar")
+    exe = python()
+    if exe:
+        env["PATH"] = os.pathsep.join([str(Path(exe).parent), env.get("PATH", "")])
+    env["PYTHONPATH"] = os.pathsep.join(p for p in (str(code), env.get("PYTHONPATH", "")) if p)
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUNBUFFERED"] = "1"
+    return env
+
+
+class Job:
+    """One run of one command: reads its output as events, keeps the last lines for an error message, and can be stopped."""
+
+    def __init__(self, cmd: list, cwd: Path, env: dict, label: str, progress: Callable[[dict], None] | None = None, spawner=spawn,
+                 needs_done: bool = True) -> None:
+        """`needs_done` is False for an upstream script that prints no "done" event: its exit code 0 is then the end."""
+        self.cmd, self.cwd, self.env, self.label = cmd, cwd, env, label
+        self.progress, self._spawn, self.needs_done = progress, spawner, needs_done
+        self.proc = None
+        self.stopped = False
+        self.done: dict | None = None
+        self.error = ""
+        self.tail: list[str] = []
+
+    def run(self) -> dict:
+        """Run to the end and return the "done" event; EngineBusy when another engine is running, EngineFailed when this one failed or was stopped."""
+        if not _ONE_AT_A_TIME.acquire(blocking=False):
+            raise EngineBusy("another avatar engine is running: they run one at a time")
+        try:
+            if self.stopped:
+                raise EngineFailed(f"{self.label} was stopped")
+            self.proc = self._spawn(self.cmd, self.cwd, self.env)
+            readers = [threading.Thread(target=self._read, args=(stream,), daemon=True) for stream in (self.proc.stdout, self.proc.stderr)]
+            for t in readers:
+                t.start()
+            code = self.proc.wait()
+            for t in readers:
+                t.join(timeout=5)
+        finally:
+            _ONE_AT_A_TIME.release()
+        if self.stopped:
+            raise EngineFailed(f"{self.label} was stopped")
+        if code != 0 or (self.done is None and self.needs_done):
+            raise EngineFailed(self.error or "; ".join(self.tail[-3:]) or f"{self.label} ended with code {code}")
+        return self.done or {"event": "done"}
+
+    def stop(self) -> None:
+        self.stopped = True
+        if self.proc is not None:
+            kill_tree(self.proc)
+
+    def _read(self, stream) -> None:
+        for line in stream:
+            event = parse_line(line)
+            if event is None:
+                if line.strip():
+                    self.tail = (self.tail + [line.strip()])[-TAIL_LINES:]
+                continue
+            if event["event"] == "done":
+                self.done = event
+            elif event["event"] == "error":
+                self.error = str(event.get("message") or "the engine reported an error")
+            elif self.progress is not None:
+                self.progress(event)
+
+
+@dataclass(frozen=True)
+class Stage:
+    """One step of a training: a command, where it runs, its share of the progress bar, and what to do with its "done" event."""
+    id: str
+    en: str
+    it: str
+    argv: tuple
+    cwd: Path
+    weight: int
+    needs_done: bool = True
+    after: Callable[[dict], None] | None = None
+
+    def as_dict(self) -> dict:
+        return {"id": self.id, "en": self.en, "it": self.it, "weight": self.weight}
+
+
+# ---- the frames
+def read_frames(path: str | os.PathLike) -> Iterator[Frame]:
+    """The frames of a file a runner wrote (runners/_frames.py)."""
+    with open(path, "rb") as fh:
+        while True:
+            head = fh.read(HEADER.size)
+            if not head:
+                return
+            if len(head) < HEADER.size:
+                raise EngineFailed("the frames file is cut short")
+            magic, w, h = HEADER.unpack(head)
+            if magic != MAGIC or not (0 < w <= MAX_SIDE and 0 < h <= MAX_SIDE) or w % 2 or h % 2:
+                raise EngineFailed("the frames file has a bad header")
+            body = fh.read(w * h * 3 // 2)
+            if len(body) < w * h * 3 // 2:
+                raise EngineFailed("the frames file is cut short")
+            yield Frame(w, h, body)
+
+
+def feed_frames(frames, sink: Callable[[Frame], None], fps: int, sleep: Callable[[float], None], stop: threading.Event | None = None) -> int:
+    """Hand each frame to `sink` (the enhancer's `feed`, or `AvatarFrames.publish`) at `fps`; returns how many were handed over before the end or a stop."""
+    gap, sent = 1.0 / max(1, fps), 0
+    for frame in frames:
+        if stop is not None and stop.is_set():
+            break
+        sink(frame)
+        sent += 1
+        sleep(gap)
+    return sent
+
+
+def write_wav(path: Path, pcm16: bytes, sample_rate: int) -> None:
+    import wave
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        w.writeframes(pcm16)
+
+
+# ---- an engine made of a runner
+class PackEngine(AvatarEngine):
+    """An engine that renders by running one runner of runners/ on the audio and, for most, a photo of the avatar. A subclass names its runner, its
+    folder under avatar-engines/ and the catalog entries that must be installed; `problems` lists, in words, what stops it from running."""
+
+    ID = ""                                             # the id in registry.py
+    key = ""                                            # the engine's folder under avatar-engines/ and the prefix of its catalog ids
+    runner = ""                                         # the file in runners/
+    models: tuple = ()                                  # catalog ids that must be installed to render
+    needs_photo = True
+    fps_default = 25
+
+    def __init__(self, info: EngineInfo, spawner=spawn) -> None:
+        if info.id != self.ID:
+            raise ValueError(f"{self.ID}: the descriptor is {info.id}")
+        self._info = info
+        self._spawn = spawner
+        self._avatar: Path | None = None
+        self._job: Job | None = None
+        self.last_progress: dict | None = None
+
+    @property
+    def info(self) -> EngineInfo:
+        return self._info
+
+    # ---- what is missing
+    def problems(self, avatar_dir, base: str | None = None) -> list[tuple]:
+        """(en, it) for each thing that stops this engine from drawing this avatar: the environment, the pack and weights, the photo."""
+        folder = Path(avatar_dir) if avatar_dir else None
+        out = environment_problems() + not_installed(self.models, base)
+        if self.needs_photo and folder is not None and folder.is_dir():
+            out += photo_problems(folder)
+        return out
+
+    def status_of(self, avatar_dir, models_base: str | None = None) -> dict:
+        """{available, reason, reason_it}. Reads files and the environment only: nothing is started or loaded."""
+        folder = Path(avatar_dir) if avatar_dir else None
+        problems = [] if folder is not None and folder.is_dir() else [("no avatar is chosen", "nessun avatar è scelto")]
+        problems += self.problems(folder, models_base)
+        if not problems:
+            return {"available": True, "reason": "", "reason_it": ""}
+        return {"available": False, "reason": "; ".join(p[0] for p in problems), "reason_it": "; ".join(p[1] for p in problems)}
+
+    # ---- the commands
+    def base_args(self, base: str | None = None) -> list[str]:
+        return [python(), str(RUNNERS / self.runner), "--pack", str(code_dir(self.key, base))]
+
+    def check_command(self, base: str | None = None) -> list[str]:
+        return self.base_args(base) + ["--engine-dir", str(engine_dir(self.key, base)), "--check"]
+
+    def render_command(self, base: str | None, out: Path, wav: Path, resolution: int, fps: int, avatar_dir: Path) -> list[str]:
+        return self.base_args(base) + ["--engine-dir", str(engine_dir(self.key, base)), "--image", str(avatar_dir / "poster.jpg"), "--audio", str(wav),
+                                       "--frames-out", str(out), "--height", str(int(resolution)), "--fps", str(int(fps))]
+
+    def _run(self, cmd: list, label: str, progress: Callable[[dict], None] | None = None) -> dict:
+        def relay(event: dict) -> None:
+            self.last_progress = event
+            if progress is not None:
+                progress(event)
+        code = code_dir(self.key)
+        self._job = Job(cmd, code, process_env(code), label, relay, self._spawn)
+        try:
+            return self._job.run()
+        finally:
+            self._job = None
+
+    # ---- the interface
+    def prepare(self, avatar_dir: Path, progress: Callable[[str, float], None]) -> None:
+        """Choose the avatar to draw and load the engine's models once to prove the environment (this is the explicit request to load them)."""
+        problems = self.problems(avatar_dir)
+        if problems:
+            raise EngineNotReady("; ".join(p[0] for p in problems))
+        self._run(self.check_command(), f"{self.info.name} check", lambda e: progress(str(e.get("phase") or "loading"), float(e.get("percent") or 0.0)))
+        self._avatar = Path(avatar_dir)
+        progress("ready", 100.0)
+
+    def render(self, pcm16: bytes, sample_rate: int, resolution: int, fps: int, *, avatar_dir: Path | None = None) -> Iterator[Frame]:
+        """Frames for this audio, drawn for `avatar_dir` (or the avatar `prepare` chose). Never scaled up: the enhance stage does that."""
+        folder = Path(avatar_dir) if avatar_dir else self._avatar
+        if folder is None:
+            raise EngineNotReady(f"{self.info.name}: choose an avatar first")
+        problems = self.problems(folder)
+        if problems:
+            raise EngineNotReady("; ".join(p[0] for p in problems))
+        return self._frames(pcm16, sample_rate, resolution, fps or self.fps_default, folder)
+
+    def _frames(self, pcm16: bytes, sample_rate: int, resolution: int, fps: int, folder: Path) -> Iterator[Frame]:
+        with tempfile.TemporaryDirectory(prefix="tadamoo-engine-") as tmp:
+            wav, out = Path(tmp) / "in.wav", Path(tmp) / "frames.i420"
+            write_wav(wav, pcm16, sample_rate)
+            self._run(self.render_command(None, out, wav, resolution, fps, folder), f"{self.info.name} render")
+            yield from read_frames(out)
+
+    def stop(self) -> None:
+        """Stop what is running now, process tree included."""
+        job = self._job
+        if job is not None:
+            job.stop()
