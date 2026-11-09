@@ -228,9 +228,6 @@ class Viseme:
     v: str            # una voce di VISEMI
     dur: float        # durata, secondi
 
-    def as_dict(self) -> dict:
-        return {"t": round(self.t, 3), "v": self.v, "dur": round(self.dur, 3)}
-
 
 def _digrammi(parola: str) -> list[str]:
     """Spezza una parola nei suoni che contano per la bocca.
@@ -312,12 +309,12 @@ def genera(testo: str, durata_s: float, lang: str = "it") -> list[Viseme]:
 
 
 def timeline(testo: str, durata_s: float, lang: str = "it") -> dict:
-    """Il pacchetto pronto per il WebSocket: testo, durata e visemi."""
+    """The message for the WebSocket: text, duration and visemes, times in whole milliseconds."""
     vs = genera(testo, durata_s, lang)
     return {
-        "type": "visemi",
-        "testo": testo,
+        "type": "visemes",
+        "text": testo,
         "lang": lang,
-        "durata": round(durata_s, 3),
-        "visemi": [v.as_dict() for v in vs],
+        "duration_ms": round(durata_s * 1000),
+        "visemes": [{"t": round(v.t * 1000), "v": v.v, "dur": round(v.dur * 1000)} for v in vs],
     }

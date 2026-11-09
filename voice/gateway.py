@@ -42,6 +42,11 @@ class Host:
             return {"stt": False, "tts": False, "avatar": False}
         return {name: manager._live(name) == "loaded" for name in ("stt", "tts", "avatar")}
 
+    def phone_avatar(self, persona: str = "") -> dict:
+        """{avatar, render_modes} of a personality's avatar (the service's own route; the personality of Settings > Voice when `persona` is empty); {} when unknown."""
+        status, body = self.control("GET", "/avatar/phone" + (f"?persona={persona}" if persona else ""))
+        return body if status == 200 and isinstance(body, dict) else {}
+
     def stt_client(self, lang: str):
         if self._stt_factory is not None:
             return self._stt_factory(lang)

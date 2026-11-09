@@ -1,20 +1,26 @@
 """The voice gateway: what one phone connection does. The server that accepts the connections is voice/gateway.py.
 
 Protocol (JSON text frames and binary PCM16 little-endian mono frames):
-  phone -> gw  {"type":"auth","token":"..."}          first message; answered by auth_ok (the token is not needed when the handshake proved it)
+  phone -> gw  {"type":"auth","token":"...","render_modes":["wav2lip","visemes","video"],"device":"android"}   first message; answered by auth_ok
+               (the token is not needed when the handshake proved it; render_modes are the ways the device can draw the avatar, best first;
+               a device that declares none gets the voice only)
   gw -> phone  {"type":"auth_ok"} then {"type":"ready","voice":bool,"missing":[...],"avatar":bool,"brain":"direct|harness","persona":"...",
-                "render_mode":"...","render_modes":[...]}
+                "render_mode":"wav2lip|visemes|video|none","render_modes":[...],"avatar_name":"..."}
   gw -> phone  {"type":"state","voice":bool,"missing":[...],"avatar":bool}   whenever the loaded functions change
   phone -> gw  {"type":"start","mode":"hold|continuous","lang":"it","voice":"...","sample_rate":16000,"duplex":false}
   phone -> gw  <PCM16 frames>, then {"type":"end"} (hold mode only; continuous closes the turn on a pause)
   phone -> gw  {"type":"text","text":"..."}           a typed or corrected sentence: the same turn without the STT
-  gw -> phone  {"type":"transcript","text":"..."}, {"type":"reply","chunk":"..."}, {"type":"audio_start","sample_rate":24000},
+  gw -> phone  {"type":"transcript","text":"..."}, {"type":"reply","chunk":"..."}, {"type":"audio_start","sample_rate":24000,"segment":n},
                <PCM16 frames>, {"type":"audio_end"}, {"type":"done"}
+  gw -> phone  in visemes mode, before the PCM of every segment: {"type":"visemes","segment":n,"text":"...","lang":"it","duration_ms":int,
+               "pcm_bytes":int,"visemes":[{"t":ms,"v":"aa","dur":ms}...]}
   phone -> gw  {"type":"interrupt"} or a new start while the reply plays: the reply stops (gw -> phone {"type":"interrupt"})
   phone -> gw  {"type":"brain","brain":"direct|harness"} / {"type":"persona","persona":"slug"}; both are confirmed with the same message
-  phone -> gw  {"type":"render_mode","mode":"musetalk|wav2lip|visemi"}   how the phone draws the avatar
-  phone -> gw  {"type":"video_start","sdp":"...","persona":"...","brain":"..."}; gw -> phone {"type":"video_answer","sdp":"..."},
-               {"type":"video_state","state":"preparing|live","detail":"..."} or {"type":"video_unavailable","reason":"no_avatar|no_webrtc"}
+  phone -> gw  {"type":"render_mode","mode":"wav2lip|visemes"}   the device chooses among the modes the gateway offers it
+  phone -> gw  {"type":"render_failed","mode":"...","why":"..."}   the mode does not work on the device; gw -> phone {"type":"render_mode","mode":next|"none",
+               "previous":"...","why":"...","render_modes":[...]}: the next one of the device's list, remembered for the connection
+  phone -> gw  {"type":"video_start","reason":"emergency","sdp":"...","persona":"...","brain":"..."}; gw -> phone {"type":"video_answer","sdp":"..."},
+               {"type":"video_state","state":"preparing|live","detail":"..."} or {"type":"video_unavailable","reason":"emergency_only|no_avatar|no_webrtc"}
   phone -> gw  {"type":"video_stop"}; gw -> phone {"type":"video_stopped"}
   gw -> phone  {"type":"error","code":"...","message":"..."}
 
@@ -43,7 +49,9 @@ from .util import coalesce_utterances, drain_queue
 log = logging.getLogger("callbridge.gateway")
 
 STT_RATE = 16000
-RENDER_MODES = ("musetalk", "wav2lip", "visemi")
+#: The ways to draw the avatar: on the device from the photo (wav2lip), on the device from a mouth-shape timeline (visemes), or a video made on
+#: this PC (video, an emergency only: it is the one that uses the GPU).
+RENDER_MODES = ("wav2lip", "visemes", "video")
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
 
 #: A transcript shorter than this is noise (a breath, the avatar's own echo), not an interruption.
@@ -134,7 +142,13 @@ class Connection:
         self._persona_set = False
         self._video = None                        # WebRTC session towards the phone
         self._frames = None                       # receives the avatar worker's frames
-        self._render_mode = getattr(self.cfg, "render_mode_default", "musetalk")
+        self._declared: list[str] = []            # the modes the device can draw, best first
+        self._device = ""
+        self._failed: set[str] = set()            # modes the device reported as not working
+        self._render_mode = "none"                # the mode served now (video is the device's own emergency video_start)
+        self._avatar_name = ""
+        self._persona_slug = ""
+        self._segment = 0                         # numbers the audio segments of the connection
         self._stt_lang = (self.cfg.default_lang or "it").split("-")[0]
         self._lang_turno = self._stt_lang
         self._voce_persona: tuple[str, str] | None = None
@@ -173,10 +187,12 @@ class Connection:
             return
         state = self._state_message()
         self._last_state = (state["voice"], tuple(state["missing"]), state["avatar"])
+        offered = self._offered()
+        self._render_mode = offered[0] if offered else "none"
         self._send_json({"type": "ready", "voice": state["voice"], "missing": state["missing"], "avatar": state["avatar"],
                          "brain": self.brain.mode, "persona": self.cfg.brain_persona, "render_mode": self._render_mode,
-                         "render_modes": list(RENDER_MODES)})
-        log.info("gateway: phone connected (voice %s, avatar %s)", state["voice"], state["avatar"])
+                         "render_modes": offered, "avatar_name": self._avatar_name})
+        log.info("gateway: phone connected (voice %s, avatar %s, device %s, render %s)", state["voice"], state["avatar"], self._device or "?", self._render_mode)
         try:
             while True:
                 start = self._wait_start()
@@ -204,10 +220,46 @@ class Connection:
         given = msg.get("token")
         proved = self.authed or (isinstance(given, str) and bool(given) and hmac.compare_digest(given.encode("utf-8", "replace"), self.host.token.encode("utf-8")))
         if msg.get("type") == "auth" and proved:
+            self._declare(msg)
             self._send_json({"type": "auth_ok"})
             return True
         self._send_json({"type": "error", "code": "auth_failed", "message": "authentication failed"})
         return False
+
+    def _declare(self, msg: dict) -> None:
+        """What the device says it can draw: the known modes of `render_modes` in its order (video always last), and its kind."""
+        raw = msg.get("render_modes")
+        asked = [m for m in raw if isinstance(m, str)] if isinstance(raw, list) else []
+        local = [m for m in dict.fromkeys(asked) if m in RENDER_MODES and m != "video"]
+        self._declared = local + (["video"] if "video" in asked else [])
+        device = msg.get("device")
+        self._device = device if isinstance(device, str) and re.fullmatch(r"[a-z0-9_-]{1,32}", device) else ""
+
+    def _offered(self) -> list[str]:
+        """The declared modes this PC can serve to this device now, best first: wav2lip and visemes when the personality's avatar has the
+        files for them, video when the avatar function is loaded. A mode the device reported as failing is left out."""
+        if not self._declared:
+            return []
+        info = self.host.phone_avatar(self._persona_slug)
+        self._avatar_name = str(info.get("avatar") or "")
+        have = set(info.get("render_modes") or [])
+        if self.host.functions().get("avatar"):
+            have.add("video")
+        else:
+            have.discard("video")
+        return [m for m in self._declared if m in have and m not in self._failed]
+
+    def _reselect(self, previous: str = "", why: str = "") -> None:
+        """Looks again at what is offered after a change (the personality, a mode that failed) and tells the device when the mode changed."""
+        offered = self._offered()
+        mode = offered[0] if offered else "none"
+        if mode == self._render_mode and not previous:
+            return
+        self._render_mode = mode
+        msg = {"type": "render_mode", "mode": mode, "render_modes": offered, "avatar_name": self._avatar_name}
+        if previous:
+            msg.update({"previous": previous, "why": why})
+        self._send_json(msg)
 
     def _open_voice(self) -> bool:
         """Makes the STT and TTS clients over the loaded functions; says why when it cannot."""
@@ -281,10 +333,23 @@ class Connection:
             self._video_stop()
             return True
         if kind == "render_mode":
-            mode = (msg.get("mode") or "").strip()
-            if mode in RENDER_MODES:
+            mode = str(msg.get("mode") or "").strip()
+            offered = self._offered()
+            if mode in offered and mode != "video":
                 self._render_mode = mode
-                self._send_json({"type": "render_mode", "mode": mode})
+                self._send_json({"type": "render_mode", "mode": mode, "render_modes": offered, "avatar_name": self._avatar_name})
+            else:
+                self._send_json({"type": "error", "code": "render_mode_unavailable", "message": f"the PC does not offer {mode or '?'} to this device"})
+            return True
+        if kind == "render_failed":
+            mode = str(msg.get("mode") or "").strip()
+            if mode in RENDER_MODES:
+                self._failed.add(mode)
+                if mode == "video" and self._video is not None:
+                    self._video_stop(notify=False)
+                why = str(msg.get("why") or "")[:200]
+                log.info("gateway: %s failed on the device (%s)", mode, why)
+                self._reselect(previous=mode, why=why)
             return True
         if kind == "brain":
             self.brain.set_mode((msg.get("brain") or "").strip().lower())
@@ -295,7 +360,9 @@ class Connection:
             slug = slug if isinstance(slug, str) and _SLUG.match(slug) else ""
             self.brain.begin_session(slug or None)
             self._persona_set = bool(slug)
+            self._persona_slug = slug
             self._send_json({"type": "persona", "persona": slug})
+            self._reselect()
             return True
         return False
 
@@ -360,6 +427,9 @@ class Connection:
         if first is None:
             self._send_json({"type": "audio_end"})        # the phone leaves its speaking state even with nothing to say
             return
+        if self._cut or (barge_in and barge_in()):
+            self._send_json({"type": "audio_end"})
+            return
         # The lips start first, so that voice and mouth begin together; `audio_start` goes out only now.
         waited = time.monotonic()
         preamble = self._muovi_labbra(first, attendi=True)
@@ -367,8 +437,9 @@ class Connection:
         chunk_policy.osserva_labiale(preamble)
         if waited > 0.5:
             log.info("gateway: lips took %.1fs to start (preamble %.2fs)", waited, preamble)
-        self._send_json({"type": "audio_start", "sample_rate": first.sample_rate})
-        self._emit_visemi(first)
+        self._segment += 1
+        self._send_json({"type": "audio_start", "sample_rate": first.sample_rate, "segment": self._segment})
+        self._emit_visemes(first)
         self._send_pcm(first.samples, first.sample_rate)
         last = time.monotonic()
         idle_since = None
@@ -387,8 +458,11 @@ class Connection:
                     break
                 continue
             idle_since = None
+            if self._cut or (barge_in and barge_in()):
+                break
+            self._segment += 1
             self._muovi_labbra(seg, attendi=False)
-            self._emit_visemi(seg)
+            self._emit_visemes(seg)
             self._send_pcm(seg.samples, seg.sample_rate)
             last = time.monotonic()
         self._send_json({"type": "audio_end"})
@@ -402,18 +476,22 @@ class Connection:
         for i in range(0, len(pcm), chunk_bytes):
             self.ws.send(pcm[i:i + chunk_bytes])
 
-    def _emit_visemi(self, seg) -> None:
-        """In viseme mode, the mouth-shape timeline of this segment goes out just before its audio."""
-        if self._render_mode != "visemi":
+    def _emit_visemes(self, seg) -> None:
+        """In visemes mode, the mouth-shape timeline of this segment goes out just before its audio, with the number of the segment and the
+        bytes of PCM that follow. A timeline that cannot be made goes out as a closed mouth, so that every segment has one."""
+        if self._render_mode != "visemes" or self._video is not None:
             return
         text = (getattr(seg, "testo", "") or "").strip()
-        if not text:
-            return
+        seconds = len(seg.samples) / max(getattr(seg, "sample_rate", 24000), 1)
         try:
             from .viseme_gen import timeline
-            self._send_json(timeline(text, len(seg.samples) / max(getattr(seg, "sample_rate", 24000), 1), self._lang_turno))
+            msg = timeline(text, seconds, self._lang_turno)
         except Exception as e:  # noqa: BLE001 (the visemes must not stop the audio)
             log.warning("gateway: visemes not generated (%s)", e)
+            msg = {"type": "visemes", "text": text, "lang": self._lang_turno, "duration_ms": round(seconds * 1000),
+                   "visemes": [{"t": 0, "v": "sil", "dur": round(seconds * 1000)}]}
+        msg.update({"segment": self._segment, "pcm_bytes": len(seg.samples) * 2})
+        self._send_json(msg)
 
     # ---------------------------------------------------------------- interruption
     def _hold_interrupt(self) -> bool:
@@ -601,7 +679,11 @@ class Connection:
 
     # ---------------------------------------------------------------- video
     def _video_start(self, msg: dict) -> None:
-        """Turns the avatar video on towards the phone and negotiates WebRTC. The avatar worker lives in the service: one, for the VRAM."""
+        """Turns the avatar video on towards the phone and negotiates WebRTC. The avatar worker lives in the service: one, for the VRAM.
+        The video is made on this PC with the GPU, so it is for an emergency only: the device says so with `reason: emergency`."""
+        if msg.get("reason") != "emergency":
+            self._send_json({"type": "video_unavailable", "reason": "emergency_only"})
+            return
         if not self.host.functions().get("avatar"):
             self._send_json({"type": "video_unavailable", "reason": "no_avatar"})
             return
