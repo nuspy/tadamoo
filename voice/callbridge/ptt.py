@@ -15,10 +15,10 @@ import logging
 import threading
 import time
 
-from pynput import keyboard
-
 from .audio_hfp import negotiate_sample_rate, resample
 from .config import Config
+from .desktop import Desktop, DesktopUnsupported, KeyHook
+from .desktop import platform as desktop_platform
 from .handy_client import ensure_models_loaded
 from .streaming import StreamingSession
 
@@ -448,8 +448,11 @@ class PushToTalkManager:
     """Ascolta la hotkey globale e apre/chiude la sessione push-to-talk."""
 
     def __init__(self, config: Config, brains, overlay=None,
-                 copilot=None, avatar=None) -> None:
+                 copilot=None, avatar=None, desktop: Desktop | None = None) -> None:
         self.cfg = config
+        # Il desktop che fornisce le hotkey globali (Windows, X11, o "non supportato");
+        # None = quello di questo processo, scelto alla prima `start()`.
+        self._desktop = desktop
         # brains: il `ModeBrain` di base; ogni sessione ne prende una copia
         # (`fork`) nel modo scelto dalla hotkey, dal selettore o dalla config.
         self.brains = brains
@@ -471,7 +474,7 @@ class PushToTalkManager:
         # Ultimo toggle da hotkey (monotonic): per il debounce anti auto-repeat.
         self._last_toggle = 0.0
         self._lock = threading.Lock()
-        self._listener: keyboard.GlobalHotKeys | None = None
+        self._listener: KeyHook | None = None
         # Modalita' della sessione corrente: "half" | "full" | None.
         self._mode: str | None = None
 
@@ -498,54 +501,45 @@ class PushToTalkManager:
             return
         if self._listener is not None:
             return                      # gia' attivo (es. Riprendi senza Sospendi)
-        hk_f1 = self._to_pynput(self.cfg.push_to_talk_hotkey)
-        hk_f2 = self._to_pynput(self.cfg.push_to_talk_hotkey_fullduplex)
-
-        def _ctrl_down() -> bool:
-            # pynput NON fa match esatto dei modificatori: con Ctrl+Shift+F1
-            # scattano SIA <ctrl>+<shift>+<f1> SIA <shift>+<f1> (verificato:
-            # partiva la sessione solo-voce al posto dell'avatar, e prima del
-            # debounce le due callback facevano start+stop istantaneo). Le
-            # hotkey SENZA Ctrl si ignorano se Ctrl e' fisicamente premuto.
-            import ctypes
-            VK_CONTROL = 0x11
-            return bool(ctypes.windll.user32.GetAsyncKeyState(VK_CONTROL) & 0x8000)
-
+        # Un tasto per volta: la combinazione scatta solo con ESATTAMENTE i suoi
+        # modificatori (Shift+F1 non scatta con Ctrl+Shift+F1 premuto). Lo garantisce
+        # il desktop (`Desktop.push_to_talk_keys`), non queste callback.
         hotkeys = {
-            hk_f1: lambda: None if _ctrl_down() else self._toggle(
+            self.cfg.push_to_talk_hotkey: lambda: self._toggle(
                 "harness", half_duplex=True, mode="half"),
-            hk_f2: lambda: None if _ctrl_down() else self._toggle(
+            self.cfg.push_to_talk_hotkey_fullduplex: lambda: self._toggle(
                 "harness", half_duplex=False, mode="full"),
         }
         # Ctrl+Shift+F1/F2: stessa conversazione harness MA con avatar video.
         # Solo se un AvatarClient e' disponibile (avatar_enabled=true).
         if self._avatar is not None:
-            hk_av = self._to_pynput(self.cfg.push_to_talk_hotkey_avatar)
-            hk_avf = self._to_pynput(self.cfg.push_to_talk_hotkey_avatar_full)
-            hotkeys[hk_av] = lambda: self._toggle("harness", half_duplex=True,
-                                                  mode="half", avatar=True)
-            hotkeys[hk_avf] = lambda: self._toggle("harness", half_duplex=False,
-                                                   mode="full", avatar=True)
-        # Ctrl+Shift+F4/F5: voce DIRETTA, stesso avatar delle F1/F2. Contengono
-        # Ctrl, quindi NIENTE guard _ctrl_down.
-        hk_d = self._to_pynput(self.cfg.push_to_talk_hotkey_direct)
-        hk_df = self._to_pynput(self.cfg.push_to_talk_hotkey_direct_full)
+            hotkeys[self.cfg.push_to_talk_hotkey_avatar] = lambda: self._toggle(
+                "harness", half_duplex=True, mode="half", avatar=True)
+            hotkeys[self.cfg.push_to_talk_hotkey_avatar_full] = lambda: self._toggle(
+                "harness", half_duplex=False, mode="full", avatar=True)
+        # Ctrl+Shift+F4/F5: voce DIRETTA, stesso avatar delle F1/F2.
         _use_av = self._avatar is not None  # degrada a sola-voce se avatar off
-        hotkeys[hk_d] = lambda: self._toggle("direct", half_duplex=True,
-                                             mode="half", avatar=_use_av)
-        hotkeys[hk_df] = lambda: self._toggle("direct", half_duplex=False,
-                                              mode="full", avatar=_use_av)
-        # Shift+F4: copilota da conversazione (apre/chiude la finestra). GUARD:
-        # pynput fa scattare Shift+F4 anche con Ctrl+Shift+F4 (diretto) -> ignora
-        # quando Ctrl e' fisicamente premuto, altrimenti F4 aprirebbe anche il copilota.
+        hotkeys[self.cfg.push_to_talk_hotkey_direct] = lambda: self._toggle(
+            "direct", half_duplex=True, mode="half", avatar=_use_av)
+        hotkeys[self.cfg.push_to_talk_hotkey_direct_full] = lambda: self._toggle(
+            "direct", half_duplex=False, mode="full", avatar=_use_av)
+        # Shift+F4: copilota da conversazione (apre/chiude la finestra).
         if self.copilot is not None:
-            hotkeys[self._to_pynput(self.cfg.push_to_talk_hotkey_copilot)] =                 lambda: None if _ctrl_down() else self._toggle_copilot()
+            hotkeys[self.cfg.push_to_talk_hotkey_copilot] = lambda: self._toggle_copilot()
         try:
-            self._listener = keyboard.GlobalHotKeys(hotkeys)
-            self._listener.start()
-        except Exception as e:  # noqa: BLE001 - hotkey non valida o backend assente
+            desktop = self._desktop or desktop_platform()
+            hook = desktop.push_to_talk_keys("ptt", hotkeys)
+        except DesktopUnsupported as e:
+            # Wayland, macOS, nessun display: le sessioni restano avviabili da GUI e API.
+            log.error("Push-to-talk: hotkey globali non disponibili: %s", e)
+            return
+        except Exception as e:  # noqa: BLE001 - backend assente
             log.error("Push-to-talk non avviato: %s", e)
             return
+        if not hook.start():
+            log.error("Push-to-talk non avviato: le hotkey non partono (dettaglio sopra)")
+            return
+        self._listener = hook
         log.info("Push-to-talk attivo: %s / %s (harness, casse / cuffie), "
                  "%s / %s (diretto, casse / cuffie)%s%s",
                  self.cfg.push_to_talk_hotkey, self.cfg.push_to_talk_hotkey_fullduplex,
@@ -803,18 +797,3 @@ class PushToTalkManager:
                 except Exception as e:  # noqa: BLE001 - cervello non raggiungibile
                     log.warning("Push-to-talk: chiusura del cervello fallita: %s", e)
                 self._session_end = None
-
-    @staticmethod
-    def _to_pynput(hotkey: str) -> str:
-        """Converte "shift+f1" nel formato di pynput "<shift>+<f1>"."""
-        special = {
-            "ctrl", "alt", "shift", "cmd", "space", "tab", "esc",
-            "enter", "up", "down", "left", "right",
-        }
-        # tasti funzione f1..f24 (pynput li vuole come <f1>, <f2>, ...)
-        special |= {f"f{i}" for i in range(1, 25)}
-        parts = []
-        for raw in hotkey.lower().split("+"):
-            key = raw.strip()
-            parts.append(f"<{key}>" if key in special else key)
-        return "+".join(parts)

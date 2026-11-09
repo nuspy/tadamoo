@@ -132,35 +132,37 @@ def test_the_text_that_reaches_the_tts_has_no_code_from_either_brain():
 def test_the_two_brains_have_separate_hotkeys_taken_from_the_config():
     from callbridge import ptt
 
-    class Listener:
-        def __init__(self, hotkeys):
-            self.hotkeys = hotkeys
+    class Hook:
         def start(self):
-            pass
+            return True
+
         def stop(self):
             pass
 
+    class FakeDesktop:
+        def __init__(self):
+            self.taken = []
+
+        def push_to_talk_keys(self, name, hotkeys):
+            self.taken.append(hotkeys)
+            return Hook()
+
     cfg = Config()
     cfg.push_to_talk_enabled = True
-    taken = []
-    m = ptt.PushToTalkManager(cfg, make_brain(cfg))
+    desktop = FakeDesktop()
+    m = ptt.PushToTalkManager(cfg, make_brain(cfg), desktop=desktop)
     started = []
     m._toggle = lambda brain, half_duplex, mode, avatar=False: started.append((brain, half_duplex, mode, avatar))
-    original = ptt.keyboard.GlobalHotKeys
-    ptt.keyboard.GlobalHotKeys = lambda hk: (taken.append(hk) or Listener(hk))
-    try:
-        m.start()
-    finally:
-        ptt.keyboard.GlobalHotKeys = original
-    keys = taken[0]
+    m.start()
+    keys = desktop.taken[0]
     for combo in (cfg.push_to_talk_hotkey, cfg.push_to_talk_hotkey_fullduplex, cfg.push_to_talk_hotkey_direct, cfg.push_to_talk_hotkey_direct_full):
-        assert m._to_pynput(combo) in keys
-    assert (cfg.push_to_talk_hotkey, cfg.push_to_talk_hotkey_fullduplex, cfg.push_to_talk_hotkey_direct, cfg.push_to_talk_hotkey_direct_full) == \
-        ("shift+f1", "shift+f2", "ctrl+shift+f4", "ctrl+shift+f5")
-    # the harness hotkeys call the harness, the direct ones the direct brain; the Ctrl guard is a Windows call, so only the direct ones are run here
-    keys[m._to_pynput(cfg.push_to_talk_hotkey_direct)]()
-    keys[m._to_pynput(cfg.push_to_talk_hotkey_direct_full)]()
-    assert started == [("direct", True, "half", False), ("direct", False, "full", False)]
+        assert combo in keys
+    assert (cfg.push_to_talk_hotkey, cfg.push_to_talk_hotkey_fullduplex, cfg.push_to_talk_hotkey_direct, cfg.push_to_talk_hotkey_direct_full) ==         ("shift+f1", "shift+f2", "ctrl+shift+f4", "ctrl+shift+f5")
+    # the harness hotkeys call the harness, the direct ones the direct brain
+    for combo in (cfg.push_to_talk_hotkey, cfg.push_to_talk_hotkey_fullduplex, cfg.push_to_talk_hotkey_direct, cfg.push_to_talk_hotkey_direct_full):
+        keys[combo]()
+    assert started == [("harness", True, "half", False), ("harness", False, "full", False),
+                       ("direct", True, "half", False), ("direct", False, "full", False)]
 
 
 def test_a_session_started_for_a_brain_uses_a_fork_in_that_mode(monkeypatch):

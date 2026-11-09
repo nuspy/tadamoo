@@ -1,8 +1,8 @@
 # Voice desktop layer
 
-Dictation, the clipboard history and the status card need things only the desktop can give: global hotkeys, the clipboard, a paste into
-the focused app and a small always-on-top window. They live in `voice/callbridge/desktop/` behind four interfaces, so the dictation and
-history code (`dictation.py`, `clipboard_history.py`) knows no operating system. All of it runs in the user's interactive session,
+Dictation, the clipboard history, push-to-talk and the status card need things only the desktop can give: global hotkeys, the clipboard, a
+paste into the focused app and a small always-on-top window. They live in `voice/callbridge/desktop/` behind four interfaces, so the
+dictation, history and push-to-talk code (`dictation.py`, `clipboard_history.py`, `ptt.py`) knows no operating system. All of it runs in the user's interactive session,
 inside the voice service process.
 
 ## Interfaces (`desktop/base.py`)
@@ -14,6 +14,12 @@ inside the voice service process.
 | `ForegroundApp` | `identity()` (window class, program) and `is_terminal()`. |
 | `Overlay` | The status and clipboard-preview card: `set_dictation()`, `show_clipboard()`, `post()`, `mainloop()` on the main thread. |
 
+`Desktop.push_to_talk_keys(name, hotkeys)` is the fifth piece, the toggles of push-to-talk (`ptt.py`): `hotkeys` maps a neutral combination
+(`shift+f1`) to the callback of its press, and the combination fires only with exactly its modifiers (Shift+F1 does not fire while
+Ctrl+Shift+F1 is held). The returned `KeyHook.start()` is false when it could not listen; where there are no global hotkeys the call raises
+`DesktopUnsupported` and `PushToTalkManager.start()` logs the reason and leaves the hotkeys off (sessions still start from the GUI and the
+API).
+
 `Desktop` bundles them: `platform()` returns the one for this process (created once); `available()` says whether it works and why not.
 Hotkeys are neutral names (`alt+space`, `ctrl+alt+up`; keys `a-z`, `0-9`, `f1-f12`, `space`, `tab`, `enter`, `esc`, arrows),
 parsed by `parse_hotkey`; each platform maps them to its own key codes. The hotkeys come from the voice config (`dictation_hotkey`).
@@ -22,9 +28,9 @@ parsed by `parse_hotkey`; each platform maps them to its own key codes. The hotk
 
 | System | Implementation | Files |
 |---|---|---|
-| Windows | The original code behind the interfaces: a low-level keyboard hook that suppresses the combination, Win32 clipboard with the standard exclusion formats, `keybd_event` paste (Ctrl+V, Shift+Insert in terminals), Tk overlay with a no-focus window. | `windows.py`, `win_keyhook.py`, `win_clipboard.py` |
-| Linux, X11 session | Hotkeys with `pynput`; clipboard with `xclip` (text and PNG) or `xsel` (text only); paste with `xdotool key --clearmodifiers`, else `pynput`; focused window with `xprop` (`xdotool getactivewindow` as a fallback); held modifiers from the X server key map (`python-xlib`, a `pynput` dependency); Tk overlay with plain symbols. | `x11.py`, `x11_keys.py`, `x11_clipboard.py`, `x11_tools.py` |
-| Linux, Wayland | Not supported. | `unsupported.py` |
+| Windows | The original code behind the interfaces: a low-level keyboard hook that suppresses the combination, Win32 clipboard with the standard exclusion formats, `keybd_event` paste (Ctrl+V, Shift+Insert in terminals), Tk overlay with a no-focus window. Push-to-talk keeps the listener it always had, `pynput`'s `GlobalHotKeys`, and ignores a combination without Ctrl while Ctrl is held (`GetAsyncKeyState`). | `windows.py`, `win_keyhook.py`, `win_clipboard.py`, `win_pynput_keys.py` |
+| Linux, X11 session | Hotkeys (dictation and push-to-talk, the same `X11KeyHook`, exact modifiers) with `pynput`, an optional dependency; clipboard with `xclip` (text and PNG) or `xsel` (text only); paste with `xdotool key --clearmodifiers`, else `pynput`; focused window with `xprop` (`xdotool getactivewindow` as a fallback); held modifiers from the X server key map (`python-xlib`, a `pynput` dependency); Tk overlay with plain symbols. | `x11.py`, `x11_keys.py`, `x11_clipboard.py`, `x11_tools.py` |
+| Linux, Wayland | Not supported: no global hotkeys, so no dictation and no push-to-talk hotkeys. Reading raw key events (`evdev`) would work there but needs the user in the `input` group; it is not written. | `unsupported.py` |
 | macOS, other | Not supported. | `unsupported.py` |
 
 The unsupported desktop answers `available()` with the reason and raises `DesktopUnsupported` from every hook, clipboard and foreground
@@ -55,4 +61,7 @@ because the service needs its main-thread loop. Wayland is detected from `XDG_SE
 - X11: written, not proven on a real X11 desktop. Tests (`voice/tests/test_desktop_*.py`) fake the subprocess and `pynput` layers and check
   the command lines, the key matching, the terminal key choice, the selection by session type and the Unsupported messages.
 - Not covered anywhere: dictation with a real microphone, a real hotkey press, the Tk overlay on screen.
-- `ptt.py` (push-to-talk) still uses `pynput` directly and a Windows call for the Ctrl state; it is not moved behind these interfaces.
+- Push-to-talk: `ptt.py` imports no hotkey library and has no Windows call; the manager is tested with a fake desktop, the X11 body with a fake
+  `pynput` listener (Shift+F1 and Ctrl+Shift+F1 do not fire each other, a held key fires once) and the Windows body with a fake
+  `GlobalHotKeys` and Ctrl state (`voice/tests/test_ptt_platform.py`, runs on any system). Not run: a real hotkey press on either system, and
+  the audio and session code of a push-to-talk session on Linux (`sounddevice` and the speech services there are outside this layer).

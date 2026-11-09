@@ -230,14 +230,18 @@ def test_hotkey_push_to_talk_seguono_la_sospensione(monkeypatch):
 
         def start(self):
             self.attivo = True
+            return True
 
         def stop(self):
             self.attivo = False
 
-    monkeypatch.setattr(ptt.keyboard, "GlobalHotKeys", ListenerFinto)
+    class DesktopFinto:
+        def push_to_talk_keys(self, name, hotkeys):
+            return ListenerFinto(hotkeys)
+
     cfg = Config()
     cfg.push_to_talk_enabled = True
-    m = ptt.PushToTalkManager(cfg, brains=object())
+    m = ptt.PushToTalkManager(cfg, brains=object(), desktop=DesktopFinto())
 
     # avvio con i componenti GIA' sospesi (stato su disco): nessuna hotkey
     engines.sospendi()
