@@ -59,8 +59,13 @@ class VoiceTabPageTest(unittest.TestCase):
         for banned in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function", "dangerouslySet"):
             self.assertNotIn(banned, JS)
 
-    def test_the_chat_permission_is_the_shared_setting(self):
-        self.assertIn('"tadamoo.chat.perm"', JS)                                      # the Chat's own key
+    def test_the_voice_level_is_the_servers_setting_with_the_chats_words(self):
+        self.assertNotIn('"tadamoo.chat.perm"', JS)                                   # the browser holds no level of its own
+        self.assertIn('api("POST", "api/permission-level", { channel: "voice", level: m })', JS)
+        self.assertIn('api("GET", "api/permission-level")', JS)
+        self.assertNotIn("permission:", JS)                                           # never sent with the brain's settings
+        self.assertIn('T("lvl.where.voice"', JS)
+        self.assertIn('T("lvl.risk")', JS)
         self.assertRegex(JS, r'PERMS = \["plan", "read_only", "default", "auto"\]')
         for mode in ("plan", "read_only", "default", "auto"):
             self.assertEqual(I18N.count(f'"ag.mode.{mode}":'), 2, mode)                 # the Chat's words, not new ones

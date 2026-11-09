@@ -2,26 +2,25 @@
 /* The Voice tab: talk with the model or with the agent by voice. It shows the voice service and its functions (read only: they are loaded in
    Models > Voice services), chooses who answers (direct, or the agent), the personality and what the agent may do without asking, and has
    a place to try it: Hold to talk and Speak a test sentence. The Avatar card is voiceavatar.js (the picture, the avatars, the creation of a new one). The microphone and the speakers are the PC's, and the voice service owns
-   them; the page only asks the server, which forwards a fixed list of requests (serve/voice_proxy.py). The permission level is the Chat's
-   own (same levels, same words) and is also set in Settings > Voice. Everything the server says enters the page as text. */
+   them; the page only asks the server, which forwards a fixed list of requests (serve/voice_proxy.py). The permission level is the voice's
+   own, kept by the server (/api/permission-level, same levels and words as the Chat) and also set in Settings > Voice. Everything the server
+   says enters the page as text. */
 (function () {
   const root = document.getElementById("vt-root"), setRoot = document.getElementById("vb-root");
   if (!root) return;
 
-  const POLL_MS = 2500, PERMS = ["plan", "read_only", "default", "auto"], CHAT_PERM_KEY = "tadamoo.chat.perm";
+  const POLL_MS = 2500, PERMS = ["plan", "read_only", "default", "auto"];
   const FNS = ["stt", "tts", "avatar"], MODES = ["direct", "harness"];
-  let B = null, personas = [], personasOk = false, timer = 0, loadFailed = "";
+  let B = null, L = null, personas = [], personasOk = false, timer = 0, loadFailed = "";
   let live = { up: false, reason: "", fns: null, state: null };
   let talk = { down: false, starting: false, active: false, msg: "", bad: false }, say = { busy: false, msg: "", bad: false };
-  let sayText = "", talkSig = "", brainMsg = { text: "", bad: false };
+  let sayText = "", talkSig = "", brainMsg = { text: "", bad: false }, levelMsg = { text: "", bad: false };
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick, id) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; if (id) b.id = id; return b; };
   const errText = r => r.status === 0 ? T("vt.e.offline") : (r.data && r.data.error && (LANG === "it" && r.data.error.message_it ? r.data.error.message_it : r.data.error.message)) || `HTTP ${r.status}`;
   const active = () => document.body.dataset.view === "voice" && !document.getElementById("view-voice").hidden;
   const settingsActive = () => !!setRoot && document.body.dataset.view === "settings" && !document.getElementById("vb-section").hidden;
-  const chatPerm = () => { try { const v = localStorage.getItem(CHAT_PERM_KEY); return PERMS.includes(v) ? v : ""; } catch (e) { return ""; } };
-  const keepChatPerm = v => { try { localStorage.setItem(CHAT_PERM_KEY, v); } catch (e) { /* this page only */ } };
 
   async function api(method, path, body) {
     try {
@@ -108,17 +107,32 @@
   function permission(prefix) {
     const set = el("fieldset", "vt-seg");
     set.append(el("legend", "vt-legend", T("vt.perm")));
+    if (!L) { set.append(el("p", "vt-help", levelMsg.text || T("vt.loading"))); return set; }
+    const level = L.levels.voice;
     for (const m of PERMS) {
       const lab = el("label", "vt-opt"), input = el("input"), txt = el("span", "vt-opt-t");
-      input.type = "radio"; input.name = prefix + "-perm"; input.value = m; input.id = prefix + "-perm-" + m; input.checked = B.permission === m;
-      input.onchange = () => saveBrain({ permission: m });
+      input.type = "radio"; input.name = prefix + "-perm"; input.value = m; input.id = prefix + "-perm-" + m; input.checked = level === m;
+      input.onchange = () => saveLevel(m);
       txt.append(el("b", "", T("ag.mode." + m)), el("span", "vt-opt-d", T("ag.mode." + m + ".d")));
       lab.append(input, txt);
       set.append(lab);
     }
-    set.append(el("p", "vt-help", T("vt.perm.help")));
-    if (B.permission === "auto") set.append(note(T("ag.auto.risk"), true));
+    set.append(el("p", "vt-help", T("lvl.where.voice", T("ag.mode." + L.levels.chat), T("ag.mode." + L.levels.telegram))),
+               el("p", "vt-help", T("vt.perm.help") + " " + T("lvl.risk")));
+    if (level === "auto") set.append(note(T("ag.auto.risk"), true));
+    set.append(note(levelMsg.text, levelMsg.bad));
     return set;
+  }
+  async function loadLevels() {
+    const r = await api("GET", "api/permission-level");
+    if (r.ok) { L = r.data; levelMsg = { text: "", bad: false }; } else levelMsg = { text: T("lvl.e.load", errText(r)), bad: true };
+  }
+  async function saveLevel(m) {
+    const r = await api("POST", "api/permission-level", { channel: "voice", level: m });
+    if (r.ok) { L = r.data; levelMsg = { text: T("vt.saved"), bad: false }; } else levelMsg = { text: T("lvl.e.save", errText(r)), bad: true };
+    paintBrain(); paintSettings();
+    const f = document.getElementById("vt-perm-" + m) || document.getElementById("vb-perm-" + m);
+    if (f && document.body.contains(f) && !document.activeElement.matches("input, select, button")) f.focus();
   }
   function hotkeys(prefix) {
     const wrap = el("div", "vt-field"), row = el("label", "vt-check"), input = el("input");
@@ -135,12 +149,9 @@
   }
   async function saveBrain(change) {
     const r = await api("POST", "api/voice/brain", change);
-    if (r.ok) {
-      B = r.data; brainMsg = { text: T("vt.saved"), bad: false };
-      if (change.permission) keepChatPerm(change.permission);       // one setting: the Chat starts new conversations at the same level
-    } else brainMsg = { text: errText(r), bad: true };
+    if (r.ok) { B = r.data; brainMsg = { text: T("vt.saved"), bad: false }; } else brainMsg = { text: errText(r), bad: true };
     paintBrain(); paintSettings();
-    const keep = change.permission ? "-perm-" + change.permission : change.hotkeys !== undefined ? "-hotkeys" : change.mode ? "-mode-" + change.mode : "";
+    const keep = change.hotkeys !== undefined ? "-hotkeys" : change.mode ? "-mode-" + change.mode : "";
     const f = keep && (document.getElementById("vt" + keep) || document.getElementById("vb" + keep));
     if (f && document.body.contains(f) && !document.activeElement.matches("input, select, button")) f.focus();
   }
@@ -246,13 +257,9 @@
 
   /* ---- loading ---- */
   async function loadSettings() {
-    const [b, p] = await Promise.all([api("GET", "api/voice/brain"), api("GET", "api/personas")]);
+    const [b, p] = await Promise.all([api("GET", "api/voice/brain"), api("GET", "api/personas"), loadLevels()]);
     if (b.ok) { B = b.data; loadFailed = ""; } else loadFailed = errText(b);
     personasOk = p.ok; personas = p.ok ? (p.data.personas || []) : [];
-    if (B && !B.permission_set && chatPerm() && chatPerm() !== B.permission) {       // the Chat's level, kept once so that the service follows it
-      const r = await api("POST", "api/voice/brain", { permission: chatPerm() });
-      if (r.ok) B = r.data;
-    }
     paintBrain(); paintSettings();
   }
   async function refreshLive() {

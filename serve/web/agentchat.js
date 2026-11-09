@@ -1197,12 +1197,45 @@
     } catch (e) { if (!(e && e.name === "AbortError")) status(T("ch.out.fail", name)); }
   }
 
-  /* ---- what a new conversation may do without asking: its mode and the rules that let a kind of command run ---- */
+  /* ---- what a new conversation may do without asking: the Chat's level, kept by the server (api/permission-level), and the rules that let
+     a kind of command run. The browser keeps the level only to paint it before the server answers; a conversation may be lowered, never raised
+     above it. ---- */
   const PERM_KEY = "tadamoo.chat.perm", ALLOW_KEY = "tadamoo.chat.allow";
   const permRadios = [...document.querySelectorAll('input[name="cs-perm"]')], allowBox = $("#cs-allow"), autoRisk = $("#cs-auto-risk");
-  const permMode = () => (permRadios.find(r => r.checked) || {}).value || "default";
+  const LEVELS = ["plan", "read_only", "default", "auto"];                     // from the least to the most the agent does without asking
+  let chatLevel = LEVELS.includes(load(PERM_KEY, "")) ? load(PERM_KEY, "") : "default";
+  const permMode = () => chatLevel;
+  const withinChat = m => LEVELS.indexOf(m) <= LEVELS.indexOf(chatLevel);
   const PERM_CYCLE = ["default", "plan", "read_only", "auto"];                // the order Shift+Tab goes through
-  const permNow = () => (active() && sid && rec && rec.mode) ? rec.mode : load(PERM_KEY, "default");
+  const permNow = () => (active() && sid && rec && rec.mode) ? rec.mode : chatLevel;
+  async function levelCall(method, body) {
+    try {
+      const r = await fetch("api/permission-level", { method, cache: "no-store",
+        headers: { ...(body ? { "Content-Type": "application/json" } : {}), ...authHeaders() }, body: body ? JSON.stringify(body) : undefined });
+      let j = {};
+      try { j = await r.json(); } catch (e) { /* no body */ }
+      return { ok: r.ok, status: r.status, json: j };
+    } catch (e) { return { ok: false, status: 0, json: {} }; }
+  }
+  const permNote = text => { const n = $("#cs-perm-note"); if (n) { n.textContent = text; n.hidden = !text; } };
+  function tookLevel(level) { chatLevel = level; keep(PERM_KEY, level); paintPerm(); paintChip(); }
+  async function loadLevel() {
+    const r = await levelCall("GET");
+    if (!r.ok) { permNote(T("lvl.e.load", errText(r))); return; }
+    const cached = load(PERM_KEY, "");
+    if (!r.json.set.chat && LEVELS.includes(cached) && cached !== r.json.levels.chat) {     // a level this browser kept before the server had one
+      const w = await levelCall("POST", { channel: "chat", level: cached });
+      if (w.ok) return tookLevel(w.json.level);
+    }
+    tookLevel(r.json.levels.chat);
+  }
+  async function setChatLevel(m) {
+    const r = await levelCall("POST", { channel: "chat", level: m });
+    if (!r.ok) { permNote(T("lvl.e.save", errText(r))); paintPerm(); return false; }
+    permNote("");
+    tookLevel(r.json.level);
+    return true;
+  }
   const chip = $("#mode-chip");
   function paintChip() {
     const on = active() && mode !== "ask";                                    // a conversation without tools has no mode to show
@@ -1217,16 +1250,18 @@
   window.tadamooAutoMode = () => permNow() === "auto";                         // the risk questions of other settings answer yes by themselves while this is on
   async function setPerm(m) {                                                // false when the server did not take it
     if (sid) {
+      if (!withinChat(m)) { status(T("lvl.above", T("ag.mode." + chatLevel))); return false; }
       const r = await api("POST", `/${sid}/mode`, { mode: m });
       if (!r.ok) { status(errText(r)); return false; }
       rec = r.json.session;
-    } else { keep(PERM_KEY, m); paintPerm(); }
+    } else if (!(await setChatLevel(m))) return false;
     paintChip();
     return true;
   }
   async function cyclePerm() {
-    const at = PERM_CYCLE.indexOf(permNow());
-    const next = PERM_CYCLE[(at + 1) % PERM_CYCLE.length];
+    const cycle = sid ? PERM_CYCLE.filter(withinChat) : PERM_CYCLE;           // in a conversation: only the levels at or below the Chat's
+    const at = cycle.indexOf(permNow());
+    const next = cycle[(at + 1) % cycle.length];
     if (await setPerm(next)) status(T("ch.mode.now", T("ag.mode." + next)));
   }
   chip.onclick = () => { cyclePerm(); $("#prompt").focus(); };
@@ -1234,14 +1269,15 @@
   const effortName = level => { const o = [...effortSel.options].find(x => x.value === (level || "")); return o ? o.text : String(level); };
   effortSel.addEventListener("change", () => { if (active() && sid) api("POST", `/${sid}/effort`, { level: effortSel.value }); });
   function paintPerm() {
-    const m = load(PERM_KEY, "default");
+    const m = chatLevel;
     permRadios.forEach(r => { r.checked = r.value === m; });
     autoRisk.replaceChildren(...(m === "auto" ? [riskLabel(T("ag.auto.risk"))] : []));
   }
   allowBox.value = load(ALLOW_KEY, "");
   allowBox.oninput = () => keep(ALLOW_KEY, allowBox.value);
-  permRadios.forEach(r => r.addEventListener("change", () => { keep(PERM_KEY, r.value); paintPerm(); paintChip(); }));
+  permRadios.forEach(r => r.addEventListener("change", () => { if (r.checked) setChatLevel(r.value); }));
   paintPerm();
+  loadLevel();
   const allowRules = () => allowBox.value.split("\n").map(s => s.trim()).filter(Boolean);
 
   /* ---- the conversation's own copy of the folder: what it changed waits here until the person applies it ---- */
@@ -1356,7 +1392,7 @@
     if (sid) return true;
     if (inAgent() && !curPath() && !(await addFolder())) { status(T("ag.noproject")); return false; }
     const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath(), ...(window.codingUi ? { role: window.codingUi.role() } : {}) } : {}), mode: permMode(), allow: allowRules(), ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), ...chatSettings.live(), worktree: copyMode(), ...visuals(), ...(window.personaUi && window.personaUi.pending() ? { persona: window.personaUi.pending() } : {}), ...(window.privacy && window.privacy.pending() ? { private: true } : {}) });
-    if (!r.ok) { status(errText(r)); return false; }
+    if (!r.ok) { status(errText(r)); if (r.json.error && r.json.error.code === "level_above_channel") loadLevel(); return false; }
     sid = r.json.session.id; rec = r.json.session; keep(lastKey(), sid); after = 0; conversationChanged(true);
     const sampling = chatSettings.live();                                      // what the create call does not carry
     const first = {}; ["temperature", "max_tokens"].forEach(k => { if (sampling[k] != null) first[k] = sampling[k]; });
