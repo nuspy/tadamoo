@@ -58,6 +58,7 @@ request and renamed only when the SHA-256 matches, one download at a time, the t
 - `enabled`: a boolean, whether the function is loaded with the others (`loading.md`); off when absent, except for an installed `stt`.
 - `telephony`: `transport`, `outgoing_approval`, `ai_disclosure_on_start`, `incoming_auto_answer` and `on_behalf_of`, with the careful defaults of
   `telephony.md` (telephony off, calls of the agent asked, the AI said first, no call answered by itself).
+- `meetings`: the meeting bot and the copilot (`speak`, `proactive`, `consent_mode`, `consent_window_s`, `on_behalf_of`, and the rest), with the careful defaults of `meetings.md`.
 
 An unknown or invalid value is refused with a 400 whose body has `code`, `message` and `message_it`.
 
@@ -71,6 +72,7 @@ An unknown or invalid value is refused with a 400 whose body has `code`, `messag
 | `POST /api/voice/enabled` | `{service, enabled}` |
 | `POST /api/voice/models-dir` | `{path}` |
 | `GET`, `POST /api/voice/telephony` | the rules of phone calls; the POST takes any of their fields (`telephony.md`) |
+| `GET`, `POST /api/voice/meetings` | the rules of the meeting bot and the copilot; the POST takes any of their fields (`meetings.md`) |
 | `GET /api/voice/download/plan?id=` | the plan of one model |
 | `POST /api/voice/download` | `{id, token, confirm, ack, noncommercial}`; 202 with the status |
 | `GET /api/voice/download/status` | phase, bytes, speed, the log's tail |
