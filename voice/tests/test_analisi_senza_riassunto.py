@@ -1,6 +1,6 @@
 """`analyze=0` ferma il job di analisi dopo la trascrizione: nessun riassunto, il testo non passa dal cervello.
 
-Niente ffmpeg, nessun modello: ffmpeg, Handy e il cervello sono sostituiti da finti.
+Niente ffmpeg, nessun modello: ffmpeg, l'STT e il cervello sono sostituiti da finti.
 """
 from __future__ import annotations
 
@@ -25,8 +25,7 @@ def test_solo_un_no_esplicito_salta_l_analisi(valore, atteso):
 
 
 def _giro(tmp_path, monkeypatch, analyze):
-    cfg = SimpleNamespace(analysis_segment_s=60, analysis_ffmpeg_path="ffmpeg",
-                          handy_base_url=lambda: "http://handy.invalid")
+    cfg = SimpleNamespace(analysis_segment_s=60, analysis_ffmpeg_path="ffmpeg")
 
     def finto_ffmpeg(cfg, args, timeout=0):
         d = tmp_path / "job" / "segments"
@@ -36,8 +35,7 @@ def _giro(tmp_path, monkeypatch, analyze):
     chiamato = []
     monkeypatch.setattr(api_analysis, "_run_ffmpeg", finto_ffmpeg)
     monkeypatch.setattr(api_analysis.diarize, "available", lambda cfg: (False, "prova"))
-    monkeypatch.setattr(api_analysis.requests, "post", lambda *a, **k: SimpleNamespace(
-        ok=True, status_code=200, json=lambda: {"text": "Buongiorno a tutti."}))
+    monkeypatch.setattr(api_analysis, "_transcribe_block", lambda cfg, wav, words: {"text": "Buongiorno a tutti.", "segments": []})
 
     def finto_cervello(cfg, segments, **kw):
         chiamato.append(segments)

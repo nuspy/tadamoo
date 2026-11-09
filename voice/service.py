@@ -26,7 +26,7 @@ from callbridge.config import Config  # noqa: E402
 
 from callbridge.brains import make_brain  # noqa: E402
 
-from voice import brain_service, functions, settings_bridge  # noqa: E402
+from voice import brain_service, functions, settings_bridge, speech_routes  # noqa: E402
 
 log = logging.getLogger("voice.service")
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
@@ -122,12 +122,14 @@ def build_app(settings_path, token: str, default_models_dir: str = "", host: str
     config.control_host, config.control_port, config.control_auth_token = host, port, token
     config.tadamoo_token = token                        # the same token, sent to TaDaMoo's server (it accepts it on loopback for the brains' routes)
     config.call_transport = "off"                       # no phone or modem detection at start
+    config.analysis_artifacts_dir = str(Path(settings_path).resolve().parent / "voice" / "analyses")     # the analyses live in the user data folder
     state = State(settings_path, config, default_models_dir)
     app = create_app(config, status_fn=state.status, ptt=state.session)
     app.before_request(lambda: state.refresh())
     state.functions = functions.Functions(state, app=app)
     functions.register(app, state.functions)
     brain_service.register(app, state)
+    app.register_blueprint(speech_routes.bp)
     return app, state
 
 
