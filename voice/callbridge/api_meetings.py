@@ -5,7 +5,11 @@
     POST /meetbot/leave                   the bot leaves (before consent: whatever it held is deleted)
     GET  /meetings/list                   GET /meetings/<id> (with the minutes)   GET /meetings/<id>/transcript   DELETE /meetings/<id> (transcript and minutes)
     GET  /calendar/status                 POST /calendar/<google|microsoft>/connect|disconnect
-    GET  /calendar/events                 POST /calendar/events/<id>/autojoin {enabled}
+    GET  /calendar/events                 POST /calendar/events/<id>/autojoin {enabled}   (sets Participate of that event's plan item)
+    GET  /meetings/plan                   the plan: {items (coming first, then recent), platforms, autojoin, lead_s}
+    POST /meetings/plan                   {url, title?, start, duration_min?, participate?, role?, persona?, camera?, consent_mode?, notes?} -> 201 {item}
+    PUT|PATCH /meetings/plan/<id>         the same fields, only the ones named change -> {item}      DELETE /meetings/plan/<id>
+    POST /meetings/plan/<id>/join-now     {rights_confirmed: true}  -> 202 {session_id, state}
     POST /copilot/toggle                  GET /copilot/state
 Every route needs the service token (the control app checks it); the service listens on loopback only."""
 from __future__ import annotations
@@ -90,10 +94,40 @@ def calendar_disconnect(provider: str):
 @bp.get("/calendar/events")
 def calendar_events():
     days = max(1, min(31, request.args.get("days", default=7, type=int)))
-    return _run(lambda s: s.watcher().fetch_events(days=days), key="events")
+    return _run(lambda s: s.calendar_events(days), key="events")
 
 
 @bp.post("/calendar/events/<path:event_id>/autojoin")
 def calendar_autojoin(event_id: str):
-    enabled = bool((request.get_json(silent=True) or {}).get("enabled"))
-    return _run(lambda s: (s.watcher().store.set(event_id, enabled), {"id": event_id, "autojoin": enabled})[1])
+    enabled = (request.get_json(silent=True) or {}).get("enabled")
+    if not isinstance(enabled, bool):
+        return jsonify({"error": "enabled is true or false", "code": "bad_request"}), 400
+    return _run(lambda s: s.calendar_participate(event_id, enabled))
+
+
+@bp.get("/meetings/plan")
+def plan_list():
+    return _run(lambda s: s.plan_list())
+
+
+@bp.post("/meetings/plan")
+def plan_add():
+    body = request.get_json(silent=True)
+    return _run(lambda s: s.plan_add(body if body is not None else {}), ok=201)
+
+
+@bp.route("/meetings/plan/<item_id>", methods=["PUT", "PATCH"])
+def plan_update(item_id: str):
+    body = request.get_json(silent=True)
+    return _run(lambda s: s.plan_update(item_id, body if body is not None else {}))
+
+
+@bp.delete("/meetings/plan/<item_id>")
+def plan_delete(item_id: str):
+    return _run(lambda s: s.plan_delete(item_id))
+
+
+@bp.post("/meetings/plan/<item_id>/join-now")
+def plan_join_now(item_id: str):
+    body = request.get_json(silent=True)
+    return _run(lambda s: s.plan_join_now(item_id, body if body is not None else {}), ok=202)

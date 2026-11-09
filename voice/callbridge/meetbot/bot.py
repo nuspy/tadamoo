@@ -48,7 +48,7 @@ class Plan:
     on_behalf_of: str
     title: str = ""
     display_name: str = "TaDaMoo Bot"
-    rights: str = "ticked"                 # "ticked" (the person ticked the box) | "calendar" (the person asked for this event)
+    rights: str = "ticked"                 # "ticked" (the person ticked the box) | "planned" (the person planned this meeting and ticked Participate)
     speak: bool = False
     camera: bool = False                   # turn the bot's camera on once consent is given (the avatar's virtual camera must be what the meeting uses)
     proactive: bool = False
@@ -58,6 +58,12 @@ class Plan:
     wake_phrase: str = ""
     virtual_mic: str = ""
     host: str = ""                         # the organiser when known (calendar); masked in the audit
+    minutes: bool = True                   # write the minutes after the meeting (off: the transcript is kept, nothing reads it)
+    persona: str = ""                      # the personality of this meeting (its slug), and what the bot takes from it
+    persona_block: str = ""                # the personality's own text, put in front of a spoken reply
+    voice_engine: str = ""
+    voice_name: str = ""
+    camera_blocked: str = ""               # why a camera the person asked for stays off, or ""
 
 
 @dataclass
@@ -151,7 +157,7 @@ class MeetingSession:
         p = self.plan
         self.deps.audit.join(self.session_id, self.platform, rights=p.rights, on_behalf_of=mask_name(p.on_behalf_of), host=mask_name(p.host),
                              consent_mode=self.gate.mode, consent_window_s=self.gate.window_s, speak=bool(p.speak and not self.speak_blocked),
-                             speak_blocked=self.speak_blocked, proactive=p.proactive)
+                             speak_blocked=self.speak_blocked, proactive=p.proactive, persona=p.persona, camera=p.camera, camera_blocked=p.camera_blocked)
 
     def leave(self) -> None:
         self._cmds.put("leave")
@@ -352,7 +358,7 @@ class MeetingSession:
         """Consent is given: the meeting's folder is made and what is held is written to it."""
         self._kept = True
         self.dir.mkdir(parents=True, exist_ok=True)
-        self._write_meta(analysis_state="pending")
+        self._write_meta(analysis_state="pending" if self.plan.minutes else "none")
         self.transcript.commit(self.dir / "transcript.jsonl")
         self._audit("consent", outcome=self.gate.outcome, mode=self.gate.mode)
         if self.plan.camera:
@@ -431,7 +437,7 @@ class MeetingSession:
         try:
             p = self.plan
             context = [f"{s['speaker']}: {s['text']}" for s in self.transcript.tail(speak.CONTEXT_LINES)]
-            answer = speak.ask(self.deps.brains, speak.reply_prompt(p.display_name, p.on_behalf_of, context, text, p.lang))
+            answer = speak.ask(self.deps.brains, speak.reply_prompt(p.display_name, p.on_behalf_of, context, text, p.lang, p.persona_block))
             if answer and not self._ending and self.gate.state == consent.GRANTED:
                 self._said.append(answer)
                 ok = self.voice.say(answer)
@@ -483,7 +489,7 @@ class MeetingSession:
         names = list(self.transcript.participants)
         if keep:
             self._write_meta(ended=time.strftime("%Y-%m-%dT%H:%M:%S"), participants=names, segments=count, end_reason=reason)
-            if self.deps.on_finished is not None:
+            if self.deps.on_finished is not None and self.plan.minutes:
                 self.deps.on_finished(json.loads((self.dir / "meta.json").read_text(encoding="utf-8")), self.dir)
             return
         self.transcript.discard()
