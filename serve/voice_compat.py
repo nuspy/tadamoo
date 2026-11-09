@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlsplit
 
-from serve import settings, voice_service, voice_settings
+from serve import personas_compat, settings, voice_service, voice_settings
 from serve.security import key_matches
 
 JSON_MAX = 1 << 16
@@ -30,12 +30,14 @@ LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]")
 _ID = r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}"
 _CALL = r"[A-Za-z0-9_-]{1,64}"
 _NAME = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}"
+_PERSONA = r"[^/\s]{1,120}"                 # a slug or a name as a path segment (percent-encoded spaces allowed)
+PERSONA_BODY = 1 << 17
 
 SOON = {
     "choice": "The voice and the engine of the speech are chosen in Settings > Voice.",
-    "load": "Voice functions are loaded and unloaded from the Voice functions dialog in the Loader.",
-    "stream": "Streaming over a WebSocket is not offered on this port yet.",
-    "personas": "The personalities are TaDaMoo's own: use /api/personas (Settings > Personalities); this callAPIcall route is not offered.",
+    "load": "Loading and unloading a voice function plans the VRAM and may unload and reload the language model, so it needs the person's confirmation in the Voice functions dialog in the Loader; there is no one-call form here.",
+    "stream": "The voice service has no streaming speech route behind its token: only the old Handy server (off by default, no token) speaks WebSocket, and this port does not relay it.",
+    "personas": "A personality's memory, clips, poster and avatar files are not offered here: the memory is the person's (Settings > Personalities) and the avatar files come with the avatar phase.",
 }
 
 
@@ -49,6 +51,7 @@ class Route:
     timeout: float = 30.0
     wait: str = ""                         # a query value (seconds) the service waits that long for: the timeout grows with it
     soon: str = ""                         # not there yet: 501 with this reason
+    here: bool = False                     # answered by this server (serve/personas_compat.py), not passed to the voice service
     gate: str = ""                         # "programs_join": a program may use it only when Settings > Voice > Meetings lets programs start the bot
 
 
@@ -86,8 +89,15 @@ ROUTES: tuple[Route, ...] = (
     # the voice session
     _r("GET", r"/session/(?:state|language)", kind="local"),
     _r("POST", r"/session/(?:start|stop|new|language)", kind="local", timeout=60.0),
+    # the personalities: TaDaMoo's own, with callAPIcall's paths; what they keep of the person (memory) is not part of it
+    _r("GET", r"/personas", kind="local", here=True, max_body=PERSONA_BODY),
+    _r("POST", r"/personas", kind="local", here=True, max_body=PERSONA_BODY),
+    _r("", r"/personas/[^/]+/.+", kind="local", soon=SOON["personas"]),
+    _r("GET", rf"/personas/{_PERSONA}", kind="local", here=True),
+    _r("PUT", rf"/personas/{_PERSONA}", kind="local", here=True, max_body=PERSONA_BODY),
+    _r("PATCH", rf"/personas/{_PERSONA}", kind="local", here=True, max_body=PERSONA_BODY),
+    _r("DELETE", rf"/personas/{_PERSONA}", kind="local", here=True),
     # not there yet
-    _r("", r"/personas(?:/.*)?", kind="local", soon=SOON["personas"]),
     _r("", r"/avatar/(?!preview\.mjpg|stream).*", kind="local", timeout=60.0),                    # the avatar function of the service; the live streams have their own routes
     # meetings: a program on this PC may start the bot, but the announcement and the consent rule are the service's and cannot be skipped
     _r("POST", r"/meetbot/join", kind="local", timeout=60.0, gate=PROGRAMS_JOIN),
@@ -237,6 +247,9 @@ def handle(h, svc) -> None:
             return _fail(h, getattr(e, "status", 400), "bad_request", str(e))
     elif send_body and size is None:
         return
+    if route.here:
+        status, out = personas_compat.respond(h._personas(), h.command, path, parts.query, body)
+        return h._json(status, out)
     try:
         host, port, token = voice_service.endpoint()
     except voice_service.ServiceDown as e:

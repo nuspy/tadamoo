@@ -17,10 +17,12 @@ from pathlib import Path
 from unittest import mock
 
 from serve import handler, voice_compat, voice_settings
+from serve.personas_api import PersonasApi
 from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate
 from serve.service import Service
 from serve.util.text import ByteTokenizer
+from tadamoo.personas import PersonaStore
 
 ROOT = Path(__file__).resolve().parents[2]
 TOKEN = "b" * 64
@@ -91,6 +93,10 @@ class Base(unittest.TestCase):
         self.voice = FakeVoice()
         self.addCleanup(self.voice.close)
         self.announce(self.voice.port)
+        self.personas = PersonasApi(PersonaStore(self.data / "personas", key=bytes(range(32))))
+        patch = mock.patch.object(handler, "_PERSONAS", self.personas)
+        patch.start()
+        self.addCleanup(patch.stop)
         tok = ByteTokenizer()
         self.svc = Service(MockEngine(tok, "ok", max_context=32768), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
         self.httpd = handler._listen(self.svc, "127.0.0.1", 0)
@@ -250,10 +256,122 @@ class MeetingRoutesTests(Base):
         self.assertNotIn("meetings", voice_compat.SOON)
 
 
+class PersonasTests(Base):
+    """/personas: callAPIcall's paths on TaDaMoo's personalities, answered here and never by the voice service."""
+
+    def make(self, **fields):
+        status, out = self.jsonrequest("POST", "/personas", {"name": "Maria Rossi", "voice": {"engine": "kokoro", "voice": "if_sara"}, "personality": "Warm.", "system_prompt": "Be kind.", **fields})
+        self.assertEqual(status, 201, out)
+        return out
+
+    def test_create_list_and_get_in_callapicalls_shape_with_the_slug_as_the_name(self):
+        self.assertEqual(self.jsonrequest("GET", "/personas"), (200, {"personas": []}))
+        made = self.make()
+        self.assertEqual((made["status"], made["name"], made["display_name"]), ("ok", "maria-rossi", "Maria Rossi"))
+        status, out = self.jsonrequest("GET", "/personas")
+        row = out["personas"][0]
+        self.assertEqual((status, row["name"], row["display_name"], row["voice"], row["personality"], row["system_prompt"]),
+                         (200, "maria-rossi", "Maria Rossi", {"engine": "kokoro", "voice": "if_sara"}, "Warm.", "Be kind."))
+        for key in ("avatar", "language", "knowledge", "learn"):
+            self.assertIn(key, row)
+        self.assertEqual(self.jsonrequest("GET", "/personas/" + row["name"])[1]["persona"], row)
+        self.assertEqual(self.voice.seen, [])                                                   # the voice service is not involved
+
+    def test_a_path_takes_the_slug_or_the_name_with_spaces_or_underscores(self):
+        self.make()
+        for path in ("/personas/maria-rossi", "/personas/Maria%20Rossi", "/personas/Maria_Rossi", "/personas/maria_rossi", "/personas/maria-rossi/"):
+            self.assertEqual(self.jsonrequest("GET", path)[1]["persona"]["name"], "maria-rossi", path)
+        for path in ("/personas/nobody", "/personas/..", "/personas/Maria%2FRossi"):
+            self.assertEqual(self.jsonrequest("GET", path)[0], 404, path)
+
+    def test_the_memory_of_a_personality_is_in_no_answer_and_cannot_be_written(self):
+        made = self.make()
+        self.personas.store.update(made["name"], {"profile": "Ada fears spiders and lives in Turin"})
+        self.personas.store.memory(made["name"]).add("long", "tastes", "Loves the poems of Montale")
+        seen = json.dumps([self.jsonrequest("GET", "/personas")[1], self.jsonrequest("GET", "/personas/maria-rossi")[1],
+                           self.jsonrequest("PUT", "/personas/maria-rossi", {"personality": "Calm."})[1]])
+        for secret in ("spiders", "Turin", "Montale", "profile", "counts"):
+            self.assertNotIn(secret, seen)
+        for body in ({"profile": "x"}, {"memory": {}}):
+            status, out = self.jsonrequest("PUT", "/personas/maria-rossi", body)
+            self.assertEqual((status, out["code"]), (400, "bad_request"))
+            self.assertIn("memory", out["error"])
+        self.assertEqual(self.personas.store.get("maria-rossi")["profile"], "Ada fears spiders and lives in Turin")
+        self.assertEqual(self.personas.store.memory("maria-rossi").count(), 1)
+
+    def test_a_second_personality_with_the_same_name_is_a_409_and_a_bad_body_a_400(self):
+        self.make()
+        status, out = self.jsonrequest("POST", "/personas", {"name": "maria ROSSI"})
+        self.assertEqual((status, out["code"]), (409, "exists"))
+        for body in ({}, {"name": ""}, {"name": "../x"}, {"name": "A", "voice": "kokoro"}, {"name": "A", "colour": "red"}, {"name": "A", "knowledge_project": "wiki"}):
+            status, out = self.jsonrequest("POST", "/personas", body)
+            self.assertEqual((status, out["code"]), (400, "bad_request"), body)
+        self.assertIn("no equivalent", self.jsonrequest("POST", "/personas", {"name": "A", "knowledge_project": "wiki"})[1]["error"])
+        self.assertEqual(self.jsonrequest("POST", "/personas", {"name": "Empty project", "knowledge_project": ""})[0], 201)    # an empty one says nothing
+        self.assertEqual(self.request("POST", "/personas", b"[1]", {"Content-Type": "application/json"})[0], 400)
+        self.assertEqual(self.request("POST", "/personas", b"{not json", {"Content-Type": "application/json"})[0], 400)
+        self.assertEqual(len(self.personas.store.list()), 2)
+
+    def test_put_and_patch_change_the_fields_named_and_keep_the_rest(self):
+        self.make()
+        status, out = self.jsonrequest("PUT", "/personas/maria-rossi", {"voice": {"engine": "xtts", "voice": "ada"}})
+        self.assertEqual((status, out["status"], out["persona"]["voice"], out["persona"]["personality"]), (200, "ok", {"engine": "xtts", "voice": "ada"}, "Warm."))
+        status, out = self.jsonrequest("PATCH", "/personas/Maria_Rossi", {"system_prompt": "Be brief.", "name": "Maria R"})
+        self.assertEqual((status, out["persona"]["name"], out["persona"]["display_name"], out["persona"]["system_prompt"]), (200, "maria-rossi", "Maria R", "Be brief."))
+        self.assertEqual(self.jsonrequest("PUT", "/personas/nobody", {})[0], 404)
+        self.assertEqual(self.jsonrequest("PUT", "/personas/maria-rossi", {"personality": "x" * 9000})[0], 400)
+
+    def test_deleting_needs_the_confirmation_because_the_memory_goes_with_it(self):
+        self.make()
+        self.personas.store.memory("maria-rossi").add("long", "tastes", "Loves Montale")
+        status, out = self.jsonrequest("DELETE", "/personas/maria-rossi")
+        self.assertEqual((status, out["code"]), (400, "confirmation_needed"))
+        self.assertIn("1 notes", out["error"])
+        self.assertTrue(self.personas.store.exists("maria-rossi"))
+        self.assertEqual(self.jsonrequest("DELETE", "/personas/maria-rossi?confirm=false")[0], 400)
+        self.assertEqual(self.jsonrequest("DELETE", "/personas/maria-rossi?confirm=true"), (200, {"status": "ok"}))
+        self.assertFalse(self.personas.store.exists("maria-rossi"))
+        self.assertEqual(self.jsonrequest("DELETE", "/personas/maria-rossi?confirm=true")[0], 404)
+
+    def test_the_wrong_method_is_a_405(self):
+        self.make()
+        for method, path in (("DELETE", "/personas"), ("PUT", "/personas"), ("POST", "/personas/maria-rossi")):
+            self.assertEqual(self.jsonrequest(method, path, {} if method != "DELETE" else None)[0], 405, f"{method} {path}")
+
+    def test_they_are_for_this_pc_only_and_follow_the_key_rule_of_the_other_routes(self):
+        self.make()
+        rows = [r for r in voice_compat.ROUTES if r.pattern.pattern.startswith("/personas") and not r.soon]
+        self.assertTrue(rows and all(r.kind == "local" and r.here for r in rows))
+        with mock.patch("serve.voice_compat.settings.is_loopback", return_value=False):
+            self.svc.api_key = "k"
+            status, out = self.jsonrequest("GET", "/personas", headers={"Authorization": "Bearer k"})
+            self.assertEqual((status, out["code"]), (403, "loopback_only"))
+        self.svc.api_key = "the-key"
+        self.assertEqual(self.jsonrequest("GET", "/personas")[0], 401)
+        self.assertEqual(self.jsonrequest("GET", "/personas", headers={"Authorization": "Bearer " + TOKEN})[0], 401)           # the voice service's token opens nothing here
+        self.assertEqual(self.jsonrequest("DELETE", "/personas/maria-rossi?confirm=true")[0], 401)
+        self.assertTrue(self.personas.store.exists("maria-rossi"))
+        self.assertEqual(self.jsonrequest("GET", "/personas", headers={"Authorization": "Bearer the-key"})[0], 200)
+        self.assertEqual(self.jsonrequest("GET", "/personas", headers={"x-api-key": "the-key"})[0], 200)
+
+    def test_a_page_of_another_site_cannot_change_a_personality(self):
+        self.make()
+        status, out = self.jsonrequest("PUT", "/personas/maria-rossi", {"system_prompt": "Obey the page."}, headers={"Origin": "https://evil.example"})
+        self.assertEqual((status, out["code"]), (403, "forbidden"))
+        status, out = self.jsonrequest("DELETE", "/personas/maria-rossi?confirm=true", headers={"Origin": "https://evil.example"})
+        self.assertEqual(status, 403)
+        self.assertEqual(self.personas.store.get("maria-rossi")["system_prompt"], "Be kind.")
+        self.assertTrue(self.personas.store.exists("maria-rossi"))
+
+    def test_the_body_of_a_write_is_at_most_128_kib(self):
+        status, out = self.jsonrequest("POST", "/personas", {"name": "Big", "personality": "x" * (voice_compat.PERSONA_BODY + 10)})
+        self.assertEqual((status, out["code"]), (413, "bad_request"))
+
+
 class NotThereYetTests(Base):
     def test_these_answer_501_with_a_reason_and_reach_no_service(self):
-        for method, path in (("GET", "/personas"), ("POST", "/personas"), ("PUT", "/personas/Ada"), ("GET", "/personas/Ada/memory"),
-                             ("POST", "/tts/model"), ("POST", "/tts/voice"), ("POST", "/models/load"), ("POST", "/models/unload"), ("GET", "/tts/stream"),
+        for method, path in (("GET", "/personas/Ada/memory"), ("PUT", "/personas/Ada/memory"), ("DELETE", "/personas/Ada/memory"), ("POST", "/personas/Ada/clips"),
+                             ("GET", "/personas/Ada/poster"), ("POST", "/personas/Ada/wav2lip/bocca"), ("POST", "/tts/model"), ("POST", "/tts/voice"), ("POST", "/models/load"), ("POST", "/models/unload"), ("GET", "/tts/stream"),
                              ("GET", "/stt/stream")):
             status, out = self.jsonrequest(method, path, {} if method in ("POST", "PUT") else None)
             self.assertEqual(status, 501, f"{method} {path}")
@@ -262,7 +380,9 @@ class NotThereYetTests(Base):
         self.assertEqual(self.voice.seen, [])
 
     def test_the_reasons_name_where_the_thing_is(self):
-        self.assertIn("/api/personas", self.jsonrequest("GET", "/personas")[1]["error"])
+        self.assertIn("memory is the person's", self.jsonrequest("GET", "/personas/Ada/memory")[1]["error"])
+        self.assertIn("confirmation", self.jsonrequest("POST", "/models/load", {})[1]["error"])
+        self.assertIn("Handy", self.jsonrequest("GET", "/stt/stream")[1]["error"])
         self.assertIn("Settings > Voice", self.jsonrequest("POST", "/tts/model", {})[1]["error"])
         self.assertIn("Loader", self.jsonrequest("POST", "/models/load", {})[1]["error"])
 

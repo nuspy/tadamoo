@@ -102,7 +102,7 @@ not learned from twice.
 
 ## Routes
 
-All under `/api/personas`, from this PC only (403 otherwise).
+All under `/api/personas`, from this PC only (403 otherwise). callAPIcall's `/personas` paths, answered by the same store without the memory, are in [the callAPIcall routes](voice/api.md).
 
 | Route | |
 |---|---|
