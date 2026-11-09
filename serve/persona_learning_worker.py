@@ -75,8 +75,8 @@ class PersonaLearningWorker:
             fresh, self._fresh = list(dict.fromkeys(self._fresh)), []
         for slug, conversation in fresh:
             try:
-                if not self.store.exists(slug):
-                    continue                                   # the personality was deleted meanwhile
+                if not self.store.get(slug)["learn"]:
+                    continue                                   # it does not learn: no job to keep
                 memory = self.store.memory(slug)
                 if not any(j.get("kind") == JOB and j.get("conversation") == conversation for j in memory.queue(MAX_QUEUE)):
                     memory.enqueue({"kind": JOB, "conversation": conversation})
