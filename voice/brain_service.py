@@ -73,6 +73,10 @@ class Session:
     def current_language(self) -> str:
         return self._ptt.current_language() if self._ptt is not None else ""
 
+    def language_status(self) -> dict:
+        """{language, mode, follow, enabled, engine_fallback, warnings} of the session running; {} when there is none."""
+        return self._ptt.language_status() if self._ptt is not None else {}
+
     def set_language(self, code: str) -> bool:
         return self._ptt.set_language(code) if self._ptt is not None else False
 
