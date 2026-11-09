@@ -120,6 +120,7 @@ def test_a_new_service_lists_the_three_functions_unloaded_with_the_free_vram(rig
         assert f["state"] == "unloaded" and f["installed"] is False and f["reason"].endswith("install it from Settings > Voice.")
         assert f["measured_mib"] is None and f["estimated_mib"] is None and f["error"] is None
     assert snap["functions"]["stt"]["model"] == "whisper-small" and snap["functions"]["avatar"]["engine"] == "musetalk"
+    assert snap["functions"]["avatar"]["label"] == "Avatar video from the PC (emergency, uses VRAM)" and snap["functions"]["avatar"]["enabled"] is False     # off by default
 
 
 def test_apply_loads_in_order_one_at_a_time_through_the_serialiser(rig):
