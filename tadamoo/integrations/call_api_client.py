@@ -9,7 +9,9 @@ Contract (callAPIcall external API, Bearer token, default port 8770). The caller
   POST /external/<id>/hangup                                          -> final state
 
 A call reaches a real person and cannot be undone: callers must obtain explicit approval first, the
-greeting must disclose that the caller is an AI, and a placement is never retried here, whatever went wrong.
+greeting must disclose that the caller is an AI, and a placement is never retried here, whatever went wrong. The service
+applies its own rules as well (voice/callbridge/call_policy.py): an emergency number, a bad number or a greeting without the
+disclosure is refused (`failed`, reason `refused`).
 What came back tells the outcome apart: `calling`; `failed` (the service did not take it: not running, token refused, a call
 already in progress (409), a refusal with its reason) or `unknown` (it may have started: no answer in time, a broken connection,
 a server error), after which the caller must check the call before placing another.
@@ -33,6 +35,7 @@ from typing import Any, Callable, Dict, List, Optional
 from ._http import ServiceError, request_json, request_multipart
 
 DEFAULT_URL = "http://127.0.0.1:8770"
+AGENT_ORIGIN = {"X-Call-Origin": "agent"}      # tells the service this placement comes from TaDaMoo's agent, which asked the person itself
 TRANSPORTS = {"gsm_modem": "gsm", "bluetooth_android": "android"}
 AI_DISCLOSURE_MARKERS = ("intelligenza artificiale", "assistente virtuale", "artificial intelligence", "virtual assistant")
 _NUMBER = re.compile(r"^\+?[0-9][0-9 ()\-]{5,19}$")
@@ -77,8 +80,10 @@ class CallAPICallClient:
             **kwargs,
         )
 
-    def _call(self, method: str, path: str, payload: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None) -> Any:
+    def _call(self, method: str, path: str, payload: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None,
+              extra_headers: Optional[Dict[str, str]] = None) -> Any:
         headers = {"Authorization": f"Bearer {self._token}"} if self._token else {}
+        headers.update(extra_headers or {})
         return request_json(method, self.endpoint + path, payload, headers, timeout or self.timeout)
 
     @staticmethod
@@ -113,9 +118,12 @@ class CallAPICallClient:
             if value:
                 payload[key] = value
         try:
-            res = self._call("POST", "/external/call", payload, timeout=self.place_timeout)
+            res = self._call("POST", "/external/call", payload, timeout=self.place_timeout, extra_headers=AGENT_ORIGIN)
         except ServiceError as e:
             return self._placement_failure(e, number)
+        if isinstance(res, dict) and res.get("code") == "approval_required":
+            return {"status": "failed", "reason": "approval_required", "phone_number": number,
+                    "error": "the voice service holds this call until the person approves it in Settings > Voice; nothing was placed"}
         if not isinstance(res, dict) or not res.get("call_id"):
             return {"status": "unknown", "reason": "bad_answer", "phone_number": number,
                     "error": "the service answered without a call id; the call may have started: check it before placing another"}

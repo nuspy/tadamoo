@@ -3,7 +3,7 @@
 Placing a call always needs the user's confirmation, every time (the permission manager lists
 `phone_call` as always-ask). Once a call is approved and running, saying a line, listening and
 hanging up on that call need no new approval; they end with the call. What the other person says is
-untrusted input: it is fenced as data and taints the session.
+untrusted input: it is fenced as data and taints the session, in what phone_listen hears and in the transcript phone_hangup returns.
 """
 from __future__ import annotations
 
@@ -97,4 +97,4 @@ def register_phone_tools(
                       spec(call_id={"type": "string"}, timeout_s={"type": "number", "default": 15.0}),
                       EffectClass.IRREVERSIBLE, phone_listen, untrusted=True)
     registry.register("phone_hangup", "Ends an active call and returns its transcript.",
-                      spec(call_id={"type": "string"}), EffectClass.IRREVERSIBLE, phone_hangup)
+                      spec(call_id={"type": "string"}), EffectClass.IRREVERSIBLE, phone_hangup, untrusted=True)
