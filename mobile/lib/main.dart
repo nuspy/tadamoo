@@ -9,6 +9,7 @@ import 'src/avatar_assets.dart';
 import 'src/avatar_hub.dart';
 import 'src/avatar_platform.dart';
 import 'src/i18n.dart';
+import 'src/personal_engine.dart';
 import 'src/settings.dart';
 import 'src/voice.dart';
 import 'src/wav2lip_engine.dart';
@@ -21,6 +22,6 @@ Future<void> main() async {
   await voice.init();
   final support = await getApplicationSupportDirectory();
   final store = AvatarAssetStore(root: Directory('${support.path}/avatar'), source: HttpAssetSource(Api(settings)));
-  final hub = EngineHub(settings: settings, store: store, backend: ChannelWav2LipBackend());
+  final hub = EngineHub(settings: settings, store: store, backend: ChannelWav2LipBackend(), personal: ChannelPersonalBackend());
   runApp(BasaltApp(settings: settings, voice: voice, avatar: PlatformAvatarDevices(), hub: hub));
 }

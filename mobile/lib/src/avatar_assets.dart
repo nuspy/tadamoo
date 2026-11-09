@@ -8,17 +8,22 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'api.dart';
+import 'personal_pack.dart';
 
 /// The 15 mouth shapes the PC sends in its timelines, in the order of its table.
 const visemeNames = ['sil', 'PP', 'FF', 'TH', 'DD', 'kk', 'CH', 'SS', 'nn', 'RR', 'aa', 'E', 'I', 'O', 'U'];
 
 /// What an avatar gives a phone (`GET /api/voice/avatar/<name>/manifest.json`): the mode its files allow and the SHA-256 of each file.
 class AssetManifest {
-  AssetManifest(this.avatar, this.renderModes, this.files);
+  AssetManifest(this.avatar, this.renderModes, this.files, [this.engines = const {}]);
 
   final String avatar;
   final List<String> renderModes;
   final Map<String, String> files;
+
+  /// What a personalised engine trained for this avatar gives the phone (`engines` of the manifest): the SHA-256 of each of its files, by path from the
+  /// avatar's folder (`engines/<id>/export/...`). They are not in `files` and not in the zip.
+  final Map<String, Map<String, String>> engines;
 
   /// Null when the text is not a manifest this build understands.
   static AssetManifest? parse(Uint8List bytes) {
@@ -32,7 +37,25 @@ class AssetManifest {
         if (path.isEmpty || path.startsWith('/') || path.contains('..') || path.contains('\\') || !RegExp(r'^[0-9a-f]{64}$').hasMatch(sum)) return null;
         files[path] = sum;
       }
-      return AssetManifest('${j['avatar'] ?? ''}', [for (final m in (j['render_modes'] as List? ?? const [])) '$m'], files);
+      final engines = <String, Map<String, String>>{};
+      final raw = j['engines'];
+      if (raw is Map) {
+        for (final e in raw.entries) {
+          final id = '${e.key}';
+          final v = e.value;
+          if (!personalEngineIds.contains(id) || v is! Map || v['files'] is! Map) continue;
+          final own = <String, String>{};
+          var bad = false;
+          for (final f in (v['files'] as Map).entries) {
+            final path = '${f.key}';
+            final sum = '${f.value}'.toLowerCase();
+            if (!path.startsWith('engines/$id/export/') || !PersonalPackInfo.safe(path) || !RegExp(r'^[0-9a-f]{64}$').hasMatch(sum)) bad = true;
+            own[path] = sum;
+          }
+          if (!bad && own.containsKey('engines/$id/export/phone.json')) engines[id] = own;
+        }
+      }
+      return AssetManifest('${j['avatar'] ?? ''}', [for (final m in (j['render_modes'] as List? ?? const [])) '$m'], files, engines);
     } catch (_) {
       return null;
     }
@@ -173,6 +196,12 @@ class AvatarAssetStore extends ChangeNotifier {
 
   final Map<String, AssetStage> _stages = {};
   final Map<String, AssetManifest> _manifests = {};
+  final Map<String, EngineStage> _engineStages = {};
+  final Map<String, PersonalPackInfo> _packs = {};
+  final Map<String, PersonalTestRecord> _packTests = {};
+  String engineReason = '';
+  int engineGot = 0;
+  int engineTotal = 0;
   String lastReason = '';
   ModelStage modelStage = ModelStage.missing;
   int modelGot = 0;
@@ -266,8 +295,168 @@ class AvatarAssetStore extends ChangeNotifier {
     return false;
   }
 
-  Future<Uint8List> _manifestBytes(AssetManifest m) async =>
-      Uint8List.fromList(utf8.encode(jsonEncode({'version': 1, 'avatar': m.avatar, 'render_modes': m.renderModes, 'files': m.files})));
+  Future<Uint8List> _manifestBytes(AssetManifest m) async => Uint8List.fromList(utf8.encode(jsonEncode({
+        'version': 1,
+        'avatar': m.avatar,
+        'render_modes': m.renderModes,
+        'files': m.files,
+        if (m.engines.isNotEmpty) 'engines': {for (final e in m.engines.entries) e.key: {'files': e.value}},
+      })));
+
+  // ---- the personalised engines (Ultralight, FeatherTalk)
+
+  String _enginePrefix(String id) => 'engines/$id/export';
+
+  /// The folder of an engine's package for `name`.
+  String engineDir(String name, String id) => pathOf(name, _enginePrefix(id));
+
+  EngineStage engineStageOf(String name, String id) => _engineStages['$name/$id'] ?? EngineStage.missing;
+
+  /// The package's `phone.json` once every file of it was verified on this phone; null before.
+  PersonalPackInfo? packOf(String name, String id) => engineStageOf(name, id) == EngineStage.ready ? _packs['$name/$id'] : null;
+
+  /// The SHA-256 of `phone.json` the avatar's manifest states for `id`, or null when the avatar has no such engine.
+  String? phoneShaOf(String name, String id) => _manifests[name]?.engines[id]?['${_enginePrefix(id)}/phone.json'];
+
+  /// Whether the avatar's manifest offers this engine at all.
+  bool offersEngine(String name, String id) => phoneShaOf(name, id) != null;
+
+  PersonalTestRecord? personalTestOf(String name, String id) => _packTests['$name/$id'];
+
+  /// Whether the package on the phone is the one that passed the self-test here.
+  bool personalPassed(String name, String id) {
+    final t = _packTests['$name/$id'];
+    final sha = phoneShaOf(name, id);
+    return t != null && sha != null && t.sha == sha;
+  }
+
+  File _testFile(String name, String id) => File('${dirOf(name).path}/engines/$id/selftest.json');
+
+  /// Keeps the outcome of a self-test (`sha` is the `phone.json` that passed; '' forgets it).
+  Future<void> savePersonalTest(String name, String id, PersonalTestRecord record) async {
+    final f = _testFile(name, id);
+    try {
+      if (record.sha.isEmpty) {
+        _packTests.remove('$name/$id');
+        if (f.existsSync()) f.deleteSync();
+      } else {
+        _packTests['$name/$id'] = record;
+        await f.parent.create(recursive: true);
+        await f.writeAsString(record.encode(), flush: true);
+      }
+    } on FileSystemException {
+      // the result is kept for this run only
+    }
+    _tell();
+  }
+
+  /// Reads what is on disk for an engine's package: `phone.json` with the SHA-256 the manifest states, and every file it lists with its size and SHA-256.
+  Future<bool> refreshEngine(String name, String id) async {
+    final key = '$name/$id';
+    if (_engineStages[key] == EngineStage.downloading) return false;
+    final entry = validName(name) ? _manifests[name]?.engines[id] : null;
+    PersonalPackInfo? info;
+    if (entry != null) {
+      final f = File('${engineDir(name, id)}/phone.json');
+      final want = entry['${_enginePrefix(id)}/phone.json'];
+      if (f.existsSync() && await _fileSha(f) == want) {
+        info = PersonalPackInfo.parse(await f.readAsBytes(), id);
+        if (info != null && !await _packFilesOk(name, id, entry, info)) info = null;
+      }
+    }
+    if (info == null) {
+      _packs.remove(key);
+      _engineStages[key] = EngineStage.missing;
+    } else {
+      _packs[key] = info;
+      _engineStages[key] = EngineStage.ready;
+      final t = _testFile(name, id);
+      final record = t.existsSync() ? PersonalTestRecord.decode(await t.readAsString()) : null;
+      if (record != null) _packTests[key] = record;
+    }
+    _tell();
+    return info != null;
+  }
+
+  Future<bool> _packFilesOk(String name, String id, Map<String, String> entry, PersonalPackInfo info) async {
+    for (final e in info.files.entries) {
+      if (entry['${_enginePrefix(id)}/${e.key}'] != e.value.sha256) return false;
+      final f = File('${engineDir(name, id)}/${e.key}');
+      if (!f.existsSync() || f.lengthSync() != e.value.bytes || await _fileSha(f) != e.value.sha256) return false;
+    }
+    return true;
+  }
+
+  /// Fetches the files of an engine's package that are missing or differ, one by one with resume, and keeps each only when its size and SHA-256 are
+  /// the ones `phone.json` says and the avatar's manifest agrees. True when the package is whole afterwards; `engineReason` says why not.
+  Future<bool> syncEngine(String name, String id) async {
+    final key = '$name/$id';
+    final entry = validName(name) ? _manifests[name]?.engines[id] : null;
+    if (entry == null) {
+      engineReason = 'manifest';
+      return false;
+    }
+    if (_engineStages[key] == EngineStage.downloading) return false;
+    _engineStages[key] = EngineStage.downloading;
+    engineGot = 0;
+    engineTotal = 0;
+    engineReason = '';
+    _tell();
+    final base = '/api/voice/avatar/$name/engines/$id/files';
+    try {
+      final phoneFile = File('${engineDir(name, id)}/phone.json');
+      final want = entry['${_enginePrefix(id)}/phone.json']!;
+      if (!phoneFile.existsSync() || await _fileSha(phoneFile) != want) {
+        final bytes = await source.bytes('$base/phone.json');
+        if (_hex(bytes) != want) throw AssetError('sha', 'phone.json');
+        await phoneFile.parent.create(recursive: true);
+        await phoneFile.writeAsBytes(bytes, flush: true);
+      }
+      final info = PersonalPackInfo.parse(await phoneFile.readAsBytes(), id);
+      if (info == null) throw AssetError('manifest', 'phone.json');
+      for (final e in info.files.entries) {
+        if (entry['${_enginePrefix(id)}/${e.key}'] != e.value.sha256) throw AssetError('manifest', e.key);
+      }
+      engineTotal = info.bytes;
+      var done = 0;
+      for (final e in info.files.entries) {
+        final target = File('${engineDir(name, id)}/${e.key}');
+        if (target.existsSync() && target.lengthSync() == e.value.bytes && await _fileSha(target) == e.value.sha256) {
+          done += e.value.bytes;
+          continue;
+        }
+        final part = File('${target.path}.part');
+        await part.parent.create(recursive: true);
+        final before = done;
+        final fetch = await source.model('$base/${e.key}', part, progress: (got, total) {
+          engineGot = before + got;
+          _tell();
+        });
+        if (part.lengthSync() != e.value.bytes || await _fileSha(part) != e.value.sha256 || (fetch.etag.isNotEmpty && fetch.etag != e.value.sha256)) {
+          for (final f in [part, File('${part.path}.etag')]) {
+            if (f.existsSync()) f.deleteSync();
+          }
+          throw AssetError('sha', e.key);
+        }
+        if (target.existsSync()) target.deleteSync();
+        part.renameSync(target.path);
+        final tag = File('${part.path}.etag');
+        if (tag.existsSync()) tag.deleteSync();
+        done += e.value.bytes;
+      }
+      _engineStages[key] = EngineStage.missing;
+      final ok = await refreshEngine(name, id);
+      if (!ok) engineReason = 'sha';
+      return ok;
+    } on AssetError catch (e) {
+      engineReason = e.reason;
+    } on FileSystemException {
+      engineReason = 'disk';
+    }
+    _engineStages[key] = EngineStage.failed;
+    _tell();
+    return false;
+  }
 
   // ---- the Wav2Lip model
 

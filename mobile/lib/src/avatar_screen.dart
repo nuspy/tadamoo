@@ -7,6 +7,7 @@ import 'avatar_controller.dart';
 import 'gateway_client.dart';
 import 'i18n.dart';
 import 'lips_icon.dart';
+import 'personal_pack.dart';
 
 /// The Avatar tab: the avatar, an accordion with the text chat (closed at first), and under them the conversation controls: who answers
 /// (lips for Direct, brain for Harness), where the sound goes, and the hold-to-talk bar. How the avatar is drawn, its size and quality,
@@ -87,7 +88,7 @@ class _AvatarScreenState extends State<AvatarScreen> with WidgetsBindingObserver
     if (g.status != GatewayStatus.ready) return '';
     if (c.renderer != null) return _engineLine();
     final rm = g.renderMode;
-    if (rm == 'visemes' || rm == 'wav2lip') return Texts.t('avatar.render.preparing');
+    if (rm == 'visemes' || rm == 'wav2lip' || personalEngineIds.contains(rm)) return Texts.t('avatar.render.preparing');
     if (c.mode == 'video' || rm == 'video') {
       if (!c.devices.videoSupported) return Texts.t('avatar.video.unsupported');
       if (g.videoReason == 'emergency_only') return Texts.t('avatar.video.emergency');

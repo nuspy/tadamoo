@@ -12,6 +12,8 @@ import 'avatar_renderer.dart';
 import 'barge_in.dart';
 import 'gateway_client.dart';
 import 'i18n.dart';
+import 'personal_engine.dart';
+import 'personal_pack.dart';
 import 'sdp.dart';
 import 'settings.dart';
 import 'wav2lip_engine.dart';
@@ -122,7 +124,8 @@ class AvatarController extends ChangeNotifier {
   bool get avatarOn => settings.avatarEnabled;
 
   /// Whether this phone can draw the avatar in `m` now.
-  bool modeAvailable(String m) => m == 'video' ? devices.videoSupported : (m == 'visemes' ? hub.visemesReady : (m == 'wav2lip' && hub.wav2lipReady));
+  bool modeAvailable(String m) =>
+      m == 'video' ? devices.videoSupported : (m == 'visemes' ? hub.visemesReady : (m == 'wav2lip' ? hub.wav2lipReady : (personalEngineIds.contains(m) && hub.personalReady(m))));
 
   /// The picture of the avatar, while the PC's stream is live.
   VideoSession? get liveVideo => (_video != null && client.video == VideoStage.live) ? _video : null;
@@ -248,7 +251,7 @@ class AvatarController extends ChangeNotifier {
 
   Future<void> _fetchAssets(String name) async {
     final store = hub.store;
-    if (name.isEmpty || !avatarOn || store == null || !(mode == 'visemes' || mode == 'wav2lip')) return;
+    if (name.isEmpty || !avatarOn || store == null || !(mode == 'visemes' || mode == 'wav2lip' || personalEngineIds.contains(mode))) return;
     final stage = store.stageOf(name);
     if (stage == AssetStage.ready || stage == AssetStage.downloading) return;
     await hub.fetchAssets(name);
@@ -261,7 +264,7 @@ class AvatarController extends ChangeNotifier {
   Future<void> _syncRenderer() async {
     final m = client.renderMode;
     final name = client.avatarName;
-    final want = (active && avatarOn && (m == 'visemes' || m == 'wav2lip') && name.isNotEmpty) ? m : '';
+    final want = (active && avatarOn && (m == 'visemes' || m == 'wav2lip' || personalEngineIds.contains(m)) && name.isNotEmpty) ? m : '';
     final key = want.isEmpty ? '' : '$want|$name';
     if (key == _renderKey) return;
     _renderKey = key;
@@ -305,6 +308,7 @@ class AvatarController extends ChangeNotifier {
       }
       return VisemeRenderer(pack: pack, player: devices.player);
     }
+    if (personalEngineIds.contains(mode)) return _buildPersonal(mode, name, why);
     final backend = hub.backend;
     if (backend == null || !hub.wav2lipReady) {
       why(backend == null ? 'no_runtime' : 'not_ready');
@@ -321,6 +325,29 @@ class AvatarController extends ChangeNotifier {
       return null;
     }
     return Wav2LipRenderer(backend: backend, pack: pack, player: devices.player);
+  }
+
+  /// A personalised engine: its package verified on this phone, loaded again by Kotlin (which checks every file), drawn over the template frame, and given up
+  /// when the frames cost more than the time they stand for.
+  Future<AvatarRenderer?> _buildPersonal(String id, String name, void Function(String) why) async {
+    final store = hub.store;
+    final backend = hub.personal;
+    final info = store?.packOf(name, id);
+    if (store == null || backend == null || info == null || !hub.personalReady(id)) {
+      why(backend == null ? 'no_runtime' : 'not_ready');
+      return null;
+    }
+    final pack = await loadPersonalPack(store, name, id);
+    if (pack == null) {
+      why('assets_invalid');
+      return null;
+    }
+    final loaded = await backend.load(dir: store.engineDir(name, id), sha: store.phoneShaOf(name, id) ?? '');
+    if (!loaded.ok) {
+      why(loaded.reason.isEmpty ? 'onnx_load_failed' : loaded.reason);
+      return null;
+    }
+    return Wav2LipRenderer(backend: backend, pack: pack, player: devices.player, fps: info.fps, modeId: id, frameBudgetMs: personalFrameBudgetMs(info));
   }
 
   /// The mode in use does not work on this phone: it is left out from now on and the PC is told, which answers with the next one.
