@@ -20,7 +20,7 @@ text of its environment requirement, its sources and its `probe` files.
 | `embedding` | Multilingual E5 small (proposed for the internal RAG, which does not read it yet) |
 
 Each entry was read from the voice service's own code. What that code does not say is not guessed: the entry has `verify` (the
-fields still to check: `license`, `size`, `sha256`, `source`, `license-card`, `face-parse`) and the page shows it. XTTS v2 has the
+fields still to check: `license`, `size`, `sha256`, `source`, `license-card`, `face-parse`, `dac-local`) and the page shows it. XTTS v2 has the
 Coqui Public Model License and is marked `noncommercial`.
 
 ## Grounded entries
@@ -39,6 +39,12 @@ Hugging Face copies give for a file of the same size (it is checked at download,
 | Silero VAD v4 | `files/silero_vad.onnx` at the commit of the `v4.0` tag of `snakers4/silero-vad`, saved as `silero_vad_v4.onnx` | MIT |
 | Diarization | `csukuangfj/sherpa-onnx-pyannote-segmentation-3-0` (`model.onnx`) and the CAM++ file of the sherpa-onnx release | MIT (pyannote) and Apache-2.0 (CAM++) |
 | MuseTalk | 11 files: MuseTalk v1.5, sd-vae-ft-mse, whisper-tiny, DWPose, `vivym/face-parsing-bisenet`, ResNet-18 (pytorch.org), S3FD (its author's server) | `noncommercial`: see below |
+| Chatterbox | `ResembleAI/chatterbox`: the six files `ChatterboxMultilingualTTS.from_local` of chatterbox-tts 0.1.7 reads (v3 and English-only files left out) | MIT |
+| XTTS v2 | `coqui/XTTS-v2`: model, config, vocab, DVAE, mel stats, speakers, `LICENSE.txt` (samples left out) | CPML, `noncommercial` |
+| CosyVoice 3 | `FunAudioLLM/Fun-CosyVoice3-0.5B-2512`: twelve files (YAML, `llm.pt`, `flow.pt`, `hift.pt`, two tokenizers, `CosyVoice-BlankEN/`) | Apache-2.0 |
+| Qwen3-TTS 0.6B, 1.7B | `Qwen/Qwen3-TTS-12Hz-<size>-Base` (`base/`) and `-CustomVoice` (`custom-voice/`), every file but the README | Apache-2.0 |
+| Orpheus 3B | `unsloth/orpheus-3b-0.1-ft` and the codec `hubertsiuzdak/snac_24khz` (`snac_24khz/`) | Apache-2.0 on the card, the Llama 3.2 base terms unchecked (`verify: license`); SNAC MIT |
+| Dia 1.6B | `nari-labs/Dia-1.6B-0626` (transformers files) and the codec `descript/dac_44khz` (`dac_44khz/`) | Apache-2.0; DAC MIT on GitHub, none stated on its Hugging Face copy |
 | Multilingual E5 small | `intfloat/multilingual-e5-small`, the ONNX files | MIT |
 
 - **Piper runtime.** The voice service imports `piper` (`PiperVoice`, `SynthesisConfig`): the pip package `piper-tts` 1.3 or newer
@@ -54,8 +60,17 @@ Hugging Face copies give for a file of the same size (it is checked at download,
 - **Embedding.** Multilingual E5 small is 12 layers, 384 numbers, 512 tokens, trained for retrieval (texts start with `query: ` or
   `passage: `, mean pooling, normalised). It was preferred to `paraphrase-multilingual-MiniLM-L12-v2` (128 tokens, trained for
   paraphrase) and `BAAI/bge-m3` (2.3 GB). The RAG consumer is a later step: `DEFAULTS["embedding"]` stays empty and nothing loads it.
+- **TTS pins.** Each TTS entry was read from the Hugging Face tree of its repository at one commit: the LFS id and size of a big file,
+  and for a small file (read at that commit, its git blob id checked) the SHA-256 and size. A source records `sizes` and the entry's
+  `size` is their sum (what the Loader plans the VRAM from until a figure is measured; Dia's weights are stored in 32 bits and loaded in
+  16). The file lists follow what each engine loads, read from its code, not from a run. These entries have no `probe`: they are
+  recognised by the marker of a finished download.
+- **Gated.** The official `canopylabs/orpheus-3b-0.1-ft` and the multilingual Orpheus research releases (Italian, French, German,
+  Korean, Chinese, Hindi) ask for a login and list no file hashes, so Orpheus uses unsloth's open copy; the research releases are not
+  in the catalog.
+- **Dia and the codec.** The processor of Dia names its codec `descript/dac_44khz` by Hub name; `dia_tts_helper.py` loads it with
+  `local_files_only` and does not point it to `dac_44khz/` yet, so `dac-local` stays on until the engine does.
 - **Not found.** Wav2Lip INT8 (36,664,106 bytes) has no public copy with that size and hash, so it keeps `verify` and no source.
-  Chatterbox, Orpheus, Dia, CosyVoice, Qwen3-TTS and XTTS are not grounded yet (revision `main`, licence or size to check).
 
 ## Sources and what may be downloaded
 
