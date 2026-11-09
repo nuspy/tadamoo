@@ -23,6 +23,8 @@
   const ui = {};                                      // per service: the plan shown, the acknowledgements, the line under the card
   const st = id => ui[id] || (ui[id] = { plan: null, planErr: "", checking: false, ack: false, nc: false, msg: "", bad: false });
   let dirMsg = { text: "", bad: false };
+  let TEL = null, telMsg = { text: "", bad: false }, telLive = { pending: [], rows: [], down: false }, telTimer = 0;
+  const TEL_POLL_MS = 3000;
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick, id) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; if (id) b.id = id; return b; };
@@ -45,6 +47,9 @@
   async function refresh() {
     const r = await api("GET", "api/voice/models");
     if (r.ok) { S = r.data; loadFailed = ""; } else loadFailed = errText(r);
+    const t = await api("GET", "api/voice/telephony");
+    if (t.ok) TEL = t.data;
+    await loadTelLive();
     paint();
     return r.ok;
   }
@@ -53,7 +58,7 @@
     if (!S) { host.replaceChildren(el("p", "vo-intro", loadFailed || T("vo.loading"))); return; }
     const list = el("div", "vo-list");
     S.services.forEach(svc => list.append(card(svc)));
-    host.replaceChildren(el("p", "vo-intro", T("vo.intro")), folderBox(), downloadBox(), list);
+    host.replaceChildren(el("p", "vo-intro", T("vo.intro")), folderBox(), downloadBox(), list, telephonyBox());
     host.append(importBox());
     if (focus) { const f = document.getElementById(focus); if (f) f.focus(); }
   }
@@ -160,6 +165,92 @@
     const mem = select([["vram", T("vo.memory.vram")], ["ram", T("vo.memory.ram")]], p.memory, v => change(v === "vram" && p.device === "cpu" ? { device: "auto", memory: v } : { memory: v }));
     row.append(field("vo-device-" + svc.id, T("vo.device"), dev), field("vo-memory-" + svc.id, T("vo.memory"), mem));
     return row;
+  }
+
+  /* ---- phone calls: the rules, the calls a program asked for, the recent log ---- */
+  const TRANSPORTS = { off: () => T("vo.tel.transport.off"), auto: () => T("vo.tel.transport.auto"), gsm: () => T("vo.tel.transport.gsm"), android: () => T("vo.tel.transport.android") };
+  const APPROVALS = { manual: () => T("vo.tel.approval.manual"), auto: () => T("vo.tel.approval.auto") };
+  async function serviceGet(path) { return api("POST", "api/voice/service/call", { method: "GET", path }); }
+  async function loadTelLive() {
+    const [a, l] = await Promise.all([serviceGet("/call/approvals"), serviceGet("/call/audit")]);
+    telLive = { pending: a.ok && Array.isArray(a.data.pending) ? a.data.pending : [], rows: l.ok && Array.isArray(l.data.rows) ? l.data.rows : [], down: !a.ok };
+  }
+  async function saveTel(change) {
+    const r = await api("POST", "api/voice/telephony", change);
+    if (r.ok) { TEL = r.data; telMsg = { text: change.on_behalf_of !== undefined ? T("vo.tel.saved") : "", bad: false }; } else telMsg = { text: errText(r), bad: true };
+    paint();
+  }
+  function telSelect(id, label, options, value, key) {
+    return field(id, label, select(options, value, v => saveTel({ [key]: v })));
+  }
+  function telCheck(id, text, checked, key) {
+    const row = el("label", "vo-check"), input = el("input");
+    input.type = "checkbox"; input.id = id; input.checked = checked;
+    input.onchange = () => saveTel({ [key]: input.checked });
+    row.append(input, el("span", "", text));
+    return row;
+  }
+  function telephonyBox() {
+    const box = el("section", "vo-card vo-tel"), h = el("h3", "vo-h", T("vo.tel.title"));
+    box.id = "vo-tel"; h.id = "vo-tel-h";
+    box.setAttribute("aria-labelledby", h.id);
+    box.append(h, el("p", "vo-help", T("vo.tel.intro")));
+    if (!TEL) { box.append(note(telMsg.text, telMsg.bad)); return box; }
+    box.append(telSelect("vo-tel-transport", T("vo.tel.transport"), Object.keys(TRANSPORTS).map(v => [v, TRANSPORTS[v]()]), TEL.transport, "transport"));
+    box.append(telSelect("vo-tel-approval", T("vo.tel.approval"), Object.keys(APPROVALS).map(v => [v, APPROVALS[v]()]), TEL.outgoing_approval, "outgoing_approval"),
+      el("p", "vo-help", T("vo.tel.approval.help")));
+    if (TEL.outgoing_approval === "auto") box.append(note(T("vo.tel.approval.warn"), true));
+    box.append(telCheck("vo-tel-disclosure", T("vo.tel.disclosure"), TEL.ai_disclosure_on_start, "ai_disclosure_on_start"));
+    if (!TEL.ai_disclosure_on_start) box.append(note(T("vo.tel.disclosure.warn"), true));
+    box.append(telCheck("vo-tel-answer", T("vo.tel.answer"), TEL.incoming_auto_answer, "incoming_auto_answer"), el("p", "vo-help", T("vo.tel.answer.help")));
+    if (TEL.incoming_auto_answer) box.append(note(T("vo.tel.answer.warn"), true));
+    const who = el("input"), form = el("div", "vo-form");
+    who.type = "text"; who.value = TEL.on_behalf_of; who.maxLength = 80; who.autocomplete = "off";
+    form.append(field("vo-tel-behalf", T("vo.tel.behalf"), who), btn(T("vo.tel.save"), "primary", () => saveTel({ on_behalf_of: who.value.trim() }), "vo-tel-save"));
+    box.append(form, note(telMsg.text, telMsg.bad), telLiveBox());
+    return box;
+  }
+  const word = (prefix, value) => { const s = T(prefix + value); return s === prefix + value ? String(value || "") : s; };
+  function telLiveBox() {
+    const wrap = el("div", "vo-tel-live");
+    wrap.id = "vo-tel-live";
+    if (telLive.down) wrap.append(note(T("vo.tel.down"), false));
+    wrap.append(el("h4", "vo-h2", T("vo.tel.pending")));
+    if (!telLive.pending.length) wrap.append(el("p", "vo-help", T("vo.tel.pending.none")));
+    const list = el("ul", "vo-tel-rows");
+    telLive.pending.forEach(p => {
+      const li = el("li", "");
+      li.append(el("p", "vo-line", T("vo.tel.pending.line", p.number, p.greeting)));
+      const bar = el("div", "vo-bar");
+      bar.append(btn(T("vo.tel.approve"), "primary", () => decide(p.id, "approve"), "vo-tel-yes-" + p.id), btn(T("vo.tel.deny"), "ghost", () => decide(p.id, "deny"), "vo-tel-no-" + p.id));
+      li.append(bar);
+      list.append(li);
+    });
+    wrap.append(list, el("h4", "vo-h2", T("vo.tel.recent")));
+    const rows = el("ul", "vo-tel-rows");
+    telLive.rows.slice(-8).reverse().forEach(r => {
+      const when = String(r.ts || "").replace("T", " ").replace("+00:00", "");
+      const what = word("vo.tel.ev.", r.event) + (r.reason ? " (" + r.reason + ")" : r.outcome ? " (" + r.outcome + ")" : "");
+      rows.append(el("li", "", T("vo.tel.row", when, word("vo.tel.dir.", r.direction), r.number || "", r.origin || "", what)));
+    });
+    if (!rows.children.length) wrap.append(el("p", "vo-help", T("vo.tel.recent.none")));
+    wrap.append(rows, btn(T("vo.tel.refresh"), "ghost", async () => { await loadTelLive(); repaintTelLive(); }, "vo-tel-refresh"));
+    return wrap;
+  }
+  function repaintTelLive() {
+    const old = document.getElementById("vo-tel-live");
+    if (old) old.replaceWith(telLiveBox());
+  }
+  async function decide(id, verdict) {
+    const r = await api("POST", "api/voice/service/call", { method: "POST", path: "/call/approvals/" + id + "/" + verdict });
+    telMsg = r.ok ? { text: T("vo.tel.decided"), bad: false } : { text: errText(r), bad: true };
+    await loadTelLive();
+    paint();
+  }
+  function pollTel() {
+    clearTimeout(telTimer);
+    if (!active()) return;
+    loadTelLive().then(() => { repaintTelLive(); telTimer = setTimeout(pollTel, TEL_POLL_MS); });
   }
 
   /* ---- import from callAPIcall: the plan, what is personal, the run ---- */
@@ -365,8 +456,8 @@
 
   /* ---- when the tab is shown ---- */
   document.addEventListener("tadamoo:sub", e => {
-    if (e.detail !== "voice") { clearTimeout(timer); return; }
-    refresh().then(() => poll());
+    if (e.detail !== "voice") { clearTimeout(timer); clearTimeout(telTimer); return; }
+    refresh().then(() => { poll(); pollTel(); });
   });
   document.addEventListener("tadamoo:lang", () => { if (S) paint(); });
   document.addEventListener("visibilitychange", () => { if (!document.hidden && active()) poll(); });

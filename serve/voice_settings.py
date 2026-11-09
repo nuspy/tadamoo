@@ -4,13 +4,16 @@
     {"models_dir": "<absolute path>", "services": {"<service>": {"selected": "<model id>", "device": "auto|cpu|cuda:N", "memory": "vram|ram",
                                                                   "enabled": true|false}},
      "brain": {"mode": "direct|harness", "persona": "<slug>", "permission": "plan|read_only|default|auto", "workspace": "<folder>",
-               "base_url": "http://127.0.0.1:<port>", "hotkeys": true|false}}
+               "base_url": "http://127.0.0.1:<port>", "hotkeys": true|false},
+     "telephony": {"transport": "off|auto|gsm|android", "outgoing_approval": "manual|auto", "ai_disclosure_on_start": true|false,
+                   "incoming_auto_answer": true|false, "on_behalf_of": "<name>"}}
 A missing value has a default: the folder is `voice/` inside the first models folder of Basalt (else `voice-models/` in the data folder), a
 service uses the default model of serve/voice_catalog.py, on the GPU the service picks (`auto`) in VRAM, or on the CPU in RAM for the
 services that run there. Changing the folder moves nothing: a model is looked for where the folder is now. The file is replaced whole."""
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import threading
@@ -23,6 +26,7 @@ MEMORY = ("vram", "ram")
 _DEVICE_RE = re.compile(r"^(auto|cpu|cuda:[0-9]{1,2})$")
 CPU_SERVICES = ("diarization", "vad", "embedding")          # these run on the CPU unless the person says otherwise
 _lock = threading.Lock()
+log = logging.getLogger("serve.voice_settings")
 
 
 class VoiceSettingsError(ValueError):
@@ -267,3 +271,66 @@ def write_server_address(port: int) -> None:
         stored["base_url"] = url
         data["brain"] = stored
         _write(data)
+
+
+# ---------------------------------------------------------------------------------------- telephony
+TRANSPORTS = ("off", "auto", "gsm", "android")
+APPROVALS = ("manual", "auto")                   # who approves a call the agent or a program starts: the person, or nobody
+_TELEPHONY_KEYS = ("transport", "outgoing_approval", "ai_disclosure_on_start", "incoming_auto_answer", "on_behalf_of")
+ON_BEHALF_MAX = 80
+
+
+def telephony() -> dict:
+    """The rules of phone calls as the voice service reads them (voice/settings_bridge.py): a missing or bad value is the careful default."""
+    stored = _read().get("telephony")
+    stored = stored if isinstance(stored, dict) else {}
+    transport, approval, who = stored.get("transport"), stored.get("outgoing_approval"), stored.get("on_behalf_of")
+    return {"transport": transport if transport in TRANSPORTS else "off",
+            "outgoing_approval": approval if approval in APPROVALS else "manual",
+            "ai_disclosure_on_start": stored.get("ai_disclosure_on_start") is not False,
+            "incoming_auto_answer": stored.get("incoming_auto_answer") is True,
+            "on_behalf_of": who.strip()[:ON_BEHALF_MAX] if isinstance(who, str) and not any(ord(c) < 32 for c in who) else ""}
+
+
+def check_telephony(req) -> dict:
+    """The fields of a request to change, checked; only the ones named are returned."""
+    if not isinstance(req, dict):
+        raise VoiceSettingsError("body", "Send a JSON object.", "Manda un oggetto JSON.")
+    for key in req:
+        if key not in _TELEPHONY_KEYS:
+            raise VoiceSettingsError("field", f"Unknown field: {key}.", f"Campo sconosciuto: {key}.")
+    out: dict = {}
+    if "transport" in req:
+        if req["transport"] not in TRANSPORTS:
+            raise VoiceSettingsError("transport", "The transport is off, auto, gsm or android.", "Il trasporto è off, auto, gsm o android.")
+        out["transport"] = req["transport"]
+    if "outgoing_approval" in req:
+        if req["outgoing_approval"] not in APPROVALS:
+            raise VoiceSettingsError("outgoing_approval", "The approval is manual or auto.", "L'approvazione è manual o auto.")
+        out["outgoing_approval"] = req["outgoing_approval"]
+    for key in ("ai_disclosure_on_start", "incoming_auto_answer"):
+        if key in req:
+            if not isinstance(req[key], bool):
+                raise VoiceSettingsError(key, f"{key} is true or false.", f"{key} è true o false.")
+            out[key] = req[key]
+    if "on_behalf_of" in req:
+        who = req["on_behalf_of"]
+        if not isinstance(who, str) or len(who.strip()) > ON_BEHALF_MAX or any(ord(c) < 32 for c in who):
+            raise VoiceSettingsError("on_behalf_of", f"Give a name of at most {ON_BEHALF_MAX} characters, or nothing.",
+                                     f"Scrivi un nome di al massimo {ON_BEHALF_MAX} caratteri, oppure niente.")
+        out["on_behalf_of"] = who.strip()
+    return out
+
+
+def set_telephony(req) -> dict:
+    changes = check_telephony(req)
+    with _lock:
+        data = _read()
+        stored = data.get("telephony") if isinstance(data.get("telephony"), dict) else {}
+        before = telephony()
+        stored.update(changes)
+        data["telephony"] = stored
+        _write(data)
+    if changes.get("ai_disclosure_on_start") is False and before["ai_disclosure_on_start"]:
+        log.info("telephony: the AI disclosure at the start of calls was turned off by the person")
+    return telephony()

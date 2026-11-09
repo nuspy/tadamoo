@@ -291,7 +291,7 @@ class ProxyTests(ServerBase):
     def test_the_list_is_what_the_page_needs_and_no_more(self):
         self.assertEqual(sorted(f"{m} {p}" for m, p in voice_proxy.ROUTES),
                          sorted(["GET /status", "GET /functions", "GET /brain/state", "GET /session/state", "GET /diag/brain", "POST /session/start",
-                                 "POST /session/stop", "POST /session/new", "POST /brain/say"]))
+                                 "POST /session/stop", "POST /session/new", "POST /brain/say", "GET /call/approvals", "GET /call/audit"]))
 
 
 if __name__ == "__main__":
