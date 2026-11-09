@@ -12,7 +12,12 @@ the voice's own permission level, and the voice never asks for one. The voice ne
 code, commands, tool output or reasoning: it says one sentence built from the counts of what the turn did (`spoken.what_was_done`), or, when
 the agent only answered, the answer made speakable. The full text stays on the screen (`last_exchange`). An approval question is put by voice
 only for a file change (`spoken.FILE_TOOLS`); everything else (phone calls, payments, a command, orders found in outside text, the Rule of Two)
-is left on the screen."""
+is left on the screen.
+
+LANGUAGE: the session tells its brain the language of the answer with `set_reply_language(name, code)`. The direct brain gets "Reply in <name>." in its
+system message; and, once for each change, one line `[state] reply_language=<code>` (callbridge/language_session.py `state_note`) after the notes
+of the turn, which is the last thing before the person's words and so never part of a cached prefix. The harness has no field for it: the line goes in
+front of the person's message in the turn that follows the change, and again when a new conversation is made."""
 from __future__ import annotations
 
 import collections
@@ -25,6 +30,8 @@ from dataclasses import asdict, dataclass, field
 
 from . import spoken
 from .config import Config
+from .language_follow import iso
+from .language_session import state_note
 from .tadamoo_api import ApiError, TadamooApi
 
 log = logging.getLogger("callbridge.brains")
@@ -97,13 +104,13 @@ class DirectBrain:
         got = api.post(f"/api/personas/{slug}/compose", {"goal": text[:2000]})
         return str(got.get("system") or ""), str(got.get("memory") or "")
 
-    def messages(self, api, text: str, note: str = "") -> list[dict]:
+    def messages(self, api, text: str, note: str = "", reply_language: str = "") -> list[dict]:
         persona, memory = self.compose(api, text)
         parts = [self.cfg.direct_system_prompt.strip()]
         if persona.strip():
             parts.append(persona.strip())
-        if self._reply_lang:
-            parts.append(f"Reply in {self._reply_lang}.")
+        if reply_language or self._reply_lang:
+            parts.append(f"Reply in {reply_language or self._reply_lang}.")
         if memory.strip():
             parts.append(memory.strip())
         if note.strip():
@@ -114,14 +121,14 @@ class DirectBrain:
         return [{"role": "system", "content": "\n\n".join(p for p in parts if p)}, *history, {"role": "user", "content": text}]
 
     # -- the interface
-    def respond_stream(self, text: str, source: str = "mic", context_note: str = "") -> Iterator[str]:
+    def respond_stream(self, text: str, source: str = "mic", context_note: str = "", reply_language: str = "") -> Iterator[str]:
         api = _api_of(self.cfg, self._api)
         raw: list[str] = []
         said: list[str] = []
         error = ""
         stripper = spoken.CodeStripper()
         try:
-            for piece in api.chat_stream(self.messages(api, text, context_note), max_tokens=int(self.cfg.direct_max_tokens), temperature=float(self.cfg.direct_temperature)):
+            for piece in api.chat_stream(self.messages(api, text, context_note, reply_language), max_tokens=int(self.cfg.direct_max_tokens), temperature=float(self.cfg.direct_temperature)):
                 raw.append(piece)
                 clean = stripper.feed(piece)
                 if clean:
@@ -323,7 +330,8 @@ class HarnessBrain:
         yield ack
         yield from self._finish(api, text, "mic", False)
 
-    def respond_stream(self, text: str, source: str = "mic", full: bool = False) -> Iterator[str]:
+    def respond_stream(self, text: str, source: str = "mic", full: bool = False, state: str = "") -> Iterator[str]:
+        """`state`: a `[state]` line for the agent, sent in front of `text` in this message only."""
         api = _api_of(self.cfg, self._api)
         lang = self._lang
         try:
@@ -334,7 +342,7 @@ class HarnessBrain:
                     return
             self._ensure(api)
             self._facts = spoken.Facts()
-            sent = api.post(f"/api/agent/sessions/{self._sid}/send", {"text": text})
+            sent = api.post(f"/api/agent/sessions/{self._sid}/send", {"text": f"{state}\n{text}" if state else text})
             self._turn = str(sent.get("turn") or "")
             yield from self._finish(api, text, source, full)
         except ApiError as e:
@@ -356,6 +364,9 @@ class ModeBrain:
         self.direct = direct if direct is not None else DirectBrain(cfg, sink=self._log.append)
         self.harness = harness if harness is not None else HarnessBrain(cfg, sink=self._log.append)
         self.mode = mode if mode in MODES else (cfg.brain_mode if cfg.brain_mode in MODES else "direct")
+        self._reply_name = ""             # the language of the answer, as this session was told
+        self._reply_code = ""
+        self._told = ""                   # the language the brain was last given a `[state]` line for
 
     def fork(self, mode: str = "") -> "ModeBrain":
         """A brain for one session: the same two brains and the same log, its own mode (the configured one when `mode` is empty)."""
@@ -371,10 +382,21 @@ class ModeBrain:
         self.mode = mode
         return True
 
+    def _state_line(self) -> str:
+        """The `[state]` line for the next message: once for each language the session was told, "" when the brain already has it."""
+        if not self._reply_code or self._reply_code == self._told:
+            return ""
+        self._told = self._reply_code
+        return state_note(self._reply_code)
+
     def respond_stream(self, text: str, source: str = "mic", context_note: str = "") -> Iterator[str]:
-        if context_note and self.mode == "direct":
-            return self.current.respond_stream(text, source, context_note=context_note)
-        return self.current.respond_stream(text, source)
+        line = self._state_line()
+        if self.mode == "direct":
+            note = "\n".join(p for p in (context_note, line) if p)
+            if note or self._reply_name:
+                return self.current.respond_stream(text, source, context_note=note, reply_language=self._reply_name)
+            return self.current.respond_stream(text, source)
+        return self.current.respond_stream(text, source, state=line) if line else self.current.respond_stream(text, source)
 
     def ask_stream(self, text: str, source: str = "remote") -> Iterator[str]:
         return self.current.ask_stream(text, source)
@@ -384,11 +406,14 @@ class ModeBrain:
         self.harness.begin_session(persona)
 
     def reset_session(self) -> bool:
+        self._told = ""                   # a new conversation has not heard the language yet
         return bool(self.direct.reset_session() & self.harness.reset_session())
 
-    def set_reply_language(self, name: str) -> None:
+    def set_reply_language(self, name: str, code: str = "") -> None:
+        """`name` is how the answer language is written for the model ("French"); `code` its ISO code, for the `[state]` line."""
         self.direct.set_reply_language(name)
         self.harness.set_reply_language(name)
+        self._reply_name, self._reply_code = name or "", iso(code)
 
     def end(self) -> None:
         self.direct.end()
