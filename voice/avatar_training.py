@@ -11,6 +11,7 @@ progress from the epochs, cancel, and the result kept in the avatar's folder.
     POST /avatar/train/python {path}                                   choose the engines Python ("" forgets the choice; nothing is run)
     POST /avatar/train/export {avatar, engine}                         make the files for a phone again from the trained model
 
+The video is the avatar's training video (voice/avatar_training_video.py) when it has one, else its longest clip; the plan says which in `video_source`.
 Nothing starts without `confirm: true` on a token whose plan was looked at. The avatar stays usable with the other engines meanwhile. The files of an engine
 are in `<avatar>/engines/<engine>/` (voice/avatar_engines/personalised.py); the end of the log is `log_tail.txt` there."""
 from __future__ import annotations
@@ -103,8 +104,16 @@ class TrainingJobs:
             raise TrainingError(400, "engine", "Send the id of a personalised engine: ultralight, feathertalk or er_nerf.")
         return found
 
-    def _video(self, avatar: str) -> tuple[Path | None, dict | None, list[dict]]:
-        """(the clip, what is known of it, the reasons it cannot be used): the longest clip of the avatar."""
+    def _video(self, avatar: str) -> tuple[Path | None, dict | None, list[dict], str]:
+        """(the file, what is known of it, the reasons it cannot be used, its source): the avatar's training video when it has one, else its longest clip."""
+        own = self.store.training_video(avatar)
+        if own is not None:
+            try:
+                info = self.probe(own)
+            except (ValueError, OSError):
+                return own, None, [{"code": "training_video_unreadable", **_t("The training video of this avatar cannot be read: remove it and add another.",
+                                                                              "Il video di addestramento di questo avatar non si può leggere: toglilo e aggiungine un altro.")}], "training"
+            return own, info, self._length_problems(info["seconds"], "The training video", "Il video di addestramento", False), "training"
         best: tuple[Path, dict] | None = None
         for name in self.store.clips(avatar):
             path = self.store.clip_path(avatar, name)
@@ -115,19 +124,33 @@ class TrainingJobs:
             if best is None or info["seconds"] > best[1]["seconds"]:
                 best = (path, info)
         if best is None:
-            return None, None, [{"code": "no_video", **_t("This avatar has no video that can be read: add one in the creation wizard.",
-                                                          "Questo avatar non ha un video leggibile: aggiungine uno nella procedura guidata.")}]
+            return None, None, [{"code": "no_video", **_t("This avatar has no video that can be read: add a training video of 3 to 5 minutes in the Train section.",
+                                                          "Questo avatar non ha un video leggibile: aggiungi un video di addestramento di 3-5 minuti nella sezione Addestramento.")}], "clip"
         path, info = best
-        s = info["seconds"]
+        return path, info, self._length_problems(info["seconds"], "The video", "Il video", True), "clip"
+
+    @staticmethod
+    def _length_problems(s: float, en: str, it: str, hint: bool) -> list[dict]:
         low, high = VIDEO_SECONDS
         long = _clock(s)
+        add_en = " Add a training video of 3 to 5 minutes in the Train section." if hint else ""
+        add_it = " Aggiungi un video di addestramento di 3-5 minuti nella sezione Addestramento." if hint else ""
         if s < low:
-            return path, info, [{"code": "too_short", **_t(f"The video is {s:.0f} s long ({long}): at least {low / 60:.0f} minutes are needed, and 3 to 5 are best.",
-                                                           f"Il video dura {s:.0f} s ({long}): servono almeno {low / 60:.0f} minuti, e da 3 a 5 vanno meglio.")}]
+            return [{"code": "too_short", **_t(f"{en} is {s:.0f} s long ({long}): at least {low / 60:.0f} minutes are needed, and 3 to 5 are best.{add_en}",
+                                               f"{it} dura {s:.0f} s ({long}): servono almeno {low / 60:.0f} minuti, e da 3 a 5 vanno meglio.{add_it}")}]
         if s > high:
-            return path, info, [{"code": "too_long", **_t(f"The video is {s:.0f} s long ({long}): at most {high / 60:.0f} minutes are accepted, and 3 to 5 are best.",
-                                                          f"Il video dura {s:.0f} s ({long}): se ne accettano al massimo {high / 60:.0f} minuti, e da 3 a 5 vanno meglio.")}]
-        return path, info, []
+            return [{"code": "too_long", **_t(f"{en} is {s:.0f} s long ({long}): at most {high / 60:.0f} minutes are accepted, and 3 to 5 are best.{add_en}",
+                                              f"{it} dura {s:.0f} s ({long}): se ne accettano al massimo {high / 60:.0f} minuti, e da 3 a 5 vanno meglio.{add_it}")}]
+        return []
+
+    def video_file(self, avatar: str, source: str, name: str) -> Path:
+        """The file a plan named: the training video, or the clip `name`."""
+        if source == "training":
+            path = self.store.training_video(avatar)
+            if path is None or path.name != name:
+                raise TrainingError(409, "plan_changed", "The training video changed since the plan was shown: look at the plan again.")
+            return path
+        return self.store.clip_path(avatar, name)
 
     def _timing(self) -> dict:
         try:
@@ -170,13 +193,13 @@ class TrainingJobs:
             raise TrainingError(400, "options", str(e)) from None
         fresh = fresh is True
         base = self.models_base()
-        clip, video, problems = self._video(avatar)
+        clip, video, problems, source = self._video(avatar)
         running = self.busy()
         checks = [Check("idle", not running, "no training is running" if not running else "another training is running: wait for it or cancel it",
                         "nessun addestramento è in corso" if not running else "un altro addestramento è in corso: aspettalo o annullalo")]
         checks += eng.preflight(base, opts, self.python, self.which) + [self._gpu_check()]
         resume = 0 if fresh or clip is None or not eng.dataset_ready(folder, opts, clip) else eng.resume_epoch(folder)
-        out = {"avatar": avatar, "engine": eng.ID, "name": eng.info.name, "options": opts, "fresh": fresh, "video": None, "problems": problems,
+        out = {"avatar": avatar, "engine": eng.ID, "name": eng.info.name, "options": opts, "fresh": fresh, "video": None, "video_source": source, "problems": problems,
                "checks": [c.as_dict() for c in checks], "resume_epoch": resume, "license": eng.info.as_dict()["license"]}
         if video is not None:
             out["video"] = {"clip": clip.name, **video}
@@ -192,7 +215,7 @@ class TrainingJobs:
             _t(f"{rel}/export: the files for a phone (ONNX; MNN when MNNConvert is set)", f"{rel}/export: i file per un telefono (ONNX; MNN se MNNConvert è impostato)"),
             _t(f"{rel}/trained.json and log_tail.txt: the result and the end of the log", f"{rel}/trained.json e log_tail.txt: il risultato e la fine del log")]
         out["ok"] = not problems and all(c.ok for c in checks)
-        out["token"] = hashlib.sha256(json.dumps([avatar, eng.ID, opts, fresh, None if clip is None else [clip.name, clip.stat().st_size, clip.stat().st_mtime_ns], resume],
+        out["token"] = hashlib.sha256(json.dumps([avatar, eng.ID, opts, fresh, None if clip is None else [source, clip.name, clip.stat().st_size, clip.stat().st_mtime_ns], resume],
                                                  sort_keys=True).encode()).hexdigest()
         with self._lock:
             self._plans[out["token"]] = {"avatar": avatar, "engine": eng.ID, "epochs": epochs, "asr": asr, "fresh": fresh}
@@ -204,14 +227,14 @@ class TrainingJobs:
         """The plan of an ER-NeRF training: the same answer as the others', with the steps in `stages` and no epochs or audio model to choose."""
         if epochs is not None or asr is not None:
             raise TrainingError(400, "options", "ER-NeRF takes no epochs or audio model here: its steps are the build check, the data preparation, the head and the torso.")
-        clip, video, problems = self._video(avatar)
+        clip, video, problems, source = self._video(avatar)
         running = self.busy()
         made = eng.training_plan(folder, clip, None, self.models_base())
         checks = [Check("idle", not running, "no training is running" if not running else "another training is running: wait for it or cancel it",
                         "nessun addestramento è in corso" if not running else "un altro addestramento è in corso: aspettalo o annullalo")]
         checks += [Check(c["id"], c["ok"], c["en"], c["it"]) for c in made["checks"] if c["id"] != "clip"] + [self._gpu_check()]
         rel = f"engines/{eng.ID}"
-        out = {"avatar": avatar, "engine": eng.ID, "name": eng.info.name, "options": made["options"], "fresh": False, "video": None, "problems": problems,
+        out = {"avatar": avatar, "engine": eng.ID, "name": eng.info.name, "options": made["options"], "fresh": False, "video": None, "video_source": source, "problems": problems,
                "checks": [c.as_dict() for c in checks], "resume_epoch": 0, "license": eng.info.as_dict()["license"], "stages": made["stages"], "note": made["note"]}
         if video is not None:
             out["video"] = {"clip": clip.name, **video}
@@ -222,7 +245,7 @@ class TrainingJobs:
                           _t(f"{rel}/head and {rel}/torso: the checkpoints of the two training steps", f"{rel}/head e {rel}/torso: i checkpoint dei due passi di addestramento"),
                           _t(f"{rel}/trained.json: the result", f"{rel}/trained.json: il risultato")]
         out["ok"] = not problems and all(c.ok for c in checks)
-        out["token"] = hashlib.sha256(json.dumps([avatar, eng.ID, made["options"], None if clip is None else [clip.name, clip.stat().st_size, clip.stat().st_mtime_ns]],
+        out["token"] = hashlib.sha256(json.dumps([avatar, eng.ID, made["options"], None if clip is None else [source, clip.name, clip.stat().st_size, clip.stat().st_mtime_ns]],
                                                  sort_keys=True).encode()).hexdigest()
         with self._lock:
             self._plans[out["token"]] = {"avatar": avatar, "engine": eng.ID, "epochs": None, "asr": None, "fresh": False}
@@ -325,7 +348,7 @@ class TrainingJobs:
             raise TrainingError(422, "not_possible", "; ".join(bad), {"plan": p})
         eng = self.engine_of(p["engine"])
         folder = self.store.existing(p["avatar"])
-        clip = self.store.clip_path(p["avatar"], p["video"]["clip"])
+        clip = self.video_file(p["avatar"], p["video_source"], p["video"]["clip"])
         with self._lock:
             if self.busy():
                 raise TrainingError(409, "busy", "A training is already running.")

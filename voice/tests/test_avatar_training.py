@@ -343,3 +343,81 @@ def test_an_export_is_refused_while_a_training_runs(rig, monkeypatch):
     with pytest.raises(TrainingError) as e:
         rig.jobs.export("ada", "feathertalk")
     assert (e.value.status, e.value.code) == (409, "busy")
+
+
+# ---------------------------------------------------------------------------------------- the training video
+def put_training_video(rig, ext=".mp4", size=100):
+    folder = rig.folder / "training"
+    folder.mkdir(exist_ok=True)
+    path = folder / f"video{ext}"
+    path.write_bytes(b"x" * size)
+    return path
+
+
+def lengths(rig, training, clip):
+    rig.jobs.probe = lambda path: {**CLIP, "seconds": training if path.parent.name == "training" else clip}
+
+
+def test_the_plan_takes_the_training_video_and_not_a_clip_that_is_too_short(rig):
+    lengths(rig, 300.0, 60.0)
+    put_training_video(rig)
+    p = rig.jobs.plan("ada", "feathertalk")
+    assert p["ok"] is True and p["problems"] == [] and p["video_source"] == "training" and p["video"] == {"clip": "video.mp4", **CLIP, "seconds": 300.0}
+    assert p["estimate"]["frames"] == int(300.0 * p["options"]["fps"])
+    assert rig.jobs.plan("ada", "ultralight")["video_source"] == "training"
+
+
+def test_without_a_training_video_the_clip_is_used_and_a_short_one_says_what_to_do(rig):
+    lengths(rig, 300.0, 60.0)
+    p = rig.jobs.plan("ada", "feathertalk")
+    assert p["video_source"] == "clip" and p["video"]["clip"] == "talk.mp4" and p["ok"] is False
+    assert [x["code"] for x in p["problems"]] == ["too_short"] and "Add a training video of 3 to 5 minutes" in p["problems"][0]["en"] and "video di addestramento" in p["problems"][0]["it"]
+    lengths(rig, 300.0, 240.0)
+    assert rig.jobs.plan("ada", "feathertalk")["problems"] == []
+
+
+def test_a_training_video_that_is_too_short_or_long_is_refused_by_name_and_does_not_fall_back_to_a_clip(rig):
+    put_training_video(rig)
+    for seconds, code in ((60.0, "too_short"), (700.0, "too_long")):
+        lengths(rig, seconds, 240.0)
+        p = rig.jobs.plan("ada", "feathertalk")
+        assert p["ok"] is False and [x["code"] for x in p["problems"]] == [code] and p["problems"][0]["en"].startswith("The training video is ")
+        assert "Add a training video" not in p["problems"][0]["en"] and p["video_source"] == "training"
+
+
+def test_an_unreadable_training_video_is_refused_with_its_reason_even_when_a_clip_is_fine(rig):
+    put_training_video(rig)
+
+    def probe(path):
+        if path.parent.name == "training":
+            raise ValueError("bad")
+        return {**CLIP, "seconds": 240.0}
+    rig.jobs.probe = probe
+    p = rig.jobs.plan("ada", "feathertalk")
+    assert p["ok"] is False and p["video"] is None and [x["code"] for x in p["problems"]] == ["training_video_unreadable"] and "remove it" in p["problems"][0]["en"]
+    with pytest.raises(TrainingError) as e:
+        rig.jobs.start(p["token"], True)
+    assert (e.value.status, e.value.code) == (422, "not_possible")
+
+
+def test_a_training_runs_from_the_training_video_and_the_token_follows_it(rig):
+    lengths(rig, 300.0, 60.0)
+    video = put_training_video(rig)
+    p = rig.jobs.plan("ada", "feathertalk", epochs=2)
+    assert rig.jobs.plan("ada", "feathertalk", epochs=2)["token"] == p["token"]
+    assert rig.jobs.start(p["token"], True)["state"] == "running"
+    assert rig.wait()["state"] == "done"
+    assert json.loads((rig.folder / "engines" / "feathertalk" / "trained.json").read_text())["clip"] == "video.mp4"
+    video.write_bytes(b"y" * 250)                                                            # another video: the plan shown is no longer the plan
+    assert rig.jobs.plan("ada", "feathertalk", epochs=2)["token"] != p["token"]
+
+
+def test_a_plan_that_named_the_training_video_is_refused_when_it_was_removed_meanwhile(rig):
+    lengths(rig, 300.0, 240.0)
+    video = put_training_video(rig)
+    p = rig.jobs.plan("ada", "feathertalk", epochs=2)
+    video.unlink()
+    with pytest.raises(TrainingError) as e:
+        rig.jobs.start(p["token"], True)
+    assert (e.value.status, e.value.code) == (409, "plan_changed") and e.value.extra["plan"]["video_source"] == "clip"
+    assert rig.jobs.status()["state"] == "idle"
