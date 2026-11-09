@@ -30,11 +30,14 @@ on Telegram's side; later starts continue from the offset kept in `telegram/tele
 
 ## What a message becomes
 
-- A chat has its own conversation of the agent, made on its first message at the permission level set here (the same four levels as the Chat). `/new` starts a new one.
+- A chat has its own conversation of the agent, made on its first message. `/new` starts a new one.
+- Every message runs at Telegram's permission level, the server's setting for the `telegram` channel ([permission levels](permission-levels.md)),
+  chosen on this page with the same four levels as the Chat: the chat's own conversation takes that level at each message, and a conversation
+  moved here from the page is lowered to it when it is higher. A change of the level reaches the chats' own conversations at once.
 - The person's own text is their prompt. A forwarded message, a message they reply to and every file are data: forwarded and quoted text is fenced like text from
   the web (`tadamoo/untrusted.py`), files go through the attachments store, and a message with links says that what is found at them is data.
 - Photos and documents are saved as attachments (20 MB at most, the Bot API limit). Voice notes, video and the like are not read yet: the bot says so.
-- Commands: `/start`, `/help`, `/new`, `/stop` (cancels the running turn), `/where` (which conversation this chat talks to, and the level). The bot answers in
+- Commands: `/start`, `/help`, `/new`, `/stop` (cancels the running turn), `/where` (which conversation this chat talks to, and Telegram's level). The bot answers in
   Italian to a person whose Telegram language is Italian.
 
 ## What comes back
@@ -57,6 +60,8 @@ list shows a "Telegram" badge on a moved conversation. Nothing the conversation 
 ## Routes
 
 All are for this PC only (loopback) and need the key when one is set: `GET /api/telegram`, `POST /api/telegram/settings|token|allow|pairing|import|test|send-test`.
+`settings` takes `enabled`, `home` and `allowed` and refuses any other field; the level is `POST /api/permission-level {"channel": "telegram", "level"}`.
+`telegram.json` holds no level: a `mode` found in it is handed to the server once, when the server has none for Telegram, and removed.
 The token is in no answer, no log line and no error text (a refused call's description has it replaced by `***`).
 
 ## Not proven without a real bot

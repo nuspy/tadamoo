@@ -60,7 +60,7 @@ modification time changes, so a choice made in Settings > Voice shows in `/statu
 | `tts` selected engine | `tts_engine`, and the `<engine>_device` / `<engine>_gpu_memory` pair of that engine (`tts_*` for Kokoro); `qwen3tts_size` |
 | `diarization` device | `diarization_device` |
 | `models_dir` | `kokoro_model_dir`, `piper_model_dir`, `diarization_model_dir`, `stt_vad_model` |
-| `brain` (mode, personality, permission, folder, server address, hotkeys) | `brain_mode`, `brain_persona`, `brain_permission`, `brain_workspace`, `tadamoo_base_url` (`chat.md`) |
+| `brain` (mode, personality, folder, server address, hotkeys) | `brain_mode`, `brain_persona`, `brain_workspace`, `tadamoo_base_url` (`chat.md`); the level is the server's (`../permission-levels.md`) |
 | `telephony` (transport, approval, disclosure, auto-answer, name) | `call_transport`, `outgoing_approval`, `ai_disclosure_on_start`, `incoming_auto_answer`, `call_on_behalf_of`, `call_audit_file` (`telephony.md`) |
 
 `ram`, or the device `cpu`, means the CPU. `cuda:N` is not a `Config` field: the service gives the helper processes of that service

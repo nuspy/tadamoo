@@ -20,9 +20,14 @@ and nothing is added to the context. `ask_stream` is the model alone: no persona
 
 ## Harness
 
-The brain makes one conversation (`POST /api/agent/sessions` with the mode, the personality and the folder of `voice.json`), sends the
-words (`/send`), and reads `/events` until the turn ends. A changed permission or personality is sent to the same conversation (`/mode`,
-`/persona`); a new session (`reset_session`) makes a new one. Its title is Voice, so it is in the Chat's list.
+The brain makes one conversation (`POST /api/agent/sessions` with the personality and the folder of `voice.json`, and no level), sends the
+words (`/send`), and reads `/events` until the turn ends. A changed personality is sent to the same conversation (`/persona`); a new session
+(`reset_session`) makes a new one. Its title is Voice, so it is in the Chat's list.
+
+**The level.** The voice never asks for a permission level: the server gives every request that carries the service's token the level of the
+`voice` channel ([permission levels](../permission-levels.md)). The conversation the voice made starts at it and takes it again at each turn and
+when it changes; a voice turn sent into another conversation lowers it to that level when it is higher. A request of the voice that names a
+higher level is refused (`403`, `level_above_channel`), and the token does not open `/mode`.
 
 **What is spoken.** Never code, commands, tool output or reasoning. The words come from the events, as counts (`spoken.Facts`):
 files written or edited, test runs (a command that starts a test runner) and whether they failed, other commands and failures. The sentence is
@@ -51,19 +56,19 @@ those sends nothing. A "yes" for an approval answered meanwhile on the screen is
 ## voice.json and the token
 
 ```json
-{"brain": {"mode": "direct", "persona": "maria-rossi", "permission": "default", "workspace": "D:\\Work\\proj",
+{"brain": {"mode": "direct", "persona": "maria-rossi", "workspace": "D:\\Work\\proj",
            "base_url": "http://127.0.0.1:7242", "hotkeys": false}}
 ```
 
-`permission` is one of the Chat's levels (`plan`, `read_only`, `default`, `auto`); the Voice tab and Settings > Voice show the same radio buttons and
-words as the Chat, write the level here and into the Chat's own key (`tadamoo.chat.perm`), and a level never chosen here starts from the Chat's.
-The server writes `base_url` at every start. The service sends its own token (`voice-service.token`) to the server, which accepts it on loopback for
+The level is not in `voice.json`: the Voice tab and Settings > Voice show the Chat's radio buttons and words, read and write the server's level
+of the voice (`/api/permission-level`), and say the levels of the Chat and Telegram next to it. A `brain.permission` found in the file is handed
+to the server once, when the server has none for the voice, and removed. The server writes `base_url` at every start. The service sends its own token (`voice-service.token`) to the server, which accepts it on loopback for
 these routes and no others (`serve/voice_service.py`, `SERVICE_ROUTES`): `/v1/chat/completions`, `/api/personas/<slug>/compose`, `GET /api/personas`,
-and the agent routes for a session (create, events, send, answer, mode, persona). With an API key or a control secret set, the token still opens only those.
+and the agent routes for a session (create, events, send, answer, persona). With an API key or a control secret set, the token still opens only those.
 
 ## Routes
 
-Service (token): `GET /brain/state` (mode, personality, permission, what waits for an approval, the last exchanges, the session),
+Service (token): `GET /brain/state` (mode, personality, what waits for an approval, the last exchanges, the session),
 `POST /brain/say {text}` (a test sentence with the loaded TTS; 409 `tts_not_loaded`), and `POST /session/start {mode, brain}`, which needs the
 STT and the TTS loaded (409 `not_loaded`) and says why when push-to-talk cannot be made here (503 `unavailable`).
 Server (this PC only): `GET` and `POST /api/voice/brain`, and `POST /api/voice/service/call {method, path, body}`, which forwards only
