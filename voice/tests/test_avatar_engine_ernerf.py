@@ -5,12 +5,21 @@ from pathlib import Path
 
 import pytest
 
+from callbridge import models_store
+
 from voice.avatar_engines import ernerf as mod, pack, registry
 from voice.avatar_engines.ernerf import ErNerfEngine
 from voice.tests import engine_pack_fakes as fakes
 
 RENDER = ("ernerf-audio-encoder",)
 TRAIN = ("ernerf-bfm", "ernerf-face-parsing")
+
+
+def install_training(base, bfm_info=True):
+    """The weights a training needs, as empty files, and the 3DMM file the person makes from the Basel Face Model."""
+    fakes.install(base, RENDER + TRAIN)
+    if bfm_info:
+        (Path(models_store.folder("avatar", "ernerf-bfm", str(base))) / "3DMM_info.npy").write_bytes(b"x")
 CHECKPOINT = "torso/checkpoints/ngp_ep0007.pth"
 POSE = "data/transforms_train.json"
 
@@ -120,7 +129,7 @@ def test_the_plan_lists_the_steps_and_what_is_missing_and_starts_nothing(rig):
 
 def test_the_plan_is_ready_when_everything_is_in_place_and_skips_the_check_once_passed(rig):
     base, tmp = rig
-    fakes.install(base, RENDER + TRAIN)
+    install_training(base)
     folder = fakes.avatar(tmp)
     e = engine()
     plan = e.training_plan(folder, clip_in(tmp), {"iters_head": 5000, "iters_torso": 6000}, str(base))
@@ -133,7 +142,7 @@ def test_the_plan_is_ready_when_everything_is_in_place_and_skips_the_check_once_
 
 def test_a_data_path_with_a_space_is_refused_because_the_upstream_does_not_quote_it(rig):
     base, tmp = rig
-    fakes.install(base, RENDER + TRAIN)
+    install_training(base)
     folder = fakes.avatar(tmp / "a b")
     checks = engine().training_checks(folder, clip_in(tmp), str(base), {})
     assert [c for c in checks if c["id"] == "path"][0]["ok"] is False
@@ -164,7 +173,7 @@ def test_the_stages_have_these_commands(rig):
 
 def test_a_training_runs_the_steps_in_order_reports_progress_and_writes_trained_json(rig):
     base, tmp = rig
-    fakes.install(base, RENDER + TRAIN)
+    install_training(base)
     folder = fakes.avatar(tmp)
     seen = []
 
@@ -189,7 +198,7 @@ def test_a_training_runs_the_steps_in_order_reports_progress_and_writes_trained_
 
 def test_a_failed_step_stops_the_training_and_names_it(rig):
     base, tmp = rig
-    fakes.install(base, RENDER + TRAIN)
+    install_training(base)
     mark_modules(base)
     spawner = fakes.Spawner(out=['{"event": "error", "message": "ImportError: pytorch3d"}'], code=1)
     with pytest.raises(pack.EngineFailed, match="pytorch3d"):
@@ -199,7 +208,7 @@ def test_a_failed_step_stops_the_training_and_names_it(rig):
 
 def test_a_training_that_leaves_no_checkpoint_is_not_called_trained(rig):
     base, tmp = rig
-    fakes.install(base, RENDER + TRAIN)
+    install_training(base)
     mark_modules(base)
     folder = fakes.avatar(tmp)
     with pytest.raises(pack.EngineFailed, match="without a torso checkpoint"):
@@ -217,7 +226,7 @@ def test_prepare_refuses_without_starting_when_the_checks_fail(rig):
 
 def test_stop_between_steps_ends_the_training(rig):
     base, tmp = rig
-    fakes.install(base, RENDER + TRAIN)
+    install_training(base)
     mark_modules(base)
     e = engine()
 
@@ -230,3 +239,14 @@ def test_stop_between_steps_ends_the_training(rig):
     with pytest.raises(pack.EngineFailed, match="stopped"):
         e.prepare(fakes.avatar(tmp), lambda p, c: None, clip=clip_in(tmp), models_base=str(base))
     assert len(spawner.calls) == 1
+
+
+def test_the_3dmm_file_made_from_the_basel_face_model_is_a_check_of_its_own(rig):
+    base, tmp = rig
+    install_training(base, bfm_info=False)
+    plan = engine().training_plan(fakes.avatar(tmp), clip_in(tmp), None, str(base))
+    bad = {c["id"]: c for c in plan["checks"] if not c["ok"]}
+    assert "bfm" in bad and "01_MorphableModel.mat" in bad["bfm"]["en"] and "convert_BFM.py" in bad["bfm"]["en"] and "convert_BFM.py" in bad["bfm"]["it"]
+    assert models_store.is_installed("ernerf-bfm", str(base))                          # the four downloaded files are in place; the made one is not
+    (Path(models_store.folder("avatar", "ernerf-bfm", str(base))) / "3DMM_info.npy").write_bytes(b"x")
+    assert "bfm" not in {c["id"] for c in engine().training_plan(fakes.avatar(tmp, "bo"), clip_in(tmp), None, str(base))["checks"] if not c["ok"]}

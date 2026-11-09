@@ -12,7 +12,7 @@ from voice.avatar_engines import registry
 from voice.avatar_engines.ernerf import ErNerfEngine
 from voice.avatar_training import TrainingError, TrainingJobs
 from voice.tests import engine_pack_fakes as fakes
-from voice.tests.test_avatar_engine_ernerf import RENDER, TRAIN, mark_modules, train_files
+from voice.tests.test_avatar_engine_ernerf import install_training, mark_modules, train_files
 
 CLIP = {"seconds": 240.0, "fps": 25.0, "width": 160, "height": 160}
 
@@ -20,7 +20,7 @@ CLIP = {"seconds": 240.0, "fps": 25.0, "width": 160, "height": 160}
 class Rig:
     def __init__(self, tmp_path, monkeypatch, spawner):
         self.base = fakes.set_environment(monkeypatch, tmp_path)
-        fakes.install(self.base, RENDER + TRAIN)
+        install_training(self.base)
         self.store = AvatarStore(tmp_path / "user" / "voice" / "avatars")
         self.folder = self.store.create("ada", "Ada")
         video_file(self.folder / "clips" / "talk.mp4")

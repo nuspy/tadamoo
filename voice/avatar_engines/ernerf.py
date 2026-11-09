@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+from callbridge import models_store
+
 from .pack import (EngineFailed, EngineNotReady, Job, PackEngine, RUNNERS, Stage, code_dir, engine_dir, environment_problems, not_installed, process_env,
                    python, spawn, stage_code, vendor_problems)
 from .status import TRAINED_DIR, TRAINED_MARK
@@ -30,6 +32,7 @@ ITERS_RANGE = (1000, 1_000_000)
 MODULES_MARK = "modules.json"       # written when the build check passed: <models folder>/avatar-engines/ernerf/modules.json
 VIDEO = "video.mp4"
 TRAIN_MODELS = ("ernerf-bfm", "ernerf-face-parsing")
+BFM_INFO = "3DMM_info.npy"          # made by convert_BFM.py from the Basel Face Model; the face tracker reads it
 
 
 class ErNerfEngine(PackEngine):
@@ -121,7 +124,19 @@ class ErNerfEngine(PackEngine):
                          f"il percorso {data} ha uno spazio e la preparazione dati originale non lo racchiude tra virgolette: usare una cartella degli avatar senza"))
         for problem in environment_problems() + vendor_problems(self.key) + not_installed(self.models + TRAIN_MODELS, base):
             out.append(check("setup", False, problem[0], problem[1]))
+        info = self.bfm_info(base)
+        if info is not None and not info.is_file():
+            out.append(check("bfm", False, f"{BFM_INFO} is not made yet: put the Basel Face Model file 01_MorphableModel.mat in {info.parent} and run convert_BFM.py there "
+                             "(from data_utils/face_tracking of the engine's run folder)",
+                             f"{BFM_INFO} non è ancora fatto: mettere il file 01_MorphableModel.mat del Basel Face Model in {info.parent} ed eseguire convert_BFM.py "
+                             "(da data_utils/face_tracking della cartella di lavoro del motore)"))
         return out
+
+    @staticmethod
+    def bfm_info(base: str | None = None) -> Path | None:
+        """Where the 3DMM file made from the Basel Face Model goes (the catalog entry `ernerf-bfm` installs the other files of that folder); None without a models folder."""
+        where = models_store.folder("avatar", "ernerf-bfm", base)
+        return Path(where) / BFM_INFO if where else None
 
     def training_plan(self, avatar_dir, clip: Path | None = None, options: dict | None = None, base: str | None = None) -> dict:
         """What a training would do and what is missing, without starting anything: {engine, options, stages, checks, ready, note}."""
