@@ -48,7 +48,14 @@ class LanguageSettings:
     enabled: tuple = DEFAULT_ENABLED
     threshold: float = DEFAULT_THRESHOLD
     short_s: float = DEFAULT_SHORT_S
-    voices: dict = field(default_factory=dict)         # language -> {"engine": id or "", "voice": name}
+    voices: dict = field(default_factory=dict)         # language -> the voice of the selected engine that speaks it (a name)
+
+    @staticmethod
+    def from_config(cfg) -> "LanguageSettings":
+        """From the `language_*` fields of a Config (the voice service's view of voice.json)."""
+        return LanguageSettings.parse({"follow": getattr(cfg, "language_follow", True), "enabled": list(getattr(cfg, "language_enabled", ()) or ()),
+                                       "threshold": getattr(cfg, "language_threshold", DEFAULT_THRESHOLD),
+                                       "short_s": getattr(cfg, "language_short_s", DEFAULT_SHORT_S), "voices": getattr(cfg, "language_voices", {})})
 
     @staticmethod
     def parse(stored) -> "LanguageSettings":
@@ -61,9 +68,8 @@ class LanguageSettings:
         raw = stored.get("voices")
         for key, value in (raw.items() if isinstance(raw, dict) else ()):
             code = iso(key)
-            if code and isinstance(value, dict) and isinstance(value.get("voice"), str) and value["voice"].strip():
-                engine = value.get("engine")
-                voices[code] = {"engine": engine.strip().lower() if isinstance(engine, str) else "", "voice": value["voice"].strip()}
+            if code and isinstance(value, str) and value.strip():
+                voices[code] = value.strip()
         return LanguageSettings(
             stored.get("follow") is not False,
             enabled or DEFAULT_ENABLED,
