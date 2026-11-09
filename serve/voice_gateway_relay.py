@@ -14,11 +14,13 @@ from serve import voice_proxy, voice_service
 
 WS_PATH = "/api/voice/gateway/ws"
 MAX_CLIENTS = 4
+MAX_PER_CLIENT = 2                               # per phone key, and for this PC: one client cannot take every place
 CHUNK = 1 << 16
 RECHECK_S = 5.0                                  # how often the phone's key is looked at again while the connection is open
 INFO_KEYS = ("voice", "stt", "tts", "avatar", "render_modes", "brain", "persona")
 
 _active = 0
+_per_client: dict[str, int] = {}
 _lock = threading.Lock()
 
 
@@ -59,9 +61,10 @@ def _upgrade_headers(handler) -> str | None:
     return key if wants and key and h.get("Sec-WebSocket-Version", "").strip() == "13" else None
 
 
-def relay(handler, still_allowed=None) -> None:
+def relay(handler, still_allowed=None, client: str = "") -> None:
     """Passes the phone's WebSocket to the gateway. The caller has already decided that this client may; `still_allowed()` is asked every
-    few seconds, and the connection ends when it says no (a key taken away stops working at once, also for a conversation in progress)."""
+    few seconds, and the connection ends when it says no (a key taken away stops working at once, also for a conversation in progress).
+    `client` names who connects (a key's id, or this PC) for MAX_PER_CLIENT."""
     global _active
     key = _upgrade_headers(handler)
     if key is None:
@@ -72,7 +75,10 @@ def relay(handler, still_allowed=None) -> None:
     with _lock:
         if _active >= MAX_CLIENTS:
             return _refuse(handler, 503, "voice_gateway_busy", "too many phones are connected to the voice gateway")
+        if _per_client.get(client, 0) >= MAX_PER_CLIENT:
+            return _refuse(handler, 503, "voice_gateway_busy", f"this client already has {MAX_PER_CLIENT} connections to the voice gateway")
         _active += 1
+        _per_client[client] = _per_client.get(client, 0) + 1
     upstream = None
     try:
         try:
@@ -89,6 +95,9 @@ def relay(handler, still_allowed=None) -> None:
             upstream.close()
         with _lock:
             _active -= 1
+            _per_client[client] -= 1
+            if not _per_client[client]:
+                del _per_client[client]
 
 
 def _pipe(client: socket.socket, upstream: socket.socket, still_allowed=None) -> None:
