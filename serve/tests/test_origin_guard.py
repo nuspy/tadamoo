@@ -26,9 +26,9 @@ ROOT = Path(__file__).resolve().parents[2]
 PC = "pluto-max"
 
 
-def refused(method="POST", path="/api/voice/service/call", host_rule=True, proven=False, allowed=(), **headers):
+def refused(method="POST", path="/api/voice/service/call", host_rule=True, proven=False, allowed=(), origins=(), **headers):
     found = g.refusal(method, path, {k.replace("_", "-"): v for k, v in headers.items()}, host_rule=host_rule, proven=proven,
-                      allowed=allowed, own_name=PC)
+                      allowed=allowed, own_name=PC, allowed_origins=origins)
     return None if found is None else found.code
 
 
@@ -90,6 +90,61 @@ class Matrix(unittest.TestCase):
                 ap.parse_args(["--allowed-hosts", "http://mypc/"])
 
 
+class AllowedOrigins(unittest.TestCase):
+    """server.allowed-origins: a page origin the person lets use the server, and `*` that turns the Origin rule off."""
+    HERE = {"Host": "127.0.0.1:7232"}
+
+    def test_by_default_a_foreign_origin_is_refused_as_before(self):
+        self.assertEqual(refused(**self.HERE, Origin="http://localhost:3000"), "cross_origin")
+        self.assertEqual(refused(**self.HERE, Sec_Fetch_Site="cross-site"), "cross_origin")
+
+    def test_a_listed_origin_passes_and_only_that_one(self):
+        listed = ("http://localhost:3000",)
+        self.assertIsNone(refused(**self.HERE, origins=listed, Origin="http://localhost:3000", Sec_Fetch_Site="cross-site"))
+        self.assertIsNone(refused("GET", "/api/logs", **self.HERE, origins=listed, Origin="HTTP://LocalHost:3000"))
+        for other in ("http://localhost:3001", "https://localhost:3000", "http://localhost", "http://evil.example.com", "null"):
+            self.assertEqual(refused(**self.HERE, origins=listed, Origin=other), "cross_origin", other)
+        self.assertEqual(refused(**self.HERE, origins=listed, Sec_Fetch_Site="cross-site"), "cross_origin")          # no Origin to match: still refused
+
+    def test_a_listed_origin_does_not_open_the_host_rule(self):
+        self.assertEqual(refused(Host="rebind.evil.example.com", origins=("http://localhost:3000",), Origin="http://localhost:3000"), "host_not_allowed")
+
+    def test_the_star_turns_the_origin_rule_off_and_the_host_rule_stays(self):
+        for origin in ("http://evil.example.com", "null", "https://anything.example"):
+            self.assertIsNone(refused(**self.HERE, origins=("*",), Origin=origin, Sec_Fetch_Site="cross-site"), origin)
+        self.assertEqual(refused(Host="rebind.evil.example.com", origins=("*",), Origin="http://evil.example.com"), "host_not_allowed")
+        self.assertIsNone(refused(Host="rebind.evil.example.com", allowed=("*",), origins=("*",), Origin="http://evil.example.com"))      # both off
+
+    def test_the_star_in_allowed_hosts_does_not_turn_the_origin_rule_off(self):
+        self.assertEqual(refused(Host="box.lan:7232", allowed=("*",), Origin="http://evil.example.com"), "cross_origin")
+
+    def test_an_entry_is_an_origin_and_nothing_else(self):
+        self.assertEqual(g.check_origin(" HTTP://LocalHost:3000/ "), "http://localhost:3000")
+        self.assertEqual(g.check_origin("https://app.example.com"), "https://app.example.com")
+        self.assertEqual(g.check_origin("http://[::1]:8080"), "http://[::1]:8080")
+        self.assertEqual(g.check_origin("*"), "*")
+        for bad in ("localhost:3000", "localhost", "http://localhost:3000/app", "http://*.example.com", "ftp://x.example", "http://a:b@host", "http://",
+                    "", "http://localhost:99999", "http://bad host", "null", 5, None):
+            with self.assertRaises(ValueError, msg=bad):
+                g.check_origin(bad)
+
+    def test_the_config_file_and_the_flag_take_origins(self):
+        ap = build_parser()
+        self.assertIsNone(ap.parse_args([]).allowed_origins)                              # the default does not change
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d) / "config.json"
+            tmp.write_text(json.dumps({"server": {"allowed-origins": ["http://localhost:3000", "HTTPS://App.Example.com"]}}), encoding="utf-8")
+            argv, _ = load_config_file(str(tmp), ap)
+            self.assertEqual(ap.parse_args(argv).allowed_origins, ["http://localhost:3000", "https://app.example.com"])
+            tmp.write_text(json.dumps({"server": {"allowed-origins": ["*"]}}), encoding="utf-8")
+            argv, _ = load_config_file(str(tmp), ap)
+            self.assertEqual(ap.parse_args(argv).allowed_origins, ["*"])
+        self.assertEqual(ap.parse_args(["--allowed-origins", "http://localhost:3000", "--allowed-origins", "http://localhost:5173"]).allowed_origins,
+                         ["http://localhost:3000", "http://localhost:5173"])
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            ap.parse_args(["--allowed-origins", "http://localhost:3000/path"])
+
+
 class OverHttp(unittest.TestCase):
     """The running server: the guard answers before any route, for every method and for the WebSocket upgrade."""
 
@@ -143,6 +198,24 @@ class OverHttp(unittest.TestCase):
         self.svc.allowed_hosts = ("mypc.tail1234.ts.net",)
         self.assertEqual(self.req("GET", "/api/logs", {"Host": f"mypc.tail1234.ts.net:{self.port}",
                                                        "Origin": f"http://mypc.tail1234.ts.net:{self.port}"})[0], 200)
+
+    def test_a_foreign_origin_is_refused_until_the_person_lists_it_or_turns_the_rule_off(self):
+        page = {"Origin": "http://localhost:3000", "Content-Type": "text/plain"}
+        self.assertEqual(self.req("POST", "/api/voice/models-dir", page, b"{}")[0], 403)
+        self.svc.allowed_origins = ("http://localhost:3000",)
+        self.assertNotEqual(self.req("POST", "/api/voice/models-dir", page, b"{}")[0], 403)             # the guard lets it through; the route answers
+        self.assertEqual(self.req("POST", "/api/voice/models-dir", {**page, "Origin": "http://evil.example.com"}, b"{}")[0], 403)
+        self.svc.allowed_origins = ("*",)
+        self.assertNotEqual(self.req("POST", "/api/voice/models-dir", {**page, "Origin": "http://evil.example.com"}, b"{}")[0], 403)
+        code, body = self.req("POST", "/api/voice/models-dir", {"Host": f"rebind.evil.example.com:{self.port}", "Origin": "http://evil.example.com"}, b"{}")
+        self.assertEqual((code, body["error"]["code"]), (403, "host_not_allowed"))                         # the Host rule is a separate switch
+        self.svc.allowed_origins = ()
+        self.assertEqual(self.req("POST", "/api/voice/models-dir", page, b"{}")[0], 403)
+
+    def test_a_website_cannot_set_the_sdk_path_of_the_avatar_acceleration(self):
+        body = json.dumps({"enhance": {"rtx_video_path": "C:/sdk/rtxvideo.dll"}}).encode()
+        code, answer = self.req("POST", "/api/voice/avatar", {"Origin": "http://evil.example.com", "Content-Type": "text/plain"}, body)
+        self.assertEqual((code, answer["error"]["code"]), (403, "cross_origin"))
 
     def test_with_an_api_key_the_name_is_free_and_the_key_proves_the_request(self):
         self.svc.api_key = "s3cret"
