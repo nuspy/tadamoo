@@ -79,3 +79,38 @@ def test_starts_serves_and_stops_cleanly(tmp_path):
         _stop(proc)
     assert proc.returncode is not None
     assert not info.exists()
+
+
+def test_the_phone_gateway_listens_on_loopback_with_its_own_port_and_only_opens_for_the_token(tmp_path):
+    from websockets.exceptions import InvalidStatus
+    from websockets.sync.client import connect
+    proc, info = _run(tmp_path, "real-token")
+    try:
+        ready = json.loads(proc.stdout.readline())
+        written = json.loads(info.read_text(encoding="utf-8"))
+        port = written["gateway_port"]
+        assert port > 0 and port != ready["port"]
+        code, body = _get(f"http://127.0.0.1:{ready['port']}/status", "real-token")
+        assert body["gateway"]["port"] == port and body["gateway"]["host"] == "127.0.0.1" and body["gateway"]["clients"] == 0
+        assert _get(f"http://127.0.0.1:{ready['port']}/gateway", "real-token")[1]["voice"] is False
+        with pytest.raises(InvalidStatus) as refused:
+            connect(f"ws://127.0.0.1:{port}/ws", additional_headers={"Authorization": "Bearer wrong"}, open_timeout=10)
+        assert refused.value.response.status_code == 401
+        with connect(f"ws://127.0.0.1:{port}/ws", additional_headers={"Authorization": "Bearer real-token"}, open_timeout=10) as ws:
+            ws.send(json.dumps({"type": "auth"}))
+            assert json.loads(ws.recv(timeout=10))["type"] == "auth_ok"
+            assert json.loads(ws.recv(timeout=10))["voice"] is False       # standby: nothing is loaded
+    finally:
+        _stop(proc)
+    assert not info.exists()
+
+
+def test_the_gateway_can_be_left_off(tmp_path):
+    proc, info = _run(tmp_path, "real-token", extra=("--no-gateway",))
+    try:
+        ready = json.loads(proc.stdout.readline())
+        assert json.loads(info.read_text(encoding="utf-8"))["gateway_port"] == 0
+        assert _get(f"http://127.0.0.1:{ready['port']}/status", "real-token")[1]["gateway"] is None
+        assert _get(f"http://127.0.0.1:{ready['port']}/gateway", "real-token")[0] == 404
+    finally:
+        _stop(proc)

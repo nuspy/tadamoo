@@ -35,8 +35,7 @@ RESTART_REQUIRED = {
     # sposta nulla finche' non riparte.
     "avatar_fps",
     "control_host", "control_port", "control_auth_token",
-    "gateway_enabled", "gateway_host", "gateway_port", "gateway_auth_token",
-    "gateway_media_port",
+    "gateway_enabled", "gateway_port",
     "push_to_talk_enabled", "push_to_talk_hotkey",
     "push_to_talk_hotkey_fullduplex", "push_to_talk_hotkey_avatar", "push_to_talk_hotkey_avatar_full",
     "push_to_talk_hotkey_direct", "push_to_talk_hotkey_direct_full",

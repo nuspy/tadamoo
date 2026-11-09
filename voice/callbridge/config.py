@@ -239,17 +239,10 @@ class Config:
     barge_in_enabled: bool = True
     barge_in_energy_threshold: float = 0.02
 
-    # --- Voice gateway per l'app Android (Task #20) ---
-    # WebSocket che riceve audio dall'app remota (via Tailscale/LAN), fa
-    # STT -> cervello -> TTS e rimanda testo+audio. Un turno per volta (viva voce)
-    # o full-duplex (auricolare/bluetooth).
+    # --- Voice gateway for the phone app (voice/gateway.py) ---
+    # Listens on loopback only; the port is chosen by the service (0) and written here once it listens.
     gateway_enabled: bool = True
-    gateway_host: str = "0.0.0.0"          # 0.0.0.0 per essere raggiungibile via Tailscale
-    gateway_port: int = 8771
-    gateway_auth_token: str = "change-me-control-token"  # token condiviso con l'app
-    # Server HTTP per i media (immagini/video generati dall'agente): l'app li
-    # scarica via URL (meglio del base64 sul WebSocket, soprattutto per i video).
-    gateway_media_port: int = 8772
+    gateway_port: int = 0
 
     # --- Modem GSM/GPRS USB (SIM800C su porta seriale, via CH340) ---
     # Chiamate cellulari dirette dal PC via comandi AT (alternativa al giro

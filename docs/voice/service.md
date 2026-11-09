@@ -7,13 +7,13 @@ no audio, GPU or phone hardware is opened, except that an enabled STT whose mode
 ## Start
 
 ```
-python -m voice.service --settings <voice.json> --host 127.0.0.1 --port P --token-file F --info-file I [--default-models-dir D]
+python -m voice.service --settings <voice.json> --host 127.0.0.1 --port P --token-file F --info-file I [--default-models-dir D] [--no-gateway]
 ```
 
 - `--host` must be loopback (`127.0.0.1`, `::1`, `localhost`); anything else is refused with exit code 2. `--port 0` picks a free port.
 - The token is the text of `F`, trimmed. A missing or empty `F` is refused with exit code 2 and nothing is printed on stdout.
 - When the server listens, one line goes to stdout: `{"ready": true, "port": P, "pid": N}`. The same moment `I` is written (atomically):
-  `{"host", "port", "pid", "started"}`. A clean stop removes `I` again, unless a newer service wrote its own.
+  `{"host", "port", "pid", "started", "gateway_port"}`. A clean stop removes `I` again, unless a newer service wrote its own.
 - Logs go to stderr. Stops cleanly on SIGINT, SIGTERM, Ctrl+Break and, on Windows, the closing of the console, logoff and shutdown.
 - `--default-models-dir` is the models folder to use when `voice.json` names none (see below).
 
@@ -33,6 +33,7 @@ Every route needs `Authorization: Bearer <token>`, except `GET /health` (`{"stat
 (the call, session, avatar, analysis and meeting routes of the imported code); telephony is off until Settings > Voice turns it on (`telephony.md`), and nothing opens a modem or a phone link before that. `GET /functions` and
 `POST /functions/apply` load, unload and measure the stt, tts and avatar functions (`loading.md`).
 `GET /brain/state` and `POST /brain/say` belong to the brains of the voice and `POST /session/start` takes a `brain` (`chat.md`).
+`GET /gateway` is the state of the phone gateway, which starts with the service on loopback (`gateway.md`).
 
 `GET /status` replaces the callbridge status. It loads nothing:
 
@@ -44,6 +45,7 @@ Every route needs `Authorization: Bearer <token>`, except `GET /health` (`{"stat
 
 One entry for each of `stt`, `tts`, `avatar`, `diarization`, `vad`, `embedding`; `reason` is present only when `installed` is false.
 `embedding` has no model in the catalog yet and says so.
+`gateway` is the state of the phone gateway (`host`, `port`, `clients`, `voice`, `avatar`, ...), or `null` with `--no-gateway`.
 
 ## Settings
 
