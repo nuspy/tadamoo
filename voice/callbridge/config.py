@@ -504,13 +504,6 @@ class Config:
     tts_pause_sentence_s: float = 0.5      # dopo . ! ? …
     tts_pause_clause_s: float = 0.25       # dopo , ; :                 # velocita' di sintesi TTS (1.0 = normale, >1 = piu' veloce)
 
-    # --- Bridge testuale Telegram (on-demand: non parte da solo con CallAPICall,
-    # si avvia a mano con `python -m callbridge.telegram_text_bridge` quando serve) ---
-    telegram_wrapper_url: str = "http://127.0.0.1:8888"
-    telegram_wrapper_token: str = ""        # deve combaciare con rest.auth_token nel settings.json del wrapper
-    telegram_bridge_host: str = "127.0.0.1"
-    telegram_bridge_port: int = 8790        # il wrapper deve avere questa porta come server_port
-
     @classmethod
     def load(cls, path: str | os.PathLike[str] | None = None) -> "Config":
         cfg = cls()
