@@ -41,7 +41,8 @@ class Session:
             from callbridge.ptt import PushToTalkManager
         except Exception as e:                                       # noqa: BLE001 (pynput or a desktop that is missing)
             raise Unavailable(f"push-to-talk is not available on this PC ({e.__class__.__name__}: {e})") from None
-        return PushToTalkManager(self.state.config, self.state.brains)
+        meetings = getattr(self.state, "meetings", None)
+        return PushToTalkManager(self.state.config, self.state.brains, copilot=meetings.copilot if meetings is not None else None)
 
     def manager(self):
         with self._lock:

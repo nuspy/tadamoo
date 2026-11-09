@@ -29,6 +29,7 @@ from callbridge.brains import make_brain  # noqa: E402
 
 from voice import avatar_routes, brain_service, functions, gateway, settings_bridge, speech_routes  # noqa: E402
 from voice.avatar_service import AvatarService  # noqa: E402
+from voice.meetings_service import MeetingsService  # noqa: E402
 
 log = logging.getLogger("voice.service")
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
@@ -73,6 +74,7 @@ class State:
         self.gateway = None
         self.avatar = None                              # the AvatarService, set by build_app
         self.calls = None                               # the CallService, set by build_app
+        self.meetings = None                            # the MeetingsService (meetings and copilot), set by build_app
         self.session = brain_service.Session(self)
         self.refresh(force=True)
 
@@ -135,6 +137,7 @@ def build_app(settings_path, token: str, default_models_dir: str = "", host: str
     config.stt_backend = config.tts_backend = "native"  # the engines of this process, never a separate server
     config.auth_token = os.environ.get(PHONE_TOKEN_ENV, "")      # the pairing token of the Android dialer, put there by the desktop app from the credential store
     config.analysis_artifacts_dir = str(Path(settings_path).resolve().parent / "voice" / "analyses")     # the analyses live in the user data folder
+    config.meetings_dir = str(Path(settings_path).resolve().parent / "voice" / "meetings")              # so do the meetings the person let the bot keep
     state = State(settings_path, config, default_models_dir)
     app = create_app(config, status_fn=state.status, ptt=state.session)
     app.before_request(lambda: state.refresh())
@@ -143,6 +146,9 @@ def build_app(settings_path, token: str, default_models_dir: str = "", host: str
     functions.register(app, state.functions)
     state.avatar = AvatarService(state, app)
     avatar_routes.register(app, state.avatar)
+    state.meetings = MeetingsService(state)
+    app.config["CB_MEETINGS"] = state.meetings
+    app.config["CB_COPILOT"] = state.meetings.copilot
     brain_service.register(app, state)
     if with_gateway:
         state.gateway = gateway.Gateway(gateway.Host(state, token))
