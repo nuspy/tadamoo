@@ -172,13 +172,17 @@ def _whisper(size: str) -> dict:
 
 
 def _qwen(size: str) -> dict:
-    return _entry(f"qwen3tts-{size.lower()}", "tts", "qwen3tts", f"Qwen3-TTS {size}", "qwen3-tts", "apache-2.0",
-                  [_hf(f"Qwen/Qwen3-TTS-12Hz-{size}-Base", subdir="base"), _hf(f"Qwen/Qwen3-TTS-12Hz-{size}-CustomVoice", subdir="custom-voice")],
-                  languages=("it", "en", "fr", "de", "es", "pt", "ru", "ja", "ko", "zh"), verify=("size", "license-card"),
-                  venv=_t("Own Python environment (tts-venvs/dia, shared with Dia), torch with CUDA.",
-                          "Ambiente Python proprio (tts-venvs/dia, condiviso con Dia), torch con CUDA."),
-                  notes=_t("Voice cloning (the Base model) and nine preset voices (the CustomVoice model); both are installed. Streaming.",
-                           "Clonazione di voce (modello Base) e nove voci preimpostate (modello CustomVoice); si installano entrambi. Streaming."))
+    srcs = [_pinned(f"Qwen/Qwen3-TTS-12Hz-{size}-{kind}", commit, files + _QWEN_COMMON, subdir="base" if kind == "Base" else "custom-voice")
+            for kind, (commit, files) in _QWEN[size].items()]
+    return _entry(f"qwen3tts-{size.lower()}", "tts", "qwen3tts", f"Qwen3-TTS {size}", "qwen3-tts", "apache-2.0", srcs,
+                  size=sum(_total(f, _QWEN_COMMON) for _, f in _QWEN[size].values()),
+                  languages=("it", "en", "fr", "de", "es", "pt", "ru", "ja", "ko", "zh"),
+                  venv=_t("Own Python environment (tts-venvs/dia, shared with Dia), torch with CUDA, the faster-qwen3-tts runtime.",
+                          "Ambiente Python proprio (tts-venvs/dia, condiviso con Dia), torch con CUDA, il runtime faster-qwen3-tts."),
+                  notes=_t("Voice cloning (the Base model) and nine preset voices (the CustomVoice model); both are installed, each at one commit with the files the "
+                           "repository holds besides its README, the speech tokenizer included. Streaming.",
+                           "Clonazione di voce (modello Base) e nove voci preimpostate (modello CustomVoice); si installano entrambi, ciascuno a un commit con i file "
+                           "che il repository ha oltre al README, il tokenizzatore vocale compreso. Streaming."))
 
 
 _LINLY = "Kedreamix/Linly-Talker"
@@ -335,6 +339,33 @@ _COSYVOICE_FILES = [
     ("CosyVoice-BlankEN/tokenizer_config.json", "482bd979881423375ca5414e4e0d94cd7c5349dbb17fffd46b4d36d71e62a1bc", 1_287),
     ("CosyVoice-BlankEN/vocab.json", "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910", 2_776_833),
 ]
+
+# Qwen3-TTS-12Hz: the files every one of the four repositories has alike, then each repository's commit, config.json and model.safetensors.
+_QWEN_COMMON = [
+    ("generation_config.json", "f1b90b4513f3b34c62851049e2492d7b4c5940daf1276f89c82b8ef04127f3aa", 245),
+    ("merges.txt", "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3", 1_671_839),
+    ("preprocessor_config.json", "efdde1022ea9d76928bf7a9cd53139138f5ba2e466e837f08f6105ab1af1c119", 127),
+    ("speech_tokenizer/config.json", "ee65bb901c876664ab8707c487157aa1a6ee57c65969b28fb5ec9dc211e68167", 2_336),
+    ("speech_tokenizer/configuration.json", "6bc26d64eb5024b4d1dab5a52371958b429256d6c9d59787f1f5294a54e0cebd", 76),
+    ("speech_tokenizer/model.safetensors", "836b7b357f5ea43e889936a3709af68dfe3751881acefe4ecf0dbd30ba571258", 682_293_092),
+    ("speech_tokenizer/preprocessor_config.json", "fcb3805e597e786d4067706e602f6688524640f8d3396790e2e09b5942fcbdfb", 234),
+    ("tokenizer_config.json", "dc3c31c3bdaedd5016382bb3cbe07323026775ad51f5a4fb564505992ae4a670", 7_344),
+    ("vocab.json", "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910", 2_776_833),
+]
+_QWEN = {
+    "0.6B": {
+        "Base": ("5d83992436eae1d760afd27aff78a71d676296fc", [("config.json", "2e714c787c8edb98b05432685cddb634add2de4d4e645f653d68251ef72ba011", 4_494),
+                    ("model.safetensors", "180b3b10eb1c9f1b4db7806d5475bae3071c0243c299d49926bab1da3b6946f6", 1_829_344_272)]),
+        "CustomVoice": ("85e237c12c027371202489a0ec509ded67b5e4b5", [("config.json", "81aca2b6fac304944d8acf345272d8a9a727d5fc2e2e66b222ab4729340c7455", 4_908),
+                    ("model.safetensors", "bc3c7e785eb961179c25450d1acff03f839e0002f2f3a5aeb67b5735c0fa2adb", 1_811_626_576)]),
+    },
+    "1.7B": {
+        "Base": ("fd4b254389122332181a7c3db7f27e918eec64e3", [("config.json", "b4f01752d15a488abde3e1ab44723ae4f4b9e68a4037257b098b3737893cc1f9", 4_494),
+                    ("model.safetensors", "38fc7fc51c5e776e840414b6fd443962e9411b9654888fd7913e4da643cb857c", 3_857_413_744)]),
+        "CustomVoice": ("0c0e3051f131929182e2c023b9537f8b1c68adfe", [("config.json", "17a07f527a1c25ea30b4e023a184482a23d3e279d697b1dc81b1bde498d29cf9", 4_908),
+                    ("model.safetensors", "38b1d5971bdbd982b561cccec982669a53b0537c3cf5e9bd4778ed07bb2f5137", 3_833_402_552)]),
+    },
+}
 
 CATALOG = [_whisper(s) for s in _WHISPER] + [
     _entry("kokoro", "tts", "kokoro", "Kokoro", "kokoro", "apache-2.0",
