@@ -6,4 +6,5 @@ idf_component_register(
         esp_websocket_client
         json
         esp_event
+        avatar_core
 )
