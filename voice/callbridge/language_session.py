@@ -7,10 +7,14 @@ A session holds a `LanguageFollower` (callbridge/language_follow.py) and the voi
 
 Both are honoured only for the person's own input (`owner=True`: the person's microphone, their typed text or their own panel). Speech of a
 meeting participant, the other end of a call, and text from a document, a page or a tool never change the language; the caller passes
-`owner=False` for those and nothing happens.
+`owner=False` for those and nothing happens. A command names a language and nothing else: no phrase selects an engine or a model.
 
-A change returns an `Outcome`: the voice, engine and `lang` to configure the synthesis with, the one-line state note for the brain, and a
-sentence to say (the confirmation, or why nothing changed). Nothing here loads a model, downloads anything or speaks."""
+The voice is always chosen from the SELECTED voice and engine (callbridge/language_voice.py): the selection is never rewritten, so a language the
+selected engine speaks goes back to it, and one it cannot speak is routed to Piper for as long as it lasts.
+
+A change returns an `Outcome`: the voice, engine and `lang` to configure the synthesis with, the one-line state note for the brain, and what to say:
+`pre_say` before the change is applied (said with the voice that was speaking), `say` after it. Nothing here loads a model, downloads anything or
+speaks."""
 from __future__ import annotations
 
 import logging
@@ -19,13 +23,15 @@ from dataclasses import dataclass
 
 from . import language_names as names
 from .language_follow import FOLLOW, LOCKED, LanguageFollower, LanguageSettings, iso
-from .language_voice import choose_voice
+from .language_voice import FALLBACK, choose_voice
 
 log = logging.getLogger("callbridge.language")
 
 _SAY = {
-    "no_voice": {"it": "Non c'è una voce installata per {lang}: resto in {current}. Puoi installarla con il pulsante Installa in Impostazioni > Voce.",
-                 "en": "No voice is installed for {lang}, so I stay in {current}. You can install one with the Install button in Settings > Voice."},
+    "no_voice": {"it": "Non c'è una voce installata per {lang}, nemmeno di Piper: resto in {current}. Puoi installarla con il pulsante Installa in Impostazioni > Voce.",
+                 "en": "No voice is installed for {lang}, not even a Piper one, so I stay in {current}. You can install one with the Install button in Settings > Voice."},
+    "fallback": {"it": "{lang} non è disponibile nella voce {voice}: uso Piper.",
+                 "en": "{lang} is not available in the voice {voice}, so I use Piper."},
     "not_enabled": {"it": "{lang} non è tra le lingue abilitate. Aggiungila in Impostazioni > Voce.",
                     "en": "{lang} is not among the enabled languages. Add it in Settings > Voice."},
     "auto": {"it": "Va bene, seguo la tua lingua.", "en": "Okay, I'll follow your language."},
@@ -48,9 +54,10 @@ class Outcome:
     voice: str = ""
     engine: str = ""
     tts_lang: str = ""
-    say: str = ""          # a sentence for the person, to be spoken
+    say: str = ""          # a sentence to speak after the change (the confirmation, or why nothing changed)
     reason: str = ""       # detected | command | auto | refused
-    warning: str = ""      # no_voice | not_enabled | auto_off
+    warning: str = ""      # no_voice | not_enabled | auto_off | fallback
+    pre_say: str = ""      # a sentence to speak before the change, with the voice that is speaking now
 
     @property
     def note(self) -> str:
@@ -63,9 +70,11 @@ class Outcome:
 
 class LanguageSession:
     def __init__(self, settings: LanguageSettings, *, language: str, voice: str, engine: str = "", gender: str | None = None, router_fn=None,
-                 stt_fixed: bool = False, clock=time.monotonic) -> None:
+                 stt_fixed: bool = False, tts_lang: str = "", clock=time.monotonic) -> None:
         self.settings = settings
-        self.voice, self.engine, self.gender = voice, (engine or "").strip().lower(), gender
+        self.base_voice, self.base_engine = voice, (engine or "").strip().lower()      # the selection: never rewritten
+        self.voice, self.engine = self.base_voice, self.base_engine                    # what speaks now
+        self.gender = gender
         self._router_fn = router_fn
         self.stt_fixed = bool(stt_fixed)
         enabled = tuple(dict.fromkeys((*settings.enabled, iso(language)))) if iso(language) else settings.enabled
@@ -73,7 +82,7 @@ class LanguageSession:
                                          short_s=settings.short_s, clock=clock)
         self._no_voice: set[str] = set()
         self._told: set[str] = set()
-        self.tts_lang = choose_voice(self.language, voice=voice, engine=engine, gender=gender, voice_map=settings.voices, router=self._router()).tts_lang
+        self.tts_lang = tts_lang or self.language
 
     # -- state
     @property
@@ -89,6 +98,10 @@ class LanguageSession:
         """Whether the recognizer should report the language of each utterance."""
         return self.mode == FOLLOW
 
+    @property
+    def routed_to_piper(self) -> bool:
+        return self.engine == "piper" and self.base_engine != "piper"
+
     def stt_hint(self) -> str:
         """The language to hint the recognizer with: none (detect) in follow mode, the held language when locked; the person's own fixed
         recognizer language is not touched here."""
@@ -96,7 +109,7 @@ class LanguageSession:
 
     def status(self, stt_model: str = "") -> dict:
         return {"language": self.language, "mode": self.mode, "follow": self.settings.follow, "enabled": list(self.follower.enabled),
-                "warnings": self.warnings(stt_model)}
+                "engine_fallback": self.routed_to_piper, "warnings": self.warnings(stt_model)}
 
     def warnings(self, stt_model: str = "") -> list[str]:
         out = []
@@ -160,9 +173,10 @@ class LanguageSession:
     def _ui(self) -> str:
         return "it" if self.language == "it" else "en"
 
-    def _said(self, key: str, code: str = "") -> str:
-        ui = self._ui()
-        return _SAY[key][ui].format(lang=names.label(code, ui), current=names.label(self.language, ui))
+    def _said(self, key: str, code: str = "", ui: str = "") -> str:
+        ui = ui or self._ui()
+        text = _SAY[key][ui].format(lang=names.label(code, ui), current=names.label(self.language, ui), voice=self.base_voice or "?")
+        return text[:1].upper() + text[1:]
 
     def _auto(self) -> Outcome:
         if not self.settings.follow or self.stt_fixed:
@@ -182,20 +196,26 @@ class LanguageSession:
         out = self._apply(code, previous, "command")
         if out.warning == "no_voice" and not was_locked:
             self.follower.unlock()
-        return Outcome(out.language, self.mode, out.changed, out.voice, out.engine, out.tts_lang, out.say, out.reason, out.warning)
+        return Outcome(out.language, self.mode, out.changed, out.voice, out.engine, out.tts_lang, out.say, out.reason, out.warning, out.pre_say)
 
     def _apply(self, code: str, previous: str, reason: str) -> Outcome:
-        choice = choose_voice(code, voice=self.voice, engine=self.engine, gender=self.gender, voice_map=self.settings.voices, router=self._router())
+        choice = choose_voice(code, voice=self.base_voice, engine=self.base_engine, gender=self.gender, voice_map=self.settings.voices,
+                              router=self._router())
         if not choice.ok:
             self.follower.set_current(previous)
             self._no_voice.add(code)
             once = reason == "command" or code not in self._told
             self._told.add(code)
             log.info("language: no voice for %s, staying on %s", code, previous)
-            return Outcome(previous, self.mode, False, self.voice, self.engine, self.tts_lang, self._said("no_voice", code) if once else "", reason, "no_voice")
+            return Outcome(previous, self.mode, False, self.voice, self.engine, self.tts_lang, self._said("no_voice", code) if once else "", reason,
+                           "no_voice")
         moved = (code != previous, (choice.voice, choice.engine, choice.tts_lang) != (self.voice, self.engine, self.tts_lang))
         self.voice, self.engine, self.tts_lang = choice.voice, choice.engine, choice.tts_lang
         if any(moved):
-            log.info("language: %s -> %s (%s, voice %s)", previous, code, reason, choice.voice)
+            log.info("language: %s -> %s (%s, voice %s, engine %s)", previous, code, reason, choice.voice, choice.engine or "?")
+        pre = ""
+        if choice.reason == FALLBACK and (reason == "command" or code not in self._told):
+            self._told.add(code)
+            pre = self._said("fallback", code, "it" if previous == "it" else "en")
         say = names.confirmation(code) if reason == "command" else ""
-        return Outcome(code, self.mode, any(moved), choice.voice, choice.engine, choice.tts_lang, say, reason)
+        return Outcome(code, self.mode, any(moved), choice.voice, choice.engine, choice.tts_lang, say, reason, "fallback" if choice.reason == FALLBACK else "", pre)

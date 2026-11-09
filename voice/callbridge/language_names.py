@@ -106,6 +106,9 @@ _LANGWORD = re.compile(r"(?<!\w)(?:language|lingua|langue|sprache|idioma|língua
 _FOLLOW_ME = re.compile(r"(?:follow\s+my\s+language|segui\s+la\s+mia\s+lingua|suis\s+ma\s+langue|folge\s+meiner\s+sprache|sigue\s+mi\s+idioma|"
                         r"segue\s+a\s+minha\s+língua)", re.IGNORECASE)
 MAX_WORDS = 9
+# A language command names a language and nothing else: a phrase about an engine or a model is never one ("use the Italian engine").
+_ENGINE = re.compile(r"(?<!\w)(?:engines?|motor[ie]?|moteur|modell?[oi]?|models?|mod[eè]le|piper|kokoro|xtts|chatterbox|cosyvoice|qwen\w*|orpheus|dia|whisper|"
+                     r"synth\w*|sintesi|tts|stt)(?!\w)", re.IGNORECASE)
 _GENDER_F = re.compile(r"\b(femmin[ae]|donna|female|woman)\b", re.IGNORECASE)
 _GENDER_M = re.compile(r"\b(maschi[oale]|uomo|male|man)\b", re.IGNORECASE)
 
@@ -125,7 +128,7 @@ def parse_language_command(text: str) -> dict | None:
     if _AUTO.fullmatch(re.sub(r"^(?:avatar|tadamoo)\W+", "", t, flags=re.IGNORECASE).strip(" .!?")):
         return {"kind": "lang_auto", "bare": True}
     verb = _VERB.search(t)
-    if verb is None or _ABOUT.search(t) or _SUBJECT.search(t[:verb.start()] + " "):
+    if verb is None or _ENGINE.search(t) or _ABOUT.search(t) or _SUBJECT.search(t[:verb.start()] + " "):
         return None
     langs = find_languages(t)
     if len(langs) != 1:

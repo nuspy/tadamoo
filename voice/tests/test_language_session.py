@@ -1,5 +1,6 @@
-"""The voice order for a language (identity engines, the person's map, the standard voice, Piper, none) and the session that applies detections and
-commands, with a stand-in TTS router that answers from the real catalogue. Only the person's own input changes anything."""
+"""The voice order for a language (the selected engine keeps its voice or its per-language voice; Piper only when it cannot; else nothing) and the
+session that applies detections and commands, with a stand-in TTS router that answers from the real catalogue and refuses every engine change.
+Only the person's own input changes anything."""
 import pytest
 
 from callbridge import language_names as names
@@ -13,14 +14,28 @@ LONG = "this is a sentence with enough words in it"
 
 
 class FakeRouter:
-    """Answers like the TtsRouter: the languages are the catalogue's, the voices are the ones given."""
+    """Answers like the TtsRouter: the languages are the catalogue's, the voices are the ones given. It records every call that would change
+    the engine in memory, and none may happen: the session only asks questions."""
 
     def __init__(self, active="kokoro", piper=(), clones=(), unavailable=()):
         self._active, self._piper, self._clones, self._unavailable = active, tuple(piper), tuple(clones), set(unavailable)
+        self.changes: list[str] = []
 
     @property
     def attivo(self):
         return self._active
+
+    def attiva(self, *a, **k):
+        self.changes.append("attiva")
+
+    def _solo_questo(self, *a, **k):
+        self.changes.append("_solo_questo")
+
+    def load(self, *a, **k):
+        self.changes.append("load")
+
+    def synth(self, *a, **k):
+        self.changes.append("synth")
 
     def motore_di_voce(self, voice):
         if voice in self._clones:
@@ -61,12 +76,12 @@ def test_a_cloned_voice_keeps_its_identity_when_its_engine_speaks_the_language()
     assert choose_voice("hu", voice="mia", router=r).reason == "identity"         # the engine is deduced from the voice
 
 
-def test_a_cloning_engine_that_cannot_speak_the_language_falls_to_the_standard_voice_or_piper():
+def test_a_cloning_engine_that_cannot_speak_the_language_is_routed_to_piper_not_to_another_engine():
     r = FakeRouter("chatterbox", clones=["mia"], piper=["hu_HU-anna-medium"])
     c = choose_voice("hu", voice="mia", engine="chatterbox", router=r)             # chatterbox has no Hungarian
-    assert (c.voice, c.engine, c.reason) == ("hu_HU-anna-medium", "piper", "standard")
-    c = choose_voice("ja", voice="mia", engine="chatterbox", router=FakeRouter("chatterbox", clones=["mia"]))
-    assert (c.voice, c.engine) == ("jf_alpha", "kokoro")
+    assert (c.ok, c.voice, c.engine, c.tts_lang, c.reason) == (True, "hu_HU-anna-medium", "piper", "hu", "fallback")
+    c = choose_voice("ja", voice="mia", engine="chatterbox", router=FakeRouter("chatterbox", clones=["mia"]))     # no Piper voice: nothing, not Kokoro
+    assert (c.ok, c.voice, c.engine, c.reason) == (False, "mia", "chatterbox", "engine_cannot")
 
 
 @pytest.mark.parametrize("code,gender,voice,lang", [("fr", None, "ff_siwis", "fr-fr"), ("en", "m", "am_michael", "en-us"), ("zh", "f", "zf_xiaoxiao", "cmn"),
@@ -76,29 +91,35 @@ def test_kokoro_uses_the_standard_voice_of_the_language_with_its_own_lang_string
     assert (c.ok, c.voice, c.engine, c.tts_lang, c.reason) == (True, voice, "kokoro", lang, "standard")
 
 
-def test_the_voice_the_person_mapped_comes_before_the_standard_one():
-    voice_map = {"fr": {"engine": "piper", "voice": "fr_FR-siwis-medium"}}
-    c = choose_voice("fr", voice="if_sara", engine="kokoro", voice_map=voice_map, router=FakeRouter(piper=["fr_FR-siwis-medium"]))
-    assert (c.voice, c.engine, c.reason) == ("fr_FR-siwis-medium", "piper", "mapped")
-    c = choose_voice("fr", voice="mia", engine="xtts", voice_map=voice_map, router=FakeRouter("xtts", clones=["mia"]))
-    assert c.reason == "identity"                                                  # a multilingual engine keeps the identity even so
+def test_the_voice_the_person_mapped_for_the_selected_engine_comes_before_the_standard_one():
+    c = choose_voice("fr", voice="if_sara", engine="kokoro", voice_map={"fr": "ff_siwis"}, router=FakeRouter())
+    assert (c.voice, c.engine, c.reason) == ("ff_siwis", "kokoro", "mapped")
+    c = choose_voice("fr", voice="mia", engine="xtts", voice_map={"fr": "ff_siwis"}, router=FakeRouter("xtts", clones=["mia"]))
+    assert c.reason == "identity" and c.voice == "mia"                              # a multilingual engine keeps the identity even so
+    c = choose_voice("fr", voice="if_sara", engine="kokoro", voice_map={"fr": "fr_FR-siwis-medium"}, router=FakeRouter(piper=["fr_FR-siwis-medium"]))
+    assert (c.voice, c.engine, c.reason) == ("ff_siwis", "kokoro", "standard")      # a voice of another engine in the map is not used by this one
 
 
-def test_a_language_kokoro_lacks_takes_an_installed_piper_voice_else_nothing():
+def test_a_language_kokoro_lacks_goes_to_the_mapped_or_an_installed_piper_voice_else_nothing():
     r = FakeRouter(piper=["de_DE-thorsten-medium", "de_DE-eva_k-x_low", "it_IT-riccardo-x_low"])
     c = choose_voice("de", voice="if_sara", engine="kokoro", router=r)
-    assert (c.ok, c.voice, c.engine, c.reason) == (True, "de_DE-eva_k-x_low", "piper", "piper")
+    assert (c.ok, c.voice, c.engine, c.reason) == (True, "de_DE-eva_k-x_low", "piper", "fallback")
+    c = choose_voice("de", voice="if_sara", engine="kokoro", voice_map={"de": "de_DE-thorsten-medium"}, router=r)
+    assert (c.voice, c.reason) == ("de_DE-thorsten-medium", "fallback")
     none = choose_voice("de", voice="if_sara", engine="kokoro", router=FakeRouter())
-    assert (none.ok, none.voice, none.reason) == (False, "if_sara", "none")
-    assert choose_voice("hu", voice="if_sara", engine="kokoro", router=FakeRouter()).ok is False       # the standard Hungarian voice is Piper's and not installed
+    assert (none.ok, none.voice, none.engine, none.reason) == (False, "if_sara", "kokoro", "engine_cannot")
+    assert choose_voice("hu", voice="if_sara", engine="kokoro", router=FakeRouter()).ok is False       # Hungarian: Piper's voice is not installed
+    assert choose_voice("de", voice="if_sara", engine="kokoro", router=FakeRouter(piper=["de_DE-x"], unavailable=["piper"])).ok is False
 
 
-def test_a_missing_kokoro_model_means_no_standard_voice():
-    c = choose_voice("fr", voice="hu_HU-anna-medium", engine="piper", router=FakeRouter(piper=["hu_HU-anna-medium"], unavailable=["kokoro"]))
-    assert c.ok is False
+def test_with_piper_selected_its_own_voice_for_the_language_or_nothing():
+    r = FakeRouter("piper", piper=["it_IT-riccardo-x_low", "fr_FR-siwis-medium"])
+    assert choose_voice("fr", voice="it_IT-riccardo-x_low", engine="piper", router=r).voice == "fr_FR-siwis-medium"
+    c = choose_voice("de", voice="it_IT-riccardo-x_low", engine="piper", router=r)
+    assert (c.ok, c.reason) == (False, "voice_missing")
 
 
-def test_without_a_router_everything_is_allowed_and_the_voice_is_kept():
+def test_without_a_router_the_voice_is_kept():
     c = choose_voice("de", voice="x", engine="", router=None)
     assert (c.ok, c.voice, c.reason) == (True, "x", "kept")
 
@@ -111,7 +132,10 @@ def test_tts_lang_spelling():
 # ------------------------------------------------------------------------------------------------ the session
 def session(settings=None, language="it", voice="if_sara", engine="kokoro", router=None, **kw):
     settings = settings or LanguageSettings(enabled=("it", "en", "fr"))
-    return LanguageSession(settings, language=language, voice=voice, engine=engine, router_fn=lambda: router or FakeRouter(), **kw)
+    router = router or FakeRouter()
+    s = LanguageSession(settings, language=language, voice=voice, engine=engine, router_fn=lambda: router, **kw)
+    s.router = router
+    return s
 
 
 def heard(lang, prob=0.95, seconds=3.0):
@@ -169,33 +193,71 @@ def test_a_language_the_person_did_not_enable_is_refused_with_the_way_to_enable_
     s = session()
     out = s.on_command(parse_command("sprich Deutsch"), owner=True)
     assert (out.changed, out.reason, out.warning) == (False, "refused", "not_enabled")
-    assert "tedesco" in out.say and "Impostazioni > Voce" in out.say
+    assert "tedesco" in out.say.lower() and "Impostazioni > Voce" in out.say
     assert (s.language, s.mode) == ("it", FOLLOW)
     en = session(language="en").on_command(parse_command("speak German"), owner=True)
     assert "German" in en.say and "Settings > Voice" in en.say
 
 
-def test_no_voice_for_the_language_keeps_the_previous_one_and_says_so_once_naming_the_install_button():
-    s = session(LanguageSettings(enabled=("it", "en", "de")))
+GERMAN = LanguageSettings(enabled=("it", "en", "de"))
+
+
+def test_without_a_voice_for_the_language_even_in_piper_the_previous_one_stays_and_the_install_button_is_named_once():
+    s = session(GERMAN)
     out = s.on_detection(LONG, heard("de"), owner=True)
     assert (out.changed, out.warning, out.language, out.voice) == (False, "no_voice", "it", "if_sara")
-    assert "tedesco" in out.say and "Installa" in out.say and "Impostazioni > Voce" in out.say and "italiano" in out.say
+    assert "tedesco" in out.say.lower() and "Installa" in out.say and "Impostazioni > Voce" in out.say and "italiano" in out.say
     assert s.language == "it"
     assert s.on_detection(LONG, heard("de"), owner=True) is None                     # said once; the detection is ignored from now on
     out = s.on_command(parse_command("sprich Deutsch"), owner=True)                  # asked again: it is answered again
     assert out.warning == "no_voice" and out.say and s.mode == FOLLOW
-    s.apply_settings(LanguageSettings(enabled=("it", "en", "de"), voices={"de": {"engine": "piper", "voice": "de_DE-x"}}))
+    s.router._piper = ("de_DE-x",)
+    s.apply_settings(GERMAN)                                                         # the person installed a Piper voice and saved the settings
     out = s.on_detection(LONG, heard("de"), owner=True)
-    assert (out.language, out.voice, out.engine) == ("de", "de_DE-x", "piper")       # a voice was mapped: the language works now
+    assert (out.language, out.voice, out.engine, out.warning) == ("de", "de_DE-x", "piper", "fallback")
+
+
+def test_a_language_the_engine_cannot_speak_goes_to_piper_with_one_notice_and_comes_back():
+    router = FakeRouter(piper=["de_DE-x"])
+    s = session(GERMAN, router=router)
+    out = s.on_detection(LONG, heard("de"), owner=True)
+    assert (out.changed, out.engine, out.voice, out.tts_lang, out.warning) == (True, "piper", "de_DE-x", "de", "fallback")
+    assert out.pre_say == "Tedesco non è disponibile nella voce if_sara: uso Piper."
+    assert "Piper" in out.pre_say and "if_sara" in out.pre_say and s.routed_to_piper and s.status()["engine_fallback"] is True
+    assert (s.base_voice, s.base_engine) == ("if_sara", "kokoro")                    # the selection is not rewritten
+    out = s.on_detection(LONG + " words", heard("en"), owner=True)                     # back to a language Kokoro speaks
+    assert (out.changed, out.engine, out.voice, out.tts_lang, out.pre_say) == (True, "kokoro", "af_heart", "en-us", "")
+    assert not s.routed_to_piper
+    out = s.on_detection(LONG, heard("de"), owner=True)                              # and to Piper again: the notice was already given
+    assert out.engine == "piper" and out.pre_say == ""
+    assert router.changes == []                                                      # the session never activated, loaded or swapped anything
+
+
+def test_a_command_for_a_language_in_piper_confirms_in_that_language_after_the_notice():
+    s = session(GERMAN, router=FakeRouter(piper=["de_DE-x"]))
+    out = s.on_command(parse_command("sprich Deutsch"), owner=True)
+    assert (out.mode, out.engine, out.say, out.warning) == (LOCKED, "piper", "In Ordnung, ich spreche Deutsch.", "fallback")
+    assert "Piper" in out.pre_say
 
 
 def test_a_command_that_finds_no_voice_does_not_lock_but_keeps_an_earlier_lock():
-    s = session(LanguageSettings(enabled=("it", "en", "de")))
+    s = session(GERMAN)
     s.on_command(parse_command("sprich Deutsch"), owner=True)
     assert s.mode == FOLLOW
     s.on_command(parse_command("parla inglese"), owner=True)
     s.on_command(parse_command("sprich Deutsch"), owner=True)
     assert s.mode == LOCKED and s.language == "en"
+
+
+@pytest.mark.parametrize("text", ["use Piper", "usa piper", "cambia motore", "switch to the Kokoro engine", "usa il motore italiano", "change the model to French",
+                                  "passa al modello francese", "utilise le moteur français", "wechsle die Engine auf Deutsch", "set the voice engine to xtts",
+                                  "cambia il motore vocale in inglese", "speak French with Piper"])
+def test_no_phrase_selects_an_engine_or_a_model(text):
+    cmd = parse_command(text)
+    assert cmd is None or cmd["kind"] not in ("lang", "lang_auto"), text
+    router = FakeRouter(piper=["fr_FR-x"])
+    s = session(router=router)
+    assert s.on_command(cmd, owner=True) is None and s.engine == "kokoro" and router.changes == [] and router.attivo == "kokoro"
 
 
 def test_the_panel_asks_through_request():
@@ -225,12 +287,14 @@ def test_the_english_only_recognizer_is_reported_when_another_language_is_enable
     assert s.status("small.en")["warnings"] == [WARNING_STT_ENGLISH_ONLY] and s.status()["enabled"] == ["it", "en", "fr"]
 
 
-def test_a_multilingual_engine_keeps_the_voice_through_changes():
-    s = session(voice="mia", engine="xtts", router=FakeRouter("xtts", clones=["mia"]))
+def test_a_multilingual_engine_keeps_the_voice_through_changes_and_nothing_is_swapped():
+    router = FakeRouter("xtts", clones=["mia"])
+    s = session(voice="mia", engine="xtts", router=router)
     out = s.on_detection(LONG, heard("fr"), owner=True)
     assert (out.voice, out.engine, out.tts_lang) == ("mia", "xtts", "fr")
     out = s.on_command(parse_command("speak English"), owner=True)
     assert (out.voice, out.engine, out.tts_lang, out.changed) == ("mia", "xtts", "en", True)
+    assert router.changes == [] and router.attivo == "xtts"
 
 
 def test_locking_the_current_language_confirms_without_a_change():

@@ -179,8 +179,8 @@ def test_settings_parse_defaults_and_bad_values():
     d = LanguageSettings.parse(None)
     assert (d.follow, d.enabled, d.threshold, d.short_s, d.voices) == (True, DEFAULT_ENABLED, 0.8, 1.5, {})
     s = LanguageSettings.parse({"follow": False, "enabled": ["IT", "fr-FR", "xx1", 5, "fr"], "threshold": 0.9, "short_s": 2,
-                                "voices": {"fr": {"engine": "Piper", "voice": " fr_FR-siwis-medium "}, "de": {"voice": ""}, "??": {"voice": "x"}}})
+                                "voices": {"fr": " ff_siwis ", "de": "", "??": "x", "es": {"voice": "x"}}})
     assert s.follow is False and s.enabled == ("it", "fr") and s.threshold == 0.9 and s.short_s == 2.0
-    assert s.voices == {"fr": {"engine": "piper", "voice": "fr_FR-siwis-medium"}}
+    assert s.voices == {"fr": "ff_siwis"}
     bad = LanguageSettings.parse({"enabled": [], "threshold": 5, "short_s": "x", "follow": "no"})
     assert (bad.enabled, bad.threshold, bad.short_s, bad.follow) == (DEFAULT_ENABLED, 0.8, 1.5, True)
