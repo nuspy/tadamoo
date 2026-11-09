@@ -37,7 +37,8 @@ or the Whisper checkpoint; it imports only the standard library.
 - The TTS routes of `handy_compat` answer HTTP 409 with `{status: "error", code: "model_not_installed", model, message}` (`/tts/test`,
   `/models/load`); the TTS WebSocket sends `{type: "error", code: "model_not_installed", message}`. Other errors keep their old answers.
 - `/tts/models` rows have `model` and `reason`, and `is_downloaded` is true only when the model is installed and the engine's Python
-  environment and helper exist.
+  environment and helper exist. Piper is a set of independent voices: it is installed (in this list, in the models catalogue and for the
+  service) when at least one voice has its `.onnx` and its `.onnx.json`; the catalogue says "n of 4 voices" and keeps the download for the rest.
 
 ## Cloned voices
 
