@@ -108,12 +108,12 @@
   function mount(node, context) {
     ctx = context; card = node; list = null; Object.keys(sigs).forEach(k => delete sigs[k]);
     for (const k of Object.keys(parts)) delete parts[k];
-    for (const id of ["status", "stage", "say", "list", "wizard"]) { parts[id] = el("div", "va-part"); parts[id].id = "va-" + id; card.append(parts[id]); }
+    for (const id of ["status", "engine", "stage", "say", "list", "wizard"]) { parts[id] = el("div", "va-part"); parts[id].id = "va-" + id; card.append(parts[id]); }
     sayText = sayText || T("va.sample");
     paintAll();
     refreshList();
   }
-  function paintAll() { Object.keys(sigs).forEach(k => delete sigs[k]); paintStatus(); paintStage(); paintSay(); paintList(); paintWizard(); }
+  function paintAll() { Object.keys(sigs).forEach(k => delete sigs[k]); paintStatus(); paintEngine(); paintStage(); paintSay(); paintList(); paintWizard(); }
 
   async function update() {
     if (!card || busy) return;
@@ -125,7 +125,7 @@
     const was = S;
     S = r.ok ? r.data : null;
     if (was && was.prepare && was.prepare.state === "running" && S && S.prepare && S.prepare.state !== "running") { rowMsg[S.prepare.avatar] = prepMessage(S.prepare); refreshList(); }
-    paintStatus(); paintStage(); paintSay();
+    paintStatus(); paintEngine(); paintStage(); paintSay();
     if (listSig !== sigOf([S && S.prepare, ctx.personas().length, S && S.persona])) paintList();
     const acts = document.getElementById("va-result-acts");
     if (wiz && wiz.result && acts && changed("result", [S && S.persona, S && S.preparing, S && S.prepare, S && S.loaded, rowMsg])) fillResultActions(acts, wiz.result);
@@ -150,6 +150,13 @@
       box.append(btn(T("va.off.open"), "ghost", ctx.openModels));
     } else if (S && S.link && S.link.problem && slug) box.append(note(S.link.problem, false));
     if (S && S.error && !S.preparing) box.append(note(S.error, true));
+  }
+
+  function paintEngine() {                                    // the engine and the height the web preview uses (serve/web/voiceengines.js)
+    const text = window.VoiceEngines ? window.VoiceEngines.webLine(ctx.api) : "";
+    if (!changed("engine", text)) return;
+    clear(parts.engine);
+    if (text) parts.engine.append(Object.assign(el("p", "vt-help", text), { id: "va-engine-line" }));
   }
 
   function paintStage() {
@@ -543,6 +550,7 @@
     else status.textContent = T("va.cam.waiting");
   }
 
+  document.addEventListener("tadamoo:avatar-engines", () => { if (card && parts.engine) paintEngine(); });
   document.addEventListener("tadamoo:view", e => { if (e.detail !== "voice") stop(); });
   document.addEventListener("visibilitychange", () => { if (document.hidden) stop(); });
   window.VoiceAvatar = { mount, update, stop, settingsCard, _state: () => ({ S, wiz }) };

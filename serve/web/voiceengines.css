@@ -1,0 +1,28 @@
+/* The Avatar engines card of Settings > Voice. Mobile first: one column, rows and the choice of height are 44px or more, nothing scrolls sideways. */
+.ve-card { min-width: 0; }
+.ve-body { display: grid; gap: 16px; min-width: 0; }
+.ve-set { display: grid; gap: 10px; min-width: 0; margin: 0; padding: 12px; border: 1px solid var(--line-soft); border-radius: 8px; }
+.ve-legend { padding: 0 6px; font: 600 16px/1.3 var(--font-sans); color: var(--fg); }
+.ve-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; min-width: 0; }
+.ve-row { display: grid; align-content: start; gap: 6px; min-width: 0; padding: 10px 12px; border: 1px solid var(--line-soft); border-left: 4px solid var(--line); border-radius: 8px; background: var(--panel); }
+.ve-row[data-chosen="1"] { border-left-color: var(--accent); border-color: var(--accent); }
+.ve-pick { display: flex; align-items: center; gap: 12px; min-height: 44px; cursor: pointer; color: var(--fg); }
+.ve-pick input { width: 24px; height: 24px; margin: 0; flex: none; accent-color: var(--accent); cursor: pointer; }
+.ve-name { min-width: 0; overflow-wrap: anywhere; }
+.ve-badges { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.ve-badge { display: inline-flex; align-items: center; min-height: 26px; padding: 2px 10px; border: 1px solid var(--line); border-radius: 13px; font-size: 13px; line-height: 1.4; color: var(--fg-2); overflow-wrap: anywhere; }
+.ve-badge.ve-warn { border-color: var(--warn); color: var(--warn); font-weight: 600; }
+.ve-badge.ve-ok { border-color: var(--accent); color: var(--fg); }
+.ve-badge.ve-off { border-style: dashed; }
+.ve-badge.ve-train { color: var(--fg); }
+.ve-text { margin: 0; font-size: 14px; line-height: 1.5; color: var(--fg-2); overflow-wrap: anywhere; }
+.ve-why { color: var(--fg); }
+.ve-needs-h { color: var(--fg); font-weight: 600; }
+.ve-more { display: grid; gap: 6px; }
+.ve-more summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; color: var(--fg); font-size: 14px; }
+.ve-list { margin: 0 0 4px; padding-left: 22px; color: var(--fg-2); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.ve-res select { max-width: 100%; }
+.vt-root .ve-card :focus-visible, .vb-root .ve-card :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (min-width: 1000px) { .ve-rows { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ve-more summary::before { content: "+"; display: inline-block; width: 1.4em; color: var(--fg-2); }
+.ve-more[open] summary::before { content: "-"; }
