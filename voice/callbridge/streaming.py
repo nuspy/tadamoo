@@ -38,9 +38,10 @@ from .tts_client import HandyTtsClient
 from .turn_engine import ReplyProcessor, configure_tts
 from .interruption_policy import Esito, classifica
 from .util import coalesce_utterances, drain_queue
-from .voice_commands import (
-    LANG_TABLE, code_for_kokoro_lang, detect_language, parse_command, voice_for,
-)
+from . import language_names
+from .language_follow import LanguageSettings, iso
+from .language_session import LanguageSession, Outcome
+from .voice_commands import LANG_TABLE, code_for_kokoro_lang, parse_command, table_key
 
 log = logging.getLogger("callbridge.streaming")
 
@@ -103,9 +104,8 @@ class StreamingSession:
         # persona che ha scelto XTTS veniva fatta parlare da un altro.
         self.voice_engine = (voice_engine or "").strip()
         self.lang = lang
-        # Codice lingua interno corrente (chiave di LANG_TABLE), per confronto
-        # con l'auto-rilevamento. Ricavato dalla lang Kokoro iniziale.
-        self._lang_code = code_for_kokoro_lang(lang)
+        # Codice lingua corrente (ISO 639-1), ricavato dalla lang Kokoro iniziale.
+        self._lang_code = iso(code_for_kokoro_lang(lang))
         # half_duplex: mentre il TTS riproduce, NON inoltrare audio allo STT
         # (evita che il microfono catturi l'audio del TTS dalle casse). Usato
         # dal push-to-talk con le casse; le chiamate restano full-duplex.
@@ -144,26 +144,55 @@ class StreamingSession:
         # che lo possiede. Qui si deposita solo la richiesta.
         self._lang_request: str | None = None
         self._threads: list[threading.Thread] = []
+        # Stato della lingua parlata (callbridge/language_session.py): solo dove i comandi vocali sono
+        # attivi, cioe' con il microfono della persona. Telefonate e riunioni non ce l'hanno: la loro
+        # lingua e' quella configurata e resta ferma.
+        self._lang_session: LanguageSession | None = self._make_language_session() if self.voice_commands_enabled else None
 
     # --- lingua: leggibile e impostabile dall'esterno ----------------------
 
+    def _make_language_session(self) -> LanguageSession:
+        cfg = self.cfg
+
+        def router():
+            from .engines import _get_tts_engine
+            return _get_tts_engine(cfg)
+
+        return LanguageSession(LanguageSettings.from_config(cfg), language=self._lang_code, voice=self.voice, engine=self.voice_engine,
+                               gender=self._infer_gender(), router_fn=router, stt_fixed=bool(getattr(cfg, "stt_language", "")), tts_lang=self.lang)
+
     @property
     def language(self) -> str:
-        """Codice lingua corrente (chiave di LANG_TABLE, es. "it").
+        """Codice lingua corrente (ISO 639-1, es. "it").
 
         Cambia anche da solo — comando vocale o auto-rilevamento — quindi chi
         mostra un selettore deve rileggerlo, non fidarsi dell'ultimo valore
         impostato."""
         return self._lang_code
 
+    @property
+    def language_mode(self) -> str:
+        """"follow" (la lingua segue il parlato) o "locked" (tenuta ferma: comando della persona, impostazione o sessione senza rilevamento)."""
+        return self._lang_session.mode if self._lang_session is not None else "locked"
+
+    def language_status(self) -> dict:
+        """{language, mode, follow, enabled, engine_fallback, warnings}: la lingua e perche'."""
+        if self._lang_session is None:
+            return {"language": self._lang_code, "mode": "locked", "follow": False, "enabled": [self._lang_code], "engine_fallback": False,
+                    "warnings": []}
+        return self._lang_session.status(str(getattr(self.cfg, "stt_model", "") or ""))
+
     def request_language(self, code: str) -> bool:
-        """Chiede il passaggio a `code`. False se la lingua non è supportata.
+        """Chiede il passaggio a `code` ("auto" = di nuovo automatica). False se la lingua non e' abilitata.
 
         Applicata dal thread `_brain` entro ~0,5s (vedi `_lang_request`)."""
         code = (code or "").strip().lower()
-        if code not in LANG_TABLE:
+        ls = self._lang_session
+        if ls is None:
             return False
-        self._lang_request = code
+        if code != "auto" and not (language_names.is_known(iso(code)) and ls.follower.is_enabled(iso(code))):
+            return False
+        self._lang_request = "auto" if code == "auto" else iso(code)
         return True
 
     @property
@@ -226,7 +255,8 @@ class StreamingSession:
         # Factory: client nativo (in-process) o Handy (WS), secondo il backend
         # scelto in config. Interfaccia identica -> il resto di run() non cambia.
         from .engines import make_stt_client, make_tts_client
-        stt = make_stt_client(self.cfg)
+        ls = self._lang_session
+        stt = make_stt_client(self.cfg, follow=ls is not None and ls.settings.follow and not ls.stt_fixed)
         tts = make_tts_client(self.cfg)
         try:
             stt.start()
@@ -237,6 +267,9 @@ class StreamingSession:
             # Fatto per OGNI sessione (anche telefonate) perche' il cervello e'
             # condiviso: evita che una sessione erediti la lingua di quella precedente.
             self._set_reply_language(self._lang_code)
+            self._sync_stt(stt)
+            for warning in (ls.warnings(str(getattr(self.cfg, "stt_model", "") or "")) if ls is not None else ()):
+                log.warning("Lingua: %s", warning)
         except Exception as e:  # noqa: BLE001
             # Qualunque errore in apertura: chiudi ENTRAMBI i WebSocket (uno dei
             # due potrebbe essersi aperto) per non lasciare connessioni/thread orfani.
@@ -344,10 +377,8 @@ class StreamingSession:
             # aspettasse il prossimo enunciato, la lingua cambierebbe solo dopo
             # aver parlato ancora nella vecchia.
             richiesta, self._lang_request = self._lang_request, None
-            if richiesta:
-                if self._apply_language(tts, richiesta, None) is None:
-                    log.warning("Cambio lingua ignorato: '%s' non supportata",
-                                richiesta)
+            if richiesta and self._lang_session is not None:
+                self._apply_outcome(tts, stt, self._lang_session.request(richiesta), speak=False)
             try:
                 utterance = stt.utterances.get(timeout=0.5)
             except queue.Empty:
@@ -358,6 +389,7 @@ class StreamingSession:
             # processato come enunciato valido.
             if self.half_duplex and not self._listening.is_set():
                 log.debug("Brain: enunciato scartato (non in ascolto)")
+                self._take_language_info(stt)
                 continue
 
             # In half-duplex (turn-based) lo STT spezza una frase lunga su pause
@@ -373,6 +405,7 @@ class StreamingSession:
                 # e' l'utente: scartalo e RESTA in ascolto (niente turno nuovo).
                 if self._looks_like_echo(utterance):
                     log.info("Scartato come eco del TTS: %r", utterance)
+                    self._take_language_info(stt)
                     continue
                 # Turno chiuso: da ora si SMETTE di ascoltare (mic muto) fino a
                 # fine riproduzione della risposta + warmup post-TTS.
@@ -380,6 +413,10 @@ class StreamingSession:
                 self._listening.clear()
 
             log.info("Interlocutore: %s", utterance)
+            heard = self._take_language_info(stt)
+            # Solo cio' che viene dal microfono della persona puo' cambiare la lingua: in una sessione
+            # che ascolta altri (telefonata, riunione) `voice_commands_enabled` e' falso e non succede nulla.
+            owner = self.utterance_source == "mic"
 
             # Se il TTS sta ancora suonando, questo enunciato e' arrivato
             # sopra la voce dell'avatar: non e' automaticamente
@@ -406,16 +443,26 @@ class StreamingSession:
                 # riconosciuto come enunciato intero: eseguilo e conferma a voce,
                 # SENZA passarlo all'agente. Solo nelle sessioni PTT.
                 cmd = parse_command(utterance) if self.voice_commands_enabled else None
-                if cmd is not None:
+                lang_out: Outcome | None = None
+                if cmd is not None and cmd["kind"] in ("lang", "lang_auto"):
+                    lang_out = self._lang_session.on_command(cmd, owner) if self._lang_session is not None else None
+                    if lang_out is None:
+                        cmd = None      # una parola qualunque, o non e' la persona: risponde il cervello
+                if lang_out is not None:
+                    log.info("Comando vocale riconosciuto: %s", cmd)
+                    self._apply_outcome(tts, stt, lang_out)
+                elif cmd is not None:
                     log.info("Comando vocale riconosciuto: %s", cmd)
                     confirmation = self._run_voice_command(cmd, tts)
                     if confirmation:
                         self._deliver_response(tts, confirmation, stt)
                 else:
-                    # Auto-rilevamento lingua: se l'utente parla un'altra lingua,
-                    # adegua voce/lingua PRIMA di interrogare l'agente.
-                    if self.voice_commands_enabled:
-                        self._maybe_auto_language(utterance, tts)
+                    # Lingua seguita dal parlato: se la persona parla un'altra lingua (rilevata da whisper,
+                    # con isteresi), voce/lingua cambiano PRIMA di interrogare il cervello.
+                    if self._lang_session is not None:
+                        lang_out = self._lang_session.on_detection(utterance, heard, owner)
+                        if lang_out is not None:
+                            self._apply_outcome(tts, stt, lang_out)
                     self._run_llm_turn(utterance, stt, tts)
             except Exception as e:  # noqa: BLE001 - errore lato cervello
                 log.error("Il cervello ha fallito sull'enunciato: %s", e)
@@ -437,6 +484,7 @@ class StreamingSession:
                         self._stop.wait(cooldown)
                     # Scarta tutto cio' che fosse colato nello STT (eco/coda).
                     drain_queue(stt.utterances)
+                    self._take_language_info(stt)
                     # Ascolto attivo.
                     self._cooldown.clear()
                     self._listening.set()
@@ -509,7 +557,7 @@ class StreamingSession:
                              self.voice, self.lang, new_voice, new_lang)
                     self.voice = new_voice
                     self.lang = new_lang
-                    self._lang_code = code_for_kokoro_lang(new_lang)
+                    self._lang_code = iso(code_for_kokoro_lang(new_lang))
                     # Il motore segue la voce: se la voce resta, resta anche il
                     # motore. Prima qui c'era `self.voice_engine if new_voice ==
                     # self.voice else ""`, che era codice morto — `self.voice`
@@ -626,72 +674,50 @@ class StreamingSession:
         return "m" if len(self.voice) > 1 and self.voice[1] == "m" else "f"
 
     def _set_reply_language(self, code: str) -> None:
-        """Comunica all'agente la lingua in cui rispondere (se lo supporta)."""
-        info = LANG_TABLE.get(code)
+        """Comunica al cervello la lingua in cui rispondere (se lo supporta)."""
         fn = getattr(self.brain, "set_reply_language", None)
-        if info and callable(fn):
-            try:
-                fn(info["reply"])
-            except Exception as e:  # noqa: BLE001 - brain senza il metodo/errore
-                log.debug("set_reply_language fallito: %s", e)
-
-    def _motore_parla(self, code: str, voce: str) -> bool:
-        """Il motore che pronuncerà `voce` sa parlare questa lingua?
-
-        Se non la sa, la lingua NON si cambia: sintetizzare un testo in una
-        lingua che il motore non conosce da' pronuncia incomprensibile. In
-        dubbio (motore ignoto, router non raggiungibile) si lascia passare."""
-        info = LANG_TABLE.get(code)
-        if info is None:
-            return False
+        if not (language_names.is_known(code) and callable(fn)):
+            return
+        name = language_names.reply_name(code)
         try:
-            from .engines import _get_tts_engine
-            router = _get_tts_engine(self.cfg)
-            motore = router.motore_di_voce(voce) or router.attivo
-            return router.parla_lingua(motore, info["lang"])
-        except Exception as e:  # noqa: BLE001 - backend esterno o non pronto
-            log.debug("controllo lingua/motore non eseguito: %s", e)
-            return True
+            fn(name, code)
+        except TypeError:
+            fn(name)                    # un cervello che non conosce il codice per la nota [state]
+        except Exception as e:  # noqa: BLE001 - errore del cervello
+            log.debug("set_reply_language fallito: %s", e)
 
-    def _apply_language(self, tts: HandyTtsClient, code: str,
-                        gender: str | None) -> dict | None:
-        """Cambia lingua (e voce, se non `keep_voice`) e riconfigura il TTS.
-        Ritorna l'entry di LANG_TABLE applicata, o None se la lingua e'
-        sconosciuta o il motore non la parla."""
-        info = LANG_TABLE.get(code)
-        if info is None:
+    def _take_language_info(self, stt) -> dict | None:
+        """Quel che whisper ha sentito (lingua, probabilita', durata) negli enunciati appena presi; None se lo STT non lo riporta."""
+        fn = getattr(stt, "take_language_info", None)
+        try:
+            return fn() if callable(fn) else None
+        except Exception as e:  # noqa: BLE001
+            log.debug("take_language_info fallito: %s", e)
             return None
-        # Voce con cui si parlerebbe dopo il cambio: con l'avatar resta quella
-        # della persona (`keep_voice`), altrimenti la voce standard della lingua.
-        voce_dopo = self.voice if self.keep_voice \
-            else voice_for(code, gender or self._infer_gender())
-        if not self._motore_parla(code, voce_dopo):
-            # Non si cambia: si resta nella lingua di prima (all'inizio della
-            # sessione non ce n'e' una "detta", e li' l'inglese e' il ripiego).
-            ripiego = self._lang_code or "en"
-            log.info("🌐 Lingua %s non supportata dal motore in uso: resto su %s",
-                     code, ripiego)
-            if ripiego != self._lang_code:
-                return self._apply_language(tts, ripiego, gender)
-            return None
-        # Avatar (keep_voice): conserva la voce clonata della persona, cambia
-        # solo la lingua di sintesi. Altrimenti scegli la voce standard della
-        # lingua, mantenendo il genere corrente se non specificato.
-        self.voice = voce_dopo
-        self.lang = info["lang"]
-        self._lang_code = code
-        configure_tts(tts, self.cfg, self.voice, self.lang, self.voice_engine)
-        self._set_reply_language(code)
-        log.info("🌐 Lingua -> %s (voce=%s, lang=%s)", code, self.voice, self.lang)
-        return info
+
+    def _sync_stt(self, stt) -> None:
+        """Lo STT resta in rilevamento automatico finche' la lingua segue il parlato; tenuta ferma, la suggerisce (nessun ricaricamento)."""
+        ls, fn = self._lang_session, getattr(stt, "set_language", None)
+        if ls is not None and callable(fn):
+            fn(ls.stt_hint() or None)
+
+    def _apply_outcome(self, tts: HandyTtsClient, stt, out: Outcome, speak: bool = True) -> None:
+        """Mette in pratica un cambio di lingua: la frase di avviso con la voce di prima, poi voce/lang del TTS, la lingua del cervello, l'indizio
+        allo STT e la conferma con la voce nuova. Il motore selezionato non si tocca: a cambiare, per una lingua che non parla, e' solo il
+        routing verso Piper deciso da `LanguageSession`."""
+        if speak and out.pre_say:
+            self._deliver_response(tts, out.pre_say, stt)
+        if out.changed:
+            self.voice, self.voice_engine, self.lang, self._lang_code = out.voice, out.engine, out.tts_lang, out.language
+            configure_tts(tts, self.cfg, self.voice, self.lang, self.voice_engine)
+            self._set_reply_language(out.language)
+            log.info("Lingua -> %s (voce=%s, motore=%s, lang=%s)", out.language, self.voice, self.voice_engine or "?", self.lang)
+        self._sync_stt(stt)
+        if speak and out.say:
+            self._deliver_response(tts, out.say, stt)
 
     def _run_voice_command(self, cmd: dict, tts: HandyTtsClient) -> str:
         """Esegue un comando vocale e ritorna la frase di conferma da pronunciare."""
-        if cmd["kind"] == "lang":
-            info = self._apply_language(tts, cmd["lang"], cmd.get("gender"))
-            if info is None:
-                return "Non conosco quella lingua."
-            return info["switch"]
         if cmd["kind"] == "brain":
             fn = getattr(self.brain, "set_mode", None)
             if callable(fn) and fn(cmd["mode"]):
@@ -706,17 +732,9 @@ class StreamingSession:
                     ok = bool(fn())
                 except Exception as e:  # noqa: BLE001
                     log.warning("reset_session fallito: %s", e)
-            info = LANG_TABLE.get(self._lang_code, LANG_TABLE["it"])
+            info = LANG_TABLE.get(table_key(self._lang_code), LANG_TABLE["it"])
             return info["new_session"] if ok else "Non sono riuscito a ripartire."
         return ""
-
-    def _maybe_auto_language(self, utterance: str, tts: HandyTtsClient) -> None:
-        """Se l'enunciato e' in una lingua diversa (e supportata), adegua
-        voce/lingua prima di interrogare l'agente."""
-        det = detect_language(utterance)
-        if det and det != self._lang_code and det in LANG_TABLE:
-            log.info("🌐 Auto-rilevata lingua %s (era %s)", det, self._lang_code)
-            self._apply_language(tts, det, None)
 
     def _deliver_response(self, tts: HandyTtsClient, full: str, stt=None) -> None:
         """Consegna la risposta pronunciata `full` al TTS e ne attende la fine

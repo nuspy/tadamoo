@@ -55,21 +55,9 @@ class AvatarPushToTalkSession(PushToTalkSession):
     voce funziona subito.
     """
 
-    # L'avatar NON cambia mai voce: quella del manifest della persona vale
-    # sempre, e col cambio lingua cambia solo la lingua di sintesi.
-    #
-    # Prima era False, e il commento lo ammetteva: al cambio lingua una persona
-    # con voce clonata passava a una voce Kokoro. Non e' solo un timbro diverso
-    # da quello scelto — e' un MOTORE diverso, e i motori TTS non stanno in
-    # memoria insieme con questa VRAM. Il router scaricava XTTS per caricare
-    # Kokoro e viceversa, e ogni giro costa decine di secondi: misurato
-    # `motore 'xtts' pronto in 70.7s`. Bastava l'auto-rilevamento della lingua
-    # a farlo scattare, senza che nessuno avesse chiesto niente.
-    #
-    # Il motivo storico ("il timbro clonato non e' nativo nelle altre lingue")
-    # non vale per XTTS v2, che e' multilingue proprio per questo. Se il motore
-    # della persona non parla la lingua richiesta, `_apply_language` resta
-    # nella lingua di prima invece di cambiare voce.
+    # L'avatar non cambia voce al cambio lingua: la voce del manifest della persona resta (un motore
+    # multilingue la rende nella lingua nuova); una lingua che il suo motore non parla e' resa da Piper
+    # solo finche' dura (callbridge/language_voice.py), senza riscrivere la scelta della persona.
     keep_voice = True
     # Streaming frase-per-frase: ogni frase completa viene sintetizzata e
     # accodata SUBITO al worker, che la rende mentre il bridge prepara la
@@ -633,8 +621,13 @@ class PushToTalkManager:
                 return {"active": False, "mode": None, "phase": "idle",
                         "avatar": False, "brain": None}
             return {"active": True, "mode": self._mode, "phase": s.phase,
-                    "avatar": self._avatar_active, "language": s.language,
+                    "avatar": self._avatar_active, "language": s.language, "language_mode": s.language_mode,
                     "brain": self._brain.mode if self._brain is not None else None}
+
+    def language_status(self) -> dict:
+        """{language, mode, follow, enabled, engine_fallback, warnings} della sessione in corso; {} se non ce n'e' nessuna."""
+        with self._lock:
+            return self._session.language_status() if self._session is not None else {}
 
     def current_language(self) -> str:
         """Lingua della sessione in corso ("" se non ce n'è nessuna)."""

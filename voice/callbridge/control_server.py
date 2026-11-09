@@ -219,19 +219,23 @@ def create_app(
         chi mostra un selettore deve rileggerlo periodicamente, non fidarsi
         dell'ultimo valore che ha impostato.
         """
-        from .voice_commands import LANG_TABLE
-        corrente = ptt.current_language() if ptt is not None else ""
+        from . import language_names
+        status = ptt.language_status() if ptt is not None else {}
+        corrente = status.get("language", "")
         return jsonify({
             "language": corrente,
             "active": bool(corrente),
-            "languages": [{"code": k, "label": v.get("reply") or k}
-                          for k, v in LANG_TABLE.items()],
+            "mode": status.get("mode", ""),
+            "follow": status.get("follow", False),
+            "engine_fallback": status.get("engine_fallback", False),
+            "warnings": status.get("warnings", []),
+            "languages": [{"code": c, "label": language_names.label(c, "en")} for c in status.get("enabled", [])],
         })
 
     @app.post("/session/language")
     def session_language_set():
         """Cambia la lingua della sessione in corso (voce di sintesi + lingua in
-        cui l'agente deve rispondere). 409 se non c'è una sessione attiva."""
+        cui l'agente deve rispondere); "auto" la rimette automatica. 409 se non c'è una sessione attiva."""
         body = request.get_json(silent=True) or {}
         code = (body.get("language") or body.get("code") or "").strip()
         if not code:
@@ -242,7 +246,7 @@ def create_app(
             if not ptt.current_language():
                 return jsonify({"error": "nessuna sessione voce attiva",
                                 "code": "no_session"}), 409
-            return jsonify({"error": f"lingua '{code}' non supportata"}), 400
+            return jsonify({"error": f"language '{code}' is not enabled (Settings > Voice)", "code": "not_enabled"}), 400
         log.info("Lingua sessione -> %s (dal pannello)", code)
         return jsonify({"status": "ok", "language": code})
 
