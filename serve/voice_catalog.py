@@ -682,8 +682,19 @@ def download_entry(model_id: str) -> dict | None:
             "noncommercial": e["noncommercial"], "marker": True, "why_not": {"code": why, **_WHY[why]} if not ok else None}
 
 
+def piper_voices(entry: dict, root: str) -> list[str]:
+    """The voices of a Piper entry that are usable in its folder: the .onnx and its .onnx.json (voice/callbridge/models_store.py says the same)."""
+    folder = os.path.join(root, *folder_of(entry).split("/"))
+    return [p[:-len(".onnx")] for p in entry["probe"]
+            if p.endswith(".onnx") and os.path.isfile(os.path.join(folder, p)) and os.path.isfile(os.path.join(folder, p + ".json"))]
+
+
 def installed(entry: dict, root: str) -> bool:
-    """True when the folder holds what a finished download recorded (every file there, of the recorded size), else when it holds every probe file."""
+    """True when the folder holds what a finished download recorded (every file there, of the recorded size), else when it holds every probe file.
+
+    Piper is a set of independent voices: it is installed when at least one voice is complete, which is also when it can speak; `public` says how many."""
+    if entry["id"] == "piper":
+        return bool(piper_voices(entry, root))
     folder = os.path.join(root, *folder_of(entry).split("/"))
     try:
         with open(os.path.join(folder, MARKER), encoding="utf-8") as fh:
@@ -704,4 +715,5 @@ def public(entry: dict, root: str) -> dict:
     return {"id": entry["id"], "name": entry["name"], "engine": entry["engine"], "family": entry["family"], "size": entry["size"],
             "license": {"id": entry["license"], "name": lic["name"]}, "noncommercial": entry["noncommercial"],
             "selectable": entry["selectable"], "sha256": entry["sha256"], "kind": entry["kind"], "folder": folder_of(entry), "installed": installed(entry, root), "verify": bool(entry["verify"]), "verify_fields": list(entry["verify"]),
-            "downloadable": ok, "not_downloadable": why, "languages": entry["languages"], "notes": entry["notes"], "venv": entry["venv"]}
+            "downloadable": ok, "not_downloadable": why, "languages": entry["languages"], "notes": entry["notes"], "venv": entry["venv"],
+            "parts": ({"installed": piper_voices(entry, root), "total": len(entry["probe"])} if entry["id"] == "piper" else None)}

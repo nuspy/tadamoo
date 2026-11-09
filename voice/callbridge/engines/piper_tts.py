@@ -46,8 +46,9 @@ class PiperTtsEngine:
         return bool(self._list_files())
 
     def _list_files(self) -> list[str]:
+        """The voices that can load: a .onnx with its .onnx.json next to it."""
         try:
-            return sorted(glob.glob(os.path.join(self.model_dir, "*.onnx")))
+            return sorted(p for p in glob.glob(os.path.join(self.model_dir, "*.onnx")) if os.path.isfile(p + ".json"))
         except OSError:
             return []
 
@@ -58,7 +59,8 @@ class PiperTtsEngine:
     def has_voice(self, voice: str) -> bool:
         if not voice:
             return False
-        return os.path.isfile(os.path.join(self.model_dir, voice + ".onnx"))
+        path = os.path.join(self.model_dir, voice + ".onnx")
+        return os.path.isfile(path) and os.path.isfile(path + ".json")
 
     def _get_voice(self, voice: str):
         with self._lock:

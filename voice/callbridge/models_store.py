@@ -120,13 +120,23 @@ def _probes(model_id: str) -> tuple:
     return MODELS[model_id][3] if model_id in MODELS else ()
 
 
+def piper_installed_voices(where: str, probes) -> list[str]:
+    """The Piper voices of `probes` (the .onnx names) that are usable in `where`: the .onnx and its .onnx.json, which Piper cannot load without."""
+    return [p[:-len(".onnx")] for p in probes
+            if p.endswith(".onnx") and os.path.isfile(os.path.join(where, p)) and os.path.isfile(os.path.join(where, p + ".json"))]
+
+
 def is_installed(model_id: str, base: str | None = None) -> bool:
-    """True when the folder holds what a finished download recorded (each file there, of the recorded size), else every probe file."""
+    """True when the folder holds what a finished download recorded (each file there, of the recorded size), else every probe file.
+
+    Piper is a set of independent voices: it counts as installed when at least one voice is complete, which is also when it can speak."""
     if model_id not in MODELS:
         return False
     where = folder(MODELS[model_id][0], model_id, base)
     if not where:
         return False
+    if model_id == "piper":
+        return bool(piper_installed_voices(where, _probes(model_id)))
     try:
         with open(os.path.join(where, MARKER), encoding="utf-8") as fh:
             files = json.load(fh).get("files")
