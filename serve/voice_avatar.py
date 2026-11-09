@@ -1,7 +1,9 @@
 """The Voice tab's avatar requests that the JSON proxy (voice_proxy.py) cannot carry, and the avatar settings.
 
-    GET  /api/voice/avatar                                  {virtual_camera}: the camera output, off until the person turns it on
-    POST /api/voice/avatar {virtual_camera}                 turn it on or off (voice.json `avatar`; the service follows by itself)
+    GET  /api/voice/avatar                                  {virtual_camera, enhance}: the camera output (off until the person turns it on) and
+                                                            the acceleration of the video (everything off)
+    POST /api/voice/avatar {virtual_camera?, enhance?}      change them (voice.json `avatar`; the service follows by itself); `enhance` takes any of
+                                                            upscale, scale, interpolate, factor, worker_fps_cap, worker_height_cap, rtx_video_path
     POST /api/voice/avatar/wizard/<draft>/<foto|pose|video|voce>   a photo, a video or a voice sample for the creation wizard: the multipart body
                                                             passes through to the service in pieces, without being read here, and only up to
                                                             the size of its step
@@ -29,7 +31,7 @@ CHUNK = 1 << 20
 IMAGE_MAX = 20 << 20
 UPLOAD_WAIT_S = 600.0
 STREAM_WAIT_S = 60.0
-KEYS = ("virtual_camera",)
+KEYS = ("virtual_camera", "enhance")
 
 
 def _refuse(handler, status: int, code: str, message: str) -> None:
@@ -40,7 +42,7 @@ def _refuse(handler, status: int, code: str, message: str) -> None:
 def view() -> dict:
     stored = voice_settings._read().get("avatar")
     stored = stored if isinstance(stored, dict) else {}
-    return {"virtual_camera": stored.get("virtual_camera") is True}
+    return {"virtual_camera": stored.get("virtual_camera") is True, "enhance": voice_settings.enhance(stored.get("enhance"))}
 
 
 def update(req) -> dict:
@@ -54,6 +56,8 @@ def update(req) -> dict:
     with voice_settings._lock:
         data = voice_settings._read()
         stored = data.get("avatar") if isinstance(data.get("avatar"), dict) else {}
+        if "enhance" in req:
+            req = {**req, "enhance": voice_settings.merge_enhance(stored.get("enhance"), req["enhance"])}      # checked as a whole before anything is written
         stored.update(req)
         data["avatar"] = stored
         voice_settings._write(data)

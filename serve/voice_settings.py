@@ -334,3 +334,64 @@ def set_telephony(req) -> dict:
     if changes.get("ai_disclosure_on_start") is False and before["ai_disclosure_on_start"]:
         log.info("telephony: the AI disclosure at the start of calls was turned off by the person")
     return telephony()
+
+
+# ---------------------------------------------------------------------------------------- the avatar's acceleration (voice.json avatar.enhance)
+# The same lists as voice/callbridge/enhance/settings.py, which reads the file in the voice service (the two cannot import each other);
+# voice/tests/test_enhance_settings.py checks that they agree.
+ENHANCE_UPSCALE = ("none", "basic", "rtx_video")
+ENHANCE_INTERPOLATE = ("none", "basic")
+ENHANCE_SCALES = (1.5, 2.0, 3.0, 4.0)
+ENHANCE_PROVIDER_SCALES = {"none": ENHANCE_SCALES, "basic": ENHANCE_SCALES, "rtx_video": (2.0, 3.0, 4.0)}
+ENHANCE_FACTORS = (2, 3)
+ENHANCE_FPS_CAP = (5, 60)
+ENHANCE_HEIGHT_CAP = (120, 2160)
+ENHANCE_DEFAULT = {"upscale": "none", "scale": 2.0, "interpolate": "none", "factor": 2, "worker_fps_cap": 0, "worker_height_cap": 0, "rtx_video_path": ""}
+
+
+def _whole(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def check_enhance(merged: dict) -> dict:
+    """The complete `enhance` object, checked; raises VoiceSettingsError with the field that is wrong."""
+    if merged["upscale"] not in ENHANCE_UPSCALE:
+        raise VoiceSettingsError("upscale", "upscale is none, basic or rtx_video.", "upscale è none, basic o rtx_video.")
+    scale = merged["scale"]
+    if isinstance(scale, bool) or not isinstance(scale, (int, float)) or float(scale) not in ENHANCE_SCALES:
+        raise VoiceSettingsError("scale", "scale is 1.5, 2, 3 or 4.", "scale è 1.5, 2, 3 o 4.")
+    if float(scale) not in ENHANCE_PROVIDER_SCALES[merged["upscale"]]:
+        allowed = ", ".join(f"{s:g}" for s in ENHANCE_PROVIDER_SCALES[merged["upscale"]])
+        raise VoiceSettingsError("scale", f"{merged['upscale']} takes the scales {allowed}.", f"{merged['upscale']} accetta le scale {allowed}.")
+    if merged["interpolate"] not in ENHANCE_INTERPOLATE:
+        raise VoiceSettingsError("interpolate", "interpolate is none or basic.", "interpolate è none o basic.")
+    if not _whole(merged["factor"]) or merged["factor"] not in ENHANCE_FACTORS:
+        raise VoiceSettingsError("factor", "factor is 2 or 3.", "factor è 2 o 3.")
+    for key, (lo, hi) in (("worker_fps_cap", ENHANCE_FPS_CAP), ("worker_height_cap", ENHANCE_HEIGHT_CAP)):
+        value = merged[key]
+        if not _whole(value) or not (value == 0 or lo <= value <= hi):
+            raise VoiceSettingsError(key, f"{key} is 0 (automatic) or a whole number from {lo} to {hi}.", f"{key} è 0 (automatico) o un numero intero da {lo} a {hi}.")
+    path = merged["rtx_video_path"]
+    if not isinstance(path, str) or (path and not (os.path.isabs(path) and path.lower().endswith(".dll") and "\0" not in path and len(path) <= 500)):
+        raise VoiceSettingsError("rtx_video_path", "rtx_video_path is the full path of the SDK's DLL, or nothing.", "rtx_video_path è il percorso completo della DLL dell'SDK, oppure niente.")
+    return {**merged, "scale": float(scale)}
+
+
+def enhance(stored=None) -> dict:
+    """The stored acceleration settings with the defaults filled in; a damaged value is the default."""
+    stored = stored if isinstance(stored, dict) else {}
+    merged = {k: stored.get(k, v) for k, v in ENHANCE_DEFAULT.items()}
+    try:
+        return check_enhance(merged)
+    except VoiceSettingsError:
+        return dict(ENHANCE_DEFAULT)
+
+
+def merge_enhance(stored, req) -> dict:
+    """The stored settings changed by the fields of `req`, the whole checked together (a scale must suit the provider chosen with it)."""
+    if not isinstance(req, dict):
+        raise VoiceSettingsError("enhance", "enhance is a JSON object.", "enhance è un oggetto JSON.")
+    for key in req:
+        if key not in ENHANCE_DEFAULT:
+            raise VoiceSettingsError("field", f"Unknown field: {key}.", f"Campo sconosciuto: {key}.")
+    return check_enhance({**enhance(stored), **req})

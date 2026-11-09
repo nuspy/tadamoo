@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from serve import handler, voice_avatar, voice_service
+from serve import handler, voice_avatar, voice_service, voice_settings
 from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate
 from serve.handler import serve
@@ -147,13 +147,13 @@ class AvatarRelay(unittest.TestCase):
     # ---- settings
     def test_the_camera_setting_is_off_by_default_and_is_kept_in_voice_json(self):
         status, _t, data = self.request("GET", "/api/voice/avatar")
-        self.assertEqual((status, json.loads(data)), (200, {"virtual_camera": False}))
+        self.assertEqual((status, json.loads(data)), (200, {"virtual_camera": False, "enhance": voice_settings.enhance()}))
         status, _t, data = self.request("POST", "/api/voice/avatar", {"virtual_camera": True})
-        self.assertEqual((status, json.loads(data)), (200, {"virtual_camera": True}))
+        self.assertEqual((status, json.loads(data)), (200, {"virtual_camera": True, "enhance": voice_settings.enhance()}))
         stored = json.loads((Path(self.tmp.name) / "data" / "voice.json").read_text(encoding="utf-8"))
         self.assertEqual(stored["avatar"], {"virtual_camera": True})
         self.request("POST", "/api/voice/avatar", {"virtual_camera": False})
-        self.assertEqual(json.loads(self.request("GET", "/api/voice/avatar")[2]), {"virtual_camera": False})
+        self.assertEqual(json.loads(self.request("GET", "/api/voice/avatar")[2])["virtual_camera"], False)
 
     def test_the_camera_setting_refuses_what_it_does_not_know(self):
         for body in ({"virtual_camera": "yes"}, {"virtual_camera": 1}, {"driver": "install"}, []):
