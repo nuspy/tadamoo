@@ -54,6 +54,7 @@
       more.append(el("p", "ve-text ve-needs-h", T("ve.needs")), ul);
       i.needs.forEach(n => ul.append(el("li", "", words(n))));
     }
+    if (window.VoiceEngineSetup) more.append(window.VoiceEngineSetup.panel(i.id, api));       // the Set up panel of a PC engine: voicesetup.js
     li.append(more);
     return li;
   }

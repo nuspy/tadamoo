@@ -407,7 +407,7 @@ def merge_enhance(stored, req) -> dict:
 AVATAR_TARGETS = ("pc", "web", "android", "esp32")
 AVATAR_ENGINES = {"visemes": (("pc", "web", "android", "esp32"), (96, 144, 192, 240, 288, 384, 480), 240),
                   "wav2lip_gan96": (("pc", "web", "android"), (96, 144, 192, 288, 384, 480), 96),
-                  "wav2lip_v288": (("pc", "web", "android"), (144, 192, 288, 384, 480), 288),
+                  "wav2lip_v288": (("pc", "web"), (144, 192, 288, 384, 480), 288),
                   "ultralight": (("pc", "web", "android"), (160, 256, 384, 480), 256),
                   "feathertalk": (("pc", "web", "android"), (144, 192, 288, 384, 480), 144),
                   "musetalk_15": (("pc", "web"), (256, 384, 480, 720), 480),
