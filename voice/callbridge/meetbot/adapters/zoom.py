@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+from urllib.parse import urlsplit
 
 from .base import JoinResult, MeetingAdapter, SpeakerInfo
 
@@ -14,6 +15,10 @@ class ZoomAdapter(MeetingAdapter):
 
     SEL_NAME_INPUT = '#input-for-name, input[placeholder*="Name" i], input[placeholder*="nome" i]'
     SEL_JOIN_BTN = 'button:has-text("Join"), button:has-text("Entra"), button:has-text("Partecipa")'
+    SEL_MIC_ON = '[aria-label^="unmute" i], [aria-label*="Attiva microfono" i]'
+    SEL_MIC_OFF = '[aria-label^="mute" i], [aria-label*="Disattiva microfono" i]'
+    SEL_CAM_ON = '[aria-label^="start video" i], [aria-label*="Avvia video" i]'
+    SEL_CAM_OFF = '[aria-label^="stop video" i], [aria-label*="Interrompi video" i]'
     SEL_LEAVE_BTN = 'button:has-text("Leave"), [aria-label*="Leave" i], button:has-text("Esci"), [aria-label*="Esci" i]'
     SEL_LEAVE_CONFIRM = 'button:has-text("Leave Meeting"), button:has-text("Esci dalla riunione")'
     SEL_PARTICIPANT = '.participants-item__display-name, [class*="participants-item"]'
@@ -25,7 +30,9 @@ class ZoomAdapter(MeetingAdapter):
 
     @staticmethod
     def matches(url: str) -> bool:
-        return bool(re.search(r"zoom\.us/(j|wc|s)/", url))
+        p = urlsplit(url)
+        host = p.hostname or ""
+        return p.scheme == "https" and (host == "zoom.us" or host.endswith(".zoom.us")) and bool(re.match(r"/(j|wc|s)/", p.path))
 
     @staticmethod
     def web_client(url: str) -> str:
@@ -35,7 +42,7 @@ class ZoomAdapter(MeetingAdapter):
             return url
         return f"https://app.zoom.us/wc/{m.group(1)}/join" + (f"?pwd={m.group(2)}" if m.group(2) else "")
 
-    def join(self, page, display_name: str, mic: bool = False, cam: bool = False) -> JoinResult:
+    def join(self, page, display_name: str) -> JoinResult:
         try:
             page.goto(self.web_client(page.url), timeout=60000)
             page.wait_for_load_state("domcontentloaded", timeout=30000)

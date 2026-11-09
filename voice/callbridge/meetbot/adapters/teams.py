@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-import re
+from urllib.parse import urlsplit
 
 from .base import JoinResult, MeetingAdapter, SpeakerInfo
 
@@ -17,6 +17,8 @@ class TeamsAdapter(MeetingAdapter):
     SEL_NAME_INPUT = 'input[data-tid="prejoin-display-name-input"], input[placeholder*="nome" i], input[placeholder*="name" i]'
     SEL_MIC_TOGGLE = '[data-tid="toggle-mute"], [aria-label*="microfono" i], [aria-label*="microphone" i]'
     SEL_CAM_TOGGLE = '[data-tid="toggle-video"], [aria-label*="videocamera" i], [aria-label*="camera" i]'
+    SEL_MIC_ON = SEL_MIC_OFF = '[data-tid="toggle-mute"]'
+    SEL_CAM_ON = SEL_CAM_OFF = '[data-tid="toggle-video"]'
     SEL_JOIN_BTN = 'button[data-tid="prejoin-join-button"], button:has-text("Partecipa ora"), button:has-text("Join now")'
     SEL_LEAVE_BTN = 'button[data-tid="hangup-main-btn"], [aria-label*="Abbandona" i], [aria-label*="Leave" i]'
     SEL_ROSTER = '[data-tid="participantsInCall"] [data-tid*="participant"]'
@@ -29,9 +31,10 @@ class TeamsAdapter(MeetingAdapter):
 
     @staticmethod
     def matches(url: str) -> bool:
-        return bool(re.search(r"teams\.(microsoft|live)\.com/", url))
+        p = urlsplit(url)
+        return p.scheme == "https" and p.hostname in ("teams.microsoft.com", "teams.live.com") and len(p.path) > 1
 
-    def join(self, page, display_name: str, mic: bool = False, cam: bool = False) -> JoinResult:
+    def join(self, page, display_name: str) -> JoinResult:
         try:
             page.wait_for_load_state("domcontentloaded", timeout=30000)
             try:
@@ -46,9 +49,7 @@ class TeamsAdapter(MeetingAdapter):
                 name_box.fill(display_name)
             except Exception:  # noqa: BLE001 (signed in)
                 pass
-            for wanted, sel in ((mic, self.SEL_MIC_TOGGLE), (cam, self.SEL_CAM_TOGGLE)):
-                if wanted:
-                    continue
+            for sel in (self.SEL_MIC_TOGGLE, self.SEL_CAM_TOGGLE):
                 try:
                     toggle = page.locator(sel).first
                     if toggle.is_visible(timeout=2000) and (toggle.get_attribute("aria-pressed") or "true") == "true":
@@ -82,6 +83,17 @@ class TeamsAdapter(MeetingAdapter):
         except Exception:  # noqa: BLE001
             pass
         return info
+
+    def _device(self, page, on_sel: str, off_sel: str, want: bool) -> bool:
+        """Teams has one toggle per device: it reads as pressed while the device is on."""
+        try:
+            toggle = page.locator(on_sel).first
+            if (toggle.get_attribute("aria-pressed") or "false") == ("true" if want else "false"):
+                return True
+            toggle.click(timeout=3000)
+            return (toggle.get_attribute("aria-pressed") or "false") == ("true" if want else "false")
+        except Exception:  # noqa: BLE001
+            return False
 
     def leave(self, page) -> None:
         try:

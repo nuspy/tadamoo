@@ -4,7 +4,7 @@ It says when the bot joined, on which platform, how it announced itself, how con
 It never holds what was said, a meeting address or a name in clear (names are masked)."""
 from __future__ import annotations
 
-from ..call_policy import AuditError, CallAudit  # noqa: F401  (AuditError is re-exported for the callers)
+from ..call_policy import AuditError, CallAudit  # noqa: F401  (re-exported: the session and the service catch it)
 
 
 def mask_name(name: str) -> str:

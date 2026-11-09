@@ -42,14 +42,30 @@ class FakeAdapter(MeetingAdapter):
         self.chat_ok = True
         self.exit = ""
         self.left = False
+        self.joined_with = None
+        self.mic_ok = True
+        self.mic = False
+        self.mic_log: list[bool] = []
+        self.cam = False
 
     @staticmethod
     def matches(url: str) -> bool:
         return True
 
-    def join(self, page, display_name, mic=False, cam=False):
-        self.joined_with = (display_name, mic, cam)
+    def join(self, page, display_name):
+        self.joined_with = display_name
         return JoinResult(True, "in_call")
+
+    def set_mic(self, page, on) -> bool:
+        if not self.mic_ok:
+            return False
+        self.mic = on
+        self.mic_log.append(on)
+        return True
+
+    def set_cam(self, page, on) -> bool:
+        self.cam = on
+        return True
 
     def in_call(self, page) -> bool:
         return self.in_call_now
@@ -245,6 +261,19 @@ class Rig:
 
     def finish(self) -> None:
         self.session._close_all()
+
+    def settle(self, seconds: float = 3.0) -> None:
+        """Keep the session's loop turning (the microphone is switched by it) until the voice threads and the reply are done."""
+        import time
+        end = time.monotonic() + seconds
+        s = self.session
+        while time.monotonic() < end:
+            if not any(t.is_alive() for t in s._voice_threads) and not s._busy_reply and not s._mic_want:
+                break
+            s.step()
+            self.clock.advance(0.01)
+            time.sleep(0.005)
+        s.step()
 
     @property
     def folder(self):

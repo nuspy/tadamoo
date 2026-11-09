@@ -14,7 +14,7 @@ from collections.abc import Callable, Iterable
 
 import numpy as np
 
-from .audio import NO_VIRTUAL_MIC, STT_RATE  # noqa: F401
+from .audio import NO_VIRTUAL_MIC
 
 log = logging.getLogger("callbridge.meetbot.speak")
 
@@ -107,7 +107,8 @@ class MeetingVoice:
     def __init__(self, *, enabled: bool, mic_name: str | None, tts_factory: Callable | None, sink_factory: Callable[[str], object],
                  floor: Floor, lang: str = "en", lips: Callable[[np.ndarray, int], None] | None = None,
                  sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
-                 configure: Callable | None = None) -> None:
+                 configure: Callable | None = None, mic: tuple[Callable[[], bool], Callable[[], None]] | None = None) -> None:
+        self._mic = mic                                 # (acquire, release): the meeting's microphone, turned on only while a sentence plays
         self.enabled, self.mic_name, self._tts_factory, self._sink_factory = enabled, mic_name, tts_factory, sink_factory
         self.floor, self.lang, self._lips, self._sleep, self._clock = floor, lang, lips, sleep, clock
         self._configure = configure
@@ -166,13 +167,21 @@ class MeetingVoice:
                 samples, rate = self._synthesize(text)
                 if not len(samples) or self.stop.is_set():
                     return False
-                if self._lips is not None:
-                    try:
-                        self._lips(samples, rate)
-                    except Exception as e:  # noqa: BLE001 (the avatar is a plus)
-                        log.warning("the avatar's lips could not be moved: %s", e)
-                return bool(self._sink_factory(self.mic_name).play(
-                    samples, rate, lambda: not self.stop.is_set() and (not wait_for_pause or self.floor.quiet(INTERRUPT_S))))
+                if self._mic is not None and not self._mic[0]():
+                    log.warning("the bot's microphone could not be turned on in the meeting: nothing is spoken")
+                    self._mic[1]()
+                    return False
+                try:
+                    if self._lips is not None:
+                        try:
+                            self._lips(samples, rate)
+                        except Exception as e:  # noqa: BLE001 (the avatar is a plus)
+                            log.warning("the avatar's lips could not be moved: %s", e)
+                    return bool(self._sink_factory(self.mic_name).play(
+                        samples, rate, lambda: not self.stop.is_set() and (not wait_for_pause or self.floor.quiet(INTERRUPT_S))))
+                finally:
+                    if self._mic is not None:
+                        self._mic[1]()
             except Exception as e:  # noqa: BLE001 (a device that went away, a TTS that is missing)
                 log.warning("speaking failed: %s", e)
                 return False
