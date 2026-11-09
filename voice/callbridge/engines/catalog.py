@@ -254,7 +254,8 @@ def _xtts_speakers(router) -> list[str]:
         return _xtts_cache
     try:
         import torch
-        dati = torch.load(p, map_location="cpu", weights_only=False) or {}
+        # solo tensori e dizionari: un file con altri oggetti è rifiutato, mai eseguito come pickle
+        dati = torch.load(p, map_location="cpu", weights_only=True) or {}
         _xtts_cache = sorted(str(k) for k in dati)
         log.info("XTTS: %d speaker integrati nel catalogo", len(_xtts_cache))
     except Exception as e:  # noqa: BLE001 - restano le sole voci clonate

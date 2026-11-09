@@ -222,7 +222,8 @@ def _resolve_url(repo: str, revision: str, path: str) -> str:
 
 
 def repo_tree(repo: str, revision: str) -> dict[str, dict]:
-    """{path: {"size", "sha256" (LFS files) or None}} of the repository at that revision."""
+    """{path: {"size", "sha256" (LFS files) or None, "git_oid" (the git blob SHA-1 of the other files) or None}} of the repository at that
+    revision."""
     if not _REPO_RE.match(repo) or not (_REV_RE.match(revision) or revision == "main"):
         raise DownloadError("catalog", "Voce di catalogo non valida.", "Invalid catalog entry.")
     token, _ = hf_token()
@@ -243,7 +244,9 @@ def repo_tree(repo: str, revision: str) -> dict[str, dict]:
         for it in items if isinstance(items, list) else []:
             if it.get("type") == "file":
                 lfs = it.get("lfs") or {}
-                out[it["path"]] = {"size": int(lfs.get("size") or it.get("size") or 0), "sha256": lfs.get("oid")}
+                oid = it.get("oid")
+                out[it["path"]] = {"size": int(lfs.get("size") or it.get("size") or 0), "sha256": lfs.get("oid"),
+                                   "git_oid": None if lfs or not isinstance(oid, str) or not _REV_RE.match(oid) else oid}
         m = re.search(r'<([^>]+)>;\s*rel="next"', link)
         if not m:
             return out
@@ -352,10 +355,15 @@ def _source_files(entry: dict, problems: list) -> list[dict]:
                     problems.append(_say("pin", f"Il file {path} non è quello registrato nel catalogo (SHA-256 diverso).",
                                          f"The file {path} is not the one the catalog recorded (different SHA-256)."))
                     continue
+                sha, git_oid = info["sha256"] or pins.get(path), info.get("git_oid")
+                if not sha and not git_oid:                     # nothing to check the file against: it is not fetched
+                    problems.append(_say("verify", f"Hugging Face non dà un hash per {path}: il file non viene scaricato.",
+                                         f"Hugging Face gives no hash for {path}: the file is not downloaded."))
+                    continue
                 strip = src.get("strip") or ""
                 rel = "/".join(x for x in (src.get("subdir"), path[len(strip):] if strip and path.startswith(strip) else path) if x)
-                out.append({"path": path, "name": safe_relpath(rel), "size": info["size"], "sha256": info["sha256"] or pins.get(path),
-                            "url": _resolve_url(src["repo"], rev, path), "repo": src["repo"], "revision": rev})
+                out.append({"path": path, "name": safe_relpath(rel), "size": info["size"], "sha256": sha,
+                            "url": _resolve_url(src["repo"], rev, path), "repo": src["repo"], "revision": rev, **({} if sha else {"git_oid": git_oid})})
         except DownloadError as e:
             problems.append(_say(e.code, e.it, e.en))
     if not out and not problems:
@@ -424,6 +432,11 @@ def plan(entry_id: str, dest: str | None = None, folders: list[str] | None = Non
                                      f"The file {path} is no longer in the repository."))
             f = {"path": path, "name": safe_name(path), "size": (info or {}).get("size") or 0,
                  "sha256": (info or {}).get("sha256")}
+            if info is not None and not f["sha256"]:
+                if not info.get("git_oid"):
+                    problems.append(_say("verify", f"Hugging Face non dà un hash per {path}: il file non viene scaricato.",
+                                         f"Hugging Face gives no hash for {path}: the file is not downloaded."))
+                f["git_oid"] = info.get("git_oid")
             files.append(_local_state(f, folder))
     total = sum(f["size"] for f in files)
     remaining = sum(f["size"] - (f["size"] if f["have"] else f["part"]) for f in files)
@@ -672,10 +685,10 @@ class Downloader:
         if os.path.getsize(part) != size:
             raise DownloadError("size", f"{f['name']}: dimensione diversa dall'attesa.",
                                 f"{f['name']}: the size is not what was expected.")
-        if f["sha256"]:
+        if f["sha256"] or f.get("git_oid"):
             self._set(phase="verifying")
-            self._line(f"{f['name']}: checking SHA-256")
-            if self._sha256(part) != f["sha256"]:
+            self._line(f"{f['name']}: checking " + ("SHA-256" if f["sha256"] else "the git hash"))
+            if (self._sha256(part) != f["sha256"]) if f["sha256"] else (self._git_oid(part, size) != f["git_oid"]):
                 os.remove(part)
                 raise DownloadError("hash", f"{f['name']}: lo SHA-256 non corrisponde, il file è stato scartato.",
                                     f"{f['name']}: the SHA-256 does not match, the file was discarded.")
@@ -690,6 +703,14 @@ class Downloader:
         self._line(f"interrupted ({why}); retrying")
         self.cancel_flag.wait(min(30.0, 2.0 ** min(stalls, 5)))
         return stalls
+
+    def _git_oid(self, path: str, size: int) -> str:
+        """The git blob SHA-1 of a file, which Hugging Face lists for the files it does not keep in LFS."""
+        h = hashlib.sha1(f"blob {size}\0".encode())
+        with open(path, "rb") as fh:
+            for b in iter(lambda: fh.read(CHUNK * 4), b""):
+                h.update(b)
+        return h.hexdigest()
 
     def _sha256(self, path: str) -> str:
         h = hashlib.sha256()
