@@ -9,6 +9,8 @@ from callbridge import avatar_assets, avatar_weights, models_store
 from callbridge.viseme_gen import VISEMI
 from voice.avatar_engines import registry, status
 from voice.avatar_engines.base import MODES, TARGETS, AvatarEngine, License, NotImplementedForNow, Training
+from voice.avatar_engines.pack import PackEngine
+from voice.avatar_engines.personalised import PersonalisedEngine
 
 IDS = ["visemes", "wav2lip_gan96", "wav2lip_v288", "ultralight", "feathertalk", "musetalk_15", "sadtalker", "er_nerf"]
 
@@ -29,16 +31,17 @@ def test_the_values_that_were_given_are_the_ones_set():
     assert (v.kind, v.runs_on, v.license.id) == ("generic", ("pc", "web", "android", "esp32"), "own") and min(v.resolutions) == 96 and max(v.resolutions) == 480
     assert w.native_resolution == 96 and w.license.noncommercial and w.license.verify and set(w.runs_on) == {"pc", "android", "web"}
     assert w.weight_mb == 37 and "36,664,106" in w.performance["en"]
-    assert w2.weight_mb is None and w2.license.verify and w2.native_resolution == 288
+    assert w2.weight_mb is None and w2.license.noncommercial and not w2.license.verify and w2.native_resolution == 288
     for name in ("ultralight", "feathertalk"):
         i = info(name)
-        assert i.kind == "personalized" and i.license.id == "Apache-2.0" and i.training == Training(True, (3, 5), True) and not i.license.verify
+        assert i.kind == "personalized" and i.license.id == "Apache-2.0" and i.training == Training(True, (3, 5), True)
+        assert not i.license.verify                                              # the note on Ultralight's missing LICENSE file is in the code notes, not in the page
     assert info("ultralight").native_resolution is None
     ft = info("feathertalk")
     assert ft.native_resolution == 144 and "3.36M" in ft.performance["en"] and "Chinese-only" in " ".join(n["en"] for n in ft.needs)
     m = info("musetalk_15")
     assert m.license.id == "MIT" and m.native_resolution == 256 and "30 fps" in m.performance["en"] and "per the project" in m.performance["en"]
-    assert info("sadtalker").runs_on == ("pc",) and info("sadtalker").license.verify
+    assert info("sadtalker").runs_on == ("pc",) and not info("sadtalker").license.verify
     er = info("er_nerf")
     assert er.runs_on == ("pc",) and er.kind == "personalized" and "fragile" in " ".join(n["en"] for n in er.needs).lower()
 
@@ -66,8 +69,8 @@ def test_the_defaults_run_on_their_target_and_draw_at_a_height_the_engine_offers
 
 def test_modes_are_the_gateways_and_video_engines_are_the_ones_that_draw_on_the_pc():
     assert {i.mode for i in registry.INFOS} <= set(MODES) | {None}
-    assert {i.id for i in registry.INFOS if i.mode == "video"} == {"musetalk_15", "sadtalker", "er_nerf"}
-    assert {i.id for i in registry.INFOS if i.mode == "wav2lip"} == {"wav2lip_gan96", "wav2lip_v288"}
+    assert {i.id for i in registry.INFOS if i.mode == "video"} == {"musetalk_15", "wav2lip_v288", "sadtalker", "er_nerf"}
+    assert {i.id for i in registry.INFOS if i.mode == "wav2lip"} == {"wav2lip_gan96"}
     assert {i.id for i in registry.INFOS if i.integrated} == {"visemes", "wav2lip_gan96", "musetalk_15"}
 
 
@@ -84,6 +87,8 @@ def test_a_broken_descriptor_is_refused():
 def test_the_interface_raises_not_implemented_for_now_and_the_engines_are_listed_meanwhile(tmp_path):
     for engine in registry.ENGINES.values():
         assert isinstance(engine, AvatarEngine)
+        if isinstance(engine, (PersonalisedEngine, PackEngine)):             # these have code: voice/tests/test_avatar_engine_*.py
+            continue
         with pytest.raises(NotImplementedForNow):
             engine.prepare(tmp_path, lambda phase, pct: None)
         with pytest.raises(NotImplementedForNow):

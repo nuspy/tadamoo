@@ -2,7 +2,10 @@
 
 Published paths (relative, forward slashes): `poster.jpg`, `wav2lip/face.png`, `wav2lip/box.json`, `visemes/<V>.png` for every viseme of
 viseme_gen.py, `visemes/frame.json`. The manifest is `{version, avatar, created, render_modes, files: {path: sha256}}`; `render_modes` is what
-the files allow: `wav2lip` (face and box), `visemes` (the 15 sprites and their frame), `video` (a clip prepared for MuseTalk on the PC)."""
+the files allow: `wav2lip` (face and box), `visemes` (the 15 sprites and their frame), `video` (a clip prepared for MuseTalk on the PC).
+
+A personalised engine trained for the avatar and exported for a phone (voice/avatar_engines/personalised.py) adds `engines: {id: {files: {path: sha256}, input}}`
+and its id to `render_modes`; its files stay under `engines/<id>/export/` and are not in `files` or in the zip (docs/voice/gateway.md, Personalised engines)."""
 from __future__ import annotations
 
 import hashlib
@@ -19,6 +22,8 @@ VERSION = 1
 VISEMES_DIR = "visemes"
 FRAME_FILE = "frame.json"
 MANIFEST = "manifest.json"
+ENGINES_DIR = "engines"                 # <avatar>/engines/<engine id>/export/export.json lists what an exported personalised engine gives a phone
+EXPORT_MARK = "export.json"
 MODEL_ID = "wav2lip-int8"
 MODEL_FILE = "wav2lip_int8.onnx"
 WAV2LIP_FILES = ("wav2lip/face.png", "wav2lip/box.json")
@@ -71,9 +76,32 @@ def render_modes(folder: Path, video: bool = False) -> list[str]:
     return modes
 
 
+def engine_entries(folder: Path) -> dict:
+    """{engine id: {files: {path: sha256}, input}} for each engine exported for a phone whose files are all there (paths relative to the avatar)."""
+    out: dict = {}
+    root = folder / ENGINES_DIR
+    for d in sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []:
+        try:
+            data = json.loads((d / "export" / EXPORT_MARK).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        files = data.get("files") if isinstance(data, dict) else None
+        if not isinstance(files, dict) or not files or not isinstance(data.get("input"), dict):
+            continue
+        prefix = f"{ENGINES_DIR}/{d.name}/export/"
+        if any(not isinstance(rel, str) or not rel.startswith(prefix) or ".." in rel or not (folder / rel).is_file() for rel in files):
+            continue
+        out[d.name] = {"files": {rel: sha256_of(folder / rel) for rel in files}, "input": data["input"]}
+    return out
+
+
 def manifest(folder: Path, name: str, created: str = "", video: bool = False) -> dict:
-    return {"version": VERSION, "avatar": name, "created": created, "render_modes": render_modes(folder, video),
-            "files": {rel: sha256_of(path) for rel, path in files_of(folder).items()}}
+    engines = engine_entries(folder)
+    out = {"version": VERSION, "avatar": name, "created": created, "render_modes": render_modes(folder, video) + list(engines),
+           "files": {rel: sha256_of(path) for rel, path in files_of(folder).items()}}
+    if engines:
+        out["engines"] = engines
+    return out
 
 
 def zip_bytes(folder: Path, man: dict) -> bytes:

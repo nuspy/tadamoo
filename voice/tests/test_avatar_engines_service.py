@@ -19,7 +19,7 @@ def test_every_engine_is_listed_with_its_descriptor_and_what_exists_for_the_avat
     assert got["visemes"]["status"]["available"] is False and "not made yet" in got["visemes"]["status"]["reason"]
     assert got["musetalk_15"]["status"]["available"] is False and got["musetalk_15"]["status"]["reason"].startswith("no video")
     assert "model file" in got["wav2lip_gan96"]["status"]["reason"]
-    assert "not part of this build" in got["ultralight"]["status"]["reason"]
+    assert "has not been trained" in got["ultralight"]["status"]["reason"] and got["ultralight"]["status"]["trained"] is False
     assert got["visemes"]["runs_on"] == ["pc", "web", "android", "esp32"] and got["wav2lip_gan96"]["license"]["noncommercial"] is True
     rig.get("/avatar/ada/manifest.json")                                               # a device asks for the files: the sprites are made
     rig.store.record_prepared("ada", "walk.mp4", 5)

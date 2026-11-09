@@ -128,6 +128,28 @@ Without `reason: "emergency"` the answer is `{"type":"video_unavailable","reason
 detail}` while the PC prepares the persona, and `video_stopped` after `video_stop`. The app offers receive-only video (H.264 first) and audio;
 when the offer has audio the voice goes on the media track and no PCM is sent (`avatar_webrtc.py`, `aiortc`). While it runs no timeline is sent.
 
+### Personalised engines
+
+An avatar trained for one person (Ultralight-Digital-Human, FeatherTalk: `engines-personalised.md`) and exported for a phone is a `wav2lip`-class mode named by the engine's
+id: the device draws the face itself from the audio. The manifest says so additively. `render_modes` gets the engine id after the usual ones, and a new field lists what the
+engine gives:
+
+    {"version":1,"avatar":"ada","render_modes":["wav2lip","visemes","feathertalk"],"files":{...},
+     "engines":{"feathertalk":{"files":{"engines/feathertalk/export/feathertalk_144.onnx":"<sha256>","engines/feathertalk/export/feather_hubert.onnx":"<sha256>",
+       "engines/feathertalk/export/frames/0.jpg":"<sha256>","engines/feathertalk/export/lms/0.lms":"<sha256>"},
+       "input":{"audio_encoder":"feather_hubert","fps":25,"size":144,"sample_rate":16000,"audio_step_ms":20,"audio_tokens":40,"feature_dim":1024,
+                "model_file":"feathertalk_144.onnx","encoder_file":"feather_hubert.onnx",
+                "shapes":{"input":[1,6,144,144],"audio":[1,40,1024],"waveform":[1,"samples"]}}}}}
+
+What the phone needs from an entry: the model file and the audio encoder file named in `input` (`model_file`, `encoder_file`; Ultralight with HuBERT has none, so a phone
+cannot use it); the audio encoder (`audio_encoder`), the sample rate of the audio it takes (`sample_rate`, 16000) and its step (`audio_step_ms` or the frame rate `fps`);
+the face assets, the first frames of the person's video (`frames/<n>.jpg`) with their landmark files (`lms/<n>.lms`, one `x y` pair per line, in the pixels of
+that frame), which the phone loops forward and back to pick the picture to draw over; `size`, the side of the square face the model draws, pasted back into the frame;
+and `fps`, the video rate the model was trained at (Ultralight: 20 with wenet, 25 with HuBERT; FeatherTalk: 25). `shapes` are the model's inputs as exported. Ultralight's
+entry is the same with `audio_encoder` `wenet`, `size` 160, `model_file` `unet.onnx`, `encoder_file` `encoder.onnx` and `audio` `[1,128,16,32]`. For FeatherTalk, MNN files
+replace the ONNX ones when the PC had MNNConvert. These files are not in `files` and not in `assets.zip` (they are large and only for the engine's own device); the route that
+serves them to a phone is not built yet, and the gateway does not offer the engine id as a mode yet. Not proven: a phone running either model.
+
 ## Limits
 
 The gateway carries voice, text, timelines and the emergency video. A file from the phone goes through the server's own routes, and so do the
