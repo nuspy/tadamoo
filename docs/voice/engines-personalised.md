@@ -33,13 +33,13 @@ FeatherHuBERT's published weights were trained on Chinese speech only and are in
 
 ## The files of one avatar
 
-`<avatar>/engines/<engine>/`: `dataset/` (the video re-encoded at the engine's frame rate, its frames, landmarks and audio features; `ready.json` says what for), `checkpoints/`
+`<avatar>/engines/<engine>/` (the training video itself is in `<avatar>/training/`, below): `dataset/` (the video re-encoded at the engine's frame rate, its frames, landmarks and audio features; `ready.json` says what for), `checkpoints/`
 (every 5 epochs and `last.pth`), `export/` (what a phone needs, with `export.json`), `trained.json` (written when the training ends), `log_tail.txt`. With `export.json` present the
 manifest of the avatar gets an `engines` entry (`gateway.md`, Personalised engines).
 
 ## The steps and the commands
 
-1. `ffmpeg -y -i <clip> -r <fps> -c:v libx264 -crf 14 -pix_fmt yuv420p -c:a aac dataset/train.mp4` (the preprocessing refuses any other frame rate).
+1. `ffmpeg -y -i <video> -r <fps> -c:v libx264 -crf 14 -pix_fmt yuv420p -c:a aac dataset/train.mp4` (the preprocessing refuses any other frame rate).
 2. `python data_utils/process.py <video> --asr <wenet|hubert>` (Ultralight) or `--feather_hubert_checkpoint <weights>` (FeatherTalk): frames, landmarks, features.
 3. `python train.py --dataset_dir ... --save_dir ... [--asr ...] [--model feathertalk] --epochs <n> --batchsize 16`; a later run adds `--resume checkpoints/last.pth` and continues after the last saved epoch.
 4. Export for a phone (above). A failed export is recorded in `trained.json` and does not undo the training; `POST /avatar/train/export` makes it again.
@@ -50,7 +50,9 @@ Progress is read from the `Epoch n/N` of the output. The job reports the phase, 
 
 `POST /avatar/train/plan {avatar, engine, epochs?, asr?, fresh?}` returns, and starts nothing:
 
-- the video: the avatar's longest clip. Under 2 minutes or over 10 is refused with its length; 3 to 5 minutes is best. The wizard accepts videos only up to 120 s, so a longer clip has to be put in the avatar's `clips` folder;
+- the video: the avatar's training video when it has one (below), else its longest clip, and `video_source` says which. Under 2 minutes or over 10 is refused with its length; 3 to 5 minutes is best.
+  A clip that is too short or too long is refused with a hint to add a training video; a training video that is out of range is refused as it is, with no fall back to a clip, and one that cannot be read
+  is refused with that reason. The token of the plan includes the source, the name, the size and the time of the file, so another video is another plan;
 - the duration, labelled an estimate: frames (minutes x 60 x fps) x epochs x seconds per frame per epoch. Neither project states a speed. Until a training has been timed on this PC the range is
   an assumption made here (0.003 to 0.02 s per frame per epoch); after one it is the measured figure (`avatar-engine-timing.json`). Preprocessing is not included. Epochs default to 200, the value of the upstream examples;
 - the GPU memory: `null`, "not measured", because the upstream documents state no figure; the free memory now is shown;
@@ -58,6 +60,23 @@ Progress is read from the `Epoch n/N` of the output. The job reports the phase, 
 
 `POST /avatar/train/start {token, confirm: true}` starts it only if the token belongs to a plan that is unchanged and has no failed check. One training runs at a time.
 `POST /avatar/train/cancel` ends it and every process it started; stopping the service does the same. The dataset and checkpoints stay, and a new plan continues from them (`fresh` discards them).
+
+## The training video
+
+The wizard keeps clips of 120 s at most, which is too short to train from. The Train section of the Avatar tab has a control "Add a training video (3 to 5 minutes)" for the avatar chosen there
+(an avatar made from a photo alone is listed too), with a line that the video must be of a person who agreed to this. Service routes (bearer token, as the others); the server relays the upload
+as `POST /api/voice/avatar/<name>/training-video` (this PC only, the multipart body in pieces, up to 2000 MB) and the list and removal through the JSON proxy:
+
+- `POST /avatar/<name>/training-video`, multipart field `file`. Refused before it is kept: a name that does not end in `.mp4`, `.mov`, `.webm` or `.mkv` (415), a type that is not `video/*` (a browser's
+  `application/octet-stream` or empty type passes) (415), a size over 2000 MB or a declared length over it (413, the copy stops at the cap and the partial file is removed), an empty file (400), first bytes
+  that are not the container the extension names (MP4 and MOV: an ISO box `ftyp`, `moov`, `mdat`, `wide`, `free` or `skip`; WebM and MKV: the EBML header) (422), a video the PC's reader (OpenCV, the one the plan measures
+  with, so no ffprobe is needed) cannot open (422), a picture with a side under 128 or over 4096 px (422), no OpenCV (501). The length is not a reason to refuse: the answer has `seconds` and `in_range`
+  (2 to 10 minutes) and the page warns. The client's file name is never used. It streams to `training/incoming.<ext>`, then replaces the old video in one rename.
+- `GET /avatar/<name>/training-video`: `{video: null or {file, seconds, fps, width, height, bytes, uploaded, in_range}, limits}`; a file put there by hand is measured when listed.
+- `DELETE /avatar/<name>/training-video`: removes the file and its note; 404 when there is none.
+- `training/` is reserved in the avatar's folder (`avatar_store.py`): the video is `video.<ext>` with `video.json`; a link in its place is not followed. `GET /avatar/list` has `training_video`.
+- A second upload for the same avatar at the same time is refused (409), and adding or removing the video is refused (409 `in_use`) while that avatar is being trained.
+- Not proven: ER-NeRF copies the file as `data/video.mp4` whatever its container, and relies on its own preprocessing to read it; a `.webm` or `.mkv` with it is untested.
 
 ## Only the engine in use is loaded
 
