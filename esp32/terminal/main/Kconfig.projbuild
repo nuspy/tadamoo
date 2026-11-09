@@ -1,0 +1,38 @@
+menu "Example Configurations"
+    config EXAMPLE_ENABLE_SD_CARD
+        bool "Enable SD Card"
+        default n
+        help 
+            Enabling this option will initialize the SD card, so the SD card needs to be inserted into the slot. Additionally, if using the Video Player example, an MJPEG format video must be saved on the SD card.
+endmenu
+
+menu "Terminale callAPIcall"
+    config AVATAR_GATEWAY_URI
+        string "Indirizzo del voice gateway"
+        default "ws://192.168.123.215:8771"
+        help
+            WebSocket del gateway sul PC, per esempio ws://192.168.1.10:8771.
+            Dentro la tailnet si usa l'indirizzo 100.x del PC, che non cambia
+            quando il device passa da una rete all'altra.
+
+    config AVATAR_GATEWAY_TOKEN
+        string "Token del gateway"
+        default ""
+        help
+            Deve combaciare con gateway_auth_token nella configurazione del
+            call-bridge. Se lì e' vuoto, lasciare vuoto anche qui: il messaggio
+            di auth viene mandato comunque, perche' il gateway lo pretende.
+
+    config AVATAR_LANG
+        string "Lingua della conversazione"
+        default "it"
+
+    config AVATAR_TEST_PHRASE
+        string "Frase del turno di prova"
+        default "Ciao, sono il terminale. Mi senti?"
+        help
+            Finche' sulla board non ci sono microfono e altoparlante, il tasto
+            dell'app avatar manda questa frase al posto dell'audio: il gateway
+            accetta un turno scritto, quindi la catena device -> agente ->
+            risposta si prova per intero senza hardware audio.
+endmenu
