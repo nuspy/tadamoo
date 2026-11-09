@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'render_fakes.dart';
+import 'secret_fakes.dart';
 
 void main() {
   late Directory dir;
@@ -22,7 +23,7 @@ void main() {
 
   Future<void> make([Map<String, Object> prefs = const {}]) async {
     SharedPreferences.setMockInitialValues(prefs);
-    settings = await AppSettings.load();
+    settings = await AppSettings.load(secrets: FakeSecretStore());
     dir = Directory.systemTemp.createTempSync('basalt_hub');
     source = FakeAssetSource()..modelBytes = Uint8List.fromList(utf8.encode('the model'));
     store = AvatarAssetStore(root: dir, source: source, modelSha: sha(utf8.encode('the model')), modelBytes: 9);
@@ -180,10 +181,10 @@ void main() {
   });
 
   group('how an engine stands, for the chooser', () {
-    test('the ones that cannot be chosen are unavailable; the video is always ready', () async {
+    test('the personalised engines without a runtime in this build say so; the video is always ready', () async {
       await make();
-      expect(hub.status(engine('ultralight')), EngineStatus.unavailable);
-      expect(hub.status(engine('feathertalk')), EngineStatus.unavailable);
+      expect(hub.status(engine('ultralight')), EngineStatus.noRuntime);
+      expect(hub.status(engine('feathertalk')), EngineStatus.noRuntime);
       expect(hub.status(engine('video')), EngineStatus.ready);
     });
 

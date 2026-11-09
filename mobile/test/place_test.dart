@@ -9,10 +9,12 @@ import 'package:basalt_mobile/src/settings.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'secret_fakes.dart';
+
 void main() {
   test('the switch is off at first and nothing is read while it is off', () async {
     SharedPreferences.setMockInitialValues({});
-    final settings = await AppSettings.load();
+    final settings = await AppSettings.load(secrets: FakeSecretStore());
     expect(settings.sendPlace, isFalse);
     expect(await PlaceFinder.of(settings).current(), isNull);
   });
@@ -31,7 +33,7 @@ void main() {
       await req.response.close();
     });
     SharedPreferences.setMockInitialValues({'flutter.address': '127.0.0.1:${server.port}', 'flutter.key': 'k'});
-    final settings = await AppSettings.load();
+    final settings = await AppSettings.load(secrets: FakeSecretStore());
     final ctl = ChatController(Api(settings), settings)..sid = 's1';
     await ctl.send('ciao');
     await ctl.send('ristoranti qui vicino', place: {'lat': 45.46427, 'lon': 9.18951, 'address': {'city': 'Milano'}});

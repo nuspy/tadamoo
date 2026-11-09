@@ -69,6 +69,7 @@ class Texts {
     'set.test': ['Prova il collegamento', 'Test the connection'],
     'set.test.ok': ['Collegato a TaDaMoo. Chiave: {0}.', 'Connected to TaDaMoo. Key: {0}.'],
     'set.test.fail': ['Non riesco a collegarmi: {0}', 'Could not connect: {0}'],
+    'set.key.plain': ["L'archivio sicuro di questo telefono non è disponibile: la chiave resta nelle preferenze dell'app, senza cifratura.", "This phone's secure storage is not available: the key stays in the app's preferences, unencrypted."],
     'set.save': ['Salva', 'Save'],
     'set.saved': ['Salvato.', 'Saved.'],
     'set.tailscale': ['Serve Tailscale sul telefono, con lo stesso account del PC (Play Store). Senza, il PC non si raggiunge.', 'This phone needs Tailscale, signed in to the same account as the PC (Play Store). Without it the PC cannot be reached.'],

@@ -133,10 +133,12 @@ Nothing was run. Line numbers refer to that HEAD (34fcd135); each finding's Stat
 - Abuse: anyone with access to the Google backup, or to a rooted device or an adb backup, gets a key that reaches the PC over Tailscale.
 - Fix: store the key with `flutter_secure_storage` (Keystore) and leave it out of backups.
 - Test: none.
-- Status: partly fixed in 8bfe67ce: `allowBackup="false"`, and `backup_rules.xml` and `data_extraction_rules.xml` exclude the shared
-  preferences from cloud backup and device transfer. Handed to the app agent: move the `key` entry of `mobile/lib/src/settings.dart` from
-  `SharedPreferences` to `flutter_secure_storage` (Android Keystore, `AndroidOptions(encryptedSharedPreferences: true)`), migrate an existing
-  key once and delete it from the preferences, keep `allowBackup="false"`, and add a test that the preferences no longer hold it.
+- Status: fixed. 8bfe67ce set `allowBackup="false"` and excluded the preferences from cloud backup and device transfer. The key now lives in
+  `flutter_secure_storage` 11.x (`mobile/lib/src/secret_store.dart`): AES-GCM with an RSA-OAEP key wrapped by the Android Keystore, minSdk 24
+  (the plugin needs 23). The plugin's own `encryptedSharedPreferences` option is deprecated, so the default ciphers are used. A key an older
+  version left in the preferences is written to the secure store, read back, then deleted from the preferences, once at start. When the secure
+  store cannot be used the app keeps the key in the plain preferences, writes a log line and shows a warning under the key field on the
+  Settings page; the next start with a working store moves it. Test: `mobile/test/secret_store_test.dart` (fake store).
 
 ### V-09 Low: the voice service compares its token in non-constant time
 - Where: `voice/callbridge/control_server.py:101-104` (`==`). The gateway (`voice/gateway.py:113`) and `serve/voice_service.py`

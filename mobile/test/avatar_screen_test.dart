@@ -13,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'avatar_fakes.dart';
 import 'render_fakes.dart';
+import 'secret_fakes.dart';
 
 void main() {
   late FakeDevices devices;
@@ -26,7 +27,7 @@ void main() {
     tester.view.viewInsets = FakeViewPadding(bottom: keyboard * 3);
     addTearDown(tester.view.reset);
     SharedPreferences.setMockInitialValues({'flutter.address': '100.64.1.2:7232', 'flutter.key': 'bsk_phone', ...prefs});
-    final settings = await AppSettings.load();
+    final settings = await AppSettings.load(secrets: FakeSecretStore());
     devices = FakeDevices();
     connector = FakeConnector();
     c = AvatarController(
@@ -264,7 +265,7 @@ void main() {
 
   testWidgets('when the phone draws the avatar the tab shows it and not the video, and says what draws it and at what size', (tester) async {
     SharedPreferences.setMockInitialValues({});
-    final bare = await AppSettings.load();
+    final bare = await AppSettings.load(secrets: FakeSecretStore());
     final dir = Directory.systemTemp.createTempSync('basalt_tab');
     addTearDown(() => dir.deleteSync(recursive: true));
     late AvatarAssetStore store;

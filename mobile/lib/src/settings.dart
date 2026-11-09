@@ -2,17 +2,53 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'avatar_engines.dart';
+import 'secret_store.dart';
 
 /// What the app knows about the server and about the person's preferences. Kept on the phone only.
 class AppSettings extends ChangeNotifier {
-  AppSettings._(this._prefs);
+  AppSettings._(this._prefs, this._secrets, this._log);
   final SharedPreferences _prefs;
+  final SecretStore _secrets;
+  final void Function(String) _log;
 
-  static Future<AppSettings> load() async => AppSettings._(await SharedPreferences.getInstance());
+  static const _keyName = 'key';
+  String _key = '';
+  bool _keyIsSecure = true;
+
+  /// Reads the settings. The phone's key lives in [secrets] (the Android Keystore); a key an older version left in the preferences is moved
+  /// there once. When the secure store cannot be used the key stays in the preferences and [keyIsSecure] says so.
+  static Future<AppSettings> load({SecretStore? secrets, void Function(String)? log}) async {
+    final settings = AppSettings._(await SharedPreferences.getInstance(), secrets ?? KeystoreSecretStore(), log ?? debugPrint);
+    await settings._loadKey();
+    return settings;
+  }
+
+  Future<void> _loadKey() async {
+    final old = _prefs.getString(_keyName) ?? '';
+    try {
+      if (old.isNotEmpty) {
+        await _secrets.write(_keyName, old);
+        if (await _secrets.read(_keyName) != old) throw StateError('the key did not read back');
+        _key = old;
+        await _prefs.remove(_keyName);
+        _log('settings: the phone key moved from the preferences to the secure store');
+      } else {
+        _key = await _secrets.read(_keyName) ?? '';
+      }
+      _keyIsSecure = true;
+    } catch (e) {
+      _key = old;
+      _keyIsSecure = false;
+      _log('settings: secure store unavailable ($e); the phone key stays in the plain preferences');
+    }
+  }
+
+  /// False when the key is in the plain preferences because the secure store failed; the Settings page tells the person.
+  bool get keyIsSecure => _keyIsSecure;
 
   /// "100.64.1.2:7232" or a full address; the key made for this phone on the PC (Settings > Phones).
   String get address => _prefs.getString('address') ?? '';
-  String get key => _prefs.getString('key') ?? '';
+  String get key => _key;
   String get deviceName => _prefs.getString('name') ?? '';
   bool get autoSpeak => _prefs.getBool('autoSpeak') ?? false;
   bool get sendPlace => _prefs.getBool('sendPlace') ?? false;
@@ -59,9 +95,26 @@ class AppSettings extends ChangeNotifier {
 
   Future<void> setServer({required String address, required String key, String name = ''}) async {
     await _prefs.setString('address', address.trim());
-    await _prefs.setString('key', key.trim());
+    await _storeKey(key.trim());
     if (name.trim().isNotEmpty) await _prefs.setString('name', name.trim());
     notifyListeners();
+  }
+
+  Future<void> _storeKey(String value) async {
+    try {
+      if (value.isEmpty) {
+        await _secrets.delete(_keyName);
+      } else {
+        await _secrets.write(_keyName, value);
+      }
+      await _prefs.remove(_keyName);
+      _keyIsSecure = true;
+    } catch (e) {
+      _keyIsSecure = false;
+      _log('settings: secure store unavailable ($e); the phone key is kept in the plain preferences');
+      await _prefs.setString(_keyName, value);
+    }
+    _key = value;
   }
 
   Future<void> setAutoSpeak(bool value) async {

@@ -15,6 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'avatar_fakes.dart';
 import 'render_fakes.dart';
+import 'secret_fakes.dart';
 
 void main() {
   late Directory dir;
@@ -30,7 +31,7 @@ void main() {
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
     SharedPreferences.setMockInitialValues(prefs);
-    settings = await AppSettings.load();
+    settings = await AppSettings.load(secrets: FakeSecretStore());
     dir = Directory.systemTemp.createTempSync('basalt_ui');
     source = FakeAssetSource()..modelBytes = Uint8List.fromList(utf8.encode('the model'));
     store = AvatarAssetStore(root: dir, source: source, modelSha: sha(utf8.encode('the model')), modelBytes: 9);
@@ -81,9 +82,9 @@ void main() {
     await show(tester);
     expect(find.text('Needs the avatar\'s files: open the Avatar tab once so that the PC names the avatar.'), findsNWidgets(1), reason: 'the visemes');
     expect(find.text('Needs the model (36.7 MB).'), findsOneWidget);
-    expect(find.text('Not available in this build'), findsNWidgets(2));
+    expect(find.text('Not available: this build has no runtime for it.'), findsNWidgets(2), reason: 'Ultralight and FeatherTalk: this hub has no runtime for them');
     expect(find.text('Model of 36.7 MB (36,664,106 bytes) from the PC'), findsOneWidget);
-    expect(find.text('Not measured'), findsNWidgets(2), reason: 'Ultralight and FeatherTalk');
+    expect(find.text('Package trained on the PC for your person (the size shows once downloaded)'), findsNWidgets(2), reason: 'Ultralight and FeatherTalk');
     expect(find.textContaining('About 5 MB'), findsNothing, reason: 'no invented sizes');
     expect(find.text('Download the model (36.7 MB)'), findsOneWidget);
     expect(find.text('Download the avatar\'s files'), findsNothing, reason: 'the avatar is not named yet');
@@ -161,7 +162,7 @@ void main() {
     backend.runtime = false;
     await tester.runAsync(hub.refresh);
     await tester.pump();
-    expect(find.text('Not available: this build has no runtime for it.'), findsOneWidget);
+    expect(find.text('Not available: this build has no runtime for it.'), findsNWidgets(3), reason: 'Wav2Lip, and the two personalised engines which this hub has no runtime for');
     expect(find.byKey(const ValueKey('engine-wav2lip-fetch')), findsNothing);
   });
 

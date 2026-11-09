@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'secret_fakes.dart';
+
 /// The server's switches, kept in memory; `refuse` answers every change as a phone's key is answered on a PC that keeps them for itself.
 class FakeServer extends Api {
   FakeServer(super.settings);
@@ -53,7 +55,7 @@ class FakeServer extends Api {
 
 Future<FakeServer> server() async {
   SharedPreferences.setMockInitialValues({});
-  return FakeServer(await AppSettings.load());
+  return FakeServer(await AppSettings.load(secrets: FakeSecretStore()));
 }
 
 Widget host(Widget child) => MaterialApp(theme: ThemeData.dark(), home: Scaffold(body: SingleChildScrollView(padding: const EdgeInsets.all(16), child: child)));

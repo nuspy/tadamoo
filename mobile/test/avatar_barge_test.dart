@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'avatar_fakes.dart';
+import 'secret_fakes.dart';
 
 /// 30 ms of 16 kHz mono 16-bit audio at the given amplitude.
 Uint8List chunk(int amplitude) {
@@ -106,7 +107,7 @@ void main() {
     Future<FakeChannel> up({Map<String, Object> prefs = const {'flutter.audioRoute': 'bluetooth'}, Duration duckHold = const Duration(seconds: 6)}) async {
       Texts.use('en');
       SharedPreferences.setMockInitialValues({'flutter.address': '100.64.1.2:7232', 'flutter.key': 'bsk_phone', ...prefs});
-      settings = await AppSettings.load();
+      settings = await AppSettings.load(secrets: FakeSecretStore());
       api = FakeGatewayApi(settings);
       devices = FakeDevices();
       connector = FakeConnector();

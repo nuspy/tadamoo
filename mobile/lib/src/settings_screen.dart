@@ -153,6 +153,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
             suffixIcon: IconButton(icon: Icon(hideKey ? Icons.visibility : Icons.visibility_off), onPressed: () => setState(() => hideKey = !hideKey)),
           ),
         ),
+        if (!widget.settings.keyIsSecure)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Icon(Icons.warning_amber_rounded, size: 20, color: Colors.amberAccent),
+              const SizedBox(width: 8),
+              Expanded(child: Text(Texts.t('set.key.plain'), key: const ValueKey('key-plain-warning'))),
+            ]),
+          ),
         const SizedBox(height: 12),
         Wrap(spacing: 8, runSpacing: 8, children: [
           FilledButton.icon(onPressed: _scan, icon: const Icon(Icons.qr_code_scanner), label: Text(Texts.t('set.scan'))),
