@@ -6,6 +6,7 @@ import 'avatar_assets.dart';
 import 'avatar_engines.dart';
 import 'avatar_hub.dart';
 import 'i18n.dart';
+import 'personal_pack.dart';
 import 'settings.dart';
 
 /// The "Avatar and voice" part of Settings: avatar on or off, the animation system, the picture's size and quality, the personality, who
@@ -91,20 +92,27 @@ class _AvatarVoiceSettingsState extends State<AvatarVoiceSettings> {
     switch (st) {
       case EngineStatus.ready:
         if (e.id == 'wav2lip' && s.wav2lipFps > 0) return Texts.t('av.st.ready.fps', [s.wav2lipFps.toStringAsFixed(1)]);
+        final test = personalEngineIds.contains(e.id) ? store?.personalTestOf(hub.avatarName, e.id) : null;
+        if (test != null && test.fps > 0) return Texts.t('av.st.ready.fps', [test.fps.toStringAsFixed(1)]);
         return Texts.t('av.st.ready');
       case EngineStatus.needsAssets:
         return hub.avatarName.isEmpty ? Texts.t('av.st.assets.open') : Texts.t('av.st.assets');
       case EngineStatus.needsModel:
         return store != null && store.modelStage == ModelStage.failed ? Texts.t('av.st.model.failed', [store.modelReason]) : Texts.t('av.st.model');
+      case EngineStatus.needsPackage:
+        return store != null && store.engineStageOf(hub.avatarName, e.id) == EngineStage.failed ? Texts.t('av.st.package.failed', [store.engineReason]) : Texts.t('av.st.package');
+      case EngineStatus.notExported:
+        return Texts.t('av.st.notexported');
       case EngineStatus.downloading:
         if (e.id == 'wav2lip' && store != null) return Texts.t('av.st.downloading', ['${(store.modelGot * 100 ~/ (store.modelTotal == 0 ? 1 : store.modelTotal))} %']);
+        if (personalEngineIds.contains(e.id) && store != null) return Texts.t('av.st.downloading', ['${(store.engineGot * 100 ~/ (store.engineTotal == 0 ? 1 : store.engineTotal))} %']);
         return Texts.t('av.st.downloading', ['']);
       case EngineStatus.notTested:
         return Texts.t('av.st.nottested');
       case EngineStatus.testing:
         return Texts.t('av.st.testing');
       case EngineStatus.failed:
-        return Texts.t('av.st.failed', [hub.lastTest?.reason ?? '']);
+        return Texts.t('av.st.failed', [(personalEngineIds.contains(e.id) ? hub.personalTests[e.id]?.reason : hub.lastTest?.reason) ?? '']);
       case EngineStatus.noRuntime:
         return Texts.t('av.st.noruntime');
       case EngineStatus.unavailable:
@@ -118,12 +126,24 @@ class _AvatarVoiceSettingsState extends State<AvatarVoiceSettings> {
       final bytes = hub.assetBytes();
       return bytes > 0 ? Texts.t('eng.visemes.w.ready', [(bytes / 1024).round()]) : Texts.t(e.weightKey);
     }
+    final pack = personalEngineIds.contains(e.id) ? hub.store?.packOf(hub.avatarName, e.id) : null;
+    if (pack != null) return Texts.t('eng.personal.w.ready', [(pack.bytes / 1048576).toStringAsFixed(1)]);
     return Texts.t(e.weightKey);
   }
 
   /// The button that gets what an engine needs, when it can be got from here.
   Widget? _fetchButton(AvatarEngine e) {
     final st = hub.status(e);
+    if (personalEngineIds.contains(e.id) && (st == EngineStatus.needsPackage || st == EngineStatus.notTested || st == EngineStatus.failed)) {
+      final fetch = st == EngineStatus.needsPackage;
+      return TextButton.icon(
+        key: ValueKey(fetch ? 'engine-${e.id}-fetch' : 'engine-${e.id}-test'),
+        style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+        onPressed: fetch ? () => hub.fetchPersonal(e.id) : () => hub.runPersonalTest(e.id),
+        icon: Icon(fetch ? Icons.download : Icons.speed),
+        label: Text(Texts.t(fetch ? 'av.dl.package' : 'av.ptest')),
+      );
+    }
     if (e.id == 'visemes' && st == EngineStatus.needsAssets && hub.avatarName.isNotEmpty) {
       return TextButton.icon(
         key: const ValueKey('engine-visemes-fetch'),

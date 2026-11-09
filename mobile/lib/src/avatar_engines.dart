@@ -37,8 +37,8 @@ const avatarEngines = <AvatarEngine>[
       id: 'visemes', nameKey: 'eng.visemes', weightKey: 'eng.visemes.w', noteKey: 'eng.visemes.n', selectable: true, hasRuntime: true, pcId: 'visemes', mode: 'visemes', heights: [96, 144, 192, 240, 288, 384, 480]),
   AvatarEngine(
       id: 'wav2lip', nameKey: 'eng.wav2lip', weightKey: 'eng.wav2lip.w', noteKey: 'eng.wav2lip.n', selectable: true, hasRuntime: true, pcId: 'wav2lip_gan96', mode: 'wav2lip', heights: [96, 144, 192, 288, 384, 480]),
-  AvatarEngine(id: 'ultralight', nameKey: 'eng.ultralight', weightKey: 'eng.ultralight.w', noteKey: 'eng.ultralight.n'),
-  AvatarEngine(id: 'feathertalk', nameKey: 'eng.feathertalk', weightKey: 'eng.feathertalk.w', noteKey: 'eng.feathertalk.n'),
+  AvatarEngine(id: 'ultralight', nameKey: 'eng.ultralight', weightKey: 'eng.ultralight.w', noteKey: 'eng.ultralight.n', selectable: true, hasRuntime: true, mode: 'ultralight'),
+  AvatarEngine(id: 'feathertalk', nameKey: 'eng.feathertalk', weightKey: 'eng.feathertalk.w', noteKey: 'eng.feathertalk.n', selectable: true, hasRuntime: true, mode: 'feathertalk'),
   AvatarEngine(id: 'video', nameKey: 'eng.video', weightKey: 'eng.video.w', noteKey: 'eng.video.n', selectable: true, hasRuntime: true, mode: 'video'),
 ];
 

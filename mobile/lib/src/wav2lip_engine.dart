@@ -21,14 +21,34 @@ const wav2lipLagHoldMs = 1500;
 /// Android's thermal status from which the phone is too hot to go on drawing (THERMAL_STATUS_SEVERE).
 const thermalLimit = 3;
 
-/// One frame the model drew: the 96 x 96 face, as RGBA, for the instant `tMs` of the reply (milliseconds from its first sample).
+/// One frame the model drew: the face (96 x 96 for Wav2Lip), as RGBA, for the instant `tMs` of the reply (milliseconds from its first sample).
+/// `ms` is what it cost to make, when the engine says (the personalised ones do); -1 when it does not.
 class Wav2LipFrame {
-  Wav2LipFrame(this.gen, this.tMs, this.w, this.h, this.rgba);
+  Wav2LipFrame(this.gen, this.tMs, this.w, this.h, this.rgba, {this.ms = -1});
   final int gen;
   final int tMs;
   final int w;
   final int h;
   final Uint8List rgba;
+  final int ms;
+}
+
+/// Whether frames cost more to make than the time they stand for: the mean of the last `window` costs above `periodMs`. A phone that cannot keep up
+/// is not worth showing; the renderer gives the mode up and the next one of the chain takes over.
+class FrameBudget {
+  FrameBudget(this.periodMs, {this.window = 25});
+  final double periodMs;
+  final int window;
+  final Queue<int> _costs = Queue();
+  int _sum = 0;
+
+  /// Records the cost of one frame; true when the budget is exceeded.
+  bool add(int ms) {
+    _costs.addLast(ms);
+    _sum += ms;
+    if (_costs.length > window) _sum -= _costs.removeFirst();
+    return _costs.length == window && _sum / window > periodMs;
+  }
 }
 
 abstract class Wav2LipEvent {}
@@ -110,16 +130,11 @@ class Wav2LipTestResult {
   }
 }
 
-/// The model's runtime on the phone. The real one is Kotlin (Wav2LipChannel.kt, ONNX Runtime); the tests use a stand-in.
-abstract class Wav2LipBackend {
+/// What a runtime that draws faces from the voice does, whatever the model: the real ones are Kotlin (Wav2LipChannel.kt, PersonalChannel.kt, ONNX Runtime);
+/// the tests use stand-ins.
+abstract class FrameBackend {
   /// Whether this build has the runtime at all.
   Future<bool> available();
-
-  /// Opens the model file and the 96 x 96 face (`wav2lip/face.png`).
-  Future<Wav2LipLoad> load({required String model, required String face});
-
-  /// Runs the checks and the benchmark. `face` is the avatar's face when there is one, else the test makes its own.
-  Future<Wav2LipTestResult> selfTest({String? model, String? face, required int fps});
 
   /// Starts a reply at `sampleRate`; the number it returns names its frames. The voice follows through `feed`.
   Future<int> start(int sampleRate, int fps);
@@ -135,6 +150,30 @@ abstract class Wav2LipBackend {
 
   /// The frames, the phone's thermal status and the failures of the runtime.
   Stream<Wav2LipEvent> get events;
+}
+
+abstract class Wav2LipBackend implements FrameBackend {
+  /// Opens the model file and the 96 x 96 face (`wav2lip/face.png`).
+  Future<Wav2LipLoad> load({required String model, required String face});
+
+  /// Runs the checks and the benchmark. `face` is the avatar's face when there is one, else the test makes its own.
+  Future<Wav2LipTestResult> selfTest({String? model, String? face, required int fps});
+}
+
+/// One message of the Kotlin event channels as an event, or null for what is not one.
+Wav2LipEvent? wav2lipEventOf(Object? e) {
+  if (e is! Map) return null;
+  switch (e['k']) {
+    case 'frame':
+      final rgba = e['rgba'];
+      if (rgba is! Uint8List) return null;
+      return Wav2LipFrameEvent(Wav2LipFrame((e['g'] as num?)?.toInt() ?? 0, (e['t'] as num?)?.toInt() ?? 0, (e['w'] as num?)?.toInt() ?? 96, (e['h'] as num?)?.toInt() ?? 96, rgba, ms: (e['ms'] as num?)?.toInt() ?? -1));
+    case 'thermal':
+      return Wav2LipThermalEvent((e['level'] as num?)?.toInt() ?? 0);
+    case 'error':
+      return Wav2LipErrorEvent('${e['why'] ?? 'inference_failed'}');
+  }
+  return null;
 }
 
 /// [Wav2LipBackend] over the Kotlin channels `app.basalt/wav2lip` (calls) and `app.basalt/wav2lip/events` (frames).
@@ -203,25 +242,12 @@ class ChannelWav2LipBackend implements Wav2LipBackend {
   }
 
   @override
-  Stream<Wav2LipEvent> get events => _events.receiveBroadcastStream().map<Wav2LipEvent?>((e) {
-        if (e is! Map) return null;
-        switch (e['k']) {
-          case 'frame':
-            final rgba = e['rgba'];
-            if (rgba is! Uint8List) return null;
-            return Wav2LipFrameEvent(Wav2LipFrame((e['g'] as num?)?.toInt() ?? 0, (e['t'] as num?)?.toInt() ?? 0, (e['w'] as num?)?.toInt() ?? 96, (e['h'] as num?)?.toInt() ?? 96, rgba));
-          case 'thermal':
-            return Wav2LipThermalEvent((e['level'] as num?)?.toInt() ?? 0);
-          case 'error':
-            return Wav2LipErrorEvent('${e['why'] ?? 'inference_failed'}');
-        }
-        return null;
-      }).where((e) => e != null).cast<Wav2LipEvent>();
+  Stream<Wav2LipEvent> get events => _events.receiveBroadcastStream().map<Wav2LipEvent?>(wav2lipEventOf).where((e) => e != null).cast<Wav2LipEvent>();
 }
 
 /// The files of the Wav2Lip mode, decoded: the photo, and where the 96 x 96 face and its mouth sit on it.
 class Wav2LipPack {
-  Wav2LipPack({required this.poster, required this.posterSize, required this.inv, required this.mouth, required this.facePath});
+  Wav2LipPack({required this.poster, required this.posterSize, required this.inv, required this.mouth, required this.facePath, this.size = 96});
 
   final ui.Image poster;
   final Size posterSize;
@@ -232,6 +258,9 @@ class Wav2LipPack {
   /// The part of the face that is drawn over the photo, in the face's own pixels.
   final Rect mouth;
   final String facePath;
+
+  /// The side of the face the model draws, in pixels.
+  final int size;
 
   static Future<Wav2LipPack?> load(AvatarAssetStore store, String name, {Future<ui.Image> Function(Uint8List)? decoder}) async {
     try {
@@ -275,21 +304,28 @@ class Wav2LipRenderer extends AvatarRenderer {
     required this.player,
     this.fps = 25,
     this.leadMs = 30,
+    this.modeId = 'wav2lip',
+    double frameBudgetMs = 0,
     int Function()? now,
     Future<ui.Image> Function(Wav2LipFrame)? toImage,
   })  : _now = now ?? _wall,
-        _toImage = toImage ?? _fromRgba {
+        _toImage = toImage ?? _fromRgba,
+        _budget = frameBudgetMs > 0 ? FrameBudget(frameBudgetMs) : null {
     _sub = backend.events.listen(_onEvent);
   }
 
   static final Stopwatch _clock = Stopwatch()..start();
   static int _wall() => _clock.elapsedMilliseconds;
 
-  final Wav2LipBackend backend;
+  final FrameBackend backend;
   final Wav2LipPack pack;
   final PcmPlayer player;
   final int fps;
   final int leadMs;
+
+  /// The render mode this draws for: `wav2lip`, or the id of a personalised engine.
+  final String modeId;
+  final FrameBudget? _budget;
   final int Function() _now;
   final Future<ui.Image> Function(Wav2LipFrame) _toImage;
 
@@ -306,7 +342,7 @@ class Wav2LipRenderer extends AvatarRenderer {
   (double, double, double, double) motion = (0, 0, 0, 1);
 
   @override
-  String get mode => 'wav2lip';
+  String get mode => modeId;
 
   /// How many frames reached the screen, for the tests and the tab's note.
   int get framesShown => _framesShown;
@@ -358,6 +394,10 @@ class Wav2LipRenderer extends AvatarRenderer {
   void _onEvent(Wav2LipEvent e) {
     if (_failed) return;
     if (e is Wav2LipFrameEvent) {
+      if (e.frame.ms >= 0 && (_budget?.add(e.frame.ms) ?? false)) {
+        _giveUp('too_slow');
+        return;
+      }
       final base = _bases[e.frame.gen] ?? _pendingBase;
       if (base == null) return;
       final at = base + e.frame.tMs;
@@ -420,7 +460,7 @@ class Wav2LipRenderer extends AvatarRenderer {
   FaceScene? get scene {
     final layers = <FaceLayer>[];
     final cur = _current;
-    if (cur != null) layers.add(FaceLayer(cur, pack.inv, const Size(96, 96), clip: pack.mouth));
+    if (cur != null) layers.add(FaceLayer(cur, pack.inv, Size(pack.size.toDouble(), pack.size.toDouble()), clip: pack.mouth));
     return FaceScene(poster: pack.poster, posterSize: pack.posterSize, motion: motion, layers: layers);
   }
 

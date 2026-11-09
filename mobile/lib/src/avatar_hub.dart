@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 
 import 'avatar_assets.dart';
 import 'avatar_engines.dart';
+import 'personal_engine.dart';
+import 'personal_pack.dart';
 import 'settings.dart';
 import 'wav2lip_engine.dart';
 
@@ -25,21 +27,26 @@ class RenderPlan {
 }
 
 /// How an engine stands on this phone, for the chooser in Settings. `ready` is the only state in which the mode is declared.
-enum EngineStatus { ready, needsAssets, needsModel, downloading, notTested, testing, failed, noRuntime, unavailable }
+enum EngineStatus { ready, needsAssets, needsModel, needsPackage, notExported, downloading, notTested, testing, failed, noRuntime, unavailable }
 
-/// What this phone can draw: the avatar's files, the Wav2Lip model and its self-test. It decides what the app declares (`plan`): a mode is
-/// declared only when its renderer exists in this build, its files are on the phone and verified, and, for Wav2Lip, the self-test passed
-/// here with this model.
+/// What this phone can draw: the avatar's files, the Wav2Lip model and its self-test, and the packages of the personalised engines. It decides what the
+/// app declares (`plan`): a mode is declared only when its renderer exists in this build, its files are on the phone and verified, and, for Wav2Lip and
+/// the personalised engines, the self-test passed here with this model or package.
 class EngineHub extends ChangeNotifier {
-  EngineHub({required this.settings, this.store, this.backend});
+  EngineHub({required this.settings, this.store, this.backend, this.personal});
 
   final AppSettings settings;
   final AvatarAssetStore? store;
   final Wav2LipBackend? backend;
+  final PersonalBackend? personal;
 
   bool runtime = false;
+  bool personalRuntime = false;
   bool testing = false;
+  String? testingEngine;
   Wav2LipTestResult? lastTest;
+  final Map<String, PersonalTestResult> personalTests = {};
+  final Set<String> _checked = {};
   final Set<String> _suppressed = {};
   bool _disposed = false;
 
@@ -58,6 +65,11 @@ class EngineHub extends ChangeNotifier {
 
   bool get visemesReady => visemeFiles && !_suppressed.contains('visemes');
   bool get wav2lipReady => runtime && modelReady && wav2lipFiles && testPassed && !_suppressed.contains('wav2lip');
+
+  /// The package of personalised engine `id` for the avatar named last: whole and verified on this phone, and the self-test passed with exactly it.
+  bool personalFiles(String id) => assetsReady && store!.engineStageOf(avatarName, id) == EngineStage.ready;
+  bool personalPassed(String id) => assetsReady && store!.personalPassed(avatarName, id);
+  bool personalReady(String id) => personalRuntime && personalFiles(id) && personalPassed(id) && !_suppressed.contains(id);
 
   /// The size on the phone of the files of the avatar named last, 0 when they are not all there.
   int assetBytes() {
@@ -82,6 +94,12 @@ class EngineHub extends ChangeNotifier {
       await s.refreshModel();
     }
     runtime = backend == null ? false : await backend!.available();
+    personalRuntime = personal == null ? false : await personal!.available();
+    if (s != null && assetsReady) {
+      for (final id in personalEngineIds) {
+        if (s.offersEngine(avatarName, id) && _checked.add('$avatarName/$id')) await s.refreshEngine(avatarName, id);
+      }
+    }
     _tell();
   }
 
@@ -102,7 +120,8 @@ class EngineHub extends ChangeNotifier {
     final modes = <String>[];
     if (settings.avatarEnabled) {
       if (pref == 'wav2lip' && wav2lipReady) modes.add('wav2lip');
-      if ((pref == 'wav2lip' || pref == 'visemes') && visemesReady) modes.add('visemes');
+      if (personalEngineIds.contains(pref) && personalReady(pref)) modes.add(pref);
+      if ((pref == 'wav2lip' || pref == 'visemes' || personalEngineIds.contains(pref)) && visemesReady) modes.add('visemes');
     }
     modes.add('video');
     final first = avatarEngines.where((e) => e.mode == modes.first && e.pcId.isNotEmpty);
@@ -161,9 +180,49 @@ class EngineHub extends ChangeNotifier {
     return r;
   }
 
+  /// The package of a personalised engine, from the PC; true when it is whole and verified afterwards.
+  Future<bool> fetchPersonal(String id) async {
+    final s = store;
+    if (s == null || avatarName.isEmpty) return false;
+    final ok = await s.syncEngine(avatarName, id);
+    if (ok) _checked.add('$avatarName/$id');
+    _tell();
+    return ok;
+  }
+
+  /// The self-test and the benchmark of a personalised engine's package. Passing it (and only that) makes the engine declarable on this phone.
+  Future<PersonalTestResult> runPersonalTest(String id) async {
+    final b = personal;
+    final s = store;
+    final sha = s?.phoneShaOf(avatarName, id);
+    if (b == null || s == null || sha == null || !personalFiles(id)) {
+      final r = PersonalTestResult(engine: id, ok: false, reason: b == null || !personalRuntime ? 'no_runtime' : 'no_package');
+      personalTests[id] = r;
+      _tell();
+      return r;
+    }
+    testing = true;
+    testingEngine = id;
+    _tell();
+    PersonalTestResult r;
+    try {
+      r = await b.selfTest(engine: id, dir: s.engineDir(avatarName, id), sha: sha);
+    } catch (e) {
+      r = PersonalTestResult(engine: id, ok: false, reason: '$e');
+    }
+    testing = false;
+    testingEngine = null;
+    personalTests[id] = r;
+    await s.savePersonalTest(avatarName, id, PersonalTestRecord(r.ok ? sha : '', r.fps, r.msPerFrame));
+    if (r.ok) unsuppress(id);
+    _tell();
+    return r;
+  }
+
   /// The state of an engine of `avatarEngines` on this phone.
   EngineStatus status(AvatarEngine e) {
     if (!e.selectable) return EngineStatus.unavailable;
+    if (personalEngineIds.contains(e.id)) return _personalStatus(e.id);
     switch (e.id) {
       case 'visemes':
         if (store == null) return EngineStatus.noRuntime;
@@ -180,6 +239,19 @@ class EngineHub extends ChangeNotifier {
       default:
         return EngineStatus.ready;
     }
+  }
+
+  EngineStatus _personalStatus(String id) {
+    final s = store;
+    if (s == null || personal == null || !personalRuntime) return EngineStatus.noRuntime;
+    if (!assetsReady) return EngineStatus.needsAssets;
+    if (!s.offersEngine(avatarName, id)) return EngineStatus.notExported;
+    if (s.engineStageOf(avatarName, id) == EngineStage.downloading) return EngineStatus.downloading;
+    if (testing && testingEngine == id) return EngineStatus.testing;
+    if (!personalFiles(id)) return EngineStatus.needsPackage;
+    if (personalPassed(id)) return EngineStatus.ready;
+    final last = personalTests[id];
+    return last != null && !last.ok ? EngineStatus.failed : EngineStatus.notTested;
   }
 
   void _tell() {
