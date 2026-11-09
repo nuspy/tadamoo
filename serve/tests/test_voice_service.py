@@ -276,7 +276,12 @@ class AgreementTests(Base):
             for probe in e["probe"]:
                 (folder / probe).parent.mkdir(parents=True, exist_ok=True)
                 (folder / probe).write_bytes(b"x")
+                if e["id"] == "piper":
+                    (folder / (probe + ".json")).write_bytes(b"{}")                       # a Piper voice is its .onnx and its .onnx.json
             self.assertEqual(self.ms.is_installed(e["id"], str(root)), vc.installed(e, str(root)), e["id"])
+            if e["id"] == "piper":
+                self.assertEqual((self.ms.is_installed("piper", str(root)), vc.installed(e, str(root))), (True, True))
+                continue                                                                    # Piper is per voice: no marker decides it
             marker = {"files": [{"name": "a.bin", "size": 3}]}
             (folder / vc.MARKER).write_text(json.dumps(marker), encoding="utf-8")
             self.assertEqual((self.ms.is_installed(e["id"], str(root)), vc.installed(e, str(root))), (False, False), e["id"])

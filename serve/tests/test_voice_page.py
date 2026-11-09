@@ -48,7 +48,8 @@ class VoicePageTest(unittest.TestCase):
         self.assertIn('role", "progressbar"', JS)
 
     def test_the_button_exists_only_for_a_model_that_is_not_installed(self):
-        self.assertIn("if (!m.installed) box.append(downloadPart(svc, m))", JS)
+        self.assertIn("if (!m.installed || partial) box.append(downloadPart(svc, m))", JS)        # partial: a set of voices (Piper) with some still missing
+        self.assertIn("const partial = !!parts && parts.installed.length > 0 && parts.installed.length < parts.total", JS)
 
     def test_the_placement_cannot_ask_for_a_cpu_in_vram(self):
         self.assertIn('d === "cpu" ? { device: d, memory: "ram" }', JS)
