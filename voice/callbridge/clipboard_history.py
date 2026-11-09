@@ -138,6 +138,16 @@ class ClipStore:
         return img
 
 
+# Il gestore attivo nel processo: lo legge lo stato di /components/status.
+_current: "ClipboardHistory | None" = None
+
+HOTKEYS = "ctrl+alt+up/down/left/right"
+
+
+def current() -> "ClipboardHistory | None":
+    return _current
+
+
 class ClipboardHistory:
     """Hotkey Ctrl+Alt+frecce + monitor degli appunti + finestrella overlay."""
 
@@ -153,13 +163,27 @@ class ClipboardHistory:
         self._hook: KeyHook | None = None
         self._stop = threading.Event()
         self._thumbs: dict[str, bytes] = {}
+        self._why_off = ""                 # perche' la cronologia non e' attiva
+        self._unsupported = False
+        global _current
+        _current = self
 
     # --- ciclo di vita ---------------------------------------------------
+
+    @property
+    def active(self) -> bool:
+        return self._hook is not None
+
+    def status(self) -> dict:
+        return {"state": "running" if self.active else ("unsupported" if self._unsupported else "stopped"),
+                "active": self.active, "hotkey": HOTKEYS, "entries": len(self.store.entries),
+                "detail": self._why_off}
 
     def start(self) -> bool:
         try:
             self.store.load()
         except Exception as e:  # noqa: BLE001 - cartella non creabile
+            self._why_off = f"cronologia non disponibile: {e}"
             log.error("Appunti: cronologia non disponibile: %s", e)
             return False
         ctrl_alt = frozenset({"ctrl", "alt"})
@@ -171,11 +195,15 @@ class ClipboardHistory:
                 Binding(ctrl_alt, "right", lambda: self._nav(-1), exact=True, repeat=True),
             ])
         except DesktopUnsupported as e:
+            self._why_off, self._unsupported = str(e), True
             log.error("Appunti: cronologia non disponibile: %s", e)
             return False
         if not self._hook.start():
             self._hook = None
+            self._why_off = "hook della tastiera non avviato"
+            log.error("Appunti: hook della tastiera non avviato")
             return False
+        self._why_off = ""
         self._capture()                    # cio' che c'e' negli appunti adesso
         threading.Thread(target=self._monitor, name="clipboard-monitor",
                          daemon=True).start()

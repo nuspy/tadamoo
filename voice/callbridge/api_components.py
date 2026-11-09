@@ -179,6 +179,7 @@ def components_status():
         "push_to_talk": _ptt_status(cfg, ptt, sospeso),
         "incoming_calls": _chiamate_status(sospeso),
         "dictation": _dictation_status(),
+        "clipboard_history": _clipboard_status(),
     })
 
 
@@ -188,6 +189,14 @@ def _dictation_status() -> dict:
     if mgr is None:
         return {"state": "disabled", "detail": "dettatura non avviata in questo processo"}
     return mgr.status()
+
+
+def _clipboard_status() -> dict:
+    from .clipboard_history import current
+    hist = current()
+    if hist is None:
+        return {"state": "disabled", "active": False, "detail": "cronologia appunti non avviata in questo processo"}
+    return hist.status()
 
 
 def _cleanup_children(app) -> None:

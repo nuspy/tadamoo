@@ -63,6 +63,7 @@ class DictationManager:
         self._lock = threading.Lock()
         self._hook: KeyHook | None = None
         self._unsupported = ""           # perche' la dettatura non puo' partire qui
+        self._why_off = ""               # perche' e' ferma (disabilitata, hotkey non valida, hook non avviato)
         # L'UNICO STT del sistema (lo stesso delle sessioni voce): non ne
         # esiste piu' uno della dettatura.
         from .engines import _get_stt_engine
@@ -82,12 +83,15 @@ class DictationManager:
         `force` ignora `dictation_enabled` (avvio esplicito dalla GUI)."""
         if self._hook is not None:
             return True
+        self._why_off = ""
         if not self.cfg.dictation_enabled and not force:
+            self._why_off = "disabilitata (dictation_enabled=false)"
             log.info("Dettatura disabilitata (dictation_enabled=false)")
             return False
         hk = self.cfg.dictation_hotkey
         mods, key = parse_hotkey(hk)
         if key is None:
+            self._why_off = f"hotkey {hk!r} senza tasto principale valido"
             log.error("Dettatura: hotkey %r senza tasto principale valido", hk)
             return False
         try:
@@ -98,6 +102,7 @@ class DictationManager:
             log.error("Dettatura non disponibile: %s", e)
             return False
         if not hook.start():
+            self._why_off = f"hook non avviato per la hotkey {hk!r}"
             log.error("Dettatura: hook non avviato per hotkey %r", hk)
             return False
         self._hook = hook
@@ -128,7 +133,8 @@ class DictationManager:
 
     def status(self) -> dict:
         if self._hook is None:
-            state = "unsupported" if self._unsupported else "stopped"
+            state = ("unsupported" if self._unsupported
+                     else "disabled" if not self.cfg.dictation_enabled else "stopped")
         elif self._stt.state == "running":
             state = "running"
         elif self._stt.state == "error":
@@ -137,13 +143,14 @@ class DictationManager:
             state = "loading"
         return {
             "state": state,
+            "active": self._hook is not None,
             "hotkey": self.cfg.dictation_hotkey,
             "model": self._stt.info.get("model") or self.cfg.stt_model,
             "device": self._stt.info.get("device"),
             "precision": self._stt.info.get("precision"),
             "vram_mb": self._stt.info.get("vram_mb"),
             "pid": self._stt.pid,
-            "detail": self._unsupported or self._stt.error,
+            "detail": self._unsupported or (self._why_off if self._hook is None else "") or self._stt.error,
             "last": self.last,
         }
 
