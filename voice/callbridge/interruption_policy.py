@@ -1,25 +1,20 @@
 """Cosa fare di una frase arrivata mentre l'avatar sta ancora parlando.
 
-Quattro esiti, non due. Il barge-in classico ne ha due — o tronca o non tronca
+Tre esiti, non due. Il barge-in classico ne ha due — o tronca o non tronca
 — e sbaglia in tutti e due i modi: tronca sull'eco della propria voce e su un
 "sì sì" di cortesia, e non ha nessun modo di dire "ho capito, ne parliamo fra
 un attimo". Le persone, fra loro, fanno altro: distinguono un cenno di ascolto
-da un'interruzione, e una domanda nuova da una correzione di ciò che stanno per
-dire.
+da un'interruzione.
 
     IGNORA   rumore, eco, cenno di ascolto -> si continua come se niente fosse
     FERMA    l'utente vuole la parola      -> si tronca subito
     ACCODA   cosa nuova, ma può aspettare  -> si finisce, poi si risponde
-    CAMBIA   riguarda ciò che si sta per dire -> si riscrive la continuazione
 
 Qui ci sono solo le regole deterministiche, che costano zero e coprono la
-maggioranza dei casi. La zona grigia — sostanzialmente la distinzione fra
-ACCODA e CAMBIA — vorrebbe una domanda all'LLM, ma la misura di fase 0c dice
-che oggi non si può: LM Studio serve una richiesta per volta e la
-classificazione arriva per definizione mentre la risposta principale streamma,
-quindi si mette in fila e paga 6,1 s contro un tetto di 0,4. Finché non c'è un
-secondo slot, la zona grigia va ad ACCODA — il ripiego che non perde mai ciò
-che l'utente ha detto e non gli toglie mai la parola di prepotenza.
+maggioranza dei casi. La zona grigia, cioè tutto ciò che finisce in ACCODA, la
+decide `interruption.py` con la sessione tecnica; ACCODA resta il ripiego
+quando quella non risponde: non perde mai ciò che l'utente ha detto e non gli
+toglie mai la parola di prepotenza.
 
 Le regole sono in ordine e la prima che risponde vince. L'ordine non è
 casuale: prima si toglie di mezzo ciò che non è voce dell'utente (rumore ed
@@ -36,7 +31,6 @@ class Esito(Enum):
     IGNORA = "ignora"
     FERMA = "ferma"
     ACCODA = "accoda"
-    CAMBIA = "cambia"
 
 
 #: Sotto questa lunghezza un enunciato non è un'interruzione: è un residuo del
@@ -97,9 +91,7 @@ def _normalizza(testo: str) -> str:
     return re.sub(r"[^\w\s']", "", (testo or "").strip().lower()).strip()
 
 
-def classifica(testo: str, detto: str = "", durata_s: float = 0.0,
-               anticipo_s: float = 0.0, integra_da_s: float = 2.5,
-               consenti_cambia: bool = False) -> tuple[Esito, str]:
+def classifica(testo: str, detto: str = "", durata_s: float = 0.0) -> tuple[Esito, str]:
     """Decide cosa fare, e dice perché: il perché serve nei log più dell'esito.
 
     `detto` è ciò che l'avatar ha DAVVERO pronunciato negli ultimi secondi —
@@ -152,12 +144,8 @@ def classifica(testo: str, detto: str = "", durata_s: float = 0.0,
     if len(n) < MIN_CARATTERI and not DOMANDA.search(t):
         return Esito.IGNORA, "troppo poco per essere un turno"
 
-    # R6 — è un turno. Qui vivrebbe la domanda all'LLM; per ora si sceglie
-    # con quel che si sa. CAMBIA solo se c'è abbastanza parlato non ancora
-    # uscito da valere la pena di riscriverlo: sotto la soglia la
-    # continuazione arriverebbe dopo essere già stata pronunciata.
-    if consenti_cambia and anticipo_s >= integra_da_s:
-        return Esito.CAMBIA, f"c'è margine ({anticipo_s:.1f}s non ancora detti)"
+    # R6 — è un turno. Che sia nuovo o riguardi ciò che si sta dicendo lo
+    # decide la sessione tecnica; qui il ripiego è aspettare la fine.
     # Nessun ripescaggio dello stop qui: una richiesta di tacere è corta, e R4
     # l'ha già vista. Cercarla anche nelle frasi lunghe vuol dire troncare chi
     # sta semplicemente parlando — dal vivo, "mi senti bene adesso?" fermava

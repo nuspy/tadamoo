@@ -387,9 +387,7 @@ class StreamingSession:
             # non toglie la parola a nessuno, l'eco nemmeno, e una domanda
             # nuova puo' aspettare la fine della frase.
             if self._tts_active.is_set():
-                esito, perche = classifica(
-                    utterance, detto=self._last_response,
-                    consenti_cambia=False)
+                esito, perche = classifica(utterance, detto=self._last_response)
                 log.info("Sopra la voce %r -> %s (%s)",
                          utterance[:48], esito.value, perche)
                 if esito is Esito.IGNORA:

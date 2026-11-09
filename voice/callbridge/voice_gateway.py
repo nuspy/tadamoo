@@ -16,6 +16,9 @@ Protocol (JSON text frames and binary PCM16 little-endian mono frames):
   gw -> phone  in visemes mode, before the PCM of every segment: {"type":"visemes","segment":n,"text":"...","lang":"it","duration_ms":int,
                "pcm_bytes":int,"visemes":[{"t":ms,"v":"aa","dur":ms}...]}
   phone -> gw  {"type":"interrupt"} or a new start while the reply plays: the reply stops (gw -> phone {"type":"interrupt"})
+  phone -> gw  {"type":"user_speaking","state":"start|end","level":0..1,"ms":n} and a start with "barge_in": true: the person speaks over the voice;
+               gw -> phone {"type":"duck","level":0..1}, then nothing, an interrupt, or the new answer (interruption.py, docs/voice/interruptions.md)
+  gw -> phone  {"type":"resume_offer","text":"...","question":"...","lang":"it"}; phone -> gw {"type":"resume","accept":bool}
   phone -> gw  {"type":"brain","brain":"direct|harness"} / {"type":"persona","persona":"slug"}; both are confirmed with the same message
   phone -> gw  {"type":"render_mode","mode":"wav2lip|visemes"}   the device chooses among the modes the gateway offers it
   phone -> gw  {"type":"render_failed","mode":"...","why":"..."}   the mode does not work on the device; gw -> phone {"type":"render_mode","mode":next|"none",
@@ -45,7 +48,8 @@ import numpy as np
 from voice.avatar_engines import selection as engine_selection
 
 from . import chunk_policy
-from .interruption_policy import Esito, classifica
+from . import spoken
+from .interruption import IGNORE, STOP_AND_INTEGRATE, Decision, Heard, InterruptionManager, Interruptions, integration_note, offer_line, voice_verdict
 from .turn_engine import ReplyProcessor, configure_tts
 from .util import coalesce_utterances, drain_queue
 
@@ -63,6 +67,9 @@ _MIN_BARGEIN_CHARS = 7
 #: A turn with no speech ends after this long; after the button is released with nothing transcribed, after the second.
 NO_SPEECH_TIMEOUT_S = 15.0
 POST_END_TIMEOUT_S = 8.0
+
+#: The longest wait for the transcript of speech heard over the avatar, once the phone says it ended.
+BARGE_STT_WAIT_S = 4.0
 
 #: Characters gathered before a sentence goes to the synthesis when the duplex engine is on.
 DUPLEX_MIN_CARATTERI = 40
@@ -165,6 +172,16 @@ class Connection:
         self._caratteri_tts = 0
         self._da_trattare: list[str] = []
         self._eco_viste = 0
+        cfg = self.cfg
+        self._im = InterruptionManager(
+            Interruptions(getattr(cfg, "interruptions_enabled", True), getattr(cfg, "interruption_judge_timeout_ms", 800),
+                          getattr(cfg, "interruption_duck_level", 0.3), getattr(cfg, "interruption_resume_offer", True)),
+            judge=getattr(host, "interruption_judge", None), clock=getattr(host, "interruption_clock", time.monotonic), records=getattr(host, "interruption_log", None))
+        self._barge: dict | None = None           # speech heard over the avatar that is being collected: {lang, rate, ms, level}
+        self._decisions: queue.Queue = queue.Queue()
+        self._voice = ""                          # the voice of the last turn, for what the PC says by itself
+        self._unduck = False                      # the volume goes back up once the cut answer has been told to stop
+        self._judging = 0                         # speech over the avatar whose decision has not been taken yet
 
     # ---------------------------------------------------------------- plumbing
     def _send_json(self, obj: dict) -> None:
@@ -206,7 +223,9 @@ class Connection:
                 if not self._open_voice():
                     self._send_json({"type": "done"})
                     continue
-                if start.get("typed") is not None:
+                if start.get("say") is not None:
+                    self._do_say_turn(start)
+                elif start.get("typed") is not None:
                     self._do_typed_turn(start)
                 elif start.get("duplex"):
                     self._do_duplex_session(start)
@@ -310,24 +329,29 @@ class Connection:
     def _wait_start(self) -> dict | None:
         """The next start (or typed text) of the phone; None when the connection is over."""
         while True:
+            self._apply_decision(in_turn=False)
             if self._next_start is not None:
                 start, self._next_start = self._next_start, None
                 return start
             if self._closing:
                 return None
+            self._tick_offer()
             try:
-                raw = self.ws.recv(timeout=1.0)
+                raw = self.ws.recv(timeout=0.2 if self._barge is not None or self._judging or self._im.has_parked() else 1.0)
             except TimeoutError:
                 self._push_state()
                 continue
             except Exception:  # noqa: BLE001 (closed)
                 return None
             if isinstance(raw, (bytes, bytearray)):
-                continue                                  # audio between turns
+                self._barge_audio(bytes(raw))             # audio between turns is speech over a voice still playing, or nothing
+                continue
             msg = _loads(raw)
             if self._side_message(msg):
                 continue
             kind = msg.get("type")
+            if kind == "start" and self._barge_start(msg):
+                continue
             if kind == "start":
                 return msg
             if kind == "text":
@@ -379,6 +403,15 @@ class Connection:
                 log.info("gateway: %s failed on the device (%s)", mode, why)
                 self._reselect(previous=mode, why=why)
             return True
+        if kind == "user_speaking":
+            self._user_speaking(msg)
+            return True
+        if kind == "end" and self._barge is not None:
+            self._barge_end()
+            return True
+        if kind == "resume":
+            self._resume_answer(msg.get("accept") is True)
+            return True
         if kind == "brain":
             self.brain.set_mode((msg.get("brain") or "").strip().lower())
             self._send_json({"type": "brain", "brain": self.brain.mode})
@@ -395,10 +428,11 @@ class Connection:
         return False
 
     # ---------------------------------------------------------------- a reply
-    def _stream_reply(self, utterance: str, bargein=None, motore=None) -> None:
-        """Brain -> text to the phone and sentences to the synthesis (or to the duplex engine)."""
+    def _stream_reply(self, utterance: str, bargein=None, motore=None, note: str = "") -> None:
+        """Brain -> text to the phone and sentences to the synthesis (or to the duplex engine). `note` is extra context for this answer only."""
         self._ultima_risposta = ""
         self._caratteri_tts = 0
+        self._im.begin_answer(utterance)
         proc = ReplyProcessor(extract_media=True, min_caratteri=DUPLEX_MIN_CARATTERI if motore is not None else None)
 
         def _emit(rc) -> None:
@@ -410,6 +444,7 @@ class Connection:
                 self._send_json({"type": "reply", "chunk": rc.app_text})
             for sentence in rc.tts_sentences:
                 self._caratteri_tts += len(sentence)
+                self._im.add_sentence(sentence)
                 if motore is not None:
                     motore.dillo(sentence)
                 else:
@@ -417,7 +452,8 @@ class Connection:
                     self.tts.flush()                    # synthesised while the brain still writes
 
         try:
-            for chunk in self.brain.respond_stream(utterance, "remote"):
+            chunks = self.brain.respond_stream(utterance, "remote", context_note=note) if note else self.brain.respond_stream(utterance, "remote")
+            for chunk in chunks:
                 if bargein and bargein():
                     return
                 if isinstance(chunk, str):
@@ -469,6 +505,7 @@ class Connection:
         self._send_json({"type": "audio_start", "sample_rate": first.sample_rate, "segment": self._segment})
         self._emit_visemes(first)
         self._send_pcm(first.samples, first.sample_rate)
+        self._note_segment(first)
         last = time.monotonic()
         idle_since = None
         while True:
@@ -492,6 +529,7 @@ class Connection:
             self._muovi_labbra(seg, attendi=False)
             self._emit_visemes(seg)
             self._send_pcm(seg.samples, seg.sample_rate)
+            self._note_segment(seg)
             last = time.monotonic()
         self._send_json({"type": "audio_end"})
 
@@ -525,19 +563,23 @@ class Connection:
     def _hold_interrupt(self) -> bool:
         """Looks at what the phone sent while a reply is generated or played: an interrupt, a new start, a typed text or a close."""
         while True:
+            self._apply_decision(in_turn=True)
             try:
                 raw = self.ws.recv(timeout=0)
             except TimeoutError:
-                return False
+                return self._cut
             except Exception:  # noqa: BLE001 (closed)
                 self._closing = self._cut = True
                 return True
             if isinstance(raw, (bytes, bytearray)):
+                self._barge_audio(bytes(raw))
                 continue
             msg = _loads(raw)
             kind = msg.get("type")
             if kind == "interrupt":
                 self._cut = True
+            elif kind == "start" and self._barge_start(msg):
+                pass
             elif kind == "start":
                 self._next_start, self._cut = msg, True
             elif kind == "text":
@@ -561,7 +603,151 @@ class Connection:
         if self._cut:
             self._interrupt_output()
             self._send_json({"type": "interrupt"})
+            if self._unduck:
+                self._unduck = False
+                self._send_json({"type": "duck", "level": 1.0})
         self._send_json({"type": "done"})
+        self._im.answer_ended()
+
+    # ---------------------------------------------------------------- speech over the avatar
+    def _note_segment(self, seg) -> None:
+        """The interruption manager learns what the phone is about to play, and for how long."""
+        self._im.add_segment(getattr(seg, "testo", "") or "", len(seg.samples) / max(getattr(seg, "sample_rate", 24000), 1))
+
+    def _user_speaking(self, msg: dict) -> None:
+        """The phone heard the person begin or stop speaking while the avatar talks: the voice is lowered at once, not stopped."""
+        if not self._im.settings.enabled:
+            return
+        if msg.get("state") == "start":
+            level = self._im.user_started()
+            if level is not None:
+                self._send_json({"type": "duck", "level": level})
+        elif msg.get("state") == "end" and self._barge is not None:
+            level, ms = msg.get("level"), msg.get("ms")
+            self._barge["level"] = float(level) if isinstance(level, (int, float)) and not isinstance(level, bool) else 0.0
+            self._barge["ms"] = int(ms) if isinstance(ms, (int, float)) and not isinstance(ms, bool) else 0
+            self._barge_end()
+
+    def _barge_start(self, msg: dict) -> bool:
+        """A `start` flagged `barge_in` while the avatar is still speaking is speech over it, not a turn: True when it was taken as that."""
+        if msg.get("barge_in") is not True or not self._im.settings.enabled or self.stt is None or self._barge is not None or not self._im.speaking():
+            return False
+        rate = msg.get("sample_rate")
+        self._barge = {"lang": msg.get("lang") or self.cfg.default_lang, "rate": rate if isinstance(rate, int) and rate > 0 else STT_RATE, "ms": 0, "level": 0.0}
+        drain_queue(self.stt.utterances)
+        return True
+
+    def _barge_audio(self, raw: bytes) -> None:
+        if self._barge is not None and self.stt is not None:
+            self.stt.send_audio(_normalize_audio(_resample(_pcm16_to_f32(raw), self._barge["rate"], STT_RATE)))
+
+    def _barge_end(self) -> None:
+        """The speech over the avatar is over: the STT is flushed and a thread waits for the words and judges them, so that the audio goes on."""
+        barge, self._barge = self._barge, None
+        if barge is None:
+            return
+        try:
+            self.stt.flush()
+        except Exception:  # noqa: BLE001 (the judge then hears nothing)
+            pass
+        self._judging += 1
+        threading.Thread(target=self._judge_barge, args=(barge,), name="gw-interruption", daemon=True).start()
+
+    def _judge_barge(self, barge: dict) -> None:
+        try:
+            try:
+                first = self.stt.utterances.get(timeout=BARGE_STT_WAIT_S)
+                text = coalesce_utterances(self.stt.utterances, first, 0.25).strip()
+            except queue.Empty:
+                text = ""
+            if not text:
+                result = Decision(IGNORE, "nothing heard", "rules")
+            elif self._im.offer_open() and voice_verdict(text):
+                result = voice_verdict(text)
+            else:
+                result = self._im.decide(Heard(text, barge["ms"], barge["level"]), can_integrate=self.brain.mode == "direct")
+        except Exception as e:  # noqa: BLE001 (a failed judgement must not leave the phone waiting)
+            log.error("gateway: interruption not judged: %s", e)
+            text, result = "", Decision(IGNORE, "error", "fallback", degraded=True)
+        self._decisions.put((barge, text, result))
+
+    def _apply_decision(self, in_turn: bool) -> None:
+        """Carries out a decision that is ready. In a turn the reply is cut through `_cut`; between turns the phone is told directly."""
+        try:
+            barge, text, d = self._decisions.get_nowait()
+        except queue.Empty:
+            return
+        self._judging -= 1
+        if isinstance(d, str):                                    # the offer was answered by voice over the question
+            self._send_json({"type": "transcript", "text": text})
+            self._offer_verdict(d)
+            self._send_json({"type": "duck", "level": 1.0})
+            self._send_json({"type": "done"})
+            return
+        if d.action == IGNORE:
+            self._send_json({"type": "transcript", "text": ""})
+            self._send_json({"type": "duck", "level": 1.0})
+            self._send_json({"type": "done"})
+            return
+        start = {"typed": text, "lang": barge["lang"], "voice": self._voice or None, "heard": True}
+        if d.stops:
+            spoken_part, left = self._im.split()
+            if d.action == STOP_AND_INTEGRATE:
+                start["note"] = integration_note(spoken_part, text)
+                self._im.park("")
+            else:
+                self._im.park(left if d.offer_resume else "")
+            self._send_json({"type": "reply_reset", "text": spoken_part + (" " if spoken_part else "")})
+        else:
+            self._send_json({"type": "duck", "level": 1.0})
+        if self._next_start is not None:                          # the phone's own start or text came meanwhile and wins
+            self._send_json({"type": "done"})
+            return
+        self._next_start = start
+        if not d.stops:
+            return
+        if in_turn:
+            self._cut = self._unduck = True
+        else:
+            self._interrupt_output()
+            self._send_json({"type": "interrupt"})
+            self._send_json({"type": "duck", "level": 1.0})
+
+    def _offer_verdict(self, verdict: str) -> None:
+        """The person took (`accept`) or turned down the offer to go on."""
+        if verdict == "accept":
+            rest = self._im.accept()
+            if rest and self._next_start is None:
+                self._next_start = {"say": rest}
+        else:
+            self._im.decline()
+
+    def _answers_offer(self, utterance: str) -> bool:
+        """A turn that is only the answer to the offer to go on: handled here, True."""
+        verdict = voice_verdict(utterance) if self._im.offer_open() else None
+        if verdict is None:
+            return False
+        self._offer_verdict(verdict)
+        self._send_json({"type": "done"})
+        return True
+
+    def _resume_answer(self, accept: bool) -> None:
+        """The phone's `resume` message: the tap on the offer."""
+        if self._im.offer_open():
+            self._offer_verdict("accept" if accept else "decline")
+
+    def _tick_offer(self) -> None:
+        """Between turns: makes the offer to go on once the new answer has been quiet long enough, and takes back one nobody answered."""
+        event = self._im.poll_offer()
+        if event is None:
+            return
+        kind, text = event
+        if kind == "expired":
+            self._send_json({"type": "resume_offer", "text": ""})
+            return
+        question = offer_line(self._lang_turno)
+        self._send_json({"type": "resume_offer", "text": text, "question": question, "lang": spoken.language_of(self._lang_turno)})
+        self._do_say_turn({"say": question})
 
     # ---------------------------------------------------------------- turns
     def _stt_per_lingua(self, lang: str) -> None:
@@ -594,22 +780,47 @@ class Connection:
         if start.get("transcribe_only") or mode == "transcribe":      # dictate and correct: only the text goes back
             self._send_json({"type": "done"})
             return
+        if self._answers_offer(utterance):
+            return
         self._stream_reply(utterance, bargein=self._hold_interrupt)
         if not self._cut:
             self._forward_tts_audio(barge_in=self._hold_interrupt)
         self._finish_hold_turn()
 
     def _do_typed_turn(self, start: dict) -> None:
+        """A typed sentence, or the speech heard over the avatar that was put off or took the place of the answer (`heard`, with its `note`)."""
         text = (start.get("typed") or "").strip()
         if not text:
             self._send_json({"type": "done"})
             return
         self._configura_voce(start.get("voice") or self.cfg.default_voice, start.get("lang") or self.cfg.default_lang)
+        self._lang_turno = str(start.get("lang") or self._lang_turno).split("-")[0]
         self._cut = False
-        self._stream_reply(text, bargein=self._hold_interrupt)
+        if start.get("heard"):
+            self._send_json({"type": "transcript", "text": text})
+        self._stream_reply(text, bargein=self._hold_interrupt, note=start.get("note") or "")
         if not self._cut:
             self._forward_tts_audio(barge_in=self._hold_interrupt)
         self._finish_hold_turn()
+
+    def _do_say_turn(self, start: dict) -> None:
+        """Says a text the PC already has (the part of an answer that was left) without asking the brain."""
+        text = (start.get("say") or "").strip()
+        if not text:
+            return
+        self._configura_voce(self._voice or self.cfg.default_voice, self._lang_turno)
+        self._cut = False
+        self._im.begin_answer("")
+        self._im.add_sentence(text)
+        self._send_json({"type": "reply", "chunk": text})
+        self.tts.send_text(text)
+        self.tts.flush()
+        self._forward_tts_audio(barge_in=self._hold_interrupt)
+        if self._cut:
+            self._interrupt_output()
+            self._send_json({"type": "interrupt"})
+        self._send_json({"type": "turn_done"})
+        self._im.answer_ended()
 
     def _capture_utterance(self, mode: str, in_rate: int) -> str:
         """The audio of the phone to the STT until the turn ends; returns the whole transcribed utterance.
@@ -672,6 +883,7 @@ class Connection:
     # ---------------------------------------------------------------- voice of the person on screen
     def _configura_voce(self, voice: str, lang: str) -> None:
         """The avatar's own voice wins; without an avatar the voice of the turn is used."""
+        self._voice = voice
         if self._voce_persona is None and self.host.functions().get("avatar"):
             self._risolvi_voce_avatar()
         if self._voce_persona:
@@ -958,8 +1170,8 @@ class Connection:
                     motore.rialza()
 
     def _attendi_motore(self, motore, bargein) -> bool:
-        """Follows the answer to its end, deciding what to do with what the person says meanwhile (the four outcomes of
-        interruption_policy). Returns True when the answer was stopped."""
+        """Follows the answer to its end, deciding what to do with what the person says meanwhile (the interruption manager: the rules, then
+        the technical session). Returns True when the answer was stopped."""
         fermo_da = time.monotonic()
         consegnati = motore.consegnati_s
         while True:
@@ -971,27 +1183,24 @@ class Connection:
                 return True
             text = self._prossima_frase()
             if text:
-                esito, why = classifica(text, detto=motore.copione.detto(6.0), anticipo_s=motore.copione.anticipo_s(),
-                                        integra_da_s=getattr(self.cfg, "duplex_integra_da_s", 2.5),
-                                        # Rewriting the rest is for the direct brain only: the agent may already have acted.
-                                        consenti_cambia=getattr(self.cfg, "duplex_integra", False) and hasattr(self.brain, "respond_continuazione"))
-                log.info("gateway: over the voice %r -> %s (%s)", text[:48], esito.value, why)
-                if esito is Esito.IGNORA:
+                detto, previsto = motore.copione.detto(), motore.copione.previsto()
+                # Rewriting the rest is for the direct brain only: the agent may already have acted.
+                d = self._im.decide(Heard(text), can_integrate=self.brain.mode == "direct", said=(detto, previsto))
+                if d.action == IGNORE:
                     motore.rialza()
-                    if why.startswith("eco") and self._conta_eco():
+                    if d.reason.startswith("eco") and self._conta_eco():
                         motore.taglia(anche_in_corso=True)
                         self._ferma_avatar()
                         return True
-                elif esito is Esito.FERMA:
+                elif d.action == STOP_AND_INTEGRATE and self._integra(motore, text, detto, previsto):
+                    pass
+                elif d.stops:
                     motore.taglia(anche_in_corso=True)
                     self._ferma_avatar()
                     if self._video is not None:
                         self._video.svuota_audio()
                     self._da_trattare.append(text)
                     return True
-                elif esito is Esito.CAMBIA:
-                    if not self._integra(motore, text):
-                        self._da_trattare.append(text)
                 else:
                     self._da_trattare.append(text)        # queue: the avatar finishes, then answers
             if motore.consegnati_s > consegnati + 1e-6:
@@ -1006,23 +1215,17 @@ class Connection:
                 return False
             time.sleep(0.05)
 
-    def _integra(self, motore, nuova: str) -> bool:
-        """Rewrites the rest of the answer in view of what the person just said. False when it cannot be done (the caller queues instead)."""
-        brain = self.brain
-        if not hasattr(brain, "respond_continuazione"):
-            return False
-        detto = motore.copione.detto()
-        previsto = motore.copione.previsto()
-        if not previsto.strip():
+    def _integra(self, motore, nuova: str, detto: str, previsto: str) -> bool:
+        """Rewrites the rest of the answer in view of what the person just said: the sentence being spoken is finished, the ones after it are
+        cut, and the brain writes the rest with a note of what was said and what was added. False when there is not enough left to rewrite
+        (the caller stops the answer and answers the new request instead)."""
+        if not previsto.strip() or motore.copione.anticipo_s() < getattr(self.cfg, "duplex_integra_da_s", 2.5):
             return False
         motore.riscrivi()
-        try:
-            brain.correggi_ultima_risposta(detto)
-        except Exception as e:  # noqa: BLE001
-            log.warning("gateway: history not corrected: %s", e)
         self._send_json({"type": "reply_reset", "text": detto + (" " if detto else "")})
         proc = ReplyProcessor(extract_media=True, continuazione=True, min_caratteri=DUPLEX_MIN_CARATTERI)
         self._ultima_risposta = detto
+        note = integration_note(detto, nuova)
 
         def _emit(rc) -> None:
             if rc.app_text:
@@ -1034,12 +1237,12 @@ class Connection:
 
         def _write() -> None:
             try:
-                for chunk in brain.respond_continuazione(detto, previsto, nuova):
+                for chunk in self.brain.respond_stream(nuova, "remote", context_note=note):
                     if isinstance(chunk, str):
                         _emit(proc.feed(chunk))
                 _emit(proc.flush())
             except Exception as e:  # noqa: BLE001
-                log.error("gateway: continuation failed: %s", e)
+                log.error("gateway: the rewritten rest failed: %s", e)
             finally:
                 motore.fine_risposta()
 

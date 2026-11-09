@@ -166,6 +166,9 @@ Rules the phone follows, so the PC can rely on them:
 - `resume_offer` is dropped when the person starts another turn. The phone answers it at most once, with `resume`.
 - Connection lost: the level goes back to normal and the speech detector stops.
 
+What the PC does with these messages (the decision, the order of its answers, the memory of the answer and the offer to go on) is in
+`interruptions.md`. `resume_offer` carries `{text, question, lang}`: `text` is what was left, `question` is spoken by the PC in the conversation's language.
+
 ## Video hints and the avatar switch
 
 `video_start` may carry `resolution` (pixels of the longer side: 128, 192, 256, 384 or 480), `fps` and `bitrate_kbps` (the phone's quality
