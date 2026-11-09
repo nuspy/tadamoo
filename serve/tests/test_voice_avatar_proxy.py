@@ -82,6 +82,18 @@ class AvatarProxy(unittest.TestCase):
         self.refused("POST", "/avatar/visemes", {"text": "hi", "duration_s": 1}, 403)
         self.assertEqual(self.rec.calls, [])
 
+    def test_the_training_video_is_listed_and_removed_through_the_proxy_and_uploaded_through_the_relay(self):
+        self.assertEqual(self.ok("GET", f"/avatar/{NAME}/training-video")[:3], ("GET", f"/avatar/{NAME}/training-video", None))
+        self.assertEqual(self.ok("DELETE", f"/avatar/{NAME}/training-video")[:2], ("DELETE", f"/avatar/{NAME}/training-video"))
+        self.refused("DELETE", f"/avatar/{NAME}/training-video", {"x": 1}, 400)
+        self.refused("POST", f"/avatar/{NAME}/training-video", {"file": "AAAA"}, 403)             # a file goes through serve/voice_avatar.py, not a JSON body
+        self.refused("PUT", f"/avatar/{NAME}/training-video", None, 403)
+        for name in ("../x", "a/b", ".hidden", "a b", "x" * 61, ""):
+            self.refused("GET", f"/avatar/{name}/training-video", None, 403)
+            self.refused("DELETE", f"/avatar/{name}/training-video", None, 403)
+        self.refused("GET", f"/avatar/{NAME}/training-video/x", None, 403)
+        self.assertEqual(len(self.rec.calls), 2)
+
     def test_a_draft_id_or_an_avatar_name_that_is_not_plain_is_refused(self):
         for draft in ("../x", "A" * 32, "0" * 31, "0" * 33, "0" * 32 + "/x", ""):
             self.refused("GET", f"/avatar/wizard/{draft}", None, 403)

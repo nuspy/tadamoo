@@ -209,7 +209,7 @@ ROUTES: dict[tuple[str, str], Callable[[Any], Any]] = {
     ("POST", "/brain/say"): _say,
     ("GET", "/call/approvals"): _none,
     ("GET", "/call/audit"): _none,
-    # the avatar (the files of the wizard and the preview stream pass through serve/voice_avatar.py, not here)
+    # the avatar (the files of the wizard, the training video upload and the preview stream pass through serve/voice_avatar.py, not here)
     ("GET", "/avatar/state"): _none,
     ("GET", "/avatar/list"): _none,
     ("GET", "/avatar/output"): _none,
@@ -250,6 +250,8 @@ PATTERNS: list[tuple[str, "re.Pattern[str]", Callable[[Any], Any]]] = [
     ("DELETE", re.compile(rf"/avatar/wizard/{DRAFT}"), _none),
     ("POST", re.compile(rf"/avatar/wizard/{DRAFT}/elabora"), _avatar_finish),
     ("DELETE", re.compile(rf"/avatar/{AVATAR_NAME}"), _none),
+    ("GET", re.compile(rf"/avatar/{AVATAR_NAME}/training-video"), _none),
+    ("DELETE", re.compile(rf"/avatar/{AVATAR_NAME}/training-video"), _none),
     ("POST", re.compile(rf"/personas/{AVATAR_NAME}/wav2lip/bocca"), _avatar_mouth),
     ("PUT", re.compile(rf"/meetings/plan/{MEETING_ID}"), _plan_item(())),
     ("DELETE", re.compile(rf"/meetings/plan/{MEETING_ID}"), _none),

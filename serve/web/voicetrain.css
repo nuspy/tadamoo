@@ -32,3 +32,8 @@
 .vtr-setup summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; color: var(--fg); font-weight: 600; }
 .vtr-setup input[type="text"] { min-height: 44px; width: 100%; box-sizing: border-box; }
 .vtr-setup .vtr-check { padding: 4px 0; }
+.vtr-video { display: grid; gap: 8px; min-width: 0; padding: 12px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--panel); }
+.vtr-video input[type="file"] { min-height: 44px; max-width: 100%; box-sizing: border-box; color: var(--fg); font-size: 14px; }
+.vtr-video input[type="file"]::file-selector-button { min-height: 44px; min-width: 44px; margin-right: 12px; padding: 0 16px; cursor: pointer; }
+.vtr-warn[data-bad="1"] { color: var(--warn); font-weight: 600; }
+.vtr-video .vtr-nav .vtr-text { flex-basis: 100%; }

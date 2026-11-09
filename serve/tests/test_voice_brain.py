@@ -295,6 +295,8 @@ class ProxyTests(ServerBase):
                                  # the avatar (serve/tests/test_voice_avatar_proxy.py)
                                  "GET /avatar/state", "GET /avatar/list", "GET /avatar/output", "GET /avatar/enhance", "GET /avatar/engines", "GET /avatar/prepare", "POST /avatar/prepare", "POST /avatar/prepare/cancel",
                                  "POST /avatar/speak", "POST /avatar/start", "POST /avatar/wizard/start",
+                                 "POST /avatar/train/plan", "POST /avatar/train/start", "POST /avatar/train/setup", "POST /avatar/train/python", "POST /avatar/train/export",
+                                 "GET /avatar/train/status", "POST /avatar/train/cancel", "POST /avatar/engines/python",
                                  # meetings, the copilot and the calendar (serve/tests/test_voice_meetings_page.py)
                                  "GET /meetbot/status", "POST /meetbot/join", "POST /meetbot/leave", "GET /meetings/list", "GET /meetings/plan", "POST /meetings/plan", "GET /copilot/state", "POST /copilot/toggle",
                                  "GET /calendar/status", "GET /calendar/events"]))

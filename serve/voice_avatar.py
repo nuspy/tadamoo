@@ -11,6 +11,8 @@
     POST /api/voice/avatar/wizard/<draft>/<foto|pose|video|voce>   a photo, a video or a voice sample for the creation wizard: the multipart body
                                                             passes through to the service in pieces, without being read here, and only up to
                                                             the size of its step
+    POST /api/voice/avatar/<name>/training-video            the long video a personalised engine is trained from: the same relay, up to 2000 MB
+                                                            (its list and removal are JSON routes of voice_proxy.py)
     GET  /api/voice/avatar/preview.mjpg                     the rendered frames, a long-lived MJPEG stream relayed from the service
     GET  /api/voice/avatar/<name>/poster|sprites.png        the portrait of an avatar; its mouth sprites over it in one picture
     GET  /api/voice/avatar/<name>/assets.zip|manifest.json  the files a phone or the ESP32 renders the avatar from (this PC or a phone with its key)
@@ -28,6 +30,8 @@ from serve import settings, voice_service, voice_settings
 
 NAME = r"[A-Za-z0-9][A-Za-z0-9_-]{0,59}"
 UPLOAD = re.compile(r"/api/voice/avatar/wizard/([0-9a-f]{32})/(foto|pose|video|voce)")
+TRAINING_UPLOAD = re.compile(rf"/api/voice/avatar/({NAME})/training-video")
+TRAINING_LIMIT = 2000 << 20                                                              # the service's own limit for the training video
 POSTER = re.compile(rf"/api/voice/avatar/({NAME})/poster")
 SPRITES = re.compile(rf"/api/voice/avatar/({NAME})/sprites\.png")
 PREVIEW = "/api/voice/avatar/preview.mjpg"
@@ -118,7 +122,12 @@ def _down(handler, e: Exception) -> None:
 
 def upload(handler, step: str, draft: str) -> None:
     """Copy the request body to the service's wizard route; the answer of the service is the answer."""
-    limit = LIMITS[step] + OVERHEAD
+    relay_upload(handler, LIMITS[step], f"/avatar/wizard/{draft}/{step}")
+
+
+def relay_upload(handler, cap: int, upstream: str) -> None:
+    """Copy a multipart request body of at most `cap` bytes of file to `upstream` on the service, in pieces."""
+    limit = cap + OVERHEAD
     ctype = handler.headers.get("Content-Type", "")
     if handler.headers.get("Transfer-Encoding", "").lower() == "chunked" or "Content-Length" not in handler.headers:
         handler.close_connection = True
@@ -132,14 +141,14 @@ def upload(handler, step: str, draft: str) -> None:
         return _refuse(handler, 400, "bad_request", "Send the file as multipart/form-data.")
     if length > limit:
         handler.close_connection = True
-        return _refuse(handler, 413, "too_big", f"The file is too big: at most {LIMITS[step] >> 20} MB.")
+        return _refuse(handler, 413, "too_big", f"The file is too big: at most {cap >> 20} MB.")
     try:
         conn, token = _connect(UPLOAD_WAIT_S)
     except voice_service.ServiceDown as e:
         handler._discard_body()
         return _down(handler, e)
     try:
-        conn.putrequest("POST", f"/avatar/wizard/{draft}/{step}")
+        conn.putrequest("POST", upstream)
         conn.putheader("Authorization", "Bearer " + token)
         conn.putheader("Content-Type", ctype)
         conn.putheader("Content-Length", str(length))
@@ -292,6 +301,9 @@ def post(handler, path: str) -> None:
     m = UPLOAD.fullmatch(path)
     if m:
         return upload(handler, m.group(2), m.group(1))
+    m = TRAINING_UPLOAD.fullmatch(path)
+    if m:
+        return relay_upload(handler, TRAINING_LIMIT, f"/avatar/{m.group(1)}/training-video")
     if path not in (BASE, SELECT):
         handler._discard_body()
         return _refuse(handler, 404, "not_found", "not found")
