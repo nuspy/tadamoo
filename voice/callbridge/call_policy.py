@@ -7,8 +7,9 @@ Who started a call (`origin`):
   agent    TaDaMoo's agent through its phone tools (/external/call with `X-Call-Origin: agent`): the agent asks the person itself when
            `outgoing_approval` is `manual`; the service records that and trusts the header, which only a holder of the service token can send.
   program  any other caller of /external/*: with `manual` the call waits for the person's approval (`Approvals`), with `auto` it is approved.
-A call is never retried, one call runs at a time, a number that reaches an emergency service is refused for every origin, and the first
-sentence of a call says the caller is an AI unless the person turned that off. The audit has no transcript and only the last three digits."""
+A call is never retried, one call runs at a time, a number that reaches an emergency service is refused for every origin, a premium-rate
+number (the person's list of prefixes) is refused to the agent and to programs, and the first sentence of a call says the caller is an AI
+unless the person turned that off. `auto` approval can be limited to the numbers the person listed as contacts; any other number then asks. The audit has no transcript and only the last three digits."""
 from __future__ import annotations
 
 import hashlib
@@ -39,7 +40,20 @@ AUDIT_MAX_BYTES = 2 * 1024 * 1024
 EMERGENCY = frozenset({
     "112", "113", "114", "115", "117", "118", "1515", "911", "999", "000", "110", "119", "120", "122", "133", "144", "100", "101", "102", "108",
     "15", "17", "18", "190", "191", "192", "193", "194", "195", "196", "198", "091", "092", "060", "061", "997", "998", "995", "1122", "10111",
-    "10177", "111", "116117", "155", "158", "150", "156", "166", "112112"})
+    "10177", "111", "116117", "155", "158", "150", "156", "166", "112112", "116000", "116111", "116123", "1530"})
+
+# Prefixes of premium-rate and high-cost numbers. An entry with `+` matches a number written with a country code (`+` or `00`), an entry
+# without it matches a number written nationally. The person edits the list in settings.
+DEFAULT_PREMIUM_PREFIXES = (
+    "+3989", "+39144", "+39166", "89", "144", "166",                    # IT: 89x, 144, 166
+    "+1900", "+1976", "900", "976", "1900", "1976",                      # US/CA: 900, 976
+    "+449", "+4470", "+4487", "09", "070", "087",                        # UK: 09x, 070, 087x
+    "+3389", "+33836", "089", "0836", "118",                             # FR: 089x, 0836; 118 directory services (FR/UK)
+    "+49900", "+49137", "+49190", "0900", "0137", "0190",                # DE: 0900, 0137, 0190
+    "+870", "+871", "+872", "+873", "+874", "+881", "+882", "+883", "+979")      # satellite, international networks, international premium rate
+MAX_PREMIUM_PREFIXES = 200
+MAX_CONTACTS = 500
+_PREFIX = re.compile(r"^\+?[0-9]{1,15}$")
 _STRICT = re.compile(r"^\+?[0-9]{6,15}$")
 _CALLEE_DIGITS = re.compile(r"[^0-9]")
 
@@ -59,7 +73,7 @@ def mask(number: str) -> str:
 
 
 def is_emergency(number: str) -> bool:
-    """True for an emergency number, alone or after a country code (+39 112, 0039112, +1 911)."""
+    """True for an emergency number, alone, after a country code (+39 112, 0039112, +1 911, 39112) or after a switchboard prefix (0112, 9911)."""
     plain = normalize_phone_number(number or "")
     international = plain.startswith("+") or plain.startswith("00")
     d = digits_of(plain)
@@ -70,7 +84,66 @@ def is_emergency(number: str) -> bool:
         if d in EMERGENCY:
             return True
     if international and len(d) <= 9:
-        return any(d.endswith(e) and len(d) <= len(e) + 3 for e in EMERGENCY if len(e) >= 3)
+        if any(d.endswith(e) and len(d) <= len(e) + 3 for e in EMERGENCY if len(e) >= 3):
+            return True
+        return len(d) <= 5 and any(d.endswith(e) for e in EMERGENCY if len(e) == 2)
+    if len(d) <= 5:
+        if d[:1] in ("0", "9") and d[1:] in EMERGENCY and len(d) >= 4:
+            return True
+        return any(d.endswith(e) and len(d) <= len(e) + 2 for e in EMERGENCY)
+    return False
+
+
+def clean_prefixes(values) -> list[str]:
+    """The valid entries of a prefix list (`+39 89`, `0900`), separators removed, in order and without repeats; anything else is dropped."""
+    out: list[str] = []
+    for v in values if isinstance(values, (list, tuple)) else ():
+        if not isinstance(v, str):
+            continue
+        p = re.sub(r"[\s\-().]", "", v)
+        if _PREFIX.match(p) and p not in out:
+            out.append(p)
+    return out[:MAX_PREMIUM_PREFIXES]
+
+
+def _split(number: str) -> tuple[str, str]:
+    """(digits with a country code, digits written nationally) of a number: one of them is empty."""
+    plain = normalize_phone_number(number or "")
+    d = digits_of(plain)
+    if plain.startswith("+"):
+        return d, ""
+    if plain.startswith("00"):
+        return d[2:], ""
+    return "", d
+
+
+def premium_match(number: str, prefixes) -> str:
+    """The prefix of `prefixes` that `number` starts with, or "". A `+` entry is read against a number with a country code, the others against
+    a number written nationally."""
+    intl, national = _split(number)
+    # "+44 (0) 87..." carries the national trunk zero after the country code (UK, FR, DE drop it, Italy keeps it): read it with and without
+    forms = [intl] + ([intl[:2] + intl[3:]] if intl[:2] in ("44", "33", "49") and intl[2:3] == "0" else [])
+    for p in prefixes or ():
+        if p.startswith("+"):
+            if any(f and f.startswith(p[1:]) for f in forms):
+                return p
+        elif national and national.startswith(p):
+            return p
+    return ""
+
+
+def in_contacts(number: str, contacts) -> bool:
+    """True when `number` is one of `contacts`: the same digits, or the same number written with and without its country code (at least 8
+    digits in the national form)."""
+    intl, nat = _split(number)
+    for c in contacts or ():
+        ci, cn = _split(c)
+        if (intl and intl == ci) or (nat and nat == cn):
+            return True
+        if intl and cn and len(cn) >= 8 and intl.endswith(cn):
+            return True
+        if nat and ci and len(nat) >= 8 and ci.endswith(nat):
+            return True
     return False
 
 
@@ -281,6 +354,20 @@ class Policy:
     def who(self) -> str:
         return (self.cfg.call_on_behalf_of or "").strip()
 
+    @property
+    def premium_prefixes(self) -> list[str]:
+        raw = getattr(self.cfg, "call_premium_prefixes", None)
+        return clean_prefixes(raw if isinstance(raw, (list, tuple)) else DEFAULT_PREMIUM_PREFIXES)
+
+    @property
+    def auto_contacts_only(self) -> bool:
+        return getattr(self.cfg, "call_auto_contacts_only", False) is True
+
+    @property
+    def contacts(self) -> list[str]:
+        raw = getattr(self.cfg, "call_contacts", ())
+        return [c for c in raw if isinstance(c, str)] if isinstance(raw, (list, tuple)) else []
+
     def telephony_on(self) -> bool:
         return (self.cfg.call_transport or "off").lower() != "off"
 
@@ -300,6 +387,8 @@ class Policy:
         valid = is_valid_phone_number(clean) if origin == "user" else bool(_STRICT.match(clean))
         if not valid:
             return Decision(False, 400, "invalid_number", "the number is not valid", number=clean)
+        if origin != "user" and premium_match(clean, self.premium_prefixes):
+            return Decision(False, 403, "premium_number", "a premium-rate number is not called by the agent or a program: the person dials it, or edits the list in Settings > Voice", number=clean)
 
         greeting = (greeting or "").strip()
         on = self.disclosure_on
@@ -315,7 +404,7 @@ class Policy:
 
         if origin == "user":
             approval = "not_needed"
-        elif self.approval_mode == "auto":
+        elif self.approval_mode == "auto" and (not self.auto_contacts_only or in_contacts(clean, self.contacts)):
             approval = "auto"
         elif origin == "agent":
             approval = "manual"

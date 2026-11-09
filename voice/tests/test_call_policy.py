@@ -304,3 +304,86 @@ def test_the_guards_on_a_gsm_call_stay(tmp_path):
 def test_an_audit_only_class_has_no_file_by_default():
     with pytest.raises(OSError):
         CallAudit("").write(event="x")
+
+
+# ---------------------------------------------------------------------------------------- premium-rate numbers and contacts
+from callbridge.call_policy import DEFAULT_PREMIUM_PREFIXES, clean_prefixes, in_contacts, premium_match
+
+
+@pytest.mark.parametrize("number", ["0112", "9911", "39112", "331 5", "+33 17", "+49 110", "+353 999", "+44 (0) 999", "116000", "1530", "*112#"])
+def test_national_and_switchboard_forms_of_emergency_numbers_are_recognised(number):
+    assert is_emergency(number)
+
+
+@pytest.mark.parametrize("number", ["+39 892 424", "+39 899 123456", "899123456", "892424", "144144", "166123456", "+1 900 555 0100", "19005550100",
+                                    "+44 9098 765432", "09098765432", "070 1234 5678", "+33 8 99 12 34 56", "0899123456", "0900 1234567", "+49 900 1234567",
+                                    "+882 1234 5678", "+979 100 000 000", "118218", "+4408712345678"])
+def test_premium_rate_numbers_are_refused_to_the_agent_and_to_programs(tmp_path, number):
+    _, policy, _ = make(tmp_path, outgoing_approval="auto")
+    for origin in ("agent", "program"):
+        d = policy.authorize(origin, number, GREETING)
+        assert not d.ok and d.status == 403 and d.code == "premium_number", (origin, number)
+    assert policy.authorize("user", number, "").ok                  # the person dials what they choose
+
+
+@pytest.mark.parametrize("number", ["+39 333 1234567", "+39 06 12345678", "3331234567", "+1 415 555 2671", "+44 20 7183 8750", "+33 6 12 34 56 78", "+49 30 123456",
+                                    "+39 0166 123456", "+34 900 123456"])
+def test_ordinary_numbers_are_not_premium(tmp_path, number):
+    assert not premium_match(number, DEFAULT_PREMIUM_PREFIXES)
+    _, policy, _ = make(tmp_path, outgoing_approval="auto")
+    assert policy.authorize("program", number, GREETING).ok
+
+
+def test_premium_is_refused_in_manual_mode_too_before_anything_waits(tmp_path):
+    _, policy, _ = make(tmp_path)
+    d = policy.authorize("program", "+39 899 123456", GREETING)
+    assert d.code == "premium_number" and policy.approvals.pending() == []
+
+
+def test_the_premium_list_is_the_persons_to_edit(tmp_path):
+    _, policy, _ = make(tmp_path, outgoing_approval="auto", call_premium_prefixes=["+39 333 12"])
+    assert policy.authorize("program", "+39 333 1234567", GREETING).code == "premium_number"
+    assert policy.authorize("program", "+39 899 123456", GREETING).ok              # an own list replaces the default
+    _, policy, _ = make(tmp_path, outgoing_approval="auto", call_premium_prefixes=[])
+    assert policy.authorize("program", "+39 899 123456", GREETING).ok              # an empty list is a choice
+    _, policy, _ = make(tmp_path, outgoing_approval="auto", call_premium_prefixes="oops")
+    assert policy.authorize("program", "+39 899 123456", GREETING).code == "premium_number"       # a value that is not a list means the default
+
+
+def test_prefix_entries_are_cleaned():
+    assert clean_prefixes(["+39 89", "0900", "0900", "x", 5, "", "+", "12-3", "+" + "1" * 16]) == ["+3989", "0900", "123"]
+    assert clean_prefixes("0900") == [] and clean_prefixes(None) == []
+    assert clean_prefixes(DEFAULT_PREMIUM_PREFIXES) == list(DEFAULT_PREMIUM_PREFIXES)
+
+
+def test_a_plus_entry_matches_only_a_number_with_a_country_code_and_the_others_only_a_national_one():
+    assert premium_match("+39 899 12", ["+3989"]) == "+3989" and premium_match("0039 899 12", ["+3989"]) == "+3989"
+    assert premium_match("899 123", ["+3989"]) == "" and premium_match("899 123", ["89"]) == "89"
+    assert premium_match("+39 899 12", ["89"]) == ""
+
+
+def test_contacts_match_with_or_without_the_country_code():
+    assert in_contacts("+39 333 1234567", ["+393331234567"]) and in_contacts("3331234567", ["+393331234567"])
+    assert in_contacts("+393331234567", ["333 123 4567"]) and in_contacts("0039 333 1234567", ["+39 333 1234567"])
+    assert not in_contacts("+39 333 1234568", ["+393331234567"]) and not in_contacts("+39 333 1234567", [])
+    assert not in_contacts("+39 333 1234567", ["1234567"])            # too short a national form to stand for a country
+
+
+def test_auto_can_be_limited_to_the_contacts_and_other_numbers_ask(tmp_path):
+    _, policy, _ = make(tmp_path, outgoing_approval="auto", call_auto_contacts_only=True, call_contacts=["+39 333 1234567"])
+    d = policy.authorize("program", NUMBER, GREETING)
+    assert d.ok and d.approval == "auto"
+    d = policy.authorize("program", "+39 340 7654321", GREETING)
+    assert not d.ok and d.status == 202 and d.code == "approval_required"
+    d = policy.authorize("agent", "+39 340 7654321", GREETING)
+    assert d.ok and d.approval == "manual"                          # the agent asks the person in its own chat
+    _, policy, _ = make(tmp_path, outgoing_approval="auto", call_auto_contacts_only=True)
+    assert policy.authorize("program", NUMBER, GREETING).status == 202      # no contacts: nothing is automatic
+
+
+def test_the_contacts_limit_is_off_by_default_and_auto_then_approves_any_number(tmp_path):
+    from callbridge.config import Config
+    c = Config()
+    assert c.call_auto_contacts_only is False and c.call_contacts == [] and c.call_premium_prefixes == list(DEFAULT_PREMIUM_PREFIXES)
+    _, policy, _ = make(tmp_path, outgoing_approval="auto")
+    assert policy.authorize("program", "+39 340 7654321", GREETING).approval == "auto"

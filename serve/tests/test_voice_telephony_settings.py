@@ -32,7 +32,8 @@ class Base(unittest.TestCase):
         return json.loads((self.root / "data" / "voice.json").read_text(encoding="utf-8"))
 
 
-CAREFUL = {"transport": "off", "outgoing_approval": "manual", "ai_disclosure_on_start": True, "incoming_auto_answer": False, "on_behalf_of": ""}
+CAREFUL = {"transport": "off", "outgoing_approval": "manual", "ai_disclosure_on_start": True, "incoming_auto_answer": False, "on_behalf_of": "",
+           "premium_prefixes": list(vs.DEFAULT_PREMIUM_PREFIXES), "auto_contacts_only": False, "contacts": []}
 
 
 class TelephonySettingsTest(Base):
@@ -92,6 +93,43 @@ class TelephonySettingsTest(Base):
         self.assertEqual(vs.TRANSPORTS, call_policy.TRANSPORT_MODES)
         self.assertEqual(vs.APPROVALS, call_policy.APPROVAL_MODES)
 
+    def test_the_premium_defaults_are_the_services_defaults(self):
+        from callbridge import call_policy
+        self.assertEqual(vs.DEFAULT_PREMIUM_PREFIXES, call_policy.DEFAULT_PREMIUM_PREFIXES)
+        self.assertEqual((vs.MAX_PREMIUM_PREFIXES, vs.MAX_CONTACTS), (call_policy.MAX_PREMIUM_PREFIXES, call_policy.MAX_CONTACTS))
+
+    def test_the_premium_list_and_the_contacts_are_stored_cleaned_and_reach_the_service(self):
+        from voice import settings_bridge
+        from callbridge.config import Config
+        out = vs.set_telephony({"premium_prefixes": ["+39 89", "0900", "0900"], "auto_contacts_only": True, "contacts": ["+39 333 123-4567", "3407654321"]})
+        self.assertEqual((out["premium_prefixes"], out["auto_contacts_only"], out["contacts"]), (["+3989", "0900"], True, ["+393331234567", "3407654321"]))
+        cfg = Config()
+        settings_bridge.apply(cfg, settings_bridge.load(self.root / "data" / "voice.json"))
+        self.assertEqual((cfg.call_premium_prefixes, cfg.call_auto_contacts_only, cfg.call_contacts),
+                         (["+3989", "0900"], True, ["+393331234567", "3407654321"]))
+        self.assertEqual(vs.set_telephony({"premium_prefixes": []})["premium_prefixes"], [])         # an empty list is the person's choice
+        cfg = Config()
+        settings_bridge.apply(cfg, settings_bridge.load(self.root / "data" / "voice.json"))
+        self.assertEqual(cfg.call_premium_prefixes, [])
+
+    def test_a_bad_premium_list_or_contact_list_changes_nothing(self):
+        vs.set_telephony({"transport": "auto"})
+        for bad in ({"premium_prefixes": "0900"}, {"premium_prefixes": ["0900", "abc"]}, {"premium_prefixes": [5]}, {"premium_prefixes": ["1" * 16]},
+                    {"premium_prefixes": ["1"] * 201}, {"contacts": ["12345"]}, {"contacts": "+393331234567"}, {"contacts": ["+39 333;ATH"]},
+                    {"auto_contacts_only": "yes"}):
+            with self.assertRaises(vs.VoiceSettingsError):
+                vs.set_telephony(bad)
+        self.assertEqual(self.stored()["telephony"], {"transport": "auto"})
+
+    def test_a_damaged_premium_list_in_the_file_reads_as_the_default_and_bad_entries_are_dropped(self):
+        (self.root / "data").mkdir(parents=True)
+        path = self.root / "data" / "voice.json"
+        path.write_text(json.dumps({"telephony": {"premium_prefixes": "x", "contacts": 5, "auto_contacts_only": "true"}}), encoding="utf-8")
+        self.assertEqual(vs.telephony(), CAREFUL)
+        path.write_text(json.dumps({"telephony": {"premium_prefixes": ["0900", "zz", 3], "contacts": ["+393331234567", "1"]}}), encoding="utf-8")
+        got = vs.telephony()
+        self.assertEqual((got["premium_prefixes"], got["contacts"]), (["0900"], ["+393331234567"]))
+
     def test_the_clients_disclosure_markers_are_accepted_by_the_service(self):
         from callbridge.call_policy import has_disclosure
         from tadamoo.integrations import call_api_client as client
@@ -142,9 +180,10 @@ class PageTest(unittest.TestCase):
             self.assertNotIn(banned, JS)
 
     def test_the_card_has_every_control_and_a_warning_for_each_risky_choice(self):
-        for control in ("vo-tel-transport", "vo-tel-approval", "vo-tel-disclosure", "vo-tel-answer", "vo-tel-behalf", "vo-tel-save", "vo-tel-refresh"):
+        for control in ("vo-tel-transport", "vo-tel-approval", "vo-tel-disclosure", "vo-tel-answer", "vo-tel-behalf", "vo-tel-save", "vo-tel-refresh", "vo-tel-contacts-only", "vo-tel-contacts",
+                        "vo-tel-premium", "vo-tel-lists-save"):
             self.assertIn(control, JS)
-        for key in ("vo.tel.approval.warn", "vo.tel.disclosure.warn", "vo.tel.answer.warn"):
+        for key in ("vo.tel.approval.warn", "vo.tel.disclosure.warn", "vo.tel.answer.warn", "vo.tel.premium.warn"):
             self.assertIn(f'T("{key}")', JS)
         self.assertIn('aria-labelledby', JS)
 
