@@ -3,7 +3,8 @@
 It listens to one bot by long polling (`getUpdates`), from the start of the server when the person turned it on and a token is kept, and
 hands each update to `tadamoo/telegram_bot.py`. Only one program may read a bot's updates at a time: when Telegram says another one does
 (Hermes' own gateway with the same token), the status says so plainly and the poll waits and tries again, never ends. The token is kept in
-the credential store; no route, log line or error text holds it.
+the credential store; no route, log line or error text holds it. The permission level is the server's setting for Telegram (`levels`): a level
+found in telegram.json is handed to it once, when Telegram has none there yet.
 """
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from tadamoo import telegram as tg
+from tadamoo.permission_level import LEVELS, PermissionLevels
 from tadamoo.telegram import BotApi, TelegramError
 from tadamoo.telegram_bot import TelegramBot
 
@@ -33,9 +35,10 @@ class TelegramServiceError(ValueError):
 
 
 class TelegramService:
-    def __init__(self, settings: tg.Settings, token: tg.Token, sessions: Callable[[], Any], *, attachments_dir: Path, state_dir: Path,
+    def __init__(self, settings: tg.Settings, token: tg.Token, sessions: Callable[[], Any], *, levels: PermissionLevels, attachments_dir: Path, state_dir: Path,
                  api_base: str = tg.API_BASE, poll_s: float = POLL_S, relay_s: float = RELAY_S, hermes_env: Optional[Callable[[], Path]] = None) -> None:
-        self.settings, self.token, self._sessions = settings, token, sessions
+        self.settings, self.token, self._sessions, self.levels = settings, token, sessions, levels
+        levels.adopt("telegram", settings.take_mode())
         self.attachments_dir, self.state_dir, self.api_base = Path(attachments_dir), Path(state_dir), api_base
         self.poll_s, self.relay_s = poll_s, relay_s
         self._hermes_env = hermes_env or tg.hermes_env_path
@@ -76,7 +79,7 @@ class TelegramService:
             state, message, username = self._state, self._message, self._username
         targets = self.targets()
         return {"configured": self.token.has(), "enabled": s["enabled"], "state": state, "message": message, "bot": username, "home": s["home"] or "",
-                "mode": s["mode"], "modes": list(tg.MODES), "allowed": [{"id": i, "name": self.settings.name_of(i)} for i in s["allowed"]],
+                "mode": self.levels.get("telegram"), "mode_set": self.levels.is_set("telegram"), "modes": list(LEVELS), "allowed": [{"id": i, "name": self.settings.name_of(i)} for i in s["allowed"]],
                 "pairing": [{"id": p["id"], "username": p.get("username", ""), "line": p.get("line", ""), "count": p.get("count", 0)} for p in self.settings.pairing()],
                 "targets": targets, "can_move": state == "running" and bool(targets)}
 
@@ -97,7 +100,7 @@ class TelegramService:
             if not token:
                 return self._set("no_token")
             api = BotApi(token, self.api_base)
-            self._bot = bot = TelegramBot(api, self.settings, self._sessions(), self._attachments(), tmp_dir=self.state_dir / "telegram-incoming", log=self.log)
+            self._bot = bot = TelegramBot(api, self.settings, self._sessions(), self._attachments(), levels=self.levels, tmp_dir=self.state_dir / "telegram-incoming", log=self.log)
             self._stop = stop = threading.Event()
             self._set("starting")
             self._threads = [threading.Thread(target=self._poll, args=(stop, api, bot), name="telegram-poll", daemon=True),
@@ -198,9 +201,12 @@ class TelegramService:
     def set_settings(self, body: Any) -> Dict[str, Any]:
         if not isinstance(body, dict):
             raise TelegramServiceError("send an object")
-        changes = {k: body[k] for k in ("enabled", "mode", "home", "allowed") if k in body}
+        unknown = sorted(k for k in body if k not in ("enabled", "home", "allowed"))
+        if unknown:
+            raise TelegramServiceError("unknown setting: " + ", ".join(map(str, unknown)), "unknown_field")
+        changes = {k: body[k] for k in ("enabled", "home", "allowed") if k in body}
         if not changes:
-            raise TelegramServiceError("say what to change: enabled, mode, home or allowed")
+            raise TelegramServiceError("say what to change: enabled, home or allowed")
         before = self.settings.read()
         try:
             after = self.settings.write(**changes)
@@ -208,18 +214,11 @@ class TelegramService:
             raise TelegramServiceError(str(exc)) from None
         if after["enabled"] != before["enabled"]:
             self.start()
-        if after["mode"] != before["mode"]:
-            self._apply_mode(after["mode"])
         return self.overview()
 
-    def _apply_mode(self, mode: str) -> None:
-        mgr = self._sessions()
-        moved = mgr.telegram_moved()
-        for sid in set(self.settings.chats().values()) - set(moved):
-            try:
-                mgr.set_mode(sid, mode)
-            except Exception:
-                pass                                              # a conversation that is gone has no mode to set
+    def own_sessions(self) -> List[str]:
+        """The chats' own conversations, which follow Telegram's level; a conversation moved here from the page is not one of them."""
+        return sorted(set(self.settings.chats().values()) - set(self._sessions().telegram_moved()))
 
     def set_token(self, value: Any) -> Dict[str, Any]:
         try:

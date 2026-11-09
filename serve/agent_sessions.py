@@ -36,6 +36,7 @@ from datetime import datetime
 
 from tadamoo import context_patterns as context_patterns_mod
 from tadamoo import questions as qs
+from tadamoo.permission_level import CHANNELS, lower as lower_level
 from tadamoo.personal_skills.store import PersonalSkills, SkillError
 from tadamoo.personal_skills.values import resolve as resolve_values
 from tadamoo.vault import valid_code
@@ -939,9 +940,11 @@ class SessionManager:
                context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto", effort: Any = "",
                images: Any = "", charts: Any = "", unattended: bool = False, role: Any = GENERAL_ROLE, private: bool = False,
                alias: Any = "", cross_commands: Any = None, parent: Any = "", operating_rules: Any = None,
-               budget_day_tokens: Any = None, persona: Any = "") -> Dict[str, Any]:
+               budget_day_tokens: Any = None, persona: Any = "", channel: str = "chat") -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
         persona = self._check_persona(persona)
+        if channel not in CHANNELS:
+            raise RunError("The channel is one of: " + ", ".join(CHANNELS) + ".", "bad_channel")
         if budget_day_tokens is not None and (not isinstance(budget_day_tokens, int) or isinstance(budget_day_tokens, bool) or budget_day_tokens < 1):
             raise RunError("The day's budget is a whole number of tokens from 1, or empty for no limit.", "bad_budget")
         depth = 0
@@ -993,7 +996,7 @@ class SessionManager:
         copy = self._copy_for(sid, path, worktree)
         rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "role": role, "effort": effort, "images": images, "charts": charts, "persona": persona,
                "allow": [r.strip() for r in rules], "ask_only": bool(ask_only), "max_turns": max_turns, "unattended": unattended is True, "parent": parent or "", "depth": depth,
-               "budget_day_tokens": budget_day_tokens,
+               "budget_day_tokens": budget_day_tokens, "channel": channel,
                "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": 0}
         if copy:
             rec["worktree"], rec["workdir"] = copy, copy["workdir"]
@@ -2057,6 +2060,29 @@ class SessionManager:
         if not told:
             self._push(sid, {"event": "mode", "mode": mode})
         return self.get(sid)
+
+    def hold_level(self, sid: str, level: str, follow: bool = False) -> str:
+        """The mode of a turn that comes from a channel whose level is `level`: never above it, and the level itself when `follow` (a channel's
+        own conversation follows its setting). Returns the mode the conversation has now."""
+        with self._lock:
+            rec = self._record(sid)
+            mode = rec.get("mode", "default")
+            if rec.get("ask_only") or rec["state"] == "closed":
+                return mode
+        want = level if follow else lower_level(mode, level)
+        if want != mode:
+            self.set_mode(sid, want)
+        return want
+
+    def hold_channel(self, channel: str, level: str, sids: Any = ()) -> None:
+        """A channel's level changed: its own open conversations (the `channel` of the record, and `sids`) take it from their next action on."""
+        with self._lock:
+            own = [r["id"] for r in self.records if r["state"] != "closed" and (r.get("channel") == channel or r["id"] in set(sids))]
+        for sid in own:
+            try:
+                self.hold_level(sid, level, follow=True)
+            except RunError:
+                pass                                              # a conversation that is gone or has no tools has no mode to set
 
     def set_role(self, sid: str, role: Any) -> Dict[str, Any]:
         """Changes what the conversation's agent is for, from its next model call on. The tool list the model receives stays the same."""

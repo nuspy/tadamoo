@@ -165,7 +165,7 @@ SERVICE_ROUTES = (
     ("GET", re.compile(r"^/api/personas$")),
     ("POST", re.compile(r"^/api/agent/sessions$")),
     ("GET", re.compile(r"^/api/agent/sessions/[A-Za-z0-9_-]{1,64}/events$")),
-    ("POST", re.compile(r"^/api/agent/sessions/[A-Za-z0-9_-]{1,64}/(send|answer|mode|persona)$")),
+    ("POST", re.compile(r"^/api/agent/sessions/[A-Za-z0-9_-]{1,64}/(send|answer|persona)$")),
 )
 
 

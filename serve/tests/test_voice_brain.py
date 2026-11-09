@@ -34,14 +34,14 @@ class Base(unittest.TestCase):
 
 class BrainSettingsTests(Base):
     def test_defaults(self):
-        self.assertEqual(voice_settings.brain(), {"mode": "direct", "persona": "", "permission": "default", "permission_set": False,
-                                                  "workspace": "", "hotkeys": False, "base_url": ""})
+        self.assertEqual(voice_settings.brain(), {"mode": "direct", "persona": "", "workspace": "", "hotkeys": False, "base_url": ""})
 
     def test_a_choice_is_kept_and_only_the_named_fields_change(self):
-        voice_settings.set_brain({"mode": "harness", "permission": "read_only"})
+        voice_settings.set_brain({"mode": "harness"})
         voice_settings.set_brain({"persona": "maria-rossi", "hotkeys": True})
         b = voice_settings.brain()
-        self.assertEqual((b["mode"], b["permission"], b["permission_set"], b["persona"], b["hotkeys"]), ("harness", "read_only", True, "maria-rossi", True))
+        self.assertEqual((b["mode"], b["persona"], b["hotkeys"]), ("harness", "maria-rossi", True))
+        self.assertNotIn("permission", b)
 
     def test_it_sits_next_to_the_services_and_leaves_them_alone(self):
         voice_settings.set_enabled("tts", True)
@@ -52,7 +52,7 @@ class BrainSettingsTests(Base):
 
     def test_bad_values_are_refused_in_both_languages(self):
         folder = self.tmp.name
-        for req in ({"mode": "hermes"}, {"permission": "root"}, {"persona": "Maria Rossi"}, {"persona": "../x"}, {"persona": 5}, {"workspace": "relative"},
+        for req in ({"mode": "hermes"}, {"permission": "root"}, {"permission": "auto"}, {"persona": "Maria Rossi"}, {"persona": "../x"}, {"persona": 5}, {"workspace": "relative"},
                     {"workspace": str(Path(folder) / "nope")}, {"workspace": 3}, {"hotkeys": "yes"}, {"base_url": "http://x"}, {"surprise": 1}, []):
             with self.assertRaises(voice_settings.VoiceSettingsError, msg=str(req)) as e:
                 voice_settings.set_brain(req)
@@ -78,16 +78,20 @@ class BrainSettingsTests(Base):
         (self.data / "personas" / "maria-rossi" / "persona.json").write_text("{}", encoding="utf-8")
         self.assertEqual(voice_api.set_brain({"persona": "maria-rossi"})["persona"], "maria-rossi")
 
-    def test_the_permissions_are_the_chats(self):
-        from serve.remote import MODE_ORDER
-        self.assertEqual(set(voice_settings.PERMISSIONS), set(MODE_ORDER))
+    def test_a_level_found_in_voice_json_is_taken_out_once(self):
+        (self.data).mkdir(parents=True, exist_ok=True)
+        (self.data / "voice.json").write_text(json.dumps({"brain": {"mode": "harness", "permission": "read_only"}}), encoding="utf-8")
+        self.assertEqual(voice_settings.take_permission(), "read_only")
+        self.assertEqual(json.loads((self.data / "voice.json").read_text(encoding="utf-8"))["brain"], {"mode": "harness"})
+        self.assertIsNone(voice_settings.take_permission())
 
 
 class TokenTests(Base):
     PATHS_OK = (("POST", "/v1/chat/completions"), ("POST", "/api/personas/maria-rossi/compose"), ("GET", "/api/personas"), ("POST", "/api/agent/sessions"),
                 ("GET", "/api/agent/sessions/abc123/events?after=4"), ("POST", "/api/agent/sessions/abc123/send"),
-                ("POST", "/api/agent/sessions/abc123/answer"), ("POST", "/api/agent/sessions/abc123/mode"), ("POST", "/api/agent/sessions/abc123/persona"))
+                ("POST", "/api/agent/sessions/abc123/answer"), ("POST", "/api/agent/sessions/abc123/persona"))
     PATHS_NO = (("GET", "/api/settings"), ("POST", "/api/settings"), ("GET", "/api/agent/sessions"), ("POST", "/api/agent/sessions/abc123/cancel"),
+                ("POST", "/api/agent/sessions/abc123/mode"), ("GET", "/api/permission-level"), ("POST", "/api/permission-level"),
                 ("POST", "/api/agent/sessions/../../settings/send"), ("POST", "/api/personas/maria-rossi/delete"), ("POST", "/api/personas"),
                 ("GET", "/api/personas/maria-rossi"), ("GET", "/api/wallet"), ("POST", "/api/voice/brain"), ("POST", "/v1/messages"),
                 ("GET", "/v1/chat/completions"), ("POST", "/api/personas/Bad_Slug/compose"))
@@ -170,14 +174,14 @@ class ServerTests(ServerBase):
     # -- the settings routes
     def test_the_brain_settings_round_trip_and_refuse_bad_values(self):
         code, body = self.req("GET", "/api/voice/brain")
-        self.assertEqual((code, body["mode"], body["permission_set"]), (200, "direct", False))
-        code, body = self.req("POST", "/api/voice/brain", {"mode": "harness", "permission": "auto", "hotkeys": True})
-        self.assertEqual((code, body["mode"], body["permission"], body["permission_set"], body["hotkeys"]), (200, "harness", "auto", True, True))
-        code, body = self.req("POST", "/api/voice/brain", {"permission": "root"})
+        self.assertEqual((code, body["mode"]), (200, "direct"))
+        code, body = self.req("POST", "/api/voice/brain", {"mode": "harness", "hotkeys": True})
+        self.assertEqual((code, body["mode"], body["hotkeys"]), (200, "harness", True))
+        code, body = self.req("POST", "/api/voice/brain", {"permission": "auto"})
         self.assertEqual(code, 400)
-        self.assertEqual(body["error"]["code"], "permission")
+        self.assertEqual(body["error"]["code"], "field")                                       # the level is /api/permission-level
         self.assertTrue(body["error"]["message_it"])
-        self.assertEqual(self.req("GET", "/api/voice/brain")[1]["permission"], "auto")
+        self.assertNotIn("permission", self.req("GET", "/api/voice/brain")[1])
 
     def test_the_brain_settings_only_on_this_pc(self):
         with mock.patch.object(settings, "is_loopback", return_value=False):

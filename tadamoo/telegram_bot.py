@@ -9,6 +9,9 @@ The person's own words are their prompt. A message they forward, a message they 
 is fenced like text from the web, files go through the attachments store. Permission questions are answered from the chat with Yes or No; a
 phone call, a payment, an irreversible action or orders found in outside text need a second press on a Confirm button, and a code or any
 question that is not a plain yes or no is left to the TaDaMoo page.
+
+Every turn runs at Telegram's permission level (`levels`, the server's setting): a chat's own conversation takes that level, a conversation moved
+here from the page is lowered to it when it is higher.
 """
 from __future__ import annotations
 
@@ -21,6 +24,7 @@ from pathlib import Path
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 from tadamoo import untrusted
+from tadamoo.permission_level import PermissionLevels
 from tadamoo.telegram import BotApi, Settings, TelegramError, clean_line, clean_username, split_message
 
 EDIT_S = 1.5                 # between two edits of one message
@@ -149,9 +153,9 @@ class _Ask:
 
 
 class TelegramBot:
-    def __init__(self, api: BotApi, settings: Settings, sessions: Any, attachments: Any, *, tmp_dir: Path, clock: Callable[[], float] = time.monotonic,
-                 wall: Callable[[], float] = time.time, log: Callable[[str], None] = lambda line: None) -> None:
-        self.api, self.settings, self.sessions, self.attachments = api, settings, sessions, attachments
+    def __init__(self, api: BotApi, settings: Settings, sessions: Any, attachments: Any, *, levels: PermissionLevels, tmp_dir: Path,
+                 clock: Callable[[], float] = time.monotonic, wall: Callable[[], float] = time.time, log: Callable[[str], None] = lambda line: None) -> None:
+        self.api, self.settings, self.sessions, self.attachments, self.levels = api, settings, sessions, attachments, levels
         self.tmp_dir, self.clock, self.wall, self.log = Path(tmp_dir), clock, wall, log
         self._lock = threading.RLock()
         self._cursor: Dict[str, int] = {}
@@ -175,7 +179,8 @@ class TelegramBot:
 
     def _level(self, chat: int) -> str:
         table = MSG.get(self._lang.get(chat, "en"), MSG["en"])["level"]
-        return table.get(self.settings.read()["mode"], self.settings.read()["mode"])
+        level = self.levels.get("telegram")
+        return table.get(level, level)
 
     # -- an update from Telegram
 
@@ -251,7 +256,7 @@ class TelegramBot:
 
     def _create(self, chat: int) -> Optional[str]:
         try:
-            sid = self.sessions.create(None, mode=self.settings.read()["mode"])["id"]
+            sid = self.sessions.create(None, mode=self.levels.get("telegram"), channel="telegram")["id"]
         except Exception as exc:
             self._say(chat, self._t(chat, "no_session", why=_short(exc, 200)))
             return None
@@ -294,6 +299,8 @@ class TelegramBot:
             return
         with self._lock:
             try:
+                own = self.settings.chats().get(str(chat)) == sid
+                self.sessions.hold_level(sid, self.levels.get("telegram"), follow=own)
                 out = self.sessions.send(sid, prompt, ids or None)
             except Exception as exc:
                 return self._say(chat, self._t(chat, "send_failed", why=_short(exc, 200)))

@@ -26,17 +26,18 @@ def load(tmp_path, brain):
 def test_defaults_when_the_file_has_no_brain_section(tmp_path):
     (tmp_path / "voice.json").write_text("{}", encoding="utf-8")
     b = settings_bridge.load(tmp_path / "voice.json").brain
-    assert (b.mode, b.persona, b.permission, b.workspace, b.base_url, b.hotkeys) == ("direct", "", "default", "", "", False)
+    assert (b.mode, b.persona, b.workspace, b.base_url, b.hotkeys) == ("direct", "", "", "", False)
     assert settings_bridge.load(tmp_path / "missing.json").brain == b
 
 
 def test_the_brain_settings_reach_the_config(tmp_path):
     ws = str(tmp_path / "proj")
-    s = load(tmp_path, {"mode": "harness", "persona": "maria-rossi", "permission": "read_only", "workspace": ws,
+    s = load(tmp_path, {"mode": "harness", "persona": "maria-rossi", "permission": "auto", "workspace": ws,
                         "base_url": "http://127.0.0.1:7242/", "hotkeys": True})
     cfg = Config()
     settings_bridge.apply(cfg, s)
-    assert (cfg.brain_mode, cfg.brain_persona, cfg.brain_permission, cfg.brain_workspace) == ("harness", "maria-rossi", "read_only", ws)
+    assert (cfg.brain_mode, cfg.brain_persona, cfg.brain_workspace) == ("harness", "maria-rossi", ws)
+    assert not hasattr(cfg, "brain_permission") and not hasattr(s.brain, "permission")      # the level is the server's, never the file's
     assert cfg.tadamoo_base_url == "http://127.0.0.1:7242" and s.brain.hotkeys is True
 
 
@@ -49,7 +50,7 @@ def test_bad_values_give_the_defaults_and_a_server_that_is_not_this_pc_is_refuse
     cfg = Config()
     before = cfg.tadamoo_base_url
     settings_bridge.apply(cfg, load(tmp_path, brain))
-    assert (cfg.brain_mode, cfg.brain_persona, cfg.brain_permission, cfg.brain_workspace) == ("direct", "", "default", "")
+    assert (cfg.brain_mode, cfg.brain_persona, cfg.brain_workspace) == ("direct", "", "")
     assert cfg.tadamoo_base_url == before
 
 
@@ -159,7 +160,7 @@ def test_the_service_gives_its_own_token_to_the_brains(env):
 def test_brain_state_needs_the_token_and_shows_the_mode_and_the_session(env):
     assert env.client.get("/brain/state").status_code == 401
     st = env.client.get("/brain/state", headers=AUTH).get_json()
-    assert (st["default_mode"], st["persona"], st["permission"], st["last"], st["pending"], st["hotkeys"]) == ("harness", "maria", "default", None, None, False)
+    assert (st["default_mode"], st["persona"], st["last"], st["pending"], st["hotkeys"]) == ("harness", "maria", None, None, False) and "permission" not in st
     assert st["session"] == {"active": False, "mode": None, "phase": "idle", "avatar": False, "brain": None}
     env.state.brains.direct._api = FakeApi()
     "".join(env.state.brains.fork("direct").respond_stream("hello"))
@@ -167,9 +168,9 @@ def test_brain_state_needs_the_token_and_shows_the_mode_and_the_session(env):
 
 
 def test_the_state_follows_voice_json(env):
-    env.settings.write_text(json.dumps({"brain": {"mode": "direct", "persona": "luca", "permission": "auto"}}), encoding="utf-8")
+    env.settings.write_text(json.dumps({"brain": {"mode": "direct", "persona": "luca"}}), encoding="utf-8")
     st = env.client.get("/brain/state", headers=AUTH).get_json()
-    assert (st["default_mode"], st["persona"], st["permission"]) == ("direct", "luca", "auto")
+    assert (st["default_mode"], st["persona"]) == ("direct", "luca")
 
 
 def test_a_test_sentence_needs_the_tts_loaded(env):

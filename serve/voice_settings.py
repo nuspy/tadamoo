@@ -3,7 +3,7 @@
 `voice.json` in the user data folder holds only what the person chose:
     {"models_dir": "<absolute path>", "services": {"<service>": {"selected": "<model id>", "device": "auto|cpu|cuda:N", "memory": "vram|ram",
                                                                   "enabled": true|false}},
-     "brain": {"mode": "direct|harness", "persona": "<slug>", "permission": "plan|read_only|default|auto", "workspace": "<folder>",
+     "brain": {"mode": "direct|harness", "persona": "<slug>", "workspace": "<folder>",
                "base_url": "http://127.0.0.1:<port>", "hotkeys": true|false},
      "meetings": {"speak": true|false, "camera": true|false, "proactive": true|false, "consent_mode": "window|explicit", "consent_window_s": 20..300, "on_behalf_of": "<name>",
                   "display_name": "<name>", "virtual_mic": "<part of a device name>", "wake_phrase": "<phrase>", "autojoin": true|false, "allow_programs_join": true|false,
@@ -201,20 +201,18 @@ def set_placement(service, device, memory) -> dict:
 
 # ---------------------------------------------------------------------------------------- the brains of the voice
 BRAIN_MODES = ("direct", "harness")
-PERMISSIONS = ("plan", "read_only", "default", "auto")        # the Chat's own levels (serve/remote.py MODE_ORDER, the Chat's radio buttons)
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
-_BRAIN_KEYS = ("mode", "persona", "permission", "workspace", "hotkeys")
+_BRAIN_KEYS = ("mode", "persona", "workspace", "hotkeys")
 
 
 def brain() -> dict:
-    """What the voice service reads to choose and run its brains. `permission_set` says whether the person ever chose a level for the voice."""
+    """What the voice service reads to choose and run its brains. The permission level is the server's (tadamoo/permission_level.py)."""
     stored = _read().get("brain")
     stored = stored if isinstance(stored, dict) else {}
-    mode, persona, permission = stored.get("mode"), stored.get("persona"), stored.get("permission")
+    mode, persona = stored.get("mode"), stored.get("persona")
     workspace = stored.get("workspace")
     return {"mode": mode if mode in BRAIN_MODES else "direct",
             "persona": persona if isinstance(persona, str) and _SLUG_RE.match(persona) else "",
-            "permission": permission if permission in PERMISSIONS else "default", "permission_set": permission in PERMISSIONS,
             "workspace": workspace if isinstance(workspace, str) and os.path.isabs(workspace) else "",
             "hotkeys": stored.get("hotkeys") is True,
             "base_url": stored.get("base_url") if isinstance(stored.get("base_url"), str) else ""}
@@ -232,10 +230,6 @@ def check_brain(req) -> dict:
         if req["mode"] not in BRAIN_MODES:
             raise VoiceSettingsError("mode", "The mode is direct or harness.", "La modalità è direct o harness.")
         out["mode"] = req["mode"]
-    if "permission" in req:
-        if req["permission"] not in PERMISSIONS:
-            raise VoiceSettingsError("permission", "The permission is plan, read_only, default or auto.", "Il permesso è plan, read_only, default o auto.")
-        out["permission"] = req["permission"]
     if "persona" in req:
         persona = req["persona"]
         if not (persona == "" or (isinstance(persona, str) and _SLUG_RE.match(persona))):
@@ -262,6 +256,18 @@ def set_brain(req) -> dict:
         data["brain"] = stored
         _write(data)
     return brain()
+
+
+def take_permission():
+    """A permission level found in `brain`, removed from the file; None when there is none. The level itself is the server's."""
+    with _lock:
+        data = _read()
+        stored = data.get("brain")
+        if not isinstance(stored, dict) or "permission" not in stored:
+            return None
+        level = stored.pop("permission")
+        _write(data)
+    return level
 
 
 def write_server_address(port: int) -> None:

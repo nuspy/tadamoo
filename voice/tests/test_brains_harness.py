@@ -31,22 +31,22 @@ def say(b, text, source="mic"):
 def test_it_makes_a_conversation_with_the_settings_and_sends_the_words():
     api = FakeApi()
     api.script = [[ev_done("The answer.")]]
-    b, _ = make(api, brain_persona="maria", brain_permission="read_only", brain_workspace="C:\\Work\\proj")
+    b, _ = make(api, brain_persona="maria", brain_workspace="C:\\Work\\proj")
     say(b, "hello agent")
     made = api.sent("/api/agent/sessions")[0][2]
-    assert made == {"mode": "read_only", "title": "Voice", "persona": "maria", "workspace": "C:\\Work\\proj"}
+    assert made == {"title": "Voice", "persona": "maria", "workspace": "C:\\Work\\proj"}           # no level: the server gives the voice's own
     assert api.sent("/send")[0][1] == "/api/agent/sessions/s1/send" and api.sent("/send")[0][2] == {"text": "hello agent"}
 
 
-def test_the_conversation_is_kept_and_follows_a_changed_permission_and_personality():
+def test_the_conversation_is_kept_and_follows_a_changed_personality_and_never_asks_for_a_level():
     api = FakeApi()
     api.script = [[ev_done("one")], [ev_done("two")]]
     b, _ = make(api)
     say(b, "a")
-    b.cfg.brain_permission, b.cfg.brain_persona = "auto", "luca"
+    b.cfg.brain_persona = "luca"
     say(b, "b")
     assert api.sessions == 1                                              # same conversation
-    assert api.sent("/mode")[0][2] == {"mode": "auto"} and api.sent("/persona")[0][2] == {"persona": "luca"}
+    assert api.sent("/mode") == [] and api.sent("/persona")[0][2] == {"persona": "luca"}
     b.reset_session()
     api.script = [[ev_done("three")]]
     say(b, "c")

@@ -9,7 +9,9 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-TOKEN = "123456789:AAFakeFakeFakeFakeFakeFakeFakeFake_x"
+from tadamoo.permission_level import lower
+
+TOKEN ="123456789:AAFakeFakeFakeFakeFakeFakeFakeFake_x"
 
 
 class FakeTelegram:
@@ -155,6 +157,14 @@ class FakeSessions:
 
     def set_mode(self, sid, mode):
         self.modes.append((sid, mode))
+        self.recs[sid]["mode"] = mode
+
+    def hold_level(self, sid, level, follow=False):
+        mode = self.recs[sid]["mode"]
+        want = level if follow else lower(mode, level)
+        if want != mode:
+            self.set_mode(sid, want)
+        return want
 
     def set_telegram(self, sid, chat):
         self.recs[sid]["telegram_chat"] = chat

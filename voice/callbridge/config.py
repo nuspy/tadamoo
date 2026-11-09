@@ -182,7 +182,6 @@ class Config:
     tadamoo_token: str = ""
     brain_mode: str = "direct"              # direct | harness: the brain a session starts with
     brain_persona: str = ""                 # slug of the personality both brains speak as; "" = none
-    brain_permission: str = "default"       # plan | read_only | default | auto: what the harness conversation may do without asking
     brain_workspace: str = ""               # folder of the harness conversation; "" = the server's default
     direct_system_prompt: str = (
         "You are talking by voice, in real time. Answer briefly and naturally, in plain sentences with punctuation: "
