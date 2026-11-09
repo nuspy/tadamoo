@@ -46,9 +46,31 @@ class MeetingAdapter:
     def matches(url: str) -> bool:
         raise NotImplementedError
 
-    def join(self, page, display_name: str, mic: bool = False, cam: bool = False) -> JoinResult:
-        """Enter as a guest under `display_name`; the microphone and the camera stay off unless asked. Returns in_call or waiting_admit."""
+    def join(self, page, display_name: str) -> JoinResult:
+        """Enter as a guest under `display_name`, always with the microphone and the camera off (the device a meeting would pick may be the person's
+        own). Returns in_call or waiting_admit."""
         raise NotImplementedError
+
+    # The microphone and the camera controls: the button that turns the device on, the button that turns it off.
+    SEL_MIC_ON = SEL_MIC_OFF = SEL_CAM_ON = SEL_CAM_OFF = ""
+
+    def _device(self, page, on_sel: str, off_sel: str, want: bool) -> bool:
+        """Put a device in the state `want` and say whether it is there: the "turn on" control is shown while it is off, the "turn off" control while it is on."""
+        try:
+            now_on = page.locator(off_sel).first.is_visible(timeout=800)
+            if now_on == want:
+                return True
+            page.locator(on_sel if want else off_sel).first.click(timeout=3000)
+            return page.locator(off_sel).first.is_visible(timeout=1500) == want
+        except Exception:  # noqa: BLE001
+            return False
+
+    def set_mic(self, page, on: bool) -> bool:
+        """Turn the bot's microphone on or off in the meeting. False when it could not be done (then the bot does not speak)."""
+        return bool(self.SEL_MIC_ON) and self._device(page, self.SEL_MIC_ON, self.SEL_MIC_OFF, on)
+
+    def set_cam(self, page, on: bool) -> bool:
+        return bool(self.SEL_CAM_ON) and self._device(page, self.SEL_CAM_ON, self.SEL_CAM_OFF, on)
 
     def in_call(self, page) -> bool:
         raise NotImplementedError

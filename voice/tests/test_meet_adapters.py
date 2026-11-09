@@ -10,6 +10,7 @@ class El:
         self.clicked = 0
         self.value = None
         self.pressed = []
+        self.flips = []                                      # elements that appear or disappear when this one is clicked
 
 
 class Loc:
@@ -51,6 +52,10 @@ class Loc:
             raise TimeoutError("not visible")
         el.clicked += 1
         self.page.clicks.append(el.key)
+        for other in el.flips:
+            other.visible = not other.visible
+        if "aria-pressed" in el.attrs:
+            el.attrs["aria-pressed"] = "false" if el.attrs["aria-pressed"] == "true" else "true"
 
     def fill(self, text):
         self._el.value = text
@@ -94,6 +99,14 @@ def test_the_three_platforms_are_routed_and_the_others_are_not_built():
         assert adapter_for(other) is None
 
 
+def test_only_the_platforms_own_hosts_over_https_are_joined():
+    """The bot opens a visible browser at the address it is given: a look-alike address must not reach an adapter."""
+    for spoof in ("https://evil.example/meet.google.com/abc-defg-hij", "https://meet.google.com.evil.example/abc", "https://evil.example/?u=https://meet.google.com/x",
+                  "http://meet.google.com/abc-defg-hij", "https://meet.google.com/", "https://evilmeet.google.com/abc", "https://teams.microsoft.com.evil.example/l/meetup-join/x",
+                  "https://evil.example/zoom.us/j/1", "https://notzoom.us/j/1", "https://zoom.us.evil.example/j/1", "https://us02web.zoom.us/about", "file:///c:/x"):
+        assert adapter_for(spoof) is None, spoof
+
+
 # ---- Google Meet
 def meet_lobby(speaking=False):
     return Page([El('placeholder*="name"'), El("Turn off microphone"), El("Turn off camera"), El("Join now"),
@@ -101,6 +114,7 @@ def meet_lobby(speaking=False):
 
 
 def test_meet_join_as_a_guest_with_microphone_and_camera_off():
+    """Always off at the door: the device a meeting picks may be the person's own microphone or webcam."""
     page = meet_lobby(speaking=True)
     res = MeetAdapter().join(page, "TaDaMoo Bot")
     assert res.ok and res.state == "in_call"
@@ -108,10 +122,31 @@ def test_meet_join_as_a_guest_with_microphone_and_camera_off():
     assert by_key(page, "Turn off microphone").clicked == 1 and by_key(page, "Turn off camera").clicked == 1 and by_key(page, "Join now").clicked == 1
 
 
-def test_meet_join_leaves_the_microphone_and_camera_on_when_asked():
-    page = meet_lobby(speaking=True)
-    MeetAdapter().join(page, "TaDaMoo Bot", mic=True, cam=True)
-    assert by_key(page, "Turn off microphone").clicked == 0 and by_key(page, "Turn off camera").clicked == 0 and by_key(page, "Join now").clicked == 1
+def test_the_microphone_and_the_camera_are_switched_on_and_off_in_a_meeting():
+    mic_off, mic_on = El("Turn off microphone", visible=False), El("Turn on microphone", visible=True)
+    mic_on.flips, mic_off.flips = [mic_off, mic_on], [mic_off, mic_on]
+    cam_off, cam_on = El("Turn off camera", visible=False), El("Turn on camera", visible=True)
+    cam_on.flips, cam_off.flips = [cam_off, cam_on], [cam_off, cam_on]
+    page = Page([mic_off, mic_on, cam_off, cam_on])
+    a = MeetAdapter()
+    assert a.set_mic(page, False) is True and mic_on.clicked == 0                     # already off: nothing is clicked
+    assert a.set_mic(page, True) is True and mic_on.clicked == 1 and mic_off.visible
+    assert a.set_mic(page, True) is True and mic_on.clicked == 1
+    assert a.set_mic(page, False) is True and mic_off.clicked == 1 and mic_on.visible
+    assert a.set_cam(page, True) is True and a.set_cam(page, False) is True
+    assert a.set_mic(Page([]), True) is False and a.set_cam(Page([]), True) is False   # no such control: it says so
+
+
+def test_teams_and_zoom_switch_the_microphone_too():
+    toggle = El("toggle-mute", attrs={"aria-pressed": "false"})
+    teams = Page([toggle, El("toggle-video", attrs={"aria-pressed": "false"})])
+    assert TeamsAdapter().set_mic(teams, True) is True and toggle.attrs["aria-pressed"] == "true"
+    assert TeamsAdapter().set_mic(teams, True) is True and toggle.clicked == 1
+    assert TeamsAdapter().set_mic(teams, False) is True and toggle.attrs["aria-pressed"] == "false"
+    unmute, mute = El('[aria-label^="unmute"', visible=True), El('[aria-label^="mute"', visible=False)
+    unmute.flips, mute.flips = [unmute, mute], [unmute, mute]
+    zoom = Page([unmute, mute])
+    assert ZoomAdapter().set_mic(zoom, True) is True and mute.visible and ZoomAdapter().set_mic(zoom, False) is True and unmute.visible
 
 
 def test_meet_join_in_the_waiting_room_and_when_it_cannot():

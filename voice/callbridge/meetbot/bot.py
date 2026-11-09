@@ -1,7 +1,8 @@
 """MeetingSession: one meeting, one bot. It joins as a guest, announces itself, waits for consent, listens, writes minutes and may speak.
 
 The order that matters:
-  1. join (the microphone and the camera stay off unless speaking is allowed), and wait to be let in;
+  1. join with the microphone and the camera off (the device a meeting picks may be the person's own: the microphone is on only while the bot
+     speaks, the camera only if the person asked for it and consent is given), and wait to be let in;
   2. announce in the meeting chat and, when speaking is possible, by voice; if no channel carries it the bot leaves;
   3. only then the audio is captured and the speech recognised; what is heard is held in memory, nothing is on disk;
   4. the consent gate (consent.py) decides; on an objection, a removal or a Leave before consent everything held is deleted and the bot
@@ -13,12 +14,11 @@ from __future__ import annotations
 import json
 import logging
 import queue
-import re
 import shutil
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urlsplit
@@ -36,6 +36,7 @@ TICK_S = 0.4
 ADMIT_WAIT_S = 600.0
 CALL_LOST_S = 15.0
 REANNOUNCE_GAP_S = 30.0
+MIC_WAIT_S = 4.0
 ACTIVE = ("joining", "waiting_admit", "in_call", "leaving")
 _OWN_SENDERS = ("you", "tu")
 
@@ -49,6 +50,7 @@ class Plan:
     display_name: str = "TaDaMoo Bot"
     rights: str = "ticked"                 # "ticked" (the person ticked the box) | "calendar" (the person asked for this event)
     speak: bool = False
+    camera: bool = False                   # turn the bot's camera on once consent is given (the avatar's virtual camera must be what the meeting uses)
     proactive: bool = False
     consent_mode: str = "window"
     consent_window_s: int = consent.WINDOW_DEFAULT_S
@@ -110,6 +112,9 @@ class MeetingSession:
         self._lost_since: float | None = None
         self._ending = self._finalized = self._kept = False
         self._busy_reply = False
+        self._main: threading.Thread | None = None
+        self._mic_want = self._mic_on = self._cam_on = False
+        self._mic_ready = threading.Event()
         self._threads: list[threading.Thread] = []
         self._voice_threads: list[threading.Thread] = []
         self.page = self.browser = self.stt = self.source = None
@@ -121,7 +126,7 @@ class MeetingSession:
         d, p = self.deps, self.plan
         self.mic_name = find_virtual_mic(d.mic_names(), p.virtual_mic) if p.speak else None
         return speak.MeetingVoice(enabled=p.speak, mic_name=self.mic_name, tts_factory=d.tts_factory, sink_factory=d.sink_factory, floor=self.floor,
-                                  lang=p.lang, lips=d.lips, sleep=d.sleep, clock=d.clock,
+                                  lang=p.lang, lips=d.lips, sleep=d.sleep, clock=d.clock, mic=(self._mic_acquire, self._mic_release),
                                   configure=(lambda tts, lang: d.configure_tts(tts, lang)) if d.configure_tts else None)
 
     @property
@@ -152,6 +157,7 @@ class MeetingSession:
         self._cmds.put("leave")
 
     def run(self) -> None:
+        self._main = threading.current_thread()
         try:
             if self.adapter is None:
                 self._fail("unsupported_platform", "this address is not a Meet, Teams or Zoom meeting")
@@ -177,10 +183,10 @@ class MeetingSession:
 
     def _open(self) -> bool:
         p = self.plan
-        media = bool(p.speak and not self.speak_blocked)
+        media = bool(p.camera or (p.speak and not self.speak_blocked))         # the browser may use a device later; it joins with both off
         self.browser = self.deps.browser_factory(media)
         self.page = self.browser.open(p.url)
-        res = self.adapter.join(self.page, p.display_name, mic=media, cam=media)
+        res = self.adapter.join(self.page, p.display_name)
         if not res.ok:
             self._fail("join_failed", res.message or "the bot could not join")
             return False
@@ -201,6 +207,7 @@ class MeetingSession:
 
     # ---- the announcement
     def _announce(self) -> bool:
+        self._main = threading.current_thread()
         p = self.plan
         info = self.adapter.speakers(self.page)
         self._present = {n for n in info.participants if not self._is_me(n)}
@@ -242,7 +249,9 @@ class MeetingSession:
 
     # ---- one turn
     def step(self) -> None:
+        self._main = threading.current_thread()
         now = self.deps.clock()
+        self._service_mic()
         if self._take("leave"):
             return self._on_person_left()
         self._poll_call(now)
@@ -346,6 +355,9 @@ class MeetingSession:
         self._write_meta(analysis_state="pending")
         self.transcript.commit(self.dir / "transcript.jsonl")
         self._audit("consent", outcome=self.gate.outcome, mode=self.gate.mode)
+        if self.plan.camera:
+            self._cam_on = bool(self.adapter.set_cam(self.page, True))
+            self._audit("camera", on=self._cam_on)
 
     def _write_meta(self, **more) -> None:
         meta = {"title": self.plan.title or self.platform, "url": safe_url(self.plan.url), "platform": self.platform,
@@ -376,6 +388,33 @@ class MeetingSession:
             if self.plan.speak and not self.speak_blocked:
                 self.voice.rearm()
                 self.voice.say(bye, wait_for_pause=False)
+
+    # ---- the microphone: muted except while the bot speaks
+    def _mic_acquire(self) -> bool:
+        """Turn the bot's microphone on for a sentence. From the session's thread it is done at once; from another it is asked of the session's loop."""
+        if threading.current_thread() is self._main:
+            self._mic_on = self._mic_on or bool(self.adapter.set_mic(self.page, True))
+            return self._mic_on
+        self._mic_ready.clear()
+        self._mic_want = True
+        self._mic_ready.wait(MIC_WAIT_S)
+        return self._mic_on
+
+    def _mic_release(self) -> None:
+        if threading.current_thread() is self._main:
+            if self._mic_on:
+                self.adapter.set_mic(self.page, False)
+                self._mic_on = False
+            return
+        self._mic_want = False
+
+    def _service_mic(self) -> None:
+        if self._mic_want and not self._mic_on:
+            self._mic_on = bool(self.adapter.set_mic(self.page, True))
+            self._mic_ready.set()
+        elif not self._mic_want and self._mic_on:
+            self.adapter.set_mic(self.page, False)
+            self._mic_on = False
 
     # ---- replies
     def _maybe_reply(self, text: str, now: float) -> None:
@@ -417,6 +456,8 @@ class MeetingSession:
             return
         try:
             if self.page is not None and self.adapter is not None:
+                if self._mic_on:
+                    self.adapter.set_mic(self.page, False)
                 self.adapter.leave(self.page)
         except Exception:  # noqa: BLE001
             pass

@@ -10,19 +10,14 @@ from meet_fakes import Brains, DirectBrain, FakeSink, FakeTts, Rig, make_plan
 
 
 def wait_reply(r, seconds: float = 3.0) -> None:
-    """The reply runs in a thread: wait (in real time) until it is done."""
-    end = time.monotonic() + seconds
-    while r.session._busy_reply and time.monotonic() < end:
-        time.sleep(0.01)
-    for t in list(r.session._voice_threads):
-        t.join(timeout=2.0)
+    """The reply runs in a thread and the microphone is switched by the session's loop: keep the loop turning until both are done."""
+    r.settle(seconds)
 
 
 def granted(tmp_path, **plan):
     r = Rig(tmp_path, make_plan(consent_window_s=20, **plan))
     r.announce()
-    for t in r.session._voice_threads:
-        t.join(timeout=2.0)
+    r.settle()
     r.run(21)
     assert r.session.gate.state == consent.GRANTED
     return r
@@ -41,10 +36,15 @@ def test_speaking_is_off_by_default_and_nothing_is_spoken(tmp_path):
     assert r.events_named("announced")[0]["voice"] is False
 
 
-def test_the_microphone_and_camera_stay_off_without_speaking(tmp_path):
-    r = Rig(tmp_path)
-    r.adapter.join(None, "x", mic=r.session.plan.speak, cam=r.session.plan.speak)
-    assert r.adapter.joined_with == ("x", False, False)
+def test_the_bot_joins_with_the_microphone_and_camera_off_and_never_turns_them_on_unless_it_speaks(tmp_path):
+    r = Rig(tmp_path, make_plan(consent_window_s=20))
+    r.announce()
+    r.run(21)
+    r.stt.say("TaDaMoo Bot, hello?")
+    r.run(2)
+    r.settle()
+    assert r.session.deps.browser_factory(False).media is False
+    assert r.adapter.mic_log == [] and r.adapter.mic is False and r.adapter.cam is False
 
 
 def test_no_virtual_microphone_says_so_plainly_and_the_bot_stays_silent(tmp_path):
@@ -81,8 +81,7 @@ def test_the_microphone_is_found_by_name(tmp_path):
 def test_the_announcement_is_also_spoken_when_speaking_is_possible(tmp_path):
     r = Rig(tmp_path, make_plan(speak=True))
     r.announce()
-    for t in r.session._voice_threads:
-        t.join(timeout=2.0)
+    r.settle()
     assert r.adapter.chat_out and r.tts.said and "AI assistant" in r.tts.said[0] and "Mario Rossi" in r.tts.said[0]
     assert FakeSink.plays and FakeSink.plays[0][0] == "CABLE Input (VB-Audio Virtual Cable)"
     assert r.session.announced == {"chat": True, "voice": True}
@@ -91,8 +90,7 @@ def test_the_announcement_is_also_spoken_when_speaking_is_possible(tmp_path):
 def test_it_replies_only_to_a_person_who_addressed_it_and_only_after_consent(tmp_path):
     r = Rig(tmp_path, make_plan(speak=True, consent_window_s=20))
     r.announce()
-    for t in r.session._voice_threads:
-        t.join(timeout=2.0)
+    r.settle()
     FakeSink.plays.clear()
     r.stt.say("TaDaMoo Bot, can you hear us?")                       # during the consent window: no reply
     r.run(2)
@@ -114,8 +112,7 @@ def test_it_replies_only_to_a_person_who_addressed_it_and_only_after_consent(tmp
 def test_proactive_mode_may_speak_unasked_but_not_more_than_once_in_a_while(tmp_path):
     r = Rig(tmp_path, make_plan(speak=True, proactive=True, consent_window_s=20))
     r.announce()
-    for t in r.session._voice_threads:
-        t.join(timeout=2.0)
+    r.settle()
     r.run(21)
     FakeSink.plays.clear()
     r.stt.say("the numbers look off this quarter")
@@ -272,3 +269,52 @@ def test_a_brain_that_is_down_does_not_stop_the_minutes(tmp_path):
     r.run(2)
     wait_reply(r)
     assert [s["text"] for s in r.session.transcript.segments][-2:] == ["TaDaMoo Bot, hello?", "and the minutes go on"]
+
+
+# ---- the microphone is on only while the bot speaks
+def test_the_microphone_is_on_only_while_a_sentence_plays(tmp_path):
+    r = granted(tmp_path, speak=True)
+    assert r.adapter.mic_log == [True, False] and r.adapter.mic is False       # the announcement by voice: on, then off again
+    r.adapter.mic_log.clear()
+    FakeSink.plays.clear()
+    r.stt.say("TaDaMoo Bot, what do you think?")
+    r.run(2)
+    wait_reply(r)
+    assert FakeSink.plays and r.adapter.mic_log == [True, False] and r.adapter.mic is False
+
+
+def test_a_microphone_that_cannot_be_turned_on_means_nothing_is_spoken(tmp_path):
+    r = Rig(tmp_path, make_plan(speak=True, consent_window_s=20))
+    r.adapter.mic_ok = False
+    r.announce()
+    r.settle()
+    assert FakeSink.plays == [] and r.adapter.chat_out and r.events_named("spoken")[0]["ok"] is False
+    r.run(21)
+    r.stt.say("TaDaMoo Bot, hello?")
+    r.run(2)
+    wait_reply(r)
+    assert FakeSink.plays == []
+
+
+def test_the_microphone_is_turned_off_when_the_bot_leaves_in_the_middle_of_a_sentence(tmp_path):
+    r = granted(tmp_path, speak=True)
+    r.session._mic_on = True
+    r.finish()
+    assert r.adapter.mic_log[-1] is False
+
+
+def test_the_camera_stays_off_unless_the_person_asked_and_consent_is_given(tmp_path):
+    r = Rig(tmp_path, make_plan(consent_window_s=20))
+    r.announce()
+    r.run(21)
+    assert r.adapter.cam is False
+    r = Rig(tmp_path / "b", make_plan(consent_window_s=20, camera=True))
+    r.announce()
+    assert r.adapter.cam is False                                              # not before consent
+    r.run(21)
+    assert r.adapter.cam is True and r.events_named("camera")[0]["on"] is True
+    r = Rig(tmp_path / "c", make_plan(consent_window_s=20, camera=True))
+    r.announce()
+    r.stt.say("stop")
+    r.run(3)
+    assert r.adapter.cam is False

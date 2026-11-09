@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-import re
+from urllib.parse import urlsplit
 
 from .base import JoinResult, MeetingAdapter, SpeakerInfo
 
@@ -15,8 +15,10 @@ class MeetAdapter(MeetingAdapter):
     SEL_NAME_INPUT = 'input[placeholder*="nome" i], input[placeholder*="name" i]'
     SEL_MIC_OFF = ('[aria-label*="Disattiva il microfono" i], [aria-label*="Turn off microphone" i], '
                    '[aria-label*="microphone" i][data-is-muted="false"]')
+    SEL_MIC_ON = '[aria-label*="Attiva il microfono" i], [aria-label*="Turn on microphone" i]'
     SEL_CAM_OFF = ('[aria-label*="Disattiva la videocamera" i], [aria-label*="Turn off camera" i], '
                    '[aria-label*="camera" i][data-is-muted="false"]')
+    SEL_CAM_ON = '[aria-label*="Attiva la videocamera" i], [aria-label*="Turn on camera" i]'
     SEL_JOIN_BTN = ('button:has-text("Partecipa"), button:has-text("Chiedi di partecipare"), '
                     'button:has-text("Join now"), button:has-text("Ask to join")')
     SEL_LEAVE_BTN = '[aria-label*="Abbandona la chiamata" i], [aria-label*="Leave call" i]'
@@ -30,9 +32,10 @@ class MeetAdapter(MeetingAdapter):
 
     @staticmethod
     def matches(url: str) -> bool:
-        return bool(re.search(r"meet\.google\.com/", url))
+        p = urlsplit(url)
+        return p.scheme == "https" and p.hostname == "meet.google.com" and len(p.path) > 1
 
-    def join(self, page, display_name: str, mic: bool = False, cam: bool = False) -> JoinResult:
+    def join(self, page, display_name: str) -> JoinResult:
         try:
             page.wait_for_load_state("domcontentloaded", timeout=30000)
             try:
@@ -41,9 +44,7 @@ class MeetAdapter(MeetingAdapter):
                     name_box.fill(display_name)
             except Exception:  # noqa: BLE001 (signed in: no name field)
                 pass
-            for wanted, sel in ((mic, self.SEL_MIC_OFF), (cam, self.SEL_CAM_OFF)):
-                if wanted:
-                    continue
+            for sel in (self.SEL_MIC_OFF, self.SEL_CAM_OFF):
                 try:
                     btn = page.locator(sel).first
                     if btn.is_visible(timeout=2000):
