@@ -133,6 +133,13 @@ di supporto. Il piano usa proprio questo: le funzioni si caricano **prima**, e i
 - Fasi nuove: **9c** lato PC (protocollo dei motori nel gateway, sprite dei visemi, modello Wav2Lip e asset serviti al telefono, importazione del terminale ESP32 e suo protocollo); **9d** lato app Flutter (renderer dei visemi in Dart, Wav2Lip ONNX con un plugin Kotlin, scelta e degradazione dei motori).
 - Licenza: Wav2Lip originale è per uso di ricerca e non commerciale; il file ONNX di callAPIcall non ha provenienza dichiarata. Da decidere prima di distribuire a terzi.
 
+## 8c. Registro dei motori dell'avatar (decisione del 9 novembre, dopo 8b)
+
+- Ogni motore dichiara: id, nome, tipo (generico o addestrato per persona), dove gira (PC, Android, ESP32, web), peso, nota sulle prestazioni, risoluzioni supportate, licenza, requisiti (video di addestramento). Si sceglie in Settings > Voice (PC e web) e dall'app Android, con peso e prestazioni accanto; la risoluzione di uscita è una scelta a parte (non sempre serve alta) e usa lo stadio di accelerazione della fase 11.
+- Motori: **visemi** (nostro), **Wav2Lip GAN 96 px** (principale sul telefono; pesi dei suoi autori, non commerciali), **Wav2Lip v2 288 px** (Linly-Talker, provenienza da verificare), **Ultralight-Digital-Human** e **FeatherTalk** (Apache 2.0, addestrati per persona), **MuseTalk 1.5** (MIT, GPU del PC; nessuna versione più nuova confermata), **SadTalker** e **ER-NeRF** (dentro Linly-Talker, solo PC). Il video del PC (MuseTalk) resta di emergenza per telefono ed ESP32.
+- L'addestramento di Ultralight e FeatherTalk è un'attività con conferma nella procedura guidata: durata e VRAM stimate, avanzamento, annulla; l'avatar resta usabile con gli altri motori nel frattempo; il risultato si esporta per il telefono. FeatherHuBERT ha pesi solo cinesi e non completi: la resa in italiano non è verificata.
+- Per la prossima build dell'app Android: si chiama **TaDaMoo**, non Basalt (nome mostrato; l'identificativo del pacchetto resta quello attuale per aggiornare l'app senza perdere i dati).
+
 ## 9. Licenze (verificate sui file originali l'8 novembre 2026) e punti ancora aperti
 
 | Componente | Licenza | Uso commerciale |
