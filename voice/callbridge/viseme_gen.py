@@ -134,7 +134,8 @@ def _trova_espeak() -> tuple[str, dict] | None:
            or os.environ.get("ESPEAK_NG_EXE") or "")
     if not exe or not os.path.isfile(exe):
         return None
-    env = dict(os.environ)
+    from .models_store import child_env
+    env = child_env()
     if dati_cfg and os.path.isdir(dati_cfg):
         env["ESPEAK_DATA_PATH"] = dati_cfg
     if "ESPEAK_DATA_PATH" not in env:
