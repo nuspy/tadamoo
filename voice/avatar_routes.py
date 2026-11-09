@@ -18,6 +18,7 @@
     POST /avatar/train/setup {engine, asr?, avatar?, probe?}, POST /avatar/train/python {path}, POST /avatar/train/export {avatar, engine}   the Set up panel
     POST /avatar/visemes {text, duration_s, lang?}   the viseme timeline of a sentence (the phone's "visemes" mode)
     GET  /avatar/<name>/assets.zip           the phone's files: poster, Wav2Lip face and box, the viseme sprites and manifest.json
+    GET  /avatar/<name>/engines/<engine>/files/<path>   a file of the manifest's `engines` entry (the phone package of a personalised engine), with Range and ETag
     GET  /avatar/<name>/sprites.png          every mouth sprite over the photo, labelled, in one picture (for the creation page)
     GET  /avatar/<name>/manifest.json        {version, avatar, created, render_modes, files: {path: sha256}}
     GET  /avatar/phone[?persona=slug]        the avatar of a personality and the render modes its files allow (the gateway asks)
@@ -436,6 +437,23 @@ def register(app, svc: AvatarService) -> None:
             return _err("this avatar has no photo to make the phone's assets from", "no_poster", 404)
         data = avatar_assets.zip_bytes(folder, manifest_of(name, folder))
         return send_file(io.BytesIO(data), mimetype="application/zip", as_attachment=True, download_name=f"{name}-avatar.zip")
+
+    @app.get("/avatar/<name>/engines/<engine>/files/<path:rel>")
+    def avatar_engine_file(name, engine, rel):
+        """A file an engine exported for a phone (phone.json, a model, the template frame): only one the avatar's manifest lists for that engine, with Range and ETag."""
+        folder, bad = known(name)
+        if bad:
+            return bad
+        entry = avatar_assets.engine_entries(folder).get(engine)
+        path = f"{avatar_assets.ENGINES_DIR}/{engine}/export/{rel}"
+        if entry is None or path not in entry["files"]:
+            return _err("no such file", "not_found", 404)
+        digest = entry["files"][path]
+        resp = send_file(folder / path, mimetype="application/octet-stream", conditional=True, etag=digest, max_age=0)
+        resp.headers["Cache-Control"] = "private, no-cache"
+        resp.headers["Accept-Ranges"] = "bytes"
+        resp.headers["X-Content-SHA256"] = digest
+        return resp
 
     @app.get("/avatar/<name>/sprites.png")
     def avatar_sprites(name):
