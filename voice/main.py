@@ -127,11 +127,7 @@ def _build_ptt(cfg: Config, log: logging.Logger):
     if cfg.avatar_enabled:
         from callbridge.avatar_client import AvatarClient
         avatar = AvatarClient(cfg)
-    copilot = None
-    if cfg.copilot_enabled:
-        # Il copilota ascolta l'interlocutore (contenuto non fidato): sempre il cervello diretto, che non ha strumenti.
-        from callbridge.copilot import CopilotController
-        copilot = CopilotController(cfg, brains.direct, overlay, avatar=avatar)
+    copilot = None                       # the copilot is a feature of the voice service (voice/meetings_service.py)
     manager = PushToTalkManager(cfg, brains, overlay=overlay, copilot=copilot, avatar=avatar)
     return overlay, manager, copilot, avatar
 

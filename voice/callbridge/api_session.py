@@ -80,44 +80,14 @@ def session_state():
 def copilot_toggle():
     copilot = _copilot()
     if copilot is None:
-        return jsonify({"error": "copilota non disponibile in questa istanza"}), 503
+        return jsonify({"error": "the copilot is not available in this instance"}), 503
     copilot.toggle()
-    return jsonify({"active": copilot.is_active})
+    return jsonify({"active": copilot.is_active, "note": copilot.note})
 
 
 @bp.get("/copilot/state")
 def copilot_state():
     copilot = _copilot()
-    cfg = current_app.config["CB_CONFIG"]
-    return jsonify({
-        "enabled": bool(cfg.copilot_enabled and copilot is not None),
-        "active": bool(copilot is not None and copilot.is_active),
-        "project_id": getattr(copilot, "project_id", None),
-        "save_state": getattr(copilot, "save_state", {"state": "idle"}),
-    })
-
-
-@bp.post("/copilot/project")
-def copilot_project():
-    """Collega il copilota a un progetto wikibridge (conoscenza dedicata)."""
-    copilot = _copilot()
     if copilot is None:
-        return jsonify({"error": "copilota non disponibile in questa istanza"}), 503
-    body = request.get_json(silent=True) or {}
-    copilot.set_project(body.get("project_id"))
-    return jsonify({"project_id": copilot.project_id})
-
-
-@bp.post("/copilot/save-meeting")
-def copilot_save_meeting():
-    """Analizza la sessione copilota (contenuto, accordi, attività) e la
-    inserisce nella sezione riunioni del wiki del progetto."""
-    copilot = _copilot()
-    if copilot is None:
-        return jsonify({"error": "copilota non disponibile in questa istanza"}), 503
-    body = request.get_json(silent=True) or {}
-    ok, detail = copilot.save_meeting_async(
-        project_id=body.get("project_id"), title=body.get("title"))
-    if not ok:
-        return jsonify({"error": detail}), 409
-    return jsonify({"started": True, "save_state": copilot.save_state}), 202
+        return jsonify({"enabled": False, "active": False})
+    return jsonify(copilot.state())

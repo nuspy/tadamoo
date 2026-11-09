@@ -7,6 +7,9 @@ The file is the one serve/voice_settings.py writes:
                "base_url": "http://127.0.0.1:<port>", "hotkeys": true|false},
      "telephony": {"transport": "off|auto|gsm|android", "outgoing_approval": "manual|auto", "ai_disclosure_on_start": true|false,
                    "incoming_auto_answer": true|false, "on_behalf_of": "<name>"},
+     "meetings": {"speak": true|false, "camera": true|false, "proactive": true|false, "consent_mode": "window|explicit", "consent_window_s": 20..300, "on_behalf_of": "<name>",
+                  "display_name": "<name>", "virtual_mic": "<part of a device name>", "wake_phrase": "<phrase>", "calendar_autojoin": true|false,
+                  "copilot_replies": 1..6, "copilot_audio_reply": true|false, "copilot_hide_from_capture": true|false},
      "avatar": {"virtual_camera": true|false}}
 This module reads it without importing `serve` or `tadamoo` (the service has its own interpreter). A missing, unreadable or damaged file,
 or a bad value in it, gives the defaults: the service never fails because of its settings.
@@ -22,6 +25,7 @@ from pathlib import Path
 
 from callbridge import models_store as ms
 from callbridge.call_policy import APPROVAL_MODES, TRANSPORT_MODES
+from callbridge.meetbot import consent
 
 _DEVICE_RE = re.compile(r"^(auto|cpu|cuda:[0-9]{1,2})$")
 BRAIN_MODES = ("direct", "harness")
@@ -78,6 +82,25 @@ class Telephony:
 
 
 @dataclass(frozen=True)
+class Meetings:
+    """How the meeting bot and the copilot behave. Everything starts on the careful side: the bot does not speak, answers only when addressed, asks for
+    consent with a window, and the calendar does not join by itself."""
+    speak: bool = False
+    camera: bool = False
+    proactive: bool = False
+    consent_mode: str = "window"
+    consent_window_s: int = consent.WINDOW_DEFAULT_S
+    on_behalf_of: str = ""
+    display_name: str = "TaDaMoo AI assistant"
+    virtual_mic: str = ""
+    wake_phrase: str = ""
+    calendar_autojoin: bool = False
+    copilot_replies: int = 3
+    copilot_audio_reply: bool = False
+    copilot_hide_from_capture: bool = True
+
+
+@dataclass(frozen=True)
 class Avatar:
     """What the person chose about the avatar's output besides the browser: the virtual camera, off until they turn it on."""
     virtual_camera: bool = False
@@ -92,6 +115,8 @@ class Settings:
     audit_file: str = ""
     avatar: Avatar = Avatar()
     avatars_dir: str = ""
+    meetings: Meetings = Meetings()
+    meetings_audit_file: str = ""
 
 
 def _read(path) -> dict:
@@ -140,6 +165,21 @@ def _telephony(stored) -> Telephony:
                      who.strip()[:80] if isinstance(who, str) and not any(ord(c) < 32 for c in who) else "")
 
 
+def _text(value, limit: int, default: str = "") -> str:
+    return value.strip()[:limit] if isinstance(value, str) and not any(ord(c) < 32 for c in value) else default
+
+
+def _meetings(stored) -> Meetings:
+    stored = stored if isinstance(stored, dict) else {}
+    replies = stored.get("copilot_replies")
+    return Meetings(stored.get("speak") is True, stored.get("camera") is True, stored.get("proactive") is True,
+                    stored.get("consent_mode") if stored.get("consent_mode") in consent.MODES else "window", consent.window_of(stored.get("consent_window_s")),
+                    _text(stored.get("on_behalf_of"), 80), _text(stored.get("display_name"), 40, Meetings.display_name) or Meetings.display_name,
+                    _text(stored.get("virtual_mic"), 80), _text(stored.get("wake_phrase"), 40), stored.get("calendar_autojoin") is True,
+                    replies if isinstance(replies, int) and not isinstance(replies, bool) and 1 <= replies <= 6 else 3,
+                    stored.get("copilot_audio_reply") is True, stored.get("copilot_hide_from_capture") is not False)
+
+
 def _avatar(stored) -> Avatar:
     stored = stored if isinstance(stored, dict) else {}
     return Avatar(stored.get("virtual_camera") is True)
@@ -158,7 +198,8 @@ def load(path, default_models_dir: str = "") -> Settings:
     stored = data.get("services") if isinstance(data.get("services"), dict) else {}
     return Settings(models_dir, {s: _choice(s, stored.get(s)) for s in ms.SERVICES}, _brain(data.get("brain")), _telephony(data.get("telephony")),
                     str(Path(path).resolve().parent / "call-audit.jsonl"), _avatar(data.get("avatar")),
-                    str(Path(path).resolve().parent / "voice" / "avatars"))
+                    str(Path(path).resolve().parent / "voice" / "avatars"),
+                    _meetings(data.get("meetings")), str(Path(path).resolve().parent / "meetings-audit.jsonl"))
 
 
 def is_enabled(choice: Choice, models_dir: str) -> bool:
@@ -208,6 +249,11 @@ def overrides(settings: Settings) -> dict:
     out["incoming_auto_answer"], out["call_on_behalf_of"], out["call_audit_file"] = t.incoming_auto_answer, t.on_behalf_of, settings.audit_file
     out["avatar_enabled"] = out["avatar_preload"] = is_enabled(settings.services["avatar"], root)       # the worker starts with the function, not otherwise
     out["avatar_virtual_camera"], out["avatars_dir"] = settings.avatar.virtual_camera, settings.avatars_dir
+    m = settings.meetings
+    out.update(meetings_speak=m.speak, meetings_camera=m.camera, meetings_proactive=m.proactive, meetings_consent_mode=m.consent_mode, meetings_consent_window_s=m.consent_window_s,
+               meetings_on_behalf_of=m.on_behalf_of, meetings_display_name=m.display_name, meetings_virtual_mic=m.virtual_mic, meetings_wake_phrase=m.wake_phrase,
+               meetings_calendar_autojoin=m.calendar_autojoin, meetings_audit_file=settings.meetings_audit_file, copilot_num_responses=m.copilot_replies,
+               copilot_audio_reply=m.copilot_audio_reply, copilot_hide_from_capture=m.copilot_hide_from_capture)
     return out
 
 
