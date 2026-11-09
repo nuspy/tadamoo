@@ -39,6 +39,10 @@ def overview() -> dict:
 
 
 def select(req: dict) -> dict:
+    entry = voice_catalog.find(req.get("model"))
+    if entry is not None and not entry["selectable"]:
+        raise voice_settings.VoiceSettingsError("model", "This file is for the phones: the function does not load it.",
+                                                "Questo file è per i telefoni: la funzione non lo carica.")
     voice_settings.select(req.get("service"), req.get("model"))
     return overview()
 

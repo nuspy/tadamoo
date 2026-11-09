@@ -40,7 +40,7 @@ def draft(w):
 
 def test_a_draft_has_a_random_id_and_the_steps(w):
     out = w.start()
-    assert len(out["draft_id"]) == 32 and out["steps"] == ["foto", "pose", "video", "voce"] and out["limits"]["video"] == 500 << 20
+    assert len(out["draft_id"]) == 32 and out["steps"] == ["foto", "voce", "video", "pose"] and out["limits"]["video"] == 500 << 20
     assert w.status(out["draft_id"])["foto"] is False
 
 
@@ -161,7 +161,9 @@ def test_finishing_builds_the_avatar_from_the_photo_alone(w):
     assert (folder / "poster.jpg").is_file() and (folder / "wav2lip" / "face.png").is_file()
     box = json.loads((folder / "wav2lip" / "box.json").read_text(encoding="utf-8"))
     assert box["poster_w"] == 300 and "bocca" in box and len(box["inv"]) == 6          # the mouth corners, a default to correct
-    assert w.store.info("Ada-Lovelace")["wav2lip"] and not (w.drafts / d).exists()
+    assert w.store.info("Ada-Lovelace")["wav2lip"] and w.store.info("Ada-Lovelace")["visemes"] and not (w.drafts / d).exists()
+    assert out["render_modes"] == ["wav2lip", "visemes"] and out["mouth"] == "default"            # no video: no PC video, and no GPU was needed
+    assert (folder / "visemes" / "aa.png").is_file() and (folder / "visemes" / "frame.json").is_file()
     d2 = draft(w)
     w.upload(d2, "foto", Storage(photo_bytes()))
     with pytest.raises(WizardError) as e:
@@ -177,7 +179,7 @@ def test_finishing_with_all_the_materials(w, tmp_path, monkeypatch):
     w.upload(d, "video", Storage(video_file(tmp_path / "v.mp4").read_bytes()))
     w.upload(d, "voce", Storage(wav_bytes(5.0)))
     out = w.finish(d, "Bea", "it")
-    assert out["clips"] == ["Bea.mp4"] and out["poses"] == 1
+    assert out["clips"] == ["Bea.mp4"] and out["poses"] == 1 and out["render_modes"] == ["wav2lip", "visemes"]          # the clip is not prepared by finishing
     assert out["voice"] == {"engine": "xtts", "voice": "Bea"} and out["voice_sample"] == "Bea"
     assert (w.models / "tts" / "voices" / "Bea.wav").read_bytes() == wav_bytes(5.0)         # in the TTS cloning folder
     assert w.store.voice_of("Bea") == {"engine": "xtts", "voice": "Bea"}
@@ -240,3 +242,22 @@ def test_a_failure_while_building_removes_the_half_made_avatar_and_keeps_the_dra
     with pytest.raises(RuntimeError):
         w.finish(d, "Fay")
     assert w.store.names() == [] and (w.drafts / d).exists()
+
+
+def test_without_opencv_the_photo_is_refused_with_a_plain_reason_and_an_avatar_is_kept_without_its_mouth_files(w, monkeypatch):
+    import builtins
+    real = builtins.__import__
+
+    def no_cv2(name, *a, **k):
+        if name in ("cv2", "callbridge.avatar_prep") or (name == "callbridge" and a and a[2] and "avatar_prep" in a[2]):
+            raise ImportError("No module named 'cv2'")
+        return real(name, *a, **k)
+    d = draft(w)
+    photo = photo_bytes()
+    w.upload(d, "foto", Storage(photo))
+    monkeypatch.setattr(builtins, "__import__", no_cv2)
+    with pytest.raises(WizardError, match="needs opencv") as e:
+        w.upload(d, "pose", Storage(photo))
+    assert e.value.code == "needs_opencv" and e.value.status == 501
+    out = w.finish(d, "Cy")
+    assert out["mouth"].startswith("not made: needs opencv") and out["render_modes"] == []

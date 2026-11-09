@@ -45,6 +45,13 @@ LICENSES = {
                  "it": "Il codice di MuseTalk è MIT e i suoi pesi addestrati si possono usare per qualunque scopo, anche commerciale. I dati di "
                        "prova del progetto no. I modelli di terzi che usa (Whisper, sd-vae, DWPose, face parsing, SyncNet) seguono ciascuno la "
                        "propria licenza. È un riassunto, non una consulenza legale: fanno fede i testi delle licenze."},
+    "wav2lip-research": {"name": "Wav2Lip: research and non-commercial use", "url": "",
+                         "en": "The original Wav2Lip license allows research and non-commercial use only. Where this file comes from is not declared, "
+                               "so its terms are unknown: do not hand it to anyone else or use it commercially before that is settled. "
+                               "This is a summary, not legal advice.",
+                         "it": "La licenza originale di Wav2Lip consente solo uso di ricerca e non commerciale. Non è dichiarato da dove venga questo file, "
+                               "quindi le sue condizioni sono ignote: non darlo ad altri né usarlo commercialmente prima di chiarirlo. "
+                               "È un riassunto, non una consulenza legale."},
     "verify": {"name": "License not verified", "url": "",
                "en": "The license of this model has not been checked yet. Read the model's page on its source before you use it, "
                      "and do not rely on this download for any use the license may forbid.",
@@ -80,10 +87,12 @@ def _url(url: str, name: str, sha256: str | None = None, size: int | None = None
 
 
 def _entry(id_: str, service: str, engine: str, name: str, family: str, license_: str, sources: list, *, size=None, languages=(), notes=None,
-           venv=None, verify=(), noncommercial=False, probe=()) -> dict:
+           venv=None, verify=(), noncommercial=False, probe=(), selectable=True, sha256=None) -> dict:
+    """`selectable` is False for a file the phones use, which the function of its service does not load; `sha256` is that of a file whose
+    place is known but whose source is not (it is put there by hand)."""
     return {"id": id_, "service": service, "engine": engine, "name": name, "family": family, "size": size, "license": license_,
             "noncommercial": noncommercial, "sources": sources, "languages": list(languages), "notes": notes or _t("", ""),
-            "venv": venv or _t("", ""), "verify": tuple(verify), "probe": list(probe)}
+            "venv": venv or _t("", ""), "verify": tuple(verify), "probe": list(probe), "selectable": selectable, "sha256": sha256}
 
 
 def _whisper(size: str) -> dict:
@@ -163,6 +172,14 @@ CATALOG = [_whisper(s) for s in _WHISPER] + [
                     "ResNet-18 file) have no fixed source and are not part of this download; the worker needs them too.",
                     "I cinque gruppi di pesi che il worker dell'avatar carica. I pesi di face parsing (un file su Google Drive e un file "
                     "ResNet-18 di torchvision) non hanno una fonte fissa e non fanno parte di questo download; servono anche al worker.")),
+    _entry("wav2lip-int8", "avatar", "wav2lip", "Wav2Lip INT8 (for the phones)", "wav2lip", "wav2lip-research", [], size=36_664_106,
+           noncommercial=True, verify=("license", "source"), probe=["wav2lip_int8.onnx"], selectable=False,
+           sha256="2e297b310dcd397ac94e467814570eaf18edec322c29abd14565dcd3b6896f97",
+           venv=_t("Not run on the PC: the phone runs it with ONNX Runtime.", "Non gira sul PC: lo fa il telefono con ONNX Runtime."),
+           notes=_t("The lip-sync model the Android app downloads from this PC (GET /avatar/models/wav2lip.onnx). It is put in the folder by hand "
+                    "(or by the importer): nothing downloads it, because its source is not known.",
+                    "Il modello di lip-sync che l'app Android scarica da questo PC (GET /avatar/models/wav2lip.onnx). Si mette nella cartella a mano "
+                    "(o con l'importatore): nessuno lo scarica, perché la sua fonte non è nota.")),
     _entry("sherpa-diarization", "diarization", "sherpa-onnx", "sherpa-onnx diarization (pyannote segmentation + CAM++)", "sherpa-onnx", "verify",
            [_url(_SHERPA + "speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2", _SEG_DIR + ".tar.bz2", archive="tar.bz2"),
             _url(_SHERPA + "speaker-recongition-models/" + _CAMPP, _CAMPP)],
@@ -247,5 +264,5 @@ def public(entry: dict, root: str) -> dict:
     lic = license_of(entry)
     return {"id": entry["id"], "name": entry["name"], "engine": entry["engine"], "family": entry["family"], "size": entry["size"],
             "license": {"id": entry["license"], "name": lic["name"]}, "noncommercial": entry["noncommercial"],
-            "installed": installed(entry, root), "verify": bool(entry["verify"]), "verify_fields": list(entry["verify"]),
+            "selectable": entry["selectable"], "sha256": entry["sha256"], "installed": installed(entry, root), "verify": bool(entry["verify"]), "verify_fields": list(entry["verify"]),
             "downloadable": ok, "not_downloadable": why, "languages": entry["languages"], "notes": entry["notes"], "venv": entry["venv"]}

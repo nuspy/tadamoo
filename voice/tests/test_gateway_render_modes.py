@@ -4,13 +4,12 @@ device of the loopback test is voice/tests/fake_device.py, which speaks what the
 import json
 import types
 
-import numpy as np
 import pytest
 
 from callbridge import viseme_gen, voice_gateway as vg
 from voice import gateway
 from voice.tests.fake_device import FakeDevice, ProtocolError
-from voice.tests.test_gateway import CLOSED, FRAME, TOKEN, FakeHost, FakeTts, FakeWs, hold_turn, run_connection
+from voice.tests.test_gateway import CLOSED, FRAME, TOKEN, FakeHost, FakeTts, FakeWs, hold_turn
 
 BOTH = {"avatar": "ada", "render_modes": ["wav2lip", "visemes"]}
 

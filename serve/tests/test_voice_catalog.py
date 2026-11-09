@@ -88,7 +88,7 @@ class GroundingTest(unittest.TestCase):
 
     def test_a_size_is_given_only_where_the_voice_code_states_it(self):
         sized = {e["id"] for e in vc.CATALOG if e["size"]}
-        self.assertEqual(sized, {"whisper-large-v3", "kokoro", "xtts-v2", "musetalk-v15", "sherpa-diarization"})
+        self.assertEqual(sized, {"whisper-large-v3", "kokoro", "xtts-v2", "musetalk-v15", "sherpa-diarization", "wav2lip-int8"})
         for e in vc.CATALOG:
             if e["size"] is None:
                 self.assertIn("size", e["verify"], e["id"])
@@ -104,9 +104,26 @@ class LicenseAndVerifyTest(unittest.TestCase):
             self.assertEqual(vc.find(model)["license"], "verify")
             self.assertIn("license", vc.find(model)["verify"])
 
-    def test_only_xtts_is_non_commercial(self):
-        self.assertEqual([e["id"] for e in vc.CATALOG if e["noncommercial"]], ["xtts-v2"])
+    def test_only_xtts_and_the_wav2lip_file_are_non_commercial(self):
+        self.assertEqual([e["id"] for e in vc.CATALOG if e["noncommercial"]], ["xtts-v2", "wav2lip-int8"])
         self.assertIn("Non-commercial", vc.LICENSES["cpml-1.0"]["en"])
+        self.assertIn("non-commercial", vc.LICENSES["wav2lip-research"]["en"])
+
+    def test_the_wav2lip_file_is_for_the_phones_with_a_known_place_and_hash_and_no_source(self):
+        e = vc.find("wav2lip-int8")
+        self.assertEqual((e["service"], e["engine"], e["license"], e["noncommercial"], e["selectable"]), ("avatar", "wav2lip", "wav2lip-research", True, False))
+        self.assertEqual((e["size"], e["sha256"]), (36664106, "2e297b310dcd397ac94e467814570eaf18edec322c29abd14565dcd3b6896f97"))
+        self.assertEqual((e["probe"], vc.folder_of(e)), (["wav2lip_int8.onnx"], "avatar/wav2lip-int8"))
+        self.assertEqual(set(e["verify"]), {"license", "source"})                                      # provenance is undeclared: verify is on
+        self.assertEqual(vc.downloadable(e), (False, "no_source"))
+        self.assertTrue(all(m["selectable"] for m in vc.models_of("avatar") if m["id"] != "wav2lip-int8"))
+        self.assertEqual(vc.DEFAULTS["avatar"], "musetalk-v15")
+        with tempfile.TemporaryDirectory() as root:
+            self.assertFalse(vc.public(e, root)["installed"])
+            os.makedirs(os.path.join(root, "avatar", "wav2lip-int8"))
+            open(os.path.join(root, "avatar", "wav2lip-int8", "wav2lip_int8.onnx"), "wb").close()
+            self.assertTrue(vc.public(e, root)["installed"])
+            self.assertEqual((vc.public(e, root)["selectable"], vc.public(e, root)["sha256"]), (False, e["sha256"]))
 
     def test_an_entry_the_code_does_not_complete_is_marked_and_not_downloadable(self):
         for model, why in (("piper", "no_source"), ("chatterbox", "no_source"), ("silero-vad-v4", "no_source"), ("kokoro", "no_sha256"),

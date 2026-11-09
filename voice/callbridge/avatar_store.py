@@ -3,7 +3,8 @@
     avatar.json                 {"display_name", "created", "voice": {"engine", "voice"}}  (written by the wizard; the personality owns the voice)
     clips/*.mp4                 the footage MuseTalk animates; one is picked at random each time the avatar starts
     poster.jpg                  the portrait
-    wav2lip/face.png, box.json  the straightened 96x96 face and how to paste the mouth back (the phone's Wav2Lip and visemes)
+    wav2lip/face.png, box.json  the straightened 96x96 face and how to paste the mouth back (the phone's Wav2Lip)
+    visemes/<V>.png, frame.json the mouth sprites of the viseme mode and the frame they are drawn in (made from the photo)
     prepared/                   one folder per prepared clip (frames, coordinates, latents, masks) and `index.json` listing them
 
 A name is one word of letters, digits, `_` and `-`: it is also what a personality's `avatar` field holds. Nothing outside the root is ever
@@ -21,7 +22,7 @@ from pathlib import Path
 NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,59}")
 CLIP_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_ -]{0,79}\.mp4")
 # names of the service's own routes after /avatar/: an avatar called like one would be shadowed by it
-RESERVED = frozenset(("wizard", "state", "list", "output", "prepare", "start", "stop", "speak", "lipsync", "interrupt", "stream", "visemes", "preview"))
+RESERVED = frozenset(("wizard", "state", "list", "output", "prepare", "start", "stop", "speak", "lipsync", "interrupt", "stream", "visemes", "preview", "models", "phone"))
 META = "avatar.json"
 INDEX = "prepared/index.json"
 PREPARED_HEIGHT = 480
@@ -127,6 +128,7 @@ class AvatarStore:
                 "poster": (folder / "poster.jpg").is_file(), "clips": clips,
                 "prepared": sorted(c for c in clips if c in index),
                 "wav2lip": (folder / "wav2lip" / "face.png").is_file() and (folder / "wav2lip" / "box.json").is_file(),
+                "visemes": (folder / "visemes" / "frame.json").is_file(),
                 "voice": self.voice_of(name), "size_bytes": self.size_bytes(name)}
 
     def listing(self) -> dict:

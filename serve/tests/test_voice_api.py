@@ -241,6 +241,7 @@ class ChoiceTest(Base):
 
     def test_a_refusal_is_a_400_with_the_code_and_both_texts(self):
         for path, body, code in (("select", {"service": "stt", "model": "xtts-v2"}, "model"), ("select", {"service": "x", "model": "a"}, "service"),
+                                 ("select", {"service": "avatar", "model": "wav2lip-int8"}, "model"),          # a file for the phones, not a model of the function
                                  ("placement", {"service": "tts", "device": "cpu", "memory": "vram"}, "cpu_vram"),
                                  ("placement", {"service": "tts", "device": "tpu", "memory": "vram"}, "device"),
                                  ("models-dir", {"path": "relative"}, "path_relative")):

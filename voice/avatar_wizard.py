@@ -1,12 +1,14 @@
 """The guided creation of an avatar: a draft collects the materials one step at a time, `finish` turns it into a folder of the avatars store.
 
-Steps (the names callAPIcall's app uses): `foto` (the portrait, required), `pose` (up to six more photos), `video` (a short clip of the face
-talking: what MuseTalk animates), `voce` (a voice sample to clone). Everything that arrives is checked before it is kept: an image must decode
+Steps (the names callAPIcall's app uses), in the order the pages ask for them: `foto` (the portrait, required), `voce` (a voice sample to clone),
+`video` (a short clip of the face talking: real mouth shapes and what MuseTalk animates on the PC, for an emergency), `pose` (up to six more
+photos, which no mode uses yet). The photo is enough: it makes the avatar for the phone and the ESP32 with no GPU. Everything that arrives is checked before it is kept: an image must decode
 and is kept re-encoded as JPEG, a video must be an MP4 that opens and has frames, a voice sample must be one of the audio types of the cloning
 folder and short enough. The file name the client sent is never used and a draft id or an avatar name that is not plain is refused.
 
 `finish` writes `<avatars>/<name>/`: `poster.jpg`, `wav2lip/` (the straightened face and the mouth box, with a default mouth position the person
-can correct), `clips/` with the video, `poses/`, and `avatar.json`. The voice sample goes to the cloning folder of the TTS, `<models folder>/tts/
+can correct), `visemes/` (the mouth sprites made from the photo), `clips/` with the video, `poses/`, and `avatar.json`. It answers with the render
+modes the files allow. The voice sample goes to the cloning folder of the TTS, `<models folder>/tts/
 voices/<name>.<ext>`; the avatar's voice is that sample on a cloning engine only when such an engine is installed, else nothing is set and the
 reason is said. The MuseTalk preparation of the clip is a separate job (`AvatarClient.prepare`)."""
 from __future__ import annotations
@@ -25,7 +27,7 @@ from callbridge.avatar_store import AvatarStore, StoreError, slug_of, valid_name
 
 log = logging.getLogger("voice.avatar_wizard")
 
-STEPS = ("foto", "pose", "video", "voce")
+STEPS = ("foto", "voce", "video", "pose")
 LIMITS = {"foto": 20 << 20, "pose": 20 << 20, "video": 500 << 20, "voce": 25 << 20}
 MAX_POSES = 6
 MAX_DRAFTS = 8
@@ -50,9 +52,15 @@ class WizardError(Exception):
         self.status, self.code = status, code
 
 
+NEEDS_OPENCV = "needs opencv: install opencv-python-headless in the voice service's environment"
+
+
 def read_image(data: bytes):
-    import cv2
-    import numpy as np
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        raise WizardError(NEEDS_OPENCV, 501, "needs_opencv") from None
     img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
     if img is None:
         raise WizardError("that file is not a photo that can be read (use JPEG, PNG or WebP)")
@@ -178,8 +186,8 @@ class Wizard:
             raise WizardError("the file is empty")
         if step == "voce":
             return self._voice(folder, data)
-        import cv2
         img = read_image(data)
+        import cv2
         name = "foto.jpg" if step == "foto" else f"pose-{len(list(folder.glob('pose-*.jpg'))) + 1}.jpg"
         if not cv2.imwrite(str(folder / name), img, [cv2.IMWRITE_JPEG_QUALITY, 92]):
             raise WizardError("the photo could not be kept", 500, "write_failed")
@@ -251,11 +259,13 @@ class Wizard:
         return {"ok": True, "avatar": slug, "display_name": display, **result}
 
     def _build(self, folder: Path, target: Path, slug: str, language: str, router) -> dict:
-        from callbridge import avatar_prep
         shutil.copyfile(folder / "foto.jpg", target / "poster.jpg")
         mouth = "default"
         try:
+            from callbridge import avatar_prep
             avatar_prep.prepara_wav2lip(target / "poster.jpg", target)
+        except ImportError:
+            mouth = f"not made: {NEEDS_OPENCV}"
         except (ValueError, OSError) as e:
             mouth = f"not made: {e}"
         poses = sorted(folder.glob("pose-*.jpg"))
@@ -267,7 +277,8 @@ class Wizard:
         if (folder / "video.mp4").is_file():
             shutil.copyfile(folder / "video.mp4", target / "clips" / f"{slug}.mp4")
             clips.append(f"{slug}.mp4")
-        out = {"clips": clips, "poses": len(poses), "mouth": mouth, "voice": {}, "voice_note": ""}
+        from callbridge import avatar_assets
+        out = {"clips": clips, "poses": len(poses), "mouth": mouth, "render_modes": avatar_assets.render_modes(target), "voice": {}, "voice_note": ""}
         sample = next(iter(sorted(folder.glob("voce.*"))), None)
         if sample is not None:
             out.update(self._keep_voice(sample, slug, language, router))
