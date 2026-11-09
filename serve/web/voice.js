@@ -127,7 +127,9 @@
     });
     box.append(field("vo-model-" + svc.id, T("vo.model"), pickModel));
     const state = el("div", "vo-state");
-    state.append(chip(m.installed ? T("vo.state.installed") : T("vo.state.missing"), m.installed ? "vo-ok" : "vo-off"));
+    const parts = m.parts && Array.isArray(m.parts.installed) ? m.parts : null;                    // a set of independent voices (Piper): each counts
+    const partial = !!parts && parts.installed.length > 0 && parts.installed.length < parts.total;
+    state.append(chip(partial ? T("vo.state.partial", String(parts.installed.length), String(parts.total)) : (m.installed ? T("vo.state.installed") : T("vo.state.missing")), m.installed ? "vo-ok" : "vo-off"));
     if (m.noncommercial) state.append(chip(T("vo.noncommercial"), "vo-warn"));
     if (m.verify) state.append(chip(T("vo.verify"), "vo-warn"));
     box.append(state, facts(m), el("p", "vo-help", pick(m.notes)));
@@ -139,7 +141,7 @@
     }
     box.append(placement(svc));
     if (FUNCTIONS.includes(svc.id)) box.append(enabledRow(svc));
-    if (!m.installed) box.append(downloadPart(svc, m));
+    if (!m.installed || partial) box.append(downloadPart(svc, m));
     box.append(note(s.msg, s.bad));
     return box;
   }
