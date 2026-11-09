@@ -73,7 +73,8 @@ Nothing was run. Line numbers refer to that HEAD (34fcd135); each finding's Stat
 - Status: fixed in 4ad18c2f and ac5d5250. A browser always sends `Origin` on a WebSocket, so a foreign page is refused at the upgrade; the
   app (no `Origin`) and the server's own page connect. One client (a phone key, the master key or this PC) holds at most 2 of the 4
   places. Open: a program on this PC still connects without a key (it could already use every loopback route), and there is no idle
-  timeout (the app keeps a quiet socket open on purpose).
+  timeout (the app keeps a quiet socket open on purpose). A harness turn of the voice runs at the server's level for the `voice` channel,
+  which the voice cannot ask to raise ([permission levels](../permission-levels.md)).
 
 ### V-04 High: Telegram takeover through V-01
 - Where: `serve/telegram_service.py:198-230`: `set_settings` takes `enabled`, `mode` (including `auto`) and `allowed` in one request, and
@@ -83,8 +84,9 @@ Nothing was run. Line numbers refer to that HEAD (34fcd135); each finding's Stat
 - Fix: V-01's fix. In addition, accept a token change, an allow-list addition or a raised level only with a confirmation shown on the PC
   (the pairing flow already exists).
 - Test: `serve/tests/test_telegram_api.py:394` checks that the token is never shown, but nothing covers a cross-site write.
-- Status: partly fixed in 4ad18c2f: a website can no longer make these writes. Open: a confirmation on the PC for a new token, an
-  allow-list addition or a raised level.
+- Status: partly fixed in 4ad18c2f: a website can no longer make these writes. Telegram's level is the server's level of the `telegram`
+  channel ([permission levels](../permission-levels.md)), and every Telegram message, also in a conversation moved there from the Chat, runs at
+  most at it. Open: a confirmation on the PC for a new token, an allow-list addition or a raised level.
 
 ### V-05 Medium: unpinned Hugging Face sources and pickle loading
 - Where: `serve/voice_catalog.py:102-104` (`revision: "main"`, `files=None` means the whole repository) and `serve/downloads.py`
