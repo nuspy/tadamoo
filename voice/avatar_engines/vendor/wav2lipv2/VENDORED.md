@@ -13,7 +13,7 @@ opens, found by reading the code (the same lists as the install-on-request pack 
 ## What is not here
 
 Weights are not vendored. `checkpoints/wav2lipv2.pth` is the catalog entry `wav2lipv2-weights`; the face detector `yolov8n-face.pt` (`wav2lipv2-yolo-face`) and the WFLW
-landmark net (`wav2lipv2-landmarks`) are placed by hand. The engine runs the code in a run folder (`<models folder>/avatar-engines/wav2lipv2/code/`) that it fills from this
+landmark net (`wav2lipv2-landmarks`) are catalog entries too. The engine runs the code in a run folder (`<models folder>/avatar-engines/wav2lipv2/code/`) that it fills from this
 folder before each run. Not vendored: `src/utils/face_enhancer.py` and `src/utils/videoio.py` (imported only when `enhance=True`, which the runner never asks for), the first
 Wav2Lip model (`src/models`, `TFG/Wav2Lip.py`), `face_detection/detection` (the S3FD detector, which `api.py` loads only when a `FaceAlignment` is built), and the rest of Linly-Talker (the web UIs, the other engines, the demo media).
 `ultralytics`, which `TFG/Wav2Lipv2.py` imports for the face detector, is a package of the engine environment and is not vendored.

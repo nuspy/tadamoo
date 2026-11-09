@@ -12,8 +12,8 @@ opens, found by reading the code (the same lists as the install-on-request pack 
 
 ## What is not here
 
-Weights and per-person data are not vendored: `checkpoints/audio_visual_encoder.pth` is the catalog entry `ernerf-audio-encoder`; the 3DMM files built from the Basel Face
-Model (`ernerf-bfm`) and the face-parsing weights (`ernerf-face-parsing`) are placed by hand. The engine runs the code in a run folder
+Weights and per-person data are not vendored: `checkpoints/audio_visual_encoder.pth` is the catalog entry `ernerf-audio-encoder`; the four AD-NeRF 3DMM files (`ernerf-bfm`) and the face-parsing weights (`ernerf-face-parsing`) are catalog entries too; only the Basel Face Model file
+(`01_MorphableModel.mat`, a registration) and the `3DMM_info.npy` that `convert_BFM.py` makes from it are placed by the person. The engine runs the code in a run folder
 (`<models folder>/avatar-engines/ernerf/code/`) that it fills from this folder before each run, so the CUDA sources are there to be built (`freqencoder`, `gridencoder`,
 `raymarching`, `shencoder`, each with its own `setup.py`). Not vendored: `NeRF/nerf_triplane/gui.py` and `asr.py` (the live viewer, which nothing here imports), ER-NeRF's own
 `main.py` (not in Linly-Talker; `runners/ernerf_train.py` stands in for it), and the rest of Linly-Talker. Linly-Talker's `NeRF/` is a modified copy of ER-NeRF, not the upstream tree:

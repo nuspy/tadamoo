@@ -56,12 +56,12 @@ Anything given to others or used commercially needs the licences settled first.
 - Runs Linly-Talker's `TFG/Wav2Lipv2.py` on the avatar's `poster.jpg` and the audio (`run`, then the video is decoded). Native size 288 px per the Linly-Talker
   README; the script itself builds 256 px face crops. PC and web (a PC-rendered stream); not Android.
 - Code: `vendor/wav2lipv2/` (26 files, 95,938 bytes). Weights, catalog entries: `wav2lipv2-weights` (`checkpoints/wav2lipv2.pth` of the Hugging Face repository
-  `Kedreamix/Linly-Talker`), `wav2lipv2-yolo-face` and `wav2lipv2-landmarks` (no source stated anywhere read: placed by hand, under `models/` of the engine folder, which the
-  runner passes as `pretrained_model_dir`).
+  `Kedreamix/Linly-Talker`), `wav2lipv2-yolo-face` and `wav2lipv2-landmarks` (the same repository and commit, under `models/` of the engine folder, which the runner passes
+  as `pretrained_model_dir`). Every Linly-Talker weight is pinned to Hugging Face commit `de2ee105` with its SHA-256 and size (the LFS ids of that tree); the README's tree now lists
+  `checkpoints/wav2lipv2.pth`.
 - Licence (to confirm, see `vendor/wav2lipv2/LICENSE-NOTE.md`): the model derives from Wav2Lip (personal, research and non-commercial use per its README) through
   `primepake/wav2lip_288x288` (MIT); the face detector is loaded by ultralytics (AGPL-3.0); the licence of `yolov8n-face.pt` is not stated.
-- Not proven: that `checkpoints/wav2lipv2.pth` exists in the repository (the README's tree does not list it; the download plan fails clearly if not), that the
-  closure is complete on a real environment (only the imports were followed by reading, and the runner's calls were compared with the vendored signatures), and any speed or quality.
+- Not proven: that the closure is complete on a real environment (only the imports were followed by reading, and the runner's calls were compared with the vendored signatures), and any speed or quality.
 
 ## SadTalker (`sadtalker`)
 
@@ -80,8 +80,10 @@ Anything given to others or used commercially needs the licences settled first.
   `gridencoder`, `raymarching`, `shencoder` built on this PC: very fragile with the versions of Python, PyTorch, CUDA and the compiler. A training checks
   them first (`ernerf_run.py --check`) and records the result in `<models folder>/avatar-engines/ernerf/modules.json`.
 - Code: `vendor/ernerf/` (the `NeRF/` folder with its CUDA sources and the wrapper, 59 files, 486,227 bytes); the person builds the four modules from the sources in the run
-  folder. Weights, catalog entries: `ernerf-audio-encoder` (`checkpoints/audio_visual_encoder.pth`), and by hand
-  `ernerf-bfm` (the 3DMM folder built from the Basel Face Model, which needs a registration) and `ernerf-face-parsing`.
+  folder. Weights, catalog entries: `ernerf-audio-encoder` (`checkpoints/audio_visual_encoder.pth`), `ernerf-face-parsing` (the BiSeNet `79999_iter.pth`: the copy in the same Hugging Face repository, same name and size as the AD-NeRF file ER-NeRF's README names, not compared byte for
+  byte) and `ernerf-bfm` (the four AD-NeRF files `exp_info.npy`, `keys_info.npy`, `sub_mesh.obj`, `topology_info.npy`, pinned to a GitHub commit). The rest of the 3DMM folder is the person's:
+  the Basel Face Model file `01_MorphableModel.mat` (a registration with the university) and the `3DMM_info.npy` that `convert_BFM.py` makes from it; a training plan has a check `bfm` for it.
+  The face-parsing code also fetches `resnet18-5c106cde.pth` from download.pytorch.org unless it is in the PyTorch hub cache (not handled here).
 - A training is four steps (`ErNerfEngine.training_plan`, `prepare`): the build check, the upstream `data_utils/process.py`, then the head and the torso with
   `runners/ernerf_train.py`. Files go to `<avatar>/engines/er_nerf/` (`data/`, `head/`, `torso/`, `trained.json`). The data path must have no space: the upstream
   preparation does not quote it.
@@ -95,4 +97,4 @@ Anything given to others or used commercially needs the licences settled first.
 `voice/tests/test_avatar_engine_{pack,wav2lipv2,sadtalker,ernerf}.py` use fakes (a fake process, empty files, a frames file) and one real pair of tiny processes
 for the process tree. `voice/tests/test_avatar_engine_vendor_linly.py` re-hashes every vendored file against its table, checks that nothing else (no weight, no media) is there,
 that the scripts parse and their local imports resolve inside the folder, that the runners call what the vendored scripts define, and that the run folder is filled correctly.
-`serve/tests/test_avatar_engine_packs.py` checks the catalog entries. None of them starts a server, loads a model, uses a GPU or touches the network.
+`serve/tests/test_avatar_engine_packs.py` checks the catalog entries (pins, folders, the planner with a fake tree). None of them starts a server, loads a model, uses a GPU or touches the network.
