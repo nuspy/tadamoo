@@ -41,6 +41,7 @@ MODELS = {
     "orpheus-3b": ("tts", "orpheus", "Orpheus 3B", ()),
     "dia-1.6b": ("tts", "dia", "Dia 1.6B", ()),
     "musetalk-v15": ("avatar", "musetalk", "MuseTalk v1.5 weights", ()),
+    "wav2lip-int8": ("avatar", "wav2lip", "Wav2Lip INT8 (for the phones)", ("wav2lip_int8.onnx",)),
     "sherpa-diarization": ("diarization", "sherpa-onnx", "sherpa-onnx diarization", (_SEG, _CAMPP)),
     "silero-vad-v4": ("vad", "silero", "Silero VAD v4", ("silero_vad_v4.onnx",)),
 }

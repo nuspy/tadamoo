@@ -6,7 +6,7 @@ tutti i telefoni), non sul dispositivo. Produce, sotto `avatar/persone/<nome>/`:
   poster.jpg        il ritratto, come oggi
   wav2lip/face.png  il volto RADDRIZZATO ritagliato a 96x96
   wav2lip/box.json  come reincollare la bocca generata sul poster
-  visemi/<V>.png    (modo C) una forma di bocca per viseme — richiede il video
+  visemes/<V>.png   (modo C) una forma di bocca per viseme, dalla sola foto (avatar_visemes.py)
 
 La posizione della bocca si indica A MANO: sul PC, col mouse, si segnano i due
 angoli della bocca sul poster. Da quei due punti si ricava tutto ciò che serve —
@@ -34,6 +34,8 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+
+from . import avatar_visemes
 
 log = logging.getLogger("callbridge.avatar_prep")
 
@@ -156,7 +158,7 @@ def prepara_da_bocca(poster: Path, dest: Path, p1, p2) -> dict:
     cv2.imwrite(str(out / "face.png"), face)
     (out / "box.json").write_text(json.dumps(box), encoding="utf-8")
     log.info("avatar_prep: bocca a mano -> %s (roll %.1f°)", out, box["angle_deg"])
-    return {"modo": "wav2lip", "box": box}
+    return {"modo": "wav2lip", "box": box, "visemes": avatar_visemes.write_sprites(img, p1, p2, dest)}
 
 
 def prepara_wav2lip(poster: Path, dest: Path) -> dict:
@@ -175,14 +177,31 @@ def prepara_wav2lip(poster: Path, dest: Path) -> dict:
     cv2.imwrite(str(out / "face.png"), face)
     (out / "box.json").write_text(json.dumps(box), encoding="utf-8")
     log.info("avatar_prep: default -> %s", out)
-    return {"modo": "wav2lip", "metodo": "default", "box": box}
+    return {"modo": "wav2lip", "metodo": "default", "box": box, "visemes": avatar_visemes.write_sprites(img, p1, p2, dest)}
+
+
+def completa(dest: Path) -> None:
+    """Makes what the photo allows and the folder lacks: the Wav2Lip face and the viseme sprites. A mouth the person marked is kept.
+
+    Raises ValueError when there is no readable poster."""
+    poster = dest / "poster.jpg"
+    img = cv2.imread(str(poster))
+    if img is None:
+        raise ValueError("poster non leggibile")
+    box_file = dest / "wav2lip" / "box.json"
+    if (dest / "wav2lip" / "face.png").is_file() and box_file.is_file():
+        if not (dest / avatar_visemes.FOLDER / avatar_visemes.FRAME_FILE).is_file():
+            marks = json.loads(box_file.read_text(encoding="utf-8")).get("bocca") or {}
+            avatar_visemes.write_sprites(img, marks["p1"], marks["p2"], dest)
+        return
+    prepara_wav2lip(poster, dest)
 
 
 def prepara(persona_dir: Path) -> dict:
     """Prepara tutti gli asset possibili dai materiali già presenti.
 
-    Oggi: il modo A dal poster (default, da raffinare a mano). Il modo C (sprite
-    di bocca dal video) è la fase successiva.
+    Dal poster: il volto per Wav2Lip e gli sprite dei visemi, con la bocca di
+    default (da raffinare a mano).
     """
     poster = persona_dir / "poster.jpg"
     fatti: dict = {}

@@ -8,9 +8,11 @@
                                                             passes through to the service in pieces, without being read here, and only up to
                                                             the size of its step
     GET  /api/voice/avatar/preview.mjpg                     the rendered frames, a long-lived MJPEG stream relayed from the service
-    GET  /api/voice/avatar/<name>/poster                    the portrait of an avatar
+    GET  /api/voice/avatar/<name>/poster|sprites.png        the portrait of an avatar; its mouth sprites over it in one picture
+    GET  /api/voice/avatar/<name>/assets.zip|manifest.json  the files a phone or the ESP32 renders the avatar from (this PC or a phone with its key)
+    GET  /api/voice/avatar/models/wav2lip.onnx              the Wav2Lip model the phones run, with Range and ETag (same callers)
 
-This PC only. The service's token is added here and never reaches the browser; a response is not searched for it because nothing of the
+The rest is this PC only. The service's token is added here and never reaches the browser; a response is not searched for it because nothing of the
 service's that carries one is relayed (the stream, an image and a JSON answer of the service)."""
 from __future__ import annotations
 
@@ -23,7 +25,12 @@ from serve import settings, voice_service, voice_settings
 NAME = r"[A-Za-z0-9][A-Za-z0-9_-]{0,59}"
 UPLOAD = re.compile(r"/api/voice/avatar/wizard/([0-9a-f]{32})/(foto|pose|video|voce)")
 POSTER = re.compile(rf"/api/voice/avatar/({NAME})/poster")
+SPRITES = re.compile(rf"/api/voice/avatar/({NAME})/sprites\.png")
 PREVIEW = "/api/voice/avatar/preview.mjpg"
+DEVICE_FILES = re.compile(rf"/api/voice/avatar/(?:{NAME}/(?:assets\.zip|manifest\.json)|models/wav2lip\.onnx)")
+FORWARDED_IN = ("Range", "If-Range", "If-None-Match")
+FORWARDED_OUT = ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Cache-Control", "Content-Disposition", "X-Content-SHA256")
+FILE_WAIT_S = 120.0
 BASE = "/api/voice/avatar"
 LIMITS = {"foto": 20 << 20, "pose": 20 << 20, "video": 500 << 20, "voce": 25 << 20}     # the service's own limits, per step
 OVERHEAD = 1 << 16                                                                       # the multipart framing around the file
@@ -168,23 +175,24 @@ def preview(handler) -> None:
         conn.close()
 
 
-def poster(handler, name: str) -> None:
+def image(handler, upstream: str, mime: str, missing: str) -> None:
+    """Relay one picture of the service of type `mime`; anything else it answers is "not found"."""
     try:
         conn, token = _connect(10.0)
     except voice_service.ServiceDown as e:
         return _down(handler, e)
     try:
-        conn.request("GET", f"/personas/{name}/poster", headers={"Authorization": "Bearer " + token})
+        conn.request("GET", upstream, headers={"Authorization": "Bearer " + token})
         resp = conn.getresponse()
         data = resp.read(IMAGE_MAX + 1)
     except (OSError, http.client.HTTPException) as e:
         return _down(handler, e)
     finally:
         conn.close()
-    if resp.status != 200 or len(data) > IMAGE_MAX or resp.getheader("Content-Type") != "image/jpeg":
-        return _refuse(handler, 404 if resp.status in (200, 404) else resp.status, "not_found", "That avatar has no portrait.")
+    if resp.status != 200 or len(data) > IMAGE_MAX or resp.getheader("Content-Type") != mime:
+        return _refuse(handler, 404 if resp.status in (200, 404) else resp.status, "not_found", missing)
     handler.send_response(200)
-    handler.send_header("Content-Type", "image/jpeg")
+    handler.send_header("Content-Type", mime)
     handler.send_header("Content-Length", str(len(data)))
     handler.send_header("Cache-Control", "no-cache")
     handler.end_headers()
@@ -192,7 +200,41 @@ def poster(handler, name: str) -> None:
 
 
 # ---------------------------------------------------------------------------------------- the handler's entry points
+def device_file(handler, path: str) -> None:
+    """Relay a file of the service to this PC or to a phone with its key; ranges and conditional requests pass through, the body in pieces."""
+    if not handler._local_or_device():
+        return _refuse(handler, 403, "forbidden", "The avatar files are given to this PC or to a phone with its key, with phones turned on.")
+    try:
+        conn, token = _connect(FILE_WAIT_S)
+    except voice_service.ServiceDown as e:
+        return _down(handler, e)
+    started = False
+    try:
+        headers = {"Authorization": "Bearer " + token, **{k: handler.headers[k] for k in FORWARDED_IN if handler.headers.get(k)}}
+        conn.request("GET", path[len("/api/voice"):], headers=headers)
+        resp = conn.getresponse()
+        started = True
+        handler.send_response(resp.status)
+        for name in FORWARDED_OUT:
+            if resp.getheader(name):
+                handler.send_header(name, resp.getheader(name))
+        handler.end_headers()
+        while True:
+            piece = resp.read(CHUNK)
+            if not piece:
+                break
+            handler.wfile.write(piece)
+    except (OSError, http.client.HTTPException) as e:
+        handler.close_connection = True
+        if not started:
+            _down(handler, e)                        # after the headers the phone left or the service stopped: nothing more to say
+    finally:
+        conn.close()
+
+
 def get(handler, path: str) -> None:
+    if DEVICE_FILES.fullmatch(path):
+        return device_file(handler, path)
     if not _local(handler):
         return
     if path == BASE:
@@ -201,7 +243,10 @@ def get(handler, path: str) -> None:
         return preview(handler)
     m = POSTER.fullmatch(path)
     if m:
-        return poster(handler, m.group(1))
+        return image(handler, f"/personas/{m.group(1)}/poster", "image/jpeg", "That avatar has no portrait.")
+    m = SPRITES.fullmatch(path)
+    if m:
+        return image(handler, f"/avatar/{m.group(1)}/sprites.png", "image/png", "That avatar has no mouth sprites.")
     _refuse(handler, 404, "not_found", "not found")
 
 
