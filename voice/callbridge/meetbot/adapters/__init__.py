@@ -1,21 +1,12 @@
-"""Adapter per piattaforma: routing dall'URL della riunione."""
+"""Platform adapters, chosen from the address of the meeting. Webex, Slack and Telegram are not built."""
 from __future__ import annotations
 
-from .base import JoinResult, MeetingAdapter, SpeakerInfo  # noqa: F401
+from .base import ChatMessage, JoinResult, MeetingAdapter, SpeakerInfo  # noqa: F401
 from .meet import MeetAdapter
+from .teams import TeamsAdapter
+from .zoom import ZoomAdapter
 
-_ADAPTERS: list[type[MeetingAdapter]] = [MeetAdapter]
-
-try:  # adapter opzionali (aggiunti nelle fasi successive)
-    from .teams import TeamsAdapter
-    _ADAPTERS.append(TeamsAdapter)
-except ImportError:
-    pass
-try:
-    from .zoom import ZoomAdapter
-    _ADAPTERS.append(ZoomAdapter)
-except ImportError:
-    pass
+_ADAPTERS: list[type[MeetingAdapter]] = [MeetAdapter, TeamsAdapter, ZoomAdapter]
 
 
 def adapter_for(url: str) -> MeetingAdapter | None:

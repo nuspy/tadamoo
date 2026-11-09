@@ -1,8 +1,4 @@
-"""Adapter Zoom (web client, join come ospite).
-
-I link /j/<id> aprono la pagina di lancio: si forza il web client
-(wc/join), nome ospite, mic/cam off, Join. Selettori centralizzati.
-"""
+"""Zoom (web client), joining as a guest. Selectors are in class constants, English and Italian labels; not proven against a live meeting."""
 from __future__ import annotations
 
 import logging
@@ -16,34 +12,32 @@ log = logging.getLogger("callbridge.meetbot.zoom")
 class ZoomAdapter(MeetingAdapter):
     platform = "zoom"
 
-    SEL_USE_WEB = ('a:has-text("Join from your browser"), '
-                   'a:has-text("Partecipa dal browser"), '
-                   'a[href*="/wc/"]')
     SEL_NAME_INPUT = '#input-for-name, input[placeholder*="Name" i], input[placeholder*="nome" i]'
-    SEL_JOIN_BTN = ('button:has-text("Join"), button:has-text("Entra"), '
-                    'button:has-text("Partecipa")')
-    SEL_MIC_BTN = ('[aria-label*="mute" i], [aria-label*="microfono" i]')
-    SEL_LEAVE_BTN = ('button:has-text("Leave"), [aria-label*="Leave" i], '
-                     'button:has-text("Esci"), [aria-label*="Esci" i]')
+    SEL_JOIN_BTN = 'button:has-text("Join"), button:has-text("Entra"), button:has-text("Partecipa")'
+    SEL_LEAVE_BTN = 'button:has-text("Leave"), [aria-label*="Leave" i], button:has-text("Esci"), [aria-label*="Esci" i]'
+    SEL_LEAVE_CONFIRM = 'button:has-text("Leave Meeting"), button:has-text("Esci dalla riunione")'
     SEL_PARTICIPANT = '.participants-item__display-name, [class*="participants-item"]'
+    SEL_CHAT_BTN = '[aria-label*="chat" i]'
+    SEL_CHAT_INPUT = '.chat-box__chat-textarea, textarea[placeholder*="message" i], textarea[placeholder*="messaggio" i]'
+    SEL_CHAT_MSG = ".chat-message__container"
+    REMOVED_TEXTS = ("you have been removed", "you were removed", "sei stato rimosso", "rimosso dalla riunione")
+    ENDED_TEXTS = ("this meeting has been ended", "the host has ended", "la riunione è stata terminata", "l'host ha terminato")
 
     @staticmethod
     def matches(url: str) -> bool:
         return bool(re.search(r"zoom\.us/(j|wc|s)/", url))
 
-    def _to_web_client(self, url: str) -> str:
+    @staticmethod
+    def web_client(url: str) -> str:
+        """The address of the browser client for a /j/<id> link (the launch page is skipped)."""
         m = re.search(r"zoom\.us/j/(\d+)(?:\?pwd=([\w.]+))?", url)
         if not m:
             return url
-        wc = f"https://app.zoom.us/wc/{m.group(1)}/join"
-        if m.group(2):
-            wc += f"?pwd={m.group(2)}"
-        return wc
+        return f"https://app.zoom.us/wc/{m.group(1)}/join" + (f"?pwd={m.group(2)}" if m.group(2) else "")
 
-    def join(self, page, display_name: str) -> JoinResult:
+    def join(self, page, display_name: str, mic: bool = False, cam: bool = False) -> JoinResult:
         try:
-            # Vai dritto al web client (salta la pagina di lancio app).
-            page.goto(self._to_web_client(page.url), timeout=60000)
+            page.goto(self.web_client(page.url), timeout=60000)
             page.wait_for_load_state("domcontentloaded", timeout=30000)
             try:
                 name_box = page.locator(self.SEL_NAME_INPUT).first
@@ -53,14 +47,12 @@ class ZoomAdapter(MeetingAdapter):
                 pass
             page.locator(self.SEL_JOIN_BTN).first.click(timeout=15000)
             try:
-                page.locator(self.SEL_LEAVE_BTN).first.wait_for(
-                    state="visible", timeout=30000)
+                page.locator(self.SEL_LEAVE_BTN).first.wait_for(state="visible", timeout=30000)
                 return JoinResult(True, "in_call")
             except Exception:  # noqa: BLE001
-                return JoinResult(True, "waiting_admit",
-                                  "in sala d'attesa: l'host deve ammettere il bot")
+                return JoinResult(True, "waiting_admit", "in the waiting room: the host must let the bot in")
         except Exception as e:  # noqa: BLE001
-            log.error("Zoom join fallito: %s", e)
+            log.error("Zoom join failed: %s", e)
             return JoinResult(False, "error", str(e))
 
     def in_call(self, page) -> bool:
@@ -73,8 +65,7 @@ class ZoomAdapter(MeetingAdapter):
         info = SpeakerInfo()
         try:
             tiles = page.locator(self.SEL_PARTICIPANT)
-            n = min(tiles.count(), 30)
-            for i in range(n):
+            for i in range(min(tiles.count(), 30)):
                 name = (tiles.nth(i).inner_text(timeout=500) or "").strip()
                 if name and name not in info.participants:
                     info.participants.append(name)
@@ -85,9 +76,6 @@ class ZoomAdapter(MeetingAdapter):
     def leave(self, page) -> None:
         try:
             page.locator(self.SEL_LEAVE_BTN).first.click(timeout=5000)
-            # conferma "Leave meeting"
-            page.locator('button:has-text("Leave Meeting"), '
-                         'button:has-text("Esci dalla riunione")').first.click(
-                timeout=3000)
+            page.locator(self.SEL_LEAVE_CONFIRM).first.click(timeout=3000)
         except Exception:  # noqa: BLE001
             pass
