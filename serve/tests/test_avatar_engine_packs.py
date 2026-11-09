@@ -75,15 +75,16 @@ class CodePackTest(unittest.TestCase):
                 self.assertFalse(path.lower().endswith((".mp4", ".jpg", ".png", ".wav", ".gif", ".ipynb")), path)
                 self.assertFalse(path.startswith(("docs/", "webui", "app")), path)
 
-    def test_the_licenses_say_what_is_not_settled(self):
+    def test_the_licence_text_shown_before_an_install_keeps_only_the_real_restrictions(self):
         lic = vc.LICENSES["linly-talker"]
         self.assertIn("MIT", lic["en"])
-        for word in ("Wav2Lip", "SadTalker", "ER-NeRF", "DeepSpeech", "non-commercial"):
-            self.assertIn(word, lic["en"], word)
+        self.assertIn("non-commercial", lic["en"])
+        self.assertNotIn("not verified", lic["en"] + vc.LICENSES["ultralytics-face"]["en"].replace("not stated", ""))
         face = vc.LICENSES["ultralytics-face"]
         self.assertIn("AGPL-3.0", face["en"])
-        self.assertIn("not stated", face["en"])
         self.assertTrue(face["it"] and lic["it"])
+        for id_ in ("sadtalker-code", "ernerf-code", "sadtalker-weights"):
+            self.assertNotIn("license", vc.BY_ID[id_]["verify"], id_)                               # the licence notes live in the code and docs, not on the page
 
 
 class WeightsTest(unittest.TestCase):
@@ -92,7 +93,7 @@ class WeightsTest(unittest.TestCase):
             e = vc.BY_ID[id_]
             (s,) = e["sources"]
             self.assertEqual((s["type"], s["repo"], s["revision"]), ("hf", "Kedreamix/Linly-Talker", "main"), id_)
-            self.assertTrue({"source", "license"} <= set(e["verify"]) and e["verify"], id_)
+            self.assertTrue({"source", "size"} <= set(e["verify"]), id_)
             self.assertTrue(s["strip"] and all(f.startswith(s["strip"]) for f in s["files"]), id_)
             self.assertEqual(sorted(Path(f).name for f in s["files"]), sorted(e["probe"]), id_)
             self.assertEqual(vc.downloadable(e), (True, ""), id_)

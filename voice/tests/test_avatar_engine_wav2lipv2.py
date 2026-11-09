@@ -26,7 +26,7 @@ def engine(spawner=None):
 def test_the_registry_builds_this_engine_for_wav2lip_v288():
     assert isinstance(registry.get("wav2lip_v288"), Wav2LipV2Engine)
     info = registry.info_of("wav2lip_v288")
-    assert info.native_resolution == 288 and info.runs_on == ("pc", "web") and info.license.verify and "AGPL" in info.license.note["en"]
+    assert info.native_resolution == 288 and info.runs_on == ("pc", "web") and info.license.noncommercial and "AGPL" in info.license.note["en"]
 
 
 def test_status_names_everything_that_is_missing_in_both_languages(tmp_path, monkeypatch):

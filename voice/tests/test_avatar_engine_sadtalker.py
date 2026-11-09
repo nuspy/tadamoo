@@ -24,7 +24,7 @@ def engine(spawner=None):
 def test_the_registry_builds_this_engine_for_sadtalker_and_it_is_pc_only_at_256():
     assert isinstance(registry.get("sadtalker"), SadTalkerEngine)
     info = registry.info_of("sadtalker")
-    assert info.runs_on == ("pc",) and info.native_resolution == 256 and info.license.verify and info.default_resolution == 256
+    assert info.runs_on == ("pc",) and info.native_resolution == 256 and not info.license.verify and info.default_resolution == 256
 
 
 def test_status_matrix(rig, tmp_path):

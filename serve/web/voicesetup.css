@@ -1,0 +1,20 @@
+/* The Set up panel of an engine on the Avatar engines card. Mobile first: one column, buttons and fields 44px or more, nothing scrolls sideways. */
+.vse { min-width: 0; }
+.vse-sum { display: flex; align-items: center; min-height: 44px; cursor: pointer; color: var(--fg); font-size: 14px; font-weight: 600; }
+.vse-body { display: grid; gap: 10px; min-width: 0; padding-top: 4px; }
+.vse-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; min-width: 0; }
+.vse-item { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line-soft); border-left: 4px solid var(--line);
+  border-radius: 8px; font-size: 14px; line-height: 1.5; color: var(--fg-2); overflow-wrap: anywhere; }
+.vse-item[data-ok="1"] { border-left-color: var(--accent); }
+.vse-mark { color: var(--fg); }
+.vse-item[data-ok="0"] .vse-mark { text-decoration: underline; }
+.vse-tag { font-size: 13px; color: var(--fg-2); }
+.vse .btn { min-height: 44px; min-width: 44px; }
+.vse input[type="text"] { width: 100%; min-height: 44px; box-sizing: border-box; }
+.vse-plan { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+.vse-ack { display: flex; align-items: center; gap: 12px; min-height: 44px; cursor: pointer; color: var(--fg); }
+.vse-ack input { width: 24px; height: 24px; margin: 0; flex: none; accent-color: var(--accent); }
+.vse-strong { font-weight: 600; color: var(--fg); }
+.vse-bad, .vse-note[data-bad="1"] { color: var(--warn); font-weight: 600; }
+.vse :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .vse * { transition: none; animation: none; } }

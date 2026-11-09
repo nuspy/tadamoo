@@ -35,6 +35,8 @@ class ErNerfEngine(PackEngine):
     key = "ernerf"
     runner = "ernerf_run.py"
     models = ("ernerf-code", "ernerf-audio-encoder")
+    train_models = TRAIN_MODELS
+    mark_name = MODULES_MARK
     needs_photo = False
     fps_default = 25
 
@@ -54,8 +56,17 @@ class ErNerfEngine(PackEngine):
         return data if isinstance(data, dict) else None
 
     def modules_checked(self, base: str | None = None) -> bool:
-        root = engine_dir(self.key, base)
-        return root is not None and (root / MODULES_MARK).is_file()
+        return self.check_mark(base) is not None
+
+    def check_items(self, base, item) -> list[dict]:
+        """PyTorch3D and each CUDA module, from what the check found; before the check none is checked."""
+        found = (self.check_mark(base) or {}).get("modules", {})
+        out = []
+        for name in ("pytorch3d", "freqencoder", "gridencoder", "raymarching", "shencoder"):
+            ok = name in found
+            out.append(item(f"module:{name}", ok, f"{name} imports ({found[name]})" if ok else f"{name} has not been checked on this PC: press Check (you build the CUDA modules)",
+                            f"{name} si importa ({found[name]})" if ok else f"{name} non è stato controllato su questo PC: premi Controlla (i moduli CUDA li compili tu)"))
+        return out
 
     def _artifacts(self, avatar_dir, mark: dict) -> tuple[Path, Path]:
         return self.folder(avatar_dir) / str(mark.get("checkpoint", "")), self.folder(avatar_dir) / str(mark.get("pose", ""))
@@ -125,7 +136,7 @@ class ErNerfEngine(PackEngine):
         py, stages = python(), []
         if not self.modules_checked(base):
             stages.append(Stage("check", "Checking the CUDA modules and PyTorch3D", "Controllo dei moduli CUDA e di PyTorch3D", tuple(self.check_command(base)), code, 2,
-                                after=lambda done: self._mark_modules(base, done)))
+                                after=lambda done: self.write_check_mark(base, done)))
         stages.append(Stage("prepare", "Preparing the data from the video", "Preparazione dei dati dal video",
                             (py, "data_utils/process.py", str(data / VIDEO), "--task", "-1", "--asr", AUDIO_MODEL), code / "NeRF", 10, needs_done=False))
         train = (py, str(RUNNERS / "ernerf_train.py"), "--pack", str(code), "--data", str(data), "--asr-model", AUDIO_MODEL)
@@ -137,10 +148,6 @@ class ErNerfEngine(PackEngine):
             data.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(clip, data / VIDEO)
         return stages
-
-    def _mark_modules(self, base: str | None, done: dict) -> None:
-        root = engine_dir(self.key, base)
-        (root / MODULES_MARK).write_text(json.dumps({"modules": done.get("modules", {}), "checked": datetime.now(timezone.utc).isoformat(timespec="seconds")}), encoding="utf-8")
 
     def finish_training(self, avatar_dir, opts: dict) -> dict:
         """Write trained.json from what the stages made; EngineFailed when a file is missing."""
@@ -155,9 +162,10 @@ class ErNerfEngine(PackEngine):
         return mark
 
     def prepare(self, avatar_dir: Path, progress: Callable[..., None], *, clip: Path | None = None, options: dict | None = None,
-                models_base: str | None = None) -> dict:
+                models_base: str | None = None, **_manager: object) -> dict:
         """Train this engine for the avatar, step by step; `progress(phase, percent)` with the id of the step. EngineNotReady when something is missing,
-        EngineFailed when a step failed or `stop` was called."""
+        EngineFailed when a step failed or `stop` was called. Returns trained.json's content plus the keys voice/avatar_training.py reads (`**_manager` takes
+        the arguments it passes to every engine: a runner, the Python, `fresh`)."""
         opts = self.training_options(options)
         missing = [c for c in self.training_checks(avatar_dir, clip, models_base, opts) if not c["ok"]]
         if missing:
@@ -186,7 +194,7 @@ class ErNerfEngine(PackEngine):
             done_weight += stage.weight
         mark = self.finish_training(avatar_dir, opts)
         progress("done", 100.0)
-        return mark
+        return {**mark, "train_seconds": 0.0, "frames": 0, "export_error": ""}
 
     def stop(self) -> None:
         self._cancelled = True
