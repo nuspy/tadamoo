@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'avatar_engines.dart';
+
 /// What the app knows about the server and about the person's preferences. Kept on the phone only.
 class AppSettings extends ChangeNotifier {
   AppSettings._(this._prefs);
@@ -23,6 +25,15 @@ class AppSettings extends ChangeNotifier {
   String get avatarMode => _prefs.getString('avatarMode') ?? 'video';
   String get avatarBrain => _prefs.getString('avatarBrain') ?? '';
   String get avatarPersona => _prefs.getString('avatarPersona') ?? '';
+
+  /// Avatar on (false: voice only), the picture size in pixels, its quality, where the sound goes ('speaker', 'bluetooth' or 'earpiece'),
+  /// whether the speakerphone may be full duplex, and what the last audio test found (null: it was never run).
+  bool get avatarEnabled => _prefs.getBool('avatarEnabled') ?? true;
+  int get avatarResolution => avatarResolutions.contains(_prefs.getInt('avatarResolution')) ? _prefs.getInt('avatarResolution')! : defaultAvatarResolution;
+  AvatarQuality get avatarQuality => AvatarQuality.fromName(_prefs.getString('avatarQuality') ?? '');
+  String get audioRoute => const ['speaker', 'bluetooth', 'earpiece'].contains(_prefs.getString('audioRoute')) ? _prefs.getString('audioRoute')! : 'speaker';
+  bool get fullDuplexSpeaker => _prefs.getBool('fullDuplexSpeaker') ?? false;
+  bool? get audioEchoCancel => _prefs.getBool('audioEchoCancel');
 
   /// The role the person last chose for conversations in a folder ('' until they choose one).
   String get agentRole => _prefs.getString('agentRole') ?? '';
@@ -88,6 +99,36 @@ class AppSettings extends ChangeNotifier {
 
   Future<void> setAvatarPersona(String value) async {
     await _prefs.setString('avatarPersona', value);
+    notifyListeners();
+  }
+
+  Future<void> setAvatarEnabled(bool value) async {
+    await _prefs.setBool('avatarEnabled', value);
+    notifyListeners();
+  }
+
+  Future<void> setAvatarResolution(int value) async {
+    await _prefs.setInt('avatarResolution', value);
+    notifyListeners();
+  }
+
+  Future<void> setAvatarQuality(AvatarQuality value) async {
+    await _prefs.setString('avatarQuality', value.name);
+    notifyListeners();
+  }
+
+  Future<void> setAudioRoute(String value) async {
+    await _prefs.setString('audioRoute', value);
+    notifyListeners();
+  }
+
+  Future<void> setFullDuplexSpeaker(bool value) async {
+    await _prefs.setBool('fullDuplexSpeaker', value);
+    notifyListeners();
+  }
+
+  Future<void> setAudioEchoCancel(bool value) async {
+    await _prefs.setBool('audioEchoCancel', value);
     notifyListeners();
   }
 }

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:basalt_mobile/src/api.dart';
+import 'package:basalt_mobile/src/audio_route.dart';
 import 'package:basalt_mobile/src/avatar_devices.dart';
 import 'package:basalt_mobile/src/gateway_client.dart';
 import 'package:flutter/widgets.dart';
@@ -64,6 +65,7 @@ class FakeConnector {
 class FakePlayer implements PcmPlayer {
   final List<String> events = [];
   final List<int> received = [];
+  final List<double> gains = [];
 
   @override
   Future<void> begin(int sampleRate) async => events.add('begin $sampleRate');
@@ -79,6 +81,56 @@ class FakePlayer implements PcmPlayer {
 
   @override
   Future<void> cancel() async => events.add('cancel');
+
+  @override
+  void setGain(double gain) => gains.add(gain);
+
+  double get gain => gains.isEmpty ? 1.0 : gains.last;
+}
+
+/// The phone's audio routing in memory: what it was asked, and what it answers.
+class FakeRouter implements AudioRouter {
+  final List<String> calls = [];
+  bool permission = true;
+  bool grantWhenAsked = true;
+  bool bluetoothPresent = true;
+  AudioReport report = const AudioReport(android: '14', model: 'Test', echoCancel: true, noiseSuppress: true, echoCancelOnCapture: 'yes', bluetoothPermission: 'granted', bluetoothOn: 'on', mode: 'normal');
+
+  @override
+  VoidCallback? onDevicesChanged;
+
+  @override
+  Future<bool> hasBluetoothPermission() async => permission;
+
+  @override
+  Future<bool> requestBluetoothPermission() async {
+    calls.add('request');
+    if (grantWhenAsked) permission = true;
+    return permission;
+  }
+
+  RouteOutcome _go(AudioRoute r) => r == AudioRoute.bluetooth && !bluetoothPresent ? const RouteOutcome(reason: 'no_device') : const RouteOutcome();
+
+  @override
+  Future<RouteOutcome> startSession(AudioRoute route) async {
+    calls.add('start ${route.name}');
+    return _go(route);
+  }
+
+  @override
+  Future<RouteOutcome> setRoute(AudioRoute route) async {
+    calls.add('route ${route.name}');
+    return _go(route);
+  }
+
+  @override
+  Future<void> stopSession() async => calls.add('stop');
+
+  @override
+  Future<AudioReport> probe() async {
+    calls.add('probe');
+    return report;
+  }
 }
 
 class FakeMic implements MicCapture {
@@ -135,7 +187,11 @@ class FakeDevices implements AvatarDevices {
   final bool video;
   final FakePlayer fakePlayer = FakePlayer();
   final FakeMic fakeMic = FakeMic();
+  final FakeRouter fakeRouter = FakeRouter();
   final List<FakeVideo> sessions = [];
+
+  @override
+  AudioRouter get router => fakeRouter;
 
   @override
   PcmPlayer get player => fakePlayer;

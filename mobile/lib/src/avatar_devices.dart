@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
 
+import 'audio_route.dart';
+
 /// What the Avatar tab needs from the phone, as plain interfaces: playing the PC's voice, the microphone, and the avatar's video.
 /// The real ones are in avatar_platform.dart; the tests use stand-ins.
 abstract class PcmPlayer {
@@ -14,10 +16,14 @@ abstract class PcmPlayer {
 
   /// Drops what has not been played yet.
   Future<void> cancel();
+
+  /// The level of the voice as a fraction of the normal one (1 is normal); it applies to what is played from now on.
+  void setGain(double gain);
 }
 
 abstract class MicCapture {
-  /// 16-bit mono PCM at 16 kHz, or null when the phone's permission was refused.
+  /// 16-bit mono PCM at 16 kHz taken from the communication source with the phone's echo canceller and noise suppressor asked for,
+  /// or null when the phone's permission was refused.
   Future<Stream<Uint8List>?> start();
   Future<void> stop();
 }
@@ -38,6 +44,9 @@ abstract class VideoSession {
 abstract class AvatarDevices {
   PcmPlayer get player;
   MicCapture get mic;
+
+  /// Where the sound goes (Bluetooth, speaker or earpiece) and the audio test.
+  AudioRouter get router;
 
   /// Whether this build can show the PC's video.
   bool get videoSupported;
