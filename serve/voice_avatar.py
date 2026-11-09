@@ -16,6 +16,7 @@
     GET  /api/voice/avatar/preview.mjpg                     the rendered frames, a long-lived MJPEG stream relayed from the service
     GET  /api/voice/avatar/<name>/poster|sprites.png        the portrait of an avatar; its mouth sprites over it in one picture
     GET  /api/voice/avatar/<name>/assets.zip|manifest.json  the files a phone or the ESP32 renders the avatar from (this PC or a phone with its key)
+    GET  /api/voice/avatar/<name>/engines/<engine>/files/<path>   a file of a personalised engine's phone package, with Range and ETag (same callers)
     GET  /api/voice/avatar/models/wav2lip.onnx              the Wav2Lip model the phones run, with Range and ETag (same callers)
 
 The rest is this PC only. The service's token is added here and never reaches the browser; a response is not searched for it because nothing of the
@@ -35,7 +36,7 @@ TRAINING_LIMIT = 2000 << 20                                                     
 POSTER = re.compile(rf"/api/voice/avatar/({NAME})/poster")
 SPRITES = re.compile(rf"/api/voice/avatar/({NAME})/sprites\.png")
 PREVIEW = "/api/voice/avatar/preview.mjpg"
-DEVICE_FILES = re.compile(rf"/api/voice/avatar/(?:{NAME}/(?:assets\.zip|manifest\.json)|models/wav2lip\.onnx)")
+DEVICE_FILES = re.compile(rf"/api/voice/avatar/(?:{NAME}/(?:assets\.zip|manifest\.json|engines/{NAME}/files/(?!.*\.\.)[A-Za-z0-9_./-]{{1,160}})|models/wav2lip\.onnx)")
 FORWARDED_IN = ("Range", "If-Range", "If-None-Match")
 FORWARDED_OUT = ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Cache-Control", "Content-Disposition", "X-Content-SHA256")
 FILE_WAIT_S = 120.0

@@ -9,7 +9,8 @@ progress from the epochs, cancel, and the result kept in the avatar's folder.
     POST /avatar/train/setup {engine, asr?, avatar?, probe?}           the Set up panel: each prerequisite with what fixes it, the engines Python and where it came from,
                                                                        with `probe` the packages and CUDA that Python has, and what is trained and exported for `avatar`
     POST /avatar/train/python {path}                                   choose the engines Python ("" forgets the choice; nothing is run)
-    POST /avatar/train/export {avatar, engine}                         make the files for a phone again from the trained model
+    POST /avatar/train/export {avatar, engine}                         make the files for a phone again from the trained model; `phone` says whether its package
+                                                                       (phone.json, the self-test: phone_export.py) was made or why not
 
 The video is the avatar's training video (voice/avatar_training_video.py) when it has one, else its longest clip; the plan says which in `video_source`.
 Nothing starts without `confirm: true` on a token whose plan was looked at. The avatar stays usable with the other engines meanwhile. The files of an engine
@@ -33,7 +34,7 @@ from voice import functions
 from voice.avatar_engines import registry
 from voice.avatar_engines.ernerf import ErNerfEngine
 from voice.avatar_engines.pack import EngineFailed, EngineNotReady
-from voice.avatar_engines import personalised
+from voice.avatar_engines import personalised, phone_export
 from voice.avatar_engines.personalised import LOG_TAIL, Cancelled, Check, EngineError, PersonalisedEngine, Runner
 
 log = logging.getLogger("voice.avatar_training")
@@ -323,7 +324,18 @@ class TrainingJobs:
             files = eng.export_for_device(folder, "android", models_base=self.models_base(), python=self.python)
         except (EngineError, ValueError, OSError) as e:
             raise TrainingError(422, "export_failed", str(e)) from None
-        return {"avatar": avatar, "engine": eng.ID, "files": len(files)}
+        return {"avatar": avatar, "engine": eng.ID, "files": len(files), **({"phone": self._phone_package(eng, folder)} if eng.ID in phone_export.ENGINES else {})}
+
+    @staticmethod
+    def _phone_package(eng, folder: Path) -> dict:
+        """The phone's package (voice/avatar_engines/phone_export.py) after an export. A failure is a note in the answer, not an error: the training and the ONNX files stay."""
+        try:
+            return phone_export.package(folder, eng.ID)
+        except phone_export.PhoneExportError as e:
+            return {"ok": False, "error": str(e)}
+        except Exception as e:                                   # noqa: BLE001 (onnxruntime or OpenCV failing on a file; the export itself is done)
+            log.exception("avatar phone package")
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
     # ---- the job
     def busy(self) -> bool:
@@ -383,13 +395,15 @@ class TrainingJobs:
 
     def _run(self, eng: PersonalisedEngine, folder: Path, clip: Path, plan: dict) -> None:
         runner, opts = self._runner, plan["options"]
-        state, message, error = "failed", "", ""
+        state, message, error, phone = "failed", "", "", {}
         try:
             result = eng.prepare(folder, self._progress, clip=clip, options=opts, runner=runner, models_base=self.models_base(), python=self.python, fresh=plan["fresh"])
             state = "done"
             first = self._train_mark[1] if self._train_mark else 0
             self._record_timing(eng.ID, result["train_seconds"], result["frames"], opts.get("epochs", 0) - first)
             message = result["export_error"] and f"trained; the export for a phone failed: {result['export_error']}" or ("trained" if eng.ID == "er_nerf" else "trained and exported")
+            if not result["export_error"] and eng.ID in phone_export.ENGINES:
+                phone = self._phone_package(eng, folder)
         except (EngineFailed, EngineNotReady) as e:
             if "stopped" in str(e):
                 state, message = "cancelled", "cancelled; what the steps made stays"
@@ -409,7 +423,7 @@ class TrainingJobs:
         except OSError as e:
             log.warning("training log not saved: %s", e)
         with self._lock:
-            self._state.update(state=state, finished=self.clock(), message=message, error=error, cancelling=False, eta_s=0 if state == "done" else None)
+            self._state.update(state=state, finished=self.clock(), message=message, error=error, cancelling=False, eta_s=0 if state == "done" else None, **({"phone": phone} if phone else {}))
             if state == "done":
                 self._state.update(percent=100.0)
 
