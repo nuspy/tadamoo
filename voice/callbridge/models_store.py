@@ -11,8 +11,25 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 ROOT_ENV = "BASALT_VOICE_MODELS_DIR"
+# what a helper or engine process is given of the service's environment (child_env)
+CHILD_ENV_NAMES = frozenset((
+    "PATH", "PATHEXT", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "OS", "TEMP", "TMP", "TMPDIR", "HOME", "HOMEDRIVE", "HOMEPATH",
+    "USERPROFILE", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432", "COMMONPROGRAMFILES",
+    "COMMONPROGRAMFILES(X86)", "COMMONPROGRAMW6432", "ALLUSERSPROFILE", "PUBLIC", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE",
+    "PROCESSOR_IDENTIFIER", "PROCESSOR_LEVEL", "PROCESSOR_REVISION", "USERNAME", "USER", "LOGNAME", "COMPUTERNAME", "SHELL", "TERM", "LANG",
+    "LANGUAGE", "TZ", "DISPLAY", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "VIRTUAL_ENV", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE",
+    "TADAMOO_MNNCONVERT",
+))
+CHILD_ENV_PREFIXES = (
+    "LC_", "XDG_", "CUDA", "CUDNN", "NVIDIA_", "NV_", "CUBLAS", "TORCH", "PYTORCH_", "PYTHON", "CONDA", "HF_", "HUGGINGFACE_HUB_CACHE",
+    "TRANSFORMERS_", "TOKENIZERS_", "OMP_", "MKL_", "KMP_", "OPENBLAS_", "ONNX", "ORT_", "MIMALLOC_", "ESPEAK", "PHONEMIZER_",
+    "BASALT_VOICE_", "TTS_", "KOKORO_", "XTTS_", "CHATTERBOX_", "QWEN3TTS_", "AVATAR_", "MUSETALK_", "DICT_STT_", "CALLBRIDGE_", "CB_",
+    "FAKE_",                                                       # the stand-in engines of the tests
+)
+_SECRET_NAME = re.compile(r"TOKEN(?!IZER)|SECRET|PASSW|CREDENTIAL|(?:^|_)(?:API)?KEY(?:$|_)|APIKEY|_AUTH(?:$|_)")
 MARKER = ".basalt-model.json"
 VOICES = "voices"
 OFFLINE_ENV = {"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "HF_DATASETS_OFFLINE": "1"}
@@ -177,9 +194,22 @@ def set_service_env(service: str, env: dict[str, str]) -> None:
     _service_env[service] = dict(env)
 
 
+def child_env(base: dict | None = None) -> dict:
+    """The variables of `base` (default: this process) that a helper or engine process may see: the system's, the toolkits' and the
+    voice engines' own settings, never a token, a key, a secret or a password."""
+    out = {}
+    for name, value in (os.environ if base is None else base).items():
+        up = name.upper()
+        if _SECRET_NAME.search(up):
+            continue
+        if up in CHILD_ENV_NAMES or up.startswith(CHILD_ENV_PREFIXES):
+            out[name] = value
+    return out
+
+
 def helper_env(service: str = "", base: dict | None = None) -> dict:
-    """The environment for a helper process: offline, the models folder, and the GPU the person chose for that service."""
-    env = dict(os.environ if base is None else base)
+    """The environment for a helper process: `child_env`, offline, the models folder, and the GPU the person chose for that service."""
+    env = child_env(base)
     env.update(_service_env.get(service, {}))
     if root():
         env[ROOT_ENV] = root()

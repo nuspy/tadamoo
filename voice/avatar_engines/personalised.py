@@ -214,7 +214,8 @@ PROBE_CODE = ("import importlib, json, sys\nout = {}\nfor n in sys.argv[1:]:\n  
 def probe_environment(python: str, modules, timeout: float = 180.0) -> dict:
     """{module: version or None, "cuda": bool or None} from the engines Python, or {"error": why}. Starts that Python and imports the packages (torch makes a CUDA check)."""
     try:
-        run = subprocess.run([python, "-c", PROBE_CODE, *modules], capture_output=True, text=True, timeout=timeout, env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+        run = subprocess.run([python, "-c", PROBE_CODE, *modules], capture_output=True, text=True, timeout=timeout,
+                             env={**models_store.helper_env(""), "PYTHONIOENCODING": "utf-8"})
         lines = [ln for ln in run.stdout.splitlines() if ln.startswith("{")]
         return json.loads(lines[-1]) if lines else {"error": (run.stderr.strip().splitlines() or ["no answer"])[-1]}
     except (OSError, subprocess.SubprocessError, ValueError) as e:
