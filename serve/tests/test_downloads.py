@@ -32,6 +32,10 @@ def sha(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
 
 
+def git_oid(b: bytes) -> str:
+    return hashlib.sha1(b"blob %d\0" % len(b) + b).hexdigest()
+
+
 class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -42,9 +46,10 @@ class FakeHF:
     """What the downloader talks to: the tree API, resolve with ranges, the account check, and optionally a redirect
     to a second server standing for the CDN."""
 
-    def __init__(self, files, gated=None, lie=False, delay=0.0, redirect=None, page=0, repo="o/r", cut_after=0):
+    def __init__(self, files, gated=None, lie=False, delay=0.0, redirect=None, page=0, repo="o/r", cut_after=0, plain=False):
         self.files, self.gated, self.lie, self.delay, self.redirect, self.page, self.repo = \
             files, gated, lie, delay, redirect, page, repo
+        self.plain = plain                # files outside LFS: "oid" is their git blob SHA-1 (None: the tree gives no hash)
         self.cut_after, self.cuts = cut_after, 0
         self.seen: list[dict] = []
         fake = self
@@ -79,6 +84,8 @@ class FakeHF:
                 if path == tree:
                     items = [{"type": "file", "path": p, "size": len(b), "oid": "git" + sha(b)[:37],
                               "lfs": {"oid": ("0" * 64 if fake.lie else sha(b)), "size": len(b)}}
+                             for p, b in sorted(fake.files.items())] if fake.plain is False else \
+                            [{"type": "file", "path": p, "size": len(b), "oid": None if fake.plain is None else "0" * 40 if fake.lie else git_oid(b)}
                              for p, b in sorted(fake.files.items())]
                     headers = {"Content-Type": "application/json"}
                     if fake.page:
@@ -311,6 +318,29 @@ class Download(Base):
         s = wait(dl)
         self.assertEqual((s["phase"], s["error"]["code"]), ("failed", "hash"))
         self.assertEqual(list((self.dest / "t1").glob("*.gguf*")), [])
+
+    def test_files_outside_lfs_are_checked_by_their_git_hash(self):
+        self.use(self.hf(plain=True))
+        dl = downloads.Downloader()
+        p, _ = self.go(dl)
+        self.assertEqual({f["name"]: f["git_oid"] for f in p["files"]}, {n: git_oid(b) for n, b in self.FILES.items()})
+        self.assertEqual(wait(dl)["phase"], "done")
+        for n, b in self.FILES.items():
+            self.assertEqual((self.dest / "t1" / n).read_bytes(), b)
+
+    def test_a_file_outside_lfs_with_a_wrong_git_hash_is_discarded(self):
+        self.use(self.hf(plain=True, lie=True))
+        dl = downloads.Downloader()
+        self.go(dl)
+        s = wait(dl)
+        self.assertEqual((s["phase"], s["error"]["code"]), ("failed", "hash"))
+        self.assertEqual(list((self.dest / "t1").glob("*.gguf*")), [])
+
+    def test_a_file_with_no_hash_at_all_is_not_planned(self):
+        self.use(self.hf(plain=None))
+        p = downloads.plan("t-1", str(self.dest), folders=[])
+        self.assertFalse(p["ok"])
+        self.assertIn("no hash", json.dumps(p["problems"]))
 
     def test_a_download_starts_only_from_its_plan(self):
         self.use(self.hf())
