@@ -38,7 +38,7 @@ API_TRIES = 3
 MAX_STALLS = 30                              # consecutive failures without a byte of progress
 DISK_MARGIN = 2 << 30
 LOG_LINES = 80
-_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+()-]{0,200}$")
+_NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._+()-]{0,200}$")
 _RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$", re.I)
 _REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
 _REV_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -347,7 +347,8 @@ def _source_files(entry: dict, problems: list) -> list[dict]:
                     problems.append(_say("missing_file", f"Il file {path} non c'è più nel repository.",
                                          f"The file {path} is no longer in the repository."))
                     continue
-                rel = "/".join(x for x in (src.get("subdir"), path) if x)
+                strip = src.get("strip") or ""
+                rel = "/".join(x for x in (src.get("subdir"), path[len(strip):] if strip and path.startswith(strip) else path) if x)
                 out.append({"path": path, "name": safe_relpath(rel), "size": info["size"], "sha256": info["sha256"],
                             "url": _resolve_url(src["repo"], rev, path), "repo": src["repo"], "revision": rev})
         except DownloadError as e:
