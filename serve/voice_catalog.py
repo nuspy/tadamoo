@@ -1,10 +1,10 @@
 """The voice models TaDaMoo can install on request: speech to text, speech synthesis, avatar, diarization, voice activity, embedding.
 
 Every entry was read from the voice service's own code (voice/callbridge/engines, voice/avatar) and from the download script of the
-original project. What that code
-does not state is not guessed: the entry carries `verify` (the names of the fields to check) and a download is refused until its
-sources are complete. A Hugging Face source stays at revision "main"; serve/downloads.py resolves the commit and takes each file's size
-and SHA-256 from Hugging Face when a download is planned. A URL source needs a fixed SHA-256. Sizes here are for display only.
+original project. What that code does not state is not guessed: the entry carries `verify` (the names of the fields to check) and a
+download is refused until its sources are complete. A grounded Hugging Face source is pinned to a commit and records the SHA-256 of each
+file (`pins`, the LFS id; serve/downloads.py refuses a file that differs); one still at revision "main" is resolved when a download is
+planned and is not grounded yet. A URL source needs a fixed SHA-256. Sizes here are for display only.
 
 An entry is installed under <voice models folder>/<service>/<model id>/ (serve/voice_settings.py). A finished download leaves a
 marker file listing what it wrote; a model put there by hand is recognised by its `probe` files."""
@@ -41,13 +41,35 @@ LICENSES = {
                        "work only. This is a summary, not legal advice: the license text governs.",
                  "it": "Solo uso non commerciale. Coqui ha chiuso e non esiste una licenza commerciale da acquistare. Usalo solo per lavoro "
                        "personale e di ricerca. È un riassunto, non una consulenza legale: fa fede il testo della licenza."},
-    "musetalk": {"name": "MuseTalk: MIT code, weights free for any purpose", "url": "",
-                 "en": "MuseTalk's code is MIT and its trained weights may be used for any purpose, commercial use included. The test data of the "
-                       "project is not. The third-party models it relies on (Whisper, sd-vae, DWPose, face parsing, SyncNet) each follow "
-                       "their own license. This is a summary, not legal advice: the license texts govern.",
-                 "it": "Il codice di MuseTalk è MIT e i suoi pesi addestrati si possono usare per qualunque scopo, anche commerciale. I dati di "
-                       "prova del progetto no. I modelli di terzi che usa (Whisper, sd-vae, DWPose, face parsing, SyncNet) seguono ciascuno la "
-                       "propria licenza. È un riassunto, non una consulenza legale: fanno fede i testi delle licenze."},
+    "musetalk": {"name": "MuseTalk: MIT code and weights; the face-parsing weights are non-commercial", "url": "",
+                 "en": "MuseTalk's code is MIT and its trained weights may be used for any purpose, commercial use included (its own statement); its "
+                       "test data is for non-commercial research only. The weights it relies on follow their own terms: Whisper tiny (Apache-2.0), "
+                       "sd-vae-ft-mse (MIT), DWPose (Apache-2.0). The face-parsing network was trained on CelebAMask-HQ, whose agreement allows "
+                       "non-commercial research only, so this download is treated as non-commercial; the S3FD face detector and the ResNet-18 "
+                       "backbone state no license in what was read. This is a summary, not legal advice: the license texts govern.",
+                 "it": "Il codice di MuseTalk è MIT e i suoi pesi addestrati si possono usare per qualunque scopo, anche commerciale (lo dice il "
+                       "progetto); i suoi dati di prova sono solo per ricerca non commerciale. I pesi che usa seguono la propria licenza: Whisper "
+                       "tiny (Apache-2.0), sd-vae-ft-mse (MIT), DWPose (Apache-2.0). La rete di face parsing è addestrata su CelebAMask-HQ, il cui "
+                       "accordo consente solo ricerca non commerciale: questo download è quindi trattato come non commerciale; il rilevatore di "
+                       "volti S3FD e la base ResNet-18 non dichiarano una licenza in ciò che è stato letto. È un riassunto, non una consulenza "
+                       "legale: fanno fede i testi delle licenze."},
+    "piper-voices": {"name": "Piper voices: each voice follows the license of its training data", "url": "",
+                     "en": "The four voices installed here come from datasets that allow commercial use: Riccardo (M-AILABS, a BSD-style license: keep "
+                           "its copyright notice), Serena (CC BY 4.0: credit the author), and the LJ Speech and LibriVox voices (public domain). Other "
+                           "Piper voices differ: several were finetuned from the Lessac voice, whose data is for research only. The runtime package "
+                           "piper-tts is GPL-3.0-or-later and is not part of this download. This is a summary, not legal advice.",
+                     "it": "Le quattro voci installate qui vengono da dati che consentono l'uso commerciale: Riccardo (M-AILABS, licenza tipo BSD: "
+                           "mantenere l'avviso di copyright), Serena (CC BY 4.0: citare l'autore) e le voci LJ Speech e LibriVox (pubblico dominio). "
+                           "Altre voci di Piper sono diverse: parecchie derivano dalla voce Lessac, i cui dati sono solo per ricerca. Il pacchetto "
+                           "piper-tts è GPL-3.0-or-later e non fa parte di questo download. È un riassunto, non una consulenza legale."},
+    "pyannote-camplus": {"name": "pyannote segmentation 3.0 (MIT) and CAM++ (Apache-2.0)", "url": "",
+                         "en": "The segmentation model is pyannote's segmentation-3.0 (MIT, CNRS) converted to ONNX by the sherpa-onnx author; the original "
+                               "repository asks for a login on Hugging Face, the converted copy installed here does not. The speaker model is the "
+                               "3D-Speaker CAM++ (Apache-2.0). Both allow commercial use with their notices. This is a summary, not legal advice.",
+                         "it": "Il modello di segmentazione è segmentation-3.0 di pyannote (MIT, CNRS) convertito in ONNX dall'autore di sherpa-onnx; "
+                               "il repository originale chiede un accesso su Hugging Face, la copia convertita installata qui no. Il modello di "
+                               "impronta vocale è CAM++ di 3D-Speaker (Apache-2.0). Entrambi consentono l'uso commerciale con i loro avvisi. "
+                               "È un riassunto, non una consulenza legale."},
     "wav2lip-research": {"name": "Wav2Lip: research and non-commercial use", "url": "",
                          "en": "The original Wav2Lip license allows research and non-commercial use only. Where this file comes from is not declared, "
                                "so its terms are unknown: do not hand it to anyone else or use it commercially before that is settled. "
@@ -80,7 +102,8 @@ LICENSES = {
                      "non fare affidamento su questo download per usi che la licenza potrebbe vietare."},
 }
 
-# Whisper checkpoints as openai-whisper 20250625 names them: the SHA-256 is the folder of each address.
+# Whisper checkpoints as openai-whisper 20250625 names them: the SHA-256 is the folder of each address (the same table as the tag's
+# whisper/__init__.py) and the sizes are the Content-Length of each address.
 _WHISPER_HOST = "https://openaipublic.azureedge.net/main/whisper/models/"
 _WHISPER = {
     "tiny": "65147644a518d12f04e32d6f3b26facc3f8dd46e5390956a9424a650c0ce22b9",
@@ -89,19 +112,26 @@ _WHISPER = {
     "medium": "345ae4da62f9b3d59415adc60127b97c714f32e89e936602e85993674d08dcb1",
     "large-v3": "e5b1a55b89c1367dacf97e3e19bfd829a01529dbfdeefa8caeb59b3f1b81dadb",
 }
-_WHISPER_BYTES = {"large-v3": 2_900_000_000}          # the original download script: "~2,9 GB"
+_WHISPER_BYTES = {"tiny": 75_572_083, "base": 145_262_807, "small": 483_617_219, "medium": 1_528_008_539, "large-v3": 3_087_371_615}
 _WHISPER_VENV = _t("Runs inside the voice service with torch (openai-whisper); a CUDA build of torch is needed to use the GPU.",
                    "Gira dentro il servizio vocale con torch (openai-whisper); per usare la GPU serve la build CUDA di torch.")
 
 _KOKORO_BASE = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
 _SHERPA = "https://github.com/k2-fsa/sherpa-onnx/releases/download/"
+_SILERO = "https://raw.githubusercontent.com/snakers4/silero-vad/915dd3d639b8333a52e001af095f87c5b7f1e0ac/files/silero_vad.onnx"     # the v4.0 tag
 _CAMPP = "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx"
 _SEG_DIR = "sherpa-onnx-pyannote-segmentation-3-0"
 
 
 def _hf(repo: str, files=None, subdir: str = "", strip: str = "") -> dict:
     """`strip` is a prefix taken off each file's path in the repository, so a file lands in the folder of its entry."""
-    return {"type": "hf", "repo": repo, "revision": "main", "files": files, "subdir": subdir, "strip": strip}
+    return {"type": "hf", "repo": repo, "revision": "main", "files": files, "subdir": subdir, "strip": strip, "pins": {}}
+
+
+def _pinned(repo: str, revision: str, files, subdir: str = "", strip: str = "") -> dict:
+    """A checked Hugging Face source: `revision` is a commit and `files` are (path, SHA-256) pairs, the LFS id or the hash of the small file."""
+    return {"type": "hf", "repo": repo, "revision": revision, "files": [path for path, _ in files], "subdir": subdir, "strip": strip,
+            "pins": dict(files)}
 
 
 def _url(url: str, name: str, sha256: str | None = None, size: int | None = None, archive: str = "") -> dict:
@@ -125,10 +155,9 @@ def _pack(repo: str, commit: str, files) -> list:
 
 def _whisper(size: str) -> dict:
     name = size + ".pt"
-    unknown = size not in _WHISPER_BYTES
-    return _entry(f"whisper-{size}", "stt", "whisper", f"Whisper {size}", "whisper", "verify",
-                  [_url(_WHISPER_HOST + _WHISPER[size] + "/" + name, name, _WHISPER[size])],
-                  size=_WHISPER_BYTES.get(size), venv=_WHISPER_VENV, verify=("license",) + (("size",) if unknown else ()), probe=[name],
+    return _entry(f"whisper-{size}", "stt", "whisper", f"Whisper {size}", "whisper", "mit",
+                  [_url(_WHISPER_HOST + _WHISPER[size] + "/" + name, name, _WHISPER[size], _WHISPER_BYTES[size])],
+                  size=_WHISPER_BYTES[size], venv=_WHISPER_VENV, probe=[name],
                   notes=_t("OpenAI's checkpoint of the " + size + " size, the one the voice service loads by name.",
                            "Il checkpoint OpenAI della taglia " + size + ", quello che il servizio vocale carica per nome."))
 
@@ -246,22 +275,44 @@ ENGINE_PACKS = [
                         "per MuseTalk ma non dice che sia lo stesso: qui non è dichiarata una fonte. Serve solo per addestrare una persona nuova.")),
 ]
 
+# Piper voices of rhasspy/piper-voices at one commit: (name, directory, .onnx SHA-256, .onnx.json SHA-256, size of both files).
+_PIPER, _PIPER_REV = "rhasspy/piper-voices", "e7229f7d33a10e145e109b886d661984201ac3c4"
+_PIPER_VOICES = [
+    ("it_IT-riccardo-x_low", "it/it_IT/riccardo/x_low", "1368de15f123275a7ef951c9e5e30be0f58a032daa14a0da44037443c1d1d21b",
+     "146ab9c634afe524e9fb7530f2510df7a42fb1db56b52658ca1fb3d98001a62a", 28_130_791 + 4_161),
+    ("it_IT-serena-medium", "it/it_IT/serena/medium", "fe4e26b2c1236e2a44d2e295cad564d94a0d8b0a9fca1ccdfd70dd4af3116eb5",
+     "14cb4995874138b2792ae07753b5540942124761af9ae6609f9b520f28837881", 63_516_051 + 5_254),
+    ("en_US-ljspeech-medium", "en/en_US/ljspeech/medium", "6f52a751e2349abe7a76735eb09dc1875298c77ea2342ffd2fef79ff81b87f22",
+     "141d612cc0a95ed7efc1ca936b845c2364967f2e9217c5dbfcf69fc4d6c65860", 63_531_379 + 4_972),
+    ("en_GB-cori-medium", "en/en_GB/cori/medium", "1899f98e5fb8310154f3c2973f4b8a929ba7245e722b3d3a85680b833d95f10d",
+     "e262c16d7f192f69d4edd6b4ef8a5915379e67495fcc402f1ab15eeb33da3d36", 63_531_379 + 4_966),
+]
+_PIPER_SOURCES = [_pinned(_PIPER, _PIPER_REV, [(f"{d}/{n}.onnx", h1), (f"{d}/{n}.onnx.json", h2)], strip=d + "/") for n, d, h1, h2, _ in _PIPER_VOICES]
+
 CATALOG = [_whisper(s) for s in _WHISPER] + [
-    _entry("kokoro", "tts", "kokoro", "Kokoro", "kokoro", "verify",
-           [_url(_KOKORO_BASE + "kokoro-v1.0.fp16.onnx", "kokoro-v1.0.fp16.onnx"), _url(_KOKORO_BASE + "voices-v1.0.bin", "voices-v1.0.bin")],
-           size=340_000_000, languages=("it", "en", "fr", "es", "pt", "ja", "zh", "hi"), verify=("license", "sha256"),
+    _entry("kokoro", "tts", "kokoro", "Kokoro", "kokoro", "apache-2.0",
+           [_url(_KOKORO_BASE + "kokoro-v1.0.fp16.onnx", "kokoro-v1.0.fp16.onnx", "c1610a859f3bdea01107e73e50100685af38fff88f5cd8e5c56df109ec880204", 177_464_787),
+            _url(_KOKORO_BASE + "voices-v1.0.bin", "voices-v1.0.bin", "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d", 28_214_398)],
+           size=205_679_185, languages=("it", "en", "fr", "es", "pt", "ja", "zh", "hi"), verify=("sha256",),
            probe=["kokoro-v1.0.fp16.onnx", "voices-v1.0.bin"],
            venv=_t("Runs inside the voice service with onnxruntime; no extra environment.",
                    "Gira dentro il servizio vocale con onnxruntime; nessun ambiente in più."),
-           notes=_t("The fastest engine, 17 fixed voices in 8 languages, Italian included.",
-                    "Il motore più veloce, 17 voci fisse in 8 lingue, italiano compreso.")),
-    _entry("piper", "tts", "piper", "Piper", "piper", "verify", [], languages=(), verify=("license", "source", "size"),
-           venv=_t("Runs inside the voice service with piper-tts; no extra environment.",
-                   "Gira dentro il servizio vocale con piper-tts; nessun ambiente in più."),
-           notes=_t("One .onnx file per voice from the rhasspy/piper-voices repository, for languages Kokoro lacks (Hungarian, for one). The "
-                    "files of each voice are not listed yet, so this entry cannot be downloaded.",
-                    "Un file .onnx per voce dal repository rhasspy/piper-voices, per le lingue che Kokoro non ha (per esempio l'ungherese). "
-                    "I file di ogni voce non sono ancora elencati, quindi questa voce non si può scaricare.")),
+           notes=_t("The fastest engine, 17 fixed voices in 8 languages, Italian included. The ONNX files are the kokoro-onnx conversion (MIT code) of "
+                    "hexgrad's Kokoro-82M v1.0, whose weights are Apache-2.0. The release publishes no digest: the two SHA-256 are the Hugging Face LFS "
+                    "ids that independent mirrors on Hugging Face give for files of these exact sizes, and a download is refused if they differ.",
+                    "Il motore più veloce, 17 voci fisse in 8 lingue, italiano compreso. I file ONNX sono la conversione kokoro-onnx (codice MIT) di "
+                    "Kokoro-82M v1.0 di hexgrad, i cui pesi sono Apache-2.0. Il rilascio non pubblica un digest: i due SHA-256 sono gli id LFS di Hugging "
+                    "Face che mirror indipendenti su Hugging Face danno per file di queste dimensioni esatte, e un download è rifiutato se differiscono.")),
+    _entry("piper", "tts", "piper", "Piper", "piper", "piper-voices", _PIPER_SOURCES, languages=("it", "en"), size=sum(v[4] for v in _PIPER_VOICES),
+           probe=[v[0] + ".onnx" for v in _PIPER_VOICES],
+           venv=_t("Runs inside the voice service with the piper-tts package, version 1.3 or newer (GPL-3.0-or-later, with its own espeak-ng data); no extra environment.",
+                   "Gira dentro il servizio vocale con il pacchetto piper-tts, versione 1.3 o successiva (GPL-3.0-or-later, con i propri dati espeak-ng); nessun ambiente in più."),
+           notes=_t("Four voices from the rhasspy/piper-voices repository, a .onnx file and its .onnx.json each: Italian Riccardo (x_low) and Serena (medium), "
+                    "English US LJ Speech (medium) and English GB Cori (medium). The voice name is the file's base name. Other voices (Hungarian, for one) are put "
+                    "in the same folder by hand. Italian Paola and English Alba are left out on purpose: they were finetuned from the Lessac voice, whose data is for research only.",
+                    "Quattro voci dal repository rhasspy/piper-voices, un file .onnx e il suo .onnx.json ciascuna: italiano Riccardo (x_low) e Serena (medium), "
+                    "inglese US LJ Speech (medium) e inglese GB Cori (medium). Il nome della voce è il nome base del file. Altre voci (l'ungherese, per esempio) si mettono "
+                    "a mano nella stessa cartella. Paola (italiano) e Alba (inglese) mancano di proposito: derivano dalla voce Lessac, i cui dati sono solo per ricerca.")),
     _entry("chatterbox", "tts", "chatterbox", "Chatterbox Multilingual", "chatterbox", "mit", [], verify=("source", "size"),
            languages=("it", "en", "fr", "es", "ru", "de", "pt"),
            venv=_t("Own Python environment (chatterbox-venv with the chatterbox-tts package), torch with CUDA.",
@@ -291,26 +342,47 @@ CATALOG = [_whisper(s) for s in _WHISPER] + [
                    "Ambiente Python proprio (tts-venvs/dia, condiviso con Qwen3-TTS), torch con CUDA."),
            notes=_t("Dialogue with non-verbal markers; English only.", "Dialogo con marcatori non verbali; solo inglese.")),
     _entry("musetalk-v15", "avatar", "musetalk", "MuseTalk v1.5 weights", "musetalk", "musetalk",
-           [_hf("TMElyralab/MuseTalk", ["musetalkV15/musetalk.json", "musetalkV15/unet.pth"]),
-            _hf("stabilityai/sd-vae-ft-mse", ["config.json", "diffusion_pytorch_model.bin"], "sd-vae"),
-            _hf("openai/whisper-tiny", ["config.json", "pytorch_model.bin", "preprocessor_config.json"], "whisper"),
-            _hf("yzd-v/DWPose", ["dw-ll_ucoco_384.pth"], "dwpose"),
-            _hf("ByteDance/LatentSync", ["latentsync_syncnet.pt"], "syncnet")],
-           size=7_000_000_000, verify=("size", "face-parse"),
+           [_pinned("TMElyralab/MuseTalk", "2bcb936e2fddb4d86db4c62fd45b387d0c061571",
+                    [("musetalkV15/musetalk.json", "5b6923aee04d71692e0e9846c471e0a4ea07a4f686d39545e472bd4ba17e1b47"),
+                     ("musetalkV15/unet.pth", "7ebf6c98c181e20838e4c0054e96e944ac60d5d692cc01db42839fe11b787007")]),
+            _pinned("stabilityai/sd-vae-ft-mse", "31f26fdeee1355a5c34592e401dd41e45d25a493",
+                    [("config.json", "92d3dfb746fca211a2c9e019e285f8597412211728dce3c5bcf4eda0f2d62e7e"),
+                     ("diffusion_pytorch_model.bin", "1b4889b6b1d4ce7ae320a02dedaeff1780ad77d415ea0d744b476155c6377ddc")], subdir="sd-vae"),
+            _pinned("openai/whisper-tiny", "169d4a4341b33bc18d8881c4b69c2e104e1cc0af",
+                    [("config.json", "ffdccec4f3211f4c63310f2b7098f309fe70f3952cedc5e4d11e43f5b2379b98"),
+                     ("pytorch_model.bin", "9607f98a2b22d9e229ae43c52ecea79dcede9e0c5cfae67e8da6eda86d8aac1d"),
+                     ("preprocessor_config.json", "9b5cd03a36fbb8a627c64d98a5b5b126ead95a77720723944487311f0110b666")], subdir="whisper"),
+            _pinned("yzd-v/DWPose", "1a7144101628d69ee7a3768d1ee3a094070dc388",
+                    [("dw-ll_ucoco_384.pth", "0d9408b13cd863c4e95a149dd31232f88f2a12aa6cf8964ed74d7d97748c7a07")], subdir="dwpose"),
+            _pinned("vivym/face-parsing-bisenet", "768606b84908769d31ddd78b2e1105319839edfa",
+                    [("79999_iter.pth", "468e13ca13a9b43cc0881a9f99083a430e9c0a38abd935431d1c28ee94b26567")], subdir="face-parse-bisent"),
+            _url("https://download.pytorch.org/models/resnet18-5c106cde.pth", "face-parse-bisent/resnet18-5c106cde.pth",
+                 "5c106cde386e87d4033832f2996f5493238eda96ccf559d1d62760c4de0613f8", 46_827_520),
+            _url("https://www.adrianbulat.com/downloads/python-fan/s3fd-619a316812.pth", "s3fd/s3fd-619a316812.pth",
+                 "619a31681264d3f7f7fc7a16a42cbbe8b23f31a256f75a366e5a1bcd59b33543", 89_843_225)],
+           size=4_482_904_130, noncommercial=True, verify=("sha256", "license"),
            venv=_t("Own Python environment (avatar venv: Python 3.10, torch with CUDA, mmcv built from source).",
                    "Ambiente Python proprio (venv dell'avatar: Python 3.10, torch con CUDA, mmcv compilato dai sorgenti)."),
-           notes=_t("The five weight sets the avatar worker loads. The face-parsing weights (a Google Drive file and a torchvision "
-                    "ResNet-18 file) have no fixed source and are not part of this download; the worker needs them too.",
-                    "I cinque gruppi di pesi che il worker dell'avatar carica. I pesi di face parsing (un file su Google Drive e un file "
-                    "ResNet-18 di torchvision) non hanno una fonte fissa e non fanno parte di questo download; servono anche al worker.")),
+           notes=_t("The eleven files the avatar worker loads, each pinned to a commit with its SHA-256: the v1.5 unet, the SD VAE, Whisper tiny, DWPose, the face-parsing "
+                    "network and its ResNet-18 backbone, and the S3FD face detector. The face-parsing file comes from a Hugging Face copy of the original (its Google Drive "
+                    "link is not fetchable); the ResNet-18 and S3FD files come from their authors' own servers, with the SHA-256 that Hugging Face copies give for files of "
+                    "the same size. SyncNet is not here: only MuseTalk's training reads it. Non-commercial: the face-parsing network was trained on CelebAMask-HQ.",
+                    "Gli undici file che il worker dell'avatar carica, ciascuno fissato a un commit con il suo SHA-256: l'unet v1.5, il VAE SD, Whisper tiny, DWPose, la rete di "
+                    "face parsing e la sua base ResNet-18, e il rilevatore di volti S3FD. Il file di face parsing viene da una copia su Hugging Face dell'originale (il suo link "
+                    "Google Drive non si può scaricare); i file ResNet-18 e S3FD vengono dai server dei loro autori, con lo SHA-256 che le copie su Hugging Face danno per file "
+                    "della stessa dimensione. SyncNet non c'è: lo legge solo l'addestramento di MuseTalk. Non commerciale: la rete di face parsing è addestrata su CelebAMask-HQ.")),
     _entry("wav2lip-int8", "avatar", "wav2lip", "Wav2Lip INT8 (for the phones)", "wav2lip", "wav2lip-research", [], size=36_664_106,
            noncommercial=True, verify=("license", "source"), probe=["wav2lip_int8.onnx"], selectable=False,
            sha256="2e297b310dcd397ac94e467814570eaf18edec322c29abd14565dcd3b6896f97",
            venv=_t("Not run on the PC: the phone runs it with ONNX Runtime.", "Non gira sul PC: lo fa il telefono con ONNX Runtime."),
            notes=_t("The lip-sync model the Android app downloads from this PC (GET /avatar/models/wav2lip.onnx). It is put in the folder by hand "
-                    "(or by the importer): nothing downloads it, because its source is not known.",
+                    "(or by the importer): nothing downloads it, because its source is not known. Searched for a public file of this size and SHA-256 "
+                    "among about a hundred Hugging Face repositories about Wav2Lip and the GitHub repositories and releases of the Wav2Lip ONNX projects "
+                    "(instant-high/wav2lip-onnx-256 publishes 214 MB and 107 MB files and states no license): none matches.",
                     "Il modello di lip-sync che l'app Android scarica da questo PC (GET /avatar/models/wav2lip.onnx). Si mette nella cartella a mano "
-                    "(o con l'importatore): nessuno lo scarica, perché la sua fonte non è nota.")),
+                    "(o con l'importatore): nessuno lo scarica, perché la sua fonte non è nota. Cercato un file pubblico con questa dimensione e questo SHA-256 "
+                    "in un centinaio di repository Hugging Face su Wav2Lip e nei repository e rilasci GitHub dei progetti Wav2Lip ONNX "
+                    "(instant-high/wav2lip-onnx-256 pubblica file da 214 MB e 107 MB e non dichiara una licenza): nessuno corrisponde.")),
     _entry("ultralight-wenet-encoder", "avatar", "ultralight", "Ultralight wenet audio encoder (encoder.onnx)", "ultralight", "verify", [], size=None,
            verify=("source", "sha256", "size", "license"), probe=["encoder.onnx"], selectable=False, kind="engine-pack",
            folder="avatar-engines/ultralight/weights",
@@ -340,20 +412,52 @@ CATALOG = [_whisper(s) for s in _WHISPER] + [
                     "and that the training is incomplete: the quality in Italian is unverified. The license of the weights is not stated apart from the repository's.",
                     "Il codificatore audio FeatherHuBERT (3,36 milioni di parametri), valido per ogni persona. Gli autori dicono che i pesi pubblicati sono addestrati solo su "
                     "voce cinese e che l'addestramento è incompleto: la resa in italiano non è verificata. La licenza dei pesi non è dichiarata oltre a quella del repository.")),
-    _entry("sherpa-diarization", "diarization", "sherpa-onnx", "sherpa-onnx diarization (pyannote segmentation + CAM++)", "sherpa-onnx", "verify",
-           [_url(_SHERPA + "speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2", _SEG_DIR + ".tar.bz2", archive="tar.bz2"),
-            _url(_SHERPA + "speaker-recongition-models/" + _CAMPP, _CAMPP)],
-           size=35_000_000, verify=("license", "sha256"), probe=[_SEG_DIR + "/model.onnx", _CAMPP],
+    _entry("sherpa-diarization", "diarization", "sherpa-onnx", "sherpa-onnx diarization (pyannote segmentation + CAM++)", "sherpa-onnx", "pyannote-camplus",
+           [_pinned("csukuangfj/sherpa-onnx-pyannote-segmentation-3-0", "9403a6902bb58e3d5ae8c7e77c3422de279db2e0",
+                    [("model.onnx", "220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079")], subdir=_SEG_DIR),
+            _url(_SHERPA + "speaker-recongition-models/" + _CAMPP, _CAMPP, "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2", 28_281_164)],
+           size=34_274_077, verify=("sha256",), probe=[_SEG_DIR + "/model.onnx", _CAMPP],
            venv=_t("Runs inside the voice service with the sherpa-onnx package (CPU).", "Gira dentro il servizio vocale con il pacchetto sherpa-onnx (CPU)."),
-           notes=_t("Who speaks when: a segmentation model and a speaker embedding model. The segmentation comes as an archive that needs unpacking.",
-                    "Chi parla quando: un modello di segmentazione e uno di impronta vocale. La segmentazione è un archivio che va estratto.")),
-    _entry("silero-vad-v4", "vad", "silero", "Silero VAD v4", "silero", "verify", [], verify=("license", "source", "size"), probe=["silero_vad_v4.onnx"],
+           notes=_t("Who speaks when: a segmentation model and a speaker embedding model. The segmentation is the Hugging Face copy of the sherpa-onnx author (the "
+                    "release archive would need unpacking), pinned to a commit; it is the conversion of pyannote/segmentation-3.0, which is gated on Hugging Face "
+                    "(the original needs a login and accepted terms, this copy does not). The CAM++ file comes from the sherpa-onnx release, whose SHA-256 is the one "
+                    "four Hugging Face copies give for a file of the same size.",
+                    "Chi parla quando: un modello di segmentazione e uno di impronta vocale. La segmentazione è la copia su Hugging Face dell'autore di sherpa-onnx (l'archivio "
+                    "del rilascio andrebbe estratto), fissata a un commit; è la conversione di pyannote/segmentation-3.0, che su Hugging Face è ad accesso controllato "
+                    "(l'originale chiede un accesso e termini accettati, questa copia no). Il file CAM++ viene dal rilascio di sherpa-onnx, il cui SHA-256 è quello che "
+                    "quattro copie su Hugging Face danno per un file della stessa dimensione.")),
+    _entry("silero-vad-v4", "vad", "silero", "Silero VAD v4", "silero", "mit",
+           [_url(_SILERO, "silero_vad_v4.onnx", "a35ebf52fd3ce5f1469b2a36158dba761bc47b973ea3382b3186ca15b1f5af28", 1_807_522)],
+           size=1_807_522, verify=("sha256",), probe=["silero_vad_v4.onnx"],
            venv=_t("Runs inside the voice service with onnxruntime.", "Gira dentro il servizio vocale con onnxruntime."),
-           notes=_t("Voice activity detection. The voice code names the file but not where it comes from, so this entry cannot be downloaded yet.",
-                    "Rilevamento dell'attività vocale. Il codice vocale nomina il file ma non da dove viene, quindi questa voce non si può ancora scaricare.")),
+           notes=_t("Voice activity detection. The file is files/silero_vad.onnx of the v4.0 tag of snakers4/silero-vad (MIT), the one with the h and c states the voice code feeds, "
+                    "saved here as silero_vad_v4.onnx. The repository publishes no digest: the SHA-256 is the one four Hugging Face copies give for a file of the same size.",
+                    "Rilevamento dell'attività vocale. Il file è files/silero_vad.onnx del tag v4.0 di snakers4/silero-vad (MIT), quello con gli stati h e c che il codice vocale "
+                    "usa, salvato qui come silero_vad_v4.onnx. Il repository non pubblica un digest: lo SHA-256 è quello che quattro copie su Hugging Face danno per un file della stessa dimensione.")),
+    _entry("multilingual-e5-small", "embedding", "e5", "Multilingual E5 small", "e5", "mit",
+           [_pinned("intfloat/multilingual-e5-small", "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+                    [("onnx/model.onnx", "ca456c06b3a9505ddfd9131408916dd79290368331e7d76bb621f1cba6bc8665"),
+                     ("onnx/config.json", "bbb7c1333fc4b3e27fbc9cd5d2070aabcc1d4dfb99917c3633e772f97545a6b6"),
+                     ("onnx/tokenizer.json", "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39"),
+                     ("onnx/tokenizer_config.json", "a1d6bc8734a6f635dc158508bef000f8e2e5a759c7d92f984b2c86e5ff53425b"),
+                     ("onnx/special_tokens_map.json", "d05497f1da52c5e09554c0cd874037a083e1dc1b9cfd48034d1c717f1afc07a7"),
+                     ("onnx/sentencepiece.bpe.model", "cfc8146abe2a0488e9e2a0c56de7952f7c11ab059eca145a0a727afce0db2865"),
+                     ("1_Pooling/config.json", "987f7a67a38fa564c849bb5d277c52ab9088a84368fc0be31a354125aebb12a0"),
+                     ("sentence_bert_config.json", "948201d8329907aae938fa62f9ceeed53f5694dacc2b87b9f3b78b37ee986529")])],
+           size=492_421_811, languages=("it", "en"), probe=["onnx/model.onnx", "onnx/tokenizer.json"],
+           venv=_t("Runs on the CPU with onnxruntime and a tokenizer reading tokenizer.json; the text must start with \"query: \" or \"passage: \", the output is mean-pooled and normalised "
+                   "(384 numbers, at most 512 tokens).",
+                   "Gira sulla CPU con onnxruntime e un tokenizzatore che legge tokenizer.json; il testo deve iniziare con \"query: \" o \"passage: \", l'uscita si media e si normalizza "
+                   "(384 numeri, al massimo 512 token)."),
+           notes=_t("The embedding model proposed for the internal RAG (nothing uses it yet): small, multilingual with Italian and English, MIT, trained for retrieval. Chosen over "
+                    "paraphrase-multilingual-MiniLM-L12-v2 (Apache-2.0, the same size but cut at 128 tokens and trained for paraphrase, not retrieval) and BAAI/bge-m3 (MIT, "
+                    "about 2.3 GB of weights). The full-precision ONNX file is installed; the same repository has a 118 MB int8 file for CPUs with AVX-512 VNNI.",
+                    "Il modello di embedding proposto per il RAG interno (per ora nulla lo usa): piccolo, multilingue con italiano e inglese, MIT, addestrato per il recupero. Scelto al posto di "
+                    "paraphrase-multilingual-MiniLM-L12-v2 (Apache-2.0, stessa dimensione ma tagliato a 128 token e addestrato per parafrasi, non per recupero) e di BAAI/bge-m3 (MIT, "
+                    "circa 2,3 GB di pesi). Si installa il file ONNX a piena precisione; lo stesso repository ha un file int8 da 118 MB per CPU con AVX-512 VNNI.")),
 ]
 CATALOG += ENGINE_PACKS
-# No embedding model is named in the voice code (it asks the LLM server for embeddings): the service has no entry yet.
+# The voice code names no embedding model (it asks the LLM server for embeddings); the one entry is a proposal for the internal RAG, which does not read it yet.
 BY_ID = {e["id"]: e for e in CATALOG}
 assert len(BY_ID) == len(CATALOG) and all(_ID_RE.match(e["id"]) and e["service"] in SERVICES for e in CATALOG)
 
