@@ -219,9 +219,7 @@
     box.append(form, listsForm(), note(telMsg.text, telMsg.bad), telLiveBox());
     return box;
   }
-  const linesOf = area => area.value.split(/
-?
-/).map(x => x.trim()).filter(Boolean);
+  const linesOf = area => area.value.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
   function listsForm() {
     const form = el("div", "vo-form vo-lists"), contacts = el("textarea"), prefixes = el("textarea");
     contacts.rows = 4; contacts.value = TEL.contacts.join("
