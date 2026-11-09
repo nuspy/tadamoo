@@ -218,11 +218,16 @@ def reset_engines(cfg, tts: bool = True, stt: bool = False,
                         riscalda, e)
 
 
-def make_stt_client(cfg):
-    """Client STT: nativo (in-process) o Handy (WS), secondo `cfg.stt_backend`."""
+def make_stt_client(cfg, follow: bool = False):
+    """Client STT: nativo (in-process) o Handy (WS), secondo `cfg.stt_backend`.
+
+    `follow`: the utterances come with the language the recognizer heard (callbridge/language_follow.py), so the language is detected, not
+    hinted, and `take_language_info()` gives it."""
     if getattr(cfg, "stt_backend", "handy") == "native":
         return NativeSttClient(
-            _get_stt_engine(cfg), lang=(cfg.stt_language or None),
+            _get_stt_engine(cfg), lang=(None if follow else cfg.stt_language or None),
+            report_language=follow,
+            allowed_languages=tuple(getattr(cfg, "language_enabled", ()) or ()),
             vad_threshold=cfg.stt_vad_threshold,
             endpoint_silence_s=cfg.stt_endpoint_silence_s,
             min_utterance_s=cfg.stt_min_utterance_s,

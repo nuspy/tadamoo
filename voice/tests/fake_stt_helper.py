@@ -47,6 +47,8 @@ while True:
         time.sleep(float(os.environ.get("FAKE_STT_DELAY", "0")))
         out = {"ok": True, "text": f" testo-{n}", "ms": 1}
         if cmd == "transcribe_detailed":
+            if req.get("detect"):
+                out["language"], out["language_prob"] = req.get("lang") or os.environ.get("FAKE_STT_LANG", "it"), 0.93
             out["segments"] = [{"start_s": 0.0, "end_s": 1.0, "text": f"testo-{n}",
                                 **({"words": [{"start_s": 0.0, "end_s": 1.0, "text": "w"}]}
                                    if req.get("words") else {})}]

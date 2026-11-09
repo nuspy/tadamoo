@@ -60,12 +60,15 @@ class Host:
         status, body = self.control("GET", "/avatar/phone" + (f"?persona={persona}" if persona else ""))
         return body if status == 200 and isinstance(body, dict) else {}
 
-    def stt_client(self, lang: str):
+    def stt_client(self, lang: str, follow: bool = False):
+        """`follow`: the client reports the language it hears (and `lang` is only a hint, "" = detect)."""
         if self._stt_factory is not None:
-            return self._stt_factory(lang)
+            return self._stt_factory(lang, follow) if follow else self._stt_factory(lang)
         from callbridge import engines
         cfg = self.cfg
-        client = engines.NativeSttClient(engines._get_stt_engine(cfg), lang=lang or cfg.stt_language or None, vad_threshold=cfg.stt_vad_threshold,
+        client = engines.NativeSttClient(engines._get_stt_engine(cfg), lang=lang or (None if follow else cfg.stt_language or None), vad_threshold=cfg.stt_vad_threshold,
+                                         report_language=follow,
+                                         allowed_languages=tuple(getattr(cfg, "language_enabled", ()) or ()),
                                          endpoint_silence_s=cfg.stt_endpoint_silence_s, min_utterance_s=cfg.stt_min_utterance_s,
                                          vad_model=cfg.stt_vad_model, speech_prob=cfg.stt_vad_speech_prob,
                                          chunk_silence_s=getattr(cfg, "stt_chunk_silence_s", 0.0), chunk_min_s=getattr(cfg, "stt_chunk_min_s", 2.0))

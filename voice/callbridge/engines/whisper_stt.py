@@ -31,6 +31,19 @@ _WHISPER_LANG = {
 }
 
 
+def pick_language(probs: dict, allowed=None) -> tuple[str, float, str]:
+    """(language, probability, language to decode with) from the recognizer's language probabilities.
+
+    The first two are what was heard. The third is the same unless that language is not one of `allowed`: then the most probable allowed one is
+    used to decode, so that speech in a language nobody enabled is not forced through a model hint that cannot be right."""
+    if not probs:
+        return "", 0.0, ""
+    top = max(probs, key=probs.get)
+    wanted = [a for a in (allowed or ()) if a in probs]
+    decode = top if not wanted or top in wanted else max(wanted, key=probs.get)
+    return top, float(probs[top]), decode
+
+
 def _compute_vuole_half(compute_type) -> bool:
     """True se `stt_compute_type` chiede i pesi in mezza precisione."""
     v = str(compute_type or "").lower()
@@ -219,9 +232,22 @@ class WhisperSttEngine:
     def transcribe(self, audio_f32_16k: np.ndarray, lang: str | None = None) -> str:
         return self.transcribe_detailed(audio_f32_16k, lang)["text"]
 
+    def _detect(self, audio: np.ndarray, allowed=None) -> tuple[str, float, str]:
+        """The decoder's language step on the first 30 s of `audio` (no text): (language, probability, language to decode with).
+        Runs inside the inference lock and thread of the caller."""
+        if not getattr(self._model, "is_multilingual", True):
+            return "en", 1.0, "en"
+        from whisper.audio import N_FRAMES, N_SAMPLES, log_mel_spectrogram, pad_or_trim
+        mel = log_mel_spectrogram(audio, self._model.dims.n_mels, padding=N_SAMPLES)
+        segment = pad_or_trim(mel[:, :N_FRAMES], N_FRAMES).to(self._model.device)
+        segment = segment.to(next(self._model.parameters()).dtype)
+        _, probs = self._model.detect_language(segment)
+        return pick_language(dict(probs), allowed)
+
     def transcribe_detailed(self, audio_f32_16k: np.ndarray,
                             lang: str | None = None,
-                            word_timestamps: bool = False) -> dict:
+                            word_timestamps: bool = False,
+                            detect: bool = False, allowed=None) -> dict:
         """Trascrizione CON i tempi: `{text, segments: [{start_s, end_s, text,
         words?}]}`.
 
@@ -237,10 +263,15 @@ class WhisperSttEngine:
         # calcolava comunque in mezza precisione (whisper converte i pesi a ogni
         # operazione), quindi "float32" non aveva l'effetto che prometteva.
         fp16 = self._loaded_on == "cuda" and bool(self._loaded_half)
+        heard: list = [wl or "", 1.0 if wl else 0.0]      # the language and its probability: the hint when there is one
+
         def _inferisci():
+            pcm = np.ascontiguousarray(audio_f32_16k, dtype=np.float32)
+            decode = wl
+            if detect and not wl:
+                heard[0], heard[1], decode = self._detect(pcm, allowed)
             return self._model.transcribe(
-                np.ascontiguousarray(audio_f32_16k, dtype=np.float32),
-                language=wl, fp16=fp16, word_timestamps=word_timestamps,
+                pcm, language=decode or None, fp16=fp16, word_timestamps=word_timestamps,
             )
 
         with self._infer_lock:
@@ -278,7 +309,11 @@ class WhisperSttEngine:
                     if str(w.get("word") or "").strip()
                 ]
             segments.append(seg)
-        return {"text": (r.get("text") or "").strip(), "segments": segments}
+        out = {"text": (r.get("text") or "").strip(), "segments": segments}
+        if detect:
+            out["language"] = heard[0] or str(r.get("language") or "")
+            out["language_prob"] = heard[1]
+        return out
 
 
 _VAD_WIN = 512  # campioni per finestra silero @ 16 kHz (~32 ms)
@@ -424,9 +459,17 @@ class NativeSttClient:
                  min_utterance_s: float = 0.3, vad_model: str = "",
                  speech_prob: float = 0.5,
                  chunk_silence_s: float = 0.0,
-                 chunk_min_s: float = 2.0) -> None:
+                 chunk_min_s: float = 2.0,
+                 report_language: bool = False, allowed_languages=()) -> None:
         self._engine = engine
         self._lang = lang
+        # report_language: every utterance is transcribed with the language the recognizer heard (`take_language_info`); `lang` is then the
+        # hint, None meaning automatic detection. `allowed_languages` are the ones the speech is decoded in when another one is heard.
+        self._report = bool(report_language)
+        self._allowed = tuple(allowed_languages or ())
+        self._parz_infos: list = []         # (language, probability, seconds) of the chunks already transcribed
+        self._chunk_seen: list = []         # the same, taken for the utterance being closed
+        self._lang_infos: list = []         # one (language, probability, seconds) per utterance put in `utterances`
         self._thr = vad_threshold
         self._end_sil = endpoint_silence_s
         self._min_utt = min_utterance_s
@@ -447,6 +490,28 @@ class NativeSttClient:
         self._in: queue.Queue[np.ndarray] = queue.Queue()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+
+    def set_language(self, lang: str | None) -> None:
+        """The hint for the next transcriptions (None = detect); the model is not touched."""
+        self._lang = lang or None
+
+    def take_language_info(self) -> dict | None:
+        """What was heard in the utterances put in `utterances` since the last call: {language, prob, duration_s}; None when nothing was
+        reported (detection off, or no utterance)."""
+        from ..language_follow import merge_detections
+        with self._parz_lock:
+            infos, self._lang_infos = self._lang_infos, []
+        lang, prob, seconds = merge_detections(infos)
+        return {"language": lang, "prob": prob, "duration_s": seconds} if lang else None
+
+    def _transcribe(self, audio: np.ndarray) -> tuple[str, tuple | None]:
+        """(text, (language, probability, seconds) or None)."""
+        if self._report and hasattr(self._engine, "transcribe_detailed"):
+            r = self._engine.transcribe_detailed(audio, self._lang, False, detect=True, allowed=self._allowed)
+            lang = r.get("language") or ""
+            seen = (lang, float(r.get("language_prob") or 0.0), len(audio) / STT_RATE) if lang else None
+            return r.get("text") or "", seen
+        return self._engine.transcribe(audio, lang=self._lang) or "", None
 
     def start(self) -> None:
         self._engine.load()  # scalda il modello (prima volta ~10s)
@@ -604,7 +669,7 @@ class NativeSttClient:
             # dettatura resta molto piu' alto, il costo sta altrove.
             _t0 = time.perf_counter()
             try:
-                testo = self._engine.transcribe(audio, lang=self._lang)
+                testo, seen = self._transcribe(audio)
             except Exception as e:  # noqa: BLE001
                 log.warning('STT: chunk non trascritto: %s', e)
                 return
@@ -615,6 +680,8 @@ class NativeSttClient:
                 return
             with self._parz_lock:
                 self._parziali.append(testo)
+                if seen:
+                    self._parz_infos.append(seen)
             log.debug('STT chunk -> %s', testo[:60])
 
         threading.Thread(target=_lavora, name='stt-chunk', daemon=True).start()
@@ -631,22 +698,23 @@ class NativeSttClient:
             time.sleep(0.05)
         with self._parz_lock:
             testi, self._parziali = self._parziali, []
+            self._chunk_seen, self._parz_infos = self._parz_infos, []
         return " ".join(testi).strip()
 
     def _finalize(self, chunks: list[np.ndarray]) -> None:
         prima = self._raccogli_parziali()
         audio = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
-        coda = ""
+        coda, seen_tail = "", None
         if len(audio) / STT_RATE >= self._min_utt and not _troppo_debole(audio):
             _dump_se_richiesto(audio)
             try:
-                coda = self._engine.transcribe(audio, lang=self._lang) or ""
+                coda, seen_tail = self._transcribe(audio)
             except Exception as e:  # noqa: BLE001 - errore trascrizione
                 log.error("STT nativo: trascrizione fallita: %s", e)
                 coda = ""
             if coda and _e_allucinazione(coda):
                 log.info("STT: scartata coda-fantasma (%r)", coda[:60])
-                coda = ""
+                coda, seen_tail = "", None
         # I chunk gia' trascritti vanno DAVANTI: sono la parte detta prima.
         text = " ".join(p for p in (prima, coda.strip()) if p).strip()
         if not text:
@@ -657,4 +725,9 @@ class NativeSttClient:
             log.info("STT: scartata frase-fantasma da silenzio (%r)", text[:60])
             return
         log.info("STT -> %s", text)
+        seen = [*self._chunk_seen, *([seen_tail] if seen_tail else [])]
+        if seen:
+            from ..language_follow import merge_detections
+            with self._parz_lock:
+                self._lang_infos.append(merge_detections(seen))
         self.utterances.put(text)

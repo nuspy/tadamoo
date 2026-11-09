@@ -387,12 +387,18 @@ class SharedSttEngine:
 
     def transcribe_detailed(self, audio_f32_16k: np.ndarray,
                             lang: str | None = None,
-                            word_timestamps: bool = False) -> dict:
-        """`{text, segments: [{start_s, end_s, text, words?}]}`, come in-process."""
+                            word_timestamps: bool = False,
+                            detect: bool = False, allowed=None) -> dict:
+        """`{text, segments: [{start_s, end_s, text, words?}]}`, come in-process. With `detect` also `language` and
+        `language_prob`: what whisper heard when `lang` is empty (else `lang` itself)."""
+        extra = {"detect": True, "allowed": list(allowed or ())} if detect else {}
         r = self._invia("transcribe_detailed", audio_f32_16k, lang,
-                        words=bool(word_timestamps))
-        return {"text": (r.get("text") or "").strip(),
-                "segments": r.get("segments") or []}
+                        words=bool(word_timestamps), **extra)
+        out = {"text": (r.get("text") or "").strip(),
+               "segments": r.get("segments") or []}
+        if detect:
+            out["language"], out["language_prob"] = r.get("language") or "", r.get("language_prob") or 0.0
+        return out
 
     # --- uscita ---------------------------------------------------------------
 
