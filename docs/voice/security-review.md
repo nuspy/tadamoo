@@ -1,8 +1,8 @@
 # Voice stack: security review
 
 Scope: the voice stack on `feature/voice-implementation` compared with `master`, read from the committed HEAD (a clean export).
-Nothing was run. Line numbers refer to HEAD. "Default config" means no `--api-key` and no `--control-secret`, which are both off by default
-(`serve/config.py:484-490`).
+Nothing was run. Line numbers refer to that HEAD (34fcd135); each finding's Status line says what changed since. "Default config" means no
+`--api-key` and no `--control-secret`, which are both off by default (`serve/config.py:484-490`).
 
 ## Top 5
 
@@ -37,6 +37,10 @@ Nothing was run. Line numbers refer to HEAD. "Default config" means no `--api-ke
   whose `Sec-Fetch-Site` is `cross-site`. Refuse a `Host` that is not a loopback name unless a key was presented. That is the check already in
   `serve/voice_compat.py:142-148`; move it into the handler. Alternatively, make `--control-secret` the default.
 - Test: none for `/api/voice/*` or `/api/telegram/*` with a foreign `Origin` or `Host`.
+- Status: fixed in 4ad18c2f. One origin guard (`serve/origin_guard.py`, [server security](../server-security.md)) runs before every route:
+  a foreign `Origin`, or `Sec-Fetch-Site: cross-site` on a write, is refused, and without an API key so is a DNS name that is not an IP
+  address, `localhost`, the PC's own name or a name in `server.allowed-hosts`. `/v1/*`, programs without these headers and a secret sent in
+  a header are unchanged. `--control-secret` stays off by default. Tests: `serve/tests/test_origin_guard.py`, `test_security.py`.
 
 ### V-02 High: an HTTP-settable executable path, then run by a probe or check route
 - Where: `serve/voice_proxy.py:101-105` `_train_python` and `:122-126` `_python_path` (they accept any string without control characters, up
@@ -50,6 +54,10 @@ Nothing was run. Line numbers refer to HEAD. "Default config" means no `--api-ke
   route must stay, accept only a local drive (no UNC or `\\?\`), require the file name `python.exe` or `python`, keep the path only after the
   person confirms it in the UI, and gate the route behind V-01's fix.
 - Test: `serve/tests/test_voice_avatar_proxy.py` checks the shape of the body only. No test refuses a UNC path or a non-Python file.
+- Status: fixed in 885e8e19 (with V-01's guard). `voice/avatar_engines/python_path.py` keeps a path only when it names `python*` or `py`
+  (`.exe`) on a local disk, exists after resolving links (a loop is refused) and, on POSIX, is not in a folder anyone may write in; a kept
+  path that no longer passes is not used. The server refuses a network path or another name first. The probe runs only the kept path with
+  fixed arguments. Still open: the path is set over HTTP without a confirmation shown on the PC.
 
 ### V-03 High: cross-site WebSocket hijacking of the voice gateway
 - Where: `serve/handler.py:661-667`. A loopback client passes `_authorized` (no key) and `_local_or_device`, and `still_allowed=None`.
@@ -62,6 +70,10 @@ Nothing was run. Line numbers refer to HEAD. "Default config" means no `--api-ke
 - Fix: refuse the upgrade unless `Origin` is absent or same-origin (or the client came through the phone listener with a key), and require a
   key or the control secret for the loopback case too. Add an idle timeout.
 - Test: `serve/tests/test_voice_gateway_relay.py` has no `Origin` case.
+- Status: fixed in 4ad18c2f and ac5d5250. A browser always sends `Origin` on a WebSocket, so a foreign page is refused at the upgrade; the
+  app (no `Origin`) and the server's own page connect. One client (a phone key, the master key or this PC) holds at most 2 of the 4
+  places. Open: a program on this PC still connects without a key (it could already use every loopback route), and there is no idle
+  timeout (the app keeps a quiet socket open on purpose).
 
 ### V-04 High: Telegram takeover through V-01
 - Where: `serve/telegram_service.py:198-230`: `set_settings` takes `enabled`, `mode` (including `auto`) and `allowed` in one request, and
@@ -71,6 +83,8 @@ Nothing was run. Line numbers refer to HEAD. "Default config" means no `--api-ke
 - Fix: V-01's fix. In addition, accept a token change, an allow-list addition or a raised level only with a confirmation shown on the PC
   (the pairing flow already exists).
 - Test: `serve/tests/test_telegram_api.py:394` checks that the token is never shown, but nothing covers a cross-site write.
+- Status: partly fixed in 4ad18c2f: a website can no longer make these writes. Open: a confirmation on the PC for a new token, an
+  allow-list addition or a raised level.
 
 ### V-05 Medium: unpinned Hugging Face sources and pickle loading
 - Where: `serve/voice_catalog.py:102-104` (`revision: "main"`, `files=None` means the whole repository) and `serve/downloads.py`
@@ -83,6 +97,12 @@ Nothing was run. Line numbers refer to HEAD. "Default config" means no `--api-ke
 - Fix: pin each HF source to a commit with a fixed per-file SHA-256 table, as the engine packs already are (`_pack`). Use
   `weights_only=True` where a state dict is expected (the XTTS speakers file is a dict of tensors).
 - Test: `serve/tests/test_voice_api.py:274` asserts that the commit is resolved; none asserts a pin.
+- Status: partly fixed in fc8ad742. `speakers_xtts.pth` is loaded with `weights_only=True` (a file holding other objects is refused and
+  only the cloned voices are listed). `serve/downloads.py` checks a file outside LFS against the git blob SHA-1 of the tree and does not
+  plan a file with no hash. Pinning the catalog's sources to commits is handled in `serve/voice_catalog.py` separately. Not edited, as
+  they are kept byte for byte: the `torch.load` calls without `weights_only` in `voice/avatar/musetalk/**` and
+  `voice/avatar_engines/vendor/**` (they load the weights of the packs, which Ultralight and FeatherTalk check by SHA-256, MuseTalk not), and
+  `pickle.load` of the avatar caches (`voice/avatar/avatar_worker.py:497-500`), which the app writes itself in the models folder.
 
 ### V-06 Medium: phone pairing token and the full environment passed to engine subprocesses
 - Where: `voice/callbridge/models_store.py:178-185` `helper_env` copies all of `os.environ`, which includes `TADAMOO_PHONE_TOKEN`
@@ -90,6 +110,9 @@ Nothing was run. Line numbers refer to HEAD. "Default config" means no `--api-ke
 - Abuse: vendored third-party scripts, or the Python chosen in V-02, read the dialer's pairing token.
 - Fix: build child environments from an allow-list (PATH, SYSTEMROOT, TEMP, CUDA_*, the offline variables, the models root).
 - Test: none.
+- Status: fixed in 955f2bae. `models_store.child_env` passes the system's, the toolkits' and the engines' own variables and drops every name
+  holding TOKEN, SECRET, PASSW, CREDENTIAL, KEY or AUTH; `helper_env`, the engines Python's probe and espeak-ng use it. Other
+  `subprocess` calls of the service that pass no `env` (ffmpeg and the like) still inherit the whole environment.
 
 ### V-07 Medium: meeting join and calendar autojoin depend on client booleans
 - Where: `serve/voice_proxy.py:149-163` and `voice/meetings_service.py:132`. `rights_confirmed: true` is a field any caller sets. The
@@ -98,6 +121,8 @@ Nothing was run. Line numbers refer to HEAD. "Default config" means no `--api-ke
   STT listening. The platform allow-list (`adapter_for`) limits the targets.
 - Fix: V-01's fix. Turning on the master switch should need a confirmation shown on the PC.
 - Test: the shape of the body only.
+- Status: partly fixed in 4ad18c2f (no cross-site join or switch). Open: a confirmation on the PC for the master switch and for
+  `rights_confirmed`.
 
 ### V-08 Medium: Android device key in plain SharedPreferences and in cloud backup
 - Where: `mobile/lib/src/settings.dart:15,55` (`_prefs.setString('key', ...)`).
@@ -106,17 +131,24 @@ Nothing was run. Line numbers refer to HEAD. "Default config" means no `--api-ke
 - Abuse: anyone with access to the Google backup, or to a rooted device or an adb backup, gets a key that reaches the PC over Tailscale.
 - Fix: store the key with `flutter_secure_storage` (Keystore) and leave it out of backups.
 - Test: none.
+- Status: partly fixed in 8bfe67ce: `allowBackup="false"`, and `backup_rules.xml` and `data_extraction_rules.xml` exclude the shared
+  preferences from cloud backup and device transfer. Handed to the app agent: move the `key` entry of `mobile/lib/src/settings.dart` from
+  `SharedPreferences` to `flutter_secure_storage` (Android Keystore, `AndroidOptions(encryptedSharedPreferences: true)`), migrate an existing
+  key once and delete it from the preferences, keep `allowBackup="false"`, and add a test that the preferences no longer hold it.
 
 ### V-09 Low: the voice service compares its token in non-constant time
 - Where: `voice/callbridge/control_server.py:101-104` (`==`). The gateway (`voice/gateway.py:113`) and `serve/voice_service.py`
   `accepts_token` use `hmac.compare_digest`. The service binds to loopback only (`voice/service.py:190-192`), and `/health` is open.
 - Fix: use `hmac.compare_digest`. Test: none.
+- Status: fixed in 029bd799 (`voice/tests/test_control_token.py`). The other token compares in `serve/` and `voice/` already used
+  `compare_digest`; the remaining `==` compare plan tokens and stored hashes, not secrets a client sends.
 
 ### V-10 Low: `telegram_text_bridge` is an unauthenticated agent entry point
 - Where: `voice/callbridge/telegram_text_bridge.py:60-70,119-124`. `POST /telegram/message` on `127.0.0.1:8790` has no token, and it uses
   `make_brain(cfg)`, which follows `brain_mode` and so may be the harness. It is started by hand only. Flask's `get_json` needs a JSON
   content type, so a simple cross-site POST does not parse; any local process can call it.
 - Fix: delete it (the Telegram path is now `tadamoo/telegram_bot.py`), or require a token and force the direct brain.
+- Status: open (left as is for now).
 
 ### V-11 Low: no block on premium-rate numbers, and a narrow emergency rule
 - Where: `voice/callbridge/call_policy.py:61-75,288-333`. With `outgoing_approval: auto`, a `program` caller can dial any 6-15 digit number,
@@ -124,21 +156,25 @@ Nothing was run. Line numbers refer to HEAD. "Default config" means no `--api-ke
   `X-Call-Origin` is not forwarded (`serve/voice_compat.py:227-233`), so a program stays `program`. That part is correct.
 - Fix: add a configurable deny-list of premium prefixes, and let `auto` apply only to numbers in the contacts.
 - Test: `voice/tests/test_call_policy.py` covers emergency numbers; it has no premium case.
+- Status: open: with `auto` the person chose to let programs dial, at their own risk.
 
 ### V-12 Low: the service token is masked only in text answers
 - Where: `serve/voice_compat.py:258-283` streams binary answers without masking. The service never puts the token in a binary answer
   today. Fix: none needed now; keep it in mind for new routes.
+- Status: open, nothing to change now.
 
 ### V-13 Info: provenance of the vendored code
 - Ultralight and FeatherTalk: per-file SHA-256 is checked by `voice/tests/test_avatar_engine_vendor.py`. MuseTalk
   (`voice/avatar/musetalk/VENDORED.md`) names a commit but has no hash table or test, and is edited in place. Its scripts build shell
   commands with `os.system` (`scripts/inference.py:122-123`, `realtime_inference.py:297-303`); the app does not call them.
 - `rtx_video_path` (`serve/voice_settings.py:378-380`) is an HTTP-settable DLL path that nothing loads yet; once it is loaded, it becomes V-02.
+- Status: open. Since 4ad18c2f a website can no longer set `rtx_video_path`.
 
 ## Claims in docs/voice checked
 - "the token never leaves the server": holds for `voice_proxy`, `voice_compat` (textual answers) and the relay.
-- "these routes answer this PC only / a page of another site may not use them" (`docs/voice/api.md:16`): true for the `voice_compat`
-  routes only. It does not hold for `/api/voice/*`, `/api/telegram/*` or the gateway WebSocket (V-01, V-03).
+- "these routes answer this PC only / a page of another site may not use them" (`docs/voice/api.md:16`): at review time true for the
+  `voice_compat` routes only. Since 4ad18c2f the origin guard covers `/api/voice/*`, `/api/telegram/*` and the gateway WebSocket too, and
+  the page says where each refusal comes from.
 - "a meeting's words never reach an agent": holds. `meetbot/speak.py:89-100`, `copilot.py` and `analysis.py:41` force the direct brain and
   fence the text.
 - "a call to an emergency number is refused for every origin": holds for the listed set (V-11).
