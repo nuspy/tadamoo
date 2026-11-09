@@ -6,12 +6,14 @@ that passes through unread, and which kind of caller may use it:
     api     a program with the server's API key (or the control secret) as a Bearer token, or any program on this PC when no key is set
     local   the same, but only from this PC
 
-The service's token is added here and never leaves the server: a response is searched for it before it is sent. A route whose service
+The service's token is added here and never leaves the server: a text answer is searched for it and a header value or a streamed answer
+is checked for it before it is sent (an answer that carries it is cut off). A route whose service
 handler is not there yet answers 501 `not_available_yet` with the reason. Nothing is under /v1, which stays the interface of the loaded
 model. The listener for phones does not offer any of these."""
 from __future__ import annotations
 
 import http.client
+import logging
 import re
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlsplit
@@ -19,6 +21,7 @@ from urllib.parse import parse_qs, urlsplit
 from serve import personas_compat, settings, voice_service, voice_settings
 from serve.security import key_matches
 
+log = logging.getLogger(__name__)
 JSON_MAX = 1 << 16
 UPLOAD_MAX = 2 << 30
 QUERY_MAX = 2048
@@ -290,6 +293,34 @@ def handle(h, svc) -> None:
         conn.close()
 
 
+class TokenLeak(OSError):
+    """A streamed answer carried the service token."""
+
+
+class _TokenGuard:
+    """Passes a streamed answer on while refusing to let the service token through, also when it is split between two chunks."""
+
+    def __init__(self, token: str) -> None:
+        self._token = token.encode("utf-8")
+        self._tail = b""
+
+    def feed(self, piece: bytes) -> bytes:
+        """The bytes that are safe to send now; the last len(token)-1 are held back until the next piece. Raises TokenLeak on a match."""
+        if not self._token:
+            return piece
+        buf = self._tail + piece
+        if self._token in buf:
+            raise TokenLeak("the answer carries the service token")
+        keep = len(self._token) - 1
+        cut = max(len(buf) - keep, 0)
+        self._tail = buf[cut:]
+        return buf[:cut]
+
+    def finish(self) -> bytes:
+        out, self._tail = self._tail, b""
+        return out
+
+
 def _relay(h, resp, token: str) -> None:
     kind = (resp.getheader("Content-Type") or "").split(";")[0].strip().lower()
     textual = kind in ("application/json", "") or kind.startswith("text/")
@@ -297,7 +328,7 @@ def _relay(h, resp, token: str) -> None:
     for name in ("Content-Type", "Content-Disposition", "Cache-Control"):
         value = resp.getheader(name)
         if value:
-            h.send_header(name, value)
+            h.send_header(name, value.replace(token, "[hidden]") if token else value)
     if textual:
         data = resp.read(BUFFERED_MAX + 1)
         if len(data) > BUFFERED_MAX:
@@ -311,11 +342,17 @@ def _relay(h, resp, token: str) -> None:
     if length and length.isdigit():
         h.send_header("Content-Length", length)
     h.end_headers()
-    while True:
-        piece = resp.read(CHUNK)
-        if not piece:
-            break
-        h.wfile.write(piece)
+    guard = _TokenGuard(token)
+    try:
+        while True:
+            piece = resp.read(CHUNK)
+            if not piece:
+                break
+            h.wfile.write(guard.feed(piece))
+        h.wfile.write(guard.finish())
+    except TokenLeak:
+        log.error("voice service: a streamed answer carried its token and was cut off")
+        raise
 
 
 def routes_summary() -> list[dict]:
