@@ -23,6 +23,11 @@ callAPIcall deve essere avviato (`C:\projects\callAPIcall`, porta di controllo 8
 | 3 | `test_say_and_hear_roundtrip` | una battuta pronunciata e una risposta ascoltata dal chiamato | squilla un telefono reale | in attesa del via |
 | 4 | `test_hangup_is_idempotent` | un secondo `hangup` su una chiamata già chiusa non fallisce né richiama | nessuno dopo la chiamata 2 | in attesa del via |
 | 5 | `test_agent_places_call_only_after_approval` | l'agente col modello vero chiede l'approvazione prima di `phone_call` e rispetta un rifiuto | squilla solo se approvi | in attesa del via |
+| 6 | Servizio vocale, chiamata a mano dalla GUI su modem GSM (`telephony.transport` = gsm) | il modem si apre solo a telefonia accesa, la prima frase dice che è un'IA, il registro `call-audit.jsonl` ha una riga di inizio e una di fine con il numero mascherato | squilla un telefono reale | in attesa del via |
+| 7 | Servizio vocale, chiamata a mano su telefono Android (APK `android/dialer`, token inserito sul telefono e in `TADAMOO_PHONE_TOKEN`) | il telefono compone, l'audio passa dal Bluetooth, la prima frase dichiara l'IA | squilla un telefono reale | in attesa del via |
+| 8 | Chiamata di un programma in modalità `manual` e in `auto` | 202 con `approval_id`, approvazione in Impostazioni > Voce, poi la chiamata parte una volta sola; in `auto` parte subito e il registro lo dice | squilla solo se approvi | in attesa del via |
+| 9 | Risposta in arrivo accesa (`incoming_auto_answer`), con il numero di prova che chiama il modem o il telefono | l'IA risponde con la frase che dichiara l'IA; spenta, la chiamata resta in attesa e il registro scrive `auto_answer_off` | squilla il telefono di prova | in attesa del via |
+| 10 | Numeri di emergenza (solo rifiuto, nessuna linea toccata) | 112, 118, 113, 911 rifiutati con 403 da `/call` e `/external/call` | nessuno | provato con finti, da ripetere con la linea vera spenta |
 
 ## Regole
 
