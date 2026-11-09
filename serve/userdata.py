@@ -19,6 +19,7 @@ import os
 import shutil
 import sys
 import threading
+import time
 from pathlib import Path
 
 APP_DIR = "TaDaMoo"                       # the desktop app's folder: one place for everything of this user
@@ -80,6 +81,23 @@ def set_sessions_base(folder: Path | None) -> None:
     tmp = target.with_suffix(".tmp")
     tmp.write_text(json.dumps({"path": str(folder)}, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, target)
+
+
+REPLACE_ATTEMPTS = 20
+REPLACE_PAUSE_S = 0.025
+
+
+def replace_file(src, dst) -> None:
+    """`os.replace(src, dst)` that waits a little when Windows refuses with PermissionError because a reader has the target open for a
+    moment: up to REPLACE_ATTEMPTS tries, pausing 25 ms between them (half a second at most); the error is raised when they all fail."""
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(REPLACE_PAUSE_S)
 
 
 def migrate() -> list[str]:

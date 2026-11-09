@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -147,3 +148,73 @@ class PageTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WriteRetryTest(Base):
+    """The voice settings writer survives the moment Windows refuses the replace because a reader has the file open."""
+
+    def fail_then_work(self, failures):
+        real, calls = os.replace, []
+
+        def flaky(src, dst):
+            calls.append(1)
+            if len(calls) <= failures:
+                raise PermissionError(13, "Access is denied")
+            real(src, dst)
+
+        return flaky, calls
+
+    def test_two_refusals_then_success_writes_the_file(self):
+        flaky, calls = self.fail_then_work(2)
+        with mock.patch("serve.userdata.os.replace", flaky), mock.patch("serve.userdata.time.sleep") as pause:
+            vs.set_language({"threshold": 0.9})
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(pause.call_count, 2)
+        self.assertEqual(self.stored()["language"]["threshold"], 0.9)
+
+    def test_it_gives_up_after_the_bound_and_says_why(self):
+        from serve import userdata
+        flaky, calls = self.fail_then_work(10 ** 6)
+        with mock.patch("serve.userdata.os.replace", flaky), mock.patch("serve.userdata.time.sleep") as pause:
+            with self.assertRaises(PermissionError):
+                vs.set_language({"threshold": 0.9})
+        self.assertEqual(len(calls), userdata.REPLACE_ATTEMPTS)
+        self.assertLessEqual(sum(c.args[0] for c in pause.call_args_list), 1.0)           # a bounded wait, well under a second
+        self.assertEqual(vs.language()["threshold"], 0.8)                                  # nothing half written
+
+    def test_other_errors_are_not_retried(self):
+        calls = []
+
+        def broken(src, dst):
+            calls.append(1)
+            raise OSError("disk full")
+
+        with mock.patch("serve.userdata.os.replace", broken), mock.patch("serve.userdata.time.sleep"):
+            with self.assertRaises(OSError):
+                vs.set_language({"threshold": 0.9})
+        self.assertEqual(len(calls), 1)
+
+    def test_writers_and_readers_at_the_same_time_all_succeed(self):
+        import threading
+        errors, stop = [], threading.Event()
+
+        def reader():
+            while not stop.is_set():
+                try:
+                    vs.language()
+                    vs.interruptions()
+                except Exception as e:                                                     # noqa: BLE001
+                    errors.append(e)
+                time.sleep(0.01)                                                           # a page polling, not a busy loop
+
+        threads = [threading.Thread(target=reader) for _ in range(2)]
+        for t in threads:
+            t.start()
+        try:
+            for i in range(60):
+                vs.set_language({"threshold": 0.5 + (i % 40) / 100})
+        finally:
+            stop.set()
+            for t in threads:
+                t.join()
+        self.assertEqual(errors, [])
