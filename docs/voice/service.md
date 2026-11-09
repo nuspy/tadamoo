@@ -30,7 +30,7 @@ The token is never returned by a route, never logged and never sent anywhere but
 ## Routes of the service
 
 Every route needs `Authorization: Bearer <token>`, except `GET /health` (`{"status": "ok"}`). The other routes are those of callbridge
-(the call, session, avatar, analysis and meeting routes of the imported code); phone and modem detection is off. `GET /functions` and
+(the call, session, avatar, analysis and meeting routes of the imported code); telephony is off until Settings > Voice turns it on (`telephony.md`), and nothing opens a modem or a phone link before that. `GET /functions` and
 `POST /functions/apply` load, unload and measure the stt, tts and avatar functions (`loading.md`).
 `GET /brain/state` and `POST /brain/say` belong to the brains of the voice and `POST /session/start` takes a `brain` (`chat.md`).
 
@@ -59,6 +59,7 @@ modification time changes, so a choice made in Settings > Voice shows in `/statu
 | `diarization` device | `diarization_device` |
 | `models_dir` | `kokoro_model_dir`, `piper_model_dir`, `diarization_model_dir`, `stt_vad_model` |
 | `brain` (mode, personality, permission, folder, server address, hotkeys) | `brain_mode`, `brain_persona`, `brain_permission`, `brain_workspace`, `tadamoo_base_url` (`chat.md`) |
+| `telephony` (transport, approval, disclosure, auto-answer, name) | `call_transport`, `outgoing_approval`, `ai_disclosure_on_start`, `incoming_auto_answer`, `call_on_behalf_of`, `call_audit_file` (`telephony.md`) |
 
 `ram`, or the device `cpu`, means the CPU. `cuda:N` is not a `Config` field: the service gives the helper processes of that service
 `CUDA_VISIBLE_DEVICES=N`, so a helper sees the chosen GPU as `cuda:0`.
