@@ -15,6 +15,7 @@ from serve import voice_proxy, voice_service
 WS_PATH = "/api/voice/gateway/ws"
 MAX_CLIENTS = 4
 CHUNK = 1 << 16
+RECHECK_S = 5.0                                  # how often the phone's key is looked at again while the connection is open
 INFO_KEYS = ("voice", "stt", "tts", "avatar", "render_modes", "brain", "persona")
 
 _active = 0
@@ -58,8 +59,9 @@ def _upgrade_headers(handler) -> str | None:
     return key if wants and key and h.get("Sec-WebSocket-Version", "").strip() == "13" else None
 
 
-def relay(handler) -> None:
-    """Passes the phone's WebSocket to the gateway. The caller has already decided that this client may."""
+def relay(handler, still_allowed=None) -> None:
+    """Passes the phone's WebSocket to the gateway. The caller has already decided that this client may; `still_allowed()` is asked every
+    few seconds, and the connection ends when it says no (a key taken away stops working at once, also for a conversation in progress)."""
     global _active
     key = _upgrade_headers(handler)
     if key is None:
@@ -81,7 +83,7 @@ def relay(handler) -> None:
             return _refuse(handler, 503, "voice_gateway_down", "the voice gateway does not answer")
         upstream.settimeout(None)
         handler.close_connection = True
-        _pipe(handler.connection, upstream)
+        _pipe(handler.connection, upstream, still_allowed)
     finally:
         if upstream is not None:
             upstream.close()
@@ -89,13 +91,15 @@ def relay(handler) -> None:
             _active -= 1
 
 
-def _pipe(client: socket.socket, upstream: socket.socket) -> None:
-    """Copies bytes both ways until one side closes or fails."""
+def _pipe(client: socket.socket, upstream: socket.socket, still_allowed=None) -> None:
+    """Copies bytes both ways until one side closes or fails, or the client is no longer allowed."""
     sockets = [client, upstream]
     while True:
         try:
-            ready, _, _ = select.select(sockets, [], [], 60)
+            ready, _, _ = select.select(sockets, [], [], RECHECK_S)
         except (OSError, ValueError):
+            return
+        if still_allowed is not None and not still_allowed():
             return
         for s in ready:
             try:

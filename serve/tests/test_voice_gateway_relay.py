@@ -15,10 +15,11 @@ import urllib.request
 from pathlib import Path
 from unittest import mock
 
+from websockets.exceptions import ConnectionClosed
 from websockets.sync.client import connect
 from websockets.sync.server import serve as ws_serve
 
-from serve import handler, settings, voice_gateway_relay, voice_service
+from serve import handler, voice_gateway_relay, voice_service
 from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate
 from serve.handler import serve
@@ -241,6 +242,18 @@ class Relay(unittest.TestCase):
         finally:
             gw.stop()
             self.voice.gateway_port = saved
+
+    def test_a_key_taken_away_ends_the_conversation_in_progress(self):
+        self.listen()
+        row, key = self.svc.keys.create("Lost phone")
+        with mock.patch.object(voice_gateway_relay, "RECHECK_S", 0.2):
+            with connect(self.url(outside=True), additional_headers={"Authorization": "Bearer " + key}, open_timeout=5) as ws:
+                ws.send("hello")
+                self.assertEqual(ws.recv(timeout=5), "echo:hello")
+                self.svc.keys.revoke(row["id"])
+                with self.assertRaises(ConnectionClosed):
+                    ws.recv(timeout=5)
+        self.assertEqual(self.upgrade(outside=True, key=key), 401)
 
     def test_the_number_of_phones_at_once_is_limited(self):
         self.listen()
