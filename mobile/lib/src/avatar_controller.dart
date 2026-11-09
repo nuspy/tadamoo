@@ -223,12 +223,15 @@ class AvatarController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// What the app can draw has changed (a download, a test, the preference): when it is not what the PC was told, the PC is told again,
-  /// which can only be done by opening the connection again.
+  /// What the app can draw has changed (a download, a test, the preference): when it is not what the PC was told, the PC is told again on
+  /// the open connection and answers with what it will serve.
   void _replan() {
     final d = _declared;
     if (d == null || !active || client.status != GatewayStatus.ready) return;
-    if (!hub.plan().sameAs(d)) client.reconnect();
+    final next = hub.plan();
+    if (next.sameAs(d)) return;
+    _declared = next;
+    client.declareRenderModes(next.fields);
   }
 
   // ---- the avatar drawn here
