@@ -49,6 +49,7 @@ ROUTES: dict[tuple[str, str], Callable[[Any], Any]] = {
     ("GET", "/status"): _none,
     ("GET", "/functions"): _none,
     ("GET", "/brain/state"): _none,
+    ("GET", "/gateway"): _none,
     ("GET", "/session/state"): _none,
     ("GET", "/diag/brain"): _none,
     ("POST", "/session/start"): _start,
