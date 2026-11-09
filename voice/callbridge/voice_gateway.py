@@ -21,6 +21,10 @@ Protocol (JSON text frames and binary PCM16 little-endian mono frames):
   gw -> phone  {"type":"resume_offer","text":"...","question":"...","lang":"it"}; phone -> gw {"type":"resume","accept":bool}
   phone -> gw  {"type":"brain","brain":"direct|harness"} / {"type":"persona","persona":"slug"}; both are confirmed with the same message
   phone -> gw  {"type":"render_mode","mode":"wav2lip|visemes"}   the device chooses among the modes the gateway offers it
+  phone -> gw  {"type":"render_modes","modes":["wav2lip","visemes"],"engine":"...","resolution":px}   the device's capabilities changed (a self-test passed or
+               failed, another engine, a thermal downgrade): the same declaration as in auth, validated the same way, at most 6 per minute; the modes
+               replace the declared ones (a mode reported as failing is tried again), engine and resolution only when present (null clears);
+               gw -> phone {"type":"render_modes","modes":[effective set],"render_mode":"...","avatar_name":"...","engine":"...","resolution":px}
   phone -> gw  {"type":"render_failed","mode":"...","why":"..."}   the mode does not work on the device; gw -> phone {"type":"render_mode","mode":next|"none",
                "previous":"...","why":"...","render_modes":[...]}: the next one of the device's list, remembered for the connection
   phone -> gw  {"type":"video_start","reason":"emergency","sdp":"...","persona":"...","brain":"..."}; gw -> phone {"type":"video_answer","sdp":"..."},
@@ -60,6 +64,13 @@ STT_RATE = 16000
 #: this PC (video, an emergency only: it is the one that uses the GPU).
 RENDER_MODES = ("wav2lip", "visemes", "video")
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
+#: What a declaration of render modes may carry: entries read from the list, the longest engine id, the tallest picture, and how many
+#: declarations after the first one a connection may make in a window.
+MODES_READ_MAX = 16
+ENGINE_ID_MAX = 64
+HEIGHT_MAX = 8192
+REDECLARE_MAX = 6
+REDECLARE_WINDOW_S = 60.0
 
 #: A transcript shorter than this is noise (a breath, the avatar's own echo), not an interruption.
 _MIN_BARGEIN_CHARS = 7
@@ -146,6 +157,8 @@ class Connection:
         self.host = host
         self.cfg = host.cfg
         self.authed = authed                      # the handshake already proved the token
+        self._authenticated = False               # the auth message was accepted: nothing but it is read before
+        self._redeclared: list[float] = []        # when the device declared its render modes again, inside the window
         self.brain = host.brains.fork()           # its own mode over the same two brains
         self.stt = None
         self.tts = None
@@ -245,6 +258,7 @@ class Connection:
         proved = self.authed or (isinstance(given, str) and bool(given) and hmac.compare_digest(given.encode("utf-8", "replace"), self.host.token.encode("utf-8")))
         if msg.get("type") == "auth" and proved:
             self._declare(msg)
+            self._authenticated = True
             self._send_json({"type": "auth_ok"})
             return True
         self._send_json({"type": "error", "code": "auth_failed", "message": "authentication failed"})
@@ -252,15 +266,49 @@ class Connection:
 
     def _declare(self, msg: dict) -> None:
         """What the device says it can draw: the known modes of `render_modes` in its order (video always last), and its kind."""
-        raw = msg.get("render_modes")
-        asked = [m for m in raw if isinstance(m, str)] if isinstance(raw, list) else []
-        local = [m for m in dict.fromkeys(asked) if m in RENDER_MODES and m != "video"]
-        self._declared = local + (["video"] if "video" in asked else [])
+        self._declare_modes(msg.get("render_modes"))
         device = msg.get("device")
         self._device = device if isinstance(device, str) and re.fullmatch(r"[a-z0-9_-]{1,32}", device) else ""
-        engine, height = msg.get("engine"), msg.get("resolution")
-        self._want_engine = engine if isinstance(engine, str) else None
-        self._want_height = height if isinstance(height, int) and not isinstance(height, bool) else None
+        self._declare_engine(msg)
+
+    def _declare_modes(self, raw) -> None:
+        """The modes the device can draw: strings only, the first `MODES_READ_MAX` read, unknown and repeated ones dropped, video last."""
+        asked = [m for m in raw[:MODES_READ_MAX] if isinstance(m, str)] if isinstance(raw, list) else []
+        local = [m for m in dict.fromkeys(asked) if m in RENDER_MODES and m != "video"]
+        self._declared = local + (["video"] if "video" in asked else [])
+
+    def _declare_engine(self, msg: dict, only_present: bool = False) -> None:
+        """The engine id and the output height the device asks for; what is not a short string or a sane whole number is none."""
+        if not only_present or "engine" in msg:
+            engine = msg.get("engine")
+            self._want_engine = engine if isinstance(engine, str) and 0 < len(engine) <= ENGINE_ID_MAX else None
+        if not only_present or "resolution" in msg:
+            height = msg.get("resolution")
+            self._want_height = height if isinstance(height, int) and not isinstance(height, bool) and 0 < height <= HEIGHT_MAX else None
+
+    def _redeclare(self, msg: dict) -> None:
+        """The device declares its render modes again on an open connection; the answer is the effective set."""
+        if not self._authenticated:
+            self._send_json({"type": "error", "code": "auth_required", "message": "authenticate before declaring render modes"})
+            return
+        now = getattr(self.host, "render_clock", time.monotonic)()
+        self._redeclared = [t for t in self._redeclared if now - t < REDECLARE_WINDOW_S]
+        if len(self._redeclared) >= REDECLARE_MAX:
+            self._send_json({"type": "error", "code": "render_modes_rate_limited",
+                             "message": f"at most {REDECLARE_MAX} render_modes messages in {int(REDECLARE_WINDOW_S)} s"})
+            return
+        self._redeclared.append(now)
+        if not isinstance(msg.get("modes"), list):
+            self._send_json({"type": "error", "code": "bad_render_modes", "message": "render_modes needs a list of modes"})
+            return
+        self._declare_modes(msg["modes"])
+        self._declare_engine(msg, only_present=True)
+        self._failed.clear()
+        offered = self._offered()
+        self._render_mode = offered[0] if offered else "none"
+        self._send_json({"type": "render_modes", "modes": offered, "render_mode": self._render_mode, "avatar_name": self._avatar_name,
+                         **self._engine_fields(self._render_mode)})
+        log.info("gateway: device declared render modes %s, serving %s", offered or "none", self._render_mode)
 
     def _wanted(self):
         """(engine descriptor or None, height or None) this device is configured for: its own declaration, else the person's choice for its target."""
@@ -392,6 +440,9 @@ class Connection:
                 self._send_json({"type": "render_mode", "mode": mode, "render_modes": offered, "avatar_name": self._avatar_name, **self._engine_fields(mode)})
             else:
                 self._send_json({"type": "error", "code": "render_mode_unavailable", "message": f"the PC does not offer {mode or '?'} to this device"})
+            return True
+        if kind == "render_modes":
+            self._redeclare(msg)
             return True
         if kind == "render_failed":
             mode = str(msg.get("mode") or "").strip()

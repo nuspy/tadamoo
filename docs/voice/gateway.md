@@ -35,6 +35,7 @@ Text frames are JSON, binary frames are 16-bit little-endian mono PCM. Phone to 
 | `interrupt`, or a new `start`/`text` while a reply plays | the reply stops |
 | `brain {brain: direct\|harness}`, `persona {persona: slug}` | who answers; each is confirmed by the same message |
 | `render_mode {mode}`, `render_failed {mode, why}` | choose among the modes offered; report one that does not work (Render modes) |
+| `render_modes {modes, engine?, resolution?}` | the device's capabilities changed: declare them again on the open connection (Render modes) |
 | `video_start {reason: "emergency", sdp, sdp_type, persona?, brain?}`, `video_stop` | WebRTC video of the avatar, an emergency only |
 
 | PC to phone | Meaning |
@@ -45,10 +46,11 @@ Text frames are JSON, binary frames are 16-bit little-endian mono PCM. Phone to 
 | `audio_start {sample_rate, segment}`, PCM, `audio_end` | the voice of the answer (or the media track, see below) |
 | `visemes {segment, text, lang, duration_ms, pcm_bytes, visemes}` | visemes mode: the timeline of a segment, before its PCM |
 | `render_mode {mode, render_modes, avatar_name, previous?, why?}` | the mode in use changed (Render modes) |
+| `render_modes {modes, render_mode, avatar_name, engine, resolution}` | the answer to the device's `render_modes`: the effective set (Render modes) |
 | `done`, `turn_done`, `interrupt` | the turn is over; the reply was stopped. Each `start`/`text` gets exactly one `done` |
 | `video_answer {sdp}`, `video_state {state: preparing\|live, detail}`, `video_stopped` | WebRTC negotiation |
 | `video_unavailable {reason: emergency_only\|no_avatar\|no_webrtc}` | no video: the phone stays in voice |
-| `error {code, message}` | `auth_failed`, `not_loaded` (with `missing`), `voice_failed`, `brain_failed`, `bad_request`, `video_failed`, `avatar_failed`, `no_persona`, `render_mode_unavailable` |
+| `error {code, message}` | `auth_failed`, `not_loaded` (with `missing`), `voice_failed`, `brain_failed`, `bad_request`, `video_failed`, `avatar_failed`, `no_persona`, `render_mode_unavailable`, `bad_render_modes`, `render_modes_rate_limited`, `auth_required` |
 
 The gateway starts in standby with the service. It loads nothing: a turn without the STT or TTS function loaded is answered with
 `not_loaded`, and the phone is told by `state` when they are loaded. The modes `wav2lip` and `visemes` need no function loaded.
@@ -115,6 +117,21 @@ the generator fails the timeline is a single `sil`. With the new duplex engine (
 
 The failed mode is left out for the rest of the connection; the answer names the next one of the device's list, or `"none"`. The gateway also
 sends `render_mode` by itself when choosing a personality (`persona`) changes the avatar and with it the mode.
+
+**Declare again.** What a phone can draw changes while it is connected (the Wav2Lip self-test passes or fails, the person picks another
+engine, the phone is too hot and drops to visemes). It says so without reconnecting:
+
+    {"type":"render_modes","modes":["wav2lip","visemes"],"engine":"wav2lip_gan96","resolution":96}
+    {"type":"render_modes","modes":["wav2lip","visemes"],"render_mode":"wav2lip","avatar_name":"ada","engine":"wav2lip_gan96","resolution":96}
+
+The first is the device's, the second the PC's answer. `modes` is validated as in `auth`: only strings, the first 16 entries read, unknown and
+repeated modes dropped, `video` last. `engine` (at most 64 characters) and `resolution` (a whole number up to 8192) replace the declared ones
+when the key is present (`null` clears it) and stay as they were when it is absent. The modes replace the declared ones and the ones reported
+by `render_failed` are tried again, so the device's list is its whole word. The answer's `modes` is what this PC serves now; `render_mode`
+is chosen from it as at connection (the first, or `"none"`), with the engine and height that draw it. Only an authenticated connection gets
+this far (nothing is read before `auth`; a message handled without it is `auth_required`). At most 6 a minute on one connection, malformed
+ones included: the next is `error` `render_modes_rate_limited` and is not applied. `modes` that is not a list is `bad_render_modes`. The
+phone's app keeps to 5 a minute and sends the latest plan when the window allows. A PC that predates the message ignores it.
 
 **Interrupt.** `{"type":"interrupt"}` or a new `start` while the reply plays: stop the speaker, drop the timelines not yet reached, show `sil`.
 The PC stops the synthesis, and no timeline of a cut segment goes out; it answers `interrupt` and `done`.
