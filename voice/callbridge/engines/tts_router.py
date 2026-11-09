@@ -545,21 +545,10 @@ class TtsRouter:
         yield self.synth(text, voice, lang, speed, engine)
 
     def voce_avatar_attivo(self) -> dict:
-        """{"engine", "voice"} dell'avatar attivo (`avatar_persona`), {} se non
-        c'e'. Legge il manifest da disco: il router non puo' dipendere da
-        AvatarClient (vive nel bridge, il router anche nel compat server)."""
-        persona = (getattr(self._cfg, "avatar_persona", "") or "").strip()
-        if not persona:
-            return {}
-        try:
-            import json as _json
-            from pathlib import Path
-            p = (Path(getattr(self._cfg, "avatar_dir", ".")) / "persone"
-                 / persona / "manifest.json")
-            return _json.loads(p.read_text(encoding="utf-8")).get("voice") or {}
-        except Exception as e:  # noqa: BLE001 - manifest assente/illeggibile
-            log.debug("TTS: voce dell'avatar '%s' non leggibile: %s", persona, e)
-            return {}
+        """{"engine", "voice"} the avatar speaks with: the active personality's voice, which the service puts on the config; {} when there is none."""
+        engine = (getattr(self._cfg, "avatar_voice_engine", "") or "").strip()
+        voice = (getattr(self._cfg, "avatar_voice_name", "") or "").strip()
+        return {"engine": engine, "voice": voice} if engine else {}
 
     def _engine_avatar_attivo(self, voice: str) -> str:
         """Motore dell'avatar attivo, ma SOLO se la voce richiesta e' la sua.

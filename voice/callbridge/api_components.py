@@ -448,7 +448,6 @@ def resume_all():
                 and cfg.avatar_persona):
             try:
                 if avatar.start(cfg.avatar_persona):
-                    avatar.set_preview(False)
                     log.info("Riprendi: avatar '%s' di nuovo caldo", cfg.avatar_persona)
                 else:
                     log.warning("Riprendi: avatar '%s' non partito (vedi log)",

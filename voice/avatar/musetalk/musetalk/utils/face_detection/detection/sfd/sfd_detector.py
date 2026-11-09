@@ -14,14 +14,13 @@ models_urls = {
 
 
 class SFDDetector(FaceDetector):
-    def __init__(self, device, path_to_detector=os.path.join(os.path.dirname(os.path.abspath(__file__)), 's3fd.pth'), verbose=False):
+    def __init__(self, device, path_to_detector=os.path.join(os.environ.get('MUSETALK_MODELS', './models'), 's3fd', 's3fd-619a316812.pth'), verbose=False):
         super(SFDDetector, self).__init__(device, verbose)
 
-        # Initialise the face detector
+        # The weights are read from the models folder and never fetched.
         if not os.path.isfile(path_to_detector):
-            model_weights = load_url(models_urls['s3fd'])
-        else:
-            model_weights = torch.load(path_to_detector)
+            raise FileNotFoundError(path_to_detector)
+        model_weights = torch.load(path_to_detector)
 
         self.face_detector = s3fd()
         self.face_detector.load_state_dict(model_weights)
