@@ -18,7 +18,7 @@ def _run(tmp_path, token_text="tok", extra=()):
         token.write_text(token_text, encoding="utf-8")
     info = tmp_path / "voice-service.json"
     cmd = [sys.executable, "-m", "voice.service", "--settings", str(tmp_path / "voice.json"), "--port", "0", "--token-file", str(token),
-           "--info-file", str(info), *extra]
+           "--info-file", str(info), "--no-desktop", *extra]       # no real hotkey hook, clipboard monitor or window in a test
     kw = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if sys.platform == "win32" else {}
     proc = subprocess.Popen(cmd, cwd=str(REPO), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **kw)
     return proc, info

@@ -140,3 +140,17 @@ def test_the_premium_list_and_the_contacts_are_read_and_a_bad_value_takes_the_de
     assert (t.premium_prefixes, t.auto_contacts_only, t.contacts) == (DEFAULT_PREMIUM_PREFIXES, False, ())
     t = sb.load(_write(tmp_path / "voice.json", {"telephony": {"premium_prefixes": []}})).telephony
     assert t.premium_prefixes == ()
+
+
+def test_dictation_settings_reach_the_config_and_a_bad_value_is_the_default(tmp_path):
+    names = {f.name for f in fields(Config)}
+    s = sb.load(_write(tmp_path / "voice.json", {"dictation": {"enabled": False, "hotkey": "Ctrl+Shift+F9"}}))
+    o = sb.overrides(s)
+    assert {"dictation_enabled", "dictation_hotkey"} <= names
+    assert (o["dictation_enabled"], o["dictation_hotkey"]) == (False, "ctrl+shift+f9")
+    for bad in ("a", "alt+", "alt+nokey", 7, None, "alt+space" * 10):
+        s = sb.load(_write(tmp_path / "voice.json", {"dictation": {"hotkey": bad}}))
+        assert sb.overrides(s)["dictation_hotkey"] == "alt+space", bad
+    s = sb.load(tmp_path / "missing.json")
+    assert (s.dictation.enabled, s.dictation.hotkey) == (True, "alt+space")
+    assert sb.load(_write(tmp_path / "voice.json", {"dictation": {"hotkey": "f8"}})).dictation.hotkey == "f8"      # an F key needs no modifier

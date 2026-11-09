@@ -1,13 +1,15 @@
 """The voice service: a process that starts in standby and serves the control routes of callbridge on loopback.
 
-    python -m voice.service --settings <voice.json> --host 127.0.0.1 --port P --token-file F --info-file I [--default-models-dir D] [--no-gateway]
+    python -m voice.service --settings <voice.json> --host 127.0.0.1 --port P --token-file F --info-file I [--default-models-dir D] [--no-gateway] [--no-desktop]
 
 It starts with no model loaded and no hardware touched, except that an enabled STT with its model installed loads at once (dictation and the
 clipboard do not wait for the VRAM plan); the other functions load on `POST /functions/apply`. Settings come from TaDaMoo's `voice.json` (voice/settings_bridge.py) and are read
 again when the file changes. Every route but /health needs `Authorization: Bearer <the token in F>`. Models are read only from the
 models folder and never downloaded (voice/callbridge/models_store.py). When the server listens it prints one JSON line on stdout,
 `{"ready": true, "port": P, "pid": N}`, and writes `{host, port, pid, started, gateway_port}` to I; I is removed again on a clean stop.
-The phone's voice gateway (voice/gateway.py) starts with the service, on loopback, on a port the service chooses."""
+The phone's voice gateway (voice/gateway.py) starts with the service, on loopback, on a port the service chooses.
+The dictation hotkey and the clipboard history (voice/desktop_features.py) start once the server listens, and the main thread runs the overlay window
+of the desktop until the service stops; `--no-desktop` leaves them, and the overlay, out."""
 from __future__ import annotations
 
 import argparse
@@ -27,7 +29,7 @@ from callbridge.config import Config  # noqa: E402
 
 from callbridge.brains import make_brain  # noqa: E402
 
-from voice import avatar_routes, brain_service, functions, gateway, settings_bridge, speech_routes  # noqa: E402
+from voice import avatar_routes, brain_service, desktop_features, functions, gateway, settings_bridge, speech_routes  # noqa: E402
 from voice.avatar_service import AvatarService  # noqa: E402
 from voice.meetings_service import MeetingsService  # noqa: E402
 
@@ -75,6 +77,7 @@ class State:
         self.avatar = None                              # the AvatarService, set by build_app
         self.calls = None                               # the CallService, set by build_app
         self.meetings = None                            # the MeetingsService (meetings and copilot), set by build_app
+        self.desktop = None                             # the desktop_features.Features (dictation, clipboard history), set by serve
         self.session = brain_service.Session(self)
         self.refresh(force=True)
 
@@ -101,6 +104,8 @@ class State:
                 # A TTS router that already exists takes the new choice at once; nothing is loaded.
                 engines.aggiorna_tts(self.config, *settings_bridge.tts_changes(before, after))
         self.session.sync_hotkeys(self.settings.brain.hotkeys)
+        if self.desktop is not None:
+            threading.Thread(target=self.desktop.sync, name="voice-desktop-sync", daemon=True).start()
         if self.calls is not None:
             threading.Thread(target=self.calls.sync, name="voice-telephony", daemon=True).start()    # opening the modem can take seconds
 
@@ -220,9 +225,15 @@ def serve(args) -> int:
     threading.Thread(target=state.calls.sync, name="voice-telephony", daemon=True).start()
     state.meetings.start()
     try:
-        while not stop.wait(0.5):
-            pass
+        if not args.no_desktop:
+            state.desktop = desktop_features.start(state.config, stop)
+            state.desktop.run_ui(stop)                  # the overlay loop on this thread, or a plain wait
+        else:
+            while not stop.wait(0.5):
+                pass
     finally:
+        if state.desktop is not None:
+            state.desktop.stop()                        # hotkeys off before the servers go
         if state.gateway is not None:
             state.gateway.stop()
         state.meetings.stop()
@@ -255,6 +266,7 @@ def main(argv=None) -> int:
     p.add_argument("--info-file", required=True)
     p.add_argument("--default-models-dir", default="", help="the models folder when voice.json names none")
     p.add_argument("--no-gateway", action="store_true", help="do not start the phone gateway")
+    p.add_argument("--no-desktop", action="store_true", help="do not start dictation, the clipboard history and the overlay")
     args = p.parse_args(argv)
     try:
         return serve(args)
