@@ -21,6 +21,7 @@ from serve.api.responses import error_body as responses_error_body
 from tadamoo import exec_level, nextsteps, persistence, side_uses
 from tadamoo import telegram as tg
 from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, voice_api, voice_compat, voice_import, voice_loader, voice_service, voice_settings
+from serve import voice_gateway_relay
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX, checked_sampling
 from serve.engine.vision import VISION_MODES
@@ -654,6 +655,14 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/rag" or path.startswith("/api/rag/"):
                 if self._authorized():
                     self._rag_route(path, "GET")
+            elif path in ("/api/voice/gateway", "/api/voice/gateway/ws"):      # the phone's way to the voice gateway (serve/voice_gateway_relay.py)
+                if self._authorized():
+                    if not self._local_or_device():
+                        return self._json(403, {"error": {"type": "forbidden", "message": "the voice gateway is reached from this PC or from a phone with its key, with phones turned on"}})
+                    if path.endswith("/ws"):
+                        voice_gateway_relay.relay(self)
+                    else:
+                        self._json(200, voice_gateway_relay.info([{"slug": x["slug"], "name": x["name"]} for x in self._personas().store.list()]))     # names only: a phone may choose one, not read it
             elif path in ("/api/voice/models", "/api/voice/download/plan", "/api/voice/download/status", "/api/voice/service", "/api/voice/functions", "/api/voice/brain", "/api/voice/telephony"):
                 if self._authorized():
                     if not settings.is_loopback(self.client_address[0]):
