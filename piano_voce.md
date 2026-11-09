@@ -122,6 +122,17 @@ di supporto. Il piano usa proprio questo: le funzioni si caricano **prima**, e i
 - **Non si fanno senza il via esplicito**: telefonate vere, meeting veri, caricamento di modelli sulla GPU, uso del microfono. Vanno in `tests/QUEUE_daytime.md` e `QUEUE_live_calls.md`.
 - **Non verificabili qui**: Linux, schede diverse da quella presente, telefoni, modem, Meet/Teams/Zoom reali. Si consegnano "scritti, non provati" e si dichiara.
 
+## 8b. Avatar: quale motore su quale dispositivo (decisione del 9 novembre)
+
+- **App Android ed ESP32**: gli avatar principali sono **Wav2Lip sul dispositivo** (foto reale, inferenza ONNX, NPU) e i **visemi** (foto animata a forme di bocca, CPU, molto leggero). Il PC manda solo audio e, per i visemi, la linea del tempo delle forme di bocca.
+  L'ESP32 usa i visemi. Nessuna GPU del PC serve per questi due modi.
+- **Video generato dal PC (MuseTalk)**: secondario, **solo per emergenza** (il dispositivo non riesce a usare né Wav2Lip né i visemi, o lo chiede la persona). È il solo modo che usa VRAM e a cui servono i pesi di MuseTalk e la GPU; per questo l'accelerazione (fase 11) vale solo per lui.
+- **Creazione di un avatar**: parte da una foto (poster, ritaglio del volto per Wav2Lip, sprite delle bocche per i visemi) e non usa la GPU. Il video della persona è facoltativo (bocche reali, MuseTalk di emergenza).
+- Degradazione: wav2lip -> visemi -> video del PC (solo emergenza) -> solo voce.
+- Da decidere con la fase dei meeting: l'avatar come camera del meeting ha bisogno di fotogrammi sul PC; con questa priorità conviene un renderer leggero sul PC (visemi, o Wav2Lip con onnxruntime) e MuseTalk solo se la persona lo accende.
+- Fasi nuove: **9c** lato PC (protocollo dei motori nel gateway, sprite dei visemi, modello Wav2Lip e asset serviti al telefono, importazione del terminale ESP32 e suo protocollo); **9d** lato app Flutter (renderer dei visemi in Dart, Wav2Lip ONNX con un plugin Kotlin, scelta e degradazione dei motori).
+- Licenza: Wav2Lip originale è per uso di ricerca e non commerciale; il file ONNX di callAPIcall non ha provenienza dichiarata. Da decidere prima di distribuire a terzi.
+
 ## 9. Licenze (verificate sui file originali l'8 novembre 2026) e punti ancora aperti
 
 | Componente | Licenza | Uso commerciale |
