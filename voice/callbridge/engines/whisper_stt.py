@@ -12,16 +12,21 @@ from __future__ import annotations
 import logging
 import os
 import queue
+import re
 import threading
 import time
 
 import numpy as np
 
 from .. import models_store
+from ..language_names import parse_language_command
 from ..memoria import carica_whisper, rilascia
 from ..stt_client import STT_RATE
 
 log = logging.getLogger("callbridge.engines.stt")
+
+# A held language hints the recognizer; a short utterance that is not a language command is heard again without the hint (see `_recheck_for_command`).
+RECHECK_MAX_WORDS = 4
 
 # lang del bridge (Kokoro-style) -> codice lingua whisper.
 _WHISPER_LANG = {
@@ -504,10 +509,11 @@ class NativeSttClient:
         lang, prob, seconds = merge_detections(infos)
         return {"language": lang, "prob": prob, "duration_s": seconds} if lang else None
 
-    def _transcribe(self, audio: np.ndarray) -> tuple[str, tuple | None]:
-        """(text, (language, probability, seconds) or None)."""
+    def _transcribe(self, audio: np.ndarray, hint="same") -> tuple[str, tuple | None]:
+        """(text, (language, probability, seconds) or None). `hint`: the language to hint ("same" = the client's own, None = detect)."""
+        hint = self._lang if hint == "same" else hint
         if self._report and hasattr(self._engine, "transcribe_detailed"):
-            r = self._engine.transcribe_detailed(audio, self._lang, False, detect=True, allowed=self._allowed)
+            r = self._engine.transcribe_detailed(audio, hint, False, detect=True, allowed=self._allowed)
             lang = r.get("language") or ""
             seen = (lang, float(r.get("language_prob") or 0.0), len(audio) / STT_RATE) if lang else None
             return r.get("text") or "", seen
@@ -701,6 +707,20 @@ class NativeSttClient:
             self._chunk_seen, self._parz_infos = self._parz_infos, []
         return " ".join(testi).strip()
 
+    def _recheck_for_command(self, audio: np.ndarray, text: str, seen: tuple | None) -> tuple[str, tuple | None]:
+        """With a language hint (the language is held), a short utterance that is not a language command is transcribed once more with detection
+        and no hint, and that text is kept when it is one: the way out of a held language ("torna automatico") is then heard whatever language it
+        is spoken in. Long utterances and a client without a hint or without detection are left alone: no second pass, no extra cost."""
+        if not (self._report and self._lang and text and len(re.findall(r"\w+", text)) <= RECHECK_MAX_WORDS):
+            return text, seen
+        if parse_language_command(text) is not None:
+            return text, seen
+        again, seen2 = self._transcribe(audio, None)
+        if again and parse_language_command(again) is not None:
+            log.info("STT: comando di lingua sentito senza suggerimento (%r invece di %r)", again[:40], text[:40])
+            return again, seen2
+        return text, seen
+
     def _finalize(self, chunks: list[np.ndarray]) -> None:
         prima = self._raccogli_parziali()
         audio = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
@@ -709,6 +729,8 @@ class NativeSttClient:
             _dump_se_richiesto(audio)
             try:
                 coda, seen_tail = self._transcribe(audio)
+                if not prima:
+                    coda, seen_tail = self._recheck_for_command(audio, coda, seen_tail)
             except Exception as e:  # noqa: BLE001 - errore trascrizione
                 log.error("STT nativo: trascrizione fallita: %s", e)
                 coda = ""

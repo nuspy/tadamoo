@@ -152,3 +152,69 @@ def test_make_stt_client_follow_detects_instead_of_hinting(monkeypatch):
     follow = engines.make_stt_client(cfg, follow=True)
     assert plain._lang == "it" and not plain._report
     assert follow._lang is None and follow._report and follow._allowed == ("it", "fr")
+
+
+class HintDeafEngine:
+    """Hears the hint's language only: with a hint the speech comes out in that language (badly), without one it comes out as it was said."""
+
+    def __init__(self, said="Torna automatico", said_language="it", hinted="turn automatic."):
+        self.said, self.said_language, self.hinted, self.calls = said, said_language, hinted, []
+
+    def load(self):
+        pass
+
+    def transcribe_detailed(self, audio, lang=None, words=False, detect=False, allowed=None):
+        self.calls.append(lang)
+        if lang:
+            return {"text": self.hinted, "segments": [], "language": lang, "language_prob": 1.0}
+        return {"text": self.said, "segments": [], "language": self.said_language, "language_prob": 0.97}
+
+
+def locked_client(engine, hint="en"):
+    c = NativeSttClient(engine, lang=None, report_language=True)
+    c.set_language(hint)
+    return c
+
+
+def test_a_short_utterance_under_a_held_language_is_heard_again_without_the_hint_and_the_exit_phrase_is_recognised():
+    engine = HintDeafEngine()
+    c = locked_client(engine)
+    c._finalize([VOICE])
+    assert c.utterances.get_nowait() == "Torna automatico" and engine.calls == ["en", None]
+    from callbridge.language_session import LanguageSession
+    from callbridge.language_follow import LanguageSettings
+    from callbridge.voice_commands import parse_command
+    s = LanguageSession(LanguageSettings(enabled=("it", "en")), language="en", voice="af_heart", engine="kokoro")
+    s.on_command(parse_command("speak English"), owner=True)
+    assert s.mode == "locked"
+    assert s.on_command(parse_command("Torna automatico"), owner=True).reason == "auto" and s.mode == "follow"
+
+
+@pytest.mark.parametrize("said,language", [("parle français", "fr"), ("sprich Deutsch", "de"), ("parla italiano", "it"), ("automatisch", "de")])
+def test_every_command_phrase_is_found_by_the_second_pass(said, language):
+    engine = HintDeafEngine(said, language, "heard wrongly")
+    c = locked_client(engine)
+    c._finalize([VOICE])
+    assert c.utterances.get_nowait() == said
+
+
+def test_nothing_changes_when_the_first_transcript_is_already_a_command_or_is_long_or_there_is_no_hint():
+    for engine, client in (
+            (HintDeafEngine(hinted="back to automatic"), None),                                   # the hinted transcript is already a command
+            (HintDeafEngine(hinted="this is a longer sentence that is not a command at all"), None),  # long: no second pass
+    ):
+        c = locked_client(engine)
+        c._finalize([VOICE])
+        assert engine.calls == ["en"]
+    free = HintDeafEngine()
+    c = NativeSttClient(free, lang=None, report_language=True)                                    # follow mode: no hint, one pass
+    c._finalize([VOICE])
+    assert free.calls == [None]
+
+
+def test_a_short_utterance_that_is_no_command_in_either_pass_keeps_the_hinted_text_and_its_language_info():
+    engine = HintDeafEngine("buongiorno a tutti", "it", "good morning")
+    c = locked_client(engine)
+    c._finalize([VOICE])
+    assert c.utterances.get_nowait() == "good morning" and engine.calls == ["en", None]
+    assert c.take_language_info()["language"] == "en"                                             # still the held language: the follower is locked anyway
