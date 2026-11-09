@@ -659,7 +659,7 @@ def make_handler(svc: Service, remote: bool = False):
                 if self._authorized():
                     if not self._local_or_device():
                         return self._json(403, {"error": {"type": "forbidden", "message": "the voice gateway is reached from this PC or from a phone with its key, with phones turned on"}})
-                    if path.endswith("/ws"):
+                    if path.rsplit("/", 1)[-1] == "ws":
                         given = self.headers.get("Authorization", "")[7:].strip() or self.headers.get("x-api-key", "")
                         keys = getattr(svc, "keys", None)
                         voice_gateway_relay.relay(self, (lambda: bool(svc.api_key and key_matches(given, svc.api_key)) or (keys is not None and keys.verify(given) is not None)) if self.remote_listener else None)
