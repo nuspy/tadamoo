@@ -7,7 +7,7 @@ no audio, GPU or phone hardware is opened, except that an enabled STT whose mode
 ## Start
 
 ```
-python -m voice.service --settings <voice.json> --host 127.0.0.1 --port P --token-file F --info-file I [--default-models-dir D] [--no-gateway]
+python -m voice.service --settings <voice.json> --host 127.0.0.1 --port P --token-file F --info-file I [--default-models-dir D] [--no-gateway] [--no-desktop]
 ```
 
 - `--host` must be loopback (`127.0.0.1`, `::1`, `localhost`); anything else is refused with exit code 2. `--port 0` picks a free port.
@@ -47,6 +47,17 @@ One entry for each of `stt`, `tts`, `avatar`, `diarization`, `vad`, `embedding`;
 `embedding` has no model in the catalog yet and says so.
 `gateway` is the state of the phone gateway (`host`, `port`, `clients`, `voice`, `avatar`, ...), or `null` with `--no-gateway`.
 
+`GET /components/status` (the callbridge route, also in the service) reports the two desktop features next to the others:
+
+```json
+{"dictation": {"state": "running", "active": true, "hotkey": "alt+space", "model": "small", "detail": null, "last": {"audio_s": 3.1, "stt_ms": 410, "total_ms": 520, "xrt": 6.0}},
+ "clipboard_history": {"state": "running", "active": true, "hotkey": "ctrl+alt+up/down/left/right", "entries": 12, "detail": ""}}
+```
+
+`state` is `running`, `loading` (hotkey on, speech model loading), `error` (hotkey on, speech model failed), `stopped`, `disabled`
+(`dictation.enabled` is false, or the service started with `--no-desktop`) or `unsupported`; `detail` says why when `active` is false.
+`last` has the timings of the latest dictation (`null` before the first). Settings > Voice > Dictation shows these two lines.
+
 ## Settings
 
 `voice/settings_bridge.py` reads `voice.json` (format in `models.md`) without importing `serve` or `tadamoo`. A missing, unreadable or
@@ -61,6 +72,7 @@ modification time changes, so a choice made in Settings > Voice shows in `/statu
 | `diarization` device | `diarization_device` |
 | `models_dir` | `kokoro_model_dir`, `piper_model_dir`, `diarization_model_dir`, `stt_vad_model` |
 | `brain` (mode, personality, folder, server address, hotkeys) | `brain_mode`, `brain_persona`, `brain_workspace`, `tadamoo_base_url` (`chat.md`); the level is the server's (`../permission-levels.md`) |
+| `dictation` (enabled, hotkey) | `dictation_enabled`, `dictation_hotkey`; a change is applied to the running service (`desktop.md`) |
 | `telephony` (transport, approval, disclosure, auto-answer, name) | `call_transport`, `outgoing_approval`, `ai_disclosure_on_start`, `incoming_auto_answer`, `call_on_behalf_of`, `call_audit_file` (`telephony.md`) |
 
 `ram`, or the device `cpu`, means the CPU. `cuda:N` is not a `Config` field: the service gives the helper processes of that service
