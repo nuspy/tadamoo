@@ -100,16 +100,16 @@ void main() {
   Map<String, dynamic> authOf(FakeChannel ch) => ch.sent.first;
 
   group('what is declared and when it is declared again', () {
-    test('the first time nothing is on the phone: only the video is declared; the files are fetched in the background and the PC is told again', () async {
+    test('the first time nothing is on the phone: only the video is declared; the files are fetched in the background and the PC is told again on the same connection', () async {
       await make();
       final ch = await up(ready('none', modes: []));
       expect(authOf(ch), {'type': 'auth', 'device': 'android', 'render_modes': ['video']});
-      await until(() => connector.channels.length == 2);
+      await until(() => ch.last('render_modes') != null);
       expect(source.asked, ['/api/voice/avatar/ada/manifest.json', '/api/voice/avatar/ada/assets.zip']);
       expect(settings.avatarName, 'ada');
-      expect(connector.channels.length, 2, reason: 'the PC can only be told again by opening the connection again');
-      expect(connector.channels.first.closed, isTrue);
-      expect(authOf(connector.channel), {'type': 'auth', 'device': 'android', 'render_modes': ['visemes', 'video'], 'engine': 'visemes', 'resolution': 240});
+      expect(connector.channels.length, 1, reason: 'the connection stays open');
+      expect(ch.closed, isFalse);
+      expect(ch.last('render_modes'), {'type': 'render_modes', 'modes': ['visemes', 'video'], 'engine': 'visemes', 'resolution': 240});
     });
 
     test('with the files already on the phone the visemes are declared at once, and nothing is fetched again', () async {
@@ -143,18 +143,17 @@ void main() {
       expect(authOf(ch)['resolution'], 144);
     });
 
-    test('a change of the choice that changes what is declared opens the connection again with the new declaration', () async {
+    test('a change of the choice that changes what is declared sends the new declaration on the open connection', () async {
       await make(cached: true);
       await hub.downloadModel();
       await hub.refresh();
       await hub.runTest();
-      await up(ready('visemes'));
-      expect(connector.channels.length, 1);
+      final ch = await up(ready('visemes'));
+      expect(ch.last('render_modes'), isNull);
       await settings.setAvatarMode('wav2lip');
       await pumpEventQueue();
-      expect(connector.channels.length, 2);
-      expect(authOf(connector.channel)['render_modes'], ['wav2lip', 'visemes', 'video']);
-      expect(authOf(connector.channel)['engine'], 'wav2lip_gan96');
+      expect(connector.channels.length, 1);
+      expect(ch.last('render_modes'), {'type': 'render_modes', 'modes': ['wav2lip', 'visemes', 'video'], 'engine': 'wav2lip_gan96', 'resolution': null});
     });
 
     test('a setting that does not change what is declared leaves the connection alone', () async {
@@ -164,17 +163,32 @@ void main() {
       await settings.setAvatarBrain('harness');
       await pumpEventQueue();
       expect(connector.channels.length, 1);
+      expect(connector.channel.last('render_modes'), isNull);
     });
 
     test('a model that passes its test while the tab is open makes Wav2Lip declarable at once', () async {
       await make(cached: true, prefs: {'flutter.avatarMode': 'wav2lip'});
-      await up(ready('visemes'));
-      expect(authOf(connector.channel)['render_modes'], ['visemes', 'video']);
+      final ch = await up(ready('visemes'));
+      expect(authOf(ch)['render_modes'], ['visemes', 'video']);
       await hub.downloadModel();
       await hub.runTest();
       await pumpEventQueue();
-      expect(connector.channels.length, 2);
-      expect(authOf(connector.channel)['render_modes'], ['wav2lip', 'visemes', 'video']);
+      expect(connector.channels.length, 1);
+      expect(ch.last('render_modes')!['modes'], ['wav2lip', 'visemes', 'video']);
+    });
+
+    test('the answer of the PC to the new declaration moves the renderer to the mode it chose', () async {
+      await make(cached: true, prefs: {'flutter.avatarMode': 'wav2lip'});
+      final ch = await up(ready('visemes'));
+      await until(() => built.isNotEmpty);
+      expect(asked, ['visemes ada']);
+      await hub.downloadModel();
+      await hub.runTest();
+      await pumpEventQueue();
+      ch.say({'type': 'render_modes', 'modes': ['wav2lip', 'visemes', 'video'], 'render_mode': 'wav2lip', 'avatar_name': 'ada', 'engine': 'wav2lip_gan96', 'resolution': 96});
+      await until(() => built.length == 2);
+      expect(asked.last, 'wav2lip ada');
+      expect(c.client.renderModes, ['wav2lip', 'visemes', 'video']);
     });
   });
 
@@ -311,8 +325,8 @@ void main() {
       expect(c.renderer, isNull);
       expect(built.single.disposed, isTrue);
       expect(connector.channels.first.kinds, contains('video_stop'));
-      expect(connector.channels.length, 2, reason: 'voice only is declared by declaring the video alone');
-      expect(authOf(connector.channel)['render_modes'], ['video']);
+      expect(connector.channels.length, 1, reason: 'voice only is declared by declaring the video alone');
+      expect(connector.channel.last('render_modes'), {'type': 'render_modes', 'modes': ['video'], 'engine': null, 'resolution': null});
     });
 
     test('a change of avatar (a new personality) builds the renderer for its folder', () async {

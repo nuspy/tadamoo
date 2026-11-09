@@ -79,3 +79,13 @@ clock advances by the phone's own. A `visemes` timeline is placed at the `queued
 interrupt releases the track and both clocks start again. With the plugin player as fallback there is no position: the clock is the time since the audio
 was handed over, less an assumed 120 ms. Wav2Lip frames carry their time in the reply and are put on the same clock. Not proven: the real delay between
 the track's head and the sound at the speaker or on a Bluetooth headset, which differs by route (the picture is drawn 40 ms ahead of the sound for the screen).
+
+## When what the phone can draw changes
+
+`EngineHub.plan()` is what the app declares. When it stops being what the PC was told (a download finished, the Wav2Lip self-test passed or
+failed, the engine or the avatar preference changed), `AvatarController` sends `render_modes {modes, engine, resolution}` on the open
+connection through `GatewayClient.declareRenderModes`; the connection is not reopened. The PC validates it like the auth message and
+answers `render_modes {modes, render_mode, avatar_name, engine, resolution}` with the set it serves; the renderer is built or dropped from
+that answer. The client sends at most 5 a minute (the PC takes 6) and keeps only the latest plan while it waits. Protocol: `gateway.md`
+(Render modes, Declare again). Not proven: a thermal downgrade (nothing in the app reads the phone's temperature yet; the plan changes only
+through the causes above) and the exchange with a real phone.

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:basalt_mobile/src/gateway_client.dart';
@@ -61,6 +62,101 @@ void main() {
     await pumpEventQueue();
     expect(client.renderMode, 'video');
     expect(client.renderModes, isEmpty);
+  });
+
+  group('declaring the render modes again on the open connection', () {
+    late DateTime now;
+    late List<Completer<void>> pending;
+
+    setUp(() {
+      now = DateTime(2026, 11, 9, 12);
+      pending = [];
+      client.close();
+      client = GatewayClient(connector: connector.call, clock: () => now, wait: (d) {
+        waits.add(d);
+        final c = Completer<void>();
+        pending.add(c);
+        return c.future;
+      });
+    });
+
+    test('the message carries the modes, the engine and the height, and the answer sets what is served', () async {
+      final ch = await connect();
+      var told = 0;
+      client.onRender = () => told++;
+      client.declareRenderModes({'render_modes': ['wav2lip', 'visemes', 'video'], 'engine': 'wav2lip_gan96', 'resolution': 96});
+      expect(ch.last('render_modes'), {'type': 'render_modes', 'modes': ['wav2lip', 'visemes', 'video'], 'engine': 'wav2lip_gan96', 'resolution': 96});
+      expect(client.declared, ['wav2lip', 'visemes', 'video']);
+      ch.say({'type': 'render_modes', 'modes': ['visemes', 'video'], 'render_mode': 'visemes', 'avatar_name': 'ada', 'engine': 'visemes', 'resolution': 240});
+      await pumpEventQueue();
+      expect(client.renderModes, ['visemes', 'video']);
+      expect((client.renderMode, client.avatarName, client.engine, client.resolution), ('visemes', 'ada', 'visemes', '240'));
+      expect(told, 1);
+    });
+
+    test('an engine or a height the plan leaves out is sent as null, so the PC clears it', () async {
+      final ch = await connect();
+      client.declareRenderModes({'render_modes': ['video']});
+      expect(ch.last('render_modes'), {'type': 'render_modes', 'modes': ['video'], 'engine': null, 'resolution': null});
+    });
+
+    test('nothing is sent without a ready connection; the next first message carries the plan', () async {
+      client.declareRenderModes({'render_modes': ['visemes']});
+      expect(connector.channels, isEmpty);
+      final ch = await connect();
+      expect(ch.kinds, ['auth']);
+      client.close();
+      client.declareRenderModes({'render_modes': ['visemes']});
+      expect(ch.kinds, ['auth']);
+    });
+
+    test('the refusals of the PC (rate limit, bad list) are not a problem for the person', () async {
+      final ch = await connect();
+      for (final code in ['render_modes_rate_limited', 'bad_render_modes']) {
+        ch.say({'type': 'error', 'code': code, 'message': 'no'});
+      }
+      await pumpEventQueue();
+      expect(client.problem, isNull);
+      expect(client.status, GatewayStatus.ready);
+    });
+
+    test('at most 5 in a minute: the next waits, only the latest is sent, and the window opens again by the clock', () async {
+      final ch = await connect();
+      for (var i = 0; i < GatewayClient.declareMax; i++) {
+        client.declareRenderModes({'render_modes': ['visemes', 'v$i']});
+      }
+      expect(ch.sent.where((m) => m['type'] == 'render_modes').length, 5);
+      client.declareRenderModes({'render_modes': ['wav2lip']});
+      client.declareRenderModes({'render_modes': ['visemes']});                  // replaces the one waiting
+      expect(ch.sent.where((m) => m['type'] == 'render_modes').length, 5);
+      expect(waits, hasLength(1));
+      expect(waits.single, const Duration(seconds: 61));
+      now = now.add(const Duration(seconds: 61));
+      pending.single.complete();
+      await pumpEventQueue();
+      final sent = ch.sent.where((m) => m['type'] == 'render_modes').toList();
+      expect(sent.length, 6);
+      expect(sent.last['modes'], ['visemes']);
+    });
+
+    test('a new connection starts with a clean window and forgets what was waiting', () async {
+      final ch = await connect();
+      for (var i = 0; i < GatewayClient.declareMax + 1; i++) {
+        client.declareRenderModes({'render_modes': ['visemes']});
+      }
+      ch.drop();
+      await pumpEventQueue();
+      for (final c in pending.where((c) => !c.isCompleted)) {
+        c.complete();                                                           // the waits: for the window and for the reconnect
+      }
+      await pumpEventQueue();
+      connector.channel.say(readyMessage);
+      await pumpEventQueue();
+      expect(connector.channels.length, 2);
+      expect(connector.channel.last('render_modes'), isNull);
+      client.declareRenderModes({'render_modes': ['wav2lip']});
+      expect(connector.channel.last('render_modes')!['modes'], ['wav2lip']);
+    });
   });
 
   test('a hold-to-talk turn: start, audio only while the button is held, end, then the words, the voice and done', () async {

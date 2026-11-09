@@ -49,10 +49,13 @@ class Line {
 /// The protocol of the gateway (see voice/callbridge/voice_gateway.py) and the state of the conversation. It keeps the connection up by itself:
 /// when it drops, it asks again after 1, 2, 4, 8 and then every 15 seconds, and it forgets the turn that was running.
 class GatewayClient extends ChangeNotifier {
-  GatewayClient({required this.connector, Future<void> Function(Duration)? wait}) : _wait = wait ?? ((d) => Future<void>.delayed(d));
+  GatewayClient({required this.connector, Future<void> Function(Duration)? wait, DateTime Function()? clock})
+      : _wait = wait ?? ((d) => Future<void>.delayed(d)),
+        _clock = clock ?? DateTime.now;
 
   final GatewayConnector connector;
   final Future<void> Function(Duration) _wait;
+  final DateTime Function() _clock;
 
   GatewayStatus status = GatewayStatus.offline;
   Phase phase = Phase.idle;
@@ -108,9 +111,16 @@ class GatewayClient extends ChangeNotifier {
   /// `declaredModes`.
   Map<String, dynamic> Function()? authFields;
 
-  /// The modes declared in the last first message.
+  /// The modes declared in the last first message or `render_modes` message.
   List<String> declared = declaredModes;
-  bool _quick = false;
+
+  /// The PC takes at most 6 `render_modes` messages a minute on one connection; the app stays under it and sends the latest one when the
+  /// window allows.
+  static const declareMax = 5;
+  static const declareWindow = Duration(seconds: 60);
+  final List<DateTime> _declareTimes = [];
+  Map<String, dynamic>? _queued;
+  bool _declareWaiting = false;
 
   Uri? _url;
   Map<String, String> _headers = const {};
@@ -132,15 +142,6 @@ class GatewayClient extends ChangeNotifier {
     if (_wanted) return;
     _wanted = true;
     _loop();
-  }
-
-  /// Opens the connection again at once, to say again what the app can draw (the PC cannot be told that in the middle of a connection).
-  void reconnect() {
-    final c = _channel;
-    if (c == null) return;
-    _quick = true;
-    _channel = null;
-    c.close();
   }
 
   void close() {
@@ -181,10 +182,6 @@ class GatewayClient extends ChangeNotifier {
       _channel = null;
       _forget();
       notifyListeners();
-      if (_quick) {
-        _quick = false;
-        continue;
-      }
       final secs = _backoff[min(_attempt, _backoff.length - 1)];
       _attempt++;
       await _wait(Duration(seconds: secs));
@@ -201,6 +198,8 @@ class GatewayClient extends ChangeNotifier {
     video = VideoStage.off;
     videoDetail = '';
     _pending = 0;
+    _declareTimes.clear();
+    _queued = null;
     _replyOpen = false;
     barging = false;
     resumeOffer = '';
@@ -272,6 +271,11 @@ class GatewayClient extends ChangeNotifier {
       case 'render_mode':
         _readRender(m);
         onRender?.call();
+      case 'render_modes':
+        // the answer to `declareRenderModes`: the set the PC will serve, and the mode and engine it chose from it
+        renderModes = _strings(m['modes']);
+        _readRender(m);
+        onRender?.call();
       case 'visemes':
         onVisemes?.call(m);
       case 'transcript':
@@ -328,7 +332,7 @@ class GatewayClient extends ChangeNotifier {
         video = VideoStage.off;
         onVideoStopped?.call();
       case 'error':
-        if (m['code'] == 'render_mode_unavailable') break;
+        if (const ['render_mode_unavailable', 'render_modes_rate_limited', 'bad_render_modes'].contains(m['code'])) break;
         problem = '${m['message'] ?? ''}';
         problemCode = '${m['code'] ?? ''}';
     }
@@ -420,6 +424,35 @@ class GatewayClient extends ChangeNotifier {
 
   /// The mode in use does not work on this phone; the PC answers with the next one (`render_mode`), or `none`.
   void sendRenderFailed(String mode, String why) => _send({'type': 'render_failed', 'mode': mode, 'why': why});
+
+  /// What this phone can draw changed (a self-test, another engine, a thermal downgrade): the PC is told on the open connection and answers
+  /// with the effective set (`render_modes`). `fields` is a `RenderPlan.fields`; an engine or a height it leaves out is cleared on the PC.
+  /// Without a ready connection nothing is sent: the next first message carries the current plan.
+  void declareRenderModes(Map<String, dynamic> fields) {
+    if (status != GatewayStatus.ready) return;
+    _queued = fields;
+    _flushDeclared();
+  }
+
+  void _flushDeclared() {
+    final fields = _queued;
+    if (fields == null || status != GatewayStatus.ready) return;
+    final now = _clock();
+    _declareTimes.removeWhere((t) => now.difference(t) >= declareWindow);
+    if (_declareTimes.length >= declareMax) {
+      if (_declareWaiting) return;
+      _declareWaiting = true;
+      _wait(declareWindow - now.difference(_declareTimes.first) + const Duration(seconds: 1)).then((_) {
+        _declareWaiting = false;
+        _flushDeclared();
+      });
+      return;
+    }
+    _queued = null;
+    _declareTimes.add(now);
+    declared = [for (final m in (fields['render_modes'] as List? ?? const [])) '$m'];
+    _send({'type': 'render_modes', 'modes': declared, 'engine': fields['engine'], 'resolution': fields['resolution']});
+  }
 
   void setRenderMode(String mode) => _send({'type': 'render_mode', 'mode': mode});
 
