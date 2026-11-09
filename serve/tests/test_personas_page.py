@@ -33,9 +33,9 @@ class PersonasPageTest(unittest.TestCase):
 
     def test_every_route_of_the_server_is_used(self):
         for route in ('"api/personas"', "`api/personas/${encodeURIComponent(chosen)}?${q}`", "`api/personas/${encodeURIComponent(chosen)}/update`", "`api/personas/${encodeURIComponent(chosen)}/delete`",
-                      "`api/personas/${encodeURIComponent(chosen)}/memory/${action}`", "`api/personas/${encodeURIComponent(slug)}/compose`", "`api/agent/sessions/${encodeURIComponent(sid)}/persona`"):
+                      "`api/personas/${encodeURIComponent(chosen)}/memory/${action}`", "`api/personas/${encodeURIComponent(slug)}/compose`", "`api/personas/${encodeURIComponent(slug)}/learn`", "`api/agent/sessions/${encodeURIComponent(sid)}/persona`"):
             self.assertIn(route, JS)
-        for action in ('mpost("item"', 'mpost("confirm"', 'mpost("delete"', 'mpost("clear"'):
+        for action in ('mpost("item"', 'mpost("confirm"', 'mpost("delete"', 'mpost("clear"', 'mpost("forget-learned"'):
             self.assertIn(action, JS)
         self.assertIn("authHeaders()", JS)
         self.assertIn('e.detail === "personas"', JS)
@@ -46,7 +46,8 @@ class PersonasPageTest(unittest.TestCase):
         self.assertIn("textContent = text", JS)
 
     def test_deleting_needs_two_presses_and_sends_the_confirmation(self):
-        self.assertEqual(JS.count("{ confirm: true }"), 2)                                          # the personality, and all its notes
+        self.assertEqual(JS.count("{ confirm: true }"), 3)                                          # the personality, all its notes, and what was learned
+        self.assertIn('if (!sure) { arm("forget"); return; }', JS)
         self.assertIn('if (!sure) { arm("delete"); return; }', JS)
         self.assertIn('if (!sure) { arm("clear"); return; }', JS)
         self.assertIn('if (!sure) { arm("d" + i.id); return; }', JS)
@@ -64,6 +65,17 @@ class PersonasPageTest(unittest.TestCase):
         self.assertIn("window.personaUi.reset()", CHAT)                                              # a new conversation starts with none
         self.assertIn('const KEY = "tadamoo.chat.persona"', JS)
         self.assertIn("if (!slug || withSessions()) return \"\"", JS)                               # a conversation with a harness has it composed by the harness
+
+    def test_learning_from_conversations_has_a_switch_a_line_and_a_forget_button(self):
+        self.assertIn('cb.type = "checkbox"; cb.id = "pe-learn-on"; cb.checked = on;', JS)
+        self.assertIn("{ learn: cb.checked }", JS)                                                   # kept in persona.json by the update route
+        self.assertIn('T("pe.learn.line", L.conversations, when(L.last))', JS)                      # learned from N conversations, last at
+        self.assertIn('i.source === "conversation"', JS)                                            # the learned notes carry a mark
+        self.assertIn(".pe-switch { display: flex; align-items: center; gap: 12px; min-height: 44px;", CSS)
+        self.assertIn("window.personaUi.learn(", CHAT)                                               # "New conversation" hands the model-only chat over
+        self.assertIn("!isPrivate()", CHAT[CHAT.index("window.personaUi.learn(") - 40:CHAT.index("window.personaUi.learn(") + 20])        # never a private one
+        self.assertLess(CHAT.index("window.personaUi.learn("), CHAT.index("window.personaUi.reset()"))      # before the choice is cleared
+        self.assertIn("if (!slug || withSessions() || !lines.length) return;", JS)                  # a conversation with a harness is learned from by the server
 
     def test_the_texts_exist_in_both_languages_and_have_no_emoji(self):
         keys = set(re.findall(r'\bT\(\s*"(pe\.[\w.]+)"', JS)) | set(re.findall(r'data-t(?:-title)?="(pe\.[\w.]+)"', HTML)) | {"sub.personas", "pal.set.personas"}

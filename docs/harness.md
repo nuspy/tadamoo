@@ -1097,7 +1097,7 @@ alone is no longer on the pure single-stream path. The Loader says so next to th
 again when it changes, by every process). The uses: `triage` (the look at a request), `judge`, `router`, `optimize`, `suggestions`
 (the newest turns under a prompt of its own, no tools), `compaction` (the agent's summary, read in parts when larger than the session),
 `chat_summary`, `chat_abstract`, `code_abstract` (a plain description of old code in a Chat message, the original saved), `longform`, `memory_extract` (learning the person's memories, which in the session need not wait for the
-card to be free), `memory_rank` (which of the notes the word match found really bear on a request), `progress` (a line on how far a task
+card to be free), `persona_learning` (a personality's summary of a finished conversation, `docs/personas.md`), `memory_rank` (which of the notes the word match found really bear on a request), `progress` (a line on how far a task
 nobody watches has got), `planner` (comparison and re-planning), `tool_extract` (a large tool result read for the lines that matter,
 checked line by line against the result, the full text saved) and `inject_screen` (a second look at outside text for instructions to the
 assistant; a list of phrases does the same without the session, also on files and command output, with only the strict phrases there). `tool_extract` changes what the model reads, so it starts off; like `memory_rank` and `progress` it is not made

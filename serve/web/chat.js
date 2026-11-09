@@ -644,6 +644,7 @@
     const a = agent();
     if (a) { a.newChat(); prompt.focus(); return; }
     if (busy) busy.controller.abort();
+    if (window.personaUi && !isPrivate()) window.personaUi.learn(messages.filter(m => m && (m.role === "user" || m.role === "assistant")).map(m => ({ role: m.role, text: wordsOf(m.text != null ? m.text : m.content) })).filter(m => m.text), chatId());
     clearTimeout(indexTimer); keep(ID_KEY, ""); keep(PRIV_KEY, "0"); personaText = ""; if (window.personaUi) window.personaUi.reset(); messages = []; save(); render(); status(T("ch.new")); prompt.focus(); meter();
   };
 

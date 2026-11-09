@@ -76,8 +76,14 @@
     if (!r.ok) throw new Error(T("pe.compose.fail", why(r)));
     return [r.data.system, r.data.memory].filter(Boolean).join("\n\n");
   }
+  /* the model-only chat ended: its lines go to the personality it spoke as, to learn from (a conversation with a harness is learned from by the server) */
+  async function learn(lines, conversation) {
+    const slug = stored();
+    if (!slug || withSessions() || !lines.length) return;
+    await api("POST", `api/personas/${encodeURIComponent(slug)}/learn`, { conversation, messages: lines.slice(-40).map(l => ({ role: l.role, text: String(l.text).slice(0, 4000) })) });
+  }
   window.personaUi = {
-    pending: () => (withSessions() ? sel.value : ""), name: nameOf, paint: paintMenu, system,
+    pending: () => (withSessions() ? sel.value : ""), name: nameOf, paint: paintMenu, system, learn,
     reset() { pending = ""; keepStored(""); paintMenu(); },
     reload: loadList,
   };
@@ -206,7 +212,7 @@
       return li;
     }
     const head = el("div", "me-nhead");
-    head.append(el("span", "me-tag " + i.kind, T("me.sec." + i.section)), el("span", "me-origin", i.origin === "inferred" ? T("me.origin.inferred", Math.round(i.confidence * 100)) : T("me.origin." + i.origin)),
+    head.append(el("span", "me-tag " + i.kind, T("me.sec." + i.section)), ...(i.source === "conversation" ? [el("span", "me-tag", T("pe.learn.tag"))] : []), el("span", "me-origin", i.origin === "inferred" ? T("me.origin.inferred", Math.round(i.confidence * 100)) : T("me.origin." + i.origin)),
       el("span", "me-when", T("me.seen", when(i.seen), i.mentions || 1)));
     li.append(head, el("p", "me-text", i.text));
     const bar = el("div", "me-nbar");
@@ -253,9 +259,30 @@
     form.append(kind, sec, tl, text, btn(T("me.add"), "primary", () => form.requestSubmit()));
     return form;
   }
+  function learnBlock() {
+    const box = el("div", "pe-learn"), L = detail.learned, on = detail.persona.learn !== false, row = el("label", "pe-switch"), cb = el("input");
+    cb.type = "checkbox"; cb.id = "pe-learn-on"; cb.checked = on;
+    cb.onchange = async () => {
+      const r = await api("POST", `api/personas/${encodeURIComponent(chosen)}/update`, { learn: cb.checked });
+      say(r.ok ? "" : why(r), !r.ok);
+      await refresh();
+    };
+    row.append(cb, el("span", "", T("pe.learn.on")));
+    const sure = armed === "forget", forget = btn(sure ? T("pe.learn.forget.sure", L.notes) : T("pe.learn.forget", L.notes), sure ? "pe-warn" : "ghost", async () => {
+      if (!L.notes) return;
+      if (!sure) { arm("forget"); return; }
+      armed = ""; const r = await mpost("forget-learned", { confirm: true });
+      say(r.ok ? T("pe.learn.forgot", r.data.forgotten) : why(r), !r.ok); await refresh();
+    });
+    forget.disabled = !L.notes;
+    const bar = el("div", "pe-bar");
+    bar.append(forget);
+    box.append(row, el("p", "pe-help", T("pe.learn.help")), el("p", "pe-line", L.conversations ? T("pe.learn.line", L.conversations, when(L.last)) : T("pe.learn.none")), bar);
+    return box;
+  }
   function memoryBlock() {
     const m = detail.memory, box = el("section", "pe-memory"), total = m.counts.long + m.counts.short;
-    box.append(el("h3", "pe-h", T("pe.mem.title")), el("p", "pe-help", T("pe.mem.help")), el("p", "pe-line", T("pe.mem.counts", m.counts.long, m.counts.short)), filterBar());
+    box.append(el("h3", "pe-h", T("pe.mem.title")), el("p", "pe-help", T("pe.mem.help")), el("p", "pe-line", T("pe.mem.counts", m.counts.long, m.counts.short)), learnBlock(), filterBar());
     const ul = el("ul", "me-list");
     m.items.forEach(i => ul.append(noteRow(i)));
     box.append(m.items.length ? ul : el("p", "pe-help", T(query || fKind || fSection ? "pe.mem.nomatch" : "pe.mem.none")));
