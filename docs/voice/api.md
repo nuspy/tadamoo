@@ -67,6 +67,8 @@ Errors made here are `{"error": "<text>", "code": "<code>"}`, the form callAPIca
 | `/meetings/plan/<id>` | PUT, PATCH, DELETE | local | change the named fields, or delete a manual item; gated like a join |
 | `/meetings/plan/<id>/join-now` | POST | local | `{rights_confirmed: true}` -> `202`; gated like a join |
 | `/copilot/state`, `/copilot/toggle` | GET, POST | local | the copilot window |
+| `/personas` | GET, POST | local | answered by this server from TaDaMoo's own personalities, not by the service (see "Personalities") |
+| `/personas/<name>` | GET, PUT, PATCH, DELETE | local | the same; DELETE needs `?confirm=true` |
 
 ## 501 not_available_yet
 
@@ -75,10 +77,31 @@ These answer `501` with `code: not_available_yet` and the reason, and reach no s
 | Route | Why |
 |---|---|
 | `/tts/model`, `/tts/voice` | the voice and the engine are chosen in Settings > Voice |
-| `/models/load`, `/models/unload` | functions are loaded and unloaded from the Voice functions dialog in the Loader |
-| `/tts/stream`, `/stt/stream` | WebSocket streaming is not offered on this port yet |
-| `/personas`, `/personas/...` | the personalities are TaDaMoo's own (`/api/personas`); the callAPIcall form comes with the avatar phase |
+| `/models/load`, `/models/unload` | loading a function plans the VRAM and may unload and reload the language model, so it needs the person's confirmation in the Voice functions dialog in the Loader (`loading.md`); callAPIcall's one-call `{stt_model, tts}` has no safe equivalent |
+| `/tts/stream`, `/stt/stream` | the service has no streaming speech route behind its token; only the old Handy server (`handy_compat_enabled`, off by default, port 8720, no token) speaks these WebSockets, and relaying it would put an unauthenticated socket behind the key |
+| `/personas/<name>/...` | the memory, clips, poster and avatar files of a personality: the memory is the person's, the avatar files come with the avatar phase |
 | `/avatar/...` | the animated avatar comes with its own phase |
+
+## Personalities
+
+`/personas` keeps callAPIcall's paths and is answered here by `serve/personas_compat.py` over the same store as Settings > Personalities
+(`docs/personas.md`); the voice service is not asked. For this PC only, with the key when one is set, because a personality's text steers the agent.
+
+| callAPIcall | TaDaMoo |
+|---|---|
+| `name` in an answer | the slug, which the other routes take; `display_name` is the name |
+| `name` in a body | the display name (the slug is made from it and then never changes) |
+| `voice {engine, voice}`, `personality`, `system_prompt` | the same fields |
+| `avatar`, `language`, `knowledge` (archive ids), `learn` | TaDaMoo's own fields, read and written with the same names |
+| `knowledge_project` | no equivalent: refused when not empty, ignored when empty |
+| `clips`, `clip_count`, `has_personality_docs`, `knowledge_chunks` | not in an answer |
+
+- `POST` answers `201 {status, name, display_name, persona}`, `409 exists` for a name already used. `PUT` and `PATCH` change the fields sent.
+  `GET /personas/<name>` is new. A path takes the slug or the name (spaces or underscores, any case).
+- Memory is never in an answer and cannot be written: the short profile, the notes and what was learned. `profile` and `memory` in a body are `400`.
+- `DELETE` removes the personality and its memory, so it needs `?confirm=true`; without it `400 confirmation_needed` says how many notes would go.
+  callAPIcall's `409` for the active avatar is not offered.
+- A body is at most 128 KiB; a field the store refuses is `400` with its reason.
 
 ## Analysis of a recording
 
@@ -103,6 +126,6 @@ program runs on this PC). The default is not changed here.
 
 ## Tests
 
-`serve/tests/test_voice_compat.py` (the table, who may use it, files, waits, 501, the token, with a stand-in service),
+`serve/tests/test_voice_compat.py` (the table, who may use it, files, waits, personalities, 501, the token, with a stand-in service),
 `serve/tests/test_voice_compat_programs_join.py` (the gate), `serve/tests/test_external_surface.py` (the paths outside `/v1`), `voice/tests/test_analysis_service.py` and `test_speech_routes.py`
 (the service side with stand-ins for the STT, the diarizer and the model).

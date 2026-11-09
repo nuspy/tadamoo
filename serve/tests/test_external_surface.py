@@ -4,17 +4,21 @@ A route added by accident (a provider relay, an embeddings or files endpoint, a 
 the external surface is always a deliberate change to the lists below."""
 import json
 import re
+import tempfile
 import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest import mock
 
-from serve import voice_compat
+from serve import handler, voice_compat
 from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate
 from serve.handler import serve
+from serve.personas_api import PersonasApi
 from serve.service import Service
 from serve.util.text import ByteTokenizer
+from tadamoo.personas import PersonaStore
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -50,6 +54,9 @@ class ExternalSurfaceTest(unittest.TestCase):
         cls.svc = Service(MockEngine(tok, "</think>\n\nok", max_context=32768), tok,
                           ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
         cls.svc.telemetry = _NoTelemetry()
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.personas = mock.patch.object(handler, "_PERSONAS", PersonasApi(PersonaStore(Path(cls.tmp.name) / "personas", key=bytes(range(32)))))
+        cls.personas.start()
         cls.httpd = serve(cls.svc, port=0)
         cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"
 
@@ -57,6 +64,8 @@ class ExternalSurfaceTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.httpd.shutdown()
         cls.httpd.server_close()
+        cls.personas.stop()
+        cls.tmp.cleanup()
 
     def call(self, method, path, payload=None):
         data = None if payload is None else json.dumps(payload).encode("utf-8")
@@ -87,8 +96,12 @@ class ExternalSurfaceTest(unittest.TestCase):
             self.assertEqual(self.call("GET", path)[0], 404, path)
 
     def test_a_callapicall_route_that_is_not_there_yet_says_so(self):
-        code, body = self.call("GET", "/personas")
-        self.assertEqual((code, body["code"]), (501, "not_available_yet"))
+        for method, path in (("GET", "/personas/Ada/memory"), ("POST", "/models/load"), ("GET", "/tts/stream"), ("GET", "/stt/stream")):
+            code, body = self.call(method, path, {} if method == "POST" else None)
+            self.assertEqual((code, body["code"]), (501, "not_available_yet"), path)
+
+    def test_the_personalities_are_answered_by_the_server_itself(self):
+        self.assertEqual(self.call("GET", "/personas"), (200, {"personas": []}))
 
     def test_routes_of_other_services_are_not_offered(self):
         for path in NOT_OFFERED:
