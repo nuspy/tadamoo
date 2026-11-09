@@ -3,7 +3,6 @@ an audio encoder, wenet (20 fps, runs on a phone) or HuBERT Large (25 fps, bette
 of `process.py`, `train.py`, `inference.py` and `pth2onnx.py` at that commit. See docs/voice/engines-personalised.md."""
 from __future__ import annotations
 
-import os
 import shutil
 from pathlib import Path
 
@@ -16,7 +15,6 @@ ASR_DEFAULT = "wenet"
 FACE = 160                                # FACE_INNER_SIZE of face_utils.py: what the UNet draws
 AUDIO_SHAPE = {"wenet": [1, 128, 16, 32], "hubert": [1, 16, 32, 32]}      # the dummy inputs of pth2onnx.py
 HUBERT_CACHE = "models--facebook--hubert-large-ls960-ft"                  # what hubert.py loads by name
-HAS_WAIT3 = hasattr(os, "wait3")          # data_utils/get_landmark.py imports it, and the preprocessing needs that file
 
 
 class UltralightEngine(PersonalisedEngine):
@@ -59,12 +57,6 @@ class UltralightEngine(PersonalisedEngine):
     def staged_weights(self, base, opts):
         out = super().staged_weights(base, opts)
         return out + ([("data_utils/encoder.onnx", self.encoder_file(base))] if opts and opts.get("asr") == "wenet" else [])
-
-    def extra_checks(self, base: str, opts: dict) -> list[Check]:
-        ok = HAS_WAIT3
-        return [Check("platform", ok, "the preprocessing script can import os.wait3" if ok else
-                      "Ultralight's preprocessing imports os.wait3, which Windows does not have: run the engines Python on Linux, or use FeatherTalk",
-                      "il preprocessing di Ultralight importa os.wait3, che Windows non ha: esegui il Python dei motori su Linux, oppure usa FeatherTalk")]
 
     def preprocess_cmd(self, python, code, base, video, opts):
         return [python, "data_utils/process.py", str(video), "--asr", opts["asr"]], code

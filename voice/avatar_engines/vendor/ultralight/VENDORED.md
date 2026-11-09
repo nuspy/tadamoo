@@ -3,8 +3,8 @@
 - Origin: https://github.com/anliyuan/Ultralight-Digital-Human
 - Commit: 5aa8b5a8aae4b003b7de5750abeac5343a7b38e0
 - Taken on: 2026-11-09, from the raw blobs of that commit (`git show <commit>:<path>`), not from a checkout.
-- Size: 185543 bytes in 21 files.
-- Patches: none. Every file below is byte for byte the upstream file (SHA-256 of the blob in the table).
+- Size: 185522 bytes in 21 files.
+- Patches: one, listed under Patches. Every other file below is byte for byte the upstream file (SHA-256 of the blob in the table); the table holds the SHA-256 of the file as it is here.
 
 ## What is not here
 
@@ -17,9 +17,26 @@ The engine copies them next to the code in a run folder before it starts a scrip
 
 See `LICENSE-NOTE.md`: the repository has no LICENSE file.
 
-## Known upstream defect
+## Patches
 
-`data_utils/get_landmark.py` has `from os import wait3`, which Windows does not have: the preprocessing cannot run on Windows with this code unedited.
+`data_utils/get_landmark.py`: one line removed. Upstream has `from os import wait3` and never uses `wait3`; Windows has no `os.wait3`, so the import fails there and the
+preprocessing cannot run. Before (lines 1 to 3):
+
+```
+import argparse
+from os import wait3
+
+```
+
+After (lines 1 to 2):
+
+```
+import argparse
+
+```
+
+Upstream blob: SHA-256 `cbac181a5f49a3b7c4efc62374ab463f3e724bfcfcd8e0135435e6617c9b350e`, 3848 bytes. Here: the SHA-256 in the table, 3827 bytes. Putting the removed line back after
+`import argparse` gives the upstream blob again (`voice/tests/test_avatar_engine_vendor.py` checks it).
 
 ## Files
 
@@ -33,7 +50,7 @@ See `LICENSE-NOTE.md`: the repository has no LICENSE file.
 | inference.py | 892ca62e1aff516dcee8c8c65c4f2be9b07cb718b53ad00d2c9b77924bb9802a | 6178 |
 | pth2onnx.py | d1126b3891fbfd6b2db9c83f572e843ec4ac58a7ef2e6322c1593bdb091ae453 | 2421 |
 | data_utils/process.py | ad4f1f56ed28c407c86180d0074ce16a7e5c1be6531ed3325a18f44e05aa5174 | 4088 |
-| data_utils/get_landmark.py | cbac181a5f49a3b7c4efc62374ab463f3e724bfcfcd8e0135435e6617c9b350e | 3848 |
+| data_utils/get_landmark.py | 0007be8c6af2001f39c4af7aaa7d4e173fbb7bb049eab1f2087fcd40a2309b75 | 3827 |
 | data_utils/detect_face.py | 3dc5a8af99abf2c7798f1d8186490c57bbe71c7cfed6f518562c89c30dc5c640 | 5136 |
 | data_utils/pfld_mobileone.py | b1ab91e9591bc1ac84aaefcd361adb5f43eb2bf0c6b966d25979f43567fec07c | 17013 |
 | data_utils/base_module.py | c86174981155d4fba83c3d271304950b656094731405608b4a7147f1bbcc3263 | 17497 |

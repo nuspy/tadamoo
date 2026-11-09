@@ -24,7 +24,6 @@ CLIP = {"seconds": 240.0, "fps": 25.0, "width": 160, "height": 160}
 def _env(monkeypatch):
     monkeypatch.setenv(PYTHON_ENV, PY)
     monkeypatch.delenv("FAKE_HANG", raising=False)
-    monkeypatch.setattr(ultralight, "HAS_WAIT3", True)
     monkeypatch.setattr(models_store, "_service_env", {})
     monkeypatch.delenv(models_store.ROOT_ENV, raising=False)
     saved = {(e, n): registry.ENGINES[e].__dict__.get(n) for e in ("ultralight", "feathertalk") for n in ("convert_cmd", "audio_cmd", "which", "vendor")}
@@ -272,7 +271,7 @@ def test_setup_lists_each_prerequisite_with_the_entry_that_fixes_it_and_where_a_
     assert items["landmarks"]["install"] == "engine-landmarks" and items["audio"]["install"] == "feathertalk-weights" and "install" not in items["vgg19"]
     assert items["audio"]["where"].endswith("weights") and items["vgg19"]["where"].endswith("checkpoints") and items["python"]["ok"] and items["ffmpeg"]["ok"]
     assert s["python"] == {"path": PY, "source": "env", "env": PYTHON_ENV}
-    assert rig.jobs.setup("ultralight")["items"][-1]["id"] == "platform"
+    assert "platform" not in {i["id"] for i in rig.jobs.setup("ultralight")["items"]}
     for want in ("wenet", "hubert"):
         assert rig.jobs.setup("ultralight", want)["options"]["asr"] == want
     audio = lambda asr: {i["id"]: i for i in rig.jobs.setup("ultralight", asr)["items"]}["audio"]
