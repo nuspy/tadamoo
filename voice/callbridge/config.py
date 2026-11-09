@@ -357,12 +357,14 @@ class Config:
     # non e' ancora uscito si puo' ancora tagliare o cambiare. Interruttore
     # TEMPORANEO, finche' il percorso nuovo non ha sostituito il vecchio.
     duplex_motore_nuovo: bool = False
-    # Quando l'utente dice qualcosa che riguarda cio' che l'avatar STA PER
-    # dire, si riscrive il seguito invece di accodare una risposta a parte.
-    # Costa un taglio e una generazione in piu', quindi si concede solo se
-    # c'e' abbastanza parlato non ancora uscito da coprire l'attesa.
-    duplex_integra: bool = False
+    # Integrating an interruption in the engine rewrites the rest of the answer: it costs a cut and one more generation, so it is done only
+    # when this many seconds of speech are still to come; otherwise the answer is stopped and the new request answered.
     duplex_integra_da_s: float = 2.5
+    # What happens when the person speaks over the avatar (`interruptions` in voice.json; callbridge/interruption.py).
+    interruptions_enabled: bool = True
+    interruption_judge_timeout_ms: int = 800
+    interruption_duck_level: float = 0.3
+    interruption_resume_offer: bool = True
     # Cancellazione d'eco sul PC (AEC3 di WebRTC in un venv a parte, perche' la
     # ruota non esiste per il 3.10 su cui gira il bridge). Senza, in vivavoce
     # il microfono risente le casse: misurato, 9,3 dB di attenuazione naturale

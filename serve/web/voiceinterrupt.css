@@ -1,0 +1,9 @@
+/* The "Speaking over the avatar" card of Settings > Voice. Mobile first: one column, every target 44px or more, nothing wider than the screen. */
+.vi-field { display: grid; gap: 4px; min-width: 0; margin: 0 0 12px; }
+.vi-field > label:not(.vt-check) { font-weight: 600; color: var(--fg); }
+.vi-field .vt-check { min-height: 44px; align-items: center; }
+.vi-field .vt-check span { min-width: 0; overflow-wrap: anywhere; }
+.vi-field input[type="number"] { width: 100%; max-width: 240px; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font: 16px/1.4 var(--font-sans); box-sizing: border-box; }
+.vi-field input:disabled { opacity: .6; }
+.vi-field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 520px) { .vi-field input[type="number"] { max-width: none; } }
