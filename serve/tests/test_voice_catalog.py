@@ -59,7 +59,7 @@ class GroundingTest(unittest.TestCase):
         code += (ROOT / "voice/avatar/musetalk/download_weights.sh").read_text(encoding="utf-8")
         for e in vc.CATALOG:
             for s in e["sources"]:
-                if s["type"] != "hf":
+                if s["type"] != "hf" or e["kind"] == "engine-pack":                  # the packs' repositories are checked in test_avatar_engine_packs.py
                     continue
                 repo = s["repo"]
                 if repo.startswith("Qwen/Qwen3-TTS-12Hz-"):
@@ -81,16 +81,17 @@ class GroundingTest(unittest.TestCase):
         for name in ("kokoro-v1.0.fp16.onnx", "voices-v1.0.bin", "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
                      "sherpa-onnx-pyannote-segmentation-3-0.tar.bz2"):
             self.assertIn(name, names)
-        urls = [s["url"] for e in vc.CATALOG for s in e["sources"] if s["type"] == "url" and not s["url"].startswith(vc._WHISPER_HOST)]
+        urls = [s["url"] for e in vc.CATALOG for s in e["sources"] if s["type"] == "url" and e["kind"] == "model" and not s["url"].startswith(vc._WHISPER_HOST)]
         self.assertEqual(len(urls), 4)
         for u in urls:
             self.assertTrue(u.startswith("https://github.com/"))
 
     def test_a_size_is_given_only_where_the_voice_code_states_it(self):
         sized = {e["id"] for e in vc.CATALOG if e["size"]}
-        self.assertEqual(sized, {"whisper-large-v3", "kokoro", "xtts-v2", "musetalk-v15", "sherpa-diarization", "wav2lip-int8"})
+        packs = {e["id"] for e in vc.CATALOG if e["kind"] == "engine-pack"}                  # their sizes are those of the pinned blobs
+        self.assertEqual(sized - packs, {"whisper-large-v3", "kokoro", "xtts-v2", "musetalk-v15", "sherpa-diarization", "wav2lip-int8"})
         for e in vc.CATALOG:
-            if e["size"] is None:
+            if e["size"] is None and e["kind"] == "model":
                 self.assertIn("size", e["verify"], e["id"])
 
 
@@ -105,7 +106,7 @@ class LicenseAndVerifyTest(unittest.TestCase):
             self.assertIn("license", vc.find(model)["verify"])
 
     def test_only_xtts_and_the_wav2lip_file_are_non_commercial(self):
-        self.assertEqual([e["id"] for e in vc.CATALOG if e["noncommercial"]], ["xtts-v2", "wav2lip-int8"])
+        self.assertEqual([e["id"] for e in vc.CATALOG if e["noncommercial"]], ["xtts-v2", "wav2lip-int8", "wav2lipv2-code", "wav2lipv2-weights"])
         self.assertIn("Non-commercial", vc.LICENSES["cpml-1.0"]["en"])
         self.assertIn("non-commercial", vc.LICENSES["wav2lip-research"]["en"])
 
@@ -116,7 +117,7 @@ class LicenseAndVerifyTest(unittest.TestCase):
         self.assertEqual((e["probe"], vc.folder_of(e)), (["wav2lip_int8.onnx"], "avatar/wav2lip-int8"))
         self.assertEqual(set(e["verify"]), {"license", "source"})                                      # provenance is undeclared: verify is on
         self.assertEqual(vc.downloadable(e), (False, "no_source"))
-        self.assertTrue(all(m["selectable"] for m in vc.models_of("avatar") if m["id"] != "wav2lip-int8"))
+        self.assertTrue(all(m["selectable"] for m in vc.models_of("avatar") if m["id"] != "wav2lip-int8" and m["kind"] == "model"))
         self.assertEqual(vc.DEFAULTS["avatar"], "musetalk-v15")
         with tempfile.TemporaryDirectory() as root:
             self.assertFalse(vc.public(e, root)["installed"])

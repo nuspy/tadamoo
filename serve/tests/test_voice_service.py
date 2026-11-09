@@ -271,7 +271,7 @@ class AgreementTests(Base):
         for e in vc.CATALOG:
             self.assertEqual(self.ms.is_installed(e["id"], str(root)), vc.installed(e, str(root)), e["id"])
         for e in vc.CATALOG:
-            folder = root / e["service"] / e["id"]
+            folder = root / vc.folder_of(e)
             folder.mkdir(parents=True, exist_ok=True)
             for probe in e["probe"]:
                 (folder / probe).parent.mkdir(parents=True, exist_ok=True)
