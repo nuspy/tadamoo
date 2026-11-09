@@ -9,7 +9,8 @@
                   "display_name": "<name>", "virtual_mic": "<part of a device name>", "wake_phrase": "<phrase>", "calendar_autojoin": true|false,
                   "copilot_replies": 1..6, "copilot_audio_reply": true|false, "copilot_hide_from_capture": true|false},
      "telephony": {"transport": "off|auto|gsm|android", "outgoing_approval": "manual|auto", "ai_disclosure_on_start": true|false,
-                   "incoming_auto_answer": true|false, "on_behalf_of": "<name>"}}
+                   "incoming_auto_answer": true|false, "on_behalf_of": "<name>"},
+     "interruptions": {"enabled": true|false, "judge_timeout_ms": 200..5000, "duck_level": 0..0.9, "resume_offer": true|false}}
 A missing value has a default: the folder is `voice/` inside the first models folder of Basalt (else `voice-models/` in the data folder), a
 service uses the default model of serve/voice_catalog.py, on the GPU the service picks (`auto`) in VRAM, or on the CPU in RAM for the
 services that run there. Changing the folder moves nothing: a model is looked for where the folder is now. The file is replaced whole."""
@@ -593,3 +594,65 @@ def set_meetings(req) -> dict:
         if changes.get(key) is True and not before[key]:
             log.info("meetings: %s was turned on by the person", key)
     return meetings()
+
+
+# ---------------------------------------------------------------------------------------- speaking over the avatar
+INTERRUPTIONS_DEFAULT = {"enabled": True, "judge_timeout_ms": 800, "duck_level": 0.3, "resume_offer": True}    # voice/callbridge/interruption.py holds the same (a test compares)
+JUDGE_TIMEOUT_MS = (200, 5000)
+DUCK_LEVEL = (0.0, 0.9)
+
+
+def _duck_ok(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and DUCK_LEVEL[0] <= value <= DUCK_LEVEL[1]
+
+
+def interruptions() -> dict:
+    """What the avatar does when the person speaks over it, as the voice service reads it: a missing or bad value is the default."""
+    stored = _read().get("interruptions")
+    stored = stored if isinstance(stored, dict) else {}
+    out = dict(INTERRUPTIONS_DEFAULT)
+    for key in ("enabled", "resume_offer"):
+        if isinstance(stored.get(key), bool):
+            out[key] = stored[key]
+    if _whole_in(stored.get("judge_timeout_ms"), *JUDGE_TIMEOUT_MS):
+        out["judge_timeout_ms"] = stored["judge_timeout_ms"]
+    if _duck_ok(stored.get("duck_level")):
+        out["duck_level"] = float(stored["duck_level"])
+    return out
+
+
+def check_interruptions(req) -> dict:
+    """The fields of a request to change, checked; only the ones named are returned."""
+    if not isinstance(req, dict):
+        raise VoiceSettingsError("body", "Send a JSON object.", "Manda un oggetto JSON.")
+    for key in req:
+        if key not in INTERRUPTIONS_DEFAULT:
+            raise VoiceSettingsError("field", f"Unknown field: {key}.", f"Campo sconosciuto: {key}.")
+    out: dict = {}
+    for key in ("enabled", "resume_offer"):
+        if key in req:
+            if not isinstance(req[key], bool):
+                raise VoiceSettingsError(key, f"{key} is true or false.", f"{key} è true o false.")
+            out[key] = req[key]
+    if "judge_timeout_ms" in req:
+        if not _whole_in(req["judge_timeout_ms"], *JUDGE_TIMEOUT_MS):
+            raise VoiceSettingsError("judge_timeout_ms", f"The time to judge is a whole number of milliseconds from {JUDGE_TIMEOUT_MS[0]} to {JUDGE_TIMEOUT_MS[1]}.",
+                                     f"Il tempo per giudicare è un numero intero di millisecondi da {JUDGE_TIMEOUT_MS[0]} a {JUDGE_TIMEOUT_MS[1]}.")
+        out["judge_timeout_ms"] = req["judge_timeout_ms"]
+    if "duck_level" in req:
+        if not _duck_ok(req["duck_level"]):
+            raise VoiceSettingsError("duck_level", f"The lowered voice is a number from {DUCK_LEVEL[0]} to {DUCK_LEVEL[1]} (the share of the normal volume).",
+                                     f"La voce abbassata è un numero da {DUCK_LEVEL[0]} a {DUCK_LEVEL[1]} (la parte del volume normale).")
+        out["duck_level"] = float(req["duck_level"])
+    return out
+
+
+def set_interruptions(req) -> dict:
+    changes = check_interruptions(req)
+    with _lock:
+        data = _read()
+        stored = data.get("interruptions") if isinstance(data.get("interruptions"), dict) else {}
+        stored.update(changes)
+        data["interruptions"] = stored
+        _write(data)
+    return interruptions()

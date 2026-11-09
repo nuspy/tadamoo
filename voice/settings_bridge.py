@@ -11,7 +11,8 @@ The file is the one serve/voice_settings.py writes:
                   "display_name": "<name>", "virtual_mic": "<part of a device name>", "wake_phrase": "<phrase>", "calendar_autojoin": true|false,
                   "copilot_replies": 1..6, "copilot_audio_reply": true|false, "copilot_hide_from_capture": true|false},
      "avatar": {"virtual_camera": true|false, "enhance": {"upscale": "none|basic|rtx_video", "scale": 2, "interpolate": "none|basic", "factor": 2,
-                "worker_fps_cap": 0, "worker_height_cap": 0, "rtx_video_path": "<DLL>"}}}
+                "worker_fps_cap": 0, "worker_height_cap": 0, "rtx_video_path": "<DLL>"}},
+     "interruptions": {"enabled": true|false, "judge_timeout_ms": 200..5000, "duck_level": 0..0.9, "resume_offer": true|false}}
 This module reads it without importing `serve` or `tadamoo` (the service has its own interpreter). A missing, unreadable or damaged file,
 or a bad value in it, gives the defaults: the service never fails because of its settings.
 
@@ -28,6 +29,7 @@ from callbridge import models_store as ms
 from callbridge.call_policy import APPROVAL_MODES, TRANSPORT_MODES
 from callbridge.meetbot import consent
 from callbridge.enhance import settings as enhance_settings
+from callbridge.interruption import Interruptions
 
 _DEVICE_RE = re.compile(r"^(auto|cpu|cuda:[0-9]{1,2})$")
 BRAIN_MODES = ("direct", "harness")
@@ -121,6 +123,7 @@ class Settings:
     avatars_dir: str = ""
     meetings: Meetings = Meetings()
     meetings_audit_file: str = ""
+    interruptions: Interruptions = Interruptions()
 
 
 def _read(path) -> dict:
@@ -203,7 +206,7 @@ def load(path, default_models_dir: str = "") -> Settings:
     return Settings(models_dir, {s: _choice(s, stored.get(s)) for s in ms.SERVICES}, _brain(data.get("brain")), _telephony(data.get("telephony")),
                     str(Path(path).resolve().parent / "call-audit.jsonl"), _avatar(data.get("avatar")),
                     str(Path(path).resolve().parent / "voice" / "avatars"),
-                    _meetings(data.get("meetings")), str(Path(path).resolve().parent / "meetings-audit.jsonl"))
+                    _meetings(data.get("meetings")), str(Path(path).resolve().parent / "meetings-audit.jsonl"), Interruptions.parse(data.get("interruptions")))
 
 
 def is_enabled(choice: Choice, models_dir: str) -> bool:
@@ -254,6 +257,9 @@ def overrides(settings: Settings) -> dict:
     out["avatar_enabled"] = out["avatar_preload"] = is_enabled(settings.services["avatar"], root)       # the worker starts with the function, not otherwise
     out["avatar_virtual_camera"], out["avatars_dir"] = settings.avatar.virtual_camera, settings.avatars_dir
     out["avatar_enhance"] = settings.avatar.enhance.as_dict()
+    i = settings.interruptions
+    out.update(interruptions_enabled=i.enabled, interruption_judge_timeout_ms=i.judge_timeout_ms, interruption_duck_level=i.duck_level,
+               interruption_resume_offer=i.resume_offer)
     m = settings.meetings
     out.update(meetings_speak=m.speak, meetings_camera=m.camera, meetings_proactive=m.proactive, meetings_consent_mode=m.consent_mode, meetings_consent_window_s=m.consent_window_s,
                meetings_on_behalf_of=m.on_behalf_of, meetings_display_name=m.display_name, meetings_virtual_mic=m.virtual_mic, meetings_wake_phrase=m.wake_phrase,
