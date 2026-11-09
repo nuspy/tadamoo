@@ -113,6 +113,7 @@ ROUTES: dict[tuple[str, str], Callable[[Any], Any]] = {
     ("GET", "/avatar/state"): _none,
     ("GET", "/avatar/list"): _none,
     ("GET", "/avatar/output"): _none,
+    ("GET", "/avatar/enhance"): _none,
     ("GET", "/avatar/prepare"): _none,
     ("POST", "/avatar/prepare"): _avatar_prepare,
     ("POST", "/avatar/prepare/cancel"): _none,
