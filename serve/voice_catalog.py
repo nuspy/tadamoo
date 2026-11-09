@@ -309,6 +309,17 @@ _CHATTERBOX_FILES = [
     ("Cangjie5_TC.json", "7073fd9de919443ae88e0bd2449917a65fe54898a4413ed1edcc4b67f28bce8c", 1_920_163),
 ]
 
+# coqui/XTTS-v2 at 6c2b0d75eae4b7047358e3b6bd9325f857d43f77
+_XTTS_FILES = [
+    ("LICENSE.txt", "190f6d7c19b8984f91b97712b94ce92d2b2e640fc677dacab966e955ece9d043", 4_014),
+    ("config.json", "ef262b1454dd2a77e1461b0b2cd53e19b8a7624cc131b837d36df67356bc75e8", 4_368),
+    ("dvae.pth", "b29bc227d410d4991e0a8c09b858f77415013eeb9fba9650258e96095557d97a", 210_514_388),
+    ("mel_stats.pth", "1f69422a8a8f344c4fca2f0c6b8d41d2151d6615b7321e48e6bb15ae949b119c", 1_067),
+    ("model.pth", "c7ea20001c6a0a841c77e252d8409f6a74fb423e79b3206a0771ba5989776187", 1_867_929_118),
+    ("speakers_xtts.pth", "f0f6137c19a4eab0cbbe4c99b5babacf68b1746e50da90807708c10e645b943b", 7_754_818),
+    ("vocab.json", "928260878a59da8a72a2a5b7687fea29d5106137669d90945430fe17e415304a", 361_219),
+]
+
 CATALOG = [_whisper(s) for s in _WHISPER] + [
     _entry("kokoro", "tts", "kokoro", "Kokoro", "kokoro", "apache-2.0",
            [_url(_KOKORO_BASE + "kokoro-v1.0.fp16.onnx", "kokoro-v1.0.fp16.onnx", "c1610a859f3bdea01107e73e50100685af38fff88f5cd8e5c56df109ec880204", 177_464_787),
@@ -348,11 +359,15 @@ CATALOG = [_whisper(s) for s in _WHISPER] + [
                     "(la sua lista di download di ResembleAI/chatterbox); i v3 più recenti del repository e i file solo inglese non si installano. Il pacchetto supporta 23 "
                     "lingue, il servizio vocale ne elenca sette. Cangjie5_TC.json serve solo al cinese e la 0.1.7 lo chiede da sé a Hugging Face; una versione più recente "
                     "del pacchetto potrebbe volere altri file.")),
-    _entry("xtts-v2", "tts", "xtts", "XTTS v2", "xtts", "cpml-1.0", [_hf("coqui/XTTS-v2")], size=1_800_000_000, noncommercial=True,
+    _entry("xtts-v2", "tts", "xtts", "XTTS v2", "xtts", "cpml-1.0",
+           [_pinned("coqui/XTTS-v2", "6c2b0d75eae4b7047358e3b6bd9325f857d43f77", _XTTS_FILES)], size=_total(_XTTS_FILES), noncommercial=True,
            languages=("it", "en", "fr", "es", "ru", "de", "pt", "pl", "tr", "nl", "cs", "ar", "zh", "ja", "ko", "hu", "hi"),
-           venv=_t("Own Python environment (tts-venvs/xtts), torch with CUDA.", "Ambiente Python proprio (tts-venvs/xtts), torch con CUDA."),
-           notes=_t("Zero-shot voice cloning, 17 languages and 58 built-in speakers. Non-commercial use only.",
-                    "Clonazione di voce zero-shot, 17 lingue e 58 voci integrate. Solo uso non commerciale.")),
+           venv=_t("Own Python environment (tts-venvs/xtts), torch with CUDA, the coqui-tts package with transformers older than 5.",
+                   "Ambiente Python proprio (tts-venvs/xtts), torch con CUDA, il pacchetto coqui-tts con transformers precedente alla 5."),
+           notes=_t("Zero-shot voice cloning, 17 languages and 58 built-in speakers. Non-commercial use only (the license text, LICENSE.txt, is installed with it). "
+                    "The seven files are what the repository's main branch holds for running it, at one commit; its sample WAV files and hash.md5 are left out.",
+                    "Clonazione di voce zero-shot, 17 lingue e 58 voci integrate. Solo uso non commerciale (il testo della licenza, LICENSE.txt, si installa con il modello). "
+                    "I sette file sono quelli che il ramo main del repository ha per farlo girare, a un commit fisso; gli WAV di esempio e hash.md5 non ci sono.")),
     _entry("cosyvoice-3", "tts", "cosyvoice", "CosyVoice 3 (0.5B)", "cosyvoice", "apache-2.0", [_hf("FunAudioLLM/Fun-CosyVoice3-0.5B-2512")],
            languages=("it", "en", "fr", "es", "ru", "de", "ja", "ko", "zh"), verify=("size",),
            venv=_t("Own Python environment (tts-venvs/cosyvoice), torch with CUDA.", "Ambiente Python proprio (tts-venvs/cosyvoice), torch con CUDA."),
