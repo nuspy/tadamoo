@@ -80,9 +80,9 @@ class AudioReport {
 
   /// The report as plain English text, the same in every language, so that it can be pasted into a message.
   String toText() {
-    if (!supported) return 'Basalt audio test\nThe audio test is not available on this device.';
+    if (!supported) return 'TaDaMoo audio test\nThe audio test is not available on this device.';
     final lines = <String>[
-      'Basalt audio test',
+      'TaDaMoo audio test',
       'Android $android, $model',
       'AcousticEchoCanceler available: ${_yn(echoCancel)}',
       'NoiseSuppressor available: ${_yn(noiseSuppress)}',

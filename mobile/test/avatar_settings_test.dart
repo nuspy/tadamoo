@@ -99,6 +99,7 @@ void main() {
       expect(find.text(Texts.t(e.noteKey)), findsOneWidget);
     }
     expect(find.text('Not available in this build'), findsNWidgets(2));
+    expect(find.text('Only the video from the PC is available in this build.'), findsOneWidget);
     final handle = tester.ensureSemantics();
     expect(tester.getSemantics(find.byKey(const ValueKey('engine-video'))), isSemantics(isSelected: true, isEnabled: true));
     expect(tester.getSemantics(find.byKey(const ValueKey('engine-ultralight'))), isSemantics(isEnabled: false));

@@ -212,6 +212,10 @@ class _AvatarVoiceSettingsState extends State<AvatarVoiceSettings> {
             const SizedBox(height: 8),
             Text(Texts.t('av.engine'), style: theme.textTheme.titleSmall),
             Text(Texts.t('av.engine.help'), style: theme.textTheme.bodySmall),
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(Texts.t('av.engine.only'), key: const ValueKey('engine-only'), style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+            ),
             const SizedBox(height: 4),
             _engines(),
             const SizedBox(height: 12),

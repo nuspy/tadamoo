@@ -25,7 +25,7 @@ class BasaltApp extends StatelessWidget {
         Texts.use(settings.language);
         final scheme = ColorScheme.fromSeed(seedColor: const Color(0xFFFF7A2F), brightness: Brightness.dark, surface: const Color(0xFF0E1114));
         return MaterialApp(
-          title: 'Basalt',
+          title: 'TaDaMoo',
           debugShowCheckedModeBanner: false,
           theme: ThemeData(colorScheme: scheme, useMaterial3: true, scaffoldBackgroundColor: const Color(0xFF0E1114), cardColor: const Color(0xFF171C21)),
           home: Home(settings: settings, voice: voice, avatar: avatar),

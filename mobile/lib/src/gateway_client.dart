@@ -64,7 +64,13 @@ class GatewayClient extends ChangeNotifier {
   bool avatar = false;
   String brain = 'direct';
   String persona = '';
+  /// What the PC serves to this device now (`ready.render_modes`, then `render_mode`), the mode in use ('' when not told, 'none' for voice
+  /// only), the avatar's folder and, when the PC names them, the engine and the picture size.
   List<String> renderModes = const [];
+  String renderMode = '';
+  String avatarName = '';
+  String engine = '';
+  String resolution = '';
   String? problem;
   String problemCode = '';
   final List<Line> lines = [];
@@ -83,6 +89,11 @@ class GatewayClient extends ChangeNotifier {
   void Function(String sdp)? onVideoAnswer;
   void Function(String reason)? onVideoUnavailable;
   VoidCallback? onVideoStopped;
+
+  /// The modes this build can draw, best first, declared in the first message. Only the PC's video is drawn today: declaring more would make
+  /// the PC stop sending the video.
+  static const declaredModes = ['video'];
+  static const deviceKind = 'android';
 
   /// The PC asks for the avatar's voice at this level (1 is normal, below is lowered).
   void Function(double level)? onDuck;
@@ -131,7 +142,7 @@ class GatewayClient extends ChangeNotifier {
           break;
         }
         _channel = channel;
-        channel.sendText(jsonEncode({'type': 'auth'}));
+        channel.sendText(jsonEncode({'type': 'auth', 'render_modes': declaredModes, 'device': deviceKind}));
         await for (final m in channel.messages) {
           if (run != _run) break;
           _onMessage(m);
@@ -166,6 +177,12 @@ class GatewayClient extends ChangeNotifier {
     resumeOffer = '';
     avatar = false;
     voice = false;
+    renderModes = const [];
+    renderMode = '';
+    avatarName = '';
+    engine = '';
+    resolution = '';
+    videoReason = '';
     if (wasReady) onDropped?.call();
   }
 
@@ -187,6 +204,16 @@ class GatewayClient extends ChangeNotifier {
 
   List<String> _strings(Object? v) => v is List ? v.map((e) => '$e').toList() : const [];
 
+  /// `ready` and `render_mode` carry the same fields; each one that is missing keeps what was known, and unknown ones are ignored.
+  void _readRender(Map<String, dynamic> m) {
+    if (m['render_modes'] is List) renderModes = _strings(m['render_modes']);
+    if (m['render_mode'] != null) renderMode = '${m['render_mode']}';
+    if (m['mode'] != null) renderMode = '${m['mode']}';
+    if (m['avatar_name'] != null) avatarName = '${m['avatar_name']}';
+    if (m['engine'] != null) engine = '${m['engine']}';
+    if (m['resolution'] != null) resolution = '${m['resolution']}';
+  }
+
   void _onJson(Map<String, dynamic> m) {
     switch (m['type']) {
       case 'ready':
@@ -199,7 +226,8 @@ class GatewayClient extends ChangeNotifier {
         avatar = m['avatar'] == true;
         brain = '${m['brain'] ?? brain}';
         persona = '${m['persona'] ?? ''}';
-        renderModes = _strings(m['render_modes']);
+        _readRender(m);
+        videoReason = '';
         onReady?.call();
       case 'state':
         voice = m['voice'] == true;
@@ -212,6 +240,8 @@ class GatewayClient extends ChangeNotifier {
         final changed = loaded != avatar;
         avatar = loaded;
         if (changed) onAvatar?.call(loaded);
+      case 'render_mode':
+        _readRender(m);
       case 'transcript':
         final text = '${m['text'] ?? ''}'.trim();
         if (text.isNotEmpty) {
@@ -265,6 +295,7 @@ class GatewayClient extends ChangeNotifier {
         video = VideoStage.off;
         onVideoStopped?.call();
       case 'error':
+        if (m['code'] == 'render_mode_unavailable') break;
         problem = '${m['message'] ?? ''}';
         problemCode = '${m['code'] ?? ''}';
     }
@@ -362,6 +393,7 @@ class GatewayClient extends ChangeNotifier {
     videoDetail = '';
     _send({
       'type': 'video_start',
+      'reason': 'emergency',
       'sdp': sdp,
       'sdp_type': 'offer',
       if (persona.isNotEmpty) 'persona': persona,

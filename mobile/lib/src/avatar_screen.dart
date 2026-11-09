@@ -77,7 +77,9 @@ class _AvatarScreenState extends State<AvatarScreen> with WidgetsBindingObserver
     if (c.mode != 'video') return Texts.t('avatar.mode.later');
     if (g.status != GatewayStatus.ready) return '';
     if (!c.devices.videoSupported) return Texts.t('avatar.video.unsupported');
-    if (!g.avatar) return g.videoReason == 'no_webrtc' ? Texts.t('avatar.video.nowebrtc') : Texts.t('avatar.novideo');
+    if (g.videoReason == 'emergency_only') return Texts.t('avatar.video.emergency');
+    if (g.videoReason == 'no_webrtc') return Texts.t('avatar.video.nowebrtc');
+    if (g.videoReason == 'no_avatar' || !g.avatar) return Texts.t('avatar.novideo');
     if (c.liveVideo == null) return Texts.t('avatar.video.wait', [g.videoDetail]);
     return '';
   }

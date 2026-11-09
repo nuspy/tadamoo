@@ -40,9 +40,16 @@ void main() {
     final ch = await up();
     expect(connector.urls.single.toString(), 'ws://100.64.1.2:7232/api/voice/gateway/ws');
     expect(connector.headers.single, {'Authorization': 'Bearer bsk_phone'});
-    expect(ch.kinds, ['auth', 'render_mode']);
+    expect(ch.kinds, ['auth']);
+    expect(ch.sent.first, {'type': 'auth', 'render_modes': ['video'], 'device': 'android'});
     expect(c.personas, [{'slug': 'bella', 'name': 'Bella'}, {'slug': 'otto', 'name': 'Otto'}]);
     expect(c.client.canTalk, isTrue);
+  });
+
+  test('the video is chosen with render_mode only when the PC offers it and is not already using it', () async {
+    await make();
+    final ch = await up(ready: {...readyMessage, 'render_mode': 'none', 'render_modes': ['video']});
+    expect(ch.last('render_mode'), {'type': 'render_mode', 'mode': 'video'});
   });
 
   test('a gateway that is not there yet is asked for again until it is, and nothing is connected meanwhile', () async {
@@ -119,6 +126,18 @@ void main() {
     ch.say({'type': 'state', 'voice': true, 'missing': [], 'avatar': true});
     await pumpEventQueue();
     expect(devices.sessions.length, 2);
+  });
+
+  test('emergency_only leaves the tab in voice with one plain line and does not ask again', () async {
+    await make();
+    final ch = await up(ready: {...readyMessage, 'avatar': true});
+    expect(ch.last('video_start')!['reason'], 'emergency');
+    ch.say({'type': 'video_unavailable', 'reason': 'emergency_only'});
+    await pumpEventQueue();
+    expect(c.videoRequested, isFalse);
+    expect(c.client.videoReason, 'emergency_only');
+    expect(c.client.canTalk, isTrue);
+    expect(devices.sessions.length, 1);
   });
 
   test('a video that never answers is given up after the wait and the tab stays in voice', () async {
@@ -218,7 +237,7 @@ void main() {
     devices.fakeMic.allowed = false;
     await c.holdStart();
     expect(c.micDenied, isTrue);
-    expect(ch.kinds, ['auth', 'render_mode']);
+    expect(ch.kinds, ['auth']);
     expect(c.holding, isFalse);
   });
 
