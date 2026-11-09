@@ -293,7 +293,7 @@ class ProxyTests(ServerBase):
                          sorted(["GET /status", "GET /functions", "GET /brain/state", "GET /session/state", "GET /diag/brain", "POST /session/start",
                                  "POST /session/stop", "POST /session/new", "POST /brain/say", "GET /call/approvals", "GET /call/audit", "GET /gateway",
                                  # the avatar (serve/tests/test_voice_avatar_proxy.py)
-                                 "GET /avatar/state", "GET /avatar/list", "GET /avatar/output", "GET /avatar/prepare", "POST /avatar/prepare", "POST /avatar/prepare/cancel",
+                                 "GET /avatar/state", "GET /avatar/list", "GET /avatar/output", "GET /avatar/enhance", "GET /avatar/prepare", "POST /avatar/prepare", "POST /avatar/prepare/cancel",
                                  "POST /avatar/speak", "POST /avatar/start", "POST /avatar/wizard/start"]))
 
 
