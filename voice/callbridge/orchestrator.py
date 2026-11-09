@@ -73,6 +73,7 @@ class CallBridge:
         # True mentre il watcher delle chiamate in arrivo e' fermo per la
         # sospensione (lo mostra /components/status).
         self.watcher_sospeso = False
+        self.gate = None                   # CallService: decide se rispondere e come aprire la chiamata
         self.phone = PhoneControlClient(config)
         self.handy = HandyControlClient(config)
         self._session: CallSession | None = None
@@ -116,7 +117,7 @@ class CallBridge:
 
         def _drive() -> None:
             if self._wait_for_incoming(ring_timeout):
-                self._handle_incoming_call()
+                self._handle_incoming_call(explicit=True)
             else:
                 log.info("Nessuna chiamata in arrivo entro il timeout")
 
@@ -138,6 +139,9 @@ class CallBridge:
                     time.sleep(2.0)
                     continue
                 self.watcher_sospeso = False
+                if not self.cfg.incoming_auto_answer or (self.cfg.call_transport or "").lower() == "off":
+                    time.sleep(2.0)
+                    continue
                 if self._wait_for_incoming(timeout=2.0):
                     self._handle_incoming_call()
 
@@ -237,9 +241,11 @@ class CallBridge:
             if callable(_ended):
                 _ended()
 
-    def _handle_incoming_call(self) -> None:
+    def _handle_incoming_call(self, explicit: bool = False) -> None:
         """Flusso completo per una chiamata in arrivo: prefisso -> lingua,
-        carica i modelli, accetta, avvia la sessione."""
+        carica i modelli, accetta, avvia la sessione. Senza `explicit` (la
+        persona ha chiesto di rispondere a questa chiamata) risponde solo se
+        la risposta automatica e' accesa."""
         with self._session_lock:
             if self._session is not None:
                 log.warning("Chiamata in arrivo ignorata: sessione gia' attiva")
@@ -256,7 +262,22 @@ class CallBridge:
         )
         log.info("Chiamata in arrivo da %s -> lingua=%s voce=%s",
                  number or "?", lang, voice)
+        brain = None
+        if self.gate is not None:
+            plan = self.gate.incoming(number, "android", explicit)
+            if plan is None:
+                return
+            brain = plan.brain
+        elif not explicit and not self.cfg.incoming_auto_answer:
+            return
+        try:
+            self._answer_incoming(number, lang, voice, brain)
+        finally:
+            ended = getattr(brain, "call_ended", None)
+            if callable(ended):
+                ended()
 
+    def _answer_incoming(self, number: str, lang: str, voice: str, brain) -> None:
         # 2. carica i modelli in VRAM
         try:
             result = self.handy.load_models(tts=True)
@@ -287,7 +308,7 @@ class CallBridge:
 
         # 5. esegui la sessione di streaming
         self._run_session(in_idx, out_idx, rate, voice, lang,
-                          direction="INCOMING", number=number)
+                          direction="INCOMING", number=number, brain=brain)
 
     def _wait_for_incoming(self, timeout: float | None) -> bool:
         """Attende RINGING + direction INCOMING. `timeout=None` = indefinito."""

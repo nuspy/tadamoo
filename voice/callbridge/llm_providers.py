@@ -90,8 +90,8 @@ TYPES: dict[str, dict] = {
     "zai_coding": {
         "label": "Z.AI (piano coding)", "auth": "api_key", "api": "openai",
         "local": False, "base_url": "https://api.z.ai/api/coding/paas/v4",
-        "note": "Endpoint del piano coding, quello usato da Hermes "
-                "(GLM-5.2 / GLM-5.1). Quota separata dal piano API.",
+        "note": "Endpoint del piano coding (GLM-5.2 / GLM-5.1). "
+                "Quota separata dal piano API.",
     },
     "nvidia": {
         "label": "NVIDIA NIM", "auth": "api_key", "api": "openai", "local": False,
@@ -137,8 +137,7 @@ TYPES: dict[str, dict] = {
     },
 }
 
-# Consumatori che possono avere un provider proprio. L'agente Hermes NON è qui:
-# legge i suoi provider dal proprio config.yaml e resta padrone di quelli.
+# Consumatori che possono avere un provider proprio.
 CONSUMERS = ("chat", "copilot", "embed")
 
 _lock = threading.Lock()

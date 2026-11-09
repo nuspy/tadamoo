@@ -8,8 +8,13 @@ Endpoint:
   GET  /health             - liveness (senza auth)
   GET  /status             - stato orchestrator + telefono + modelli Handy
   POST /prepare            - carica i modelli in vista di una chiamata
-  POST /call               - chiamata in uscita {number, voice?, lang?, stt_model?}
+  POST /call               - chiamata in uscita fatta a mano {number, voice?, lang?, greeting?, transport?}
   POST /hangup             - termina la chiamata corrente
+  GET  /transport          - trasporto selezionato (?refresh=1 ri-rileva)
+  GET  /call/approvals     - chiamate di un programma in attesa del via della persona
+  POST /call/approvals/<id>/approve|deny
+  GET  /call/audit         - ultime righe del registro delle chiamate
+  (le chiamate di un programma o dell'agente: /external/*, vedi api_external.py)
 
 Auth: header `Authorization: Bearer <control_auth_token>` (tranne /health).
 """
@@ -27,7 +32,6 @@ from .config import Config
 from .handy_client import HandyError
 from .orchestrator import CallBridge
 from .ptt import PushToTalkManager
-from .util import is_valid_phone_number, normalize_phone_number
 
 log = logging.getLogger("callbridge.control")
 
@@ -39,6 +43,7 @@ def create_app(
     copilot=None,
     avatar=None,
     status_fn=None,
+    policy=None,
 ) -> Flask:
     """Costruisce l'app Flask del server di controllo.
 
@@ -87,27 +92,11 @@ def create_app(
                       external_bp, knowledge_bp):
         app.register_blueprint(blueprint)
 
-    # --- Router trasporti: sceglie da solo GSM (preferito) vs Android (fallback)
-    _gsm_brain_cache: dict = {}
-    _gsm_brain_lock = threading.Lock()
-
-    def _gsm_brain():
-        # Lock: due /call concorrenti creerebbero due cervelli senza questa sezione critica.
-        with _gsm_brain_lock:
-            if "b" not in _gsm_brain_cache:
-                _gsm_brain_cache["b"] = make_brain(config)
-            return _gsm_brain_cache["b"]
-
-    router = None
-    if (config.call_transport or "auto").lower() != "off":
-        from .transport import CallRouter
-        router = CallRouter(config, bridge, _gsm_brain)
-        try:
-            router.setup()
-        except Exception as e:  # noqa: BLE001 - il rilevamento non deve impedire l'avvio
-            log.error("Router trasporti: setup fallito: %s", e)
-    # per le chiamate pilotate dall'esterno (api_external)
-    app.config["CB_ROUTER"] = router
+    # --- Chiamate: la politica di sicurezza e il router dei trasporti (GSM preferito, Android di ripiego)
+    from .call_policy import Policy
+    from .call_service import CallService
+    calls = CallService(config, bridge, policy or Policy(config))
+    app.config["CB_CALLS"] = calls
 
     def _authorized() -> bool:
         if not config.control_auth_token:
@@ -161,42 +150,38 @@ def create_app(
 
     @app.post("/call")
     def call():
-        """Chiamata in uscita sul trasporto auto-selezionato (GSM o Android).
+        """Chiamata in uscita fatta a mano dalla persona, sul trasporto scelto (GSM o Android): senza approvazione, ma la prima frase dichiara
+        l'IA (se l'impostazione e' accesa) e un numero di emergenza e' rifiutato.
 
-        Campi opzionali: voice, lang, greeting, e `transport` per forzare
-        ("gsm"/"android") scavalcando la selezione automatica.
+        Campi: number; opzionali voice, lang, greeting e `transport` ("gsm"/"android") per scavalcare la scelta automatica.
         """
         body = request.get_json(silent=True) or {}
-        number = normalize_phone_number((body.get("number") or "").strip())
-        if not number:
-            return jsonify({"error": "campo 'number' mancante"}), 400
-        if not is_valid_phone_number(number):
-            return jsonify({"error": "numero non valido"}), 400
-
-        voice = body.get("voice")
-        lang = body.get("lang")
-        if router is not None:
-            return jsonify(router.place_call(
-                number, voice=voice, lang=lang,
-                greeting=body.get("greeting"), force=body.get("transport")))
-
-        # legacy (call_transport=off): solo Android
-        bridge.start_outgoing_call(number, voice=voice, lang=lang,
-                                   stt_model=body.get("stt_model"))
-        return jsonify({
-            "status": "calling",
-            "number": number,
-            "voice": voice or config.default_voice,
-            "lang": lang or config.default_lang,
-        })
+        code, out = calls.place("user", str(body.get("number") or ""), greeting=str(body.get("greeting") or ""), voice=body.get("voice"),
+                                lang=body.get("lang"), transport=body.get("transport"))
+        return jsonify(out), code
 
     @app.post("/hangup")
     def hangup():
-        if router is not None:
-            return jsonify(router.hangup())
-        result = bridge.hangup()
-        code = 200 if result.get("status") == "ok" else 502
-        return jsonify(result), code
+        return jsonify(calls.hangup())
+
+    @app.get("/call/approvals")
+    def call_approvals():
+        """Le chiamate di un programma che aspettano il via della persona."""
+        return jsonify({"pending": calls.policy.approvals.pending(), "mode": calls.policy.approval_mode})
+
+    @app.post("/call/approvals/<rid>/<verdict>")
+    def call_decide(rid: str, verdict: str):
+        if verdict not in ("approve", "deny"):
+            return jsonify({"error": "not found"}), 404
+        if not calls.policy.approvals.decide(rid, verdict == "approve"):
+            return jsonify({"error": "no such request waiting", "code": "unknown"}), 404
+        return jsonify({"status": "approved" if verdict == "approve" else "denied", "id": rid})
+
+    @app.get("/call/audit")
+    def call_audit():
+        """Le ultime righe del registro delle chiamate (numero mascherato, nessuna trascrizione)."""
+        limit = min(max(request.args.get("limit", default=20, type=int), 1), 200)
+        return jsonify({"rows": calls.policy.audit.tail(limit)})
 
     @app.get("/engines/catalog")
     def engines_catalog():
@@ -275,11 +260,7 @@ def create_app(
     @app.get("/transport")
     def transport():
         """Stato del rilevamento + trasporto selezionato. `?refresh=1` ri-rileva."""
-        if router is None:
-            return jsonify({"selected": None, "mode": "off"})
-        if request.args.get("refresh"):
-            router.refresh()
-        return jsonify(router.status())
+        return jsonify(calls.transport_status(bool(request.args.get("refresh"))))
 
     return app
 
@@ -305,9 +286,6 @@ def run_server(
     brains = make_brain(config)
     if bridge is None:
         bridge = CallBridge(config, brains)
-    # Mentre il server e' attivo, l'orchestrator vigila anche sulle chiamate
-    # in arrivo (le accetta e le gestisce in autonomia — Task #11)
-    bridge.start_incoming_watcher()
     # ...e (se abilitato e non gestito altrove) sulle hotkey push-to-talk per il
     # dialogo a voce con i due cervelli (harness F1/F2, diretto F4/F5).
     if not start_ptt:
@@ -345,6 +323,7 @@ def run_server(
                      daemon=True).start()
 
     app = create_app(config, bridge, ptt=ptt, copilot=copilot, avatar=avatar)
+    app.config["CB_CALLS"].sync(eager=True)
     log.info(
         "Control server in ascolto su http://%s:%d",
         config.control_host,

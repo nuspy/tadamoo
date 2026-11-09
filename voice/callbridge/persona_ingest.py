@@ -8,7 +8,7 @@ hot-path). Dato un documento:
   2. chunking a blocchi con overlap (su confini di paragrafo);
   3. RAG: embeddings dei chunk via LM Studio (/v1/embeddings) -> store locale
      `persona_rag` (fallback lessicale se manca il modello di embedding);
-  4. estrazione LLM (map-reduce, diretta a LM Studio, NON via Hermes/ACP) della
+  4. estrazione LLM (map-reduce, diretta a LM Studio) della
      PERSONALITA' -> campo manifest `personality_from_docs`.
 
 Nessuna dipendenza nuova obbligatoria: fitz/pypdf, python-docx, bs4, numpy,

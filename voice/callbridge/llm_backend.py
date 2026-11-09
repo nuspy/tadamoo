@@ -24,9 +24,6 @@ Corollario pratico: quale modello sia caricato lo si deve sapere con CERTEZZA.
 Vedi `lmstudio_loaded`: `/v1/models` NON e' una fonte valida (elenca il catalogo
 su disco, non la memoria) e prenderlo per tale e' costato caricamenti JIT a
 vuoto.
-
-NON riguarda l'agente Hermes: quello ha il suo provider (`acp_provider`) e,
-se `acp_model_override` e' False, decide il modello da se'.
 """
 from __future__ import annotations
 
@@ -519,9 +516,7 @@ def ensure_lmstudio(cfg, want: str = "") -> tuple[str, str]:
     """(base_url, modello). Avvia il server se serve; carica il modello scelto
     in GUI se non e' gia' in memoria. Campo vuoto = usa quello caldo.
 
-    `want` sovrascrive il modello della GUI (`lmstudio_model`): l'agente ACP ha
-    un modello suo (`acp_model` / `model.default` del config Hermes) e non deve
-    farsi caricare quello della voce diretta."""
+    `want` sovrascrive il modello della GUI (`lmstudio_model`)."""
     base = cfg.lmstudio_base_url
     want = (want or cfg.lmstudio_model or "").strip()
     if not lmstudio_up(cfg) and not start_lmstudio(cfg):
@@ -822,7 +817,7 @@ def swap_lmstudio(cfg, model: str, provider: str = "") -> tuple[bool, str]:
     """Scarica il modello caldo e mette `model` al suo posto (swap CONFERMATO).
 
     Da chiamare solo dopo un sì esplicito dell'utente: vedi
-    `control_server./hermes/model` e `/avatar/llm/swap`.
+    `/avatar/llm/swap`.
 
     Se il bersaglio e' un modello vLLM ci si ferma allo SCARICO: caricarlo con
     `lms load` non avrebbe senso (non e' un modello di LM Studio) — liberata la

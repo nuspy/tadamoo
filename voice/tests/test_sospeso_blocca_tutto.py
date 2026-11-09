@@ -143,7 +143,7 @@ def test_chiamata_gsm_in_arrivo_non_riceve_risposta(sospeso):
     from callbridge.transport import CallRouter
     creati: list[int] = []
     cfg = Config()
-    cfg.gsm_auto_answer = True
+    cfg.incoming_auto_answer = True
     r = CallRouter(cfg, bridge=None, brain_factory=lambda: creati.append(1))
     r._gsm_modem = object()
     r._gsm_incoming("+39123")
@@ -155,7 +155,9 @@ def test_chiamata_gsm_in_arrivo_non_riceve_risposta(sospeso):
 def test_watcher_chiamate_in_arrivo_si_ferma_e_riparte():
     from callbridge.orchestrator import CallBridge
     from fakes import FakeBrain
-    b = CallBridge(Config(), FakeBrain())
+    cfg = Config()
+    cfg.incoming_auto_answer = True
+    b = CallBridge(cfg, FakeBrain())
     interrogazioni: list[float] = []
     b._wait_for_incoming = lambda timeout=None: (interrogazioni.append(timeout) or False)
     sospensione.sospendi()

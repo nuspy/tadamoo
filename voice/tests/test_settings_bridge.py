@@ -104,3 +104,26 @@ def test_apply_sets_the_config_and_the_environment(tmp_path, monkeypatch):
     assert "CUDA_VISIBLE_DEVICES" not in ms.helper_env("tts", {})
     sb.apply(cfg, sb.load(tmp_path / "gone.json"))      # settings changed back: the GPU number is dropped again
     assert "CUDA_VISIBLE_DEVICES" not in ms.helper_env("stt", {})
+
+
+# ---------------------------------------------------------------------------------------- telephony
+def test_telephony_defaults_are_the_careful_ones(tmp_path):
+    t = sb.load(tmp_path / "voice.json").telephony
+    assert (t.transport, t.outgoing_approval, t.ai_disclosure_on_start, t.incoming_auto_answer, t.on_behalf_of) == ("off", "manual", True, False, "")
+
+
+def test_telephony_values_are_read_and_reach_the_config(tmp_path):
+    p = _write(tmp_path / "voice.json", {"telephony": {"transport": "gsm", "outgoing_approval": "auto", "ai_disclosure_on_start": False,
+                                                       "incoming_auto_answer": True, "on_behalf_of": " Mario Rossi "}})
+    cfg = Config()
+    sb.apply(cfg, sb.load(p))
+    assert (cfg.call_transport, cfg.outgoing_approval, cfg.ai_disclosure_on_start, cfg.incoming_auto_answer, cfg.call_on_behalf_of) == \
+        ("gsm", "auto", False, True, "Mario Rossi")
+    assert cfg.call_audit_file == str(tmp_path.resolve() / "call-audit.jsonl")
+
+
+def test_a_bad_telephony_value_takes_its_default_and_only_a_real_false_turns_the_disclosure_off(tmp_path):
+    for stored in ({"transport": "bluetooth", "outgoing_approval": "yes", "ai_disclosure_on_start": "no", "incoming_auto_answer": "true",
+                    "on_behalf_of": 5}, "x", None, [], {"on_behalf_of": "a\nb"}):
+        t = sb.load(_write(tmp_path / "voice.json", {"telephony": stored})).telephony
+        assert (t.transport, t.outgoing_approval, t.ai_disclosure_on_start, t.incoming_auto_answer, t.on_behalf_of) == ("off", "manual", True, False, "")
