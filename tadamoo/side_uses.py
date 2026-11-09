@@ -84,6 +84,7 @@ USES: Tuple[Use, ...] = (
         prompt="tadamoo.inject_screen:SYSTEM"),
     Use("diagram_fix", params=(Param("timeout_s", 60, 10, 600, False),), prompt="serve.diagram_fix:SYSTEM"),
     Use("plan_wait", needs_session=True, params=(Param("max_per_hour", 12, 1, 120), Param("timeout_s", 20, 3, 120, False)), prompt="serve.plan_wait:SYSTEM"),
+    Use("interruption", needs_session=True, prompt="voice.callbridge.interruption:SYSTEM"),
 )
 BY_ID: Dict[str, Use] = {u.id: u for u in USES}
 

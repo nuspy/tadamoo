@@ -13,10 +13,14 @@ USE_KEY = "side_use"                # the harness's name for what the call is fo
 
 
 def check_cache_slot(req: dict) -> None:
-    """ValueError for a `cache_slot` that is not "main" or "side" (a 400 before the answer starts)."""
+    """ValueError for a `cache_slot` that is not "main" or "side", or that names a use switched off in the settings (a 400 before the answer starts)."""
     value = req.get(KEY)
     if value is not None and value not in KINDS:
         raise ValueError(f'{KEY}: "side" (the technical session), "side_only" or "main", not {value!r}')
     use = req.get(USE_KEY)
     if use is not None and not (isinstance(use, str) and 0 < len(use) <= 40 and use.replace("_", "").isalnum()):
         raise ValueError(f"{USE_KEY}: a short name of letters, digits and underscores")
+    if value in ("side", "side_only") and isinstance(use, str):
+        from tadamoo import side_uses
+        if use in side_uses.BY_ID and not side_uses.enabled(use):               # a caller outside this process (the voice service) cannot read the switch
+            raise ValueError(f"{USE_KEY}: {use} is switched off in the settings of the technical session")
