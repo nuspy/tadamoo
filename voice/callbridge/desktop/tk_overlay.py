@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import math
 import queue
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -89,6 +90,7 @@ class TkOverlay:
         # Comandi da eseguire sul thread Tk (es. aprire/aggiornare la finestra
         # copilota): i thread di lavoro accodano qui, il _tick li esegue.
         self._cmd_queue: queue.Queue[Callable[[], None]] = queue.Queue()
+        self._quit = threading.Event()
 
     def set_state_fn(self, fn: Callable[[], str]) -> None:
         """Imposta la sorgente di stato (chiamabile da qualsiasi thread)."""
@@ -122,6 +124,10 @@ class TkOverlay:
     def get_root(self):
         """Ritorna il root Tk (disponibile dentro un `post`, non prima)."""
         return self._root
+
+    def quit(self) -> None:
+        """Ends `mainloop`: sets a flag the Tk tick reads (thread-safe)."""
+        self._quit.set()
 
     # --- ciclo di vita (thread principale) -------------------------------
 
@@ -164,6 +170,7 @@ class TkOverlay:
             self._root.withdraw()  # nascosta finche' non parte una sessione
             self._tick()
             self._root.mainloop()
+            self._destroy()
         except tk.TclError as e:
             # Sessione 0 / nessun desktop: nessun display Tk. Non far cadere il
             # processo PTT (le hotkey funzionano comunque): blocca senza UI.
@@ -171,16 +178,23 @@ class TkOverlay:
             self._root = None
             self._block_no_ui()
 
-    @staticmethod
-    def _block_no_ui() -> None:
-        """Blocca il thread principale senza UI, cosi' il processo PTT resta vivo."""
-        import time
-        while True:
-            time.sleep(1.0)
+    def _destroy(self) -> None:
+        try:
+            self._root.destroy()
+        except tk.TclError:
+            pass
+        self._root = None
+
+    def _block_no_ui(self) -> None:
+        """Blocca il thread principale senza UI (fino a `quit`), cosi' il processo resta vivo."""
+        self._quit.wait()
 
     # --- aggiornamento periodico ----------------------------------------
 
     def _tick(self) -> None:
+        if self._quit.is_set():
+            self._root.quit()
+            return
         # Esegue i comandi accodati da altri thread (sul thread Tk).
         while True:
             try:
