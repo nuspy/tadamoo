@@ -93,8 +93,8 @@ class ServiceDown(Exception):
     """The voice service cannot be reached; the message says why."""
 
 
-def call(method: str, route: str, body: dict | None = None, timeout: float = TIMEOUT) -> tuple[int, dict | None]:
-    """One request to the running service with its token, to 127.0.0.1 only: (status code, JSON object or None). ServiceDown when it is not there."""
+def endpoint() -> tuple[str, int, str]:
+    """(host, port, token) of the running service; the host is always this PC. ServiceDown when it is not there. The token goes only into a request to that host."""
     found = info()
     if found is None:
         raise ServiceDown("the voice service has not started: it leaves no info file")
@@ -103,7 +103,13 @@ def call(method: str, route: str, body: dict | None = None, timeout: float = TIM
     token = _read_token()
     if not token:
         raise ServiceDown("there is no token for the voice service")
-    conn = http.client.HTTPConnection("127.0.0.1" if found["host"] == "localhost" else found["host"], found["port"], timeout=timeout)
+    return "127.0.0.1" if found["host"] == "localhost" else found["host"], found["port"], token
+
+
+def call(method: str, route: str, body: dict | None = None, timeout: float = TIMEOUT) -> tuple[int, dict | None]:
+    """One request to the running service with its token, to 127.0.0.1 only: (status code, JSON object or None). ServiceDown when it is not there."""
+    host, port, token = endpoint()
+    conn = http.client.HTTPConnection(host, port, timeout=timeout)
     try:
         headers = {"Authorization": "Bearer " + token}
         payload = None
@@ -114,7 +120,7 @@ def call(method: str, route: str, body: dict | None = None, timeout: float = TIM
         r = conn.getresponse()
         raw = r.read(1 << 20)
     except (OSError, http.client.HTTPException) as e:
-        raise ServiceDown(f"the voice service does not answer on port {found['port']} ({e.__class__.__name__})") from None
+        raise ServiceDown(f"the voice service does not answer on port {port} ({e.__class__.__name__})") from None
     finally:
         conn.close()
     try:

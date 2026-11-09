@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from serve import voice_compat
 from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate
 from serve.handler import serve
@@ -25,6 +26,9 @@ CONTROL_ROUTES = {"/v1/status", "/v1/vram"}
 PREFIXES = {"/v1/models/", "/v1/responses/", "/v1/"}
 # routes outside /v1: the page, health, and the short forms of the model list and of the control routes
 TOP_LEVEL = {"/", "/health", "/metrics", "/slots", "/props", "/models", "/models/", "/status", "/canary", "/canary/"}      # the Canary page, this PC only
+
+# callAPIcall's routes, republished by serve/voice_compat.py with TaDaMoo's own key (tests/test_voice_compat.py): the first path segment of each
+COMPAT_TOP = {"external", "analysis", "transcribe", "tts", "stt", "voices", "models", "session", "personas", "avatar", "meetbot", "meetings", "calendar"}
 
 NOT_OFFERED = [
     "/v1/completions", "/v1/embeddings", "/v1/images/generations", "/v1/audio/transcriptions", "/v1/audio/speech",
@@ -73,6 +77,18 @@ class ExternalSurfaceTest(unittest.TestCase):
         source = (ROOT / "serve" / "handler.py").read_text(encoding="utf-8")
         named = {m for m in re.findall(r'"(/[A-Za-z0-9_./-]*)"', source) if not re.match(r"/(v1|api|web|fonts)(/|$)", m)}
         self.assertEqual(sorted(named - TOP_LEVEL), [])
+
+    def test_callapicall_routes_are_the_table_of_voice_compat_and_none_is_under_v1(self):
+        for row in voice_compat.routes_summary():
+            first = re.match(r"^/(?:\(\?:([a-z|]+)\)|([a-z]+))", row["pattern"])
+            self.assertIsNotNone(first, row)
+            self.assertLessEqual(set((first.group(1) or first.group(2)).split("|")), COMPAT_TOP, row)
+        for path in ("/v1/analysis/list", "/v1/external/call", "/v1/transcribe", "/v1/personas", "/v1/voices/cloned"):
+            self.assertEqual(self.call("GET", path)[0], 404, path)
+
+    def test_a_callapicall_route_that_is_not_there_yet_says_so(self):
+        code, body = self.call("GET", "/personas")
+        self.assertEqual((code, body["code"]), (501, "not_available_yet"))
 
     def test_routes_of_other_services_are_not_offered(self):
         for path in NOT_OFFERED:
