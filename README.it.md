@@ -386,6 +386,37 @@ e una misura di quale strategia di contesto funzioni meglio (serve il modello ve
 e Stripe e Google Pay non sono stati provati sui servizi reali. L'elenco con i motivi è in fondo a
 [docs/harness.md](docs/harness.md).
 
+## Voce e avatar
+
+TaDaMoo sa ascoltare, parlare e mostrare un volto. Il blocco vocale sta in `voice/` (un processo Python a sé, il **servizio voce**, avviato
+dall'app e fermo finché non lo chiedi) e nella scheda **Voce** e in Impostazioni > Voce. Niente viene caricato, aperto o scaricato finché non lo
+scegli; ogni modello arriva dalla cartella dei modelli vocali e, dove il catalogo ne ha uno, si controlla con un hash fissato. Il riferimento è in
+[docs/voice/](docs/voice/service.md) (in inglese).
+
+- **Tre funzioni vocali**, ognuna con la sua casella: riconoscimento vocale (Whisper), sintesi vocale e avatar. Un solo comando le carica o le
+  scarica e un arbitro della VRAM evita che tolgano memoria al motore ([caricamento](docs/voice/loading.md)).
+- **Sintesi vocale**: Kokoro, Piper, XTTS v2, Chatterbox, CosyVoice 3, Qwen3-TTS, Orpheus 3B e Dia 1.6B, una voce per personalità, con le voci
+  clonate nella cartella dei modelli ([TTS](docs/voice/tts.md), [modelli](docs/voice/models.md)).
+- **Lingua parlata che ti segue**: l'avatar passa alla lingua che parli, o tiene quella che chiedi («parla francese»), con un'isteresi che
+  evita i cambi per una parola sola. Il motore non cambia mai a comando vocale; se la voce non ha la lingua si ripiega su Piper
+  ([lingua](docs/voice/language.md)).
+- **L'avatar**: disegnato sul telefono con Wav2Lip o con le forme della bocca (senza GPU), su questo PC con MuseTalk, Wav2Lip v2, SadTalker,
+  ER-NeRF e i motori personalizzati Ultralight-Digital-Human e FeatherTalk, addestrati una volta da un video della persona
+  ([avatar](docs/voice/avatar.md), [motori](docs/voice/engines.md), [personalizzati](docs/voice/engines-personalised.md)).
+- **Personalità**: un nome, un carattere, una voce, un avatar, una memoria a breve e a lungo termine (cifrata su disco) e un archivio di
+  conoscenza. **Importa da callAPIcall** porta qui persone, video, memoria e avatar già preparato ([importazione](docs/voice/import.md)).
+- **Telefono, ESP32 e desktop**: la scheda Avatar dell'app Android e un terminale ESP32 parlano con un gateway WebSocket sul PC, a pressione o
+  continuo, con interruzione della voce ([gateway](docs/voice/gateway.md), [ESP32](docs/voice/esp32.md)); dettatura con scorciatoia, cronologia
+  degli appunti e push-to-talk girano sul desktop ([desktop](docs/voice/desktop.md)).
+- **Riunioni e telefonate**: l'assistente può entrare in Meet, Teams o Zoom come ospite dichiarato e suggerire risposte, e fare o ricevere
+  chiamate con un modem GSM o col telefono, sotto un'unica regola (approvazione, dichiarazione che è un'IA, numeri a tariffa speciale
+  rifiutati, registro senza trascrizioni) ([riunioni](docs/voice/meetings.md), [telefonia](docs/voice/telephony.md)).
+- **Sicuro di default**: una guardia controlla host e origine di ogni richiesta (`server.allowed-hosts`, `server.allowed-origins`), la chiave
+  dell'app Android sta nel Keystore e [la revisione di sicurezza](docs/voice/security-review.md) elenca ogni problema e il suo stato.
+
+Fatto e provato con finti (nessun modello, GPU, telefono, modem o riunione vera): microfono, scorciatoie e finestrina veri, i motori sul
+telefono, il firmware ESP32 (mai compilato), la camera virtuale e i motori su GPU **non sono provati** su hardware reale; ogni pagina lo dice.
+
 ## Requisiti
 
 - Una **GPU NVIDIA Blackwell** (compute capability 10.x o 12.x: GeForce RTX serie 50, RTX PRO 6000, B200). I kernel
