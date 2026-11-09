@@ -117,9 +117,10 @@
     h.id = "vo-h-" + svc.id;
     box.setAttribute("aria-labelledby", h.id);
     box.append(h);
-    if (!svc.models.length) { box.append(el("p", "vo-help", T("vo.none"))); return box; }
-    const m = mdl(svc, svc.selected) || svc.models[0];
-    const pickModel = select(svc.models.map(x => [x.id, x.name + (x.size ? " (" + gb(x.size) + ")" : "")]), m.id, async id => {
+    const own = svc.models.filter(x => x.selectable !== false);        // a file for the phones is not a model the function loads
+    if (!own.length) { box.append(el("p", "vo-help", T("vo.none"))); return box; }
+    const m = mdl(svc, svc.selected) || own[0];
+    const pickModel = select(own.map(x => [x.id, x.name + (x.size ? " (" + gb(x.size) + ")" : "")]), m.id, async id => {
       const r = await api("POST", "api/voice/select", { service: svc.id, model: id });
       if (r.ok) { S = r.data; s.plan = null; s.ack = s.nc = false; s.msg = ""; } else { s.msg = errText(r); s.bad = true; }
       paint();
@@ -131,6 +132,11 @@
     if (m.verify) state.append(chip(T("vo.verify"), "vo-warn"));
     box.append(state, facts(m), el("p", "vo-help", pick(m.notes)));
     if (m.verify) box.append(el("p", "vo-help", T("vo.verify.help", m.verify_fields.map(f => (VERIFY[f] || (() => f))()).join(", "))));
+    for (const x of svc.models.filter(y => y.selectable === false)) {
+      const line = el("p", "vo-help vo-phone-file", T("vo.phones.file", x.name, x.installed ? T("vo.state.installed") : T("vo.state.missing")));
+      line.append(" " + pick(x.notes) + " " + T("vo.noncommercial") + (x.verify ? ", " + T("vo.verify") : "") + ".");
+      box.append(line);
+    }
     box.append(placement(svc));
     if (FUNCTIONS.includes(svc.id)) box.append(enabledRow(svc));
     if (!m.installed) box.append(downloadPart(svc, m));
