@@ -46,16 +46,19 @@ chosen height, so lower is lighter.
 |---|---|---|---|---|---|---|
 | `visemes` | generic | pc, web, android, esp32 | no model | - | own code | yes |
 | `wav2lip_gan96` | generic | pc, web, android | 37 MB (36,664,106 bytes) | 96 | non-commercial, provenance of the ONNX to verify | yes |
-| `wav2lip_v288` | generic | pc, web, android | not measured | 288 | to verify (newly trained weights) | no |
+| `wav2lip_v288` | generic | pc, web | not measured | 288 | non-commercial (derives from Wav2Lip); code vendored, to confirm | no |
 | `ultralight` | personalized, 3 to 5 min of video, GPU | pc, web, android | not measured | - | Apache-2.0 (encoder: its own) | no |
 | `feathertalk` | personalized, 3 to 5 min of video, GPU | pc, web, android | not measured | 144 | Apache-2.0 | no |
 | `musetalk_15` | generic | pc, web | not measured | 256 | MIT (third-party models keep theirs) | yes |
-| `sadtalker` | generic | pc | not measured | - | to verify | no |
-| `er_nerf` | personalized, hours of training, GPU | pc | not measured | - | to verify | no |
+| `sadtalker` | generic | pc | not measured | 256 | Apache 2.0 per its repository; code vendored, weights not checked, to confirm | no |
+| `er_nerf` | personalized, hours of training, GPU | pc | not measured | - | MIT (ER-NeRF), VOCA terms in its DeepSpeech routines; code vendored, to confirm | no |
 
 FeatherTalk's audio encoder, FeatherHuBERT (3.36M parameters), has Chinese-only incomplete weights: Italian quality is unverified. ER-NeRF needs
 PyTorch3D and CUDA modules compiled on this PC and breaks with the versions of Python, PyTorch, CUDA and the compiler. MuseTalk is "over 30 fps on
 a GPU" per its project, not measured here.
+
+The code of `wav2lip_v288`, `sadtalker` and `er_nerf` (Linly-Talker's copies) is vendored in `voice/avatar_engines/vendor/<engine>/` like the personalised engines'; their
+weights are catalog installs. The licence of each is noted in its `LICENSE-NOTE.md`, not on the page; see `engines-pc.md`.
 
 ## The choice
 
