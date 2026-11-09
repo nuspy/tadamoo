@@ -9,7 +9,8 @@
                   "display_name": "<name>", "virtual_mic": "<part of a device name>", "wake_phrase": "<phrase>", "autojoin": true|false, "allow_programs_join": true|false,
                   "copilot_replies": 1..6, "copilot_audio_reply": true|false, "copilot_hide_from_capture": true|false},
      "telephony": {"transport": "off|auto|gsm|android", "outgoing_approval": "manual|auto", "ai_disclosure_on_start": true|false,
-                   "incoming_auto_answer": true|false, "on_behalf_of": "<name>"},
+                   "incoming_auto_answer": true|false, "on_behalf_of": "<name>", "premium_prefixes": ["+39 89", "0900"],
+                   "auto_contacts_only": true|false, "contacts": ["+39 333 1234567"]},
      "interruptions": {"enabled": true|false, "judge_timeout_ms": 200..5000, "duck_level": 0..0.9, "resume_offer": true|false}}
 A missing value has a default: the folder is `voice/` inside the first models folder of Basalt (else `voice-models/` in the data folder), a
 service uses the default model of serve/voice_catalog.py, on the GPU the service picks (`auto`) in VRAM, or on the CPU in RAM for the
@@ -286,8 +287,43 @@ def write_server_address(port: int) -> None:
 # ---------------------------------------------------------------------------------------- telephony
 TRANSPORTS = ("off", "auto", "gsm", "android")
 APPROVALS = ("manual", "auto")                   # who approves a call the agent or a program starts: the person, or nobody
-_TELEPHONY_KEYS = ("transport", "outgoing_approval", "ai_disclosure_on_start", "incoming_auto_answer", "on_behalf_of")
+_TELEPHONY_KEYS = ("transport", "outgoing_approval", "ai_disclosure_on_start", "incoming_auto_answer", "on_behalf_of", "premium_prefixes",
+                   "auto_contacts_only", "contacts")
 ON_BEHALF_MAX = 80
+# Numbers the agent and programs never call (the service's own list: voice/callbridge/call_policy.py). A `+` entry is read against a number
+# with a country code, the others against a national one.
+DEFAULT_PREMIUM_PREFIXES = (
+    "+3989", "+39144", "+39166", "89", "144", "166",
+    "+1900", "+1976", "900", "976", "1900", "1976",
+    "+449", "+4470", "+4487", "09", "070", "087",
+    "+3389", "+33836", "089", "0836", "118",
+    "+49900", "+49137", "+49190", "0900", "0137", "0190",
+    "+870", "+871", "+872", "+873", "+874", "+881", "+882", "+883", "+979")
+MAX_PREMIUM_PREFIXES = 200
+MAX_CONTACTS = 500
+_PREFIX_RE = re.compile(r"^\+?[0-9]{1,15}$")
+_CONTACT_RE = re.compile(r"^\+?[0-9]{6,15}$")
+_SEPARATORS = re.compile(r"[\s\-().]")
+
+
+def _number_list(value, pattern, limit):
+    """The entries of `value` cleaned of separators and repeats, or None when it is not a list of strings that all match `pattern`."""
+    if not isinstance(value, list) or len(value) > limit:
+        return None
+    out: list = []
+    for item in value:
+        text = _SEPARATORS.sub("", item) if isinstance(item, str) else ""
+        if not pattern.match(text):
+            return None
+        if text not in out:
+            out.append(text)
+    return out
+
+
+def _stored_list(value, pattern, limit, default):
+    if not isinstance(value, list):
+        return default
+    return [t for t in (_SEPARATORS.sub("", v) for v in value if isinstance(v, str)) if pattern.match(t)][:limit]
 
 
 def telephony() -> dict:
@@ -299,7 +335,10 @@ def telephony() -> dict:
             "outgoing_approval": approval if approval in APPROVALS else "manual",
             "ai_disclosure_on_start": stored.get("ai_disclosure_on_start") is not False,
             "incoming_auto_answer": stored.get("incoming_auto_answer") is True,
-            "on_behalf_of": who.strip()[:ON_BEHALF_MAX] if isinstance(who, str) and not any(ord(c) < 32 for c in who) else ""}
+            "on_behalf_of": who.strip()[:ON_BEHALF_MAX] if isinstance(who, str) and not any(ord(c) < 32 for c in who) else "",
+            "premium_prefixes": _stored_list(stored.get("premium_prefixes"), _PREFIX_RE, MAX_PREMIUM_PREFIXES, list(DEFAULT_PREMIUM_PREFIXES)),
+            "auto_contacts_only": stored.get("auto_contacts_only") is True,
+            "contacts": _stored_list(stored.get("contacts"), _CONTACT_RE, MAX_CONTACTS, [])}
 
 
 def check_telephony(req) -> dict:
@@ -318,7 +357,7 @@ def check_telephony(req) -> dict:
         if req["outgoing_approval"] not in APPROVALS:
             raise VoiceSettingsError("outgoing_approval", "The approval is manual or auto.", "L'approvazione è manual o auto.")
         out["outgoing_approval"] = req["outgoing_approval"]
-    for key in ("ai_disclosure_on_start", "incoming_auto_answer"):
+    for key in ("ai_disclosure_on_start", "incoming_auto_answer", "auto_contacts_only"):
         if key in req:
             if not isinstance(req[key], bool):
                 raise VoiceSettingsError(key, f"{key} is true or false.", f"{key} è true o false.")
@@ -329,6 +368,18 @@ def check_telephony(req) -> dict:
             raise VoiceSettingsError("on_behalf_of", f"Give a name of at most {ON_BEHALF_MAX} characters, or nothing.",
                                      f"Scrivi un nome di al massimo {ON_BEHALF_MAX} caratteri, oppure niente.")
         out["on_behalf_of"] = who.strip()
+    if "premium_prefixes" in req:
+        prefixes = _number_list(req["premium_prefixes"], _PREFIX_RE, MAX_PREMIUM_PREFIXES)
+        if prefixes is None:
+            raise VoiceSettingsError("premium_prefixes", f"Give a list of at most {MAX_PREMIUM_PREFIXES} prefixes of digits, each with an optional leading +.",
+                                     f"Scrivi un elenco di al massimo {MAX_PREMIUM_PREFIXES} prefissi di sole cifre, ciascuno con un + iniziale facoltativo.")
+        out["premium_prefixes"] = prefixes
+    if "contacts" in req:
+        contacts = _number_list(req["contacts"], _CONTACT_RE, MAX_CONTACTS)
+        if contacts is None:
+            raise VoiceSettingsError("contacts", f"Give a list of at most {MAX_CONTACTS} numbers of 6 to 15 digits, each with an optional leading +.",
+                                     f"Scrivi un elenco di al massimo {MAX_CONTACTS} numeri di 6-15 cifre, ciascuno con un + iniziale facoltativo.")
+        out["contacts"] = contacts
     return out
 
 
@@ -343,6 +394,8 @@ def set_telephony(req) -> dict:
         _write(data)
     if changes.get("ai_disclosure_on_start") is False and before["ai_disclosure_on_start"]:
         log.info("telephony: the AI disclosure at the start of calls was turned off by the person")
+    if "premium_prefixes" in changes and not changes["premium_prefixes"] and before["premium_prefixes"]:
+        log.info("telephony: the premium-rate list was emptied by the person")
     return telephony()
 
 

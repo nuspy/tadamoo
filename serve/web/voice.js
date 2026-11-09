@@ -183,7 +183,7 @@
   }
   async function saveTel(change) {
     const r = await api("POST", "api/voice/telephony", change);
-    if (r.ok) { TEL = r.data; telMsg = { text: change.on_behalf_of !== undefined ? T("vo.tel.saved") : "", bad: false }; } else telMsg = { text: errText(r), bad: true };
+    if (r.ok) { TEL = r.data; telMsg = { text: change.on_behalf_of !== undefined || change.contacts !== undefined ? T("vo.tel.saved") : "", bad: false }; } else telMsg = { text: errText(r), bad: true };
     paint();
   }
   function telSelect(id, label, options, value, key) {
@@ -206,6 +206,7 @@
     box.append(telSelect("vo-tel-approval", T("vo.tel.approval"), Object.keys(APPROVALS).map(v => [v, APPROVALS[v]()]), TEL.outgoing_approval, "outgoing_approval"),
       el("p", "vo-help", T("vo.tel.approval.help")));
     if (TEL.outgoing_approval === "auto") box.append(note(T("vo.tel.approval.warn"), true));
+    box.append(telCheck("vo-tel-contacts-only", T("vo.tel.contacts.only"), TEL.auto_contacts_only, "auto_contacts_only"), el("p", "vo-help", T("vo.tel.contacts.only.help")));
     box.append(telCheck("vo-tel-disclosure", T("vo.tel.disclosure"), TEL.ai_disclosure_on_start, "ai_disclosure_on_start"));
     if (!TEL.ai_disclosure_on_start) box.append(note(T("vo.tel.disclosure.warn"), true));
     box.append(telCheck("vo-tel-answer", T("vo.tel.answer"), TEL.incoming_auto_answer, "incoming_auto_answer"), el("p", "vo-help", T("vo.tel.answer.help")));
@@ -213,8 +214,22 @@
     const who = el("input"), form = el("div", "vo-form");
     who.type = "text"; who.value = TEL.on_behalf_of; who.maxLength = 80; who.autocomplete = "off";
     form.append(field("vo-tel-behalf", T("vo.tel.behalf"), who), btn(T("vo.tel.save"), "primary", () => saveTel({ on_behalf_of: who.value.trim() }), "vo-tel-save"));
-    box.append(form, note(telMsg.text, telMsg.bad), telLiveBox());
+    box.append(form, listsForm(), note(telMsg.text, telMsg.bad), telLiveBox());
     return box;
+  }
+  const linesOf = area => area.value.split(/?
+/).map(x => x.trim()).filter(Boolean);
+  function listsForm() {
+    const form = el("div", "vo-form vo-lists"), contacts = el("textarea"), prefixes = el("textarea");
+    contacts.rows = 4; contacts.value = TEL.contacts.join("
+"); contacts.autocomplete = "off"; contacts.spellcheck = false;
+    prefixes.rows = 6; prefixes.value = TEL.premium_prefixes.join("
+"); prefixes.autocomplete = "off"; prefixes.spellcheck = false;
+    form.append(field("vo-tel-contacts", T("vo.tel.contacts"), contacts), el("p", "vo-help", T("vo.tel.contacts.help")),
+      field("vo-tel-premium", T("vo.tel.premium"), prefixes), el("p", "vo-help", T("vo.tel.premium.help")),
+      btn(T("vo.tel.save"), "primary", () => saveTel({ contacts: linesOf(contacts), premium_prefixes: linesOf(prefixes) }), "vo-tel-lists-save"));
+    if (!TEL.premium_prefixes.length) form.append(note(T("vo.tel.premium.warn"), true));
+    return form;
   }
   const word = (prefix, value) => { const s = T(prefix + value); return s === prefix + value ? String(value || "") : s; };
   function telLiveBox() {

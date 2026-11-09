@@ -127,3 +127,16 @@ def test_a_bad_telephony_value_takes_its_default_and_only_a_real_false_turns_the
                     "on_behalf_of": 5}, "x", None, [], {"on_behalf_of": "a\nb"}):
         t = sb.load(_write(tmp_path / "voice.json", {"telephony": stored})).telephony
         assert (t.transport, t.outgoing_approval, t.ai_disclosure_on_start, t.incoming_auto_answer, t.on_behalf_of) == ("off", "manual", True, False, "")
+
+
+def test_the_premium_list_and_the_contacts_are_read_and_a_bad_value_takes_the_default(tmp_path):
+    from callbridge.call_policy import DEFAULT_PREMIUM_PREFIXES
+    t = sb.load(tmp_path / "voice.json").telephony
+    assert (t.premium_prefixes, t.auto_contacts_only, t.contacts) == (DEFAULT_PREMIUM_PREFIXES, False, ())
+    t = sb.load(_write(tmp_path / "voice.json", {"telephony": {"premium_prefixes": ["+39 89", "x", 5, "0900"], "auto_contacts_only": True,
+                                                              "contacts": ["+39 333 1234567", "12", None]}})).telephony
+    assert (t.premium_prefixes, t.auto_contacts_only, t.contacts) == (("+3989", "0900"), True, ("+393331234567",))
+    t = sb.load(_write(tmp_path / "voice.json", {"telephony": {"premium_prefixes": "0900", "auto_contacts_only": "true", "contacts": "x"}})).telephony
+    assert (t.premium_prefixes, t.auto_contacts_only, t.contacts) == (DEFAULT_PREMIUM_PREFIXES, False, ())
+    t = sb.load(_write(tmp_path / "voice.json", {"telephony": {"premium_prefixes": []}})).telephony
+    assert t.premium_prefixes == ()

@@ -16,6 +16,8 @@
 .vo-field { display: grid; gap: 4px; flex: 1 1 260px; max-width: 520px; min-width: 0; }
 .vo-field label { font-weight: 600; color: var(--fg); }
 .vo-field input, .vo-field select { width: 100%; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font: 16px/1.4 var(--font-sans); }
+.vo-field textarea { width: 100%; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font: 16px/1.4 var(--font-mono, monospace); resize: vertical; }
+.vo-lists { display: grid; gap: 8px; }
 .vo-note { margin: 0; padding: 8px 12px; border-left: 3px solid var(--line); color: var(--fg-2); line-height: 1.5; overflow-wrap: anywhere; }
 .vo-note[data-bad="1"] { border-left-color: var(--warn); color: var(--warn); }
 .vo-note[hidden] { display: none; }

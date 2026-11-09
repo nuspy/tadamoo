@@ -6,7 +6,8 @@ The file is the one serve/voice_settings.py writes:
      "brain": {"mode": "direct|harness", "persona": "<slug>", "workspace": "<folder>",
                "base_url": "http://127.0.0.1:<port>", "hotkeys": true|false},
      "telephony": {"transport": "off|auto|gsm|android", "outgoing_approval": "manual|auto", "ai_disclosure_on_start": true|false,
-                   "incoming_auto_answer": true|false, "on_behalf_of": "<name>"},
+                   "incoming_auto_answer": true|false, "on_behalf_of": "<name>", "premium_prefixes": ["+39 89", "0900"],
+                   "auto_contacts_only": true|false, "contacts": ["+39 333 1234567"]},
      "meetings": {"speak": true|false, "camera": true|false, "proactive": true|false, "consent_mode": "window|explicit", "consent_window_s": 20..300, "on_behalf_of": "<name>",
                   "display_name": "<name>", "virtual_mic": "<part of a device name>", "wake_phrase": "<phrase>", "autojoin": true|false, "allow_programs_join": true|false,
                   "copilot_replies": 1..6, "copilot_audio_reply": true|false, "copilot_hide_from_capture": true|false},
@@ -27,7 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from callbridge import models_store as ms
-from callbridge.call_policy import APPROVAL_MODES, TRANSPORT_MODES
+from callbridge.call_policy import APPROVAL_MODES, DEFAULT_PREMIUM_PREFIXES, MAX_CONTACTS, TRANSPORT_MODES, clean_prefixes
 from callbridge.meetbot import consent
 from callbridge.enhance import settings as enhance_settings
 from callbridge.interruption import Interruptions
@@ -84,6 +85,9 @@ class Telephony:
     ai_disclosure_on_start: bool = True
     incoming_auto_answer: bool = False
     on_behalf_of: str = ""
+    premium_prefixes: tuple = DEFAULT_PREMIUM_PREFIXES      # numbers the agent and programs never call
+    auto_contacts_only: bool = False                        # `auto` approval only for `contacts`
+    contacts: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -163,6 +167,16 @@ def _brain(stored) -> Brain:
                  hotkeys is True)
 
 
+def clean_contacts(values) -> list[str]:
+    """The valid numbers of a contact list (6 to 15 digits, a leading `+` allowed), separators removed, without repeats."""
+    out: list[str] = []
+    for v in values if isinstance(values, (list, tuple)) else ():
+        n = re.sub(r"[\s\-().]", "", v) if isinstance(v, str) else ""
+        if re.match(r"^\+?[0-9]{6,15}$", n) and n not in out:
+            out.append(n)
+    return out[:MAX_CONTACTS]
+
+
 def _telephony(stored) -> Telephony:
     stored = stored if isinstance(stored, dict) else {}
     transport, approval, who = stored.get("transport"), stored.get("outgoing_approval"), stored.get("on_behalf_of")
@@ -170,7 +184,10 @@ def _telephony(stored) -> Telephony:
                      approval if approval in APPROVAL_MODES else "manual",
                      stored.get("ai_disclosure_on_start") is not False,
                      stored.get("incoming_auto_answer") is True,
-                     who.strip()[:80] if isinstance(who, str) and not any(ord(c) < 32 for c in who) else "")
+                     who.strip()[:80] if isinstance(who, str) and not any(ord(c) < 32 for c in who) else "",
+                     tuple(clean_prefixes(stored["premium_prefixes"])) if isinstance(stored.get("premium_prefixes"), list) else DEFAULT_PREMIUM_PREFIXES,
+                     stored.get("auto_contacts_only") is True,
+                     tuple(clean_contacts(stored.get("contacts"))))
 
 
 def _text(value, limit: int, default: str = "") -> str:
@@ -255,6 +272,7 @@ def overrides(settings: Settings) -> dict:
     t = settings.telephony
     out["call_transport"], out["outgoing_approval"], out["ai_disclosure_on_start"] = t.transport, t.outgoing_approval, t.ai_disclosure_on_start
     out["incoming_auto_answer"], out["call_on_behalf_of"], out["call_audit_file"] = t.incoming_auto_answer, t.on_behalf_of, settings.audit_file
+    out["call_premium_prefixes"], out["call_auto_contacts_only"], out["call_contacts"] = list(t.premium_prefixes), t.auto_contacts_only, list(t.contacts)
     out["avatar_enabled"] = out["avatar_preload"] = is_enabled(settings.services["avatar"], root)       # the worker starts with the function, not otherwise
     out["avatar_virtual_camera"], out["avatars_dir"] = settings.avatar.virtual_camera, settings.avatars_dir
     out["avatar_enhance"] = settings.avatar.enhance.as_dict()

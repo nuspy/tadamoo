@@ -11,6 +11,8 @@ import os
 from dataclasses import dataclass, asdict, field, fields
 from pathlib import Path
 
+from .call_policy import DEFAULT_PREMIUM_PREFIXES
+
 
 @dataclass
 class Config:
@@ -267,6 +269,9 @@ class Config:
     ai_disclosure_on_start: bool = True    # la prima frase dice che chi chiama e' un'IA
     incoming_auto_answer: bool = False     # l'IA risponde da sola alle chiamate in arrivo (GSM e Android)
     call_on_behalf_of: str = ""            # per conto di chi, nella frase di apertura
+    call_premium_prefixes: list = field(default_factory=lambda: list(DEFAULT_PREMIUM_PREFIXES))   # numeri a pagamento: l'agente e i programmi non li chiamano
+    call_auto_contacts_only: bool = False  # "auto" vale solo per i numeri in `call_contacts`; gli altri chiedono
+    call_contacts: list = field(default_factory=list)
     call_audit_file: str = ""              # registro delle chiamate (JSON per riga, senza trascrizioni)
     gsm_max_call_s: float = 600.0          # durata massima chiamata (paracadute anti-loop)
     gsm_max_empty_turns: int = 3           # turni vuoti di fila prima di chiudere
