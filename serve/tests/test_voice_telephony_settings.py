@@ -33,7 +33,7 @@ class Base(unittest.TestCase):
 
 
 CAREFUL = {"transport": "off", "outgoing_approval": "manual", "ai_disclosure_on_start": True, "incoming_auto_answer": False, "on_behalf_of": "",
-           "premium_prefixes": list(vs.DEFAULT_PREMIUM_PREFIXES), "auto_contacts_only": False, "contacts": []}
+           "premium_prefixes": list(vs.DEFAULT_PREMIUM_PREFIXES), "auto_contacts_only": False, "contacts": [], "phone_calls": False}
 
 
 class TelephonySettingsTest(Base):
@@ -181,9 +181,9 @@ class PageTest(unittest.TestCase):
 
     def test_the_card_has_every_control_and_a_warning_for_each_risky_choice(self):
         for control in ("vo-tel-transport", "vo-tel-approval", "vo-tel-disclosure", "vo-tel-answer", "vo-tel-behalf", "vo-tel-save", "vo-tel-refresh", "vo-tel-contacts-only", "vo-tel-contacts",
-                        "vo-tel-premium", "vo-tel-lists-save"):
+                        "vo-tel-premium", "vo-tel-lists-save", "vo-tel-phone"):
             self.assertIn(control, JS)
-        for key in ("vo.tel.approval.warn", "vo.tel.disclosure.warn", "vo.tel.answer.warn", "vo.tel.premium.warn"):
+        for key in ("vo.tel.approval.warn", "vo.tel.disclosure.warn", "vo.tel.answer.warn", "vo.tel.premium.warn", "vo.tel.phone.warn"):
             self.assertIn(f'T("{key}")', JS)
         self.assertIn('aria-labelledby', JS)
 

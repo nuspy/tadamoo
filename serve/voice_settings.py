@@ -10,7 +10,7 @@
                   "copilot_replies": 1..6, "copilot_audio_reply": true|false, "copilot_hide_from_capture": true|false},
      "telephony": {"transport": "off|auto|gsm|android", "outgoing_approval": "manual|auto", "ai_disclosure_on_start": true|false,
                    "incoming_auto_answer": true|false, "on_behalf_of": "<name>", "premium_prefixes": ["+39 89", "0900"],
-                   "auto_contacts_only": true|false, "contacts": ["+39 333 1234567"]},
+                   "auto_contacts_only": true|false, "contacts": ["+39 333 1234567"], "phone_calls": true|false},
      "interruptions": {"enabled": true|false, "judge_timeout_ms": 200..5000, "duck_level": 0..0.9, "resume_offer": true|false}}
 A missing value has a default: the folder is `voice/` inside the first models folder of Basalt (else `voice-models/` in the data folder), a
 service uses the default model of serve/voice_catalog.py, on the GPU the service picks (`auto`) in VRAM, or on the CPU in RAM for the
@@ -288,7 +288,7 @@ def write_server_address(port: int) -> None:
 TRANSPORTS = ("off", "auto", "gsm", "android")
 APPROVALS = ("manual", "auto")                   # who approves a call the agent or a program starts: the person, or nobody
 _TELEPHONY_KEYS = ("transport", "outgoing_approval", "ai_disclosure_on_start", "incoming_auto_answer", "on_behalf_of", "premium_prefixes",
-                   "auto_contacts_only", "contacts")
+                   "auto_contacts_only", "contacts", "phone_calls")
 ON_BEHALF_MAX = 80
 # Numbers the agent and programs never call (the service's own list: voice/callbridge/call_policy.py). A `+` entry is read against a number
 # with a country code, the others against a national one.
@@ -338,6 +338,7 @@ def telephony() -> dict:
             "on_behalf_of": who.strip()[:ON_BEHALF_MAX] if isinstance(who, str) and not any(ord(c) < 32 for c in who) else "",
             "premium_prefixes": _stored_list(stored.get("premium_prefixes"), _PREFIX_RE, MAX_PREMIUM_PREFIXES, list(DEFAULT_PREMIUM_PREFIXES)),
             "auto_contacts_only": stored.get("auto_contacts_only") is True,
+            "phone_calls": stored.get("phone_calls") is True,
             "contacts": _stored_list(stored.get("contacts"), _CONTACT_RE, MAX_CONTACTS, [])}
 
 
@@ -357,7 +358,7 @@ def check_telephony(req) -> dict:
         if req["outgoing_approval"] not in APPROVALS:
             raise VoiceSettingsError("outgoing_approval", "The approval is manual or auto.", "L'approvazione è manual o auto.")
         out["outgoing_approval"] = req["outgoing_approval"]
-    for key in ("ai_disclosure_on_start", "incoming_auto_answer", "auto_contacts_only"):
+    for key in ("ai_disclosure_on_start", "incoming_auto_answer", "auto_contacts_only", "phone_calls"):
         if key in req:
             if not isinstance(req[key], bool):
                 raise VoiceSettingsError(key, f"{key} is true or false.", f"{key} è true o false.")
@@ -394,6 +395,8 @@ def set_telephony(req) -> dict:
         _write(data)
     if changes.get("ai_disclosure_on_start") is False and before["ai_disclosure_on_start"]:
         log.info("telephony: the AI disclosure at the start of calls was turned off by the person")
+    if changes.get("phone_calls") is True and not before["phone_calls"]:
+        log.info("telephony: calls from a phone with its key were turned on by the person")
     if "premium_prefixes" in changes and not changes["premium_prefixes"] and before["premium_prefixes"]:
         log.info("telephony: the premium-rate list was emptied by the person")
     return telephony()

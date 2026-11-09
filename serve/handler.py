@@ -23,7 +23,7 @@ from tadamoo import telegram as tg
 from tadamoo import permission_level
 from tadamoo.permission_level import PermissionLevelError, PermissionLevels
 from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, voice_api, voice_compat, voice_import, voice_loader, voice_service, voice_settings
-from serve import origin_guard, voice_avatar, voice_gateway_relay
+from serve import origin_guard, voice_avatar, voice_gateway_relay, voice_phone_call
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX, checked_sampling
 from serve.engine.vision import VISION_MODES
@@ -957,6 +957,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path == voice_avatar.BASE or path.startswith(voice_avatar.BASE + "/"):
                 voice_avatar.post(self, path)
+                return
+            if path == voice_phone_call.PATH:                     # a call the person places from the phone app: its origin comes from the channel
+                voice_phone_call.post(self, svc)
                 return
             if path.startswith("/api/voice/"):
                 self._voice_post(path)
