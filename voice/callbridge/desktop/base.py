@@ -6,10 +6,14 @@ maps the names to its own key codes.
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
+
+
+log = logging.getLogger("callbridge.desktop")
 
 
 class DesktopUnsupported(RuntimeError):
@@ -152,6 +156,22 @@ class Desktop(ABC):
 
     @abstractmethod
     def new_overlay(self) -> Overlay: ...
+
+    def push_to_talk_keys(self, name: str, hotkeys: Mapping[str, Callable[[], None]]) -> KeyHook:
+        """The global toggles of push-to-talk: `hotkeys` maps a neutral combination ("shift+f1") to what its press calls.
+
+        A combination fires only with exactly its modifiers: Shift+F1 must not fire while Ctrl+Shift+F1 is held. Keys are not
+        suppressed. The default is `key_hook` with exact Bindings; a platform overrides it when the toggles need their own
+        listener. Raises `DesktopUnsupported` where there are no global hotkeys; the returned hook's `start()` is False when it
+        could not listen."""
+        bindings = []
+        for combo, fn in hotkeys.items():
+            mods, key = parse_hotkey(combo)
+            if key is None:
+                log.error("%s: %r has no key this system knows", name, combo)
+                continue
+            bindings.append(Binding(mods, key, fn, exact=True, suppress=False))
+        return self.key_hook(name, bindings)
 
     def exclude_from_capture(self, handle: int, on: bool = True) -> bool:
         """Keep the window with this native handle out of screen sharing and recording. False where the system cannot."""
