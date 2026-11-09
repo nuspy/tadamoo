@@ -143,7 +143,7 @@ def test_the_personality_that_does_not_learn_is_not_asked(tmp_path):
     store(tmp_path).update("maria", {"learn": False})
     w.touch("c1", "maria")
     clock.now += 10_000
-    assert w.step() is True and model.calls == [] and w.last_run["outcome"] == "off" and learned(tmp_path) == []
+    assert w.step() is True and model.calls == [] and learned(tmp_path) == [] and store(tmp_path).memory("maria").queue_len() == 0     # not even a job waits
 
 
 def test_a_model_on_another_provider_is_used_only_if_the_memory_allows_it(tmp_path):
