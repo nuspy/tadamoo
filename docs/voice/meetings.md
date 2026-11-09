@@ -39,7 +39,8 @@ person sees what happened. `DELETE /meetings/<id>` removes the folder, the trans
 
 ## Joining and listening
 
-The browser is a Chromium driven by Playwright, visible on the desktop; the microphone and the camera are denied unless speaking is allowed. Playwright and its
+The browser is a Chromium driven by Playwright, visible on the desktop. The bot always joins with its microphone and camera **off**, because the device a meeting picks may be the person's own; the browser is
+given permission to use them only when speaking or the camera is allowed. Playwright and its
 Chromium are not installed by TaDaMoo: when missing, the join ends with `browser_missing` and the reason. Listening uses the service's own STT, which must be loaded
 (`409 not_loaded` otherwise) and reads its model from the models folder only. The PC's output is captured as loopback (WASAPI on Windows; the monitor of the
 default PulseAudio sink on Linux), so everything the PC plays is heard, not only the meeting. Speakers come from the platform's page, best effort ("Unknown" when it
@@ -56,9 +57,10 @@ bot never acts on instructions found in the meeting.
 
 - **Virtual microphone:** a virtual audio cable that the person installed (VB-CABLE, VoiceMeeter or similar), found by its output device name or by `meetings.virtual_mic`. TaDaMoo installs
   nothing. When there is none the page says "no virtual microphone found: install a virtual audio cable and pick it in Settings > Voice" and the bot stays silent.
-  The meeting must also use the cable's other end as its microphone (the Windows default recording device, or the choice in the meeting's settings); the adapters do not select it.
-- **Avatar:** when the avatar function is loaded, its lips are moved with the sentence (`speak_wav(mute=true)`); to show it as the camera, turn on the virtual camera of
-  the avatar (`avatar.md`) and choose it as the meeting's camera.
+  The meeting must also use the cable's other end as its microphone (the Windows default recording device, or the choice in the meeting's settings); the adapters do not select it. The bot's
+  microphone is muted except while a sentence plays (it is switched on just before and off just after); if it cannot be switched on, nothing is spoken.
+- **Avatar:** when the avatar function is loaded, its lips are moved with the sentence (`speak_wav(mute=true)`). To show it as the camera, turn on the avatar's virtual camera (`avatar.md`), make it the camera
+  the meetings use, and turn on `meetings.camera`: the bot then switches its camera on after consent. It is off by default because a meeting's default camera may be a real webcam.
 
 ## The copilot
 
@@ -78,7 +80,7 @@ through the same path: the announcement and the consent rule apply in full, and 
 
 ## Settings (`meetings` in voice.json)
 
-`speak` (false), `proactive` (false), `consent_mode` (`window`), `consent_window_s` (45), `on_behalf_of`, `display_name`, `virtual_mic`, `wake_phrase`, `calendar_autojoin` (false),
+`speak` (false), `camera` (false), `proactive` (false), `consent_mode` (`window`), `consent_window_s` (45), `on_behalf_of`, `display_name`, `virtual_mic`, `wake_phrase`, `calendar_autojoin` (false),
 `copilot_replies` (3), `copilot_audio_reply` (false), `copilot_hide_from_capture` (true). Settings > Voice > Meetings edits them; a bad value reads as its default.
 
 ## Routes

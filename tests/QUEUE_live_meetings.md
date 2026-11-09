@@ -22,7 +22,7 @@ Vanno eseguiti solo dopo l'autorizzazione esplicita dell'utente, di giorno, in u
 | 7 | Qualcuno entra a riunione iniziata | arriva un annuncio breve nella chat | in attesa del via |
 | 8 | Gli stessi test 1, 2 e 5 su Teams e su Zoom | i selettori delle due piattaforme (ingresso, chat, uscita, partecipanti) reggono; se no si correggono in `adapters/` | in attesa del via |
 | 9 | Parola accesa con il cavo virtuale; senza cavo | con il cavo: annuncio a voce, risposte solo se chiamato per nome, mai sopra un altro; senza: il messaggio «no virtual microphone found...» e nessuna voce | in attesa del via |
-| 10 | Avatar caricato con la camera virtuale accesa, scelta come camera della riunione | le labbra seguono la voce; l'avatar si vede come camera | in attesa del via |
+| 10 | Avatar caricato con la camera virtuale accesa, scelta come camera della riunione, e «Mostra l'avatar come camera» acceso | il bot entra con camera e microfono spenti; dopo il consenso la camera si accende e si vede l'avatar; il microfono si accende solo mentre parla | in attesa del via |
 | 11 | Copilota (Maiusc+F4) durante una chiamata, con la condivisione dello schermo accesa | la finestra dei suggerimenti non compare nella condivisione; si vede solo da te; «Rispondi con audio» passa dal cavo | in attesa del via |
 | 12 | Calendario con una tua app OAuth (Google, poi Microsoft) e un evento spuntato | l'ingresso un minuto prima, con lo stesso annuncio e consenso; i token stanno solo nel gestore credenziali | in attesa del via |
 | 13 | Linux (PulseAudio, v4l2loopback), se mai | cattura dal monitor e voce nel microfono virtuale; scritto, non provato | in attesa del via |
