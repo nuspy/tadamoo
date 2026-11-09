@@ -17,6 +17,8 @@ WIZARD_TIMEOUT_S = 120.0                                    # making an avatar: 
 AVATAR_NAME = r"[A-Za-z0-9][A-Za-z0-9_-]{0,59}"
 DRAFT = r"[0-9a-f]{32}"
 LANG = re.compile(r"[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})?")
+PYTHON_NAME = re.compile(r"(?:.*[\\/])?(?:python[0-9.]*|py)(?:\.exe)?", re.IGNORECASE)
+NETWORK_PREFIXES = ("\\\\", "//", "\\/", "/\\")
 TRAIN_ENGINES = ("ultralight", "feathertalk", "er_nerf")
 
 
@@ -100,9 +102,15 @@ def _train_setup(body: Any) -> dict:
 
 def _train_python(body: Any) -> dict:
     body = _fields(body, ("path",), ("path",))
-    if not isinstance(body["path"], str) or len(body["path"]) > 1000 or any(ord(c) < 32 for c in body["path"]):
-        raise Refused(400, "bad_request", "Send the full path of the Python, or an empty text to forget it.")
+    if not isinstance(body["path"], str) or len(body["path"]) > 1000 or any(ord(c) < 32 for c in body["path"]) or not _python_shape(body["path"]):
+        raise Refused(400, "bad_request", "Send the full path of the Python on a disk of this PC, or an empty text to forget it.")
     return body
+
+
+def _python_shape(path: str) -> bool:
+    """Empty, or a path that names a Python interpreter and is not a network path; the service checks the file itself."""
+    path = path.strip().strip('"').strip()
+    return not path or (not path.startswith(NETWORK_PREFIXES) and bool(PYTHON_NAME.fullmatch(path)))
 
 
 def _train_export(body: Any) -> dict:
@@ -121,8 +129,8 @@ def _train_start(body: Any) -> dict:
 
 def _python_path(body: Any) -> dict:
     body = _fields(body, ("path",), ("path",))
-    if not isinstance(body["path"], str) or len(body["path"]) > 520 or "\0" in body["path"]:
-        raise Refused(400, "bad_request", "Send the path of the Python, or an empty text to forget it.")
+    if not isinstance(body["path"], str) or len(body["path"]) > 520 or "\0" in body["path"] or not _python_shape(body["path"]):
+        raise Refused(400, "bad_request", "Send the path of the Python on a disk of this PC, or an empty text to forget it.")
     return body
 
 

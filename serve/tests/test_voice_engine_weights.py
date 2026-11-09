@@ -153,6 +153,9 @@ class TrainProxyTest(unittest.TestCase):
             self.assertEqual(self.refused("POST", "/avatar/train/setup", body).status, 400, body)
         for body in ({"path": 5}, {"path": "a\nb"}, {}, {"path": "x", "y": 1}):
             self.assertEqual(self.refused("POST", "/avatar/train/python", body).status, 400, body)
+        for path in ("\\\\attacker\\share\\python.exe", "//attacker/share/python", "C:\\Users\\me\\Downloads\\setup.exe", "/usr/bin/bash", "C:\\py\\python.exe.bat"):
+            for route in ("/avatar/train/python", "/avatar/engines/python"):       # a network path or a file that is not a Python never reaches the service
+                self.assertEqual(self.refused("POST", route, {"path": path}).status, 400, (route, path))
         for body in ({"avatar": "ada"}, {"avatar": "ada", "engine": "visemes"}, {"avatar": "a b", "engine": "ultralight"}):
             self.assertEqual(self.refused("POST", "/avatar/train/export", body).status, 400, body)
         self.assertEqual(self.refused("GET", "/avatar/train/status", {"x": 1}).status, 400)
