@@ -24,6 +24,9 @@ from voice import settings_bridge
 log = logging.getLogger("voice.functions")
 
 FUNCTIONS = ("stt", "tts", "avatar")
+#: What each function is called to a person. The avatar function is the video made on this PC (MuseTalk): the only one that uses VRAM for the
+#: avatar and only an emergency mode; the phone and the ESP32 draw the avatar themselves and need no function loaded.
+LABELS = {"stt": "Speech to text", "tts": "Speech synthesis", "avatar": "Avatar video from the PC (emergency, uses VRAM)"}
 STATES = ("unloaded", "loading", "loaded", "error")
 _DEVICE_RE = re.compile(r"^(auto|cpu|cuda:[0-9]{1,2})$")
 
@@ -218,7 +221,7 @@ class Functions:
         for name in FUNCTIONS:
             c, rec = settings.services[name], self._rec[name]
             installed = ms.is_installed(c.model, settings.models_dir)
-            entry = {"state": self._live(name), "model": c.model, "name": ms.MODELS[c.model][2] if c.model in ms.MODELS else "", "engine": c.engine,
+            entry = {"label": LABELS[name], "state": self._live(name), "model": c.model, "name": ms.MODELS[c.model][2] if c.model in ms.MODELS else "", "engine": c.engine,
                      "device": c.device, "memory": c.memory, "enabled": settings_bridge.is_enabled(c, settings.models_dir), "installed": installed,
                      "estimated_mib": rec["estimated_mib"], "measured_mib": rec["measured_mib"], "error": rec["error"] or None}
             if rec["applied"] and entry["state"] == "loaded":

@@ -250,10 +250,11 @@ class Connection:
         return [m for m in self._declared if m in have and m not in self._failed]
 
     def _reselect(self, previous: str = "", why: str = "") -> None:
-        """Looks again at what is offered after a change (the personality, a mode that failed) and tells the device when the mode changed."""
+        """Looks again at what is offered after a change (the personality, a mode that failed) and tells the device when the mode or the avatar changed."""
+        before = self._avatar_name
         offered = self._offered()
         mode = offered[0] if offered else "none"
-        if mode == self._render_mode and not previous:
+        if mode == self._render_mode and self._avatar_name == before and not previous:
             return
         self._render_mode = mode
         msg = {"type": "render_mode", "mode": mode, "render_modes": offered, "avatar_name": self._avatar_name}

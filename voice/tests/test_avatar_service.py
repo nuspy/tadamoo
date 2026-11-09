@@ -1,9 +1,11 @@
 """The avatar in the voice service: the function loads only when asked and says what is missing, the personality's avatar and voice are followed,
 the routes (state, speak, preview stream, wizard, prepare, visemes, assets, delete), the camera that is off until the person turns it on.
 The worker is a stand-in process, the GPU readings are fake, the network is blocked."""
+import hashlib
 import io
 import json
 import os
+import shutil
 import socket
 import sys
 import time
@@ -16,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from callbridge import avatar_output, avatar_weights, models_store as ms
+from callbridge import viseme_gen
 from callbridge.avatar_client import AvatarClient
 from callbridge.avatar_store import AvatarStore
 from voice import functions, persona_link, service
@@ -400,24 +403,83 @@ def test_a_camera_that_cannot_be_opened_is_reported_and_the_avatar_goes_on(rig, 
 
 def test_the_visemes_of_a_sentence(rig):
     out = rig.post("/avatar/visemes", {"text": "Ciao a tutti", "duration_s": 2.0, "lang": "it"}).get_json()
-    assert out["type"] == "visemi" and out["durata"] == 2.0 and out["visemi"][0]["t"] == 0
-    assert abs(sum(v["dur"] for v in out["visemi"]) - 2.0) < 0.05
+    assert out["type"] == "visemes" and out["duration_ms"] == 2000 and out["text"] == "Ciao a tutti" and out["visemes"][0]["t"] == 0
+    assert abs(sum(v["dur"] for v in out["visemes"]) - 2000) < 50
+    assert all(set(v) == {"t", "v", "dur"} and v["v"] in viseme_gen.VISEMI for v in out["visemes"])
     for bad in ({}, {"text": "hi"}, {"text": "hi", "duration_s": 0}, {"text": "hi", "duration_s": 601}, {"text": "hi", "duration_s": True}, {"text": "", "duration_s": 1},
                 {"text": "x" * 2001, "duration_s": 1}, {"text": "hi", "duration_s": 1, "lang": "../x"}):
         assert rig.post("/avatar/visemes", bad).status_code == 400, bad
 
 
-def test_the_phones_assets_come_as_one_zip_of_the_persons_own_avatar(rig):
+def test_the_phones_assets_come_as_one_zip_with_a_manifest_of_the_persons_own_avatar(rig):
     resp = rig.get("/avatar/ada/assets.zip")
     assert resp.status_code == 200 and resp.mimetype == "application/zip"
     z = zipfile.ZipFile(io.BytesIO(resp.data))
-    assert sorted(z.namelist()) == ["box.json", "face.png", "poster.jpg"]
-    assert json.loads(z.read("box.json"))["ver"] == 2 and z.read("face.png")[:4] == b"\x89PNG"
-    assert rig.get("/avatar/nobody/assets.zip").status_code == 404
+    files = ["poster.jpg", "wav2lip/face.png", "wav2lip/box.json", "visemes/frame.json"] + [f"visemes/{v}.png" for v in viseme_gen.VISEMI]
+    assert sorted(z.namelist()) == sorted(files + ["manifest.json"])
+    assert json.loads(z.read("wav2lip/box.json"))["ver"] == 2 and z.read("wav2lip/face.png")[:4] == b"\x89PNG" and z.read("visemes/aa.png")[:4] == b"\x89PNG"
+    man = json.loads(z.read("manifest.json"))
+    assert man["version"] == 1 and man["avatar"] == "ada" and man["created"] and man["render_modes"] == ["wav2lip", "visemes"]
+    assert sorted(man["files"]) == sorted(files) and all(hashlib.sha256(z.read(path)).hexdigest() == digest for path, digest in man["files"].items())
+    assert rig.get("/avatar/ada/manifest.json").get_json() == man
+    assert rig.get("/avatar/nobody/assets.zip").status_code == 404 and rig.get("/avatar/nobody/manifest.json").status_code == 404
     for bad in ("..", "a%2Fb", "a b"):
         assert rig.get(f"/avatar/{bad}/assets.zip").status_code in (404, 308, 400)
     rig.store.create("blank")
     assert rig.get("/avatar/blank/assets.zip").get_json()["code"] == "no_poster"
+    assert rig.get("/avatar/blank/manifest.json").get_json()["code"] == "no_poster"
+
+
+def test_the_manifest_lists_the_video_only_once_a_clip_is_prepared(rig):
+    assert rig.get("/avatar/ada/manifest.json").get_json()["render_modes"] == ["wav2lip", "visemes"]
+    rig.store.record_prepared("ada", "walk.mp4", 5)
+    assert rig.get("/avatar/ada/manifest.json").get_json()["render_modes"] == ["wav2lip", "visemes", "video"]
+
+
+def test_an_avatar_made_before_the_sprites_gets_them_from_its_photo_and_keeps_the_mouth_the_person_marked(rig):
+    folder = rig.store.existing("ada")
+    assert rig.post("/personas/ada/wav2lip/bocca", {"p1": [70, 110], "p2": [130, 110]}).get_json()["ok"]
+    shutil.rmtree(folder / "visemes")
+    man = rig.get("/avatar/ada/manifest.json").get_json()
+    assert man["render_modes"] == ["wav2lip", "visemes"]
+    frame = json.loads((folder / "visemes" / "frame.json").read_text(encoding="utf-8"))
+    assert frame["mouth"]["w"] > 0 and abs(frame["inv"][2] + frame["inv"][0] * frame["size"][0] / 2 - 100) < 2         # centred on the marked mouth (100, 110)
+
+
+def test_the_avatar_of_a_personality_and_its_render_modes_are_told_to_the_gateway(rig):
+    assert rig.get("/avatar/phone").get_json() == {"persona": "ada-p", "avatar": "ada", "render_modes": ["wav2lip", "visemes"], "problem": ""}
+    none = rig.get("/avatar/phone?persona=no-avatar").get_json()
+    assert none["avatar"] == "" and none["render_modes"] == []
+    assert rig.get("/avatar/phone?persona=../x").status_code == 400
+    assert rig.client.get("/avatar/phone").status_code == 401
+
+
+def test_the_wav2lip_model_is_served_with_ranges_an_etag_of_its_sha256_and_a_plain_404_when_it_is_not_installed(rig):
+    resp = rig.get("/avatar/models/wav2lip.onnx")
+    assert resp.status_code == 404 and resp.get_json()["code"] == "model_not_installed" and "not installed" in resp.get_json()["error"]
+    where = rig.models / "avatar" / "wav2lip-int8"
+    where.mkdir(parents=True)
+    blob = bytes(range(256)) * 40
+    (where / "wav2lip_int8.onnx").write_bytes(blob)
+    digest = hashlib.sha256(blob).hexdigest()
+    resp = rig.get("/avatar/models/wav2lip.onnx")
+    assert resp.status_code == 200 and resp.data == blob and resp.headers["ETag"] == f'"{digest}"' and resp.headers["X-Content-SHA256"] == digest
+    assert resp.headers["Accept-Ranges"] == "bytes" and "no-cache" in resp.headers["Cache-Control"]
+    part = rig.client.get("/avatar/models/wav2lip.onnx", headers={**AUTH, "Range": "bytes=10-19"})
+    assert part.status_code == 206 and part.data == blob[10:20] and part.headers["Content-Range"] == f"bytes 10-19/{len(blob)}"
+    assert rig.client.get("/avatar/models/wav2lip.onnx", headers={**AUTH, "If-None-Match": f'"{digest}"'}).status_code == 304
+    assert rig.client.get("/avatar/models/wav2lip.onnx").status_code == 401
+
+
+def test_the_sprite_sheet_shows_every_mouth_over_the_photo_in_one_picture(rig):
+    import cv2
+    import numpy as np
+    resp = rig.get("/avatar/ada/sprites.png")
+    assert resp.status_code == 200 and resp.mimetype == "image/png"
+    sheet = cv2.imdecode(np.frombuffer(resp.data, np.uint8), cv2.IMREAD_COLOR)
+    frame = json.loads((rig.store.existing("ada") / "visemes" / "frame.json").read_text(encoding="utf-8"))
+    assert sheet.shape[:2] == (3 * frame["size"][1], 5 * frame["size"][0])                  # 15 sprites in 5 columns and 3 rows
+    assert rig.get("/avatar/nobody/sprites.png").status_code == 404 and rig.client.get("/avatar/ada/sprites.png").status_code == 401
 
 
 def test_the_images_are_served_on_callapicalls_paths(rig):

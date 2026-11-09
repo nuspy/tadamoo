@@ -255,11 +255,14 @@ def test_the_device_may_choose_among_the_offered_modes_and_a_wrong_choice_is_an_
 
 def test_choosing_a_personality_looks_at_its_avatar_again_and_tells_the_device_when_the_mode_changes():
     host = host_with()
-    host.avatar_of = {"bella": {"avatar": "bella", "render_modes": ["visemes"]}, "nobody": {"avatar": "", "render_modes": []}}
-    ws = connect(host, auth("wav2lip", "visemes"), [{"type": "persona", "persona": "bella"}, {"type": "persona", "persona": "nobody"}, CLOSED])
+    host.avatar_of = {"bella": {"avatar": "bella", "render_modes": ["visemes"]}, "carla": {"avatar": "carla", "render_modes": ["visemes"]},
+                      "ada": {"avatar": "ada", "render_modes": ["wav2lip", "visemes"]}, "nobody": {"avatar": "", "render_modes": []}}
+    script = [{"type": "persona", "persona": p} for p in ("bella", "carla", "carla", "nobody")]
+    ws = connect(host, auth("wav2lip", "visemes"), [*script, CLOSED])
     assert ws.json("ready")[0]["render_mode"] == "wav2lip"
-    assert [(m["mode"], m["avatar_name"]) for m in ws.json("render_mode")] == [("visemes", "bella"), ("none", "")]
-    assert host.phone_calls == ["", "bella", "nobody"]
+    # the mode changed to visemes; the avatar changed with the same mode; the same personality again says nothing; then no avatar at all
+    assert [(m["mode"], m["avatar_name"]) for m in ws.json("render_mode")] == [("visemes", "bella"), ("visemes", "carla"), ("none", "")]
+    assert host.phone_calls == ["", "bella", "carla", "carla", "nobody"]
 
 
 # ---------------------------------------------------------------------------------------- the ESP32 on a real loopback socket

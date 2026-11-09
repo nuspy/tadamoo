@@ -10,7 +10,11 @@
     POST /avatar/wizard/<draft>/elabora {name, language?}   make the avatar; GET and DELETE /avatar/wizard/<draft>
     POST /avatar/prepare {avatar, clip?}     prepare a clip for MuseTalk (one at a time); GET /avatar/prepare; POST /avatar/prepare/cancel
     POST /avatar/visemes {text, duration_s, lang?}   the viseme timeline of a sentence (the phone's "visemes" mode)
-    GET  /avatar/<name>/assets.zip           poster, face and mouth box for the phone's Wav2Lip
+    GET  /avatar/<name>/assets.zip           the phone's files: poster, Wav2Lip face and box, the viseme sprites and manifest.json
+    GET  /avatar/<name>/sprites.png          every mouth sprite over the photo, labelled, in one picture (for the creation page)
+    GET  /avatar/<name>/manifest.json        {version, avatar, created, render_modes, files: {path: sha256}}
+    GET  /avatar/phone[?persona=slug]        the avatar of a personality and the render modes its files allow (the gateway asks)
+    GET  /avatar/models/wav2lip.onnx         the Wav2Lip model the phones run (Range, ETag = SHA-256); 404 with the reason when not installed
     GET  /personas/<name>/poster|mouthbox|wav2lip/box|wav2lip/face, POST /personas/<name>/poster|wav2lip/bocca   (callAPIcall's paths, on the store)
 """
 from __future__ import annotations
@@ -19,16 +23,16 @@ import io
 import json
 import logging
 import re
-import zipfile
 from pathlib import Path
 
 from flask import Response, jsonify, request, send_file
 
-from callbridge import avatar_output, models_store
+from callbridge import avatar_assets, avatar_output, avatar_visemes, models_store
 from callbridge.avatar_client import PrepareBusy
 from callbridge.avatar_store import StoreError, valid_name
 from callbridge.sospensione import MSG_SOSPESO, in_sospensione
 
+from voice import persona_link
 from voice.avatar_service import AvatarService, Unavailable
 from voice.avatar_wizard import STEPS, WizardError
 
@@ -295,34 +299,80 @@ def register(app, svc: AvatarService) -> None:
         return jsonify(viseme_gen.timeline(text.strip(), float(seconds), lang))
 
     def wav2lip_ready(name: str, folder: Path) -> bool:
-        face, box = folder / "wav2lip" / "face.png", folder / "wav2lip" / "box.json"
-        if face.is_file() and box.is_file():
+        """The files a phone needs, made from the photo when the folder lacks them; False when there is no usable photo."""
+        if avatar_assets.render_modes(folder) == ["wav2lip", "visemes"]:
             return True
-        poster = svc.poster(name)
-        if poster is None:
+        if svc.poster(name) is None:
             return False
         from callbridge import avatar_prep
         try:
-            avatar_prep.prepara_wav2lip(poster, folder)
+            avatar_prep.completa(folder)
             return True
-        except (ValueError, OSError) as e:
-            log.warning("wav2lip assets of %s not made: %s", name, e)
+        except (ValueError, OSError, KeyError) as e:
+            log.warning("phone assets of %s not made: %s", name, e)
             return False
 
-    @app.get("/avatar/<name>/assets.zip")
-    def avatar_assets(name):
+    def manifest_of(name: str, folder: Path) -> dict:
+        store = svc.store
+        video = bool(set(store.clips(name)) & set(store.prepared(name)))
+        return avatar_assets.manifest(folder, name, str(store.metadata(name).get("created") or ""), video)
+
+    @app.get("/avatar/<name>/manifest.json")
+    def avatar_manifest(name):
         folder, bad = known(name)
         if bad:
             return bad
         if not wav2lip_ready(name, folder):
             return _err("this avatar has no photo to make the phone's assets from", "no_poster", 404)
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-            z.write(svc.poster(name), "poster.jpg")
-            z.write(folder / "wav2lip" / "face.png", "face.png")
-            z.write(folder / "wav2lip" / "box.json", "box.json")
-        buf.seek(0)
-        return send_file(buf, mimetype="application/zip", as_attachment=True, download_name=f"{name}-avatar.zip")
+        return jsonify(manifest_of(name, folder))
+
+    @app.get("/avatar/<name>/assets.zip")
+    def avatar_assets_zip(name):
+        folder, bad = known(name)
+        if bad:
+            return bad
+        if not wav2lip_ready(name, folder):
+            return _err("this avatar has no photo to make the phone's assets from", "no_poster", 404)
+        data = avatar_assets.zip_bytes(folder, manifest_of(name, folder))
+        return send_file(io.BytesIO(data), mimetype="application/zip", as_attachment=True, download_name=f"{name}-avatar.zip")
+
+    @app.get("/avatar/<name>/sprites.png")
+    def avatar_sprites(name):
+        folder, bad = known(name)
+        if bad:
+            return bad
+        if not wav2lip_ready(name, folder):
+            return _err("this avatar has no photo to make mouth shapes from", "no_poster", 404)
+        data = avatar_visemes.sheet_png(folder)
+        if data is None:
+            return _err("this avatar has no mouth sprites", "not_found", 404)
+        return Response(data, mimetype="image/png", headers={"Cache-Control": "no-cache"})
+
+    @app.get("/avatar/phone")
+    def avatar_phone():
+        """The avatar a personality shows and the render modes its files allow."""
+        slug = request.args.get("persona", "")
+        if slug and not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,60}", slug):
+            return _err("persona is the slug of a personality", "bad_request", 400)
+        link = persona_link.resolve(slug, svc._api(), svc.store) if slug else svc.link()
+        modes: list[str] = []
+        if link.avatar:
+            folder = svc.store.existing(link.avatar)
+            if wav2lip_ready(link.avatar, folder):
+                modes = manifest_of(link.avatar, folder)["render_modes"]
+        return jsonify({"persona": link.slug, "avatar": link.avatar, "render_modes": modes, "problem": link.problem})
+
+    @app.get("/avatar/models/wav2lip.onnx")
+    def avatar_model():
+        path = avatar_assets.model_path()
+        if path is None:
+            return _err(models_store.reason(avatar_assets.MODEL_ID) or "the Wav2Lip model is not installed on this PC", "model_not_installed", 404)
+        digest = avatar_assets.sha256_of(path)
+        resp = send_file(path, mimetype="application/octet-stream", conditional=True, etag=digest, max_age=0)
+        resp.headers["Cache-Control"] = "private, no-cache"
+        resp.headers["Accept-Ranges"] = "bytes"
+        resp.headers["X-Content-SHA256"] = digest
+        return resp
 
     # ---- callAPIcall's paths for the images, on the store
     def image(name, filename, mimetype):
