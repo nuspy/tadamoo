@@ -1,3 +1,5 @@
+# The app never runs this script: the avatar worker imports the musetalk package only. The os.system calls below build shell
+# commands from file names and are for command-line use with trusted paths.
 import argparse
 import os
 from omegaconf import OmegaConf
