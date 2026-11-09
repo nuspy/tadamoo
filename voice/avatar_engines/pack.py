@@ -22,6 +22,7 @@ from callbridge import models_store
 from callbridge.avatar_client import Frame, HEADER, MAGIC, MAX_SIDE
 
 from .base import AvatarEngine, EngineInfo
+from .python_path import checked_python
 
 ENV_PYTHON = "TADAMOO_AVATAR_ENGINES_PYTHON"
 RUNNERS = Path(__file__).resolve().parent / "runners"
@@ -56,7 +57,10 @@ def stored_python(base: str | None = None) -> str:
         value = json.loads((root / PYTHON_FILE).read_text(encoding="utf-8")).get("python", "") if root else ""
     except (OSError, ValueError, AttributeError):
         return ""
-    return value.strip() if isinstance(value, str) else ""
+    try:
+        return checked_python(value) if isinstance(value, str) else ""         # a kept path is started only while it still passes the check
+    except ValueError:
+        return ""
 
 
 def python(base: str | None = None) -> str:
@@ -73,9 +77,7 @@ def set_python(path: str, base: str | None = None) -> str:
     root = _engines_root(base)
     if root is None:
         raise ValueError("there is no models folder to keep it in: choose one in Settings > Voice")
-    path = (path or "").strip().strip('"')
-    if path and (not os.path.isabs(path) or not Path(path).is_file()):
-        raise ValueError("give the full path of a python executable that exists")
+    path = checked_python(path)
     root.mkdir(parents=True, exist_ok=True)
     (root / PYTHON_FILE).write_text(json.dumps({"python": path}), encoding="utf-8")
     return path

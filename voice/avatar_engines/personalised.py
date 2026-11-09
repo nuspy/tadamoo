@@ -33,6 +33,7 @@ from typing import Callable, Iterator
 from callbridge import models_store
 
 from .base import AvatarEngine, EngineInfo
+from .python_path import checked_python
 from .status import TRAINED_DIR, TRAINED_MARK
 
 PYTHON_ENV = "TADAMOO_AVATAR_ENGINES_PYTHON"
@@ -177,17 +178,18 @@ def saved_python(base: str | None = None) -> str:
         data = json.loads(file.read_text(encoding="utf-8")) if file else {}
     except (OSError, ValueError):
         return ""
-    return str(data.get("python") or "").strip() if isinstance(data, dict) else ""
+    try:
+        return checked_python(str(data.get("python") or "")) if isinstance(data, dict) else ""     # a kept path is started only while it still passes the check
+    except ValueError:
+        return ""
 
 
 def save_python(path: str, base: str | None = None) -> str:
-    """Keeps the Python the person chose ("" forgets it). It must be a file that exists; nothing is run. Raises ValueError otherwise."""
+    """Keeps the Python the person chose ("" forgets it). It must pass `checked_python`; nothing is run. Raises ValueError otherwise."""
     file = _python_file(base)
     if file is None:
         raise ValueError("there is no models folder to keep it in")
-    path = (path or "").strip().strip('"')
-    if path and (not os.path.isabs(path) or not os.path.isfile(path)):
-        raise ValueError("send the full path of a Python executable that exists")
+    path = checked_python(path)
     file.parent.mkdir(parents=True, exist_ok=True)
     file.write_text(json.dumps({"python": path}), encoding="utf-8")
     return path
