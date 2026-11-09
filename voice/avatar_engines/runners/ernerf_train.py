@@ -1,8 +1,8 @@
 """Trains one stage of an ER-NeRF (the head, then the torso) on a prepared data folder, with the model, dataset and trainer of Linly-Talker's NeRF folder.
 
-Started by voice/avatar_engines/ernerf.py in the engine environment with the code pack as its working directory. The options are those of the
-wrapper's `Options` (TFG/NeRFTalk.py) set for training; ER-NeRF's own main.py is not part of the pack, so this script stands in for it. It prints a
-progress event after each epoch and, at the end, the checkpoint it wrote."""
+Started by voice/avatar_engines/ernerf.py in the engine environment with the run folder (the vendored code and the weights) as its working directory.
+The options are those of the wrapper's `Options` (TFG/NeRFTalk.py) set for training; ER-NeRF's own main.py is not in the vendored code, so this script
+stands in for it. It prints a progress event after each epoch and, at the end, the checkpoint it wrote."""
 from __future__ import annotations
 
 import argparse

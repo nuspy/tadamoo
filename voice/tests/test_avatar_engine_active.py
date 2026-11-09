@@ -10,8 +10,8 @@ from voice.avatar_engines.sadtalker import SadTalkerEngine
 from voice.avatar_engines.wav2lipv2 import Wav2LipV2Engine
 from voice.tests import engine_pack_fakes as fakes
 
-IDS_A = ("wav2lipv2-code", "wav2lipv2-weights", "wav2lipv2-yolo-face", "wav2lipv2-landmarks")
-IDS_B = ("sadtalker-code", "sadtalker-weights", "sadtalker-gfpgan")
+IDS_A = ("wav2lipv2-weights", "wav2lipv2-yolo-face", "wav2lipv2-landmarks")
+IDS_B = ("sadtalker-weights", "sadtalker-gfpgan")
 
 
 @pytest.fixture

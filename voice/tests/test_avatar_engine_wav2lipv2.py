@@ -10,7 +10,7 @@ from voice.avatar_engines import pack, registry
 from voice.avatar_engines.wav2lipv2 import Wav2LipV2Engine
 from voice.tests import engine_pack_fakes as fakes
 
-IDS = ("wav2lipv2-code", "wav2lipv2-weights", "wav2lipv2-yolo-face", "wav2lipv2-landmarks")
+IDS = ("wav2lipv2-weights", "wav2lipv2-yolo-face", "wav2lipv2-landmarks")
 
 
 @pytest.fixture
@@ -34,7 +34,7 @@ def test_status_names_everything_that_is_missing_in_both_languages(tmp_path, mon
     folder = fakes.avatar(tmp_path, photo=False)
     st = engine().status_of(folder, str(base))
     assert st["available"] is False
-    for part in ("TADAMOO_AVATAR_ENGINES_PYTHON", "ffmpeg", "Wav2Lip v2 code", "288 px weights", "YOLOv8n-face", "WFLW", "no photo"):
+    for part in ("TADAMOO_AVATAR_ENGINES_PYTHON", "ffmpeg", "288 px weights", "YOLOv8n-face", "WFLW", "no photo"):
         assert part in st["reason"], part
     assert "non è impostato" in st["reason_it"] and "non è installato" in st["reason_it"] and "nessuna foto" not in st["reason_it"]
     assert "foto" in st["reason_it"]

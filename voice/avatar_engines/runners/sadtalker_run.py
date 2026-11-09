@@ -1,6 +1,6 @@
 """Runs Linly-Talker's SadTalker wrapper on one photo and one audio file and writes the frames (see _frames.py).
 
-Started by voice/avatar_engines/sadtalker.py in the engine environment with the code pack as its working directory; the wrapper loads nothing from
+Started by voice/avatar_engines/sadtalker.py in the engine environment with the run folder (the vendored code and the weights) as its working directory; the wrapper loads nothing from
 the network when its weights are in place. `--check` loads the models and stops."""
 from __future__ import annotations
 

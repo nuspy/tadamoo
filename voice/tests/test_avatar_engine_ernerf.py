@@ -9,7 +9,7 @@ from voice.avatar_engines import ernerf as mod, pack, registry
 from voice.avatar_engines.ernerf import ErNerfEngine
 from voice.tests import engine_pack_fakes as fakes
 
-RENDER = ("ernerf-code", "ernerf-audio-encoder")
+RENDER = ("ernerf-audio-encoder",)
 TRAIN = ("ernerf-bfm", "ernerf-face-parsing")
 CHECKPOINT = "torso/checkpoints/ngp_ep0007.pth"
 POSE = "data/transforms_train.json"
@@ -63,11 +63,11 @@ def test_status_matrix_from_nothing_to_available(rig):
     folder = fakes.avatar(tmp, photo=False)
     e = engine()
     first = e.status_of(folder, str(base))["reason"]
-    for part in ("ER-NeRF code", "audio encoder", "CUDA modules", "not been trained"):
+    for part in ("audio encoder", "CUDA modules", "not been trained"):
         assert part in first, part
     fakes.install(base, RENDER)
     reason = e.status_of(folder, str(base))["reason"]
-    assert "ER-NeRF code" not in reason and "CUDA modules" in reason and "not been trained" in reason
+    assert "audio encoder" not in reason and "CUDA modules" in reason and "not been trained" in reason
     mark_modules(base)
     assert "CUDA modules" not in e.status_of(folder, str(base))["reason"]
     work = trained(folder)
@@ -112,7 +112,7 @@ def test_the_plan_lists_the_steps_and_what_is_missing_and_starts_nothing(rig):
     assert spawner.calls == [] and plan["ready"] is False and plan["engine"] == "er_nerf"
     assert [s["id"] for s in plan["stages"]] == ["check", "prepare", "head", "torso"]
     bad = " ".join(c["en"] for c in plan["checks"] if not c["ok"])
-    for part in ("3DMM", "face parsing", "ER-NeRF code"):
+    for part in ("3DMM", "face parsing"):
         assert part in bad, part
     assert "hours" in plan["note"]["en"] and plan["options"] == {"iters_head": mod.ITERS, "iters_torso": mod.ITERS}
     assert not (folder / "engines").exists()                                   # a plan writes nothing

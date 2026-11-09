@@ -34,17 +34,17 @@ def test_the_routes_need_the_token_and_an_engine_that_has_a_setup(rig):
 def test_er_nerf_lists_every_prerequisite_item_by_item(rig):
     body = rig.get("/avatar/engines/er_nerf/setup").get_json()
     got = items(body)
-    for key in ("python", "ffmpeg", "ernerf-code", "ernerf-audio-encoder", "ernerf-bfm", "ernerf-face-parsing", "module:pytorch3d", "module:freqencoder",
+    for key in ("code", "python", "ffmpeg", "ernerf-audio-encoder", "ernerf-bfm", "ernerf-face-parsing", "module:pytorch3d", "module:freqencoder",
                 "module:gridencoder", "module:raymarching", "module:shencoder"):
         assert key in got, key
-    assert got["python"]["ok"] is False and got["ernerf-code"]["model"] == "ernerf-code" and got["ernerf-bfm"]["scope"] == "training"
+    assert got["python"]["ok"] is False and got["code"]["ok"] is True and "vendor/ernerf" in got["code"]["en"] and "model" not in got["code"] and got["ernerf-bfm"]["scope"] == "training"
     assert got["ffmpeg"]["ok"] is True and body["ready"] is False and body["python"] == {"path": "", "source": "none"}
     assert body["check"] == {"state": "idle"}
 
 
 def test_the_photo_engines_list_their_files_and_the_check(rig):
     got = items(rig.get("/avatar/engines/wav2lip_v288/setup").get_json())
-    assert {"python", "ffmpeg", "wav2lipv2-code", "wav2lipv2-weights", "wav2lipv2-yolo-face", "wav2lipv2-landmarks", "check"} <= set(got)
+    assert {"code", "python", "ffmpeg", "wav2lipv2-weights", "wav2lipv2-yolo-face", "wav2lipv2-landmarks", "check"} <= set(got)
     assert items(rig.get("/avatar/engines/sadtalker/setup").get_json())["sadtalker-gfpgan"]["ok"] is False
 
 
@@ -74,7 +74,7 @@ def test_a_check_with_something_missing_is_refused_and_starts_nothing(rig, monke
 
 
 def test_the_check_loads_the_engine_once_and_the_panel_then_shows_it_passed(rig, monkeypatch):
-    fakes.install(rig.models, ("sadtalker-code", "sadtalker-weights", "sadtalker-gfpgan"))
+    fakes.install(rig.models, ("sadtalker-weights", "sadtalker-gfpgan"))
     rig.post("/avatar/engines/python", {"path": sys.executable})
     spawner = fakes.Spawner(out=['{"event": "progress", "phase": "loading", "percent": 5}', '{"event": "done", "check": true}'])
     monkeypatch.setattr(registry.get("sadtalker"), "_spawn", spawner)
@@ -87,7 +87,7 @@ def test_the_check_loads_the_engine_once_and_the_panel_then_shows_it_passed(rig,
 
 
 def test_a_check_that_fails_says_why_in_the_state(rig, monkeypatch):
-    fakes.install(rig.models, ("sadtalker-code", "sadtalker-weights", "sadtalker-gfpgan"))
+    fakes.install(rig.models, ("sadtalker-weights", "sadtalker-gfpgan"))
     rig.post("/avatar/engines/python", {"path": sys.executable})
     monkeypatch.setattr(registry.get("sadtalker"), "_spawn", fakes.Spawner(out=['{"event": "error", "message": "ImportError: facexlib"}'], code=1))
     rig.post("/avatar/engines/sadtalker/check")
