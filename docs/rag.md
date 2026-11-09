@@ -59,7 +59,7 @@ the archive's vectors (text search continues) until it is indexed again. The har
 ## Using it in a conversation
 
 A personality's `knowledge` field (`tadamoo/personas.py`) lists archive ids. Linking is done from the tab (`link` below), which changes that
-list; deleting an archive removes it from every list.
+list; deleting an archive removes it from every list. The personality's page shows the linked archives by name, taken from the same list as this tab, and keeps the id for an archive that list does not name.
 
 - **Agent conversations**: the harness starts with `--rag-dir`. `PersonaUse.message` adds a block to the per-request memory message, after
   the personality's notes. The message is marked untrusted when the block is in it.
