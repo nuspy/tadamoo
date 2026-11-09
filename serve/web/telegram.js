@@ -1,13 +1,14 @@
 "use strict";
 /* Telegram: Settings > Voice has the bot's section (the token, which is write-only, the switch, the permission level, the allow-list, the senders that
    were ignored, the home channel, the import from Hermes), and the header of Chat and Code has the button that moves the open conversation to a chat
-   of Telegram and brings it back. Everything the server says enters the page as text. */
+   of Telegram and brings it back. The permission level is Telegram's own, kept by the server (/api/permission-level). Everything the server says
+   enters the page as text. */
 (function () {
   const host = document.getElementById("tgm-root"), moveBtn = document.getElementById("tgm-move");
   if (!host || !moveBtn) return;
 
   const POLL_MS = 3000, HEADER_MS = 15000;
-  let S = null, failed = "", timer = 0, busy = false, last = 0;
+  let S = null, L = null, failed = "", timer = 0, busy = false, last = 0;
   const ui = { token: "", tokenBad: false, level: "", levelBad: false, allow: "", allowBad: false, home: "", homeBad: false, imp: "", impBad: false, test: "", testBad: false, send: "", sendBad: false };
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -89,12 +90,15 @@
     S.modes.forEach(m => { const o = el("option", "", T("ag.mode." + m)); o.value = m; sel.append(o); });
     sel.value = S.mode;
     sel.onchange = async () => {
-      const r = await api("POST", "api/telegram/settings", { mode: sel.value });
-      ui.level = r.ok ? "" : why(r); ui.levelBad = !r.ok;
-      if (r.ok) S = r.data;
+      const r = await api("POST", "api/permission-level", { channel: "telegram", level: sel.value });
+      ui.level = r.ok ? "" : T("lvl.e.save", why(r)); ui.levelBad = !r.ok;
+      if (r.ok) { L = r.data; S.mode = r.data.level; }
       paint();
     };
-    box.append(el("h3", "tgm-h", T("tgm.level")), named(T("tgm.level"), sel), el("p", "tgm-help", T("ag.mode." + S.mode + ".d")), el("p", "tgm-help", T("tgm.level.help")), note("tgm-level-note", ui.level, ui.levelBad));
+    const where = L ? T("lvl.where.telegram", T("ag.mode." + L.levels.chat), T("ag.mode." + L.levels.voice)) : "";
+    box.append(el("h3", "tgm-h", T("tgm.level")), named(T("tgm.level"), sel), el("p", "tgm-help", T("ag.mode." + S.mode + ".d")),
+               ...(where ? [el("p", "tgm-help", where)] : []), el("p", "tgm-help", T("tgm.level.help") + " " + T("lvl.risk")),
+               ...(S.mode === "auto" ? [note("tgm-level-risk", T("ag.auto.risk"), true)] : []), note("tgm-level-note", ui.level, ui.levelBad));
     return box;
   }
 
@@ -202,9 +206,10 @@
   async function refresh() {
     if (busy) return;
     busy = true;
-    const r = await api("GET", "api/telegram");
+    const [r, l] = await Promise.all([api("GET", "api/telegram"), api("GET", "api/permission-level")]);
     busy = false;
     if (r.ok) { S = r.data; failed = ""; } else failed = why(r);
+    L = l.ok ? l.data : null;
     last = Date.now();
     paint();
     paintMove();

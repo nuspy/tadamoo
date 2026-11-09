@@ -53,6 +53,13 @@ class TelegramPageTest(unittest.TestCase):
         self.assertIn('{ dismiss: p.id }', JS)
         self.assertIn('setAttribute("aria-label", `${T("tgm.authorise")} ${p.id}`)', JS)
 
+    def test_the_permission_level_is_the_servers_setting_for_telegram(self):
+        self.assertIn('api("POST", "api/permission-level", { channel: "telegram", level: sel.value })', JS)
+        self.assertIn('api("GET", "api/permission-level")', JS)
+        self.assertNotIn("{ mode: sel.value }", JS)
+        self.assertIn('T("lvl.where.telegram"', JS)
+        self.assertIn('T("lvl.risk")', JS)
+
     def test_the_permission_level_is_the_chats_own_four_levels(self):
         self.assertIn('T("ag.mode." + m)', JS)
         for mode in ("plan", "read_only", "default", "auto"):
