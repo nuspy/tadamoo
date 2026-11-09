@@ -277,7 +277,7 @@ NOTE ESTRATTE (JSON):
 
 def _persona_root(cfg: Config, persona: str) -> Path:
     safe = re.sub(r"\s+", "_", (persona or "").strip())
-    return Path(cfg.avatar_dir) / "persone" / safe
+    return Path(cfg.avatars_dir) / safe
 
 
 def _read_manifest(cfg: Config, persona: str) -> dict:

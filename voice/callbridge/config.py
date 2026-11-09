@@ -124,28 +124,23 @@ class Config:
         "Non usare strumenti di sintesi vocale/TTS.]\n\n"
     )
 
-    # --- Avatar video del copilota (worker MuseTalk) ---
-    # L'avatar mostra una persona (foto/clip in avatar/persone/<nome>/) su una
-    # webcam virtuale e ne sincronizza il labiale con le risposte TTS.
-    # Si attiva dal copilota quando avatar_persona e' impostata.
+    # --- The avatar (worker MuseTalk, voice/avatar/avatar_worker.py) ---
+    # Set from voice.json by voice/settings_bridge.py: the avatar function being on (avatar_enabled, avatar_preload: the same thing, the worker
+    # starts with the function and not otherwise), the avatars folder, the camera output and the voice of the active personality.
     avatar_enabled: bool = False
-    avatar_dir: str = "C:\\Projects\\callAPIcall\\avatar"
-    avatar_persona: str = ""               # nome in avatar/persone/ ("" = disattivo)
-    # Precarica il worker avatar all'avvio del bridge (in background): carica i
-    # modelli MuseTalk in VRAM e prepara la persona (cache su disco) PRIMA della
-    # prima Ctrl+Shift+F1, cosi' l'attivazione e' immediata invece di ~1 min. Il
-    # worker resta poi caldo tra le sessioni (set_preview(False) non lo uccide).
-    # Costo: ~3-4 GB di VRAM occupati sempre (contendono con LM Studio). Il
-    # caricamento modelli in VRAM NON e' serializzabile: la preparazione dei clip
-    # (landmark/latenti/maschere) e' invece gia' in cache su disco e riusata.
     avatar_preload: bool = False
+    avatars_dir: str = ""                  # <user data>/voice/avatars: one folder per avatar (avatar_store.py)
+    avatar_persona: str = ""               # the avatar folder in use ("" = none): the active personality's `avatar`
+    avatar_voice_engine: str = ""          # the voice the avatar speaks with: the active personality's voice {engine, voice}
+    avatar_voice_name: str = ""
+    avatar_virtual_camera: bool = False    # send the frames to a virtual camera (Windows, or Linux with v4l2loopback); never installs a driver
+    avatar_python: str = ""                # the Python of the avatar environment; "" = the variable TADAMOO_AVATAR_PYTHON
+    avatar_worker: str = ""                # a worker script other than voice/avatar/avatar_worker.py (tests)
+    avatar_start_timeout_s: float = 180.0
     # Device audio su cui il worker riproduce la voce dell'avatar (None =
     # default OS; per parlare DENTRO la call: indice del cavo virtuale usato
     # come microfono dall'app di chiamata).
     avatar_audio_device: int | None = None
-    # Finestra video locale ("callAPIcall — Avatar") con l'avatar che parla,
-    # in aggiunta alla webcam virtuale OBS. Effetto al prossimo avvio del worker.
-    avatar_preview_window: bool = True
     # GPU del worker MuseTalk (indice nvidia-smi; None = default). Effetto al
     # prossimo (ri)avvio dell'avatar. Picker alimentato da GET /gpu/list.
     avatar_gpu_index: int | None = None

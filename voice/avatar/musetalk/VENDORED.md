@@ -35,3 +35,9 @@ richiede. Le nostre modifiche sono identificabili dalla storia di git:
 
 Non c'e' un `git pull`: si confronta a mano con il commit di provenienza qui
 sopra, si porta cio' che serve e si aggiorna questo file.
+
+## Modifiche locali ai pesi
+
+I pesi si leggono dalla cartella indicata da `MUSETALK_MODELS` (la cartella dei modelli di TaDaMoo, `avatar/musetalk-v15`), mai da `./models`, e
+niente si scarica: `musetalk/utils/preprocessing.py` (DWPose), `musetalk/utils/face_parsing/__init__.py` (face parsing) e
+`musetalk/utils/face_detection/detection/sfd/sfd_detector.py` (S3FD, che non chiama piu' `load_url`).

@@ -114,12 +114,6 @@ class AvatarPushToTalkSession(PushToTalkSession):
                 self.avatar.interrupt()
             except Exception as e:  # noqa: BLE001
                 log.warning("Avatar: interrupt in chiusura fallito: %s", e)
-            # Fine sessione = finestra video CHIUSA (richiesta esplicita). Il
-            # worker resta caldo: la prossima sessione riapre all'istante.
-            try:
-                self.avatar.set_preview(False)
-            except Exception:  # noqa: BLE001
-                pass
         super().stop()
 
     def _collect_pcm(self, tts, attesi_caratteri: int = 0):
@@ -733,9 +727,6 @@ class PushToTalkManager:
             # puo' richiedere minuti); se e' gia' caldo sulla persona, riuso.
             if not self._avatar.is_ready(persona):
                 self._avatar.start_async(persona)
-            # Worker caldo da una sessione precedente: la finestra era stata
-            # chiusa a fine sessione -> riaprila subito.
-            self._avatar.set_preview(True)
 
         # Il cervello di QUESTA sessione: le due copie condividono i cervelli e il
         # registro degli scambi, il modo e' proprio (lo cambia un comando vocale).

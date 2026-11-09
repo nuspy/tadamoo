@@ -1,35 +1,23 @@
-"""Worker dell'avatar video (runtime MuseTalk) — processo dedicato.
+"""The avatar worker: a process of its own (MuseTalk, in its own Python environment) that shows a person and, on request, speaks with lip sync.
 
-Gira nel venv `musetalk-venv` con CWD = cartella del repo MuseTalk (importa i
-suoi moduli e trova i pesi in ./models). L'orchestratore (callbridge) lo
-avvia via `callbridge/avatar_client.py` e gli parla a righe JSON su stdin:
+The client (callbridge/avatar_client.py) starts it with the environment below and talks to it in JSON lines on stdin and stdout.
 
-  {"cmd": "persona", "dir": "<path persona>", "clip": "<path clip opzionale>"}
-      carica la persona: sceglie un clip (a caso se non indicato), fa la
-      PREPARAZIONE MuseTalk (landmark/latenti/maschere — cache su disco, la
-      prima volta richiede qualche minuto) e parte il loop di idle.
-  {"cmd": "speak", "wav": "<path wav>"}
-      sintetizza il labiale sul loop per l'audio dato e lo riproduce
-      (video sul sink + audio sul device configurato), poi torna in idle.
+Environment: MUSETALK_MODELS (the weights folder, `<models folder>/avatar/musetalk-v15`; required), AVATAR_CODE_DIR (the MuseTalk code),
+AVATAR_STATE_DIR (preparation statistics), AVATAR_FPS, AVATAR_OUTPUT_HEIGHT, AVATAR_AUDIO_DEVICE. The worker is started offline and refuses
+every download: a weight that is not in the folder is an error that names the file.
+
+Commands on stdin:
+  {"cmd": "persona", "dir": "<avatar folder>", "clip": "<file name, optional>"}   load an avatar: pick a clip (random when none is named),
+      prepare it (cached under <dir>/prepared) and loop it as the idle picture.
+  {"cmd": "prepare", "dir": "<avatar folder>", "clip": "<file name>", "id": "<job>"}   prepare one clip and nothing else.
+  {"cmd": "cancel", "id": "<job>"}   stop that preparation (handled at once, even before it has started; the files of that clip are removed).
+  {"cmd": "speak", "wav": "<path>", "mute": false}   lip sync for the audio; mute plays no sound here.
+  {"cmd": "interrupt", "svuota": false}   cut the sentence that is playing (and the queued ones with svuota).
+  {"cmd": "frames", "on": true, "port": N}   send every frame, as I420 with the AVI4 header, to the client's frame server on 127.0.0.1:N.
+  {"cmd": "stream", "on": true, "port": N}   the same toward the phone gateway.
   {"cmd": "quit"}
-
-Eventi su stdout (righe JSON): {"event": "ready"|"persona_ready"|"speaking"|
-"idle"|"error", ...}.
-
-Sink video: webcam virtuale OBS via pyvirtualcam se disponibile (selezionabile
-come camera in Meet/Teams/Zoom), altrimenti finestra di anteprima OpenCV.
-Audio: device `AVATAR_AUDIO_DEVICE` (indice sounddevice; per parlare DENTRO la
-call usare un cavo virtuale impostato come microfono dell'app di chiamata).
-
-Streaming frame-by-frame (v2): la generazione procede a blocchi (BATCH_SIZE
-frame) in un thread produttore; la riproduzione parte appena il PRIMO blocco
-e' pronto (~86 ms, vedi BATCH_SIZE) e consuma i frame a 25 fps ancorata all'orologio
-dell'audio. Se la generazione resta momentaneamente indietro si tiene a
-schermo l'ultimo frame e si riallinea scartando i ritardatari (il sync col
-parlato vince sulla completezza). La battuta e' INTERROMPIBILE col comando
-{"cmd": "interrupt"}: audio fermato, coda svuotata, ritorno all'idle.
-
-
+Events on stdout: ready, progress {job, phase, done, total, percent, eta_s}, persona_ready {clip, frames}, prepared {id, clip, frames},
+prepare_failed {id, message}, cancelled {id}, speaking, playing {preparazione_s}, interrupted, idle, stream, frames, error {message}.
 """
 from __future__ import annotations
 
@@ -55,89 +43,24 @@ import time
 import cv2
 import numpy as np
 
-# --- Anteprima locale (finestra "callAPIcall — Avatar") ---------------------
-# Con AVATAR_PREVIEW=1 la finestra si apre SUBITO all'avvio del worker (qui,
-# PRIMA degli import pesanti torch/musetalk che costano ~1 min) con una
-# schermata di caricamento; quando i frame veri arrivano, VideoSink li spinge
-# nella coda. Un SOLO thread possiede la GUI cv2 (imshow/waitKey).
-_PREVIEW_TITLE = "callAPIcall - Avatar"
-_preview_q: "queue.Queue" = queue.Queue(maxsize=4)
-_preview_started = False
+def log(*a) -> None:
+    print("[avatar_worker]", *a, file=sys.stderr, flush=True)
 
 
-def _preview_status_frame(text: str) -> "np.ndarray":
-    frame = np.zeros((512, 512, 3), dtype=np.uint8)
-    cv2.putText(frame, "callAPIcall Avatar", (70, 230),
-                cv2.FONT_HERSHEY_SIMPLEX, 1.0, (210, 210, 210), 2, cv2.LINE_AA)
-    cv2.putText(frame, text, (70, 290),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.65, (120, 200, 255), 2, cv2.LINE_AA)
-    return frame
+def emit(event: str, **kw) -> None:
+    print(json.dumps({"event": event, **kw}), flush=True)
 
-
-def _preview_push(frame) -> None:
-    try:
-        _preview_q.put_nowait(frame)
-    except queue.Full:
-        pass  # la riproduzione vince: un frame perso in anteprima non conta
-
-
-def _preview_status(text: str) -> None:
-    if _preview_started:
-        _preview_push(_preview_status_frame(text))
-
-
-# Visibilita' della finestra: True alla nascita del worker; il comando stdin
-# {"cmd": "preview", "show": bool} la cambia (sessione chiusa -> finestra via,
-# worker resta caldo per la sessione successiva).
-_preview_show = threading.Event()
-_preview_show.set()
-
-
-def _preview_loop() -> None:
-    frame = _preview_status_frame("caricamento modelli (~1 min)...")
-    shown = False
-    topmost = False
-    while True:
-        try:
-            frame = _preview_q.get(timeout=0.05)
-        except queue.Empty:
-            pass
-        if not _preview_show.is_set():
-            if shown:
-                try:
-                    cv2.destroyWindow(_PREVIEW_TITLE)
-                    cv2.waitKey(1)
-                except Exception:
-                    pass
-                shown = False
-                topmost = False
-            time.sleep(0.1)
-            continue
-        cv2.imshow(_PREVIEW_TITLE, frame)
-        shown = True
-        if not topmost:
-            # Il worker parte da un processo in background: senza TOPMOST la
-            # finestra nasce DIETRO alle app aperte e non si vede mai.
-            try:
-                cv2.setWindowProperty(_PREVIEW_TITLE, cv2.WND_PROP_TOPMOST, 1)
-            except Exception:
-                pass
-            topmost = True
-        cv2.waitKey(1)
-
-
-def _preview_start() -> None:
-    global _preview_started
-    if _preview_started:
-        return
-    _preview_started = True
-    threading.Thread(target=_preview_loop, name="preview", daemon=True).start()
-
-
-if os.environ.get("AVATAR_PREVIEW") == "1":
-    _preview_start()
 
 import torch
+import torch.utils.model_zoo
+
+# Nothing is fetched: a library that asks for a URL gets an error that names it.
+def _no_download(url, *args, **kwargs):
+    raise RuntimeError(f"download refused, the worker is offline: {url}")
+
+
+torch.hub.load_state_dict_from_url = _no_download
+torch.utils.model_zoo.load_url = _no_download
 
 # torch >= 2.6 ha weights_only=True di default in torch.load: i checkpoint di
 # MuseTalk (unet/dwpose/bisenet) sono in formati legacy e verrebbero rifiutati.
@@ -221,9 +144,15 @@ def _limita_altezza(frame, altezza: int):
     return cv2.resize(frame, (nw, altezza), interpolation=cv2.INTER_AREA)
 
 
-MUSETALK_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(MUSETALK_DIR, "MuseTalk"))
-os.chdir(os.path.join(MUSETALK_DIR, "MuseTalk"))
+HERE = os.path.dirname(os.path.abspath(__file__))
+CODE_DIR = os.environ.get("AVATAR_CODE_DIR") or os.path.join(HERE, "musetalk")
+MODELS_DIR = os.environ.get("MUSETALK_MODELS", "")
+STATE_DIR = os.environ.get("AVATAR_STATE_DIR") or os.path.join(HERE, "state")
+if not (MODELS_DIR and os.path.isdir(MODELS_DIR) and os.path.isdir(CODE_DIR)):
+    emit("error", message=f"the avatar worker needs MUSETALK_MODELS and AVATAR_CODE_DIR to be folders (got {MODELS_DIR!r}, {CODE_DIR!r})")
+    raise SystemExit(2)
+sys.path.insert(0, CODE_DIR)
+os.chdir(CODE_DIR)                  # the DWPose config is read relative to the code
 
 # DWPose/scipy importati SUBITO, prima di transformers/Engine: importarli
 # lazy dentro prepare_clip deadlocka il loader DLL di Windows (scipy
@@ -239,18 +168,24 @@ from musetalk.utils.face_parsing import FaceParsing                # noqa: E402
 from musetalk.utils.utils import datagen, load_all_model           # noqa: E402
 
 
-def log(*a) -> None:
-    print("[avatar_worker]", *a, file=sys.stderr, flush=True)
-
-
-def emit(event: str, **kw) -> None:
-    print(json.dumps({"event": event, **kw}), flush=True)
-
-
 # ---------------------------------------------------------------------------
 #  Progress + ETA della preparazione clip
 # ---------------------------------------------------------------------------
-STATS_PATH = os.path.join(MUSETALK_DIR, "cache", "prepare-stats.json")
+STATS_PATH = os.path.join(STATE_DIR, "prepare-stats.json")
+
+# Ids of the jobs the person cancelled, set by the stdin reader; the preparation looks at its own at every step. A cancel that arrives before the
+# job starts still stops it.
+_cancelled: set = set()
+_job: list = [""]
+
+
+def _is_cancelled() -> bool:
+    return _job[0] in _cancelled
+
+
+class PrepareCancelled(Exception):
+    """The person cancelled the preparation that was running."""
+
 
 
 class PrepProgress:
@@ -281,6 +216,8 @@ class PrepProgress:
                        "latents": n, "masks": 2 * n}
 
     def begin(self, phase: str, total: int) -> None:
+        if _is_cancelled():
+            raise PrepareCancelled()
         self.phase = phase
         self.total = max(1, total)
         self.totals[phase] = self.total
@@ -290,6 +227,8 @@ class PrepProgress:
         self._emit(force=True)
 
     def step(self, done: int) -> None:
+        if _is_cancelled():
+            raise PrepareCancelled()
         self.done = done
         self._emit()
 
@@ -342,59 +281,49 @@ class PrepProgress:
             return
         self._last_emit = now
         eta = self._eta_s()
-        emit("progress", phase=self.phase, done=self.done, total=self.total,
+        emit("progress", job=_job[0], phase=self.phase, done=self.done, total=self.total,
              percent=round(100.0 * self.done / max(1, self.total), 1),
              eta_s=round(eta, 1) if eta is not None else None)
 
 
 # ---------------------------------------------------------------------------
-#  Uscita verso il telefono: i frame escono dal worker su una socket locale,
-#  il gateway li impacchetta in WebRTC. Qui NON si parla di rete: il worker
-#  gira in un venv suo (MuseTalk) e tenerlo libero da aiortc evita di
-#  duplicare quella dipendenza in due ambienti.
+#  Frame output: the frames leave the worker over local sockets as I420. The client
+#  (the preview, the virtual camera, the gateway's video) and the phone gateway each
+#  listen on a port of their own; this process opens no window and no camera.
 # ---------------------------------------------------------------------------
-#: Intestazione dei fotogrammi: deve combaciare con `_MAGIC`/`_INTESTAZIONE`
-#: in call-bridge/callbridge/avatar_webrtc.py. Il magic fa fallire subito e con
-#: un messaggio chiaro l'accoppiata di un worker e un gateway disallineati.
+#: Frame header; it must match `_MAGIC` / `_INTESTAZIONE` in callbridge/avatar_webrtc.py and avatar_client.py.
 _MAGIC = b"AVI4"
 _INTESTAZIONE = struct.Struct("<4sII")
 
 
 class _RemoteSink:
-    """Frame verso il gateway, su socket TCP locale. Nessun accodamento: se il
-    consumatore è lento si scarta, perché un fotogramma vecchio in una
-    conversazione dal vivo non serve a nessuno."""
+    """Frames to one consumer over a local TCP socket. Nothing is queued: a slow consumer loses frames, because an old frame is of no use."""
 
-    def __init__(self) -> None:
+    def __init__(self, name: str) -> None:
+        self.name = name
         self._sock = None
         self._lock = threading.Lock()
         self.attivo = False
-        self._porta = int(os.environ.get("AVATAR_STREAM_PORT", "0") or 0)
-        self._shape = None
 
-    def collega(self, porta: int = 0) -> None:
-        """Apre la socket verso il gateway (chiamata quando l'app chiede video).
-
-        La porta arriva nel comando: il gateway la sceglie a runtime (bind su 0)
-        e il worker non puo' saperla dall'ambiente, essendo nato prima."""
-        if porta:
-            self._porta = int(porta)
-        if not self._porta:
-            log("stream video: nessuna porta indicata")
+    def collega(self, porta: int) -> None:
+        if not porta:
+            log(f"{self.name}: no port given")
             return
         import socket
+        self.stacca()
         try:
-            s = socket.create_connection(("127.0.0.1", self._porta), timeout=3)
+            s = socket.create_connection(("127.0.0.1", int(porta)), timeout=3)
             s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             with self._lock:
                 self._sock = s
                 self.attivo = True
-            log(f"stream video verso il gateway attivo (porta {self._porta})")
+            log(f"{self.name}: frames go to port {porta}")
         except OSError as e:
-            log(f"stream video non collegato: {e}")
+            log(f"{self.name}: not connected: {e}")
 
     def stacca(self) -> None:
         with self._lock:
+            was = self._sock is not None
             self.attivo = False
             if self._sock is not None:
                 try:
@@ -402,80 +331,43 @@ class _RemoteSink:
                 except OSError:
                     pass
                 self._sock = None
-        log("stream video verso il gateway chiuso")
+        if was:
+            log(f"{self.name}: closed")
 
-    def push(self, frame_bgr) -> None:
+    def push(self, w: int, h: int, yuv: bytes) -> None:
         with self._lock:
             s = self._sock
-            if s is None:
-                return
+        if s is None:
+            return
         try:
-            h, w = frame_bgr.shape[:2]
-            # I420 esige lati pari (i piani U/V stanno a meta' risoluzione):
-            # si taglia un pixel invece di rifiutare il fotogramma.
-            w, h = w - (w % 2), h - (h % 2)
-            if (h, w) != frame_bgr.shape[:2]:
-                frame_bgr = frame_bgr[:h, :w]
-            if self._shape != (h, w):
-                self._shape = (h, w)
-                log(f"stream video: {w}x{h} I420")
-            # Si manda I420, non BGR. Due motivi, entrambi misurati: pesa la
-            # meta' sulla socket (1,5 byte/pixel invece di 3) ed e' gia' il
-            # formato dell'encoder H.264, quindi al gateway sparisce una
-            # conversione che costava piu' della codifica stessa. La
-            # compressione vera resta a valle in WebRTC: comprimere due volte
-            # sarebbe sprecato.
-            yuv = cv2.cvtColor(np.ascontiguousarray(frame_bgr),
-                               cv2.COLOR_BGR2YUV_I420)
-            s.sendall(_INTESTAZIONE.pack(_MAGIC, w, h))
-            s.sendall(yuv.tobytes())
+            s.sendall(_INTESTAZIONE.pack(_MAGIC, w, h) + yuv)
         except OSError:
             self.stacca()
 
 
-_remote_sink = _RemoteSink()
+_frames_sink = _RemoteSink("frames")        # the client
+_remote_sink = _RemoteSink("stream")        # the phone gateway
 
 
-# ---------------------------------------------------------------------------
-#  Sink video: pyvirtualcam (OBS) -> fallback finestra di anteprima
-# ---------------------------------------------------------------------------
 class VideoSink:
+    """Hands each frame to the sinks that are connected; with none connected a frame costs nothing."""
+
     def __init__(self, width: int, height: int) -> None:
         self.width, self.height = width, height
-        self._cam = None
-        # AVATAR_PREVIEW=1 (dal client, config avatar_preview_window): finestra
-        # di anteprima locale SEMPRE, anche con la webcam virtuale attiva.
-        # La GUI cv2 vive nel thread anteprima (vedi _preview_loop in testa al
-        # modulo, avviato PRIMA degli import pesanti): qui si spingono i frame.
-        self._preview = os.environ.get("AVATAR_PREVIEW") == "1"
-        try:
-            import pyvirtualcam
-            self._cam = pyvirtualcam.Camera(width=width, height=height,
-                                            fps=FPS, print_fps=False)
-            log(f"webcam virtuale attiva: {self._cam.device}")
-        except Exception as e:  # noqa: BLE001 - driver OBS assente
-            log(f"webcam virtuale non disponibile ({e}): uso la finestra di anteprima")
-            self._preview = True
-        if self._preview:
-            _preview_start()
 
     def send(self, frame_bgr: np.ndarray) -> None:
-        # Con il telefono collegato il video va SOLO a lui: webcam virtuale e
-        # finestra restano spente. È una richiesta esplicita — se l'avatar sta
-        # parlando in una videochiamata sul telefono, sul PC non deve comparire.
-        if _remote_sink.attivo:
-            _remote_sink.push(frame_bgr)
+        if not (_frames_sink.attivo or _remote_sink.attivo):
             return
-        if self._cam is not None:
-            self._cam.send(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
-        if self._preview:
-            _preview_push(frame_bgr)
+        h, w = frame_bgr.shape[:2]
+        w, h = w - (w % 2), h - (h % 2)          # I420 needs even sides: one pixel is cut rather than the frame refused
+        if (h, w) != frame_bgr.shape[:2]:
+            frame_bgr = frame_bgr[:h, :w]
+        yuv = cv2.cvtColor(np.ascontiguousarray(frame_bgr), cv2.COLOR_BGR2YUV_I420).tobytes()
+        _frames_sink.push(w, h, yuv)
+        _remote_sink.push(w, h, yuv)
 
     def close(self) -> None:
-        if self._cam is not None:
-            self._cam.close()
-        # La finestra di anteprima resta al thread dedicato (si chiude col
-        # processo): distruggerla da qui violerebbe il single-thread cv2.
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -512,9 +404,9 @@ class Engine:
             torch.cuda.synchronize()
             t = _lap("init contesto CUDA", t)
         self.vae, self.unet, self.pe = load_all_model(
-            unet_model_path="./models/musetalkV15/unet.pth",
-            vae_type="sd-vae",
-            unet_config="./models/musetalkV15/musetalk.json",
+            unet_model_path=os.path.join(MODELS_DIR, "musetalkV15", "unet.pth"),
+            vae_type=os.path.join(MODELS_DIR, "sd-vae"),
+            unet_config=os.path.join(MODELS_DIR, "musetalkV15", "musetalk.json"),
             device=self.device,
             # UNet direttamente in VRAM in fp16, dal file mappato: niente copia
             # fp32 da 3,4 GB in RAM (vedi musetalk/models/unet.py).
@@ -531,9 +423,9 @@ class Engine:
         self.weight_dtype = self.unet.model.dtype
 
         from transformers import WhisperModel
-        self.audio_processor = AudioProcessor(feature_extractor_path="./models/whisper")
+        self.audio_processor = AudioProcessor(feature_extractor_path=os.path.join(MODELS_DIR, "whisper"))
         t = _lap("AudioProcessor (whisper feature extractor)", t)
-        self.whisper = (WhisperModel.from_pretrained("./models/whisper")
+        self.whisper = (WhisperModel.from_pretrained(os.path.join(MODELS_DIR, "whisper"), local_files_only=True)
                         .to(device=self.device, dtype=self.weight_dtype).eval())
         self.whisper.requires_grad_(False)
         if self.device.type == "cuda":
@@ -582,6 +474,13 @@ class Engine:
             torch.cuda.empty_cache()
 
     def prepare_clip(self, clip_path: str, cache_dir: str) -> ClipMaterial:
+        try:
+            return self._prepare_clip(clip_path, cache_dir)
+        except BaseException:
+            self._modelli_prep(su_gpu=False)         # a failed or cancelled preparation gives the VRAM back too
+            raise
+
+    def _prepare_clip(self, clip_path: str, cache_dir: str) -> ClipMaterial:
         latents_p = os.path.join(cache_dir, "latents.pt")
         coords_p = os.path.join(cache_dir, "coords.pkl")
         masks_p = os.path.join(cache_dir, "mask_boxes.pkl")
@@ -932,10 +831,15 @@ class Produttore:
         return fine
 
 
+def _cache_of(pdir: str, clip: str) -> str:
+    """Where the prepared material of a clip lives. The height is part of what it was prepared for: frames, masks and coordinates are in scale."""
+    stem = os.path.splitext(os.path.basename(clip))[0]
+    return os.path.join(pdir, "prepared", stem + (f"__h{OUTPUT_HEIGHT}" if OUTPUT_HEIGHT else ""))
+
+
 def main() -> int:
     engine = Engine()
     emit("ready")
-    _preview_status("modelli pronti - attendo la persona...")
 
     mat: ClipMaterial | None = None
     sink: VideoSink | None = None
@@ -981,14 +885,9 @@ def main() -> int:
                     if buttate:
                         log(f"[interrupt] scartate {buttate} battute in coda")
                 continue
-            if cmd.get("cmd") == "preview":
-                # Gestito DIRETTAMENTE dal reader (come interrupt): durante lo
-                # speak la coda comandi non viene letta, ma la finestra deve
-                # chiudersi/riaprirsi subito.
-                if cmd.get("show", True):
-                    _preview_show.set()
-                else:
-                    _preview_show.clear()
+            if cmd.get("cmd") == "cancel":
+                # Handled by the reader like interrupt: the main loop is busy preparing.
+                _cancelled.add(str(cmd.get("id") or ""))
                 continue
             speak_q.put(json.dumps(cmd))
             if cmd.get("cmd") == "quit":
@@ -1007,9 +906,35 @@ def main() -> int:
             what = cmd.get("cmd")
             if what == "quit":
                 break
+            if what == "frames":
+                if cmd.get("on"):
+                    _frames_sink.collega(int(cmd.get("port") or 0))
+                else:
+                    _frames_sink.stacca()
+                emit("frames", on=_frames_sink.attivo)
+                continue
+            if what == "prepare":
+                _job[0] = str(cmd.get("id") or "")
+                cache = ""
+                try:
+                    pdir = cmd["dir"]
+                    clip = os.path.join(pdir, "clips", os.path.basename(cmd["clip"]))
+                    cache = _cache_of(pdir, clip)
+                    os.makedirs(cache, exist_ok=True)
+                    prepared = engine.prepare_clip(clip, cache)
+                    emit("prepared", id=_job[0], clip=os.path.basename(clip), frames=len(prepared))
+                    del prepared
+                except PrepareCancelled:
+                    shutil.rmtree(cache, ignore_errors=True)
+                    emit("cancelled", id=_job[0])
+                except Exception as e:  # noqa: BLE001 - reported to the job, the worker goes on
+                    emit("prepare_failed", id=_job[0], message=str(e) or e.__class__.__name__)
+                finally:
+                    _cancelled.discard(_job[0])
+                    _job[0] = ""
+                continue
             if what == "stream":
-                # L'app ha chiesto (o chiuso) il video: da qui in poi i frame
-                # vanno al telefono e non alla webcam virtuale.
+                # The phone gateway asks for (or closes) the video.
                 if cmd.get("on"):
                     _remote_sink.collega(int(cmd.get("port") or 0))
                 else:
@@ -1017,29 +942,28 @@ def main() -> int:
                 emit("stream", on=_remote_sink.attivo)
                 continue
             if what == "persona":
+                _cancelled.discard("")
                 pdir = cmd["dir"]
                 clip = cmd.get("clip")
-                if not clip:
-                    man = json.load(open(os.path.join(pdir, "manifest.json"),
-                                         encoding="utf-8"))
-                    clips = [os.path.join(pdir, c) for c in man.get("clips", [])]
+                if clip:
+                    clip = os.path.join(pdir, "clips", os.path.basename(clip))
+                else:
+                    clips = sorted(glob.glob(os.path.join(pdir, "clips", "*.mp4")))
                     if not clips:
-                        emit("error", message=f"nessun clip in {pdir}")
+                        emit("error", message=f"no clip in {pdir}")
                         continue
                     clip = random.choice(clips)
-                # L'altezza fa parte dell'identita' della cache: il materiale
-                # preparato a piena risoluzione non e' riusabile per il 480p
-                # (frame, maschere e coordinate sono tutti in scala).
-                cache = os.path.join(
-                    MUSETALK_DIR, "cache",
-                    f"{os.path.basename(pdir)}__{os.path.splitext(os.path.basename(clip))[0]}"
-                    + (f"__h{OUTPUT_HEIGHT}" if OUTPUT_HEIGHT else ""))
+                cache = _cache_of(pdir, clip)
                 os.makedirs(cache, exist_ok=True)
-                _preview_status("preparazione persona (la prima volta richiede minuti)...")
                 try:
                     mat = engine.prepare_clip(clip, cache)
+                except PrepareCancelled:
+                    shutil.rmtree(cache, ignore_errors=True)
+                    emit("error", message="preparation cancelled")
+                    mat = None
+                    continue
                 except Exception as e:  # noqa: BLE001
-                    emit("error", message=f"preparazione fallita: {e}")
+                    emit("error", message=f"preparation failed: {e}")
                     mat = None
                     continue
                 h, w = mat.frames[0].shape[:2]
@@ -1051,7 +975,6 @@ def main() -> int:
                 # cuDNN e scalda Whisper ORA (al preload, in background) cosi' la
                 # prima battuta reale non paga gli ~8s di prima esecuzione.
                 if not getattr(Engine, "_infer_warmed", False):
-                    _preview_status("scaldo i kernel GPU (una tantum)...")
                     # DENTRO il produttore, non qui: e' quel thread che
                     # deve trovarsi le cache cuDNN calde (vedi Produttore).
                     # Eseguito nel thread sbagliato, il riscaldamento non
