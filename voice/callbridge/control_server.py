@@ -21,6 +21,7 @@ Auth: header `Authorization: Bearer <control_auth_token>` (tranne /health).
 
 from __future__ import annotations
 
+import hmac
 import logging
 import threading
 import time
@@ -101,7 +102,8 @@ def create_app(
     def _authorized() -> bool:
         if not config.control_auth_token:
             return True
-        return request.headers.get("Authorization") == f"Bearer {config.control_auth_token}"
+        given = request.headers.get("Authorization", "")
+        return hmac.compare_digest(given.encode("utf-8", "replace"), f"Bearer {config.control_auth_token}".encode("utf-8"))
 
     @app.before_request
     def _auth_gate():
