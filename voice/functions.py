@@ -131,36 +131,40 @@ class TtsBackend:
 
 
 class AvatarBackend:
-    """The avatar worker (callbridge/avatar_client.py): started, the persona prepared when one is set, the window hidden."""
+    """The avatar worker (callbridge/avatar_client.py) through the service's AvatarService: it starts, loads the avatar of the personality
+    of Settings > Voice when that personality has one (else it waits for one), and the virtual camera follows."""
 
-    def __init__(self, config, app=None):
-        self.config, self.app = config, app
+    def __init__(self, config, app=None, state=None):
+        self.config, self.app, self.state = config, app, state
+
+    def service(self):
+        svc = getattr(self.state, "avatar", None)
+        if svc is None:
+            raise RuntimeError("the avatar is not set up in this service")
+        return svc
 
     def client(self):
-        from callbridge.avatar_client import AvatarClient
-        if self.app is None:
-            raise RuntimeError("no app to hold the avatar client")
-        client = self.app.config.get("CB_AVATAR")
-        if client is None:
-            client = self.app.config["CB_AVATAR"] = AvatarClient(self.config)
-        return client
+        return self.service().client()
+
+    def problem(self) -> str:
+        """Why the worker cannot start (no environment, a missing weight), "" when it can."""
+        return self.client()._check_ready_to_start()
 
     def load(self, choice) -> None:
-        avatar = self.client()
-        persona = getattr(self.config, "avatar_persona", "")
-        if persona:
-            ok = avatar.start(persona)
-            if ok:
-                avatar.set_preview(False)
-        else:
-            with avatar._lock:
-                ok = avatar._ensure_worker()
+        svc = self.service()
+        avatar = svc.client()
+        name = svc.link().avatar
+        ok = avatar.start(name) if name and svc.store.clips(name) else avatar.ensure_worker()
         if not ok:
             raise RuntimeError(avatar.last_error or "the avatar worker did not start")
+        svc.sync_camera()
 
     def unload(self) -> None:
         if self.app is not None and self.app.config.get("CB_AVATAR") is not None:
             self.app.config["CB_AVATAR"].stop()
+        svc = getattr(self.state, "avatar", None)
+        if svc is not None:
+            svc.sync_camera()
 
     def loaded(self) -> bool:
         avatar = self.app.config.get("CB_AVATAR") if self.app is not None else None
@@ -182,7 +186,7 @@ class Functions:
     def __init__(self, state, backends: dict | None = None, loading=None, app=None):
         self.state = state
         cfg = state.config
-        self.backends = backends if backends is not None else {"stt": SttBackend(cfg), "tts": TtsBackend(cfg), "avatar": AvatarBackend(cfg, app)}
+        self.backends = backends if backends is not None else {"stt": SttBackend(cfg), "tts": TtsBackend(cfg), "avatar": AvatarBackend(cfg, app, state)}
         self.loading = loading or _serialise
         self._busy = threading.Lock()
         self._rec: dict[str, dict] = {n: {"state": "unloaded", "error": "", "estimated_mib": None, "measured_mib": None, "applied": None,
@@ -221,6 +225,8 @@ class Functions:
                 entry["loaded_with"] = dict(zip(("model", "device", "memory"), rec["applied"]))
             if not installed:
                 entry["reason"] = ms.reason(c.model, settings.models_dir)
+            elif name == "avatar" and self._live(name) != "loaded":
+                entry["problem"] = self._problem(name)
             out[name] = entry
         return {"functions": out, "free_vram_mib": self._free(0)}
 
@@ -285,6 +291,15 @@ class Functions:
         finally:
             self._busy.release()
 
+    def _problem(self, name) -> str:
+        """What stops a function from loading even though its model is installed ("" when nothing does); only the avatar has such a check."""
+        check = getattr(self.backends[name], "problem", None)
+        try:
+            return str(check() or "") if check is not None else ""
+        except Exception as e:                                # noqa: BLE001 (a check that cannot be made is not a reason to refuse)
+            log.debug("%s: check failed: %s", name, e)
+            return ""
+
     def _entry(self, name, action, before, after, measured, error="") -> dict:
         return {"action": action, "before_free_mib": before, "after_free_mib": after, "measured_mib": measured, "state": self._live(name),
                 "error": error or None}
@@ -318,6 +333,10 @@ class Functions:
             reason = ms.reason(choice.model, root)
             rec.update(state="unloaded", error=reason, measured_mib=None, applied=None)
             return self._entry(name, "load", None, None, None, reason)
+        problem = self._problem(name)
+        if problem:                                           # something the function needs is missing: it stays unloaded and says what
+            rec.update(state="unloaded", error=problem, measured_mib=None, applied=None)
+            return self._entry(name, "load", None, None, None, problem)
         gpu = self._gpu(choice)
         error = ""
         with self.loading(name):
