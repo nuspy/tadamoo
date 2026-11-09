@@ -6,7 +6,7 @@
 .vm-field input[type="url"], .vm-field input[type="text"], .vm-field input[type="number"], .vm-field select { width: 100%; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font: 16px/1.4 var(--font-sans); box-sizing: border-box; }
 .vm-field input:disabled, .vm-field select:disabled { opacity: .6; }
 .vm-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.vm-actions .btn { flex: 1 1 140px; }
+.vm-actions .btn { flex: 1 1 140px; min-height: 44px; }
 .vm-live, .vm-past, .vm-cop, .vm-cal { display: grid; gap: 8px; min-width: 0; }
 .vm-live[hidden] { display: none; }
 .vm-sect { display: grid; gap: 8px; min-width: 0; padding-top: 4px; border-top: 1px solid var(--line-soft); }
@@ -21,6 +21,7 @@
 .vm-list { margin: 0; padding-left: 22px; color: var(--fg); line-height: 1.5; overflow-wrap: anywhere; }
 .vm-min { display: grid; gap: 6px; min-width: 0; }
 .vm-prov { display: grid; gap: 6px; min-width: 0; }
+.vm-cop .btn, .vm-prov .btn, .vm-past .btn { min-height: 44px; }
 .vm-settings { min-width: 0; }
 .vm-actions .btn.danger { border-color: var(--warn); color: var(--warn); }
 .vt-root .vm-form :focus-visible, .vb-root .vm-settings :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

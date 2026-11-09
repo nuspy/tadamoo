@@ -6,7 +6,7 @@
      "brain": {"mode": "direct|harness", "persona": "<slug>", "permission": "plan|read_only|default|auto", "workspace": "<folder>",
                "base_url": "http://127.0.0.1:<port>", "hotkeys": true|false},
      "meetings": {"speak": true|false, "camera": true|false, "proactive": true|false, "consent_mode": "window|explicit", "consent_window_s": 20..300, "on_behalf_of": "<name>",
-                  "display_name": "<name>", "virtual_mic": "<part of a device name>", "wake_phrase": "<phrase>", "calendar_autojoin": true|false,
+                  "display_name": "<name>", "virtual_mic": "<part of a device name>", "wake_phrase": "<phrase>", "autojoin": true|false, "allow_programs_join": true|false,
                   "copilot_replies": 1..6, "copilot_audio_reply": true|false, "copilot_hide_from_capture": true|false},
      "telephony": {"transport": "off|auto|gsm|android", "outgoing_approval": "manual|auto", "ai_disclosure_on_start": true|false,
                    "incoming_auto_answer": true|false, "on_behalf_of": "<name>"},
@@ -511,9 +511,9 @@ def select_avatar_engine(req) -> dict:
 CONSENT_MODES = ("window", "explicit")
 CONSENT_WINDOW = (20, 300, 45)                  # lowest, highest, default seconds; voice/callbridge/meetbot/consent.py holds the same numbers (a test compares)
 MEETINGS_DEFAULT = {"speak": False, "camera": False, "proactive": False, "consent_mode": "window", "consent_window_s": CONSENT_WINDOW[2], "on_behalf_of": "",
-                    "display_name": "TaDaMoo AI assistant", "virtual_mic": "", "wake_phrase": "", "calendar_autojoin": False, "copilot_replies": 3,
+                    "display_name": "TaDaMoo AI assistant", "virtual_mic": "", "wake_phrase": "", "autojoin": False, "allow_programs_join": False, "copilot_replies": 3,
                     "copilot_audio_reply": False, "copilot_hide_from_capture": True}
-MEETINGS_BOOLS = ("speak", "camera", "proactive", "calendar_autojoin", "copilot_audio_reply", "copilot_hide_from_capture")
+MEETINGS_BOOLS = ("speak", "camera", "proactive", "autojoin", "allow_programs_join", "copilot_audio_reply", "copilot_hide_from_capture")
 MEETINGS_TEXT = {"on_behalf_of": 80, "display_name": 40, "virtual_mic": 80, "wake_phrase": 40}
 
 
@@ -527,7 +527,7 @@ def _text_ok(value, limit: int) -> bool:
 
 def meetings() -> dict:
     """The rules of the meeting bot and the copilot as the voice service reads them: a missing or bad value is the careful default (the bot does not
-    speak, asks for consent with a window, the calendar does not join by itself)."""
+    speak, asks for consent with a window, nothing joins by itself, a program may not start the bot)."""
     stored = _read().get("meetings")
     stored = stored if isinstance(stored, dict) else {}
     out = dict(MEETINGS_DEFAULT)
@@ -590,7 +590,7 @@ def set_meetings(req) -> dict:
         stored.update(changes)
         data["meetings"] = stored
         _write(data)
-    for key in ("speak", "proactive", "calendar_autojoin"):
+    for key in ("speak", "proactive", "autojoin", "allow_programs_join"):
         if changes.get(key) is True and not before[key]:
             log.info("meetings: %s was turned on by the person", key)
     return meetings()

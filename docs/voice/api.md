@@ -15,6 +15,7 @@ which stays the OpenAI and Anthropic interface of the loaded model, and nothing 
 - With no key set, a request from another PC is `403 loopback_only`, and so is a request that names a host other than this PC
   (`Host`), or that comes from a page of another site (`Origin`).
 - The listener for phones offers none of these routes (`403`).
+- A route marked "gated like a join" is also refused with `403 programs_join_off` (texts in `error` and `message_it`) unless the person turned on `meetings.allow_programs_join` in Settings > Voice > Meetings; it is read at every request.
 - An upload is read away when the request is refused, so the caller sees the answer and not a reset.
 
 ## What passes through
@@ -51,11 +52,17 @@ Errors made here are `{"error": "<text>", "code": "<code>"}`, the form callAPIca
 | `/models/status`, `/models/available` | GET | api | |
 | `/session/state`, `/session/language` | GET | local | |
 | `/session/start`, `/stop`, `/new`, `/language` | POST | local | |
-| `/meetbot/join`, `/meetbot/leave` | POST | local | the meeting bot; a join needs `rights_confirmed: true` and the announcement and consent rule apply (`meetings.md`) |
+| `/meetbot/join` | POST | local | the meeting bot; a join needs `rights_confirmed: true` and the announcement and consent rule apply. Refused with `403 programs_join_off` unless `meetings.allow_programs_join` is on (`meetings.md`) |
+| `/meetbot/leave` | POST | local | |
 | `/meetbot/status`, `/meetings/list`, `/meetings/<id>`, `/meetings/<id>/transcript` | GET | local | |
 | `/meetings/<id>` | DELETE | local | deletes the transcript and the minutes |
 | `/calendar/status`, `/calendar/events` | GET | local | inert without the person's own OAuth values |
-| `/calendar/<google\|microsoft>/connect`, `/disconnect`, `/calendar/events/<id>/autojoin` | POST | local | |
+| `/calendar/<google\|microsoft>/connect`, `/disconnect` | POST | local | |
+| `/calendar/events/<id>/autojoin` | POST | local | `{enabled}` sets Participate of that event's plan item; gated like a join |
+| `/meetings/plan` | GET | local | the plan: `{items, platforms, autojoin, lead_s}` |
+| `/meetings/plan` | POST | local | add `{url, start, title?, duration_min?, participate?, role?, persona?, camera?, consent_mode?, notes?}` -> `201 {item}`; gated like a join |
+| `/meetings/plan/<id>` | PUT, PATCH, DELETE | local | change the named fields, or delete a manual item; gated like a join |
+| `/meetings/plan/<id>/join-now` | POST | local | `{rights_confirmed: true}` -> `202`; gated like a join |
 | `/copilot/state`, `/copilot/toggle` | GET, POST | local | the copilot window |
 
 ## 501 not_available_yet
@@ -94,5 +101,5 @@ program runs on this PC). The default is not changed here.
 ## Tests
 
 `serve/tests/test_voice_compat.py` (the table, who may use it, files, waits, 501, the token, with a stand-in service),
-`serve/tests/test_external_surface.py` (the paths outside `/v1`), `voice/tests/test_analysis_service.py` and `test_speech_routes.py`
+`serve/tests/test_voice_compat_programs_join.py` (the gate), `serve/tests/test_external_surface.py` (the paths outside `/v1`), `voice/tests/test_analysis_service.py` and `test_speech_routes.py`
 (the service side with stand-ins for the STT, the diarizer and the model).

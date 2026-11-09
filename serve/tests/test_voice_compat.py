@@ -16,7 +16,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from serve import handler, voice_compat
+from serve import handler, voice_compat, voice_settings
 from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate
 from serve.service import Service
@@ -67,7 +67,7 @@ class FakeVoice:
                 self.end_headers()
                 self.wfile.write(raw)
 
-            do_GET = do_POST = do_DELETE = _answer
+            do_GET = do_POST = do_DELETE = do_PUT = do_PATCH = _answer
 
         self.httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
         self.port = self.httpd.server_address[1]
@@ -228,6 +228,7 @@ class AvatarRoutesTests(Base):
 
 class MeetingRoutesTests(Base):
     def test_the_meeting_routes_reach_the_service_from_this_pc(self):
+        voice_settings.set_meetings({"allow_programs_join": True})                  # the gated routes are tested in test_voice_compat_programs_join.py
         calls = [("POST", "/meetbot/join", {"url": "https://meet.google.com/abc-defg-hij", "rights_confirmed": True}), ("GET", "/meetbot/status", None),
                  ("POST", "/meetbot/leave", {}), ("GET", "/meetings/list", None), ("GET", "/meetings/20261109-100000-meet-ab12", None),
                  ("GET", "/meetings/20261109-100000-meet-ab12/transcript", None), ("DELETE", "/meetings/20261109-100000-meet-ab12", None),

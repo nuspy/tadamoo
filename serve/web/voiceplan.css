@@ -1,0 +1,17 @@
+/* The planner inside the Meetings card (voiceplan.js). One column on a phone; targets are 44px or more; nothing depends on hover. */
+.vp-plan, .vp-list { display: grid; gap: 10px; min-width: 0; }
+.vp-form[hidden] { display: none; }
+.vp-form .vm-field input[type="datetime-local"], .vp-form .vm-field textarea { width: 100%; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font: 16px/1.4 var(--font-sans); box-sizing: border-box; }
+.vp-form .vm-field textarea { resize: vertical; }
+.vp-form .vm-field input:disabled, .vp-form .vm-field textarea:disabled { opacity: .6; }
+.vp-consent { padding: 8px 10px; border-left: 3px solid var(--accent); }
+.vp-item { min-width: 0; }
+.vp-item .vt-check { min-height: 44px; }
+.vp-item .vt-check span { min-width: 0; overflow-wrap: anywhere; }
+.vp-ask { display: grid; gap: 8px; min-width: 0; padding: 10px; border: 1px dashed var(--line); border-radius: 6px; }
+.vp-plan .btn { min-height: 44px; }
+#vp-add { width: 100%; }
+.vp-item p { overflow-wrap: anywhere; }
+.vp-plan :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (min-width: 700px) { #vp-add { width: auto; justify-self: start; } .vp-ask { grid-template-columns: 1fr auto; align-items: center; } }
+@media (prefers-reduced-motion: reduce) { .vp-form *, .vp-item * { transition: none !important; animation: none !important; } }

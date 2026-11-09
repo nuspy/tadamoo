@@ -24,7 +24,7 @@ I18N = (WEB / "i18n.js").read_text(encoding="utf-8")
 HANDLER = (WEB.parent / "handler.py").read_text(encoding="utf-8")
 
 CAREFUL = {"speak": False, "camera": False, "proactive": False, "consent_mode": "window", "consent_window_s": 45, "on_behalf_of": "", "display_name": "TaDaMoo AI assistant",
-           "virtual_mic": "", "wake_phrase": "", "calendar_autojoin": False, "copilot_replies": 3, "copilot_audio_reply": False, "copilot_hide_from_capture": True}
+           "virtual_mic": "", "wake_phrase": "", "autojoin": False, "allow_programs_join": False, "copilot_replies": 3, "copilot_audio_reply": False, "copilot_hide_from_capture": True}
 
 
 class Base(unittest.TestCase):
@@ -52,7 +52,7 @@ class SettingsTest(Base):
         self.assertEqual(vs.meetings()["speak"], True)
 
     def test_every_bad_value_is_refused_and_nothing_is_written(self):
-        bad = [{"speak": "yes"}, {"camera": 1}, {"proactive": 1}, {"calendar_autojoin": None}, {"copilot_audio_reply": "true"}, {"copilot_hide_from_capture": 0},
+        bad = [{"speak": "yes"}, {"camera": 1}, {"proactive": 1}, {"autojoin": None}, {"allow_programs_join": "no"}, {"copilot_audio_reply": "true"}, {"copilot_hide_from_capture": 0},
                {"consent_mode": "silent"}, {"consent_window_s": 19}, {"consent_window_s": 301}, {"consent_window_s": 45.5}, {"consent_window_s": "45"},
                {"consent_window_s": True}, {"copilot_replies": 0}, {"copilot_replies": 7}, {"on_behalf_of": "x" * 81}, {"on_behalf_of": "a\nb"},
                {"display_name": "   "}, {"display_name": "x" * 41}, {"virtual_mic": 5}, {"wake_phrase": "x" * 41}, {"nothing": 1}, [], "x", None]
@@ -141,7 +141,7 @@ class PageTest(unittest.TestCase):
     def test_every_request_is_on_the_proxys_list(self):
         sample = {"${id}": "20261109-100000-meet-ab12", "${name}": "google", "${what}": "connect", "${e.id}": "g:abc", "${m.id}": "x"}
         calls = re.findall(r'svc\(\s*"(GET|POST|DELETE)"\s*,\s*([`"][^`"]+[`"])', JS)
-        self.assertGreaterEqual(len(calls), 12)
+        self.assertGreaterEqual(len(calls), 10)
         for method, raw in calls:
             path = raw[1:-1]
             for key, value in sample.items():

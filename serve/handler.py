@@ -401,7 +401,7 @@ def make_handler(svc: Service, remote: bool = False):
                 self._discard_body()
                 self._json(404, {"error": {"message": "not found"}})
 
-        do_DELETE = do_PUT
+        do_DELETE = do_PATCH = do_PUT
 
         def do_GET(self):
             if self._compat():
