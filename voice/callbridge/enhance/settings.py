@@ -15,6 +15,7 @@ A cap of a stage that is off is ignored: with no upscaling the worker renders at
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 
 UPSCALE = ("none", "basic", "rtx_video")
@@ -66,9 +67,17 @@ def parse(stored) -> EnhanceSettings:
     interpolate = stored.get("interpolate") if stored.get("interpolate") in INTERPOLATE else "none"
     factor = stored.get("factor") if stored.get("factor") in FACTORS and not isinstance(stored.get("factor"), bool) else 2
     path = stored.get("rtx_video_path")
-    path = path if isinstance(path, str) and path.lower().endswith(".dll") and "\0" not in path and len(path) <= 500 else ""
+    path = path if isinstance(path, str) and sdk_path_ok(path) else ""
     return EnhanceSettings(upscale, scale, interpolate, factor, _int_in(stored.get("worker_fps_cap"), *FPS_CAP),
                            _int_in(stored.get("worker_height_cap"), *HEIGHT_CAP), path)
+
+
+_SDK_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|/(?!/))")
+
+
+def sdk_path_ok(path: str) -> bool:
+    """A drive path or a POSIX absolute path to a `.dll`: no network, device or relative path, no control characters."""
+    return 0 < len(path) <= 500 and path.lower().endswith(".dll") and not any(ord(c) < 32 for c in path) and _SDK_PATH.match(path) is not None
 
 
 def _even(n: int) -> int:

@@ -62,7 +62,9 @@ mean milliseconds per stage, conversion and total against the frame budget, `ove
 choice; those that cannot run are disabled with the reason, and the measured cost is shown once frames have flowed.
 
 Settings are `voice.json` `avatar.enhance` (`upscale`, `scale`, `interpolate`, `factor`, `worker_fps_cap`, `worker_height_cap`,
-`rtx_video_path`), checked as a whole in `serve/voice_settings.py` before the file is replaced. `rtx_video` takes the scales 2, 3 and 4 only
+`rtx_video_path`), checked as a whole in `serve/voice_settings.py` before the file is replaced. `rtx_video_path` is a DLL path the voice service will
+load one day, so it is held to a strict shape: a drive or POSIX absolute path ending in `.dll` (no network, device or relative path), a file that exists
+when it is set, and set only from this PC through `/api/voice/avatar` (a phone or a page of another site is refused). Nothing loads it yet. `rtx_video` takes the scales 2, 3 and 4 only
 (UNVERIFIED subset; the SDK's own list comes with its binding).
 
 ## The RTX Video SDK: what is real and what is not

@@ -435,8 +435,9 @@ def check_enhance(merged: dict) -> dict:
         if not _whole(value) or not (value == 0 or lo <= value <= hi):
             raise VoiceSettingsError(key, f"{key} is 0 (automatic) or a whole number from {lo} to {hi}.", f"{key} è 0 (automatico) o un numero intero da {lo} a {hi}.")
     path = merged["rtx_video_path"]
-    if not isinstance(path, str) or (path and not (os.path.isabs(path) and path.lower().endswith(".dll") and "\0" not in path and len(path) <= 500)):
-        raise VoiceSettingsError("rtx_video_path", "rtx_video_path is the full path of the SDK's DLL, or nothing.", "rtx_video_path è il percorso completo della DLL dell'SDK, oppure niente.")
+    if not isinstance(path, str) or (path and not sdk_path_ok(path)):
+        raise VoiceSettingsError("rtx_video_path", "rtx_video_path is the full path of the SDK's DLL on a disk of this PC, or nothing.",
+                                 "rtx_video_path è il percorso completo della DLL dell'SDK su un disco di questo PC, oppure niente.")
     return {**merged, "scale": float(scale)}
 
 
@@ -450,14 +451,28 @@ def enhance(stored=None) -> dict:
         return dict(ENHANCE_DEFAULT)
 
 
+_SDK_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|/(?!/))")
+
+
+def sdk_path_ok(path: str) -> bool:
+    """The shape of the SDK's DLL path: a drive path or a POSIX absolute path to a `.dll` (no network, device or relative path), no control characters."""
+    return 0 < len(path) <= 500 and path.lower().endswith(".dll") and not any(ord(c) < 32 for c in path) and _SDK_PATH.match(path) is not None
+
+
 def merge_enhance(stored, req) -> dict:
-    """The stored settings changed by the fields of `req`, the whole checked together (a scale must suit the provider chosen with it)."""
+    """The stored settings changed by the fields of `req`, the whole checked together (a scale must suit the provider chosen with it).
+    A new SDK path must be a file that exists now."""
     if not isinstance(req, dict):
         raise VoiceSettingsError("enhance", "enhance is a JSON object.", "enhance è un oggetto JSON.")
     for key in req:
         if key not in ENHANCE_DEFAULT:
             raise VoiceSettingsError("field", f"Unknown field: {key}.", f"Campo sconosciuto: {key}.")
-    return check_enhance({**enhance(stored), **req})
+    current = enhance(stored)
+    merged = check_enhance({**current, **req})
+    path = merged["rtx_video_path"]
+    if path and path != current["rtx_video_path"] and not os.path.isfile(path):
+        raise VoiceSettingsError("rtx_video_path", "There is no file at rtx_video_path.", "Non c'è nessun file in rtx_video_path.")
+    return merged
 
 
 # ---------------------------------------------------------------------------------------- the avatar's engines (voice.json avatar.engines, resolution, fps_hint)
