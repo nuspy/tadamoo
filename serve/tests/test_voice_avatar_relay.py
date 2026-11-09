@@ -212,6 +212,52 @@ class AvatarRelay(unittest.TestCase):
             conn.close()
         self.assertEqual(self.voice.seen, [])
 
+    # ---- the training video
+    def test_the_training_video_passes_through_to_its_own_route_with_the_token_added(self):
+        payload = b"\x00\x00\x00\x18ftypisom" + b"v" * 5000
+        self.voice.answer = (200, {"ok": True, "file": "video.mp4", "seconds": 240.0})
+        status, _t, data = self.request("POST", "/api/voice/avatar/Ada-2/training-video", raw=multipart(payload, "me.mp4"),
+                                        headers={"Content-Type": f"multipart/form-data; boundary={BOUNDARY}"})
+        self.assertEqual((status, json.loads(data)["file"]), (200, "video.mp4"))
+        method, path, auth, ctype = self.voice.seen[-1]
+        self.assertEqual((method, path, auth, ctype), ("POST", "/avatar/Ada-2/training-video", "Bearer " + self.token, f"multipart/form-data; boundary={BOUNDARY}"))
+        self.assertEqual(self.voice.bodies[-1], multipart(payload, "me.mp4"))
+        self.assertNotIn(self.token.encode(), data)
+
+    def test_the_training_video_has_its_own_finite_cap_and_is_refused_over_it_before_it_is_read(self):
+        self.assertEqual(voice_avatar.TRAINING_LIMIT, 2000 << 20)
+        self.assertGreater(voice_avatar.TRAINING_LIMIT, voice_avatar.LIMITS["video"])
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        try:
+            conn.putrequest("POST", "/api/voice/avatar/Ada-2/training-video")
+            conn.putheader("Content-Type", f"multipart/form-data; boundary={BOUNDARY}")
+            conn.putheader("Content-Length", str(voice_avatar.TRAINING_LIMIT + (2 << 20)))
+            conn.endheaders()
+            r = conn.getresponse()
+            self.assertEqual((r.status, json.loads(r.read())["error"]["code"]), (413, "too_big"))
+        finally:
+            conn.close()
+        self.assertEqual(self.voice.seen, [])
+
+    def test_the_training_video_route_takes_a_plain_avatar_name_and_multipart_only(self):
+        for name in ("../x", "a%2Fb", ".hidden", "a%20b", "x" * 61):
+            status, _t, _d = self.request("POST", f"/api/voice/avatar/{name}/training-video", raw=multipart(b"x"),
+                                          headers={"Content-Type": f"multipart/form-data; boundary={BOUNDARY}"})
+            self.assertEqual(status, 404, name)
+        self.assertEqual(self.request("POST", "/api/voice/avatar/Ada-2/training-video", raw=b"{}", headers={"Content-Type": "application/json"})[0], 400)
+        self.assertEqual(self.voice.seen, [])
+
+    def test_the_answer_of_the_service_for_the_training_video_is_the_answer(self):
+        self.voice.answer = (422, {"error": "The video cannot be read: it has no frames this PC can open.", "code": "unreadable"})
+        status, _t, data = self.request("POST", "/api/voice/avatar/Ada-2/training-video", raw=multipart(b"junk"), headers={"Content-Type": f"multipart/form-data; boundary={BOUNDARY}"})
+        self.assertEqual((status, json.loads(data)["code"]), (422, "unreadable"))
+
+    def test_the_training_video_upload_is_for_this_pc_only_and_needs_the_key_when_one_is_set(self):
+        self.svc.api_key = "sekret"
+        self.assertEqual(self.request("POST", "/api/voice/avatar/Ada-2/training-video", raw=multipart(b"x"),
+                                      headers={"Content-Type": f"multipart/form-data; boundary={BOUNDARY}"})[0], 401)
+        self.assertEqual(self.voice.seen, [])
+
     def test_a_service_that_is_not_there_is_a_503_and_the_body_is_not_kept(self):
         info = Path(self.tmp.name) / "data" / "voice-service.json"
         saved = info.read_text(encoding="utf-8")

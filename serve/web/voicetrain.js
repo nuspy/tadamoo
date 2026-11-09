@@ -6,7 +6,8 @@
    and a button that cancels. The avatar keeps working with the other engines meanwhile. Each engine also has a "Set up" panel: every prerequisite as a list with what
    fixes it (an Install button for the weights, which runs the catalog's own plan, licence acknowledgement and download), the Python of the engines (chosen here, kept by
    the voice service), a check of what that Python has, and the export of the trained model for the phone. Everything the server says enters the page as text.
-   voiceavatar.js gives it a node and calls paint(node, ctx) on its poll. */
+   Above the engines the person can add the avatar's training video (3 to 5 minutes; the wizard's clips stop at 2): a file picker with progress, its measured length and a
+   removal. A plan uses it when there is one and the longest clip otherwise. voiceavatar.js gives it a node and calls paint(node, ctx) on its poll. */
 (function () {
   const ENGINES = ["ultralight", "feathertalk", "er_nerf"];
   const LIST_MS = 30000;
@@ -27,12 +28,14 @@
   let planning = "", dialog = null, plan = null, starting = false, msg = { text: "", bad: false }, sig = "";
   const setups = {}, opened = {}, pyText = {}, setupMsg = {}, working = {};       // per engine: the Set up answer, whether its panel is open, the Python being typed, the line under it
   let install = null, installing = "", dl = null, idialog = null;
+  const tvInfo = {};                                                   // per avatar: the answer of GET /avatar/<name>/training-video
+  let tvMsg = { text: "", bad: false }, tvUp = null, tvAsk = false, tvLoading = "";
   const mb = n => `${Math.max(1, Math.round((n || 0) / 1048576))} MB`;
 
   async function refreshList() {
     listAt = Date.now();
     const r = await ctx.svc("GET", "/avatar/list");
-    if (r.ok && r.data) avatars = (r.data.avatars || []).filter(a => (a.clips || []).length);
+    if (r.ok && r.data) avatars = r.data.avatars || [];
     if (!avatars.some(a => a.name === avatar)) avatar = avatars.length ? avatars[0].name : "";
   }
   async function refreshStatus() {
@@ -115,7 +118,8 @@
       box.append(el("h5", "vtr-sub", T("vtr.problems")), list(p.problems.map(words)));
     }
     if (p.video) {
-      box.append(el("p", "vtr-text", T("vtr.video", p.video.clip, clock(p.video.seconds), p.video.fps)));
+      box.append(el("p", "vtr-text", p.video_source === "training" ? T("vtr.video.training", clock(p.video.seconds), p.video.fps)
+        : T("vtr.video", p.video.clip, clock(p.video.seconds), p.video.fps)));
     }
     if (p.estimate) {
       const e = p.estimate, lo = e.seconds[0], hi = e.seconds[1];
@@ -152,7 +156,7 @@
     sel.id = "vtr-avatar"; lab.htmlFor = sel.id; sel.disabled = running();
     for (const a of avatars) { const o = el("option", "", a.display_name || a.name); o.value = a.name; sel.append(o); }
     sel.value = avatar;
-    sel.onchange = () => { avatar = sel.value; };
+    sel.onchange = () => { avatar = sel.value; tvAsk = false; tvMsg = { text: "", bad: false }; refreshVideo(avatar); paintNow(); };
     f.append(lab, sel);
     const g = el("div", "vt-field"), glab = el("label", "", T("vtr.epochs")), num = el("input");
     num.type = "number"; num.id = "vtr-epochs"; num.min = "1"; num.max = "400"; num.step = "1"; num.inputMode = "numeric"; num.value = String(epochs); glab.htmlFor = num.id;
@@ -360,6 +364,101 @@
     box.append(el("p", "vtr-text vtr-strong", T("vtr.inst.running", dl.name || installing, mb(dl.bytes_done), mb(dl.bytes_total))));
   }
 
+  // ---------------------------------------------------------------- the training video
+  async function refreshVideo(name) {
+    if (!name || tvLoading === name) return;
+    tvLoading = name;
+    const before = JSON.stringify(tvInfo[name]);
+    const r = await ctx.svc("GET", `/avatar/${name}/training-video`);
+    tvLoading = "";
+    tvInfo[name] = r.ok ? r.data : { video: null, limits: null };
+    if (!r.ok) tvMsg = { text: msgOf(r), bad: true };
+    if (node && (!r.ok || JSON.stringify(tvInfo[name]) !== before)) paintNow();
+  }
+  function sendVideo(file) {
+    if (tvUp || !avatar) return;
+    const name = avatar, x = new XMLHttpRequest(), form = new FormData();
+    form.append("file", file);
+    tvUp = { avatar: name, pct: 0, x }; tvMsg = { text: "", bad: false }; tvAsk = false;
+    x.open("POST", `api/voice/avatar/${encodeURIComponent(name)}/training-video`);
+    const h = authHeaders(); Object.keys(h).forEach(k => x.setRequestHeader(k, h[k]));
+    x.upload.onprogress = e => {
+      if (!e.lengthComputable || !tvUp) return;
+      tvUp.pct = Math.round(100 * e.loaded / e.total);
+      const bar = document.getElementById("vtr-tv-bar"), line = document.getElementById("vtr-tv-line");
+      if (bar) bar.value = tvUp.pct;
+      if (line) line.textContent = T("vtr.tv.sending", tvUp.pct);
+    };
+    const finish = async r => {
+      tvUp = null;
+      if (r.ok) {
+        const d = r.data || {};
+        tvMsg = { text: T("vtr.tv.done", clock(d.seconds || 0)) + (d.in_range === false ? " " + T("vtr.tv.range") : ""), bad: d.in_range === false };
+      } else tvMsg = { text: msgOf(r), bad: true };
+      delete tvInfo[name];
+      paintNow();
+      await refreshVideo(name);
+    };
+    x.onload = () => { let data = {}; try { data = JSON.parse(x.responseText); } catch (e) { /* no body */ } finish({ ok: x.status >= 200 && x.status < 300, status: x.status, data }); };
+    x.onerror = () => finish({ ok: false, status: 0, data: {} });
+    x.onabort = () => { tvUp = null; tvMsg = { text: T("vtr.tv.cancelled"), bad: false }; paintNow(); };
+    x.send(form);
+    paintNow();
+  }
+  async function removeVideo() {
+    const name = avatar;
+    tvAsk = false;
+    const r = await ctx.svc("DELETE", `/avatar/${name}/training-video`);
+    tvMsg = r.ok ? { text: T("vtr.tv.removed"), bad: false } : { text: msgOf(r), bad: true };
+    delete tvInfo[name];
+    paintNow();
+    await refreshVideo(name);
+  }
+  function videoSection(box) {
+    if (!avatar) return;
+    const sec = el("section", "vtr-video"), h = el("h5", "vtr-sub", T("vtr.tv.title"));
+    sec.setAttribute("aria-labelledby", "vtr-tv-h");
+    h.id = "vtr-tv-h";
+    sec.append(h, el("p", "vtr-text", T("vtr.tv.help")), el("p", "vtr-text vtr-strong vtr-consent", T("vtr.tv.consent")));
+    const info = tvInfo[avatar];
+    if (!info) { sec.append(el("p", "vtr-text", T("vtr.tv.loading"))); box.append(sec); return; }
+    const v = info.video, up = tvUp && tvUp.avatar === avatar, mine = running() && !!status && status.avatar === avatar;
+    if (v) {
+      sec.append(el("p", "vtr-text vtr-current", typeof v.seconds === "number" ? T("vtr.tv.current", clock(v.seconds), v.fps, v.width, v.height, mb(v.bytes)) : T("vtr.tv.unmeasured")));
+      if (v.in_range === false) { const w = el("p", "vtr-text vtr-warn", T("vtr.tv.range")); w.dataset.bad = "1"; sec.append(w); }
+    } else sec.append(el("p", "vtr-text vtr-current", T("vtr.tv.none")));
+    if (mine) sec.append(el("p", "vt-help", T("vtr.tv.busy")));
+    const f = el("div", "vt-field"), lab = el("label", "", v ? T("vtr.tv.replace") : T("vtr.tv.add")), input = el("input");
+    input.type = "file"; input.id = "vtr-tv-file"; lab.htmlFor = input.id; input.disabled = !!tvUp || mine;
+    input.accept = "video/mp4,video/quicktime,video/webm,video/x-matroska,.mp4,.mov,.webm,.mkv";
+    input.onchange = () => { const file = input.files && input.files[0]; input.value = ""; if (file) sendVideo(file); };
+    f.append(lab, input, el("p", "vt-help", T("vtr.tv.formats", mb(info.limits ? info.limits.max_bytes : 0))));
+    sec.append(f);
+    if (up) {
+      const bar = el("progress", "vtr-bar"), line = el("p", "vtr-text", T("vtr.tv.sending", tvUp.pct)), stop = el("button", "btn", T("vtr.tv.cancel"));
+      bar.id = "vtr-tv-bar"; bar.max = 100; bar.value = tvUp.pct; bar.setAttribute("aria-label", T("vtr.tv.title"));
+      line.id = "vtr-tv-line"; line.setAttribute("role", "status");
+      stop.type = "button"; stop.id = "vtr-tv-cancel"; stop.onclick = () => tvUp && tvUp.x.abort();
+      sec.append(bar, line, stop);
+    }
+    if (v && !up) {
+      const nav = el("div", "vtr-nav");
+      if (tvAsk) {
+        const yes = el("button", "btn", T("vtr.tv.yes")), no = el("button", "btn", T("vtr.tv.no"));
+        yes.type = "button"; yes.id = "vtr-tv-yes"; yes.onclick = removeVideo;
+        no.type = "button"; no.id = "vtr-tv-no"; no.onclick = () => { tvAsk = false; paintNow(); };
+        nav.append(el("p", "vtr-text", T("vtr.tv.sure")), yes, no);
+      } else {
+        const rm = el("button", "btn", T("vtr.tv.remove"));
+        rm.type = "button"; rm.id = "vtr-tv-remove"; rm.disabled = mine; rm.onclick = () => { tvAsk = true; paintNow(); };
+        nav.append(rm);
+      }
+      sec.append(nav);
+    }
+    sec.append(note(tvMsg.text, tvMsg.bad));
+    box.append(sec);
+  }
+
   function engineCard(engine) {
     const card = el("article", "vtr-engine");
     card.dataset.engine = engine;
@@ -403,7 +502,7 @@
 
   function signature() {
     const s = status || {};
-    return JSON.stringify([avatars.map(a => a.name), avatar, asr, epochs, fresh, planning, !!dialog, s.state, s.phase, Math.round(s.percent || 0), s.epoch, s.eta_s, s.cancelling, (s.log || []).length, msg, starting, LANG, !!idialog, installing, dl && Math.round((dl.bytes_done || 0) / 1048576), Object.keys(setups).map(k => [k, setups[k] && setups[k].ok, (working[k] || ""), !!opened[k]])]);
+    return JSON.stringify([avatars.map(a => a.name), avatar, asr, epochs, fresh, planning, !!dialog, s.state, s.phase, Math.round(s.percent || 0), s.epoch, s.eta_s, s.cancelling, (s.log || []).length, msg, starting, LANG, !!idialog, tvInfo[avatar] || null, tvMsg, tvUp && tvUp.avatar, tvAsk, installing, dl && Math.round((dl.bytes_done || 0) / 1048576), Object.keys(setups).map(k => [k, setups[k] && setups[k].ok, (working[k] || ""), !!opened[k]])]);
   }
   function render() {
     if (!node) return;
@@ -418,6 +517,7 @@
     } else {
       if (running()) runView(sec);
       controls(sec);
+      videoSection(sec);
       const wrap = el("div", "vtr-engines");
       ENGINES.forEach(e => wrap.append(engineCard(e)));
       downloadLine(sec);
@@ -431,7 +531,8 @@
   async function paint(target, context) {
     if (node !== target) { node = target; sig = ""; }
     ctx = context;
-    if (!listAt || Date.now() - listAt > LIST_MS) await refreshList();
+    if (!listAt || Date.now() - listAt > LIST_MS) { await refreshList(); if (tvInfo[avatar]) refreshVideo(avatar); }
+    if (avatar && !tvInfo[avatar]) refreshVideo(avatar);
     const was = status && status.state;
     await refreshStatus();
     await pollDownload();
