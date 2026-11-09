@@ -116,6 +116,9 @@ class Overlay(Protocol):
 
     def mainloop(self) -> None: ...
 
+    def quit(self) -> None:
+        """Ends `mainloop` (thread-safe; the loop returns within a fraction of a second)."""
+
 
 class SuggestionPanel(Protocol):
     """A private window of suggestions, kept out of screen sharing and recording where the system can do it."""

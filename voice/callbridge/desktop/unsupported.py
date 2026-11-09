@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import time
+import threading
 from collections.abc import Callable
 
 from .base import (Binding, Clipboard, Desktop, DesktopUnsupported, ForegroundApp,
@@ -53,7 +53,10 @@ class UnsupportedForeground(_Refuse):
 
 
 class NullOverlay:
-    """No card is drawn; `mainloop` only keeps the main thread alive."""
+    """No card is drawn; `mainloop` only keeps the main thread alive until `quit`."""
+
+    def __init__(self) -> None:
+        self._quit = threading.Event()
 
     def set_state_fn(self, fn: Callable[[], str]) -> None:
         pass
@@ -72,8 +75,10 @@ class NullOverlay:
         return None
 
     def mainloop(self) -> None:
-        while True:
-            time.sleep(1.0)
+        self._quit.wait()
+
+    def quit(self) -> None:
+        self._quit.set()
 
 
 class UnsupportedDesktop(Desktop):
