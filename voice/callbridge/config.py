@@ -165,6 +165,11 @@ class Config:
     # Acceleration of the video (callbridge/enhance): the person's `avatar.enhance` of voice.json as a dict, and the height the outputs get (the
     # size the worker renders at when nothing is on). The service applies the first through AvatarService.sync_enhance.
     avatar_enhance: dict = field(default_factory=dict)
+    # The engine and the output height the person chose for each target (voice/avatar_engines/selection.py): {pc, web, android, esp32} each; an empty
+    # dict is nothing configured: the gateway keeps each device's own order. The gateway gives a device the engine of its own target first.
+    avatar_engines: dict = field(default_factory=dict)
+    avatar_resolution: dict = field(default_factory=dict)
+    avatar_fps_hint: int = 25
     avatar_output_height: int = 480
     # Watchdog "nessun progresso": se il worker resta vivo ma non avanza per
     # questo tempo (hang GPU), start() esce con errore invece di bloccarsi.
