@@ -27,6 +27,7 @@ and the personality's avatar folder has their files.
 | The creation wizard | `voice/avatar_wizard.py` |
 | The engines (descriptors, choice per target), `engines.md` | `voice/avatar_engines/` |
 | Training a personalised engine (plan, confirm, progress, cancel, Set up), `engines-personalised.md` | `voice/avatar_training.py`, `serve/web/voicetrain.js` |
+| The training video (a long video apart from the wizard's clips), `engines-personalised.md` | `voice/avatar_training_video.py` |
 | Mouth sprites from a photo, the phone's files and manifest | `voice/callbridge/avatar_visemes.py`, `avatar_assets.py`, `avatar_prep.py` |
 | Routes | `voice/avatar_routes.py` |
 | Server side | `serve/voice_avatar.py` (files, stream, camera setting), `serve/voice_proxy.py` (JSON routes) |
@@ -54,10 +55,10 @@ and the personality's avatar folder has their files.
 ## The avatars folder
 
 `<user data>/voice/avatars/<name>/`: `avatar.json` (display name, the voice the wizard made), `clips/*.mp4`, `poster.jpg`,
-`wav2lip/face.png` and `box.json`, `visemes/<V>.png` and `frame.json`, `poses/`, and `prepared/` with one folder per prepared clip and
-`index.json`. A name is letters, digits, `_` and `-` (not the name of a route such as `wizard`, `models` or `phone`); nothing outside the folder
+`wav2lip/face.png` and `box.json`, `visemes/<V>.png` and `frame.json`, `poses/`, `training/` (reserved: the one training video of a personalised engine, `video.<ext>`
+and `video.json`), and `prepared/` with one folder per prepared clip and `index.json`. A name is letters, digits, `_` and `-` (not the name of a route such as `wizard`, `models` or `phone`); nothing outside the folder
 is touched, and a link in it is not followed.
-`GET /avatar/list` gives each avatar with its size and the total; `DELETE /avatar/<name>` frees it (409 while in use).
+`GET /avatar/list` gives each avatar with its size, whether it has a training video, and the total; `DELETE /avatar/<name>` frees it (409 while in use).
 
 ## The personality it follows
 
@@ -73,7 +74,7 @@ wizard made for the avatar, then the TTS default. `GET /avatar/state` shows the 
 in this order: name, photo, voice sample (optional), short video (optional). The poses are still accepted and no mode uses them.
 
 - A photo is decoded and kept as JPEG (sides 64 to 8000 px, 20 MB); at most six poses. A video must be an MP4 that opens, 128 to 4096 px,
-  up to 120 s and 500 MB. A voice sample is WAV, MP3, FLAC or OGG up to 25 MB (a WAV 3 to 120 s). Client file names are never used; a draft
+  up to 120 s and 500 MB (a longer video for training a personalised engine is the avatar's separate training video, `engines-personalised.md`). A voice sample is WAV, MP3, FLAC or OGG up to 25 MB (a WAV 3 to 120 s). Client file names are never used; a draft
   id is 32 hex digits; at most 8 drafts, those older than a day are removed.
 - `elabora` writes the avatar at once, from the photo, with no GPU: the poster, the straightened 96x96 face and the mouth box (a default from
   the Haar face detector that `POST /personas/<name>/wav2lip/bocca {p1, p2}` corrects with the two mouth corners, and the sprites are made
@@ -154,6 +155,6 @@ labelled, which is what the page shows. Checked on a drawn face only: how they l
 ## Tests and what they leave out
 
 `voice/tests/test_avatar_*.py` (a fake worker process speaks the JSON-lines protocol; fake frames, GPU readings and camera; the network is
-blocked), `voice/tests/test_avatar_visemes.py` (sprites, manifest) and `serve/tests/test_voice_avatar_*.py`. Not proven here: the real
+blocked), `voice/tests/test_avatar_visemes.py` (sprites, manifest) and `serve/tests/test_voice_avatar_*.py` (the training video's page also runs on a stand-in DOM under node, `voicetrain_video_dom_check.js`). Not proven here: the real
 rendering, the VRAM it takes, lip-sync quality, the look of the sprites on real photos, the model on a phone, the virtual camera, that the MuseTalk code makes no network call of its own beyond the two download functions that are blocked (DWPose's config names a
 URL for a backbone it does not load when a checkpoint is given), and Linux.
