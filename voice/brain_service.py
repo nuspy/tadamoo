@@ -113,7 +113,7 @@ class Session:
             self._hotkeys = False
 
     @property
-    def hotkeys_active(self) -> bool:
+    def hotkeys_attive(self) -> bool:
         return bool(self._ptt is not None and self._ptt.hotkeys_attive)
 
 
@@ -155,7 +155,7 @@ def register(app, state, speaker: Speaker | None = None) -> None:
 
     @app.get("/brain/state")
     def brain_state():
-        return jsonify({**state.brains.state(), "session": state.session.session_state(), "hotkeys": state.session.hotkeys_active})
+        return jsonify({**state.brains.state(), "session": state.session.session_state(), "hotkeys": state.session.hotkeys_attive})
 
     @app.post("/brain/say")
     def brain_say():
