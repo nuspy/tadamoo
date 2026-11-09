@@ -157,10 +157,11 @@ def select(cfg: Config, existing_gsm=None) -> tuple[str | None, dict[str, Transp
 class CallRouter:
     """Instrada chiamate in uscita/arrivo sul trasporto auto-selezionato."""
 
-    def __init__(self, cfg: Config, bridge, brain_factory) -> None:
+    def __init__(self, cfg: Config, bridge, brain_factory, gate=None) -> None:
         self.cfg = cfg
         self.bridge = bridge                 # CallBridge (android)
         self.brain_factory = brain_factory   # () -> cervello per il GSM
+        self.gate = gate                     # CallService: decide se rispondere e come aprire la chiamata
         self._gsm_modem = None
         self._gsm_session = None
         self._selected: str | None = None
@@ -220,23 +221,40 @@ class CallRouter:
         if in_sospensione():
             log.info("GSM: chiamata in arrivo NON risposta, componenti sospesi")
             return
-        if not self.cfg.gsm_auto_answer or self._gsm_modem is None:
+        if self._gsm_modem is None:
+            return
+        if self.gate is not None:
+            plan = self.gate.incoming(number, "gsm")
+            if plan is None:
+                return
+            brain, opening = plan.brain, plan.opening
+        elif self.cfg.incoming_auto_answer:
+            brain, opening = self.brain_factory(), "Pronto?"
+        else:
             return
         from .gsm_call import GsmCallSession
         with self._lock:
             if self._gsm_busy():
                 log.warning("GSM: chiamata in arrivo ignorata, sessione gia' attiva")
+                self._close_unused(brain)
                 return
-            s = GsmCallSession(self.cfg, self._gsm_modem, self.brain_factory())
+            s = GsmCallSession(self.cfg, self._gsm_modem, brain)
             self._gsm_session = s
 
         def _run() -> None:
             try:
-                s.run_answer()
+                s.run_answer(opening)
             finally:
                 s.mark_ended()
+                self._close_unused(brain)
 
         threading.Thread(target=_run, name="gsm-answer", daemon=True).start()
+
+    @staticmethod
+    def _close_unused(brain) -> None:
+        ended = getattr(brain, "call_ended", None)
+        if callable(ended):
+            ended()
 
     def _gsm_ended(self) -> None:
         if self._gsm_session is not None:

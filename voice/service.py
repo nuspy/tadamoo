@@ -30,6 +30,7 @@ from voice import brain_service, functions, settings_bridge, speech_routes  # no
 
 log = logging.getLogger("voice.service")
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
+PHONE_TOKEN_ENV = "TADAMOO_PHONE_TOKEN"
 
 
 class StartError(Exception):
@@ -67,6 +68,7 @@ class State:
         self.settings = settings_bridge.load(self.path, default_models_dir)
         self.brains = make_brain(config)
         self.functions = None
+        self.calls = None                               # the CallService, set by build_app
         self.session = brain_service.Session(self)
         self.refresh(force=True)
 
@@ -93,6 +95,8 @@ class State:
                 # A TTS router that already exists takes the new choice at once; nothing is loaded.
                 engines.aggiorna_tts(self.config, *settings_bridge.tts_changes(before, after))
         self.session.sync_hotkeys(self.settings.brain.hotkeys)
+        if self.calls is not None:
+            threading.Thread(target=self.calls.sync, name="voice-telephony", daemon=True).start()    # opening the modem can take seconds
 
     def status(self) -> dict:
         """Per service: the model chosen, its placement, whether it is installed and, when not, why. Nothing is loaded here."""
@@ -111,7 +115,8 @@ class State:
                     entry["degraded_reason"] = entry["reason"] + " Speech detection uses the energy detector instead."
             services[name] = entry
         return {"service": "voice", "state": "standby", "pid": os.getpid(), "started": self.started, "models_dir": root,
-                "offline": os.environ.get("HF_HUB_OFFLINE") == "1", "services": services}
+                "offline": os.environ.get("HF_HUB_OFFLINE") == "1", "services": services,
+                "telephony": self.calls.summary() if self.calls is not None else None}
 
 
 def build_app(settings_path, token: str, default_models_dir: str = "", host: str = "127.0.0.1", port: int = 0):
@@ -121,11 +126,12 @@ def build_app(settings_path, token: str, default_models_dir: str = "", host: str
     config = Config()
     config.control_host, config.control_port, config.control_auth_token = host, port, token
     config.tadamoo_token = token                        # the same token, sent to TaDaMoo's server (it accepts it on loopback for the brains' routes)
-    config.call_transport = "off"                       # no phone or modem detection at start
+    config.auth_token = os.environ.get(PHONE_TOKEN_ENV, "")      # the pairing token of the Android dialer, put there by the desktop app from the credential store
     config.analysis_artifacts_dir = str(Path(settings_path).resolve().parent / "voice" / "analyses")     # the analyses live in the user data folder
     state = State(settings_path, config, default_models_dir)
     app = create_app(config, status_fn=state.status, ptt=state.session)
     app.before_request(lambda: state.refresh())
+    state.calls = app.config["CB_CALLS"]
     state.functions = functions.Functions(state, app=app)
     functions.register(app, state.functions)
     brain_service.register(app, state)
@@ -183,6 +189,7 @@ def serve(args) -> int:
     sys.stdout.flush()
     log.info("standby on %s:%d (models folder %s)", host, port, state.settings.models_dir)
     threading.Thread(target=state.functions.autostart, name="voice-autostart", daemon=True).start()
+    threading.Thread(target=state.calls.sync, name="voice-telephony", daemon=True).start()
     try:
         while not stop.wait(0.5):
             pass

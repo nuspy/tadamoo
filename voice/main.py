@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import time
 
 # NB: NON precaricare qui le cuDNN dei wheel NVIDIA (per l'EP CUDA di
 # onnxruntime). torch e onnxruntime-gpu vogliono cuDNN DIVERSE e Windows tiene
@@ -65,19 +66,32 @@ def _cmd_ping(cfg: Config) -> None:
         sys.exit(1)
 
 
+def _calls(cfg: Config, bridge: CallBridge):
+    """Le chiamate passano dalla politica di sicurezza anche da riga di comando (registro, avviso di IA, numeri di emergenza)."""
+    from callbridge.call_policy import Policy
+    from callbridge.call_service import CallService
+    return CallService(cfg, bridge, Policy(cfg))
+
+
 def _cmd_call(cfg: Config, number: str) -> None:
+    cfg.call_transport = "android"
     bridge = CallBridge(cfg, make_brain(cfg))
-    driver = bridge.start_outgoing_call(number)
+    calls = _calls(cfg, bridge)
+    code, out = calls.place("user", number, transport="android")
+    if code != 200:
+        print(f"Chiamata non fatta: {out.get('error') or out}")
+        sys.exit(1)
     try:
-        driver.join()
+        while calls.policy.active() is not None:
+            time.sleep(0.5)
     except KeyboardInterrupt:
         print("\nInterrotto dall'utente.")
-        bridge.hangup()
-        driver.join(timeout=3.0)
+        calls.hangup()
 
 
 def _cmd_answer(cfg: Config) -> None:
     bridge = CallBridge(cfg, make_brain(cfg))
+    _calls(cfg, bridge)
     driver = bridge.start_incoming_answer()
     try:
         driver.join()

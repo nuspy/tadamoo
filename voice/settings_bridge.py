@@ -4,7 +4,9 @@ The file is the one serve/voice_settings.py writes:
     {"models_dir": "<absolute path>", "services": {"<service>": {"selected": "<model id>", "device": "auto|cpu|cuda:N", "memory": "vram|ram",
                                                                   "enabled": true|false}},
      "brain": {"mode": "direct|harness", "persona": "<slug>", "permission": "plan|read_only|default|auto", "workspace": "<folder>",
-               "base_url": "http://127.0.0.1:<port>", "hotkeys": true|false}}
+               "base_url": "http://127.0.0.1:<port>", "hotkeys": true|false},
+     "telephony": {"transport": "off|auto|gsm|android", "outgoing_approval": "manual|auto", "ai_disclosure_on_start": true|false,
+                   "incoming_auto_answer": true|false, "on_behalf_of": "<name>"}}
 This module reads it without importing `serve` or `tadamoo` (the service has its own interpreter). A missing, unreadable or damaged file,
 or a bad value in it, gives the defaults: the service never fails because of its settings.
 
@@ -18,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from callbridge import models_store as ms
+from callbridge.call_policy import APPROVAL_MODES, TRANSPORT_MODES
 
 _DEVICE_RE = re.compile(r"^(auto|cpu|cuda:[0-9]{1,2})$")
 BRAIN_MODES = ("direct", "harness")
@@ -63,10 +66,23 @@ class Brain:
 
 
 @dataclass(frozen=True)
+class Telephony:
+    """How calls are placed and answered. Everything starts off or on the careful side: telephony off, the agent's calls asked, the AI
+    said first, no call answered by itself."""
+    transport: str = "off"
+    outgoing_approval: str = "manual"
+    ai_disclosure_on_start: bool = True
+    incoming_auto_answer: bool = False
+    on_behalf_of: str = ""
+
+
+@dataclass(frozen=True)
 class Settings:
     models_dir: str
     services: dict[str, Choice]
     brain: Brain = Brain()
+    telephony: Telephony = Telephony()
+    audit_file: str = ""
 
 
 def _read(path) -> dict:
@@ -105,6 +121,16 @@ def _brain(stored) -> Brain:
                  hotkeys is True)
 
 
+def _telephony(stored) -> Telephony:
+    stored = stored if isinstance(stored, dict) else {}
+    transport, approval, who = stored.get("transport"), stored.get("outgoing_approval"), stored.get("on_behalf_of")
+    return Telephony(transport if transport in TRANSPORT_MODES else "off",
+                     approval if approval in APPROVAL_MODES else "manual",
+                     stored.get("ai_disclosure_on_start") is not False,
+                     stored.get("incoming_auto_answer") is True,
+                     who.strip()[:80] if isinstance(who, str) and not any(ord(c) < 32 for c in who) else "")
+
+
 def load(path, default_models_dir: str = "") -> Settings:
     """The settings in `path`; a value that is missing or invalid takes its default.
 
@@ -116,7 +142,8 @@ def load(path, default_models_dir: str = "") -> Settings:
     else:
         models_dir = default_models_dir or str(Path(path).resolve().parent / "voice-models")
     stored = data.get("services") if isinstance(data.get("services"), dict) else {}
-    return Settings(models_dir, {s: _choice(s, stored.get(s)) for s in ms.SERVICES}, _brain(data.get("brain")))
+    return Settings(models_dir, {s: _choice(s, stored.get(s)) for s in ms.SERVICES}, _brain(data.get("brain")), _telephony(data.get("telephony")),
+                    str(Path(path).resolve().parent / "call-audit.jsonl"))
 
 
 def is_enabled(choice: Choice, models_dir: str) -> bool:
@@ -161,6 +188,9 @@ def overrides(settings: Settings) -> dict:
     out["brain_mode"], out["brain_persona"], out["brain_permission"], out["brain_workspace"] = b.mode, b.persona, b.permission, b.workspace
     if b.base_url:
         out["tadamoo_base_url"] = b.base_url
+    t = settings.telephony
+    out["call_transport"], out["outgoing_approval"], out["ai_disclosure_on_start"] = t.transport, t.outgoing_approval, t.ai_disclosure_on_start
+    out["incoming_auto_answer"], out["call_on_behalf_of"], out["call_audit_file"] = t.incoming_auto_answer, t.on_behalf_of, settings.audit_file
     return out
 
 

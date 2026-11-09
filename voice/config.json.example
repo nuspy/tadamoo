@@ -1,7 +1,7 @@
 {
   "phone_host": "192.168.1.50",
   "phone_port": 8080,
-  "auth_token": "change-me-shared-token",
+  "auth_token": "",
 
   "hfp_input_device": null,
   "hfp_output_device": null,

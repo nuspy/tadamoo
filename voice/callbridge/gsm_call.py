@@ -21,10 +21,9 @@ import time
 import numpy as np
 
 from .config import Config
+from .engines import make_stt_client, make_tts_client
 from .gsm_audio import dvi_to_pcm, pcm_to_amr
 from .gsm_modem import GsmModem
-from .stt_client import HandySttClient
-from .tts_client import HandyTtsClient
 from .turn_engine import configure_tts
 
 log = logging.getLogger("callbridge.gsm.call")
@@ -55,13 +54,13 @@ class GsmCallSession:
         time.sleep(self.cfg.gsm_answer_wait_s)
         self._conversation(opening=greeting)
 
-    def run_answer(self) -> None:
+    def run_answer(self, opening: str = "Pronto?") -> None:
         log.info("GSM: rispondo alla chiamata in arrivo")
         if not self.modem.answer():
             log.error("GSM: answer fallito")
             return
         time.sleep(1.0)
-        self._conversation(opening="Pronto?")
+        self._conversation(opening=opening)
 
     # --- ciclo conversazione ---------------------------------------------
 
@@ -114,7 +113,7 @@ class GsmCallSession:
 
     def _speak(self, text: str) -> None:
         log.info("GSM AI -> %s", text)
-        tts = HandyTtsClient(self.cfg.handy_tts_url())
+        tts = make_tts_client(self.cfg)
         try:
             tts.start()
             configure_tts(tts, self.cfg, self.voice, self.lang)
@@ -139,7 +138,7 @@ class GsmCallSession:
         dur = len(pcm) / float(rate)
         self._sleep_interruptible(dur + 0.5)
 
-    def _drain_tts(self, tts: HandyTtsClient, grace: float = 1.5,
+    def _drain_tts(self, tts, grace: float = 1.5,
                    hard_cap: float = 30.0, empty_grace: float = 6.0):
         """Raccoglie i segmenti audio finche' la coda resta vuota per `grace` s."""
         segs: list[np.ndarray] = []
@@ -187,7 +186,7 @@ class GsmCallSession:
         return self._stt(pcm)
 
     def _stt(self, pcm16k: np.ndarray) -> str:
-        stt = HandySttClient(self.cfg.handy_stt_url())
+        stt = make_stt_client(self.cfg)
         try:
             stt.start()
             # invia in blocchi da ~100ms

@@ -17,8 +17,8 @@ class Config:
     # --- App Android di controllo ---
     phone_host: str = "192.168.1.50"       # IP del telefono sulla LAN
     phone_port: int = 8080
-    # Deve combaciare con ControlService.AUTH_TOKEN lato Android.
-    auth_token: str = "change-me-shared-token"
+    # Il token di accoppiamento che la persona ha scritto sul telefono (android/dialer, Pairing.kt). Mai nel codice: lo da' il servizio.
+    auth_token: str = ""
     # L'IP qui sopra e' solo il punto di partenza: cambia a ogni riconnessione
     # al Wi-Fi, quindi se non risponde il telefono viene cercato da solo
     # (USB/adb, mDNS, broadcast, scansione). Vedi phone_discovery.py.
@@ -272,7 +272,12 @@ class Config:
     gsm_tts_file: str = "C:\\tts.amr"      # path (sulla flash del modulo) del TTS da riprodurre
     gsm_record_id: int = 1                 # id file per AT+CREC (1-99; file in C:\REC\<id>.DVI)
     gsm_play_volume: int = 80              # volume CMEDPLAY (0-100 circa)
-    gsm_auto_answer: bool = True           # risponde da solo alle chiamate in arrivo
+    # Regole di sicurezza delle chiamate (call_policy.py), da voice.json > telephony.
+    outgoing_approval: str = "manual"      # chiamate dell'agente o di un programma: "manual" (si chiede alla persona) | "auto"
+    ai_disclosure_on_start: bool = True    # la prima frase dice che chi chiama e' un'IA
+    incoming_auto_answer: bool = False     # l'IA risponde da sola alle chiamate in arrivo (GSM e Android)
+    call_on_behalf_of: str = ""            # per conto di chi, nella frase di apertura
+    call_audit_file: str = ""              # registro delle chiamate (JSON per riga, senza trascrizioni)
     gsm_max_call_s: float = 600.0          # durata massima chiamata (paracadute anti-loop)
     gsm_max_empty_turns: int = 3           # turni vuoti di fila prima di chiudere
 
