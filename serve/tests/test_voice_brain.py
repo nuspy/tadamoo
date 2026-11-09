@@ -294,7 +294,10 @@ class ProxyTests(ServerBase):
                                  "POST /session/stop", "POST /session/new", "POST /brain/say", "GET /call/approvals", "GET /call/audit", "GET /gateway",
                                  # the avatar (serve/tests/test_voice_avatar_proxy.py)
                                  "GET /avatar/state", "GET /avatar/list", "GET /avatar/output", "GET /avatar/enhance", "GET /avatar/prepare", "POST /avatar/prepare", "POST /avatar/prepare/cancel",
-                                 "POST /avatar/speak", "POST /avatar/start", "POST /avatar/wizard/start"]))
+                                 "POST /avatar/speak", "POST /avatar/start", "POST /avatar/wizard/start",
+                                 # meetings, the copilot and the calendar (serve/tests/test_voice_meetings_page.py)
+                                 "GET /meetbot/status", "POST /meetbot/join", "POST /meetbot/leave", "GET /meetings/list", "GET /copilot/state", "POST /copilot/toggle",
+                                 "GET /calendar/status", "GET /calendar/events"]))
 
 
 if __name__ == "__main__":

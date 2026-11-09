@@ -12,7 +12,7 @@ from serve import voice_service
 HOLD_MODES = ("half", "full")
 BRAINS = ("harness", "direct", "")
 SAY_MAX = 300
-TIMEOUTS = {"/brain/say": 40.0, "/session/start": 60.0, "/avatar/speak": 120.0}      # a sentence is synthesised and played; a session loads what it needs
+TIMEOUTS = {"/meetbot/join": 60.0, "/brain/say": 40.0, "/session/start": 60.0, "/avatar/speak": 120.0}      # a sentence is synthesised and played; a session loads what it needs
 WIZARD_TIMEOUT_S = 120.0                                    # making an avatar: the face is found, the clip and the voice sample are copied
 AVATAR_NAME = r"[A-Za-z0-9][A-Za-z0-9_-]{0,59}"
 DRAFT = r"[0-9a-f]{32}"
@@ -95,6 +95,34 @@ def _avatar_mouth(body: Any) -> dict:
     return {"p1": body["p1"], "p2": body["p2"]}
 
 
+MEETING_ID = r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}"
+EVENT_ID = r"[A-Za-z0-9][A-Za-z0-9:_=.+-]{0,199}"
+
+
+def _meet_join(body: Any) -> dict:
+    body = _fields(body, ("url", "rights_confirmed", "title", "speak", "consent_mode", "consent_window_s"), ("url", "rights_confirmed"))
+    url = body["url"]
+    if not isinstance(url, str) or not url.startswith(("http://", "https://")) or len(url) > 2000 or body["rights_confirmed"] is not True:
+        raise Refused(400, "bad_request", "Send the meeting's address and rights_confirmed: true.")
+    if "title" in body and not (isinstance(body["title"], str) and len(body["title"]) <= 120):
+        raise Refused(400, "bad_request", "The title is a text of at most 120 characters.")
+    if "speak" in body and not isinstance(body["speak"], bool):
+        raise Refused(400, "bad_request", "speak is true or false.")
+    if "consent_mode" in body and body["consent_mode"] not in ("window", "explicit"):
+        raise Refused(400, "bad_request", "consent_mode is window or explicit.")
+    w = body.get("consent_window_s", 45)
+    if not (isinstance(w, int) and not isinstance(w, bool) and 20 <= w <= 300):
+        raise Refused(400, "bad_request", "consent_window_s is a whole number from 20 to 300.")
+    return body
+
+
+def _autojoin(body: Any) -> dict:
+    body = _fields(body, ("enabled",), ("enabled",))
+    if not isinstance(body["enabled"], bool):
+        raise Refused(400, "bad_request", "enabled is true or false.")
+    return body
+
+
 #: (method, service route) -> the function that checks and cleans the body
 ROUTES: dict[tuple[str, str], Callable[[Any], Any]] = {
     ("GET", "/status"): _none,
@@ -120,6 +148,15 @@ ROUTES: dict[tuple[str, str], Callable[[Any], Any]] = {
     ("POST", "/avatar/speak"): _avatar_speak,
     ("POST", "/avatar/start"): _avatar_start,
     ("POST", "/avatar/wizard/start"): _none,
+    # meetings, the copilot and the calendar (the rules of consent are the service's: a join must say that the right to bring the assistant is confirmed)
+    ("GET", "/meetbot/status"): _none,
+    ("POST", "/meetbot/join"): _meet_join,
+    ("POST", "/meetbot/leave"): _none,
+    ("GET", "/meetings/list"): _none,
+    ("GET", "/copilot/state"): _none,
+    ("POST", "/copilot/toggle"): _none,
+    ("GET", "/calendar/status"): _none,
+    ("GET", "/calendar/events"): _none,
 }
 #: (method, pattern of the service route) for the routes that carry an id: the person's answer to a call a program asked for
 PATTERNS: list[tuple[str, "re.Pattern[str]", Callable[[Any], Any]]] = [
@@ -129,6 +166,10 @@ PATTERNS: list[tuple[str, "re.Pattern[str]", Callable[[Any], Any]]] = [
     ("POST", re.compile(rf"/avatar/wizard/{DRAFT}/elabora"), _avatar_finish),
     ("DELETE", re.compile(rf"/avatar/{AVATAR_NAME}"), _none),
     ("POST", re.compile(rf"/personas/{AVATAR_NAME}/wav2lip/bocca"), _avatar_mouth),
+    ("GET", re.compile(rf"/meetings/{MEETING_ID}(?:/transcript)?"), _none),
+    ("DELETE", re.compile(rf"/meetings/{MEETING_ID}"), _none),
+    ("POST", re.compile(r"/calendar/(?:google|microsoft)/(?:connect|disconnect)"), _none),
+    ("POST", re.compile(rf"/calendar/events/{EVENT_ID}/autojoin"), _autojoin),
 ]
 
 

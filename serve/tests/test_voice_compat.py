@@ -226,10 +226,32 @@ class AvatarRoutesTests(Base):
         self.assertEqual(status, 404)                                                          # the stream is relayed by /api/voice/avatar, not by this table
 
 
+class MeetingRoutesTests(Base):
+    def test_the_meeting_routes_reach_the_service_from_this_pc(self):
+        calls = [("POST", "/meetbot/join", {"url": "https://meet.google.com/abc-defg-hij", "rights_confirmed": True}), ("GET", "/meetbot/status", None),
+                 ("POST", "/meetbot/leave", {}), ("GET", "/meetings/list", None), ("GET", "/meetings/20261109-100000-meet-ab12", None),
+                 ("GET", "/meetings/20261109-100000-meet-ab12/transcript", None), ("DELETE", "/meetings/20261109-100000-meet-ab12", None),
+                 ("GET", "/calendar/status", None), ("GET", "/calendar/events", None), ("POST", "/calendar/google/connect", {}),
+                 ("POST", "/calendar/microsoft/disconnect", {}), ("POST", "/calendar/events/g:abc123/autojoin", {"enabled": True}),
+                 ("GET", "/copilot/state", None), ("POST", "/copilot/toggle", {})]
+        for method, path, body in calls:
+            status, out = self.jsonrequest(method, path, body)
+            self.assertEqual(status, 200, f"{method} {path}")
+            self.assertEqual((self.voice.seen[-1]["method"], self.voice.seen[-1]["path"]), (method, path))
+            self.assertEqual(self.voice.seen[-1]["auth"], "Bearer " + TOKEN)
+
+    def test_they_are_for_this_pc_only_and_a_wrong_method_or_provider_is_refused(self):
+        self.assertEqual(self.jsonrequest("GET", "/meetbot/join")[0], 405)
+        self.assertEqual(self.jsonrequest("POST", "/calendar/yahoo/connect", {})[0], 404)
+        self.assertEqual(self.jsonrequest("GET", "/meetings/../etc")[0], 404)
+        for method, path in (("POST", "/meetbot/join"), ("GET", "/meetings/list"), ("POST", "/copilot/toggle"), ("GET", "/calendar/events")):
+            self.assertEqual(next(r.kind for r in voice_compat.ROUTES if r.method == method and r.pattern.fullmatch(path)), "local", path)
+        self.assertNotIn("meetings", voice_compat.SOON)
+
+
 class NotThereYetTests(Base):
     def test_these_answer_501_with_a_reason_and_reach_no_service(self):
         for method, path in (("GET", "/personas"), ("POST", "/personas"), ("PUT", "/personas/Ada"), ("GET", "/personas/Ada/memory"),
-                             ("POST", "/meetbot/join"), ("GET", "/meetings/list"), ("GET", "/calendar/events"),
                              ("POST", "/tts/model"), ("POST", "/tts/voice"), ("POST", "/models/load"), ("POST", "/models/unload"), ("GET", "/tts/stream"),
                              ("GET", "/stt/stream")):
             status, out = self.jsonrequest(method, path, {} if method in ("POST", "PUT") else None)

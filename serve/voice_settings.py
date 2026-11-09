@@ -5,6 +5,9 @@
                                                                   "enabled": true|false}},
      "brain": {"mode": "direct|harness", "persona": "<slug>", "permission": "plan|read_only|default|auto", "workspace": "<folder>",
                "base_url": "http://127.0.0.1:<port>", "hotkeys": true|false},
+     "meetings": {"speak": true|false, "camera": true|false, "proactive": true|false, "consent_mode": "window|explicit", "consent_window_s": 20..300, "on_behalf_of": "<name>",
+                  "display_name": "<name>", "virtual_mic": "<part of a device name>", "wake_phrase": "<phrase>", "calendar_autojoin": true|false,
+                  "copilot_replies": 1..6, "copilot_audio_reply": true|false, "copilot_hide_from_capture": true|false},
      "telephony": {"transport": "off|auto|gsm|android", "outgoing_approval": "manual|auto", "ai_disclosure_on_start": true|false,
                    "incoming_auto_answer": true|false, "on_behalf_of": "<name>"}}
 A missing value has a default: the folder is `voice/` inside the first models folder of Basalt (else `voice-models/` in the data folder), a
@@ -395,3 +398,92 @@ def merge_enhance(stored, req) -> dict:
         if key not in ENHANCE_DEFAULT:
             raise VoiceSettingsError("field", f"Unknown field: {key}.", f"Campo sconosciuto: {key}.")
     return check_enhance({**enhance(stored), **req})
+
+
+# ---------------------------------------------------------------------------------------- meetings and the copilot
+CONSENT_MODES = ("window", "explicit")
+CONSENT_WINDOW = (20, 300, 45)                  # lowest, highest, default seconds; voice/callbridge/meetbot/consent.py holds the same numbers (a test compares)
+MEETINGS_DEFAULT = {"speak": False, "camera": False, "proactive": False, "consent_mode": "window", "consent_window_s": CONSENT_WINDOW[2], "on_behalf_of": "",
+                    "display_name": "TaDaMoo AI assistant", "virtual_mic": "", "wake_phrase": "", "calendar_autojoin": False, "copilot_replies": 3,
+                    "copilot_audio_reply": False, "copilot_hide_from_capture": True}
+MEETINGS_BOOLS = ("speak", "camera", "proactive", "calendar_autojoin", "copilot_audio_reply", "copilot_hide_from_capture")
+MEETINGS_TEXT = {"on_behalf_of": 80, "display_name": 40, "virtual_mic": 80, "wake_phrase": 40}
+
+
+def _whole_in(value, lo: int, hi: int) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and lo <= value <= hi
+
+
+def _text_ok(value, limit: int) -> bool:
+    return isinstance(value, str) and len(value.strip()) <= limit and not any(ord(c) < 32 for c in value)
+
+
+def meetings() -> dict:
+    """The rules of the meeting bot and the copilot as the voice service reads them: a missing or bad value is the careful default (the bot does not
+    speak, asks for consent with a window, the calendar does not join by itself)."""
+    stored = _read().get("meetings")
+    stored = stored if isinstance(stored, dict) else {}
+    out = dict(MEETINGS_DEFAULT)
+    for key in MEETINGS_BOOLS:
+        if isinstance(stored.get(key), bool):
+            out[key] = stored[key]
+    if stored.get("consent_mode") in CONSENT_MODES:
+        out["consent_mode"] = stored["consent_mode"]
+    if _whole_in(stored.get("consent_window_s"), CONSENT_WINDOW[0], CONSENT_WINDOW[1]):
+        out["consent_window_s"] = stored["consent_window_s"]
+    if _whole_in(stored.get("copilot_replies"), 1, 6):
+        out["copilot_replies"] = stored["copilot_replies"]
+    for key, limit in MEETINGS_TEXT.items():
+        if _text_ok(stored.get(key), limit) and (stored[key].strip() or key not in ("display_name",)):
+            out[key] = stored[key].strip()
+    return out
+
+
+def check_meetings(req) -> dict:
+    """The fields of a request to change, checked; only the ones named are returned."""
+    if not isinstance(req, dict):
+        raise VoiceSettingsError("body", "Send a JSON object.", "Manda un oggetto JSON.")
+    for key in req:
+        if key not in MEETINGS_DEFAULT:
+            raise VoiceSettingsError("field", f"Unknown field: {key}.", f"Campo sconosciuto: {key}.")
+    out: dict = {}
+    for key in MEETINGS_BOOLS:
+        if key in req:
+            if not isinstance(req[key], bool):
+                raise VoiceSettingsError(key, f"{key} is true or false.", f"{key} è true o false.")
+            out[key] = req[key]
+    if "consent_mode" in req:
+        if req["consent_mode"] not in CONSENT_MODES:
+            raise VoiceSettingsError("consent_mode", "The consent mode is window or explicit.", "La modalità del consenso è window o explicit.")
+        out["consent_mode"] = req["consent_mode"]
+    if "consent_window_s" in req:
+        if not _whole_in(req["consent_window_s"], CONSENT_WINDOW[0], CONSENT_WINDOW[1]):
+            raise VoiceSettingsError("consent_window_s", f"The consent window is a whole number of seconds from {CONSENT_WINDOW[0]} to {CONSENT_WINDOW[1]}.",
+                                     f"La finestra del consenso è un numero intero di secondi da {CONSENT_WINDOW[0]} a {CONSENT_WINDOW[1]}.")
+        out["consent_window_s"] = req["consent_window_s"]
+    if "copilot_replies" in req:
+        if not _whole_in(req["copilot_replies"], 1, 6):
+            raise VoiceSettingsError("copilot_replies", "The copilot shows 1 to 6 replies.", "Il copilota mostra da 1 a 6 risposte.")
+        out["copilot_replies"] = req["copilot_replies"]
+    for key, limit in MEETINGS_TEXT.items():
+        if key in req:
+            if not _text_ok(req[key], limit) or (key == "display_name" and not req[key].strip()):
+                raise VoiceSettingsError(key, f"{key} is a text of 1 to {limit} characters." if key == "display_name" else f"{key} is a text of at most {limit} characters, or nothing.",
+                                         f"{key} è un testo da 1 a {limit} caratteri." if key == "display_name" else f"{key} è un testo di al massimo {limit} caratteri, oppure niente.")
+            out[key] = req[key].strip()
+    return out
+
+
+def set_meetings(req) -> dict:
+    changes = check_meetings(req)
+    with _lock:
+        data = _read()
+        before = meetings()
+        stored = data.get("meetings") if isinstance(data.get("meetings"), dict) else {}
+        stored.update(changes)
+        data["meetings"] = stored
+        _write(data)
+    for key in ("speak", "proactive", "calendar_autojoin"):
+        if changes.get(key) is True and not before[key]:
+            log.info("meetings: %s was turned on by the person", key)
+    return meetings()

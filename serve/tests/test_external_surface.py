@@ -28,7 +28,7 @@ PREFIXES = {"/v1/models/", "/v1/responses/", "/v1/"}
 TOP_LEVEL = {"/", "/health", "/metrics", "/slots", "/props", "/models", "/models/", "/status", "/canary", "/canary/"}      # the Canary page, this PC only
 
 # callAPIcall's routes, republished by serve/voice_compat.py with TaDaMoo's own key (tests/test_voice_compat.py): the first path segment of each
-COMPAT_TOP = {"external", "analysis", "transcribe", "tts", "stt", "voices", "models", "session", "personas", "avatar", "meetbot", "meetings", "calendar"}
+COMPAT_TOP = {"external", "analysis", "transcribe", "tts", "stt", "voices", "models", "session", "personas", "avatar", "meetbot", "meetings", "calendar", "copilot"}
 
 NOT_OFFERED = [
     "/v1/completions", "/v1/embeddings", "/v1/images/generations", "/v1/audio/transcriptions", "/v1/audio/speech",

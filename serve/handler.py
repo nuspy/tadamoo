@@ -670,7 +670,7 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == voice_avatar.BASE or path.startswith(voice_avatar.BASE + "/"):      # the avatar: settings, the preview stream, a portrait (serve/voice_avatar.py)
                 if self._authorized():
                     voice_avatar.get(self, path)
-            elif path in ("/api/voice/models", "/api/voice/download/plan", "/api/voice/download/status", "/api/voice/service", "/api/voice/functions", "/api/voice/brain", "/api/voice/telephony"):
+            elif path in ("/api/voice/models", "/api/voice/download/plan", "/api/voice/download/status", "/api/voice/service", "/api/voice/functions", "/api/voice/brain", "/api/voice/telephony", "/api/voice/meetings"):
                 if self._authorized():
                     if not settings.is_loopback(self.client_address[0]):
                         return self._json(403, {"error": {"type": "forbidden", "message": "the voice models and service are shown only on the PC the server runs on"}})
@@ -2425,6 +2425,8 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, voice_api.brain_view())
                 if path == "/api/voice/telephony":
                     return self._json(200, voice_api.telephony_view())
+                if path == "/api/voice/meetings":
+                    return self._json(200, voice_settings.meetings())
                 return self._json(200, voice_api.plan((query.get("id") or [""])[0]))
             except (voice_settings.VoiceSettingsError, models.Refused, downloads.DownloadError, OSError) as e:
                 return self._voice_error(e)
@@ -2445,7 +2447,7 @@ def make_handler(svc: Service, remote: bool = False):
                 return self._json(400, {"error": {"type": "invalid_request_error", "message": "the body is not valid JSON"}})
             routes = {"/api/voice/select": voice_api.select, "/api/voice/placement": voice_api.placement,
                       "/api/voice/models-dir": voice_api.set_models_dir, "/api/voice/download": voice_api.download,
-                      "/api/voice/download/cancel": lambda _req: voice_api.cancel(), "/api/voice/enabled": voice_api.set_enabled, "/api/voice/brain": voice_api.set_brain, "/api/voice/telephony": voice_api.set_telephony,
+                      "/api/voice/download/cancel": lambda _req: voice_api.cancel(), "/api/voice/enabled": voice_api.set_enabled, "/api/voice/brain": voice_api.set_brain, "/api/voice/telephony": voice_api.set_telephony, "/api/voice/meetings": voice_settings.set_meetings,
                       "/api/voice/functions/plan": lambda r: voice_loader.plan(svc, r.get("desired")),
                       "/api/voice/functions/apply": lambda r: voice_loader.apply(svc, r),
                       "/api/voice/functions/reload-llm": lambda r: voice_loader.reload_llm(svc, r)}
