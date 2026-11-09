@@ -15,7 +15,6 @@ import os
 import re
 
 from serve import voice_engine_weights as packs
-from serve import voice_linly_packs as linly
 
 SERVICES = ("stt", "tts", "avatar", "diarization", "vad", "embedding")
 DEFAULTS = {"stt": "whisper-small", "tts": "kokoro", "avatar": "musetalk-v15", "diarization": "sherpa-diarization", "vad": "silero-vad-v4",
@@ -85,11 +84,13 @@ LICENSES = {
                                     "copyright di quel file è il modello non compilato, quindi non nomina un titolare. La licenza dei pesi non è dichiarata oltre a quella del repository. "
                                     "È un riassunto, non una consulenza legale: fa fede il testo della licenza.",
                               "text": packs.FEATHERTALK_LICENSE_TEXT},
-    "linly-talker": {"name": "Linly-Talker code (MIT); the Wav2Lip v2 model is non-commercial", "url": "",
-                     "en": "Linly-Talker's own files are MIT and its LICENSE file is installed beside the code. The Wav2Lip v2 model derives from Wav2Lip, which allows research and "
-                           "non-commercial use only: do not use it commercially. This is a summary, not legal advice.",
-                     "it": "I file propri di Linly-Talker sono MIT e il suo file LICENSE si installa accanto al codice. Il modello Wav2Lip v2 deriva da Wav2Lip, che consente solo "
-                           "ricerca e uso non commerciale: non usarlo commercialmente. È un riassunto, non una consulenza legale."},
+    "linly-talker": {"name": "Linly-Talker's Hugging Face repository: no licence stated; the Wav2Lip v2 model is non-commercial", "url": "",
+                     "en": "The Hugging Face repository these weights come from states no licence on its card, and it gathers files of other projects (SadTalker, Wav2Lip, ER-NeRF, "
+                           "MuseTalk) whose own terms apply and were not all checked. The Wav2Lip v2 model derives from Wav2Lip, which allows research and non-commercial use only: "
+                           "do not use it commercially. This is a summary, not legal advice.",
+                     "it": "Il repository Hugging Face da cui vengono questi pesi non dichiara una licenza nella sua scheda e raccoglie file di altri progetti (SadTalker, Wav2Lip, "
+                           "ER-NeRF, MuseTalk) di cui valgono le condizioni, non tutte verificate. Il modello Wav2Lip v2 deriva da Wav2Lip, che consente solo ricerca e uso non "
+                           "commerciale: non usarlo commercialmente. È un riassunto, non una consulenza legale."},
     "ultralytics-face": {"name": "YOLOv8n-face: AGPL-3.0 code, weights licence unclear", "url": "",
                          "en": "The ultralytics package that loads this file is AGPL-3.0 code: running it for yourself is allowed, but offering it over a network or distributing it "
                                "brings the AGPL duties. The licence of the face-detection weights themselves is not stated in anything read here. Verify both before you distribute.",
@@ -169,11 +170,6 @@ def _entry(id_: str, service: str, engine: str, name: str, family: str, license_
             "venv": venv or _t("", ""), "verify": tuple(verify), "probe": list(probe), "selectable": selectable, "sha256": sha256, "kind": kind, "folder": folder}
 
 
-def _pack(repo: str, commit: str, files) -> list:
-    """The URL sources of an engine pack: the raw address of each file at the pinned commit, its blob SHA-256 and size."""
-    return [_url(f"{packs.HOST}{repo}/{commit}/{path}", path, sha, size) for path, sha, size in files]
-
-
 def _whisper(size: str) -> dict:
     name = size + ".pt"
     return _entry(f"whisper-{size}", "stt", "whisper", f"Whisper {size}", "whisper", "mit",
@@ -197,107 +193,108 @@ def _qwen(size: str) -> dict:
                            "che il repository ha oltre al README, il tokenizzatore vocale compreso. Streaming."))
 
 
+# The weights of the PC avatar engines Wav2Lip v2, SadTalker and ER-NeRF. Their code is vendored (voice/avatar_engines/vendor/), so nothing here installs code.
+# The files of Kedreamix/Linly-Talker on Hugging Face (the repository its README names) are pinned to one commit; each size and SHA-256 is the LFS id of that tree
+# (the hash of the 144-byte config.yaml, which is not in LFS, was computed from the file and its git blob id matches the tree's). Licence (to confirm, notes in the
+# code only): that repository states none; see voice/avatar_engines/vendor/*/LICENSE-NOTE.md.
 _LINLY = "Kedreamix/Linly-Talker"
+_LINLY_REV = "de2ee105d8fbe279e973b79db24009e803845b2f"
+_LINLY_WEIGHTS = {                                   # path in the repository: (SHA-256, bytes)
+    "checkpoints/wav2lipv2.pth": ("b22d7ac86295df667644b17254dc71250c2600b89e20403e90e58812450bc173", 214_670_409),
+    "checkpoints/weights/yolov8n-face/yolov8n-face.pt": ("d545bf1add5aa736a4febac4f4f9245a6d596cd0fe70d5d57989fe0cb9e626ca", 6_389_512),
+    "checkpoints/weights/wflw/hrnet18_256x256_p1/config.yaml": ("a998bb71186699585fa23b279cc4b1435e222ba39e6525dd897c74053ff57d7e", 144),
+    "checkpoints/weights/wflw/hrnet18_256x256_p1/model.pth": ("a0d0f89d3830954b6adb8d2e9e67fc656636db61c612a47b935b444f3ce69504", 39_273_976),
+    "checkpoints/SadTalker_V0.0.2_256.safetensors": ("c211f5d6de003516bf1bbda9f47049a4c9c99133b1ab565c6961e5af16477bff", 725_066_984),
+    "checkpoints/mapping_00229-model.pth.tar": ("62a1e06006cc963220f6477438518ed86e9788226c62ae382ddc42fbcefb83f1", 155_521_183),
+    "gfpgan/weights/alignment_WFLW_4HG.pth": ("bbfd137307a4c7debd5c283b9b0ce539466cee417ac0a155e184d857f9f2899c", 193_670_248),
+    "gfpgan/weights/detection_Resnet50_Final.pth": ("6d1de9c2944f2ccddca5f5e010ea5ae64a39845a86311af6fdf30841b0a5a16d", 109_497_761),
+    "checkpoints/audio_visual_encoder.pth": ("1f75cdb5556938590c64221f6c47a8d20ab3e368d53c166023eedb12279db8c4", 11_300_706),
+    "MuseTalk/face-parse-bisent/79999_iter.pth": ("468e13ca13a9b43cc0881a9f99083a430e9c0a38abd935431d1c28ee94b26567", 53_289_463),
+}
+# AD-NeRF's 3DMM folder at one GitHub commit, the files ER-NeRF's README downloads from it: (path, SHA-256, bytes) computed from the raw files at that commit
+# (each git blob id matches the contents listing). AD-NeRF's repository is MIT per GitHub.
+_ADNERF, _ADNERF_COMMIT = "YudongGuo/AD-NeRF", "9fdcd7e1352aa74e26baa8e60c862f9fbd7933bf"
+_ADNERF_3DMM = (
+    ("data_util/face_tracking/3DMM/exp_info.npy", "c3196029ed038eb9a461df6c782125fc4d1ec1545f2e5f361891471136b6cbb6", 33_264_853),
+    ("data_util/face_tracking/3DMM/keys_info.npy", "028d3c383bae129c4bdcac880e22c551a5d2436ec7db7a26f5c57148d12469e6", 7_375),
+    ("data_util/face_tracking/3DMM/sub_mesh.obj", "1234e8e8d48617d4be869fde4d8d7485f27164351f085cc2c491e9badb48a47c", 2_338_406),
+    ("data_util/face_tracking/3DMM/topology_info.npy", "2edff6a6ad574d2dddf0d0815e0beabfea9369d7c2d6e53e0ba81f809b81e963", 4_145_201),
+)
+_GPU_PY = ("PyTorch with CUDA, torchvision, opencv, numpy, scipy, scikit-image, librosa, yacs, tqdm; ffmpeg on the PATH.",
+           "PyTorch con CUDA, torchvision, opencv, numpy, scipy, scikit-image, librosa, yacs, tqdm; ffmpeg nel PATH.")
 _LINLY_ENV = _t("Run by the voice service in a Python environment of your own (TADAMOO_AVATAR_ENGINES_PYTHON); nothing here installs it. ",
                 "Eseguito dal servizio vocale in un ambiente Python tuo (TADAMOO_AVATAR_ENGINES_PYTHON); qui non si installa nulla. ")
 
 
-def _linly_pack(id_: str, engine: str, name: str, files, probe, folder: str, need: tuple, notes: dict, **kw) -> dict:
-    """The Linly-Talker code an engine runs: the raw address of each file at the pinned commit with its blob SHA-256 and size."""
-    return _entry(id_, "avatar", engine, name, engine, "linly-talker", _pack(linly.REPO, linly.COMMIT, files), size=sum(f[2] for f in files), probe=probe,
-                  selectable=False, kind="engine-pack", folder=folder, venv=_t(_LINLY_ENV["en"] + need[0], _LINLY_ENV["it"] + need[1]), notes=notes,
-                  verify=kw.pop("verify", ()), **kw)
+def _linly_weights(id_: str, engine: str, name: str, paths, strip: str, folder: str, notes: dict, need: tuple | None = None, license_: str = "linly-talker", **kw) -> dict:
+    """Weights of the Linly-Talker Hugging Face repository at the pinned commit; `strip` is the folder of the repository they are taken out of."""
+    files = [(p, *_LINLY_WEIGHTS[p]) for p in paths]
+    venv = _t(_LINLY_ENV["en"] + need[0], _LINLY_ENV["it"] + need[1]) if need else _t("Read by the engine's scripts with PyTorch.", "Letto dagli script del motore con PyTorch.")
+    return _entry(id_, "avatar", engine, name, engine, license_, [_pinned(_LINLY, _LINLY_REV, files, strip=strip)], size=_total(files),
+                  probe=[p[len(strip):] for p in paths], selectable=False, kind="engine-pack", folder=folder, venv=venv, notes=notes, **kw)
 
 
-def _linly_weights(id_: str, engine: str, name: str, files, strip: str, probe, folder: str, notes: dict, **kw) -> dict:
-    """Weights of the Linly-Talker Hugging Face repository (the one its README names): size and SHA-256 come from Hugging Face when a download is planned."""
-    return _entry(id_, "avatar", engine, name, engine, "linly-talker", [_hf(_LINLY, files, strip=strip)], probe=probe, selectable=False, kind="engine-pack",
-                  folder=folder, verify=kw.pop("verify", ("source", "size")), venv=_t("Read by the engine's scripts with PyTorch.", "Letto dagli script del motore con PyTorch."),
-                  notes=notes, **kw)
-
-
-def _no_source(id_: str, engine: str, name: str, license_: str, probe, folder: str, notes: dict, **kw) -> dict:
-    """A file the code needs and the project names no source for: placed by hand, never downloaded."""
-    return _entry(id_, "avatar", engine, name, engine, license_, [], probe=probe, selectable=False, kind="engine-pack", folder=folder,
-                  verify=kw.pop("verify", ("source", "sha256", "size", "license")), venv=_t("Read by the engine's scripts.", "Letto dagli script del motore."), notes=notes, **kw)
-
-
-_GPU_PY = ("PyTorch with CUDA, torchvision, opencv, numpy, scipy, scikit-image, librosa, yacs, tqdm; ffmpeg on the PATH.",
-           "PyTorch con CUDA, torchvision, opencv, numpy, scipy, scikit-image, librosa, yacs, tqdm; ffmpeg nel PATH.")
-_NOT_LISTED = ("The Linly-Talker README names this repository and lists its checkpoints folder, but its file tree does not list this file: the download plan "
-               "stops with a clear error if the repository does not have it.",
-               "Il README di Linly-Talker nomina questo repository ed elenca la sua cartella checkpoints, ma il suo albero di file non elenca questo file: il piano di "
-               "download si ferma con un errore chiaro se il repository non lo ha.")
 ENGINE_PACKS = [
-    _linly_pack("wav2lipv2-code", "wav2lipv2", "Wav2Lip v2 code (Linly-Talker, commit dc831b3)", linly.WAV2LIPV2_FILES,
-                ["TFG/Wav2Lipv2.py", "src/modelsv2/wav2lip_v2.py"], "avatar-engines/wav2lipv2/code",
-                (_GPU_PY[0] + " Also ultralytics (AGPL-3.0).", _GPU_PY[1] + " Anche ultralytics (AGPL-3.0)."), noncommercial=True,
-                notes=_t("Linly-Talker's Wav2Lipv2 script and what it imports (the 288 px model, the WFLW landmark net, the face-detection package), at one fixed commit. Non-commercial: "
-                         "the model derives from Wav2Lip, which is for research use only.",
-                         "Lo script Wav2Lipv2 di Linly-Talker e ciò che importa (il modello a 288 px, la rete di punti del volto WFLW, il pacchetto di rilevamento del volto), a un "
-                         "commit fisso. Non commerciale: il modello deriva da Wav2Lip, che è solo per ricerca.")),
-    _linly_weights("wav2lipv2-weights", "wav2lipv2", "Wav2Lip v2 288 px weights (wav2lipv2.pth)", ["checkpoints/wav2lipv2.pth"], "checkpoints/", ["wav2lipv2.pth"],
-                   "avatar-engines/wav2lipv2/checkpoints", noncommercial=True,
-                   notes=_t("The checkpoint the Wav2Lipv2 script loads by default (checkpoints/wav2lipv2.pth), from the Hugging Face repository the README names. " + _NOT_LISTED[0]
-                            + " Non-commercial: it derives from Wav2Lip, which is for research use only.",
-                            "Il checkpoint che lo script Wav2Lipv2 carica per default (checkpoints/wav2lipv2.pth), dal repository Hugging Face che il README nomina. " + _NOT_LISTED[1]
-                            + " Non commerciale: deriva da Wav2Lip, che è solo per ricerca.")),
-    _no_source("wav2lipv2-yolo-face", "wav2lipv2", "YOLOv8n-face weights (yolov8n-face.pt)", "ultralytics-face", ["yolov8n-face.pt"],
-               "avatar-engines/wav2lipv2/models/yolov8n-face",
-               notes=_t("The script loads weights/yolov8n-face/yolov8n-face.pt and neither its README nor its scripts say where the file comes from: put it there by hand. "
-                        "The ultralytics code that reads it is AGPL-3.0 and the licence of the weights is not stated.",
-                        "Lo script carica weights/yolov8n-face/yolov8n-face.pt e né il README né gli script dicono da dove venga il file: metterlo lì a mano. Il codice "
-                        "ultralytics che lo legge è AGPL-3.0 e la licenza dei pesi non è dichiarata.")),
-    _no_source("wav2lipv2-landmarks", "wav2lipv2", "WFLW HRNet18 landmark weights (config.yaml, model.pth)", "verify", ["config.yaml", "model.pth"],
-               "avatar-engines/wav2lipv2/models/wflw/hrnet18_256x256_p1",
-               notes=_t("The script loads weights/wflw/hrnet18_256x256_p1/ (a config.yaml and a model.pth) and nothing in Linly-Talker says where they come from: put them there by "
-                        "hand. Without them Wav2Lip v2 cannot start.",
-                        "Lo script carica weights/wflw/hrnet18_256x256_p1/ (un config.yaml e un model.pth) e nulla in Linly-Talker dice da dove vengano: metterli lì a mano. "
-                        "Senza di essi Wav2Lip v2 non parte.")),
-    _linly_pack("sadtalker-code", "sadtalker", "SadTalker code (Linly-Talker, commit dc831b3)", linly.SADTALKER_FILES,
-                ["TFG/SadTalker.py", "src/config/facerender.yaml"], "avatar-engines/sadtalker/code",
-                (_GPU_PY[0] + " Also safetensors, facexlib, gfpgan, imageio, pydub, kornia, face_alignment.",
-                 _GPU_PY[1] + " Anche safetensors, facexlib, gfpgan, imageio, pydub, kornia, face_alignment."), verify=("requirements",),
-                notes=_t("Linly-Talker's SadTalker wrapper and what it imports (audio to 3DMM coefficients, the face renderer, the preprocessing), with the configs, at one fixed "
-                         "commit. The wrapper's README step scripts/sadtalker_download_models.sh is not in that commit; the weights are listed in the other entries.",
-                         "Il wrapper SadTalker di Linly-Talker e ciò che importa (da audio a coefficienti 3DMM, il renderer del volto, la preparazione), con le configurazioni, a un "
-                         "commit fisso. Il passo del README del wrapper scripts/sadtalker_download_models.sh non è in quel commit; i pesi sono nelle altre voci.")),
+    _linly_weights("wav2lipv2-weights", "wav2lipv2", "Wav2Lip v2 288 px weights (wav2lipv2.pth)", ["checkpoints/wav2lipv2.pth"], "checkpoints/",
+                   "avatar-engines/wav2lipv2/checkpoints", noncommercial=True, verify=("license",),
+                   need=(_GPU_PY[0] + " Also ultralytics (AGPL-3.0).", _GPU_PY[1] + " Anche ultralytics (AGPL-3.0)."),
+                   notes=_t("The checkpoint the Wav2Lipv2 script loads by default (checkpoints/wav2lipv2.pth), from the Hugging Face repository Linly-Talker's README names, at one "
+                            "commit. Non-commercial: it derives from Wav2Lip, which is for research use only.",
+                            "Il checkpoint che lo script Wav2Lipv2 carica per default (checkpoints/wav2lipv2.pth), dal repository Hugging Face che il README di Linly-Talker nomina, a un "
+                            "commit fisso. Non commerciale: deriva da Wav2Lip, che è solo per ricerca.")),
+    _linly_weights("wav2lipv2-yolo-face", "wav2lipv2", "YOLOv8n-face weights (yolov8n-face.pt)", ["checkpoints/weights/yolov8n-face/yolov8n-face.pt"],
+                   "checkpoints/weights/yolov8n-face/", "avatar-engines/wav2lipv2/models/yolov8n-face", license_="ultralytics-face", verify=("license",),
+                   notes=_t("The face detector the script loads from weights/yolov8n-face/, taken from the same Hugging Face repository and commit as the checkpoint. The "
+                            "ultralytics code that reads it is AGPL-3.0 and the licence of the weights is not stated.",
+                            "Il rilevatore del volto che lo script carica da weights/yolov8n-face/, preso dallo stesso repository Hugging Face e commit del checkpoint. Il codice "
+                            "ultralytics che lo legge è AGPL-3.0 e la licenza dei pesi non è dichiarata.")),
+    _linly_weights("wav2lipv2-landmarks", "wav2lipv2", "WFLW HRNet18 landmark weights (config.yaml, model.pth)",
+                   ["checkpoints/weights/wflw/hrnet18_256x256_p1/config.yaml", "checkpoints/weights/wflw/hrnet18_256x256_p1/model.pth"],
+                   "checkpoints/weights/wflw/hrnet18_256x256_p1/", "avatar-engines/wav2lipv2/models/wflw/hrnet18_256x256_p1", verify=("license",),
+                   notes=_t("The landmark net the script loads from weights/wflw/hrnet18_256x256_p1/, taken from the same Hugging Face repository and commit as the checkpoint. "
+                            "Where the files first come from is not stated there.",
+                            "La rete di punti del volto che lo script carica da weights/wflw/hrnet18_256x256_p1/, presa dallo stesso repository Hugging Face e commit del checkpoint. "
+                            "Da dove i file vengano in origine non è dichiarato lì.")),
     _linly_weights("sadtalker-weights", "sadtalker", "SadTalker 256 px weights", ["checkpoints/SadTalker_V0.0.2_256.safetensors", "checkpoints/mapping_00229-model.pth.tar"],
-                   "checkpoints/", ["SadTalker_V0.0.2_256.safetensors", "mapping_00229-model.pth.tar"], "avatar-engines/sadtalker/checkpoints",
-                   notes=_t("The two files the wrapper reads for the 256 px model with the cropped preprocessing, named in the README's tree of the Hugging Face repository.",
-                            "I due file che il wrapper legge per il modello a 256 px con il ritaglio, nominati nell'albero del README del repository Hugging Face.")),
+                   "checkpoints/", "avatar-engines/sadtalker/checkpoints", verify=("license",),
+                   need=(_GPU_PY[0] + " Also safetensors, facexlib, gfpgan, imageio, pydub, kornia, face_alignment.",
+                         _GPU_PY[1] + " Anche safetensors, facexlib, gfpgan, imageio, pydub, kornia, face_alignment."),
+                   notes=_t("The two files the wrapper reads for the 256 px model with the cropped preprocessing, from the Hugging Face repository Linly-Talker's README names, at one commit.",
+                            "I due file che il wrapper legge per il modello a 256 px con il ritaglio, dal repository Hugging Face che il README di Linly-Talker nomina, a un commit fisso.")),
     _linly_weights("sadtalker-gfpgan", "sadtalker", "SadTalker face detector and aligner weights", ["gfpgan/weights/alignment_WFLW_4HG.pth", "gfpgan/weights/detection_Resnet50_Final.pth"],
-                   "gfpgan/weights/", ["alignment_WFLW_4HG.pth", "detection_Resnet50_Final.pth"], "avatar-engines/sadtalker/code/gfpgan/weights",
-                   notes=_t("What the keypoint extractor reads from gfpgan/weights (it would otherwise fetch them from the network), named in the README's tree. They are installed "
-                            "inside the code folder because the code looks for them there.",
-                            "Ciò che l'estrattore dei punti chiave legge da gfpgan/weights (altrimenti li prenderebbe dalla rete), nominati nell'albero del README. Si installano dentro "
-                            "la cartella del codice perché il codice li cerca lì.")),
-    _linly_pack("ernerf-code", "ernerf", "ER-NeRF code (Linly-Talker, commit dc831b3)", linly.ERNERF_FILES, ["TFG/NeRFTalk.py", "NeRF/nerf_triplane/network.py"],
-                "avatar-engines/ernerf/code",
-                ("PyTorch with CUDA, PyTorch3D and the compiled CUDA modules freqencoder, gridencoder, raymarching and shencoder (built on this PC), plus the packages of "
-                 "TFG/requirements_nerf.txt; ffmpeg on the PATH. It breaks with the versions of Python, PyTorch, CUDA and the compiler.",
-                 "PyTorch con CUDA, PyTorch3D e i moduli CUDA compilati freqencoder, gridencoder, raymarching e shencoder (compilati su questo PC), più i pacchetti di "
-                 "TFG/requirements_nerf.txt; ffmpeg nel PATH. Si rompe con le versioni di Python, PyTorch, CUDA e del compilatore."), verify=("requirements",),
-                notes=_t("Linly-Talker's NeRF folder (model, renderer, trainer, data preparation and the CUDA sources) and its NeRFTalk wrapper, at one fixed commit. ER-NeRF is trained for each "
-                         "person; nothing in this pack is a person's model.",
-                         "La cartella NeRF di Linly-Talker (modello, renderer, addestratore, preparazione dei dati e sorgenti CUDA) e il suo wrapper NeRFTalk, a un commit fisso. ER-NeRF si "
-                         "addestra per ogni persona; niente in questo pacchetto è il modello di una persona.")),
+                   "gfpgan/weights/", "avatar-engines/sadtalker/code/gfpgan/weights", verify=("license",),
+                   notes=_t("What the keypoint extractor reads from gfpgan/weights (it would otherwise fetch them from the network). They are installed inside the engine's run "
+                            "folder because the code looks for them there.",
+                            "Ciò che l'estrattore dei punti chiave legge da gfpgan/weights (altrimenti li prenderebbe dalla rete). Si installano dentro la cartella di lavoro "
+                            "del motore perché il codice li cerca lì.")),
     _linly_weights("ernerf-audio-encoder", "ernerf", "ER-NeRF audio encoder weights (audio_visual_encoder.pth)", ["checkpoints/audio_visual_encoder.pth"], "checkpoints/",
-                   ["audio_visual_encoder.pth"], "avatar-engines/ernerf/code/checkpoints",
-                   notes=_t("What NeRFTalk reads from ./checkpoints to turn the speech into features; named in the README's tree of the Hugging Face repository.",
-                            "Ciò che NeRFTalk legge da ./checkpoints per trasformare il parlato in feature; nominato nell'albero del README del repository Hugging Face.")),
-    _no_source("ernerf-bfm", "ernerf", "ER-NeRF 3DMM face model files", "verify", ["3DMM_info.npy", "keys_info.npy", "topology_info.npy"],
-               "avatar-engines/ernerf/code/NeRF/data_utils/face_tracking/3DMM",
-               notes=_t("The face tracker of the data preparation reads a 3DMM folder that convert_BFM.py builds from the Basel Face Model (01_MorphableModel.mat, which needs a "
-                        "registration with the university). Nothing here can fetch it: build it by hand. Needed only to train a new person.",
-                        "Il tracciatore del volto della preparazione dati legge una cartella 3DMM che convert_BFM.py costruisce dal Basel Face Model (01_MorphableModel.mat, che "
-                        "richiede una registrazione presso l'università). Qui non si può scaricare: costruirla a mano. Serve solo per addestrare una persona nuova.")),
-    _no_source("ernerf-face-parsing", "ernerf", "ER-NeRF face parsing weights (79999_iter.pth)", "verify", ["79999_iter.pth"],
-               "avatar-engines/ernerf/code/NeRF/data_utils/face_parsing",
-               notes=_t("The default of the data preparation's face-parsing step (data_utils/face_parsing/79999_iter.pth). The README lists a file of the same name for MuseTalk "
-                        "but does not say it is the same one: no source is stated here. Needed only to train a new person.",
-                        "Il valore predefinito del passo di face parsing della preparazione dati (data_utils/face_parsing/79999_iter.pth). Il README elenca un file con lo stesso nome "
-                        "per MuseTalk ma non dice che sia lo stesso: qui non è dichiarata una fonte. Serve solo per addestrare una persona nuova.")),
+                   "avatar-engines/ernerf/code/checkpoints", verify=("license",),
+                   need=("PyTorch with CUDA, PyTorch3D and the compiled CUDA modules freqencoder, gridencoder, raymarching and shencoder (built on this PC from the sources in the "
+                         "engine's run folder), plus the packages of TFG/requirements_nerf.txt; ffmpeg on the PATH. It breaks with the versions of Python, PyTorch, CUDA and the compiler.",
+                         "PyTorch con CUDA, PyTorch3D e i moduli CUDA compilati freqencoder, gridencoder, raymarching e shencoder (compilati su questo PC dai sorgenti nella cartella "
+                         "di lavoro del motore), più i pacchetti di TFG/requirements_nerf.txt; ffmpeg nel PATH. Si rompe con le versioni di Python, PyTorch, CUDA e del compilatore."),
+                   notes=_t("What NeRFTalk reads from ./checkpoints to turn the speech into features, from the Hugging Face repository Linly-Talker's README names, at one commit.",
+                            "Ciò che NeRFTalk legge da ./checkpoints per trasformare il parlato in feature, dal repository Hugging Face che il README di Linly-Talker nomina, a un commit fisso.")),
+    _entry("ernerf-bfm", "avatar", "ernerf", "ER-NeRF 3DMM files (AD-NeRF: exp_info, keys_info, sub_mesh, topology_info)", "ernerf", "mit",
+           [_url(f"{packs.HOST}{_ADNERF}/{_ADNERF_COMMIT}/{path}", path.rsplit("/", 1)[1], sha, size) for path, sha, size in _ADNERF_3DMM],
+           size=_total(_ADNERF_3DMM), probe=["exp_info.npy", "keys_info.npy", "sub_mesh.obj", "topology_info.npy"], selectable=False, kind="engine-pack",
+           folder="avatar-engines/ernerf/code/NeRF/data_utils/face_tracking/3DMM", venv=_t("Read by the engine's scripts.", "Letto dagli script del motore."),
+           notes=_t("The four files ER-NeRF's README downloads from AD-NeRF (github.com/YudongGuo/AD-NeRF, MIT), at one commit. They are only part of the 3DMM folder: the Basel Face "
+                    "Model (01_MorphableModel.mat, which needs a registration with the university) has to be placed beside them by hand and convert_BFM.py run to make "
+                    "3DMM_info.npy. Needed only to train a new person.",
+                    "I quattro file che il README di ER-NeRF scarica da AD-NeRF (github.com/YudongGuo/AD-NeRF, MIT), a un commit fisso. Sono solo una parte della cartella 3DMM: il Basel "
+                    "Face Model (01_MorphableModel.mat, che richiede una registrazione presso l'università) va messo a mano accanto e va eseguito convert_BFM.py per fare "
+                    "3DMM_info.npy. Serve solo per addestrare una persona nuova.")),
+    _linly_weights("ernerf-face-parsing", "ernerf", "ER-NeRF face parsing weights (79999_iter.pth)", ["MuseTalk/face-parse-bisent/79999_iter.pth"], "MuseTalk/face-parse-bisent/",
+                   "avatar-engines/ernerf/code/NeRF/data_utils/face_parsing", noncommercial=True, verify=("license",),
+                   notes=_t("The default of the data preparation's face-parsing step (data_utils/face_parsing/79999_iter.pth). ER-NeRF's README takes it from AD-NeRF; this copy is the "
+                            "one in the Linly-Talker Hugging Face repository (its MuseTalk folder), which has the same name and the same size (53,289,463 bytes) as the AD-NeRF file; "
+                            "the two were not compared byte for byte. The network was trained on CelebAMask-HQ (non-commercial research data). The face-parsing code also fetches "
+                            "resnet18-5c106cde.pth from download.pytorch.org unless it is in the PyTorch hub cache. Needed only to train a new person.",
+                            "Il valore predefinito del passo di face parsing della preparazione dati (data_utils/face_parsing/79999_iter.pth). Il README di ER-NeRF lo prende da AD-NeRF; "
+                            "questa copia è quella del repository Hugging Face di Linly-Talker (cartella MuseTalk), con lo stesso nome e la stessa dimensione (53.289.463 byte) del file "
+                            "di AD-NeRF; i due non sono stati confrontati byte per byte. La rete è addestrata su CelebAMask-HQ (dati di ricerca non commerciali). Il codice di face "
+                            "parsing scarica anche resnet18-5c106cde.pth da download.pytorch.org se non è nella cache di PyTorch hub. Serve solo per addestrare una persona nuova.")),
 ]
 
 # Piper voices of rhasspy/piper-voices at one commit: (name, directory, .onnx SHA-256, .onnx.json SHA-256, size of both files).

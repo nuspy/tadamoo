@@ -119,7 +119,7 @@ class LicenseAndVerifyTest(unittest.TestCase):
         self.assertFalse(vc.find("orpheus-3b")["noncommercial"] or vc.find("dia-1.6b")["noncommercial"])
 
     def test_the_non_commercial_entries_say_so_in_their_license_text(self):
-        self.assertEqual([e["id"] for e in vc.CATALOG if e["noncommercial"]], ["xtts-v2", "musetalk-v15", "wav2lip-int8", "wav2lipv2-code", "wav2lipv2-weights"])
+        self.assertEqual([e["id"] for e in vc.CATALOG if e["noncommercial"]], ["xtts-v2", "musetalk-v15", "wav2lip-int8", "wav2lipv2-weights", "ernerf-face-parsing"])
         for e in vc.CATALOG:
             text = (vc.license_of(e)["en"] + " " + e["notes"]["en"]).lower()
             if e["noncommercial"]:
@@ -145,7 +145,7 @@ class LicenseAndVerifyTest(unittest.TestCase):
             self.assertEqual((vc.public(e, root)["selectable"], vc.public(e, root)["sha256"]), (False, e["sha256"]))
 
     def test_an_entry_the_code_does_not_complete_is_marked_and_not_downloadable(self):
-        for model, why in (("wav2lip-int8", "no_source"), ("wav2lipv2-yolo-face", "no_source")):
+        for model, why in (("wav2lip-int8", "no_source"), ("ultralight-wenet-encoder", "no_source")):
             e = vc.find(model)
             self.assertTrue(e["verify"], model)
             self.assertEqual(vc.downloadable(e), (False, why), model)
