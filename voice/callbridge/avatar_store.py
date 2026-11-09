@@ -2,6 +2,7 @@
 
     avatar.json                 {"display_name", "created", "voice": {"engine", "voice"}}  (written by the wizard; the personality owns the voice)
     clips/*.mp4                 the footage MuseTalk animates; one is picked at random each time the avatar starts
+    training/                   (reserved) the one training video of the person, `video.<ext>` and `video.json` (voice/avatar_training_video.py)
     poster.jpg                  the portrait
     wav2lip/face.png, box.json  the straightened 96x96 face and how to paste the mouth back (the phone's Wav2Lip)
     visemes/<V>.png, frame.json the mouth sprites of the viseme mode and the frame they are drawn in (made from the photo)
@@ -26,6 +27,9 @@ RESERVED = frozenset(("wizard", "state", "list", "output", "prepare", "start", "
 META = "avatar.json"
 INDEX = "prepared/index.json"
 PREPARED_HEIGHT = 480
+TRAINING = "training"
+TRAINING_EXTS = (".mp4", ".mov", ".webm", ".mkv")
+TRAINING_STEM = "video"
 
 
 class StoreError(ValueError):
@@ -70,6 +74,24 @@ class AvatarStore:
         if not path.is_file():
             raise StoreError(f"{name} has no clip {clip}")
         return path
+
+    def training_dir(self, name) -> Path:
+        """The reserved folder of the training video (it may not exist yet); StoreError when it is a link."""
+        folder = self.existing(name) / TRAINING
+        if folder.is_symlink():
+            raise StoreError("the training folder of this avatar is a link, which is not followed")
+        return folder
+
+    def training_video(self, name) -> Path | None:
+        """The training video of an avatar, None when it has none."""
+        folder = self.existing(name) / TRAINING
+        if folder.is_symlink():
+            return None
+        for ext in TRAINING_EXTS:
+            path = folder / (TRAINING_STEM + ext)
+            if path.is_file() and not path.is_symlink():
+                return path
+        return None
 
     def prepared_dir(self, name, clip, height: int = PREPARED_HEIGHT) -> Path:
         """Where the worker keeps the prepared material of one clip (the height is part of what it was prepared for)."""
@@ -125,7 +147,7 @@ class AvatarStore:
         index = self.prepared(name)
         return {"name": name, "display_name": meta.get("display_name") if isinstance(meta.get("display_name"), str) else name,
                 "created": meta.get("created") if isinstance(meta.get("created"), str) else "",
-                "poster": (folder / "poster.jpg").is_file(), "clips": clips,
+                "poster": (folder / "poster.jpg").is_file(), "clips": clips, "training_video": self.training_video(name) is not None,
                 "prepared": sorted(c for c in clips if c in index),
                 "wav2lip": (folder / "wav2lip" / "face.png").is_file() and (folder / "wav2lip" / "box.json").is_file(),
                 "visemes": (folder / "visemes" / "frame.json").is_file(),

@@ -21,6 +21,7 @@ from callbridge.tadamoo_api import TadamooApi
 
 from voice import persona_link
 from voice.avatar_training import TrainingJobs
+from voice.avatar_training_video import TrainingVideos
 from voice.avatar_wizard import Wizard
 
 log = logging.getLogger("voice.avatar")
@@ -71,6 +72,11 @@ class AvatarService:
             if jobs is None:
                 jobs = self.app.config["CB_AVATAR_TRAINING"] = TrainingJobs(self.store, gpu=int(self.config.avatar_gpu_index or 0))
             return jobs
+
+    def training_videos(self) -> TrainingVideos:
+        if not self.config.avatars_dir:
+            raise Unavailable("there is no user data folder for the avatars", 409, "no_folder")
+        return self.app.config.get("CB_AVATAR_TRAINING_VIDEOS") or TrainingVideos(self.store)
 
     def wizard(self) -> Wizard:
         drafts = Path(self.config.avatars_dir).parent / "avatar-drafts" if self.config.avatars_dir else None

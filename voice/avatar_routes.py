@@ -11,6 +11,7 @@
     GET  /avatar/enhance                     the acceleration of the video: what this PC can do (and why not), the settings, the plan, the measured cost
     POST /avatar/wizard/start                a draft; POST /avatar/wizard/<draft>/<foto|pose|video|voce> (multipart, field `file`);
     POST /avatar/wizard/<draft>/elabora {name, language?}   make the avatar; GET and DELETE /avatar/wizard/<draft>
+    GET, POST (multipart field `file`) and DELETE /avatar/<name>/training-video   the one long video a personalised engine is trained from (avatar_training_video.py)
     POST /avatar/prepare {avatar, clip?}     prepare a clip for MuseTalk (one at a time); GET /avatar/prepare; POST /avatar/prepare/cancel
     POST /avatar/train/plan {avatar, engine, epochs?, asr?, fresh?}   what training a personalised engine (ultralight, feathertalk) would do and need, and a token
     POST /avatar/train/start {token, confirm}   start that plan (one training at a time); GET /avatar/train/status; POST /avatar/train/cancel
@@ -352,6 +353,37 @@ def register(app, svc: AvatarService) -> None:
     @app.post("/avatar/train/cancel")
     def train_cancel():
         return training(lambda jobs: jobs.cancel())
+
+    # ---- the training video
+    def training_video(call):
+        try:
+            return jsonify(call(svc.training_videos()))
+        except TrainingError as e:
+            return jsonify({"error": str(e), "code": e.code, **e.extra}), e.status
+        except Unavailable as e:
+            return _err(str(e), e.code, e.status)
+
+    def training_busy(name):
+        return svc.app.config.get("CB_AVATAR_TRAINING") is not None and svc.trainer().busy_with(name)
+
+    @app.get("/avatar/<name>/training-video")
+    def training_video_info(name):
+        return training_video(lambda videos: videos.info(name))
+
+    @app.post("/avatar/<name>/training-video")
+    def training_video_save(name):
+        sent = request.files.get("file")
+        if sent is None:
+            return _err("send the video as a multipart field called file", "bad_request", 400)
+        if training_busy(name):
+            return _err("this avatar is being trained: cancel the training first", "in_use", 409)
+        return training_video(lambda videos: videos.save(name, sent, request.content_length))
+
+    @app.delete("/avatar/<name>/training-video")
+    def training_video_remove(name):
+        if training_busy(name):
+            return _err("this avatar is being trained: cancel the training first", "in_use", 409)
+        return training_video(lambda videos: videos.remove(name))
 
     # ---- visemes and the phone's assets
     @app.post("/avatar/visemes")
