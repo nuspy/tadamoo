@@ -10,10 +10,6 @@ Endpoint:
   POST /prepare            - carica i modelli in vista di una chiamata
   POST /call               - chiamata in uscita {number, voice?, lang?, stt_model?}
   POST /hangup             - termina la chiamata corrente
-  GET  /models/available   - voci/lingue disponibili            (proxy -> Handy)
-  POST /models/load        - carica modelli in VRAM             (proxy -> Handy)
-  POST /models/unload      - scarica modelli dalla VRAM         (proxy -> Handy)
-  GET  /models/status      - stato dei modelli in VRAM          (proxy -> Handy)
 
 Auth: header `Authorization: Bearer <control_auth_token>` (tranne /health).
 """
@@ -201,42 +197,6 @@ def create_app(
         result = bridge.hangup()
         code = 200 if result.get("status") == "ok" else 502
         return jsonify(result), code
-
-    # --- proxy verso il canale di controllo di Handy --------------------
-
-    @app.get("/models/available")
-    def models_available():
-        try:
-            return jsonify(bridge.handy.models_available())
-        except HandyError as e:
-            return jsonify({"error": str(e)}), 502
-
-    @app.post("/models/load")
-    def models_load():
-        body = request.get_json(silent=True) or {}
-        try:
-            return jsonify(
-                bridge.handy.load_models(
-                    stt_model=body.get("stt_model"), tts=body.get("tts", True)
-                )
-            )
-        except HandyError as e:
-            return jsonify({"error": str(e)}), 502
-
-    @app.post("/models/unload")
-    def models_unload():
-        body = request.get_json(silent=True) or {}
-        try:
-            return jsonify(bridge.handy.unload_models(body.get("component", "all")))
-        except HandyError as e:
-            return jsonify({"error": str(e)}), 502
-
-    @app.get("/models/status")
-    def models_status():
-        try:
-            return jsonify(bridge.handy.models_status())
-        except HandyError as e:
-            return jsonify({"error": str(e)}), 502
 
     @app.get("/engines/catalog")
     def engines_catalog():

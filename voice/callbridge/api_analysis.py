@@ -3,7 +3,7 @@
 Pipeline (job in thread, UNO alla volta):
   downloading  (solo URL: yt-dlp -x -> m4a/opus)
   extracting   (ffmpeg -> wav mono 16k, spezzato in segmenti da N secondi)
-  transcribing (ogni segmento -> Handy POST /transcribe; percent reale)
+  transcribing (ogni segmento -> l'STT del servizio, in-process; percent reale)
   diarizing    (engines.diarize: chi parla quando -> "Speaker 1", "Speaker 2")
   analyzing    (analysis.analyze_transcript: riassunto + salienti + task)
   done | error
@@ -36,10 +36,10 @@ import time
 import uuid
 from pathlib import Path
 
-import requests
 from flask import Blueprint, current_app, jsonify, request
 
 from . import analysis as analysis_mod
+from . import models_store
 from .engines import diarize
 from .util import is_safe_artifact_id
 
@@ -164,6 +164,44 @@ def _diarizza(cfg, job_id: str, seg_files: list[Path], segments: list[dict],
                   job_id, e)
 
 
+_source_lock = threading.Lock()
+
+
+def _write_source(path: Path, meta: dict) -> None:
+    """source.json scritto sotto lock: chi lo legge mentre il job finisce non ne vede mai meta'."""
+    with _source_lock:
+        path.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def _read_source(path: Path) -> dict:
+    with _source_lock:
+        return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _transcribe_block(cfg, wav: Path, words: bool) -> dict:
+    """Un blocco della registrazione (wav mono 16 kHz) attraverso l'STT del servizio: {text, segments}.
+
+    Solleva `ModelNotInstalled` se il modello Whisper scelto non e' nella cartella dei modelli."""
+    import wave
+
+    import numpy as np
+
+    from . import engines
+    with wave.open(str(wav), "rb") as w:
+        raw = w.readframes(w.getnframes())
+    audio = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+    return engines._get_stt_engine(cfg).transcribe_detailed(
+        audio, (getattr(cfg, "stt_language", "") or None), words)
+
+
+def _stt_mancante(cfg) -> dict | None:
+    """Il corpo della risposta 409 se il modello STT scelto non e' installato, altrimenti None."""
+    model = "whisper-" + str(getattr(cfg, "stt_model", "") or "")
+    if model in models_store.MODELS and not models_store.is_installed(model):
+        return {"error": models_store.reason(model), "code": "model_not_installed", "model": model}
+    return None
+
+
 def _run_ffmpeg(cfg, args: list[str], timeout: int = 3600) -> None:
     cmd = [cfg.analysis_ffmpeg_path, "-y", "-hide_banner",
            "-loglevel", "error"] + args
@@ -217,23 +255,12 @@ def _job(cfg, job_id: str, jdir: Path, source: dict) -> None:
         # Si decide PRIMA se si diarizzera': i tempi per parola costano ~20-30%
         # di inferenza in piu' e servono solo per attribuire le battute.
         diarizzare, perche_no = diarize.available(cfg)
-        params = {"segments": "1", "words": "1"} if diarizzare else None
         segments: list[dict] = []
         for i, f in enumerate(seg_files):
             _set_state("transcribing", phase="transcribing",
                        percent=100.0 * i / len(seg_files),
                        detail=f"segmento {i + 1}/{len(seg_files)}")
-            with open(f, "rb") as fh:
-                resp = requests.post(
-                    f"{cfg.handy_base_url()}/transcribe",
-                    files={"file": (f.name, fh, "audio/wav")},
-                    params=params,
-                    timeout=600,
-                )
-            if not resp.ok:
-                raise RuntimeError(
-                    f"Handy /transcribe HTTP {resp.status_code} sul segmento {i+1}")
-            body = resp.json()
+            body = _transcribe_block(cfg, f, diarizzare)
             segments += _segmenti_del_blocco(body, i * seg_s, seg_s)
 
         # --- diarizzazione: chi parla quando ----------------------------
@@ -255,6 +282,7 @@ def _job(cfg, job_id: str, jdir: Path, source: dict) -> None:
 
         if not source.get("analyze", True):
             source["state"] = "done"
+            _write_source(jdir / "source.json", source)      # prima dello stato: chi vede "done" trova gia' i dati
             _set_state("done", percent=100.0)
             return
 
@@ -275,16 +303,17 @@ def _job(cfg, job_id: str, jdir: Path, source: dict) -> None:
                 source.get("title") or job_id, result),
             encoding="utf-8")
         source["state"] = "done"
+        _write_source(jdir / "source.json", source)
         _set_state("done", percent=100.0)
     except Exception as e:  # noqa: BLE001 - il job riporta, non crasha
         log.error("analisi %s fallita: %s", job_id, e)
         source["state"] = "error"
         source["error"] = str(e)
+        _write_source(jdir / "source.json", source)
         _set_state("error", error=str(e))
     finally:
         source.setdefault("state", "error")
-        (jdir / "source.json").write_text(
-            json.dumps(source, ensure_ascii=False, indent=1), encoding="utf-8")
+        _write_source(jdir / "source.json", source)
         # pulizia intermedi pesanti
         shutil.rmtree(jdir / "segments", ignore_errors=True)
         for f in jdir.glob("download.*"):
@@ -299,9 +328,12 @@ def analysis_start():
     if not shutil.which(cfg.analysis_ffmpeg_path):
         return jsonify({"error": "ffmpeg non trovato: installa con "
                                  "'winget install Gyan.FFmpeg'"}), 501
+    mancante = _stt_mancante(cfg)
+    if mancante is not None:
+        return jsonify(mancante), 409
     with _job_lock:
         if _current is not None and _current["state"] not in ("done", "error"):
-            return jsonify({"error": "un'analisi è già in corso"}), 409
+            return jsonify({"error": "un'analisi è già in corso", "code": "busy"}), 409
 
         job_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
         jdir = _root(cfg) / job_id
@@ -332,8 +364,7 @@ def analysis_start():
                           speakers=_speakers(body.get("speakers")),
                           analyze=_analyze(body.get("analyze", "1")))
 
-        (jdir / "source.json").write_text(
-            json.dumps(source, ensure_ascii=False, indent=1), encoding="utf-8")
+        _write_source(jdir / "source.json", source)
         _current = {"id": job_id, "state": "queued",
                     "progress": {"phase": "queued", "percent": 0,
                                  "detail": None}, "error": None}
@@ -351,7 +382,7 @@ def analysis_list():
         if not src.is_file():
             continue
         try:
-            meta = json.loads(src.read_text(encoding="utf-8"))
+            meta = _read_source(src)
         except (OSError, json.JSONDecodeError):
             continue
         state = meta.get("state", "error")
@@ -374,7 +405,7 @@ def analysis_get(job_id: str):
     if not src.is_file():
         return jsonify({"error": "analisi non trovata"}), 404
     try:
-        meta = json.loads(src.read_text(encoding="utf-8"))
+        meta = _read_source(src)
     except (OSError, json.JSONDecodeError):
         return jsonify({"error": "source analisi illeggibile"}), 500
     payload: dict = {"id": jdir.name, **meta}
@@ -425,7 +456,7 @@ def analysis_transcript(job_id: str):
 def _speaker_names(jdir: Path) -> dict:
     """Mappa "Speaker 1" -> nome dato dall'utente (vuota se non ne ha dati)."""
     try:
-        meta = json.loads((jdir / "source.json").read_text(encoding="utf-8"))
+        meta = _read_source(jdir / "source.json")
     except (OSError, json.JSONDecodeError):
         return {}
     nomi = meta.get("speaker_names")
@@ -462,7 +493,7 @@ def analysis_speakers(job_id: str):
     if not spath.is_file():
         return jsonify({"error": "analisi non trovata"}), 404
     try:
-        meta = json.loads(spath.read_text(encoding="utf-8"))
+        meta = _read_source(spath)
     except (OSError, json.JSONDecodeError):
         return jsonify({"error": "source analisi illeggibile"}), 500
     body = request.get_json(silent=True) or {}
@@ -478,8 +509,7 @@ def analysis_speakers(job_id: str):
         else:
             correnti.pop(str(etichetta), None)   # nome svuotato = torna "Speaker N"
     meta["speaker_names"] = correnti
-    spath.write_text(json.dumps(meta, ensure_ascii=False, indent=1),
-                     encoding="utf-8")
+    _write_source(spath, meta)
     return jsonify({"status": "ok", "speaker_names": correnti})
 
 
