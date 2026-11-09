@@ -14,7 +14,8 @@ The file is the one serve/voice_settings.py writes:
      "avatar": {"virtual_camera": true|false, "enhance": {"upscale": "none|basic|rtx_video", "scale": 2, "interpolate": "none|basic", "factor": 2,
                 "worker_fps_cap": 0, "worker_height_cap": 0, "rtx_video_path": "<DLL>"},
                 "engines": {"pc|web|android|esp32": "<engine id>"}, "resolution": {"pc|web|android|esp32": <height>}, "fps_hint": 5..60},
-     "interruptions": {"enabled": true|false, "judge_timeout_ms": 200..5000, "duck_level": 0..0.9, "resume_offer": true|false}}
+     "interruptions": {"enabled": true|false, "judge_timeout_ms": 200..5000, "duck_level": 0..0.9, "resume_offer": true|false},
+     "language": {"follow": true|false, "enabled": ["it", "en"], "threshold": 0.5..0.99, "short_s": 0.5..5, "voices": {"fr": "<voice of the selected engine>"}}}
 This module reads it without importing `serve` or `tadamoo` (the service has its own interpreter). A missing, unreadable or damaged file,
 or a bad value in it, gives the defaults: the service never fails because of its settings.
 
@@ -32,6 +33,7 @@ from callbridge.call_policy import APPROVAL_MODES, DEFAULT_PREMIUM_PREFIXES, MAX
 from callbridge.meetbot import consent
 from callbridge.enhance import settings as enhance_settings
 from callbridge.interruption import Interruptions
+from callbridge.language_follow import LanguageSettings
 from voice.avatar_engines import selection as engine_selection
 
 _DEVICE_RE = re.compile(r"^(auto|cpu|cuda:[0-9]{1,2})$")
@@ -130,6 +132,7 @@ class Settings:
     meetings: Meetings = Meetings()
     meetings_audit_file: str = ""
     interruptions: Interruptions = Interruptions()
+    language: LanguageSettings = LanguageSettings()
 
 
 def _read(path) -> dict:
@@ -224,7 +227,8 @@ def load(path, default_models_dir: str = "") -> Settings:
     return Settings(models_dir, {s: _choice(s, stored.get(s)) for s in ms.SERVICES}, _brain(data.get("brain")), _telephony(data.get("telephony")),
                     str(Path(path).resolve().parent / "call-audit.jsonl"), _avatar(data.get("avatar")),
                     str(Path(path).resolve().parent / "voice" / "avatars"),
-                    _meetings(data.get("meetings")), str(Path(path).resolve().parent / "meetings-audit.jsonl"), Interruptions.parse(data.get("interruptions")))
+                    _meetings(data.get("meetings")), str(Path(path).resolve().parent / "meetings-audit.jsonl"), Interruptions.parse(data.get("interruptions")),
+                    LanguageSettings.parse(data.get("language")))
 
 
 def is_enabled(choice: Choice, models_dir: str) -> bool:
@@ -281,6 +285,9 @@ def overrides(settings: Settings) -> dict:
     i = settings.interruptions
     out.update(interruptions_enabled=i.enabled, interruption_judge_timeout_ms=i.judge_timeout_ms, interruption_duck_level=i.duck_level,
                interruption_resume_offer=i.resume_offer)
+    lang = settings.language
+    out.update(language_follow=lang.follow, language_enabled=list(lang.enabled), language_threshold=lang.threshold, language_short_s=lang.short_s,
+               language_voices=dict(lang.voices))
     m = settings.meetings
     out.update(meetings_speak=m.speak, meetings_camera=m.camera, meetings_proactive=m.proactive, meetings_consent_mode=m.consent_mode, meetings_consent_window_s=m.consent_window_s,
                meetings_on_behalf_of=m.on_behalf_of, meetings_display_name=m.display_name, meetings_virtual_mic=m.virtual_mic, meetings_wake_phrase=m.wake_phrase,

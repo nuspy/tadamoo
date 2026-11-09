@@ -44,6 +44,13 @@ def _start(body: Any) -> dict:
     return {"mode": mode, "brain": brain, "avatar": False}
 
 
+def _language(body: Any) -> dict:
+    code = body.get("language") if isinstance(body, dict) and set(body) == {"language"} else None
+    if not isinstance(code, str) or not (code == "auto" or re.fullmatch(r"[a-z]{2,3}", code)):
+        raise Refused(400, "bad_request", "Send language: a language code, or auto for the automatic mode.")
+    return {"language": code}
+
+
 def _say(body: Any) -> dict:
     text = body.get("text") if isinstance(body, dict) and set(body) == {"text"} else None
     if not isinstance(text, str) or not text.strip() or len(text) > SAY_MAX:
@@ -210,6 +217,8 @@ ROUTES: dict[tuple[str, str], Callable[[Any], Any]] = {
     ("GET", "/brain/state"): _none,
     ("GET", "/gateway"): _none,
     ("GET", "/session/state"): _none,
+    ("GET", "/session/language"): _none,
+    ("POST", "/session/language"): _language,
     ("GET", "/diag/brain"): _none,
     ("POST", "/session/start"): _start,
     ("POST", "/session/stop"): _none,

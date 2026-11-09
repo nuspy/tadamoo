@@ -11,7 +11,8 @@
      "telephony": {"transport": "off|auto|gsm|android", "outgoing_approval": "manual|auto", "ai_disclosure_on_start": true|false,
                    "incoming_auto_answer": true|false, "on_behalf_of": "<name>", "premium_prefixes": ["+39 89", "0900"],
                    "auto_contacts_only": true|false, "contacts": ["+39 333 1234567"], "phone_calls": true|false},
-     "interruptions": {"enabled": true|false, "judge_timeout_ms": 200..5000, "duck_level": 0..0.9, "resume_offer": true|false}}
+     "interruptions": {"enabled": true|false, "judge_timeout_ms": 200..5000, "duck_level": 0..0.9, "resume_offer": true|false},
+     "language": {"follow": true|false, "enabled": ["it", "en"], "threshold": 0.5..0.99, "short_s": 0.5..5, "voices": {"fr": "<voice of the selected engine>"}}}
 A missing value has a default: the folder is `voice/` inside the first models folder of Basalt (else `voice-models/` in the data folder), a
 service uses the default model of serve/voice_catalog.py, on the GPU the service picks (`auto`) in VRAM, or on the CPU in RAM for the
 services that run there. Changing the folder moves nothing: a model is looked for where the folder is now. The file is replaced whole."""
@@ -733,3 +734,105 @@ def set_interruptions(req) -> dict:
         data["interruptions"] = stored
         _write(data)
     return interruptions()
+
+
+# ---------------------------------------------------------------------------------------- the spoken language
+LANGUAGE_CODES = ("it", "en", "fr", "de", "es", "pt", "ja", "zh", "hi", "hu", "ru", "nl", "pl", "tr", "ko", "ar", "cs")    # voice/callbridge/language_names.py holds the same (a test compares)
+LANGUAGE_DEFAULT = {"follow": True, "enabled": ["it", "en"], "threshold": 0.8, "short_s": 1.5, "voices": {}}              # voice/callbridge/language_follow.py holds the same (a test compares)
+LANGUAGE_THRESHOLD = (0.5, 0.99)
+LANGUAGE_SHORT_S = (0.5, 5.0)
+LANGUAGE_MAX_ENABLED = 16
+LANGUAGE_VOICE_MAX = 80
+_VOICE_NAME_RE = re.compile(r"^[\w][\w .\-]*$")
+
+
+def _number_in(value, lo: float, hi: float) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and lo <= value <= hi
+
+
+def _voice_name_ok(value) -> bool:
+    return isinstance(value, str) and 0 < len(value) <= LANGUAGE_VOICE_MAX and _VOICE_NAME_RE.fullmatch(value) is not None and ".." not in value
+
+
+def language() -> dict:
+    """How the avatar's spoken language is chosen, as the voice service reads it: a missing or bad value is the default."""
+    stored = _read().get("language")
+    stored = stored if isinstance(stored, dict) else {}
+    out = {"follow": True, "enabled": list(LANGUAGE_DEFAULT["enabled"]), "threshold": LANGUAGE_DEFAULT["threshold"], "short_s": LANGUAGE_DEFAULT["short_s"], "voices": {}}
+    if isinstance(stored.get("follow"), bool):
+        out["follow"] = stored["follow"]
+    listed = stored.get("enabled")
+    if isinstance(listed, list):
+        codes = list(dict.fromkeys(c for c in listed if isinstance(c, str) and c in LANGUAGE_CODES))[:LANGUAGE_MAX_ENABLED]
+        if codes:
+            out["enabled"] = codes
+    if _number_in(stored.get("threshold"), *LANGUAGE_THRESHOLD):
+        out["threshold"] = float(stored["threshold"])
+    if _number_in(stored.get("short_s"), *LANGUAGE_SHORT_S):
+        out["short_s"] = float(stored["short_s"])
+    voices = stored.get("voices")
+    if isinstance(voices, dict):
+        out["voices"] = {k: v for k, v in voices.items() if k in LANGUAGE_CODES and _voice_name_ok(v)}
+    return out
+
+
+def check_language(req) -> dict:
+    """The fields of a request to change, checked; only the ones named are returned. `voices` replaces the whole map (a language with an empty
+    name is dropped): each is a voice of the selected engine, which is not checked here because only the voice service knows the voices."""
+    if not isinstance(req, dict):
+        raise VoiceSettingsError("body", "Send a JSON object.", "Manda un oggetto JSON.")
+    for key in req:
+        if key not in LANGUAGE_DEFAULT:
+            raise VoiceSettingsError("field", f"Unknown field: {key}.", f"Campo sconosciuto: {key}.")
+    out: dict = {}
+    if "follow" in req:
+        if not isinstance(req["follow"], bool):
+            raise VoiceSettingsError("follow", "follow is true or false.", "follow è true o false.")
+        out["follow"] = req["follow"]
+    if "enabled" in req:
+        listed = req["enabled"]
+        if not isinstance(listed, list) or not listed or len(listed) > LANGUAGE_MAX_ENABLED or any(not isinstance(c, str) for c in listed):
+            raise VoiceSettingsError("enabled", f"Enabled languages are a list of 1 to {LANGUAGE_MAX_ENABLED} language codes.",
+                                     f"Le lingue abilitate sono un elenco da 1 a {LANGUAGE_MAX_ENABLED} codici lingua.")
+        unknown = [c for c in listed if c not in LANGUAGE_CODES]
+        if unknown:
+            raise VoiceSettingsError("enabled", f"Not a language the avatar can speak: {', '.join(unknown[:3])}. Known: {', '.join(LANGUAGE_CODES)}.",
+                                     f"Non è una lingua che l'avatar sa parlare: {', '.join(unknown[:3])}. Conosciute: {', '.join(LANGUAGE_CODES)}.")
+        out["enabled"] = list(dict.fromkeys(listed))
+    if "threshold" in req:
+        if not _number_in(req["threshold"], *LANGUAGE_THRESHOLD):
+            raise VoiceSettingsError("threshold", f"The confidence needed to change language is a number from {LANGUAGE_THRESHOLD[0]} to {LANGUAGE_THRESHOLD[1]}.",
+                                     f"La sicurezza richiesta per cambiare lingua è un numero da {LANGUAGE_THRESHOLD[0]} a {LANGUAGE_THRESHOLD[1]}.")
+        out["threshold"] = float(req["threshold"])
+    if "short_s" in req:
+        if not _number_in(req["short_s"], *LANGUAGE_SHORT_S):
+            raise VoiceSettingsError("short_s", f"A short utterance lasts a number of seconds from {LANGUAGE_SHORT_S[0]} to {LANGUAGE_SHORT_S[1]}.",
+                                     f"Una frase breve dura un numero di secondi da {LANGUAGE_SHORT_S[0]} a {LANGUAGE_SHORT_S[1]}.")
+        out["short_s"] = float(req["short_s"])
+    if "voices" in req:
+        voices = req["voices"]
+        if not isinstance(voices, dict):
+            raise VoiceSettingsError("voices", "The voices are an object: language code to voice name.", "Le voci sono un oggetto: codice lingua e nome della voce.")
+        clean = {}
+        for code, name in voices.items():
+            if code not in LANGUAGE_CODES:
+                raise VoiceSettingsError("voices", f"Not a language the avatar can speak: {str(code)[:12]}.", f"Non è una lingua che l'avatar sa parlare: {str(code)[:12]}.")
+            if isinstance(name, str) and not name.strip():
+                continue
+            if not _voice_name_ok(name.strip() if isinstance(name, str) else name):
+                raise VoiceSettingsError("voices", f"The voice for {code} is a name of up to {LANGUAGE_VOICE_MAX} letters, digits, spaces, dots, dashes or underscores.",
+                                         f"La voce per {code} è un nome fino a {LANGUAGE_VOICE_MAX} tra lettere, cifre, spazi, punti, trattini o trattini bassi.")
+            clean[code] = name.strip()
+        out["voices"] = clean
+    return out
+
+
+def set_language(req) -> dict:
+    changes = check_language(req)
+    with _lock:
+        data = _read()
+        stored = data.get("language") if isinstance(data.get("language"), dict) else {}
+        stored.update(changes)
+        data["language"] = stored
+        _write(data)
+    return language()
