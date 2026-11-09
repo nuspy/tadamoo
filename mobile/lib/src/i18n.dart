@@ -21,7 +21,7 @@ class Texts {
   }
 
   static const Map<String, List<String>> _table = {
-    'app.name': ['Basalt', 'Basalt'],
+    'app.name': ['TaDaMoo', 'TaDaMoo'],
     'tab.chat': ['Chat', 'Chat'],
     'tab.agent': ['Agente', 'Agent'],
     'tab.jobs': ['Job', 'Jobs'],
@@ -39,6 +39,7 @@ class Texts {
     'avatar.novideo': ['Sul PC non c\'è un avatar caricato: solo voce. Il video parte da solo quando l\'avatar viene caricato.', 'No avatar is loaded on the PC: voice only. The video starts by itself when the avatar is loaded.'],
     'avatar.video.wait': ['Preparo l\'avatar sul PC… {0}', 'Preparing the avatar on the PC… {0}'],
     'avatar.video.nowebrtc': ['Il PC non può inviare il video (manca WebRTC): solo voce.', 'The PC cannot send video (WebRTC is missing): voice only.'],
+    'avatar.video.emergency': ['Il PC tiene il video solo per le emergenze: solo voce.', 'The PC keeps the video for emergencies only: voice only.'],
     'avatar.video.unsupported': ['Questa versione dell\'app non mostra il video del PC: solo voce.', 'This build of the app cannot show the PC\'s video: voice only.'],
     'avatar.hold': ['Tieni premuto per parlare', 'Hold to talk'],
     'avatar.release': ['Rilascia per inviare', 'Release to send'],
@@ -65,9 +66,9 @@ class Texts {
     'set.key.help': ['Fatta sul PC in Impostazioni > Telefoni. Si vede una volta sola.', 'Made on the PC in Settings > Phones. It is shown once.'],
     'set.scan': ['Inquadra il codice QR', 'Scan the QR code'],
     'set.scan.title': ['Inquadra il codice del PC', 'Scan the PC\'s code'],
-    'set.scan.bad': ['Questo codice non è di Basalt.', 'This code is not from Basalt.'],
+    'set.scan.bad': ['Questo codice non è di TaDaMoo.', 'This code is not from TaDaMoo.'],
     'set.test': ['Prova il collegamento', 'Test the connection'],
-    'set.test.ok': ['Collegato a Basalt. Chiave: {0}.', 'Connected to Basalt. Key: {0}.'],
+    'set.test.ok': ['Collegato a TaDaMoo. Chiave: {0}.', 'Connected to TaDaMoo. Key: {0}.'],
     'set.test.fail': ['Non riesco a collegarmi: {0}', 'Could not connect: {0}'],
     'set.save': ['Salva', 'Save'],
     'set.saved': ['Salvato.', 'Saved.'],
@@ -337,6 +338,7 @@ class Texts {
     'av.engine': ['Sistema di animazione', 'Animation system'],
     'av.engine.help': ['Come si disegna l\'avatar. Pesi e note sono indicativi: si misurano quando arriva ogni motore.', 'How the avatar is drawn. Sizes and notes are indicative: they are measured when each engine arrives.'],
     'av.engine.na': ['Non disponibile in questa versione', 'Not available in this build'],
+    'av.engine.only': ['In questa versione è disponibile solo il video dal PC.', 'Only the video from the PC is available in this build.'],
     'av.engine.later': ['Il motore sul telefono arriva in una fase successiva: per ora la scelta è salvata e si parla solo con la voce.', 'The engine on the phone comes in a later phase: for now the choice is saved and you talk by voice only.'],
     'av.res': ['Risoluzione', 'Resolution'],
     'av.res.help': ['Non serve sempre un\'alta risoluzione: un\'immagine più piccola è più leggera e veloce. Il valore va al PC con la richiesta del video e lo useranno i motori sul telefono.', 'A high resolution is not always needed: a smaller picture is lighter and faster. The value goes to the PC with the video request and the engines on the phone will use it.'],

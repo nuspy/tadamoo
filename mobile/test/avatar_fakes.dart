@@ -38,7 +38,7 @@ class FakeChannel implements GatewayChannel {
   Map<String, dynamic>? last(String type) => sent.cast<Map<String, dynamic>?>().lastWhere((m) => m!['type'] == type, orElse: () => null);
 }
 
-const readyMessage = {'type': 'ready', 'voice': true, 'missing': [], 'avatar': false, 'brain': 'direct', 'persona': '', 'render_mode': 'musetalk', 'render_modes': ['musetalk', 'wav2lip', 'visemi']};
+const readyMessage = {'type': 'ready', 'voice': true, 'missing': [], 'avatar': false, 'brain': 'direct', 'persona': '', 'render_mode': 'video', 'render_modes': ['video'], 'avatar_name': 'ada'};
 
 /// Hands out channels in order; the first `fail` attempts throw.
 class FakeConnector {

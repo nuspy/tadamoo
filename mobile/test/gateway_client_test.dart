@@ -40,11 +40,27 @@ void main() {
     final ch = await connect();
     expect(connector.urls.single.toString(), 'ws://pc:7232/api/voice/gateway/ws');
     expect(connector.headers.single, {'Authorization': 'Bearer bsk_key'});
-    expect(ch.kinds, ['auth']);
+    expect(ch.sent.first, {'type': 'auth', 'render_modes': ['video'], 'device': 'android'});
     expect(client.status, GatewayStatus.ready);
     expect(client.canTalk, isTrue);
     expect(client.brain, 'direct');
-    expect(client.renderModes, ['musetalk', 'wav2lip', 'visemi']);
+    expect((client.renderMode, client.avatarName), ('video', 'ada'));
+    expect(client.renderModes, ['video']);
+  });
+
+  test('render_mode messages and unknown fields are read tolerantly; a refused render_mode is not a problem', () async {
+    final ch = await connect();
+    ch.say({'type': 'render_mode', 'mode': 'none', 'render_modes': [], 'avatar_name': '', 'engine': 'x', 'resolution': 256, 'future_field': {'a': 1}});
+    ch.say({'type': 'something_new', 'x': 1});
+    ch.say({'type': 'error', 'code': 'render_mode_unavailable', 'message': 'no'});
+    await pumpEventQueue();
+    expect((client.renderMode, client.engine, client.resolution), ('none', 'x', '256'));
+    expect(client.renderModes, isEmpty);
+    expect(client.problem, isNull);
+    ch.say({'type': 'render_mode', 'mode': 'video'});
+    await pumpEventQueue();
+    expect(client.renderMode, 'video');
+    expect(client.renderModes, isEmpty);
   });
 
   test('a hold-to-talk turn: start, audio only while the button is held, end, then the words, the voice and done', () async {
@@ -157,11 +173,11 @@ void main() {
     final ch = await connect();
     client.setBrain('harness');
     client.setPersona('bella');
-    client.setRenderMode('musetalk');
+    client.setRenderMode('video');
     expect(ch.sent.skip(1), [
       {'type': 'brain', 'brain': 'harness'},
       {'type': 'persona', 'persona': 'bella'},
-      {'type': 'render_mode', 'mode': 'musetalk'}
+      {'type': 'render_mode', 'mode': 'video'}
     ]);
     ch.say({'type': 'brain', 'brain': 'harness'});
     ch.say({'type': 'persona', 'persona': 'bella'});
@@ -177,7 +193,7 @@ void main() {
       ..onVideoUnavailable = ((r) => reason = r);
     final ch = await connect();
     client.sendVideoStart('offer-sdp');
-    expect(ch.last('video_start'), {'type': 'video_start', 'sdp': 'offer-sdp', 'sdp_type': 'offer'});
+    expect(ch.last('video_start'), {'type': 'video_start', 'reason': 'emergency', 'sdp': 'offer-sdp', 'sdp_type': 'offer'});
     expect(client.video, VideoStage.negotiating);
     ch.say({'type': 'video_answer', 'sdp': 'answer-sdp'});
     ch.say({'type': 'video_state', 'state': 'preparing', 'detail': 'preparing the avatar - 40%'});

@@ -19,7 +19,7 @@ import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * The PC's shared folders as an entry of Android's own document window ("Basalt - PC"), so a file on the PC is chosen the way a file on the phone is.
+ * The PC's shared folders as an entry of Android's own document window ("TaDaMoo - PC"), so a file on the PC is chosen the way a file on the phone is.
  * It reads what the app keeps of the server (address and key) and asks the PC's /api/files routes; nothing is written to the PC.
  */
 class BasaltDocumentsProvider : DocumentsProvider() {
@@ -88,7 +88,7 @@ class BasaltDocumentsProvider : DocumentsProvider() {
                 .add(Root.COLUMN_ROOT_ID, "basalt")
                 .add(Root.COLUMN_FLAGS, 0)
                 .add(Root.COLUMN_ICON, R.mipmap.ic_launcher)
-                .add(Root.COLUMN_TITLE, "Basalt - PC")
+                .add(Root.COLUMN_TITLE, "TaDaMoo - PC")
                 .add(Root.COLUMN_SUMMARY, "Cartelle del PC / PC folders")
                 .add(Root.COLUMN_DOCUMENT_ID, ROOT_DOC)
                 .add(Root.COLUMN_MIME_TYPES, "*/*")
@@ -99,7 +99,7 @@ class BasaltDocumentsProvider : DocumentsProvider() {
     override fun queryDocument(documentId: String, projection: Array<out String>?): Cursor {
         val c = MatrixCursor(projection ?: docProjection)
         if (documentId == ROOT_DOC) {
-            addRow(c, Entry(ROOT_DOC, "Basalt - PC", true, 0, 0))
+            addRow(c, Entry(ROOT_DOC, "TaDaMoo - PC", true, 0, 0))
         } else {
             val e = known[documentId] ?: Entry(documentId, documentId.substringAfterLast('\\').substringAfterLast('/'), false, 0, 0)
             addRow(c, e)

@@ -187,9 +187,16 @@ class AvatarController extends ChangeNotifier {
   void _onReady() {
     if (settings.avatarBrain.isNotEmpty && settings.avatarBrain != client.brain) client.setBrain(settings.avatarBrain);
     if (settings.avatarPersona.isNotEmpty && settings.avatarPersona != client.persona) client.setPersona(settings.avatarPersona);
-    if (mode == 'video') client.setRenderMode('musetalk');
+    if (mode == 'video') _chooseVideo();
     if (!avatarOn) client.sendVideoStop();
     _maybeVideo();
+  }
+
+  /// Asks the PC for the video only when it offers it and is not already using it; the voice never depends on this.
+  void _chooseVideo() {
+    if (client.status != GatewayStatus.ready) return;
+    if (client.renderMode == 'video' || !client.renderModes.contains('video')) return;
+    client.setRenderMode('video');
   }
 
   void _onDropped() {
@@ -267,7 +274,7 @@ class AvatarController extends ChangeNotifier {
 
   Future<void> _applyMode() async {
     if (mode == 'video') {
-      client.setRenderMode('musetalk');
+      _chooseVideo();
       await _maybeVideo();
     } else {
       await _dropVideo(tell: true);
