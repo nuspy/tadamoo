@@ -63,7 +63,7 @@ def _write(data: dict) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(target.name + ".tmp")
     tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, target)
+    userdata.replace_file(tmp, target)
 
 
 def default_models_dir() -> str:
