@@ -222,10 +222,8 @@
   const linesOf = area => area.value.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
   function listsForm() {
     const form = el("div", "vo-form vo-lists"), contacts = el("textarea"), prefixes = el("textarea");
-    contacts.rows = 4; contacts.value = TEL.contacts.join("
-"); contacts.autocomplete = "off"; contacts.spellcheck = false;
-    prefixes.rows = 6; prefixes.value = TEL.premium_prefixes.join("
-"); prefixes.autocomplete = "off"; prefixes.spellcheck = false;
+    contacts.rows = 4; contacts.value = TEL.contacts.join("\n"); contacts.autocomplete = "off"; contacts.spellcheck = false;
+    prefixes.rows = 6; prefixes.value = TEL.premium_prefixes.join("\n"); prefixes.autocomplete = "off"; prefixes.spellcheck = false;
     form.append(field("vo-tel-contacts", T("vo.tel.contacts"), contacts), el("p", "vo-help", T("vo.tel.contacts.help")),
       field("vo-tel-premium", T("vo.tel.premium"), prefixes), el("p", "vo-help", T("vo.tel.premium.help")),
       btn(T("vo.tel.save"), "primary", () => saveTel({ contacts: linesOf(contacts), premium_prefixes: linesOf(prefixes) }), "vo-tel-lists-save"));
