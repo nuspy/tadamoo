@@ -309,3 +309,16 @@ def test_the_server_relays_the_package_files_to_a_phone_and_not_a_path_that_clim
     assert all(voice_avatar.DEVICE_FILES.fullmatch(base + rel) for rel in ("phone.json", "phone/template.bin", "phone/selftest/audio.f32", "frames/0.jpg"))
     assert not any(voice_avatar.DEVICE_FILES.fullmatch(base + rel) for rel in ("../manifest.json", "a/../b", "x" * 200, "a b", ""))
     assert not voice_avatar.DEVICE_FILES.fullmatch("/api/voice/avatar/ada/engines/files/phone.json")
+
+
+# ---------------------------------------------------------------------------------------------- the gateway serves a personalised engine as a mode
+def test_the_gateway_offers_a_personalised_engine_the_avatar_exported_and_moves_to_the_next_mode_when_it_fails():
+    from voice.tests.test_gateway_render_modes import CLOSED, auth, connect, host_with
+    info = {"avatar": "ada", "render_modes": ["wav2lip", "visemes", "feathertalk"]}
+    ready = connect(host_with(info), auth("feathertalk", "visemes"), [CLOSED]).json("ready")[0]
+    assert ready["render_modes"] == ["feathertalk", "visemes"] and ready["render_mode"] == "feathertalk" and ready["engine"] == "" and ready["resolution"] == 0
+    ws = connect(host_with(info), auth("feathertalk", "visemes"), [{"type": "render_failed", "mode": "feathertalk", "why": "too_slow"}, CLOSED])
+    changed = [m for m in ws.json("render_mode") if m.get("previous")][0]
+    assert changed["mode"] == "visemes" and changed["previous"] == "feathertalk" and changed["why"] == "too_slow" and changed["render_modes"] == ["visemes"]
+    only_exported = connect(host_with({"avatar": "ada", "render_modes": ["visemes"]}), auth("ultralight", "feathertalk", "visemes"), [CLOSED]).json("ready")[0]
+    assert only_exported["render_modes"] == ["visemes"], "a mode the avatar has no export for is not offered, whatever the device declares"

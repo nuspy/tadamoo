@@ -63,6 +63,10 @@ STT_RATE = 16000
 #: The ways to draw the avatar: on the device from the photo (wav2lip), on the device from a mouth-shape timeline (visemes), or a video made on
 #: this PC (video, an emergency only: it is the one that uses the GPU).
 RENDER_MODES = ("wav2lip", "visemes", "video")
+#: Modes a device may also declare: its own model trained for one person (voice/avatar_engines/phone_export.py). The PC serves them as it serves wav2lip, the voice and nothing more;
+#: the avatar's manifest names them in `render_modes` when the PC exported that engine for a phone.
+PERSONAL_MODES = ("ultralight", "feathertalk")
+DEVICE_MODES = RENDER_MODES + PERSONAL_MODES
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
 #: What a declaration of render modes may carry: entries read from the list, the longest engine id, the tallest picture, and how many
 #: declarations after the first one a connection may make in a window.
@@ -274,7 +278,7 @@ class Connection:
     def _declare_modes(self, raw) -> None:
         """The modes the device can draw: strings only, the first `MODES_READ_MAX` read, unknown and repeated ones dropped, video last."""
         asked = [m for m in raw[:MODES_READ_MAX] if isinstance(m, str)] if isinstance(raw, list) else []
-        local = [m for m in dict.fromkeys(asked) if m in RENDER_MODES and m != "video"]
+        local = [m for m in dict.fromkeys(asked) if m in DEVICE_MODES and m != "video"]
         self._declared = local + (["video"] if "video" in asked else [])
 
     def _declare_engine(self, msg: dict, only_present: bool = False) -> None:
@@ -446,7 +450,7 @@ class Connection:
             return True
         if kind == "render_failed":
             mode = str(msg.get("mode") or "").strip()
-            if mode in RENDER_MODES:
+            if mode in DEVICE_MODES:
                 self._failed.add(mode)
                 if mode == "video" and self._video is not None:
                     self._video_stop(notify=False)
