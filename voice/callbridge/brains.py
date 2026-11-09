@@ -7,7 +7,8 @@ person's own microphone, can answer an approval question.
 
 DIRECT: TaDaMoo's own OpenAI-compatible server on loopback, no tools, a short rolling context. The system message is the voice base prompt,
 the personality's block, and the notes and archive passages TaDaMoo recalls for the request (`/api/personas/<slug>/compose`, fenced there as data).
-HARNESS: an agent conversation of TaDaMoo (`/api/agent/sessions`), with its permissions, Rule of Two and tools. The voice never reads its
+HARNESS: an agent conversation of TaDaMoo (`/api/agent/sessions`), with its permissions, Rule of Two and tools; the server gives every turn
+the voice's own permission level, and the voice never asks for one. The voice never reads its
 code, commands, tool output or reasoning: it says one sentence built from the counts of what the turn did (`spoken.what_was_done`), or, when
 the agent only answered, the answer made speakable. The full text stays on the screen (`last_exchange`). An approval question is put by voice
 only for a file change (`spoken.FILE_TOOLS`); everything else (phone calls, payments, a command, orders found in outside text, the Rule of Two)
@@ -29,7 +30,6 @@ from .tadamoo_api import ApiError, TadamooApi
 log = logging.getLogger("callbridge.brains")
 
 MODES = ("direct", "harness")
-PERMISSIONS = ("plan", "read_only", "default", "auto")
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
 _NAME = re.compile(r"[^A-Za-z0-9._-]")
 
@@ -158,7 +158,7 @@ class HarnessBrain:
         self._lang = cfg.default_lang
         self._persona = ""
         self._sid = ""
-        self._made: tuple = ()           # (persona, permission, workspace) the conversation was made with
+        self._made: tuple = ()           # (persona, workspace) the conversation was made with
         self._cursor = 0
         self._turn = ""
         self._facts = spoken.Facts()
@@ -187,23 +187,20 @@ class HarnessBrain:
 
     # -- the conversation
     def _wanted(self) -> tuple:
-        permission = self.cfg.brain_permission if self.cfg.brain_permission in PERMISSIONS else "default"
-        return (self._persona or _persona_slug(self.cfg.brain_persona), permission, str(self.cfg.brain_workspace or ""))
+        return (self._persona or _persona_slug(self.cfg.brain_persona), str(self.cfg.brain_workspace or ""))
 
     def _ensure(self, api) -> None:
         want = self._wanted()
-        if self._sid and want[2] != self._made[2]:
+        if self._sid and want[1] != self._made[1]:
             self.reset_session()
         if self._sid:
-            if want[1] != self._made[1]:
-                api.post(f"/api/agent/sessions/{self._sid}/mode", {"mode": want[1]})
             if want[0] != self._made[0]:
                 api.post(f"/api/agent/sessions/{self._sid}/persona", {"persona": want[0]})
             self._made = want
             return
-        body = {"mode": want[1], "title": "Voice", "persona": want[0]}
-        if want[2]:
-            body["workspace"] = want[2]
+        body = {"title": "Voice", "persona": want[0]}
+        if want[1]:
+            body["workspace"] = want[1]
         made = api.post("/api/agent/sessions", body)
         self._sid = str((made.get("session") or {}).get("id") or "")
         if not self._sid:
@@ -399,7 +396,7 @@ class ModeBrain:
 
     def state(self) -> dict:
         last = self._log[-1] if self._log else None
-        return {"mode": self.mode, "default_mode": self.cfg.brain_mode, "persona": self.cfg.brain_persona, "permission": self.cfg.brain_permission,
+        return {"mode": self.mode, "default_mode": self.cfg.brain_mode, "persona": self.cfg.brain_persona,
                 "pending": self.harness.pending, "last": asdict(last) if last else None, "exchanges": [asdict(x) for x in list(self._log)[-5:]]}
 
 

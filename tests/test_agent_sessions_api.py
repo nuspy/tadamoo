@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from serve import handler
 from serve.agent_sessions import SessionManager
 from serve.approvals import ApprovalBoard
+from tadamoo.permission_level import PermissionLevels
 from test_e2e_mock_server import answer, start_server, tool_call, ws  # noqa: F401  (fixtures)
 from test_agent_gui_api import Api, wait_for  # noqa: E402
 
@@ -27,6 +28,9 @@ def setup(tmp_path, monkeypatch, start_server):  # noqa: F811
         mgr = SessionManager(tmp_path / "j", url, api_key, board=board, tick_s=0.2, router="rules", **kw)
         monkeypatch.setattr(handler, "_APPROVALS", board)
         monkeypatch.setattr(handler, "_SESSIONS", mgr)
+        levels = PermissionLevels(tmp_path / "levels.json")
+        levels.set("chat", "auto")                                    # the person chose Automatic for the Chat: a conversation may ask for any level
+        monkeypatch.setattr(handler, "_LEVELS", levels)
         state.update(mgr=mgr, api=Api(url, api_key))
         return state
 

@@ -1,7 +1,7 @@
 """The Telegram Bot API as the standard library reaches it, and the plain rules around it.
 
 `BotApi` calls the HTTPS API with `urllib` (long polling, no webhook): every error is a `TelegramError` whose text never holds the token.
-`Settings` is the person's choice (on or off, the allow-list of user ids, the home channel, the permission level) with the chats that
+`Settings` is the person's choice (on or off, the allow-list of user ids, the home channel) with the chats that
 are bound to a conversation and the senders that were turned away; `Token` keeps the bot token in the credential store, never in a file
 of its own. The helpers cut a long answer at the 4096-character limit, shorten a stranger's first line to something safe to keep, and
 read the `.env` file that Hermes keeps its Telegram values in.
@@ -24,7 +24,6 @@ TOKEN_NAME = "telegram/bot"
 TOKEN_RE = re.compile(r"\d{3,15}:[A-Za-z0-9_-]{20,64}")
 MAX_LEN = 4096                           # characters in one message, counted the way Telegram counts them (UTF-16 units)
 MAX_REPLY_BYTES = 8_000_000
-MODES = ("plan", "read_only", "default", "auto")      # the permission levels of the Chat (serve/agent_runs.py)
 ALLOWED_MAX = 50
 PAIRING_MAX = 50
 LINE_CHARS = 60
@@ -251,11 +250,13 @@ class Token:
 
 
 class Settings:
-    """`telegram.json`: what the person chose, the chat of each conversation and the senders turned away. Replaced whole on every change."""
+    """`telegram.json`: what the person chose, the chat of each conversation and the senders turned away. Replaced whole on every change.
+    The permission level of Telegram is the server's (tadamoo/permission_level.py); one found here is handed over once by `take_mode`."""
 
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
         self._lock = threading.RLock()
+        self._mode: Any = None
         self._data = self._load()
 
     def _load(self) -> Dict[str, Any]:
@@ -269,8 +270,16 @@ class Settings:
         chats = {k: v for k, v in raw.get("chats", {}).items() if isinstance(k, str) and isinstance(v, str)} if isinstance(raw.get("chats"), dict) else {}
         names = {k: v for k, v in raw.get("names", {}).items() if isinstance(k, str) and clean_username(v)} if isinstance(raw.get("names"), dict) else {}
         pairing = [p for p in raw.get("pairing", []) if isinstance(p, dict) and isinstance(p.get("id"), int)][:PAIRING_MAX] if isinstance(raw.get("pairing"), list) else []
-        return {"enabled": raw.get("enabled") is True, "allowed": allowed, "home": home, "mode": raw.get("mode") if raw.get("mode") in MODES else "default",
-                "chats": chats, "names": names, "pairing": pairing}
+        self._mode = raw.get("mode")
+        return {"enabled": raw.get("enabled") is True, "allowed": allowed, "home": home, "chats": chats, "names": names, "pairing": pairing}
+
+    def take_mode(self) -> Any:
+        """The permission level the file held, removed from it; None when it held none."""
+        with self._lock:
+            mode, self._mode = self._mode, None
+            if mode is not None:
+                self._save()
+            return mode
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -286,7 +295,7 @@ class Settings:
 
     def read(self) -> Dict[str, Any]:
         with self._lock:
-            return {"enabled": self._data["enabled"], "allowed": list(self._data["allowed"]), "home": self._data["home"], "mode": self._data["mode"]}
+            return {"enabled": self._data["enabled"], "allowed": list(self._data["allowed"]), "home": self._data["home"]}
 
     def write(self, **changes: Any) -> Dict[str, Any]:
         with self._lock:
@@ -295,10 +304,6 @@ class Settings:
                 if not isinstance(changes["enabled"], bool):
                     raise ValueError("on or off")
                 new["enabled"] = changes["enabled"]
-            if "mode" in changes:
-                if changes["mode"] not in MODES:
-                    raise ValueError("the permission level is one of: " + ", ".join(MODES))
-                new["mode"] = changes["mode"]
             if "home" in changes:
                 new["home"] = 0 if changes["home"] in (None, "", 0) else check_id(changes["home"])
             if "allowed" in changes:

@@ -19,6 +19,7 @@ from serve.remote import KEY_TTL_DAYS, ApiKeys, RemoteAccess
 from serve.service import Service
 from serve.tasks import ChangeJournal, TaskJournal
 from serve.util.text import ByteTokenizer
+from tadamoo.permission_level import PermissionLevels
 
 ROOT = Path(__file__).resolve().parents[2]
 DAY = 86400
@@ -150,7 +151,11 @@ class PhoneLimitsTest(unittest.TestCase):
         code, body = self.phone_post(f"/api/agent/sessions/{sid}/mode", {"mode": "auto"})
         self.assertEqual((code, body["error"]["code"]), (403, "phone_mode_limit"))
         self.assertEqual(self.phone_post(f"/api/agent/sessions/{sid}/mode", {"mode": "read_only"})[0], 200)
-        self.assertEqual(self.call("POST", f"/api/agent/sessions/{sid}/mode", {"mode": "auto"})[0], 200)       # this PC may
+        levels = PermissionLevels(Path(self.tmp.name) / "levels.json")
+        with mock.patch.object(handler, "_LEVELS", levels):
+            self.assertEqual(self.call("POST", f"/api/agent/sessions/{sid}/mode", {"mode": "auto"})[1]["error"]["code"], "level_above_channel")
+            levels.set("chat", "auto")
+            self.assertEqual(self.call("POST", f"/api/agent/sessions/{sid}/mode", {"mode": "auto"})[0], 200)   # this PC may, up to the Chat's level
 
     def test_a_phone_cannot_attach_permission_rules_and_the_conversation_gets_the_rules_of_the_pc(self):
         code, body = self.phone_post("/api/agent/sessions", self.session(allow=["shell_command:*"]))

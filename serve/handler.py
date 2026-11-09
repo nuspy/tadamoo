@@ -20,6 +20,8 @@ from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
 from tadamoo import exec_level, nextsteps, persistence, side_uses
 from tadamoo import telegram as tg
+from tadamoo import permission_level
+from tadamoo.permission_level import PermissionLevelError, PermissionLevels
 from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, voice_api, voice_compat, voice_import, voice_loader, voice_service, voice_settings
 from serve import origin_guard, voice_avatar, voice_gateway_relay
 from serve import lang as lang_mod
@@ -138,12 +140,22 @@ def _start_planner(svc: Service, port: int) -> None:
         print(f"planner: not started ({type(exc).__name__}: {exc})", file=sys.stderr, flush=True)
 
 
+def permission_levels() -> PermissionLevels:
+    """The permission level of each channel (tadamoo/permission_level.py), made on first use. A level the voice kept in voice.json is taken once."""
+    global _LEVELS
+    if _LEVELS is None:
+        store = PermissionLevels(userdata.path(permission_level.FILE))
+        store.adopt("voice", voice_settings.take_permission())
+        _LEVELS = store
+    return _LEVELS
+
+
 def telegram_service(sessions) -> TelegramService:
     """The Telegram bot's service, made on first use; `sessions` gives the conversations it talks to."""
     global _TELEGRAM
     if _TELEGRAM is None:
         _TELEGRAM = TelegramService(tg.Settings(userdata.path("telegram.json")), tg.Token(folder=userdata.user_data_dir()), sessions,
-                                    attachments_dir=userdata.path("attachments"), state_dir=userdata.path("telegram"))
+                                    levels=permission_levels(), attachments_dir=userdata.path("attachments"), state_dir=userdata.path("telegram"))
     return _TELEGRAM
 
 
@@ -175,6 +187,7 @@ def stop_sessions() -> None:
 _WALLET = None                                         # the vault and the payment systems, made on first use
 _WEBSEARCH = None                                      # Settings > Web search, made on first use
 _TELEGRAM = None                                       # the Telegram bot and its settings, made on first use
+_LEVELS = None                                         # the permission level of each channel, made on first use
 _PERSONAS = None                                       # Settings > Personalities, made on first use
 _PERSONA_LEARNING = None                               # a personality learns from a conversation once it is over, when the GPU is free
 _RAG = None                                            # the knowledge archives (the Knowledge tab), made on first use
@@ -661,6 +674,9 @@ def make_handler(svc: Service, remote: bool = False):
                     if not settings.is_loopback(self.client_address[0]):
                         return self._json(403, {"error": {"type": "forbidden", "message": "the vault is shown only on the PC the server runs on"}})
                     self._json(200, self._wallet().overview())
+            elif path == "/api/permission-level":
+                if self._authorized():
+                    self._permission_level(False)
             elif path == "/api/telegram":
                 if self._authorized():
                     if not settings.is_loopback(self.client_address[0]):
@@ -929,6 +945,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path.startswith("/api/telegram/"):
                 self._telegram_post(path)
+                return
+            if path == "/api/permission-level":
+                self._permission_level(True)
                 return
             if path == "/api/personas" or path.startswith("/api/personas/"):
                 self._personas_post(path)
@@ -2500,6 +2519,42 @@ def make_handler(svc: Service, remote: bool = False):
         def _telegram(self) -> TelegramService:
             return telegram_service(lambda: self._agent_sessions())
 
+        def _permission_level(self, post: bool) -> None:
+            """GET /api/permission-level (every channel, or `?channel=`) and POST {channel, level}. This PC only."""
+            if self.remote_listener or not settings.is_loopback(self.client_address[0]):
+                if post:
+                    self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "code": "forbidden", "message": "the permission levels are shown and changed only on the PC the server runs on"}})
+            store = permission_levels()
+            try:
+                if not post:
+                    channel = (parse_qs(urlsplit(self.path).query).get("channel") or [None])[0]
+                    if channel is None:
+                        return self._json(200, store.overview())
+                    permission_level.check_channel(channel)
+                    return self._json(200, {"channel": channel, "level": store.get(channel), "set": store.is_set(channel)})
+                req = json.loads(self._body(1 << 12) or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                level = store.set(req.get("channel"), req.get("level"))
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            except PermissionLevelError as e:
+                return self._json(400, {"error": {"type": "invalid_request_error", "code": e.code, "message": str(e)}})
+            except ValueError as e:
+                return self._json(400, {"error": {"type": "invalid_request_error", "code": "bad_body", "message": str(e)}})
+            channel = req["channel"]
+            if _SESSIONS is not None and channel != "chat":             # the Chat's conversations take a lowered level at their next turn
+                _SESSIONS.hold_channel(channel, level, _TELEGRAM.own_sessions() if channel == "telegram" and _TELEGRAM is not None else ())
+            print(f"[server] permission level of {channel}: {level}", file=sys.stderr, flush=True)
+            self._json(200, {**store.overview(), "channel": channel, "level": level})
+
+        def _channel(self) -> "str | None":
+            """The channel an agent request comes from: the voice service by its token, the Chat otherwise; None for a phone, which has its own limits."""
+            if self._via_voice:
+                return "voice"
+            return None if self.remote_listener else "chat"
+
         def _telegram_post(self, path):
             if not settings.is_loopback(self.client_address[0]):
                 self._discard_body()
@@ -3460,6 +3515,18 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, {"removed": self._projects().remove(req.get("path"))})
                 if parts[0] == "sessions":
                     mgr = self._agent_sessions()
+                    channel = self._channel()
+                    if channel and parts == ["sessions"] and req.get("mode", "default") in permission_level.LEVELS:      # an unknown mode is refused by the manager
+                        req["mode"] = permission_levels().for_request(channel, req.get("mode"))
+                    if channel and len(parts) == 3 and parts[2] == "mode" and req.get("mode") in permission_level.LEVELS:
+                        permission_levels().for_request(channel, req["mode"])
+                    if channel and len(parts) == 3 and parts[2] == "compare" and isinstance(req.get("variants"), list):
+                        for variant in req["variants"]:
+                            if isinstance(variant, dict) and variant.get("mode") in permission_level.LEVELS:
+                                permission_levels().for_request(channel, variant["mode"])
+                    if channel and len(parts) == 3 and parts[2] == "send":
+                        own = channel != "chat" and mgr.get(parts[1]).get("channel") == channel
+                        mgr.hold_level(parts[1], permission_levels().get(channel), follow=own)
                     if parts == ["sessions"]:
                         return self._json(200, {"session": mgr.create(req.get("workspace"), req.get("mode", "default"), req.get("allow"),
                                                                       req.get("ask_only") is True, req.get("title", ""),
@@ -3470,7 +3537,7 @@ def make_handler(svc: Service, remote: bool = False):
                                                                       req.get("images", ""), req.get("charts", ""),
                                                                       req.get("unattended") is True, req.get("role", "general"), req.get("private") is True,
                                                                       req.get("alias", ""), req.get("cross_commands"), req.get("parent", ""), req.get("rules"),
-                                                                      req.get("budget_day_tokens"), req.get("persona", ""))})
+                                                                      req.get("budget_day_tokens"), req.get("persona", ""), channel or "chat")})
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "apply":
                         return self._json(200, mgr.copy_apply(parts[1], req.get("paths")))
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "discard":
@@ -3570,6 +3637,8 @@ def make_handler(svc: Service, remote: bool = False):
                     if req.get("decision") not in ("approve", "deny"):
                         raise ValueError('decision must be "approve" or "deny"')
                     return self._json(200, {"approval": _APPROVALS.decide(parts[1], req["decision"] == "approve")})
+            except PermissionLevelError as e:
+                return self._json(403 if e.code == "level_above_channel" else 400, {"error": {"type": "forbidden" if e.code == "level_above_channel" else "agent", "message": str(e), "code": e.code}})
             except RunBusy as e:
                 return self._json(409, {"error": {"type": "agent", "message": str(e), "code": e.code}})
             except TargetError as e:

@@ -3,7 +3,7 @@
 The file is the one serve/voice_settings.py writes:
     {"models_dir": "<absolute path>", "services": {"<service>": {"selected": "<model id>", "device": "auto|cpu|cuda:N", "memory": "vram|ram",
                                                                   "enabled": true|false}},
-     "brain": {"mode": "direct|harness", "persona": "<slug>", "permission": "plan|read_only|default|auto", "workspace": "<folder>",
+     "brain": {"mode": "direct|harness", "persona": "<slug>", "workspace": "<folder>",
                "base_url": "http://127.0.0.1:<port>", "hotkeys": true|false},
      "telephony": {"transport": "off|auto|gsm|android", "outgoing_approval": "manual|auto", "ai_disclosure_on_start": true|false,
                    "incoming_auto_answer": true|false, "on_behalf_of": "<name>"},
@@ -35,7 +35,6 @@ from voice.avatar_engines import selection as engine_selection
 
 _DEVICE_RE = re.compile(r"^(auto|cpu|cuda:[0-9]{1,2})$")
 BRAIN_MODES = ("direct", "harness")
-PERMISSIONS = ("plan", "read_only", "default", "auto")
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
 _BASE_URL_RE = re.compile(r"^http://(?:127\.0\.0\.1|localhost|\[::1\]):[0-9]{1,5}/?$")
 MEMORY = ("vram", "ram")
@@ -67,10 +66,10 @@ class Choice:
 
 @dataclass(frozen=True)
 class Brain:
-    """How the voice talks to TaDaMoo: which brain answers by default, as which personality, with what permission, and where the server is."""
+    """How the voice talks to TaDaMoo: which brain answers by default, as which personality, and where the server is. The permission level of
+    the voice is the server's own: it applies it to every turn the voice sends."""
     mode: str = "direct"
     persona: str = ""
-    permission: str = "default"
     workspace: str = ""
     base_url: str = ""          # TaDaMoo's address on this PC; "" keeps the config's default
     hotkeys: bool = False       # whether the service registers the global push-to-talk hotkeys
@@ -155,11 +154,10 @@ def _choice(service: str, stored) -> Choice:
 
 def _brain(stored) -> Brain:
     stored = stored if isinstance(stored, dict) else {}
-    mode, persona, permission = stored.get("mode"), stored.get("persona"), stored.get("permission")
+    mode, persona = stored.get("mode"), stored.get("persona")
     workspace, base_url, hotkeys = stored.get("workspace"), stored.get("base_url"), stored.get("hotkeys")
     return Brain(mode if mode in BRAIN_MODES else "direct",
                  persona if isinstance(persona, str) and _SLUG_RE.match(persona) else "",
-                 permission if permission in PERMISSIONS else "default",
                  workspace if isinstance(workspace, str) and os.path.isabs(workspace) else "",
                  base_url.rstrip("/") if isinstance(base_url, str) and _BASE_URL_RE.match(base_url) else "",
                  hotkeys is True)
@@ -251,7 +249,7 @@ def overrides(settings: Settings) -> dict:
     vad = ms.folder("vad", "silero-vad-v4", root)
     out["stt_vad_model"] = os.path.join(vad, "silero_vad_v4.onnx")
     b = settings.brain
-    out["brain_mode"], out["brain_persona"], out["brain_permission"], out["brain_workspace"] = b.mode, b.persona, b.permission, b.workspace
+    out["brain_mode"], out["brain_persona"], out["brain_workspace"] = b.mode, b.persona, b.workspace
     if b.base_url:
         out["tadamoo_base_url"] = b.base_url
     t = settings.telephony

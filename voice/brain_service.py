@@ -2,7 +2,7 @@
 the brains and a spoken test sentence.
 
 Routes (the control app already demands the bearer token on all of them):
-    GET  /brain/state   the default mode, the personality, the permission, what waits for an approval, the last exchanges, the session
+    GET  /brain/state   the default mode, the personality, what waits for an approval, the last exchanges, the session
     POST /brain/say     {"text"}: speaks a test sentence with the TTS that is loaded (409 `tts_not_loaded` when it is not)
 
 The push-to-talk manager imports `pynput`, so it is made on first use: a service on a PC without it still starts and says why a session
