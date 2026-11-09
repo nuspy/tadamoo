@@ -5,6 +5,7 @@ service token, in the handshake (`Authorization: Bearer <token>`, which TaDaMoo'
 first message; anything else is refused or closed. What one connection does is `callbridge/voice_gateway.py`."""
 from __future__ import annotations
 
+import collections
 import hmac
 import logging
 import threading
@@ -12,6 +13,8 @@ from http import HTTPStatus
 
 import requests
 
+from callbridge.interruption import LOG_KEEP, TechnicalJudge
+from callbridge.tadamoo_api import TadamooApi
 from callbridge.voice_gateway import RENDER_MODES, Connection
 
 log = logging.getLogger("voice.gateway")
@@ -26,6 +29,16 @@ class Host:
         self.state = state
         self.token = token
         self._stt_factory, self._tts_factory = stt_factory, tts_factory
+        self.interruption_log: collections.deque = collections.deque(maxlen=LOG_KEEP)      # the last decisions of every connection
+
+    @property
+    def interruption_judge(self):
+        """The judge of the interruption manager: a call to TaDaMoo's technical session; None when TaDaMoo's address is not usable."""
+        cfg = self.cfg
+        try:
+            return TechnicalJudge(TadamooApi(cfg.tadamoo_base_url, cfg.tadamoo_token))
+        except ValueError:
+            return None
 
     @property
     def cfg(self):
@@ -151,3 +164,8 @@ def register(app, gateway: Gateway) -> None:
     @app.get("/gateway")
     def gateway_info():
         return jsonify(gateway.info())
+
+    @app.get("/interruptions")
+    def interruptions():
+        """The last decisions about speech over the avatar: what was decided and why, with at most 80 characters of what was said."""
+        return jsonify({"interruptions": list(gateway.host.interruption_log)})
