@@ -62,7 +62,9 @@ def transcribe():
     lang = request.args.get("lang") or cfg.stt_language or None
     try:
         if _truthy("segments") and hasattr(engine, "transcribe_detailed"):
-            return jsonify(engine.transcribe_detailed(audio, lang, _truthy("words")))
+            from callbridge.language_follow import with_language_fields
+            # Without a language asked for, the engine also says which one it heard (`language`, `language_probability`).
+            return jsonify(with_language_fields(engine.transcribe_detailed(audio, lang, _truthy("words"), detect=lang is None)))
         return jsonify({"text": engine.transcribe(audio, lang)})
     except Exception as e:                                               # noqa: BLE001
         return _missing(e) or (jsonify({"status": "error", "message": str(e)}), 500)

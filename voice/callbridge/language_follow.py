@@ -85,6 +85,18 @@ class Switch:
     reason: str            # detected | command | auto
 
 
+def with_language_fields(result: dict) -> dict:
+    """The answer of a timed transcription with the language heard as `language` and `language_probability`; nothing is added when the engine
+    did not report them."""
+    out = dict(result)
+    prob = out.pop("language_prob", None)
+    if out.get("language") and isinstance(prob, (int, float)):
+        out["language_probability"] = round(float(prob), 4)
+    else:
+        out.pop("language", None)
+    return out
+
+
 def merge_detections(items) -> tuple[str, float, float]:
     """One (language, probability, seconds) from the detections of the parts of an utterance: the language with the most weighted speech wins."""
     weight: dict[str, float] = {}

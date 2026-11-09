@@ -39,9 +39,12 @@ class Stt:
         self.calls.append(("text", len(audio), lang))
         return "hello"
 
-    def transcribe_detailed(self, audio, lang=None, words=False):
+    def transcribe_detailed(self, audio, lang=None, words=False, detect=False, allowed=None):
         self.calls.append(("detailed", len(audio), lang, words))
-        return {"text": "hello", "segments": [{"start_s": 0, "end_s": 0.5, "text": "hello"}]}
+        out = {"text": "hello", "segments": [{"start_s": 0, "end_s": 0.5, "text": "hello"}]}
+        if detect:
+            out["language"], out["language_prob"] = "en", 0.99876
+        return out
 
     def runtime_info(self):
         return {"model": "small", "running_on": "cpu", "state": "running"}
@@ -105,6 +108,10 @@ def test_transcribe_answers_with_the_text_or_with_the_timed_segments(env):
     assert env.stt.calls == [("text", 8000, "it")]
     body = _post_audio(env, "?segments=1&words=1").get_json()
     assert body["segments"][0]["text"] == "hello" and env.stt.calls[-1] == ("detailed", 8000, None, True)
+    assert (body["language"], body["language_probability"]) == ("en", 0.9988) and "language_prob" not in body          # asked nothing: it says what it heard
+    hinted = _post_audio(env, "?segments=1&lang=it").get_json()
+    assert "language" not in hinted and "language_probability" not in hinted                                       # a language was given: nothing to report
+    assert _post_audio(env, "").get_json() == {"text": "hello"}                                                    # the plain answer is as before
 
 
 def test_transcribe_needs_a_file_and_refuses_what_is_not_audio(env):
@@ -157,3 +164,45 @@ def test_cloned_voices_live_in_the_models_folder(env):
 def test_the_old_handy_proxies_are_gone_from_the_control_routes(env):
     for method, path in (("post", "/models/load"), ("post", "/models/unload"), ("post", "/tts/model"), ("post", "/tts/voice")):
         assert getattr(env.client, method)(path, json={}, headers=AUTH).status_code == 404
+
+
+def test_transcribe_with_the_real_shared_engine_over_the_stand_in_helper_reports_the_language(env, monkeypatch):
+    """The real SharedSttEngine and its process protocol (a stand-in helper process): the HTTP answer carries what the engine heard."""
+    import os
+    import sys
+    from callbridge.engines import stt_shared
+    helper = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fake_stt_helper.py")
+    monkeypatch.setattr(stt_shared, "_comando_helper", lambda: [sys.executable, "-u", helper])
+    monkeypatch.setenv("FAKE_STT_LANG", "fr")
+    engine = stt_shared.SharedSttEngine(types.SimpleNamespace(stt_model="small", stt_device="cpu", stt_gpu_memory="shared", stt_compute_type="auto", stt_language=""))
+    monkeypatch.setattr(engines, "_get_stt_engine", lambda cfg: engine)
+    _install_stt(env)
+    try:
+        body = _post_audio(env, "?segments=1").get_json()
+        assert (body["language"], body["language_probability"]) == ("fr", 0.93) and body["segments"]
+        assert "language" not in _post_audio(env, "?segments=1&lang=it").get_json()
+    finally:
+        engine.chiudi()
+
+
+def test_the_handy_compat_transcribe_route_reports_the_language_too(tmp_path, monkeypatch):
+    import asyncio
+    from aiohttp.test_utils import TestClient, TestServer
+    from callbridge import handy_compat
+    stt = Stt()
+    monkeypatch.setattr(handy_compat, "_get_stt_engine", lambda cfg: stt)
+    monkeypatch.setattr(handy_compat, "_get_tts_engine", lambda cfg: Tts())
+
+    async def post(query):
+        from aiohttp import FormData
+        from callbridge.config import Config
+        async with TestClient(TestServer(handy_compat.build_app(Config()))) as client:
+            form = FormData()
+            form.add_field("file", _wav(), filename="a.wav", content_type="audio/wav")
+            r = await client.post("/transcribe" + query, data=form)
+            return await r.json()
+
+    body = asyncio.run(post("?segments=1"))
+    assert (body["language"], body["language_probability"]) == ("en", 0.9988) and body["segments"] and "language_prob" not in body
+    assert "language" not in asyncio.run(post("?segments=1&lang=it"))
+    assert asyncio.run(post("")) == {"text": "hello"}
