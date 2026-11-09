@@ -57,14 +57,23 @@ class CommPlayer {
                     val chunk = q.take()
                     t.write(chunk, 0, chunk.size)
                 }
-            } catch (_: InterruptedException) {
-            } catch (_: IllegalStateException) {
+            } catch (e: InterruptedException) {
+                // the player was released
+            } catch (e: IllegalStateException) {
+                // the track was released while writing
             }
         }.also { it.start() }
     }
 
     fun add(pcm: ByteArray) {
         queue.offer(pcm)
+    }
+
+    /** Milliseconds of audio the track has played since it was created, or -1 when there is no track. */
+    @Synchronized
+    fun positionMs(): Long {
+        val t = track ?: return -1
+        return if (rate <= 0) -1 else t.playbackHeadPosition.toLong() * 1000L / rate
     }
 
     @Synchronized
@@ -84,7 +93,8 @@ class CommPlayer {
                 it.pause()
                 it.flush()
                 it.stop()
-            } catch (_: IllegalStateException) {
+            } catch (e: IllegalStateException) {
+                // already stopped
             }
             it.release()
         }

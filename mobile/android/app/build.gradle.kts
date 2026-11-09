@@ -47,3 +47,8 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // ONNX Runtime runs the Wav2Lip model on the phone (Wav2LipEngine.kt).
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
+}

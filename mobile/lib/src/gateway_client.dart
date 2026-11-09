@@ -98,6 +98,20 @@ class GatewayClient extends ChangeNotifier {
   /// The PC asks for the avatar's voice at this level (1 is normal, below is lowered).
   void Function(double level)? onDuck;
 
+  /// The timeline of a sentence's mouth shapes (before its voice), the end of a reply that was replaced, and a change of the mode
+  /// or of the avatar's folder (`render_mode`).
+  void Function(Map<String, dynamic> message)? onVisemes;
+  VoidCallback? onReplyReset;
+  VoidCallback? onRender;
+
+  /// What the app declares in its first message: `render_modes` and, when it has a choice to state, `engine` and `resolution`. Without it,
+  /// `declaredModes`.
+  Map<String, dynamic> Function()? authFields;
+
+  /// The modes declared in the last first message.
+  List<String> declared = declaredModes;
+  bool _quick = false;
+
   Uri? _url;
   Map<String, String> _headers = const {};
   bool _wanted = false;
@@ -118,6 +132,15 @@ class GatewayClient extends ChangeNotifier {
     if (_wanted) return;
     _wanted = true;
     _loop();
+  }
+
+  /// Opens the connection again at once, to say again what the app can draw (the PC cannot be told that in the middle of a connection).
+  void reconnect() {
+    final c = _channel;
+    if (c == null) return;
+    _quick = true;
+    _channel = null;
+    c.close();
   }
 
   void close() {
@@ -142,7 +165,9 @@ class GatewayClient extends ChangeNotifier {
           break;
         }
         _channel = channel;
-        channel.sendText(jsonEncode({'type': 'auth', 'render_modes': declaredModes, 'device': deviceKind}));
+        final fields = authFields?.call() ?? const <String, dynamic>{};
+        declared = [for (final m in (fields['render_modes'] as List? ?? declaredModes)) '$m'];
+        channel.sendText(jsonEncode({'type': 'auth', 'device': deviceKind, ...fields, 'render_modes': declared}));
         await for (final m in channel.messages) {
           if (run != _run) break;
           _onMessage(m);
@@ -156,6 +181,10 @@ class GatewayClient extends ChangeNotifier {
       _channel = null;
       _forget();
       notifyListeners();
+      if (_quick) {
+        _quick = false;
+        continue;
+      }
       final secs = _backoff[min(_attempt, _backoff.length - 1)];
       _attempt++;
       await _wait(Duration(seconds: secs));
@@ -242,6 +271,9 @@ class GatewayClient extends ChangeNotifier {
         if (changed) onAvatar?.call(loaded);
       case 'render_mode':
         _readRender(m);
+        onRender?.call();
+      case 'visemes':
+        onVisemes?.call(m);
       case 'transcript':
         final text = '${m['text'] ?? ''}'.trim();
         if (text.isNotEmpty) {
@@ -258,6 +290,7 @@ class GatewayClient extends ChangeNotifier {
         lines.last.text += chunk;
       case 'reply_reset':
         if (_replyOpen) lines.last.text = '${m['text'] ?? ''}';
+        onReplyReset?.call();
       case 'audio_start':
         if (phase != Phase.listening) {
           phase = Phase.speaking;
@@ -384,6 +417,9 @@ class GatewayClient extends ChangeNotifier {
   void setBrain(String value) => _send({'type': 'brain', 'brain': value});
 
   void setPersona(String slug) => _send({'type': 'persona', 'persona': slug});
+
+  /// The mode in use does not work on this phone; the PC answers with the next one (`render_mode`), or `none`.
+  void sendRenderFailed(String mode, String why) => _send({'type': 'render_failed', 'mode': mode, 'why': why});
 
   void setRenderMode(String mode) => _send({'type': 'render_mode', 'mode': mode});
 

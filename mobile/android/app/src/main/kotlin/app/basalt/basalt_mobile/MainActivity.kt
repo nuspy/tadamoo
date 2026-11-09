@@ -15,10 +15,12 @@ class MainActivity : FlutterActivity() {
     private val request = 4711
     private var pending: MethodChannel.Result? = null
     private var audioRoute: AudioRouteChannel? = null
+    private var wav2lip: Wav2LipChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         audioRoute = AudioRouteChannel(this, flutterEngine.dartExecutor.binaryMessenger)
+        wav2lip = Wav2LipChannel(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "app.basalt/picker").setMethodCallHandler { call, result ->
             if (call.method != "pickDocuments") {
                 result.notImplemented()
@@ -49,6 +51,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         audioRoute?.release()
+        wav2lip?.release()
         super.onDestroy()
     }
 

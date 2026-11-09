@@ -51,6 +51,8 @@ dependencies:
   record: ^6.0.0
   flutter_pcm_sound: ^3.3.0
   flutter_webrtc: ^1.0.0
+  archive: ^4.5.2
+  crypto: ^3.0.7
 
 dev_dependencies:
   flutter_test:

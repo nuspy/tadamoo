@@ -67,6 +67,12 @@ class FakePlayer implements PcmPlayer {
   final List<int> received = [];
   final List<double> gains = [];
 
+  /// The clock of the voice, set by the tests.
+  @override
+  int queuedMs = 0;
+  @override
+  int playedMs = 0;
+
   @override
   Future<void> begin(int sampleRate) async => events.add('begin $sampleRate');
 

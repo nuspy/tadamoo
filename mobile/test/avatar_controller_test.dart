@@ -47,7 +47,7 @@ void main() {
   });
 
   test('the video is chosen with render_mode only when the PC offers it and is not already using it', () async {
-    await make();
+    await make(prefs: {'flutter.avatarMode': 'video'});
     final ch = await up(ready: {...readyMessage, 'render_mode': 'none', 'render_modes': ['video']});
     expect(ch.last('render_mode'), {'type': 'render_mode', 'mode': 'video'});
   });
@@ -167,13 +167,14 @@ void main() {
     expect(connector.channel.kinds, contains('video_start'));
   });
 
-  test('Wav2Lip and visemes are saved and have no engine in this build: no video is asked for, the voice works', () async {
+  test('Wav2Lip chosen but not drawable on this phone yet: only the video is declared, a PC that says none keeps the voice, and the choice of the mode moves the video', () async {
     await make(prefs: {'flutter.avatarMode': 'wav2lip'});
     expect(c.mode, 'wav2lip');
     expect(c.modeAvailable('wav2lip'), isFalse);
     expect(c.modeAvailable('visemes'), isFalse);
     expect(c.modeAvailable('video'), isTrue);
-    final ch = await up(ready: {...readyMessage, 'avatar': true});
+    final ch = await up(ready: {...readyMessage, 'avatar': true, 'render_mode': 'none', 'render_modes': []});
+    expect(ch.sent.first, {'type': 'auth', 'device': 'android', 'render_modes': ['video']});
     expect(devices.sessions, isEmpty);
     expect(ch.kinds, isNot(contains('video_start')));
     expect(ch.kinds, isNot(contains('render_mode')));
