@@ -1,11 +1,12 @@
 """The voice gateway: what one phone connection does. The server that accepts the connections is voice/gateway.py.
 
 Protocol (JSON text frames and binary PCM16 little-endian mono frames):
-  phone -> gw  {"type":"auth","token":"...","render_modes":["wav2lip","visemes","video"],"device":"android"}   first message; answered by auth_ok
-               (the token is not needed when the handshake proved it; render_modes are the ways the device can draw the avatar, best first;
-               a device that declares none gets the voice only)
+  phone -> gw  {"type":"auth","token":"...","render_modes":["wav2lip","visemes","video"],"device":"android","engine":"wav2lip_gan96","resolution":96}
+               first message; answered by auth_ok (the token is not needed when the handshake proved it; render_modes are the ways the device can
+               draw the avatar, best first; a device that declares none gets the voice only; engine and resolution are optional: the device's own
+               choice, else the person's choice for its kind of device, and the engine of that choice is served first)
   gw -> phone  {"type":"auth_ok"} then {"type":"ready","voice":bool,"missing":[...],"avatar":bool,"brain":"direct|harness","persona":"...",
-                "render_mode":"wav2lip|visemes|video|none","render_modes":[...],"avatar_name":"..."}
+                "render_mode":"wav2lip|visemes|video|none","render_modes":[...],"avatar_name":"...","engine":"...","resolution":px}
   gw -> phone  {"type":"state","voice":bool,"missing":[...],"avatar":bool}   whenever the loaded functions change
   phone -> gw  {"type":"start","mode":"hold|continuous","lang":"it","voice":"...","sample_rate":16000,"duplex":false}
   phone -> gw  <PCM16 frames>, then {"type":"end"} (hold mode only; continuous closes the turn on a pause)
@@ -40,6 +41,8 @@ import wave
 from pathlib import Path
 
 import numpy as np
+
+from voice.avatar_engines import selection as engine_selection
 
 from . import chunk_policy
 from .interruption_policy import Esito, classifica
@@ -144,6 +147,8 @@ class Connection:
         self._frames = None                       # receives the avatar worker's frames
         self._declared: list[str] = []            # the modes the device can draw, best first
         self._device = ""
+        self._want_engine = None                  # what the device declared in its auth message: an engine id and an output height
+        self._want_height = None
         self._failed: set[str] = set()            # modes the device reported as not working
         self._render_mode = "none"                # the mode served now (video is the device's own emergency video_start)
         self._avatar_name = ""
@@ -191,7 +196,7 @@ class Connection:
         self._render_mode = offered[0] if offered else "none"
         self._send_json({"type": "ready", "voice": state["voice"], "missing": state["missing"], "avatar": state["avatar"],
                          "brain": self.brain.mode, "persona": self.cfg.brain_persona, "render_mode": self._render_mode,
-                         "render_modes": offered, "avatar_name": self._avatar_name})
+                         "render_modes": offered, "avatar_name": self._avatar_name, **self._engine_fields(self._render_mode)})
         log.info("gateway: phone connected (voice %s, avatar %s, device %s, render %s)", state["voice"], state["avatar"], self._device or "?", self._render_mode)
         try:
             while True:
@@ -234,6 +239,23 @@ class Connection:
         self._declared = local + (["video"] if "video" in asked else [])
         device = msg.get("device")
         self._device = device if isinstance(device, str) and re.fullmatch(r"[a-z0-9_-]{1,32}", device) else ""
+        engine, height = msg.get("engine"), msg.get("resolution")
+        self._want_engine = engine if isinstance(engine, str) else None
+        self._want_height = height if isinstance(height, int) and not isinstance(height, bool) else None
+
+    def _wanted(self):
+        """(engine descriptor or None, height or None) this device is configured for: its own declaration, else the person's choice for its target."""
+        chosen = getattr(self.cfg, "avatar_engines", None)
+        selection = engine_selection.parse({"engines": chosen, "resolution": getattr(self.cfg, "avatar_resolution", None)}) if chosen else None
+        return engine_selection.wanted(selection, self._device, self._want_engine, self._want_height)
+
+    def _engine_fields(self, mode: str) -> dict:
+        """The engine and the output height that draw `mode` for this device, for the messages that name the mode; voice only has none."""
+        if mode not in RENDER_MODES:
+            return {"engine": "", "resolution": 0}
+        info, height = self._wanted()
+        engine, height = engine_selection.for_mode(mode, info, height, self._device)
+        return {"engine": engine, "resolution": height}
 
     def _offered(self) -> list[str]:
         """The declared modes this PC can serve to this device now, best first: wav2lip and visemes when the personality's avatar has the
@@ -247,7 +269,12 @@ class Connection:
             have.add("video")
         else:
             have.discard("video")
-        return [m for m in self._declared if m in have and m not in self._failed]
+        offered = [m for m in self._declared if m in have and m not in self._failed]
+        first = self._wanted()[0]
+        if first is not None and first.mode in ("visemes", "wav2lip") and first.mode in offered:      # the video stays where the device put it: last
+            offered.remove(first.mode)
+            offered.insert(0, first.mode)
+        return offered
 
     def _reselect(self, previous: str = "", why: str = "") -> None:
         """Looks again at what is offered after a change (the personality, a mode that failed) and tells the device when the mode or the avatar changed."""
@@ -257,7 +284,7 @@ class Connection:
         if mode == self._render_mode and self._avatar_name == before and not previous:
             return
         self._render_mode = mode
-        msg = {"type": "render_mode", "mode": mode, "render_modes": offered, "avatar_name": self._avatar_name}
+        msg = {"type": "render_mode", "mode": mode, "render_modes": offered, "avatar_name": self._avatar_name, **self._engine_fields(mode)}
         if previous:
             msg.update({"previous": previous, "why": why})
         self._send_json(msg)
@@ -338,7 +365,7 @@ class Connection:
             offered = self._offered()
             if mode in offered and mode != "video":
                 self._render_mode = mode
-                self._send_json({"type": "render_mode", "mode": mode, "render_modes": offered, "avatar_name": self._avatar_name})
+                self._send_json({"type": "render_mode", "mode": mode, "render_modes": offered, "avatar_name": self._avatar_name, **self._engine_fields(mode)})
             else:
                 self._send_json({"type": "error", "code": "render_mode_unavailable", "message": f"the PC does not offer {mode or '?'} to this device"})
             return True
