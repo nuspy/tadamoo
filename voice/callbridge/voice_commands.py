@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import re
 
+from .language_names import parse_language_command
+
 # codice interno -> parametri lingua/voce. `lang` e' la stringa passata a Handy
 # TTS (identica a quella usata dal phone server: en-us/fr-fr/pt-br, ecc.).
 LANG_TABLE: dict[str, dict] = {
@@ -126,18 +128,6 @@ def voice_for(code: str, gender: str | None) -> str:
 
 # --- parsing comandi vocali ----------------------------------------------
 
-# Verbi imperativi che introducono un cambio lingua o voce. Deliberatamente
-# solo verbi (non "lingua"/"voce" da soli): serve comunque un nome di lingua
-# noto (`_find_lang`), quindi i falsi positivi restano rari.
-_LANG_TRIGGER = re.compile(
-    r"\b("
-    r"cambia(?:re)?|parl[ai](?:re)?|pass[ai](?:re)?|"
-    r"mett[ii]|impost[ai]|us[ai]|vogli[o']|"
-    r"switch|speak|talk|change|set"
-    r")\b",
-    re.IGNORECASE,
-)
-
 # "nuova sessione / conversazione", "new session", "ricomincia", "azzera", ...
 _NEW_SESSION = re.compile(
     r"\b("
@@ -157,33 +147,13 @@ _BRAIN_VERB = r"(?:switch|go|change|move|use|talk|speak|back|pass[ai](?:re)?|vai
 _BRAIN_HARNESS = re.compile(r"\b" + _BRAIN_VERB + r"\b.*\b(?:agent|harness|agente)\b", re.IGNORECASE)
 _BRAIN_DIRECT = re.compile(r"\b" + _BRAIN_VERB + r"\b.*\b(?:direct|direttamente|diretto|diretta)\b", re.IGNORECASE)
 
-_GENDER_F = re.compile(r"\b(femmin[ae]|donna|female|woman)\b", re.IGNORECASE)
-_GENDER_M = re.compile(r"\b(maschi[oale]|uomo|male|man)\b", re.IGNORECASE)
-
-
-def _find_lang(text: str) -> str | None:
-    """Primo codice lingua il cui nome compare nel testo."""
-    low = text.lower()
-    for code, info in LANG_TABLE.items():
-        for name in info["names"]:
-            if re.search(r"\b" + re.escape(name) + r"\b", low):
-                return code
-    return None
-
-
-def _find_gender(text: str) -> str | None:
-    if _GENDER_M.search(text):
-        return "m"
-    if _GENDER_F.search(text):
-        return "f"
-    return None
-
 
 def parse_command(text: str) -> dict | None:
     """Riconosce un comando vocale se e' (in pratica) l'intero enunciato.
 
     Ritorna:
-      {"kind": "lang", "lang": <codice>, "gender": "f"|"m"|None}
+      {"kind": "lang", "lang": <codice ISO 639-1>, "gender": "f"|"m"|None}
+      {"kind": "lang_auto", "bare": bool}   (torna alla lingua automatica)
       {"kind": "new_session"}
       {"kind": "brain", "mode": "harness"|"direct"}
       None  -> non e' un comando (passa al cervello)
@@ -208,12 +178,8 @@ def parse_command(text: str) -> dict | None:
     if _NEW_SESSION.search(t) and n_words <= 7:
         return {"kind": "new_session"}
 
-    # Cambio lingua/voce: serve un verbo-trigger E un nome di lingua noto.
-    if _LANG_TRIGGER.search(t):
-        code = _find_lang(t)
-        if code:
-            return {"kind": "lang", "lang": code, "gender": _find_gender(t)}
-    return None
+    # Cambio lingua/voce, o ritorno alla lingua automatica (callbridge/language_names.py).
+    return parse_language_command(t)
 
 
 # --- rilevamento automatico della lingua ---------------------------------
