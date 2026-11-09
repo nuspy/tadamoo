@@ -150,7 +150,8 @@ Nothing was run. Line numbers refer to that HEAD (34fcd135); each finding's Stat
   `make_brain(cfg)`, which follows `brain_mode` and so may be the harness. It is started by hand only. Flask's `get_json` needs a JSON
   content type, so a simple cross-site POST does not parse; any local process can call it.
 - Fix: delete it (the Telegram path is now `tadamoo/telegram_bot.py`), or require a token and force the direct brain.
-- Status: open (left as is for now).
+- Status: closed in ab3693fd. Nothing started or imported it, so it is deleted together with its four config fields
+  (`telegram_wrapper_*`, `telegram_bridge_*`); Telegram goes through `tadamoo/telegram_bot.py` only.
 
 ### V-11 Low: no block on premium-rate numbers, and a narrow emergency rule
 - Where: `voice/callbridge/call_policy.py:61-75,288-333`. With `outgoing_approval: auto`, a `program` caller can dial any 6-15 digit number,
@@ -158,19 +159,45 @@ Nothing was run. Line numbers refer to that HEAD (34fcd135); each finding's Stat
   `X-Call-Origin` is not forwarded (`serve/voice_compat.py:227-233`), so a program stays `program`. That part is correct.
 - Fix: add a configurable deny-list of premium prefixes, and let `auto` apply only to numbers in the contacts.
 - Test: `voice/tests/test_call_policy.py` covers emergency numbers; it has no premium case.
-- Status: open: with `auto` the person chose to let programs dial, at their own risk.
+- Status: closed in 617865bd, with two switches the person owns. (1) `telephony.premium_prefixes`: a deny-list (IT 89x/144/166, US/CA 900/976,
+  UK 09x/070/087x, FR 089x/0836 and the 118 directory services, DE 0900/0137/0190, satellite and international premium codes), editable
+  in Settings > Voice; the agent and programs are refused with 403 `premium_number` in `manual` and `auto`; a call by hand is never limited;
+  an empty list turns it off. It is a starting list, not every tariff in the world. (2) `telephony.auto_contacts_only` (off by default) with
+  `telephony.contacts`: `auto` then approves only those numbers and any other asks. Left off, `auto` still lets programs dial any number
+  outside the list at the person's own risk and cost, which docs/voice/telephony.md states. Emergency recognition now also covers a
+  country code without `+` (`39112`), the two-digit French numbers after a code (`+33 17`), a switchboard prefix (`0112`, `9911`) and more
+  helplines. `X-Call-Origin` stays dropped on TaDaMoo's port, so a program stays `program`; the person's phone gets its own channel
+  (below). Tests: `voice/tests/test_call_policy.py`, `serve/tests/test_voice_telephony_settings.py`, `voice/tests/test_settings_bridge.py`.
+- Phone origin, closed in eb064405: `POST /api/voice/phone/call` (`serve/voice_phone_call.py`) derives the origin from the channel. Only a
+  request on the listener for phones with a key, and with the person's switch `telephony.phone_calls` on (off by default), reaches the
+  service's call-by-hand route (origin `user`); a program on this PC, whatever key or `X-Call-Origin` it sends, is refused with
+  403 `phone_only`. The header is neither read nor passed on. Risk left to the person: with the switch on, a stolen phone key can dial
+  (premium numbers included, as for any call by hand) until the key is taken away in Settings > Phones. Test:
+  `serve/tests/test_voice_phone_call.py`. The Flutter app needs no change (no header); it has no call screen yet and only has to post
+  that route with its key.
 
 ### V-12 Low: the service token is masked only in text answers
 - Where: `serve/voice_compat.py:258-283` streams binary answers without masking. The service never puts the token in a binary answer
   today. Fix: none needed now; keep it in mind for new routes.
-- Status: open, nothing to change now.
+- Status: closed in 40e540fd. The streamed branch of `voice_compat._relay` goes through `_TokenGuard`, which holds back the last
+  `len(token)-1` bytes of every chunk, so a token split between two chunks is caught too; an answer that carries the token is cut off (the
+  connection closes short of its length) and logged, and a header value has the token replaced by `[hidden]`. A test serves the token in a
+  binary body, across the 1 MiB chunk edge and in a header, tests the guard at every split point, and scans the module so that a new read
+  path cannot stream around the guard (`serve/tests/test_voice_compat.py`).
 
 ### V-13 Info: provenance of the vendored code
 - Ultralight and FeatherTalk: per-file SHA-256 is checked by `voice/tests/test_avatar_engine_vendor.py`. MuseTalk
   (`voice/avatar/musetalk/VENDORED.md`) names a commit but has no hash table or test, and is edited in place. Its scripts build shell
   commands with `os.system` (`scripts/inference.py:122-123`, `realtime_inference.py:297-303`); the app does not call them.
 - `rtx_video_path` (`serve/voice_settings.py:378-380`) is an HTTP-settable DLL path that nothing loads yet; once it is loaded, it becomes V-02.
-- Status: open. Since 4ad18c2f a website can no longer set `rtx_video_path`.
+- Status: closed. MuseTalk has a per-file SHA-256 table in `VENDORED.md` and `voice/tests/test_avatar_musetalk_vendor.py` checks it (6c2fb1aa).
+  The upstream blobs are not kept, since this copy is edited in place, so the table pins the committed state and a change is deliberate. The
+  two scripts that call `os.system` carry a comment that the app never runs them, and the test fails if the app names them or if
+  `os.system` appears in another file. Accepted: the scripts stay as upstream's command-line entry points.
+- `rtx_video_path` (050f49b8): nothing loads it yet, so it is kept (the Settings page and the capability check use it) but held to a strict shape,
+  on both sides of the settings: a drive or POSIX absolute path ending in `.dll` (no network, device or relative path, no control
+  characters), a file that exists when it is set, and set only from this PC through `/api/voice/avatar` (a phone is refused, a website
+  by the origin guard, which a test covers). When the SDK binding is written it must still go through V-02's rules.
 
 ## Claims in docs/voice checked
 - "the token never leaves the server": holds for `voice_proxy`, `voice_compat` (textual answers) and the relay.
