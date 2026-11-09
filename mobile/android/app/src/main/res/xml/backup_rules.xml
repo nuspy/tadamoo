@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- only the app's settings (the PC's address and key, the preferences) go to the phone's backup -->
+<!-- nothing is backed up: the preferences hold the PC's address and this phone's key, which stay on this phone -->
 <full-backup-content>
-    <include domain="sharedpref" path="FlutterSharedPreferences.xml"/>
+    <exclude domain="sharedpref" path="FlutterSharedPreferences.xml"/>
+    <exclude domain="sharedpref" path="."/>
 </full-backup-content>

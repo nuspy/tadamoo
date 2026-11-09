@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- only the app's settings (the PC's address and key, the preferences) go to the cloud backup or to a new phone -->
+<!-- nothing goes to the cloud backup or to a new phone: the preferences hold the PC's address and this phone's key -->
 <data-extraction-rules>
     <cloud-backup>
-        <include domain="sharedpref" path="FlutterSharedPreferences.xml"/>
+        <exclude domain="sharedpref" path="FlutterSharedPreferences.xml"/>
+        <exclude domain="sharedpref" path="."/>
     </cloud-backup>
     <device-transfer>
-        <include domain="sharedpref" path="FlutterSharedPreferences.xml"/>
+        <exclude domain="sharedpref" path="FlutterSharedPreferences.xml"/>
+        <exclude domain="sharedpref" path="."/>
     </device-transfer>
 </data-extraction-rules>
