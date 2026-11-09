@@ -54,6 +54,7 @@
     const list = el("div", "vo-list");
     S.services.forEach(svc => list.append(card(svc)));
     host.replaceChildren(el("p", "vo-intro", T("vo.intro")), folderBox(), downloadBox(), list);
+    host.append(importBox());
     if (focus) { const f = document.getElementById(focus); if (f) f.focus(); }
   }
   function note(text, bad) {
@@ -159,6 +160,98 @@
     const mem = select([["vram", T("vo.memory.vram")], ["ram", T("vo.memory.ram")]], p.memory, v => change(v === "vram" && p.device === "cpu" ? { device: "auto", memory: v } : { memory: v }));
     row.append(field("vo-device-" + svc.id, T("vo.device"), dev), field("vo-memory-" + svc.id, T("vo.memory"), mem));
     return row;
+  }
+
+  /* ---- import from callAPIcall: the plan, what is personal, the run ---- */
+  const SUGGESTED = "C:\\Projects\\callAPIcall";                        // only a suggestion in the field: nothing is read until the button is pressed
+  const IM = { source: SUGGESTED, plan: null, pick: {}, busy: "", msg: { text: "", bad: false }, result: null };
+  const IM_KIND = { persona: () => T("vo.im.kind.persona"), voice: () => T("vo.im.kind.voice") };
+  const IM_WHY = { memory: () => T("vo.im.why.memory"), "video-or-photo": () => T("vo.im.why.video"), "voice-recording": () => T("vo.im.why.voice") };
+  const IM_STATUS = { created: () => T("vo.im.st.created"), updated: () => T("vo.im.st.updated"), skipped: () => T("vo.im.st.skipped"),
+    needs_confirmation: () => T("vo.im.st.needs"), failed: () => T("vo.im.st.failed") };
+  const imPick = id => IM.pick[id] || (IM.pick[id] = { on: null, replace: false, personal: false });
+  const imChosen = it => { const p = imPick(it.id); return it.conflict ? p.replace : p.on === null ? !it.problems.length : p.on; };
+  const imReady = () => !!IM.plan && IM.plan.items.some(imChosen) && IM.plan.items.every(it => !imChosen(it) || !it.personal || imPick(it.id).personal);
+  async function imLook() {
+    IM.busy = "look"; IM.msg = { text: "", bad: false }; IM.result = null; paint();
+    const r = await api("POST", "api/voice/import/plan", { source: IM.source.trim() });
+    IM.busy = "";
+    if (r.ok) { IM.plan = r.data; IM.pick = {}; } else { IM.plan = null; IM.msg = { text: errText(r), bad: true }; }
+    paint();
+  }
+  async function imRun() {
+    const items = IM.plan.items.filter(imChosen).map(it => ({ id: it.id, replace: !!it.conflict, confirm_personal: !!(it.personal && imPick(it.id).personal) }));
+    IM.busy = "run"; IM.msg = { text: "", bad: false }; paint();
+    const r = await api("POST", "api/voice/import/run", { source: IM.plan.source, confirm: true, items });
+    IM.busy = "";
+    if (r.ok) { IM.result = r.data; IM.plan = null; } else IM.msg = { text: errText(r), bad: true };
+    paint();
+  }
+  function imItem(it) {
+    const p = imPick(it.id), box = el("li", "vo-im-item"), id = "vo-im-" + it.id.replace(/[^A-Za-z0-9_-]/g, "_");
+    const head = el("div", "vo-state");
+    head.append(chip(IM_KIND[it.kind] ? IM_KIND[it.kind]() : it.kind), chip(gb(it.bytes || 0)));
+    if (it.personal) head.append(chip(T("vo.im.personal"), "vo-warn"));
+    box.append(el("h4", "vo-h2", it.name), head);
+    if (it.parts) box.append(el("p", "vo-help", T("vo.im.parts", it.parts.clips.count, it.parts.documents.count, it.parts.memory.sessions)));
+    (it.skipped || []).forEach(s => box.append(el("p", "vo-help", T("vo.im.skipped", s.name, gb(s.bytes)))));
+    it.notes.forEach(n => box.append(el("p", "vo-help", n)));
+    if (it.problems.length) {
+      const bad = el("ul", "vo-problems");
+      bad.setAttribute("role", "alert");
+      it.problems.forEach(x => bad.append(el("li", "", x)));
+      box.append(bad);
+      return box;
+    }
+    const check = (cid, text, checked, set) => {
+      const row = el("label", "vo-check"), input = el("input");
+      input.type = "checkbox"; input.id = cid; input.checked = checked;
+      input.onchange = () => { set(input.checked); paint(); };
+      row.append(input, el("span", "", text));
+      return row;
+    };
+    if (it.conflict) box.append(el("p", "vo-help", T("vo.im.exists")), check(id + "-replace", T("vo.im.replace"), p.replace, v => { p.replace = v; }));
+    else box.append(check(id + "-on", T("vo.im.use", it.name), imChosen(it), v => { p.on = v; }));
+    if (it.personal && imChosen(it)) {
+      box.append(el("p", "vo-help", T("vo.im.personal.why", it.personal_reasons.map(w => (IM_WHY[w] || (() => w))()).join(", "))),
+        check(id + "-personal", T("vo.im.personal.ok"), p.personal, v => { p.personal = v; }));
+    }
+    return box;
+  }
+  function importBox() {
+    const box = el("section", "vo-card vo-im"), h = el("h3", "vo-h", T("vo.im.title"));
+    box.id = "vo-im"; h.id = "vo-im-h";
+    box.setAttribute("aria-labelledby", h.id);
+    box.append(h, el("p", "vo-help", T("vo.im.intro")));
+    const input = el("input"), form = el("div", "vo-form");
+    input.type = "text"; input.value = IM.source; input.autocomplete = "off"; input.spellcheck = false;
+    input.oninput = () => { IM.source = input.value; };
+    const look = btn(IM.busy === "look" ? T("vo.im.looking") : T("vo.im.look"), "primary", imLook, "vo-im-look");
+    look.disabled = !!IM.busy;
+    form.append(field("vo-im-source", T("vo.im.source"), input), look);
+    box.append(form, el("p", "vo-help", T("vo.im.suggest", SUGGESTED)), note(IM.msg.text, IM.msg.bad));
+    if (IM.plan) {
+      if (!IM.plan.items.length) box.append(el("p", "vo-help", T("vo.im.none")));
+      const list = el("ul", "vo-im-items");
+      IM.plan.items.forEach(it => list.append(imItem(it)));
+      const go = btn(IM.busy === "run" ? T("vo.im.running") : T("vo.im.run"), "primary", imRun, "vo-im-run");
+      go.disabled = !imReady() || !!IM.busy;
+      box.append(list, go);
+      if (!imReady() && IM.plan.items.some(imChosen)) box.append(el("p", "vo-help", T("vo.im.need.confirm")));
+    }
+    if (IM.result) {
+      const list = el("ul", "vo-im-items");
+      list.id = "vo-im-result";
+      IM.result.results.forEach(r => {
+        const li = el("li", "vo-im-item");
+        li.append(el("h4", "vo-h2", r.name || r.id), chip(IM_STATUS[r.status] ? IM_STATUS[r.status]() : r.status));
+        if (r.message) li.append(el("p", "vo-help", r.message));
+        (r.warnings || []).forEach(w => li.append(el("p", "vo-help", w)));
+        list.append(li);
+      });
+      box.append(el("h4", "vo-h2", T("vo.im.result")), list);
+    }
+    return box;
   }
 
   /* ---- download: plan, license, confirm ---- */
