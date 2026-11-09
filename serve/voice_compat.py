@@ -36,7 +36,6 @@ SOON = {
     "load": "Voice functions are loaded and unloaded from the Voice functions dialog in the Loader.",
     "stream": "Streaming over a WebSocket is not offered on this port yet.",
     "personas": "The personalities are TaDaMoo's own: use /api/personas (Settings > Personalities); this callAPIcall route is not offered.",
-    "meetings": "Meetings, the meeting bot and the calendar come with the meeting phase, with the consent they need.",
 }
 
 
@@ -86,7 +85,17 @@ ROUTES: tuple[Route, ...] = (
     # not there yet
     _r("", r"/personas(?:/.*)?", kind="local", soon=SOON["personas"]),
     _r("", r"/avatar/(?!preview\.mjpg|stream).*", kind="local", timeout=60.0),                    # the avatar function of the service; the live streams have their own routes
-    _r("", r"/(?:meetbot|meetings|calendar)(?:/.*)?", kind="local", soon=SOON["meetings"]),
+    # meetings: a program on this PC may start the bot, but the announcement and the consent rule are the service's and cannot be skipped
+    _r("POST", r"/meetbot/(?:join|leave)", kind="local", timeout=60.0),
+    _r("GET", r"/meetbot/status", kind="local"),
+    _r("GET", r"/meetings/list", kind="local"),
+    _r("GET", rf"/meetings/{_ID}(?:/transcript)?", kind="local"),
+    _r("DELETE", rf"/meetings/{_ID}", kind="local"),
+    _r("GET", r"/calendar/(?:status|events)", kind="local"),
+    _r("POST", r"/calendar/(?:google|microsoft)/(?:connect|disconnect)", kind="local"),
+    _r("POST", r"/calendar/events/[A-Za-z0-9][A-Za-z0-9:_=.+-]{0,199}/autojoin", kind="local"),
+    _r("GET", r"/copilot/state", kind="local"),
+    _r("POST", r"/copilot/toggle", kind="local"),
 )
 
 
