@@ -53,8 +53,8 @@ Errors made here are `{"error": "<text>", "code": "<code>"}`, the form callAPIca
 | `/voices/cloned` | GET | api | |
 | `/voices/clone`, `/voices/cloned/<name>` | POST, DELETE | local | samples in `<models folder>/tts/voices` |
 | `/models/status`, `/models/available` | GET | api | |
-| `/session/state`, `/session/language` | GET | local | |
-| `/session/start`, `/stop`, `/new`, `/language` | POST | local | |
+| `/session/state`, `/session/language` | GET | local | the language, its mode and the languages enabled: `docs/voice/language.md` |
+| `/session/start`, `/stop`, `/new`, `/language` | POST | local | `/language` takes a language the person enabled, or `auto` |
 | `/meetbot/join` | POST | local | the meeting bot; a join needs `rights_confirmed: true` and the announcement and consent rule apply. Refused with `403 programs_join_off` unless `meetings.allow_programs_join` is on (`meetings.md`) |
 | `/meetbot/leave` | POST | local | |
 | `/meetbot/status`, `/meetings/list`, `/meetings/<id>`, `/meetings/<id>/transcript` | GET | local | |

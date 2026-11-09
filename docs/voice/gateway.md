@@ -34,14 +34,16 @@ Text frames are JSON, binary frames are 16-bit little-endian mono PCM. Phone to 
 | `text {text, lang}` | a typed or corrected sentence: the same turn without the STT |
 | `interrupt`, or a new `start`/`text` while a reply plays | the reply stops |
 | `brain {brain: direct\|harness}`, `persona {persona: slug}` | who answers; each is confirmed by the same message |
+| `language {language: "fr" \| "auto"}` | the person's own request: a language they enabled, or back to the automatic mode (`language.md`) |
 | `render_mode {mode}`, `render_failed {mode, why}` | choose among the modes offered; report one that does not work (Render modes) |
 | `render_modes {modes, engine?, resolution?}` | the device's capabilities changed: declare them again on the open connection (Render modes) |
 | `video_start {reason: "emergency", sdp, sdp_type, persona?, brain?}`, `video_stop` | WebRTC video of the avatar, an emergency only |
 
 | PC to phone | Meaning |
 |---|---|
-| `ready {voice, missing, avatar, brain, persona, render_mode, render_modes, avatar_name}` | the connection is open |
-| `state {voice, missing, avatar}` | sent when the loaded functions change (checked once a second while idle) |
+| `ready {voice, missing, avatar, brain, persona, render_mode, render_modes, avatar_name, language, language_mode}` | the connection is open; `language_mode` is `follow` or `locked` (`language.md`) |
+| `state {voice, missing, avatar, language, language_mode}` | sent when the loaded functions change (checked once a second while idle), and, when the language follows the speech, when it changes |
+| `language {language, mode, reason, warning, engine_fallback}` | the spoken language or its mode changed, or a request was refused (`language.md`) |
 | `transcript {text}`, `reply {chunk}`, `reply_reset {text}` | what was heard; the answer as it is written |
 | `audio_start {sample_rate, segment}`, PCM, `audio_end` | the voice of the answer (or the media track, see below) |
 | `visemes {segment, text, lang, duration_ms, pcm_bytes, visemes}` | visemes mode: the timeline of a segment, before its PCM |

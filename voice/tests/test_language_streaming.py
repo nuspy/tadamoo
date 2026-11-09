@@ -182,3 +182,15 @@ def test_no_phrase_selects_an_engine_even_from_the_person():
     drive(s, stt, tts, ("use Piper", None), ("cambia motore", None), ("usa il motore francese", None))
     assert tts.configured == [] and s.voice_engine == "" and router.changes == []
     assert len([a for a in brain.asked if "marker" not in a[0]]) == 3          # all three went to the brain as ordinary speech
+
+
+def test_meetings_calls_and_the_phone_call_paths_never_use_the_language_state():
+    """A meeting or a call keeps the language that is set: nothing in those modules reaches the follower, the commands or the detection."""
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parents[1] / "callbridge"
+    files = list((root / "meetbot").glob("*.py")) + [root / n for n in ("call_service.py", "gsm_call.py", "call_policy.py", "orchestrator.py", "copilot.py")]
+    assert len(files) > 5
+    for f in files:
+        text = f.read_text(encoding="utf-8")
+        for word in ("language_session", "language_follow", "language_names", "parse_language_command", "take_language_info"):
+            assert word not in text, (f.name, word)
