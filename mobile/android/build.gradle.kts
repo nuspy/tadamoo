@@ -15,6 +15,14 @@ subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
+// A plugin that pins an old compileSdk is built against the one the app uses, which its androidx dependencies require.
+subprojects {
+    afterEvaluate {
+        extensions.findByName("android")?.let { android ->
+            (android as com.android.build.gradle.BaseExtension).compileSdkVersion(36)
+        }
+    }
+}
 subprojects {
     project.evaluationDependsOn(":app")
 }
