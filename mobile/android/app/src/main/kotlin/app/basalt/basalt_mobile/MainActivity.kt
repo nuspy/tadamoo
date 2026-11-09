@@ -14,9 +14,11 @@ import java.io.File
 class MainActivity : FlutterActivity() {
     private val request = 4711
     private var pending: MethodChannel.Result? = null
+    private var audioRoute: AudioRouteChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        audioRoute = AudioRouteChannel(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "app.basalt/picker").setMethodCallHandler { call, result ->
             if (call.method != "pickDocuments") {
                 result.notImplemented()
@@ -38,6 +40,16 @@ class MainActivity : FlutterActivity() {
             }
             startActivityForResult(intent, request)
         }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        audioRoute?.onPermission(requestCode, grantResults)
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    }
+
+    override fun onDestroy() {
+        audioRoute?.release()
+        super.onDestroy()
     }
 
     @Deprecated("Deprecated in Java")
