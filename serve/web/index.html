@@ -40,6 +40,7 @@
 <link rel="stylesheet" href="web/longform.css">
 <link rel="stylesheet" href="web/promptswitch.css">
 <link rel="stylesheet" href="web/sideuses.css">
+<link rel="stylesheet" href="web/narrow.css">
 <script defer src="web/i18n.js"></script>
 <script defer src="web/cuttext.js"></script>
 <script defer src="web/risk.js"></script>
@@ -51,6 +52,7 @@
 <script defer src="web/chatset.js"></script>
 <script defer src="web/chat.js"></script>
 <script defer src="web/chatsize.js"></script>
+<script defer src="web/chathead.js"></script>
 <script defer src="web/projects.js"></script>
 <script defer src="web/askcard.js"></script>
 <script defer src="web/singleflight.js"></script>
@@ -390,6 +392,8 @@
     <section class="sec chatbox" aria-label="Chat">
       <div class="sh chathead">
         <button type="button" class="btn" id="new-chat" data-t="ch.newbtn">New conversation</button>
+        <button type="button" class="btn ch-more" id="ch-more" aria-haspopup="true" aria-expanded="false" aria-controls="ch-morepanel" data-t="ch.more">More</button>
+        <div class="ch-panel" id="ch-morepanel">
         <button type="button" class="btn" id="branches-open" aria-haspopup="dialog" aria-expanded="false" aria-controls="branches" data-t="br.open" hidden>Branches</button>
         <button type="button" class="btn" id="export-open" aria-haspopup="dialog" data-t="exp.btn" data-t-title="exp.btn.title">Export</button>
         <button type="button" class="btn" id="tgm-move" aria-haspopup="dialog" aria-expanded="false" aria-controls="tgm-pop" data-t="tgm.move" hidden>Move to Telegram</button>
@@ -399,10 +403,10 @@
         <button type="button" class="btn" id="forget-open">Forget</button>
         <button type="button" class="btn" id="pskills-open" aria-haspopup="dialog" data-t="psk.btn" data-t-title="psk.btn.title" hidden>Skills</button>
         <button type="button" class="btn" id="chg-open" aria-expanded="false" aria-controls="chg-side" data-t="ch.title" hidden>Changes</button>
-        <span class="folderchip" id="folder-chip" hidden></span>
+        <span class="folderchip ch-keep" id="folder-chip" hidden></span>
         <button type="button" class="btn" id="branch-chat" data-t="ch.branch" hidden>Branch here</button>
-        <button type="button" class="modechip" id="mode-chip" aria-keyshortcuts="Shift+Tab" hidden></button>
-        <span class="learnbadge" id="learn-badge" role="status" hidden></span>
+        <button type="button" class="modechip ch-keep" id="mode-chip" aria-keyshortcuts="Shift+Tab" hidden></button>
+        <span class="learnbadge ch-keep" id="learn-badge" role="status" hidden></span>
         <span id="chat-model" hidden></span>
         <span class="grow"></span>
         <div class="ps" id="ps-chat" data-panel="ps-chat-panel"></div>
@@ -436,6 +440,7 @@
           <button type="button" class="btn vs-btn" id="vs-width-up" aria-label="Wider conversation"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M3 12h7M14 12h7M7 8l-4 4 4 4M17 8l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         </span>
         <div class="ps-panel" id="ps-chat-panel" hidden></div>
+        </div>
       </div>
       <div class="acopy" id="acopy" hidden>
         <span class="acopy-text" id="acopy-text" role="status"></span>

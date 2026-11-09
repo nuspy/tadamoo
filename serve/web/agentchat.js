@@ -165,8 +165,17 @@
     t.title = T(open ? "cv.shut" : "cv.open");
     t.setAttribute("aria-label", t.title);
   }
-  setColumn(load(CV_KEY, "1") !== "0");
-  $("#cv-toggle").onclick = () => { const open = convs.classList.contains("shut"); setColumn(open); keep(CV_KEY, open ? "1" : "0"); };
+  /* on a narrow screen the column is a panel above the chat: it starts shut, is not remembered and closes once a conversation is chosen */
+  const narrow = window.matchMedia("(max-width: 860px)");
+  const wanted = () => !narrow.matches && load(CV_KEY, "1") !== "0";
+  const dismiss = () => { if (narrow.matches) setColumn(false); };
+  setColumn(wanted());
+  narrow.addEventListener("change", () => setColumn(wanted()));
+  $("#cv-toggle").onclick = () => { const open = convs.classList.contains("shut"); setColumn(open); if (!narrow.matches) keep(CV_KEY, open ? "1" : "0"); };
+  convs.addEventListener("keydown", e => {
+    if (e.key !== "Escape" || e.defaultPrevented || !narrow.matches || convs.classList.contains("shut")) return;
+    e.preventDefault(); dismiss(); $("#cv-toggle").focus();
+  });
   function convRow(s) {
     const name = s.title || s.id, li = mk("li", "cv");
     if (s.id === sid) li.setAttribute("aria-current", "true");
@@ -174,7 +183,7 @@
     open.type = "button";
     open.append(mk("span", "cv-t", name), mk("span", "cv-s", `${T("ch.state." + s.state)} \u00B7 ${when(s.updated)}`));
     if (s.telegram_chat) open.append(mk("span", "cv-tgm", T("tgm.badge")));
-    open.onclick = () => { if (s.id !== sid) openSession(s.id); };
+    open.onclick = () => { dismiss(); if (s.id !== sid) openSession(s.id); };
     const star = mk("button", "cv-fav", s.favorite ? "\u2605" : "\u2606");
     star.type = "button";
     star.setAttribute("aria-pressed", String(!!s.favorite));
@@ -217,7 +226,7 @@
     const plus = mk("button", "cv-act", "+"), gone = mk("button", "cv-act", "\u2715");
     plus.type = gone.type = "button";
     plus.title = T("ag.proj.new"); plus.setAttribute("aria-label", `${plus.title}: ${p.name}`);
-    plus.onclick = () => { setProject(p.path); newChat(); $("#prompt").focus(); };
+    plus.onclick = () => { setProject(p.path); dismiss(); newChat(); $("#prompt").focus(); };
     gone.title = T("ag.proj.remove"); gone.setAttribute("aria-label", `${gone.title}: ${p.name}`);
     gone.onclick = async () => { await window.agentProjects.remove(p.path); projects = window.agentProjects.list(); if (sameDir(p.path, curProject)) setProject(""); paintList(); setControls(); };
     head.append(name, plus, gone);
