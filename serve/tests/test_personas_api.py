@@ -246,6 +246,11 @@ class Routes(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("Calm.", composed["system"])
         self.assertIn("e-bikes", composed["memory"])
+        self.assertEqual(self.call("POST", "/api/personas/route-test/learn", {"conversation": "abc123", "messages": [{"role": "user", "text": "hello there"}]}), (200, {"queued": False}))     # no worker here
+        self.assertEqual(self.call("POST", "/api/personas/route-test/learn", {"conversation": "../x", "messages": []})[0], 400)
+        self.assertEqual(self.call("POST", "/api/personas/route-test/update", {"learn": False})[1]["persona"]["learn"], False)
+        self.assertEqual(self.call("POST", "/api/personas/route-test/memory/forget-learned", {})[0], 400)
+        self.assertEqual(self.call("POST", "/api/personas/route-test/memory/forget-learned", {"confirm": True}), (200, {"forgotten": 0}))
         self.assertEqual(self.call("POST", "/api/personas/route-test/delete", {})[0], 400)
         self.assertEqual(self.call("POST", "/api/personas/route-test/delete", {"confirm": True})[1]["deleted"], True)
         self.assertEqual(self.call("GET", "/api/personas/route-test")[0], 404)
@@ -260,7 +265,7 @@ class Routes(unittest.TestCase):
     def test_only_this_pc_reaches_them(self):
         with mock.patch.object(handler.settings, "is_loopback", lambda address: False):
             for method, path in (("GET", "/api/personas"), ("GET", "/api/personas/x"), ("POST", "/api/personas"), ("POST", "/api/personas/x/compose"),
-                                 ("POST", "/api/personas/x/memory/item")):
+                                 ("POST", "/api/personas/x/memory/item"), ("POST", "/api/personas/x/learn"), ("POST", "/api/personas/x/memory/forget-learned")):
                 status, _ = self.call(method, path, {} if method == "POST" else None)
                 self.assertEqual(status, 403, path)
 

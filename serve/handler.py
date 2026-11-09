@@ -70,6 +70,7 @@ from tadamoo.scheduler import RoutineError
 from serve.wallet_api import WalletApi, WalletError
 from serve.websearch_api import WebSearchApi, WebSearchError
 from serve.telegram_service import TelegramService, TelegramServiceError
+from serve.persona_learning_worker import PersonaLearningWorker
 from serve.personas_api import PersonasApi
 from serve.rag_api import RagApi, upload_limit
 from tadamoo.rag import RagError, RagStore
@@ -175,6 +176,7 @@ _WALLET = None                                         # the vault and the payme
 _WEBSEARCH = None                                      # Settings > Web search, made on first use
 _TELEGRAM = None                                       # the Telegram bot and its settings, made on first use
 _PERSONAS = None                                       # Settings > Personalities, made on first use
+_PERSONA_LEARNING = None                               # a personality learns from a conversation once it is over, when the GPU is free
 _RAG = None                                            # the knowledge archives (the Knowledge tab), made on first use
 _MCP_AUTH = None                                       # the sign-in of the remote MCP servers, made on first use
 _PLANS = None                                          # the planner's service, made on first use
@@ -2531,7 +2533,20 @@ def make_handler(svc: Service, remote: bool = False):
             global _PERSONAS
             if _PERSONAS is None:
                 _PERSONAS = PersonasApi(PersonaStore(userdata.path("personas"), key_dir=userdata.path("vault")), rag=self._rag_store())
+                _PERSONAS.learning = self._persona_learning()
             return _PERSONAS
+
+        def _persona_learning(self) -> PersonaLearningWorker:
+            """Writes what a personality learns from its conversations, in the background; the conversations tell it when a turn ends."""
+            global _PERSONA_LEARNING
+            if _PERSONA_LEARNING is None:
+                from tadamoo.client import TadamooClient
+                endpoint = f"http://127.0.0.1:{self.server.server_address[1]}"
+                worker = PersonaLearningWorker(self._personas().store, lambda: TadamooClient(base_url=endpoint, api_key=svc.api_key or None),
+                                               lambda: gpu_free(svc, mine=worker.last))
+                _PERSONA_LEARNING = worker
+                worker.start()
+            return _PERSONA_LEARNING
 
         def _rag_store(self) -> RagStore:
             global _RAG
@@ -2598,6 +2613,8 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, api.delete(parts[0], req))
                 if len(parts) == 2 and parts[1] == "compose":
                     return self._json(200, api.compose(parts[0], req))
+                if len(parts) == 2 and parts[1] == "learn":
+                    return self._json(200, api.learn(parts[0], req))
                 if len(parts) == 3 and parts[1] == "memory":
                     return self._json(200, api.memory(parts[0], parts[2], req))
                 return self._json(404, {"error": {"message": "not found"}})
@@ -2652,7 +2669,7 @@ def make_handler(svc: Service, remote: bool = False):
             return _CARDS
 
         def _forgetter(self) -> Forgetter:
-            return Forgetter(self._past(), self._personal(), userdata.path(MEMORY_EXPORT))
+            return Forgetter(self._past(), self._personal(), userdata.path(MEMORY_EXPORT), self._personas().store)
 
         def _diagram_fix_post(self):
             """POST /api/diagram/fix: the page could not draw a diagram; the source and the library's message come back as a corrected source (empty when none)."""
@@ -3278,7 +3295,8 @@ def make_handler(svc: Service, remote: bool = False):
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
                                            skills_dir=userdata.path("personal-skills"), projects=self._projects(),
                                            personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), personas_dir=userdata.path("personas"), rag_dir=userdata.path("rag"), learn=self._memory_worker().offer, past=self._past(),
-                                           exec_level_file=userdata.path(exec_level.FILE), persistence_file=userdata.path(persistence.FILE), next_steps_file=userdata.path(nextsteps.FILE), lessons_dir=userdata.path("lessons"), forgetter=self._forgetter(), cards=self._card_worker())
+                                           exec_level_file=userdata.path(exec_level.FILE), persistence_file=userdata.path(persistence.FILE), next_steps_file=userdata.path(nextsteps.FILE), lessons_dir=userdata.path("lessons"), forgetter=self._forgetter(), cards=self._card_worker(), persona_learning=self._persona_learning())
+                _PERSONA_LEARNING.source = _SESSIONS.learning_source
                 threading.Thread(target=_SESSIONS.index_all_past, name="past-backfill", daemon=True).start()      # the conversations saved before the index
                 self._routines()                          # the clock of the routines starts with the conversations
             return _SESSIONS
