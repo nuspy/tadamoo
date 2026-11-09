@@ -177,6 +177,7 @@ def test_a_session_started_for_a_brain_uses_a_fork_in_that_mode(monkeypatch):
     class Fake:
         phase = "idle"
         language = "it"
+        language_mode = "follow"
 
         def __init__(self, cfg, brain, *a, **k):
             made.append(brain)

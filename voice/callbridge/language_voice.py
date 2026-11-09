@@ -20,14 +20,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .language_follow import iso
-from .voice_commands import LANG_TABLE
+from .voice_commands import LANG_TABLE, table_key
 
 # Engines whose voices are speakers rendered in any language of the engine (catalog.EngineSpec.voices_from == "cloned").
 IDENTITY_ENGINES = ("xtts", "chatterbox", "cosyvoice", "qwen3tts", "dia")
-
-_TABLE_KEY: dict[str, str] = {}
-for _key in LANG_TABLE:
-    _TABLE_KEY.setdefault(iso(_key), _key)
 
 FALLBACK = "fallback"            # the selected engine cannot speak the language: Piper does
 ENGINE_CANNOT = "engine_cannot"  # it cannot, and Piper has no voice for it either
@@ -45,7 +41,7 @@ class VoiceChoice:
 
 def tts_lang(code: str, engine: str) -> str:
     """The `lang` the synthesis of `engine` takes for a language: Kokoro's own spelling (fr-fr, en-us), the ISO code for the others."""
-    key = _TABLE_KEY.get(code)
+    key = table_key(code)
     if key and engine in ("", "kokoro"):
         return LANG_TABLE[key]["lang"]
     return code
@@ -114,7 +110,7 @@ def choose_voice(code: str, *, voice: str, engine: str = "", gender: str | None 
         if mapped and _owns(router, mapped, eng):
             return VoiceChoice(True, mapped, eng, lang, "mapped")
         if eng == "kokoro":
-            info = LANG_TABLE.get(_TABLE_KEY.get(code, ""))
+            info = LANG_TABLE.get(table_key(code))
             standard = (info or {}).get("m" if gender == "m" else "f")
             if standard:
                 return VoiceChoice(True, standard, eng, lang, "standard")

@@ -5,14 +5,12 @@ nelle telefonate):
 
   1. `parse_command(text)` — riconosce comandi impartiti a voce quando sono
      l'INTERO enunciato (per non scattare a meta' conversazione):
-       - cambio lingua/voce:  "cambia lingua a inglese femmina", "parla in
-         francese", "switch to english", ...
+       - cambio lingua (mai di motore o modello):  "cambia lingua a inglese
+         femmina", "parla in francese", "sprich Deutsch", "torna automatico", ...
        - nuova conversazione: "nuova sessione", "inizia una nuova
          conversazione", "new session", ...
        - cambio di cervello: "switch to the agent", "switch to direct",
          "passa all'agente", "passa al diretto", ...
-  2. `detect_language(text)` — euristica leggera per l'auto-rilevamento della
-     lingua parlata dall'utente (per cambiare voce/lingua TTS in automatico).
 
 `LANG_TABLE` mappa un codice lingua interno -> (lang Kokoro, voce F/M, nomi
 riconosciuti, nome per l'istruzione all'agente, frasi di conferma). I codici
@@ -23,6 +21,7 @@ from __future__ import annotations
 
 import re
 
+from .language_follow import iso
 from .language_names import parse_language_command
 
 # codice interno -> parametri lingua/voce. `lang` e' la stringa passata a Handy
@@ -111,19 +110,15 @@ def code_for_kokoro_lang(lang: str) -> str:
     return _KOKORO_TO_CODE.get((lang or "").strip(), "it")
 
 
-def voice_for(code: str, gender: str | None) -> str:
-    """Voce per (codice lingua, genere 'f'/'m'). Default femminile.
+# Codice ISO 639-1 -> chiave di LANG_TABLE ("zh" -> "cmn"; "en" -> "en", non "en-gb").
+_ISO_TO_KEY: dict[str, str] = {}
+for _k in LANG_TABLE:
+    _ISO_TO_KEY.setdefault(iso(_k), _k)
 
-    Ogni lingua puo' avere voci Kokoro (`f`/`m`) e/o Piper (`pf`/`pm`): si usa
-    la Kokoro se c'e', altrimenti la Piper (l'Ungherese, per esempio, esiste
-    solo li'). Non c'e' piu' una preferenza configurabile fra i due: se un
-    motore non ha una lingua, semplicemente quella lingua non gli si chiede
-    (vedi `StreamingSession._motore_parla`)."""
-    info = LANG_TABLE.get(code)
-    if not info:
-        return ""
-    g = "m" if gender == "m" else "f"
-    return info.get(g) or info.get("p" + g) or ""
+
+def table_key(code: str) -> str:
+    """Chiave di LANG_TABLE per un codice lingua ("" se la lingua non e' in tabella)."""
+    return _ISO_TO_KEY.get(iso(code), "")
 
 
 # --- parsing comandi vocali ----------------------------------------------
@@ -180,59 +175,3 @@ def parse_command(text: str) -> dict | None:
 
     # Cambio lingua/voce, o ritorno alla lingua automatica (callbridge/language_names.py).
     return parse_language_command(t)
-
-
-# --- rilevamento automatico della lingua ---------------------------------
-
-# parole-spia per le lingue latine (soglia: >=2 parole per accettare).
-_LATIN_HINTS = {
-    "it": {"ciao", "come", "stai", "grazie", "bene", "sono", "una", "che", "non",
-           "perché", "anche", "quando", "dove", "cosa", "questo", "buongiorno",
-           "buonasera", "allora", "però", "ancora", "molto", "ho", "hai",
-           "abbiamo", "voglio", "puoi", "devo", "siamo", "adesso", "vorrei"},
-    "en": {"hello", "hi", "hey", "how", "are", "you", "the", "is", "what",
-           "thank", "thanks", "please", "good", "morning", "yes", "no", "can",
-           "want", "need", "know", "think", "that", "this", "with", "have",
-           "don't", "do", "does", "will", "would", "should", "could"},
-    "fr": {"bonjour", "salut", "merci", "oui", "non", "comment", "ça", "bien",
-           "avec", "pour", "dans", "une", "que", "qui", "est", "pas", "vous",
-           "je", "suis", "avoir", "faire", "veux", "peux"},
-    "es": {"hola", "gracias", "sí", "cómo", "estás", "bien", "por", "qué",
-           "donde", "cuando", "puedo", "quiero", "necesito", "buenos", "días",
-           "noche", "tengo", "eres", "esto", "ahora"},
-    "pt": {"olá", "obrigado", "obrigada", "como", "está", "bem", "sim", "não",
-           "por", "que", "onde", "quando", "posso", "quero", "bom", "dia",
-           "noite", "tenho", "você", "isso", "agora"},
-    "hu": {"szia", "köszönöm", "igen", "nem", "napot", "kérem", "hogy", "van",
-           "és", "egy", "nagyon", "vagyok", "beszélek", "magyarul", "reggelt",
-           "estét", "viszlát", "kérlek", "szeretnék", "van", "vagy", "mit"},
-}
-
-
-def detect_language(text: str) -> str | None:
-    """Codice lingua (chiave di LANG_TABLE) rilevato dal testo, o None.
-
-    Euristica prudente: caratteri CJK/Devanagari per ja/cmn/hi, altrimenti
-    conteggio di parole-spia (serve >=2 per accettare) per le lingue latine.
-    """
-    t = (text or "").lower().strip()
-    if not t:
-        return None
-
-    cjk = len(re.findall(r"[一-鿿　-〿＀-￯]", t))
-    kana = len(re.findall(r"[぀-ゟ゠-ヿ]", t))
-    deva = len(re.findall(r"[ऀ-ॿ]", t))
-    if deva >= 2:
-        return "hi"
-    if kana >= 2:
-        return "ja"
-    if cjk >= 2 and kana == 0:
-        return "cmn"
-
-    # Parole di sole lettere (unicode: include á é ő ű ecc. dell'ungherese).
-    words = set(re.findall(r"\b[^\W\d_]+\b", t, re.UNICODE))
-    if not words:
-        return None
-    scores = {code: len(words & hints) for code, hints in _LATIN_HINTS.items()}
-    best = max(scores, key=scores.get)  # type: ignore[arg-type]
-    return best if scores[best] >= 2 else None
