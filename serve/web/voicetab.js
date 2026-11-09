@@ -161,7 +161,7 @@
     const box = el("section", "vt-card"), h = el("h3", "vt-h", T("vt.set.title"));
     h.id = "vb-h2"; box.setAttribute("aria-labelledby", h.id);
     box.append(h, el("p", "vt-help", T("vt.set.intro")), permission("vb"), hotkeys("vb"), note(brainMsg.text, brainMsg.bad));
-    setRoot.replaceChildren(box, ...(window.VoiceAvatar ? [window.VoiceAvatar.settingsCard(api)] : []), ...(window.VoiceEngines ? [window.VoiceEngines.settingsCard(api)] : []), ...(window.VoiceEnhance ? [window.VoiceEnhance.settingsCard(api)] : []), ...(window.VoiceMeet ? [window.VoiceMeet.settingsCard(api)] : []), ...(window.VoiceInterrupt ? [window.VoiceInterrupt.settingsCard(api)] : []), ...(window.VoiceLanguage ? [window.VoiceLanguage.settingsCard(api, svc)] : []));
+    setRoot.replaceChildren(box, ...(window.VoiceAvatar ? [window.VoiceAvatar.settingsCard(api)] : []), ...(window.VoiceEngines ? [window.VoiceEngines.settingsCard(api)] : []), ...(window.VoiceEnhance ? [window.VoiceEnhance.settingsCard(api)] : []), ...(window.VoiceMeet ? [window.VoiceMeet.settingsCard(api)] : []), ...(window.VoiceInterrupt ? [window.VoiceInterrupt.settingsCard(api)] : []), ...(window.VoiceLanguage ? [window.VoiceLanguage.settingsCard(api, svc)] : []), ...(window.VoiceDictation ? [window.VoiceDictation.settingsCard(api)] : []));
   }
 
   /* ---- try it ---- */

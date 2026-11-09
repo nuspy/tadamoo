@@ -1,0 +1,10 @@
+/* The "Dictation" card of Settings > Voice. Mobile first: one column, every target 44px or more, nothing wider than the screen. */
+.vd-field { display: grid; gap: 4px; min-width: 0; margin: 0 0 12px; }
+.vd-field > label:not(.vt-check) { font-weight: 600; color: var(--fg); }
+.vd-field .vt-check { min-height: 44px; align-items: center; }
+.vd-field .vt-check span { min-width: 0; overflow-wrap: anywhere; }
+.vd-field input[type="text"] { width: 100%; max-width: 280px; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font: 16px/1.4 var(--font-sans); box-sizing: border-box; }
+.vd-field input:disabled { opacity: .6; }
+.vd-field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.vd-live { display: grid; gap: 4px; margin-top: 12px; min-width: 0; }
+@media (max-width: 520px) { .vd-field input[type="text"] { max-width: none; } }

@@ -134,7 +134,8 @@ def hotkey_ok(value) -> bool:
     if not isinstance(value, str) or len(value) > 40:
         return False
     mods, key = parse_hotkey(value)
-    return key is not None and (bool(mods) or re.fullmatch(r"f\d+", key) is not None)
+    keys = [t for t in value.lower().replace(" ", "").split("+") if t and t not in ("alt", "ctrl", "control", "shift", "win", "super", "meta")]
+    return len(keys) == 1 and key is not None and (bool(mods) or re.fullmatch(r"f\d+", key) is not None)
 
 
 @dataclass(frozen=True)

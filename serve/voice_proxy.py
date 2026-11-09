@@ -213,6 +213,7 @@ def _autojoin(body: Any) -> dict:
 #: (method, service route) -> the function that checks and cleans the body
 ROUTES: dict[tuple[str, str], Callable[[Any], Any]] = {
     ("GET", "/status"): _none,
+    ("GET", "/components/status"): _none,
     ("GET", "/functions"): _none,
     ("GET", "/brain/state"): _none,
     ("GET", "/gateway"): _none,
