@@ -89,3 +89,12 @@ class WindowsDesktop(Desktop):
             emoji_font="Segoe UI Emoji", ui_font="Segoe UI",
             state_icons=_STATE_ICONS, clip_icons=_CLIP_ICONS,
             no_activate=_no_activate))
+
+    def exclude_from_capture(self, handle: int, on: bool = True) -> bool:
+        wda_exclude_from_capture, wda_none = 0x11, 0
+        try:
+            user32 = ctypes.windll.user32
+            return bool(user32.SetWindowDisplayAffinity(user32.GetParent(handle) or handle, wda_exclude_from_capture if on else wda_none))
+        except Exception as e:  # noqa: BLE001 (an old Windows without the call)
+            log.warning("the window cannot be hidden from capture: %s", e)
+            return False

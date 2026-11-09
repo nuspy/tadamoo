@@ -113,6 +113,21 @@ class Overlay(Protocol):
     def mainloop(self) -> None: ...
 
 
+class SuggestionPanel(Protocol):
+    """A private window of suggestions, kept out of screen sharing and recording where the system can do it."""
+
+    def open(self) -> tuple[bool, str]:
+        """(opened, reason when not). With `hide_from_capture` it does not stay open on a system that cannot hide it."""
+
+    def add_entry(self, entry) -> None: ...
+
+    def update_entry(self, entry) -> None: ...
+
+    def add_note(self, text: str) -> None: ...
+
+    def close(self) -> None: ...
+
+
 class Desktop(ABC):
     """The pieces of one platform."""
 
@@ -137,3 +152,13 @@ class Desktop(ABC):
 
     @abstractmethod
     def new_overlay(self) -> Overlay: ...
+
+    def exclude_from_capture(self, handle: int, on: bool = True) -> bool:
+        """Keep the window with this native handle out of screen sharing and recording. False where the system cannot."""
+        return False
+
+    def new_suggestions(self, hide_from_capture: bool = True, font_size: int = 22, on_speak=None, on_count=None, count: int = 3,
+                        audio_reply: bool = False) -> SuggestionPanel:
+        """The window of the copilot (Tk, in a thread of its own: it needs no main loop of the process)."""
+        from .suggestions import TkSuggestions
+        return TkSuggestions(self, hide_from_capture, font_size, on_speak, on_count, count, audio_reply)
