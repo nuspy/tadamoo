@@ -121,3 +121,31 @@ class TadamooApi:
                     yield piece
         finally:
             conn.close()
+
+    def chat_once(self, messages: list[dict], max_tokens: int = 60, timeout: float = 1.0, extra: dict | None = None) -> str:
+        """The content of one non-streamed /v1/chat/completions answer, greedy. `extra` is merged into the request (a technical-session call
+        names its slot and its use there). The socket timeout applies to every wait, so a call that stalls ends after about `timeout`."""
+        request = {"messages": messages, "stream": False, "max_tokens": max_tokens, "temperature": 0.0, **(extra or {})}
+        payload = json.dumps(request).encode("utf-8")
+        conn = self._connect(timeout)
+        try:
+            try:
+                conn.request("POST", "/v1/chat/completions", body=payload, headers=self._headers(True))
+                r = conn.getresponse()
+                raw = r.read(1 << 20)
+            except (OSError, http.client.HTTPException) as e:
+                raise ApiError(f"TaDaMoo does not answer ({e.__class__.__name__})") from None
+        finally:
+            conn.close()
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            data = None
+        if r.status >= 400 or not isinstance(data, dict):
+            message, code = error_text(data)
+            raise ApiError(message or f"TaDaMoo answered {r.status}", r.status, code)
+        try:
+            content = data["choices"][0]["message"].get("content")
+        except (KeyError, IndexError, TypeError, AttributeError):
+            return ""
+        return content if isinstance(content, str) else ""

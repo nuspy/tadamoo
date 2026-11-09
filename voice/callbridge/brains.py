@@ -1,6 +1,7 @@
 """The two brains of the voice and the one interface the sessions use.
 
-`respond_stream(text, source="mic")` yields text chunks to be spoken; the session cuts them into sentences. `ask_stream(text)` yields the
+`respond_stream(text, source="mic", context_note="")` yields text chunks to be spoken; the session cuts them into sentences. `context_note` is
+read by the direct brain for this turn only (the interruption manager's "you were saying..."); the harness leaves it out. `ask_stream(text)` yields the
 full answer text, for what is read on a screen (analyses, Telegram, the copilot). `source` says where the words came from: only "mic", the
 person's own microphone, can answer an approval question.
 
@@ -96,7 +97,7 @@ class DirectBrain:
         got = api.post(f"/api/personas/{slug}/compose", {"goal": text[:2000]})
         return str(got.get("system") or ""), str(got.get("memory") or "")
 
-    def messages(self, api, text: str) -> list[dict]:
+    def messages(self, api, text: str, note: str = "") -> list[dict]:
         persona, memory = self.compose(api, text)
         parts = [self.cfg.direct_system_prompt.strip()]
         if persona.strip():
@@ -105,20 +106,22 @@ class DirectBrain:
             parts.append(f"Reply in {self._reply_lang}.")
         if memory.strip():
             parts.append(memory.strip())
+        if note.strip():
+            parts.append(note.strip())
         keep = max(0, int(self.cfg.direct_history_turns)) * 2
         with self._lock:
             history = self._history[-keep:] if keep else []
         return [{"role": "system", "content": "\n\n".join(p for p in parts if p)}, *history, {"role": "user", "content": text}]
 
     # -- the interface
-    def respond_stream(self, text: str, source: str = "mic") -> Iterator[str]:
+    def respond_stream(self, text: str, source: str = "mic", context_note: str = "") -> Iterator[str]:
         api = _api_of(self.cfg, self._api)
         raw: list[str] = []
         said: list[str] = []
         error = ""
         stripper = spoken.CodeStripper()
         try:
-            for piece in api.chat_stream(self.messages(api, text), max_tokens=int(self.cfg.direct_max_tokens), temperature=float(self.cfg.direct_temperature)):
+            for piece in api.chat_stream(self.messages(api, text, context_note), max_tokens=int(self.cfg.direct_max_tokens), temperature=float(self.cfg.direct_temperature)):
                 raw.append(piece)
                 clean = stripper.feed(piece)
                 if clean:
@@ -371,7 +374,9 @@ class ModeBrain:
         self.mode = mode
         return True
 
-    def respond_stream(self, text: str, source: str = "mic") -> Iterator[str]:
+    def respond_stream(self, text: str, source: str = "mic", context_note: str = "") -> Iterator[str]:
+        if context_note and self.mode == "direct":
+            return self.current.respond_stream(text, source, context_note=context_note)
         return self.current.respond_stream(text, source)
 
     def ask_stream(self, text: str, source: str = "remote") -> Iterator[str]:
