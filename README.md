@@ -10,7 +10,8 @@
 *English* · [Italiano](README.it.md)
 
 **TaDaMoo** is an AI agent harness with a native Windows app. It runs on **Basalt-Plus**, its own local inference engine
-for the Qwen3.8-Flash-Next mixture-of-experts model on NVIDIA Blackwell GPUs. Website: **[tadamoo.com](https://tadamoo.com)**
+for the Qwen3.8-Flash-Next mixture-of-experts model on NVIDIA Blackwell GPUs, and, through a second engine (Strata), on other
+hardware: NVIDIA RTX 40, 30 and 20 series, Apple silicon, AMD, Intel and machines with unified memory. Website: **[tadamoo.com](https://tadamoo.com)**
 · Contact: [a.taini@gmail.com](mailto:a.taini@gmail.com) · Repository: [github.com/nuspy/tadamoo](https://github.com/nuspy/tadamoo).
 
 **Basalt-Plus** is a fork of **[Basalt](https://github.com/jesdga95/basalt)** by jesdga95 (MIT license), which is itself
@@ -80,7 +81,7 @@ down and in [docs/WINDOWS.md](docs/WINDOWS.md). The fork includes the upstream B
 - **A second engine, Strata**, for what Basalt-Plus does not run: other GPU families and the Qwen3.6 and DeepSeek models. The Loader
   shows one Models tab per engine this PC can run, installs it from a local folder or archive (no download yet), and runs
   Strata's own server as a managed child, relaying `/v1/*` to it. One engine is active at a time. Details and limits:
-  [docs/engines-protocol.md](docs/engines-protocol.md). Windows and Linux; AMD, Intel and Apple builds are untested here.
+  [docs/engines-protocol.md](docs/engines-protocol.md). Windows and Linux. What was run and what was not: [Compatibility](#compatibility).
 
 **5. Server and API**
 - Default port **7232** (the base's examples disagreed with its code); `/api/settings` reads and writes the config file;
@@ -353,6 +354,59 @@ the note.
 - **No page to browse or edit the notes.** `/memory` reads them (each cut at 300 characters); to remove one, ask the agent to forget
   it, or delete the file. Nothing is shared between folders, users or PCs, and there is no export.
 
+### Engines, providers, orchestration, plans, cron, web search and speed
+
+- **Engines.** The top of the Loader has one card per engine: **Basalt-Plus** (Blackwell), **Strata** (other GPUs, run as a
+  managed child), **llama.cpp** (a managed `llama-server`, with its own update step that downloads only after you confirm
+  the plan), **LM Studio** and **vLLM** (servers already running on this PC). One engine is active at a time, and the others'
+  tabs show only what the hardware can run.
+- **Providers for each function.** Models > Providers lets each internal function use its own model: Chat, the agent's
+  executor, the planner, context compaction, the technical session, evaluation, the judges that check answers and route
+  messages, and each member of the council. A function can use the loaded model, LM Studio, vLLM, llama-server, a cloud
+  service (OpenAI, Claude, Gemini, Z.ai, DeepSeek, Kimi, Qwen, Nebius, NVIDIA, Grok and others), any OpenAI-compatible
+  server, or the Claude and Codex command-line tools. A call that leaves the PC needs your consent and a master switch.
+- **Conversations that work together.** A conversation can be named, message another one (`session_send`), read its status
+  or start a background one (`session_spawn`: its own rules, a parent, a depth limit, a cap on live children). The
+  server holds the messages, keeps a list of those that never arrived, and marks everything another conversation sends as
+  data unless its sender may give orders. A conversation can have a day's token budget; a digest of what it said and took in
+  lets an unattended run be read without its whole history. Orchestration tools are offered only with `--orchestration` or
+  when found through `find_capability`.
+- **Cron jobs.** A schedule (a cron expression or one moment) can start a conversation or deliver its message to an existing
+  one or to a plan. Each fire has a run id written before it starts, a time to live that skips late fires and a dedup key, and
+  a claimed fire does not run again after a restart. The Cron Jobs tab lists the latest results, runs a job now, and shows
+  the messages that never arrived, to send again or dismiss.
+- **Plans with more kinds of step.** Besides actions, sensors, decisions and merges: waits (a duration, a moment, a condition
+  written as an expression or in words), variables, a loop, a question put to you, a result and a log. A step says what it
+  produces, gets the values of the steps above it, and can repeat until its stop condition holds. Waits, variables, result
+  and log steps are resolved by the plan itself, not by the model. A wait written in words is read by the technical session
+  only when the values it watches have changed, with a pause that grows after each "no" and stops at an hour; without the
+  session the plan says so. The plan clock makes one comparison per plan and opens only the plans that are due; a paused plan
+  stands still. A plan that ended well can become a personal skill. The Plans page has a palette of step kinds (drag with a
+  mouse or pen, or tap), and the plan's log and results read as a conversation to which you can reply.
+- **Editing in words.** The Plans and Cron Jobs tabs take an instruction (and make a new job when none is chosen); it goes
+  to one editing conversation of the harness, and a change below the Automatic level needs your yes. The tabs blink, with a
+  dot and a spoken note, when something new came out since you last opened them. The reload commands are `/reload-mcp`,
+  `/reload-skills` and `/reload-plugins`. The folder that holds the conversations can be moved from Settings (a verified
+  copy that keeps the original, refused while a conversation runs).
+- **Web search and browsing.** Settings > Web search chooses the search provider (DuckDuckGo with no key by default, SearXNG,
+  Brave, Tavily, Exa, open-websearch) and the page reader (Firecrawl, Playwright, others), local or cloud, with keys in the
+  credential store. The local programs install without Docker or administrator rights, start when a search needs them and
+  stop when idle. A chosen provider that is not ready is reported to the model instead of being replaced silently. A page
+  reaches the model as lines of text with its menus taken out; the browser checks every request of a page, not only the first
+  address, and can keep a screenshot as a file of the conversation.
+- **Telegram and memory.** A Telegram bot talks to the agent of the Chat with the same functions (long polling, a list of
+  allowed users, no public address; [docs/telegram.md](docs/telegram.md)). Settings > Memories has a switch to learn and one to
+  use for each memory, a weight for each section and the notes to read, correct or confirm; a conversation can be private, and
+  forgotten together with the notes it taught, and the personal memory exports to Markdown.
+- **Speed and economy.** In the engine: the draft head of speculative decoding overlaps with the work around it, a Q8_0 head
+  can be screened in two stages that keep the exact top candidates, the commit Windows charges for GPU memory is given back
+  by default, and two opt-in switches (`--route-prior`, `--route-tail-skip`) trade a little exactness for speed and are
+  named in the start warning. In the harness: a short technical session beside the conversations takes the quick jobs, the
+  conversation cache keeps only conversations worth parking (`--conversation-cache-min-tokens`), a cut summary is retried
+  and then replaced by notes made by code, code stays whole in agent sessions and old code in the Chat reaches the model as
+  a plain description, and a long answer is written in checked parts. Speed figures are the maintainer's own runs, with the GPU
+  power limit stated; none is quoted here.
+
 ### What is not done
 
 File and network isolation for commands (the job object limits resources only); a try of the ACP agent in a real editor (Zed, JetBrains) and
@@ -393,9 +447,12 @@ the ESP32 firmware (never compiled), the virtual camera and the GPU engines are 
 
 ## Requirements
 
-- An **NVIDIA Blackwell GPU** (compute capability 10.x or 12.x: GeForce RTX 50 series, RTX PRO 6000, B200). The
-  engine's kernels are built only for Blackwell; on any other GPU the Loader, the wizard, the start script and the app
-  say so before starting, and nothing is loaded.
+- **A GPU one of the two engines can run.** The **Basalt-Plus** engine needs an **NVIDIA Blackwell GPU** (compute
+  capability 10.x or 12.x: GeForce RTX 50 series, RTX PRO 6000, B200): its kernels are built only for Blackwell, and on
+  any other GPU the Loader, the wizard, the start script and the app say so before starting, and load nothing with it.
+  Other hardware runs through the **Strata** engine, installed from a local folder: NVIDIA **RTX 40** (Ada), **RTX 30**
+  (Ampere) and **RTX 20** (Turing), **Apple silicon**, **AMD**, **Intel**, and machines with **unified memory** (one pool
+  shared by CPU and GPU). The Loader shows one Models tab for each engine the PC can run.
 - **Windows 10 or 11 x64** (WDDM driver) or **Linux x86-64** for the engine, the server and the web UI. The scripts and
   the app are Windows only.
 - Enough RAM for the experts that do not fit in VRAM (about 50 GiB for the 3-bit files, with resident experts).
@@ -409,9 +466,13 @@ the ESP32 firmware (never compiled), the virtual camera and the GPU engines are 
 ## Compatibility
 
 - **Basalt-Plus engine** (`.basalt` files, Qwen3.8-Flash-Next and the Qwen3.6 path): NVIDIA Blackwell only, Windows x64 and Linux x86-64.
-- **Strata engine** (second engine in the Loader, installed from a local folder): meant for the other NVIDIA generations, and for
-  AMD (HIP), Intel (SYCL) and Apple (Metal) hardware. Run and checked here only on an NVIDIA Blackwell GPU with a Qwen3.6 GGUF
-  that carries the MTP layer; the other backends are not tested. A Mac release is not built: Mac users compile from the repository.
+- **Strata engine** (second engine in the Loader, installed from a local folder; also reads the Qwen3.6 and DeepSeek V4.1
+  models): NVIDIA RTX 40 (compute capability 8.9), RTX 30 (8.6) and RTX 20 (7.5), Apple (Metal), AMD (HIP), Intel (SYCL)
+  and unified-memory machines. The Loader picks the tab from the hardware it detects: RTX 30/40, Mac, AMD, Intel, Unified
+  memory. Run and checked here only on an NVIDIA Blackwell GPU with a Qwen3.6 GGUF that carries the MTP layer; the tabs for
+  the other hardware are in place and tested against a stand-in server, but no run on those machines was made. A DGX Spark
+  (compute capability 12.1) is recognised as unified memory, but Strata's build list stops at 12.0, so the Loader does not
+  offer it Strata yet. A Mac release is not built: Mac users compile from the repository.
 - **Add-ons in the setup**: Openweight Canary, Billion Context (needs Node.js), REA and Node.js; none of them needs a GPU.
 - Known limit: the Qwen3.6 path on the Basalt-Plus engine can crash with prompt chunks of 2048 tokens or more; `--chunk 512` works.
 

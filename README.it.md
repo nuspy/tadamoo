@@ -10,7 +10,8 @@
 [English](README.md) · *Italiano*
 
 **TaDaMoo** è un harness per agenti AI con un'app nativa per Windows. Gira su **Basalt-Plus**, il suo motore di inferenza
-locale per il modello mixture-of-experts Qwen3.8-Flash-Next su GPU NVIDIA Blackwell. Sito: **[tadamoo.com](https://tadamoo.com)**
+locale per il modello mixture-of-experts Qwen3.8-Flash-Next su GPU NVIDIA Blackwell e, con un secondo motore (Strata), su
+altro hardware: NVIDIA RTX serie 40, 30 e 20, Apple silicon, AMD, Intel e macchine a memoria unificata. Sito: **[tadamoo.com](https://tadamoo.com)**
 · Contatto: [a.taini@gmail.com](mailto:a.taini@gmail.com) · Repository: [github.com/nuspy/tadamoo](https://github.com/nuspy/tadamoo).
 
 **Basalt-Plus** è un fork di **[Basalt](https://github.com/jesdga95/basalt)** di jesdga95 (licenza MIT), che a sua volta è
@@ -87,6 +88,11 @@ ogni punto sono più sotto e in [docs/WINDOWS.md](docs/WINDOWS.md). Il fork incl
   commit).
 - Un `.basalt` può ricevere un vero **profilo degli esperti senza riconvertirlo**, e il Loader dice quando ha solo
   l'ordine di riempimento semplice. `/v1/models` elenca i file pronti delle cartelle.
+- **Un secondo motore, Strata**, per ciò che Basalt-Plus non esegue: altre famiglie di GPU e i modelli Qwen3.6 e DeepSeek. Il
+  Loader mostra una scheda Modelli per ogni motore che il PC può eseguire, lo installa da una cartella locale o da un
+  archivio (nessun download) ed esegue il server di Strata come processo figlio gestito, inoltrandogli `/v1/*`. Un solo
+  motore è attivo alla volta. Dettagli e limiti: [docs/engines-protocol.md](docs/engines-protocol.md). Cosa è stato
+  eseguito e cosa no: [Compatibilità](#compatibilità).
 
 **5. Server e API**
 - Porta predefinita **7232** (gli esempi della base non concordavano con il suo codice); `/api/settings` legge e scrive
@@ -378,6 +384,65 @@ nell'appunto.
 - **Nessuna pagina per sfogliare o modificare gli appunti.** `/memory` li legge (ciascuno tagliato a 300 caratteri); per toglierne uno
   chiedi all'agente di dimenticarlo, oppure cancella il file. Nulla è condiviso tra cartelle, utenti o PC, e non c'è esportazione.
 
+### Motori, fornitori, orchestrazione, piani, cron, ricerca web e velocità
+
+- **Motori.** In cima al Loader c'è una scheda per motore: **Basalt-Plus** (Blackwell), **Strata** (altre GPU, eseguito come
+  processo figlio gestito), **llama.cpp** (un `llama-server` gestito, con un aggiornamento che scarica solo dopo che hai
+  confermato il piano), **LM Studio** e **vLLM** (server già in esecuzione su questo PC). Un solo motore è attivo alla volta,
+  e le schede degli altri mostrano solo ciò che l'hardware può eseguire.
+- **Un fornitore per ogni funzione.** Modelli > Fornitori (Providers) permette a ogni funzione interna di usare il proprio
+  modello: Chat, l'esecutore dell'agente, il pianificatore, la compattazione del contesto, la sessione tecnica, la
+  valutazione, i giudici che controllano le risposte e smistano i messaggi, e ogni membro del consiglio. Una funzione può
+  usare il modello caricato, LM Studio, vLLM, llama-server, un servizio cloud (OpenAI, Claude, Gemini, Z.ai, DeepSeek, Kimi,
+  Qwen, Nebius, NVIDIA, Grok e altri), qualunque server compatibile OpenAI, oppure gli strumenti a riga di comando di Claude e
+  Codex. Una chiamata che esce dal PC richiede il tuo consenso e un interruttore generale.
+- **Conversazioni che lavorano insieme.** Una conversazione può avere un nome, scrivere a un'altra (`session_send`), leggerne lo
+  stato o avviarne una in background (`session_spawn`: regole proprie, un genitore, un limite di profondità, un tetto di figli
+  vivi). Il server tiene i messaggi, conserva l'elenco di quelli mai arrivati e tratta come dato ciò che un'altra
+  conversazione manda, salvo che il mittente possa dare ordini. Una conversazione può avere un budget giornaliero di token; un
+  riassunto di ciò che ha detto e ricevuto permette di leggere un'esecuzione senza supervisione senza tutta la sua storia. Gli
+  strumenti di orchestrazione si offrono solo con `--orchestration` o quando si trovano con `find_capability`.
+- **Cron job.** Una pianificazione (espressione cron o un momento) può avviare una conversazione o consegnare il suo messaggio a
+  una già esistente o a un piano. Ogni scatto ha un id scritto prima di partire, una durata di validità che salta quelli in
+  ritardo e una chiave anti-duplicati; uno scatto già preso non riparte dopo un riavvio. La scheda Cron Jobs elenca gli
+  ultimi risultati, esegue un job subito e mostra i messaggi mai arrivati, da rimandare o scartare.
+- **Piani con più tipi di passo.** Oltre ad azioni, sensori, decisioni e unioni: attese (una durata, un momento, una condizione
+  scritta come espressione o a parole), variabili, un ciclo, una domanda a te, un risultato e un log. Un passo dice che cosa
+  produce, riceve i valori dei passi sopra di lui e può ripetersi finché la sua condizione di stop non vale. Attese,
+  variabili, risultato e log li risolve il piano stesso, non il modello. Un'attesa scritta a parole la legge la sessione
+  tecnica solo quando i valori che osserva sono cambiati, con una pausa che cresce dopo ogni «no» e si ferma a un'ora; senza
+  la sessione il piano lo dice. L'orologio dei piani fa un confronto per piano e apre solo quelli in scadenza; un piano in
+  pausa sta fermo. Un piano finito bene può diventare una skill personale. La pagina Piani ha una tavolozza dei tipi di
+  passo (si trascinano con mouse o penna, oppure si tocca), e il log e i risultati di un piano si leggono come una
+  conversazione a cui puoi rispondere.
+- **Modifica a parole.** Le schede Piani e Cron Jobs accettano un'istruzione (e creano un job nuovo se non ne è scelto
+  nessuno); va a una conversazione di modifica dell'harness, e una modifica sotto il livello Automatico richiede il tuo sì. Le
+  schede lampeggiano, con un puntino e una nota parlata, quando è uscito qualcosa di nuovo dall'ultima volta che le hai
+  aperte. I comandi di ricarica sono `/reload-mcp`, `/reload-skills` e `/reload-plugins`. La cartella che contiene le
+  conversazioni si può spostare dalle Impostazioni (una copia verificata che conserva l'originale, rifiutata mentre una
+  conversazione è in esecuzione).
+- **Ricerca e navigazione web.** Impostazioni > Ricerca web sceglie il motore di ricerca (DuckDuckGo senza chiave per
+  impostazione predefinita, SearXNG, Brave, Tavily, Exa, open-websearch) e il lettore di pagine (Firecrawl, Playwright, altri),
+  locali o in cloud, con le chiavi nell'archivio delle credenziali. I programmi locali si installano senza Docker né diritti di
+  amministratore, partono quando una ricerca ne ha bisogno e si fermano quando sono inattivi. Un motore scelto che non è pronto
+  viene segnalato al modello invece di essere sostituito in silenzio. Una pagina arriva al modello come righe di testo senza i
+  menu; il browser controlla ogni richiesta di una pagina, non solo il primo indirizzo, e può conservare una schermata come
+  file della conversazione.
+- **Telegram e memoria.** Un bot Telegram parla con l'agente della Chat con le stesse funzioni (long polling, elenco di utenti
+  ammessi, nessun indirizzo pubblico; [docs/telegram.md](docs/telegram.md)). Impostazioni > Memorie ha un interruttore per
+  imparare e uno per usare per ogni memoria, un peso per ogni sezione e le note da leggere, correggere o confermare; una
+  conversazione può essere privata e dimenticata insieme alle note che ha insegnato, e la memoria personale si esporta in
+  Markdown.
+- **Velocità ed economia.** Nel motore: la testa di bozza della decodifica speculativa si sovrappone al lavoro intorno, una
+  testa Q8_0 può essere vagliata in due fasi che mantengono i candidati migliori esatti, il commit che Windows addebita per la
+  memoria della GPU viene restituito per impostazione predefinita, e due interruttori facoltativi (`--route-prior`,
+  `--route-tail-skip`) scambiano un po' di esattezza con la velocità e sono nominati nell'avviso all'avvio. Nell'harness: una
+  breve sessione tecnica accanto alle conversazioni si occupa dei lavori rapidi, la cache delle conversazioni tiene solo quelle
+  che valgono la pena (`--conversation-cache-min-tokens`), un riassunto interrotto viene ritentato e poi sostituito da note
+  fatte dal codice, il codice resta intero nelle sessioni agente e il codice vecchio nella Chat arriva al modello come
+  descrizione semplice, e una risposta lunga si scrive a pezzi verificati. I numeri di velocità sono le misure del
+  maintainer, con il limite di potenza della GPU dichiarato; qui non se ne cita nessuno.
+
 ### Cosa non è fatto
 
 Isolamento di file e rete per i comandi (il job object limita solo le risorse); una prova dell'agente ACP in un editor vero (Zed, JetBrains)
@@ -419,9 +484,13 @@ telefono, il firmware ESP32 (mai compilato), la camera virtuale e i motori su GP
 
 ## Requisiti
 
-- Una **GPU NVIDIA Blackwell** (compute capability 10.x o 12.x: GeForce RTX serie 50, RTX PRO 6000, B200). I kernel
-  del motore sono compilati solo per Blackwell; con un'altra GPU il Loader, la configurazione guidata, lo script e l'app
-  lo dicono prima di partire, e non si carica nulla.
+- **Una GPU che uno dei due motori sa eseguire.** Il motore **Basalt-Plus** richiede una **GPU NVIDIA Blackwell**
+  (compute capability 10.x o 12.x: GeForce RTX serie 50, RTX PRO 6000, B200): i suoi kernel sono compilati solo per
+  Blackwell, e con un'altra GPU il Loader, la configurazione guidata, lo script e l'app lo dicono prima di partire e con
+  quel motore non si carica nulla. Altro hardware gira con il motore **Strata**, installato da una cartella locale: NVIDIA
+  **RTX 40** (Ada), **RTX 30** (Ampere) e **RTX 20** (Turing), **Apple silicon**, **AMD**, **Intel** e macchine a **memoria
+  unificata** (un solo blocco condiviso da CPU e GPU). Il Loader mostra una scheda Modelli per ogni motore che il PC può
+  eseguire.
 - **Windows 10 o 11 x64** (driver WDDM) o **Linux x86-64** per motore, server e interfaccia web. Script e app sono solo
   per Windows.
 - RAM sufficiente per gli esperti che non entrano in VRAM (circa 50 GiB per i file a 3 bit, con gli esperti residenti).
@@ -432,6 +501,18 @@ telefono, il firmware ESP32 (mai compilato), la camera virtuale e i motori su GP
 - Compilare: Windows in [docs/WINDOWS.md](docs/WINDOWS.md) (strumenti Visual Studio v143, CUDA 13.1, CMake, Ninja),
   Linux nel README originale ([Build](README.md#build)). L'app: `dotnet publish tools\windows\desktop -c Release -o
   tools\windows\desktop\publish`.
+
+## Compatibilità
+
+- **Motore Basalt-Plus** (file `.basalt`, Qwen3.8-Flash-Next e il percorso Qwen3.6): solo NVIDIA Blackwell, Windows x64 e Linux x86-64.
+- **Motore Strata** (secondo motore del Loader, installato da una cartella locale; legge anche i modelli Qwen3.6 e DeepSeek
+  V4.1): NVIDIA RTX 40 (compute capability 8.9), RTX 30 (8.6) e RTX 20 (7.5), Apple (Metal), AMD (HIP), Intel (SYCL) e
+  macchine a memoria unificata. Il Loader sceglie la scheda dall'hardware che rileva: RTX 30/40, Mac, AMD, Intel, Memoria
+  unificata. Eseguito e verificato qui solo su una GPU NVIDIA Blackwell con un GGUF Qwen3.6 che ha lo strato MTP; le schede
+  per l'altro hardware ci sono e sono provate con un server finto, ma su quelle macchine non è stata fatta nessuna
+  esecuzione. Un DGX Spark (compute capability 12.1) è riconosciuto come memoria unificata, ma l'elenco delle compilazioni di
+  Strata si ferma a 12.0, quindi il Loader non gli offre ancora Strata. Una versione per Mac non è compilata: chi ha un Mac
+  compila dal repository.
 
 ## Avviare TaDaMoo Win+GUI
 
