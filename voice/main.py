@@ -6,9 +6,8 @@ Comandi:
   python main.py call <numero>  chiama un numero e avvia la conversazione
   python main.py answer         attende una chiamata in arrivo e risponde
   python main.py serve          avvia il server di controllo (API per il server di TaDaMoo)
-  python main.py ptt            push-to-talk (hotkey) + voice gateway per l'app Android
-  python main.py gateway        avvia solo il voice gateway (WebSocket per l'app Android)
-  python main.py all            ISTANZA UNICA: control server + gateway + push-to-talk
+  python main.py ptt            push-to-talk (hotkey)
+  python main.py all            ISTANZA UNICA: control server + push-to-talk
 
 STT/TTS sono i client WebSocket reali verso Handy. Il cervello e' quello di
 `callbridge/brains.py`: diretto (il modello caricato) o harness (l'agente di
@@ -107,41 +106,6 @@ def _cmd_serve(cfg: Config) -> None:
     run_server(cfg)
 
 
-def _start_gateway_thread(cfg: Config, log: logging.Logger,
-                          critical: bool = False) -> None:
-    """Avvia il voice gateway (app Android) in un thread daemon, se abilitato.
-
-    `critical=True` (servizio headless, dove il gateway E' la funzione primaria):
-    se il thread muore il processo esce col codice di restart, cosi' NSSM lo
-    rilancia pulito invece di restare vivo ma monco (senza gateway). In
-    `main.py all` il gateway e' secondario rispetto al PTT (main thread): li'
-    `critical=False`, si logga soltanto per non abbattere il PTT funzionante."""
-    if not cfg.gateway_enabled:
-        return
-    import os
-    import threading
-
-    from callbridge.voice_gateway import run_gateway
-
-    # Codice di restart condiviso col comando GUI di restart (api_components).
-    RESTART_EXIT_CODE = 42
-
-    def _run() -> None:
-        try:
-            run_gateway(cfg)
-        except Exception as e:  # noqa: BLE001 - non far cadere il processo
-            log.error("Voice gateway terminato con errore: %s", e)
-        else:
-            log.error("Voice gateway terminato inaspettatamente")
-        if critical:
-            log.error("Gateway critico giu': esco con %d per il restart del servizio",
-                      RESTART_EXIT_CODE)
-            os._exit(RESTART_EXIT_CODE)
-
-    threading.Thread(target=_run, name="voice-gateway", daemon=True).start()
-    log.info("Voice gateway avviato (ws://%s:%d)", cfg.gateway_host, cfg.gateway_port)
-
-
 def _build_ptt(cfg: Config, log: logging.Logger):
     """Costruisce overlay + copilota + manager PTT (senza avviare nulla).
 
@@ -195,27 +159,21 @@ def _run_ptt_mainloop(cfg: Config, log: logging.Logger, prebuilt=None) -> None:
 def _cmd_ptt(cfg: Config) -> None:
     """Solo push-to-talk + overlay (sessione utente).
 
-    Architettura "split": control server, voice gateway e media server girano
-    nel servizio headless (`server`); qui resta SOLO cio' che richiede la
-    sessione interattiva (hotkey, mic/casse, overlay, copilota). Niente gateway
-    qui, altrimenti farebbe doppio bind sulla :gateway_port col servizio.
+    Architettura "split": il control server gira nel servizio headless
+    (`server`); qui resta SOLO cio' che richiede la sessione interattiva
+    (hotkey, mic/casse, overlay, copilota).
     """
     log = logging.getLogger("callbridge")
     _run_ptt_mainloop(cfg, log)
 
 
-def _cmd_all(cfg: Config, no_gateway: bool = False) -> None:
-    """Istanza unica: control server (chiamate) + voice gateway (app) + PTT.
+def _cmd_all(cfg: Config) -> None:
+    """Istanza unica: control server (chiamate) + PTT.
 
     Tutto nello stesso processo, in sessione utente (il PTT richiede hotkey,
     audio e overlay). Il control server gira in un thread (Flask), con il suo
     PTT interno disattivato (`start_ptt=False`) per non duplicare le hotkey;
-    il gateway in un altro thread; il PTT ricco prende il thread principale.
-
-    `no_gateway=True` (architettura split): NON avvia il voice gateway qui —
-    gira nel servizio headless `callAPIcall-orchestrator` (main.py gateway).
-    Restano control server (chiamate, con audio HFP che richiede la sessione
-    utente) + PTT/overlay + controllo PTT dalla GUI.
+    il PTT ricco prende il thread principale.
     """
     import threading
 
@@ -271,7 +229,6 @@ def _cmd_all(cfg: Config, no_gateway: bool = False) -> None:
             log.info("Avatar: preload di '%s' in background...", persona)
             try:
                 if avatar.start(persona):
-                    avatar.set_preview(False)  # caldo ma finestra nascosta
                     log.info("Avatar: '%s' precaricato e caldo", persona)
                 else:
                     log.warning("Avatar: preload di '%s' fallito (vedi log)", persona)
@@ -310,19 +267,15 @@ def _cmd_all(cfg: Config, no_gateway: bool = False) -> None:
     except Exception as e:  # noqa: BLE001 - accessorio: non deve fermare il bridge
         log.error("Cronologia appunti non avviata: %s", e)
 
-    if not no_gateway:
-        _start_gateway_thread(cfg, log)
-    else:
-        log.info("Voice gateway NON avviato qui (gira nel servizio headless)")
     _run_ptt_mainloop(cfg, log, prebuilt=prebuilt)
 
 
 def _cmd_server(cfg: Config) -> None:
-    """Server HEADLESS per il servizio (Session 0): control server + voice
-    gateway + media server, SENZA push-to-talk/overlay.
+    """Server HEADLESS per il servizio (Session 0): control server, SENZA
+    push-to-talk/overlay.
 
-    Le parti che NON richiedono la sessione utente (orchestrazione chiamate,
-    app Android, streaming media) -> resilienti come servizio NSSM. Il PTT
+    Le parti che NON richiedono la sessione utente (orchestrazione chiamate)
+    -> resilienti come servizio NSSM. Il PTT
     locale (hotkey/audio/overlay/copilota) gira a parte nel task utente (`ptt`).
 
     NB: gli endpoint GUI /session/* e /copilot/* che pilotano la sessione PTT
@@ -335,10 +288,6 @@ def _cmd_server(cfg: Config) -> None:
 
     log = logging.getLogger("callbridge")
 
-    # Voice gateway (app Android) + media server, in thread daemon. Qui e' la
-    # funzione primaria del servizio: se muore, esci per far rilanciare NSSM.
-    _start_gateway_thread(cfg, log, critical=True)
-
     # Keep-alive modelli Handy: restano caldi in VRAM (gateway e PTT li usano).
     def _models_keepalive() -> None:
         import time
@@ -350,7 +299,7 @@ def _cmd_server(cfg: Config) -> None:
             time.sleep(600)
 
     threading.Thread(target=_models_keepalive, name="models-keepalive", daemon=True).start()
-    log.info("Server headless avviato: control + gateway + media (no PTT)")
+    log.info("Server headless avviato: control (no PTT)")
 
     # Control server sul thread principale (bloccante); PTT interno disattivato.
     run_server(cfg, start_ptt=False)
@@ -366,12 +315,9 @@ def main() -> None:
     p_call.add_argument("number", help="numero da chiamare, es. +39333xxxxxxx")
     sub.add_parser("answer", help="attende una chiamata in arrivo e risponde")
     sub.add_parser("serve", help="avvia il solo control server dell'orchestrator")
-    sub.add_parser("server", help="servizio headless: control + gateway + media (senza PTT)")
+    sub.add_parser("server", help="servizio headless: control (senza PTT)")
     sub.add_parser("ptt", help="avvia solo il push-to-talk/overlay (sessione utente)")
-    sub.add_parser("gateway", help="avvia il voice gateway per l'app Android (WebSocket)")
-    p_all = sub.add_parser("all", help="istanza unica: control server + voice gateway + push-to-talk")
-    p_all.add_argument("--no-gateway", action="store_true",
-                       help="non avviare il voice gateway (gira nel servizio headless)")
+    sub.add_parser("all", help="istanza unica: control server + push-to-talk")
     args = parser.parse_args()
 
     cfg = Config.load()
@@ -390,11 +336,8 @@ def main() -> None:
         _cmd_server(cfg)
     elif args.cmd == "ptt":
         _cmd_ptt(cfg)
-    elif args.cmd == "gateway":
-        from callbridge.voice_gateway import run_gateway
-        run_gateway(cfg)
     elif args.cmd == "all":
-        _cmd_all(cfg, no_gateway=args.no_gateway)
+        _cmd_all(cfg)
 
 
 if __name__ == "__main__":

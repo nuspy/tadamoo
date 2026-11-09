@@ -1,12 +1,13 @@
 """The voice service: a process that starts in standby and serves the control routes of callbridge on loopback.
 
-    python -m voice.service --settings <voice.json> --host 127.0.0.1 --port P --token-file F --info-file I [--default-models-dir D]
+    python -m voice.service --settings <voice.json> --host 127.0.0.1 --port P --token-file F --info-file I [--default-models-dir D] [--no-gateway]
 
 It starts with no model loaded and no hardware touched, except that an enabled STT with its model installed loads at once (dictation and the
 clipboard do not wait for the VRAM plan); the other functions load on `POST /functions/apply`. Settings come from TaDaMoo's `voice.json` (voice/settings_bridge.py) and are read
 again when the file changes. Every route but /health needs `Authorization: Bearer <the token in F>`. Models are read only from the
 models folder and never downloaded (voice/callbridge/models_store.py). When the server listens it prints one JSON line on stdout,
-`{"ready": true, "port": P, "pid": N}`, and writes `{host, port, pid, started}` to I; I is removed again on a clean stop."""
+`{"ready": true, "port": P, "pid": N}`, and writes `{host, port, pid, started, gateway_port}` to I; I is removed again on a clean stop.
+The phone's voice gateway (voice/gateway.py) starts with the service, on loopback, on a port the service chooses."""
 from __future__ import annotations
 
 import argparse
@@ -26,7 +27,7 @@ from callbridge.config import Config  # noqa: E402
 
 from callbridge.brains import make_brain  # noqa: E402
 
-from voice import brain_service, functions, settings_bridge, speech_routes  # noqa: E402
+from voice import brain_service, functions, gateway, settings_bridge, speech_routes  # noqa: E402
 
 log = logging.getLogger("voice.service")
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
@@ -68,6 +69,7 @@ class State:
         self.settings = settings_bridge.load(self.path, default_models_dir)
         self.brains = make_brain(config)
         self.functions = None
+        self.gateway = None
         self.calls = None                               # the CallService, set by build_app
         self.session = brain_service.Session(self)
         self.refresh(force=True)
@@ -116,16 +118,19 @@ class State:
             services[name] = entry
         return {"service": "voice", "state": "standby", "pid": os.getpid(), "started": self.started, "models_dir": root,
                 "offline": os.environ.get("HF_HUB_OFFLINE") == "1", "services": services,
-                "telephony": self.calls.summary() if self.calls is not None else None}
+                "telephony": self.calls.summary() if self.calls is not None else None,
+                "gateway": self.gateway.info() if self.gateway is not None else None}
 
 
-def build_app(settings_path, token: str, default_models_dir: str = "", host: str = "127.0.0.1", port: int = 0):
-    """The Flask app of the control server (callbridge) with the standby status, and its `State`. No model is loaded, no hardware opened."""
+def build_app(settings_path, token: str, default_models_dir: str = "", host: str = "127.0.0.1", port: int = 0, with_gateway: bool = True):
+    """The Flask app of the control server (callbridge) with the standby status, and its `State`. No model is loaded, no hardware opened;
+    the gateway object exists but listens only when `serve` starts it."""
     from callbridge.control_server import create_app
     models_store.apply_offline()
     config = Config()
     config.control_host, config.control_port, config.control_auth_token = host, port, token
     config.tadamoo_token = token                        # the same token, sent to TaDaMoo's server (it accepts it on loopback for the brains' routes)
+    config.stt_backend = config.tts_backend = "native"  # the engines of this process, never a separate server
     config.auth_token = os.environ.get(PHONE_TOKEN_ENV, "")      # the pairing token of the Android dialer, put there by the desktop app from the credential store
     config.analysis_artifacts_dir = str(Path(settings_path).resolve().parent / "voice" / "analyses")     # the analyses live in the user data folder
     state = State(settings_path, config, default_models_dir)
@@ -135,6 +140,9 @@ def build_app(settings_path, token: str, default_models_dir: str = "", host: str
     state.functions = functions.Functions(state, app=app)
     functions.register(app, state.functions)
     brain_service.register(app, state)
+    if with_gateway:
+        state.gateway = gateway.Gateway(gateway.Host(state, token))
+        gateway.register(app, state.gateway)
     app.register_blueprint(speech_routes.bp)
     return app, state
 
@@ -173,18 +181,27 @@ def serve(args) -> int:
         raise StartError(f"the service listens on loopback only, not on {host}")
     token = read_token(args.token_file)
     logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="%(asctime)s %(name)s %(levelname)s %(message)s")
-    app, state = build_app(args.settings, token, args.default_models_dir, host, args.port)
+    app, state = build_app(args.settings, token, args.default_models_dir, host, args.port, with_gateway=not args.no_gateway)
     from werkzeug.serving import make_server
     try:
         server = make_server(host, args.port, app, threaded=True)
     except OSError as e:
         raise StartError(f"cannot listen on {host}:{args.port}: {e.strerror or e}") from None
     port = server.server_port
+    state.config.control_port = port                    # the gateway reaches the avatar worker through the control routes
+    gateway_port = 0
+    if state.gateway is not None:
+        try:
+            gateway_port = state.gateway.start()
+        except OSError as e:
+            server.server_close()
+            raise StartError(f"cannot start the voice gateway on {host}: {e.strerror or e}") from None
+        state.config.gateway_port = gateway_port
     stop, done = threading.Event(), threading.Event()
     _install_stop(stop, done)
     thread = threading.Thread(target=server.serve_forever, name="voice-http", daemon=True)
     thread.start()
-    write_json_atomic(args.info_file, {"host": host, "port": port, "pid": os.getpid(), "started": state.started})
+    write_json_atomic(args.info_file, {"host": host, "port": port, "pid": os.getpid(), "started": state.started, "gateway_port": gateway_port})
     sys.stdout.write(json.dumps({"ready": True, "port": port, "pid": os.getpid()}) + "\n")
     sys.stdout.flush()
     log.info("standby on %s:%d (models folder %s)", host, port, state.settings.models_dir)
@@ -194,6 +211,8 @@ def serve(args) -> int:
         while not stop.wait(0.5):
             pass
     finally:
+        if state.gateway is not None:
+            state.gateway.stop()
         server.shutdown()
         thread.join(5)
         server.server_close()
@@ -220,6 +239,7 @@ def main(argv=None) -> int:
     p.add_argument("--token-file", required=True)
     p.add_argument("--info-file", required=True)
     p.add_argument("--default-models-dir", default="", help="the models folder when voice.json names none")
+    p.add_argument("--no-gateway", action="store_true", help="do not start the phone gateway")
     args = p.parse_args(argv)
     try:
         return serve(args)
