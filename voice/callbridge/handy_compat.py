@@ -327,9 +327,11 @@ def build_app(cfg: Config):
             text = await asyncio.to_thread(
                 stt_engine.transcribe, audio, lingua)
             return web.json_response({"text": text})
+        from .language_follow import with_language_fields
+        # Senza lingua richiesta il motore dice anche quale ha sentito (`language`, `language_probability`).
         r = await asyncio.to_thread(stt_engine.transcribe_detailed, audio,
-                                    lingua, vuole_parole)
-        return web.json_response(r)
+                                    lingua, vuole_parole, detect=lingua is None)
+        return web.json_response(with_language_fields(r))
 
     # --- engine TTS selezionabili (dropdown GUI) -------------------------
     # La selezione e' PERSISTENTE (cfg.tts_engine / cfg.default_voice): prima
