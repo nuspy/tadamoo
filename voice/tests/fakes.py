@@ -9,9 +9,12 @@ class FakeBrain:
     def __init__(self, reply: str = "ok. "):
         self.reply = reply
         self.heard: list[tuple] = []
+        self.notes: list[str] = []                    # the context note of each turn that had one
 
-    def respond_stream(self, text, source="mic"):
+    def respond_stream(self, text, source="mic", context_note=""):
         self.heard.append((text, source))
+        if context_note:
+            self.notes.append(context_note)
         yield self.reply
 
     ask_stream = respond_stream

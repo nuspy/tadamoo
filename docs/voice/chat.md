@@ -1,6 +1,6 @@
 # Voice: talking with the Chat and the Code tab
 
-The voice has two brains behind one interface (`voice/callbridge/brains.py`). A session asks `respond_stream(text, source)` and gets text to
+The voice has two brains behind one interface (`voice/callbridge/brains.py`). A session asks `respond_stream(text, source)` (the gateway may add `context_note`, read by the direct brain for that turn only: `interruptions.md`) and gets text to
 speak; `ask_stream(text)` gives the full answer, for what is read on a screen (analyses, Telegram, the copilot). Every voice session, push-to-talk
 or call, talks to a `ModeBrain` that holds the two brains and a mode. Nothing here imports `serve` or `tadamoo`: the brains speak to TaDaMoo's
 HTTP API on loopback (`voice/callbridge/tadamoo_api.py`).
