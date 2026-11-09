@@ -129,12 +129,14 @@ class Relay(unittest.TestCase):
     def url(self, outside=False, path="/api/voice/gateway/ws"):
         return f"ws://127.0.0.1:{(self.phone if outside else self.httpd).server_address[1]}{path}"
 
-    def upgrade(self, outside=False, key=None, path="/api/voice/gateway/ws"):
+    def upgrade(self, outside=False, key=None, path="/api/voice/gateway/ws", origin=None):
         """The status of the answer to a WebSocket upgrade request (the server answers refusals as HTTP/1.0, which a WebSocket client library will not parse)."""
         port = (self.phone if outside else self.httpd).server_address[1]
         headers = {"Upgrade": "websocket", "Connection": "Upgrade", "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": base64.b64encode(os.urandom(16)).decode()}
         if key:
             headers["Authorization"] = "Bearer " + key
+        if origin:
+            headers["Origin"] = origin
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
         try:
             conn.request("GET", path, headers=headers)
@@ -258,13 +260,43 @@ class Relay(unittest.TestCase):
     def test_the_number_of_phones_at_once_is_limited(self):
         self.listen()
         held = []
+        keys = [self.svc.keys.create(f"Phone {i}")[1] for i in range(voice_gateway_relay.MAX_CLIENTS)]
         try:
-            for _ in range(voice_gateway_relay.MAX_CLIENTS):
-                held.append(connect(self.url(outside=True), additional_headers={"Authorization": "Bearer " + self.key}, open_timeout=5))
+            for key in keys:
+                held.append(connect(self.url(outside=True), additional_headers={"Authorization": "Bearer " + key}, open_timeout=5))
             self.assertEqual(self.upgrade(outside=True, key=self.key), 503)
         finally:
             for ws in held:
                 ws.close()
+
+    def test_one_client_cannot_take_every_place_and_phones_still_get_in(self):
+        self.listen()
+        held = []
+        try:
+            for _ in range(voice_gateway_relay.MAX_PER_CLIENT):                    # a program on this PC opens what it may
+                held.append(connect(self.url(), open_timeout=5))
+            self.assertEqual(self.upgrade(), 503)
+            for _ in range(voice_gateway_relay.MAX_PER_CLIENT):
+                held.append(connect(self.url(outside=True), additional_headers={"Authorization": "Bearer " + self.key}, open_timeout=5))
+            self.assertEqual(self.upgrade(outside=True, key=self.key), 503)          # the same key, once more
+        finally:
+            for ws in held:
+                ws.close()
+
+    def test_a_page_of_another_site_cannot_open_the_websocket(self):
+        # a browser sends Origin on every WebSocket and applies no CORS to it: a foreign one is refused before the upgrade (serve/origin_guard.py)
+        self.listen()
+        for origin in ("https://evil.example.com", "null", "http://127.0.0.1:1"):
+            self.assertEqual(self.upgrade(origin=origin), 403, origin)
+            self.assertEqual(self.upgrade(outside=True, key=self.key, origin=origin), 403, origin)
+        self.assertEqual(self.received, [])
+        port = self.httpd.server_address[1]
+        with connect(self.url(), origin=f"http://127.0.0.1:{port}", open_timeout=5) as ws:     # the server's own page
+            ws.send("page")
+            self.assertEqual(ws.recv(timeout=5), "echo:page")
+        with connect(self.url(outside=True), additional_headers={"Authorization": "Bearer " + self.key}, open_timeout=5) as ws:     # the app sends no Origin
+            ws.send("app")
+            self.assertEqual(ws.recv(timeout=5), "echo:app")
 
 
 if __name__ == "__main__":

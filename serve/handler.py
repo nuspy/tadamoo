@@ -690,7 +690,8 @@ def make_handler(svc: Service, remote: bool = False):
                     if path.rsplit("/", 1)[-1] == "ws":
                         given = self.headers.get("Authorization", "")[7:].strip() or self.headers.get("x-api-key", "")
                         keys = getattr(svc, "keys", None)
-                        voice_gateway_relay.relay(self, (lambda: bool(svc.api_key and key_matches(given, svc.api_key)) or (keys is not None and keys.verify(given) is not None)) if self.remote_listener else None)
+                        voice_gateway_relay.relay(self, (lambda: bool(svc.api_key and key_matches(given, svc.api_key)) or (keys is not None and keys.verify(given) is not None)) if self.remote_listener else None,
+                                                  client=f"key:{self._key_row['id']}" if self._key_row else "master" if self.remote_listener else "this-pc")
                     else:
                         self._json(200, voice_gateway_relay.info([{"slug": x["slug"], "name": x["name"]} for x in self._personas().store.list()]))     # names only: a phone may choose one, not read it
             elif path == voice_avatar.BASE or path.startswith(voice_avatar.BASE + "/"):      # the avatar: settings, the preview stream, a portrait (serve/voice_avatar.py)
