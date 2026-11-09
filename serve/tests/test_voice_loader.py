@@ -205,7 +205,7 @@ class Settings(unittest.TestCase):
     def test_estimates_prefer_what_was_measured_and_never_guess(self):
         self.assertEqual(voice_loader.estimate_mib("musetalk-v15", "auto", "vram"), (4276, "catalog"))
         self.assertEqual(voice_loader.estimate_mib("whisper-small", "auto", "vram"), (462, "catalog"))
-        self.assertEqual(voice_loader.estimate_mib("chatterbox", "auto", "vram"), (None, "unknown"))         # the catalog has no size for it
+        self.assertEqual(voice_loader.estimate_mib("ultralight-wenet-encoder", "auto", "vram"), (None, "unknown"))         # the catalog has no size for it
         self.assertEqual(voice_loader.estimate_mib("musetalk-v15", "cpu", "ram"), (0, "cpu"))
         voice_loader.record_measured("whisper-small", "auto", "vram", 812)
         self.assertEqual(voice_loader.estimate_mib("whisper-small", "auto", "vram"), (812, "measured"))

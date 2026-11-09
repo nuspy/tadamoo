@@ -10,9 +10,10 @@ from serve import voice_catalog as vc
 ROOT = Path(__file__).resolve().parents[2]
 SHA = re.compile(r"^[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
-PINNED = {"piper", "musetalk-v15", "sherpa-diarization", "multilingual-e5-small"}              # entries whose Hugging Face sources are grounded
+SIZED = {"chatterbox"}                                                                          # entries whose pinned sources record each file's size
+PINNED = {"piper", "musetalk-v15", "sherpa-diarization", "multilingual-e5-small", "chatterbox"}              # entries whose Hugging Face sources are grounded
 CHOSEN_REPOS = {"rhasspy/piper-voices", "vivym/face-parsing-bisenet", "csukuangfj/sherpa-onnx-pyannote-segmentation-3-0",
-                "intfloat/multilingual-e5-small"}                                              # repositories chosen from a search, not named by the voice code
+                "intfloat/multilingual-e5-small", "ResembleAI/chatterbox"}                                              # repositories chosen from a search, not named by the voice code
 
 
 class CatalogShapeTest(unittest.TestCase):
@@ -98,7 +99,7 @@ class GroundingTest(unittest.TestCase):
         sized = {e["id"] for e in vc.CATALOG if e["size"]}
         packs = {e["id"] for e in vc.CATALOG if e["kind"] == "engine-pack"}                  # their sizes are those of the pinned blobs
         self.assertEqual(sized - packs, {f"whisper-{n}" for n in ("tiny", "base", "small", "medium", "large-v3")} | {
-            "kokoro", "piper", "xtts-v2", "musetalk-v15", "sherpa-diarization", "wav2lip-int8", "silero-vad-v4", "multilingual-e5-small"})
+            "kokoro", "piper", "xtts-v2", "chatterbox", "musetalk-v15", "sherpa-diarization", "wav2lip-int8", "silero-vad-v4", "multilingual-e5-small"})
         for e in vc.CATALOG:
             if e["size"] is None and e["kind"] == "model":
                 self.assertIn("size", e["verify"], e["id"])
@@ -142,7 +143,7 @@ class LicenseAndVerifyTest(unittest.TestCase):
             self.assertEqual((vc.public(e, root)["selectable"], vc.public(e, root)["sha256"]), (False, e["sha256"]))
 
     def test_an_entry_the_code_does_not_complete_is_marked_and_not_downloadable(self):
-        for model, why in (("chatterbox", "no_source"), ("wav2lip-int8", "no_source"), ("wav2lipv2-yolo-face", "no_source")):
+        for model, why in (("wav2lip-int8", "no_source"), ("wav2lipv2-yolo-face", "no_source")):
             e = vc.find(model)
             self.assertTrue(e["verify"], model)
             self.assertEqual(vc.downloadable(e), (False, why), model)
@@ -171,6 +172,31 @@ class LicenseAndVerifyTest(unittest.TestCase):
                 for path, sha in s["pins"].items():
                     self.assertRegex(sha, SHA, (model, path))
             self.assertEqual(vc.downloadable(e), (True, ""), model)
+
+    def test_every_pinned_source_has_a_commit_a_hash_and_a_size_for_each_file_and_lands_once(self):
+        for e in vc.CATALOG:
+            landing = []
+            for s in (x for x in e["sources"] if x["type"] == "hf" and x["revision"] != "main"):
+                self.assertRegex(s["revision"], COMMIT, (e["id"], s["repo"]))
+                self.assertEqual(sorted(s["files"]), sorted(s["pins"]), (e["id"], s["repo"]))
+                self.assertEqual(len(set(s["files"])), len(s["files"]), (e["id"], s["repo"]))
+                for sha in s["pins"].values():
+                    self.assertRegex(sha, SHA, (e["id"], s["repo"]))
+                if e["id"] in SIZED:
+                    self.assertEqual(sorted(s["sizes"]), sorted(s["files"]), (e["id"], s["repo"]))
+                    self.assertTrue(all(isinstance(n, int) and n > 0 for n in s["sizes"].values()), (e["id"], s["repo"]))
+                landing += ["/".join(x for x in (s["subdir"], p[len(s["strip"]):] if s["strip"] else p) if x) for p in s["files"]]
+            self.assertEqual(len(set(landing)), len(landing), e["id"])                  # two sources must not write the same file
+            if e["id"] in SIZED:
+                self.assertEqual(e["size"], sum(n for s in e["sources"] for n in s["sizes"].values()), e["id"])
+
+    def test_chatterbox_has_the_files_the_package_loads_from_a_folder(self):
+        (s,) = vc.find("chatterbox")["sources"]
+        self.assertEqual((s["repo"], s["subdir"]), ("ResembleAI/chatterbox", ""))
+        for name in ("ve.pt", "t3_mtl23ls_v2.safetensors", "s3gen.pt", "grapheme_mtl_merged_expanded_v1.json", "conds.pt"):      # from_local of chatterbox-tts 0.1.7
+            self.assertIn(name, s["files"])
+        self.assertEqual(s["revision"], "5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18")
+        self.assertEqual(s["pins"]["s3gen.pt"], "9b9ff07e60b20c136e2b1b3d7563a24604e8d2c4c267888d1ee929dd0151d2a3")
 
     def test_the_piper_voices_are_onnx_and_json_pairs_that_land_flat_in_the_folder(self):
         e = vc.find("piper")
@@ -209,7 +235,7 @@ class LicenseAndVerifyTest(unittest.TestCase):
         d = vc.download_entry("xtts-v2")
         self.assertEqual((d["folder"], d["noncommercial"], d["kind"], d["marker"]), ("tts/xtts-v2", True, "voice", True))
         self.assertIsNone(d["why_not"])
-        self.assertEqual(vc.download_entry("chatterbox")["why_not"]["code"], "no_source")
+        self.assertEqual(vc.download_entry("wav2lip-int8")["why_not"]["code"], "no_source")
         self.assertIsNone(vc.download_entry("kokoro")["why_not"])
         self.assertIsNone(vc.download_entry("nope"))
         self.assertIsNone(vc.download_entry(None))

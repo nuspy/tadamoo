@@ -129,9 +129,18 @@ def _hf(repo: str, files=None, subdir: str = "", strip: str = "") -> dict:
 
 
 def _pinned(repo: str, revision: str, files, subdir: str = "", strip: str = "") -> dict:
-    """A checked Hugging Face source: `revision` is a commit and `files` are (path, SHA-256) pairs, the LFS id or the hash of the small file."""
-    return {"type": "hf", "repo": repo, "revision": revision, "files": [path for path, _ in files], "subdir": subdir, "strip": strip,
-            "pins": dict(files)}
+    """A checked Hugging Face source: `revision` is a commit and `files` are (path, SHA-256) pairs, the LFS id or the hash of the small file.
+    A (path, SHA-256, size) triple also records the size in bytes (`sizes`), the sum of which is the entry's size."""
+    src = {"type": "hf", "repo": repo, "revision": revision, "files": [f[0] for f in files], "subdir": subdir, "strip": strip,
+           "pins": {f[0]: f[1] for f in files}}
+    if files and all(len(f) == 3 for f in files):
+        src["sizes"] = {f[0]: f[2] for f in files}
+    return src
+
+
+def _total(*sets) -> int:
+    """The bytes of one or more lists of (path, SHA-256, size) triples."""
+    return sum(f[2] for files in sets for f in files)
 
 
 def _url(url: str, name: str, sha256: str | None = None, size: int | None = None, archive: str = "") -> dict:
@@ -289,6 +298,17 @@ _PIPER_VOICES = [
 ]
 _PIPER_SOURCES = [_pinned(_PIPER, _PIPER_REV, [(f"{d}/{n}.onnx", h1), (f"{d}/{n}.onnx.json", h2)], strip=d + "/") for n, d, h1, h2, _ in _PIPER_VOICES]
 
+# The files of the TTS entries below: (path, SHA-256, size), the LFS id or the hash of the small file, read from the repository's tree at that commit.
+# ResembleAI/chatterbox at 5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18
+_CHATTERBOX_FILES = [
+    ("ve.pt", "4b16d836bc598509860f6fa068165a8bb5e9ac84f05582dfcf278a5a372879f1", 5_698_626),
+    ("t3_mtl23ls_v2.safetensors", "b1237586127ce98e7800a68e49938eb5092846862aabcb6e17b2fda7889a6c75", 2_143_989_752),
+    ("s3gen.pt", "9b9ff07e60b20c136e2b1b3d7563a24604e8d2c4c267888d1ee929dd0151d2a3", 1_057_165_844),
+    ("grapheme_mtl_merged_expanded_v1.json", "69632f47220a788a52ce2661d096453c5655e9bf25289d89a8d832c46ee07dbf", 69_989),
+    ("conds.pt", "6552d70568833628ba019c6b03459e77fe71ca197d5c560cef9411bee9d87f4e", 107_374),
+    ("Cangjie5_TC.json", "7073fd9de919443ae88e0bd2449917a65fe54898a4413ed1edcc4b67f28bce8c", 1_920_163),
+]
+
 CATALOG = [_whisper(s) for s in _WHISPER] + [
     _entry("kokoro", "tts", "kokoro", "Kokoro", "kokoro", "apache-2.0",
            [_url(_KOKORO_BASE + "kokoro-v1.0.fp16.onnx", "kokoro-v1.0.fp16.onnx", "c1610a859f3bdea01107e73e50100685af38fff88f5cd8e5c56df109ec880204", 177_464_787),
@@ -313,14 +333,21 @@ CATALOG = [_whisper(s) for s in _WHISPER] + [
                     "Quattro voci dal repository rhasspy/piper-voices, un file .onnx e il suo .onnx.json ciascuna: italiano Riccardo (x_low) e Serena (medium), "
                     "inglese US LJ Speech (medium) e inglese GB Cori (medium). Il nome della voce è il nome base del file. Altre voci (l'ungherese, per esempio) si mettono "
                     "a mano nella stessa cartella. Paola (italiano) e Alba (inglese) mancano di proposito: derivano dalla voce Lessac, i cui dati sono solo per ricerca.")),
-    _entry("chatterbox", "tts", "chatterbox", "Chatterbox Multilingual", "chatterbox", "mit", [], verify=("source", "size"),
+    _entry("chatterbox", "tts", "chatterbox", "Chatterbox Multilingual", "chatterbox", "mit",
+           [_pinned("ResembleAI/chatterbox", "5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18", _CHATTERBOX_FILES)], size=_total(_CHATTERBOX_FILES),
            languages=("it", "en", "fr", "es", "ru", "de", "pt"),
-           venv=_t("Own Python environment (chatterbox-venv with the chatterbox-tts package), torch with CUDA.",
-                   "Ambiente Python proprio (chatterbox-venv con il pacchetto chatterbox-tts), torch con CUDA."),
-           notes=_t("Voice cloning, high quality, slow. The package fetches its own weights; their repository is not named in the voice "
-                    "code, so this entry cannot be downloaded yet.",
-                    "Clonazione di voce, qualità alta, lento. Il pacchetto scarica da sé i suoi pesi; il loro repository non è nominato nel "
-                    "codice vocale, quindi questa voce non si può ancora scaricare.")),
+           venv=_t("Own Python environment (chatterbox-venv with the chatterbox-tts package, 0.1.7 installed), torch with CUDA. The package also pulls resemble-perth, "
+                   "which watermarks the audio it makes.",
+                   "Ambiente Python proprio (chatterbox-venv con il pacchetto chatterbox-tts, installato la 0.1.7), torch con CUDA. Il pacchetto porta anche resemble-perth, "
+                   "che mette una filigrana nell'audio prodotto."),
+           notes=_t("Voice cloning, high quality, slow. The six files are those that ChatterboxMultilingualTTS.from_local of chatterbox-tts 0.1.7 reads from the folder "
+                    "(its own download list for ResembleAI/chatterbox); the repository's newer v3 and the English-only files are not installed. The package supports 23 "
+                    "languages, the voice service lists seven. Cangjie5_TC.json is only for Chinese and 0.1.7 asks Hugging Face for it by itself; a later package version "
+                    "may want other files.",
+                    "Clonazione di voce, qualità alta, lento. I sei file sono quelli che ChatterboxMultilingualTTS.from_local di chatterbox-tts 0.1.7 legge dalla cartella "
+                    "(la sua lista di download di ResembleAI/chatterbox); i v3 più recenti del repository e i file solo inglese non si installano. Il pacchetto supporta 23 "
+                    "lingue, il servizio vocale ne elenca sette. Cangjie5_TC.json serve solo al cinese e la 0.1.7 lo chiede da sé a Hugging Face; una versione più recente "
+                    "del pacchetto potrebbe volere altri file.")),
     _entry("xtts-v2", "tts", "xtts", "XTTS v2", "xtts", "cpml-1.0", [_hf("coqui/XTTS-v2")], size=1_800_000_000, noncommercial=True,
            languages=("it", "en", "fr", "es", "ru", "de", "pt", "pl", "tr", "nl", "cs", "ar", "zh", "ja", "ko", "hu", "hi"),
            venv=_t("Own Python environment (tts-venvs/xtts), torch with CUDA.", "Ambiente Python proprio (tts-venvs/xtts), torch con CUDA."),
