@@ -127,3 +127,43 @@ when the offer has audio the voice goes on the media track and no PCM is sent (`
 
 The gateway carries voice, text, timelines and the emergency video. A file from the phone goes through the server's own routes, and so do the
 avatar's files. The same gateway serves the ESP32 (`esp32.md`, `voice/tests/fake_device.py`). Not proven: a real device of any kind.
+
+## Interruptions (the phone's side)
+
+The person speaks over the avatar. The phone detects it and reports; the PC decides what it means (importance, urgency, relatedness to the
+answer being given: finish then answer, stop and integrate, or stop and answer now, with the interrupted answer kept in memory). All of the
+messages below are new; a side that does not know one ignores it, and a message with a missing or wrong field is ignored.
+
+The phone does this only while the avatar speaks (`audio_start` until `done`) and only when the audio route allows full duplex (a
+Bluetooth headset, or the speakerphone when the phone's echo canceller was found by the audio test and the person allowed it). Otherwise
+the microphone is closed while the avatar speaks and the hold button is the only way in, as before.
+
+| Phone to PC | Meaning |
+|---|---|
+| `user_speaking {state: "start", level, ms: 0}` | a local voice detector heard speech over the avatar (loud audio for 150 ms). `level` is the RMS of the loudest chunk, 0 to 1 |
+| `start {mode: "hold", lang, sample_rate: 16000, barge_in: true}`, PCM, `end` | the utterance, as a turn. The PCM begins with the 300 ms before the detector fired |
+| `user_speaking {state: "end", level, ms}` | the speech ended (700 ms of quiet), sent just before `end`; `ms` is how long it lasted |
+| `resume {accept: true\|false}` | the person took, or turned down, a `resume_offer` |
+
+| PC to phone | Meaning |
+|---|---|
+| `duck {level}` | play the avatar's voice at `level` (0 to 1) of its normal level, now, including audio already queued. `1` means back to normal: the PC decided it was not an interruption |
+| `interrupt` | the existing message: stop the playback and drop what is queued |
+| `resume_offer {text}` | after an interruption, the continuation of the interrupted answer; the phone shows it with a Continue button. Speaking to accept is a normal turn |
+
+Rules the phone follows, so the PC can rely on them:
+
+- At `user_speaking start` the phone lowers the avatar to 0.3 on its own. It never mutes at once, and it does not stop the reply.
+- A `start` with `barge_in: true` does not stop the reply by itself (a plain `start` while a reply plays still does). The PC answers it as
+  any turn: `transcript`, then exactly one `done`. If it keeps speaking it sends nothing or `duck {level: 1}`; if it stops it sends `interrupt`.
+- With no `duck`, `interrupt` or new `audio_start` within 6 seconds of `user_speaking end` the phone restores the level by itself. A new
+  `audio_start` also starts at the normal level unless the person is still speaking.
+- `resume_offer` is dropped when the person starts another turn. The phone answers it at most once, with `resume`.
+- Connection lost: the level goes back to normal and the speech detector stops.
+
+## Video hints and the avatar switch
+
+`video_start` may carry `resolution` (pixels of the longer side: 128, 192, 256, 384 or 480), `fps` and `bitrate_kbps` (the phone's quality
+setting: low 15 and 300, medium 25 and 800, high 30 and 1800). They are hints; the PC may keep its own. When the person turns the avatar
+off (voice only) the phone sends `video_stop` and asks for no video until it is turned on again; the voice goes on. The personality and
+the default brain chosen in the phone's Settings are sent with the existing `persona` and `brain` messages once the connection is ready.
