@@ -1,0 +1,44 @@
+/* Chat and Code on a narrow screen: the conversations are a panel above the chat, the rest of the header sits behind More. */
+.ch-panel { display: contents; }
+.ch-more { display: none; }
+/* converter.css shares the cv- names and makes these grids: the rows must be able to shrink to the column */
+.convs .cv-list { grid-template-columns: minmax(0, 1fr); }
+.convs .cv { min-width: 0; }
+
+@media (max-width: 860px) {
+  .chatrow { flex-direction: column; gap: 8px; }
+  .convs, .convs.shut { flex: none; }
+  .convs:not(.shut) { max-height: min(50dvh, 420px); }
+  .convs .cv-head { min-height: 48px; }
+  .convs.shut .cv-head { justify-content: space-between; padding: 0 6px 0 14px; }
+  .convs.shut .cv-head b { display: block; }
+  .cv-toggle { display: inline-flex; align-items: center; justify-content: center; width: 44px; min-height: 44px; font-size: 0; }
+  .cv-toggle::after { content: ""; width: 9px; height: 9px; border: solid currentColor; border-width: 0 2px 2px 0; transform: translateY(-2px) rotate(45deg); }
+  .cv-toggle[aria-expanded="true"]::after { transform: translateY(2px) rotate(225deg); }
+  .cv-open, .cv-projname, .cv-addfolder { min-height: 44px; }
+  .cv-open { justify-content: center; padding: 6px 8px; }
+  .cv-fav, .cv-del, .cv-act { min-width: 44px; min-height: 44px; }
+  .cv-t { font-size: 14px; }
+  .cv-s { font-size: 12px; }
+  .chgside { flex: none; min-width: 0; max-height: 60dvh; }
+
+  .chathead { padding-inline: 12px; }
+  .ch-more { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+  .ch-more::after { content: ""; width: 8px; height: 8px; border: solid currentColor; border-width: 0 2px 2px 0; transform: translateY(-2px) rotate(45deg); }
+  .ch-more[aria-expanded="true"]::after { transform: translateY(2px) rotate(225deg); }
+  .chathead:not(.more-open) .ch-panel > :not(.ch-keep) { display: none; }
+  .chathead.more-open .ch-panel { display: flex; flex-direction: column; align-items: stretch; gap: 6px; flex: 1 0 100%; min-width: 0; max-height: min(60dvh, 440px); overflow-y: auto; overscroll-behavior: contain; padding: 4px 0; }
+  .chathead.more-open .ch-panel > .grow { display: none; }
+  .chathead.more-open .ch-panel > .btn { width: 100%; justify-content: flex-start; text-align: left; }
+  .chathead.more-open .ch-panel > .effort { display: flex; justify-content: space-between; width: 100%; max-width: none; }
+  .chathead.more-open .ch-panel .effort > span { position: static; display: inline; width: auto; height: auto; overflow: visible; clip: auto; white-space: normal; font-size: 14px; }
+  .chathead .effort select { flex: 1 1 0; min-width: 0; max-width: 60%; min-height: 44px; font-size: 16px; }
+  .chathead.more-open .ch-panel > .vs-group { margin-left: 0; }
+  .chathead .ps, .chathead .po { max-width: 100%; }
+
+  .chathead .btn, .chathead .ps .ps-opt, .chathead .ps .ps-help, .chathead .po .po-box, .chathead .modechip,
+  .composer .btn, .composer .btn.attach, .composer .lt-btn, .chgside .btn { min-height: 44px; min-width: 44px; }
+  .composer .btn.attach { padding: 0; }
+  .composer .crow { gap: 8px; }
+  .composer textarea { font-size: 16px; }
+}
