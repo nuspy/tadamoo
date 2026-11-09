@@ -203,6 +203,7 @@ def handle(h, svc) -> None:
         try:
             body = h._body(route.max_body)
         except Exception as e:                                                  # BadBody: the status and the sentence
+            h._discard_body()                                                   # what a small refused body still holds is read away, so the caller sees the answer
             return _fail(h, getattr(e, "status", 400), "bad_request", str(e))
     elif send_body and size is None:
         return
