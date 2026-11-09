@@ -39,6 +39,8 @@ MAX_LOG = 100
 MAX_QUEUE = 200
 MAX_RUNS = 40                                   # readings of the person's messages kept, newest last
 MAX_CONVERSATIONS = 20                          # conversations one note remembers it came from
+LEARNED = "conversation"                        # `source` of what a personality wrote about itself from its conversations (tadamoo/persona_learning.py)
+MAX_LEARNED_DONE = 300                          # conversations whose learning is remembered, to learn only what was said after it
 MESSAGE_CHARS = 1800                            # most text one answer's notes may take
 PER_SECTION = {"low": 1, "normal": 2, "high": 4, "highest": 8}
 CORE = {"high": 2, "highest": 6}                # items of a section put in at the start of a conversation even without a match
@@ -262,8 +264,8 @@ class PersonalMemory:
                 data["items"] = items
                 self._write(data)
                 return dict(item)
-            if section == "card":                                     # one card: a new one replaces the old
-                for old in [i for i in items.values() if i["kind"] == kind and i["section"] == "card"]:
+            if section == "card":                                     # one card: a new one replaces the old (a learned profile and the person's card do not replace each other)
+                for old in [i for i in items.values() if i["kind"] == kind and i["section"] == "card" and (i.get("source") == LEARNED) == (source == LEARNED)]:
                     del items[old["id"]]
             item = {"id": f"pm_{uuid.uuid4().hex[:12]}", "kind": kind, "section": section, "text": value, "origin": origin,
                     "confidence": confidence, "created": now, "updated": now, "seen": now, "mentions": 1, "source": str(source)[:60],
@@ -373,8 +375,62 @@ class PersonalMemory:
             data["items"] = keep
             if not kind:
                 data["log"], data["queue"], data["runs"] = [], [], []
+                data.pop("learned", None)
             self._write(data)
             return gone
+
+    # -- what a personality learned from its conversations ----------------------------------------------
+
+    def learned_state(self) -> Dict[str, Any]:
+        """{"conversations": how many were learned from, "last": when, "done": {conversation: {"n": lines already learned, "at": when}}}."""
+        state = self._read().get("learned") or {}
+        return {"conversations": int(state.get("conversations") or 0), "last": float(state.get("last") or 0), "done": dict(state.get("done") or {})}
+
+    def learned_items(self) -> List[Dict[str, Any]]:
+        return [i for i in self.items() if i.get("source") == LEARNED]
+
+    def mark_learned(self, conversation: str, lines: int) -> None:
+        """A conversation was learned from up to its `lines`-th line; the first time it counts as one more conversation."""
+        with self._lock:
+            data = dict(self._read())
+            state = self.learned_state()
+            now = self.clock()
+            if conversation not in state["done"]:
+                state["conversations"] += 1
+            state["done"].pop(conversation, None)
+            state["done"][conversation] = {"n": int(lines), "at": now}
+            state["done"] = dict(list(state["done"].items())[-MAX_LEARNED_DONE:])
+            state["last"] = now
+            data["learned"] = state
+            self._write(data)
+
+    def trim_learned(self, kind: str, section: str, keep: int) -> int:
+        """Only the newest `keep` learned notes of a section stay (what the person confirmed or wrote over is never counted or removed)."""
+        with self._lock:
+            data = dict(self._read())
+            mine = sorted((i for i in data["items"].values() if i.get("source") == LEARNED and i["kind"] == kind and i["section"] == section and i["origin"] not in ("manual", "confirmed")),
+                          key=lambda i: (i["created"], i["id"]), reverse=True)
+            gone = {i["id"] for i in mine[max(0, keep):]}
+            if gone:
+                data["items"] = {k: v for k, v in data["items"].items() if k not in gone}
+                data["log"] = [line for line in data["log"] if line.get("id") not in gone]
+                self._write(data)
+            return len(gone)
+
+    def forget_learned(self) -> int:
+        """Removes what was learned from conversations, except notes the person confirmed or wrote over; the count of conversations starts again
+        (the lines already learned stay, so a conversation that goes on is not learned from twice)."""
+        with self._lock:
+            data = dict(self._read())
+            gone = {k for k, v in data["items"].items() if v.get("source") == LEARNED and v["origin"] not in ("manual", "confirmed")}
+            state = self.learned_state()
+            state.update(conversations=0, last=0.0)
+            data["items"] = {k: v for k, v in data["items"].items() if k not in gone}
+            data["log"] = [line for line in data["log"] if line.get("id") not in gone]
+            data["queue"] = [j for j in data["queue"] if j.get("kind") != "learn"]
+            data["learned"] = state
+            self._write(data)
+            return len(gone)
 
     # -- what was learned, and what waits to be -------------------------------------------------------
 
