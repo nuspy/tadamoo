@@ -46,7 +46,17 @@ def source(tmp_path):
                                               "stats": {"sessions": 2}})
     _write(people / "Shan" / "clips" / "a.mp4", b"\x00\x00\x00\x18ftypmp42" + b"v" * 5000)
     _write(people / "Shan" / "poster.jpg", b"\xff\xd8\xff" + b"p" * 400)
-    _write(people / "Shan" / "wav2lip" / "cache.bin", b"c" * 2_000_000)
+    _write(people / "Shan" / "wav2lip" / "face.png", b"PNGDATA" + b"f" * 300)
+    _write(people / "Shan" / "wav2lip" / "box.json", {"box": [1, 2, 3, 4]})
+    _write(people / "Shan" / "scratch" / "cache.bin", b"c" * 2_000_000)
+    prep = root / "avatar" / "cache" / "Shan__a__h480"                         # the MuseTalk preparation callAPIcall kept for the clip
+    for name in ("latents.pt", "coords.pkl", "mask_boxes.pkl"):
+        _write(prep / name, b"x" * 200)
+    for i in range(3):
+        _write(prep / "frames" / f"{i:05d}.png", b"F" * 50)
+        _write(prep / "masks" / f"{i:05d}.png", b"M" * 20)
+    _write(root / "avatar" / "cache" / "Shan__a", b"full-height preparation, not taken")
+    _write(root / "avatar" / "cache" / "Shan__gone__h480" / "latents.pt", b"x")   # the clip is not Shan's any more: not taken
     _write(people / "Giulio_Cesare" / "manifest.json", {"name": "Giulio_Cesare", "voice": {"engine": "dia", "voice": "Pluto"}, "knowledge_project": "",
                                                         "personality_from_docs": "A general who writes of his own wars.", "personality": "", "system_prompt": "You are Caesar."})
     _write(people / "Giulio_Cesare" / "docs" / "diary.txt", DIARY)
@@ -99,7 +109,8 @@ def test_the_plan_lists_what_would_be_made_with_sizes_and_writes_nothing(env, so
     shan = items["persona:Shan"]
     assert (shan["slug"], shan["action"], shan["conflict"]) == ("shan", "create", "")
     assert shan["parts"]["clips"]["count"] == 1 and shan["parts"]["memory"] == {"profile": True, "sessions": 2} and shan["parts"]["poster"] is True
-    assert shan["skipped"] == [{"name": "wav2lip", "bytes": 2_000_000}]
+    assert shan["skipped"] == [{"name": "scratch", "bytes": 2_000_000}]
+    assert shan["parts"]["wav2lip"] is True and shan["parts"]["prepared"]["count"] == 1 and shan["parts"]["prepared"]["bytes"] == 600 + 150 + 60
     assert shan["personal"] is True and set(shan["personal_reasons"]) == {"memory", "video-or-photo"}
     assert "wiki-shan" not in json.dumps(shan) and any("knowledge project" in n for n in shan["notes"])
     assert items["persona:Andrea_Taini"]["personal"] is True
@@ -129,7 +140,13 @@ def test_a_personality_gets_its_fields_its_encrypted_memory_its_archive_and_its_
     assert PROFILE_1 in texts and PROFILE_2 in texts and any("Spring trip" in t and SESSION in t and t.startswith("2025-") for t in texts)
     assert {n["kind"] for n in notes} == {"long", "short"} and {n["origin"] for n in notes} == {"inferred"}
     assert (env.avatars / "shan" / "clips" / "a.mp4").stat().st_size == 5000 + 12 and (env.avatars / "shan" / "poster.jpg").is_file()
-    assert not (env.avatars / "shan" / "wav2lip").exists()                                  # the cache is left where it is
+    assert (env.avatars / "shan" / "wav2lip" / "face.png").is_file() and json.loads((env.avatars / "shan" / "wav2lip" / "box.json").read_text()) == {"box": [1, 2, 3, 4]}
+    prepared = env.avatars / "shan" / "prepared"
+    assert sorted(p.name for p in (prepared / "a__h480").iterdir()) == ["coords.pkl", "frames", "latents.pt", "mask_boxes.pkl", "masks"]
+    assert len(list((prepared / "a__h480" / "frames").iterdir())) == 3 and not (prepared / "gone__h480").exists()
+    index = json.loads((prepared / "index.json").read_text())
+    assert list(index) == ["a.mp4"] and index["a.mp4"]["frames"] == 3 and index["a.mp4"]["height"] == 480
+    assert not (env.avatars / "shan" / "scratch").exists()                                  # any other folder is left where it is
     caesar = env.store.get("giulio-cesare")
     assert caesar["profile"] == "A general who writes of his own wars." and len(caesar["knowledge"]) == 1
     archive = env.rag.get(caesar["knowledge"][0])

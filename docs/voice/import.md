@@ -28,7 +28,9 @@ button. Links inside the folder are not followed.
 | `docs/` | a knowledge archive "`<Name>` (callAPIcall)", linked to the personality |
 | `rag/chunks.jsonl` | the same archive, only when no document could be read: the passages are grouped by source and written as text |
 | `clips/*.mp4`, `poster.jpg` | `<user data>/voice/avatars/<slug>/`; the personality's `avatar` is the slug |
-| `wav2lip/`, other folders, `rag/embeddings.npy` | left where they are (caches); the plan lists them and their size |
+| `wav2lip/face.png` + `box.json` | `<avatar>/wav2lip/` (the phone's Wav2Lip), only when both are there |
+| `<source>/avatar/cache/<Name>__<clip>__h480/` | `<avatar>/prepared/<clip>__h480/` and an entry in `prepared/index.json`: the MuseTalk preparation of that clip, so the first start does not prepare it again. Only a complete folder (latents, coordinates, mask boxes, frames, masks) of a clip the persona still has, at the height TaDaMoo uses (480) |
+| other folders, `rag/embeddings.npy` | left where they are (caches); the plan lists them and their size |
 | `<source>/cloned_voices/` or `call-bridge/cloned_voices/` samples | `<models folder>/tts/voices/` |
 
 The memory is written only through `tadamoo/personal_memory.py`, which encrypts it: no clear-text copy is made anywhere. The Telegram values
@@ -54,5 +56,6 @@ same size is not copied again. Nothing in the source is changed, and nothing is 
 confirmation, the encrypted memory (no clear text on disk), the archive, the media, the conflicts, the second run and the routes;
 `serve/tests/test_voice_import_page.py` checks the page.
 
-Not proven: a run on the real callAPIcall folder (the person starts it), PDF documents without `pypdf` or `PyMuPDF` (they are reported and the
-passages are used instead), and the avatar files being used by an avatar (that comes with the avatar phase).
+Not proven: a preparation made by callAPIcall being accepted by TaDaMoo's MuseTalk worker (the import only checks that the files are there;
+deleting `<avatar>/prepared/` makes the worker prepare the clip again), and PDF documents without `pypdf` or `PyMuPDF` (they are reported and
+the passages are used instead).

@@ -1,11 +1,12 @@
 """Brings the personas, avatars and cloned voices of a callAPIcall folder into TaDaMoo: a plan of what would be made, then the run.
 
-    <source>/avatar/persone/<Name>/    manifest.json  memory.json  rag/chunks.jsonl  docs/  clips/*.mp4  poster.jpg  (wav2lip/ is a cache: left)
+    <source>/avatar/persone/<Name>/    manifest.json  memory.json  rag/chunks.jsonl  docs/  clips/*.mp4  poster.jpg  wav2lip/{face.png,box.json}
+    <source>/avatar/cache/<Name>__<clip>__h480/    the MuseTalk preparation of a clip (latents, coordinates, masks, frames)
     <source>/cloned_voices/ or <source>/call-bridge/cloned_voices/    voice samples
 
 A persona becomes a TaDaMoo personality (name, voice, personality, system prompt); the rolling profile and the remembered sessions of memory.json
 go into the personality's encrypted memory and nowhere else; its documents (or, without them, its saved passages) become a knowledge archive linked
-to it; its clips and poster are copied to `<avatars>/<slug>/`. The Telegram values are not read here. Nothing is deleted, nothing is fetched, a
+to it; its clips, poster, Wav2Lip face and prepared clips are copied to `<avatars>/<slug>/`. The Telegram values are not read here. Nothing is deleted, nothing is fetched, a
 persona that already exists is skipped unless the item says `replace`, and a second run changes nothing.
 
 The stores are handed in, so this module imports nothing of TaDaMoo; every problem of one item is reported on that item."""
@@ -25,6 +26,9 @@ VOICE_FOLDERS = (("cloned_voices",), ("call-bridge", "cloned_voices"))
 VOICE_EXT = (".wav", ".mp3", ".flac", ".ogg")
 CLIP_EXT = (".mp4", ".mov", ".webm", ".mkv")
 POSTER_EXT = (".jpg", ".jpeg", ".png", ".webp")
+PREPARED_HEIGHT = 480                    # the height TaDaMoo prepares clips for; a preparation of another height is not taken
+PREPARED_FILES = ("latents.pt", "coords.pkl", "mask_boxes.pkl")
+WAV2LIP_FILES = ("face.png", "box.json")
 JSON_MAX = 8 << 20
 SCAN_MAX = 20000                         # files counted in a folder that is only measured
 FIELD_LIMITS = {"personality": 8000, "system_prompt": 8000, "profile": 1500}
@@ -124,7 +128,12 @@ def _read_persona(folder: Path) -> Dict[str, Any]:
     out["docs"] = sorted(p for p in (folder / "docs").iterdir() if p.is_file() and not p.is_symlink()) if (folder / "docs").is_dir() else []
     chunks = folder / "rag" / "chunks.jsonl"
     out["chunks_file"] = chunks if chunks.is_file() and not chunks.is_symlink() else None
-    out["skipped"] = [{"name": d.name, "bytes": _tree_size(d)} for d in sorted(folder.iterdir()) if d.is_dir() and not d.is_symlink() and d.name not in ("clips", "docs", "rag")]
+    out["skipped"] = [{"name": d.name, "bytes": _tree_size(d)} for d in sorted(folder.iterdir())
+                      if d.is_dir() and not d.is_symlink() and d.name not in ("clips", "docs", "rag", "wav2lip")]
+    out["wav2lip"] = [f for f in (folder / "wav2lip" / n for n in WAV2LIP_FILES) if f.is_file() and not f.is_symlink()]
+    if len(out["wav2lip"]) != len(WAV2LIP_FILES):
+        out["wav2lip"] = []                                                       # the face and the box go together
+    out["prepared"] = _prepared(folder, out["clips"])
     reasons = []
     if out["memory"]["profile"] or sessions:
         reasons.append("memory")
@@ -132,6 +141,20 @@ def _read_persona(folder: Path) -> Dict[str, Any]:
         reasons.append("video-or-photo")
     out["personal"] = reasons
     return out
+
+
+def _prepared(folder: Path, clips: List[Path]) -> List[Dict[str, Any]]:
+    """The MuseTalk preparations callAPIcall kept for the persona's clips, at TaDaMoo's height: a complete folder each, with its frame count."""
+    cache = folder.parent.parent / "cache"
+    found = []
+    for clip in clips:
+        src = cache / f"{folder.name}__{clip.stem}__h{PREPARED_HEIGHT}"
+        if src.is_symlink() or not src.is_dir() or not all((src / n).is_file() and not (src / n).is_symlink() for n in PREPARED_FILES):
+            continue
+        frames = _files(src / "frames", (".png", ".jpg", ".jpeg"))
+        if frames and (src / "masks").is_dir():
+            found.append({"clip": clip.name, "src": src, "frames": len(frames), "bytes": _tree_size(src)})
+    return found
 
 
 def _fields(p: Dict[str, Any], slug: str) -> tuple[Dict[str, Any], List[str]]:
@@ -165,11 +188,14 @@ def _item(p: Dict[str, Any], personas: Any, rag: Any) -> Dict[str, Any]:
     item = {**base, "name": p["name"], "slug": slug, "voice": p["voice"], "personal": bool(p["personal"]), "personal_reasons": p["personal"],
             "parts": {"clips": {"count": len(p["clips"]), "bytes": sum(c.stat().st_size for c in p["clips"])},
                       "poster": p["poster"] is not None,
+                      "wav2lip": bool(p["wav2lip"]),
+                      "prepared": {"count": len(p["prepared"]), "bytes": sum(x["bytes"] for x in p["prepared"])},
                       "memory": {"profile": bool(p["memory"]["profile"]), "sessions": len(p["memory"]["sessions"])},
                       "documents": {"count": len(p["docs"]), "bytes": sum(d.stat().st_size for d in p["docs"])},
                       "passages": _count_lines(p["chunks_file"])},
             "skipped": p["skipped"], "conflict": "", "action": "create"}
-    item["bytes"] = item["parts"]["clips"]["bytes"] + item["parts"]["documents"]["bytes"] + (p["poster"].stat().st_size if p["poster"] else 0)
+    item["bytes"] = (item["parts"]["clips"]["bytes"] + item["parts"]["documents"]["bytes"] + item["parts"]["prepared"]["bytes"]
+                     + (p["poster"].stat().st_size if p["poster"] else 0))
     try:
         data, notes = _fields(p, slug)
         item["notes"] += notes
@@ -232,6 +258,28 @@ def _copy(src: Path, dst: Path, force: bool = False) -> bool:
     shutil.copyfile(src, tmp)
     os.replace(tmp, dst)
     return True
+
+
+def _prepared_copy(prepared: List[Dict[str, Any]], target: Path) -> Dict[str, int]:
+    """Each preparation goes to `<avatar>/prepared/<clip>__h480/` and is listed in `prepared/index.json`, as the worker lists the ones it makes."""
+    index_path = target / "prepared" / "index.json"
+    index = _json(index_path) or {}
+    written = 0
+    for x in prepared:
+        dest = target / "prepared" / f"{Path(x['clip']).stem}__h{PREPARED_HEIGHT}"
+        for base, dirs, names in os.walk(x["src"]):
+            dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(base, d))]
+            for n in names:
+                src = Path(base, n)
+                if not src.is_symlink():
+                    written += _copy(src, dest / src.relative_to(x["src"]))
+        index[x["clip"]] = {"frames": x["frames"], "height": PREPARED_HEIGHT, "prepared": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    if prepared:
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = index_path.with_name(index_path.name + ".tmp")
+        tmp.write_text(json.dumps(index, indent=2), encoding="utf-8")
+        os.replace(tmp, index_path)
+    return {"clips": len(prepared), "files_written": written}
 
 
 def _memory(p: Dict[str, Any], memory: Any) -> Dict[str, int]:
@@ -322,7 +370,9 @@ def _run_persona(item: Dict[str, Any], p: Dict[str, Any], personas: Any, rag: An
         copied = [_copy(c, target / "clips" / c.name) for c in p["clips"]]
         if p["poster"] is not None:
             copied.append(_copy(p["poster"], target / ("poster" + p["poster"].suffix.lower())))
+        copied += [_copy(f, target / "wav2lip" / f.name) for f in p["wav2lip"]]
         result["media"] = {"files": len(copied), "written": sum(copied)}
+        result["prepared"] = _prepared_copy(p["prepared"], target)
     except OSError as e:
         warnings.append(f"clips and poster: {e.strerror or e}")
     return result
