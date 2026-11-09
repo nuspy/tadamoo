@@ -34,6 +34,7 @@ class FakeVoice:
 
     def __init__(self):
         self.seen = []
+        self.leak = None                              # "body", "split" (across the 1 MiB chunk edge) or "header": what the binary route puts the token in
         outer = self
 
         class H(http.server.BaseHTTPRequestHandler):
@@ -59,6 +60,10 @@ class FakeVoice:
                     code, out = 409, {"status": "error", "code": "model_not_installed", "message": "Whisper small is not installed: install it from Settings > Voice."}
                 elif path == "/tts/models":
                     kind, out = "application/octet-stream", BLOB
+                    if outer.leak == "body":
+                        out = BLOB[:5000] + TOKEN.encode() + BLOB[:5000]
+                    elif outer.leak == "split":
+                        out = b"x" * (voice_compat.CHUNK - 10) + TOKEN.encode() + b"y" * 5000
                 elif path == "/analysis/missing":
                     code, out = 404, {"error": "analisi non trovata"}
                 raw = out if isinstance(out, bytes) else json.dumps(out).encode()
@@ -66,6 +71,8 @@ class FakeVoice:
                 self.send_header("Content-Type", kind)
                 self.send_header("Content-Length", str(len(raw)))
                 self.send_header("Set-Cookie", "service=1")
+                if outer.leak == "header":
+                    self.send_header("Content-Disposition", f"attachment; filename={TOKEN}.bin")
                 self.end_headers()
                 self.wfile.write(raw)
 
@@ -187,6 +194,52 @@ class PassThroughTests(Base):
     def test_a_binary_answer_streams_whole(self):
         status, hdr, raw = self.request("GET", "/tts/models")
         self.assertEqual((status, hdr["Content-Type"], raw), (200, "application/octet-stream", BLOB))
+
+    def test_a_binary_answer_that_carries_the_token_is_cut_off_before_the_token(self):
+        for where in ("body", "split"):
+            self.voice.leak = where
+            conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+            got = b""
+            try:
+                conn.request("GET", "/tts/models")
+                r = conn.getresponse()
+                try:
+                    got = r.read()
+                except http.client.IncompleteRead as e:
+                    got = e.partial                                          # the connection is closed short of the length it promised
+            finally:
+                conn.close()
+            self.assertNotIn(TOKEN.encode(), got, where)
+            self.assertLess(len(got), 1 << 21, where)
+
+    def test_a_header_of_a_binary_answer_never_carries_the_token(self):
+        self.voice.leak = "header"
+        status, hdr, raw = self.request("GET", "/tts/models")
+        self.assertEqual((status, raw), (200, BLOB))
+        self.assertNotIn(TOKEN, "".join(hdr.values()))
+        self.assertIn("[hidden]", hdr["Content-Disposition"])
+
+    def test_the_guard_holds_back_a_token_split_over_any_two_chunks(self):
+        token = "t0k3n-" + "z" * 20
+        data = b"A" * 40 + token.encode() + b"B" * 40
+        for cut in range(1, len(data)):
+            guard, sent = voice_compat._TokenGuard(token), b""
+            with self.assertRaises(voice_compat.TokenLeak):
+                sent += guard.feed(data[:cut])
+                sent += guard.feed(data[cut:])
+            self.assertNotIn(token[:10].encode() + b"zz", sent)
+        clean, guard, sent = b"C" * 100, voice_compat._TokenGuard(token), b""
+        for i in range(0, 100, 7):
+            sent += guard.feed(clean[i:i + 7])
+        self.assertEqual(sent + guard.finish(), clean)                      # a clean answer comes out whole
+
+    def test_every_route_that_streams_goes_through_the_guard(self):
+        src = (ROOT / "serve" / "voice_compat.py").read_text(encoding="utf-8")
+        self.assertEqual(src.count("resp.read("), 2)                       # the buffered text read and the guarded stream, nowhere else
+        self.assertEqual(src.count("h.wfile.write("), 3)
+        stream = src.split("guard = _TokenGuard(token)")[1].split("def routes_summary")[0]
+        self.assertEqual(stream.count("h.wfile.write("), 2)
+        self.assertTrue(all("guard." in line for line in stream.splitlines() if "h.wfile.write(" in line))
 
     def test_the_services_status_and_body_come_back_unchanged_but_not_its_cookies(self):
         status, hdr, raw = self.request("POST", "/transcribe", b"RIFF", {"Content-Type": "multipart/form-data; boundary=x", "Content-Length": "4"})
