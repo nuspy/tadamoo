@@ -294,7 +294,7 @@ class ProxyTests(ServerBase):
 
     def test_the_list_is_what_the_page_needs_and_no_more(self):
         self.assertEqual(sorted(f"{m} {p}" for m, p in voice_proxy.ROUTES),
-                         sorted(["GET /status", "GET /functions", "GET /brain/state", "GET /session/state", "GET /diag/brain", "POST /session/start",
+                         sorted(["GET /status", "GET /components/status", "GET /functions", "GET /brain/state", "GET /session/state", "GET /diag/brain", "POST /session/start",
                                  "GET /session/language", "POST /session/language",
                                  "POST /session/stop", "POST /session/new", "POST /brain/say", "GET /call/approvals", "GET /call/audit", "GET /gateway",
                                  # the avatar (serve/tests/test_voice_avatar_proxy.py)

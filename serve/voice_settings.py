@@ -12,7 +12,8 @@
                    "incoming_auto_answer": true|false, "on_behalf_of": "<name>", "premium_prefixes": ["+39 89", "0900"],
                    "auto_contacts_only": true|false, "contacts": ["+39 333 1234567"], "phone_calls": true|false},
      "interruptions": {"enabled": true|false, "judge_timeout_ms": 200..5000, "duck_level": 0..0.9, "resume_offer": true|false},
-     "language": {"follow": true|false, "enabled": ["it", "en"], "threshold": 0.5..0.99, "short_s": 0.5..5, "voices": {"fr": "<voice of the selected engine>"}}}
+     "language": {"follow": true|false, "enabled": ["it", "en"], "threshold": 0.5..0.99, "short_s": 0.5..5, "voices": {"fr": "<voice of the selected engine>"}},
+     "dictation": {"enabled": true|false, "hotkey": "alt+space"}}
 A missing value has a default: the folder is `voice/` inside the first models folder of Basalt (else `voice-models/` in the data folder), a
 service uses the default model of serve/voice_catalog.py, on the GPU the service picks (`auto`) in VRAM, or on the CPU in RAM for the
 services that run there. Changing the folder moves nothing: a model is looked for where the folder is now. The file is replaced whole."""
@@ -836,3 +837,72 @@ def set_language(req) -> dict:
         data["language"] = stored
         _write(data)
     return language()
+
+
+# ---------------------------------------------------------------------------------------- dictation
+DICTATION_DEFAULT = {"enabled": True, "hotkey": "alt+space"}               # voice/settings_bridge.py holds the same (a test compares)
+_HOTKEY_MODS = ("ctrl", "alt", "shift", "win")
+_HOTKEY_KEYS = frozenset(["space", "tab", "enter", "esc", "left", "up", "right", "down"] + list("abcdefghijklmnopqrstuvwxyz0123456789")
+                         + [f"f{i}" for i in range(1, 13)])               # voice/callbridge/desktop/base.py holds the same (a test compares)
+
+
+def clean_hotkey(value) -> str | None:
+    """The hotkey as the service reads it ("alt+space"), or None when it is not one: one key, any of Alt, Ctrl, Shift, Win; a key that is not
+    an F key needs a modifier, or it would swallow typing."""
+    if not isinstance(value, str) or len(value) > 40:
+        return None
+    tokens = [t for t in value.lower().replace(" ", "").split("+") if t]
+    mods = [t for t in tokens if t in _HOTKEY_MODS]
+    keys = [t for t in tokens if t not in _HOTKEY_MODS]
+    if len(keys) != 1 or keys[0] not in _HOTKEY_KEYS:
+        return None
+    if not mods and not re.fullmatch(r"f\d+", keys[0]):
+        return None
+    return "+".join([m for m in _HOTKEY_MODS if m in mods] + keys)         # a repeated modifier counts once
+
+
+def dictation() -> dict:
+    """The global dictation (hold the hotkey, release to paste what was said), as the voice service reads it: a missing or bad value is the default."""
+    stored = _read().get("dictation")
+    stored = stored if isinstance(stored, dict) else {}
+    out = dict(DICTATION_DEFAULT)
+    if isinstance(stored.get("enabled"), bool):
+        out["enabled"] = stored["enabled"]
+    hotkey = clean_hotkey(stored.get("hotkey"))
+    if hotkey:
+        out["hotkey"] = hotkey
+    return out
+
+
+def check_dictation(req) -> dict:
+    """The fields of a request to change, checked; only the ones named are returned."""
+    if not isinstance(req, dict):
+        raise VoiceSettingsError("body", "Send a JSON object.", "Manda un oggetto JSON.")
+    for key in req:
+        if key not in DICTATION_DEFAULT:
+            raise VoiceSettingsError("field", f"Unknown field: {key}.", f"Campo sconosciuto: {key}.")
+    out: dict = {}
+    if "enabled" in req:
+        if not isinstance(req["enabled"], bool):
+            raise VoiceSettingsError("enabled", "enabled is true or false.", "enabled è true o false.")
+        out["enabled"] = req["enabled"]
+    if "hotkey" in req:
+        hotkey = clean_hotkey(req["hotkey"])
+        if hotkey is None:
+            raise VoiceSettingsError("hotkey", "The hotkey is one key (a letter, a digit, F1 to F12, space, tab, enter, esc or an arrow) with Alt, Ctrl, Shift or Win, "
+                                     "written like alt+space. A key other than F1 to F12 needs a modifier.",
+                                     "La scorciatoia è un tasto (una lettera, una cifra, da F1 a F12, spazio, tab, invio, esc o una freccia) con Alt, Ctrl, Maiusc o Win, "
+                                     "scritta come alt+space. Un tasto diverso da F1-F12 vuole un modificatore.")
+        out["hotkey"] = hotkey
+    return out
+
+
+def set_dictation(req) -> dict:
+    changes = check_dictation(req)
+    with _lock:
+        data = _read()
+        stored = data.get("dictation") if isinstance(data.get("dictation"), dict) else {}
+        stored.update(changes)
+        data["dictation"] = stored
+        _write(data)
+    return dictation()
