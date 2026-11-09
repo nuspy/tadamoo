@@ -6,8 +6,12 @@ Protocol (JSON text frames and binary PCM16 little-endian mono frames):
                draw the avatar, best first; a device that declares none gets the voice only; engine and resolution are optional: the device's own
                choice, else the person's choice for its kind of device, and the engine of that choice is served first)
   gw -> phone  {"type":"auth_ok"} then {"type":"ready","voice":bool,"missing":[...],"avatar":bool,"brain":"direct|harness","persona":"...",
-                "render_mode":"wav2lip|visemes|video|none","render_modes":[...],"avatar_name":"...","engine":"...","resolution":px}
-  gw -> phone  {"type":"state","voice":bool,"missing":[...],"avatar":bool}   whenever the loaded functions change
+                "render_mode":"wav2lip|visemes|video|none","render_modes":[...],"avatar_name":"...","engine":"...","resolution":px,
+                "language":"it","language_mode":"follow|locked"}
+  gw -> phone  {"type":"state","voice":bool,"missing":[...],"avatar":bool,"language":"it","language_mode":"follow|locked"}   whenever the loaded functions change
+  gw -> phone  {"type":"language","language":"fr","mode":"follow|locked","reason":"detected|command|auto|refused","warning":"","engine_fallback":bool}
+               whenever the spoken language or its mode changes, or a request was refused (docs/voice/language.md)
+  phone -> gw  {"type":"language","language":"fr|auto"}   the person's own request: a language they enabled, or back to automatic
   phone -> gw  {"type":"start","mode":"hold|continuous","lang":"it","voice":"...","sample_rate":16000,"duplex":false}
   phone -> gw  <PCM16 frames>, then {"type":"end"} (hold mode only; continuous closes the turn on a pause)
   phone -> gw  {"type":"text","text":"..."}           a typed or corrected sentence: the same turn without the STT
@@ -53,6 +57,9 @@ from voice.avatar_engines import selection as engine_selection
 
 from . import chunk_policy
 from . import spoken
+from .language_follow import LanguageSettings, iso
+from .language_names import parse_language_command
+from .language_session import LanguageSession, Outcome
 from .interruption import IGNORE, STOP_AND_INTEGRATE, Decision, Heard, InterruptionManager, Interruptions, integration_note, offer_line, voice_verdict
 from .turn_engine import ReplyProcessor, configure_tts
 from .util import coalesce_utterances, drain_queue
@@ -180,6 +187,10 @@ class Connection:
         self._segment = 0                         # numbers the audio segments of the connection
         self._stt_lang = (self.cfg.default_lang or "it").split("-")[0]
         self._lang_turno = self._stt_lang
+        # The language follows the person's speech (callbridge/language_session.py) when `language.follow` is on and the recognizer's own language is
+        # not fixed; then `lang` in a start only gives the first language. Without it the phone's `lang` of each turn rules, as before.
+        self._follow = bool(getattr(self.cfg, "language_follow", False)) and not getattr(self.cfg, "stt_language", "")
+        self._lang: LanguageSession | None = None
         self._voce_persona: tuple[str, str] | None = None
         self._last_state: tuple | None = None
         self._next_start: dict | None = None      # a start that arrived while a reply was playing
@@ -211,11 +222,22 @@ class Connection:
     def _state_message(self) -> dict:
         fn = self.host.functions()
         missing = [n for n in ("stt", "tts") if not fn.get(n)]
-        return {"type": "state", "voice": not missing, "missing": missing, "avatar": bool(fn.get("avatar"))}
+        return {"type": "state", "voice": not missing, "missing": missing, "avatar": bool(fn.get("avatar")), **self._language_fields()}
+
+    def _language_fields(self) -> dict:
+        ls = self._lang
+        if ls is not None:
+            return {"language": ls.language, "language_mode": ls.mode}
+        return {"language": self._lang_turno, "language_mode": "follow" if self._follow else "locked"}
+
+    def _state_key(self, msg: dict) -> tuple:
+        """What makes a state message worth sending again: the functions, and the language only when it follows the speech."""
+        key = (msg["voice"], tuple(msg["missing"]), msg["avatar"])
+        return key + (msg["language"], msg["language_mode"]) if self._lang is not None else key
 
     def _push_state(self) -> None:
         msg = self._state_message()
-        key = (msg["voice"], tuple(msg["missing"]), msg["avatar"])
+        key = self._state_key(msg)
         if key != self._last_state:
             self._last_state = key
             self._send_json(msg)
@@ -225,12 +247,13 @@ class Connection:
         if not self._authenticate():
             return
         state = self._state_message()
-        self._last_state = (state["voice"], tuple(state["missing"]), state["avatar"])
+        self._last_state = self._state_key(state)
         offered = self._offered()
         self._render_mode = offered[0] if offered else "none"
         self._send_json({"type": "ready", "voice": state["voice"], "missing": state["missing"], "avatar": state["avatar"],
                          "brain": self.brain.mode, "persona": self.cfg.brain_persona, "render_mode": self._render_mode,
-                         "render_modes": offered, "avatar_name": self._avatar_name, **self._engine_fields(self._render_mode)})
+                         "render_modes": offered, "avatar_name": self._avatar_name, **self._engine_fields(self._render_mode),
+                         **self._language_fields()})
         log.info("gateway: phone connected (voice %s, avatar %s, device %s, render %s)", state["voice"], state["avatar"], self._device or "?", self._render_mode)
         try:
             while True:
@@ -370,7 +393,7 @@ class Connection:
             return False
         try:
             if self.stt is None:
-                self.stt = self.host.stt_client(self._stt_lang)
+                self.stt = self.host.stt_client("", follow=True) if self._follow else self.host.stt_client(self._stt_lang)
             if self.tts is None:
                 self.tts = self.host.tts_client()
         except Exception as e:  # noqa: BLE001 (a model that went away)
@@ -470,6 +493,9 @@ class Connection:
         if kind == "brain":
             self.brain.set_mode((msg.get("brain") or "").strip().lower())
             self._send_json({"type": "brain", "brain": self.brain.mode})
+            return True
+        if kind == "language":
+            self._language_request(str(msg.get("language") or ""))
             return True
         if kind == "persona":
             slug = msg.get("persona")
@@ -806,6 +832,8 @@ class Connection:
 
     # ---------------------------------------------------------------- turns
     def _stt_per_lingua(self, lang: str) -> None:
+        if self._follow:
+            return                                    # the recognizer detects; the language state is the session's
         code = (lang or "").strip().lower().split("-")[0]
         if not code or code == self._stt_lang:
             return
@@ -825,13 +853,18 @@ class Connection:
         in_rate = int(start.get("sample_rate") or STT_RATE)
         self._configura_voce(start.get("voice") or self.cfg.default_voice, lang)
         drain_queue(self.stt.utterances)
+        self._take_heard()
         self._cut = False
         utterance = self._capture_utterance(mode, in_rate)
+        heard = self._take_heard()
         if not utterance:
             self._send_json({"type": "transcript", "text": ""})
             self._send_json({"type": "done"})
             return
         self._send_json({"type": "transcript", "text": utterance})
+        if not (start.get("transcribe_only") or mode == "transcribe") and self._handle_language(utterance, heard):
+            self._send_json({"type": "done"})
+            return
         if start.get("transcribe_only") or mode == "transcribe":      # dictate and correct: only the text goes back
             self._send_json({"type": "done"})
             return
@@ -849,10 +882,14 @@ class Connection:
             self._send_json({"type": "done"})
             return
         self._configura_voce(start.get("voice") or self.cfg.default_voice, start.get("lang") or self.cfg.default_lang)
-        self._lang_turno = str(start.get("lang") or self._lang_turno).split("-")[0]
+        if self._lang is None:
+            self._lang_turno = str(start.get("lang") or self._lang_turno).split("-")[0]
         self._cut = False
         if start.get("heard"):
             self._send_json({"type": "transcript", "text": text})
+        if self._handle_language(text, None):
+            self._send_json({"type": "done"})
+            return
         self._stream_reply(text, bargein=self._hold_interrupt, note=start.get("note") or "")
         if not self._cut:
             self._forward_tts_audio(barge_in=self._hold_interrupt)
@@ -863,7 +900,8 @@ class Connection:
         text = (start.get("say") or "").strip()
         if not text:
             return
-        self._configura_voce(self._voice or self.cfg.default_voice, self._lang_turno)
+        if not start.get("keep"):
+            self._configura_voce(self._voice or self.cfg.default_voice, self._lang_turno)
         self._cut = False
         self._im.begin_answer("")
         self._im.add_sentence(text)
@@ -941,11 +979,94 @@ class Connection:
         self._voice = voice
         if self._voce_persona is None and self.host.functions().get("avatar"):
             self._risolvi_voce_avatar()
-        if self._voce_persona:
-            engine, name = self._voce_persona
+        engine, name = self._voce_persona if self._voce_persona else ("", voice)
+        ls = self._language_session(name, engine, lang)
+        if ls is not None:
+            name, engine, lang = ls.voice, ls.engine, ls.tts_lang
+        if engine:
             configure_tts(self.tts, self.cfg, name, lang, engine)
         else:
-            configure_tts(self.tts, self.cfg, voice, lang)
+            configure_tts(self.tts, self.cfg, name, lang)
+
+    # ---------------------------------------------------------------- the spoken language
+    def _language_session(self, voice: str, engine: str, lang: str) -> LanguageSession | None:
+        """The connection's language state, made at its first turn from the voice in use and the language the phone asked for; None when the
+        language does not follow the speech."""
+        if not self._follow:
+            return None
+        if self._lang is None:
+            code = iso(lang) if iso(lang) else iso(self.cfg.default_lang) or "it"
+
+            def router():
+                from . import engines
+                return engines._get_tts_engine(self.cfg)
+
+            self._lang = LanguageSession(LanguageSettings.from_config(self.cfg), language=code, voice=voice, engine=engine, router_fn=router,
+                                         tts_lang=lang or code)
+            self._lang_turno = self._lang.language
+            self._tell_brain(self._lang.language)
+            return self._lang
+        ls = self._lang
+        if (voice, (engine or "").lower()) != (ls.base_voice, ls.base_engine):
+            ls.base_voice, ls.base_engine = voice, (engine or "").lower()
+            ls.voice, ls.engine = ls.base_voice, ls.base_engine
+        return ls
+
+    def _tell_brain(self, code: str) -> None:
+        from . import language_names
+        fn = getattr(self.brain, "set_reply_language", None)
+        if callable(fn) and language_names.is_known(code):
+            fn(language_names.reply_name(code), code)
+
+    def _take_heard(self) -> dict | None:
+        fn = getattr(self.stt, "take_language_info", None)
+        return fn() if callable(fn) else None
+
+    def _handle_language(self, text: str, heard: dict | None) -> bool:
+        """What the person's speech or typing says about the language. True when the text was a language command and is dealt with (confirmed
+        aloud); a detection changes the language and the turn goes on in it. The phone is the person's own device: its voice and its text count as
+        theirs."""
+        ls = self._lang
+        if ls is None:
+            return False
+        cmd = parse_language_command(text)
+        out = ls.on_command(cmd, True) if cmd else None
+        if out is not None:
+            self._language_outcome(out)
+            return True
+        out = ls.on_detection(text, heard, True)
+        if out is not None:
+            self._language_outcome(out)
+        return False
+
+    def _language_request(self, code: str) -> None:
+        """The phone's own `language` message: a language, or "auto"."""
+        if not self._follow:
+            self._send_json({"type": "error", "code": "language_unavailable", "message": "the language does not follow the speech on this PC"})
+            return
+        if self._lang is None:
+            self._language_session(self._voice or self.cfg.default_voice, "", self._lang_turno)
+        out = self._lang.request(code)
+        self._language_outcome(out, speak=False)
+
+    def _language_outcome(self, out: Outcome, speak: bool = True) -> None:
+        """Puts a language change in effect: the notice with the voice that speaks now, then the synthesis, the brain, the recognizer's hint and the
+        phone's `language` message, then the confirmation with the new voice."""
+        if speak and out.pre_say:
+            self._do_say_turn({"say": out.pre_say, "keep": True})
+        ls = self._lang
+        if out.changed:
+            self._lang_turno = out.language
+            if self.tts is not None:
+                configure_tts(self.tts, self.cfg, out.voice, out.tts_lang, out.engine) if out.engine else configure_tts(self.tts, self.cfg, out.voice, out.tts_lang)
+            self._tell_brain(out.language)
+        hint = getattr(self.stt, "set_language", None)
+        if callable(hint) and ls is not None:
+            hint(ls.stt_hint() or None)
+        self._send_json({"type": "language", "language": ls.language, "mode": ls.mode, "reason": out.reason, "warning": out.warning,
+                         "engine_fallback": ls.routed_to_piper})
+        if speak and out.say:
+            self._do_say_turn({"say": out.say, "keep": True})
 
     def _risolvi_voce_avatar(self) -> None:
         persona = self._persona_corrente()
@@ -1106,6 +1227,7 @@ class Connection:
         in_rate = int(start.get("sample_rate") or STT_RATE)
         self._configura_voce(start.get("voice") or self.cfg.default_voice, lang)
         drain_queue(self.stt.utterances)
+        self._take_heard()
         stop = threading.Event()
 
         def _receiver() -> None:
@@ -1166,7 +1288,10 @@ class Connection:
                     utterance = coalesce_utterances(self.stt.utterances, first, self.cfg.ptt_turn_pause_s, stop=stop)
                 if not utterance:
                     continue
+                heard = self._take_heard()
                 self._send_json({"type": "transcript", "text": utterance})
+                if self._handle_language(utterance, heard):
+                    continue
 
                 def bargein(only_stop: bool = False) -> bool:
                     if stop.is_set():
