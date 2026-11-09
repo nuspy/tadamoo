@@ -40,6 +40,15 @@ class TelegramError(Exception):
         self.kind, self.code, self.retry_after = kind, code, retry_after
 
 
+class SpeechError(Exception):
+    """The speech service could not turn a voice message into text. `kind` is `unavailable` (not installed, not loaded, not running: the text is its
+    own reason), `undecodable` (the file is not audio it can read) or `failed`."""
+
+    def __init__(self, kind: str, reason: str) -> None:
+        super().__init__(reason)
+        self.kind, self.reason = kind, reason
+
+
 def _kind(code: int) -> str:
     return {409: "conflict", 401: "auth", 404: "auth", 429: "rate", 403: "forbidden", 400: "bad_request"}.get(code, "server" if code >= 500 else "bad_request")
 

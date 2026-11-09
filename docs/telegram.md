@@ -2,7 +2,7 @@
 
 A Telegram bot that talks to the agent of the Chat, with the same functions. It reads messages by long polling (`getUpdates`, no webhook), as the Hermes
 gateway does, so it needs no public address. Code: `tadamoo/telegram.py` (API client, settings, token, helpers), `tadamoo/telegram_bot.py` (what an update
-becomes, what the conversations say back), `serve/telegram_service.py` (the thread, the settings the page edits, the move of a conversation). Page:
+becomes, what the conversations say back), `serve/telegram_service.py` (the thread, the settings the page edits, the move of a conversation), `serve/voice_stt.py` (the voice service's speech to text). Page:
 Settings > Voice > Telegram (`serve/web/telegram.js`) and the button in the header of Chat and Code.
 
 ## Switching it on
@@ -36,9 +36,32 @@ on Telegram's side; later starts continue from the offset kept in `telegram/tele
   moved here from the page is lowered to it when it is higher. A change of the level reaches the chats' own conversations at once.
 - The person's own text is their prompt. A forwarded message, a message they reply to and every file are data: forwarded and quoted text is fenced like text from
   the web (`tadamoo/untrusted.py`), files go through the attachments store, and a message with links says that what is found at them is data.
-- Photos and documents are saved as attachments (20 MB at most, the Bot API limit). Voice notes, video and the like are not read yet: the bot says so.
+- Photos and documents are saved as attachments (20 MB at most, the Bot API limit). Audio files, video, video notes and the like are not read: the bot says so.
+- A voice message is read as the person's own words, see "Voice messages" below.
 - Commands: `/start`, `/help`, `/new`, `/stop` (cancels the running turn), `/where` (which conversation this chat talks to, and Telegram's level). The bot answers in
   Italian to a person whose Telegram language is Italian.
+
+## Voice messages
+
+A voice message (Telegram's ogg/opus recording) of an allowed person is turned into text by the voice service and enters the conversation as if
+they had typed it, with `(voice message) ` in front. The checks come in this order, and each refusal is a plain message to the chat:
+
+1. The sender is checked against the allow-list first, as for any message: a stranger's voice message is never fetched and only noted as `[voice]`.
+2. A message longer than 5 minutes, or one that says it is over 20 MB, is refused before anything is fetched.
+3. The bot asks the voice service whether speech to text is ready (`GET /functions`, the `stt` function). A model that is not installed, not
+   loaded, or a service that is not running is answered with the service's own reason; the bot never loads or installs anything. Loading is done
+   in the Voice functions dialog.
+4. The file is fetched with `getFile` (`BotApi.download`, 20 MB cap) into `telegram-incoming/` in the user data folder and posted to the
+   service's `/transcribe` on loopback (`serve/voice_stt.py`): the same decoder and engine as callAPIcall's route. The copy is deleted right
+   after, also when the fetch or the transcription fails.
+5. The language of the person's Telegram (`language_code`, its first part) goes as the `lang` hint; with none, the service's own language
+   setting applies.
+
+The transcript is machine output of the person's voice, not a command: it carries no more rights than typed text, the turn runs at the Telegram
+permission level as any other, and nothing is added to the tools. A caption goes after the transcript. A forwarded voice message is data like
+other forwarded text: the transcript is fenced. A file the service cannot decode (the route reads audio with libsndfile; an ogg/opus file needs
+a libsndfile with Opus) is answered "The voice service cannot decode this voice message", with the service's words; a silent message with
+"I heard no words".
 
 ## What comes back
 
@@ -67,4 +90,4 @@ The token is in no answer, no log line and no error text (a refused call's descr
 ## Not proven without a real bot
 
 The tests use a stand-in of the Bot API on 127.0.0.1 and never reach Telegram. Not proven: real Telegram limits and error texts, a real 409 against Hermes'
-gateway, group chats and topics, the real format of a forwarded message, a download of a real file, the arrival of a voice note.
+gateway, group chats and topics, the real format of a forwarded message, a download of a real file, the arrival of a real voice message and its decoding by the installed libsndfile, the accuracy of the hint.

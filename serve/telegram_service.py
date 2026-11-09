@@ -13,6 +13,7 @@ import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from serve.voice_stt import VoiceSpeech
 from tadamoo import telegram as tg
 from tadamoo.permission_level import LEVELS, PermissionLevels
 from tadamoo.telegram import BotApi, TelegramError
@@ -36,8 +37,9 @@ class TelegramServiceError(ValueError):
 
 class TelegramService:
     def __init__(self, settings: tg.Settings, token: tg.Token, sessions: Callable[[], Any], *, levels: PermissionLevels, attachments_dir: Path, state_dir: Path,
-                 api_base: str = tg.API_BASE, poll_s: float = POLL_S, relay_s: float = RELAY_S, hermes_env: Optional[Callable[[], Path]] = None) -> None:
+                 api_base: str = tg.API_BASE, poll_s: float = POLL_S, relay_s: float = RELAY_S, hermes_env: Optional[Callable[[], Path]] = None, speech: Any = None) -> None:
         self.settings, self.token, self._sessions, self.levels = settings, token, sessions, levels
+        self.speech = speech if speech is not None else VoiceSpeech()
         levels.adopt("telegram", settings.take_mode())
         self.attachments_dir, self.state_dir, self.api_base = Path(attachments_dir), Path(state_dir), api_base
         self.poll_s, self.relay_s = poll_s, relay_s
@@ -100,7 +102,7 @@ class TelegramService:
             if not token:
                 return self._set("no_token")
             api = BotApi(token, self.api_base)
-            self._bot = bot = TelegramBot(api, self.settings, self._sessions(), self._attachments(), levels=self.levels, tmp_dir=self.state_dir / "telegram-incoming", log=self.log)
+            self._bot = bot = TelegramBot(api, self.settings, self._sessions(), self._attachments(), levels=self.levels, tmp_dir=self.state_dir / "telegram-incoming", speech=self.speech, log=self.log)
             self._stop = stop = threading.Event()
             self._set("starting")
             self._threads = [threading.Thread(target=self._poll, args=(stop, api, bot), name="telegram-poll", daemon=True),
