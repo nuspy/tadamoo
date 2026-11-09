@@ -72,7 +72,7 @@ class _HomeState extends State<Home> {
       ConversationsPane(api: api, settings: widget.settings, voice: widget.voice, agent: true),
       AvatarScreen(controller: avatarController, active: tab == avatarTab),
       JobsScreen(api: api),
-      SettingsScreen(settings: widget.settings, voice: widget.voice),
+      SettingsScreen(settings: widget.settings, voice: widget.voice, route: avatarController.route),
     ];
     return Scaffold(
       body: SafeArea(bottom: false, child: IndexedStack(index: tab, children: pages)),
