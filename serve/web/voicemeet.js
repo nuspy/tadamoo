@@ -3,7 +3,8 @@
    the person has the right to bring an assistant), shows what it is doing (announcement, consent, minutes so far), lists past meetings with their minutes
    and a Delete that removes the transcript and the minutes, opens the copilot and shows the calendar. The rules of consent are the voice service's:
    this page only asks. Every request goes through the server's list (serve/voice_proxy.py) and everything the server says enters the page as text.
-   voicetab.js mounts the card and calls update() on its poll. */
+   The planner of meetings (planned by hand or in the calendar) is voiceplan.js, mounted inside this card. voicetab.js mounts the card and calls update()
+   on its poll. */
 (function () {
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick, id) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; if (id) b.id = id; return b; };
@@ -19,7 +20,7 @@
   const LIST_EVERY_MS = 10000, CAL_EVERY_MS = 30000;
 
   let ctx = null, card = null, D = { speak: false, consent_mode: "window", consent_window_s: 45, on_behalf_of: "" };
-  let st = { state: "idle" }, cop = { enabled: false, active: false, note: "" }, meetings = [], cal = null, events = [], opened = {}, askDelete = "";
+  let st = { state: "idle" }, cop = { enabled: false, active: false, note: "" }, meetings = [], cal = null, opened = {}, askDelete = "";
   let joinMsg = { text: "", bad: false }, copMsg = "", rowMsg = {}, calMsg = "", lastList = 0, lastCal = 0, busy = false;
   const ui = {}, sigs = {};
   const changed = (id, v) => { const s = sig(v); if (sigs[id] === s) return false; sigs[id] = s; return true; };
@@ -189,6 +190,13 @@
     lastList = Date.now();
   }
 
+  async function openRecord(id) {
+    if (!meetings.some(m => m.id === id)) await refreshList();
+    if (!opened[id]) await openMeeting(id);
+    paintList(true);
+    ui.list.scrollIntoView({ block: "start" });
+  }
+
   // ---------------------------------------------------------------- the copilot
   function paintCopilot() {
     if (!changed("cop", [cop, copMsg])) return;
@@ -209,7 +217,7 @@
 
   // ---------------------------------------------------------------- the calendar
   function paintCalendar() {
-    if (!changed("cal", [cal, events, calMsg])) return;
+    if (!changed("cal", [cal, calMsg])) return;
     const s = clear(ui.cal);
     if (!cal) { s.append(el("p", "vt-help", T("vm.loading"))); return; }
     s.append(el("p", "vt-help", cal.autojoin ? T("vm.cal.autojoin.on") : T("vm.cal.autojoin.off")));
@@ -223,17 +231,6 @@
       s.append(box);
     }
     if (calMsg) s.append(warn(calMsg));
-    if (events.length) {
-      const ul = el("ul", "vm-meets");
-      for (const e of events) {
-        const li = el("li", "vm-meet"), row = el("label", "vt-check"), i = el("input");
-        i.type = "checkbox"; i.checked = !!e.autojoin; i.disabled = !e.meeting_url;
-        i.onchange = async () => { const r = await ctx.svc("POST", `/calendar/events/${e.id}/autojoin`, { enabled: i.checked }); calMsg = r.ok ? "" : msgOf(r); lastCal = 0; };
-        row.append(i, el("span", "", `${when(e.start)} - ${e.title || ""}${e.meeting_url ? "" : " (" + T("vm.cal.nolink") + ")"}`));
-        li.append(row); ul.append(li);
-      }
-      s.append(el("h4", "vm-sub", T("vm.cal.events")), ul);
-    }
   }
   async function calAct(name, what) {
     const r = await ctx.svc("POST", `/calendar/${name}/${what}`);
@@ -244,8 +241,6 @@
   async function refreshCal() {
     const r = await ctx.svc("GET", "/calendar/status");
     cal = r.ok ? r.data : null;
-    const connected = cal && ["google", "microsoft"].some(n => cal[n] && cal[n].connected);
-    if (connected) { const e = await ctx.svc("GET", "/calendar/events"); events = e.ok ? (e.data.events || []) : []; } else events = [];
     lastCal = Date.now();
   }
 
@@ -274,6 +269,7 @@
       if (Date.now() - lastCal > CAL_EVERY_MS) await refreshCal();
     } else st = { state: "idle" };
     syncJoin(); paintLive(); paintList(false); paintCopilot(); paintCalendar();
+    if (window.VoicePlan) window.VoicePlan.update();
   }
   function mount(section, context) {
     ctx = context; card = section;
@@ -281,7 +277,10 @@
     ui.live = el("div", "vm-live"); ui.live.setAttribute("aria-live", "polite"); ui.live.hidden = true;
     ui.list = el("div", "vm-past"); ui.cop = el("div", "vm-cop"); ui.cal = el("div", "vm-cal");
     const sect = (key, node) => { const w = el("div", "vm-sect"); w.append(el("h4", "vm-sub", T(key)), node); return w; };
-    card.append(intro, buildForm(), ui.live, sect("vm.past", ui.list), sect("vm.cop", ui.cop), sect("vm.cal", ui.cal));
+    ui.plan = el("div", "vp-plan");
+    card.append(intro, buildForm(), ui.live, sect("vp.title", ui.plan), sect("vm.past", ui.list), sect("vm.cop", ui.cop), sect("vm.cal", ui.cal));
+    if (window.VoicePlan) window.VoicePlan.mount(ui.plan, { svc: ctx.svc, live: ctx.live, personas: ctx.personas, msgOf, refreshStatus,
+                                                           hasRecord: id => meetings.some(m => m.id === id && !m.deleted), openRecord });
     Object.keys(sigs).forEach(k => delete sigs[k]);
     loadDefaults(); update();
   }
@@ -320,7 +319,8 @@
     const win = el("input"); win.type = "number"; win.inputMode = "numeric"; win.min = "20"; win.max = "300"; win.step = "5";
     win.onchange = () => save({ consent_window_s: Number(win.value) });
     inputs.consent_window_s = win; box.append(field("vm-set-consent_window_s", T("vm.window"), win, T("vm.window.help")));
-    boolBox("calendar_autojoin", "vm.set.autojoin", "vm.set.autojoin.help");
+    boolBox("autojoin", "vm.set.autojoin", "vm.set.autojoin.help");
+    boolBox("allow_programs_join", "vm.set.programs", "vm.set.programs.help");
     const reps = el("input"); reps.type = "number"; reps.inputMode = "numeric"; reps.min = "1"; reps.max = "6";
     reps.onchange = () => save({ copilot_replies: Number(reps.value) });
     inputs.copilot_replies = reps; box.append(field("vm-set-copilot_replies", T("vm.set.replies"), reps));

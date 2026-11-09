@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlsplit
 
-from serve import settings, voice_service
+from serve import settings, voice_service, voice_settings
 from serve.security import key_matches
 
 JSON_MAX = 1 << 16
@@ -49,6 +49,10 @@ class Route:
     timeout: float = 30.0
     wait: str = ""                         # a query value (seconds) the service waits that long for: the timeout grows with it
     soon: str = ""                         # not there yet: 501 with this reason
+    gate: str = ""                         # "programs_join": a program may use it only when Settings > Voice > Meetings lets programs start the bot
+
+
+PROGRAMS_JOIN = "programs_join"
 
 
 def _r(method: str, path: str, **kw) -> Route:
@@ -86,14 +90,22 @@ ROUTES: tuple[Route, ...] = (
     _r("", r"/personas(?:/.*)?", kind="local", soon=SOON["personas"]),
     _r("", r"/avatar/(?!preview\.mjpg|stream).*", kind="local", timeout=60.0),                    # the avatar function of the service; the live streams have their own routes
     # meetings: a program on this PC may start the bot, but the announcement and the consent rule are the service's and cannot be skipped
-    _r("POST", r"/meetbot/(?:join|leave)", kind="local", timeout=60.0),
+    _r("POST", r"/meetbot/join", kind="local", timeout=60.0, gate=PROGRAMS_JOIN),
+    _r("POST", r"/meetbot/leave", kind="local", timeout=60.0),
     _r("GET", r"/meetbot/status", kind="local"),
     _r("GET", r"/meetings/list", kind="local"),
+    # the plan: a program may read it; adding, changing or joining a planned meeting is a way to start the bot, so it is gated like a join
+    _r("GET", r"/meetings/plan", kind="local"),
+    _r("POST", r"/meetings/plan", kind="local", gate=PROGRAMS_JOIN),
+    _r("PUT", rf"/meetings/plan/{_ID}", kind="local", gate=PROGRAMS_JOIN),
+    _r("PATCH", rf"/meetings/plan/{_ID}", kind="local", gate=PROGRAMS_JOIN),
+    _r("DELETE", rf"/meetings/plan/{_ID}", kind="local", gate=PROGRAMS_JOIN),
+    _r("POST", rf"/meetings/plan/{_ID}/join-now", kind="local", timeout=60.0, gate=PROGRAMS_JOIN),
     _r("GET", rf"/meetings/{_ID}(?:/transcript)?", kind="local"),
     _r("DELETE", rf"/meetings/{_ID}", kind="local"),
     _r("GET", r"/calendar/(?:status|events)", kind="local"),
     _r("POST", r"/calendar/(?:google|microsoft)/(?:connect|disconnect)", kind="local"),
-    _r("POST", r"/calendar/events/[A-Za-z0-9][A-Za-z0-9:_=.+-]{0,199}/autojoin", kind="local"),
+    _r("POST", r"/calendar/events/[A-Za-z0-9][A-Za-z0-9:_=.+-]{0,199}/autojoin", kind="local", gate=PROGRAMS_JOIN),
     _r("GET", r"/copilot/state", kind="local"),
     _r("POST", r"/copilot/toggle", kind="local"),
 )
@@ -115,8 +127,13 @@ def find(method: str, path: str) -> tuple[Route | None, bool]:
     return None, seen
 
 
-def _fail(h, status: int, code: str, message: str) -> None:
-    h._json(status, {"error": message, "code": code})
+def _fail(h, status: int, code: str, message: str, **more) -> None:
+    h._json(status, {"error": message, "code": code, **more})
+
+
+def _gate_open(route: Route) -> bool:
+    """Whether the person lets programs use a gated route: the switch is read at every request, so turning it off acts at once."""
+    return route.gate != PROGRAMS_JOIN or voice_settings.meetings().get("allow_programs_join") is True
 
 
 def _allowed(h, svc, route: Route) -> bool:
@@ -191,20 +208,25 @@ def handle(h, svc) -> None:
     path = parts.path.rstrip("/") or "/"
     route, other = find(h.command, path)
     if route is None:
-        if h.command in ("POST", "PUT"):
+        if h.command in ("POST", "PUT", "PATCH"):
             h._discard_body()
         return _fail(h, 405 if other else 404, "method_not_allowed" if other else "not_found", "That method is not offered on this route." if other else "not found")
     if not _allowed(h, svc, route):
-        if h.command in ("POST", "PUT"):
+        if h.command in ("POST", "PUT", "PATCH"):
             h._discard_body()
         return
+    if not _gate_open(route):
+        if h.command in ("POST", "PUT", "PATCH"):
+            h._discard_body()
+        return _fail(h, 403, "programs_join_off", "A program may not start the meeting bot: the person has not allowed it. Settings > Voice > Meetings has the switch.",
+                     message_it="Un programma non può far entrare il bot in una riunione: la persona non l'ha consentito. L'interruttore è in Impostazioni > Voce > Riunioni.")
     if route.soon:
         if h.command in ("POST", "PUT"):
             h._discard_body()
         return _fail(h, 501, "not_available_yet", route.soon)
     if len(parts.query) > QUERY_MAX:
         return _fail(h, 414, "bad_request", "The query is too long.")
-    send_body = h.command in ("POST", "PUT")
+    send_body = h.command in ("POST", "PUT", "PATCH")
     size = _length(h, route.max_body) if send_body and route.upload else None
     body = b""
     if send_body and not route.upload:

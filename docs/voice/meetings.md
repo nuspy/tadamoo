@@ -75,24 +75,63 @@ stopped). "Reply with audio" speaks a clicked reply through the virtual micropho
 Off and inert. Nothing is shipped to read a calendar: the person makes their own OAuth app (a desktop client in a Google Cloud project, or a public-client app registration in Azure
 with `Calendars.Read`) and puts its values in the credential store (`tadamoo/llm/credentials.py`) as JSON in the entries `meetings/google` (`client_id`, `client_secret`) and
 `meetings/microsoft` (`client_id`, `tenant`). The tokens the sign-in produces go to the same entries, never to a file. There is no form for the values yet ("configured manually").
-Without them `configured()` is false and no library or network is touched. With `meetings.calendar_autojoin` on, an event the person ticked is joined a minute before it starts,
-through the same path: the announcement and the consent rule apply in full, and the audit says `rights: calendar`.
+Without them `configured()` is false and no library or network is touched. The events with a link an adapter takes appear in the planner (below) as items of source `google` or
+`microsoft`; the calendar owns their title, address and time.
+
+## Planner
+
+The Meetings card of the Voice tab lists the meetings to attend (`meetbot/plan_store.py`, `planner.py`, `calendar_watch.py`; routes in `api.md`). The plan is `meetings_plan.json` next to the past
+meetings, replaced whole through a temporary file. An item holds `title`, `platform`, `url`, `start` (stored in UTC; a request names its zone), `duration_min`, `source` (`manual`, `google`,
+`microsoft`), `participate`, `role`, `persona`, `camera`, `speak`, `consent_mode` (empty: the setting) and `notes`; the planner adds `session_id`, `joined_at`, `last_error` and `last_note`.
+
+- **Add, edit, delete.** By hand: the platform is found from the address by the adapter registry; an address no adapter takes is refused and the answer names the registered platforms.
+  A calendar item is stored once the person changes something about it; its title, address and time are the calendar's (`calendar_owned`), it cannot be deleted here, and it joins only while the
+  calendar still lists it. What started more than 14 days ago is forgotten; the list shows coming meetings first by time, then the last two days, latest first.
+- **Role.** `listen` keeps the transcript and writes no minutes; `minutes` (default) also writes them; `speak` lets the bot answer under the rules of Speaking (`speak` follows the role).
+- **Personality.** `persona` is the slug of a TaDaMoo personality. For that meeting the bot takes its text (put before a spoken reply as style, never as rules; its notes about the person are not
+  taken), its voice (else the one the avatar wizard made) and its language. If the personality is gone the bot joins without it. The camera shows its avatar only when the item asks for it, the
+  personality has an avatar, the avatar's virtual camera is on and the avatar function is loaded (the personality's avatar is started if another is active); otherwise the camera stays off, the join
+  answer says `camera_blocked` (`no_persona`, `persona_missing`, `no_avatar`, `virtual_camera_off`, `avatar_not_loaded`) and the item shows it. The camera still comes on only after consent.
+- **States.** `upcoming`, `running`, `done` (with `session_id`, the id of the record at `/meetings/<id>` when consent was given), `missed` (Participate was ticked, the start passed by more than 15
+  minutes and the bot did not join) and `past` (not ticked).
+- **The loop.** One thread (`CalendarWatcher`) turns every 15 s and does nothing while the master switch `meetings.autojoin` (default off) is off. When on, it reads the calendars at most every
+  `calendar_poll_s` and joins an item with Participate ticked `lead_s` (60) seconds before the start, up to 15 minutes after, once, through the same path as a join from the page: the announcement
+  and the consent rule apply in full and the audit says `rights: planned` and the personality. A refused join (another meeting in progress, STT not loaded, nobody named) is tried again every 30 s
+  inside that window and the item shows why. Nothing joins by itself unless the person turned the master switch on and ticked that meeting. Join now (`rights_confirmed: true`) is a join from the page
+  for that item and does not need the switch.
+
+## Programs and the join route
+
+`POST /meetbot/join` and the routes that can start the bot later (`POST /meetings/plan`, `PUT|PATCH|DELETE /meetings/plan/<id>`, `POST /meetings/plan/<id>/join-now`, `POST /calendar/events/<id>/autojoin`)
+are refused to programs on TaDaMoo's port (`serve/voice_compat.py`) unless `meetings.allow_programs_join` is on (default off; Settings > Voice > Meetings). The refusal is `403` with
+`code: programs_join_off` and the text in `error` (English) and `message_it`. The switch is read at every request. Reading the plan, leaving, and the other meeting routes are not gated. The
+Voice tab does not go through that port (`serve/voice_proxy.py`), so it is not affected, and the consent rule applies to a program's join as to any other.
+
+## Adding a platform
+
+Write a subclass of `MeetingAdapter` (`meetbot/adapters/base.py`: `platform`, a static `matches(url)`, `join`, `in_call`, `leave`; the selectors and texts have safe defaults) and call
+`register(MyAdapter)` in `meetbot/adapters/__init__.py`. `register` refuses a missing or taken name and a missing `matches`. `detect(url)` gives the platform name and `platform_names()` the list; the
+planner, the routes and the page name only registered adapters. Add a fake-DOM test like `test_meet_adapters.py`.
 
 ## Settings (`meetings` in voice.json)
 
-`speak` (false), `camera` (false), `proactive` (false), `consent_mode` (`window`), `consent_window_s` (45), `on_behalf_of`, `display_name`, `virtual_mic`, `wake_phrase`, `calendar_autojoin` (false),
+`speak` (false), `camera` (false), `proactive` (false), `consent_mode` (`window`), `consent_window_s` (45), `on_behalf_of`, `display_name`, `virtual_mic`, `wake_phrase`, `autojoin` (false, the master
+switch of the planner), `allow_programs_join` (false),
 `copilot_replies` (3), `copilot_audio_reply` (false), `copilot_hide_from_capture` (true). Settings > Voice > Meetings edits them; a bad value reads as its default.
 
 ## Routes
 
 On the service: `POST /meetbot/join|leave`, `GET /meetbot/status`, `GET /meetings/list`, `GET|DELETE /meetings/<id>`, `GET /meetings/<id>/transcript`, `GET /calendar/status|events`,
-`POST /calendar/<google|microsoft>/connect|disconnect`, `POST /calendar/events/<id>/autojoin`, `POST /copilot/toggle`, `GET /copilot/state`. The Voice tab reaches them through the
+`POST /calendar/<google|microsoft>/connect|disconnect`, `POST /calendar/events/<id>/autojoin` (sets Participate), `GET|POST /meetings/plan`, `PUT|PATCH|DELETE /meetings/plan/<id>`,
+`POST /meetings/plan/<id>/join-now`, `POST /copilot/toggle`, `GET /copilot/state`. The Voice tab reaches them through the
 fixed list of `serve/voice_proxy.py`; programs on this PC reach them on TaDaMoo's port (`api.md`, kind `local`). A program must send `rights_confirmed: true` too: it asserts the
 right for the person.
 
 ## Tests, and what is not proven
 
 `voice/tests/test_meet_consent_*.py` (every path of the rule, with a fake clock, adapter, STT, audio and brain), `test_meet_speak_rules.py`, `test_meet_adapters.py` (a fake DOM),
-`test_copilot_suggestions.py`, `test_meet_settings.py`, `test_meetings_service.py`, and `serve/tests/test_voice_meetings_page.py`. The page was checked in a headless browser against a faked API at 360x640 and 1280x900.
+`test_copilot_suggestions.py`, `test_meet_settings.py`, `test_meetings_service.py`, `test_meeting_plan_store.py`, `test_meeting_plan_planner.py`, `test_meeting_plan_service.py`,
+`serve/tests/test_voice_meetings_page.py`, `test_voice_meeting_plan_page.py` and `test_voice_compat_programs_join.py`. The page was checked in a headless browser against a faked API at 360x640 and 1280x900.
 **Not proven, because it needs a real meeting, audio device or browser:** the selectors of the three platforms (written from their public pages), joining, the lobby, chat posting and reading, detection of a
-removal, loopback capture and the STT hearing a real meeting, the virtual microphone and the camera in a real meeting, the Tk window and the capture exclusion, the calendar sign-ins, and everything on Linux.
+removal, loopback capture and the STT hearing a real meeting, the virtual microphone and the camera in a real meeting, the Tk window and the capture exclusion, the calendar sign-ins, the loop joining
+at the real time, the personality's avatar starting and being the meeting's camera, and everything on Linux.

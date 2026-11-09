@@ -143,6 +143,8 @@ def _avatar_mouth(body: Any) -> dict:
 
 
 MEETING_ID = r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}"
+PLAN_TEXT = {"title": 120, "url": 2000, "start": 40, "role": 10, "persona": 61, "consent_mode": 10, "notes": 500}
+PLAN_BOOLS = ("participate", "camera", "speak")
 EVENT_ID = r"[A-Za-z0-9][A-Za-z0-9:_=.+-]{0,199}"
 
 
@@ -160,6 +162,29 @@ def _meet_join(body: Any) -> dict:
     w = body.get("consent_window_s", 45)
     if not (isinstance(w, int) and not isinstance(w, bool) and 20 <= w <= 300):
         raise Refused(400, "bad_request", "consent_window_s is a whole number from 20 to 300.")
+    return body
+
+
+def _plan_item(required: tuple) -> Callable[[Any], dict]:
+    """A meeting of the plan from the page: the fields are the service's (voice/callbridge/meetbot/plan_store.py checks them in full)."""
+    def check(body: Any) -> dict:
+        body = _fields(body, (*PLAN_TEXT, *PLAN_BOOLS, "duration_min"), required)
+        for key, limit in PLAN_TEXT.items():
+            if key in body and not (isinstance(body[key], str) and len(body[key]) <= limit):
+                raise Refused(400, "bad_request", f"{key} is a text of at most {limit} characters.")
+        if any(k in body and not isinstance(body[k], bool) for k in PLAN_BOOLS):
+            raise Refused(400, "bad_request", "participate, camera and speak are true or false.")
+        minutes = body.get("duration_min")
+        if "duration_min" in body and minutes is not None and not (isinstance(minutes, int) and not isinstance(minutes, bool)):
+            raise Refused(400, "bad_request", "duration_min is a whole number of minutes, or empty.")
+        return body
+    return check
+
+
+def _join_now(body: Any) -> dict:
+    body = _fields(body, ("rights_confirmed",), ("rights_confirmed",))
+    if body["rights_confirmed"] is not True:
+        raise Refused(400, "bad_request", "Send rights_confirmed: true.")
     return body
 
 
@@ -209,6 +234,8 @@ ROUTES: dict[tuple[str, str], Callable[[Any], Any]] = {
     ("POST", "/meetbot/join"): _meet_join,
     ("POST", "/meetbot/leave"): _none,
     ("GET", "/meetings/list"): _none,
+    ("GET", "/meetings/plan"): _none,
+    ("POST", "/meetings/plan"): _plan_item(("url", "start")),
     ("GET", "/copilot/state"): _none,
     ("POST", "/copilot/toggle"): _none,
     ("GET", "/calendar/status"): _none,
@@ -224,6 +251,9 @@ PATTERNS: list[tuple[str, "re.Pattern[str]", Callable[[Any], Any]]] = [
     ("POST", re.compile(rf"/avatar/wizard/{DRAFT}/elabora"), _avatar_finish),
     ("DELETE", re.compile(rf"/avatar/{AVATAR_NAME}"), _none),
     ("POST", re.compile(rf"/personas/{AVATAR_NAME}/wav2lip/bocca"), _avatar_mouth),
+    ("PUT", re.compile(rf"/meetings/plan/{MEETING_ID}"), _plan_item(())),
+    ("DELETE", re.compile(rf"/meetings/plan/{MEETING_ID}"), _none),
+    ("POST", re.compile(rf"/meetings/plan/{MEETING_ID}/join-now"), _join_now),
     ("GET", re.compile(rf"/meetings/{MEETING_ID}(?:/transcript)?"), _none),
     ("DELETE", re.compile(rf"/meetings/{MEETING_ID}"), _none),
     ("POST", re.compile(r"/calendar/(?:google|microsoft)/(?:connect|disconnect)"), _none),
@@ -243,7 +273,8 @@ def call(req: Any) -> tuple[int, dict]:
         raise Refused(403, "not_allowed", "The voice tab may not call that route of the voice service.")
     body = check(req.get("body"))
     try:
-        status, data = voice_service.call(method, path, body, timeout=TIMEOUTS.get(path, WIZARD_TIMEOUT_S if path.endswith("/elabora") else voice_service.TIMEOUT))
+        slow = path.endswith("/join-now") and TIMEOUTS["/meetbot/join"]
+        status, data = voice_service.call(method, path, body, timeout=TIMEOUTS.get(path, slow or (WIZARD_TIMEOUT_S if path.endswith("/elabora") else voice_service.TIMEOUT)))
     except voice_service.ServiceDown as e:
         raise Refused(503, "voice_service_down", str(e)) from None
     return status, data if data is not None else {}
