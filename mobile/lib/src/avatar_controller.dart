@@ -3,18 +3,19 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'api.dart';
+import 'audio_route.dart';
 import 'avatar_devices.dart';
+import 'avatar_engines.dart';
+import 'barge_in.dart';
 import 'gateway_client.dart';
 import 'i18n.dart';
 import 'sdp.dart';
 import 'settings.dart';
 
-/// How the avatar can be drawn. Only 'video' (the PC's picture over WebRTC) has a runtime in this build.
-const avatarModes = ['video', 'wav2lip', 'visemes'];
-
 /// The Avatar tab: it finds the voice gateway through the server, keeps the connection, plays the PC's voice, sends the microphone while the
 /// button is held, and shows the PC's video when the avatar function is loaded there. Without it the tab works by voice only, and it
-/// switches to the video by itself when the avatar starts.
+/// switches to the video by itself when the avatar starts. While the avatar speaks and the audio route allows full duplex, a local voice
+/// detector watches the microphone: the avatar's voice is lowered at once and the PC decides what the interruption means.
 class AvatarController extends ChangeNotifier {
   AvatarController({
     required this.api,
@@ -23,13 +24,24 @@ class AvatarController extends ChangeNotifier {
     GatewayClient? client,
     this.retry = const Duration(seconds: 5),
     this.videoWait = const Duration(seconds: 40),
-  }) : client = client ?? GatewayClient(connector: connectSocket) {
+    this.duckHold = const Duration(seconds: 6),
+  })  : client = client ?? GatewayClient(connector: connectSocket),
+        route = AudioRouteController(router: devices.router, settings: settings) {
+    _seenEnabled = settings.avatarEnabled;
+    _seenBrain = settings.avatarBrain;
+    _seenPersona = settings.avatarPersona;
+    _seenMode = mode;
+    settings.addListener(_onSettings);
     this.client
       ..addListener(_onClient)
-      ..onAudioStart = ((rate) => devices.player.begin(rate))
+      ..onAudioStart = ((rate) {
+        if (!this.client.barging) _setGain(1);
+        devices.player.begin(rate);
+      })
       ..onAudio = devices.player.add
       ..onAudioEnd = (() => devices.player.finish())
       ..onInterrupt = (() => devices.player.cancel())
+      ..onDuck = _setGain
       ..onReady = _onReady
       ..onDropped = _onDropped
       ..onAvatar = ((_) => _maybeVideo())
@@ -42,8 +54,12 @@ class AvatarController extends ChangeNotifier {
   final AppSettings settings;
   final AvatarDevices devices;
   final GatewayClient client;
+  final AudioRouteController route;
   final Duration retry;
   final Duration videoWait;
+
+  /// How long the voice stays lowered after the person stops speaking over it when the PC has not decided.
+  final Duration duckHold;
 
   bool active = false;
   bool micDenied = false;
@@ -52,10 +68,21 @@ class AvatarController extends ChangeNotifier {
   VideoSession? _video;
   Timer? _videoTimer;
   Timer? _retryTimer;
+  Timer? _duckTimer;
   StreamSubscription<Uint8List>? _micSub;
+  StreamSubscription<Uint8List>? _bargeSub;
+  BargeIn? _vad;
+  bool _bargeMic = false;
   bool _holding = false;
+  late bool _seenEnabled;
+  late String _seenBrain;
+  late String _seenPersona;
+  late String _seenMode;
 
-  String get mode => avatarModes.contains(settings.avatarMode) ? settings.avatarMode : 'video';
+  String get mode => selectableEngines.contains(settings.avatarMode) ? settings.avatarMode : 'video';
+
+  /// False: voice only, no picture asked from the PC.
+  bool get avatarOn => settings.avatarEnabled;
 
   /// Whether this build can draw the avatar in `m`.
   bool modeAvailable(String m) => m == 'video' && devices.videoSupported;
@@ -76,6 +103,7 @@ class AvatarController extends ChangeNotifier {
     if (active) return;
     active = true;
     notifyListeners();
+    await route.start();
     await _connect();
   }
 
@@ -84,9 +112,12 @@ class AvatarController extends ChangeNotifier {
     active = false;
     _retryTimer?.cancel();
     await holdEnd(send: false);
+    await _bargeStop();
     await _dropVideo(tell: true);
     client.close();
     await devices.player.cancel();
+    _setGain(1);
+    await route.stop();
     notifyListeners();
   }
 
@@ -120,6 +151,34 @@ class AvatarController extends ChangeNotifier {
 
   void _onClient() {
     if (client.video == VideoStage.live) _videoTimer?.cancel();
+    _syncBarge();
+    notifyListeners();
+  }
+
+  /// A setting changed, here or in the Settings screen: what the PC must know is sent once.
+  void _onSettings() {
+    final ready = client.status == GatewayStatus.ready;
+    if (settings.avatarEnabled != _seenEnabled) {
+      _seenEnabled = settings.avatarEnabled;
+      if (_seenEnabled) {
+        _maybeVideo();
+      } else {
+        _dropVideo(tell: false);
+        if (ready) client.sendVideoStop();
+      }
+    }
+    if (settings.avatarBrain != _seenBrain) {
+      _seenBrain = settings.avatarBrain;
+      if (ready && _seenBrain.isNotEmpty) client.setBrain(_seenBrain);
+    }
+    if (settings.avatarPersona != _seenPersona) {
+      _seenPersona = settings.avatarPersona;
+      if (ready) client.setPersona(_seenPersona);
+    }
+    if (mode != _seenMode) {
+      _seenMode = mode;
+      _applyMode();
+    }
     notifyListeners();
   }
 
@@ -129,6 +188,7 @@ class AvatarController extends ChangeNotifier {
     if (settings.avatarBrain.isNotEmpty && settings.avatarBrain != client.brain) client.setBrain(settings.avatarBrain);
     if (settings.avatarPersona.isNotEmpty && settings.avatarPersona != client.persona) client.setPersona(settings.avatarPersona);
     if (mode == 'video') client.setRenderMode('musetalk');
+    if (!avatarOn) client.sendVideoStop();
     _maybeVideo();
   }
 
@@ -136,14 +196,16 @@ class AvatarController extends ChangeNotifier {
     _dropVideo(tell: false);
     _holding = false;
     _micSub?.cancel();
+    _bargeStop();
     devices.mic.stop();
     devices.player.cancel();
+    _setGain(1);
   }
 
   // ---- the video
 
   Future<void> _maybeVideo() async {
-    if (!active || _video != null || mode != 'video' || !client.avatar || client.status != GatewayStatus.ready || !devices.videoSupported) return;
+    if (!active || !avatarOn || _video != null || mode != 'video' || !client.avatar || client.status != GatewayStatus.ready || !devices.videoSupported) return;
     final session = devices.newVideo();
     if (session == null) return;
     _video = session;
@@ -151,7 +213,8 @@ class AvatarController extends ChangeNotifier {
     try {
       final offer = preferH264(await session.createOffer());
       if (_video != session) return;
-      client.sendVideoStart(offer);
+      final quality = settings.avatarQuality;
+      client.sendVideoStart(offer, resolution: settings.avatarResolution, fps: quality.fps, bitrateKbps: quality.bitrateKbps);
       _videoTimer?.cancel();
       _videoTimer = Timer(videoWait, () {
         if (_video == session && client.video != VideoStage.live) {
@@ -195,16 +258,24 @@ class AvatarController extends ChangeNotifier {
   }
 
   Future<void> setMode(String m) async {
-    if (!avatarModes.contains(m)) return;
+    if (!selectableEngines.contains(m)) return;
+    _seenMode = m;
     await settings.setAvatarMode(m);
-    if (m == 'video') {
+    await _applyMode();
+    notifyListeners();
+  }
+
+  Future<void> _applyMode() async {
+    if (mode == 'video') {
       client.setRenderMode('musetalk');
       await _maybeVideo();
     } else {
       await _dropVideo(tell: true);
     }
-    notifyListeners();
   }
+
+  /// The tab's quick switch (the same setting as in Settings): off is voice only, and the PC is told to stop the video.
+  Future<void> setAvatarEnabled(bool on) => settings.setAvatarEnabled(on);
 
   // ---- talking
 
@@ -212,6 +283,7 @@ class AvatarController extends ChangeNotifier {
   Future<void> holdStart() async {
     if (_holding || !client.canTalk) return;
     _holding = true;
+    await _bargeStop();
     micDenied = false;
     final stream = await devices.mic.start();
     if (!_holding) {
@@ -252,13 +324,84 @@ class AvatarController extends ChangeNotifier {
   void stopSpeaking() => client.interrupt();
 
   Future<void> setBrain(String value) async {
+    _seenBrain = value;
     await settings.setAvatarBrain(value);
     client.setBrain(value);
   }
 
   Future<void> setPersona(String slug) async {
+    _seenPersona = slug;
     await settings.setAvatarPersona(slug);
     client.setPersona(slug);
+  }
+
+  /// The person took (or turned down) the continuation the PC offered after an interruption.
+  void answerResume(bool accept) => client.answerResume(accept);
+
+  // ---- the person speaks over the avatar
+
+  void _setGain(double gain) {
+    _duckTimer?.cancel();
+    devices.player.setGain(gain);
+  }
+
+  /// While the avatar speaks and the route allows full duplex the microphone stays open for a local voice detector; otherwise it is gated:
+  /// nothing is captured, and the hold button is the way to interrupt.
+  void _syncBarge() {
+    final want = active && !_holding && route.fullDuplex && client.canTalk && client.phase == Phase.speaking;
+    if (want) {
+      _bargeListen();
+    } else if (_bargeMic && !client.barging) {
+      _bargeStop();
+    }
+  }
+
+  Future<void> _bargeListen() async {
+    if (_bargeMic) return;
+    _bargeMic = true;
+    final stream = await devices.mic.start();
+    if (!_bargeMic) {
+      await devices.mic.stop();
+      return;
+    }
+    if (stream == null) {
+      _bargeMic = false;
+      micDenied = true;
+      notifyListeners();
+      return;
+    }
+    final vad = BargeIn(onStart: _bargeBegin, onEnd: _bargeFinish);
+    _vad = vad;
+    _bargeSub = stream.listen((pcm) {
+      final was = vad.speaking;
+      vad.feed(pcm);
+      if (was && client.barging) client.sendAudio(pcm);
+    });
+  }
+
+  void _bargeBegin(double level, List<Uint8List> preroll) {
+    if (!client.bargeStart(lang, level)) return;
+    _setGain(duckLevel);
+    for (final chunk in preroll) {
+      client.sendAudio(chunk);
+    }
+  }
+
+  void _bargeFinish(double level, int ms) {
+    if (!client.barging) return;
+    client.bargeEnd(level, ms);
+    _duckTimer?.cancel();
+    _duckTimer = Timer(duckHold, () => devices.player.setGain(1));
+  }
+
+  Future<void> _bargeStop() async {
+    if (!_bargeMic) return;
+    _bargeMic = false;
+    await _bargeSub?.cancel();
+    _bargeSub = null;
+    _vad?.finish();
+    _vad = null;
+    await devices.mic.stop();
   }
 
   bool _disposed = false;
@@ -273,8 +416,11 @@ class AvatarController extends ChangeNotifier {
     _disposed = true;
     _retryTimer?.cancel();
     _videoTimer?.cancel();
+    _duckTimer?.cancel();
+    settings.removeListener(_onSettings);
     client.removeListener(_onClient);
     client.close();
+    route.dispose();
     super.dispose();
   }
 }

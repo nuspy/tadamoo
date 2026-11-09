@@ -69,6 +69,10 @@ class GatewayClient extends ChangeNotifier {
   String problemCode = '';
   final List<Line> lines = [];
 
+  /// The continuation the PC offers after an interruption ('' when none), and whether the person is speaking over the avatar now.
+  String resumeOffer = '';
+  bool barging = false;
+
   void Function(int sampleRate)? onAudioStart;
   void Function(Uint8List pcm)? onAudio;
   VoidCallback? onAudioEnd;
@@ -79,6 +83,9 @@ class GatewayClient extends ChangeNotifier {
   void Function(String sdp)? onVideoAnswer;
   void Function(String reason)? onVideoUnavailable;
   VoidCallback? onVideoStopped;
+
+  /// The PC asks for the avatar's voice at this level (1 is normal, below is lowered).
+  void Function(double level)? onDuck;
 
   Uri? _url;
   Map<String, String> _headers = const {};
@@ -155,6 +162,8 @@ class GatewayClient extends ChangeNotifier {
     videoDetail = '';
     _pending = 0;
     _replyOpen = false;
+    barging = false;
+    resumeOffer = '';
     avatar = false;
     voice = false;
     if (wasReady) onDropped?.call();
@@ -234,6 +243,11 @@ class GatewayClient extends ChangeNotifier {
       case 'interrupt':
         _replyOpen = false;
         onInterrupt?.call();
+      case 'duck':
+        final level = m['level'];
+        if (level is num) onDuck?.call(level.toDouble().clamp(0.0, 1.0));
+      case 'resume_offer':
+        resumeOffer = '${m['text'] ?? ''}'.trim();
       case 'brain':
         brain = '${m['brain'] ?? brain}';
       case 'persona':
@@ -263,6 +277,7 @@ class GatewayClient extends ChangeNotifier {
   bool holdStart(String lang) {
     if (!canTalk) return false;
     if (phase == Phase.speaking || phase == Phase.thinking) onInterrupt?.call();
+    resumeOffer = '';
     phase = Phase.listening;
     _pending++;
     _send({'type': 'start', 'mode': 'hold', 'lang': lang, 'sample_rate': 16000});
@@ -271,7 +286,7 @@ class GatewayClient extends ChangeNotifier {
   }
 
   void sendAudio(Uint8List pcm) {
-    if (phase == Phase.listening) _channel?.sendBytes(pcm);
+    if (phase == Phase.listening || barging) _channel?.sendBytes(pcm);
   }
 
   /// The button was released: the PC transcribes and answers.
@@ -286,6 +301,7 @@ class GatewayClient extends ChangeNotifier {
     final t = text.trim();
     if (t.isEmpty || !canTalk) return false;
     if (phase == Phase.speaking || phase == Phase.thinking) onInterrupt?.call();
+    resumeOffer = '';
     lines.add(Line(true, t));
     _replyOpen = false;
     phase = Phase.thinking;
@@ -302,16 +318,57 @@ class GatewayClient extends ChangeNotifier {
     onInterrupt?.call();
   }
 
+  /// The person began to speak over the avatar's voice: the PC is told, then the utterance follows as a turn that does not stop the reply
+  /// by itself (`barge_in`); the PC answers with `duck`, `interrupt` or nothing.
+  bool bargeStart(String lang, double level) {
+    if (!canTalk || barging || phase != Phase.speaking) return false;
+    barging = true;
+    _pending++;
+    resumeOffer = '';
+    _send({'type': 'user_speaking', 'state': 'start', 'level': _round(level), 'ms': 0});
+    _send({'type': 'start', 'mode': 'hold', 'lang': lang, 'sample_rate': 16000, 'barge_in': true});
+    notifyListeners();
+    return true;
+  }
+
+  /// The person stopped speaking over the avatar: `ms` is how long the speech lasted.
+  void bargeEnd(double level, int ms) {
+    if (!barging) return;
+    barging = false;
+    _send({'type': 'user_speaking', 'state': 'end', 'level': _round(level), 'ms': ms});
+    _send({'type': 'end'});
+    notifyListeners();
+  }
+
+  static double _round(double v) => (v * 1000).round() / 1000;
+
+  /// The person took or turned down the continuation the PC offered.
+  void answerResume(bool accept) {
+    if (resumeOffer.isEmpty) return;
+    resumeOffer = '';
+    _send({'type': 'resume', 'accept': accept});
+    notifyListeners();
+  }
+
   void setBrain(String value) => _send({'type': 'brain', 'brain': value});
 
   void setPersona(String slug) => _send({'type': 'persona', 'persona': slug});
 
   void setRenderMode(String mode) => _send({'type': 'render_mode', 'mode': mode});
 
-  void sendVideoStart(String sdp, {String persona = ''}) {
+  /// `resolution` (pixels, longer side), `fps` and `bitrateKbps` are hints for the PC's video; the PC may keep its own.
+  void sendVideoStart(String sdp, {String persona = '', int? resolution, int? fps, int? bitrateKbps}) {
     video = VideoStage.negotiating;
     videoDetail = '';
-    _send({'type': 'video_start', 'sdp': sdp, 'sdp_type': 'offer', if (persona.isNotEmpty) 'persona': persona});
+    _send({
+      'type': 'video_start',
+      'sdp': sdp,
+      'sdp_type': 'offer',
+      if (persona.isNotEmpty) 'persona': persona,
+      'resolution': ?resolution,
+      'fps': ?fps,
+      'bitrate_kbps': ?bitrateKbps,
+    });
     notifyListeners();
   }
 
