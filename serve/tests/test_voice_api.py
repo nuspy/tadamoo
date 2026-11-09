@@ -294,6 +294,32 @@ class PlanTest(Base):
                          ["base/config.json", "base/weights.bin", "custom-voice/speech_tokenizer/model.bin", "custom-voice/weights.bin"])
         self.assertFalse(plan["noncommercial"])
 
+    def _pinned_plan(self, pins, tree=None):
+        entry = vc._entry("pinned", "tts", "piper", "Pinned stand-in", "piper", "mit",
+                          [vc._pinned("c/xtts", REV, [(p, h) for p, h in pins.items()], strip="vocab/")])
+        with mock.patch.dict(vc.BY_ID, {"pinned": entry}):
+            if tree is None:
+                return self.get("/api/voice/download/plan?id=pinned")[1]
+            with mock.patch.object(downloads, "repo_tree", return_value=tree):
+                return self.get("/api/voice/download/plan?id=pinned")[1]
+
+    def test_a_pinned_source_is_fetched_at_its_commit_and_lands_without_the_stripped_folder(self):
+        plan = self._pinned_plan({"vocab/vocab.json": sha(XTTS["vocab/vocab.json"])})
+        self.assertTrue(plan["ok"], plan["problems"])
+        (f,) = plan["files"]
+        self.assertEqual((f["name"], f["revision"], f["sha256"]), ("vocab.json", REV, sha(XTTS["vocab/vocab.json"])))
+        self.assertNotIn(("GET", "/api/models/c/xtts/revision/main"), [(s["method"], s["path"]) for s in self.hf.seen])
+
+    def test_a_pinned_file_that_hugging_face_hashes_differently_is_refused(self):
+        plan = self._pinned_plan({"vocab/vocab.json": "0" * 64})
+        self.assertFalse(plan["ok"])
+        self.assertEqual([p["code"] for p in plan["problems"]], ["pin"])
+
+    def test_the_pin_gives_the_hash_of_a_small_file_hugging_face_does_not_hash(self):
+        plan = self._pinned_plan({"config.json": sha(XTTS["config.json"])}, tree={"config.json": {"size": 8, "sha256": None}})
+        self.assertTrue(plan["ok"], plan["problems"])
+        self.assertEqual(plan["files"][0]["sha256"], sha(XTTS["config.json"]))
+
     def test_a_url_plan_takes_the_size_from_the_server_and_needs_no_hugging_face(self):
         plan = self.get("/api/voice/download/plan?id=whisper-small")[1]
         self.assertTrue(plan["ok"], plan["problems"])

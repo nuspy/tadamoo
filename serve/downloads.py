@@ -341,15 +341,20 @@ def _source_files(entry: dict, problems: list) -> list[dict]:
             rev = resolve_revision(src["repo"], src["revision"])
             tree = repo_tree(src["repo"], rev)
             wanted = src["files"] or sorted(p for p in tree if not any(part.startswith(".") for part in p.split("/")))
+            pins = src.get("pins") or {}
             for path in wanted:
                 info = tree.get(path)
                 if info is None:
                     problems.append(_say("missing_file", f"Il file {path} non c'è più nel repository.",
                                          f"The file {path} is no longer in the repository."))
                     continue
+                if pins.get(path) and info["sha256"] and info["sha256"] != pins[path]:
+                    problems.append(_say("pin", f"Il file {path} non è quello registrato nel catalogo (SHA-256 diverso).",
+                                         f"The file {path} is not the one the catalog recorded (different SHA-256)."))
+                    continue
                 strip = src.get("strip") or ""
                 rel = "/".join(x for x in (src.get("subdir"), path[len(strip):] if strip and path.startswith(strip) else path) if x)
-                out.append({"path": path, "name": safe_relpath(rel), "size": info["size"], "sha256": info["sha256"],
+                out.append({"path": path, "name": safe_relpath(rel), "size": info["size"], "sha256": info["sha256"] or pins.get(path),
                             "url": _resolve_url(src["repo"], rev, path), "repo": src["repo"], "revision": rev})
         except DownloadError as e:
             problems.append(_say(e.code, e.it, e.en))
