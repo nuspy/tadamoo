@@ -22,7 +22,7 @@ from pathlib import Path
 NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,59}")
 CLIP_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_ -]{0,79}\.mp4")
 # names of the service's own routes after /avatar/: an avatar called like one would be shadowed by it
-RESERVED = frozenset(("wizard", "state", "list", "output", "prepare", "start", "stop", "speak", "lipsync", "interrupt", "stream", "visemes", "preview", "models", "phone", "engines"))
+RESERVED = frozenset(("wizard", "state", "list", "output", "prepare", "start", "stop", "speak", "lipsync", "interrupt", "stream", "visemes", "preview", "models", "phone", "engines", "train"))
 META = "avatar.json"
 INDEX = "prepared/index.json"
 PREPARED_HEIGHT = 480

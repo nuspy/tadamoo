@@ -42,14 +42,19 @@ INFOS: tuple[EngineInfo, ...] = (
         needs=(_t("A photo of the person.", "Una foto della persona."), _t("The model file in the models folder.", "Il file del modello nella cartella dei modelli.")),
         mode="wav2lip", requires="wav2lip_assets", integrated=True),
     EngineInfo(
-        id="wav2lip_v288", name="Wav2Lip v2 288 px (Linly-Talker)", kind="generic", runs_on=("pc", "web", "android"), weight_mb=None,
-        performance=NOT_MEASURED, native_resolution=288, resolutions=(144, 192, 288, 384, 480), default_resolution=288,
-        license=License("unverified", False, True,
-                        _t("A newly trained model: its licence and the provenance of its weights are not verified. Treat it as non-commercial until they are.",
-                           "Un modello addestrato di recente: licenza e provenienza dei pesi non sono verificate. Trattarlo come non commerciale finché non lo sono.")),
+        id="wav2lip_v288", name="Wav2Lip v2 288 px (Linly-Talker)", kind="generic", runs_on=("pc", "web"), weight_mb=None,
+        performance=_t("Linly-Talker's newly trained 288 px model, run on the PC from the avatar's photo (the frames go to the preview, the web and the camera). Not measured here.",
+                       "Il modello a 288 px addestrato da poco da Linly-Talker, eseguito sul PC dalla foto dell'avatar (i fotogrammi vanno all'anteprima, al web e alla camera). Non misurato qui."),
+        native_resolution=288, resolutions=(144, 192, 288, 384, 480), default_resolution=288,
+        license=License("wav2lip-research", True, False,
+                        _t("Non-commercial: the model derives from Wav2Lip, which is for research and non-commercial use only. Its face detector is run by ultralytics, which is AGPL-3.0.",
+                           "Non commerciale: il modello deriva da Wav2Lip, che è solo per ricerca e uso non commerciale. Il suo rilevatore del volto è eseguito da ultralytics, che è AGPL-3.0.")),
         training=Training(False, None, False),
-        needs=(_t("A photo of the person.", "Una foto della persona."), _t("Its weights, which are not in this build.", "I suoi pesi, che non sono in questa versione.")),
-        mode="wav2lip", requires="wav2lip_assets", integrated=False),
+        needs=(_t("A photo of the person.", "Una foto della persona."), _t("A GPU on this PC.", "Una GPU su questo PC."),
+               _t("Its code and weights, installed on request from Settings > Voice, and an engine environment (TADAMOO_AVATAR_ENGINES_PYTHON).",
+                  "Il suo codice e i suoi pesi, installati su richiesta da Settings > Voice, e un ambiente dei motori (TADAMOO_AVATAR_ENGINES_PYTHON)."),
+               _t("Two face models whose source is not stated: put them in the models folder by hand.", "Due modelli del volto di cui non è dichiarata la fonte: metterli a mano nella cartella dei modelli.")),
+        mode="video", requires="engine_pack", integrated=False),
     EngineInfo(
         id="ultralight", name="Ultralight-Digital-Human", kind="personalized", runs_on=("pc", "web", "android"), weight_mb=None,
         performance=NOT_MEASURED, native_resolution=None, resolutions=(160, 256, 384, 480), default_resolution=256,
@@ -83,23 +88,28 @@ INFOS: tuple[EngineInfo, ...] = (
         mode="video", requires="musetalk_prepared", integrated=True),
     EngineInfo(
         id="sadtalker", name="SadTalker", kind="generic", runs_on=("pc",), weight_mb=None,
-        performance=_t("Makes a video from one image, with head motion. Not measured here.", "Fa un video da una sola immagine, con il movimento della testa. Non misurato qui."),
-        native_resolution=None, resolutions=(256, 384, 512), default_resolution=256,
-        license=License("unverified", False, True, _t("The licence of the code and the weights is to verify before use.", "La licenza del codice e dei pesi è da verificare prima dell'uso.")),
+        performance=_t("Makes a video with head motion from one image, at 256 px; it loads all its models on every call, so it draws a sentence at a time. Not measured here.",
+                       "Fa un video con il movimento della testa da una sola immagine, a 256 px; carica tutti i suoi modelli a ogni chiamata, quindi disegna una frase alla volta. Non misurato qui."),
+        native_resolution=256, resolutions=(256, 384, 512), default_resolution=256,
+        license=License("linly-talker", False, False, _t("SadTalker as packaged by Linly-Talker.", "SadTalker nella forma di Linly-Talker.")),
         training=Training(False, None, False),
-        needs=(_t("A GPU on this PC.", "Una GPU su questo PC."), _t("Its weights, which are not in this build.", "I suoi pesi, che non sono in questa versione.")),
-        mode="video", requires="none", integrated=False),
+        needs=(_t("A photo of the person.", "Una foto della persona."), _t("A GPU on this PC.", "Una GPU su questo PC."),
+               _t("Its code and weights, installed on request from Settings > Voice, and an engine environment (TADAMOO_AVATAR_ENGINES_PYTHON).",
+                  "Il suo codice e i suoi pesi, installati su richiesta da Settings > Voice, e un ambiente dei motori (TADAMOO_AVATAR_ENGINES_PYTHON).")),
+        mode="video", requires="engine_pack", integrated=False),
     EngineInfo(
         id="er_nerf", name="ER-NeRF", kind="personalized", runs_on=("pc",), weight_mb=None,
         performance=_t("Not measured here. Training takes hours for each person.", "Non misurato qui. L'addestramento richiede ore per ogni persona."),
         native_resolution=None, resolutions=(256, 384, 512), default_resolution=256,
-        license=License("unverified", False, True, _t("The licence of the code and the weights is to verify before use.", "La licenza del codice e dei pesi è da verificare prima dell'uso.")),
+        license=License("linly-talker", False, False, _t("ER-NeRF as packaged by Linly-Talker.", "ER-NeRF nella forma di Linly-Talker.")),
         training=Training(True, None, True),
         needs=(_t("A GPU on this PC, and hours of training for each person.", "Una GPU su questo PC e ore di addestramento per ogni persona."),
                _t("PyTorch3D and CUDA modules compiled on this PC.", "PyTorch3D e moduli CUDA compilati su questo PC."),
+               _t("A 3DMM face model built by hand from the Basel Face Model, and face-parsing weights: no source is stated for either.",
+                  "Un modello 3DMM del volto costruito a mano dal Basel Face Model e i pesi di face parsing: per nessuno dei due è dichiarata una fonte."),
                _t("Very fragile: it breaks with the versions of Python, PyTorch and CUDA, and with the compiler.",
                   "Molto fragile: si rompe con le versioni di Python, PyTorch e CUDA e con il compilatore.")),
-        mode="video", requires="trained", integrated=False),
+        mode="video", requires="engine_pack", integrated=False),
 )
 
 
@@ -117,6 +127,16 @@ class DescribedEngine(AvatarEngine):
 for _info in INFOS:
     _info.validate()
 ENGINES: dict[str, AvatarEngine] = {i.id: DescribedEngine(i) for i in INFOS}
+# The personalised engines have code of their own (trained per avatar, run from the upstream scripts in a Python environment of their own).
+from .feathertalk import FeatherTalkEngine  # noqa: E402
+from .ultralight import UltralightEngine  # noqa: E402
+# The PC engines run from Linly-Talker's code, installed on request, through runners (pack.py).
+from .ernerf import ErNerfEngine  # noqa: E402
+from .sadtalker import SadTalkerEngine  # noqa: E402
+from .wav2lipv2 import Wav2LipV2Engine  # noqa: E402
+
+for _engine in (UltralightEngine, FeatherTalkEngine, Wav2LipV2Engine, SadTalkerEngine, ErNerfEngine):
+    ENGINES[_engine.ID] = _engine(next(i for i in INFOS if i.id == _engine.ID))
 
 # What a target uses when the person has chosen nothing, and the output height it draws at. The PC's default is MuseTalk, the video for
 # the PC's own features; the web preview and the ESP32 use the visemes; the Android app uses Wav2Lip.
@@ -143,5 +163,5 @@ def for_target(target: str) -> list[EngineInfo]:
 def describe(avatar_dir=None, models_base: str | None = None) -> list[dict]:
     """Every engine as a dict, with its availability for the avatar in `avatar_dir` (None = no avatar)."""
     path = Path(avatar_dir) if avatar_dir else None
-    return [{**i.as_dict(), "status": i.status_of(path, models_base)} for i in INFOS]
+    return [{**i.as_dict(), "status": ENGINES[i.id].status_of(path, models_base)} for i in INFOS]
 
