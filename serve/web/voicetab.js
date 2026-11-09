@@ -41,7 +41,7 @@
     const status = el("p", "sr"); status.id = "vt-live"; status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
     root.append(status);
     const grid = el("div", "vt-grid");
-    for (const [id, key] of [["brain", "vt.brain"], ["talk", "vt.talk"], ["last", "vt.last"], ["service", "vt.service"], ["avatar", "vt.avatar"]]) {
+    for (const [id, key] of [["brain", "vt.brain"], ["talk", "vt.talk"], ["last", "vt.last"], ["service", "vt.service"], ["avatar", "vt.avatar"], ["meetings", "vt.meetings"]]) {
       const s = el("section", "vt-card"), h = el("h3", "vt-h", T(key));
       h.id = "vt-h-" + id; s.id = "vt-card-" + id; s.setAttribute("aria-labelledby", h.id);
       s.append(h);
@@ -50,6 +50,7 @@
     }
     root.append(grid);
     if (window.VoiceAvatar) window.VoiceAvatar.mount(parts.avatar.s, avatarCtx);
+    if (window.VoiceMeet) window.VoiceMeet.mount(parts.meetings.s, avatarCtx);
   }
   const body = id => { const h = parts[id].h; while (h.nextSibling) h.nextSibling.remove(); return parts[id].s; };
   const chip = (text, cls) => el("span", "vt-chip " + (cls || ""), text);
@@ -149,7 +150,7 @@
     const box = el("section", "vt-card"), h = el("h3", "vt-h", T("vt.set.title"));
     h.id = "vb-h2"; box.setAttribute("aria-labelledby", h.id);
     box.append(h, el("p", "vt-help", T("vt.set.intro")), permission("vb"), hotkeys("vb"), note(brainMsg.text, brainMsg.bad));
-    setRoot.replaceChildren(box, ...(window.VoiceAvatar ? [window.VoiceAvatar.settingsCard(api)] : []));
+    setRoot.replaceChildren(box, ...(window.VoiceAvatar ? [window.VoiceAvatar.settingsCard(api)] : []), ...(window.VoiceMeet ? [window.VoiceMeet.settingsCard(api)] : []));
   }
 
   /* ---- try it ---- */
@@ -239,7 +240,7 @@
   }
 
   /* ---- the avatar ---- */
-  function paintAvatar() { if (window.VoiceAvatar) window.VoiceAvatar.update(); }
+  function paintAvatar() { if (window.VoiceAvatar) window.VoiceAvatar.update(); if (window.VoiceMeet) window.VoiceMeet.update(); }
 
   function paintAll() { paintService(); paintBrain(); paintTalk(); paintLast(); paintAvatar(); paintSettings(); }
 

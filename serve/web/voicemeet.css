@@ -1,0 +1,28 @@
+/* The Meetings card of the Voice tab and of Settings > Voice. One column on a phone; the card spans both columns of the tab from 1000px. Targets are 44px or more. */
+#vt-card-meetings { min-width: 0; }
+.vm-form { display: grid; gap: 12px; min-width: 0; margin: 0; padding: 12px; border: 1px solid var(--line-soft); border-radius: 8px; }
+.vm-field { display: grid; gap: 4px; min-width: 0; }
+.vm-field > label { font-weight: 600; color: var(--fg); }
+.vm-field input[type="url"], .vm-field input[type="text"], .vm-field input[type="number"], .vm-field select { width: 100%; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font: 16px/1.4 var(--font-sans); box-sizing: border-box; }
+.vm-field input:disabled, .vm-field select:disabled { opacity: .6; }
+.vm-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.vm-actions .btn { flex: 1 1 140px; }
+.vm-live, .vm-past, .vm-cop, .vm-cal { display: grid; gap: 8px; min-width: 0; }
+.vm-live[hidden] { display: none; }
+.vm-sect { display: grid; gap: 8px; min-width: 0; padding-top: 4px; border-top: 1px solid var(--line-soft); }
+.vm-sub { margin: 4px 0 0; font: 600 15px/1.4 var(--font-sans); color: var(--fg); overflow-wrap: anywhere; }
+.vm-sub2 { margin: 4px 0 0; font: 600 14px/1.4 var(--font-sans); color: var(--fg); overflow-wrap: anywhere; }
+.vm-text { margin: 0; color: var(--fg); line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
+.vm-meets { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.vm-meet { display: grid; gap: 6px; min-width: 0; padding: 10px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--panel); }
+.vm-meet-h { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; min-width: 0; }
+.vm-meet-h strong { min-width: 0; overflow-wrap: anywhere; }
+.vm-tail { margin: 0; padding: 8px 10px 8px 28px; max-height: 40vh; overflow-y: auto; border: 1px solid var(--line-soft); border-radius: 6px; background: var(--panel); color: var(--fg); line-height: 1.5; overflow-wrap: anywhere; }
+.vm-list { margin: 0; padding-left: 22px; color: var(--fg); line-height: 1.5; overflow-wrap: anywhere; }
+.vm-min { display: grid; gap: 6px; min-width: 0; }
+.vm-prov { display: grid; gap: 6px; min-width: 0; }
+.vm-settings { min-width: 0; }
+.vm-actions .btn.danger { border-color: var(--warn); color: var(--warn); }
+.vt-root .vm-form :focus-visible, .vb-root .vm-settings :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (min-width: 1000px) { .vt-grid > #vt-card-meetings { grid-column: 1 / -1; } .vm-actions .btn { flex: 0 1 auto; } }
+@media (prefers-reduced-motion: reduce) { .vm-form *, .vm-live *, .vm-meet * { transition: none !important; animation: none !important; } }
