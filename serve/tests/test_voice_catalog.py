@@ -8,6 +8,11 @@ from pathlib import Path
 from serve import voice_catalog as vc
 
 ROOT = Path(__file__).resolve().parents[2]
+SHA = re.compile(r"^[0-9a-f]{64}$")
+COMMIT = re.compile(r"^[0-9a-f]{40}$")
+PINNED = {"piper", "musetalk-v15", "sherpa-diarization", "multilingual-e5-small"}              # entries whose Hugging Face sources are grounded
+CHOSEN_REPOS = {"rhasspy/piper-voices", "vivym/face-parsing-bisenet", "csukuangfj/sherpa-onnx-pyannote-segmentation-3-0",
+                "intfloat/multilingual-e5-small"}                                              # repositories chosen from a search, not named by the voice code
 
 
 class CatalogShapeTest(unittest.TestCase):
@@ -32,9 +37,11 @@ class CatalogShapeTest(unittest.TestCase):
             self.assertIn(want, engines)
         self.assertEqual({e["id"] for e in vc.models_of("stt")}, {f"whisper-{s}" for s in ("tiny", "base", "small", "medium", "large-v3")})
 
-    def test_the_embedding_service_has_no_entry_because_the_voice_code_names_no_model(self):
-        self.assertEqual(vc.models_of("embedding"), [])
-        self.assertEqual(vc.DEFAULTS["embedding"], "")
+    def test_the_embedding_service_has_the_proposed_model_and_no_default(self):
+        (e,) = vc.models_of("embedding")
+        self.assertEqual((e["id"], e["license"], e["noncommercial"], e["verify"], e["languages"]), ("multilingual-e5-small", "mit", False, (), ["it", "en"]))
+        self.assertEqual(vc.DEFAULTS["embedding"], "")                              # nothing reads it yet: the RAG consumer is a later step
+        self.assertIn("onnx/model.onnx", e["probe"])
 
     def test_the_defaults_name_models_of_their_own_service(self):
         for service, model in vc.DEFAULTS.items():
@@ -65,9 +72,10 @@ class GroundingTest(unittest.TestCase):
                 if repo.startswith("Qwen/Qwen3-TTS-12Hz-"):
                     self.assertIn("Qwen/Qwen3-TTS-12Hz-", code)
                     self.assertRegex(repo, r"^Qwen/Qwen3-TTS-12Hz-(0\.6B|1\.7B)-(Base|CustomVoice)$")
-                else:
+                elif repo not in CHOSEN_REPOS:
                     self.assertIn(repo, code, repo)
-                self.assertEqual(s["revision"], "main")
+                if s["revision"] == "main":
+                    self.assertNotIn(e["id"], PINNED, e["id"])
 
     def test_the_whisper_addresses_carry_the_sha256_of_the_file(self):
         for e in vc.models_of("stt"):
@@ -76,20 +84,21 @@ class GroundingTest(unittest.TestCase):
             self.assertTrue(s["url"].endswith("/" + s["name"]))
             self.assertRegex(s["sha256"], r"^[0-9a-f]{64}$")
 
-    def test_the_kokoro_and_diarization_files_are_the_ones_the_voice_code_names(self):
+    def test_the_kokoro_diarization_and_silero_files_are_the_ones_the_voice_code_names(self):
         names = {s["name"] for e in vc.CATALOG for s in e["sources"] if s["type"] == "url"}
-        for name in ("kokoro-v1.0.fp16.onnx", "voices-v1.0.bin", "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
-                     "sherpa-onnx-pyannote-segmentation-3-0.tar.bz2"):
+        for name in ("kokoro-v1.0.fp16.onnx", "voices-v1.0.bin", "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx", "silero_vad_v4.onnx"):
             self.assertIn(name, names)
-        urls = [s["url"] for e in vc.CATALOG for s in e["sources"] if s["type"] == "url" and e["kind"] == "model" and not s["url"].startswith(vc._WHISPER_HOST)]
-        self.assertEqual(len(urls), 4)
-        for u in urls:
-            self.assertTrue(u.startswith("https://github.com/"))
+        self.assertEqual(vc.find("sherpa-diarization")["probe"][0], "sherpa-onnx-pyannote-segmentation-3-0/model.onnx")
+        hosts = {s["url"].split("/")[2] for e in vc.CATALOG for s in e["sources"]
+                 if s["type"] == "url" and e["kind"] == "model" and not s["url"].startswith(vc._WHISPER_HOST)}
+        self.assertEqual(hosts, {"github.com", "raw.githubusercontent.com", "download.pytorch.org", "www.adrianbulat.com"})
+        self.assertIn("/915dd3d639b8333a52e001af095f87c5b7f1e0ac/", vc.find("silero-vad-v4")["sources"][0]["url"])        # the v4.0 tag's commit, not a branch
 
     def test_a_size_is_given_only_where_the_voice_code_states_it(self):
         sized = {e["id"] for e in vc.CATALOG if e["size"]}
         packs = {e["id"] for e in vc.CATALOG if e["kind"] == "engine-pack"}                  # their sizes are those of the pinned blobs
-        self.assertEqual(sized - packs, {"whisper-large-v3", "kokoro", "xtts-v2", "musetalk-v15", "sherpa-diarization", "wav2lip-int8"})
+        self.assertEqual(sized - packs, {f"whisper-{n}" for n in ("tiny", "base", "small", "medium", "large-v3")} | {
+            "kokoro", "piper", "xtts-v2", "musetalk-v15", "sherpa-diarization", "wav2lip-int8", "silero-vad-v4", "multilingual-e5-small"})
         for e in vc.CATALOG:
             if e["size"] is None and e["kind"] == "model":
                 self.assertIn("size", e["verify"], e["id"])
@@ -98,17 +107,23 @@ class GroundingTest(unittest.TestCase):
 class LicenseAndVerifyTest(unittest.TestCase):
     def test_the_known_licenses(self):
         want = {"xtts-v2": "cpml-1.0", "cosyvoice-3": "apache-2.0", "chatterbox": "mit", "qwen3tts-0.6b": "apache-2.0", "qwen3tts-1.7b": "apache-2.0",
-                "musetalk-v15": "musetalk"}
+                "musetalk-v15": "musetalk", "kokoro": "apache-2.0", "piper": "piper-voices", "silero-vad-v4": "mit", "whisper-small": "mit",
+                "whisper-large-v3": "mit", "sherpa-diarization": "pyannote-camplus", "multilingual-e5-small": "mit"}
         for model, lic in want.items():
             self.assertEqual(vc.find(model)["license"], lic)
-        for model in ("kokoro", "piper", "orpheus-3b", "dia-1.6b", "silero-vad-v4", "whisper-small", "sherpa-diarization"):
+        for model in ("orpheus-3b", "dia-1.6b"):                                          # not grounded yet
             self.assertEqual(vc.find(model)["license"], "verify")
             self.assertIn("license", vc.find(model)["verify"])
 
-    def test_only_xtts_and_the_wav2lip_file_are_non_commercial(self):
-        self.assertEqual([e["id"] for e in vc.CATALOG if e["noncommercial"]], ["xtts-v2", "wav2lip-int8", "wav2lipv2-code", "wav2lipv2-weights"])
-        self.assertIn("Non-commercial", vc.LICENSES["cpml-1.0"]["en"])
-        self.assertIn("non-commercial", vc.LICENSES["wav2lip-research"]["en"])
+    def test_the_non_commercial_entries_say_so_in_their_license_text(self):
+        self.assertEqual([e["id"] for e in vc.CATALOG if e["noncommercial"]], ["xtts-v2", "musetalk-v15", "wav2lip-int8", "wav2lipv2-code", "wav2lipv2-weights"])
+        for e in vc.CATALOG:
+            text = (vc.license_of(e)["en"] + " " + e["notes"]["en"]).lower()
+            if e["noncommercial"]:
+                self.assertRegex(text, r"non-commercial|research use only", e["id"])
+        self.assertIn("CelebAMask-HQ", vc.LICENSES["musetalk"]["en"])
+        self.assertIn("GPL", vc.LICENSES["piper-voices"]["en"])
+        self.assertIn("gated", vc.find("sherpa-diarization")["notes"]["en"])             # the original pyannote repository: say how it differs
 
     def test_the_wav2lip_file_is_for_the_phones_with_a_known_place_and_hash_and_no_source(self):
         e = vc.find("wav2lip-int8")
@@ -127,12 +142,60 @@ class LicenseAndVerifyTest(unittest.TestCase):
             self.assertEqual((vc.public(e, root)["selectable"], vc.public(e, root)["sha256"]), (False, e["sha256"]))
 
     def test_an_entry_the_code_does_not_complete_is_marked_and_not_downloadable(self):
-        for model, why in (("piper", "no_source"), ("chatterbox", "no_source"), ("silero-vad-v4", "no_source"), ("kokoro", "no_sha256"),
-                           ("sherpa-diarization", "no_sha256")):
+        for model, why in (("chatterbox", "no_source"), ("wav2lip-int8", "no_source"), ("wav2lipv2-yolo-face", "no_source")):
             e = vc.find(model)
             self.assertTrue(e["verify"], model)
             self.assertEqual(vc.downloadable(e), (False, why), model)
-        self.assertIn("sha256", vc.find("kokoro")["verify"])
+
+    def test_every_url_source_that_can_be_downloaded_has_a_sha256_and_a_size(self):
+        for e in vc.CATALOG:
+            for s in e["sources"]:
+                if s["type"] == "url" and s["sha256"]:
+                    self.assertRegex(s["sha256"], SHA, e["id"])
+                    self.assertTrue(s["size"], (e["id"], s["name"]))
+                elif s["type"] == "url":
+                    self.assertEqual(vc.downloadable(e), (False, "no_sha256"))
+        for model in ("kokoro", "silero-vad-v4", "sherpa-diarization", "musetalk-v15"):      # a hash that Hugging Face copies give, not the author: to check
+            self.assertIn("sha256", vc.find(model)["verify"], model)
+        for model in ("piper", "multilingual-e5-small", "whisper-small"):                      # everything is the author's own or a pinned commit
+            self.assertEqual(vc.find(model)["verify"], (), model)
+
+    def test_the_grounded_hugging_face_sources_are_pinned_to_a_commit_with_every_file_hashed(self):
+        for model in PINNED:
+            e = vc.find(model)
+            hf = [s for s in e["sources"] if s["type"] == "hf"]
+            self.assertTrue(hf, model)
+            for s in hf:
+                self.assertRegex(s["revision"], COMMIT, (model, s["repo"]))
+                self.assertTrue(s["files"] and set(s["pins"]) == set(s["files"]), (model, s["repo"]))
+                for path, sha in s["pins"].items():
+                    self.assertRegex(sha, SHA, (model, path))
+            self.assertEqual(vc.downloadable(e), (True, ""), model)
+
+    def test_the_piper_voices_are_onnx_and_json_pairs_that_land_flat_in_the_folder(self):
+        e = vc.find("piper")
+        names = [p[len(s["strip"]):] for s in e["sources"] for p in s["files"]]
+        self.assertEqual(len(names), 8)
+        for probe in e["probe"]:
+            self.assertIn(probe, names)
+            self.assertIn(probe + ".json", names)
+        for s in e["sources"]:
+            self.assertEqual(s["repo"], "rhasspy/piper-voices")
+            self.assertTrue(all(p.startswith(s["strip"]) and "/" not in p[len(s["strip"]):] for p in s["files"]))
+        self.assertEqual(sorted(e["probe"]), sorted(f"{v}.onnx" for v in ("it_IT-riccardo-x_low", "it_IT-serena-medium", "en_US-ljspeech-medium", "en_GB-cori-medium")))
+
+    def test_musetalk_has_the_eleven_files_the_avatar_worker_requires_and_no_syncnet(self):
+        from voice.callbridge import avatar_weights
+        e = vc.find("musetalk-v15")
+        got = set()
+        for s in e["sources"]:
+            if s["type"] == "url":
+                got.add(s["name"])
+            else:
+                got |= {"/".join(x for x in (s["subdir"], p) if x) for p in s["files"]}
+        self.assertEqual(got, set(avatar_weights.REQUIRED))
+        self.assertNotIn("syncnet", " ".join(got).lower())
+        self.assertTrue(e["noncommercial"])
 
     def test_a_url_source_without_a_sha256_or_with_an_archive_is_refused(self):
         e = {"sources": [vc._url("https://x.test/a.bin", "a.bin")]}
@@ -146,7 +209,8 @@ class LicenseAndVerifyTest(unittest.TestCase):
         d = vc.download_entry("xtts-v2")
         self.assertEqual((d["folder"], d["noncommercial"], d["kind"], d["marker"]), ("tts/xtts-v2", True, "voice", True))
         self.assertIsNone(d["why_not"])
-        self.assertEqual(vc.download_entry("kokoro")["why_not"]["code"], "no_sha256")
+        self.assertEqual(vc.download_entry("chatterbox")["why_not"]["code"], "no_source")
+        self.assertIsNone(vc.download_entry("kokoro")["why_not"])
         self.assertIsNone(vc.download_entry("nope"))
         self.assertIsNone(vc.download_entry(None))
 

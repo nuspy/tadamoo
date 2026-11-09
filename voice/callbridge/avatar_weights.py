@@ -1,8 +1,8 @@
 """The MuseTalk weights the avatar worker reads, and which of them are missing.
 
 All of them live under `<models folder>/avatar/musetalk-v15/` and nowhere else; nothing here, and nothing in the worker, fetches a file.
-The first five groups are what TaDaMoo's download installs (serve/voice_catalog.py); the face-parsing and the face-detector weights have no
-fixed source in the catalog yet, so a person puts them there by hand and until then the avatar stays unloaded and says which file is absent."""
+TaDaMoo's download installs all of them (serve/voice_catalog.py); a person may also put them there by hand. Until every file is there the avatar
+stays unloaded and says which file is absent."""
 from __future__ import annotations
 
 import os
@@ -21,9 +21,9 @@ REQUIRED = {
     "whisper/pytorch_model.bin": "the audio encoder (openai/whisper-tiny)",
     "whisper/preprocessor_config.json": "the audio encoder (openai/whisper-tiny)",
     "dwpose/dw-ll_ucoco_384.pth": "DWPose (yzd-v/DWPose)",
-    "face-parse-bisent/79999_iter.pth": "face parsing: no source in the catalog yet",
-    "face-parse-bisent/resnet18-5c106cde.pth": "face parsing: no source in the catalog yet",
-    "s3fd/s3fd-619a316812.pth": "the face detector S3FD: no source in the catalog yet",
+    "face-parse-bisent/79999_iter.pth": "face parsing (BiSeNet)",
+    "face-parse-bisent/resnet18-5c106cde.pth": "face parsing (ResNet-18 backbone)",
+    "s3fd/s3fd-619a316812.pth": "the face detector S3FD",
 }
 
 
@@ -45,7 +45,7 @@ def reason(base: str | None = None) -> str:
         return ""
     where = folder(base) or "<models folder>/avatar/" + MODEL_ID
     shown = ", ".join(absent[:4]) + (f" and {len(absent) - 4} more" if len(absent) > 4 else "")
-    return f"The avatar is missing {len(absent)} weight file(s) in {where}: {shown}. Install the MuseTalk model from Settings > Voice and put the rest there by hand."
+    return f"The avatar is missing {len(absent)} weight file(s) in {where}: {shown}. Install the MuseTalk model from Settings > Voice."
 
 
 def env(base: str | None = None) -> dict[str, str]:

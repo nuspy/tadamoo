@@ -42,8 +42,9 @@ and the personality's avatar folder has their files.
 - A weight that is missing keeps the function unloaded: `GET /functions` has `problem` and `POST /functions/apply` reports the plain reason
   (`The avatar is missing 2 weight file(s) in <folder>: s3fd/s3fd-619a316812.pth, ...`) and starts no process. The same goes for a missing
   environment: its Python is `avatar_python` of the config or the variable `TADAMOO_AVATAR_PYTHON` (the installer sets it).
-- The face-parsing weights (`79999_iter.pth`, `resnet18-5c106cde.pth`) and the S3FD file have no source in `serve/voice_catalog.py`, so a
-  download does not fetch them; they are put in the folder by hand until a source is chosen.
+- All 11 files are sources of the `musetalk-v15` entry of `serve/voice_catalog.py`, so one download installs them (`voice/models.md`
+  says where each comes from). The entry is `noncommercial`: the face-parsing network was trained on CelebAMask-HQ. SyncNet is not
+  installed: only MuseTalk's training reads it.
 - The client puts `voice/avatar/musetalk` on `PYTHONPATH`, sets `MUSETALK_MODELS`, `AVATAR_CODE_DIR` and `AVATAR_STATE_DIR`, and gives the
   worker the GPU the person chose (`CUDA_VISIBLE_DEVICES`). Three files of the vendored code read `MUSETALK_MODELS` instead of `./models`
   (`preprocessing.py`, `face_parsing/__init__.py`, `sfd_detector.py`, which no longer downloads).

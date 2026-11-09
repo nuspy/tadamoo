@@ -203,12 +203,13 @@ class Settings(unittest.TestCase):
             voice_settings.set_enabled("nope", True)
 
     def test_estimates_prefer_what_was_measured_and_never_guess(self):
-        self.assertEqual(voice_loader.estimate_mib("musetalk-v15", "auto", "vram"), (6676, "catalog"))
-        self.assertEqual(voice_loader.estimate_mib("whisper-small", "auto", "vram"), (None, "unknown"))      # the catalog has no size for it
+        self.assertEqual(voice_loader.estimate_mib("musetalk-v15", "auto", "vram"), (4276, "catalog"))
+        self.assertEqual(voice_loader.estimate_mib("whisper-small", "auto", "vram"), (462, "catalog"))
+        self.assertEqual(voice_loader.estimate_mib("chatterbox", "auto", "vram"), (None, "unknown"))         # the catalog has no size for it
         self.assertEqual(voice_loader.estimate_mib("musetalk-v15", "cpu", "ram"), (0, "cpu"))
         voice_loader.record_measured("whisper-small", "auto", "vram", 812)
         self.assertEqual(voice_loader.estimate_mib("whisper-small", "auto", "vram"), (812, "measured"))
-        self.assertEqual(voice_loader.estimate_mib("whisper-small", "cuda:1", "vram"), (None, "unknown"))    # measured elsewhere
+        self.assertEqual(voice_loader.estimate_mib("whisper-small", "cuda:1", "vram"), (462, "catalog"))     # measured elsewhere
         self.assertEqual(voice_loader.estimate_mib("whisper-small", "auto", "ram"), (0, "cpu"))
 
 
@@ -224,12 +225,12 @@ class Plan(Base):
         acts = {i["id"]: i["action"] for i in p["items"]}
         self.assertEqual(acts, {"stt": "keep", "tts": "load", "avatar": "unload"})
         tts = next(i for i in p["items"] if i["id"] == "tts")
-        self.assertEqual((tts["estimated_mib"], tts["estimate_source"]), (325, "catalog"))
-        self.assertEqual(p["need_mib"], 325)
+        self.assertEqual((tts["estimated_mib"], tts["estimate_source"]), (197, "catalog"))
+        self.assertEqual(p["need_mib"], 197)
         self.assertEqual(p["recover_mib"], 6800)                                  # what the service measured when it loaded the avatar
         self.assertEqual(p["free_mib"], self.pool["free"])
         self.assertEqual(p["reserve_mib"], 1200)
-        self.assertEqual(p["left_for_llm_mib"], self.pool["free"] + 6800 - 325 - 1200)
+        self.assertEqual(p["left_for_llm_mib"], self.pool["free"] + 6800 - 197 - 1200)
         self.assertTrue(p["fits"] and p["changes"])
         self.assertEqual(self.log, [])                                            # a plan changes nothing
         self.assertEqual([c for c in self.voice.calls if c[0] == "POST"][-1][1], "/functions/apply")
@@ -250,16 +251,17 @@ class Plan(Base):
         self.assertEqual(next(i["action"] for i in p["items"] if i["id"] == "stt"), "reload")
         self.pool["free"] = 3000
         code, p = self.req("POST", "/api/voice/functions/plan", {"desired": {"avatar": {"on": True}}})
-        self.assertEqual((p["need_mib"], p["fits"]), (6676, False))
+        self.assertEqual((p["need_mib"], p["fits"]), (4276, False))
         self.assertLess(p["left_for_llm_mib"], 0)
         self.assertTrue(p["llm_running"] and p["llm_reload"])
 
     def test_an_unknown_estimate_leaves_fits_open(self):
         self.install("whisper-small")
-        code, p = self.req("POST", "/api/voice/functions/plan", {"desired": {"stt": {"on": True}}})
-        self.assertEqual((p["unknown"], p["fits"]), (["stt"], None))
-        self.assertEqual(self.apply({"stt": {"on": True}})[0], 202)                      # an open question does not stop an apply
-        self.wait_job()
+        with mock.patch.dict(voice_catalog.find("whisper-small"), {"size": None}):
+            code, p = self.req("POST", "/api/voice/functions/plan", {"desired": {"stt": {"on": True}}})
+            self.assertEqual((p["unknown"], p["fits"]), (["stt"], None))
+            self.assertEqual(self.apply({"stt": {"on": True}})[0], 202)                  # an open question does not stop an apply
+            self.wait_job()
 
     def test_a_cpu_function_needs_no_vram_and_no_reload(self):
         self.install("musetalk-v15")
@@ -290,7 +292,7 @@ class Adding(Base):
         self.assertFalse(self.svc.standby)
         self.assertEqual(voice_loader.measured()["musetalk-v15"]["mib"], 6800)       # kept as the next estimate
         estimates = [e[3] for e in self.log if e[0] == "service_load"]
-        self.assertEqual(estimates, [325, 6676])                                     # the service was given the catalog estimates
+        self.assertEqual(estimates, [197, 4276])                                     # the service was given the catalog estimates
         on = {f: voice_settings.enabled(f) for f in voice_loader.FUNCTIONS}
         self.assertEqual(on, {"stt": False, "tts": True, "avatar": True})            # the choice is written to voice.json first
         self.assertIsNone(voice_loader._pending)

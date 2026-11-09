@@ -32,7 +32,7 @@ MODELS = {
     "whisper-medium": ("stt", "whisper", "Whisper medium", ("medium.pt",)),
     "whisper-large-v3": ("stt", "whisper", "Whisper large-v3", ("large-v3.pt",)),
     "kokoro": ("tts", "kokoro", "Kokoro", ("kokoro-v1.0.fp16.onnx", "voices-v1.0.bin")),
-    "piper": ("tts", "piper", "Piper", ()),
+    "piper": ("tts", "piper", "Piper", ("it_IT-riccardo-x_low.onnx", "it_IT-serena-medium.onnx", "en_US-ljspeech-medium.onnx", "en_GB-cori-medium.onnx")),
     "chatterbox": ("tts", "chatterbox", "Chatterbox Multilingual", ()),
     "xtts-v2": ("tts", "xtts", "XTTS v2", ()),
     "cosyvoice-3": ("tts", "cosyvoice", "CosyVoice 3 (0.5B)", ()),
@@ -58,6 +58,7 @@ MODELS = {
     "ernerf-face-parsing": ("avatar", "ernerf", "ER-NeRF face parsing weights", ("79999_iter.pth",)),
     "sherpa-diarization": ("diarization", "sherpa-onnx", "sherpa-onnx diarization", (_SEG, _CAMPP)),
     "silero-vad-v4": ("vad", "silero", "Silero VAD v4", ("silero_vad_v4.onnx",)),
+    "multilingual-e5-small": ("embedding", "e5", "Multilingual E5 small", ("onnx/model.onnx", "onnx/tokenizer.json")),
 }
 
 # Where an engine pack goes when it is not `<service>/<id>` (serve/voice_catalog.py `folder`).
