@@ -123,7 +123,8 @@ class State:
         return {"service": "voice", "state": "standby", "pid": os.getpid(), "started": self.started, "models_dir": root,
                 "offline": os.environ.get("HF_HUB_OFFLINE") == "1", "services": services,
                 "telephony": self.calls.summary() if self.calls is not None else None,
-                "gateway": self.gateway.info() if self.gateway is not None else None}
+                "gateway": self.gateway.info() if self.gateway is not None else None,
+                "avatar_engines": self.settings.avatar.engines.as_dict()}
 
 
 def build_app(settings_path, token: str, default_models_dir: str = "", host: str = "127.0.0.1", port: int = 0, with_gateway: bool = True):

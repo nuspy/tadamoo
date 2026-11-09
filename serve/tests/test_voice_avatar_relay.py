@@ -147,9 +147,9 @@ class AvatarRelay(unittest.TestCase):
     # ---- settings
     def test_the_camera_setting_is_off_by_default_and_is_kept_in_voice_json(self):
         status, _t, data = self.request("GET", "/api/voice/avatar")
-        self.assertEqual((status, json.loads(data)), (200, {"virtual_camera": False, "enhance": voice_settings.enhance()}))
+        self.assertEqual((status, json.loads(data)), (200, {"virtual_camera": False, "enhance": voice_settings.enhance(), **voice_settings.avatar_selection()}))
         status, _t, data = self.request("POST", "/api/voice/avatar", {"virtual_camera": True})
-        self.assertEqual((status, json.loads(data)), (200, {"virtual_camera": True, "enhance": voice_settings.enhance()}))
+        self.assertEqual((status, json.loads(data)), (200, {"virtual_camera": True, "enhance": voice_settings.enhance(), **voice_settings.avatar_selection()}))
         stored = json.loads((Path(self.tmp.name) / "data" / "voice.json").read_text(encoding="utf-8"))
         self.assertEqual(stored["avatar"], {"virtual_camera": True})
         self.request("POST", "/api/voice/avatar", {"virtual_camera": False})

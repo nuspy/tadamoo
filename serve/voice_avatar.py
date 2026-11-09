@@ -1,9 +1,13 @@
 """The Voice tab's avatar requests that the JSON proxy (voice_proxy.py) cannot carry, and the avatar settings.
 
-    GET  /api/voice/avatar                                  {virtual_camera, enhance}: the camera output (off until the person turns it on) and
-                                                            the acceleration of the video (everything off)
-    POST /api/voice/avatar {virtual_camera?, enhance?}      change them (voice.json `avatar`; the service follows by itself); `enhance` takes any of
-                                                            upscale, scale, interpolate, factor, worker_fps_cap, worker_height_cap, rtx_video_path
+    GET  /api/voice/avatar                                  {virtual_camera, enhance, engines, resolution, fps_hint}: the camera output (off until the
+                                                            person turns it on), the acceleration of the video (everything off) and the engine and
+                                                            output height chosen for each target (pc, web, android, esp32)
+    POST /api/voice/avatar {virtual_camera?, enhance?, engines?, resolution?, fps_hint?}   change them (voice.json `avatar`; the service follows by
+                                                            itself); `enhance` takes any of upscale, scale, interpolate, factor, worker_fps_cap,
+                                                            worker_height_cap, rtx_video_path; `engines` and `resolution` are {target: value}
+    GET  /api/voice/avatar/engines                          {avatar, engines: [descriptor + status for the active avatar], selection, resolutions}
+    POST /api/voice/avatar/engines/select {target, engine, resolution?}   choose one target's engine (and height); answers the selection
     POST /api/voice/avatar/wizard/<draft>/<foto|pose|video|voce>   a photo, a video or a voice sample for the creation wizard: the multipart body
                                                             passes through to the service in pieces, without being read here, and only up to
                                                             the size of its step
@@ -38,7 +42,9 @@ CHUNK = 1 << 20
 IMAGE_MAX = 20 << 20
 UPLOAD_WAIT_S = 600.0
 STREAM_WAIT_S = 60.0
-KEYS = ("virtual_camera", "enhance")
+KEYS = ("virtual_camera", "enhance") + voice_settings.AVATAR_ENGINE_KEYS
+ENGINES = "/api/voice/avatar/engines"
+SELECT = ENGINES + "/select"
 
 
 def _refuse(handler, status: int, code: str, message: str) -> None:
@@ -49,7 +55,8 @@ def _refuse(handler, status: int, code: str, message: str) -> None:
 def view() -> dict:
     stored = voice_settings._read().get("avatar")
     stored = stored if isinstance(stored, dict) else {}
-    return {"virtual_camera": stored.get("virtual_camera") is True, "enhance": voice_settings.enhance(stored.get("enhance"))}
+    return {"virtual_camera": stored.get("virtual_camera") is True, "enhance": voice_settings.enhance(stored.get("enhance")),
+            **voice_settings.avatar_selection(stored)}
 
 
 def update(req) -> dict:
@@ -65,10 +72,31 @@ def update(req) -> dict:
         stored = data.get("avatar") if isinstance(data.get("avatar"), dict) else {}
         if "enhance" in req:
             req = {**req, "enhance": voice_settings.merge_enhance(stored.get("enhance"), req["enhance"])}      # checked as a whole before anything is written
+        if set(req) & set(voice_settings.AVATAR_ENGINE_KEYS):
+            req = {**{k: v for k, v in req.items() if k not in voice_settings.AVATAR_ENGINE_KEYS},
+                   **voice_settings.merge_avatar_selection(stored, {k: v for k, v in req.items() if k in voice_settings.AVATAR_ENGINE_KEYS})}
         stored.update(req)
         data["avatar"] = stored
         voice_settings._write(data)
     return view()
+
+
+# ---------------------------------------------------------------------------------------- the engines
+def resolutions_of(selection: dict) -> dict:
+    """{target: the heights the engine chosen for it offers}."""
+    return {t: list(voice_settings.AVATAR_ENGINES[e][1]) for t, e in selection["engines"].items()}
+
+
+def engines_view() -> tuple[int, dict]:
+    """The service describes the engines for the active avatar; the choice is read here from voice.json, which this server owns."""
+    try:
+        status, data = voice_service.call("GET", "/avatar/engines", None, timeout=voice_service.TIMEOUT)
+    except voice_service.ServiceDown as e:
+        return 503, {"error": {"type": "voice_avatar", "code": "voice_service_down", "message": str(e)}}
+    if status != 200 or not isinstance(data, dict):
+        return status, data if isinstance(data, dict) else {}
+    selection = voice_settings.avatar_selection(voice_settings._read().get("avatar"))
+    return 200, {"avatar": data.get("avatar", ""), "engines": data.get("engines", []), "selection": selection, "resolutions": resolutions_of(selection)}
 
 
 # ---------------------------------------------------------------------------------------- relays
@@ -239,6 +267,8 @@ def get(handler, path: str) -> None:
         return
     if path == BASE:
         return handler._json(200, view())
+    if path == ENGINES:
+        return handler._json(*engines_view())
     if path == PREVIEW:
         return preview(handler)
     m = POSTER.fullmatch(path)
@@ -250,6 +280,11 @@ def get(handler, path: str) -> None:
     _refuse(handler, 404, "not_found", "not found")
 
 
+def _selected(req) -> dict:
+    selection = voice_settings.select_avatar_engine(req)
+    return {"selection": selection, "resolutions": resolutions_of(selection)}
+
+
 def post(handler, path: str) -> None:
     if not _local(handler):
         handler._discard_body()
@@ -257,7 +292,7 @@ def post(handler, path: str) -> None:
     m = UPLOAD.fullmatch(path)
     if m:
         return upload(handler, m.group(2), m.group(1))
-    if path != BASE:
+    if path not in (BASE, SELECT):
         handler._discard_body()
         return _refuse(handler, 404, "not_found", "not found")
     try:
@@ -268,7 +303,7 @@ def post(handler, path: str) -> None:
                 raise
             return handler._json(e.status, {"error": {"message": str(e)}})
         req = json.loads(raw or b"{}")
-        handler._json(200, update(req))
+        handler._json(200, update(req) if path == BASE else _selected(req))
     except voice_settings.VoiceSettingsError as e:
         handler._json(400, {"error": e.body()})
     except ValueError:

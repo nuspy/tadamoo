@@ -33,7 +33,8 @@ class Base(unittest.TestCase):
 class Defaults(Base):
     def test_everything_is_off_when_nothing_was_chosen(self):
         self.assertEqual(voice_avatar.view(), {"virtual_camera": False, "enhance": {"upscale": "none", "scale": 2.0, "interpolate": "none", "factor": 2,
-                                                                                    "worker_fps_cap": 0, "worker_height_cap": 0, "rtx_video_path": ""}})
+                                                                                    "worker_fps_cap": 0, "worker_height_cap": 0, "rtx_video_path": ""},
+                                               **vs.avatar_selection()})
         self.assertFalse((self.root / "data" / "voice.json").exists())
 
     def test_a_damaged_object_in_the_file_reads_as_the_defaults(self):
