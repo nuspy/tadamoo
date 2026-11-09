@@ -26,6 +26,7 @@ and the personality's avatar folder has their files.
 | The service object, the personality link | `voice/avatar_service.py`, `voice/persona_link.py` |
 | The creation wizard | `voice/avatar_wizard.py` |
 | The engines (descriptors, choice per target), `engines.md` | `voice/avatar_engines/` |
+| Training a personalised engine (plan, confirm, progress, cancel, Set up), `engines-personalised.md` | `voice/avatar_training.py`, `serve/web/voicetrain.js` |
 | Mouth sprites from a photo, the phone's files and manifest | `voice/callbridge/avatar_visemes.py`, `avatar_assets.py`, `avatar_prep.py` |
 | Routes | `voice/avatar_routes.py` |
 | Server side | `serve/voice_avatar.py` (files, stream, camera setting), `serve/voice_proxy.py` (JSON routes) |

@@ -108,12 +108,12 @@
   function mount(node, context) {
     ctx = context; card = node; list = null; Object.keys(sigs).forEach(k => delete sigs[k]);
     for (const k of Object.keys(parts)) delete parts[k];
-    for (const id of ["status", "engine", "stage", "say", "list", "wizard"]) { parts[id] = el("div", "va-part"); parts[id].id = "va-" + id; card.append(parts[id]); }
+    for (const id of ["status", "engine", "stage", "say", "list", "train", "wizard"]) { parts[id] = el("div", "va-part"); parts[id].id = "va-" + id; card.append(parts[id]); }
     sayText = sayText || T("va.sample");
     paintAll();
     refreshList();
   }
-  function paintAll() { Object.keys(sigs).forEach(k => delete sigs[k]); paintStatus(); paintEngine(); paintStage(); paintSay(); paintList(); paintWizard(); }
+  function paintAll() { Object.keys(sigs).forEach(k => delete sigs[k]); paintStatus(); paintEngine(); paintStage(); paintSay(); paintList(); paintTrain(); paintWizard(); }
 
   async function update() {
     if (!card || busy) return;
@@ -125,7 +125,7 @@
     const was = S;
     S = r.ok ? r.data : null;
     if (was && was.prepare && was.prepare.state === "running" && S && S.prepare && S.prepare.state !== "running") { rowMsg[S.prepare.avatar] = prepMessage(S.prepare); refreshList(); }
-    paintStatus(); paintEngine(); paintStage(); paintSay();
+    paintStatus(); paintEngine(); paintStage(); paintSay(); paintTrain();
     if (listSig !== sigOf([S && S.prepare, ctx.personas().length, S && S.persona])) paintList();
     const acts = document.getElementById("va-result-acts");
     if (wiz && wiz.result && acts && changed("result", [S && S.persona, S && S.preparing, S && S.prepare, S && S.loaded, rowMsg])) fillResultActions(acts, wiz.result);
@@ -157,6 +157,10 @@
     if (!changed("engine", text)) return;
     clear(parts.engine);
     if (text) parts.engine.append(Object.assign(el("p", "vt-help", text), { id: "va-engine-line" }));
+  }
+
+  function paintTrain() {                                     // the training of a personalised model (serve/web/voicetrain.js)
+    if (window.VoiceTrain) window.VoiceTrain.paint(parts.train, ctx);
   }
 
   function paintStage() {
