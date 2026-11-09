@@ -12,29 +12,49 @@ import os
 import shutil
 import tempfile
 import threading
+import time
 import wave
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
 from callbridge import turn_engine
+from callbridge.avatar_store import AvatarStore
 from callbridge.call_policy import AuditError
 from callbridge.calendar_oauth import GoogleCalendar, MicrosoftCalendar, Vault, default_vault
 from callbridge.copilot import CopilotController
 from callbridge.meetbot import consent
-from callbridge.meetbot.adapters import adapter_for
+from callbridge.meetbot.adapters import adapter_for, platform_names
 from callbridge.meetbot.audio import DeviceSink, find_virtual_mic, make_source, output_device_names
 from callbridge.meetbot.audit import MeetingAudit
 from callbridge.meetbot.bot import ACTIVE, Deps, MeetingSession, Plan
 from callbridge.meetbot.browser import PlaywrightBrowser
 from callbridge.meetbot.errors import Refused
-from callbridge.meetbot.calendar_watch import AutojoinStore, CalendarWatcher
+from callbridge.meetbot.calendar_watch import CalendarWatcher
+from callbridge.meetbot.plan_store import FILE as PLAN_FILE, PlanStore
+from callbridge.meetbot.planner import Planner
 from callbridge.meetbot.speak import Floor, MeetingVoice
 from callbridge.meetbot.summary import analyze_meeting
+from callbridge.tadamoo_api import ApiError, TadamooApi
 from callbridge.util import is_safe_artifact_id
+from voice import persona_link
 
 log = logging.getLogger("voice.meetings")
 URL_MAX = 2000
+
+
+@dataclass
+class PersonaInfo:
+    """What a meeting takes from a personality: its avatar, its voice and its own text."""
+    slug: str
+    found: bool = False
+    avatar: str = ""
+    engine: str = ""
+    voice: str = ""
+    language: str = ""
+    block: str = ""
+    problem: str = ""
 
 
 def _int(value) -> int | None:
@@ -42,14 +62,17 @@ def _int(value) -> int | None:
 
 
 class MeetingsService:
-    def __init__(self, state, vault: Vault | None = None, deps_hook=None) -> None:
+    def __init__(self, state, vault: Vault | None = None, deps_hook=None, persona_hook=None, clock=None) -> None:
         self.state = state
         self.vault = vault if vault is not None else default_vault()
         self._deps_hook = deps_hook                 # tests replace pieces of the dependencies
+        self._persona_hook = persona_hook           # tests: (slug) -> PersonaInfo
+        self._clock = clock                         # tests: the planner's clock
         self._lock = threading.Lock()
         self.session: MeetingSession | None = None
         self._analyzing: set[str] = set()
         self._watcher: CalendarWatcher | None = None
+        self._planner: Planner | None = None
         self._providers = [GoogleCalendar(self.vault), MicrosoftCalendar(self.vault)]
         self.copilot = CopilotController(state.config, state.brains, self._desktop, self._stt, self._source, self._copilot_voice)
 
@@ -84,8 +107,8 @@ class MeetingsService:
     def _tts(self):
         return self._host().tts_client()
 
-    def _configure_tts(self, tts, lang: str) -> None:
-        turn_engine.configure_tts(tts, self.cfg, self.cfg.default_voice, lang)
+    def _configure_tts(self, tts, lang: str, voice: str = "", engine: str = "") -> None:
+        turn_engine.configure_tts(tts, self.cfg, voice or self.cfg.default_voice, lang, engine=engine)
 
     def _lips(self, samples, rate: int) -> None:
         """Move the avatar's lips with the sentence the bot is about to speak (no sound from the avatar: the voice goes to the meeting)."""
@@ -106,12 +129,13 @@ class MeetingsService:
         return MeetingVoice(enabled=True, mic_name=mic, tts_factory=self._tts if self._loaded("tts") else None, sink_factory=DeviceSink, floor=Floor(),
                             lang=c.copilot_lang, configure=self._configure_tts)
 
-    def deps(self) -> Deps:
+    def deps(self, plan: Plan | None = None) -> Deps:
         c = self.cfg
+        voice, engine = (plan.voice_name, plan.voice_engine) if plan is not None else ("", "")
         deps = Deps(audit=MeetingAudit(c.meetings_audit_file or None), root=self.root(), brains=self.state.brains, browser_factory=PlaywrightBrowser,
                     stt_factory=self._stt, source_factory=self._source, mic_names=output_device_names, sink_factory=DeviceSink,
-                    tts_factory=self._tts if self._loaded("tts") else None, configure_tts=self._configure_tts, lips=self._lips,
-                    on_finished=self._finished)
+                    tts_factory=self._tts if self._loaded("tts") else None, lips=self._lips, on_finished=self._finished,
+                    configure_tts=lambda tts, lang: self._configure_tts(tts, lang, voice, engine))
         return self._deps_hook(deps) if self._deps_hook else deps
 
     # ---- the bot
@@ -120,16 +144,17 @@ class MeetingsService:
         return {"speak": c.meetings_speak, "proactive": c.meetings_proactive, "consent_mode": c.meetings_consent_mode, "consent_window_s": c.meetings_consent_window_s,
                 "display_name": c.meetings_display_name, "on_behalf_of": c.meetings_on_behalf_of}
 
-    def plan_from(self, body: dict, calendar: bool = False) -> Plan:
-        """The plan of a join from a request, or Refused. Nothing is started here. `calendar`: the person asked for this event in the calendar
-        (set by the watcher only, never by a request)."""
+    def plan_from(self, body: dict, rights: str = "ticked", item: dict | None = None) -> Plan:
+        """The plan of a join from a request, or Refused. Nothing is started here. `rights` is set by the code that calls, never by a request:
+        "ticked" needs `rights_confirmed` in the body; "planned" is the person's own plan (a meeting they planned and ticked Participate for), and
+        `item` is that plan's item, which brings the personality, the camera and the role."""
         if not isinstance(body, dict):
             raise Refused(400, "bad_request", "Send a JSON object.")
         c = self.cfg
         url = body.get("url")
         if not isinstance(url, str) or not url.startswith(("http://", "https://")) or len(url) > URL_MAX or adapter_for(url) is None:
-            raise Refused(400, "unsupported_platform", "Give the address of a Google Meet, Microsoft Teams or Zoom meeting.")
-        if body.get("rights_confirmed") is not True and not calendar:
+            raise Refused(400, "unsupported_platform", "Give the address of a meeting on a platform with an adapter (" + ", ".join(platform_names()) + ").")
+        if body.get("rights_confirmed") is not True and rights == "ticked":
             raise Refused(400, "rights_required", "Confirm that you have the right to bring an assistant to this meeting (rights_confirmed: true).")
         who = body.get("on_behalf_of", c.meetings_on_behalf_of)
         if not isinstance(who, str) or not who.strip() or len(who.strip()) > 80 or any(ord(ch) < 32 for ch in who):
@@ -141,29 +166,83 @@ class MeetingsService:
         if _int(window) is None or not consent.WINDOW_MIN_S <= window <= consent.WINDOW_MAX_S:
             raise Refused(400, "bad_request", f"consent_window_s is a whole number from {consent.WINDOW_MIN_S} to {consent.WINDOW_MAX_S}.")
         flags = {k: body.get(k, getattr(c, f"meetings_{k}")) for k in ("speak", "proactive")}
-        flags["camera"] = c.meetings_camera
+        flags["camera"] = bool(item.get("camera")) if item is not None else c.meetings_camera
         if not all(isinstance(v, bool) for v in flags.values()):
             raise Refused(400, "bad_request", "speak and proactive are true or false.")
         title = body.get("title") if isinstance(body.get("title"), str) else ""
-        return Plan(url=url, on_behalf_of=who.strip(), title=title.strip()[:120], display_name=c.meetings_display_name,
-                    rights="calendar" if calendar else "ticked", speak=flags["speak"], camera=flags["camera"], proactive=flags["proactive"],
+        plan = Plan(url=url, on_behalf_of=who.strip(), title=title.strip()[:120], display_name=c.meetings_display_name,
+                    rights=rights, speak=flags["speak"], camera=flags["camera"], proactive=flags["proactive"],
                     consent_mode=mode, consent_window_s=window, lang=c.default_lang or "en", wake_phrase=c.meetings_wake_phrase,
-                    virtual_mic=c.meetings_virtual_mic, host=body.get("host", "") if calendar and isinstance(body.get("host"), str) else "")
+                    virtual_mic=c.meetings_virtual_mic, host=body.get("host", "") if item is not None and isinstance(body.get("host"), str) else "")
+        if item is not None:
+            plan.minutes = item.get("role") != "listen"
+            self._apply_persona(plan, item)
+        return plan
 
-    def join(self, body: dict, calendar: bool = False) -> dict:
-        plan = self.plan_from(body, calendar)
+    # ---- the personality of a planned meeting
+    def _persona_info(self, slug: str) -> PersonaInfo:
+        if self._persona_hook is not None:
+            return self._persona_hook(slug)
+        c = self.cfg
+        api = TadamooApi(c.tadamoo_base_url, c.tadamoo_token, timeout=5)
+        store = AvatarStore(c.avatars_dir or "")
+        link = persona_link.resolve(slug, api, store)
+        info = PersonaInfo(slug, bool(link.name), link.avatar, link.voice.get("engine", ""), link.voice.get("voice", ""), link.language, "", link.problem)
+        if info.found:
+            if not info.engine and info.avatar:
+                made = store.voice_of(info.avatar)
+                info.engine, info.voice = made.get("engine", ""), made.get("voice", "")
+            try:
+                info.block = str(api.post(f"/api/personas/{slug}/compose", {"goal": ""}).get("system") or "")      # the personality's text only, not its notes about the person
+            except ApiError as e:
+                info.problem = info.problem or f"the personality's text could not be read: {e}"
+        return info
+
+    def _apply_persona(self, plan: Plan, item: dict) -> None:
+        """Put the personality of the item on the plan: its text, its voice, its language, and its avatar as the camera. A camera that cannot show
+        the personality's avatar stays off and the plan says why."""
+        slug = item.get("persona") or ""
+        info = self._persona_info(slug) if slug else None
+        if info is not None and info.found:
+            plan.persona, plan.persona_block, plan.voice_engine, plan.voice_name = slug, info.block, info.engine, info.voice
+            plan.lang = info.language or plan.lang
+        elif info is not None:
+            log.warning("the personality of a planned meeting is not available: %s", info.problem)
+        if not plan.camera:
+            return
+        avatar = self.state.avatar
+        if info is None:
+            plan.camera_blocked = "no_persona"
+        elif not info.found:
+            plan.camera_blocked = "persona_missing"
+        elif not info.avatar:
+            plan.camera_blocked = "no_avatar"
+        elif not self.cfg.avatar_virtual_camera:
+            plan.camera_blocked = "virtual_camera_off"
+        elif avatar is None or not avatar.loaded():
+            plan.camera_blocked = "avatar_not_loaded"
+        else:
+            client = avatar.client()
+            if client._active_persona != info.avatar:
+                client.start_async(info.avatar)                 # the personality's avatar, not the one that happened to be loaded
+        if plan.camera_blocked:
+            plan.camera = False
+
+    def join(self, body: dict, rights: str = "ticked", item: dict | None = None) -> dict:
+        plan = self.plan_from(body, rights, item)
         if not self._loaded("stt"):
             raise Refused(409, "not_loaded", "The speech to text must be loaded first (Models > Voice services): the bot listens with the service's own STT.", missing=["stt"])
         with self._lock:
             if self.session is not None and self.session.state in ACTIVE:
                 raise Refused(409, "busy", "A meeting is in progress: one at a time.")
-            session = MeetingSession(plan, self.deps())
+            session = MeetingSession(plan, self.deps(plan))
             try:
                 session.start()
             except AuditError as e:
                 raise Refused(500, "audit_failed", f"The audit file cannot be written, so the bot does not join: {e}") from None
             self.session = session
-        return {"session_id": session.session_id, "state": session.state, "speak_blocked": session.speak_blocked}
+        return {"session_id": session.session_id, "state": session.state, "speak_blocked": session.speak_blocked,
+                **({"camera_blocked": plan.camera_blocked} if plan.camera_blocked else {})}
 
     def leave(self) -> dict:
         session = self.session
@@ -253,7 +332,7 @@ class MeetingsService:
     # ---- calendars
     def calendar_status(self) -> dict:
         c = self.cfg
-        out = {"autojoin": bool(c.meetings_calendar_autojoin)}
+        out = {"autojoin": bool(c.meetings_autojoin)}
         for p in self._providers:
             out[p.name] = {"configured": p.configured(), "connected": p.connected() if p.configured() else False, "flow_error": p.flow_error,
                            "hint": "" if p.configured() else p.NOT_CONFIGURED}
@@ -271,17 +350,74 @@ class MeetingsService:
     def calendar_disconnect(self, name: str) -> None:
         self._provider(name).disconnect()
 
+    def calendar_events(self, days: int) -> list[dict]:
+        events = self.watcher().fetch_events(days=days)
+        planner = self.planner()
+        return [{**e, "participate": planner.participating(e["id"])} for e in events]
+
+    def calendar_participate(self, event_id: str, enabled: bool) -> dict:
+        self.planner().set_participate(event_id, enabled)
+        return {"id": event_id, "participate": enabled}
+
+    # ---- the plan: the meetings the person planned and the calendar's, and the loop that joins them
     def watcher(self) -> CalendarWatcher:
         if self._watcher is None:
-            self._watcher = CalendarWatcher(self._providers, AutojoinStore(self.root() / "autojoin.json"), self._calendar_join, float(self.cfg.calendar_poll_s))
-            if self.cfg.meetings_calendar_autojoin:
-                self._watcher.start()
+            self._watcher = CalendarWatcher(self._providers, lambda now: self.planner().tick(now), lambda: bool(self.cfg.meetings_autojoin),
+                                            float(self.cfg.calendar_poll_s), clock=self._clock or time.time)
         return self._watcher
 
-    def _calendar_join(self, url: str, title: str, organizer: str) -> bool:
-        try:
-            self.join({"url": url, "title": title, "host": organizer}, calendar=True)
-        except Refused as e:
-            log.warning("auto-join refused: %s", e.message)
-            return False
-        return True
+    def planner(self) -> Planner:
+        if self._planner is None:
+            kw = {"clock": self._clock} if self._clock else {}
+            self._planner = Planner(PlanStore(self.root() / PLAN_FILE, **kw), lambda: self.watcher().cached_events(), self._planned_join,
+                                    lambda: bool(self.cfg.meetings_autojoin), self._active_id, **kw)
+        return self._planner
+
+    def start(self) -> None:
+        """Start the loop that joins planned meetings. It does nothing while the person's master switch (meetings.autojoin) is off."""
+        self.watcher().start()
+
+    def stop(self) -> None:
+        if self._watcher is not None:
+            self._watcher.stop()
+
+    def _active_id(self) -> str:
+        session = self.session
+        return session.session_id if session is not None and session.state in ACTIVE else ""
+
+    @staticmethod
+    def _item_body(item: dict) -> dict:
+        body = {"url": item["url"], "title": item.get("title") or "", "speak": bool(item.get("speak")), "host": item.get("organizer") or ""}
+        if item.get("consent_mode"):
+            body["consent_mode"] = item["consent_mode"]
+        return body
+
+    def _planned_join(self, item: dict) -> dict:
+        """The loop's join of a meeting the person planned and ticked. The consent rule is the bot's and is not skipped."""
+        return self.join(self._item_body(item), rights="planned", item=item)
+
+    def plan_list(self) -> dict:
+        planner = self.planner()
+        return {"items": planner.view(), "platforms": platform_names(), "autojoin": bool(self.cfg.meetings_autojoin), "lead_s": planner.lead_s}
+
+    def plan_add(self, body: dict) -> dict:
+        return {"item": self.planner().add(body)}
+
+    def plan_update(self, item_id: str, body: dict) -> dict:
+        return {"item": self.planner().update(item_id, body)}
+
+    def plan_delete(self, item_id: str) -> dict:
+        self.planner().delete(item_id)
+        return {"status": "ok"}
+
+    def plan_join_now(self, item_id: str, body: dict) -> dict:
+        """A join of a planned meeting that the person asks for now: the same checks as a join from the page, with the box confirmed."""
+        item = self.planner().get(item_id)
+        if item is None:
+            raise Refused(404, "not_found", "No such meeting in the plan.")
+        body = body if isinstance(body, dict) else {}
+        if set(body) - {"rights_confirmed"}:
+            raise Refused(400, "bad_request", "Send rights_confirmed: true.")
+        out = self.join({**self._item_body(item), "rights_confirmed": body.get("rights_confirmed")}, rights="ticked", item=item)
+        self.planner().mark_joined(item_id, out["session_id"], out.get("camera_blocked", ""))
+        return out

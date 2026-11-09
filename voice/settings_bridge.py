@@ -8,7 +8,7 @@ The file is the one serve/voice_settings.py writes:
      "telephony": {"transport": "off|auto|gsm|android", "outgoing_approval": "manual|auto", "ai_disclosure_on_start": true|false,
                    "incoming_auto_answer": true|false, "on_behalf_of": "<name>"},
      "meetings": {"speak": true|false, "camera": true|false, "proactive": true|false, "consent_mode": "window|explicit", "consent_window_s": 20..300, "on_behalf_of": "<name>",
-                  "display_name": "<name>", "virtual_mic": "<part of a device name>", "wake_phrase": "<phrase>", "calendar_autojoin": true|false,
+                  "display_name": "<name>", "virtual_mic": "<part of a device name>", "wake_phrase": "<phrase>", "autojoin": true|false, "allow_programs_join": true|false,
                   "copilot_replies": 1..6, "copilot_audio_reply": true|false, "copilot_hide_from_capture": true|false},
      "avatar": {"virtual_camera": true|false, "enhance": {"upscale": "none|basic|rtx_video", "scale": 2, "interpolate": "none|basic", "factor": 2,
                 "worker_fps_cap": 0, "worker_height_cap": 0, "rtx_video_path": "<DLL>"}},
@@ -98,7 +98,7 @@ class Meetings:
     display_name: str = "TaDaMoo AI assistant"
     virtual_mic: str = ""
     wake_phrase: str = ""
-    calendar_autojoin: bool = False
+    autojoin: bool = False
     copilot_replies: int = 3
     copilot_audio_reply: bool = False
     copilot_hide_from_capture: bool = True
@@ -182,7 +182,7 @@ def _meetings(stored) -> Meetings:
     return Meetings(stored.get("speak") is True, stored.get("camera") is True, stored.get("proactive") is True,
                     stored.get("consent_mode") if stored.get("consent_mode") in consent.MODES else "window", consent.window_of(stored.get("consent_window_s")),
                     _text(stored.get("on_behalf_of"), 80), _text(stored.get("display_name"), 40, Meetings.display_name) or Meetings.display_name,
-                    _text(stored.get("virtual_mic"), 80), _text(stored.get("wake_phrase"), 40), stored.get("calendar_autojoin") is True,
+                    _text(stored.get("virtual_mic"), 80), _text(stored.get("wake_phrase"), 40), stored.get("autojoin") is True,
                     replies if isinstance(replies, int) and not isinstance(replies, bool) and 1 <= replies <= 6 else 3,
                     stored.get("copilot_audio_reply") is True, stored.get("copilot_hide_from_capture") is not False)
 
@@ -263,7 +263,7 @@ def overrides(settings: Settings) -> dict:
     m = settings.meetings
     out.update(meetings_speak=m.speak, meetings_camera=m.camera, meetings_proactive=m.proactive, meetings_consent_mode=m.consent_mode, meetings_consent_window_s=m.consent_window_s,
                meetings_on_behalf_of=m.on_behalf_of, meetings_display_name=m.display_name, meetings_virtual_mic=m.virtual_mic, meetings_wake_phrase=m.wake_phrase,
-               meetings_calendar_autojoin=m.calendar_autojoin, meetings_audit_file=settings.meetings_audit_file, copilot_num_responses=m.copilot_replies,
+               meetings_autojoin=m.autojoin, meetings_audit_file=settings.meetings_audit_file, copilot_num_responses=m.copilot_replies,
                copilot_audio_reply=m.copilot_audio_reply, copilot_hide_from_capture=m.copilot_hide_from_capture)
     return out
 

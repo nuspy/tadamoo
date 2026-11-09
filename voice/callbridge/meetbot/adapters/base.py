@@ -30,6 +30,11 @@ class ChatMessage:
 
 
 class MeetingAdapter:
+    """The interface of a platform. A new platform is a subclass registered in `adapters/__init__.py` (`register`).
+
+    Required: `platform` (a unique short name), `matches(url)` (a static method: whether the address is this platform's), `join`, `in_call` and
+    `leave`. The rest has a safe default: the selectors for the microphone, the camera and the chat (an empty selector turns that feature off),
+    `speakers`, `exit_reason` and the texts that tell a removal from an end. The planner and the page list the names of the registered adapters."""
     platform = "generic"
     # Texts the page shows when the bot was taken out or the meeting is over (lowercase, any language the adapter knows).
     REMOVED_TEXTS: tuple[str, ...] = ()

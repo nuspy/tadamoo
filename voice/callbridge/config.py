@@ -277,7 +277,7 @@ class Config:
     meetings_on_behalf_of: str = ""         # whom the bot says it is there for
     meetings_virtual_mic: str = ""          # part of the name of the output device it speaks into; "" finds a virtual cable by name
     meetings_wake_phrase: str = ""          # a phrase besides its name that counts as being addressed
-    meetings_calendar_autojoin: bool = False
+    meetings_autojoin: bool = False         # the master switch: planned and calendar meetings with Participate ticked are joined by themselves
     meetings_dir: str = "meetings"          # set by the service to <user data>/voice/meetings
     meetings_audit_file: str = ""           # meetings-audit.jsonl next to voice.json
     calendar_poll_s: int = 300

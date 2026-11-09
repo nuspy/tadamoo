@@ -218,12 +218,14 @@ def serve(args) -> int:
     log.info("standby on %s:%d (models folder %s)", host, port, state.settings.models_dir)
     threading.Thread(target=state.functions.autostart, name="voice-autostart", daemon=True).start()
     threading.Thread(target=state.calls.sync, name="voice-telephony", daemon=True).start()
+    state.meetings.start()
     try:
         while not stop.wait(0.5):
             pass
     finally:
         if state.gateway is not None:
             state.gateway.stop()
+        state.meetings.stop()
         if app.config.get("CB_AVATAR") is not None:
             app.config["CB_AVATAR"].stop()              # the worker is a child of this process: it ends with it
         server.shutdown()

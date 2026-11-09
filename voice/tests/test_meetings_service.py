@@ -10,7 +10,6 @@ import urllib.request
 import pytest
 
 from callbridge import models_store as ms
-from callbridge.meetbot.calendar_watch import AutojoinStore, CalendarWatcher
 from callbridge.calendar_oauth import GoogleCalendar, MicrosoftCalendar, Vault, extract_meeting_url
 from voice import service
 from test_meet_adapters import El, Page
@@ -273,36 +272,6 @@ def test_tokens_and_values_live_in_the_credential_store_only(tmp_path):
     assert not m.configured() and m.start_connect()["error"].startswith("put client_id")
     assert list(tmp_path.iterdir()) == []                                           # no token file anywhere
     assert Vault(None).get("google") == {}
-
-
-def test_the_watcher_joins_marked_events_once_and_skips_unconfigured_providers(tmp_path):
-    class Provider:
-        def __init__(self, configured, events):
-            self._c, self._e, self.calls = configured, events, 0
-
-        def configured(self):
-            return self._c
-
-        def events(self, days=7):
-            self.calls += 1
-            return [dict(e) for e in self._e]
-
-    now = 1_800_000_000.0
-    iso = lambda t: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
-    events = [{"id": "g:1", "title": "A", "start": iso(now + 30), "meeting_url": "https://meet.google.com/aaa-bbbb-ccc", "organizer": "x@y"},
-              {"id": "g:2", "title": "B", "start": iso(now + 30), "meeting_url": "https://meet.google.com/ddd-eeee-fff"},
-              {"id": "g:3", "title": "C", "start": iso(now + 7200), "meeting_url": "https://meet.google.com/ggg-hhhh-iii"}]
-    live, dead = Provider(True, events), Provider(False, [{"id": "m:9", "start": iso(now), "meeting_url": "https://meet.google.com/zzz"}])
-    store = AutojoinStore(tmp_path / "autojoin.json")
-    for ev in ("g:1", "g:3", "m:9"):
-        store.set(ev, True)
-    joined, answer = [], [False]
-    w = CalendarWatcher([live, dead], store, lambda url, title, org: joined.append((url, title, org)) or answer[0], 300, clock=lambda: now)
-    assert w.tick() == [] and joined == [("https://meet.google.com/aaa-bbbb-ccc", "A", "x@y")]       # refused: tried again on the next poll
-    answer[0] = True
-    assert w.tick() == ["g:1"] and len(joined) == 2
-    assert w.tick() == [] and len(joined) == 2                                                    # only once
-    assert dead.calls == 0 and AutojoinStore(tmp_path / "autojoin.json").get("g:1") is True
 
 
 def test_the_meeting_link_is_found_in_an_event():
