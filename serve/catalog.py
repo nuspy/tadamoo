@@ -288,7 +288,7 @@ _add(id="ista-iq2_xs", name="Qwen3.8-Flash-Next · IQ2_XS", quant="IQ2_XS", conv
            "it": "Il modello base a circa 2,5 bit per peso (GSQ-RCO di ISTA-DASLab). Per questa taglia non c'è un "
                  "file Basalt-Plus pronto: si scarica come GGUF e si converte qui. Gli autori riportano 89,16 sui loro "
                  "compiti di ragionamento contro 93,12 a piena precisione; Basalt-Plus non ha una misura propria."}, **_IS)
-_add(id="ista-iq3_s", name="Qwen3.8-Flash-Next · IQ3_S (GGUF)", quant="IQ3_S", convert="untested",
+_add(id="ista-iq3_s", name="Qwen3.8-Flash-Next · IQ3_S (GGUF)", quant="IQ3_S", convert="ok",
      files=_shards("IQ3_S/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S", 2) + ["mmproj-Qwen3.8-Flash-Next-BF16.gguf"],
      approx_bytes=84_525_205_664,
      fidelity=_authors("On its reasoning tasks it averages 93.26 against 93.12 for the full-precision model.",
@@ -296,7 +296,7 @@ _add(id="ista-iq3_s", name="Qwen3.8-Flash-Next · IQ3_S (GGUF)", quant="IQ3_S", 
                        "precisione.", "93.26 vs 93.12 full precision (authors)", "93,26 vs 93,12 a piena precisione "
                        "(autori)"),
      match={"all": ["gsq-rco-iq3_s"], "none": ["abliterated", "swift", "uncensored"]},
-     notes=[UNTESTED_NOTE],
+     notes=[],
      short={"en": "3.5 bits per weight, the authors' recommended size. The GGUF set is converted here; there is also a "
                   "ready file with a tuned drafter.",
             "it": "3,5 bit per peso, la taglia consigliata dagli autori. Il set GGUF si converte qui; esiste anche "
