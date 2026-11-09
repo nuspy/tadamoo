@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'avatar_fakes.dart';
+import 'secret_fakes.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -127,7 +128,7 @@ void main() {
 
     Future<void> make([Map<String, Object> prefs = const {}]) async {
       SharedPreferences.setMockInitialValues(prefs);
-      settings = await AppSettings.load();
+      settings = await AppSettings.load(secrets: FakeSecretStore());
       router = FakeRouter();
       c = AudioRouteController(router: router, settings: settings);
     }

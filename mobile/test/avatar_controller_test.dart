@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'avatar_fakes.dart';
+import 'secret_fakes.dart';
 
 void main() {
   late AppSettings settings;
@@ -17,7 +18,7 @@ void main() {
   Future<void> make({Map<String, Object> prefs = const {}, bool video = true, Duration videoWait = const Duration(seconds: 40)}) async {
     Texts.use('en');
     SharedPreferences.setMockInitialValues({'flutter.address': '100.64.1.2:7232', 'flutter.key': 'bsk_phone', ...prefs});
-    settings = await AppSettings.load();
+    settings = await AppSettings.load(secrets: FakeSecretStore());
     api = FakeGatewayApi(settings);
     devices = FakeDevices(video: video);
     connector = FakeConnector();

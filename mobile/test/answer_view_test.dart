@@ -6,10 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'secret_fakes.dart';
+
 void main() {
   testWidgets('a link to a file is a button that names the file, a diagram keeps its source, other links stay as they are', (tester) async {
     SharedPreferences.setMockInitialValues({'flutter.address': '100.64.0.1:7232', 'flutter.key': 'bsk_x', 'flutter.language': 'en'});
-    final settings = await AppSettings.load();
+    final settings = await AppSettings.load(secrets: FakeSecretStore());
     Texts.use('en');
     final taps = <List<String>>[];
     await tester.pumpWidget(MaterialApp(

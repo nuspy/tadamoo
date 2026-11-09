@@ -11,6 +11,7 @@ import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'render_fakes.dart';
+import 'secret_fakes.dart';
 
 void main() {
   late Directory dir;
@@ -188,7 +189,7 @@ void main() {
 
     setUp(() async {
       SharedPreferences.setMockInitialValues({'flutter.address': '100.64.1.2:7232', 'flutter.key': 'bsk_phone'});
-      api = Api(await AppSettings.load());
+      api = Api(await AppSettings.load(secrets: FakeSecretStore()));
     });
 
     test('small files carry the phone\'s key; a 404 is "missing"', () async {

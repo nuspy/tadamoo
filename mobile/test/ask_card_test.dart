@@ -9,6 +9,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'secret_fakes.dart';
+
 List<Map<String, dynamic>> card() => [
       {
         'id': 'q1', 'text': 'Which database?', 'kind': 'single', 'required': true, 'allow_other': true,
@@ -145,7 +147,7 @@ void main() {
 
   test('the controller reads the card, the chips and the harness note from the events', () async {
     SharedPreferences.setMockInitialValues({});
-    final settings = await AppSettings.load();
+    final settings = await AppSettings.load(secrets: FakeSecretStore());
     final ctl = ChatController(Api(settings), settings);
     ctl.applyEvents([
       {'event': 'ask', 'id': 'k1', 'mode': 'question', 'kind': 'questions', 'question': 'Which database?', 'intro': 'Why', 'questions': card(), 'turn': 't1'},

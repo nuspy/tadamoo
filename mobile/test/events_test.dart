@@ -7,9 +7,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'secret_fakes.dart';
+
 Future<ChatController> controller() async {
   SharedPreferences.setMockInitialValues({});
-  final settings = await AppSettings.load();
+  final settings = await AppSettings.load(secrets: FakeSecretStore());
   return ChatController(Api(settings), settings);
 }
 

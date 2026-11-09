@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'avatar_fakes.dart';
+import 'secret_fakes.dart';
 
 void main() {
   late AppSettings settings;
@@ -28,7 +29,7 @@ void main() {
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
     SharedPreferences.setMockInitialValues(prefs);
-    settings = await AppSettings.load();
+    settings = await AppSettings.load(secrets: FakeSecretStore());
     router = FakeRouter();
     route = AudioRouteController(router: router, settings: settings);
     addTearDown(route.dispose);
@@ -88,27 +89,29 @@ void main() {
     expect(settings.avatarEnabled, isTrue);
     await press(tester, find.byKey(const ValueKey('avatar-enabled')));
     expect(settings.avatarEnabled, isFalse);
-    final again = await AppSettings.load();
+    final again = await AppSettings.load(secrets: FakeSecretStore());
     expect(again.avatarEnabled, isFalse, reason: 'it is on the phone, not in memory');
   });
 
-  testWidgets('the animation systems are listed with weight and a note; three can be chosen today and the others say they are not available', (tester) async {
+  testWidgets('the animation systems are listed with weight and a note; all can be chosen, and the ones this build cannot run say so', (tester) async {
     await show(tester);
     for (final e in avatarEngines) {
       expect(find.text(Texts.t(e.nameKey)), findsOneWidget);
       expect(find.text(Texts.t(e.weightKey)), findsWidgets);
       expect(find.text(Texts.t(e.noteKey)), findsWidgets);
     }
-    expect(find.text('Not available in this build'), findsNWidgets(2));
     final handle = tester.ensureSemantics();
     expect(tester.getSemantics(find.byKey(const ValueKey('engine-visemes'))), isSemantics(isSelected: true, isEnabled: true));
-    expect(tester.getSemantics(find.byKey(const ValueKey('engine-ultralight'))), isSemantics(isEnabled: false));
-    expect(tester.getSemantics(find.byKey(const ValueKey('engine-ultralight'))).label, contains('Not available in this build'));
+    expect(tester.getSemantics(find.byKey(const ValueKey('engine-ultralight'))), isSemantics(isEnabled: true));
+    expect(tester.getSemantics(find.byKey(const ValueKey('engine-ultralight'))).label, contains('Not available: this build has no runtime for it.'));
     handle.dispose();
 
     await press(tester, find.byKey(const ValueKey('engine-ultralight')));
+    expect(settings.avatarMode, 'ultralight');
     await press(tester, find.byKey(const ValueKey('engine-feathertalk')));
-    expect(settings.avatarMode, 'visemes', reason: 'a disabled engine cannot be chosen');
+    expect(settings.avatarMode, 'feathertalk');
+    await press(tester, find.byKey(const ValueKey('engine-visemes')));
+    expect(settings.avatarMode, 'visemes');
 
     await press(tester, find.byKey(const ValueKey('engine-wav2lip')));
     expect(settings.avatarMode, 'wav2lip');
@@ -126,7 +129,7 @@ void main() {
       expect(node, e.id == 'visemes' ? isSemantics(isSelected: true) : isNot(isSemantics(isSelected: true)));
     }
     handle.dispose();
-    expect(selectableEngines, ['visemes', 'wav2lip', 'video']);
+    expect(selectableEngines, ['visemes', 'wav2lip', 'ultralight', 'feathertalk', 'video']);
   });
 
   testWidgets('resolution and quality are saved, and the quality says what it means', (tester) async {
@@ -149,7 +152,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(settings.avatarQuality, AvatarQuality.high);
     expect(find.textContaining('30 frames per second, about 1800 kbit/s'), findsOneWidget);
-    final again = await AppSettings.load();
+    final again = await AppSettings.load(secrets: FakeSecretStore());
     expect(again.avatarResolution, 144);
     expect(again.avatarQuality, AvatarQuality.high);
   });
@@ -231,14 +234,14 @@ void main() {
     await show(tester, lang: true);
     expect(find.text('Sistema di animazione'), findsOneWidget);
     expect(find.text('Risoluzione'), findsOneWidget);
-    expect(find.text('Non disponibile in questa versione'), findsNWidgets(2));
+    expect(find.text('Non disponibile: questa versione non ha il motore per eseguirlo.'), findsNWidgets(4), reason: 'the four engines with a runtime to ask for: this hub has none');
   });
 
   group('what is saved reaches the PC through the Avatar tab', () {
     test('the personality, who answers and the avatar switch chosen in Settings are sent once to the connected gateway', () async {
       Texts.use('en');
       SharedPreferences.setMockInitialValues({'flutter.address': '100.64.1.2:7232', 'flutter.key': 'bsk_phone'});
-      final s = await AppSettings.load();
+      final s = await AppSettings.load(secrets: FakeSecretStore());
       final devices = FakeDevices();
       final connector = FakeConnector();
       final c = AvatarController(api: FakeGatewayApi(s), settings: s, devices: devices, client: GatewayClient(connector: connector.call, wait: (d) async {}));
@@ -278,7 +281,7 @@ void main() {
     test('with the avatar off at the start, the PC is told to stop the video and none is asked for', () async {
       Texts.use('en');
       SharedPreferences.setMockInitialValues({'flutter.address': '100.64.1.2:7232', 'flutter.key': 'bsk_phone', 'flutter.avatarEnabled': false});
-      final s = await AppSettings.load();
+      final s = await AppSettings.load(secrets: FakeSecretStore());
       final connector = FakeConnector();
       final c = AvatarController(api: FakeGatewayApi(s), settings: s, devices: FakeDevices(), client: GatewayClient(connector: connector.call, wait: (d) async {}));
       addTearDown(c.dispose);

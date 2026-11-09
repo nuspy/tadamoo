@@ -10,6 +10,8 @@ import 'package:basalt_mobile/src/settings.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'secret_fakes.dart';
+
 const url = String.fromEnvironment('BASALT_TEST_URL');
 const folder = String.fromEnvironment('BASALT_TEST_FOLDER');
 
@@ -29,7 +31,7 @@ void main() {
   setUp(() async {
     HttpOverrides.global = null;
     SharedPreferences.setMockInitialValues({'flutter.address': url.replaceFirst('http://', ''), 'flutter.key': 'bsk_not_needed_on_this_pc'});
-    settings = await AppSettings.load();
+    settings = await AppSettings.load(secrets: FakeSecretStore());
     api = Api(settings);
   });
 

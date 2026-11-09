@@ -13,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'avatar_fakes.dart';
 import 'render_fakes.dart';
+import 'secret_fakes.dart';
 
 void main() {
   late Directory dir;
@@ -32,7 +33,7 @@ void main() {
   Future<void> make({Map<String, Object> prefs = const {}, bool cached = false, bool useFactory = true}) async {
     Texts.use('en');
     SharedPreferences.setMockInitialValues({'flutter.address': '100.64.1.2:7232', 'flutter.key': 'bsk_phone', ...prefs});
-    settings = await AppSettings.load();
+    settings = await AppSettings.load(secrets: FakeSecretStore());
     dir = Directory.systemTemp.createTempSync('basalt_render');
     source = FakeAssetSource()..modelBytes = Uint8List.fromList(utf8.encode('the model'));
     store = AvatarAssetStore(root: dir, source: source, modelSha: sha(utf8.encode('the model')), modelBytes: 9);
