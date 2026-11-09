@@ -17,7 +17,7 @@ request, before any route, for every method and for WebSocket upgrades.
 Any other name is refused with `403` and `"code": "host_not_allowed"`. A request without `Host` (HTTP/1.0) passes.
 
 **Origin rule.** A request that carries `Origin` must come from this server's own pages: the same host and port as its `Host`, the other
-loopback spelling of the same port (`localhost` and `127.0.0.1`), or a name in `server.allowed-hosts`. A request marked
+loopback spelling of the same port (`localhost` and `127.0.0.1`), a name in `server.allowed-hosts`, or an origin in `server.allowed-origins`. A request marked
 `Sec-Fetch-Site: cross-site` that is not a GET, HEAD or OPTIONS is refused as well. Both answer `403` with `"code": "cross_origin"`.
 A browser always sends `Origin` on a WebSocket, so a page of another site cannot open the voice gateway's socket.
 
@@ -54,7 +54,25 @@ allowed and is refused in the list. The change applies when the server is starte
   (`/v1/*` works without it).
 - **A reverse proxy or tunnel that rewrites `Host`** to `127.0.0.1`: list the public name, so the page's `Origin` is accepted.
 
-`"allowed-hosts": ["*"]` turns the Host rule off (every name is answered, as before the guard). The Origin rule has no switch.
+`"allowed-hosts": ["*"]` turns the Host rule off (every name is answered, as before the guard).
+
+## Letting a page use the server
+
+A page of another site (a development server of your own, a web app you wrote) is refused by the Origin rule. To let one in, list its origin
+in the `--config` file or give `--allowed-origins ORIGIN` once per origin:
+
+```json
+{"server": {"allowed-origins": ["http://localhost:3000"]}}
+```
+
+An origin is a scheme, a host and an optional port (`http://localhost:3000`, `https://app.example.com`): no path, no wildcard, no login. Only
+that exact origin passes, and also its `Sec-Fetch-Site: cross-site` writes. The Host rule is not touched, so a rebound DNS name stays refused.
+
+`"allowed-origins": ["*"]` turns the Origin rule off. **The risk, stated once:** a page of any website open in your browser could then send
+requests to this PC's server, with the same power as a program on this PC. With no API key that includes every `/api/*` write (the voice
+service's settings, the Telegram bot, the models folder), and the page can read the answers. Keep the key on (`--api-key`) or list only the origins you
+trust. The default is unchanged: the rule is on and the list is empty. The server writes one line on stderr at start when `*` is set. The change
+applies when the server is started again.
 
 ## Logs
 

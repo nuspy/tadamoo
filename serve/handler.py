@@ -236,7 +236,8 @@ def make_handler(svc: Service, remote: bool = False):
             if not super().parse_request():
                 return False
             refused = origin_guard.refusal(self.command, self.path, self.headers, host_rule=not (self.remote_listener or svc.api_key),
-                                           proven=self._proven(), allowed=getattr(svc, "allowed_hosts", ()), own_name=socket.gethostname())
+                                           proven=self._proven(), allowed=getattr(svc, "allowed_hosts", ()), own_name=socket.gethostname(),
+                                           allowed_origins=getattr(svc, "allowed_origins", ()))
             if refused is None:
                 return True
             print(f"[server] refused {self.command} {self.path.split('?', 1)[0][:200]}: {refused.code}", file=sys.stderr, flush=True)

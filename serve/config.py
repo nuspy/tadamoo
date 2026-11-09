@@ -11,7 +11,7 @@ from pathlib import Path
 from serve import ROOT
 from serve.engine.flags import flag_index, flag_value
 from serve.engine.vision import VISION_MODES, VISION_USAGE, vision_mode
-from serve.origin_guard import check_hostname
+from serve.origin_guard import check_hostname, check_origin
 from serve.util.console import tagged
 
 
@@ -385,6 +385,14 @@ def _allowed_host(text: str) -> str:
         raise argparse.ArgumentTypeError(str(e)) from None
 
 
+def _allowed_origin(text: str) -> str:
+    """argparse type: an origin (or `*`) for --allowed-origins."""
+    try:
+        return check_origin(text)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from None
+
+
 def parallel_count(text: str) -> int:
     """argparse type: a whole number of request slots, 1..PARALLEL_MAX."""
     try:
@@ -503,6 +511,10 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--allowed-hosts", action="append", type=_allowed_host, metavar="NAME",
                     help="a host name (besides IP addresses, localhost and this PC's own name) by which browsers may reach the server, "
                          "such as the Tailscale MagicDNS name; give it once per name (a list in the --config file)")
+    ap.add_argument("--allowed-origins", action="append", type=_allowed_origin, metavar="ORIGIN",
+                    help="a page origin such as http://localhost:3000 that may use this server from a browser; give it once per origin "
+                         "(a list in the --config file). '*' turns the Origin rule off: a page of any website could then call "
+                         "this PC's server")
     ap.add_argument("--debug", action="store_true",
                     help="log one line per request and the raw model text after each reply")
     ap.add_argument("--request-lines", action="store_true",

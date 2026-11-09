@@ -34,6 +34,7 @@ from serve.engine.vision import (EngineVision, Vision, check_gpu, child_env, eng
                                  gpu_text, gpus_in_play, vision_card, vision_env, vision_line)
 from serve.frontend import ChatTemplate  # noqa: E402
 from serve.handler import Server, serve, stop_sessions  # noqa: E402
+from serve.origin_guard import ANY_ORIGIN  # noqa: E402
 from serve.security import LOOPBACK_NAMES, api_key_of, exposed_without_key, lan_addresses  # noqa: E402
 from serve.service import Service  # noqa: E402
 from serve.util.logbuf import ColorStream, LogBuffer, TeeStream, tail_file  # noqa: E402
@@ -268,6 +269,9 @@ def main() -> int:
     svc.gpu_index = svc.gpu_indices[0]
     svc.control_token = write_control_token(a.port, a.control_secret_value) if a.control_secret else ""
     svc.allowed_hosts = tuple(dict.fromkeys(a.allowed_hosts or ()))
+    svc.allowed_origins = tuple(dict.fromkeys(a.allowed_origins or ()))
+    if ANY_ORIGIN in svc.allowed_origins:
+        print("[server] allowed-origins is *: pages of any website may use this server", file=sys.stderr, flush=True)
     httpd = serve(svc, host=a.host, port=a.port)
     from serve import billion_context, chatctx, llamacpp_api, voice_settings
     threading.Thread(target=voice_settings.ensure_models_dir, daemon=True, name="voice-models-dir").start()    # the voice service reads the same folder from voice.json

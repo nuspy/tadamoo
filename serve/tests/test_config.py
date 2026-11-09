@@ -490,7 +490,8 @@ class EveryOption(unittest.TestCase):
                 continue
             v = "localhost" if name == "host" else self.sample(act)
             if isinstance(act, argparse._AppendAction):
-                cli, cfgv = ["--" + name, "x"], ["x"]
+                item = "http://x" if name == "allowed-origins" else "x"        # an origin needs its scheme
+                cli, cfgv = ["--" + name, item], [item]
             elif v is True:
                 cli, cfgv = ["--" + name], True
             else:
