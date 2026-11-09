@@ -25,6 +25,8 @@ from pathlib import Path
 from . import avatar_weights, models_store
 from .avatar_store import PREPARED_HEIGHT, AvatarStore, StoreError
 from .config import Config
+from .enhance.pipeline import Enhancer
+from .enhance.settings import EnhanceSettings
 
 log = logging.getLogger("callbridge.avatar")
 
@@ -112,10 +114,11 @@ class AvatarFrames:
 
 
 class _FrameServer:
-    """Listens on loopback for the worker's frame connection and reads its frames."""
+    """Listens on loopback for the worker's frame connection and reads its frames; each goes to `intake` (the enhancer) or, with none, to the subscribers."""
 
-    def __init__(self, frames: AvatarFrames) -> None:
+    def __init__(self, frames: AvatarFrames, intake=None) -> None:
         self.frames = frames
+        self._deliver = intake or frames.publish
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._sock.bind(("127.0.0.1", 0))
         self._sock.listen(2)
@@ -140,7 +143,7 @@ class _FrameServer:
                 if magic != MAGIC or not (0 < w <= MAX_SIDE and 0 < h <= MAX_SIDE) or w % 2 or h % 2:
                     log.warning("frames: a connection sent a bad header; closed")
                     return
-                self.frames.publish(Frame(w, h, self._exact(conn, w * h * 3 // 2)))
+                self._deliver(Frame(w, h, self._exact(conn, w * h * 3 // 2)))
         except (OSError, EOFError):
             pass
         finally:
@@ -185,6 +188,8 @@ class AvatarClient:
         self._start_thread: threading.Thread | None = None
         self.progress: dict | None = None      # the last progress event of the worker: {job, phase, done, total, percent, eta_s}
         self.frames = AvatarFrames(self._frames_changed)
+        self.enhancer = Enhancer(self.frames.publish)         # between the worker's frames and the subscribers: passes them through while both stages are off
+        self._started_with: tuple[int, int] = (0, 0)
         self._frame_server: _FrameServer | None = None
         self._job: dict | None = None          # the preparation job, running or the last one finished
         self._job_lock = threading.Lock()
@@ -333,6 +338,7 @@ class AvatarClient:
             self._speaking.clear()
             self._spoken.set()
             self._playing.clear()
+        self.enhancer.worker_stopped()
         server, self._frame_server = self._frame_server, None
         if server is not None:
             server.close()
@@ -373,6 +379,10 @@ class AvatarClient:
             return dict(self._job) if self._job else None
 
     # ---- frames
+    def configure_enhance(self, settings: EnhanceSettings, report: dict):
+        """Apply the acceleration settings: what the next worker is asked to render, and what the enhancer does with the frames now."""
+        return self.enhancer.configure(settings, report, int(getattr(self.cfg, "avatar_fps", 0) or 25), int(getattr(self.cfg, "avatar_output_height", 0) or 480))
+
     def _frames_changed(self, count: int) -> None:
         proc = self._proc
         if proc is not None and proc.poll() is None:
@@ -380,7 +390,7 @@ class AvatarClient:
 
     def _send_frames(self, on: bool) -> None:
         if on and self._frame_server is None:
-            self._frame_server = _FrameServer(self.frames)
+            self._frame_server = _FrameServer(self.frames, self.enhancer.feed)
         with self._lock:
             if self._proc is not None and self._proc.poll() is None:
                 self._send({"cmd": "frames", "on": on, "port": self._frame_server.port if on and self._frame_server else 0})
@@ -396,9 +406,13 @@ class AvatarClient:
             env["AVATAR_STATE_DIR"] = str(Path(self.cfg.avatars_dir).parent / "avatar-state")
         if self.cfg.avatar_audio_device is not None:
             env["AVATAR_AUDIO_DEVICE"] = str(self.cfg.avatar_audio_device)
-        fps = int(getattr(self.cfg, "avatar_fps", 0) or 0)
+        plan = self.enhancer.plan
+        fps = int(plan.worker_fps or getattr(self.cfg, "avatar_fps", 0) or 0)
         if fps > 0:
-            env["AVATAR_FPS"] = str(fps)            # the gateway reads it too: the two must agree
+            env["AVATAR_FPS"] = str(fps)            # with interpolation on, fewer than the outputs get: the enhancer restores the rate
+        if plan.worker_height:
+            env["AVATAR_OUTPUT_HEIGHT"] = str(plan.worker_height)       # with upscaling on, smaller than the outputs get
+        self._started_with = (plan.worker_height, fps)
         if getattr(self.cfg, "avatar_profile", False):
             env["AVATAR_PROFILE"] = "1"
         if self.cfg.avatar_gpu_index is not None:
@@ -449,6 +463,7 @@ class AvatarClient:
         self._proc = subprocess.Popen(
             [self._python(), str(script)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             encoding="utf-8", bufsize=1, cwd=str(CODE_DIR), env=self._worker_env())
+        self.enhancer.worker_started(*self._started_with)
         threading.Thread(target=self._reader, args=(self._proc,), daemon=True).start()
         threading.Thread(target=self._stderr_reader, args=(self._proc,), daemon=True).start()
         if not self._ready.wait(timeout=getattr(self.cfg, "avatar_start_timeout_s", 180.0)):
@@ -461,7 +476,7 @@ class AvatarClient:
 
     def _reply_frames_on(self) -> None:
         if self._frame_server is None:
-            self._frame_server = _FrameServer(self.frames)
+            self._frame_server = _FrameServer(self.frames, self.enhancer.feed)
         self._send({"cmd": "frames", "on": True, "port": self._frame_server.port})
 
     def _send(self, obj: dict) -> None:
@@ -483,6 +498,8 @@ class AvatarClient:
         self._worker_gone(proc)
 
     def _worker_gone(self, proc) -> None:
+        if proc is self._proc:
+            self.enhancer.worker_stopped()
         with self._job_lock:
             if self._job and self._job["state"] == "running":
                 self._job.update(state="failed", error="the avatar worker ended during the preparation")

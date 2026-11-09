@@ -10,7 +10,8 @@ The file is the one serve/voice_settings.py writes:
      "meetings": {"speak": true|false, "camera": true|false, "proactive": true|false, "consent_mode": "window|explicit", "consent_window_s": 20..300, "on_behalf_of": "<name>",
                   "display_name": "<name>", "virtual_mic": "<part of a device name>", "wake_phrase": "<phrase>", "calendar_autojoin": true|false,
                   "copilot_replies": 1..6, "copilot_audio_reply": true|false, "copilot_hide_from_capture": true|false},
-     "avatar": {"virtual_camera": true|false}}
+     "avatar": {"virtual_camera": true|false, "enhance": {"upscale": "none|basic|rtx_video", "scale": 2, "interpolate": "none|basic", "factor": 2,
+                "worker_fps_cap": 0, "worker_height_cap": 0, "rtx_video_path": "<DLL>"}}}
 This module reads it without importing `serve` or `tadamoo` (the service has its own interpreter). A missing, unreadable or damaged file,
 or a bad value in it, gives the defaults: the service never fails because of its settings.
 
@@ -26,6 +27,7 @@ from pathlib import Path
 from callbridge import models_store as ms
 from callbridge.call_policy import APPROVAL_MODES, TRANSPORT_MODES
 from callbridge.meetbot import consent
+from callbridge.enhance import settings as enhance_settings
 
 _DEVICE_RE = re.compile(r"^(auto|cpu|cuda:[0-9]{1,2})$")
 BRAIN_MODES = ("direct", "harness")
@@ -102,8 +104,10 @@ class Meetings:
 
 @dataclass(frozen=True)
 class Avatar:
-    """What the person chose about the avatar's output besides the browser: the virtual camera, off until they turn it on."""
+    """What the person chose about the avatar's output besides the browser: the virtual camera, off until they turn it on, and the acceleration of
+    the video (everything off until they turn it on)."""
     virtual_camera: bool = False
+    enhance: enhance_settings.EnhanceSettings = enhance_settings.EnhanceSettings()
 
 
 @dataclass(frozen=True)
@@ -182,7 +186,7 @@ def _meetings(stored) -> Meetings:
 
 def _avatar(stored) -> Avatar:
     stored = stored if isinstance(stored, dict) else {}
-    return Avatar(stored.get("virtual_camera") is True)
+    return Avatar(stored.get("virtual_camera") is True, enhance_settings.parse(stored.get("enhance")))
 
 
 def load(path, default_models_dir: str = "") -> Settings:
@@ -249,6 +253,7 @@ def overrides(settings: Settings) -> dict:
     out["incoming_auto_answer"], out["call_on_behalf_of"], out["call_audit_file"] = t.incoming_auto_answer, t.on_behalf_of, settings.audit_file
     out["avatar_enabled"] = out["avatar_preload"] = is_enabled(settings.services["avatar"], root)       # the worker starts with the function, not otherwise
     out["avatar_virtual_camera"], out["avatars_dir"] = settings.avatar.virtual_camera, settings.avatars_dir
+    out["avatar_enhance"] = settings.avatar.enhance.as_dict()
     m = settings.meetings
     out.update(meetings_speak=m.speak, meetings_camera=m.camera, meetings_proactive=m.proactive, meetings_consent_mode=m.consent_mode, meetings_consent_window_s=m.consent_window_s,
                meetings_on_behalf_of=m.on_behalf_of, meetings_display_name=m.display_name, meetings_virtual_mic=m.virtual_mic, meetings_wake_phrase=m.wake_phrase,

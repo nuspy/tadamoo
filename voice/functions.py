@@ -157,6 +157,7 @@ class AvatarBackend:
         svc = self.service()
         avatar = svc.client()
         name = svc.link().avatar
+        svc.sync_enhance()                                                        # the worker is started with the size and rate the settings ask for
         ok = avatar.start(name) if name and svc.store.clips(name) else avatar.ensure_worker()
         if not ok:
             raise RuntimeError(avatar.last_error or "the avatar worker did not start")

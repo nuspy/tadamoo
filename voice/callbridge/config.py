@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, asdict, fields
+from dataclasses import dataclass, asdict, field, fields
 from pathlib import Path
 
 
@@ -162,6 +162,10 @@ class Config:
     # indagare.
     avatar_profile: bool = False
     avatar_prepare_timeout_s: float = 600.0
+    # Acceleration of the video (callbridge/enhance): the person's `avatar.enhance` of voice.json as a dict, and the height the outputs get (the
+    # size the worker renders at when nothing is on). The service applies the first through AvatarService.sync_enhance.
+    avatar_enhance: dict = field(default_factory=dict)
+    avatar_output_height: int = 480
     # Watchdog "nessun progresso": se il worker resta vivo ma non avanza per
     # questo tempo (hang GPU), start() esce con errore invece di bloccarsi.
     avatar_prepare_stall_s: float = 300.0
@@ -377,7 +381,6 @@ class Config:
     #              (fotorealistico, scala)
     #   visemi   = il telefono anima la foto sui tempi dei visemi che il PC
     #              calcola dal testo (leggerissimo, scala a molti utenti)
-    render_mode_default: str = "musetalk"
     # espeak-ng per la fonemizzazione multilingue dei visemi (testo->IPA). Vuoto
     # = si cerca nel PATH; se manca del tutto, i visemi ripiegano sulle regole
     # italiane. La data dir va indicata a parte perche' la build Windows
