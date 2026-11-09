@@ -323,6 +323,13 @@ def _dest_path(folder: str, name: str) -> str:
     return os.path.join(folder, *name.split("/"))
 
 
+def source_name(src: dict, path: str) -> str:
+    """Where a file of a Hugging Face source lands inside its entry's folder: the source's subfolder, then its path without the stripped prefix."""
+    strip = src.get("strip") or ""
+    rel = "/".join(x for x in (src.get("subdir"), path[len(strip):] if strip and path.startswith(strip) else path) if x)
+    return safe_relpath(rel)
+
+
 def _source_files(entry: dict, problems: list) -> list[dict]:
     """The files of an entry made of sources (Hugging Face repositories and URLs): path, name inside the folder, size, SHA-256 and
     the address to fetch. What cannot be planned is a problem, not a guess."""
@@ -360,9 +367,7 @@ def _source_files(entry: dict, problems: list) -> list[dict]:
                     problems.append(_say("verify", f"Hugging Face non dà un hash per {path}: il file non viene scaricato.",
                                          f"Hugging Face gives no hash for {path}: the file is not downloaded."))
                     continue
-                strip = src.get("strip") or ""
-                rel = "/".join(x for x in (src.get("subdir"), path[len(strip):] if strip and path.startswith(strip) else path) if x)
-                out.append({"path": path, "name": safe_relpath(rel), "size": info["size"], "sha256": sha,
+                out.append({"path": path, "name": source_name(src, path), "size": info["size"], "sha256": sha,
                             "url": _resolve_url(src["repo"], rev, path), "repo": src["repo"], "revision": rev, **({} if sha else {"git_oid": git_oid})})
         except DownloadError as e:
             problems.append(_say(e.code, e.it, e.en))
