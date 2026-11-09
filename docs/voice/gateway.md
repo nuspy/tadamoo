@@ -69,17 +69,22 @@ emergency only, it uses the GPU). The degradation order is `wav2lip`, `visemes`,
 
 **Declare.** The first message carries what the device can draw, best first, and its kind (`[a-z0-9_-]`, up to 32; informational):
 
-    {"type":"auth","token":"...","render_modes":["wav2lip","visemes","video"],"device":"android"}
+    {"type":"auth","token":"...","render_modes":["wav2lip","visemes","video"],"device":"android","engine":"wav2lip_gan96","resolution":96}
 
 The token may be left out when the handshake carried the key. Unknown modes are ignored; `video` is always tried last, wherever it is listed.
+`engine` and `resolution` are optional: the device's own choice of avatar engine and output height (`engines.md`). They count when the engine runs on
+this kind of device (`android`, `esp32`, `web`, `pc`) and offers the height; otherwise the person's choice for that kind applies.
 A device that declares nothing gets the voice only. The answer, after `auth_ok`:
 
     {"type":"ready","voice":true,"missing":[],"avatar":false,"brain":"direct","persona":"","render_mode":"visemes",
-     "render_modes":["visemes"],"avatar_name":"ada"}
+     "render_modes":["visemes"],"avatar_name":"ada","engine":"visemes","resolution":240}
 
-`render_modes` is what this PC serves to this device now, in the device's order: `wav2lip` and `visemes` when the personality's avatar has their
-files (`avatar.md`), `video` when the avatar function is loaded. `render_mode` is the first of them, or `"none"` (voice only). `avatar_name` is
-the folder to download (empty when none). `avatar` keeps its old meaning: the PC video function is loaded.
+`render_modes` is what this PC serves to this device now: `wav2lip` and `visemes` when the personality's avatar has their files (`avatar.md`),
+`video` when the avatar function is loaded. The order is the device's, except that the mode of the engine chosen for its kind of device goes first
+when the device declares it; `video` stays last. `render_mode` is the first of them, or `"none"` (voice only). `avatar_name` is
+the folder to download (empty when none). `avatar` keeps its old meaning: the PC video function is loaded. `engine` is the engine that draws
+`render_mode` and `resolution` the output height in pixels (`""` and `0` when voice only); they are added to every `ready` and `render_mode` message,
+and a device that does not know them ignores them.
 
 **Files.** With the device key, on the server the app already uses: `GET /api/voice/avatar/<avatar_name>/manifest.json`
 (`{version, avatar, created, render_modes, files: {path: sha256}}`), then each file or `.../assets.zip` (the files and `manifest.json`), and
