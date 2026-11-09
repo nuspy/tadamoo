@@ -20,7 +20,7 @@ from serve.api import responses as responses_api
 from serve.api.responses import error_body as responses_error_body
 from tadamoo import exec_level, nextsteps, persistence, side_uses
 from tadamoo import telegram as tg
-from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, voice_api, voice_compat, voice_loader, voice_service, voice_settings
+from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, voice_api, voice_compat, voice_import, voice_loader, voice_service, voice_settings
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX, checked_sampling
 from serve.engine.vision import VISION_MODES
@@ -2431,6 +2431,12 @@ def make_handler(svc: Service, remote: bool = False):
             if path == "/api/voice/service/call":                 # the Voice tab's request to the voice service, from the list in voice_proxy
                 status, out = voice_api.service_call(req)
                 return self._json(status, out)
+            importing = {"/api/voice/import/plan": voice_import.plan, "/api/voice/import/run": voice_import.run}     # the personalities of a callAPIcall folder
+            if path in importing:
+                try:
+                    return self._json(200, importing[path](req, self._personas().store, self._rag_store()))
+                except voice_import.Refused as e:
+                    return self._json(e.status, {"error": {"type": "voice_import", "message": str(e)}})
             if path not in routes:
                 return self._json(404, {"error": {"message": "not found"}})
             try:

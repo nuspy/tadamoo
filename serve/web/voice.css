@@ -94,3 +94,7 @@
 @media (min-width: 1000px) { .vl-list { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .vl-card, .vl-box { padding: 12px; } .vl-bar .btn, .vl-head .btn { flex: 1 1 100%; } }
 @media (prefers-reduced-motion: reduce) { .vl *, .vl-dlg *, .vl-head * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+.vo-im-items { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.vo-im-item { display: grid; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--panel); }
+.vo-im .vo-field { max-width: none; }
+.vo-im-item > .vo-chip { justify-self: start; }
