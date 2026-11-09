@@ -4,6 +4,7 @@ The browser never holds the service's token and never learns its port: `POST /ap
 one request to the service on loopback. A route that is not in ROUTES is refused before anything is sent."""
 from __future__ import annotations
 
+import re
 from typing import Any, Callable
 
 from serve import voice_service
@@ -54,7 +55,13 @@ ROUTES: dict[tuple[str, str], Callable[[Any], Any]] = {
     ("POST", "/session/stop"): _none,
     ("POST", "/session/new"): _none,
     ("POST", "/brain/say"): _say,
+    ("GET", "/call/approvals"): _none,
+    ("GET", "/call/audit"): _none,
 }
+#: (method, pattern of the service route) for the routes that carry an id: the person's answer to a call a program asked for
+PATTERNS: list[tuple[str, "re.Pattern[str]", Callable[[Any], Any]]] = [
+    ("POST", re.compile(r"/call/approvals/[0-9a-f]{16}/(?:approve|deny)"), _none),
+]
 
 
 def call(req: Any) -> tuple[int, dict]:
@@ -63,6 +70,8 @@ def call(req: Any) -> tuple[int, dict]:
         raise Refused(400, "bad_request", "Send {method, path, body}.")
     method, path = req.get("method"), req.get("path")
     check = ROUTES.get((method, path)) if isinstance(method, str) and isinstance(path, str) else None
+    if check is None and isinstance(method, str) and isinstance(path, str):
+        check = next((c for m, pattern, c in PATTERNS if m == method and pattern.fullmatch(path)), None)
     if check is None:
         raise Refused(403, "not_allowed", "The voice tab may not call that route of the voice service.")
     body = check(req.get("body"))

@@ -89,6 +89,14 @@ def set_brain(req: dict) -> dict:
     return voice_settings.set_brain(req)
 
 
+def telephony_view() -> dict:
+    return voice_settings.telephony()
+
+
+def set_telephony(req: dict) -> dict:
+    return voice_settings.set_telephony(req)
+
+
 def service_call(req: dict) -> tuple[int, dict]:
     """The Voice tab's request to the voice service, if it is on the list (serve/voice_proxy.py)."""
     try:
