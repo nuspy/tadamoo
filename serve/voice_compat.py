@@ -35,8 +35,7 @@ SOON = {
     "choice": "The voice and the engine of the speech are chosen in Settings > Voice.",
     "load": "Voice functions are loaded and unloaded from the Voice functions dialog in the Loader.",
     "stream": "Streaming over a WebSocket is not offered on this port yet.",
-    "personas": "The personalities are TaDaMoo's own (Settings > Personalities, /api/personas); the callAPIcall form of this route comes with the avatar phase.",
-    "avatar": "The animated avatar comes with its own phase.",
+    "personas": "The personalities are TaDaMoo's own: use /api/personas (Settings > Personalities); this callAPIcall route is not offered.",
     "meetings": "Meetings, the meeting bot and the calendar come with the meeting phase, with the consent they need.",
 }
 
@@ -86,7 +85,7 @@ ROUTES: tuple[Route, ...] = (
     _r("POST", r"/session/(?:start|stop|new|language)", kind="local", timeout=60.0),
     # not there yet
     _r("", r"/personas(?:/.*)?", kind="local", soon=SOON["personas"]),
-    _r("", r"/avatar/.*", kind="local", soon=SOON["avatar"]),
+    _r("", r"/avatar/(?!preview\.mjpg|stream).*", kind="local", timeout=60.0),                    # the avatar function of the service; the live streams have their own routes
     _r("", r"/(?:meetbot|meetings|calendar)(?:/.*)?", kind="local", soon=SOON["meetings"]),
 )
 

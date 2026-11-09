@@ -218,10 +218,18 @@ class PassThroughTests(Base):
         self.assertEqual(self.voice.seen, [])
 
 
+class AvatarRoutesTests(Base):
+    def test_the_avatar_routes_reach_the_service_and_the_live_streams_stay_out(self):
+        self.jsonrequest("GET", "/avatar/state")
+        self.assertEqual((self.voice.seen[-1]["method"], self.voice.seen[-1]["path"]), ("GET", "/avatar/state"))
+        status, out = self.jsonrequest("GET", "/avatar/preview.mjpg")
+        self.assertEqual(status, 404)                                                          # the stream is relayed by /api/voice/avatar, not by this table
+
+
 class NotThereYetTests(Base):
     def test_these_answer_501_with_a_reason_and_reach_no_service(self):
-        for method, path in (("GET", "/personas"), ("POST", "/personas"), ("PUT", "/personas/Ada"), ("GET", "/personas/Ada/memory"), ("POST", "/avatar/start"),
-                             ("GET", "/avatar/state"), ("POST", "/meetbot/join"), ("GET", "/meetings/list"), ("GET", "/calendar/events"),
+        for method, path in (("GET", "/personas"), ("POST", "/personas"), ("PUT", "/personas/Ada"), ("GET", "/personas/Ada/memory"),
+                             ("POST", "/meetbot/join"), ("GET", "/meetings/list"), ("GET", "/calendar/events"),
                              ("POST", "/tts/model"), ("POST", "/tts/voice"), ("POST", "/models/load"), ("POST", "/models/unload"), ("GET", "/tts/stream"),
                              ("GET", "/stt/stream")):
             status, out = self.jsonrequest(method, path, {} if method in ("POST", "PUT") else None)
