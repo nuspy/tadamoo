@@ -320,6 +320,22 @@ _XTTS_FILES = [
     ("vocab.json", "928260878a59da8a72a2a5b7687fea29d5106137669d90945430fe17e415304a", 361_219),
 ]
 
+# FunAudioLLM/Fun-CosyVoice3-0.5B-2512 at 29e01c4e8d000f4bcd70751be16fa94bf3d85a18
+_COSYVOICE_FILES = [
+    ("cosyvoice3.yaml", "f5a6b2c6f05139d0f18861a1fe506f751e787026b77c05f7e8fef9f8a4405965", 6_934),
+    ("campplus.onnx", "a6ac6a63997761ae2997373e2ee1c47040854b4b759ea41ec48e4e42df0f4d73", 28_303_423),
+    ("speech_tokenizer_v3.onnx", "23236a74175dbdda47afc66dbadd5bcb41303c467a57c261cb8539ad9db9208d", 969_451_503),
+    ("flow.pt", "a6fab32a7825e5b0bc855ddd948f8db9370b0a786fbc249caa4595e95b608e4b", 1_329_116_148),
+    ("hift.pt", "b279d7641eb97ae55b3b540cfba4f953c26492a2df758328a89a4d007ab87a65", 83_202_622),
+    ("llm.pt", "69f43bd545131c30e98947fb360ea8b4dc9916d8e83dded7757c7ea4f5a24970", 2_024_669_519),
+    ("CosyVoice-BlankEN/config.json", "168aa1bd401abc3bc262ba15ba4e499627a8b4e006e9d050b47c22de20660185", 659),
+    ("CosyVoice-BlankEN/generation_config.json", "e558847a8b4402616f1273797b015104dc266fe4b520056fca88823ba8f8ebe6", 242),
+    ("CosyVoice-BlankEN/merges.txt", "ac8ff86a72bee70828fbc1119bc4398c6f3a9a6e490d7b0dbe917be025478bd0", 1_402_109),
+    ("CosyVoice-BlankEN/model.safetensors", "130282af0dfa9fe5840737cc49a0d339d06075f83c5a315c3372c9a0740d0b96", 988_097_824),
+    ("CosyVoice-BlankEN/tokenizer_config.json", "482bd979881423375ca5414e4e0d94cd7c5349dbb17fffd46b4d36d71e62a1bc", 1_287),
+    ("CosyVoice-BlankEN/vocab.json", "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910", 2_776_833),
+]
+
 CATALOG = [_whisper(s) for s in _WHISPER] + [
     _entry("kokoro", "tts", "kokoro", "Kokoro", "kokoro", "apache-2.0",
            [_url(_KOKORO_BASE + "kokoro-v1.0.fp16.onnx", "kokoro-v1.0.fp16.onnx", "c1610a859f3bdea01107e73e50100685af38fff88f5cd8e5c56df109ec880204", 177_464_787),
@@ -368,11 +384,22 @@ CATALOG = [_whisper(s) for s in _WHISPER] + [
                     "The seven files are what the repository's main branch holds for running it, at one commit; its sample WAV files and hash.md5 are left out.",
                     "Clonazione di voce zero-shot, 17 lingue e 58 voci integrate. Solo uso non commerciale (il testo della licenza, LICENSE.txt, si installa con il modello). "
                     "I sette file sono quelli che il ramo main del repository ha per farlo girare, a un commit fisso; gli WAV di esempio e hash.md5 non ci sono.")),
-    _entry("cosyvoice-3", "tts", "cosyvoice", "CosyVoice 3 (0.5B)", "cosyvoice", "apache-2.0", [_hf("FunAudioLLM/Fun-CosyVoice3-0.5B-2512")],
-           languages=("it", "en", "fr", "es", "ru", "de", "ja", "ko", "zh"), verify=("size",),
-           venv=_t("Own Python environment (tts-venvs/cosyvoice), torch with CUDA.", "Ambiente Python proprio (tts-venvs/cosyvoice), torch con CUDA."),
-           notes=_t("Voice cloning, streaming; the best rendering of Italian of the engines here. No Hungarian.",
-                    "Clonazione di voce, streaming; la miglior resa dell'italiano tra i motori qui. Niente ungherese.")),
+    _entry("cosyvoice-3", "tts", "cosyvoice", "CosyVoice 3 (0.5B)", "cosyvoice", "apache-2.0",
+           [_pinned("FunAudioLLM/Fun-CosyVoice3-0.5B-2512", "29e01c4e8d000f4bcd70751be16fa94bf3d85a18", _COSYVOICE_FILES)], size=_total(_COSYVOICE_FILES),
+           languages=("it", "en", "fr", "es", "ru", "de", "ja", "ko", "zh"),
+           venv=_t("Own Python environment (tts-venvs/cosyvoice, torch with CUDA) and the CosyVoice code in tts-venvs/cosyvoice-repo (FunAudioLLM/CosyVoice, Apache-2.0), "
+                   "neither part of this download.",
+                   "Ambiente Python proprio (tts-venvs/cosyvoice, torch con CUDA) e il codice di CosyVoice in tts-venvs/cosyvoice-repo (FunAudioLLM/CosyVoice, Apache-2.0), "
+                   "nessuno dei due fa parte di questo download."),
+           notes=_t("Voice cloning, streaming; the best rendering of Italian of the engines here. No Hungarian. The twelve files are what CosyVoice3 reads with "
+                    "load_trt and load_vllm off (the helper's setting): the YAML, the language model, flow and vocoder weights, the speaker and speech tokenizers and the "
+                    "Qwen2 skeleton in CosyVoice-BlankEN. Left out: the TensorRT estimator and the batch tokenizer (not loaded), llm.rl.pt (the reinforcement-trained "
+                    "variant, which the code does not load), the optional ttsfrd text normaliser. The list comes from the code at the commit the helper uses, not from a run.",
+                    "Clonazione di voce, streaming; la miglior resa dell'italiano tra i motori qui. Niente ungherese. I dodici file sono quelli che CosyVoice3 legge con "
+                    "load_trt e load_vllm spenti (l'impostazione dell'helper): il file YAML, i pesi del modello di linguaggio, del flow e del vocoder, i tokenizzatori di "
+                    "voce e di parlante e lo scheletro Qwen2 in CosyVoice-BlankEN. Esclusi: lo stimatore TensorRT e il tokenizzatore batch (non caricati), llm.rl.pt (la "
+                    "variante addestrata con rinforzo, che il codice non carica), il normalizzatore di testo ttsfrd facoltativo. L'elenco viene dal codice al commit che usa "
+                    "l'helper, non da una prova.")),
     _qwen("0.6B"), _qwen("1.7B"),
     _entry("orpheus-3b", "tts", "orpheus", "Orpheus 3B", "orpheus", "verify", [_hf("unsloth/orpheus-3b-0.1-ft"), _hf("hubertsiuzdak/snac_24khz", subdir="snac_24khz")],
            languages=("en",), verify=("license", "size"),

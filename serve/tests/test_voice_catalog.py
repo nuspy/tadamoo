@@ -10,8 +10,8 @@ from serve import voice_catalog as vc
 ROOT = Path(__file__).resolve().parents[2]
 SHA = re.compile(r"^[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
-SIZED = {"chatterbox", "xtts-v2"}                                                                          # entries whose pinned sources record each file's size
-PINNED = {"piper", "musetalk-v15", "sherpa-diarization", "multilingual-e5-small", "chatterbox", "xtts-v2"}              # entries whose Hugging Face sources are grounded
+SIZED = {"chatterbox", "xtts-v2", "cosyvoice-3"}                                                                          # entries whose pinned sources record each file's size
+PINNED = {"piper", "musetalk-v15", "sherpa-diarization", "multilingual-e5-small", "chatterbox", "xtts-v2", "cosyvoice-3"}              # entries whose Hugging Face sources are grounded
 CHOSEN_REPOS = {"rhasspy/piper-voices", "vivym/face-parsing-bisenet", "csukuangfj/sherpa-onnx-pyannote-segmentation-3-0",
                 "intfloat/multilingual-e5-small", "ResembleAI/chatterbox"}                                              # repositories chosen from a search, not named by the voice code
 
@@ -98,8 +98,9 @@ class GroundingTest(unittest.TestCase):
     def test_a_size_is_given_only_where_the_voice_code_states_it(self):
         sized = {e["id"] for e in vc.CATALOG if e["size"]}
         packs = {e["id"] for e in vc.CATALOG if e["kind"] == "engine-pack"}                  # their sizes are those of the pinned blobs
-        self.assertEqual(sized - packs, {f"whisper-{n}" for n in ("tiny", "base", "small", "medium", "large-v3")} | {
-            "kokoro", "piper", "xtts-v2", "chatterbox", "musetalk-v15", "sherpa-diarization", "wav2lip-int8", "silero-vad-v4", "multilingual-e5-small"})
+        self.assertTrue(SIZED <= sized)                                                       # the pinned entries carry the bytes of their files
+        self.assertEqual(sized - packs - SIZED, {f"whisper-{n}" for n in ("tiny", "base", "small", "medium", "large-v3")} | {
+            "kokoro", "piper", "musetalk-v15", "sherpa-diarization", "wav2lip-int8", "silero-vad-v4", "multilingual-e5-small"})
         for e in vc.CATALOG:
             if e["size"] is None and e["kind"] == "model":
                 self.assertIn("size", e["verify"], e["id"])
@@ -205,6 +206,16 @@ class LicenseAndVerifyTest(unittest.TestCase):
         self.assertEqual(sorted(s["files"]), ["LICENSE.txt", "config.json", "dvae.pth", "mel_stats.pth", "model.pth", "speakers_xtts.pth", "vocab.json"])
         self.assertEqual(s["pins"]["model.pth"], "c7ea20001c6a0a841c77e252d8409f6a74fb423e79b3206a0771ba5989776187")
         self.assertTrue(e["noncommercial"])
+
+    def test_cosyvoice_has_the_files_cosyvoice3_reads_at_the_top_of_its_folder(self):
+        e = vc.find("cosyvoice-3")
+        (s,) = e["sources"]
+        self.assertEqual((s["repo"], s["subdir"], s["revision"]), ("FunAudioLLM/Fun-CosyVoice3-0.5B-2512", "", "29e01c4e8d000f4bcd70751be16fa94bf3d85a18"))
+        for name in ("cosyvoice3.yaml", "campplus.onnx", "speech_tokenizer_v3.onnx", "llm.pt", "flow.pt", "hift.pt", "CosyVoice-BlankEN/model.safetensors",
+                     "CosyVoice-BlankEN/vocab.json", "CosyVoice-BlankEN/merges.txt"):                           # CosyVoice3.__init__ and the Qwen tokenizer
+            self.assertIn(name, s["files"])
+        self.assertFalse([n for n in s["files"] if n.startswith("flow.decoder") or n.endswith("batch.onnx") or n == "llm.rl.pt"])
+        self.assertEqual(e["verify"], ())
 
     def test_the_piper_voices_are_onnx_and_json_pairs_that_land_flat_in_the_folder(self):
         e = vc.find("piper")
