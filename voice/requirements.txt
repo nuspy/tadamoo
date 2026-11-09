@@ -31,7 +31,7 @@ openai-whisper>=20240930   # STT nativo (whisper su torch); il modello si instal
 # si installano da Settings > Voice, su richiesta.
 sherpa-onnx>=1.13          # pyannote-segmentation + speaker embedding, offline
 kokoro-onnx>=0.4           # TTS nativo Kokoro in-process (onnxruntime)
-piper-tts>=1.2             # TTS nativo Piper (opzionale, accanto a Kokoro)
+piper-tts>=1.3             # TTS nativo Piper (opzionale, accanto a Kokoro): serve SynthesisConfig, dalla 1.3; licenza GPL-3.0-or-later
 # GPU per gli engine onnxruntime (Kokoro/Piper): onnxruntime-gpu (build CUDA 12) +
 # i runtime CUDA 12 da pip. Coesistono con il torch CUDA 13 di whisper (DLL con
 # nomi diversi: cudart64_12 vs 13). Il codice chiama ort.preload_dlls() per
