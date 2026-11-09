@@ -128,5 +128,23 @@ An unknown or invalid value is refused with a 400 whose body has `code`, `messag
 | `GET /api/voice/download/status` | phase, bytes, speed, the log's tail |
 | `POST /api/voice/download/cancel` | stops the running download; its `.part` files stay |
 
+## Files already on the disk
+
+`python -m serve.voice_adopt plan|apply [--models-dir PATH] [--root PATH ...] [--report FILE] [--copy]` looks for models that are already
+on this PC (the Whisper cache, the Hugging Face cache and the folders of the call bridge, Handy and MuseTalk, or the `--root` folders) and
+puts them where the downloader would: `<models folder>/<service>/<model id>/...`, the same names, so TaDaMoo sees them as installed and does
+not download them again.
+
+- A file is taken only when its SHA-256 equals the catalog's pin (candidates are found by size, or by name when the catalog gives no size, and
+  by the name of a Hugging Face blob; every one is hashed). A file with another hash is reported, never linked.
+- It is a hard link: the same data under a second name, no extra space. A link needs the same volume; from another volume the file is
+  reported as skipped, and only `--copy` copies it (the copy is hashed too).
+- Nothing is deleted, moved or modified. A destination that already exists is never overwritten (a correct one counts as done, a different
+  one is left as it is). Links and junctions are never sources, and a models folder inside a source folder is refused.
+- An entry with every file in place gets the marker of a finished download. An entry with only some files gets none: the downloader then
+  fetches only the missing ones, because it skips a file already there with the pinned size.
+- `plan` (the default) only reads and prints what `apply` would do. `--report` also writes it as JSON.
+- A hard link shares the data: a program that rewrites a model in place changes both names. Models are only read.
+
 The tests are `serve/tests/test_voice_catalog.py`, `test_voice_settings.py`, `test_voice_api.py` (a local server stands in for Hugging Face
-and a file host) and `test_voice_page.py`.
+and a file host) and `test_voice_page.py`; `test_voice_adopt.py` covers the adoption of files already on the disk.
