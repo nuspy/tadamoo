@@ -1,7 +1,7 @@
 "use strict";
 /* The Voice tab: talk with the model or with the agent by voice. It shows the voice service and its functions (read only: they are loaded in
    Models > Voice services), chooses who answers (direct, or the agent), the personality and what the agent may do without asking, and has
-   a place to try it: Hold to talk and Speak a test sentence. The microphone and the speakers are the PC's, and the voice service owns
+   a place to try it: Hold to talk and Speak a test sentence. The Avatar card is voiceavatar.js (the picture, the avatars, the creation of a new one). The microphone and the speakers are the PC's, and the voice service owns
    them; the page only asks the server, which forwards a fixed list of requests (serve/voice_proxy.py). The permission level is the Chat's
    own (same levels, same words) and is also set in Settings > Voice. Everything the server says enters the page as text. */
 (function () {
@@ -49,11 +49,16 @@
       grid.append(s);
     }
     root.append(grid);
+    if (window.VoiceAvatar) window.VoiceAvatar.mount(parts.avatar.s, avatarCtx);
   }
   const body = id => { const h = parts[id].h; while (h.nextSibling) h.nextSibling.remove(); return parts[id].s; };
   const chip = (text, cls) => el("span", "vt-chip " + (cls || ""), text);
   const note = (text, bad) => { const n = el("p", "vt-note", text); n.setAttribute("role", bad ? "alert" : "status"); n.dataset.bad = bad ? "1" : ""; n.hidden = !text; return n; };
   const openModels = () => { view("loader"); const s = document.getElementById("sub-voicesvc"); if (s) s.click(); };
+  const avatarCtx = {
+    live: () => live, personas: () => personas, persona: () => (B ? B.persona : ""), svc, api, openModels,
+    reloadPersonas: async () => { const p = await api("GET", "api/personas"); personasOk = p.ok; personas = p.ok ? (p.data.personas || []) : []; paintBrain(); }
+  };
 
   /* ---- the service and its functions ---- */
   function paintService() {
@@ -144,7 +149,7 @@
     const box = el("section", "vt-card"), h = el("h3", "vt-h", T("vt.set.title"));
     h.id = "vb-h2"; box.setAttribute("aria-labelledby", h.id);
     box.append(h, el("p", "vt-help", T("vt.set.intro")), permission("vb"), hotkeys("vb"), note(brainMsg.text, brainMsg.bad));
-    setRoot.replaceChildren(box);
+    setRoot.replaceChildren(box, ...(window.VoiceAvatar ? [window.VoiceAvatar.settingsCard(api)] : []));
   }
 
   /* ---- try it ---- */
@@ -234,10 +239,7 @@
   }
 
   /* ---- the avatar ---- */
-  function paintAvatar() {
-    const s = body("avatar"), a = live.fns && live.fns.avatar;
-    s.append(el("p", "vt-help", a && a.state === "loaded" ? T("vt.avatar.on") : T("vt.avatar.off")));
-  }
+  function paintAvatar() { if (window.VoiceAvatar) window.VoiceAvatar.update(); }
 
   function paintAll() { paintService(); paintBrain(); paintTalk(); paintLast(); paintAvatar(); paintSettings(); }
 

@@ -1,0 +1,226 @@
+"""The Voice tab's avatar requests that the JSON proxy (voice_proxy.py) cannot carry, and the avatar settings.
+
+    GET  /api/voice/avatar                                  {virtual_camera}: the camera output, off until the person turns it on
+    POST /api/voice/avatar {virtual_camera}                 turn it on or off (voice.json `avatar`; the service follows by itself)
+    POST /api/voice/avatar/wizard/<draft>/<foto|pose|video|voce>   a photo, a video or a voice sample for the creation wizard: the multipart body
+                                                            passes through to the service in pieces, without being read here, and only up to
+                                                            the size of its step
+    GET  /api/voice/avatar/preview.mjpg                     the rendered frames, a long-lived MJPEG stream relayed from the service
+    GET  /api/voice/avatar/<name>/poster                    the portrait of an avatar
+
+This PC only. The service's token is added here and never reaches the browser; a response is not searched for it because nothing of the
+service's that carries one is relayed (the stream, an image and a JSON answer of the service)."""
+from __future__ import annotations
+
+import http.client
+import json
+import re
+
+from serve import settings, voice_service, voice_settings
+
+NAME = r"[A-Za-z0-9][A-Za-z0-9_-]{0,59}"
+UPLOAD = re.compile(r"/api/voice/avatar/wizard/([0-9a-f]{32})/(foto|pose|video|voce)")
+POSTER = re.compile(rf"/api/voice/avatar/({NAME})/poster")
+PREVIEW = "/api/voice/avatar/preview.mjpg"
+BASE = "/api/voice/avatar"
+LIMITS = {"foto": 20 << 20, "pose": 20 << 20, "video": 500 << 20, "voce": 25 << 20}     # the service's own limits, per step
+OVERHEAD = 1 << 16                                                                       # the multipart framing around the file
+CHUNK = 1 << 20
+IMAGE_MAX = 20 << 20
+UPLOAD_WAIT_S = 600.0
+STREAM_WAIT_S = 60.0
+KEYS = ("virtual_camera",)
+
+
+def _refuse(handler, status: int, code: str, message: str) -> None:
+    handler._json(status, {"error": {"type": "voice_avatar", "code": code, "message": message}})
+
+
+# ---------------------------------------------------------------------------------------- settings
+def view() -> dict:
+    stored = voice_settings._read().get("avatar")
+    stored = stored if isinstance(stored, dict) else {}
+    return {"virtual_camera": stored.get("virtual_camera") is True}
+
+
+def update(req) -> dict:
+    if not isinstance(req, dict):
+        raise voice_settings.VoiceSettingsError("body", "Send a JSON object.", "Manda un oggetto JSON.")
+    for key in req:
+        if key not in KEYS:
+            raise voice_settings.VoiceSettingsError("field", f"Unknown field: {key}.", f"Campo sconosciuto: {key}.")
+    if "virtual_camera" in req and not isinstance(req["virtual_camera"], bool):
+        raise voice_settings.VoiceSettingsError("virtual_camera", "virtual_camera is true or false.", "virtual_camera è true o false.")
+    with voice_settings._lock:
+        data = voice_settings._read()
+        stored = data.get("avatar") if isinstance(data.get("avatar"), dict) else {}
+        stored.update(req)
+        data["avatar"] = stored
+        voice_settings._write(data)
+    return view()
+
+
+# ---------------------------------------------------------------------------------------- relays
+def _connect(timeout: float):
+    host, port, token = voice_service.endpoint()
+    return http.client.HTTPConnection(host, port, timeout=timeout), token
+
+
+def _local(handler) -> bool:
+    if handler.remote_listener or not settings.is_loopback(handler.client_address[0]):
+        _refuse(handler, 403, "forbidden", "The avatar is shown and made only on the PC the server runs on.")
+        return False
+    return True
+
+
+def _down(handler, e: Exception) -> None:
+    _refuse(handler, 503, "voice_service_down", str(e) if isinstance(e, voice_service.ServiceDown) else "the voice service does not answer")
+
+
+def upload(handler, step: str, draft: str) -> None:
+    """Copy the request body to the service's wizard route; the answer of the service is the answer."""
+    limit = LIMITS[step] + OVERHEAD
+    ctype = handler.headers.get("Content-Type", "")
+    if handler.headers.get("Transfer-Encoding", "").lower() == "chunked" or "Content-Length" not in handler.headers:
+        handler.close_connection = True
+        return _refuse(handler, 411, "length_required", "Send the file with a Content-Length.")
+    try:
+        length = int(handler.headers["Content-Length"])
+    except ValueError:
+        length = -1
+    if length <= 0 or not ctype.lower().startswith("multipart/form-data") or "boundary=" not in ctype.lower():
+        handler._discard_body()
+        return _refuse(handler, 400, "bad_request", "Send the file as multipart/form-data.")
+    if length > limit:
+        handler.close_connection = True
+        return _refuse(handler, 413, "too_big", f"The file is too big: at most {LIMITS[step] >> 20} MB.")
+    try:
+        conn, token = _connect(UPLOAD_WAIT_S)
+    except voice_service.ServiceDown as e:
+        handler._discard_body()
+        return _down(handler, e)
+    try:
+        conn.putrequest("POST", f"/avatar/wizard/{draft}/{step}")
+        conn.putheader("Authorization", "Bearer " + token)
+        conn.putheader("Content-Type", ctype)
+        conn.putheader("Content-Length", str(length))
+        conn.endheaders()
+        left = length
+        try:
+            while left > 0:
+                piece = handler.rfile.read(min(CHUNK, left))
+                if not piece:
+                    break
+                left -= len(piece)
+                conn.send(piece)
+        except OSError:
+            pass                                       # the service answered early and closed; its answer is read below
+        if left > 0:
+            handler.close_connection = True
+        resp = conn.getresponse()
+        raw = resp.read(1 << 20)
+    except (OSError, http.client.HTTPException) as e:
+        handler.close_connection = True
+        return _down(handler, e)
+    finally:
+        conn.close()
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        body = {"error": "the voice service gave an answer that is not JSON"}
+    handler._json(resp.status, body if isinstance(body, dict) else {})
+
+
+def preview(handler) -> None:
+    """Relay the service's MJPEG stream until either side closes."""
+    try:
+        conn, token = _connect(STREAM_WAIT_S)               # also how long a stream may be silent before it is dropped
+    except voice_service.ServiceDown as e:
+        return _down(handler, e)
+    try:
+        conn.request("GET", "/avatar/preview.mjpg", headers={"Authorization": "Bearer " + token})
+        resp = conn.getresponse()
+        if resp.status != 200:
+            try:
+                body = json.loads(resp.read(1 << 16))
+            except ValueError:
+                body = {}
+            return handler._json(resp.status, body if isinstance(body, dict) else {})
+        handler.send_response(200)
+        handler.send_header("Content-Type", resp.getheader("Content-Type", "multipart/x-mixed-replace"))
+        handler.send_header("Cache-Control", "no-store")
+        handler.send_header("Connection", "close")
+        handler.end_headers()
+        handler.close_connection = True
+        while True:
+            piece = resp.read1(1 << 16)
+            if not piece:
+                break
+            handler.wfile.write(piece)
+            handler.wfile.flush()
+    except (OSError, http.client.HTTPException):
+        handler.close_connection = True              # the viewer left, or the service stopped
+    finally:
+        conn.close()
+
+
+def poster(handler, name: str) -> None:
+    try:
+        conn, token = _connect(10.0)
+    except voice_service.ServiceDown as e:
+        return _down(handler, e)
+    try:
+        conn.request("GET", f"/personas/{name}/poster", headers={"Authorization": "Bearer " + token})
+        resp = conn.getresponse()
+        data = resp.read(IMAGE_MAX + 1)
+    except (OSError, http.client.HTTPException) as e:
+        return _down(handler, e)
+    finally:
+        conn.close()
+    if resp.status != 200 or len(data) > IMAGE_MAX or resp.getheader("Content-Type") != "image/jpeg":
+        return _refuse(handler, 404 if resp.status in (200, 404) else resp.status, "not_found", "That avatar has no portrait.")
+    handler.send_response(200)
+    handler.send_header("Content-Type", "image/jpeg")
+    handler.send_header("Content-Length", str(len(data)))
+    handler.send_header("Cache-Control", "no-cache")
+    handler.end_headers()
+    handler.wfile.write(data)
+
+
+# ---------------------------------------------------------------------------------------- the handler's entry points
+def get(handler, path: str) -> None:
+    if not _local(handler):
+        return
+    if path == BASE:
+        return handler._json(200, view())
+    if path == PREVIEW:
+        return preview(handler)
+    m = POSTER.fullmatch(path)
+    if m:
+        return poster(handler, m.group(1))
+    _refuse(handler, 404, "not_found", "not found")
+
+
+def post(handler, path: str) -> None:
+    if not _local(handler):
+        handler._discard_body()
+        return
+    m = UPLOAD.fullmatch(path)
+    if m:
+        return upload(handler, m.group(2), m.group(1))
+    if path != BASE:
+        handler._discard_body()
+        return _refuse(handler, 404, "not_found", "not found")
+    try:
+        try:
+            raw = handler._body(1 << 12)
+        except Exception as e:                           # noqa: BLE001 (the handler's BadBody: it carries the status to send)
+            if not hasattr(e, "status"):
+                raise
+            return handler._json(e.status, {"error": {"message": str(e)}})
+        req = json.loads(raw or b"{}")
+        handler._json(200, update(req))
+    except voice_settings.VoiceSettingsError as e:
+        handler._json(400, {"error": e.body()})
+    except ValueError:
+        handler._json(400, {"error": {"type": "invalid_request_error", "message": "the body is not valid JSON"}})

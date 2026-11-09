@@ -125,9 +125,10 @@ class VoiceTabPageTest(unittest.TestCase):
         for key in re.findall(r'"(vt\.[\w.]+)": "([^"]*)"', I18N):
             self.assertIsNone(re.search("[\U0001F300-\U0001FAFF☀-➿]", key[1]), key[0])
 
-    def test_the_avatar_card_is_a_placeholder_that_says_when_it_shows(self):
-        self.assertIn('"vt.avatar.off"', JS)
-        self.assertIn("The avatar is shown here when the avatar function is loaded.", I18N)
+    def test_the_avatar_card_is_drawn_by_its_own_script(self):
+        self.assertIn("window.VoiceAvatar.mount(parts.avatar.s, avatarCtx)", JS)
+        self.assertIn("window.VoiceAvatar.update()", JS)
+        self.assertNotIn("vt.avatar.off", JS)
 
 
 if __name__ == "__main__":
