@@ -21,7 +21,7 @@ from serve.api.responses import error_body as responses_error_body
 from tadamoo import exec_level, nextsteps, persistence, side_uses
 from tadamoo import telegram as tg
 from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, voice_api, voice_compat, voice_import, voice_loader, voice_service, voice_settings
-from serve import voice_gateway_relay
+from serve import voice_avatar, voice_gateway_relay
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX, checked_sampling
 from serve.engine.vision import VISION_MODES
@@ -665,6 +665,9 @@ def make_handler(svc: Service, remote: bool = False):
                         voice_gateway_relay.relay(self, (lambda: bool(svc.api_key and key_matches(given, svc.api_key)) or (keys is not None and keys.verify(given) is not None)) if self.remote_listener else None)
                     else:
                         self._json(200, voice_gateway_relay.info([{"slug": x["slug"], "name": x["name"]} for x in self._personas().store.list()]))     # names only: a phone may choose one, not read it
+            elif path == voice_avatar.BASE or path.startswith(voice_avatar.BASE + "/"):      # the avatar: settings, the preview stream, a portrait (serve/voice_avatar.py)
+                if self._authorized():
+                    voice_avatar.get(self, path)
             elif path in ("/api/voice/models", "/api/voice/download/plan", "/api/voice/download/status", "/api/voice/service", "/api/voice/functions", "/api/voice/brain", "/api/voice/telephony"):
                 if self._authorized():
                     if not settings.is_loopback(self.client_address[0]):
@@ -903,6 +906,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path.startswith("/api/rag/"):
                 self._rag_route(path, "POST")
+                return
+            if path == voice_avatar.BASE or path.startswith(voice_avatar.BASE + "/"):
+                voice_avatar.post(self, path)
                 return
             if path.startswith("/api/voice/"):
                 self._voice_post(path)

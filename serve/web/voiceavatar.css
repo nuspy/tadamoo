@@ -1,0 +1,35 @@
+/* The Avatar card of the Voice tab and its creation wizard. Mobile first: one column, targets of 44px or more; the picture never overflows. */
+.vt-grid > #vt-card-avatar { grid-column: 1 / -1; }
+.va-part { display: grid; gap: 12px; min-width: 0; }
+.va-part:empty { display: none; }
+.va-h { margin: 0; font: 600 16px/1.3 var(--font-sans); color: var(--fg); overflow-wrap: anywhere; }
+.va-stage { display: grid; gap: 8px; justify-items: center; min-width: 0; }
+.va-live { display: block; width: 100%; max-width: 480px; height: auto; aspect-ratio: 1 / 1; object-fit: contain; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.va-wait[hidden] { display: none; }
+.va-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.va-row { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 8px 12px; align-items: start; min-width: 0; padding: 12px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--panel); }
+.va-row > *:not(.va-thumb):not(.va-info) { grid-column: 1 / -1; }
+.va-row .va-acts { grid-column: 1 / -1; }
+.va-thumb { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); }
+.va-info { display: grid; gap: 6px; min-width: 0; }
+.va-name { color: var(--fg); overflow-wrap: anywhere; }
+.va-acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
+.va-prog { margin: 0; font-size: 14px; color: var(--fg-2); overflow-wrap: anywhere; }
+.va-bar { width: 100%; height: 10px; accent-color: var(--accent); }
+.va-use { display: grid; gap: 8px; min-width: 0; }
+.va-ask { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.va-ask .vt-note { flex: 1 1 100%; }
+.va-wiz { display: grid; gap: 12px; min-width: 0; padding: 14px; border: 1px solid var(--accent); border-radius: 10px; background: var(--surface); }
+.va-wiz-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.va-file { display: grid; gap: 8px; min-width: 0; }
+.va-file input[type="file"], .va-wiz input[type="text"] { width: 100%; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font: 16px/1.4 var(--font-sans); }
+.va-nav { display: flex; flex-wrap: wrap; gap: 8px; }
+.va-result { display: grid; gap: 12px; min-width: 0; }
+.va-mouth-wrap { position: relative; width: 100%; max-width: 320px; touch-action: manipulation; }
+.va-poster { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 10px; cursor: crosshair; }
+.va-dot { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; border: 2px solid #fff; background: var(--accent); pointer-events: none; }
+.va-dot[hidden] { display: none; }
+.vt-root .va-wiz .btn, .vt-root .va-row .btn { justify-self: auto; }
+@media (min-width: 700px) { .va-row { grid-template-columns: 72px minmax(0, 1fr) auto; } .va-row > .va-acts { grid-column: auto; justify-content: flex-end; } .va-row > *:not(.va-thumb):not(.va-info):not(.va-acts) { grid-column: 1 / -1; } }
+@media (max-width: 520px) { .va-nav .btn, .va-acts .btn { flex: 1 1 100%; } }
+@media (prefers-reduced-motion: reduce) { .va-bar { transition: none; } }

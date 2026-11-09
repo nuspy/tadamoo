@@ -249,7 +249,7 @@ class ProxyTests(ServerBase):
         self.assertNotIn(self.token, json.dumps(out))
 
     def test_anything_not_on_the_list_is_refused_and_nothing_is_sent(self):
-        for method, path in (("GET", "/config"), ("POST", "/config"), ("POST", "/call"), ("POST", "/hangup"), ("GET", "/personas"), ("POST", "/avatar/start"),
+        for method, path in (("GET", "/config"), ("POST", "/config"), ("POST", "/call"), ("POST", "/hangup"), ("GET", "/personas"), ("POST", "/avatar/stop"),
                              ("POST", "/components/suspend"), ("POST", "/functions/apply"), ("POST", "/external/call"), ("GET", "/status/../config"),
                              ("GET", "/session/start"), ("POST", "/status"), ("get", "/status"), ("GET", "status"), ("DELETE", "/status"), ("GET", "http://evil/x"),
                              ("GET", "/status?x=1"), ("POST", "/diag/echo"), ("POST", "/session/language"), ("GET", "/health")):
@@ -291,7 +291,10 @@ class ProxyTests(ServerBase):
     def test_the_list_is_what_the_page_needs_and_no_more(self):
         self.assertEqual(sorted(f"{m} {p}" for m, p in voice_proxy.ROUTES),
                          sorted(["GET /status", "GET /functions", "GET /brain/state", "GET /session/state", "GET /diag/brain", "POST /session/start",
-                                 "POST /session/stop", "POST /session/new", "POST /brain/say", "GET /call/approvals", "GET /call/audit", "GET /gateway"]))
+                                 "POST /session/stop", "POST /session/new", "POST /brain/say", "GET /call/approvals", "GET /call/audit", "GET /gateway",
+                                 # the avatar (serve/tests/test_voice_avatar_proxy.py)
+                                 "GET /avatar/state", "GET /avatar/list", "GET /avatar/output", "GET /avatar/prepare", "POST /avatar/prepare", "POST /avatar/prepare/cancel",
+                                 "POST /avatar/speak", "POST /avatar/start", "POST /avatar/wizard/start"]))
 
 
 if __name__ == "__main__":
