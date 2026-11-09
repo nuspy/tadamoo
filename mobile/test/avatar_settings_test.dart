@@ -1,6 +1,7 @@
 import 'package:basalt_mobile/src/audio_route.dart';
 import 'package:basalt_mobile/src/avatar_controller.dart';
 import 'package:basalt_mobile/src/avatar_engines.dart';
+import 'package:basalt_mobile/src/avatar_hub.dart';
 import 'package:basalt_mobile/src/avatar_settings.dart';
 import 'package:basalt_mobile/src/gateway_client.dart';
 import 'package:basalt_mobile/src/i18n.dart';
@@ -37,7 +38,7 @@ void main() {
       home: Scaffold(
         body: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
-          child: AvatarVoiceSettings(settings: settings, route: route, loadPersonas: () async => personas),
+          child: AvatarVoiceSettings(settings: settings, route: route, hub: EngineHub(settings: settings), loadPersonas: () async => personas),
         ),
       ),
     ));
@@ -95,29 +96,26 @@ void main() {
     await show(tester);
     for (final e in avatarEngines) {
       expect(find.text(Texts.t(e.nameKey)), findsOneWidget);
-      expect(find.text(Texts.t(e.weightKey)), findsOneWidget);
-      expect(find.text(Texts.t(e.noteKey)), findsOneWidget);
+      expect(find.text(Texts.t(e.weightKey)), findsWidgets);
+      expect(find.text(Texts.t(e.noteKey)), findsWidgets);
     }
     expect(find.text('Not available in this build'), findsNWidgets(2));
-    expect(find.text('Only the video from the PC is available in this build.'), findsOneWidget);
     final handle = tester.ensureSemantics();
-    expect(tester.getSemantics(find.byKey(const ValueKey('engine-video'))), isSemantics(isSelected: true, isEnabled: true));
+    expect(tester.getSemantics(find.byKey(const ValueKey('engine-visemes'))), isSemantics(isSelected: true, isEnabled: true));
     expect(tester.getSemantics(find.byKey(const ValueKey('engine-ultralight'))), isSemantics(isEnabled: false));
     expect(tester.getSemantics(find.byKey(const ValueKey('engine-ultralight'))).label, contains('Not available in this build'));
     handle.dispose();
 
     await press(tester, find.byKey(const ValueKey('engine-ultralight')));
     await press(tester, find.byKey(const ValueKey('engine-feathertalk')));
-    expect(settings.avatarMode, 'video', reason: 'a disabled engine cannot be chosen');
+    expect(settings.avatarMode, 'visemes', reason: 'a disabled engine cannot be chosen');
 
     await press(tester, find.byKey(const ValueKey('engine-wav2lip')));
     expect(settings.avatarMode, 'wav2lip');
-    expect(find.textContaining('comes in a later phase'), findsOneWidget);
-    await press(tester, find.byKey(const ValueKey('engine-visemes')));
-    expect(settings.avatarMode, 'visemes');
     await press(tester, find.byKey(const ValueKey('engine-video')));
     expect(settings.avatarMode, 'video');
-    expect(find.textContaining('comes in a later phase'), findsNothing);
+    await press(tester, find.byKey(const ValueKey('engine-visemes')));
+    expect(settings.avatarMode, 'visemes');
   });
 
   testWidgets('the list is the data: every engine of avatarEngines has a row, and only the chosen engine is marked', (tester) async {
@@ -133,16 +131,16 @@ void main() {
 
   testWidgets('resolution and quality are saved, and the quality says what it means', (tester) async {
     await show(tester);
-    expect(settings.avatarResolution, 256);
+    expect(settings.avatarResolution, 240);
     await reveal(tester, find.byType(DropdownButtonFormField<int>));
     await tester.tap(find.byType(DropdownButtonFormField<int>));
     await tester.pumpAndSettle();
     for (final r in avatarResolutions) {
       expect(find.text('$r px'), findsWidgets);
     }
-    await tester.tap(find.text('128 px').last);
+    await tester.tap(find.text('144 px').last);
     await tester.pumpAndSettle();
-    expect(settings.avatarResolution, 128);
+    expect(settings.avatarResolution, 144);
 
     expect(find.textContaining('25 frames per second, about 800 kbit/s'), findsOneWidget);
     await tester.tap(find.byType(DropdownButtonFormField<AvatarQuality>));
@@ -152,7 +150,7 @@ void main() {
     expect(settings.avatarQuality, AvatarQuality.high);
     expect(find.textContaining('30 frames per second, about 1800 kbit/s'), findsOneWidget);
     final again = await AppSettings.load();
-    expect(again.avatarResolution, 128);
+    expect(again.avatarResolution, 144);
     expect(again.avatarQuality, AvatarQuality.high);
   });
 
@@ -252,7 +250,7 @@ void main() {
       await pumpEventQueue();
       expect(ch.kinds, contains('video_start'));
       final start = ch.last('video_start')!;
-      expect(start['resolution'], 256);
+      expect(start['resolution'], 240);
       expect(start['fps'], 25);
       expect(start['bitrate_kbps'], 800);
 

@@ -71,17 +71,32 @@ class _AvatarScreenState extends State<AvatarScreen> with WidgetsBindingObserver
     }
   }
 
+  /// What the PC said the avatar is drawn by (`engine`, `resolution` of `ready` and `render_mode`), in words.
+  String _engineLine() {
+    final g = c.client;
+    if (g.engine.isEmpty) return '';
+    final name = {'visemes': 'Visemes', 'wav2lip_gan96': 'Wav2Lip GAN 96'}[g.engine] ?? g.engine;
+    final h = int.tryParse(g.resolution) ?? 0;
+    return Texts.t(h > 0 ? 'avatar.engine.line' : 'avatar.engine.line.plain', [name, h]);
+  }
+
   String _note() {
     final g = c.client;
     if (!c.avatarOn) return Texts.t('avatar.off.note');
-    if (c.mode != 'video') return Texts.t('avatar.mode.later');
+    if (c.rendererNote.isNotEmpty) return c.rendererNote;
     if (g.status != GatewayStatus.ready) return '';
-    if (!c.devices.videoSupported) return Texts.t('avatar.video.unsupported');
-    if (g.videoReason == 'emergency_only') return Texts.t('avatar.video.emergency');
-    if (g.videoReason == 'no_webrtc') return Texts.t('avatar.video.nowebrtc');
-    if (g.videoReason == 'no_avatar' || !g.avatar) return Texts.t('avatar.novideo');
-    if (c.liveVideo == null) return Texts.t('avatar.video.wait', [g.videoDetail]);
-    return '';
+    if (c.renderer != null) return _engineLine();
+    final rm = g.renderMode;
+    if (rm == 'visemes' || rm == 'wav2lip') return Texts.t('avatar.render.preparing');
+    if (c.mode == 'video' || rm == 'video') {
+      if (!c.devices.videoSupported) return Texts.t('avatar.video.unsupported');
+      if (g.videoReason == 'emergency_only') return Texts.t('avatar.video.emergency');
+      if (g.videoReason == 'no_webrtc') return Texts.t('avatar.video.nowebrtc');
+      if (g.videoReason == 'no_avatar' || !g.avatar) return Texts.t('avatar.novideo');
+      if (c.liveVideo == null) return Texts.t('avatar.video.wait', [g.videoDetail]);
+      return '';
+    }
+    return Texts.t('avatar.render.none');
   }
 
   IconData _phaseIcon() {
@@ -113,16 +128,19 @@ class _AvatarScreenState extends State<AvatarScreen> with WidgetsBindingObserver
   Widget _stage(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final video = c.liveVideo;
+    final drawn = c.renderer;
     final idle = c.client.phase == Phase.idle;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(color: const Color(0xFF171C21), borderRadius: BorderRadius.circular(12)),
       clipBehavior: Clip.antiAlias,
-      child: video != null
-          ? video.view()
-          : Center(
-              child: Semantics(label: _phaseText(), child: Icon(_phaseIcon(), size: 64, color: idle ? scheme.outline : scheme.primary)),
-            ),
+      child: drawn != null
+          ? Semantics(label: _phaseText(), child: drawn.view())
+          : video != null
+              ? video.view()
+              : Center(
+                  child: Semantics(label: _phaseText(), child: Icon(_phaseIcon(), size: 64, color: idle ? scheme.outline : scheme.primary)),
+                ),
     );
   }
 

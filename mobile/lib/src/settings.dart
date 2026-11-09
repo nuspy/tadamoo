@@ -22,7 +22,7 @@ class AppSettings extends ChangeNotifier {
 
   /// The Avatar tab: how the avatar is drawn ('video' from the PC, 'wav2lip' or 'visemes' on the phone), who answers ('direct' or 'harness')
   /// and the personality ('' until the person chooses one; the PC's own default then stands).
-  String get avatarMode => _prefs.getString('avatarMode') ?? 'video';
+  String get avatarMode => _prefs.getString('avatarMode') ?? 'visemes';
   String get avatarBrain => _prefs.getString('avatarBrain') ?? '';
   String get avatarPersona => _prefs.getString('avatarPersona') ?? '';
 
@@ -34,6 +34,13 @@ class AppSettings extends ChangeNotifier {
   String get audioRoute => const ['speaker', 'bluetooth', 'earpiece'].contains(_prefs.getString('audioRoute')) ? _prefs.getString('audioRoute')! : 'speaker';
   bool get fullDuplexSpeaker => _prefs.getBool('fullDuplexSpeaker') ?? false;
   bool? get audioEchoCancel => _prefs.getBool('audioEchoCancel');
+
+  /// The folder of the avatar the PC last named, and the Wav2Lip self-test: the SHA-256 of the model that passed it on this phone ('' when
+  /// none did) with its speed.
+  String get avatarName => _prefs.getString('avatarName') ?? '';
+  String get wav2lipPassed => _prefs.getString('wav2lipPassed') ?? '';
+  double get wav2lipFps => _prefs.getDouble('wav2lipFps') ?? 0;
+  double get wav2lipMs => _prefs.getDouble('wav2lipMs') ?? 0;
 
   /// The role the person last chose for conversations in a folder ('' until they choose one).
   String get agentRole => _prefs.getString('agentRole') ?? '';
@@ -129,6 +136,19 @@ class AppSettings extends ChangeNotifier {
 
   Future<void> setAudioEchoCancel(bool value) async {
     await _prefs.setBool('audioEchoCancel', value);
+    notifyListeners();
+  }
+
+  Future<void> setAvatarName(String value) async {
+    await _prefs.setString('avatarName', value);
+    notifyListeners();
+  }
+
+  /// Keeps the outcome of the Wav2Lip self-test: `sha` is the model that passed, '' when it failed.
+  Future<void> setWav2lipTest({required String sha, required double fps, required double ms}) async {
+    await _prefs.setString('wav2lipPassed', sha);
+    await _prefs.setDouble('wav2lipFps', fps);
+    await _prefs.setDouble('wav2lipMs', ms);
     notifyListeners();
   }
 }

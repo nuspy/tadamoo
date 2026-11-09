@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'api.dart';
 import 'audio_route.dart';
+import 'avatar_hub.dart';
 import 'avatar_settings.dart';
 import 'capabilities_screen.dart';
 import 'chat_options.dart';
@@ -18,12 +19,15 @@ import 'voice.dart';
 
 /// The server's address and this phone's key come first and are always in view; the rest is the voice and the language.
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key, required this.settings, required this.voice, required this.route});
+  const SettingsScreen({super.key, required this.settings, required this.voice, required this.route, required this.hub});
   final AppSettings settings;
   final Voice voice;
 
   /// The audio routing the Avatar tab uses, so that the choice made here is the one in use there.
   final AudioRouteController route;
+
+  /// What this phone can draw on its own, for the animation system and the avatar test.
+  final EngineHub hub;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -206,7 +210,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const Divider(height: 32),
         Text(Texts.t('av.title'), style: theme.textTheme.titleMedium),
         const SizedBox(height: 8),
-        AvatarVoiceSettings(settings: widget.settings, route: widget.route, loadPersonas: _loadPersonas),
+        AvatarVoiceSettings(settings: widget.settings, route: widget.route, hub: widget.hub, loadPersonas: _loadPersonas),
         const Divider(height: 32),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,

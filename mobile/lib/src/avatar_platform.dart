@@ -45,6 +45,12 @@ class _PcmOut implements PcmPlayer {
   void setGain(double gain) => _gain = gain.clamp(0.0, 1.0);
 
   @override
+  int get queuedMs => 0;
+
+  @override
+  int get playedMs => 0;
+
+  @override
   Future<void> begin(int sampleRate) async {
     if (_rate != sampleRate) {
       await FlutterPcmSound.setup(sampleRate: sampleRate, channelCount: 1);

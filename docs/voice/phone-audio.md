@@ -70,3 +70,12 @@ communication devices. A report with an echo canceller unlocks the speakerphone'
 - That the echo canceller removes the avatar's voice from the microphone on the speakerphone, and how much.
 - That the Kotlin sources compile: they were written without a build.
 - Whether the detector's threshold (RMS 0.03) is right for every phone and room.
+
+## The avatar's picture and the voice clock
+
+The mouth is drawn on the clock of the voice being heard, not of the bytes arriving. `ChannelPcmPlayer` counts the milliseconds of audio handed to the
+Kotlin track since it was created (`queuedMs`) and asks the track how many it has played (`playPosition`, the track's playback head), between two answers the
+clock advances by the phone's own. A `visemes` timeline is placed at the `queuedMs` of the moment it arrives, so sentences follow each other on one clock; an
+interrupt releases the track and both clocks start again. With the plugin player as fallback there is no position: the clock is the time since the audio
+was handed over, less an assumed 120 ms. Wav2Lip frames carry their time in the reply and are put on the same clock. Not proven: the real delay between
+the track's head and the sound at the speaker or on a Bluetooth headset, which differs by route (the picture is drawn 40 ms ahead of the sound for the screen).

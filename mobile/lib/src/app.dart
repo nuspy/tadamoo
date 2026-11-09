@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'api.dart';
 import 'avatar_controller.dart';
 import 'avatar_devices.dart';
+import 'avatar_hub.dart';
 import 'avatar_screen.dart';
 import 'conversations.dart';
 import 'i18n.dart';
@@ -12,10 +13,13 @@ import 'settings_screen.dart';
 import 'voice.dart';
 
 class BasaltApp extends StatelessWidget {
-  const BasaltApp({super.key, required this.settings, required this.voice, required this.avatar});
+  const BasaltApp({super.key, required this.settings, required this.voice, required this.avatar, this.hub});
   final AppSettings settings;
   final Voice voice;
   final AvatarDevices avatar;
+
+  /// What the phone can draw on its own; without it the avatar is the PC's video only.
+  final EngineHub? hub;
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +32,7 @@ class BasaltApp extends StatelessWidget {
           title: 'TaDaMoo',
           debugShowCheckedModeBanner: false,
           theme: ThemeData(colorScheme: scheme, useMaterial3: true, scaffoldBackgroundColor: const Color(0xFF0E1114), cardColor: const Color(0xFF171C21)),
-          home: Home(settings: settings, voice: voice, avatar: avatar),
+          home: Home(settings: settings, voice: voice, avatar: avatar, hub: hub),
         );
       },
     );
@@ -36,10 +40,11 @@ class BasaltApp extends StatelessWidget {
 }
 
 class Home extends StatefulWidget {
-  const Home({super.key, required this.settings, required this.voice, required this.avatar});
+  const Home({super.key, required this.settings, required this.voice, required this.avatar, this.hub});
   final AppSettings settings;
   final Voice voice;
   final AvatarDevices avatar;
+  final EngineHub? hub;
 
   @override
   State<Home> createState() => _HomeState();
@@ -54,7 +59,7 @@ class _HomeState extends State<Home> {
   @override
   void initState() {
     super.initState();
-    avatarController = AvatarController(api: Api(widget.settings), settings: widget.settings, devices: widget.avatar);
+    avatarController = AvatarController(api: Api(widget.settings), settings: widget.settings, devices: widget.avatar, hub: widget.hub);
     if (!widget.settings.configured) tab = settingsTab;
   }
 
@@ -72,7 +77,7 @@ class _HomeState extends State<Home> {
       ConversationsPane(api: api, settings: widget.settings, voice: widget.voice, agent: true),
       AvatarScreen(controller: avatarController, active: tab == avatarTab),
       JobsScreen(api: api),
-      SettingsScreen(settings: widget.settings, voice: widget.voice, route: avatarController.route),
+      SettingsScreen(settings: widget.settings, voice: widget.voice, route: avatarController.route, hub: avatarController.hub),
     ];
     return Scaffold(
       body: SafeArea(bottom: false, child: IndexedStack(index: tab, children: pages)),

@@ -17,6 +17,10 @@ abstract class PcmPlayer {
   /// Drops what has not been played yet.
   Future<void> cancel();
 
+  /// Audio handed over since the track began, and the part of it heard so far, in milliseconds on one clock: the picture is drawn by it.
+  int get queuedMs;
+  int get playedMs;
+
   /// The level of the voice as a fraction of the normal one (1 is normal); it applies to what is played from now on.
   void setGain(double gain);
 }

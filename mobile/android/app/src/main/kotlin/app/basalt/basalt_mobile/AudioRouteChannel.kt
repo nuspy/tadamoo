@@ -77,6 +77,7 @@ class AudioRouteChannel(private val activity: Activity, messenger: BinaryMesseng
                     player.setGain((call.argument<Double>("gain") ?: 1.0).toFloat())
                     result.success(null)
                 }
+                "playPosition" -> result.success(player.positionMs())
                 "playCancel" -> {
                     player.release()
                     result.success(null)

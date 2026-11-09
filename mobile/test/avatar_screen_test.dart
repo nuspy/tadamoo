@@ -1,20 +1,25 @@
+import 'package:basalt_mobile/src/avatar_assets.dart';
 import 'package:basalt_mobile/src/avatar_controller.dart';
+import 'package:basalt_mobile/src/avatar_hub.dart';
 import 'package:basalt_mobile/src/avatar_screen.dart';
 import 'package:basalt_mobile/src/gateway_client.dart';
 import 'package:basalt_mobile/src/i18n.dart';
 import 'package:basalt_mobile/src/settings.dart';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'avatar_fakes.dart';
+import 'render_fakes.dart';
 
 void main() {
   late FakeDevices devices;
   late FakeConnector connector;
   late AvatarController c;
 
-  Future<FakeChannel> show(WidgetTester tester, {Size size = const Size(360, 640), double text = 1.0, double keyboard = 0, Map<String, Object> prefs = const {}, Map<String, dynamic>? ready}) async {
+  Future<FakeChannel> show(WidgetTester tester, {Size size = const Size(360, 640), double text = 1.0, double keyboard = 0, Map<String, Object> prefs = const {}, Map<String, dynamic>? ready, EngineHub? hub, RendererFactory? factory}) async {
     Texts.use('en');
     tester.view.physicalSize = Size(size.width * 3, size.height * 3);
     tester.view.devicePixelRatio = 3;
@@ -29,6 +34,8 @@ void main() {
       settings: settings,
       devices: devices,
       client: GatewayClient(connector: connector.call, wait: (d) async {}),
+      hub: hub == null ? null : EngineHub(settings: settings, store: hub.store),
+      rendererFactory: factory,
     );
     addTearDown(c.dispose);
     await tester.pumpWidget(MaterialApp(
@@ -38,6 +45,10 @@ void main() {
     ));
     await tester.pump();
     await tester.pump();
+    for (var i = 0; i < 100 && connector.channels.isEmpty; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await tester.pump();
+    }
     connector.channel.say(ready ?? readyMessage);
     await tester.pump();
     await tester.pump();
@@ -244,11 +255,42 @@ void main() {
     expect(find.textContaining('Preparing the avatar'), findsNothing);
   });
 
-  testWidgets('an engine without a runtime on the phone says so on the tab', (tester) async {
-    final ch = await show(tester, prefs: {'flutter.avatarMode': 'wav2lip'});
-    expect(find.textContaining('Not available in this build'), findsOneWidget);
+  testWidgets('with nothing to draw on the phone and the PC saying none, the tab says it is voice only and asks for no video', (tester) async {
+    final ch = await show(tester, prefs: {'flutter.avatarMode': 'wav2lip'}, ready: {...readyMessage, 'render_mode': 'none', 'render_modes': []});
+    expect(find.textContaining('No avatar to show: voice only'), findsOneWidget);
     expect(ch.kinds, isNot(contains('video_start')));
     expect(find.text('Hold to talk'), findsOneWidget);
+  });
+
+  testWidgets('when the phone draws the avatar the tab shows it and not the video, and says what draws it and at what size', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final bare = await AppSettings.load();
+    final dir = Directory.systemTemp.createTempSync('basalt_tab');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    late AvatarAssetStore store;
+    await tester.runAsync(() async {
+      final source = FakeAssetSource()..serve(FakeAvatarFiles('ada'));
+      store = AvatarAssetStore(root: dir, source: source);
+      await store.sync('ada');
+    });
+    addTearDown(store.dispose);
+    final ch = await show(
+      tester,
+      prefs: {'flutter.avatarName': 'ada'},
+      ready: {...readyMessage, 'avatar': true, 'render_mode': 'visemes', 'render_modes': ['visemes', 'video'], 'engine': 'visemes', 'resolution': 240},
+      hub: EngineHub(settings: bare, store: store),
+      factory: (mode, name, why) async => FakeRenderer(mode),
+    );
+    for (var i = 0; i < 100 && find.byKey(const ValueKey('renderer-visemes')).evaluate().isEmpty; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await tester.pump();
+    }
+    expect(find.byKey(const ValueKey('renderer-visemes')), findsOneWidget);
+    expect(find.text('Drawn by Visemes, 240 px.'), findsOneWidget);
+    expect(find.byKey(const ValueKey('avatar-video')), findsNothing);
+    expect(ch.kinds, isNot(contains('video_start')), reason: 'the video is the emergency only');
+    expect(find.text('Hold to talk'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('holding the bar talks and releasing sends', (tester) async {

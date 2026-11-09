@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'audio_route.dart';
+import 'avatar_assets.dart';
 import 'avatar_engines.dart';
+import 'avatar_hub.dart';
 import 'i18n.dart';
 import 'settings.dart';
 
@@ -10,9 +12,12 @@ import 'settings.dart';
 /// answers by default, where the sound goes and the audio test. Everything is saved on the phone; the Avatar tab sends what the PC must
 /// know (the personality, who answers, the video hints) when it is connected.
 class AvatarVoiceSettings extends StatefulWidget {
-  const AvatarVoiceSettings({super.key, required this.settings, required this.route, required this.loadPersonas});
+  const AvatarVoiceSettings({super.key, required this.settings, required this.route, required this.hub, required this.loadPersonas});
   final AppSettings settings;
   final AudioRouteController route;
+
+  /// What this phone can draw: the avatar's files, the model, the self-test.
+  final EngineHub hub;
 
   /// The PC's personalities as `{slug, name}`; may fail or be empty (the PC's own personality stays available).
   final Future<List<Map<String, String>>> Function() loadPersonas;
@@ -26,6 +31,7 @@ class _AvatarVoiceSettingsState extends State<AvatarVoiceSettings> {
 
   AppSettings get s => widget.settings;
   AudioRouteController get route => widget.route;
+  EngineHub get hub => widget.hub;
 
   @override
   void initState() {
@@ -78,23 +84,135 @@ class _AvatarVoiceSettingsState extends State<AvatarVoiceSettings> {
     );
   }
 
+  /// The honest line of an engine: what it needs on this phone, or that it is ready.
+  String _status(AvatarEngine e) {
+    final st = hub.status(e);
+    final store = hub.store;
+    switch (st) {
+      case EngineStatus.ready:
+        if (e.id == 'wav2lip' && s.wav2lipFps > 0) return Texts.t('av.st.ready.fps', [s.wav2lipFps.toStringAsFixed(1)]);
+        return Texts.t('av.st.ready');
+      case EngineStatus.needsAssets:
+        return hub.avatarName.isEmpty ? Texts.t('av.st.assets.open') : Texts.t('av.st.assets');
+      case EngineStatus.needsModel:
+        return store != null && store.modelStage == ModelStage.failed ? Texts.t('av.st.model.failed', [store.modelReason]) : Texts.t('av.st.model');
+      case EngineStatus.downloading:
+        if (e.id == 'wav2lip' && store != null) return Texts.t('av.st.downloading', ['${(store.modelGot * 100 ~/ (store.modelTotal == 0 ? 1 : store.modelTotal))} %']);
+        return Texts.t('av.st.downloading', ['']);
+      case EngineStatus.notTested:
+        return Texts.t('av.st.nottested');
+      case EngineStatus.testing:
+        return Texts.t('av.st.testing');
+      case EngineStatus.failed:
+        return Texts.t('av.st.failed', [hub.lastTest?.reason ?? '']);
+      case EngineStatus.noRuntime:
+        return Texts.t('av.st.noruntime');
+      case EngineStatus.unavailable:
+        return Texts.t('av.engine.na');
+    }
+  }
+
+  /// The weight line: the facts known (the model's size, the assets on the phone), or that it is not measured.
+  String _weight(AvatarEngine e) {
+    if (e.id == 'visemes') {
+      final bytes = hub.assetBytes();
+      return bytes > 0 ? Texts.t('eng.visemes.w.ready', [(bytes / 1024).round()]) : Texts.t(e.weightKey);
+    }
+    return Texts.t(e.weightKey);
+  }
+
+  /// The button that gets what an engine needs, when it can be got from here.
+  Widget? _fetchButton(AvatarEngine e) {
+    final st = hub.status(e);
+    if (e.id == 'visemes' && st == EngineStatus.needsAssets && hub.avatarName.isNotEmpty) {
+      return TextButton.icon(
+        key: const ValueKey('engine-visemes-fetch'),
+        style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+        onPressed: () => hub.fetchAssets(hub.avatarName),
+        icon: const Icon(Icons.download),
+        label: Text(Texts.t('av.dl.assets')),
+      );
+    }
+    if (e.id == 'wav2lip') {
+      if (st == EngineStatus.needsModel) {
+        return TextButton.icon(
+          key: const ValueKey('engine-wav2lip-fetch'),
+          style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+          onPressed: hub.downloadModel,
+          icon: const Icon(Icons.download),
+          label: Text(Texts.t('av.dl.model')),
+        );
+      }
+      if (st == EngineStatus.needsAssets && hub.avatarName.isNotEmpty) {
+        return TextButton.icon(
+          key: const ValueKey('engine-wav2lip-fetch'),
+          style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+          onPressed: () => hub.fetchAssets(hub.avatarName),
+          icon: const Icon(Icons.download),
+          label: Text(Texts.t('av.dl.assets')),
+        );
+      }
+    }
+    return null;
+  }
+
   Widget _engines() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final e in avatarEngines)
+        for (final e in avatarEngines) ...[
           _option(
             key: ValueKey('engine-${e.id}'),
             selected: e.selectable && s.avatarMode == e.id,
             enabled: e.selectable,
             title: Texts.t(e.nameKey),
-            lines: [
-              Texts.t(e.weightKey),
-              Texts.t(e.noteKey),
-              if (!e.selectable) Texts.t('av.engine.na') else if (s.avatarMode == e.id && !e.hasRuntime) Texts.t('av.engine.later'),
-            ],
+            lines: [_weight(e), Texts.t(e.noteKey), if (e.id != 'video') _status(e)],
             onTap: () => s.setAvatarMode(e.id),
           ),
+          if (_fetchButton(e) case final button?) Align(alignment: Alignment.centerLeft, child: button),
+        ],
+      ],
+    );
+  }
+
+  Widget _avatarTest() {
+    final r = hub.lastTest;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(Texts.t('av.atest.help'), style: Theme.of(context).textTheme.bodySmall),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            key: const ValueKey('avatar-test'),
+            style: OutlinedButton.styleFrom(minimumSize: const Size(48, 48)),
+            onPressed: hub.testing ? null : hub.runTest,
+            icon: hub.testing ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.speed),
+            label: Text(hub.testing ? Texts.t('av.atest.running') : Texts.t('av.atest')),
+          ),
+        ),
+        if (r != null) ...[
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(8)),
+            child: SelectableText(r.toText(), key: const ValueKey('avatar-test-report'), style: const TextStyle(fontFamily: 'monospace', fontSize: 12, height: 1.4)),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              key: const ValueKey('avatar-test-copy'),
+              style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: r.toText()));
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(Texts.t('av.test.copied'))));
+              },
+              icon: const Icon(Icons.copy),
+              label: Text(Texts.t('av.test.copy')),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -193,7 +311,7 @@ class _AvatarVoiceSettingsState extends State<AvatarVoiceSettings> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return ListenableBuilder(
-      listenable: Listenable.merge([s, route]),
+      listenable: Listenable.merge([s, route, hub, if (hub.store != null) hub.store!]),
       builder: (context, _) {
         final quality = s.avatarQuality;
         final aec = s.audioEchoCancel == true;
@@ -212,12 +330,11 @@ class _AvatarVoiceSettingsState extends State<AvatarVoiceSettings> {
             const SizedBox(height: 8),
             Text(Texts.t('av.engine'), style: theme.textTheme.titleSmall),
             Text(Texts.t('av.engine.help'), style: theme.textTheme.bodySmall),
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(Texts.t('av.engine.only'), key: const ValueKey('engine-only'), style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
-            ),
             const SizedBox(height: 4),
             _engines(),
+            const SizedBox(height: 8),
+            Text(Texts.t('av.atest'), style: theme.textTheme.titleSmall),
+            _avatarTest(),
             const SizedBox(height: 12),
             DropdownButtonFormField<int>(
               key: ValueKey('res-${s.avatarResolution}'),
