@@ -36,6 +36,10 @@
 .pe-memory .me-edit select { width: auto; max-width: 100%; }
 .pe-memory .me-nbar .btn, .pe-memory .me-edit .btn, .pe-memory .me-add .btn { min-height: 44px; }
 .pe-memory .pe-bar { margin-top: 14px; }
+.pe-learn { margin: 0 0 16px; padding: 12px; border: 1px solid var(--line-soft); border-radius: 8px; }
+.pe-switch { display: flex; align-items: center; gap: 12px; min-height: 44px; font-weight: 600; color: var(--fg); cursor: pointer; }
+.pe-switch input { flex: none; width: 24px; height: 24px; margin: 0; accent-color: var(--accent); }
+.pe-learn .pe-bar { margin-top: 8px; }
 @media (min-width: 900px) { .pe-layout { grid-template-columns: 260px minmax(0, 1fr); } }
 @media (max-width: 520px) { .pe-side, .pe-main { padding: 12px; } .pe-bar .btn { flex: 1 1 100%; } .pe-memory .me-add > * { flex-basis: 100%; } }
 @media (prefers-reduced-motion: reduce) { .pe-root *, .pe-root *::before, .pe-root *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
