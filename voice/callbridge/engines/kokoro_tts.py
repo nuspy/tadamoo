@@ -411,6 +411,8 @@ class KokoroTtsEngine:
 
     def synth(self, text: str, voice: str, lang: str, speed: float):
         from .device import resolve_device
+        from .kokoro_lang import kokoro_lang
+        lang = kokoro_lang(lang)
         if resolve_device(self.device, self.memory) == "cuda":
             return self._synth_helper(text, voice, lang, speed)
         self.load()

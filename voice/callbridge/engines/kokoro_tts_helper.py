@@ -33,6 +33,8 @@ import os
 import struct
 import sys
 
+from kokoro_lang import kokoro_lang      # next to this script; the same mapping as the engine
+
 # --- protezione dello stdout binario (PRIMA di importare qualunque libreria) ---
 _BINARY_OUT = sys.stdout.buffer
 sys.stdout = sys.stderr
@@ -165,7 +167,7 @@ def main() -> int:
             samples, sr = kok.create(
                 testo, voice=req.get("voice") or "if_sara",
                 speed=float(req.get("speed") or 1.0),
-                lang=req.get("lang") or "it")
+                lang=kokoro_lang(req.get("lang") or "it"))
             _write(samples, sr)
         except Exception as e:  # noqa: BLE001 - una sintesi fallita non uccide l'helper
             log(f"sintesi fallita per {testo[:60]!r}: {e}")
