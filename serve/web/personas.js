@@ -9,6 +9,7 @@
 
   const KEY = "tadamoo.chat.persona", ARM_MS = 4000, SHOWN_LANGS = [["", ""], ["en", "English"], ["it", "Italiano"], ["fr", "Français"], ["de", "Deutsch"], ["es", "Español"], ["pt", "Português"]];
   let list = [], limits = { name: 40, personality: 8000, system_prompt: 8000, profile: 1500, voice: 80, avatar: 200 }, denied = false, pending = "";
+  let archives = new Map();                                           // archive id -> name, from the list the Knowledge tab uses
   let S = null, chosen = "", creating = false, detail = null, note = "", noteBad = false, armed = "", armTimer = 0, editing = "", fKind = "", fSection = "", query = "", finding = 0;
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -110,8 +111,14 @@
     const r = await api("GET", `api/personas/${encodeURIComponent(chosen)}?${q}`);
     if (!r.ok) { say(why(r), true); detail = null; if (r.status === 404) chosen = ""; paint(); return; }
     detail = r.data;
+    if (detail.persona.knowledge && detail.persona.knowledge.length) await loadArchives();
     paint();
   }
+  async function loadArchives() {
+    const r = await api("GET", "api/rag");
+    archives = new Map(r.ok ? (r.data.archives || []).filter(a => a && typeof a.id === "string" && typeof a.name === "string" && a.name).map(a => [a.id, a.name]) : []);
+  }
+  const archiveName = id => archives.get(id) || id;                    // an archive the list does not know keeps its id
   async function refresh() {
     const r = await loadList();
     if (!r.ok) { S = null; say(why(r), true); paint(); return; }
@@ -159,7 +166,7 @@
       field("pe-f-system", T("pe.f.system"), T("pe.f.system.help"), system), counters[0],
       field("pe-f-talk", T("pe.f.personality"), T("pe.f.personality.help"), talk), counters[1],
       field("pe-f-profile", T("pe.f.profile"), T("pe.f.profile.help"), profile), counters[2]);
-    if (p.knowledge && p.knowledge.length) form.append(el("p", "pe-help", T("pe.f.knowledge", p.knowledge.join(", "))));
+    if (p.knowledge && p.knowledge.length) form.append(el("p", "pe-help", T("pe.f.knowledge", p.knowledge.map(archiveName).join(", "))));
     form.onsubmit = async e => {
       e.preventDefault();
       const body = { name: name.value.trim(), language: lang.value, voice: { engine: engine.value.trim(), voice: voice.value.trim() }, avatar: avatar.value.trim(),

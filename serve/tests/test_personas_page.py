@@ -1,9 +1,14 @@
 """Settings > Personalities and the menu in the header of Chat and Code: the markup, the scripts that use the routes, and the texts."""
+import json
 import re
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 
-WEB = Path(__file__).resolve().parent.parent / "web"
+HERE = Path(__file__).resolve().parent
+WEB = HERE.parent / "web"
+NODE = shutil.which("node")
 HTML = (WEB / "index.html").read_text(encoding="utf-8")
 JS = (WEB / "personas.js").read_text(encoding="utf-8")
 CSS = (WEB / "personas.css").read_text(encoding="utf-8")
@@ -44,6 +49,19 @@ class PersonasPageTest(unittest.TestCase):
         for banned in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function"):
             self.assertNotIn(banned, JS)
         self.assertIn("textContent = text", JS)
+
+    def test_the_linked_archives_are_looked_up_by_name_in_the_list_the_knowledge_tab_uses(self):
+        self.assertIn('api("GET", "api/rag")', JS)
+        self.assertIn('p.knowledge.map(archiveName).join(", ")', JS)
+        self.assertEqual(I18N.count('"pe.f.knowledge"'), 2)                                         # the texts are unchanged: still one line, one list
+
+    @unittest.skipUnless(NODE, "node is needed to run the page on the stand-in DOM")
+    def test_the_line_of_linked_archives_shows_names_and_falls_back_to_ids_on_a_stand_in_dom(self):
+        out = subprocess.run([NODE, str(HERE / "personas_knowledge_dom_check.js")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        results = json.loads(out.stdout)
+        self.assertGreaterEqual(len(results), 5)
+        self.assertEqual([f"{r['name']}: {r['error']}" for r in results if not r["ok"]], [])
 
     def test_deleting_needs_two_presses_and_sends_the_confirmation(self):
         self.assertEqual(JS.count("{ confirm: true }"), 3)                                          # the personality, all its notes, and what was learned
