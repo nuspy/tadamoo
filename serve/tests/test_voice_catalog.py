@@ -10,8 +10,8 @@ from serve import voice_catalog as vc
 ROOT = Path(__file__).resolve().parents[2]
 SHA = re.compile(r"^[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
-SIZED = {"chatterbox", "xtts-v2", "cosyvoice-3"}                                                                          # entries whose pinned sources record each file's size
-PINNED = {"piper", "musetalk-v15", "sherpa-diarization", "multilingual-e5-small", "chatterbox", "xtts-v2", "cosyvoice-3"}              # entries whose Hugging Face sources are grounded
+SIZED = {"chatterbox", "xtts-v2", "cosyvoice-3", "qwen3tts-0.6b", "qwen3tts-1.7b"}                                                                          # entries whose pinned sources record each file's size
+PINNED = {"piper", "musetalk-v15", "sherpa-diarization", "multilingual-e5-small", "chatterbox", "xtts-v2", "cosyvoice-3", "qwen3tts-0.6b", "qwen3tts-1.7b"}              # entries whose Hugging Face sources are grounded
 CHOSEN_REPOS = {"rhasspy/piper-voices", "vivym/face-parsing-bisenet", "csukuangfj/sherpa-onnx-pyannote-segmentation-3-0",
                 "intfloat/multilingual-e5-small", "ResembleAI/chatterbox"}                                              # repositories chosen from a search, not named by the voice code
 
@@ -216,6 +216,20 @@ class LicenseAndVerifyTest(unittest.TestCase):
             self.assertIn(name, s["files"])
         self.assertFalse([n for n in s["files"] if n.startswith("flow.decoder") or n.endswith("batch.onnx") or n == "llm.rl.pt"])
         self.assertEqual(e["verify"], ())
+
+    def test_qwen3tts_has_the_base_and_custom_voice_repositories_in_the_folders_the_helper_reads(self):
+        for size in ("0.6B", "1.7B"):
+            e = vc.find(f"qwen3tts-{size.lower()}")
+            self.assertEqual([(s["repo"], s["subdir"]) for s in e["sources"]],
+                             [(f"Qwen/Qwen3-TTS-12Hz-{size}-Base", "base"), (f"Qwen/Qwen3-TTS-12Hz-{size}-CustomVoice", "custom-voice")])
+            for s in e["sources"]:
+                for name in ("config.json", "model.safetensors", "speech_tokenizer/model.safetensors", "speech_tokenizer/config.json", "vocab.json", "merges.txt"):
+                    self.assertIn(name, s["files"])
+                self.assertNotIn("README.md", s["files"])
+            self.assertEqual(e["verify"], ())
+        a, b = (vc.find(f"qwen3tts-{n}")["sources"][0]["pins"] for n in ("0.6b", "1.7b"))
+        self.assertEqual(a["speech_tokenizer/model.safetensors"], b["speech_tokenizer/model.safetensors"])      # the same codec in every repository
+        self.assertNotEqual(a["model.safetensors"], b["model.safetensors"])
 
     def test_the_piper_voices_are_onnx_and_json_pairs_that_land_flat_in_the_folder(self):
         e = vc.find("piper")
