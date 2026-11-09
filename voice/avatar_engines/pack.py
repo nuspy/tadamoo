@@ -1,9 +1,11 @@
 """What the PC engines that run upstream code have in common: where their files are, what is missing, one process at a time, and the frames they make.
 
-An engine pack is the upstream code of a project installed on request under `<models folder>/avatar-engines/<engine>/code/` (serve/voice_catalog.py),
-with its weights in folders beside it. The engine runs the upstream scripts through the runners of `runners/` as a subprocess of the Python environment
-named by TADAMOO_AVATAR_ENGINES_PYTHON: offline, with the code pack as its working directory, one at a time with every other engine, and the whole
-process tree killed on stop. Nothing is started, loaded or fetched by importing this module or by asking an engine for its status."""
+The upstream code of each engine is vendored in `vendor/<engine>/` (byte for byte, see its VENDORED.md); its weights are not and are installed on request
+(serve/voice_catalog.py) in folders under `<models folder>/avatar-engines/<engine>/`. Before a run the vendored code is copied into the run folder
+`<models folder>/avatar-engines/<engine>/code/`, where some weights also live because the code reads them by relative path. The engine runs the upstream scripts
+through the runners of `runners/` as a subprocess of the Python environment named by TADAMOO_AVATAR_ENGINES_PYTHON: offline, with the run folder as its
+working directory, one at a time with every other engine, and the whole process tree killed on stop. Nothing is started, loaded, copied or fetched by
+importing this module or by asking an engine for its status."""
 from __future__ import annotations
 
 import json
@@ -26,6 +28,8 @@ from .python_path import checked_python
 
 ENV_PYTHON = "TADAMOO_AVATAR_ENGINES_PYTHON"
 RUNNERS = Path(__file__).resolve().parent / "runners"
+VENDOR = Path(__file__).resolve().parent / "vendor"
+NOTES = ("VENDORED.md", "LICENSE-NOTE.md")             # the files of a vendor folder that are about the code, not part of it
 TAIL_LINES = 12
 _PERCENT = re.compile(r"(\d{1,3})%\|")                 # a tqdm bar: " 42%|####   | 21/50"
 
@@ -85,13 +89,40 @@ def set_python(path: str, base: str | None = None) -> str:
 
 def engine_dir(engine: str, base: str | None = None) -> Path | None:
     """`<models folder>/avatar-engines/<engine>`, or None when there is no models folder."""
-    where = models_store.folder("avatar", f"{engine}-code", base)
-    return Path(where).parent if where else None
+    root = _engines_root(base)
+    return root / engine if root else None
 
 
 def code_dir(engine: str, base: str | None = None) -> Path | None:
-    where = models_store.folder("avatar", f"{engine}-code", base)
-    return Path(where) if where else None
+    """The run folder of the engine's code: the vendored files are copied here by `stage_code`, and the weights the code reads by relative path are installed here."""
+    where = engine_dir(engine, base)
+    return where / "code" if where else None
+
+
+def vendor_files(engine: str, vendor: Path | None = None) -> list[Path]:
+    """The vendored files of an engine that are part of its code (not the notes about it)."""
+    root = (vendor or VENDOR) / engine
+    return sorted(p for p in root.rglob("*") if p.is_file() and "__pycache__" not in p.parts and not (p.parent == root and p.name in NOTES))
+
+
+def stage_code(engine: str, base: str | None = None, vendor: Path | None = None) -> Path:
+    """Copy the vendored code of `engine` into its run folder, only the files that differ, and return the folder. EngineNotReady when there is no models
+    folder or the vendored code is missing."""
+    dest = code_dir(engine, base)
+    files = vendor_files(engine, vendor)
+    if dest is None:
+        raise EngineNotReady("there is no models folder to run the engine in: choose one in Settings > Voice")
+    if not files:
+        raise EngineNotReady(f"the code of this engine is missing from this installation (voice/avatar_engines/vendor/{engine})")
+    root = (vendor or VENDOR) / engine
+    for src in files:
+        target = dest / src.relative_to(root)
+        st = src.stat()
+        if target.is_file() and target.stat().st_size == st.st_size and target.stat().st_mtime_ns == st.st_mtime_ns:
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, target)
+    return dest
 
 
 def not_installed(model_ids, base: str | None = None) -> list[tuple]:
@@ -116,6 +147,13 @@ def environment_problems() -> list[tuple]:
     if shutil.which("ffmpeg") is None:
         out.append(("ffmpeg is not on the PATH", "ffmpeg non è nel PATH"))
     return out
+
+
+def vendor_problems(engine: str, vendor: Path | None = None) -> list[tuple]:
+    if vendor_files(engine, vendor):
+        return []
+    return [(f"the code of this engine is missing from this installation (voice/avatar_engines/vendor/{engine})",
+             f"il codice di questo motore manca da questa installazione (voice/avatar_engines/vendor/{engine})")]
 
 
 def photo_problems(avatar_dir: Path | None) -> list[tuple]:
@@ -301,7 +339,7 @@ class PackEngine(AvatarEngine):
     ID = ""                                             # the id in registry.py
     key = ""                                            # the engine's folder under avatar-engines/ and the prefix of its catalog ids
     runner = ""                                         # the file in runners/
-    models: tuple = ()                                  # catalog ids that must be installed to render
+    models: tuple = ()                                  # catalog ids (weights) that must be installed to render; the code is vendored
     needs_photo = True
     fps_default = 25
 
@@ -320,9 +358,9 @@ class PackEngine(AvatarEngine):
 
     # ---- what is missing
     def problems(self, avatar_dir, base: str | None = None) -> list[tuple]:
-        """(en, it) for each thing that stops this engine from drawing this avatar: the environment, the pack and weights, the photo."""
+        """(en, it) for each thing that stops this engine from drawing this avatar: the environment, the vendored code, the weights, the photo."""
         folder = Path(avatar_dir) if avatar_dir else None
-        out = environment_problems() + not_installed(self.models, base)
+        out = environment_problems() + vendor_problems(self.key) + not_installed(self.models, base)
         if self.needs_photo and folder is not None and folder.is_dir():
             out += photo_problems(folder)
         return out
@@ -352,7 +390,7 @@ class PackEngine(AvatarEngine):
             self.last_progress = event
             if progress is not None:
                 progress(event)
-        code = code_dir(self.key)
+        code = stage_code(self.key)
         self._job = Job(cmd, code, process_env(code), label, relay, self._spawn)
         try:
             return self._job.run()
@@ -386,7 +424,10 @@ class PackEngine(AvatarEngine):
         exe = python(base)
         py_ok = bool(exe) and Path(exe).is_file()
         have_ffmpeg = shutil.which("ffmpeg") is not None
-        out = [item("python", py_ok, f"the engine Python is set ({exe})" if py_ok else f"the engine Python is not set or not there: choose it here or set {ENV_PYTHON}",
+        vendored = not vendor_problems(self.key)
+        out = [item("code", vendored, f"the engine code is part of this installation (vendor/{self.key})" if vendored else vendor_problems(self.key)[0][0],
+                    f"il codice del motore è parte di questa installazione (vendor/{self.key})" if vendored else vendor_problems(self.key)[0][1]),
+               item("python", py_ok, f"the engine Python is set ({exe})" if py_ok else f"the engine Python is not set or not there: choose it here or set {ENV_PYTHON}",
                     f"il Python dei motori è impostato ({exe})" if py_ok else f"il Python dei motori non è impostato o non c'è: sceglilo qui o imposta {ENV_PYTHON}"),
                item("ffmpeg", have_ffmpeg, "ffmpeg is on the PATH" if have_ffmpeg else "ffmpeg is not on the PATH", "ffmpeg è nel PATH" if have_ffmpeg else "ffmpeg non è nel PATH")]
         for model_id in self.models + self.train_models:
@@ -406,7 +447,7 @@ class PackEngine(AvatarEngine):
     def check_environment(self, progress: Callable[[str, float], None] | None = None, base: str | None = None) -> dict:
         """Load the engine once in its environment to prove it (the person asks for this) and record that it passed. EngineNotReady when something is missing,
         EngineFailed with what the process said when it does not load."""
-        problems = environment_problems() + not_installed(self.models, base)
+        problems = environment_problems() + vendor_problems(self.key) + not_installed(self.models, base)
         if problems:
             raise EngineNotReady("; ".join(p[0] for p in problems))
         relay = (lambda e: progress(str(e.get("phase") or "loading"), float(e.get("percent") or 0.0))) if progress else None

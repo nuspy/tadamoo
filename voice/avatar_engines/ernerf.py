@@ -1,7 +1,8 @@
 """ER-NeRF as an engine: a NeRF trained for one person from a video, drawn by Linly-Talker's `NeRFTalk` wrapper.
 
-The code (with its CUDA sources) and the weights are installed on request (catalog ids `ernerf-*`); the four CUDA modules are built by the person in the
-engine environment and checked here. What one avatar gets lives under `<avatar>/engines/er_nerf/`:
+The code (with its CUDA sources) is vendored in `vendor/ernerf/` and copied into the run folder before a run; the weights are installed on request (catalog ids
+`ernerf-*`); the four CUDA modules are built by the person in the engine environment, from the sources in the run folder, and checked here.
+What one avatar gets lives under `<avatar>/engines/er_nerf/`:
 
     data/          the video and what the data preparation made from it (frames, parsing, landmarks, tracking, audio features, transforms)
     head/, torso/  the workspaces of the two training stages (their checkpoints)
@@ -9,6 +10,7 @@ engine environment and checked here. What one avatar gets lives under `<avatar>/
 
 A training is four steps, each its own subprocess: the build check (once), the upstream data preparation (data_utils/process.py), the head and the
 torso (runners/ernerf_train.py). `training_plan` lists them and what is missing without starting anything."""
+# Licence (to confirm): see vendor/ernerf/LICENSE-NOTE.md. Nothing about it is shown in the GUI.
 from __future__ import annotations
 
 import glob
@@ -19,7 +21,7 @@ from pathlib import Path
 from typing import Callable
 
 from .pack import (EngineFailed, EngineNotReady, Job, PackEngine, RUNNERS, Stage, code_dir, engine_dir, environment_problems, not_installed, process_env,
-                   python, spawn)
+                   python, spawn, stage_code, vendor_problems)
 from .status import TRAINED_DIR, TRAINED_MARK
 
 AUDIO_MODEL = "deepspeech"          # what the data preparation's default makes features with (NeRF/data_utils/process.py)
@@ -34,7 +36,7 @@ class ErNerfEngine(PackEngine):
     ID = "er_nerf"
     key = "ernerf"
     runner = "ernerf_run.py"
-    models = ("ernerf-code", "ernerf-audio-encoder")
+    models = ("ernerf-audio-encoder",)
     train_models = TRAIN_MODELS
     mark_name = MODULES_MARK
     needs_photo = False
@@ -73,7 +75,7 @@ class ErNerfEngine(PackEngine):
 
     # ---- what is missing
     def problems(self, avatar_dir, base: str | None = None) -> list[tuple]:
-        out = environment_problems() + not_installed(self.models, base)
+        out = environment_problems() + vendor_problems(self.key) + not_installed(self.models, base)
         if not self.modules_checked(base):
             out.append(("the CUDA modules (freqencoder, gridencoder, raymarching, shencoder) and PyTorch3D have not been checked on this PC: a training checks them first",
                         "i moduli CUDA (freqencoder, gridencoder, raymarching, shencoder) e PyTorch3D non sono stati controllati su questo PC: un addestramento li controlla per primi"))
@@ -117,7 +119,7 @@ class ErNerfEngine(PackEngine):
                          f"the path {data} has a space and the upstream data preparation does not quote it: use an avatars folder without one",
                          "il percorso della cartella dei dati non ha spazi" if not spaced else
                          f"il percorso {data} ha uno spazio e la preparazione dati originale non lo racchiude tra virgolette: usare una cartella degli avatar senza"))
-        for problem in environment_problems() + not_installed(self.models + TRAIN_MODELS, base):
+        for problem in environment_problems() + vendor_problems(self.key) + not_installed(self.models + TRAIN_MODELS, base):
             out.append(check("setup", False, problem[0], problem[1]))
         return out
 
@@ -171,9 +173,9 @@ class ErNerfEngine(PackEngine):
         if missing:
             raise EngineNotReady("; ".join(c["en"] for c in missing))
         self._cancelled = False
+        code = stage_code(self.key, models_base)
         stages = self.training_stages(avatar_dir, clip, opts, models_base)
         total, done_weight = sum(s.weight for s in stages), 0
-        code = code_dir(self.key, models_base)
         for stage in stages:
             if self._cancelled:
                 raise EngineFailed("the training was stopped")

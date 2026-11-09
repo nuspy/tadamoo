@@ -51,8 +51,8 @@ INFOS: tuple[EngineInfo, ...] = (
                            "Non commerciale: il modello deriva da Wav2Lip, che è solo per ricerca e uso non commerciale. Il suo rilevatore del volto è eseguito da ultralytics, che è AGPL-3.0.")),
         training=Training(False, None, False),
         needs=(_t("A photo of the person.", "Una foto della persona."), _t("A GPU on this PC.", "Una GPU su questo PC."),
-               _t("Its code and weights, installed on request from Settings > Voice, and an engine environment (TADAMOO_AVATAR_ENGINES_PYTHON).",
-                  "Il suo codice e i suoi pesi, installati su richiesta da Settings > Voice, e un ambiente dei motori (TADAMOO_AVATAR_ENGINES_PYTHON)."),
+               _t("Its weights, installed on request from Settings > Voice, and an engine environment (TADAMOO_AVATAR_ENGINES_PYTHON).",
+                  "I suoi pesi, installati su richiesta da Settings > Voice, e un ambiente dei motori (TADAMOO_AVATAR_ENGINES_PYTHON)."),
                _t("Two face models whose source is not stated: put them in the models folder by hand.", "Due modelli del volto di cui non è dichiarata la fonte: metterli a mano nella cartella dei modelli.")),
         mode="video", requires="engine_pack", integrated=False),
     EngineInfo(
@@ -94,8 +94,8 @@ INFOS: tuple[EngineInfo, ...] = (
         license=License("linly-talker", False, False, _t("SadTalker as packaged by Linly-Talker.", "SadTalker nella forma di Linly-Talker.")),
         training=Training(False, None, False),
         needs=(_t("A photo of the person.", "Una foto della persona."), _t("A GPU on this PC.", "Una GPU su questo PC."),
-               _t("Its code and weights, installed on request from Settings > Voice, and an engine environment (TADAMOO_AVATAR_ENGINES_PYTHON).",
-                  "Il suo codice e i suoi pesi, installati su richiesta da Settings > Voice, e un ambiente dei motori (TADAMOO_AVATAR_ENGINES_PYTHON).")),
+               _t("Its weights, installed on request from Settings > Voice, and an engine environment (TADAMOO_AVATAR_ENGINES_PYTHON).",
+                  "I suoi pesi, installati su richiesta da Settings > Voice, e un ambiente dei motori (TADAMOO_AVATAR_ENGINES_PYTHON).")),
         mode="video", requires="engine_pack", integrated=False),
     EngineInfo(
         id="er_nerf", name="ER-NeRF", kind="personalized", runs_on=("pc",), weight_mb=None,
@@ -130,7 +130,7 @@ ENGINES: dict[str, AvatarEngine] = {i.id: DescribedEngine(i) for i in INFOS}
 # The personalised engines have code of their own (trained per avatar, run from the upstream scripts in a Python environment of their own).
 from .feathertalk import FeatherTalkEngine  # noqa: E402
 from .ultralight import UltralightEngine  # noqa: E402
-# The PC engines run from Linly-Talker's code, installed on request, through runners (pack.py).
+# The PC engines run from Linly-Talker's code, vendored in vendor/, through runners (pack.py).
 from .ernerf import ErNerfEngine  # noqa: E402
 from .sadtalker import SadTalkerEngine  # noqa: E402
 from .wav2lipv2 import Wav2LipV2Engine  # noqa: E402

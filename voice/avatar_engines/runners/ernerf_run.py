@@ -1,6 +1,6 @@
 """Renders speech with a trained ER-NeRF through Linly-Talker's NeRFTalk wrapper and writes the frames (see _frames.py).
 
-Started by voice/avatar_engines/ernerf.py in the engine environment with the code pack as its working directory. `--check` imports what the
+Started by voice/avatar_engines/ernerf.py in the engine environment with the run folder (the vendored code and the weights) as its working directory. `--check` imports what the
 wrapper needs (PyTorch3D and the four compiled CUDA modules) and stops, so a missing or mismatched build is named."""
 from __future__ import annotations
 

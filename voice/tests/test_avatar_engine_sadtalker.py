@@ -9,7 +9,7 @@ from voice.avatar_engines import pack, registry
 from voice.avatar_engines.sadtalker import SadTalkerEngine
 from voice.tests import engine_pack_fakes as fakes
 
-IDS = ("sadtalker-code", "sadtalker-weights", "sadtalker-gfpgan")
+IDS = ("sadtalker-weights", "sadtalker-gfpgan")
 
 
 @pytest.fixture
