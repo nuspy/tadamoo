@@ -1,0 +1,34 @@
+/* The "Train a personalised model" section of the Avatar card. Mobile first: one column, every button, select and input is 44px or more, nothing scrolls sideways. */
+.vtr-card { display: grid; gap: 12px; min-width: 0; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
+.vtr-engines { display: grid; gap: 12px; min-width: 0; }
+.vtr-engine { display: grid; align-content: start; gap: 8px; min-width: 0; padding: 12px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--panel); }
+.vtr-engine-h, .vtr-h, .vtr-sub { margin: 0; color: var(--fg); font: 600 16px/1.3 var(--font-sans); }
+.vtr-sub { margin-top: 8px; font-size: 15px; }
+.vtr-text { margin: 0; font-size: 14px; line-height: 1.5; color: var(--fg-2); overflow-wrap: anywhere; }
+.vtr-strong { color: var(--fg); font-weight: 600; }
+.vtr-card .btn, .vtr-dialog .btn { min-height: 44px; min-width: 44px; }
+.vtr-card select, .vtr-card input[type="number"] { min-height: 44px; max-width: 100%; }
+.vtr-fresh { display: flex; align-items: center; gap: 12px; min-height: 44px; color: var(--fg); font-size: 14px; cursor: pointer; }
+.vtr-fresh input { width: 24px; height: 24px; margin: 0; flex: none; accent-color: var(--accent); }
+.vtr-run { display: grid; gap: 8px; min-width: 0; padding: 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--panel); }
+.vtr-bar { width: 100%; height: 16px; }
+.vtr-more summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; color: var(--fg); font-size: 14px; }
+.vtr-log { max-height: 240px; margin: 0; padding: 8px; overflow: auto; font: 12px/1.4 var(--font-mono, monospace); white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--line-soft); border-radius: 6px; }
+.vtr-result[data-state="failed"] { color: var(--warn); font-weight: 600; }
+.vtr-note[data-bad="1"] { color: var(--warn); }
+.vtr-dialog { box-sizing: border-box; width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 16px; overflow: auto; color: var(--fg); background: var(--bg, Canvas); border: 1px solid var(--line); border-radius: 10px; }
+.vtr-dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+.vtr-dlg { display: grid; gap: 8px; min-width: 0; }
+.vtr-list { margin: 0; padding-left: 22px; color: var(--fg-2); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.vtr-checks { list-style: none; padding-left: 0; display: grid; gap: 4px; }
+.vtr-check[data-ok="0"] { color: var(--fg); }
+.vtr-mark { display: inline-block; min-width: 4.5em; }
+.vtr-check[data-ok="0"] .vtr-mark { color: var(--warn); }
+.vtr-nav { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.vtr-card :focus-visible, .vtr-dialog :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (min-width: 1000px) { .vtr-engines { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (prefers-reduced-motion: reduce) { .vtr-bar { transition: none; } }
+.vtr-setup { margin-top: 4px; }
+.vtr-setup summary { display: flex; align-items: center; min-height: 44px; cursor: pointer; color: var(--fg); font-weight: 600; }
+.vtr-setup input[type="text"] { min-height: 44px; width: 100%; box-sizing: border-box; }
+.vtr-setup .vtr-check { padding: 4px 0; }
