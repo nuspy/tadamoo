@@ -210,6 +210,7 @@ _LINLY_WEIGHTS = {                                   # path in the repository: (
     "gfpgan/weights/detection_Resnet50_Final.pth": ("6d1de9c2944f2ccddca5f5e010ea5ae64a39845a86311af6fdf30841b0a5a16d", 109_497_761),
     "checkpoints/audio_visual_encoder.pth": ("1f75cdb5556938590c64221f6c47a8d20ab3e368d53c166023eedb12279db8c4", 11_300_706),
     "MuseTalk/face-parse-bisent/79999_iter.pth": ("468e13ca13a9b43cc0881a9f99083a430e9c0a38abd935431d1c28ee94b26567", 53_289_463),
+    "MuseTalk/face-parse-bisent/resnet18-5c106cde.pth": ("5c106cde386e87d4033832f2996f5493238eda96ccf559d1d62760c4de0613f8", 46_827_520),
 }
 # AD-NeRF's 3DMM folder at one GitHub commit, the files ER-NeRF's README downloads from it: (path, SHA-256, bytes) computed from the raw files at that commit
 # (each git blob id matches the contents listing). AD-NeRF's repository is MIT per GitHub.
@@ -289,12 +290,21 @@ ENGINE_PACKS = [
                    "avatar-engines/ernerf/code/NeRF/data_utils/face_parsing", noncommercial=True, verify=("license",),
                    notes=_t("The default of the data preparation's face-parsing step (data_utils/face_parsing/79999_iter.pth). ER-NeRF's README takes it from AD-NeRF; this copy is the "
                             "one in the Linly-Talker Hugging Face repository (its MuseTalk folder), which has the same name and the same size (53,289,463 bytes) as the AD-NeRF file; "
-                            "the two were not compared byte for byte. The network was trained on CelebAMask-HQ (non-commercial research data). The face-parsing code also fetches "
-                            "resnet18-5c106cde.pth from download.pytorch.org unless it is in the PyTorch hub cache. Needed only to train a new person.",
+                            "the two were not compared byte for byte. The network was trained on CelebAMask-HQ (non-commercial research data). The face-parsing code also needs "
+                            "resnet18-5c106cde.pth (the entry ernerf-resnet18). Needed only to train a new person.",
                             "Il valore predefinito del passo di face parsing della preparazione dati (data_utils/face_parsing/79999_iter.pth). Il README di ER-NeRF lo prende da AD-NeRF; "
                             "questa copia è quella del repository Hugging Face di Linly-Talker (cartella MuseTalk), con lo stesso nome e la stessa dimensione (53.289.463 byte) del file "
                             "di AD-NeRF; i due non sono stati confrontati byte per byte. La rete è addestrata su CelebAMask-HQ (dati di ricerca non commerciali). Il codice di face "
-                            "parsing scarica anche resnet18-5c106cde.pth da download.pytorch.org se non è nella cache di PyTorch hub. Serve solo per addestrare una persona nuova.")),
+                            "parsing serve anche resnet18-5c106cde.pth (la voce ernerf-resnet18). Serve solo per addestrare una persona nuova.")),
+    _linly_weights("ernerf-resnet18", "ernerf", "ResNet-18 weights for the face-parsing net (resnet18-5c106cde.pth)", ["MuseTalk/face-parse-bisent/resnet18-5c106cde.pth"],
+                   "MuseTalk/face-parse-bisent/", "avatar-engines/ernerf/torch-home/hub/checkpoints", verify=("license",),
+                   notes=_t("What the face-parsing code would fetch from download.pytorch.org each time it builds its network (torchvision's resnet18 ImageNet weights). It goes in the "
+                            "PyTorch hub cache folder of the engine (torch-home/hub/checkpoints), which the engine sets as TORCH_HOME for its processes, so nothing is fetched at run time. "
+                            "The SHA-256 of the file starts with 5c106cde, as torchvision's file name says, and was computed from the file. Needed only to train a new person.",
+                            "Ciò che il codice di face parsing scaricherebbe da download.pytorch.org ogni volta che costruisce la sua rete (i pesi ImageNet di resnet18 di torchvision). "
+                            "Va nella cartella della cache di PyTorch hub del motore (torch-home/hub/checkpoints), che il motore imposta come TORCH_HOME per i suoi processi, così a "
+                            "run time non si scarica nulla. Lo SHA-256 del file inizia con 5c106cde, come dice il nome del file di torchvision, ed è stato calcolato dal file. "
+                            "Serve solo per addestrare una persona nuova.")),
 ]
 
 # Piper voices of rhasspy/piper-voices at one commit: (name, directory, .onnx SHA-256, .onnx.json SHA-256, size of both files).

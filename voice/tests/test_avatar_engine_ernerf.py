@@ -12,7 +12,7 @@ from voice.avatar_engines.ernerf import ErNerfEngine
 from voice.tests import engine_pack_fakes as fakes
 
 RENDER = ("ernerf-audio-encoder",)
-TRAIN = ("ernerf-bfm", "ernerf-face-parsing")
+TRAIN = ("ernerf-bfm", "ernerf-face-parsing", "ernerf-resnet18")
 
 
 def install_training(base, bfm_info=True):
@@ -250,3 +250,26 @@ def test_the_3dmm_file_made_from_the_basel_face_model_is_a_check_of_its_own(rig)
     assert models_store.is_installed("ernerf-bfm", str(base))                          # the four downloaded files are in place; the made one is not
     (Path(models_store.folder("avatar", "ernerf-bfm", str(base))) / "3DMM_info.npy").write_bytes(b"x")
     assert "bfm" not in {c["id"] for c in engine().training_plan(fakes.avatar(tmp, "bo"), clip_in(tmp), None, str(base))["checks"] if not c["ok"]}
+
+
+def test_the_face_parsing_resnet_is_a_check_and_the_engine_points_torch_at_its_own_cache(rig):
+    base, tmp = rig
+    install_training(base)
+    resnet = Path(models_store.folder("avatar", "ernerf-resnet18", str(base)))
+    assert resnet == base / "avatar-engines" / "ernerf" / "torch-home" / "hub" / "checkpoints"
+    (resnet / "resnet18-5c106cde.pth").unlink()
+    plan = engine().training_plan(fakes.avatar(tmp), clip_in(tmp), None, str(base))
+    bad = [c for c in plan["checks"] if not c["ok"]]
+    assert [c["id"] for c in bad] == ["setup"] and "ResNet-18" in bad[0]["en"] and "ResNet-18" in bad[0]["it"] and not plan["ready"]
+    assert engine().env_extra(str(base)) == {"TORCH_HOME": str(base / "avatar-engines" / "ernerf" / "torch-home")}
+
+
+def test_every_process_of_a_training_and_a_render_gets_torch_home_and_other_engines_do_not(rig):
+    base, tmp = rig
+    install_training(base)
+    spawner = fakes.Spawner(out=['{"event": "done", "check": true, "modules": {"pytorch3d": "0.7"}}'])
+    e = engine(spawner)
+    e.check_environment(base=str(base))
+    assert spawner.calls[0][2]["TORCH_HOME"] == str(base / "avatar-engines" / "ernerf" / "torch-home")
+    assert spawner.calls[0][2]["HF_HUB_OFFLINE"] == "1"
+    assert pack.PackEngine.env_extra(registry.get("sadtalker")) == {} and "TORCH_HOME" not in pack.process_env(tmp)

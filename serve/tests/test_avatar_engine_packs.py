@@ -11,7 +11,7 @@ from serve import downloads, voice_catalog as vc
 
 LINLY_REV = "de2ee105d8fbe279e973b79db24009e803845b2f"                    # Kedreamix/Linly-Talker on Hugging Face
 RAW = "https://raw.githubusercontent.com/YudongGuo/AD-NeRF/9fdcd7e1352aa74e26baa8e60c862f9fbd7933bf/data_util/face_tracking/3DMM/"
-LINLY = ("wav2lipv2-weights", "wav2lipv2-yolo-face", "wav2lipv2-landmarks", "sadtalker-weights", "sadtalker-gfpgan", "ernerf-audio-encoder", "ernerf-face-parsing")
+LINLY = ("wav2lipv2-weights", "wav2lipv2-yolo-face", "wav2lipv2-landmarks", "sadtalker-weights", "sadtalker-gfpgan", "ernerf-audio-encoder", "ernerf-face-parsing", "ernerf-resnet18")
 MINE = LINLY + ("ernerf-bfm",)
 
 
@@ -36,6 +36,7 @@ class ShapeTest(unittest.TestCase):
     def test_the_weights_sit_where_the_code_looks_for_them(self):
         self.assertEqual(vc.BY_ID["sadtalker-gfpgan"]["folder"], "avatar-engines/sadtalker/code/gfpgan/weights")          # the code reads ./gfpgan/weights
         self.assertEqual(vc.BY_ID["ernerf-audio-encoder"]["folder"], "avatar-engines/ernerf/code/checkpoints")          # and ./checkpoints/audio_visual_encoder.pth
+        self.assertEqual(vc.BY_ID["ernerf-resnet18"]["folder"], "avatar-engines/ernerf/torch-home/hub/checkpoints")          # TORCH_HOME/hub/checkpoints of the engine
         self.assertEqual(vc.BY_ID["ernerf-bfm"]["folder"], "avatar-engines/ernerf/code/NeRF/data_utils/face_tracking/3DMM")
         self.assertEqual(vc.BY_ID["wav2lipv2-yolo-face"]["folder"], "avatar-engines/wav2lipv2/models/yolov8n-face")
         self.assertEqual(vc.BY_ID["wav2lipv2-landmarks"]["folder"], "avatar-engines/wav2lipv2/models/wflw/hrnet18_256x256_p1")
@@ -83,6 +84,7 @@ class PinnedTest(unittest.TestCase):
 
     def test_the_wav2lip_v2_weights_and_the_face_parsing_ones_are_non_commercial_and_the_others_are_not(self):
         self.assertEqual([x["id"] for x in vc.CATALOG if x["noncommercial"] and x["id"] in MINE], ["wav2lipv2-weights", "ernerf-face-parsing"])
+        self.assertTrue(vc.BY_ID["ernerf-resnet18"]["sources"][0]["pins"]["MuseTalk/face-parse-bisent/resnet18-5c106cde.pth"].startswith("5c106cde"))      # torchvision's name convention
         self.assertEqual(vc.BY_ID["wav2lipv2-yolo-face"]["license"], "ultralytics-face")
         self.assertIn("AGPL", vc.BY_ID["wav2lipv2-yolo-face"]["notes"]["en"])
 
@@ -98,7 +100,7 @@ class PinnedTest(unittest.TestCase):
         notes = vc.BY_ID["ernerf-face-parsing"]["notes"]["en"]
         self.assertIn("53,289,463", notes)
         self.assertIn("not compared byte for byte", notes)
-        self.assertIn("resnet18-5c106cde.pth", notes)
+        self.assertIn("ernerf-resnet18", notes)
 
 
 class PlanTest(unittest.TestCase):

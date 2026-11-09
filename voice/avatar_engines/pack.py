@@ -207,8 +207,8 @@ def spawn(cmd, cwd, env) -> subprocess.Popen:
                             encoding="utf-8", errors="replace", bufsize=1, **flags)
 
 
-def process_env(code: Path) -> dict:
-    """Offline, the models folder known, the environment's own scripts first on the PATH, the code pack importable."""
+def process_env(code: Path, extra: dict | None = None) -> dict:
+    """Offline, the models folder known, the environment's own scripts first on the PATH, the run folder importable, and `extra` (an engine's own variables)."""
     env = models_store.helper_env("avatar")
     exe = python()
     if exe:
@@ -216,6 +216,7 @@ def process_env(code: Path) -> dict:
     env["PYTHONPATH"] = os.pathsep.join(p for p in (str(code), env.get("PYTHONPATH", "")) if p)
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUNBUFFERED"] = "1"
+    env.update(extra or {})
     return env
 
 
@@ -378,6 +379,10 @@ class PackEngine(AvatarEngine):
     def base_args(self, base: str | None = None) -> list[str]:
         return [python(), str(RUNNERS / self.runner), "--pack", str(code_dir(self.key, base))]
 
+    def env_extra(self, base: str | None = None) -> dict:
+        """Variables only this engine's processes get, on top of the common offline environment."""
+        return {}
+
     def check_command(self, base: str | None = None) -> list[str]:
         return self.base_args(base) + ["--engine-dir", str(engine_dir(self.key, base)), "--check"]
 
@@ -391,7 +396,7 @@ class PackEngine(AvatarEngine):
             if progress is not None:
                 progress(event)
         code = stage_code(self.key)
-        self._job = Job(cmd, code, process_env(code), label, relay, self._spawn)
+        self._job = Job(cmd, code, process_env(code, self.env_extra()), label, relay, self._spawn)
         try:
             return self._job.run()
         finally:

@@ -70,6 +70,7 @@ MODELS = {
     "ernerf-audio-encoder": ("avatar", "ernerf", "ER-NeRF audio encoder weights", ("audio_visual_encoder.pth",)),
     "ernerf-bfm": ("avatar", "ernerf", "ER-NeRF 3DMM files (AD-NeRF)", ("exp_info.npy", "keys_info.npy", "sub_mesh.obj", "topology_info.npy")),
     "ernerf-face-parsing": ("avatar", "ernerf", "ER-NeRF face parsing weights", ("79999_iter.pth",)),
+    "ernerf-resnet18": ("avatar", "ernerf", "ResNet-18 weights for the face-parsing net", ("resnet18-5c106cde.pth",)),
     "sherpa-diarization": ("diarization", "sherpa-onnx", "sherpa-onnx diarization", (_SEG, _CAMPP)),
     "silero-vad-v4": ("vad", "silero", "Silero VAD v4", ("silero_vad_v4.onnx",)),
     "multilingual-e5-small": ("embedding", "e5", "Multilingual E5 small", ("onnx/model.onnx", "onnx/tokenizer.json")),
@@ -88,6 +89,7 @@ FOLDERS = {
     "ernerf-audio-encoder": "avatar-engines/ernerf/code/checkpoints",
     "ernerf-bfm": "avatar-engines/ernerf/code/NeRF/data_utils/face_tracking/3DMM",
     "ernerf-face-parsing": "avatar-engines/ernerf/code/NeRF/data_utils/face_parsing",
+    "ernerf-resnet18": "avatar-engines/ernerf/torch-home/hub/checkpoints",
 }
 
 
