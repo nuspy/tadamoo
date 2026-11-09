@@ -15,7 +15,8 @@ The file is the one serve/voice_settings.py writes:
                 "worker_fps_cap": 0, "worker_height_cap": 0, "rtx_video_path": "<DLL>"},
                 "engines": {"pc|web|android|esp32": "<engine id>"}, "resolution": {"pc|web|android|esp32": <height>}, "fps_hint": 5..60},
      "interruptions": {"enabled": true|false, "judge_timeout_ms": 200..5000, "duck_level": 0..0.9, "resume_offer": true|false},
-     "language": {"follow": true|false, "enabled": ["it", "en"], "threshold": 0.5..0.99, "short_s": 0.5..5, "voices": {"fr": "<voice of the selected engine>"}}}
+     "language": {"follow": true|false, "enabled": ["it", "en"], "threshold": 0.5..0.99, "short_s": 0.5..5, "voices": {"fr": "<voice of the selected engine>"}},
+     "dictation": {"enabled": true|false, "hotkey": "alt+space"}}
 This module reads it without importing `serve` or `tadamoo` (the service has its own interpreter). A missing, unreadable or damaged file,
 or a bad value in it, gives the defaults: the service never fails because of its settings.
 
@@ -29,6 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from callbridge import models_store as ms
+from callbridge.desktop import parse_hotkey
 from callbridge.call_policy import APPROVAL_MODES, DEFAULT_PREMIUM_PREFIXES, MAX_CONTACTS, TRANSPORT_MODES, clean_prefixes
 from callbridge.meetbot import consent
 from callbridge.enhance import settings as enhance_settings
@@ -121,6 +123,21 @@ class Avatar:
 
 
 @dataclass(frozen=True)
+class Dictation:
+    """The global dictation hotkey (hold to record, release to transcribe and paste)."""
+    enabled: bool = True
+    hotkey: str = "alt+space"
+
+
+def hotkey_ok(value) -> bool:
+    """A hotkey the desktop layer knows, with a modifier (or an F key): a bare letter would swallow typing."""
+    if not isinstance(value, str) or len(value) > 40:
+        return False
+    mods, key = parse_hotkey(value)
+    return key is not None and (bool(mods) or re.fullmatch(r"f\d+", key) is not None)
+
+
+@dataclass(frozen=True)
 class Settings:
     models_dir: str
     services: dict[str, Choice]
@@ -133,6 +150,7 @@ class Settings:
     meetings_audit_file: str = ""
     interruptions: Interruptions = Interruptions()
     language: LanguageSettings = LanguageSettings()
+    dictation: Dictation = Dictation()
 
 
 def _read(path) -> dict:
@@ -213,6 +231,12 @@ def _avatar(stored) -> Avatar:
     return Avatar(stored.get("virtual_camera") is True, enhance_settings.parse(stored.get("enhance")), engine_selection.parse(stored))
 
 
+def _dictation(stored) -> Dictation:
+    stored = stored if isinstance(stored, dict) else {}
+    hotkey = stored.get("hotkey")
+    return Dictation(stored.get("enabled") is not False, hotkey.strip().lower() if hotkey_ok(hotkey) else Dictation.hotkey)
+
+
 def load(path, default_models_dir: str = "") -> Settings:
     """The settings in `path`; a value that is missing or invalid takes its default.
 
@@ -228,7 +252,7 @@ def load(path, default_models_dir: str = "") -> Settings:
                     str(Path(path).resolve().parent / "call-audit.jsonl"), _avatar(data.get("avatar")),
                     str(Path(path).resolve().parent / "voice" / "avatars"),
                     _meetings(data.get("meetings")), str(Path(path).resolve().parent / "meetings-audit.jsonl"), Interruptions.parse(data.get("interruptions")),
-                    LanguageSettings.parse(data.get("language")))
+                    LanguageSettings.parse(data.get("language")), _dictation(data.get("dictation")))
 
 
 def is_enabled(choice: Choice, models_dir: str) -> bool:
@@ -288,6 +312,7 @@ def overrides(settings: Settings) -> dict:
     lang = settings.language
     out.update(language_follow=lang.follow, language_enabled=list(lang.enabled), language_threshold=lang.threshold, language_short_s=lang.short_s,
                language_voices=dict(lang.voices))
+    out.update(dictation_enabled=settings.dictation.enabled, dictation_hotkey=settings.dictation.hotkey)
     m = settings.meetings
     out.update(meetings_speak=m.speak, meetings_camera=m.camera, meetings_proactive=m.proactive, meetings_consent_mode=m.consent_mode, meetings_consent_window_s=m.consent_window_s,
                meetings_on_behalf_of=m.on_behalf_of, meetings_display_name=m.display_name, meetings_virtual_mic=m.virtual_mic, meetings_wake_phrase=m.wake_phrase,
