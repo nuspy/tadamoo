@@ -51,6 +51,12 @@ Errors made here are `{"error": "<text>", "code": "<code>"}`, the form callAPIca
 | `/models/status`, `/models/available` | GET | api | |
 | `/session/state`, `/session/language` | GET | local | |
 | `/session/start`, `/stop`, `/new`, `/language` | POST | local | |
+| `/meetbot/join`, `/meetbot/leave` | POST | local | the meeting bot; a join needs `rights_confirmed: true` and the announcement and consent rule apply (`meetings.md`) |
+| `/meetbot/status`, `/meetings/list`, `/meetings/<id>`, `/meetings/<id>/transcript` | GET | local | |
+| `/meetings/<id>` | DELETE | local | deletes the transcript and the minutes |
+| `/calendar/status`, `/calendar/events` | GET | local | inert without the person's own OAuth values |
+| `/calendar/<google\|microsoft>/connect`, `/disconnect`, `/calendar/events/<id>/autojoin` | POST | local | |
+| `/copilot/state`, `/copilot/toggle` | GET, POST | local | the copilot window |
 
 ## 501 not_available_yet
 
@@ -63,7 +69,6 @@ These answer `501` with `code: not_available_yet` and the reason, and reach no s
 | `/tts/stream`, `/stt/stream` | WebSocket streaming is not offered on this port yet |
 | `/personas`, `/personas/...` | the personalities are TaDaMoo's own (`/api/personas`); the callAPIcall form comes with the avatar phase |
 | `/avatar/...` | the animated avatar comes with its own phase |
-| `/meetbot/...`, `/meetings/...`, `/calendar/...` | meetings come with their phase, with the consent they need |
 
 ## Analysis of a recording
 
