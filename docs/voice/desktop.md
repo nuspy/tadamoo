@@ -5,6 +5,27 @@ paste into the focused app and a small always-on-top window. They live in `voice
 dictation, history and push-to-talk code (`dictation.py`, `clipboard_history.py`, `ptt.py`) knows no operating system. All of it runs in the user's interactive session,
 inside the voice service process.
 
+## What the service starts (`voice/desktop_features.py`)
+
+Right after the HTTP server listens, `serve()` calls `desktop_features.start(config, stop)`, which does not wait for the voice-function plan
+(`loading.md`): the speech model is the shared one (`engines._get_stt_engine`), loaded when the service starts if it is enabled and installed.
+
+1. The overlay, `platform().new_overlay()`, when `Desktop.available()` says the desktop works; else none, and one warning says why.
+2. `DictationManager(config, overlay)`, started unless `dictation_enabled` is false (the log says so, and `/components/status` shows `disabled`).
+3. `ClipboardHistory(overlay)`. It has no switch: it is a fixed component.
+
+Each step is in its own `try`: a failure is logged with its reason and the others, and the service, go on. A system with no desktop support
+(Wayland, macOS, no display) leaves dictation and the history off with that reason in their status; the service stays up.
+
+Threads: the HTTP server, the gateway and the helpers run in their own threads; the main thread runs the overlay loop (`Features.run_ui`),
+because Tk needs it. The stop event (signal, Ctrl+Break, closing the console) makes a watcher call `overlay.quit()`; the Tk tick sees the flag and ends
+the loop within about 80 ms. If there is no overlay, or its loop raises or returns early, the main thread waits on the stop event as it
+did before: dictation and the history do not depend on the overlay and stay on. On stop the order is: hotkeys unhooked and the history
+stopped (`Features.stop`), then the gateway, the meetings, the avatar worker and the HTTP server.
+
+`dictation.enabled` and `dictation.hotkey` of `voice.json` are applied to the running service when the file changes (`Features.sync`: the hotkey is
+unhooked and installed again). `--no-desktop` starts none of this; the process tests use it so no test installs a hook or opens a window.
+
 ## Interfaces (`desktop/base.py`)
 
 | Interface | What it does |
@@ -12,7 +33,7 @@ inside the voice service process.
 | `KeyHook` | Global hotkeys with their own thread. `Binding(mods, key, on_press, on_release, exact, repeat, suppress)`; the callbacks run in a worker, in order. |
 | `Clipboard` | `sequence()` change counter, `read()` / `write_text()` / `write_image()` with an exclusion marker, `send_copy()` / `send_paste()` with the keys the focused app needs, `modifiers_down()`. |
 | `ForegroundApp` | `identity()` (window class, program) and `is_terminal()`. |
-| `Overlay` | The status and clipboard-preview card: `set_dictation()`, `show_clipboard()`, `post()`, `mainloop()` on the main thread. |
+| `Overlay` | The status and clipboard-preview card: `set_dictation()`, `show_clipboard()`, `post()`, `mainloop()` on the main thread, `quit()` (thread-safe) to end it. |
 
 `Desktop.push_to_talk_keys(name, hotkeys)` is the fifth piece, the toggles of push-to-talk (`ptt.py`): `hotkeys` maps a neutral combination
 (`shift+f1`) to the callback of its press, and the combination fires only with exactly its modifiers (Shift+F1 does not fire while
@@ -35,8 +56,8 @@ parsed by `parse_hotkey`; each platform maps them to its own key codes. The hotk
 
 The unsupported desktop answers `available()` with the reason and raises `DesktopUnsupported` from every hook, clipboard and foreground
 call: "global shortcuts and paste need X11; Wayland does not allow them" (Wayland), or the macOS and the no-display messages.
-Dictation and the history then stay off and say why (`status()["state"] == "unsupported"`); the overlay is the exception, a no-op card,
-because the service needs its main-thread loop. Wayland is detected from `XDG_SESSION_TYPE=wayland`, or `WAYLAND_DISPLAY` without
+Dictation and the history then stay off and say why (`status()["state"] == "unsupported"`); `new_overlay()` still gives a no-op card
+whose `mainloop` ends on `quit()` (the service itself builds no overlay there). Wayland is detected from `XDG_SESSION_TYPE=wayland`, or `WAYLAND_DISPLAY` without
 `XDG_SESSION_TYPE=x11`; a session with no `DISPLAY` is unsupported too.
 
 ## Where X11 differs from Windows
@@ -60,7 +81,9 @@ because the service needs its main-thread loop. Wayland is detected from `XDG_SE
   hook, clipboard and paste have not been run since the move.
 - X11: written, not proven on a real X11 desktop. Tests (`voice/tests/test_desktop_*.py`) fake the subprocess and `pynput` layers and check
   the command lines, the key matching, the terminal key choice, the selection by session type and the Unsupported messages.
-- Not covered anywhere: dictation with a real microphone, a real hotkey press, the Tk overlay on screen.
+- The service wiring (`voice/tests/test_service_desktop.py`): a fake desktop, hook and overlay; the loop on the main thread, the stop event, the fallback
+  when the loop raises, the order of the stop and `/components/status` are checked in-process.
+- Not covered anywhere: dictation with a real microphone, a real hotkey press, the Tk overlay on screen, the real service started with the features.
 - Push-to-talk: `ptt.py` imports no hotkey library and has no Windows call; the manager is tested with a fake desktop, the X11 body with a fake
   `pynput` listener (Shift+F1 and Ctrl+Shift+F1 do not fire each other, a held key fires once) and the Windows body with a fake
   `GlobalHotKeys` and Ctrl state (`voice/tests/test_ptt_platform.py`, runs on any system). Not run: a real hotkey press on either system, and
