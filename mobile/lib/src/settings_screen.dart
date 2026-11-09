@@ -5,6 +5,8 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'api.dart';
+import 'audio_route.dart';
+import 'avatar_settings.dart';
 import 'capabilities_screen.dart';
 import 'chat_options.dart';
 import 'i18n.dart';
@@ -16,9 +18,12 @@ import 'voice.dart';
 
 /// The server's address and this phone's key come first and are always in view; the rest is the voice and the language.
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key, required this.settings, required this.voice});
+  const SettingsScreen({super.key, required this.settings, required this.voice, required this.route});
   final AppSettings settings;
   final Voice voice;
+
+  /// The audio routing the Avatar tab uses, so that the choice made here is the one in use there.
+  final AudioRouteController route;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -93,6 +98,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         bad = true;
       });
     }
+  }
+
+  Future<List<Map<String, String>>> _loadPersonas() async {
+    if (!widget.settings.configured) return const [];
+    final info = await Api(widget.settings).get('/api/voice/gateway');
+    return [for (final p in (info['personas'] as List? ?? const []).whereType<Map>()) {'slug': '${p['slug']}', 'name': '${p['name']}'}];
   }
 
   /// Switching it on asks Android for the permission; switching it off makes the PC forget the last position it was given.
@@ -192,6 +203,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Text(Texts.t('set.voice'), style: theme.textTheme.titleMedium),
         SwitchListTile(contentPadding: EdgeInsets.zero, title: Text(Texts.t('set.autospeak')), value: widget.settings.autoSpeak, onChanged: (v) => widget.settings.setAutoSpeak(v).then((_) => setState(() {}))),
         TextField(controller: locale, autocorrect: false, onSubmitted: (_) => _save(), decoration: InputDecoration(labelText: Texts.t('set.speechlocale'), hintText: 'it-IT', border: const OutlineInputBorder())),
+        const Divider(height: 32),
+        Text(Texts.t('av.title'), style: theme.textTheme.titleMedium),
+        const SizedBox(height: 8),
+        AvatarVoiceSettings(settings: widget.settings, route: widget.route, loadPersonas: _loadPersonas),
         const Divider(height: 32),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
