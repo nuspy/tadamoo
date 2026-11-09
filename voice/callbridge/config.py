@@ -374,6 +374,13 @@ class Config:
     interruption_judge_timeout_ms: int = 800
     interruption_duck_level: float = 0.3
     interruption_resume_offer: bool = True
+    # The avatar's spoken language (`language` in voice.json; callbridge/language_follow.py): follow the person's speech, the languages the person
+    # enabled, the detection threshold, the short-utterance duration and the voice of each language.
+    language_follow: bool = True
+    language_enabled: list = field(default_factory=lambda: ["it", "en"])
+    language_threshold: float = 0.80
+    language_short_s: float = 1.5
+    language_voices: dict = field(default_factory=dict)
     # Cancellazione d'eco sul PC (AEC3 di WebRTC in un venv a parte, perche' la
     # ruota non esiste per il 3.10 su cui gira il bridge). Senza, in vivavoce
     # il microfono risente le casse: misurato, 9,3 dB di attenuazione naturale

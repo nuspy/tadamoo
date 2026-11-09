@@ -17,8 +17,8 @@ Protocollo (stdin -> stdout, una risposta JSON per riga per ogni richiesta):
   {"cmd": "load"}\\n                          -> {"ok", "event": "ready", ...}
   {"cmd": "transcribe", "lang": "it", "n": N}\\n + N float32 LE (16 kHz mono)
                                               -> {"ok", "text", "ms"}
-  {"cmd": "transcribe_detailed", "lang", "n", "words": bool}\\n + N float32 LE
-                                              -> {"ok", "text", "segments", "ms"}
+  {"cmd": "transcribe_detailed", "lang", "n", "words": bool, "detect": bool, "allowed": [codes]}\\n + N float32 LE
+                                              -> {"ok", "text", "segments", "ms"} (+ "language", "language_prob" with "detect")
   {"cmd": "quit"}\\n  oppure EOF (bridge morto) -> uscita
 Errori: {"ok": false, "error": "..."}. Log su stderr.
 
@@ -140,7 +140,8 @@ def main() -> int:
                     out = {"text": engine.transcribe(audio, req.get("lang") or None)}
                 else:
                     out = engine.transcribe_detailed(
-                        audio, req.get("lang") or None, bool(req.get("words")))
+                        audio, req.get("lang") or None, bool(req.get("words")),
+                        detect=bool(req.get("detect")), allowed=req.get("allowed") or None)
                 _reply({"ok": True, **out,
                         "ms": int((time.perf_counter() - t0) * 1000)})
             except Exception as e:  # noqa: BLE001
