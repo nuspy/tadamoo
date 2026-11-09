@@ -21,7 +21,7 @@ from serve.api.responses import error_body as responses_error_body
 from tadamoo import exec_level, nextsteps, persistence, side_uses
 from tadamoo import telegram as tg
 from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, voice_api, voice_compat, voice_import, voice_loader, voice_service, voice_settings
-from serve import voice_avatar, voice_gateway_relay
+from serve import origin_guard, voice_avatar, voice_gateway_relay
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX, checked_sampling
 from serve.engine.vision import VISION_MODES
@@ -217,6 +217,32 @@ def make_handler(svc: Service, remote: bool = False):
 
         def log_message(self, fmt, *args):
             pass
+
+        def parse_request(self) -> bool:
+            """Every request, whatever its method and also a WebSocket upgrade, passes the origin guard (serve/origin_guard.py) first."""
+            if not super().parse_request():
+                return False
+            refused = origin_guard.refusal(self.command, self.path, self.headers, host_rule=not (self.remote_listener or svc.api_key),
+                                           proven=self._proven(), allowed=getattr(svc, "allowed_hosts", ()), own_name=socket.gethostname())
+            if refused is None:
+                return True
+            print(f"[server] refused {self.command} {self.path.split('?', 1)[0][:200]}: {refused.code}", file=sys.stderr, flush=True)
+            self._discard_body()
+            self.close_connection = True
+            if voice_compat.owns(self.path.split("?")[0].rstrip("/")):                    # callAPIcall's routes answer in their own shape
+                self._json(403, {"error": refused.message, "code": "forbidden", "reason": refused.code})
+            else:
+                self._json(403, {"error": {"type": "forbidden", "code": refused.code, "message": refused.message}})
+            return False
+
+        def _proven(self) -> bool:
+            """The request carries the API key or the control secret in a header, which a page of another site cannot send."""
+            auth = self.headers.get("Authorization", "")
+            given = auth[7:].strip() if auth.lower().startswith("bearer ") else self.headers.get("x-api-key", "")
+            if svc.api_key and given and key_matches(given, svc.api_key):
+                return True
+            control = self.headers.get(CONTROL_HEADER, "")
+            return bool(svc.control_token and control and key_matches(control, svc.control_token))
 
         def _chunked(self) -> bool:
             """The body is sent as Transfer-Encoding: chunked (it wins over a Content-Length, RFC 9112)."""

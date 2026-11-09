@@ -504,12 +504,14 @@ class Endpoints(Http):
         self.assertEqual([r["kind"] for r in rows[1:]], self.kinds())
         self.assertEqual(self.call("/api/reqlog/export?format=xml")[0], 400)
 
-    def test_clear_empties_the_log_whatever_the_page(self):
+    def test_clear_empties_the_log_from_this_servers_page_and_not_from_another_site(self):
         self.start(telemetry=False)
         self.call("/v1/chat/completions", self.CHAT)
         before = self.log()
         self.assertTrue(before["events"])
-        code, body, _ = self.call("/api/reqlog/clear", {}, headers={"Origin": "http://evil.example"}, method="POST")
+        self.assertEqual(self.call("/api/reqlog/clear", {}, headers={"Origin": "http://evil.example"}, method="POST")[0], 403)   # serve/origin_guard.py
+        self.assertTrue(self.log()["events"])
+        code, body, _ = self.call("/api/reqlog/clear", {}, method="POST")
         self.assertEqual((code, body), (200, {"cleared": True}))
         after = self.log()
         self.assertEqual((after["events"], after["epoch"], after["held_chars"]), ([], before["epoch"] + 1, 0))

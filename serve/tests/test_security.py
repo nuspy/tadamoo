@@ -1,4 +1,4 @@
-"""The server answers to any Host name and any Origin; the API key, when there is one, and the control secret stay, against the mock engine."""
+"""Which Host names and Origins the server answers (serve/origin_guard.py), and the API key and the control secret, against the mock engine."""
 from __future__ import annotations
 
 import contextlib
@@ -64,14 +64,22 @@ class OverHttp(unittest.TestCase):
         return {"model": "qwen3.8-flash-next", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 64}
 
     # --- Host
-    def test_any_host_name_is_answered(self):
+    def test_ip_addresses_and_localhost_are_answered_and_dns_names_are_not(self):
+        # Without an API key a page of any site could point a DNS name of its own at 127.0.0.1 (DNS rebinding) and read and write as if it were
+        # this server's page. An IP address cannot be rebound, so devices on the network that use the PC's address (or its own name, or a name
+        # in server.allowed-hosts) keep working; the open API /v1/* is left to its CORS policy, which already lets every page use it.
         self.start()
         for method, path in (("GET", "/status"), ("GET", "/metrics"), ("GET", "/"), ("GET", "/health"),
                              ("GET", "/api/logs"), ("POST", "/v1/chat/completions"), ("OPTIONS", "/v1/models")):
-            for host in (f"evil.example.com:{self.port}", f"box.lan:{self.port}", f"192.168.1.20:{self.port}", f"[::1]:{self.port}"):
+            for host in (f"192.168.1.20:{self.port}", f"[::1]:{self.port}", f"localhost:{self.port}"):
                 code = self.req(method, path, self.chat_body() if method == "POST" else None,
                                 {"Content-Type": "application/json"}, host=host)[0]
                 self.assertIn(code, (200, 204), (path, host))
+            for host in (f"evil.example.com:{self.port}", f"box.lan:{self.port}"):
+                code = self.req(method, path, self.chat_body() if method == "POST" else None,
+                                {"Content-Type": "application/json"}, host=host)[0]
+                proven = path.startswith("/api/")                               # req() sends the control secret in its header there
+                self.assertIn(code, (200, 204) if path.startswith("/v1/") or proven else (403,), (path, host))
 
     def test_no_host_header_passes(self):
         self.start()
@@ -83,6 +91,7 @@ class OverHttp(unittest.TestCase):
         self.assertTrue(raw.startswith(b"HTTP/1.0 200"), raw[:40])
 
     def test_with_a_key_the_key_decides_whatever_the_name(self):
+        # every route but the open ones needs the key, which a rebound page does not have: a tunnel's name is answered
         self.start(api_key="s3cret")
         tunnel = "random-words.trycloudflare.com"
         self.assertEqual(self.req("GET", "/status", host=tunnel)[0], 401)
@@ -144,7 +153,8 @@ class OverHttp(unittest.TestCase):
             finally:
                 c.close()
 
-    def test_unload_and_load_need_the_control_secret_and_nothing_about_the_page(self):
+    def test_unload_and_load_need_the_control_secret_in_the_header_whatever_the_page(self):
+        # the secret in X-Tadamoo-Control is a header no page of another site can send, so it proves the request whatever its Origin
         self.start()
         for path in ("/api/control/unload", "/api/control/load"):
             self.assertEqual(self.req("POST", path, {}, {"Content-Type": "application/json", "X-Tadamoo-Control": "wrong"})[0], 403, path)
