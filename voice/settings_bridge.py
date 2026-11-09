@@ -6,7 +6,8 @@ The file is the one serve/voice_settings.py writes:
      "brain": {"mode": "direct|harness", "persona": "<slug>", "permission": "plan|read_only|default|auto", "workspace": "<folder>",
                "base_url": "http://127.0.0.1:<port>", "hotkeys": true|false},
      "telephony": {"transport": "off|auto|gsm|android", "outgoing_approval": "manual|auto", "ai_disclosure_on_start": true|false,
-                   "incoming_auto_answer": true|false, "on_behalf_of": "<name>"}}
+                   "incoming_auto_answer": true|false, "on_behalf_of": "<name>"},
+     "avatar": {"virtual_camera": true|false}}
 This module reads it without importing `serve` or `tadamoo` (the service has its own interpreter). A missing, unreadable or damaged file,
 or a bad value in it, gives the defaults: the service never fails because of its settings.
 
@@ -77,12 +78,20 @@ class Telephony:
 
 
 @dataclass(frozen=True)
+class Avatar:
+    """What the person chose about the avatar's output besides the browser: the virtual camera, off until they turn it on."""
+    virtual_camera: bool = False
+
+
+@dataclass(frozen=True)
 class Settings:
     models_dir: str
     services: dict[str, Choice]
     brain: Brain = Brain()
     telephony: Telephony = Telephony()
     audit_file: str = ""
+    avatar: Avatar = Avatar()
+    avatars_dir: str = ""
 
 
 def _read(path) -> dict:
@@ -131,6 +140,11 @@ def _telephony(stored) -> Telephony:
                      who.strip()[:80] if isinstance(who, str) and not any(ord(c) < 32 for c in who) else "")
 
 
+def _avatar(stored) -> Avatar:
+    stored = stored if isinstance(stored, dict) else {}
+    return Avatar(stored.get("virtual_camera") is True)
+
+
 def load(path, default_models_dir: str = "") -> Settings:
     """The settings in `path`; a value that is missing or invalid takes its default.
 
@@ -143,7 +157,8 @@ def load(path, default_models_dir: str = "") -> Settings:
         models_dir = default_models_dir or str(Path(path).resolve().parent / "voice-models")
     stored = data.get("services") if isinstance(data.get("services"), dict) else {}
     return Settings(models_dir, {s: _choice(s, stored.get(s)) for s in ms.SERVICES}, _brain(data.get("brain")), _telephony(data.get("telephony")),
-                    str(Path(path).resolve().parent / "call-audit.jsonl"))
+                    str(Path(path).resolve().parent / "call-audit.jsonl"), _avatar(data.get("avatar")),
+                    str(Path(path).resolve().parent / "voice" / "avatars"))
 
 
 def is_enabled(choice: Choice, models_dir: str) -> bool:
@@ -191,6 +206,8 @@ def overrides(settings: Settings) -> dict:
     t = settings.telephony
     out["call_transport"], out["outgoing_approval"], out["ai_disclosure_on_start"] = t.transport, t.outgoing_approval, t.ai_disclosure_on_start
     out["incoming_auto_answer"], out["call_on_behalf_of"], out["call_audit_file"] = t.incoming_auto_answer, t.on_behalf_of, settings.audit_file
+    out["avatar_enabled"] = out["avatar_preload"] = is_enabled(settings.services["avatar"], root)       # the worker starts with the function, not otherwise
+    out["avatar_virtual_camera"], out["avatars_dir"] = settings.avatar.virtual_camera, settings.avatars_dir
     return out
 
 

@@ -27,7 +27,8 @@ from callbridge.config import Config  # noqa: E402
 
 from callbridge.brains import make_brain  # noqa: E402
 
-from voice import brain_service, functions, gateway, settings_bridge, speech_routes  # noqa: E402
+from voice import avatar_routes, brain_service, functions, gateway, settings_bridge, speech_routes  # noqa: E402
+from voice.avatar_service import AvatarService  # noqa: E402
 
 log = logging.getLogger("voice.service")
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
@@ -70,6 +71,7 @@ class State:
         self.brains = make_brain(config)
         self.functions = None
         self.gateway = None
+        self.avatar = None                              # the AvatarService, set by build_app
         self.calls = None                               # the CallService, set by build_app
         self.session = brain_service.Session(self)
         self.refresh(force=True)
@@ -139,6 +141,8 @@ def build_app(settings_path, token: str, default_models_dir: str = "", host: str
     state.calls = app.config["CB_CALLS"]
     state.functions = functions.Functions(state, app=app)
     functions.register(app, state.functions)
+    state.avatar = AvatarService(state, app)
+    avatar_routes.register(app, state.avatar)
     brain_service.register(app, state)
     if with_gateway:
         state.gateway = gateway.Gateway(gateway.Host(state, token))
@@ -213,6 +217,8 @@ def serve(args) -> int:
     finally:
         if state.gateway is not None:
             state.gateway.stop()
+        if app.config.get("CB_AVATAR") is not None:
+            app.config["CB_AVATAR"].stop()              # the worker is a child of this process: it ends with it
         server.shutdown()
         thread.join(5)
         server.server_close()
