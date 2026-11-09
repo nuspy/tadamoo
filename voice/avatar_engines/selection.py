@@ -99,22 +99,22 @@ def target_of(device) -> str | None:
     return device if device in TARGETS else None
 
 
-def wanted(selection: Selection, device, engine=None, height=None):
+def wanted(selection: Selection | None, device, engine=None, height=None):
     """(descriptor or None, height or None): the engine a device is configured for and the height to draw it at.
 
     The device's own declaration wins when the engine runs on its target and offers the height; otherwise the person's choice for the
-    target counts, and a device kind with no target has none."""
+    target counts (`selection` None = nothing configured), and a device kind with no target has none."""
     target = target_of(device)
     info = registry.info_of(engine)
     if info is not None and target is not None and target not in info.runs_on:
         info = None
-    if info is None and target is not None:
+    if info is None and target is not None and selection is not None:
         info = registry.info_of(selection.engines[target])
     if info is None:
         return None, None
     if _whole(height) and height in info.resolutions:
         return info, height
-    if target is not None and info.id == selection.engines[target]:
+    if target is not None and selection is not None and info.id == selection.engines[target]:
         return info, selection.resolution[target]
     return info, None
 
