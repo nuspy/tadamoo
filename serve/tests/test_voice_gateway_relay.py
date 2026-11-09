@@ -49,7 +49,7 @@ class FakeVoiceService:
                     code, body = 401, {"error": "unauthorized"}
                 elif self.path == "/gateway":
                     code, body = 200, {"host": "127.0.0.1", "port": outer.gateway_port, "voice": True, "stt": True, "tts": True, "avatar": False,
-                                       "render_modes": ["musetalk", "wav2lip", "visemi"], "brain": "direct", "persona": ""}
+                                       "render_modes": ["wav2lip", "visemes", "video"], "brain": "direct", "persona": ""}
                 else:
                     code, body = 404, {}
                 raw = json.dumps(body).encode()
@@ -197,7 +197,7 @@ class Relay(unittest.TestCase):
         self.assertEqual(body["available"], True)
         self.assertEqual(body["path"], "/api/voice/gateway/ws")
         self.assertEqual((body["voice"], body["avatar"], body["brain"]), (True, False, "direct"))
-        self.assertEqual(body["render_modes"], ["musetalk", "wav2lip", "visemi"])
+        self.assertEqual(body["render_modes"], ["wav2lip", "visemes", "video"])
         text = json.dumps(body)
         self.assertNotIn(str(self.gateway_port), text)
         self.assertNotIn(self.token, text)

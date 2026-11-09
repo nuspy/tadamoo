@@ -142,13 +142,20 @@ class FakeHost:
 
     def __init__(self, reply="Sure, I can help with that. ", **functions):
         self.cfg = types.SimpleNamespace(default_lang="it", default_voice="if_sara", ptt_turn_pause_s=0.05, tts_speed=1.0, brain_persona="", brain_mode="direct",
-                                         render_mode_default="musetalk", avatar_audio_webrtc=True, duplex_motore_nuovo=False)
+                                         avatar_audio_webrtc=True, duplex_motore_nuovo=False)
         self.brains = RecordingBrain(reply)
         self.fn = {"stt": True, "tts": True, "avatar": False, **functions}
         self.stt, self.tts = FakeStt(), FakeTts()
         self.stt_langs: list = []
         self.calls: list = []
         self.answers: dict = {}
+        self.avatar_info = {"avatar": "", "render_modes": []}          # what the personality's avatar allows, per persona in `avatar_of`
+        self.avatar_of: dict = {}
+        self.phone_calls: list = []
+
+    def phone_avatar(self, persona=""):
+        self.phone_calls.append(persona)
+        return dict(self.avatar_of.get(persona, self.avatar_info))
 
     def functions(self):
         return dict(self.fn)
@@ -201,7 +208,7 @@ def test_ready_says_what_the_pc_can_do_and_who_answers():
     ws = run_connection(FakeHost(avatar=True), [CLOSED])
     ready = ws.json("ready")[0]
     assert ready["voice"] is True and ready["missing"] == [] and ready["avatar"] is True
-    assert ready["brain"] == "direct" and ready["render_modes"] == ["musetalk", "wav2lip", "visemi"]
+    assert ready["brain"] == "direct" and ready["render_modes"] == [] and ready["render_mode"] == "none"          # a device that declares no mode gets the voice only
 
 
 # ---------------------------------------------------------------------------------------- hold to talk
@@ -423,7 +430,7 @@ def test_the_echo_of_the_avatars_own_voice_does_not_interrupt_a_full_duplex_answ
 # ---------------------------------------------------------------------------------------- video
 def test_video_start_without_an_avatar_is_answered_no_avatar_and_the_connection_stays_in_voice():
     host = FakeHost(avatar=False)
-    ws = FakeWs([{"type": "auth", "token": TOKEN}, {"type": "video_start", "sdp": "v=0", "persona": "Shan"}])
+    ws = FakeWs([{"type": "auth", "token": TOKEN}, {"type": "video_start", "sdp": "v=0", "persona": "Shan", "reason": "emergency"}])
     deadline = time.time() + 5
 
     def on_idle():
@@ -473,7 +480,7 @@ def test_video_start_with_an_avatar_negotiates_then_reports_live_and_video_stop_
     host = FakeHost(avatar=True)
     host.answers = {("GET", "/avatar/state"): (200, {"running": True, "persona": "Shan"}),
                     ("GET", "/personas"): (200, {"personas": [{"name": "Shan", "voice": {"engine": "xtts", "voice": "Shan Voice"}}]})}
-    ws = FakeWs([{"type": "auth", "token": TOKEN}, {"type": "video_start", "sdp": "offer-sdp", "persona": "Shan", "brain": "harness"}], idle_limit=300)
+    ws = FakeWs([{"type": "auth", "token": TOKEN}, {"type": "video_start", "sdp": "offer-sdp", "persona": "Shan", "brain": "harness", "reason": "emergency"}], idle_limit=300)
 
     def on_idle():
         if ws.json("video_state") and not getattr(ws, "_stopped", False):
@@ -488,11 +495,6 @@ def test_video_start_with_an_avatar_negotiates_then_reports_live_and_video_stop_
     assert ("POST", "/avatar/stream", {"on": True, "port": 4242}) in host.calls
     assert ("POST", "/avatar/stream", {"on": False}) in host.calls
     assert "video_stopped" in ws.kinds and host.brains.mode == "harness" and FakeFrames.closed
-
-
-def test_the_render_mode_is_remembered_and_confirmed_and_a_bad_one_is_ignored():
-    ws = run_connection(FakeHost(), [{"type": "render_mode", "mode": "visemi"}, {"type": "render_mode", "mode": "nonsense"}, CLOSED])
-    assert ws.json("render_mode") == [{"type": "render_mode", "mode": "visemi"}]
 
 
 # ---------------------------------------------------------------------------------------- the listening side
@@ -604,7 +606,7 @@ def test_the_service_has_a_gateway_that_is_not_listening_until_it_is_started_and
     assert svc.client.get("/gateway").status_code == 401
     info = svc.client.get("/gateway", headers=auth).get_json()
     assert info["port"] == 0 and info["host"] == "127.0.0.1" and info["voice"] is False and info["avatar"] is False
-    assert info["render_modes"] == ["musetalk", "wav2lip", "visemi"]
+    assert info["render_modes"] == ["wav2lip", "visemes", "video"]
     assert svc.client.get("/status", headers=auth).get_json()["gateway"]["host"] == "127.0.0.1"
     assert svc.state.config.stt_backend == "native" and svc.state.config.tts_backend == "native"
 
@@ -630,7 +632,7 @@ def test_the_service_gateway_in_standby_accepts_the_phone_and_says_what_is_not_l
             err = json.loads(ws.recv(timeout=5))
             assert err["code"] == "not_loaded"
             assert json.loads(ws.recv(timeout=5))["type"] == "done"
-            ws.send(json.dumps({"type": "video_start", "sdp": "v=0"}))
+            ws.send(json.dumps({"type": "video_start", "sdp": "v=0", "reason": "emergency"}))
             assert json.loads(ws.recv(timeout=5)) == {"type": "video_unavailable", "reason": "no_avatar"}
         assert svc.client.get("/gateway", headers={"Authorization": "Bearer " + TOKEN}).get_json()["port"] == port
     finally:
