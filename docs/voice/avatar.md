@@ -41,7 +41,7 @@ and the personality's avatar folder has their files.
   `torch.utils.model_zoo.load_url` with a function that raises, so a library that asks for a URL fails with the URL in the message.
 - A weight that is missing keeps the function unloaded: `GET /functions` has `problem` and `POST /functions/apply` reports the plain reason
   (`The avatar is missing 2 weight file(s) in <folder>: s3fd/s3fd-619a316812.pth, ...`) and starts no process. The same goes for a missing
-  environment: its Python is `avatar_python` of the config or the variable `TADAMOO_AVATAR_PYTHON` (the installer sets it).
+  environment: its Python is `avatar_python` of the config (set by the absolute `avatar_python` of `voice.json`) or the variable `TADAMOO_AVATAR_PYTHON` (the installer sets it).
 - All 11 files are sources of the `musetalk-v15` entry of `serve/voice_catalog.py`, so one download installs them (`voice/models.md`
   says where each comes from). The entry is `noncommercial`: the face-parsing network was trained on CelebAMask-HQ. SyncNet is not
   installed: only MuseTalk's training reads it.
