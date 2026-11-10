@@ -100,3 +100,30 @@ def test_a_message_that_is_not_the_persons_does_not_take_the_request_away_from_t
     assert agent.last_user_text == ""                                       # what the permission checks read: nothing in the note stands for the person
     agent.run(None)
     assert seen and seen[0].startswith("write a story of 10000 words")
+
+
+def test_a_reader_that_finds_the_request_unclear_does_not_send_the_agent_back():
+    class Reader:
+        def stays_local(self):
+            return True
+
+        def chat_completion(self, messages, **kw):
+            return {"choices": [{"message": {"content": 'no: The request "write the answer" is ambiguous and lacks a specific question'}}]}
+
+    check = completion.make_completion(lambda: True, client=Reader())
+    assert check("write the answer", "Here it is: rain, 6 degrees.", "") == ""
+    assert completion.UNCLEAR.search("The request text is missing from the prompt")
+    assert not completion.UNCLEAR.search("The second chapter was not written")
+
+
+def test_a_short_follow_up_is_read_with_the_request_before_it(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    client = ScriptedClient(say("Rain."), say("It is 6 degrees."), say("unused"))
+    agent, _ = make(ws, client, permissions=PermissionManager(level=PermissionLevel.AUTO))
+    seen = []
+    agent.completion = lambda request, answer, work: seen.append(request) or ""
+    agent.run("what will the weather in Budapest be tomorrow")
+    agent.run("write the answer")
+    assert "earlier request" in seen[-1] and "weather in Budapest" in seen[-1]
+    assert seen[0] == "what will the weather in Budapest be tomorrow"

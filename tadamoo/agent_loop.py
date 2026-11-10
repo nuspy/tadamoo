@@ -288,6 +288,7 @@ class AgentLoop:
         self._answered = False                    # the last run ended on an answer: a message that follows may correct it
         self.course: Any = None                   # the watch on the course of a request (tadamoo/course.py): notes to the agent, then a card to the person
         self.mission: Dict[str, Any] = {}         # the request in hand and what the harness knows of it, for self_status
+        self._earlier_request = ""                # the request before the one in hand: a short follow-up ("write the answer") is read with it
         self.state_note: Optional[Callable[[], str]] = None       # the note about settings that changed, put before a request (tadamoo/capstate.py)
         self.incoming = ""                                        # the person's latest message as it came, with the control lines the page added to it
         self.batch_interrupt = batch_interrupt    # looked at before each call of a message's batch: a reason to leave the rest of the batch unrun, or ""
@@ -391,6 +392,7 @@ class AgentLoop:
             self._note_correction(words)
         self.last_user_text, self.untrusted_since_user = words, False
         if not steer:
+            self._earlier_request = str((self.mission or {}).get("request") or "")
             self.mission = {"request": words[:300], "completion_rounds": 0}
             self._begin_learning(words)
             if self.course is not None:
@@ -1463,7 +1465,10 @@ class AgentLoop:
     def _request_words(self) -> str:
         """The person's request for the checks that read it after the work: their latest words, else the mission's. A message that is not
         theirs (a plan's note, an event) blanks `last_user_text` so it can authorise nothing, but the request it interrupted is still the request."""
-        return self.last_user_text or str((self.mission or {}).get("request") or "")
+        now = self.last_user_text or str((self.mission or {}).get("request") or "")
+        if now and len(now) < 80 and self._earlier_request and self._earlier_request != now:       # "write the answer" means nothing alone
+            return f"{now}\n(a follow-up to the person's earlier request: {self._earlier_request[:300]})"
+        return now
 
     def _call_lines(self) -> str:
         """The calls this request made that ran, one short line each, for the reader that checks whether the request was followed as named."""
