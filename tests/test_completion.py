@@ -86,3 +86,17 @@ def test_the_line_about_the_work_counts_the_calls_and_the_last_command_and_does_
     agent.run("write and run")
     line = agent._work_line()
     assert "2 tool calls (0 failed)" in line and "1 file writes or edits" in line and "1 commands run; the last one ended with exit code 0" in line
+
+
+def test_a_message_that_is_not_the_persons_does_not_take_the_request_away_from_the_checks(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    client = ScriptedClient(say("Done."), say("unused"))
+    agent, _ = make(ws, client, permissions=PermissionManager(level=PermissionLevel.AUTO))
+    seen = []
+    agent.completion = lambda request, answer, work: seen.append(request) or ""
+    agent.add_user_message("write a story of 10000 words about Noah")
+    agent.add_user_message("[planner] a plan lacks a date", origin="planner")
+    assert agent.last_user_text == ""                                       # what the permission checks read: nothing in the note stands for the person
+    agent.run(None)
+    assert seen and seen[0].startswith("write a story of 10000 words")

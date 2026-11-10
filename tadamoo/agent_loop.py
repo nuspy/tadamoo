@@ -1429,7 +1429,7 @@ class AgentLoop:
             return True
         if self.final_review and self.review is not None and not self._reviewed and self._request_tools:
             self._reviewed = True
-            note = self.review(self.last_user_text, content, self._call_lines())
+            note = self.review(self._request_words(), content, self._call_lines())
             if note is not None:
                 self._emit({"type": "review", "ok": not note, "note": note[:300]})
                 self._audit("review", {"ok": not note, "note": note[:300]})
@@ -1437,7 +1437,7 @@ class AgentLoop:
                 self.append({"role": "user", "content": note, "note": True})
                 return True
         if self.completion is not None and self._completion_rounds < MAX_COMPLETION_ROUNDS:
-            note = self.completion(self.last_user_text, content, self._work_line())
+            note = self.completion(self._request_words(), content, self._work_line())
             if note:
                 self._completion_rounds += 1
                 self.mission["completion_rounds"] = self._completion_rounds
@@ -1459,6 +1459,11 @@ class AgentLoop:
         self._emit({"type": "stop_denied", "final": False, "n": self._stop_denials, "reason": reason[:300]})
         self._audit("stop_denied", {"final": False, "denials": self._stop_denials})
         return True
+
+    def _request_words(self) -> str:
+        """The person's request for the checks that read it after the work: their latest words, else the mission's. A message that is not
+        theirs (a plan's note, an event) blanks `last_user_text` so it can authorise nothing, but the request it interrupted is still the request."""
+        return self.last_user_text or str((self.mission or {}).get("request") or "")
 
     def _call_lines(self) -> str:
         """The calls this request made that ran, one short line each, for the reader that checks whether the request was followed as named."""
