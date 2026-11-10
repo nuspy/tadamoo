@@ -42,7 +42,9 @@ class Session:
         except Exception as e:                                       # noqa: BLE001 (pynput or a desktop that is missing)
             raise Unavailable(f"push-to-talk is not available on this PC ({e.__class__.__name__}: {e})") from None
         meetings = getattr(self.state, "meetings", None)
-        return PushToTalkManager(self.state.config, self.state.brains, copilot=meetings.copilot if meetings is not None else None)
+        avatar_service = getattr(self.state, "avatar", None)
+        avatar = avatar_service.client() if avatar_service is not None and getattr(self.state.config, "avatar_enabled", False) else None
+        return PushToTalkManager(self.state.config, self.state.brains, copilot=meetings.copilot if meetings is not None else None, avatar=avatar)
 
     def manager(self):
         with self._lock:

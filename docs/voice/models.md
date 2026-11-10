@@ -101,6 +101,8 @@ request and renamed only when the SHA-256 matches, one download at a time, the t
 
 - `models_dir`: an absolute path, existing or creatable. Default: `voice/` in the first models folder of Basalt, else `voice-models/` in
   the user data folder. Changing it moves nothing.
+- `venvs_dir` (optional): an absolute path to the folder with one Python environment per heavy TTS engine (`xtts`, `cosyvoice`, `dia`,
+  `orpheus`). Without it the engines look in `tts-venvs/` of the repository.
 - `selected`: a model id of that service; the default is Whisper small for `stt`, Kokoro for `tts`, MuseTalk for `avatar`.
 - `device`: `auto`, `cpu` or `cuda:N`; `memory`: `vram` or `ram`. The CPU with `vram` is refused. `diarization`, `vad` and `embedding`
   default to the CPU and RAM, the others to `auto` and `vram`.

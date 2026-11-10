@@ -71,6 +71,7 @@ modification time changes, so a choice made in Settings > Voice shows in `/statu
 | `tts` selected engine | `tts_engine`, and the `<engine>_device` / `<engine>_gpu_memory` pair of that engine (`tts_*` for Kokoro); `qwen3tts_size` |
 | `diarization` device | `diarization_device` |
 | `models_dir` | `kokoro_model_dir`, `piper_model_dir`, `diarization_model_dir`, `stt_vad_model` |
+| `venvs_dir` | `tts_venvs_dir` (only when it is an absolute path) |
 | `brain` (mode, personality, folder, server address, hotkeys) | `brain_mode`, `brain_persona`, `brain_workspace`, `tadamoo_base_url` (`chat.md`); the level is the server's (`../permission-levels.md`) |
 | `dictation` (enabled, hotkey) | `dictation_enabled`, `dictation_hotkey`; a change is applied to the running service (`desktop.md`) |
 | `telephony` (transport, approval, disclosure, auto-answer, name) | `call_transport`, `outgoing_approval`, `ai_disclosure_on_start`, `incoming_auto_answer`, `call_on_behalf_of`, `call_audit_file` (`telephony.md`) |
