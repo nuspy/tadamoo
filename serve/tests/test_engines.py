@@ -108,7 +108,7 @@ class Families(unittest.TestCase):
             self.assertIs(g["blackwell"], True)
             self.assertEqual(sorted(g), ["blackwell", "cc", "display_active", "display_mode", "name", "processes",
                                          "vram_free", "vram_total"])
-        for env, expect in ((RTX4090, False), (RTX3090, False), (RTX2080, False), (H100, False), (GB10, True)):
+        for env, expect in ((RTX4090, False), (RTX3090, False), (RTX2080, False), (H100, False), (GB10, True), (nv("NVIDIA B200", [10, 0]), False)):
             with mock.patch.dict(os.environ, {"TADAMOO_FAKE_SYSTEM_OK": "1", **env}):
                 self.assertIs(hardware.gpu()["blackwell"], expect, env)
         with mock.patch.dict(os.environ, {"TADAMOO_FAKE_SYSTEM_OK": "1", **NO_GPU}):
@@ -152,7 +152,7 @@ class Registry(unittest.TestCase):
     def test_compatibility_with_a_reason(self):
         ok, code, _ = engines.compatible("basalt", machine(RTX5090))
         self.assertEqual((ok, code), (True, None))
-        for env, why in ((RTX3090, "family"), (NO_GPU, "no_gpu"), (ARC, "family")):
+        for env, why in ((RTX3090, "family"), (NO_GPU, "no_gpu"), (ARC, "family"), (nv("NVIDIA B200", [10, 0]), "sm")):
             ok, code, text = engines.compatible("basalt", machine(env))
             self.assertEqual((ok, code), (False, why), env)
             self.assertTrue(text)
