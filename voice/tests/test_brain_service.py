@@ -314,3 +314,12 @@ def test_the_environments_folder_of_the_tts_engines_comes_from_voice_json(tmp_pa
     assert "tts_venvs_dir" not in settings_bridge.overrides(settings_bridge.load(p))
     p.write_text(json.dumps({"models_dir": str(tmp_path / "m")}), encoding="utf-8")
     assert "tts_venvs_dir" not in settings_bridge.overrides(settings_bridge.load(p))
+
+
+def test_the_python_of_the_avatar_environment_comes_from_voice_json(tmp_path):
+    p = tmp_path / "voice.json"
+    exe = str(tmp_path / "av" / "python.exe")
+    p.write_text(json.dumps({"models_dir": str(tmp_path / "m"), "avatar_python": exe}), encoding="utf-8")
+    assert settings_bridge.overrides(settings_bridge.load(p))["avatar_python"] == exe
+    p.write_text(json.dumps({"models_dir": str(tmp_path / "m"), "avatar_python": "python.exe"}), encoding="utf-8")
+    assert "avatar_python" not in settings_bridge.overrides(settings_bridge.load(p))

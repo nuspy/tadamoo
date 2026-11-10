@@ -153,6 +153,7 @@ class Settings:
     language: LanguageSettings = LanguageSettings()
     dictation: Dictation = Dictation()
     venvs_dir: str = ""
+    avatar_python: str = ""
 
 
 def _read(path) -> dict:
@@ -252,11 +253,13 @@ def load(path, default_models_dir: str = "") -> Settings:
     stored = data.get("services") if isinstance(data.get("services"), dict) else {}
     venvs = data.get("venvs_dir")
     venvs_dir = venvs if isinstance(venvs, str) and os.path.isabs(venvs) else ""
+    av_py = data.get("avatar_python")
+    avatar_python = av_py if isinstance(av_py, str) and os.path.isabs(av_py) else ""
     return Settings(models_dir, {s: _choice(s, stored.get(s)) for s in ms.SERVICES}, _brain(data.get("brain")), _telephony(data.get("telephony")),
                     str(Path(path).resolve().parent / "call-audit.jsonl"), _avatar(data.get("avatar")),
                     str(Path(path).resolve().parent / "voice" / "avatars"),
                     _meetings(data.get("meetings")), str(Path(path).resolve().parent / "meetings-audit.jsonl"), Interruptions.parse(data.get("interruptions")),
-                    LanguageSettings.parse(data.get("language")), _dictation(data.get("dictation")), venvs_dir)
+                    LanguageSettings.parse(data.get("language")), _dictation(data.get("dictation")), venvs_dir, avatar_python)
 
 
 def is_enabled(choice: Choice, models_dir: str) -> bool:
@@ -292,6 +295,8 @@ def overrides(settings: Settings) -> dict:
             out["qwen3tts_size"] = tts.model.removeprefix("qwen3tts-").upper()
     if settings.venvs_dir:
         out["tts_venvs_dir"] = settings.venvs_dir
+    if settings.avatar_python:
+        out["avatar_python"] = settings.avatar_python
     out["kokoro_model_dir"] = ms.folder("tts", "kokoro", root)
     out["piper_model_dir"] = ms.folder("tts", "piper", root)
     out["diarization_model_dir"] = ms.folder("diarization", "sherpa-diarization", root)
