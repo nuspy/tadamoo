@@ -105,3 +105,12 @@ session. The logit hashes are printed on stderr as `LH` lines, one per accepted 
 Compare the token ids and the per-position hashes between the two sessions. With `--spec 0` there is one row per token;
 the `--spec 7` run may print extra rows past the end of a request, so match rows by position. The pinned sizes used here
 were N = 11582, M = 8876 for IQ3_XXS and N = 9979, M = 7562 for IQ3_S.
+
+## FP4 module target
+
+The FP4 block-scaled expert module is built for the family-specific target of the 12.x architecture, so one cubin loads
+on every 12.x GPU. The machine code of its main GEMM kernel (1360 instructions) is identical to the architecture-specific
+build, with the same registers and shared memory. `prefill_fp4_test` and `prefill_mmq_nvfp4_test` pass on it, and the
+kernel parity programs built with CUDA 13.4 give the same results as with the earlier toolkit. A model that does not
+use NVFP4 experts does not run this module; on such a model (IQ3_S, 600 W) the two toolkits' speeds agree within their
+spread. The quality gate (PPL/KLD against Q8_0) was not run: no base file was at hand.

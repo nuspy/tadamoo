@@ -447,9 +447,10 @@ the ESP32 firmware (never compiled), the virtual camera and the GPU engines are 
 
 ## Requirements
 
-- **A GPU one of the two engines can run.** The **Basalt-Plus** engine needs an **NVIDIA Blackwell GPU** (compute
-  capability 10.x or 12.x: GeForce RTX 50 series, RTX PRO 6000, B200): its kernels are built only for Blackwell, and on
-  any other GPU the Loader, the wizard, the start script and the app say so before starting, and load nothing with it.
+- **A GPU one of the two engines can run.** The **Basalt-Plus** engine needs an **NVIDIA Blackwell GPU** of the 12.x
+  family (compute capability 12.x: GeForce RTX 50 series, RTX PRO 6000 Blackwell, DGX Spark): its kernels are built only for
+  that family, and on any other GPU the Loader, the wizard, the start script and the app say so before starting, and load
+  nothing with it. Data-centre Blackwell (10.x, B200) passes the check but its kernels are not built or tested.
   Other hardware runs through the **Strata** engine, installed from a local folder: NVIDIA **RTX 40** (Ada), **RTX 30**
   (Ampere) and **RTX 20** (Turing), **Apple silicon**, **AMD**, **Intel**, and machines with **unified memory** (one pool
   shared by CPU and GPU). The Loader shows one Models tab for each engine the PC can run.
@@ -465,15 +466,17 @@ the ESP32 firmware (never compiled), the virtual camera and the GPU engines are 
 
 ## Compatibility
 
-- **Basalt-Plus engine** (`.basalt` files, Qwen3.8-Flash-Next and the Qwen3.6 path): NVIDIA Blackwell only, Windows x64 and Linux x86-64.
+- **Basalt-Plus engine** (`.basalt` files, Qwen3.8-Flash-Next and the Qwen3.6 path): NVIDIA Blackwell 12.x only, Windows x64 and
+  Linux x86-64. Its kernels are built for compute capability 12.0, and the FP4 module for the whole 12.x family, so a build
+  runs on a later minor version such as the DGX Spark's 12.1; no run on a Spark was made. CUDA 13.1 is the documented
+  toolkit; 13.4 also builds it and passes the kernel parity programs, with no measurable speed difference on the model tried.
 - **Strata engine** (second engine in the Loader, installed from a local folder; also reads the Qwen3.6 and DeepSeek V4.1
   models): NVIDIA RTX 40 (compute capability 8.9), RTX 30 (8.6) and RTX 20 (7.5), Apple (Metal), AMD (HIP), Intel (SYCL)
   and unified-memory machines. The Loader picks the tab from the hardware it detects: RTX 30/40, Mac, AMD, Intel, Unified
   memory. Run and checked here only on an NVIDIA Blackwell GPU with a Qwen3.6 GGUF that carries the MTP layer; the tabs for
   the other hardware are in place and tested against a stand-in server, but no run on those machines was made. A DGX Spark
-  (compute capability 12.1) is recognised as unified memory and offered Strata (a build for 12.x runs on a later minor
-  version); no run on one was made. Basalt-Plus is not offered there in practice: one of its modules (the FP4 experts) is built
-  for 12.0 only and would not load on 12.1. A Mac release is not built: Mac users compile from the repository.
+  (compute capability 12.1) is recognised as unified memory and offered Strata as well as Basalt-Plus (a build for 12.x
+  runs on a later minor version); no run on one was made. A Mac release is not built: Mac users compile from the repository.
 - **Add-ons in the setup**: Openweight Canary, Billion Context (needs Node.js), REA and Node.js; none of them needs a GPU.
 - Known limit: the Qwen3.6 path on the Basalt-Plus engine can crash with prompt chunks of 2048 tokens or more; `--chunk 512` works.
 

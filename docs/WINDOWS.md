@@ -1,6 +1,6 @@
 # Basalt-Plus on Windows
 
-Basalt-Plus builds and runs natively on Windows 10/11 x64 with an NVIDIA Blackwell GPU (compute capability 12.0) under
+Basalt-Plus builds and runs natively on Windows 10/11 x64 with an NVIDIA Blackwell GPU (compute capability 12.x) under
 the WDDM driver.  This page lists what is needed, the exact build commands, and what differs from Linux.
 
 ## What is needed
@@ -8,7 +8,7 @@ the WDDM driver.  This page lists what is needed, the exact build commands, and 
 | Tool | Version used | Notes |
 |---|---|---|
 | Visual Studio (Community is enough) | 2026 with the **v143 (VS 2022) C++ x64 build tools** | `cl` 19.44 (toolset 14.44) |
-| CUDA Toolkit | 13.1 | 13.2.0 / 13.2.1 miscompile sm_120 kernels: do not use them |
+| CUDA Toolkit | 13.1 (13.4.92 also builds and passes the kernel parity programs) | 13.2.0 / 13.2.1 miscompile sm_120 kernels: do not use them |
 | CMake | 3.24 or newer (4.2 used) | |
 | Ninja | 1.11 or newer | |
 | Python | 3.10 or newer with numpy | only for the server and the i-quant test fixtures |

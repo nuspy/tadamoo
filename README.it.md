@@ -484,10 +484,11 @@ telefono, il firmware ESP32 (mai compilato), la camera virtuale e i motori su GP
 
 ## Requisiti
 
-- **Una GPU che uno dei due motori sa eseguire.** Il motore **Basalt-Plus** richiede una **GPU NVIDIA Blackwell**
-  (compute capability 10.x o 12.x: GeForce RTX serie 50, RTX PRO 6000, B200): i suoi kernel sono compilati solo per
-  Blackwell, e con un'altra GPU il Loader, la configurazione guidata, lo script e l'app lo dicono prima di partire e con
-  quel motore non si carica nulla. Altro hardware gira con il motore **Strata**, installato da una cartella locale: NVIDIA
+- **Una GPU che uno dei due motori sa eseguire.** Il motore **Basalt-Plus** richiede una **GPU NVIDIA Blackwell** della
+  famiglia 12.x (compute capability 12.x: GeForce RTX serie 50, RTX PRO 6000 Blackwell, DGX Spark): i suoi kernel sono
+  compilati solo per quella famiglia, e con un'altra GPU il Loader, la configurazione guidata, lo script e l'app lo dicono
+  prima di partire e con quel motore non si carica nulla. Le Blackwell da data centre (10.x, B200) superano il controllo, ma
+  i loro kernel non sono compilati né provati. Altro hardware gira con il motore **Strata**, installato da una cartella locale: NVIDIA
   **RTX 40** (Ada), **RTX 30** (Ampere) e **RTX 20** (Turing), **Apple silicon**, **AMD**, **Intel** e macchine a **memoria
   unificata** (un solo blocco condiviso da CPU e GPU). Il Loader mostra una scheda Modelli per ogni motore che il PC può
   eseguire.
@@ -504,15 +505,19 @@ telefono, il firmware ESP32 (mai compilato), la camera virtuale e i motori su GP
 
 ## Compatibilità
 
-- **Motore Basalt-Plus** (file `.basalt`, Qwen3.8-Flash-Next e il percorso Qwen3.6): solo NVIDIA Blackwell, Windows x64 e Linux x86-64.
+- **Motore Basalt-Plus** (file `.basalt`, Qwen3.8-Flash-Next e il percorso Qwen3.6): solo NVIDIA Blackwell 12.x, Windows x64
+  e Linux x86-64. I suoi kernel sono compilati per la compute capability 12.0, e il modulo FP4 per tutta la famiglia 12.x,
+  quindi una compilazione gira su una versione minore successiva come la 12.1 del DGX Spark; su una Spark non è stata fatta
+  nessuna esecuzione. CUDA 13.1 è il toolkit documentato; la 13.4 lo compila e supera i programmi di parità dei kernel, senza
+  differenze di velocità misurabili sul modello provato.
 - **Motore Strata** (secondo motore del Loader, installato da una cartella locale; legge anche i modelli Qwen3.6 e DeepSeek
   V4.1): NVIDIA RTX 40 (compute capability 8.9), RTX 30 (8.6) e RTX 20 (7.5), Apple (Metal), AMD (HIP), Intel (SYCL) e
   macchine a memoria unificata. Il Loader sceglie la scheda dall'hardware che rileva: RTX 30/40, Mac, AMD, Intel, Memoria
   unificata. Eseguito e verificato qui solo su una GPU NVIDIA Blackwell con un GGUF Qwen3.6 che ha lo strato MTP; le schede
   per l'altro hardware ci sono e sono provate con un server finto, ma su quelle macchine non è stata fatta nessuna
-  esecuzione. Un DGX Spark (compute capability 12.1) è riconosciuto come memoria unificata e gli si offre Strata (una
-  compilazione per 12.x gira su una versione minore successiva); nessuna esecuzione su una Spark è stata fatta. Basalt-Plus lì
-  in pratica non va offerto: un suo modulo (gli esperti FP4) è compilato solo per 12.0 e non si caricherebbe su 12.1. Una versione per Mac non è compilata: chi ha un Mac
+  esecuzione. Un DGX Spark (compute capability 12.1) è riconosciuto come memoria unificata e gli si offre Strata
+  oltre a Basalt-Plus (una compilazione per 12.x gira su una versione minore successiva); nessuna esecuzione su una Spark è
+  stata fatta. Una versione per Mac non è compilata: chi ha un Mac
   compila dal repository.
 
 ## Avviare TaDaMoo Win+GUI
