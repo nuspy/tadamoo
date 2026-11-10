@@ -155,14 +155,44 @@ def test_the_two_brains_have_separate_hotkeys_taken_from_the_config():
     m._toggle = lambda brain, half_duplex, mode, avatar=False: started.append((brain, half_duplex, mode, avatar))
     m.start()
     keys = desktop.taken[0]
-    for combo in (cfg.push_to_talk_hotkey, cfg.push_to_talk_hotkey_fullduplex, cfg.push_to_talk_hotkey_direct, cfg.push_to_talk_hotkey_direct_full):
-        assert combo in keys
-    assert (cfg.push_to_talk_hotkey, cfg.push_to_talk_hotkey_fullduplex, cfg.push_to_talk_hotkey_direct, cfg.push_to_talk_hotkey_direct_full) ==         ("shift+f1", "shift+f2", "ctrl+shift+f4", "ctrl+shift+f5")
-    # the harness hotkeys call the harness, the direct ones the direct brain
-    for combo in (cfg.push_to_talk_hotkey, cfg.push_to_talk_hotkey_fullduplex, cfg.push_to_talk_hotkey_direct, cfg.push_to_talk_hotkey_direct_full):
+    four = (cfg.push_to_talk_hotkey_direct_voice, cfg.push_to_talk_hotkey, cfg.push_to_talk_hotkey_direct, cfg.push_to_talk_hotkey_avatar)
+    assert four == ("ctrl+shift+f1", "ctrl+shift+f2", "ctrl+shift+f4", "ctrl+shift+f5")
+    assert set(keys) == set(four)                                  # the headphones twins have no key until one is written
+    for combo in four:
         keys[combo]()
-    assert started == [("harness", True, "half", False), ("harness", False, "full", False),
-                       ("direct", True, "half", False), ("direct", False, "full", False)]
+    # F1 direct, F2 the agent (both voice only); F4 direct and F5 the agent, both with the avatar
+    assert started == [("direct", True, "half", False), ("harness", True, "half", False),
+                       ("direct", True, "half", True), ("harness", True, "half", True)]
+
+
+def test_a_headphones_twin_with_a_key_is_registered_and_listens_all_the_time():
+    from callbridge import ptt
+
+    class Hook:
+        def start(self):
+            return True
+
+        def stop(self):
+            pass
+
+    class FakeDesktop:
+        def __init__(self):
+            self.taken = []
+
+        def push_to_talk_keys(self, name, hotkeys):
+            self.taken.append(hotkeys)
+            return Hook()
+
+    cfg = Config()
+    cfg.push_to_talk_enabled = True
+    cfg.push_to_talk_hotkey_fullduplex = "ctrl+shift+f3"
+    desktop = FakeDesktop()
+    m = ptt.PushToTalkManager(cfg, make_brain(cfg), desktop=desktop)
+    started = []
+    m._toggle = lambda brain, half_duplex, mode, avatar=False: started.append((brain, half_duplex, mode, avatar))
+    m.start()
+    desktop.taken[0]["ctrl+shift+f3"]()
+    assert started == [("harness", False, "full", False)]
 
 
 def test_a_session_started_for_a_brain_uses_a_fork_in_that_mode(monkeypatch):

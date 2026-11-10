@@ -58,15 +58,17 @@ class Config:
     push_to_talk_enabled: bool = True
     # Hotkey half-duplex: durante il TTS il microfono viene ignorato (no eco
     # con le casse). Hotkey full-duplex: ascolta sempre (ideale con le cuffie).
-    # Hotkey of the HARNESS brain (the TaDaMoo agent): speakers (half-duplex) and headphones (full-duplex).
-    push_to_talk_hotkey: str = "shift+f1"
-    push_to_talk_hotkey_fullduplex: str = "shift+f2"
-    # Harness with the video avatar; registered only when an avatar client exists.
-    push_to_talk_hotkey_avatar: str = "ctrl+shift+f1"
-    push_to_talk_hotkey_avatar_full: str = "ctrl+shift+f2"
-    # Hotkeys of the DIRECT brain (the loaded model, no tools), with the avatar when there is one.
-    push_to_talk_hotkey_direct: str = "ctrl+shift+f4"
-    push_to_talk_hotkey_direct_full: str = "ctrl+shift+f5"
+    # The four push-to-talk keys, each a brain and a face: DIRECT (the loaded model, no tools) or HARNESS (the TaDaMoo agent), with the
+    # video avatar or voice only. They speak through the speakers (half-duplex: the microphone is ignored while it speaks). The `_full`
+    # twins listen all the time (headphones); they have no key until one is written ("" = not registered).
+    push_to_talk_hotkey_direct_voice: str = "ctrl+shift+f1"     # direct, voice only
+    push_to_talk_hotkey: str = "ctrl+shift+f2"                  # harness, voice only
+    push_to_talk_hotkey_direct: str = "ctrl+shift+f4"           # direct, with the avatar
+    push_to_talk_hotkey_avatar: str = "ctrl+shift+f5"           # harness, with the avatar
+    push_to_talk_hotkey_direct_voice_full: str = ""
+    push_to_talk_hotkey_fullduplex: str = ""
+    push_to_talk_hotkey_direct_full: str = ""
+    push_to_talk_hotkey_avatar_full: str = ""
     # Pausa di silenzio (s) che chiude il turno parlato in half-duplex: gli
     # spezzoni STT separati da meno di tanto vengono uniti in un solo enunciato.
     ptt_turn_pause_s: float = 1.5

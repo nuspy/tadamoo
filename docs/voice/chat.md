@@ -49,8 +49,9 @@ those sends nothing. A "yes" for an approval answered meanwhile on the screen is
   made by voice lasts for that session only.
 - Voice commands, as the whole utterance: "switch to the agent", "use the harness", "passa all'agente", "usa l'agente", "parla con l'agente";
   "switch to direct", "go direct", "passa al diretto", "torna alla conversazione diretta". The session answers in its language.
-- Hotkeys (from the config, `push_to_talk_hotkey*`): Shift+F1 and Shift+F2 the agent with speakers and with headphones, Ctrl+Shift+F1 and F2 the
-  agent with the avatar, Ctrl+Shift+F4 and F5 direct (with the avatar when there is one). They are registered only when `brain.hotkeys` is on.
+- Hotkeys (from the config, `push_to_talk_hotkey*`): Ctrl+Shift+F1 direct and Ctrl+Shift+F2 the agent, both voice only; Ctrl+Shift+F4 direct
+  and Ctrl+Shift+F5 the agent, both with the avatar. They use the speakers (half-duplex); the headphones (full-duplex) twins, the `_full` fields,
+  have no key until one is written. They are registered only when `brain.hotkeys` is on.
 - Analyses, the copilot and anything that reads another person's words use the direct brain's `ask_stream`: a transcript never reaches an agent with tools.
 
 ## voice.json and the token

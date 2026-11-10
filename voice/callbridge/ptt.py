@@ -482,12 +482,13 @@ class PushToTalkManager:
     def start(self) -> None:
         """Registra le hotkey globali (non bloccante).
 
-        - Shift+F1 / Shift+F2: cervello HARNESS (l'agente di TaDaMoo), half-duplex
-          (casse: mic muto durante risposta e TTS) e full-duplex (cuffie: ascolta
-          sempre, barge-in possibile).
-        - Ctrl+Shift+F1 / F2: harness con l'avatar video (solo con un avatar).
-        - Ctrl+Shift+F4 / F5: cervello DIRETTO (il modello caricato, senza
-          strumenti), half e full-duplex; con l'avatar se c'e'.
+        - Ctrl+Shift+F1: cervello DIRETTO (il modello caricato, senza strumenti), solo voce.
+        - Ctrl+Shift+F2: cervello HARNESS (l'agente di TaDaMoo), solo voce.
+        - Ctrl+Shift+F4: DIRETTO con l'avatar video.
+        - Ctrl+Shift+F5: HARNESS con l'avatar video.
+        Tutte half-duplex (casse: mic muto durante risposta e TTS). Le varianti full-duplex
+        (cuffie: ascolta sempre, barge-in possibile) non hanno un tasto finche' non ne
+        scrivi uno nella config (campi `_full` / `_fullduplex`).
         """
         if not self.cfg.push_to_talk_enabled:
             # Il flag serve a evitare conflitti di registrazione (es. hotkey gia'
@@ -505,23 +506,22 @@ class PushToTalkManager:
         # Un tasto per volta: la combinazione scatta solo con ESATTAMENTE i suoi
         # modificatori (Shift+F1 non scatta con Ctrl+Shift+F1 premuto). Lo garantisce
         # il desktop (`Desktop.push_to_talk_keys`), non queste callback.
-        hotkeys = {
-            self.cfg.push_to_talk_hotkey: lambda: self._toggle(
-                "harness", half_duplex=True, mode="half"),
-            self.cfg.push_to_talk_hotkey_fullduplex: lambda: self._toggle(
-                "harness", half_duplex=False, mode="full"),
-        }
-        # Ctrl+Shift+F1/F2: stessa conversazione harness MA con avatar video.
-        # Sempre registrate: senza un AvatarClient al momento del tasto la sessione dice "avatar_unavailable".
-        hotkeys[self.cfg.push_to_talk_hotkey_avatar] = lambda: self._toggle(
-            "harness", half_duplex=True, mode="half", avatar=True)
-        hotkeys[self.cfg.push_to_talk_hotkey_avatar_full] = lambda: self._toggle(
-            "harness", half_duplex=False, mode="full", avatar=True)
-        # Ctrl+Shift+F4/F5: voce DIRETTA, stesso avatar delle F1/F2; degrada a sola-voce se l'avatar non c'e' quando si preme.
-        hotkeys[self.cfg.push_to_talk_hotkey_direct] = lambda: self._toggle(
-            "direct", half_duplex=True, mode="half", avatar=self._avatar is not None)
-        hotkeys[self.cfg.push_to_talk_hotkey_direct_full] = lambda: self._toggle(
-            "direct", half_duplex=False, mode="full", avatar=self._avatar is not None)
+        table = (
+            (self.cfg.push_to_talk_hotkey_direct_voice, "direct", True, "half", False),
+            (self.cfg.push_to_talk_hotkey, "harness", True, "half", False),
+            (self.cfg.push_to_talk_hotkey_direct, "direct", True, "half", True),
+            (self.cfg.push_to_talk_hotkey_avatar, "harness", True, "half", True),
+            (self.cfg.push_to_talk_hotkey_direct_voice_full, "direct", False, "full", False),
+            (self.cfg.push_to_talk_hotkey_fullduplex, "harness", False, "full", False),
+            (self.cfg.push_to_talk_hotkey_direct_full, "direct", False, "full", True),
+            (self.cfg.push_to_talk_hotkey_avatar_full, "harness", False, "full", True),
+        )
+        hotkeys = {}
+        for combo, brain, half, mode, with_avatar in table:
+            if not combo:
+                continue                                   # no key written: not registered
+            hotkeys[combo] = (lambda b=brain, h=half, m=mode, av=with_avatar: self._toggle(b, half_duplex=h, mode=m, avatar=av) if av
+                              else self._toggle(b, half_duplex=h, mode=m))
         # Shift+F4: copilota da conversazione (apre/chiude la finestra).
         if self.copilot is not None:
             hotkeys[self.cfg.push_to_talk_hotkey_copilot] = lambda: self._toggle_copilot()
@@ -539,11 +539,9 @@ class PushToTalkManager:
             log.error("Push-to-talk non avviato: le hotkey non partono (dettaglio sopra)")
             return
         self._listener = hook
-        log.info("Push-to-talk attivo: %s / %s (harness, casse / cuffie), "
-                 "%s / %s (diretto, casse / cuffie)%s%s",
-                 self.cfg.push_to_talk_hotkey, self.cfg.push_to_talk_hotkey_fullduplex,
-                 self.cfg.push_to_talk_hotkey_direct, self.cfg.push_to_talk_hotkey_direct_full,
-                 f", {self.cfg.push_to_talk_hotkey_avatar}/{self.cfg.push_to_talk_hotkey_avatar_full} (harness con avatar)",
+        log.info("Push-to-talk attivo: %s diretto, %s harness, %s diretto con avatar, %s harness con avatar%s",
+                 self.cfg.push_to_talk_hotkey_direct_voice, self.cfg.push_to_talk_hotkey,
+                 self.cfg.push_to_talk_hotkey_direct, self.cfg.push_to_talk_hotkey_avatar,
                  f", {self.cfg.push_to_talk_hotkey_copilot} (copilota)" if self.copilot else "")
 
     @property

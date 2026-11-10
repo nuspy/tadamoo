@@ -136,10 +136,10 @@ def _run_ptt_mainloop(cfg: Config, log: logging.Logger, prebuilt=None) -> None:
     """PTT ricco (overlay + hotkey dei due cervelli) sul thread principale (bloccante)."""
     overlay, manager, copilot, _avatar = prebuilt or _build_ptt(cfg, log)
     manager.start()
-    print(f"Push-to-talk: {cfg.push_to_talk_hotkey}=harness (casse), "
-          f"{cfg.push_to_talk_hotkey_fullduplex}=harness (cuffie), "
-          f"{cfg.push_to_talk_hotkey_direct}=diretto (casse), "
-          f"{cfg.push_to_talk_hotkey_direct_full}=diretto (cuffie)"
+    print(f"Push-to-talk: {cfg.push_to_talk_hotkey_direct_voice}=diretto, "
+          f"{cfg.push_to_talk_hotkey}=harness, "
+          f"{cfg.push_to_talk_hotkey_direct}=diretto con avatar, "
+          f"{cfg.push_to_talk_hotkey_avatar}=harness con avatar"
           + (f", {cfg.push_to_talk_hotkey_copilot}=copilota" if copilot else "")
           + ". Ctrl+C per uscire.")
     try:

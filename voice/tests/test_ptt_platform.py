@@ -21,12 +21,10 @@ from callbridge.desktop.x11 import X11Desktop
 from callbridge.desktop.x11_keys import X11KeyHook
 
 DEFAULTS = {
-    "shift+f1": ("harness", True, "half", False),
-    "shift+f2": ("harness", False, "full", False),
-    "ctrl+shift+f1": ("harness", True, "half", True),      # the avatar ones are always there: without an avatar the session says so
-    "ctrl+shift+f2": ("harness", False, "full", True),
-    "ctrl+shift+f4": ("direct", True, "half", False),      # the direct brain takes the avatar only when there is one at the press
-    "ctrl+shift+f5": ("direct", False, "full", False),
+    "ctrl+shift+f1": ("direct", True, "half", False),      # direct, voice only
+    "ctrl+shift+f2": ("harness", True, "half", False),     # the agent, voice only
+    "ctrl+shift+f4": ("direct", True, "half", True),       # direct, with the avatar
+    "ctrl+shift+f5": ("harness", True, "half", True),      # the agent, with the avatar
 }
 
 
@@ -77,13 +75,13 @@ def test_the_manager_hands_the_desktop_neutral_combinations_and_what_each_press_
         assert m.toggled[-1] == expected
 
 
-def test_the_direct_hotkeys_take_the_avatar_when_it_exists_at_the_press_and_the_copilot_key_needs_its_part():
+def test_the_avatar_keys_ask_for_the_avatar_and_the_copilot_key_needs_its_part():
     d = RecordingDesktop()
     m = _manager(d, avatar=object(), copilot=SimpleNamespace(toggle=lambda: d.calls.append("copilot")))
     m.start()
     hotkeys = d.calls[0][1]
-    assert {"ctrl+shift+f1", "ctrl+shift+f2", "shift+f4"} <= set(hotkeys)
-    hotkeys["ctrl+shift+f1"]()
+    assert {"ctrl+shift+f1", "ctrl+shift+f2", "ctrl+shift+f4", "ctrl+shift+f5", "shift+f4"} == set(hotkeys)
+    hotkeys["ctrl+shift+f5"]()
     assert m.toggled[-1] == ("harness", True, "half", True)
     hotkeys["ctrl+shift+f4"]()
     assert m.toggled[-1] == ("direct", True, "half", True)
@@ -91,17 +89,21 @@ def test_the_direct_hotkeys_take_the_avatar_when_it_exists_at_the_press_and_the_
     assert d.calls[-1] == "copilot"
 
 
-def test_an_avatar_that_comes_after_the_hotkeys_were_registered_is_used_by_the_next_press():
+def test_an_avatar_key_asks_for_the_avatar_even_when_there_is_none_yet_and_the_session_says_so():
     d = RecordingDesktop()
-    holder = {}
-    m = _manager(d, avatar_getter=lambda: holder.get("client"))
+    m = _manager(d)                                         # no avatar at all
     m.start()
     hotkeys = d.calls[0][1]
     hotkeys["ctrl+shift+f4"]()
-    assert m.toggled[-1] == ("direct", True, "half", False)
-    holder["client"] = object()
-    hotkeys["ctrl+shift+f4"]()
     assert m.toggled[-1] == ("direct", True, "half", True)
+
+
+def test_a_key_that_is_empty_is_not_registered():
+    d = RecordingDesktop()
+    m = _manager(d)
+    m.cfg.push_to_talk_hotkey_direct_voice = ""
+    m.start()
+    assert "" not in d.calls[0][1] and "ctrl+shift+f1" not in d.calls[0][1]
 
 
 def test_stop_stops_the_hook_and_start_is_not_doubled():
