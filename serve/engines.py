@@ -84,6 +84,15 @@ def installed(engine_id: str) -> bool:
     return (ROOT / "bin" / e["dir"] / exe).is_file()
 
 
+def _sm_runs(sm, built) -> bool:
+    """A build for compute capability X.y runs on X.z with z at or above y (binary compatibility inside a major)."""
+    try:
+        major, minor = (int(x) for x in str(sm).split("."))
+    except ValueError:
+        return False
+    return any(int(b.split(".")[0]) == major and int(b.split(".")[1]) <= minor for b in built)
+
+
 def compatible(engine_id: str, hw: dict) -> tuple[bool, str | None, str | None]:
     """(ok, reason code, reason text) of the engine on this PC; the reason is None when it runs here."""
     e = ENGINES[engine_id]
@@ -93,7 +102,7 @@ def compatible(engine_id: str, hw: dict) -> tuple[bool, str | None, str | None]:
     mine = [g for g in gpus if g["family"] in e["families"]]
     if not mine:
         return False, "family", f"{e['label']} does not run on this GPU family"
-    if "sm" in e and not any(g["family"] not in hardware.NVIDIA_FAMILIES or g.get("sm") in e["sm"] for g in mine):
+    if "sm" in e and not any(g["family"] not in hardware.NVIDIA_FAMILIES or _sm_runs(g.get("sm"), e["sm"]) for g in mine):
         return False, "sm", f"{e['label']} is built for compute capability {', '.join(e['sm'])}"
     if "sm_majors" in e and not any(g.get("cc") and int(g["cc"][0]) in e["sm_majors"] for g in mine):
         return False, "sm", f"{e['label']} is built for compute capability {', '.join(map(str, e['sm_majors']))}.x"
