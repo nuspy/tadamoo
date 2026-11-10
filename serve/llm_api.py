@@ -19,8 +19,9 @@ from tadamoo.llmswitch.providers import TYPES
 TECHNICAL_KINDS = ("lmstudio", "vllm", "llamacpp")          # the servers a second small model for the technical session can come from
 TECHNICAL_ID, TECHNICAL_NAME = "technical-%s", "Technical session: %s"
 TECHNICAL_WINDOW = 8192                                    # the context assumed for such a model until the person states it
-SHOWN_TYPES = ("basalt", "lmstudio", "vllm", "llamacpp", "openai", "claude", "gemini", "openai_compat", "zai_coding", "zai", "deepseek",
-               "kimi", "qwen", "nebius", "nvidia", "grok", "bonsai", "jev", "claude_cli", "codex_cli")
+SHOWN_TYPES = ("basalt", "lmstudio", "vllm", "llamacpp", "openai", "claude", "gemini", "openai_compat", "anthropic_compat", "zai_coding", "zai",
+               "deepseek", "kimi", "qwen", "nebius", "deepinfra", "chutes", "siliconflow", "orcarouter", "groq", "together", "fireworks",
+               "cerebras", "openrouter", "novita", "hyperbolic", "nvidia", "grok", "bonsai", "jev", "claude_cli", "codex_cli")
 
 
 class LlmError(ValueError):
