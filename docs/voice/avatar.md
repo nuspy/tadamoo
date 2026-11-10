@@ -97,8 +97,9 @@ in this order: name, photo, voice sample (optional), short video (optional). The
   The Voice tab shows it in an `<img>` (read with `fetch` when an API key is set). The OpenCV window of the old worker is gone.
 - Virtual camera: `voice.json` `avatar.virtual_camera` (default false; Settings > Voice > Avatar output) with pyvirtualcam, on Windows and
   Linux only (other systems say unsupported). It opens on the first frame once the avatar is loaded and closes when the setting goes off or the
-  avatar stops. It installs no driver and no package: OBS Virtual Camera (Windows) or v4l2loopback (Linux) must be there, and the reason shows
-  in `GET /avatar/output` when it cannot open.
+  avatar stops. It installs no driver: OBS Virtual Camera (Windows) or v4l2loopback (Linux) must be there. The `pyvirtualcam` wheel is put into the
+  service's Python by pip, once, in the background and without asking, the first time the camera is asked for and the package is missing; the reason
+  shows in `GET /avatar/output` while it installs and when it cannot open or install.
 - Frames for other code: `AvatarClient.frames.subscribe(callback)` returns the function that stops it; `callback(frame)` gets a `Frame` with
   `width`, `height`, `i420` (bytes), `bgr()` and `jpeg()`. It runs on the receiving thread, so it must return quickly; with no subscriber the
   worker is told to send nothing. The phone gateway's own socket (`POST /avatar/stream {on, port}`) still works beside it.

@@ -331,7 +331,7 @@ def test_the_preview_uses_the_jpeg_encoder_only_while_someone_watches():
 
 def test_the_camera_is_off_by_default_installs_nothing_and_never_imports_the_driver_library(rig, monkeypatch):
     source = Path(avatar_output.__file__).read_text(encoding="utf-8")
-    for word in ("subprocess", "os.system", "pip ", "ensurepip", "sudo", "modprobe", "regsvr32", "msiexec", "urllib", "requests", "socket"):
+    for word in ("os.system", "ensurepip", "sudo", "modprobe", "regsvr32", "msiexec", "urllib", "requests", "socket"):          # no driver, no download of its own
         assert word not in source, word
     assert rig.state.settings.avatar.virtual_camera is False and rig.state.config.avatar_virtual_camera is False
     sys.modules.pop("pyvirtualcam", None)
@@ -385,8 +385,50 @@ def test_a_system_without_a_virtual_camera_says_unsupported_and_a_missing_driver
     assert cam["enabled"] and not cam["supported"] and not cam["running"] and "unsupported" in cam["reason"]
     monkeypatch.setattr(avatar_output.sys, "platform", "win32")
     monkeypatch.setitem(sys.modules, "pyvirtualcam", None)
+    monkeypatch.setitem(avatar_output._install, "thread", None)
+    monkeypatch.setitem(avatar_output._install, "error", "")
+    monkeypatch.setattr(avatar_output, "_install_package", lambda: None)             # nothing is downloaded by a test
+    avatar_output.camera_support()
+    avatar_output._install["thread"].join()
     assert avatar_output.camera_support() == (False, "pyvirtualcam is not installed in the voice environment")
     monkeypatch.undo()
+
+
+def test_a_missing_camera_package_is_installed_once_in_the_background_and_then_found(monkeypatch):
+    monkeypatch.setattr(avatar_output.sys, "platform", "win32")
+    monkeypatch.setitem(sys.modules, "pyvirtualcam", None)
+    monkeypatch.setitem(avatar_output._install, "thread", None)
+    monkeypatch.setitem(avatar_output._install, "error", "")
+    calls = []
+
+    def fake_install():
+        calls.append(1)
+        sys.modules["pyvirtualcam"] = types.ModuleType("pyvirtualcam")               # what pip leaves behind
+
+    monkeypatch.setattr(avatar_output, "_install_package", fake_install)
+    avatar_output.camera_support()
+    avatar_output._install["thread"].join()
+    assert avatar_output.camera_support() == (True, "")
+    assert avatar_output.camera_support() == (True, "") and len(calls) == 1
+    monkeypatch.delitem(sys.modules, "pyvirtualcam", raising=False)
+
+
+def test_a_failed_install_is_said_in_the_reason_and_not_tried_again(monkeypatch):
+    monkeypatch.setattr(avatar_output.sys, "platform", "win32")
+    monkeypatch.setitem(sys.modules, "pyvirtualcam", None)
+    monkeypatch.setitem(avatar_output._install, "thread", None)
+    monkeypatch.setitem(avatar_output._install, "error", "")
+    calls = []
+
+    def fake_install():
+        calls.append(1)
+        avatar_output._install["error"] = "no network"
+
+    monkeypatch.setattr(avatar_output, "_install_package", fake_install)
+    avatar_output.camera_support()
+    avatar_output._install["thread"].join()
+    ok, why = avatar_output.camera_support()
+    assert not ok and "no network" in why and avatar_output.camera_support()[0] is False and len(calls) == 1
 
 
 def test_a_camera_that_cannot_be_opened_is_reported_and_the_avatar_goes_on(rig, monkeypatch):

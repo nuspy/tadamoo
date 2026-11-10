@@ -6,7 +6,10 @@ turns it on and closed when they turn it off or the avatar stops. Nothing here i
 camera cannot be opened the reason is reported and the avatar goes on without it."""
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import logging
+import subprocess
 import sys
 import threading
 import time
@@ -86,14 +89,47 @@ class Preview:
             yield part(jpeg)
 
 
+_PACKAGE = "pyvirtualcam"
+_install = {"thread": None, "error": ""}
+_install_lock = threading.Lock()
+
+
+def _install_package() -> None:
+    """pip puts pyvirtualcam (a small wheel) into this Python, once, without asking: the camera is a feature the person turned on."""
+    try:
+        done = subprocess.run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--only-binary=:all:", _PACKAGE],
+                              capture_output=True, text=True, timeout=180)
+        if done.returncode != 0:
+            _install["error"] = (done.stderr or done.stdout or "pip failed").strip().splitlines()[-1][:160]
+    except (OSError, subprocess.SubprocessError) as e:
+        _install["error"] = f"{type(e).__name__}: {e}"[:160]
+    importlib.invalidate_caches()
+    if _install["error"]:
+        log.warning("pyvirtualcam could not be installed: %s", _install["error"])
+    else:
+        log.info("pyvirtualcam installed")
+
+
 def camera_support() -> tuple[bool, str]:
-    """(whether this system can have a virtual camera, why not). pyvirtualcam is looked for, never installed."""
+    """(whether this system can have a virtual camera, why not). When pyvirtualcam is missing it is installed in the background, once."""
     if sys.platform not in ("win32", "linux"):
         return False, "the virtual camera is unsupported on this system"
     try:
         import pyvirtualcam  # noqa: F401
     except ImportError:
-        return False, "pyvirtualcam is not installed in the voice environment"
+        with _install_lock:
+            if _install["thread"] is None:
+                _install["thread"] = threading.Thread(target=_install_package, name="pyvirtualcam-install", daemon=True)
+                _install["thread"].start()
+            running = _install["thread"].is_alive()
+        if running:
+            return False, "pyvirtualcam is being installed in the voice environment"
+        if _install["error"]:
+            return False, f"pyvirtualcam is not installed in the voice environment ({_install['error']})"
+        try:
+            import pyvirtualcam  # noqa: F401,F811
+        except ImportError:
+            return False, "pyvirtualcam is not installed in the voice environment"
     return True, ""
 
 
@@ -113,6 +149,7 @@ class VirtualCamera:
         self._size: tuple[int, int] | None = None
         self._unsubscribe: Callable[[], None] | None = None
         self._lock = threading.Lock()
+        self._wanted = False
         self.reason = ""
 
     @property
@@ -122,18 +159,29 @@ class VirtualCamera:
     def start(self) -> bool:
         """Turn the camera on; False with `reason` when this system cannot. The device itself opens with the first frame."""
         with self._lock:
+            self._wanted = True
             if self._unsubscribe is not None:
                 return True
             ok, why = self._support()
             if not ok:
                 self.reason = why
+                installing = _install["thread"] if "being installed" in why else None
+                if installing is not None:
+                    threading.Thread(target=self._after_install, args=(installing,), daemon=True, name="camera-after-install").start()
                 return False
             self.reason = ""
             self._unsubscribe = self.frames.subscribe(self._on_frame)
             return True
 
+    def _after_install(self, installing: threading.Thread) -> None:
+        """The package came in while the camera was wanted: turn it on, unless it was turned off meanwhile."""
+        installing.join()
+        if self._wanted:
+            self.start()
+
     def stop(self) -> None:
         with self._lock:
+            self._wanted = False
             unsubscribe, self._unsubscribe = self._unsubscribe, None
             cam, self._cam, self._size = self._cam, None, None
         if unsubscribe is not None:
@@ -169,6 +217,10 @@ class VirtualCamera:
                 pass
 
     def status(self, enabled: bool) -> dict:
-        ok, why = self._support()
+        if enabled or self._support is not camera_support:
+            ok, why = self._support()
+        else:                                                  # off: look, never import and never install
+            ok = importlib.util.find_spec(_PACKAGE) is not None
+            why = "" if ok else "pyvirtualcam is not installed in the voice environment"
         return {"enabled": enabled, "supported": ok, "running": self.running and self._cam is not None, "device": str(getattr(self._cam, "device", "")) if self._cam else "",
                 "reason": self.reason or ("" if ok else why)}
