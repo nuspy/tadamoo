@@ -97,7 +97,13 @@ def lib(name: str) -> Any:
             del sys.modules[key]                       # imported from another copy: follow the folder chosen now
         sys.path.remove(str(root))
         sys.path.insert(0, str(root))
-    return importlib.import_module("canary." + name)
+    try:
+        return importlib.import_module("canary." + name)
+    except ModuleNotFoundError as exc:
+        if exc.name and exc.name.split(".")[0] != "canary":
+            raise                                      # a dependency of the add-on is missing: not this error
+        raise CanaryError(f"The Openweight Canary add-on at {root} is outdated: it has no module canary.{name}. Update it or point to a current copy.",
+                          "addon_outdated") from exc
 
 
 def launcher() -> Any:

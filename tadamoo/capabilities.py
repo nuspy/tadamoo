@@ -26,6 +26,8 @@ from tadamoo.mcp_client import MCPToolError, clean_description, declares_read_on
 from tadamoo.skills import parse_frontmatter
 from tadamoo.tools.registry import ToolArgumentError
 
+_WRITE_LOCK = threading.Lock()                           # one write of the index files at a time, whichever index makes it
+
 ROOTS: Dict[str, Dict[str, str]] = {
     "vision": {"en": "Vision", "it": "Visione"},
     "documents": {"en": "Documents", "it": "Documenti"},
@@ -368,8 +370,9 @@ class CapabilityIndex:
                 e["state"] = "off" if e["kind"] != "builtin" and e["id"] in off else "approved"
                 entries.append(e)
             self.entries = entries
-            self._write("index.json", {"entries": entries})
-            (self.dir / "skills.md").write_text(self.skills_md(), encoding="utf-8")
+            with _WRITE_LOCK:                                # another index over the same folder may write at the same moment
+                self._write("index.json", {"entries": entries})
+                (self.dir / "skills.md").write_text(self.skills_md(), encoding="utf-8")
             return entries
 
     def get(self, entry_id: str) -> Optional[Dict[str, Any]]:
