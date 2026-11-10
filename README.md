@@ -471,8 +471,9 @@ the ESP32 firmware (never compiled), the virtual camera and the GPU engines are 
   and unified-memory machines. The Loader picks the tab from the hardware it detects: RTX 30/40, Mac, AMD, Intel, Unified
   memory. Run and checked here only on an NVIDIA Blackwell GPU with a Qwen3.6 GGUF that carries the MTP layer; the tabs for
   the other hardware are in place and tested against a stand-in server, but no run on those machines was made. A DGX Spark
-  (compute capability 12.1) is recognised as unified memory, but Strata's build list stops at 12.0, so the Loader does not
-  offer it Strata yet. A Mac release is not built: Mac users compile from the repository.
+  (compute capability 12.1) is recognised as unified memory and offered Strata (a build for 12.x runs on a later minor
+  version); no run on one was made. Basalt-Plus is not offered there in practice: one of its modules (the FP4 experts) is built
+  for 12.0 only and would not load on 12.1. A Mac release is not built: Mac users compile from the repository.
 - **Add-ons in the setup**: Openweight Canary, Billion Context (needs Node.js), REA and Node.js; none of them needs a GPU.
 - Known limit: the Qwen3.6 path on the Basalt-Plus engine can crash with prompt chunks of 2048 tokens or more; `--chunk 512` works.
 

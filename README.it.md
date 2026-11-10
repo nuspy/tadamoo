@@ -510,8 +510,9 @@ telefono, il firmware ESP32 (mai compilato), la camera virtuale e i motori su GP
   macchine a memoria unificata. Il Loader sceglie la scheda dall'hardware che rileva: RTX 30/40, Mac, AMD, Intel, Memoria
   unificata. Eseguito e verificato qui solo su una GPU NVIDIA Blackwell con un GGUF Qwen3.6 che ha lo strato MTP; le schede
   per l'altro hardware ci sono e sono provate con un server finto, ma su quelle macchine non è stata fatta nessuna
-  esecuzione. Un DGX Spark (compute capability 12.1) è riconosciuto come memoria unificata, ma l'elenco delle compilazioni di
-  Strata si ferma a 12.0, quindi il Loader non gli offre ancora Strata. Una versione per Mac non è compilata: chi ha un Mac
+  esecuzione. Un DGX Spark (compute capability 12.1) è riconosciuto come memoria unificata e gli si offre Strata (una
+  compilazione per 12.x gira su una versione minore successiva); nessuna esecuzione su una Spark è stata fatta. Basalt-Plus lì
+  in pratica non va offerto: un suo modulo (gli esperti FP4) è compilato solo per 12.0 e non si caricherebbe su 12.1. Una versione per Mac non è compilata: chi ha un Mac
   compila dal repository.
 
 ## Avviare TaDaMoo Win+GUI

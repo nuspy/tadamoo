@@ -159,6 +159,7 @@ class Registry(unittest.TestCase):
         self.assertEqual(engines.compatible("strata", machine(RTX3090))[0], True)
         self.assertEqual(engines.compatible("strata", machine(RTX5090))[0], True)
         self.assertEqual(engines.compatible("strata", machine(A100))[:2], (False, "sm"))
+        self.assertEqual(engines.compatible("strata", machine(GB10))[:2], (True, None))
         self.assertEqual(engines.compatible("strata", machine(H100))[:2], (False, "family"))
         self.assertEqual(engines.compatible("strata", machine(APPLE))[0], True)
         self.assertEqual(engines.compatible("strata", machine(MI300X))[0], True)
