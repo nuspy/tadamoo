@@ -240,7 +240,7 @@ class Plan(Base):
         code, p = self.req("POST", "/api/voice/functions/plan", {"desired": {"tts": {"on": True}}})
         tts = next(i for i in p["items"] if i["id"] == "tts")
         self.assertEqual(tts["action"], "missing")
-        self.assertEqual(tts["reason"], "Kokoro is not installed: install it from Settings > Voice.")
+        self.assertEqual(tts["reason"], "Kokoro is not installed: install it in Models > Voice services.")
         self.assertEqual((p["need_mib"], p["changes"]), (0, False))
 
     def test_a_changed_model_is_a_reload_and_what_does_not_fit_says_so(self):
@@ -267,6 +267,22 @@ class Plan(Base):
         self.install("musetalk-v15")
         code, p = self.req("POST", "/api/voice/functions/plan", {"desired": {"avatar": {"on": True, "device": "cpu", "memory": "ram"}}})
         self.assertEqual((p["need_mib"], p["llm_reload"], p["fits"]), (0, False, True))
+
+    def test_a_change_for_one_function_leaves_the_others_as_they_are_loaded(self):
+        self.install("whisper-small", "kokoro")
+        self.apply({"stt": {"on": True}})
+        self.wait_job()
+        self.log.clear()
+        voice_settings.set_enabled("tts", True)                                   # wanted in voice.json, not loaded yet
+        code, p = self.req("POST", "/api/voice/functions/plan", {"desired": {"stt": {"on": False}}, "only": "stt"})
+        self.assertEqual({i["id"]: i["action"] for i in p["items"]}, {"stt": "unload", "tts": "off", "avatar": "off"})
+        code, out = self.apply({"stt": {"on": False}}, only="stt")
+        self.assertEqual((code, out["status"]), (202, "started"))
+        self.wait_job()
+        self.assertNotIn("service_load", self.kinds())
+        self.assertEqual((voice_settings.enabled("stt"), voice_settings.enabled("tts")), (False, True))   # only the one function is written
+        code, body = self.apply({"stt": {"on": False}}, only="nope")
+        self.assertEqual(code, 400, body)
 
     def test_bad_requests_are_refused(self):
         for desired in ({"nope": {"on": True}}, {"stt": {"on": "yes"}}, {"stt": {"on": True, "model": "kokoro"}}, {"stt": {"on": True, "device": "tpu"}},

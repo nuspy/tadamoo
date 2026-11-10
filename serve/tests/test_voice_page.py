@@ -6,6 +6,7 @@ from pathlib import Path
 WEB = Path(__file__).resolve().parent.parent / "web"
 HTML = (WEB / "index.html").read_text(encoding="utf-8")
 JS = (WEB / "voice.js").read_text(encoding="utf-8")
+DL = (WEB / "voicedl.js").read_text(encoding="utf-8")                  # the download, shared with Models > Voice services
 CSS = (WEB / "voice.css").read_text(encoding="utf-8")
 I18N = (WEB / "i18n.js").read_text(encoding="utf-8")
 SUBTABS = (WEB / "subtabs.js").read_text(encoding="utf-8")
@@ -22,9 +23,10 @@ class VoicePageTest(unittest.TestCase):
         self.assertIn('settingsAt("vo-h", "voice")', (WEB / "shell.js").read_text(encoding="utf-8"))
 
     def test_every_route_of_the_server_is_used_and_the_data_loads_when_the_tab_is_shown(self):
-        for route in ('"api/voice/models"', '"api/voice/select"', '"api/voice/placement"', '"api/voice/models-dir"', 'api/voice/download/plan?id=',
-                      '"api/voice/download"', '"api/voice/download/status"', '"api/voice/download/cancel"'):
+        for route in ('"api/voice/models"', '"api/voice/select"', '"api/voice/placement"', '"api/voice/models-dir"'):
             self.assertIn(route, JS)
+        for route in ('api/voice/download/plan?id=', '"api/voice/download"', '"api/voice/download/status"', '"api/voice/download/cancel"'):
+            self.assertIn(route, DL)
         for route in ("/api/voice/models", "/api/voice/download/plan", "/api/voice/download/status", "/api/voice/select", "/api/voice/placement",
                       "/api/voice/models-dir", "/api/voice/download", "/api/voice/download/cancel"):
             self.assertIn(f'"{route}"', HANDLER)
@@ -32,23 +34,25 @@ class VoicePageTest(unittest.TestCase):
         self.assertIn('e.detail !== "voice"', JS)
         self.assertIn("authHeaders()", JS)
         self.assertNotRegex(JS, r'fetch\(\s*["`]/')
+        self.assertNotRegex(DL, r'fetch\(\s*["`]/')
 
     def test_what_the_server_says_enters_the_page_as_text(self):
         for banned in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function"):
             self.assertNotIn(banned, JS)
+            self.assertNotIn(banned, DL)
 
     def test_a_download_starts_only_from_the_plan_after_the_acknowledgements(self):
-        self.assertEqual(JS.count('"api/voice/download"'), 1)
-        self.assertIn("{ id: m.id, token: p.token, confirm: true, ack: s.ack, noncommercial: s.nc }", JS)
-        self.assertIn("go.disabled = !ready || !s.ack || (p.noncommercial && !s.nc)", JS)
-        self.assertIn("input.disabled = !ready", JS)                                      # a plan with problems cannot be confirmed
-        self.assertIn("if (p.noncommercial) checks.append(", JS)
-        self.assertEqual(JS.count("openPlan("), 2)                                         # its definition and the one button
-        self.assertIn("if (!m.downloadable)", JS)                                          # no button where the files are not fixed
-        self.assertIn('role", "progressbar"', JS)
+        self.assertEqual(DL.count('"api/voice/download"'), 1)
+        self.assertIn("{ id: m.id, token: p.token, confirm: true, ack: s.ack, noncommercial: s.nc }", DL)
+        self.assertIn("go.disabled = !ready || !s.ack || (p.noncommercial && !s.nc)", DL)
+        self.assertIn("input.disabled = !ready", DL)                                      # a plan with problems cannot be confirmed
+        self.assertIn("if (p.noncommercial) checks.append(", DL)
+        self.assertEqual(DL.count("openPlan("), 2)                                         # its definition and the one button
+        self.assertIn("if (!m.downloadable)", DL)                                          # no button where the files are not fixed
+        self.assertIn('role", "progressbar"', DL)
 
     def test_the_button_exists_only_for_a_model_that_is_not_installed(self):
-        self.assertIn("if (!m.installed || partial) box.append(downloadPart(svc, m))", JS)        # partial: a set of voices (Piper) with some still missing
+        self.assertIn("if (!m.installed || partial) box.append(dl.part(svc, m))", JS)        # partial: a set of voices (Piper) with some still missing
         self.assertIn("const partial = !!parts && parts.installed.length > 0 && parts.installed.length < parts.total", JS)
 
     def test_the_placement_cannot_ask_for_a_cpu_in_vram(self):

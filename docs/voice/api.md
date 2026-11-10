@@ -77,7 +77,7 @@ These answer `501` with `code: not_available_yet` and the reason, and reach no s
 | Route | Why |
 |---|---|
 | `/tts/model`, `/tts/voice` | the voice and the engine are chosen in Settings > Voice |
-| `/models/load`, `/models/unload` | loading a function plans the VRAM and may unload and reload the language model, so it needs the person's confirmation in the Voice functions dialog in the Loader (`loading.md`); callAPIcall's one-call `{stt_model, tts}` has no safe equivalent |
+| `/models/load`, `/models/unload` | loading a function plans the VRAM and may unload and reload the language model, so it needs the person's confirmation on the function's card in Models > Voice services (`loading.md`); callAPIcall's one-call `{stt_model, tts}` has no safe equivalent |
 | `/tts/stream`, `/stt/stream` | the service has no streaming speech route behind its token; only the old Handy server (`handy_compat_enabled`, off by default, port 8720, no token) speaks these WebSockets, and relaying it would put an unauthenticated socket behind the key |
 | `/personas/<name>/...` | the memory, clips, poster and avatar files of a personality: the memory is the person's, the avatar files come with the avatar phase |
 | `/avatar/...` | the animated avatar comes with its own phase |

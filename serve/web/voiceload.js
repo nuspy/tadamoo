@@ -1,21 +1,22 @@
 "use strict";
-/* Models > Voice services and the "Voice functions" dialog: which voice functions (speech to text, speech synthesis, avatar) are in memory,
-   the model and placement of each, the VRAM they take, and what is left for the language model after the Loader's reserve.
-   The dialog edits a draft, previews the plan (what loads, what unloads, whether it fits) and applies only after a confirmation.
-   Adding functions unloads the model and loads it again; removing them leaves the model alone until "Change services in memory" is
-   confirmed. Everything the server says enters the page as text. */
+/* Models > Voice services: the one place where speech to text, speech synthesis and the avatar are set and loaded. Each function is a card of
+   its own: the switch, the model, the device and the memory, each written to the voice settings the moment it is chosen; what it takes in
+   VRAM; a download for a model that is not installed; and an Apply that loads, replaces or unloads that function alone, after a confirmation.
+   The Loader's profiles keep these choices. Adding a function unloads the model and loads it again; removing one leaves the model alone
+   until "Change services in memory" is confirmed. Everything the server says enters the page as text. */
 (function () {
   const root = document.getElementById("ld-voicesvc");
-  const openBtn = document.getElementById("vl-open"), reloadBtn = document.getElementById("vl-reload");
-  if (!root || !openBtn || !reloadBtn) return;
+  const reloadBtn = document.getElementById("vl-reload");
+  if (!root || !reloadBtn) return;
 
-  const FUNCS = ["stt", "tts", "avatar"], GIB = 1024, POLL_MS = 1000, PLAN_MS = 250;
+  const FUNCS = ["stt", "tts", "avatar"], GIB = 1024, POLL_MS = 1000;
   const NAME = { stt: () => T("vo.svc.stt"), tts: () => T("vo.svc.tts"), avatar: () => T("vo.svc.avatar") };
   const DEVICES = ["auto", "cpu", "cuda:0", "cuda:1"];
   const BUSY = ["waiting", "stopping", "starting", "calibrating", "measuring", "voice"];
   const PHASE = { starting: "vl.ph.applying", unloading_llm: "vl.ph.unloading", applying: "vl.ph.applying", loading_llm: "vl.ph.loading", reloading_llm: "vl.ph.loading" };
-  let S = null, models = null, loaderPhase = "idle", timer = 0, planTimer = 0, planSeq = 0, loadFailed = "";
-  let draft = null, plan = null, planErr = "", dlg = null, dlgBody = null;
+  const ACT = { load: "vl.act.load", reload: "vl.act.reload", unload: "vl.act.unload", keep: "vl.act.keep", off: "vl.act.off", missing: "vl.act.missing" };
+  let S = null, models = null, loaderPhase = "idle", timer = 0, loadFailed = "";
+  const lines = {};                                    // per function: the line under its card
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick, id) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; if (id) b.id = id; return b; };
@@ -25,6 +26,8 @@
   const catalog = f => (models && models.services.find(s => s.id === f)) || { models: [] };
   const entry = (f, id) => catalog(f).models.find(m => m.id === id);
   const jobBusy = () => S && S.job && PHASE[S.job.phase];
+  const busyNow = () => jobBusy() || BUSY.includes(loaderPhase);
+  const line = f => lines[f] || (lines[f] = { text: "", bad: false });
 
   async function api(method, path, body) {
     try {
@@ -35,29 +38,41 @@
     } catch (e) { return { ok: false, status: 0, data: {} }; }
   }
 
+  const dl = VoiceDownload({ models: () => models, ids: FUNCS, root, runId: "vl-run", repaint: () => paint(), refresh: () => refresh(true), active: shown });
+
   /* ---- reading ---- */
-  async function refresh() {
+  async function refresh(withModels) {
+    if (withModels || !models) {
+      const m = await api("GET", "api/voice/models");
+      if (m.ok) models = m.data;
+    }
     const r = await api("GET", "api/voice/functions");
     if (r.ok) { S = r.data; loadFailed = ""; } else loadFailed = errText(r);
     const l = await api("GET", "api/loader/status");
     loaderPhase = l.ok && l.data.phase ? l.data.phase : "idle";
     paint();
     schedule();
+    if (withModels && models) dl.poll();
     return r.ok;
   }
   function schedule() {
     clearTimeout(timer);
-    if (jobBusy() || BUSY.includes(loaderPhase)) timer = setTimeout(refresh, POLL_MS);
+    if (busyNow()) timer = setTimeout(refresh, POLL_MS);
+  }
+  async function write(f, path, body) {                  // a choice is written to the voice settings at once
+    const r = await api("POST", path, body);
+    lines[f] = { text: r.ok ? "" : errText(r), bad: !r.ok };
+    await refresh(true);
   }
 
   /* ---- the tab ---- */
   function paint() {
+    const focus = document.activeElement && root.contains(document.activeElement) ? document.activeElement.id : "";
     reloadBtn.hidden = !(S && S.pending_reload);
-    reloadBtn.disabled = !!(S && (jobBusy() || BUSY.includes(loaderPhase)));
-    openBtn.disabled = !S;
+    reloadBtn.disabled = !!(S && busyNow());
     if (!S) { root.replaceChildren(el("p", "vl-intro", loadFailed || T("vl.loading"))); return; }
-    root.replaceChildren(el("p", "vl-intro", T("vl.intro")), serviceNote(), summary(), pendingBox(), jobBox(), cards());
-    if (dlg && dlg.open) paintDialog();
+    root.replaceChildren(el("p", "vl-intro", T("vl.intro")), serviceNote(), summary(), pendingBox(), jobBox(), ...(models ? [dl.runBox()] : []), cards());
+    if (focus) { const f = document.getElementById(focus); if (f) f.focus(); }
   }
   function serviceNote() {
     const n = el("p", "vl-note", S.service.running ? "" : T("vl.down", S.service.reason));
@@ -65,16 +80,16 @@
     n.hidden = S.service.running;
     return n;
   }
-  function row(dl, k, v) { dl.append(el("dt", "", k), el("dd", "", v)); }
+  function row(dl2, k, v) { dl2.append(el("dt", "", k), el("dd", "", v)); }
   function summary() {
-    const box = el("section", "vl-box"), v = S.vram, dl = el("dl", "vl-facts");
+    const box = el("section", "vl-box"), v = S.vram, facts = el("dl", "vl-facts");
     box.setAttribute("aria-label", T("vl.sum"));
     box.append(el("h3", "vl-h", T("vl.sum")));
-    row(dl, T("vl.free"), gb(v.free_mib));
-    row(dl, T("vl.reserve"), gb(v.reserve_mib));
-    row(dl, T("vl.need"), S.set_unknown.length ? T("vl.need.partial", gb(S.set_need_mib)) : gb(S.set_need_mib));
-    row(dl, T("vl.left"), S.left_for_llm_mib == null ? T("vl.unknown") : gb(S.left_for_llm_mib));
-    box.append(dl);
+    row(facts, T("vl.free"), gb(v.free_mib));
+    row(facts, T("vl.reserve"), gb(v.reserve_mib));
+    row(facts, T("vl.need"), S.set_unknown.length ? T("vl.need.partial", gb(S.set_need_mib)) : gb(S.set_need_mib));
+    row(facts, T("vl.left"), S.left_for_llm_mib == null ? T("vl.unknown") : gb(S.left_for_llm_mib));
+    box.append(facts);
     return box;
   }
   function pendingBox() {
@@ -110,84 +125,6 @@
     S.functions.forEach(f => list.append(card(f)));
     return list;
   }
-  function placementText(f) {
-    const dev = f.device === "auto" ? T("vo.device.auto") : f.device === "cpu" ? T("vo.device.cpu") : T("vo.device.gpu", f.device.split(":")[1]);
-    return `${dev}, ${f.memory === "vram" ? T("vo.memory.vram") : T("vo.memory.ram")}`;
-  }
-  function card(f) {
-    const box = el("section", "vl-card");
-    const h = el("h3", "vl-h", NAME[f.id]());
-    h.id = "vl-h-" + f.id;
-    box.setAttribute("aria-labelledby", h.id);
-    const state = f.state === "loaded" ? T("vl.st.loaded") : f.state === "loading" ? T("vl.st.loading") : f.state === "error" ? T("vl.st.error") : T("vl.st.unloaded");
-    const chips = el("div", "vl-chips");
-    chips.append(chip(f.on ? T("vl.on") : T("vl.off"), f.on ? "vl-ok" : ""), chip(state, f.state === "loaded" ? "vl-ok" : f.state === "error" ? "vl-warn" : ""));
-    if (!f.installed) chips.append(chip(T("vl.notinstalled"), "vl-warn"));
-    const dl = el("dl", "vl-facts");
-    row(dl, T("vl.model"), f.name);
-    row(dl, T("vo.engine"), f.engine);
-    const m = entry(f.id, f.model);
-    row(dl, T("vo.weight"), m && m.size ? T("vl.gb", (m.size / 1e9).toFixed(1)) : T("vo.size.unknown"));
-    row(dl, T("vl.place"), placementText(f));
-    row(dl, T("vl.measured"), f.measured_mib != null ? gb(f.measured_mib) : T("vl.notmeasured"));
-    row(dl, T("vl.estimate"), estimateText(f));
-    box.append(h, chips, dl);
-    if (f.reason) box.append(el("p", "vl-help", f.reason));
-    if (f.error) box.append(el("p", "vl-help vl-bad", f.error));
-    box.append(btn(T("vl.change"), "", e => openMain(f.id, e.currentTarget), "vl-change-" + f.id));
-    return box;
-  }
-  function estimateText(f) {
-    if (f.estimate_source === "cpu") return T("vl.est.cpu");
-    const src = f.estimate_source === "measured" ? T("vl.est.measured") : f.estimate_source === "catalog" ? T("vl.est.catalog") : "";
-    return f.estimated_mib == null ? T("vl.est.unknown") : gb(f.estimated_mib) + (src ? " (" + src + ")" : "");
-  }
-
-  /* ---- dialogs ---- */
-  function makeDialog(id) {
-    const d = el("dialog", "vl-dlg");
-    d.id = id;
-    d.setAttribute("aria-labelledby", id + "-h");
-    const body = el("div", "vl-dlg-body");
-    d.append(body);
-    document.body.append(d);
-    d.addEventListener("close", () => {                                    // the control that opened it gets the focus back, unless focus went somewhere on purpose
-      if (document.activeElement && document.activeElement !== document.body) return;
-      (d._from && d._from.offsetParent ? d._from : openBtn).focus();
-    });
-    return { d, body };
-  }
-  function openDialog(d, from) {
-    d._from = from || document.activeElement;
-    if (!d.open) d.showModal();
-  }
-  function heading(id, text) { const h = el("h2", "vl-dlg-h", text); h.id = id + "-h"; return h; }
-
-  async function openMain(focusId, from) {
-    if (!dlg) { const m = makeDialog("vl-dlg"); dlg = m.d; dlgBody = m.body; }
-    const r = await api("GET", "api/voice/models");
-    if (r.ok) models = r.data;
-    if (!S) await refresh();
-    if (!S) return;
-    draft = {};
-    S.functions.forEach(f => { draft[f.id] = { on: f.on, model: f.model, device: f.device, memory: f.memory }; });
-    plan = null; planErr = "";
-    paintDialog();
-    openDialog(dlg, from || openBtn);
-    const first = (focusId && document.getElementById("vl-on-" + focusId)) || dlg.querySelector("input, select");
-    if (first) first.focus();
-    queuePlan(0);
-  }
-  function queuePlan(wait) {
-    clearTimeout(planTimer);
-    planTimer = setTimeout(async () => {
-      const seq = ++planSeq;
-      const r = await api("POST", "api/voice/functions/plan", { desired: draft });
-      if (seq !== planSeq) return;
-      if (r.ok) { plan = r.data; planErr = ""; } else { plan = null; planErr = errText(r); }
-      if (dlg && dlg.open) paintPlan();
-    }, wait == null ? PLAN_MS : wait);
-  }
   function field(id, label, control) {
     const w = el("div", "vl-field"), l = el("label", "", label);
     l.htmlFor = id; control.id = id;
@@ -201,76 +138,85 @@
     s.onchange = () => onchange(s.value);
     return s;
   }
-  function fnFieldset(f) {
-    const d = draft[f.id], fs = el("fieldset", "vl-fn"), lg = el("legend", "vl-h2", NAME[f.id]());
+  function estimateText(f) {
+    if (f.estimate_source === "cpu") return T("vl.est.cpu");
+    const src = f.estimate_source === "measured" ? T("vl.est.measured") : f.estimate_source === "catalog" ? T("vl.est.catalog") : "";
+    return f.estimated_mib == null ? T("vl.est.unknown") : gb(f.estimated_mib) + (src ? " (" + src + ")" : "");
+  }
+  function card(f) {
+    const box = el("section", "vl-card"), h = el("h3", "vl-h", NAME[f.id]());
+    h.id = "vl-h-" + f.id;
+    box.setAttribute("aria-labelledby", h.id);
+    const state = f.state === "loaded" ? T("vl.st.loaded") : f.state === "loading" ? T("vl.st.loading") : f.state === "error" ? T("vl.st.error") : T("vl.st.unloaded");
+    const chips = el("div", "vl-chips");
+    chips.append(chip(state, f.state === "loaded" ? "vl-ok" : f.state === "error" ? "vl-warn" : ""));
+    if (!f.installed) chips.append(chip(T("vl.notinstalled"), "vl-warn"));
+    box.append(h, chips);
+
+    // the choices: each one is written to the voice settings as it is made
     const sw = el("label", "vl-check"), cb = el("input");
-    cb.type = "checkbox"; cb.id = "vl-on-" + f.id; cb.checked = d.on;
-    cb.onchange = () => { d.on = cb.checked; changed(); };
+    cb.type = "checkbox"; cb.id = "vl-on-" + f.id; cb.checked = f.on;
+    cb.onchange = () => write(f.id, "api/voice/enabled", { service: f.id, enabled: cb.checked });
     sw.append(cb, el("span", "", T("vl.load")));
-    const opts = catalog(f.id).models.map(m => [m.id, m.name + (m.size ? " (" + T("vl.gb", (m.size / 1e9).toFixed(1)) + ")" : "") + (m.installed ? "" : " - " + T("vl.notinstalled"))]);
-    if (!opts.some(o => o[0] === d.model)) opts.push([d.model, f.name]);
-    const model = field("vl-model-" + f.id, T("vl.model"), select(opts, d.model, v => { d.model = v; changed(); }));
-    const dev = field("vl-device-" + f.id, T("vo.device"), select(DEVICES.concat(DEVICES.includes(d.device) ? [] : [d.device]).map(x => [x, x === "auto" ? T("vo.device.auto") : x === "cpu" ? T("vo.device.cpu") : T("vo.device.gpu", x.split(":")[1])]), d.device,
-      v => { d.device = v; if (v === "cpu") d.memory = "ram"; changed(true); }));
-    const mem = field("vl-memory-" + f.id, T("vo.memory"), select([["vram", T("vo.memory.vram")], ["ram", T("vo.memory.ram")]], d.memory,
-      v => { d.memory = v; if (v === "vram" && d.device === "cpu") d.device = "auto"; changed(true); }));
-    const line = el("p", "vl-help");
-    line.id = "vl-est-" + f.id;
-    fs.append(lg, sw, model, el("div", "vl-place"), line, el("p", "vl-help vl-bad"));
-    fs.querySelector(".vl-place").append(dev, mem);
-    fs.lastChild.id = "vl-warn-" + f.id;
-    return fs;
-  }
-  function changed(repaint) {
-    if (repaint) paintDialog(); else paintPlan();
-    queuePlan();
-  }
-  function paintDialog() {
-    const focus = document.activeElement && dlgBody.contains(document.activeElement) ? document.activeElement.id : "";
+    const opts = catalog(f.id).models.filter(x => x.selectable !== false)
+      .map(x => [x.id, x.name + (x.size ? " (" + T("vl.gb", (x.size / 1e9).toFixed(1)) + ")" : "") + (x.installed ? "" : " - " + T("vl.notinstalled"))]);
+    if (!opts.some(o => o[0] === f.model)) opts.push([f.model, f.name]);
+    const place = (device, memory) => write(f.id, "api/voice/placement", { service: f.id, device, memory });
+    const model = field("vl-model-" + f.id, T("vl.model"), select(opts, f.model, v => write(f.id, "api/voice/select", { service: f.id, model: v })));
+    const device = field("vl-device-" + f.id, T("vo.device"), select(DEVICES.concat(DEVICES.includes(f.device) ? [] : [f.device]).map(x => [x, x === "auto" ? T("vo.device.auto") : x === "cpu" ? T("vo.device.cpu") : T("vo.device.gpu", x.split(":")[1])]), f.device,
+      v => place(v, v === "cpu" ? "ram" : f.memory)));
+    const memory = field("vl-memory-" + f.id, T("vo.memory"), select([["vram", T("vo.memory.vram")], ["ram", T("vo.memory.ram")]], f.memory,
+      v => v === "vram" && f.device === "cpu" ? place("auto", v) : place(f.device, v)));
+    const where = el("div", "vl-place");
+    where.append(device, memory);
+    box.append(sw, model, where);
+
+    const facts = el("dl", "vl-facts"), m = entry(f.id, f.model);
+    row(facts, T("vo.engine"), f.engine);
+    row(facts, T("vo.weight"), m && m.size ? T("vl.gb", (m.size / 1e9).toFixed(1)) : T("vo.size.unknown"));
+    row(facts, T("vl.measured"), f.measured_mib != null ? gb(f.measured_mib) : T("vl.notmeasured"));
+    row(facts, T("vl.estimate"), estimateText(f));
+    box.append(facts);
+
+    // what the choices mean for memory, and the one button that makes memory match them
+    const pending = ["load", "reload", "unload"].includes(f.action);
+    if (ACT[f.action]) box.append(el("p", "vl-help" + (f.action === "missing" ? " vl-bad" : ""), T(ACT[f.action])));
+    if (f.error) box.append(el("p", "vl-help vl-bad", f.error));
+    if (models && m && !f.installed) box.append(dl.part(catalog(f.id), m));
+    const apply = btn(T("vl.apply"), "primary", () => confirmApply(f), "vl-apply-" + f.id);
+    apply.disabled = !pending || !S.service.running || !!busyNow();
     const bar = el("div", "vl-bar");
-    const apply = btn(T("vl.apply"), "primary", confirmApply, "vl-apply");
-    bar.append(apply, btn(T("vl.close"), "", () => dlg.close(), "vl-close"));
-    const sum = el("div", "vl-plan");
-    sum.id = "vl-plan";
-    sum.setAttribute("aria-live", "polite");
-    dlgBody.replaceChildren(heading("vl-dlg", T("vl.dlg.title")), el("p", "vl-help", T("vl.dlg.help")), ...S.functions.map(fnFieldset), sum, bar);
-    paintPlan();
-    if (focus) { const f = document.getElementById(focus); if (f) f.focus(); }
-  }
-  function names(items, acts) { return items.filter(i => acts.includes(i.action)).map(i => NAME[i.id]()).join(", "); }
-  function paintPlan() {
-    const sum = document.getElementById("vl-plan"), apply = document.getElementById("vl-apply");
-    if (!sum) return;
-    S.functions.forEach(f => {
-      const i = plan && plan.items.find(x => x.id === f.id), line = document.getElementById("vl-est-" + f.id), warn = document.getElementById("vl-warn-" + f.id);
-      if (!line) return;
-      line.textContent = i ? T("vl.estimate") + ": " + estimateText(i) : "";
-      warn.textContent = i && i.action === "missing" ? i.reason : "";
-      warn.hidden = !warn.textContent;
-    });
-    sum.replaceChildren();
-    if (planErr) { const n = el("p", "vl-note", planErr); n.setAttribute("role", "alert"); sum.append(n); apply.disabled = true; return; }
-    if (!plan) { sum.append(el("p", "vl-help", T("vl.planning"))); apply.disabled = true; return; }
-    sum.append(el("h3", "vl-h2", T("vl.plan")));
-    const loads = names(plan.items, ["load", "reload"]), unloads = names(plan.items, ["unload"]);
-    if (!plan.changes) sum.append(el("p", "vl-line", T("vl.nochange")));
-    if (loads) sum.append(el("p", "vl-line", T("vl.p.loads", loads)));
-    if (unloads) sum.append(el("p", "vl-line", T("vl.p.unloads", unloads)));
-    const dl = el("dl", "vl-facts");
-    row(dl, T("vl.free"), gb(plan.free_mib));
-    row(dl, T("vl.p.need"), plan.unknown.length ? T("vl.need.partial", gb(plan.need_mib)) : gb(plan.need_mib));
-    row(dl, T("vl.p.recover"), plan.recover_known ? gb(plan.recover_mib) : T("vl.need.partial", gb(plan.recover_mib)));
-    row(dl, T("vl.reserve"), gb(plan.reserve_mib));
-    row(dl, T("vl.left"), gb(plan.left_for_llm_mib));
-    sum.append(dl);
-    if (plan.llm_reload) sum.append(el("p", "vl-line", T("vl.p.reload")));
-    else if (plan.reload_suggested) sum.append(el("p", "vl-line", T("vl.p.noreload")));
-    if (plan.fits === false) { const n = el("p", "vl-note", T("vl.p.nofit")); n.setAttribute("role", "alert"); sum.append(n); }
-    else if (plan.fits === null && plan.need_mib) sum.append(el("p", "vl-help", T("vl.p.unknown")));
-    apply.disabled = !plan.changes || plan.fits === false || !S.service.running;
+    bar.append(apply);
+    box.append(bar);
+    const u = line(f.id), msg = el("p", "vl-help" + (u.bad ? " vl-bad" : ""), u.text);
+    msg.setAttribute("role", u.bad ? "alert" : "status");
+    msg.hidden = !u.text;
+    box.append(msg);
+    return box;
   }
 
-  function confirmDialog(id, title, lines, okText, onOk, from) {
+  /* ---- dialogs ---- */
+  function makeDialog(id) {
+    const d = el("dialog", "vl-dlg");
+    d.id = id;
+    d.setAttribute("aria-labelledby", id + "-h");
+    const body = el("div", "vl-dlg-body");
+    d.append(body);
+    document.body.append(d);
+    d.addEventListener("close", () => {                                    // the control that opened it gets the focus back, unless focus went somewhere on purpose
+      if (document.activeElement && document.activeElement !== document.body) return;
+      (d._from && d._from.offsetParent ? d._from : document.getElementById("sub-voicesvc")).focus();
+    });
+    return { d, body };
+  }
+  function openDialog(d, from) {
+    d._from = from || document.activeElement;
+    if (!d.open) d.showModal();
+  }
+  function heading(id, text) { const h = el("h2", "vl-dlg-h", text); h.id = id + "-h"; return h; }
+  function names(items, acts) { return items.filter(i => acts.includes(i.action)).map(i => NAME[i.id]()).join(", "); }
+
+  function confirmDialog(id, title, text, okText, onOk, from) {
     const old = document.getElementById(id);
     if (old) old.remove();
     const m = makeDialog(id), bar = el("div", "vl-bar"), msg = el("p", "vl-note");
@@ -283,46 +229,49 @@
       m.d.close();
     }, id + "-ok");
     bar.append(ok, btn(T("vl.c.cancel"), "", () => m.d.close(), id + "-cancel"));
-    m.body.append(heading(id, title), ...lines.map(t => el("p", "vl-line", t)), msg, bar);
+    m.body.append(heading(id, title), ...text.map(t => el("p", "vl-line", t)), msg, bar);
     m.d.addEventListener("close", () => m.d.remove());
     openDialog(m.d, from);
     document.getElementById(id + "-cancel").focus();                       // the safe choice has the focus
   }
-  function confirmApply() {
-    const lines = [];
-    const loads = names(plan.items, ["load", "reload"]), unloads = names(plan.items, ["unload"]);
-    if (loads) lines.push(T("vl.p.loads", loads));
-    if (unloads) lines.push(T("vl.p.unloads", unloads));
-    lines.push(plan.llm_reload ? T("vl.c.reload", gb(plan.left_for_llm_mib)) : plan.reload_suggested ? T("vl.c.noreload") : T("vl.c.noreload2"));
-    confirmDialog("vl-confirm", T("vl.c.title"), lines, T("vl.c.ok"), async () => {
-      const r = await api("POST", "api/voice/functions/apply", { desired: draft, confirm: true });
-      if (!r.ok) return errText(r);
-      dlg.close();
-      const tab = document.getElementById("sub-voicesvc");
-      tab.click();
-      tab.focus();
-      await refresh();
+  async function confirmApply(f) {
+    const u = line(f.id);
+    const r = await api("POST", "api/voice/functions/plan", { only: f.id });
+    if (!r.ok) { lines[f.id] = { text: errText(r), bad: true }; paint(); return; }
+    const p = r.data, text = [];
+    const loads = names(p.items, ["load", "reload"]), unloads = names(p.items, ["unload"]);
+    if (loads) text.push(T("vl.p.loads", loads));
+    if (unloads) text.push(T("vl.p.unloads", unloads));
+    text.push(`${T("vl.p.need")}: ${gb(p.need_mib)} · ${T("vl.p.recover")}: ${gb(p.recover_mib)} · ${T("vl.left")}: ${gb(p.left_for_llm_mib)}`);
+    if (p.fits === false) text.push(T("vl.p.nofit"));
+    else if (p.fits === null && p.need_mib) text.push(T("vl.p.unknown"));
+    text.push(p.llm_reload ? T("vl.c.reload", gb(p.left_for_llm_mib)) : p.reload_suggested ? T("vl.c.noreload") : T("vl.c.noreload2"));
+    u.text = ""; u.bad = false;
+    confirmDialog("vl-confirm", T("vl.c.title", NAME[f.id]()), text, T("vl.c.ok"), async () => {
+      const a = await api("POST", "api/voice/functions/apply", { only: f.id, confirm: true });
+      if (!a.ok) return errText(a);
+      await refresh(true);
       return "";
-    }, document.getElementById("vl-apply"));
+    }, document.getElementById("vl-apply-" + f.id));
   }
   function confirmReload() {
     const p = S.pending_reload, v = S.vram;
-    const lines = [T("vl.r.done", (p.removed || []).map(f => NAME[f] ? NAME[f]() : f).join(", "), gb(p.recovered_mib)),
+    const text = [T("vl.r.done", (p.removed || []).map(f => NAME[f] ? NAME[f]() : f).join(", "), gb(p.recovered_mib)),
       T("vl.r.reload", gb(v.free_mib), gb(v.reserve_mib))];
-    confirmDialog("vl-rconfirm", T("vl.r.title"), lines, T("vl.r.ok"), async () => {
+    confirmDialog("vl-rconfirm", T("vl.r.title"), text, T("vl.r.ok"), async () => {
       const r = await api("POST", "api/voice/functions/reload-llm", { confirm: true });
       if (!r.ok) return errText(r);
       await refresh();
       return "";
-    }, reloadBtn.hidden ? openBtn : reloadBtn);
+    }, reloadBtn.hidden ? document.getElementById("sub-voicesvc") : reloadBtn);
   }
 
   /* ---- wiring ---- */
-  openBtn.onclick = () => openMain();
   reloadBtn.onclick = confirmReload;
-  document.addEventListener("tadamoo:view", e => { if (e.detail === "loader") refresh(); else clearTimeout(timer); });
-  document.addEventListener("basalt:models-sub", e => { if (e.detail === "voicesvc") refresh(); });
+  document.addEventListener("tadamoo:view", e => { if (e.detail === "loader") refresh(true); else { clearTimeout(timer); dl.stop(); } });
+  document.addEventListener("basalt:models-sub", e => { if (e.detail === "voicesvc") refresh(true); });
+  document.addEventListener("tadamoo:voice", () => refresh(true));                  // a profile was used: it wrote the voice settings
   document.addEventListener("tadamoo:lang", () => { if (S) paint(); });
   document.addEventListener("visibilitychange", () => { if (!document.hidden && shown()) refresh(); });
-  if (document.body.dataset.view === "loader") refresh();
+  if (document.body.dataset.view === "loader") refresh(true);
 })();

@@ -580,6 +580,7 @@
     if (s.vram_gb != null) parts.push(`VRAM ~${nfmt(s.vram_gb, 1)} GB`);
     if (s.tok_s != null) parts.push(`~${nfmt(s.tok_s)} tok/s`);
     if (s.port && s.port !== 7232) parts.push(`:${s.port}`);
+    if (s.voice && s.voice.length) parts.push(T("ld.profile.voice", s.voice.map(f => T("vo.svc." + f)).join(", ")));
     const tags = [p.builtin ? T("ld.profile.builtin") : "", p.default ? T("ld.profile.isdefault") : ""].filter(Boolean);
     return `${p.name}${tags.length ? ` (${tags.join(", ")})` : ""} — ${parts.join(" · ")}`;
   }
@@ -618,6 +619,12 @@
     cmd();
     s.onchange = cmd;
   }
+  // a profile that holds voice functions writes them into the voice settings; they load with the model, or when applied in Models > Voice services
+  async function useVoice(p) {
+    if (!p || !p.voice) return;
+    const { r } = await post("api/profiles", { action: "use", name: p.name });
+    if (r.ok) document.dispatchEvent(new CustomEvent("tadamoo:voice"));
+  }
   function pfSay(box, text, kind) { const m = box.querySelector(".pfmsg"); if (m) { m.textContent = text; m.dataset.kind = kind || ""; } }
   async function profileAction(box, act) {
     const s = box.querySelector("select"), name = s.value, input = box.querySelector("[data-pf-name]");
@@ -628,6 +635,7 @@
     if (act === "use" && prof) {
       writeForm(prof.values); syncMtp();
       if (prof.model) TadamooModels.select(prof.model);
+      await useVoice(prof);
       replan(); pfSay(box, T("ld.profile.used", name), "ok"); return;
     }
     if (act === "safe") {
@@ -660,6 +668,7 @@
     if (!md) { pfSay(box, T("ld.machine.none"), "err"); return; }
     writeForm(md.values); syncMtp();
     if (md.model && window.TadamooModels) TadamooModels.select(md.model);
+    useVoice(md);
     const sel = box.querySelector("select"); if (sel) sel.value = md.name;
     formTouched = true;
     replan(); pfSay(box, T("ld.machine.done"), "ok");
@@ -780,6 +789,7 @@
     if (p) {
       writeForm(p.values);
       if (p.model && !model && window.TadamooModels) TadamooModels.select(p.model);
+      useVoice(p);
       const sel = $("#ld-prof select"); if (sel) sel.value = p.name;
       formTouched = true;
     }

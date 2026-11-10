@@ -14,7 +14,8 @@ Per service, next to `selected`, `device` and `memory` (see `models.md`):
 ```
 
 `enabled` is a boolean, written by `POST /api/voice/enabled {service, enabled}`. Without it a service is off, except `stt`, which is on when its
-model is installed. Settings > Voice (a checkbox per function, with a link) and Models > Voice services write and read the same values.
+model is installed. Speech to text, speech synthesis and the avatar are set only in Models > Voice services; Settings > Voice has a pointer to it
+and the cards of the helper services (diarization, voice activity, embeddings).
 
 ## The service side
 
@@ -77,10 +78,19 @@ Measured VRAM is kept in `voice-measured.json` (user data folder) per model, wit
 ## The pages
 
 Models > Voice services shows each function (model, engine, weight, placement, state, measured and estimated VRAM), the free VRAM, the
-reserve, what the chosen set needs and what is left for the model. The "Voice functions" button (above the Models tabs) opens a dialog with
-the same controls on a draft and a live plan; Apply asks for a confirmation that names what loads and unloads and, when it applies, that the
-model is loaded again. After a removal the "Change services in memory" button appears (in the header and on the tab) and its confirmation
+reserve, what the chosen set needs and what is left for the model. Each function is a card of its own with the switch, the model, the device and
+the memory; each choice is written to `voice.json` as it is made (`/api/voice/enabled`, `/select`, `/placement`). A model that is not installed
+offers its download on the card (`voicedl.js`, shared with Settings > Voice). The card's Apply is for that function alone (`only` in
+`/api/voice/functions/plan` and `/apply`: the other functions stay as they are loaded) and asks for a confirmation that names what loads and
+unloads and, when it applies, that the model is loaded again. After a removal the "Change services in memory" button appears (in the header and on the tab) and its confirmation
 says what is already unloaded, the VRAM recovered, and that the model loads again using all the free VRAM minus the reserve.
+
+## The load profiles
+
+A load profile saved from the Loader keeps the voice functions as `voice.json` holds them: `{"voice": {"stt": {"on", "model", "device", "memory"},
+"tts": ..., "avatar": ...}}`. Using the profile (the Loader's Use, the Machine Default, the start with a profile, `profiles apply` from the start
+script) writes them back into `voice.json`; they load with the model or when applied on their cards. A profile saved with `"voice": null`, and
+profiles from before, leave the voice settings alone. An import drops a voice block whose model this PC does not list.
 
 ## What the tests cover, and what they cannot
 

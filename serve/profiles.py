@@ -195,9 +195,10 @@ def listing(system: dict | None = None, facts: dict | None = None, holds: dict |
     data = _read()
     facts = facts or loader.DEMO_FACTS
     loads = [{"name": SAFE_NAME, "values": safe_values(facts=facts, system=system or {}, holds=holds,
-                                                       holds_vram=holds_vram), "builtin": True, "model": None}]
+                                                       holds_vram=holds_vram), "builtin": True, "model": None, "voice": None}]
     loads += [{"name": n, "values": p.get("values", {}), "builtin": False, "saved": p.get("saved"),
-               "model": p.get("model") if isinstance(p.get("model"), str) else None}
+               "model": p.get("model") if isinstance(p.get("model"), str) else None,
+               "voice": p.get("voice") if isinstance(p.get("voice"), dict) else None}
               for n, p in sorted(data["load"].items(), key=lambda kv: kv[0].lower()) if engine_of(p) == "basalt"]
     default = default_of(data)
     for p in loads:
@@ -206,6 +207,8 @@ def listing(system: dict | None = None, facts: dict | None = None, holds: dict |
         if p["model"]:
             p["summary"]["model"] = Path(p["model"]).stem
             p["summary"]["model_missing"] = not os.path.isfile(p["model"])
+        if p["voice"]:
+            p["summary"]["voice"] = [f for f in VOICE_FUNCTIONS if (p["voice"].get(f) or {}).get("on") is True]
     infer = [{"name": n, "settings": p.get("settings", {}), "saved": p.get("saved"),
               "summary": inference_summary(p.get("settings", {}))}
              for n, p in sorted(data["inference"].items(), key=lambda kv: kv[0].lower())]
@@ -289,11 +292,65 @@ def engine_profiles(engine: str) -> list[dict]:
     return out
 
 
-def _load_item(values, model) -> dict:
+VOICE_FUNCTIONS = ("stt", "tts", "avatar")
+
+
+def voice_now() -> dict:
+    """The voice functions as voice.json holds them: {"stt": {"on", "model", "device", "memory"}, "tts": ..., "avatar": ...}."""
+    from serve import voice_settings
+    return {f: {"on": voice_settings.enabled(f), "model": voice_settings.selected(f), **voice_settings.placement(f)}
+            for f in VOICE_FUNCTIONS}
+
+
+def check_voice(value) -> dict:
+    """A profile's voice functions, each checked as voice.json would be; a function left out keeps the current one."""
+    from serve import voice_catalog, voice_settings
+    if not isinstance(value, dict):
+        raise ValueError("voice: an object of voice functions")
+    out = voice_now()
+    for f, want in value.items():
+        if f not in VOICE_FUNCTIONS or not isinstance(want, dict):
+            raise ValueError(f"voice: {f}: not a voice function")
+        merged = {**out[f], **{k: want[k] for k in ("on", "model", "device", "memory") if k in want}}
+        entry = voice_catalog.find(merged["model"]) if isinstance(merged["model"], str) else None
+        if entry is None or entry["service"] != f:
+            raise ValueError(f"voice: {f}: the model is not in the catalog of that service")
+        if not isinstance(merged["on"], bool):
+            raise ValueError(f"voice: {f}: on is true or false")
+        try:
+            voice_settings.check_placement(merged["device"], merged["memory"])
+        except ValueError as e:
+            raise ValueError(f"voice: {f}: {e}") from None
+        out[f] = merged
+    return out
+
+
+def use_voice(voice: dict) -> None:
+    """Write a profile's voice functions into voice.json (they load with the model, or when applied in Models > Voice services). A function
+    whose model or placement is not valid here any more keeps what voice.json has."""
+    from serve import voice_catalog, voice_settings
+    for f in VOICE_FUNCTIONS:
+        want = voice.get(f) if isinstance(voice, dict) else None
+        if not isinstance(want, dict):
+            continue
+        entry = voice_catalog.find(want.get("model")) if isinstance(want.get("model"), str) else None
+        if entry is not None and entry["service"] == f:
+            voice_settings.select(f, want["model"])
+        try:
+            voice_settings.set_placement(f, want.get("device"), want.get("memory"))
+        except ValueError:
+            pass
+        if isinstance(want.get("on"), bool):
+            voice_settings.set_enabled(f, want["on"])
+
+
+def _load_item(values, model, voice=None) -> dict:
     item = {"values": check_load(values)}
     model = check_model(model)
     if model:
         item["model"] = model
+    if voice:
+        item["voice"] = voice
     return item
 
 
@@ -302,7 +359,8 @@ def default_name() -> str:
 
 
 def change(req: dict) -> dict:
-    """save | rename | delete | default | import; ValueError with the reason."""
+    """save | use | rename | delete | default | import; ValueError with the reason. A load profile is saved with the voice functions as
+    voice.json holds them (stt, tts, avatar: on, model, device, memory); `use` writes them back into voice.json."""
     if not isinstance(req, dict):
         raise ValueError("send a JSON object")
     action, kind = req.get("action"), req.get("kind", "load")
@@ -318,7 +376,8 @@ def change(req: dict) -> dict:
             if kind == "load" and req.get("engine") not in (None, "", "basalt"):
                 item = _engine_item(req["engine"], req.get("values"), req.get("model"))
             elif kind == "load":
-                item = _load_item(req.get("values"), req.get("model"))
+                voice = check_voice(req["voice"]) if req.get("voice") else None if "voice" in req else voice_now()    # as it is now unless said otherwise
+                item = _load_item(req.get("values"), req.get("model"), voice)
             else:
                 item = {"settings": check_inference(req.get("settings"))}
             box[name] = {**item, "saved": loader.now_iso()}
@@ -346,6 +405,15 @@ def change(req: dict) -> dict:
             if kind != "load" or (name != SAFE_NAME and name not in box) or engine_of(box.get(name)) != "basalt":
                 raise ValueError(f"no load profile named {name!r}")
             data["default"] = name
+        elif action == "use":
+            name = check_name(req.get("name"))
+            item = box.get(name) if kind == "load" else None
+            if item is None and name != SAFE_NAME:
+                raise ValueError(f"no load profile named {name!r}")
+            voice = (item or {}).get("voice")
+            if isinstance(voice, dict):
+                use_voice(voice)
+            return {"ok": True, "voice": isinstance(voice, dict)}
         elif action == "import":
             items = req.get("data")
             if not isinstance(items, dict):
@@ -357,9 +425,13 @@ def change(req: dict) -> dict:
                 model = item.get("model")
                 if model and not os.path.isfile(str(model)):
                     model = None                         # exported on another PC: the config file's model stays
-                data["load"][name] = _load_item(item.get("values"), model) | {"saved": loader.now_iso()}
+                try:
+                    voice = check_voice(item["voice"]) if isinstance(item.get("voice"), dict) else None
+                except ValueError:
+                    voice = None                         # exported with a voice model this PC does not list
+                data["load"][name] = _load_item(item.get("values"), model, voice) | {"saved": loader.now_iso()}
         else:
-            raise ValueError("action: save, rename, delete, default or import")
+            raise ValueError("action: save, use, rename, delete, default or import")
         _write(data, "load" if action == "import" else kind)
     return {"ok": True}
 
@@ -397,6 +469,9 @@ def apply(name: str, config: str, model: str | None = None, reserve_mib: int | N
         except OSError:
             title = None
         settings.set_model(config, model, title or Path(model).stem)
+    voice = (_read()["load"].get(name) or {}).get("voice")
+    if isinstance(voice, dict):
+        use_voice(voice)
     return values
 
 

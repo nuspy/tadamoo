@@ -2511,7 +2511,7 @@ def make_handler(svc: Service, remote: bool = False):
             routes = {"/api/voice/select": voice_api.select, "/api/voice/placement": voice_api.placement,
                       "/api/voice/models-dir": voice_api.set_models_dir, "/api/voice/download": voice_api.download,
                       "/api/voice/download/cancel": lambda _req: voice_api.cancel(), "/api/voice/enabled": voice_api.set_enabled, "/api/voice/brain": voice_api.set_brain, "/api/voice/telephony": voice_api.set_telephony, "/api/voice/meetings": voice_settings.set_meetings, "/api/voice/interruptions": voice_settings.set_interruptions, "/api/voice/language": voice_settings.set_language, "/api/voice/dictation": voice_settings.set_dictation,
-                      "/api/voice/functions/plan": lambda r: voice_loader.plan(svc, r.get("desired")),
+                      "/api/voice/functions/plan": lambda r: voice_loader.plan(svc, r.get("desired"), only=r.get("only")),
                       "/api/voice/functions/apply": lambda r: voice_loader.apply(svc, r),
                       "/api/voice/functions/reload-llm": lambda r: voice_loader.reload_llm(svc, r)}
             if path == "/api/voice/service/call":                 # the Voice tab's request to the voice service, from the list in voice_proxy

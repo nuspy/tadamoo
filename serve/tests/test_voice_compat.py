@@ -57,7 +57,7 @@ class FakeVoice:
                 elif path == "/analysis/list":
                     out = {"analyses": [], "echo": self.headers.get("Authorization")}       # a service that repeats its own credentials
                 elif path == "/transcribe":
-                    code, out = 409, {"status": "error", "code": "model_not_installed", "message": "Whisper small is not installed: install it from Settings > Voice."}
+                    code, out = 409, {"status": "error", "code": "model_not_installed", "message": "Whisper small is not installed: install it in Models > Voice services."}
                 elif path == "/tts/models":
                     kind, out = "application/octet-stream", BLOB
                     if outer.leak == "body":
@@ -436,7 +436,7 @@ class NotThereYetTests(Base):
         self.assertIn("memory is the person's", self.jsonrequest("GET", "/personas/Ada/memory")[1]["error"])
         self.assertIn("confirmation", self.jsonrequest("POST", "/models/load", {})[1]["error"])
         self.assertIn("Handy", self.jsonrequest("GET", "/stt/stream")[1]["error"])
-        self.assertIn("Settings > Voice", self.jsonrequest("POST", "/tts/model", {})[1]["error"])
+        self.assertIn("Models > Voice services", self.jsonrequest("POST", "/tts/model", {})[1]["error"])
         self.assertIn("Loader", self.jsonrequest("POST", "/models/load", {})[1]["error"])
 
     def test_a_missing_service_is_a_503_that_says_why_and_never_a_404(self):

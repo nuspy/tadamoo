@@ -96,6 +96,30 @@ def normalise(desired) -> dict:
     return out
 
 
+def check_only(only):
+    """The one function a change is for (None: all of them)."""
+    if only is not None and only not in FUNCTIONS:
+        raise voice_settings.VoiceSettingsError("service", "Unknown voice function.", "Funzione vocale sconosciuta.")
+    return only
+
+
+def only_one(want: dict, live: dict, only: str | None) -> dict:
+    """`want` with every function but `only` as the service has it now, so that changing one function touches no other."""
+    if not only:
+        return want
+    out = dict(want)
+    for f in FUNCTIONS:
+        if f == only:
+            continue
+        now = live["functions"].get(f) or {}
+        if now.get("state") in ("loaded", "loading"):
+            with_ = now.get("loaded_with") or {}
+            out[f] = {"on": True, **{k: with_.get(k, want[f][k]) for k in ("model", "device", "memory")}}
+        else:
+            out[f] = {**want[f], "on": False}
+    return out
+
+
 def live_state() -> dict:
     """The service's own view (GET /functions); a refusal naming `voice_service_down` when it cannot be reached."""
     try:
@@ -141,7 +165,7 @@ def _item(f: str, want: dict, live: dict, root: str) -> dict:
     if want["on"]:
         out["action"] = "keep" if loaded and same else ("reload" if loaded else "load")
         if not installed:
-            out["action"], out["reason"] = "missing", live.get("reason") or f"{entry['name']} is not installed: install it from Settings > Voice."
+            out["action"], out["reason"] = "missing", live.get("reason") or f"{entry['name']} is not installed: install it in Models > Voice services."
     else:
         out["action"] = "unload" if loaded else "off"
     if out["action"] in ("unload", "reload"):
@@ -151,11 +175,12 @@ def _item(f: str, want: dict, live: dict, root: str) -> dict:
     return out
 
 
-def plan(svc, desired=None, live=None) -> dict:
+def plan(svc, desired=None, live=None, only=None) -> dict:
     """What an apply would do: the items, the VRAM needed and recovered, the free VRAM now, whether the model must be loaded again and
-    whether the additions fit. `fits` is None when a figure is missing."""
+    whether the additions fit. `fits` is None when a figure is missing. With `only`, the other functions stay as they are loaded now."""
     want = normalise(desired)
     live = live or live_state()
+    want = only_one(want, live, check_only(only))
     root = voice_settings.models_dir()
     items = [_item(f, want[f], live["functions"].get(f) or {}, root) for f in FUNCTIONS]
     adds = [i for i in items if i["action"] in ("load", "reload")]
@@ -214,8 +239,8 @@ def _wanted(want: dict, items: list) -> dict:
     return {f: {**want[f], "estimated_mib": est.get(f)} for f in FUNCTIONS}
 
 
-def _persist(want: dict) -> None:
-    for f in FUNCTIONS:
+def _persist(want: dict, only: str | None = None) -> None:
+    for f in (only,) if only else FUNCTIONS:
         voice_settings.select(f, want[f]["model"])
         voice_settings.set_placement(f, want[f]["device"], want[f]["memory"])
         voice_settings.set_enabled(f, want[f]["on"])
@@ -288,7 +313,7 @@ def _run(svc, sup, want, p, then) -> None:
         _set(phase="failed" if error else "done", error=error, finished=time.time())
 
 
-def start(svc, want: dict, p: dict, then=None, wait: bool = False) -> dict:
+def start(svc, want: dict, p: dict, then=None, wait: bool = False, only: str | None = None) -> dict:
     """Take the supervisor's slot, write voice.json and run the job; Refused when a job is running."""
     sup = loader_api.sup_of(svc)
     with _lock:
@@ -296,7 +321,7 @@ def start(svc, want: dict, p: dict, then=None, wait: bool = False) -> dict:
             raise _refuse(409, "busy", "the voice functions are being changed already")
     if not sup.hold("voice", "voice"):
         raise _refuse(409, "busy", "a load or a calibration is already running")
-    _persist(want)
+    _persist(want, only)
     with _lock:
         _job.clear()
         _job.update(phase="starting", started=time.time(), finished=None, error=None, report=None,
@@ -310,18 +335,20 @@ def start(svc, want: dict, p: dict, then=None, wait: bool = False) -> dict:
 
 
 def apply(svc, req: dict, wait: bool = False) -> dict:
-    """POST /api/voice/functions/apply {"desired", "confirm": true}: the job's state, or {"status": "nothing"} when nothing changes."""
+    """POST /api/voice/functions/apply {"desired", "only": "stt"|"tts"|"avatar" (optional), "confirm": true}: the job's state, or {"status": "nothing"} when nothing changes."""
     if not isinstance(req, dict) or req.get("confirm") is not True:
         raise _refuse(400, "confirm_required", 'send "confirm": true: this loads and unloads models')
-    want = normalise(req.get("desired"))
-    p = plan(svc, want)
+    only = check_only(req.get("only"))
+    live = live_state()
+    want = only_one(normalise(req.get("desired")), live, only)
+    p = plan(svc, want, live)
     if not p["changes"]:
-        _persist(want)
+        _persist(want, only)
         return {"status": "nothing", "plan": p}
     if p["fits"] is False and not req.get("force"):
         raise models.Refused(422, {"error": {"type": "insufficient_memory", "code": "does_not_fit",
                                              "message": "the functions do not fit in the VRAM that is free once the Loader's reserve is kept"}, "plan": p})
-    job = start(svc, want, p, wait=wait)
+    job = start(svc, want, p, wait=wait, only=only)
     return {"status": "started", "job": job, "plan": p}
 
 

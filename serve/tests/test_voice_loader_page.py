@@ -20,10 +20,12 @@ class VoiceLoaderPageTest(unittest.TestCase):
         view = HTML.split('id="view-loader"')[1].split('id="view-wallet"')[0]
         self.assertIn('id="sub-voicesvc" aria-selected="false" aria-controls="ld-voicesvc" data-t="vl.sub"', view)
         self.assertRegex(view, r'<div class="vl" id="ld-voicesvc" role="tabpanel" aria-labelledby="sub-voicesvc" hidden></div>')
-        self.assertIn('id="vl-open" data-t="vl.open"', view)
+        self.assertNotIn('id="vl-open"', view)                                               # no dialog: every function is set on its own card
         self.assertRegex(view, r'id="vl-reload" data-t="vl.reload" hidden')
         self.assertLess(view.index('id="vl-head"'), view.index('class="subtabs"'))          # the buttons are above the tabs, whichever tab is shown
         self.assertIn('<script defer src="web/voiceload.js"></script>', HTML)
+        self.assertLess(HTML.index("web/voicedl.js"), HTML.index("web/voice.js"))
+        self.assertLess(HTML.index("web/voicedl.js"), HTML.index("web/voiceload.js"))
 
     def test_the_other_models_tabs_hide_the_panel_and_this_tab_hides_theirs(self):
         self.assertIn('vc = which === "voicesvc"', PROVIDERS)
@@ -40,7 +42,8 @@ class VoiceLoaderPageTest(unittest.TestCase):
             self.assertIn(f'"{route}"', JS, route)
         for route in ("/api/voice/functions", "/api/voice/functions/plan", "/api/voice/functions/apply", "/api/voice/functions/reload-llm", "/api/voice/enabled"):
             self.assertIn(f'"{route}"', HANDLER, route)
-        self.assertIn('"api/voice/enabled"', VOICE_JS)
+        for route in ("api/voice/enabled", "api/voice/select", "api/voice/placement"):          # each choice is written as it is made
+            self.assertIn(f'"{route}"', JS, route)
         self.assertIn("authHeaders()", JS)
         self.assertNotRegex(JS, r'fetch\(\s*["`]/')
 
@@ -53,19 +56,18 @@ class VoiceLoaderPageTest(unittest.TestCase):
         self.assertEqual(JS.count('"api/voice/functions/reload-llm"'), 1)
         apply_call = JS.split('"api/voice/functions/apply"')[0].rsplit("confirmDialog(", 1)[1]
         self.assertIn("async () =>", apply_call)                                             # the call is inside the confirm dialog's action
-        self.assertIn("{ desired: draft, confirm: true }", JS)
+        self.assertIn("{ only: f.id, confirm: true }", JS)                                  # one function at a time
         reload_call = JS.split('"api/voice/functions/reload-llm"')[0].rsplit("confirmDialog(", 1)[1]
         self.assertIn("async () =>", reload_call)
         self.assertIn("{ confirm: true }", JS)
         self.assertIn('document.getElementById(id + "-cancel").focus()', JS)                # the safe choice has the focus
-        self.assertIn("apply.disabled = !plan.changes || plan.fits === false || !S.service.running", JS)
+        self.assertIn("apply.disabled = !pending || !S.service.running || !!busyNow()", JS)
 
     def test_the_dialogs_are_real_dialogs_with_focus_returned_and_escape(self):
         self.assertEqual(JS.count("showModal()"), 1)
         self.assertIn('el("dialog", "vl-dlg")', JS)
         self.assertIn('d.setAttribute("aria-labelledby", id + "-h")', JS)
-        self.assertIn("(d._from && d._from.offsetParent ? d._from : openBtn).focus()", JS)                                                # native dialogs close on Escape and trap the focus
-        self.assertIn("first.focus()", JS)
+        self.assertIn('(d._from && d._from.offsetParent ? d._from : document.getElementById("sub-voicesvc")).focus()', JS)   # native dialogs close on Escape and trap the focus
         self.assertIn("aria-live", JS)
 
     def test_the_confirmations_say_what_loads_what_unloads_and_that_the_model_reloads(self):
@@ -75,22 +77,38 @@ class VoiceLoaderPageTest(unittest.TestCase):
         self.assertIn("using all the free VRAM ({0}) minus the Loader's reserve ({1})", I18N)
         self.assertIn("usando tutta la VRAM libera ({0}) meno la riserva del Loader ({1})", I18N)
 
-    def test_each_function_card_has_its_own_change_button_that_opens_the_dialog_on_that_function(self):
-        self.assertIn('btn(T("vl.change"), "", e => openMain(f.id, e.currentTarget), "vl-change-" + f.id)', JS)
-        self.assertIn('document.getElementById("vl-on-" + focusId)', JS)
-        self.assertIn("openBtn.onclick = () => openMain();", JS)
-
     def test_the_change_services_button_shows_only_when_something_is_pending(self):
         self.assertIn("reloadBtn.hidden = !(S && S.pending_reload)", JS)
         self.assertIn('btn(T("vl.reload"), "primary", () => confirmReload(), "vl-reload-tab")', JS)
 
-    def test_settings_voice_shows_the_same_on_off_state_and_links_to_the_tab(self):
-        self.assertIn("FUNCTIONS.includes(svc.id)", VOICE_JS)
-        self.assertIn("input.checked = !!svc.enabled", VOICE_JS)
+    def test_each_function_card_sets_its_switch_model_and_placement_and_applies_alone(self):
+        for call in ('write(f.id, "api/voice/enabled", { service: f.id, enabled: cb.checked })',
+                     'write(f.id, "api/voice/select", { service: f.id, model: v })',
+                     'write(f.id, "api/voice/placement", { service: f.id, device, memory })',
+                     'btn(T("vl.apply"), "primary", () => confirmApply(f), "vl-apply-" + f.id)',
+                     'dl.part(catalog(f.id), m)'):
+            self.assertIn(call, JS, call)
+        self.assertIn('{ only: f.id }', JS)                                                  # the plan is for that function only
+        self.assertIn('S.functions.forEach(f => list.append(card(f)))', JS)                  # three cards, not one dialog
+        self.assertNotIn("openMain", JS)                                                     # no shared dialog for the three functions
+
+    def test_settings_voice_does_not_set_the_functions_and_points_to_the_loader(self):
+        self.assertIn('S.services.filter(svc => !FUNCTIONS.includes(svc.id))', VOICE_JS)
+        self.assertIn('T("vo.functions.moved")', VOICE_JS)
         self.assertIn('document.getElementById("sub-voicesvc").click()', VOICE_JS)
+        self.assertNotIn("enabledRow", VOICE_JS)
+        self.assertNotIn('"api/voice/enabled"', VOICE_JS)
+        self.assertIn("window.VoiceDownload = function", (WEB / "voicedl.js").read_text(encoding="utf-8"))
+        self.assertIn("VoiceDownload({", VOICE_JS)
+
+    def test_a_profile_use_tells_the_voice_cards_to_read_again(self):
+        loader = (WEB / "loader.js").read_text(encoding="utf-8")
+        self.assertIn('{ action: "use", name: p.name }', loader)
+        self.assertIn('new CustomEvent("tadamoo:voice")', loader)
+        self.assertIn('document.addEventListener("tadamoo:voice", () => refresh(true))', JS)
 
     def test_the_text_keys_exist_twice_in_the_translations(self):
-        keys = set(re.findall(r'\bT\(\s*"([\w.]+)"', JS)) | set(re.findall(r'"(vl\.ph\.[\w]+)"', JS)) | set(re.findall(r'data-t="(vl\.[\w.]+)"', HTML))
+        keys = set(re.findall(r'\bT\(\s*"([\w.]+)"', JS)) | set(re.findall(r'"(vl\.(?:ph|act)\.[\w]+)"', JS)) | set(re.findall(r'data-t="(vl\.[\w.]+)"', HTML))
         keys |= set(re.findall(r'\bT\(\s*"(vl\.[\w.]+)"', VOICE_JS))
         self.assertGreater(len(keys), 40)
         for key in sorted(keys):

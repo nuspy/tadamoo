@@ -37,7 +37,7 @@ _PERSONA = r"[^/\s]{1,120}"                 # a slug or a name as a path segment
 PERSONA_BODY = 1 << 17
 
 SOON = {
-    "choice": "The voice and the engine of the speech are chosen in Settings > Voice.",
+    "choice": "The voice and the engine of the speech are chosen in Models > Voice services.",
     "load": "Loading and unloading a voice function plans the VRAM and may unload and reload the language model, so it needs the person's confirmation in the Voice functions dialog in the Loader; there is no one-call form here.",
     "stream": "The voice service has no streaming speech route behind its token: only the old Handy server (off by default, no token) speaks WebSocket, and this port does not relay it.",
     "personas": "A personality's memory, clips, poster and avatar files are not offered here: the memory is the person's (Settings > Personalities) and the avatar files come with the avatar phase.",

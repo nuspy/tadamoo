@@ -61,6 +61,36 @@ class Store(unittest.TestCase):
         self.assertEqual(profiles.get_load("Importato"), FAST)
         self.assertEqual(profiles.check_load(old), FAST)
 
+    def test_a_profile_keeps_the_voice_functions_and_using_it_writes_them_back(self):
+        from serve import voice_settings
+        voice_settings.select("tts", "kokoro")
+        voice_settings.set_placement("tts", "cuda:1", "vram")
+        voice_settings.set_enabled("tts", True)
+        voice_settings.set_enabled("stt", False)
+        profiles.change({"action": "save", "kind": "load", "name": "Con voce", "values": FAST})
+        saved = profiles._read()["load"]["Con voce"]["voice"]
+        self.assertEqual(saved["tts"], {"on": True, "model": "kokoro", "device": "cuda:1", "memory": "vram"})
+        self.assertIs(saved["stt"]["on"], False)
+        listed = next(p for p in profiles.listing(ROOMY)["load"] if p["name"] == "Con voce")
+        self.assertEqual((listed["voice"]["tts"]["device"], listed["summary"]["voice"]), ("cuda:1", ["tts"]))
+        profiles.change({"action": "save", "kind": "load", "name": "Senza voce", "values": FAST, "voice": None})
+        self.assertNotIn("voice", profiles._read()["load"]["Senza voce"])
+        voice_settings.set_enabled("tts", False)
+        voice_settings.set_enabled("stt", True)
+        voice_settings.set_placement("tts", "auto", "vram")
+        self.assertEqual(profiles.change({"action": "use", "name": "Senza voce"}), {"ok": True, "voice": False})
+        self.assertIs(voice_settings.enabled("tts"), False)                      # a profile without voice leaves the settings alone
+        self.assertEqual(profiles.change({"action": "use", "name": "Con voce"}), {"ok": True, "voice": True})
+        self.assertEqual((voice_settings.enabled("tts"), voice_settings.enabled("stt"), voice_settings.placement("tts")),
+                         (True, False, {"device": "cuda:1", "memory": "vram"}))
+
+    def test_a_voice_function_of_a_profile_is_checked_when_saved_and_dropped_when_imported(self):
+        for bad in ({"tts": {"model": "whisper-small"}}, {"nope": {"on": True}}, {"tts": {"on": "yes"}}, {"tts": {"device": "cpu", "memory": "vram"}}):
+            with self.assertRaises(ValueError):
+                profiles.change({"action": "save", "kind": "load", "name": "X", "values": FAST, "voice": bad})
+        profiles.change({"action": "import", "data": {"load": {"Importato": {"values": FAST, "voice": {"tts": {"model": "whisper-small"}}}}}})
+        self.assertNotIn("voice", profiles._read()["load"]["Importato"])
+
     def test_save_rename_default_delete(self):
         profiles.change({"action": "save", "kind": "load", "name": "Veloce", "values": FAST})
         self.assertEqual(profiles.get_load("Veloce"), FAST)

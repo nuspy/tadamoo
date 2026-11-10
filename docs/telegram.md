@@ -50,7 +50,7 @@ they had typed it, with `(voice message) ` in front. The checks come in this ord
 2. A message longer than 5 minutes, or one that says it is over 20 MB, is refused before anything is fetched.
 3. The bot asks the voice service whether speech to text is ready (`GET /functions`, the `stt` function). A model that is not installed, not
    loaded, or a service that is not running is answered with the service's own reason; the bot never loads or installs anything. Loading is done
-   in the Voice functions dialog.
+   in Models > Voice services.
 4. The file is fetched with `getFile` (`BotApi.download`, 20 MB cap) into `telegram-incoming/` in the user data folder and posted to the
    service's `/transcribe` on loopback (`serve/voice_stt.py`): the same decoder and engine as callAPIcall's route. The copy is deleted right
    after, also when the fetch or the transcription fails.

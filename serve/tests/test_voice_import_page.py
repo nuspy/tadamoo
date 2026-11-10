@@ -8,7 +8,7 @@ JS = (WEB / "voice.js").read_text(encoding="utf-8")
 CSS = (WEB / "voice.css").read_text(encoding="utf-8")
 I18N = (WEB / "i18n.js").read_text(encoding="utf-8")
 HANDLER = (WEB.parent / "handler.py").read_text(encoding="utf-8")
-IMPORT_JS = JS[JS.index("/* ---- import from callAPIcall"):JS.index("/* ---- download: plan, license, confirm ---- */")]
+IMPORT_JS = JS[JS.index("/* ---- import from callAPIcall"):JS.index("/* ---- when the tab is shown ---- */")]
 
 
 class VoiceImportPageTest(unittest.TestCase):
