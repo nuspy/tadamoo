@@ -240,3 +240,29 @@ def test_what_the_search_and_a_server_return_stays_untrusted_in_the_loop(world):
     agent2 = AgentLoop(ScriptedClient(call("find_capability", {"query": "ocr"}), say("ok")), registry, permissions=perms2)
     agent2.run("find")
     assert perms2.untrusted_input
+
+
+def test_two_indexes_over_one_folder_write_without_clashing(tmp_path):
+    """The server builds its capability index on first use; two requests that arrive together must not make the writes of index.json collide."""
+    import threading
+    home, ws, appdata = tmp_path / "home", tmp_path / "ws", tmp_path / "appdata"
+    for p in (home, ws, appdata):
+        p.mkdir()
+    shared = tmp_path / "caps"
+    failures = []
+
+    def work():
+        try:
+            index = cap.CapabilityIndex(shared, ws, home=home, appdata=appdata)
+            for _ in range(40):
+                index.refresh()
+        except Exception as exc:                                     # the race shows as a PermissionError on Windows
+            failures.append(repr(exc))
+
+    threads = [threading.Thread(target=work) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not failures, failures[:2]
+    assert json.loads((shared / "index.json").read_text(encoding="utf-8"))["entries"]
