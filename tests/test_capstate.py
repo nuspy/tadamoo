@@ -20,7 +20,7 @@ def agent(effort="", level=PermissionLevel.AUTO, plan_mode=False, steps=40, tool
 
 def test_read_gives_plain_values():
     state = capstate.read(agent("high", PermissionLevel.AUTO, True, 0, ("session_send",)), window=32768, unattended=True)
-    assert state == {"window": 32768, "effort": "high", "level": "auto", "plan_mode": True, "unattended": True, "steps": "unlimited", "max_tokens": "the server's own", "orchestration": True, "long_answer": "off", "compaction": "unknown", "reader": "this PC"}
+    assert state == {"window": 32768, "effort": "high", "level": "auto", "plan_mode": True, "unattended": True, "steps": "unlimited", "max_tokens": "the server's own", "orchestration": True, "long_answer": "off", "compaction": "unknown", "reader": "this PC", "sampling": "the model file's own"}
     assert capstate.read(agent(), window=1000, unattended=False)["effort"] == "default"
 
 
@@ -31,7 +31,7 @@ def test_compaction_is_read_from_the_context_with_its_numbers():
     a = agent()
     a.context = SimpleNamespace(mask_at=0.7, compaction=Comp())
     on = capstate.read(a, window=1000, unattended=False)["compaction"]
-    assert on == "on (old results masked from 70% of the window, older steps folded from 85%)"
+    assert on == "on (old results masked from 70% of the context, older steps folded from 85%)"
     Comp.enabled = False
     assert capstate.read(a, window=1000, unattended=False)["compaction"].startswith("off (old results masked from 70%")
 

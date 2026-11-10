@@ -1232,8 +1232,12 @@ wide, not for phones.
   `[name](tadamoo-path:relative/path)` (a file in the folder the conversation works in) becomes a button in the answer that saves it; so does a file the agent wrote or edited,
   with a *Save* button in its step. The page asks for the file with the API key and saves it the way the place it runs in allows: the *Save as* window of the desktop app, the browser's
   save window, or a plain download. The folder's files come from `GET /api/agent/sessions/<id>/file?path=`, which sends only a regular file inside the folder the conversation works in
-  (its own copy when it has one), never one in `.basalt` or `.git`, as an attachment with `nosniff` and a sandboxing policy. The agent is told how to write these links
-  (`--page-files`, `FILES_GUIDANCE` in `tadamoo/visuals.py`), only in the conversations of this page.
+  (its own copy when it has one), never one in `.tadamoo` (but for `.tadamoo/artifacts`, where the files made with code are saved) or `.git`, as an attachment with `nosniff` and a sandboxing
+  policy; with `&inline=1` a PNG, JPEG, GIF, WebP or SVG is sent as a picture to show. The agent is told how to write these links
+  (`--page-files`, `FILES_GUIDANCE` in `tadamoo/visuals.py`), only in the conversations of this page. The same guidance says where the person reads (`reader` of the `[state]` note: `this PC`,
+  `phone` or `another device`, from the key the message came with): a phone cannot open a path of the PC, so a file is offered as a button, which downloads it over the network.
+  A picture is shown from `![caption](tadamoo-path:path)` (a picture file of the folder), from `![caption](data:image/png;base64,...)` (raster only) and from a link to a picture file, which
+  also keeps its save button; a picture at an address is not loaded, as below.
 - **Pictures and charts in answers**: two switches in *Chat settings → Pictures and charts*, each with a level of presence (very low, low,
   normal, high, very high, highest), set at the start (`images` and `charts` of `POST /api/agent/sessions`, `--images` and `--charts` of the
   conversation's process) and changed while it is open (`POST /api/agent/sessions/<id>/visuals`; the process is sent a `visuals` command, puts the
@@ -1245,7 +1249,7 @@ wide, not for phones.
   address is not loaded, so a hidden instruction in a page cannot make the page call out through an image. With charts on, the agent is told when and how to draw
   a diagram as a ` ```mermaid ` block (flow, sequence, state, class, entity, gantt, pie, mindmap, timeline). The page draws it with Mermaid
   (`serve/web/vendor/mermaid.min.js`, MIT, `securityLevel: strict`, loaded only when an answer holds a diagram; its source stays under the diagram, and a
-  diagram that cannot be drawn shows its source). The levels are in the system prompt as a short paragraph, so they cost nothing when off.
+  diagram that cannot be drawn shows its source). Before the model is asked to repair a diagram the page tries fixed rules (`serve/web/diagramfix.js`: mindmap nodes with an id before a quoted text, labels with brackets or colons, semicolons in a message, line breaks) and keeps the first rewrite that draws. The levels are in the system prompt as a short paragraph, so they cost nothing when off.
 - **Agent**: the conversation page of the Chat, working in a **folder** you add. The column at the left lists the folders, each with the
   conversations held in it (*New conversation in this folder*, a cross takes the folder off the list and keeps its files and conversations).
   *Add folder* asks for the full path (the Windows dialog inside the app, a typed path in a browser) and checks that the agent can work there:
