@@ -487,8 +487,8 @@ telefono, il firmware ESP32 (mai compilato), la camera virtuale e i motori su GP
 - **Una GPU che uno dei due motori sa eseguire.** Il motore **Basalt-Plus** richiede una **GPU NVIDIA Blackwell** della
   famiglia 12.x (compute capability 12.x: GeForce RTX serie 50, RTX PRO 6000 Blackwell, DGX Spark): i suoi kernel sono
   compilati solo per quella famiglia, e con un'altra GPU il Loader, la configurazione guidata, lo script e l'app lo dicono
-  prima di partire e con quel motore non si carica nulla. Le Blackwell da data centre (10.x, B200) superano il controllo, ma
-  i loro kernel non sono compilati né provati. Altro hardware gira con il motore **Strata**, installato da una cartella locale: NVIDIA
+  prima di partire e con quel motore non si carica nulla. Le Blackwell da data centre (10.x, B200) sono rifiutate: i loro
+  kernel non sono compilati. Altro hardware gira con il motore **Strata**, installato da una cartella locale: NVIDIA
   **RTX 40** (Ada), **RTX 30** (Ampere) e **RTX 20** (Turing), **Apple silicon**, **AMD**, **Intel** e macchine a **memoria
   unificata** (un solo blocco condiviso da CPU e GPU). Il Loader mostra una scheda Modelli per ogni motore che il PC può
   eseguire.

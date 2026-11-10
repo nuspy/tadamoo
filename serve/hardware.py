@@ -4,7 +4,7 @@ about the machine):
   cpu()          logical and physical cores, and on hybrid processors the performance and efficiency cores
                  (Windows: GetLogicalProcessorInformationEx's EfficiencyClass; Linux: /sys/devices/cpu_core|cpu_atom)
   gpu_list()     the NVIDIA GPUs found, [{"index", "name"}] (nvidia-smi's numbering), read once a minute at most
-  gpu(index)     name, CUDA compute capability (the engine's kernels are built for Blackwell: 10.x and 12.x), VRAM,
+  gpu(index)     name, CUDA compute capability (the engine's kernels are built for 12.x), VRAM,
                  and the other processes on the card (NVML; their memory is unknown under Windows' WDDM)
 
   machine()      the compute adapters and their families (nvidia_blackwell / ada / ampere / turing / other, amd, intel,
@@ -26,7 +26,8 @@ import os
 import re
 import time
 
-BLACKWELL_MAJORS = (10, 12)             # sm_100 (data centre) and sm_120 (GeForce RTX 50, RTX PRO)
+BLACKWELL_MAJORS = (10, 12)             # the Blackwell family: sm_100 (data centre) and sm_120 (GeForce RTX 50, RTX PRO, DGX Spark)
+ENGINE_MAJORS = (12,)                   # the compute capabilities the Basalt-Plus kernels are built for
 
 
 def _fake(name: str):
@@ -142,7 +143,7 @@ def gpu(index: int = 0) -> dict:
         fake = {"name": None}                                    # a PC without an NVIDIA GPU (no NVML)
     if isinstance(fake, dict):
         cc = fake.get("cc")
-        return {"name": fake.get("name"), "cc": cc, "blackwell": None if not cc else int(cc[0]) in BLACKWELL_MAJORS,
+        return {"name": fake.get("name"), "cc": cc, "blackwell": None if not cc else int(cc[0]) in ENGINE_MAJORS,
                 "vram_total": fake.get("vram_total"), "vram_free": fake.get("vram_free"),
                 "processes": fake.get("processes", []), "display_active": fake.get("display_active"),
                 "display_mode": fake.get("display_mode")}
@@ -158,7 +159,7 @@ def gpu(index: int = 0) -> dict:
         try:
             if nv.lib.nvmlDeviceGetCudaComputeCapability(nv.dev, ctypes.byref(major), ctypes.byref(minor)) == 0:
                 out["cc"] = [major.value, minor.value]
-                out["blackwell"] = major.value in BLACKWELL_MAJORS
+                out["blackwell"] = major.value in ENGINE_MAJORS
         except (AttributeError, OSError):
             pass
         m = nv.Mem()
@@ -242,16 +243,16 @@ def gpu_warning(g: dict, lang: str = "it") -> str | None:
     """A sentence when the GPU cannot run the engine (not NVIDIA, or not Blackwell); None when it can or is unknown."""
     if g.get("name") is None and g.get("cc") is None:
         return ("Nessuna GPU NVIDIA leggibile (driver NVIDIA e NVML): il motore di Basalt-Plus gira solo su GPU NVIDIA "
-                "Blackwell (RTX 50, RTX PRO 6000, B200)." if lang == "it" else
+                "Blackwell (RTX 50, RTX PRO 6000, DGX Spark)." if lang == "it" else
                 "No NVIDIA GPU could be read (NVIDIA driver and NVML): the Basalt-Plus engine runs only on NVIDIA Blackwell "
-                "GPUs (RTX 50 series, RTX PRO 6000, B200).")
+                "GPUs (RTX 50 series, RTX PRO 6000, DGX Spark).")
     if g.get("blackwell") is False:
         cc = ".".join(str(x) for x in g["cc"])
         return (f"La GPU {g.get('name')} (compute capability {cc}) non è supportata: il motore di Basalt-Plus è compilato "
-                "solo per GPU NVIDIA Blackwell (compute capability 10.x o 12.x: RTX 50, RTX PRO 6000, B200)."
+                "solo per GPU NVIDIA Blackwell (compute capability 12.x: RTX 50, RTX PRO 6000, DGX Spark)."
                 if lang == "it" else
                 f"The GPU {g.get('name')} (compute capability {cc}) is not supported: the Basalt-Plus engine is built only "
-                "for NVIDIA Blackwell GPUs (compute capability 10.x or 12.x: RTX 50 series, RTX PRO 6000, B200).")
+                "for NVIDIA Blackwell GPUs (compute capability 12.x: RTX 50 series, RTX PRO 6000, DGX Spark).")
     return None
 
 

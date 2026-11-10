@@ -450,7 +450,7 @@ the ESP32 firmware (never compiled), the virtual camera and the GPU engines are 
 - **A GPU one of the two engines can run.** The **Basalt-Plus** engine needs an **NVIDIA Blackwell GPU** of the 12.x
   family (compute capability 12.x: GeForce RTX 50 series, RTX PRO 6000 Blackwell, DGX Spark): its kernels are built only for
   that family, and on any other GPU the Loader, the wizard, the start script and the app say so before starting, and load
-  nothing with it. Data-centre Blackwell (10.x, B200) passes the check but its kernels are not built or tested.
+  nothing with it. Data-centre Blackwell (10.x, B200) is refused: its kernels are not built.
   Other hardware runs through the **Strata** engine, installed from a local folder: NVIDIA **RTX 40** (Ada), **RTX 30**
   (Ampere) and **RTX 20** (Turing), **Apple silicon**, **AMD**, **Intel**, and machines with **unified memory** (one pool
   shared by CPU and GPU). The Loader shows one Models tab for each engine the PC can run.

@@ -32,7 +32,7 @@ POOL_SPLIT, POOL_SINGLE = "split", "single"
 ENGINES: dict[str, dict] = {
     "basalt": {
         "id": "basalt", "label": "Basalt-Plus", "dir": "", "binary": "basalt",
-        "families": ("nvidia_blackwell",), "sm_majors": hardware.BLACKWELL_MAJORS,
+        "families": ("nvidia_blackwell",), "sm_majors": hardware.ENGINE_MAJORS,
         "models": ("qwen4exp",),
         "capabilities": dict.fromkeys(CAPABILITIES, True),
     },
