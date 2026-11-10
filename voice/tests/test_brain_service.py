@@ -280,7 +280,7 @@ def test_the_brains_state_survives_a_fake_brain_in_the_manager_api():
     assert FakeBrain().fork().set_mode("harness") is True
 
 
-def test_the_push_to_talk_manager_gets_the_avatar_client_when_the_avatar_function_is_on(monkeypatch):
+def test_the_push_to_talk_manager_asks_for_the_avatar_client_when_it_needs_it(monkeypatch):
     import callbridge.ptt as ptt
 
     made = {}
@@ -291,18 +291,28 @@ def test_the_push_to_talk_manager_gets_the_avatar_client_when_the_avatar_functio
 
     monkeypatch.setattr(ptt, "PushToTalkManager", FakePtt)
     client = object()
-    state = types.SimpleNamespace(config=types.SimpleNamespace(avatar_enabled=True), brains=object(), meetings=None,
+    state = types.SimpleNamespace(config=types.SimpleNamespace(avatar_enabled=False), brains=object(), meetings=None,
                                   avatar=types.SimpleNamespace(client=lambda: client))
     brain_service.Session(state).manager()
-    assert made["avatar"] is client
-    made.clear()
-    state.config.avatar_enabled = False
-    brain_service.Session(state).manager()
-    assert made["avatar"] is None
-    made.clear()
+    getter = made["avatar_getter"]
+    assert getter() is None                                  # the function was off when the manager was made...
+    state.config.avatar_enabled = True
+    assert getter() is client                                # ...and on later: the same manager sees it
     state.avatar = None
-    brain_service.Session(state).manager()
-    assert made["avatar"] is None
+    assert getter() is None
+
+
+def test_the_avatar_hotkeys_are_registered_even_when_the_avatar_comes_later():
+    from callbridge.config import Config
+    from callbridge.ptt import PushToTalkManager
+
+    holder = {}
+    m = PushToTalkManager(Config(), object(), avatar_getter=lambda: holder.get("client"))
+    assert m._avatar is None
+    holder["client"] = object()
+    assert m._avatar is holder["client"]
+    fixed = object()
+    assert PushToTalkManager(Config(), object(), avatar=fixed)._avatar is fixed
 
 
 def test_the_environments_folder_of_the_tts_engines_comes_from_voice_json(tmp_path):

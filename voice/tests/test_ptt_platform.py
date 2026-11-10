@@ -23,7 +23,9 @@ from callbridge.desktop.x11_keys import X11KeyHook
 DEFAULTS = {
     "shift+f1": ("harness", True, "half", False),
     "shift+f2": ("harness", False, "full", False),
-    "ctrl+shift+f4": ("direct", True, "half", False),
+    "ctrl+shift+f1": ("harness", True, "half", True),      # the avatar ones are always there: without an avatar the session says so
+    "ctrl+shift+f2": ("harness", False, "full", True),
+    "ctrl+shift+f4": ("direct", True, "half", False),      # the direct brain takes the avatar only when there is one at the press
     "ctrl+shift+f5": ("direct", False, "full", False),
 }
 
@@ -75,7 +77,7 @@ def test_the_manager_hands_the_desktop_neutral_combinations_and_what_each_press_
         assert m.toggled[-1] == expected
 
 
-def test_avatar_and_copilot_hotkeys_exist_only_with_their_parts():
+def test_the_direct_hotkeys_take_the_avatar_when_it_exists_at_the_press_and_the_copilot_key_needs_its_part():
     d = RecordingDesktop()
     m = _manager(d, avatar=object(), copilot=SimpleNamespace(toggle=lambda: d.calls.append("copilot")))
     m.start()
@@ -87,6 +89,19 @@ def test_avatar_and_copilot_hotkeys_exist_only_with_their_parts():
     assert m.toggled[-1] == ("direct", True, "half", True)
     hotkeys["shift+f4"]()
     assert d.calls[-1] == "copilot"
+
+
+def test_an_avatar_that_comes_after_the_hotkeys_were_registered_is_used_by_the_next_press():
+    d = RecordingDesktop()
+    holder = {}
+    m = _manager(d, avatar_getter=lambda: holder.get("client"))
+    m.start()
+    hotkeys = d.calls[0][1]
+    hotkeys["ctrl+shift+f4"]()
+    assert m.toggled[-1] == ("direct", True, "half", False)
+    holder["client"] = object()
+    hotkeys["ctrl+shift+f4"]()
+    assert m.toggled[-1] == ("direct", True, "half", True)
 
 
 def test_stop_stops_the_hook_and_start_is_not_doubled():

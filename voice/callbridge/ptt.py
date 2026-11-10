@@ -436,7 +436,7 @@ class PushToTalkManager:
     """Ascolta la hotkey globale e apre/chiude la sessione push-to-talk."""
 
     def __init__(self, config: Config, brains, overlay=None,
-                 copilot=None, avatar=None, desktop: Desktop | None = None) -> None:
+                 copilot=None, avatar=None, desktop: Desktop | None = None, avatar_getter=None) -> None:
         self.cfg = config
         # Il desktop che fornisce le hotkey globali (Windows, X11, o "non supportato");
         # None = quello di questo processo, scelto alla prima `start()`.
@@ -449,7 +449,9 @@ class PushToTalkManager:
         self.copilot = copilot  # CopilotController (o None) -> Shift+F4
         # AvatarClient CONDIVISO (uno solo per processo, vincolo VRAM): abilita
         # le hotkey Ctrl+Shift+F1/F2 con avatar. None se avatar disabilitato.
-        self._avatar = avatar
+        self._avatar_fixed = avatar
+        # In alternativa, una funzione che lo da' quando serve (il servizio vocale lo abilita dopo l'avvio delle hotkey).
+        self._avatar_getter = avatar_getter
         # True mentre e' attiva una sessione con avatar (per session_state).
         self._avatar_active = False
         self._session: PushToTalkSession | None = None
@@ -465,6 +467,17 @@ class PushToTalkManager:
         self._listener: KeyHook | None = None
         # Modalita' della sessione corrente: "half" | "full" | None.
         self._mode: str | None = None
+
+
+    @property
+    def _avatar(self):
+        """The shared avatar client, or None when the avatar function is off: asked for each time, so loading it later is enough."""
+        if self._avatar_fixed is not None:
+            return self._avatar_fixed
+        try:
+            return self._avatar_getter() if self._avatar_getter is not None else None
+        except Exception:                                    # noqa: BLE001 (a getter that fails means no avatar, not a broken hotkey)
+            return None
 
     def start(self) -> None:
         """Registra le hotkey globali (non bloccante).
@@ -499,18 +512,16 @@ class PushToTalkManager:
                 "harness", half_duplex=False, mode="full"),
         }
         # Ctrl+Shift+F1/F2: stessa conversazione harness MA con avatar video.
-        # Solo se un AvatarClient e' disponibile (avatar_enabled=true).
-        if self._avatar is not None:
-            hotkeys[self.cfg.push_to_talk_hotkey_avatar] = lambda: self._toggle(
-                "harness", half_duplex=True, mode="half", avatar=True)
-            hotkeys[self.cfg.push_to_talk_hotkey_avatar_full] = lambda: self._toggle(
-                "harness", half_duplex=False, mode="full", avatar=True)
-        # Ctrl+Shift+F4/F5: voce DIRETTA, stesso avatar delle F1/F2.
-        _use_av = self._avatar is not None  # degrada a sola-voce se avatar off
+        # Sempre registrate: senza un AvatarClient al momento del tasto la sessione dice "avatar_unavailable".
+        hotkeys[self.cfg.push_to_talk_hotkey_avatar] = lambda: self._toggle(
+            "harness", half_duplex=True, mode="half", avatar=True)
+        hotkeys[self.cfg.push_to_talk_hotkey_avatar_full] = lambda: self._toggle(
+            "harness", half_duplex=False, mode="full", avatar=True)
+        # Ctrl+Shift+F4/F5: voce DIRETTA, stesso avatar delle F1/F2; degrada a sola-voce se l'avatar non c'e' quando si preme.
         hotkeys[self.cfg.push_to_talk_hotkey_direct] = lambda: self._toggle(
-            "direct", half_duplex=True, mode="half", avatar=_use_av)
+            "direct", half_duplex=True, mode="half", avatar=self._avatar is not None)
         hotkeys[self.cfg.push_to_talk_hotkey_direct_full] = lambda: self._toggle(
-            "direct", half_duplex=False, mode="full", avatar=_use_av)
+            "direct", half_duplex=False, mode="full", avatar=self._avatar is not None)
         # Shift+F4: copilota da conversazione (apre/chiude la finestra).
         if self.copilot is not None:
             hotkeys[self.cfg.push_to_talk_hotkey_copilot] = lambda: self._toggle_copilot()
@@ -532,9 +543,7 @@ class PushToTalkManager:
                  "%s / %s (diretto, casse / cuffie)%s%s",
                  self.cfg.push_to_talk_hotkey, self.cfg.push_to_talk_hotkey_fullduplex,
                  self.cfg.push_to_talk_hotkey_direct, self.cfg.push_to_talk_hotkey_direct_full,
-                 (f", {self.cfg.push_to_talk_hotkey_avatar}/"
-                  f"{self.cfg.push_to_talk_hotkey_avatar_full} (harness con avatar)"
-                  if self._avatar is not None else ""),
+                 f", {self.cfg.push_to_talk_hotkey_avatar}/{self.cfg.push_to_talk_hotkey_avatar_full} (harness con avatar)",
                  f", {self.cfg.push_to_talk_hotkey_copilot} (copilota)" if self.copilot else "")
 
     @property
