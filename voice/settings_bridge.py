@@ -152,6 +152,7 @@ class Settings:
     interruptions: Interruptions = Interruptions()
     language: LanguageSettings = LanguageSettings()
     dictation: Dictation = Dictation()
+    venvs_dir: str = ""
 
 
 def _read(path) -> dict:
@@ -249,11 +250,13 @@ def load(path, default_models_dir: str = "") -> Settings:
     else:
         models_dir = default_models_dir or str(Path(path).resolve().parent / "voice-models")
     stored = data.get("services") if isinstance(data.get("services"), dict) else {}
+    venvs = data.get("venvs_dir")
+    venvs_dir = venvs if isinstance(venvs, str) and os.path.isabs(venvs) else ""
     return Settings(models_dir, {s: _choice(s, stored.get(s)) for s in ms.SERVICES}, _brain(data.get("brain")), _telephony(data.get("telephony")),
                     str(Path(path).resolve().parent / "call-audit.jsonl"), _avatar(data.get("avatar")),
                     str(Path(path).resolve().parent / "voice" / "avatars"),
                     _meetings(data.get("meetings")), str(Path(path).resolve().parent / "meetings-audit.jsonl"), Interruptions.parse(data.get("interruptions")),
-                    LanguageSettings.parse(data.get("language")), _dictation(data.get("dictation")))
+                    LanguageSettings.parse(data.get("language")), _dictation(data.get("dictation")), venvs_dir)
 
 
 def is_enabled(choice: Choice, models_dir: str) -> bool:
@@ -287,6 +290,8 @@ def overrides(settings: Settings) -> dict:
         out[f"{prefix}_device"], out[f"{prefix}_gpu_memory"] = _config_device(tts), _config_memory(tts)
         if tts.engine == "qwen3tts":
             out["qwen3tts_size"] = tts.model.removeprefix("qwen3tts-").upper()
+    if settings.venvs_dir:
+        out["tts_venvs_dir"] = settings.venvs_dir
     out["kokoro_model_dir"] = ms.folder("tts", "kokoro", root)
     out["piper_model_dir"] = ms.folder("tts", "piper", root)
     out["diarization_model_dir"] = ms.folder("diarization", "sherpa-diarization", root)

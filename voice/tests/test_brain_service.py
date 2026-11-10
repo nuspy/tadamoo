@@ -278,3 +278,39 @@ def test_the_standby_service_imports_no_hotkey_or_audio_library():
 
 def test_the_brains_state_survives_a_fake_brain_in_the_manager_api():
     assert FakeBrain().fork().set_mode("harness") is True
+
+
+def test_the_push_to_talk_manager_gets_the_avatar_client_when_the_avatar_function_is_on(monkeypatch):
+    import callbridge.ptt as ptt
+
+    made = {}
+
+    class FakePtt:
+        def __init__(self, config, brains, **kw):
+            made.update(kw)
+
+    monkeypatch.setattr(ptt, "PushToTalkManager", FakePtt)
+    client = object()
+    state = types.SimpleNamespace(config=types.SimpleNamespace(avatar_enabled=True), brains=object(), meetings=None,
+                                  avatar=types.SimpleNamespace(client=lambda: client))
+    brain_service.Session(state).manager()
+    assert made["avatar"] is client
+    made.clear()
+    state.config.avatar_enabled = False
+    brain_service.Session(state).manager()
+    assert made["avatar"] is None
+    made.clear()
+    state.avatar = None
+    brain_service.Session(state).manager()
+    assert made["avatar"] is None
+
+
+def test_the_environments_folder_of_the_tts_engines_comes_from_voice_json(tmp_path):
+    p = tmp_path / "voice.json"
+    folder = str(tmp_path / "venvs")
+    p.write_text(json.dumps({"models_dir": str(tmp_path / "m"), "venvs_dir": folder}), encoding="utf-8")
+    assert settings_bridge.overrides(settings_bridge.load(p))["tts_venvs_dir"] == folder
+    p.write_text(json.dumps({"models_dir": str(tmp_path / "m"), "venvs_dir": "relative"}), encoding="utf-8")
+    assert "tts_venvs_dir" not in settings_bridge.overrides(settings_bridge.load(p))
+    p.write_text(json.dumps({"models_dir": str(tmp_path / "m")}), encoding="utf-8")
+    assert "tts_venvs_dir" not in settings_bridge.overrides(settings_bridge.load(p))
