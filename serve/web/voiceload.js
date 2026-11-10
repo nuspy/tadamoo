@@ -134,6 +134,7 @@
     box.append(h, chips, dl);
     if (f.reason) box.append(el("p", "vl-help", f.reason));
     if (f.error) box.append(el("p", "vl-help vl-bad", f.error));
+    box.append(btn(T("vl.change"), "", e => openMain(f.id, e.currentTarget), "vl-change-" + f.id));
     return box;
   }
   function estimateText(f) {
@@ -162,7 +163,7 @@
   }
   function heading(id, text) { const h = el("h2", "vl-dlg-h", text); h.id = id + "-h"; return h; }
 
-  async function openMain() {
+  async function openMain(focusId, from) {
     if (!dlg) { const m = makeDialog("vl-dlg"); dlg = m.d; dlgBody = m.body; }
     const r = await api("GET", "api/voice/models");
     if (r.ok) models = r.data;
@@ -172,8 +173,8 @@
     S.functions.forEach(f => { draft[f.id] = { on: f.on, model: f.model, device: f.device, memory: f.memory }; });
     plan = null; planErr = "";
     paintDialog();
-    openDialog(dlg, openBtn);
-    const first = dlg.querySelector("input, select");
+    openDialog(dlg, from || openBtn);
+    const first = (focusId && document.getElementById("vl-on-" + focusId)) || dlg.querySelector("input, select");
     if (first) first.focus();
     queuePlan(0);
   }
@@ -317,7 +318,7 @@
   }
 
   /* ---- wiring ---- */
-  openBtn.onclick = openMain;
+  openBtn.onclick = () => openMain();
   reloadBtn.onclick = confirmReload;
   document.addEventListener("tadamoo:view", e => { if (e.detail === "loader") refresh(); else clearTimeout(timer); });
   document.addEventListener("basalt:models-sub", e => { if (e.detail === "voicesvc") refresh(); });

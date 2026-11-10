@@ -75,6 +75,11 @@ class VoiceLoaderPageTest(unittest.TestCase):
         self.assertIn("using all the free VRAM ({0}) minus the Loader's reserve ({1})", I18N)
         self.assertIn("usando tutta la VRAM libera ({0}) meno la riserva del Loader ({1})", I18N)
 
+    def test_each_function_card_has_its_own_change_button_that_opens_the_dialog_on_that_function(self):
+        self.assertIn('btn(T("vl.change"), "", e => openMain(f.id, e.currentTarget), "vl-change-" + f.id)', JS)
+        self.assertIn('document.getElementById("vl-on-" + focusId)', JS)
+        self.assertIn("openBtn.onclick = () => openMain();", JS)
+
     def test_the_change_services_button_shows_only_when_something_is_pending(self):
         self.assertIn("reloadBtn.hidden = !(S && S.pending_reload)", JS)
         self.assertIn('btn(T("vl.reload"), "primary", () => confirmReload(), "vl-reload-tab")', JS)
