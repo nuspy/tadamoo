@@ -137,7 +137,7 @@ def test_e11_a_small_window_makes_the_watch_tell_the_agent_a_fold_is_near_and_on
     for name in ("N", "S"):
         client = Fake(Steps(*writes(repo.files, changed), say(answer), *[say("no idea")] * len(probes), *[say("ok")] * 40))
         out[name] = (e11_awareness.run_trial(arms[name], variant, 1, ctx(client, extra={"window": 8192})), client)
-    near = lambda c: any("fold" in str(m["content"]) and "[harness]" in str(m["content"]) and "nearly full" in str(m["content"]) for r in c.requests for m in r["messages"])      # noqa: E731
+    near = lambda c: any("fold" in str(m["content"]) and "[harness]" in str(m["content"]) and "[harness] The context is at" in str(m["content"]) for r in c.requests for m in r["messages"])      # noqa: E731
     assert out["S"][0].metrics["compactions"] >= 1 and out["N"][0].metrics["compactions"] >= 1
     assert near(out["S"][1]) and not near(out["N"][1])
     assert out["S"][0].metrics["course_checks"] >= 1 and out["N"][0].metrics["course_checks"] == 0
