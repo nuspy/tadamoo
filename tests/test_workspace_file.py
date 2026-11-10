@@ -70,3 +70,29 @@ def test_a_big_file_is_saved_and_an_unknown_conversation_is_refused(world):
     assert get(url, "nosuch", "src/app.py")[0] in (404, 409)
     with pytest.raises(RunError):
         mgr.workspace_file(sid, "../outside.txt")
+
+
+def test_the_files_the_agent_makes_with_code_are_sent_but_its_other_files_are_not(world):
+    url, mgr, sid, folder = world
+    (folder / ".tadamoo" / "artifacts").mkdir()
+    (folder / ".tadamoo" / "artifacts" / "cover.svg").write_text("<svg/>", encoding="utf-8")
+    (folder / ".tadamoo" / "artifacts" / ".tadamoo").mkdir()
+    (folder / ".tadamoo" / "artifacts" / ".tadamoo" / "x.txt").write_text("hidden", encoding="utf-8")
+    assert get(url, sid, ".tadamoo/artifacts/cover.svg")[::2] == (200, b"<svg/>")
+    assert get(url, sid, ".tadamoo/artifacts/.tadamoo/x.txt")[0] == 404
+    assert get(url, sid, ".tadamoo/secret.json")[0] == 404
+
+
+def test_a_picture_is_sent_for_showing_only_when_asked_and_a_file_that_is_not_one_stays_a_download(world):
+    url, mgr, sid, folder = world
+    (folder / "cover.png").write_bytes(b"\x89PNG")
+    (folder / "cover.svg").write_text("<svg/>", encoding="utf-8")
+    with urllib.request.urlopen(f"{url}/api/agent/sessions/{sid}/file?path=cover.png&inline=1", timeout=10) as r:
+        assert r.headers["Content-Type"] == "image/png" and r.headers["Content-Disposition"].startswith("inline")
+        assert r.headers["Content-Security-Policy"] == "sandbox"
+    with urllib.request.urlopen(f"{url}/api/agent/sessions/{sid}/file?path=cover.svg&inline=1", timeout=10) as r:
+        assert r.headers["Content-Type"] == "image/svg+xml"
+    with urllib.request.urlopen(f"{url}/api/agent/sessions/{sid}/file?path=cover.png", timeout=10) as r:
+        assert r.headers["Content-Disposition"].startswith("attachment")
+    with urllib.request.urlopen(f"{url}/api/agent/sessions/{sid}/file?path=notes%20%C3%A8.txt&inline=1", timeout=10) as r:
+        assert r.headers["Content-Type"] == "application/octet-stream" and r.headers["Content-Disposition"].startswith("attachment")

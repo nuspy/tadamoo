@@ -321,7 +321,12 @@
       if (e.ok) after = e.json.next;
     }
     showPending(); showQuestion(); if (rec && rec.suggestions && state === "idle") showChips(rec.suggestions);
-    syncRecord(); render(); paintList(); poll(true);
+    syncRecord(); render(); startOfLastAnswer(); paintList(); poll(true);
+  }
+  /* a conversation opens at the beginning of its last answer, so a long one is read from its first line and not from its last */
+  function startOfLastAnswer() {
+    const last = [...items].reverse().find(i => i.kind === "assistant" && i.el);
+    if (last) last.el.scrollIntoView({ block: "start" });
   }
 
   /* ---- the view model: the person's messages and, for each answer, blocks in the order things happened ---- */

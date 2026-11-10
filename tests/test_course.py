@@ -98,7 +98,26 @@ def test_a_near_fold_is_told_once():
     agent.context = Ctx()
     watcher = course.Watcher()
     got = watcher.check(agent, 1)
-    assert got.kind == "fold" and "nearly full" in got.note and watcher.check(agent, 9) is None
+    assert got.kind == "fold" and got.problem == "64%" and watcher.check(agent, 9) is None
+
+
+def test_the_fold_note_gives_the_numbers_and_whether_compaction_is_on():
+    class Comp:
+        enabled, threshold = True, 0.85
+
+    class Ctx:
+        mask_at, budget_tokens, compaction = 0.7, 1000, Comp()
+
+        def estimate_tokens(self, messages):
+            return 640
+
+    agent = Fake()
+    agent.context = Ctx()
+    note = course.Watcher().check(agent, 1).note
+    assert "64% of the window" in note and "from 70%" in note and "folded into a record from 85%" in note and "nearly full" not in note
+    Ctx.compaction.enabled = False
+    agent.context = Ctx()
+    assert "compaction is off" in course.Watcher().check(agent, 1).note
 
 
 def test_the_loop_tells_the_agent_and_then_asks_the_person_and_ends_the_turn_there(tmp_path):

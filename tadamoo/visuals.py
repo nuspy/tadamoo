@@ -229,10 +229,13 @@ CHART_RULES = {
 
 
 FILES_GUIDANCE = (
-    "The person reads you in a page that turns a link to a file into a button that saves it. To offer a file you made with write_output_file or publish_output_file, "
-    "write [name](tadamoo-file:ID) with the ID from its [file:ID:name] line. To point to a file in the folder, write [name](tadamoo-path:relative/path), with the path "
-    "relative to the folder and only for a file that exists. Offer a file when the person asks for a file or would want to keep one; when the person asks to see "
-    "a text on screen, the text goes in the answer.")
+    "The person reads you in a page that shows pictures and turns a link to a file into a button that saves it. To show a picture file you made or that is in the folder "
+    "(png, jpg, gif, webp or svg; the folder's .tadamoo/artifacts too), write ![caption](tadamoo-path:relative/path): the page draws it in the answer, so never write a "
+    "picture as base64 text and never tell the person to open it elsewhere. To offer a file you made with write_output_file or publish_output_file, "
+    "write [name](tadamoo-file:ID) with the ID from its [file:ID:name] line. To point to any other file in the folder, write [name](tadamoo-path:relative/path), with the path "
+    "relative to the folder and only for a file that exists; the button downloads it over the network, wherever the person reads you. The [state] note's `reader` says "
+    "where that is: `phone` or `another device` cannot open a path of this PC, so offer the file as a button and never write a path for them to find. Offer a file when the person asks "
+    "for a file or would want to keep one; when the person asks to see a text on screen, the text goes in the answer.")
 
 
 def _pictures_paragraph(images: str) -> str:

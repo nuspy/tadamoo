@@ -72,6 +72,7 @@ MERGE_TOKENS = 1_500
 COMPARE_SETTINGS = ("mode", "max_turns", "ask_only", "end_turn_bias")      # what the two sides of a comparison may differ in
 EFFECTS_FILE = "tool_effects.json"                                          # the effect class of each tool this conversation has used
 SNIPPET_CHARS = 80
+READERS = ("this PC", "phone", "another device")        # where the person reads the answers, told to the agent with each message
 LEVELS = ("", "very_low", "low", "normal", "high", "very_high", "highest")     # how much of pictures or diagrams the person wants; empty is none
 EFFORTS = ("", "none", "low", "medium", "high")                             # how long the model thinks; empty is its own default
 SLASH_COMMANDS = ("status", "tools", "hooks", "mcp", "memory", "permissions", "context", "compact", "audit", "reload-mcp", "reload-skills", "reload-plugins")     # tadamoo/commands.py
@@ -286,7 +287,7 @@ class SessionManager:
 
     def workspace_file(self, sid: str, path: Any) -> Tuple[Path, str]:
         """A file in the folder the conversation works in (its own copy when it has one), for the person to save: only a regular file inside that folder,
-        never in the agent's own `.tadamoo` or in `.git`."""
+        never in the agent's own `.tadamoo` (but for `.tadamoo/artifacts`, where the files it makes with code are saved) or in `.git`."""
         rec = self.get(sid)
         root = Path(rec.get("workdir") or rec["workspace"]).resolve()
         text = str(path or "").replace("\\", "/").strip("/")
@@ -297,7 +298,8 @@ class SessionManager:
             inside = target.relative_to(root)
         except ValueError:
             raise RunError("That file is not inside the folder this conversation works in.", "bad_path") from None
-        if any(part in (".tadamoo", ".git") for part in inside.parts) or not target.is_file():
+        parts = inside.parts[2:] if inside.parts[:2] == (".tadamoo", "artifacts") else inside.parts
+        if any(part in (".tadamoo", ".git") for part in parts) or not target.is_file():
             raise RunError("That file is not there, or it is one the agent keeps for itself.", "no_file")
         return target, target.name
 
@@ -1563,7 +1565,7 @@ class SessionManager:
             self._place_sent[sid] = held["got"]
             return held
 
-    def send(self, sid: str, text: Any, attachments: Any = None, place: Any = None, optimize: Any = None) -> Dict[str, Any]:
+    def send(self, sid: str, text: Any, attachments: Any = None, place: Any = None, optimize: Any = None, reader: Any = None) -> Dict[str, Any]:
         if not isinstance(text, str) or not text.strip():
             raise RunError("Write a message.", "text_missing")
         cards = self._check_attachments(sid, attachments)
@@ -1576,7 +1578,7 @@ class SessionManager:
             live = self._ensure(sid)
             held = self._place_for(sid, place)
             cmd = {"cmd": "send", "id": turn, "text": text, **({"attachments": [c["id"] for c in cards]} if cards else {}), **({"place": held} if held else {}),
-                   **({"optimize": False} if optimize is False else {})}      # "Send my original instead": this message is not rewritten
+                   **({"optimize": False} if optimize is False else {}), **({"reader": reader} if reader in READERS else {})}      # "Send my original instead": this message is not rewritten
             self._unconfirmed[sid] = cmd
             if not rec.get("title"):
                 rec["title"] = " ".join(text.split())[:TITLE_CHARS]

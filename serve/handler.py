@@ -96,6 +96,7 @@ _TASKS = TaskJournal(userdata.path("journal"))        # runtime state lives in t
 _CHANGES = ChangeJournal(userdata.path("journal"))
 _APPROVALS = ApprovalBoard()
 _RUNNER = None                                        # made on first use: it needs this server's address
+PICTURE_TYPES = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp", "svg": "image/svg+xml"}      # what a file of the folder may be shown as
 _SESSIONS = None                                      # the Chat's conversations with the agent, made on first use
 _TARGETS = None                                       # the Target Loop of those conversations, made on first use
 _PROJECTS = None                                      # the folders of the Agent tab, made on first use
@@ -371,6 +372,12 @@ def make_handler(svc: Service, remote: bool = False):
         def _outside(self) -> bool:
             """A request that came through the listener for phones."""
             return self.remote_listener
+
+        def _reader(self) -> str:
+            """Where the person reads the answers: a paired phone, a browser on another device, or this PC."""
+            if self._key_row:
+                return "phone"
+            return "this PC" if settings.is_loopback(self.client_address[0]) else "another device"
 
         def _local_or_device(self) -> bool:
             """This PC, or a phone that came through the listener for phones with one of the keys."""
@@ -3448,8 +3455,10 @@ def make_handler(svc: Service, remote: bool = False):
                     if len(parts) == 3 and parts[2] == "history":
                         return self._json(200, mgr.history(parts[1]))
                     if len(parts) == 3 and parts[2] == "file":
-                        file, name = mgr.workspace_file(parts[1], (parse_qs(urlsplit(self.path).query).get("path") or [""])[0])
-                        return self._send_file(file, "application/octet-stream", name, inline=False)
+                        query = parse_qs(urlsplit(self.path).query)
+                        file, name = mgr.workspace_file(parts[1], (query.get("path") or [""])[0])
+                        shown = PICTURE_TYPES.get(file.suffix.lower().lstrip(".")) if (query.get("inline") or [""])[0] == "1" else None
+                        return self._send_file(file, shown or "application/octet-stream", name, inline=shown is not None)
                     if len(parts) == 3 and parts[2] == "checkpoints":
                         return self._json(200, checkpoints_api.listing(mgr.get(parts[1])))
                     if len(parts) == 3 and parts[2] == "snapshots":
@@ -3574,7 +3583,7 @@ def make_handler(svc: Service, remote: bool = False):
                     if len(parts) == 3 and parts[2] == "budget":
                         return self._json(200, {"session": mgr.set_budget(parts[1], req.get("budget_day_tokens"))})
                     if len(parts) == 3 and parts[2] == "send":
-                        return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments"), req.get("place"), req.get("optimize")))
+                        return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments"), req.get("place"), req.get("optimize"), self._reader()))
                     if len(parts) == 3 and parts[2] in ("promote", "drop"):
                         return self._json(200, {"session": getattr(mgr, parts[2])(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "answer":

@@ -48,12 +48,21 @@
     s = esc(s)
       .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
       .replace(/(^|[^*\w])\*([^*\n]+)\*(?![*\w])/g, "$1<em>$2</em>")
+      // a picture is made before a link is: `![caption](...)` holds a link inside it
+      .replace(/!\[([^\]\n]*)\]\(tadamoo-file:([a-f0-9]{12})\)/g, (_, alt, id) =>
+        `<span class="afig"><img class="aimg" data-fid="${id}" alt="${alt}" hidden><span class="afigc">${alt}</span></span>`)
+      .replace(/!\[([^\]\n]*)\]\(tadamoo-path:([^)\s<>]{1,400})\)/g, (_, alt, path) =>
+        `<span class="afig"><img class="aimg" data-path="${path}" alt="${alt}" hidden><span class="afigc">${alt}</span></span>`)
+      .replace(/!\[([^\]\n]*)\]\((data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+\/=]{16,3000000})\)/g, (_, alt, url) =>
+        `<span class="afig"><img class="aimg" src="${url}" alt="${alt}"><span class="afigc">${alt}</span></span>`)
+      .replace(/\[([^\]\n]+)\]\(tadamoo-path:([^)\s<>]{1,400}\.(?:png|jpe?g|gif|webp|svg))\)/gi, (_, name, path) =>   // a link to a picture shows it and keeps the button that saves it
+        `<span class="afig"><img class="aimg" data-path="${path}" alt="${name}" hidden></span>`
+        + `<button type="button" class="afile" data-kind="path" data-path="${path}" data-name="${name}" title="${esc(T("ch.out.save", name))}">\u2193 ${name}</button>`)
       .replace(/\[([^\]\n]+)\]\(tadamoo-file:([a-f0-9]{12})\)/g, (_, name, id) =>
         `<button type="button" class="afile" data-kind="file" data-id="${id}" data-name="${name}" title="${esc(T("ch.out.save", name))}">\u2193 ${name}</button>`)
       .replace(/\[([^\]\n]+)\]\(tadamoo-path:([^)\s<>]{1,400})\)/g, (_, name, path) =>
         `<button type="button" class="afile" data-kind="path" data-path="${path}" data-name="${name}" title="${esc(T("ch.out.save", name))}">\u2193 ${name}</button>`)
-      .replace(/!\[([^\]\n]*)\]\(tadamoo-file:([a-f0-9]{12})\)/g, (_, alt, id) =>
-        `<span class="afig"><img class="aimg" data-fid="${id}" alt="${alt}" hidden><span class="afigc">${alt}</span></span>`)
+      .replace(/!(\[[^\]\n]*\]\(https?:)/g, "$1")                      // a picture at an address is not hotlinked: it stays a link
       .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s"'<>]+)\)/g, (_, text, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>${sourceButton(url)}`);
     s = addressButtons(s);
     return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${esc(codes[+i])}</code>`);
@@ -703,13 +712,13 @@
   const pictures = new Map();                           // file id -> blob address, so a redrawn answer shows its pictures at once
   async function loadPictures(root) {
     const sid = (window.chatUi.sessionId && window.chatUi.sessionId()) || "";
-    for (const img of root.querySelectorAll("img.aimg[data-fid]")) {
-      const id = img.dataset.fid, key = `${sid}/${id}`;
+    for (const img of root.querySelectorAll("img.aimg[data-fid], img.aimg[data-path]")) {
+      const id = img.dataset.fid, path = img.dataset.path, key = `${sid}/${id || path}`;
       const show = url => { img.src = url; img.hidden = false; };
       if (pictures.has(key)) { show(pictures.get(key)); continue; }
       if (!sid) continue;
       try {
-        const r = await fetch(`api/outputs/${encodeURIComponent(sid)}/${id}/file`, { headers: authHeaders() });
+        const r = await fetch(id ? `api/outputs/${encodeURIComponent(sid)}/${id}/file` : `api/agent/sessions/${encodeURIComponent(sid)}/file?inline=1&path=${encodeURIComponent(path)}`, { headers: authHeaders() });
         if (!r.ok) continue;
         const url = URL.createObjectURL(await r.blob());
         pictures.set(key, url);
@@ -781,19 +790,30 @@
       const original = node.dataset.src;
       if (drawn.has(original)) { showDiagram(node, drawn.get(original)); node.dataset.state = "ok"; continue; }
       node.dataset.state = "busy";
-      let code = savedFixes()[hashOf(original)] || original, why = "";
+      let code = savedFixes()[hashOf(original)] || original, why = "", ruled = false;
+      const draw = async source => {
+        const mermaid = await loadMermaid();
+        const { svg } = await mermaid.render(`mmd-${++drawCount}`, source);
+        drawn.set(original, svg);
+        if (source !== original) keepFix(original, source);
+        if (node.isConnected) { node.dataset.src = source; showDiagram(node, svg); node.dataset.state = "ok"; }
+      };
       for (let attempt = 0; attempt <= TRIES; attempt++) {
         try {
-          const mermaid = await loadMermaid();
-          const { svg } = await mermaid.render(`mmd-${++drawCount}`, code);
-          drawn.set(original, svg);
-          if (code !== original) keepFix(original, code);
-          if (node.isConnected) { node.dataset.src = code; showDiagram(node, svg); node.dataset.state = "ok"; }
+          await draw(code);
           why = "";
           break;
         } catch (e) {
           cleanup();
           why = reasonOf(e);
+          if (!ruled && window.diagramFix) {                                // what a rule can put right is put right here, before the model is asked
+            ruled = true;
+            let done = false;
+            for (const candidate of window.diagramFix.candidates(code)) {
+              try { await draw(candidate); done = true; break; } catch (e2) { cleanup(); }
+            }
+            if (done) { why = ""; break; }
+          }
           if (attempt === TRIES || gaveUp.has(original) || !node.isConnected) break;
           if (!node.querySelector(".diagram-fixing")) { const s = document.createElement("p"); s.className = "diagram-fixing"; s.setAttribute("role", "status"); s.textContent = T("mmd.fixing"); node.replaceChildren(s); }
           const next = await repair(code, why);

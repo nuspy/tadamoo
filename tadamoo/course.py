@@ -151,8 +151,13 @@ class Watcher:
             used = context.estimate_tokens(agent.messages) / max(1, context.budget_tokens)
             if used >= context.mask_at * FOLD_NEAR:
                 self.fold_told = True
-                return Action("fold", "note", "[harness] The context is nearly full: older steps will soon be folded into a record. Put what must survive (decisions, "
-                                              "file names, what is done and what is left) in your plan or notes now, and keep working. The originals stay on disk.")
+                comp = getattr(context, "compaction", None)
+                at = int(max(getattr(comp, "threshold", 0) or 0, context.mask_at) * 100)
+                folds = comp is not None and getattr(comp, "enabled", False)
+                where = (f"the context is at {int(used * 100)}% of the window; old tool results are replaced by a marker from {int(context.mask_at * 100)}%, "
+                         + (f"and the older steps are folded into a record from {at}%" if folds else "and the older steps are not folded (compaction is off)"))
+                return Action("fold", "note", f"[harness] {where[0].upper() + where[1:]}. Put what must survive (decisions, file names, what is done and what is left) "
+                                              "in your plan or notes now, and keep working. The originals stay on disk.", problem=f"{int(used * 100)}%")
         return None
 
     def _action(self, kind: str, stage: str, problem: str, query: str, advice: str = "") -> Action:

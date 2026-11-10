@@ -2030,6 +2030,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                 ids = [i for i in cmd.get("attachments", []) if isinstance(i, str)] if isinstance(cmd.get("attachments"), list) else []
                 if cmd.get("place") is not None and built.take_place:
                     built.take_place(cmd["place"])                  # before the message, so the tool is there from this turn on
+                if isinstance(cmd.get("reader"), str):
+                    built.agent.reader = cmd["reader"][:20]          # where the person reads, for the [state] note
                 delivery = cmd["delivery"] if isinstance(cmd.get("delivery"), str) else ""
                 if delivery and delivery in seen:
                     emit({"event": "delivery", "id": delivery, "state": "accepted"})        # written twice: it was taken the first time

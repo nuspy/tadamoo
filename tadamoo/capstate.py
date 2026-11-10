@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-FIELDS = ("window", "effort", "level", "plan_mode", "unattended", "steps", "max_tokens", "orchestration", "long_answer")
+FIELDS = ("window", "effort", "level", "plan_mode", "unattended", "steps", "max_tokens", "orchestration", "long_answer", "compaction", "reader")
 PROMPT_TOLD = ("window",)         # the fixed block already states these when the session is built
 
 
@@ -35,6 +35,15 @@ def read(agent: Any, *, window: int, unattended: bool) -> Dict[str, Any]:
     perms = getattr(agent, "permissions", None)
     steps = getattr(agent, "max_turns", 0) or 0
     tools = getattr(agent, "tools", None)
+    context = getattr(agent, "context", None)
+    comp = getattr(context, "compaction", None)
+    mask = getattr(context, "mask_at", None)
+    if mask is None:
+        folding = "unknown"
+    elif comp is not None and getattr(comp, "enabled", False):
+        folding = f"on (old results masked from {int(mask * 100)}% of the window, older steps folded from {int(max(comp.threshold, mask) * 100)}%)"
+    else:
+        folding = f"off (old results masked from {int(mask * 100)}% of the window, older steps never folded)"
     return {
         "window": int(window),
         "effort": (getattr(agent, "sampling", {}) or {}).get("reasoning_effort") or "default",
@@ -45,6 +54,8 @@ def read(agent: Any, *, window: int, unattended: bool) -> Dict[str, Any]:
         "max_tokens": getattr(agent, "max_tokens", None) or "the server's own",
         "orchestration": bool(tools is not None and tools.get("session_send") is not None),
         "long_answer": long_answer(getattr(agent, "incoming", "")),
+        "compaction": folding,
+        "reader": getattr(agent, "reader", "") or "this PC",
     }
 
 

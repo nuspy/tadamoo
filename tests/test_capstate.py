@@ -20,8 +20,20 @@ def agent(effort="", level=PermissionLevel.AUTO, plan_mode=False, steps=40, tool
 
 def test_read_gives_plain_values():
     state = capstate.read(agent("high", PermissionLevel.AUTO, True, 0, ("session_send",)), window=32768, unattended=True)
-    assert state == {"window": 32768, "effort": "high", "level": "auto", "plan_mode": True, "unattended": True, "steps": "unlimited", "max_tokens": "the server's own", "orchestration": True, "long_answer": "off"}
+    assert state == {"window": 32768, "effort": "high", "level": "auto", "plan_mode": True, "unattended": True, "steps": "unlimited", "max_tokens": "the server's own", "orchestration": True, "long_answer": "off", "compaction": "unknown", "reader": "this PC"}
     assert capstate.read(agent(), window=1000, unattended=False)["effort"] == "default"
+
+
+def test_compaction_is_read_from_the_context_with_its_numbers():
+    class Comp:
+        enabled, threshold = True, 0.85
+
+    a = agent()
+    a.context = SimpleNamespace(mask_at=0.7, compaction=Comp())
+    on = capstate.read(a, window=1000, unattended=False)["compaction"]
+    assert on == "on (old results masked from 70% of the window, older steps folded from 85%)"
+    Comp.enabled = False
+    assert capstate.read(a, window=1000, unattended=False)["compaction"].startswith("off (old results masked from 70%")
 
 
 def test_the_first_note_names_what_the_prompt_does_not_and_leaves_out_the_window():
@@ -75,3 +87,12 @@ def test_the_most_a_reply_may_write_is_told_when_it_changes():
     assert teller.note(capstate.read(a, window=8192, unattended=False)) == "[state] max_tokens=4000"
     a.max_tokens = None
     assert teller.note(capstate.read(a, window=8192, unattended=False)) == "[state] max_tokens=the server's own"
+
+
+def test_the_reader_is_this_pc_until_the_agent_is_told_otherwise_and_is_told_when_it_changes():
+    a = agent()
+    assert capstate.read(a, window=1000, unattended=False)["reader"] == "this PC"
+    teller = capstate.Teller({"window": 1000})
+    teller.note(capstate.read(a, window=1000, unattended=False))
+    a.reader = "phone"
+    assert teller.note(capstate.read(a, window=1000, unattended=False)) == "[state] reader=phone"
