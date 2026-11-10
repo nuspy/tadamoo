@@ -57,7 +57,7 @@ void main() {
         {'event': 'auto_approved', 'tool': 'shell_command', 'arguments': '{"command":"ls"}', 'turn': 't1'},
         {'event': 'agent', 'turn': 't1', 'data': {'type': 'course_check', 'kind': 'loop', 'stage': 'note', 'problem': 'same call twice'}},
         {'event': 'agent', 'turn': 't1', 'data': {'type': 'course_check', 'kind': 'loop', 'stage': 'card', 'problem': 'no progress'}},
-        {'event': 'agent', 'turn': 't1', 'data': {'type': 'course_check', 'kind': 'fold', 'stage': 'note', 'problem': ''}},
+        {'event': 'agent', 'turn': 't1', 'data': {'type': 'course_check', 'kind': 'fold', 'stage': 'note', 'problem': '64%'}},
         {'event': 'agent', 'turn': 't1', 'data': {'type': 'completion_check', 'round': 2, 'of': 5, 'note': '[harness] the tests were not run'}},
         {'event': 'agent', 'turn': 't1', 'data': {'type': 'batch_interrupted', 'skipped': 3}},
       ]);
@@ -66,7 +66,7 @@ void main() {
         'The technical session approved this call for you: shell_command {"command":"ls"}',
         'Course check: same call twice. The agent was told to change what it does.',
         'Course check: no progress. The agent asks how you want to go on.',
-        'The context is nearly full: the agent was told to save what must survive.',
+        'Context at 64% of the window: old results are replaced by a marker and, when compaction is on, older steps are summarised. The agent was told to save what must survive; the originals stay on disk.',
         'Work until done (2 of 5): the tests were not run',
         'You wrote something that changes the work: 3 more call(s) were not run.',
       ]);

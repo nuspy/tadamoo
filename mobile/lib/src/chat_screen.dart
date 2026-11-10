@@ -50,6 +50,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   final List<_Attached> attached = [];
   String uploading = '';
   bool stickToEnd = true;
+  late bool openedAtLast = widget.sessionId != null;       // a conversation that is opened starts at its last answer, not at its end
+  final lastAnswerKey = GlobalKey();
 
   @override
   void initState() {
@@ -85,6 +87,19 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void _changed() {
     if (!mounted) return;
     setState(() {});
+    if (openedAtLast && ctl.items.isNotEmpty && !ctl.busy) {
+      openedAtLast = false;
+      stickToEnd = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!scroll.hasClients) return;
+        scroll.jumpTo(scroll.position.maxScrollExtent);   // builds the last items so the last answer has a place to go to
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final at = lastAnswerKey.currentContext;
+          if (at != null) Scrollable.ensureVisible(at, alignment: 0);
+        });
+      });
+      return;
+    }
     if (stickToEnd) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (scroll.hasClients) scroll.jumpTo(scroll.position.maxScrollExtent);
@@ -317,7 +332,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
                   itemCount: ctl.items.length + (ctl.busy ? 1 : 0),
                   itemBuilder: (c, i) {
                     if (i >= ctl.items.length) return Padding(padding: const EdgeInsets.all(12), child: Row(children: [const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)), const SizedBox(width: 10), Text(Texts.t('chat.working'))]));
-                    return _item(ctl.items[i]);
+                    return i == _lastAnswer() ? KeyedSubtree(key: lastAnswerKey, child: _item(ctl.items[i])) : _item(ctl.items[i]);
                   },
                 ),
         ),
@@ -325,6 +340,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       ]),
     );
   }
+
+  int _lastAnswer() => ctl.items.lastIndexWhere((x) => x.kind == 'assistant');
 
   Widget _item(ChatItem it) {
     final theme = Theme.of(context);

@@ -299,7 +299,7 @@ class Texts {
     'chat.completion': ['Lavora fino in fondo ({0} di {1}): {2}', 'Work until done ({0} of {1}): {2}'],
     'chat.course.note': ['Controllo di rotta: {0}. All\'agente è stato detto di cambiare ciò che fa.', 'Course check: {0}. The agent was told to change what it does.'],
     'chat.course.card': ['Controllo di rotta: {0}. L\'agente ti chiede come proseguire.', 'Course check: {0}. The agent asks how you want to go on.'],
-    'chat.course.fold': ['Il contesto è quasi pieno: all\'agente è stato detto di salvare ciò che deve restare.', 'The context is nearly full: the agent was told to save what must survive.'],
+    'chat.course.fold': ['Contesto al {0} della finestra: i risultati vecchi sono sostituiti da un segnaposto e, con la compattazione attiva, i passi più vecchi vengono riassunti. All\'agente è stato detto di salvare ciò che deve restare; gli originali restano su disco.', 'Context at {0} of the window: old results are replaced by a marker and, when compaction is on, older steps are summarised. The agent was told to save what must survive; the originals stay on disk.'],
     'chat.batch.interrupted': ['Hai scritto qualcosa che cambia il lavoro: {0} chiamate rimaste non sono state eseguite.', 'You wrote something that changes the work: {0} more call(s) were not run.'],
     'ask.instructions.title': ['Istruzioni trovate in un testo esterno', 'Instructions found in outside text'],
     'ask.instructions': ['Il testo letto da {0} ha dato istruzioni all\'IA. Autorizzi ad agire su di esse? La chiamata che lo chiede: {1}', 'Text read from {0} gave instructions to the AI. Authorize acting on them? The call that asks: {1}'],

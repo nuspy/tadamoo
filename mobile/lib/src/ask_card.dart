@@ -301,7 +301,8 @@ class SuggestionChips extends StatelessWidget {
             Tooltip(
               message: Texts.t('ask.suggest.tip', [c['prompt']]),
               child: ActionChip(
-                materialTapTargetSize: MaterialTapTargetSize.padded,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                padding: const EdgeInsets.symmetric(vertical: 6),
                 label: Text(c['prompt'] ?? ''),
                 onPressed: () => onPick(c['prompt'] ?? ''),
               ),
