@@ -96,3 +96,35 @@ basalt-probe
 ```
 
 The `wall` line is the total wall time of the run, engine launch included. (The numbers above only show the layout.) Timing and engine progress go to stderr.
+
+## `PROBE rates` (engine command)
+
+With `--serve`, the line `PROBE rates` on stdin, between requests, measures the machine's rates inside the loaded
+engine in about half a second and prints one block on stdout: `PROBE begin rates v1`, lines `PROBE <section> key=value ...`,
+`PROBE end ms=<wall>`. It changes no engine state (tiers, caches, KV, RNG, the CPU pool's active worker count) and saves
+nothing. Sections:
+
+| section | measures |
+|---|---|
+| `gpu`, `host`, `pack` | device, link generation and width, power limit, RAM, CPU pool, expert format |
+| `link` | pinned host-to-device and device-to-host GB/s per GPU, best of six 64 MiB bursts |
+| `gpu_mem` | device-to-device copy GB/s per GPU (counts the bytes read and written) |
+| `host_mem` | GB/s the CPU pool reads from RAM-resident experts, by active worker count |
+| `cpu_expert` | cold experts through the pool at 1, 2, 3 and 8 per call, at every measured worker count and the current one |
+| `peer` | peer round trip by entry count (1 to 8) and the linear fit: base and per-entry microseconds |
+| `copy` | one expert-sized copy into each GPU, and the peer round trip while such a copy runs |
+
+A step that cannot run prints `n/a` with a reason (no peer, no RAM-resident experts, a non-native expert format).
+During a batch the command answers `ERR PROBE: ...`.
+
+`PROBE set workers=K share=F` (either key) sets the CPU pool's active worker count and the prompt path's CPU share for the
+requests that follow, and answers `PROBE end workers=<count>`. It is for `basalt-probe`; the settings last until
+the engine stops.
+
+`PROBE adapt [every=N] [swaps=N] [decay=F] [profile=FILE]` puts the expert tiers back where they were at `READY`, or
+with `profile=` places that saved profile's ranking into the same slots, copying only the slots whose expert differs.
+It zeroes the routing counts, the round counter and the draft policy, drops the session's cached prompts, and sets the
+adaptive tier's settings for the requests that follow, so the next request runs as the first after a load. It answers
+`PROBE end adapt every= swaps= decay= moved= peer_moved= kept= ms=` (slots copied on each card, slots left as they
+were, wall time). It needs the adaptive tier on and one main card (no layer split, at most one peer card, not
+`--peer-exclusive`); a swap count above the start's `--adapt-swaps` finds fewer free RAM places for its rounds.
