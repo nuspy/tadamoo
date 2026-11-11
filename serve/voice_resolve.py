@@ -43,15 +43,22 @@ def stand_in(store: Any, context: Dict[str, Any]) -> Dict[str, List[Dict[str, An
     return {"archives": archives, "blocked": blocked}
 
 
+CODES = {"cloud": "not_cloud_ok", "others": "others_deny", "missing": "missing"}        # the reasons the voice side knows, for the resolver's codes
+
+
 def resolve(store: Any, context: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
-    """`{archives, blocked}` as plain dicts, from the real resolver or the stand-in."""
+    """`{archives, blocked}` as plain dicts, from the real resolver (tadamoo/rag/resolve.py) or the stand-in. The voice context's `ids` are archives the function
+    was given: for the resolver they are attached ones."""
     try:
         from tadamoo.rag.resolve import resolve as real
     except ImportError:
         return stand_in(store, context)
-    got = real(store, context)
+    asked = {**context, "attached": list(dict.fromkeys(list(context.get("ids") or []) + list(context.get("attached") or [])))}
+    if asked.get("function") in ("meeting", "call") and asked.get("audience") == "me":      # the minutes: read by the person alone, so a private function for the resolver
+        asked["function"] = "copilot"
+    got = real(store, {k: v for k, v in asked.items() if k != "ids"})
     archives = [{**dict(a), "others_ok": others_of(dict(a))} for a in (_field(got, "archives", []) or [])]
-    blocked = [dict(b) for b in (_field(got, "blocked", []) or [])]
+    blocked = [{**dict(b), "reason": CODES.get((b.get("codes") or [""])[0], b.get("reason", ""))} for b in (_field(got, "blocked", []) or [])]
     return {"archives": archives, "blocked": blocked}
 
 

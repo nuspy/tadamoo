@@ -94,6 +94,11 @@ exists on the **plan** side instead (next section).
 - `plan_get(plan_id, view="compact")` gives a few lines (state, ready steps, values) instead of the full reading.
 - `plan_digest(plan_id, n)` reads the plan's own history (`rev`, actor, kind, summary), already kept by the bridge; no new storage.
 
+## Knowledge archives in plans and routines
+
+A plan, an action step and a RAG node connected to it can each name knowledge archives; `plan_step_start` gives the step the union by name, under the cloud
+rule. A routine has `rag_archives` too, attached to the conversation its run starts. See [plan-nodes.md](plan-nodes.md) and [rag-resolve.md](rag-resolve.md).
+
 ## Repeating steps (`tadamoo/planner/dag.py`)
 
 A node's `repeat: {every, max_runs, reset_from, stop_when}` makes `mark(..., "completed")` re-arm it instead of finishing it: it
