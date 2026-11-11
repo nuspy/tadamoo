@@ -96,8 +96,8 @@ def _glob_escape(text: str) -> str:
 # A rule `group:<name>` covers every tool of the group (names with a * are patterns).
 GROUPS: Dict[str, Tuple[str, ...]] = {
     "read": ("read_file", "list_directory", "tree", "repo_map", "repo_diagram", "search_code", "find_references", "go_to_definition", "diagnostics",
-             "read_attachment", "search_attachment", "list_attachments", "transcribe_attachment", "search_past", "open_past", "recall", "recall_about_user"),
-    "write": ("write_file", "edit_file", "write_output_file", "publish_output_file", "remember", "forget"),
+             "read_attachment", "search_attachment", "list_attachments", "transcribe_attachment", "docx_outline", "docx_read", "search_past", "open_past", "recall", "recall_about_user"),
+    "write": ("write_file", "edit_file", "docx_edit", "docx_create", "write_output_file", "publish_output_file", "remember", "forget"),
     "shell": ("shell_command", "run_code", "job_*"),
     "web": ("browse_url", "search_web", "page_images", "show_image", "wiki_*"),
     "browser": ("browser_*",),

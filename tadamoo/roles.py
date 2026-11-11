@@ -22,9 +22,9 @@ CHARS_PER_TOKEN = 3.5
 SHOWN_CHECKS = 6
 
 READ_TOOLS = ("read_file", "list_directory", "tree", "search_code", "repo_map", "repo_diagram", "diagnostics", "go_to_definition",
-              "find_references", "recall", "load_skill")
+              "find_references", "recall", "load_skill", "docx_outline", "docx_read")
 ALWAYS_TOOLS = ("ask_user", "todo_write", "present_plan")          # plan mode and the checklist work in every role
-EDIT_TOOLS = ("edit_file", "write_file")
+EDIT_TOOLS = ("edit_file", "write_file", "docx_edit", "docx_create")
 FILE_WRITERS = frozenset(EDIT_TOOLS)
 BUILD_TOOLS = READ_TOOLS + ALWAYS_TOOLS + EDIT_TOOLS + ("shell_command", "remember", "forget")
 

@@ -462,7 +462,7 @@ class AgentLoop:
         for t in self.turns:
             for c in t.tool_calls:
                 path = (c.arguments or {}).get("path") if isinstance(c.arguments, dict) else None
-                if c.tool_name in ("write_file", "edit_file", "write_output_file") and not c.is_error and isinstance(path, str) and path not in paths:
+                if c.tool_name in ("write_file", "edit_file", "docx_edit", "docx_create", "write_output_file") and not c.is_error and isinstance(path, str) and path not in paths:
                     paths.append(path)
         lines = ["[harness] Mission card, kept across folds. Request: " + (self.mission.get("request") or self.last_user_text)[:300]]
         if open_items:
@@ -1477,7 +1477,7 @@ class AgentLoop:
     def _work_line(self) -> str:
         """One line about what this request's work did, from the calls themselves, for the reader that checks whether it is met."""
         calls = [c for t in self.turns for c in t.tool_calls if c.decision == "executed"]
-        written = sum(1 for c in calls if c.tool_name in ("write_file", "edit_file", "write_output_file") and not c.is_error)
+        written = sum(1 for c in calls if c.tool_name in ("write_file", "edit_file", "docx_edit", "docx_create", "write_output_file") and not c.is_error)
         shells = [c for c in calls if c.tool_name in ("shell_command", "run_code")]
         code = ""
         if shells and isinstance(shells[-1].output, dict) and "exit_code" in shells[-1].output:
