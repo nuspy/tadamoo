@@ -30,6 +30,7 @@ FUNCTIONS: Dict[str, Dict[str, Any]] = {
     "pipeline": {"label": "Checks of the answer (pipeline)", "kind": "judge", "data": "personal"},
     "triage": {"label": "Plan events (triage)", "kind": "judge", "data": "personal"},
     "relevance": {"label": "Relevance of excerpts", "kind": "judge", "data": "general"},
+    "rag_enrich": {"label": "Knowledge archives (summaries and questions)", "kind": "chat", "data": "personal", "tools": False},
 }
 
 COUNCIL_PREFIX = "council:"                        # one function for each role of the council, made from the role's id (tadamoo/council.py)

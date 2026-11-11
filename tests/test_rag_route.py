@@ -85,7 +85,7 @@ def test_the_state_note_names_the_archives_and_says_what_the_route_leaves_out(tm
     recall = ProjectRecall(rag, PROJ, local=where, attached=[forests])
     index = knowledge_index(rag, recall)
     note = index()
-    assert "Boats (1 documents" in note and "Forests (project Project Two; 1 documents" in note and forests not in note and "not available" not in note
+    assert "Boats (1 documents" in note and "Forests (project Project Two; 1 documents" in note and forests not in note.replace(forests + ".txt", "") and "not available" not in note
     where.local = False
     away = index()
     assert "Forests" in away.split("not available on this route:")[1] and "not cleared for cloud models" in away and away.startswith("Boats")

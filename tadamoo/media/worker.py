@@ -24,9 +24,9 @@ import time
 from pathlib import Path
 
 LEASE_CLIENT = Path(__file__).resolve().parents[1] / "heavy.py"
-OWNER = {"image": "image", "video": "video"}
-PURPOSE = {"image": "making a picture", "video": "making a clip"}
-MINUTES = {"image": 2, "video": 6}                        # what a swap tells the person the job takes
+OWNER = {"image": "image", "video": "video", "avatar": "avatar"}
+PURPOSE = {"image": "making a picture", "video": "making a clip", "avatar": "making a talking head"}
+MINUTES = {"image": 2, "video": 6, "avatar": 20}          # what a swap tells the person the job takes
 STEP = re.compile(r"(\d+)/(\d+)\s*\[")                   # a progress bar: "  3/8 [00:12<00:20"
 HTTP_SLACK_S = 135.0                                      # the call that asks for the lease may last as long as the wait plus the engine's own time
 
@@ -123,7 +123,25 @@ def video_plan(folder: str, spec: dict) -> dict:
     return {"python": spec.get("python") or py, "script": script, "params": params, "missing": missing, "env": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}}
 
 
-PLANS = {"image": image_plan, "video": video_plan}
+def avatar_plan(folder: str, spec: dict) -> dict:
+    """A portrait and a recording made into a talking video by LongCat-Video-Avatar, which LTX Studio runs in an environment of its own."""
+    use_ltx(folder)
+    service = importlib.import_module("core.longcat_service")
+    precision = "int8"
+    missing = [] if service.is_installed() else ["the LongCat Avatar environment"]
+    missing += [f"weights {w}" for w in (service.missing_weights(precision) if not missing else [])]
+    req = spec.get("request") or {}
+    params = {"mode": "ai2v", "image_path": req.get("image", ""), "audio_path": req.get("audio", ""), "prompt": req.get("prompt", ""), "resolution": req.get("resolution", "480p"),
+              "aspect": "16:9", "resize_mode": "crop", "precision": precision, "seed": req.get("seed"), "vocal_separation": False, "output": spec["output"],
+              "need_vram_gb": max(8.0, int(spec.get("mib") or 0) / 1024 - 2.0), "need_commit_gb": 8, "parent_pid": os.getpid()}
+    for key in ("image_path", "audio_path"):
+        if not missing and params[key] and not Path(params[key]).is_file():
+            missing.append(f"the file {params[key]}")
+    return {"python": str(service.VENV_PY), "script": str(service.WORKER), "params": params, "missing": missing, "cwd": str(service.ROOT),
+            "env": {"LONGCAT_CODE_DIR": str(service.ROOT / "LongCat-Video"), "PYTHONPATH": None, "PYTHONHOME": None}}
+
+
+PLANS = {"image": image_plan, "video": video_plan, "avatar": avatar_plan}
 
 
 def check(folder: str, video_model: str) -> dict:
@@ -145,8 +163,9 @@ class Run:
         params_file = work / "params.json"
         params_file.write_text(json.dumps(plan["params"]), encoding="utf-8")
         env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1", "HF_HUB_OFFLINE": "1", **plan["env"]}
+        env = {k: v for k, v in env.items() if v is not None}          # a value of None takes the variable out of the model process's environment
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
-        self.proc = subprocess.Popen([plan["python"], "-u", plan["script"], str(params_file)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, cwd=cwd,
+        self.proc = subprocess.Popen([plan["python"], "-u", plan["script"], str(params_file)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, cwd=plan.get("cwd") or cwd,
                                      creationflags=flags, start_new_session=os.name != "nt")
         self.tail: list = []
         self.result = ""
@@ -206,7 +225,8 @@ def main() -> int:
             raise JobError("LTX Studio lacks weights this needs: " + ", ".join(plan["missing"]))
         module = lease_module()
         wait = float(spec.get("wait_s") or 0)
-        state["lease"] = heavy = module.HeavyLease(OWNER[kind], int(spec["mib"]), PURPOSE[kind], minutes=MINUTES[kind], wait_s=wait, exclusive=True, base_url=spec.get("url") or None)
+        state["lease"] = heavy = module.HeavyLease(OWNER[kind], int(spec["mib"]), PURPOSE[kind], minutes=MINUTES[kind], wait_s=wait, exclusive=True, held=bool(spec.get("held")),
+                                                   base_url=spec.get("url") or None)
         heavy.acquire()
         lease = heavy.lease
         emit({"event": "lease", "ok": heavy.gpu_ok, "granted_mib": lease.granted_mib, "reason": heavy.reason, "message": heavy.message, "message_it": heavy.message_it,

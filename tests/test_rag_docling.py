@@ -233,11 +233,11 @@ def test_the_state_note_lists_the_archives_the_conversation_can_use_and_tells_wh
     other = store.create("Forests", "", project_key("else"), "Else")["id"]
     recall = ProjectRecall(store, PROJ)
     index = knowledge_index(store, recall)
-    assert index().startswith("Boats (0 documents, text search; Everything about small boats")
+    assert index().startswith("Boats (0 documents, search by words only; Everything about small boats")
     first = index()
     assert index() is first                                                                          # worked out again only when something changed
     recall.attach([other])
-    assert "Forests (project Else; 0 documents, text search)" in index()
+    assert "Forests (project Else; 0 documents, search by words only)" in index()
     for i in range(14):
         store.create(f"Extra {i}", "", PROJ)
     assert index().endswith("and 4 more") and index().count("documents") == 12
@@ -270,7 +270,7 @@ def test_the_harness_offers_read_document_in_every_role_and_lists_the_archives_i
                                         rag_project=PROJ, role=role))
         try:
             assert "read_document" in built.role.allowed() and "read_document" in built.builder.blocks["self"]
-            assert "knowledge=Boats (0 documents, text search; Small boats)" in built.agent.state_note()
+            assert "knowledge=Boats (0 documents, search by words only; Small boats)" in built.agent.state_note()
         finally:
             built.close()
 

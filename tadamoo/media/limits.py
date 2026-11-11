@@ -68,3 +68,18 @@ def video_request(prompt: Any, width: Any = None, height: Any = None, frames: An
         raise MediaError("negative: text, or empty")
     return {"prompt": _prompt(prompt, "clip"), "width": w, "height": h, "frames": rounded, "fps": f, "seed": _seed(seed),
             "negative": (negative or "").strip()[:PROMPT_MAX], "notes": notes}
+
+
+AVATAR = {"resolutions": ("480p", "720p")}
+
+
+def avatar_request(image: Any, audio: Any, prompt: Any = "", resolution: Any = "480p", seed: Any = None) -> Dict[str, Any]:
+    """A talking head: a portrait and a voice recording, made into a video as long as the recording. Both are paths on this PC, read by the model process."""
+    for name, value in (("image", image), ("audio", audio)):
+        if not isinstance(value, str) or not value.strip() or "\x00" in value:
+            raise MediaError(f"{name}: the path of a file on this PC")
+    if resolution not in AVATAR["resolutions"]:
+        raise MediaError("resolution: " + " or ".join(AVATAR["resolutions"]))
+    if not isinstance(prompt, str) or len(prompt) > PROMPT_MAX:
+        raise MediaError(f"prompt: text of at most {PROMPT_MAX} characters, or empty")
+    return {"image": image.strip(), "audio": audio.strip(), "prompt": prompt.strip(), "resolution": resolution, "seed": _seed(seed), "notes": []}

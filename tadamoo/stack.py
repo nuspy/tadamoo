@@ -934,6 +934,10 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         media_ready = bool(kinds)
         if kinds:
             media_tools.register_media_tools(registry, sandbox, media_settings, data / "media", cfg.endpoint, cancelled=stop_pressed, kinds=kinds)
+        if "video" in kinds and not media_tools.usable(media_settings.read(), "avatar"):            # a newscast needs the clips and the talking head
+            from serve.userdata import user_data_dir
+            from tadamoo.newscast.tools import register_newscast_tools
+            register_newscast_tools(registry, sandbox, media_settings, user_data_dir(), cfg.endpoint, cfg.api_key, cancelled=stop_pressed)
 
     def switch_knowledge(ids: List[str]) -> str:
         """The archives attached to the conversation are now `ids`; returns the note for the model, empty when nothing changed."""
@@ -1070,6 +1074,10 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         agent.outgoing = project_recall.withdrawn
         agent.on_compaction = project_recall.forget_sent
     quick = technical if technical is not None else client          # the quick jobs never take the conversation's own route
+    if project_recall is not None:                      # the questions a long request holds, written by the technical session (tadamoo/rag/expand.py)
+        from tadamoo.rag import expand, nudge
+        agent.read_hint = nudge.read_hint(project_recall.store, project_recall)
+        project_recall.plan = lambda goal, documents: expand.ask(quick if quick is not None else agent.client, goal, documents, int(side_uses.param("recall_queries", "queries")))
     if quick is not None:                               # the technical session's two readers of tool results (both off until switched on)
         compactor.extract = tool_extract.make_extractor(quick, lambda: agent.last_user_text)
         agent.screen = inject_screen.make_screen(quick)

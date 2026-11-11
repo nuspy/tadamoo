@@ -20,7 +20,7 @@ from tadamoo.media.errors import Cancelled, MediaError, Refused
 from tadamoo.media.settings import VIDEO_MODEL, ltx_dir_of
 
 WORKER = Path(__file__).with_name("worker.py")
-TOTAL_S = {"image": 3600.0, "video": 4 * 3600.0}
+TOTAL_S = {"image": 3600.0, "video": 4 * 3600.0, "avatar": 4 * 3600.0}
 CHECK_TTL_S = 60.0
 Progress = Callable[[Dict[str, Any]], None]
 _checked: Dict[Any, Any] = {}
@@ -67,18 +67,19 @@ def forget_checks() -> None:
 
 def run(kind: str, request: Dict[str, Any], output: Path, settings: Dict[str, Any], url: str = "", progress: Optional[Progress] = None,
         cancel: Optional[Callable[[], bool]] = None, idle_s: Optional[float] = None, total_s: Optional[float] = None,
-        command: Optional[Sequence[str]] = None) -> Dict[str, Any]:
+        command: Optional[Sequence[str]] = None, held: bool = False) -> Dict[str, Any]:
     """Makes the file `output` (its folder is the job's working folder: the worker's parameters and the model's own temporary files go there) and returns
     `{path, bytes, seconds, lease}`. Raises `Refused` (the lease), `Cancelled`, or MediaError with the reason in words. `command` replaces the worker's
-    command line (for tests); it is given the job file as its last argument."""
+    command line (for tests); it is given the job file as its last argument. `held`: the caller keeps the local model out of the way across
+    several jobs (a swap of its own, docs/heavy-swap.md), so this job asks for the VRAM only."""
     folder = ltx_dir_of(settings["ltx_dir"])
     if not folder and not command:
         raise MediaError("LTX Studio was not found: set its folder in the media settings", "unavailable")
     output.parent.mkdir(parents=True, exist_ok=True)
     job_file = output.parent / "job.json"
-    mib = settings["image_mib" if kind == "image" else "video_mib"]
-    job_file.write_text(json.dumps({"kind": kind, "ltx_dir": folder, "url": url, "mib": mib, "wait_s": settings["wait_s"], "output": str(output), "request": request,
-                                    "python": settings["image_python" if kind == "image" else "video_python"], "video_model": settings["video_model"] or VIDEO_MODEL}),
+    mib = settings[f"{kind}_mib"]
+    job_file.write_text(json.dumps({"kind": kind, "ltx_dir": folder, "url": url, "mib": mib, "wait_s": settings["wait_s"], "output": str(output), "request": request, "held": held,
+                                    "python": settings.get(f"{kind}_python", ""), "video_model": settings["video_model"] or VIDEO_MODEL}),
                         encoding="utf-8")
     argv = list(command) + [str(job_file)] if command else [sys.executable, "-X", "utf8", str(WORKER), "--job", str(job_file)]
     return _run(argv, kind, progress, cancel, settings["idle_s"] if idle_s is None else idle_s, TOTAL_S[kind] if total_s is None else total_s)

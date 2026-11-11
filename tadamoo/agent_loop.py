@@ -289,7 +289,8 @@ class AgentLoop:
         self.course: Any = None                   # the watch on the course of a request (tadamoo/course.py): notes to the agent, then a card to the person
         self.mission: Dict[str, Any] = {}         # the request in hand and what the harness knows of it, for self_status
         self._earlier_request = ""                # the request before the one in hand: a short follow-up ("write the answer") is read with it
-        self.state_note: Optional[Callable[[], str]] = None       # the note about settings that changed, put before a request (tadamoo/capstate.py)
+        self.read_hint: Optional[Callable[[str, Dict[str, Any]], str]] = None   # (tool, arguments) -> a note for the result of a file read, e.g. that the file is in a knowledge archive (tadamoo/rag/nudge.py)
+        self.state_note: Optional[Callable[[], str]] = None      # the note about settings that changed, put before a request (tadamoo/capstate.py)
         self.incoming = ""                                        # the person's latest message as it came, with the control lines the page added to it
         self.batch_interrupt = batch_interrupt    # looked at before each call of a message's batch: a reason to leave the rest of the batch unrun, or ""
         self.pipeline = pipeline                  # checks the final answer against the request's card (tadamoo/pipeline.py)
@@ -1047,6 +1048,13 @@ class AgentLoop:
                     text += "\n" + seen_by_guard.note
                 if result.feedback:
                     text += "\n[harness] " + result.feedback
+                if self.read_hint is not None and result.decision == "executed" and not result.is_error and isinstance(shown_args, dict):
+                    try:
+                        hint = self.read_hint(call.name, shown_args)
+                    except Exception:
+                        hint = ""                         # a hint that fails is no hint
+                    if hint:
+                        text += "\n" + hint
                 if result.decision == "executed" and time.monotonic() - t_call >= TOOL_TIME_NOTE_S:
                     text += f"\n[harness] This call took {int(time.monotonic() - t_call)} s."
                 self._emit({"type": "tool_end", "call_id": call.call_id, "name": call.name,

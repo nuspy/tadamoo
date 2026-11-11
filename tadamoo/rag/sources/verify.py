@@ -21,7 +21,6 @@ from typing import Any, Callable, Dict, List, Optional
 from tadamoo.rag.errors import RagError
 from tadamoo.rag.sources import coverage
 from tadamoo.rag.sources.local import sha_of
-from tadamoo.rag.store import INGEST
 
 LEVELS = ("error", "warn", "info")
 
@@ -123,7 +122,7 @@ def verify(sync: Any, aid: Any, deep: bool = False, sources: bool = True, progre
     # deep
     if deep:
         tell({"event": "stage", "stage": "recutting"})
-        same_cut = meta.get("ingest") == INGEST
+        same_cut = meta.get("ingest") == store.ingest()
         for doc in meta["documents"]:
             if cancel is not None and cancel.is_set():
                 raise RagError("the verify was cancelled", "cancelled")

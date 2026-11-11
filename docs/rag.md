@@ -100,6 +100,9 @@ way of choosing below. An archive of the conversation's own project is always us
   them from the person's words in any language ("use the RAG about forests", "usa il RAG sulle foreste", "non usare più..."); the harness's
   self-description says archives can be attached by name. A tool that changes the attached list makes the process send a `knowledge` event
   (`change`: attached, dropped or cleared), which the record keeps and the page shows as a note.
+- **Getting them used**: what the model is told about an archive (its documents, pages and languages), `knowledge_read`, the search by query list, document and filters,
+  the long request asked as several questions and the hint on files that are in an archive are in [rag-usage.md](rag-usage.md); the facts read off passages by rule and
+  the descriptions a model writes (summaries and questions in the person's language) are in [rag-ingest.md](rag-ingest.md).
 - **`/rag`** on the page (`serve/web/slash.js`): `/rag` lists every archive with its project and which are used here, `/rag name` attaches,
   `/rag off name` drops one, `/rag off` drops all, each answered by one line ("Knowledge: Forests attached"). In a conversation of the agent the
   server keeps the choice (the route above, `agentchat.js` makes the conversation first if there is none); `GET /api/rag/catalog` lists every archive with its project's name (kept in `meta.json` as

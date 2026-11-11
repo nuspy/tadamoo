@@ -23,7 +23,7 @@ SHOWN_CHECKS = 6
 
 READ_TOOLS = ("read_file", "list_directory", "tree", "search_code", "repo_map", "repo_diagram", "diagnostics", "go_to_definition",
               "find_references", "recall", "load_skill", "read_document", "docx_outline", "docx_read")
-KNOWLEDGE_TOOLS = ("knowledge_list", "knowledge_use", "knowledge_drop", "knowledge_search", "knowledge_check")
+KNOWLEDGE_TOOLS = ("knowledge_list", "knowledge_use", "knowledge_drop", "knowledge_search", "knowledge_read", "knowledge_check")
 ALWAYS_TOOLS = ("ask_user", "todo_write", "present_plan") + KNOWLEDGE_TOOLS     # plan mode, the checklist and the choice of knowledge archives work in every role
 EDIT_TOOLS = ("edit_file", "write_file", "docx_edit", "docx_create")
 FILE_WRITERS = frozenset(EDIT_TOOLS)

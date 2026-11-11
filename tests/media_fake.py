@@ -38,12 +38,25 @@ print("OK:" + out, flush=True)
 '''
 
 
-def make_ltx(root: Path, missing=(), video_checkpoint=True) -> Path:
+def make_ltx(root: Path, missing=(), video_checkpoint=True, avatar=True, avatar_missing=()) -> Path:
     """A folder with the parts of LTX Studio the worker reads: `core` (paths, releases, job parameters) and `workers/`."""
     (root / "core").mkdir(parents=True)
     (root / "workers").mkdir()
     (root / "workers" / "qwen_image21_infer.py").write_text(WORKER.replace("@@DATA@@", repr(PNG)), encoding="utf-8")
     (root / "workers" / "ltx2_infer.py").write_text(WORKER.replace("@@DATA@@", repr(MP4)), encoding="utf-8")
+    (root / "longcat" / "LongCat-Video").mkdir(parents=True)
+    (root / "workers" / "longcat_avatar_infer.py").write_text(WORKER.replace("@@DATA@@", repr(MP4)), encoding="utf-8")
+    (root / "core" / "longcat_service.py").write_text(textwrap.dedent(f'''
+        from pathlib import Path
+        ROOT = Path({str(root / "longcat")!r})
+        VENV_PY = Path({sys.executable!r})
+        WORKER = Path({str(root / "workers" / "longcat_avatar_infer.py")!r})
+        INSTALLED = {avatar!r}
+        def is_installed():
+            return INSTALLED
+        def missing_weights(precision):
+            return {list(avatar_missing)!r}
+        '''), encoding="utf-8")
     (root / "models").mkdir()
     for name in ("ltx-2.5-22b-distilled-transformer-nvfp4.safetensors",):
         if video_checkpoint:

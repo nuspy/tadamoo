@@ -19,9 +19,9 @@ def server_search(endpoint: str, api_key: str = "", timeout: float = TIMEOUT_S, 
         return None
     url = endpoint.rstrip("/") + "/api/rag/search"
 
-    def search(ids: List[str], query: str, top_k: int, min_share: float) -> Dict[str, Any]:
+    def search(ids: List[str], query: str, top_k: int, min_share: float, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         headers = {"Content-Type": "application/json", **({"Authorization": "Bearer " + api_key} if api_key else {})}
-        body = json.dumps({"archives": ids, "query": query, "top_k": top_k, "min_share": min_share, "strict": False, **({"context": context()} if context() else {})}).encode("utf-8")
+        body = json.dumps({"archives": ids, "query": query, "top_k": top_k, "min_share": min_share, "strict": False, **({"filters": filters} if filters else {}), **({"context": context()} if context() else {})}).encode("utf-8")
         with urllib.request.urlopen(urllib.request.Request(url, data=body, headers=headers, method="POST"), timeout=timeout) as r:
             out = json.loads(r.read())
         if not isinstance(out, dict) or not isinstance(out.get("hits"), list):

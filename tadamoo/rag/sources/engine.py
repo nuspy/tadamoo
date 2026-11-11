@@ -375,7 +375,7 @@ class Sync:
             tell({"event": "stage", "stage": "reading"})
             reading = read_document(fetched.path, fetched.name, self.store.settings.read(), progress=tell, cancel=cancel)
             tell({"event": "stage", "stage": "cutting"})
-            chunks, sections, stats = self.store.passages_of(doc["id"], fetched.name, reading["blocks"])
+            chunks, sections, stats = self.store.passages_of(doc["id"], fetched.name, reading["blocks"], aid)
             diff = self._diff(old_chunks.get(doc["id"], []), chunks)
             new = {k: v for k, v in doc.items() if k not in ("skipped_pages", "empty_pages", "coverage")}
             new.update(name=fetched.name, ext=Path(fetched.name).suffix.lower(), bytes=fetched.bytes, chars=stats["chars"], chunks=len(chunks), sha256=fetched.sha256,
@@ -383,6 +383,7 @@ class Sync:
                        origin={"kind": data_src["kind"], "ref": fetched.origin, "version": fetched.version or stamp_text(fetched.stamp)}, revision=int(doc.get("revision") or 1) + 1)
             if "info" in stats:
                 new["info"] = stats["info"]
+            self.store.describe_documents(aid, [new])
             if reading.get("skipped_pages"):
                 new["skipped_pages"] = reading["skipped_pages"]
             if reading.get("empty_pages"):
@@ -530,12 +531,15 @@ class Sync:
                 blocks = state.version_blocks(doc_id, entry["n"])
             except ValueError as e:
                 raise RagError(str(e)) from None
-            chunks, sections, stats = self.store.passages_of(doc_id, entry["name"], blocks)
+            chunks, sections, stats = self.store.passages_of(doc_id, entry["name"], blocks, aid)
             now = self.clock()
             new = {k: v for k, v in doc.items() if k not in ("skipped_pages", "empty_pages", "coverage")}
             new.update(name=entry["name"], bytes=entry["bytes"], chars=stats["chars"], chunks=len(chunks), sha256=entry["sha256"], extraction=entry["extraction"] or doc.get("extraction", ""),
                        pages=entry["pages"], flagged=stats["flagged"], updated=now, origin={**(doc.get("origin") or {}), "version": f"{entry['version'] or 'version ' + str(entry['n'])} (restored)"},
                        revision=int(doc.get("revision") or 1) + 1)
+            if "info" in stats:
+                new["info"] = stats["info"]
+            self.store.describe_documents(aid, [new])
             for key in ("skipped_pages", "empty_pages"):
                 if (entry.get("coverage") or {}).get(key[:-6]):
                     new[key] = entry["coverage"][key[:-6]]

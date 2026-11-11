@@ -7,6 +7,7 @@ import pytest
 from tadamoo.rag import RagStore, project_key
 from tadamoo.rag.ingest import blocks as bl
 from tadamoo.rag.ingest import chunker, normalize
+from tadamoo.rag.ingest import meta as facts
 from tadamoo.rag.ingest.basic import guess_headings
 from tadamoo.rag.recall import FLAG_NOTE, ProjectRecall, citation
 
@@ -257,7 +258,7 @@ def test_citations_name_the_pages_of_a_passage_that_spans_two():
 def test_the_versions_of_the_cleaning_and_the_cutting_are_kept_and_a_change_asks_for_a_new_cut(tmp_path, monkeypatch):
     from tadamoo.rag import store as st
     store, aid, _ = archive(tmp_path)
-    assert store.get(aid)["rechunk"] is False and store.load(aid).meta["ingest"] == {"normalizer": normalize.VERSION, "chunker": chunker.VERSION}
+    assert store.get(aid)["rechunk"] is False and store.load(aid).meta["ingest"] == {"normalizer": normalize.VERSION, "chunker": chunker.VERSION, "facts": facts.VERSION, "target": 350, "hard": 600}
     monkeypatch.setitem(st.INGEST, "chunker", chunker.VERSION + 1)
     assert store.get(aid)["rechunk"] is True
     before = store.get(aid)["chunks"]
@@ -278,3 +279,17 @@ def test_big_documents_are_allowed_and_a_refused_file_leaves_the_archive_untouch
     with pytest.raises(Exception, match="no text"):
         store.add_file(aid, "scan.md", empty)
     assert store.get(aid) == before and sorted(p.name for p in (tmp_path / "rag" / aid / "blocks").iterdir()) == [store.get(aid)["document_list"][0]["id"] + ".json.gz"]
+
+
+def test_the_size_of_a_passage_is_a_setting_and_changing_it_asks_for_a_new_cut(tmp_path):
+    store, aid, _ = archive(tmp_path)
+    before = store.get(aid)["chunks"]
+    assert store.get(aid)["rechunk"] is False
+    store.settings.write({"chunk_target": 150, "chunk_hard": 250})
+    assert store.get(aid)["rechunk"] is True                                                        # the sizes are part of what cuts the passages
+    store.reindex(aid)
+    assert store.get(aid)["rechunk"] is False and store.load(aid).meta["ingest"]["target"] == 150 and store.get(aid)["chunks"] >= before
+    for bad in ({"chunk_target": 50}, {"chunk_hard": 100000}, {"chunk_target": 1000}, {"chunk_target": True}):
+        with pytest.raises(Exception):
+            store.settings.write(bad)
+    assert store.settings.read()["chunk_hard"] == 250
