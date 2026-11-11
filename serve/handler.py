@@ -22,7 +22,7 @@ from tadamoo import exec_level, nextsteps, persistence, side_uses
 from tadamoo import telegram as tg
 from tadamoo import permission_level
 from tadamoo.permission_level import PermissionLevelError, PermissionLevels
-from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, heavy_api, engine_install, engines, loader, llamacpp_api, loader_api, media_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, vram_api, voice_api, voice_avatar_ensure, voice_compat, voice_import, voice_loader, voice_service, voice_settings
+from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, heavy_api, heavy_forward, engine_install, engines, loader, llamacpp_api, loader_api, media_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, vram_api, voice_api, voice_avatar_ensure, voice_compat, voice_import, voice_loader, voice_service, voice_settings
 from serve import origin_guard, voice_avatar, voice_gateway_relay, voice_phone_call
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX, checked_sampling
@@ -1158,6 +1158,15 @@ def make_handler(svc: Service, remote: bool = False):
                     return
                 engine_host.HOST.forward(self, "POST", self.path, raw)
                 return
+            if path == "/v1/chat/completions" and heavy_forward.wants(self, svc):        # the Chat page while a heavy job has the local model out
+                try:
+                    raw = self._held_body if self._held_body is not None else self._body()
+                except BadBody as e:
+                    self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+                    return
+                if heavy_forward.forward(self, svc, raw):
+                    return
+                self._held_body = raw
             trace = None
             if path in API_PATHS and svc.reqlog.enabled:
                 trace = self.trace = svc.request_ctx.trace = RequestTrace(

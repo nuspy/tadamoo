@@ -1,0 +1,93 @@
+"""The Chat page while the local model is out for a heavy job (docs/heavy-swap.md): its requests to `/v1/chat/completions` go to the provider the swap named, with
+the provider's key and model, and the answer is handed back as it arrives. Only the page of this PC asks for it (the header `X-Tadamoo-Function: chat`); any other
+program that calls the server still meets the local model and the 503 that says why it is out."""
+from __future__ import annotations
+
+import json
+
+import requests
+
+from serve import settings
+from tadamoo.llmswitch.providers import TYPES
+
+HEADER = "X-Tadamoo-Function"
+KEEP = ("messages", "model", "stream", "temperature", "top_p", "max_tokens", "stop", "tools", "tool_choice", "response_format", "presence_penalty",
+        "frequency_penalty", "seed", "stream_options")        # what an OpenAI-style provider takes; the page's own fields stay here
+HOP = {"connection", "keep-alive", "transfer-encoding", "content-length", "content-encoding", "server", "date"}
+
+
+def wants(handler, svc) -> bool:
+    """Whether this request is the Chat page's and a swap is on."""
+    if handler.headers.get(HEADER) != "chat" or handler.remote_listener or not settings.is_loopback(handler.client_address[0]):
+        return False
+    swap = getattr(svc, "heavy_swap", None)
+    return swap is not None and swap.registry.swap() is not None
+
+
+def forward(handler, svc, raw: bytes) -> bool:
+    """True when the request was answered here; False when the swap provider cannot take it (the request is then answered as it would be without a swap)."""
+    reg = svc.heavy_swap.registry
+    prov = reg.provider_for("chat")
+    resolved = reg.endpoint_for("chat", carica=False)
+    if not prov or not resolved or TYPES.get(prov.get("type") or "", {}).get("api") != "openai":
+        return False
+    base, key, model = resolved
+    try:
+        body = json.loads(raw or b"{}")
+        if not isinstance(body, dict):
+            return False
+    except ValueError:
+        return False
+    body = {k: v for k, v in body.items() if k in KEEP}
+    body["model"] = model or body.get("model")
+    try:
+        reply = requests.post(base.rstrip("/") + "/chat/completions", json=body, headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+                              stream=True, timeout=(15, 600))
+    except requests.RequestException as e:
+        handler._json(502, {"error": {"type": "server_error", "message": f"{prov.get('name') or prov['id']} did not answer: {e}"}})
+        return True
+    tokens = 0
+    try:
+        handler.send_response(reply.status_code)
+        for k, v in reply.headers.items():
+            if k.lower() not in HOP and not k.lower().startswith("access-control"):
+                handler.send_header(k, v)
+        handler._cors()
+        handler.end_headers()
+        for chunk in reply.iter_content(chunk_size=None):
+            if not chunk:
+                continue
+            tokens = max(tokens, _usage(chunk))
+            handler.wfile.write(chunk)
+            handler.wfile.flush()
+    except (ConnectionError, OSError):
+        pass                                                         # the page left: closing the relay ends the request
+    finally:
+        reply.close()
+        handler.close_connection = True
+        if tokens:
+            _record(prov["id"], tokens)
+    return True
+
+
+def _usage(chunk: bytes) -> int:
+    """The total tokens a piece of the answer reports, 0 when it reports none."""
+    best = 0
+    for line in chunk.decode("utf-8", "replace").splitlines():
+        text = line[5:].strip() if line.startswith("data:") else line.strip()
+        if '"total_tokens"' not in text:
+            continue
+        try:
+            usage = (json.loads(text) or {}).get("usage") or {}
+            best = max(best, int(usage.get("total_tokens") or 0))
+        except (ValueError, TypeError, AttributeError):
+            continue
+    return best
+
+
+def _record(pid: str, tokens: int) -> None:
+    try:
+        from tadamoo.llm import Ledger
+        Ledger().record(pid, tokens)
+    except Exception:  # noqa: BLE001 - the count is a courtesy
+        pass
