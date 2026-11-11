@@ -381,6 +381,12 @@ class EmbedService:
             worker.close()
         self._release()
 
+    def rest(self) -> None:
+        """Gives the worker and the lease back now unless a request is running: after indexing, so the next reader of documents can have the GPU."""
+        with self._state:
+            if self._busy == 0:
+                self._stop_worker()
+
     def close(self) -> None:
         with self._state:
             self._stop_worker()
@@ -546,3 +552,6 @@ class ServiceEmbedder:
 
     def rerank(self, query: str, passages: Sequence[str]) -> Optional[List[float]]:
         return self.service.rerank(query, passages)
+
+    def rest(self) -> None:
+        self.service.rest()

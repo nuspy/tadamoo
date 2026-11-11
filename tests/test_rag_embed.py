@@ -305,6 +305,22 @@ def test_the_worker_and_the_lease_are_given_back_after_the_idle_time_and_come_ba
         svc.close()
 
 
+def test_resting_gives_the_worker_and_the_lease_back_at_once_but_not_during_a_request(tmp_path, stub_log):
+    svc = service(tmp_path)
+    try:
+        emb = svc.provider()
+        emb.embed_query("a boat")
+        assert svc._worker is not None
+        svc._busy = 1
+        emb.rest()
+        assert svc._worker is not None and not Lease.made[0].released
+        svc._busy = 0
+        emb.rest()
+        assert svc._worker is None and Lease.made[0].released
+    finally:
+        svc.close()
+
+
 def test_a_worker_that_dies_is_started_again_for_the_next_request(tmp_path, monkeypatch):
     monkeypatch.setenv("STUB_DIE_AFTER", "1")
     svc = service(tmp_path)

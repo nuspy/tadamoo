@@ -465,6 +465,8 @@ class RagStore:
             raise
         except Exception as e:
             return None, "", "", f"text search only: the embedder failed ({str(e)[:120]})"
+        finally:
+            getattr(emb, "rest", lambda: None)()                  # indexing is done: the GPU goes back before the next document is read
 
     @staticmethod
     def _join(archive: Archive, made: Tuple[Optional[np.ndarray], str, str, str]) -> Tuple[Optional[np.ndarray], str, str, str]:
