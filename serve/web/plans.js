@@ -11,15 +11,15 @@
   if (!root) return;
 
   const SVGNS = "http://www.w3.org/2000/svg";
-  const W = 156, H = 56, GX = 54, GY = 28, PAD = 16;
+  const W = 148, H = 46, GX = 48, GY = 22, PAD = 14;
   /* a decision grows with its branches: a header, then one row for each, with the output connector at its right edge */
-  const HEAD = 40, BR = 24;
+  const HEAD = 44, BR = 22;
   const branchesOf = n => (n && n.type === "decision" && n.spec && Array.isArray(n.spec.branches) ? n.spec.branches : []);
-  const hOf = n => (n && n.type === "decision" ? Math.max(H, HEAD + Math.max(1, branchesOf(n).length) * BR + 6) : H);
+  const hOf = n => (n && n.type === "decision" ? Math.max(H, HEAD + Math.max(1, branchesOf(n).length) * BR + 4) : H);
   /* where an edge meets a step: `out` on the right (a decision: at the row of its branch), `in` on the left; the data input of an action is on its top edge */
   function portPt(lay, n, side, port, kind) {
     const p = lay.pos[n.id] || { x: 0, y: 0 };
-    if (side === "in") return kind === "input" ? { x: p.x + W / 2, y: p.y } : { x: p.x, y: p.y + (n.type === "decision" ? 22 : H / 2) };
+    if (side === "in") return kind === "input" ? { x: p.x + W / 2, y: p.y } : { x: p.x, y: p.y + H / 2 };
     if (n.type === "decision") return { x: p.x + W, y: p.y + HEAD + Math.max(0, branchesOf(n).findIndex(b => b.id === port)) * BR + BR / 2 };
     return { x: p.x + W, y: p.y + H / 2 };
   }
@@ -432,7 +432,7 @@
     const lay = layoutOf(S.snap);
     S.lastLayout = lay;
     const nodes = S.snap.plan.nodes;
-    const root_ = svg("svg", { class: "pl-svg", viewBox: `0 0 ${lay.width} ${lay.height}`, role: "img", "aria-label": T("pl.graph.label") },
+    const root_ = svg("svg", { class: "pl-svg", viewBox: `0 0 ${lay.width} ${lay.height}`, width: String(lay.width), height: String(lay.height), role: "img", "aria-label": T("pl.graph.label") },
       svg("defs", {}, svg("marker", { id: "pl-arrow", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" },
         svg("path", { d: "M0,0 L10,5 L0,10 z", class: "pl-arrowhead" })),
       svg("marker", { id: "pl-dot", viewBox: "0 0 10 10", refX: "5", refY: "5", markerWidth: "6", markerHeight: "6" }, svg("circle", { cx: "5", cy: "5", r: "4", class: "pl-arrowhead feed" }))));
@@ -492,9 +492,9 @@
         "data-id": n.id, tabindex: "0", role: "button", "aria-pressed": String(S.selected === n.id),
         "aria-label": `${n.title}. ${T("pl.type." + n.type)}, ${T("pl.status." + status)}, ${T("pl.assignee." + n.assignee)}`,
       }, svg("title", {}, document.createTextNode(`${n.title}\n${n.description || ""}`)), shape(n.type, p.x, p.y, hOf(n)));
-      const label = svg("text", { x: p.x + W / 2, y: p.y + H / 2 - 4, class: "pl-t", "text-anchor": "middle" });
+      const label = svg("text", { x: p.x + W / 2, y: p.y + H / 2 - 2, class: "pl-t", "text-anchor": "middle" });
       label.textContent = clip(n.title, 20);
-      const sub = svg("text", { x: p.x + W / 2, y: p.y + H / 2 + 14, class: "pl-s", "text-anchor": "middle" });
+      const sub = svg("text", { x: p.x + W / 2, y: p.y + H / 2 + 13, class: "pl-s", "text-anchor": "middle" });
       const words = PlanKinds.brief(n.type, n.spec);
       sub.textContent = n.state_variables && n.state_variables.draft ? T("pl.draft") : `${ICON[status]} ${T("pl.status." + status)} · ${words ? clip(words, 16) : T("pl.assignee.short." + n.assignee)}`;
       g.append(label, sub, PlanKinds.iconGroup(n.type, p.x + 6, p.y + 3, 0.45));
@@ -509,7 +509,7 @@
       });
       const rows = branchesOf(n);
       rows.forEach((b, i) => {                                           // a decision: the label of each branch beside its connector, cut with an ellipsis (the whole text in the tooltip)
-        const row = svg("text", { x: p.x + W - 12, y: p.y + HEAD + i * BR + BR / 2 + 4, class: "pl-br", "text-anchor": "end" }, svg("title", {}, document.createTextNode(b.label)));
+        const row = svg("text", { x: p.x + W - 12, y: p.y + HEAD + i * BR + BR / 2 + 3.5, class: "pl-br", "text-anchor": "end" }, svg("title", {}, document.createTextNode(b.label)));
         row.textContent = clip(b.label, 17);
         g.append(row);
       });
@@ -524,23 +524,23 @@
           grp.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); S.selected = n.id; S.refocus = n.id; render(); say(T("pl.port.key")); } });
           g.append(grp);
         };
-        if (n.type !== "rag") dot("in", portPt(lay, n, "in", "", "flow"), { dot: 5.5, hit: 22 }, T("pl.port.in"), T("pl.port.in"), e => startLink(e, n.id, "in", "", "flow"));
-        if (n.type === "action") dot("in data", portPt(lay, n, "in", "", "input"), { dot: 5.5, hit: 16 }, T("pl.port.rag.in"), T("pl.port.rag.in"), e => startLink(e, n.id, "in", "rag", "input"));
+        if (n.type !== "rag") dot("in", portPt(lay, n, "in", "", "flow"), { dot: 5, hit: 22 }, T("pl.port.in"), T("pl.port.in"), e => startLink(e, n.id, "in", "", "flow"));
+        if (n.type === "action") dot("in data", portPt(lay, n, "in", "", "input"), { dot: 5, hit: 16 }, T("pl.port.rag.in"), T("pl.port.rag.in"), e => startLink(e, n.id, "in", "rag", "input"));
         if (n.type === "decision") {
           rows.forEach((b, i) => {
             const at = portPt(lay, n, "out", b.id, "flow"), name = T("pl.port.branch", b.label);
             const grp = svg("g", { class: "pl-pg out branch", role: "button", tabindex: "0", "aria-label": name },
               svg("title", {}, document.createTextNode(name)),
-              svg("rect", { class: "pl-hit", x: p.x + W - 104, y: p.y + HEAD + i * BR, width: 110, height: BR }),
-              svg("circle", { class: "pl-port out", cx: at.x, cy: at.y, r: "5.5" }));
+              svg("path", { class: "pl-hit", d: `M${p.x + W - 104},${p.y + HEAD + i * BR}h110v${BR}h-110z` }),
+              svg("circle", { class: "pl-port out", cx: at.x, cy: at.y, r: "5" }));
             grp.addEventListener("pointerdown", e => startLink(e, n.id, "out", b.id, "flow"));
             grp.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); S.selected = n.id; S.refocus = n.id; render(); say(T("pl.port.key")); } });
             g.append(grp);
           });
         } else if (n.type === "rag") {
-          dot("out data", portPt(lay, n, "out", "rag", "input"), { dot: 5.5, hit: 22 }, T("pl.port.rag.out"), T("pl.port.rag.out"), e => startLink(e, n.id, "out", "rag", "input"));
+          dot("out data", portPt(lay, n, "out", "rag", "input"), { dot: 5, hit: 22 }, T("pl.port.rag.out"), T("pl.port.rag.out"), e => startLink(e, n.id, "out", "rag", "input"));
         } else {
-          dot("out", portPt(lay, n, "out", "", "flow"), { dot: 5.5, hit: 22 }, T("pl.port.out"), T("pl.port.out"), e => startLink(e, n.id, "out", "", "flow"));
+          dot("out", portPt(lay, n, "out", "", "flow"), { dot: 5, hit: 22 }, T("pl.port.out"), T("pl.port.out"), e => startLink(e, n.id, "out", "", "flow"));
         }
       }
       if (ghost) g.setAttribute("aria-disabled", "true");

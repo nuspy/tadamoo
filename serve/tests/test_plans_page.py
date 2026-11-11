@@ -1,5 +1,8 @@
 """The Plans page: a column of plans with open, duplicate and delete, four parts, links drawn between steps and rows that move up and down."""
+import json
+import os
 import re
+import sys
 import unittest
 from pathlib import Path
 
@@ -124,7 +127,7 @@ class PortsOnThePageTest(unittest.TestCase):
 
     def test_the_connectors_are_small_and_the_touch_area_is_a_larger_one_that_draws_nothing(self):
         self.assertRegex(CSS, r"\.pl-hit \{ fill: transparent; stroke: none; pointer-events: all;")
-        self.assertIn("{ dot: 5.5, hit: 22 }", JS)                                     # an 11 px dot, a 44 px area
+        self.assertIn("{ dot: 5, hit: 22 }", JS)                                     # a 10 px dot, a 44 px area
         self.assertRegex(CSS, r"\.pl-t \{ font: 500 13px")
         self.assertRegex(CSS, r"\.pl-br \{[^}]*font: 400 11px")
         self.assertRegex(CSS, r"\.pl-connx \{ min-width: 44px; min-height: 44px; \}")
@@ -153,6 +156,63 @@ class PortsOnThePageTest(unittest.TestCase):
     def test_the_plan_has_a_picker_for_its_own_archives(self):
         self.assertIn("window.ragPick.create({ T, ids: p.rag_archives || []", JS)
         self.assertIn("profile.rag_archives = S.horizonPick.get()", JS)
+
+
+class DecisionGraphInARealBrowserTest(unittest.TestCase):
+    """The graph of a decision, drawn by the page itself in headless Chrome or Edge on a mock server: every connector has its visible label, the header does not
+    collide with the rows, the type is small. Skipped where there is no browser or no node."""
+
+    @classmethod
+    def setUpClass(cls):
+        import shutil, socket, subprocess, tempfile, time, urllib.request
+        cls.server = None
+        cls.tmp = ""
+        candidates = (os.environ.get("TADAMOO_TEST_BROWSER", ""), r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe", r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                      shutil.which("google-chrome") or "", shutil.which("chromium") or "")
+        cls.browser = next((p for p in candidates if p and os.path.exists(p)), None)
+        cls.node = shutil.which("node")
+        if not cls.browser or not cls.node:
+            raise unittest.SkipTest("no headless browser or no node")
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+        sock.close()
+        cls.tmp = tempfile.mkdtemp(prefix="plg-data-")
+        root = Path(__file__).resolve().parents[2]
+        env = {**os.environ, "TADAMOO_DATA": cls.tmp + "/data", "TADAMOO_CACHE": cls.tmp + "/cache"}
+        cls.server = subprocess.Popen([sys.executable, "-m", "serve.server", "--mock-engine", "--port", str(port)], cwd=str(root), env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cls.url = f"http://127.0.0.1:{port}/"
+        for _ in range(80):
+            try:
+                urllib.request.urlopen(cls.url, timeout=1).read(1)
+                break
+            except OSError:
+                time.sleep(0.25)
+        else:
+            raise unittest.SkipTest("the mock server did not start")
+        sys.path.insert(0, str(root / "tests"))
+        import test_planner_ports as ports
+        dag = ports.branching()
+        dag.plan_id, dag.title = "graph-check", "Decision with five outputs"
+        req = urllib.request.Request(cls.url + "api/plans", data=json.dumps({"plan": dag.to_dict(), "created_by": "test"}).encode(), headers={"Content-Type": "application/json"}, method="POST")
+        urllib.request.urlopen(req, timeout=30).read()
+
+    @classmethod
+    def tearDownClass(cls):
+        import shutil
+        if cls.server:
+            cls.server.terminate()
+            cls.server.wait(timeout=20)
+        if cls.tmp:
+            shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_the_graph_of_a_decision(self):
+        import subprocess
+        out = subprocess.run([self.node, str(Path(__file__).resolve().parent / "plan_graph_dom_check.js"), self.url, "Decision with five outputs", self.browser],
+                             capture_output=True, text=True, timeout=180)
+        results = json.loads(out.stdout.strip().splitlines()[-1])
+        self.assertGreaterEqual(len(results), 10)
+        self.assertEqual([r for r in results if not r["ok"]], [])
 
 
 if __name__ == "__main__":
