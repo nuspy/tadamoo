@@ -100,6 +100,13 @@ def test_when_docling_fails_on_a_format_the_basic_readers_have_they_read_it_and_
     sheet.write_bytes(b"PK\x03\x04" + b"0" * 30)
     with pytest.raises(RagError, match="boom"):
         read_document(sheet, "t.xlsx", None, python=sys.executable)                                 # no basic reader to fall back on
+    import tadamoo.rag.ingest as ingest
+    monkeypatch.setattr(ingest, "basic_blocks", lambda *a, **k: (_ for _ in ()).throw(RagError("no PDF reader here")))
+    pdf = tmp_path / "p.pdf"
+    pdf.write_bytes(b"%PDF-1.4
+")
+    with pytest.raises(RagError, match="boom.*no PDF reader here"):
+        read_document(pdf, "p.pdf", None, python=sys.executable)                                    # both reasons reach the person
 
 
 def stub_docling(monkeypatch, pages=3):

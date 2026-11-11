@@ -44,7 +44,10 @@ def read_document(path: Path, name: str, settings: Optional[Dict[str, Any]] = No
             if ext not in BASIC_FORMATS:
                 raise
             notes.append(str(e) + "; read with the basic reader")
-    got = basic_blocks(path, name)
+    try:
+        got = basic_blocks(path, name)
+    except RagError as e:
+        raise RagError(f"{notes[-1]}; {e}" if notes else str(e)) from None            # the reason Docling gave is not lost
     if progress is not None:
         progress({"event": "done", "page": got["pages"], "pages": got["pages"], "device": "cpu"})
     return {**got, "extraction": "basic", "device": "cpu", "notes": notes}
