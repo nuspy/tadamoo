@@ -76,6 +76,8 @@
       state = r.data;
       const pr = await call("GET", "api/profiles");                              // the Loader's load profiles, for a route to this server
       loadProfiles = pr.ok ? (pr.data.load || []).map(p => p.name) : [];
+      const pe = await call("GET", "api/personas");                              // the personalities a council role can take its job from
+      personas = pe.ok ? (pe.data.personas || []).map(x => ({ slug: x.slug, name: x.name })) : [];
       draw();
     } else if (!state) { panel.replaceChildren(h("p", "setnote warnnote", explain(r))); }
   }
@@ -131,32 +133,81 @@
     return sec;
   }
 
-  /* ---- the council: roles, rounds and what a debate costs ---- */
-  function councilSection() {
-    const c = state.council, cur = c.settings, sec = h("section", "sec pv-council");
-    sec.append(h("div", "sh", h("b", "", T("pv.council"))), h("p", "setnote", T("pv.council.help")));
-    const rounds = h("input"); rounds.type = "number"; rounds.min = "1"; rounds.max = String(c.limits.rounds); rounds.value = cur.rounds; rounds.inputMode = "numeric";
-    sec.append(field("pv-c-rounds", T("pv.council.rounds"), rounds, T("pv.council.rounds.help", c.limits.rounds)));
-    const rows = [];
-    const person = (id, title, role) => {
-      const name = h("input"), job = h("textarea");
-      name.type = "text"; name.maxLength = c.limits.name; name.value = role.name; name.autocomplete = "off";
-      job.rows = 2; job.maxLength = c.limits.job; job.value = role.job;
-      const box = h("fieldset", "pv-role", h("legend", "", title), field(id + "-n", T("pv.council.name"), name), field(id + "-j", T("pv.council.job"), job));
-      rows.push({ name, job });
-      sec.append(box);
+  /* ---- the council: the roles with their route, rounds, the cap on calls and when the model may convene it ---- */
+  let draft = null, dirty = false, personas = [];
+  const touch = () => { dirty = true; };
+  const clone = o => JSON.parse(JSON.stringify(o));
+  const outsideRoute = pid => !!pid && !((state.providers.find(p => p.id === pid) || {}).is_local);
+  const option = (value, text) => Object.assign(h("option", "", text), { value });
+  const routeOptions = () => [option("", T("pv.local")), ...state.providers.filter(p => !p.judge_only).map(p => option(p.id, `${p.name} (${p.is_local ? T("pv.onpc") : T("pv.outside")})`))];
+  const personaOptions = role => [option("", T("pv.council.persona.none")), ...personas.map(x => option(x.slug, x.name)),
+    ...(role.persona && !personas.some(x => x.slug === role.persona) ? [option(role.persona, T("pe.gone", role.persona))] : [])];
+  const nameOfRoute = pid => (state.providers.find(p => p.id === pid) || {}).name || T("pv.local.short");
+
+  /* one role, closed to a line (enabled box, name, route) and opened to its fields */
+  function roleBox(role, moderator, lim) {
+    const box = h("details", "pv-crole"), sum = h("summary", "pv-crole-sum");
+    const on = h("input"); on.type = "checkbox"; on.checked = role.enabled !== false; on.setAttribute("aria-label", T("pv.council.enabled", role.name));
+    const tick = h("label", "pv-tick", on);
+    on.onclick = e => e.stopPropagation(); tick.onclick = e => e.stopPropagation();
+    on.onchange = () => { role.enabled = on.checked; touch(); box.dataset.off = role.enabled ? "" : "1"; };
+    box.dataset.off = role.enabled === false ? "1" : "";
+    const title = h("span", "pv-crole-name", role.name || "…"), where = h("span", "pv-badge", nameOfRoute(role.route));
+    sum.append(...(moderator ? [] : [tick]), title, where, role.ok === false && role.route ? h("span", "pv-bad", "!") : null);
+    const name = h("input"), job = h("textarea"), persona = h("select", "", personaOptions(role)), route = h("select", "", routeOptions());
+    name.type = "text"; name.maxLength = lim.name; name.value = role.name; name.autocomplete = "off";
+    job.rows = 2; job.maxLength = lim.job; job.value = role.job; persona.value = role.persona || ""; route.value = role.route || "";
+    name.oninput = () => { role.name = name.value; title.textContent = name.value || "…"; touch(); };
+    job.oninput = () => { role.job = job.value; touch(); };
+    persona.onchange = () => { role.persona = persona.value; touch(); };
+    const consent = h("input"); consent.type = "checkbox"; consent.checked = !!role.consent;
+    const consentRow = h("label", "pv-consent", consent, h("span", "", T("pv.council.consent")));
+    const showConsent = () => { consentRow.hidden = !outsideRoute(role.route); where.textContent = nameOfRoute(role.route); };
+    route.onchange = () => { role.route = route.value; touch(); showConsent(); };
+    consent.onchange = async () => {
+      if (consent.checked && !(await riskConfirm([T("pv.risk.consent", role.name)]))) { consent.checked = false; return; }
+      role.consent = consent.checked; touch();
     };
-    cur.roles.forEach((r, i) => person("pv-c-r" + i, T("pv.council.adviser", i + 1), r));
-    person("pv-c-m", T("pv.council.moderator"), cur.moderator);
+    showConsent();
+    const body = h("div", "pv-crole-body", field("", T("pv.council.name"), name), field("", T("pv.council.persona"), persona, T("pv.council.persona.help")),
+      field("", T("pv.council.job"), job), field("", T("pv.council.route"), route), consentRow,
+      role.ok === false && role.route && role.why ? h("p", "setnote pv-bad", role.why) : null);
+    box.append(sum, body);
+    return { box, body };
+  }
+
+  function councilSection() {
+    const c = state.council, lim = c.limits, sec = h("section", "sec pv-council");
+    if (!draft || !dirty) { draft = clone(c.settings); dirty = false; }
+    const cur = draft;
+    sec.append(h("div", "sh", h("b", "", T("pv.council"))), h("p", "setnote", T("pv.council.help")));
+    const num = (value, min, max, set) => { const i = h("input"); i.type = "number"; i.min = String(min); i.max = String(max); i.value = value; i.inputMode = "numeric"; i.oninput = () => { set(i.value === "" ? NaN : Number(i.value)); touch(); }; return i; };
+    const auto = h("select", "", ["off", "ask", "auto"].map(m => option(m, T("pv.council.auto." + m))));
+    auto.value = cur.council_auto; auto.onchange = () => { cur.council_auto = auto.value; touch(); };
+    sec.append(h("div", "pv-cgrid", field("pv-c-rounds", T("pv.council.rounds"), num(cur.rounds, 1, lim.rounds, v => { cur.rounds = v; }), T("pv.council.rounds.help", lim.rounds)),
+      field("pv-c-cap", T("pv.council.cap"), num(cur.max_calls, 0, 100000, v => { cur.max_calls = v; }), T("pv.council.cap.help", lim.calls_min)),
+      field("pv-c-auto", T("pv.council.auto"), auto, T("pv.council.auto.help"))));
+    const list = h("div", "pv-clist");
+    cur.roles.forEach((r, i) => {
+      const { box, body } = roleBox(r, false, lim);
+      body.append(btn(T("pv.council.remove"), "ghost", () => { cur.roles.splice(i, 1); touch(); draw(); }));
+      list.append(box);
+    });
+    sec.append(h("div", "pv-chead", h("b", "", T("pv.council.advisers", cur.roles.filter(r => r.enabled !== false).length, cur.roles.length))), list);
+    sec.append(btn(T("pv.council.add"), "", () => { if (cur.roles.length < lim.roles) { cur.roles.push({ id: "", name: "", job: "", enabled: true, persona: "", route: "", consent: false }); touch(); draw(); } }));
+    sec.append(h("div", "pv-chead", h("b", "", T("pv.council.moderator"))), roleBox(cur.moderator, true, lim).box);
     const e = c.estimate;
-    const cost = h("p", "pv-cost", T("pv.council.cost", e.calls_min, e.calls_max, e.read_tokens_min, e.read_tokens_max, e.written_tokens_max));
+    const cost = h("p", "pv-cost", e.ready ? T("pv.council.cost", e.calls_min, e.calls_max, e.read_tokens_min, e.read_tokens_max, e.written_tokens_max) : T("pv.council.few"));
     cost.setAttribute("role", "status");
-    sec.append(cost, h("p", "setnote", T("pv.council.order")));
+    sec.append(cost);
+    (e.notes || []).forEach(n => sec.append(h("p", "setnote warnnote", n)));
     if (e.outside_calls_max) sec.append(h("p", "setnote warnnote", T("pv.council.outside", e.outside_calls_max)));
-    if (!c.configured) sec.append(h("p", "setnote", T("pv.council.off")));
-    const collect = () => ({ rounds: Number(rounds.value), roles: rows.slice(0, 3).map(r => ({ name: r.name.value, job: r.job.value })), moderator: { name: rows[3].name.value, job: rows[3].job.value } });
-    const save = async body => { const r = await call("POST", "api/llm/council", body); if (r.ok) { state = r.data; say(T("pv.saved")); draw(); } else say(explain(r), true); };
-    sec.append(h("div", "pv-actions", btn(T("pv.save"), "primary", () => save(collect())), btn(T("pv.council.reset"), "ghost", () => save(c.defaults))));
+    if (dirty) sec.append(h("p", "setnote", T("pv.council.unsaved")));
+    const send = () => ({ rounds: cur.rounds, max_calls: cur.max_calls || 0, council_auto: cur.council_auto,
+      roles: cur.roles.map(r => ({ id: r.id, name: r.name, job: r.job, enabled: r.enabled !== false, persona: r.persona || "", route: r.route || "", consent: !!r.consent })),
+      moderator: { name: cur.moderator.name, job: cur.moderator.job, persona: cur.moderator.persona || "", route: cur.moderator.route || "", consent: !!cur.moderator.consent } });
+    const save = async body => { const r = await call("POST", "api/llm/council", body); if (r.ok) { state = r.data; dirty = false; draft = null; say(T("pv.saved")); draw(); } else say(explain(r), true); };
+    sec.append(h("div", "pv-actions", btn(T("pv.save"), "primary", () => save(send())), btn(T("pv.council.reset"), "ghost", () => save(c.defaults))));
     return sec;
   }
 
