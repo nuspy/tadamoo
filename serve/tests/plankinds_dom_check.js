@@ -123,41 +123,68 @@ t("a finished step has its fields switched off", () => {
   const form = PK.specForm(KINDS[2].fields, { message: "hello" }, "x", T, true);
   eq(form.el.all().filter(e => e.tagName === "textarea").every(e => e.disabled), true);
 });
-const DECISION = [{ name: "input", kind: "expression" }, { name: "mode", kind: "choice", choices: ["first", "all"], default: "first" }, { name: "branches", kind: "branches", required: true }];
-t("the branches of a decision are rows with a label, an operator and a value; each can be moved and removed with a button of its own", () => {
-  const form = PK.specForm(DECISION, { mode: "first", input: "n", branches: [{ id: "b1", label: "< 10", op: "<", value: 10 }, { id: "b2", label: "big", condition: "n > 99" }, { id: "b3", label: "else", op: "else" }] }, "x", T, false);
-  const rows = form.el.all().filter(e => e.classes.has("pk-branch"));
+const DECISION = [{ name: "input", kind: "expression", hidden: true }, { name: "mode", kind: "choice", choices: ["first", "all"], default: "first" }, { name: "branches", kind: "branches", required: true }];
+const V = x => ({ kind: "value", value: x });
+const cmp = (id, label, left, op, right, extra) => ({ id, label, left, op: V(op), right, ...(extra || {}) });
+const ctx = { inputs: ["total"], variables: ["limit"] };
+const textOf = e => e.children.map(c => (c.text !== undefined ? c.text : textOf(c))).join("");
+const rowsOf = form => form.el.all().filter(e => e.classes.has("pk-branch"));
+const buttons = r => r.all().filter(e => e.tagName === "button");
+t("a comparison is three rows (first term, comparison, second term), each with a source; each branch moves and goes with buttons of its own", () => {
+  const form = PK.specForm(DECISION, { mode: "first", branches: [cmp("b1", "< 10", { kind: "python", expr: "n" }, "<", V(10)), { id: "b2", label: "big", condition: "n > 99" }, { id: "b3", label: "else", op: "else" }] }, "x", T, false, ctx);
+  const rows = rowsOf(form);
   eq(rows.length, 3);
-  const buttons = r => r.all().filter(e => e.tagName === "button");
-  eq(buttons(rows[0]).map(b => b.attrs["aria-label"]), ["pl.br.up", "pl.br.down", "pl.br.remove"]);
-  eq(buttons(rows[0])[0].disabled, true);                                           // the first cannot go up
-  eq(buttons(rows[2]).every(b => b.disabled === true || b.attrs["aria-label"] === "pl.br.remove"), true);   // the else stays last
-  eq(form.collect(), { spec: { input: "n", mode: "first", branches: [{ id: "b1", label: "< 10", op: "<", value: "10" }, { id: "b2", label: "big", condition: "n > 99" }, { id: "b3", label: "else", op: "else" }] }, errors: [] });
-  buttons(rows[0])[1].fire("click", {});                                            // down
-  const again = form.el.all().filter(e => e.classes.has("pk-branch"));
+  eq(rows[0].all().filter(e => e.classes.has("pk-term")).length, 3);
+  eq(rows[0].all().filter(e => e.classes.has("pk-termlab")).map(textOf), ["pl.br.term.left", "pl.br.term.op", "pl.br.term.right"]);
+  eq(buttons(rows[0]).map(b => b.attrs["aria-label"]).slice(-3), ["pl.br.up", "pl.br.down", "pl.br.remove"]);
+  eq(buttons(rows[0]).filter(b => b.attrs["aria-label"] === "pl.br.up")[0].disabled, true);               // the first cannot go up
+  eq(form.collect().spec.branches, [cmp("b1", "< 10", { kind: "python", expr: "n" }, "<", V("10")), { id: "b2", label: "big", condition: "n > 99" }, { id: "b3", label: "else", op: "else" }]);
+  buttons(rows[0]).filter(b => b.attrs["aria-label"] === "pl.br.down")[0].fire("click", {});
   eq(form.collect().spec.branches.map(b => b.id), ["b2", "b1", "b3"]);
-  eq(again.length, 3);
+});
+t("each term can be a value, a python expression, an input of the node, a value of the plan or a description for the agent", () => {
+  const branch = { id: "b1", label: "x", left: { kind: "input", from: "total" }, op: V(">"), right: { kind: "input", variable: "limit" } };
+  const form = PK.specForm(DECISION, { branches: [branch] }, "x", T, false, ctx);
+  eq(form.collect().spec.branches[0], branch);
+  const kinds = rowsOf(form)[0].all().filter(e => e.classes.has("pk-kind"));
+  eq(kinds[0].children.map(o => o.value), ["value", "python", "input", "agent"]);
+  eq(kinds[1].children.map(o => o.value), ["value", "input", "agent"]);                                       // the comparison is not an expression of its own
+  const picks = rowsOf(form)[0].all().filter(e => e.tagName === "select" && !e.classes.has("pk-kind") && e.attrs["aria-label"] !== "pl.br.type" && e.attrs["aria-label"] !== "pl.br.term.op");
+  eq(picks[0].children.map(o => o.value), ["", "from:total", "var:limit"]);
+  kinds[2].value = "agent"; kinds[2].fire("change");
+  const area = rowsOf(form)[0].all().filter(e => e.tagName === "textarea")[0];
+  area.value = "how many tickets are left"; area.fire("input");
+  eq(form.collect().spec.branches[0].right, { kind: "agent", describe: "how many tickets are left" });
+});
+t("an input term with no input and no plan value says how to get one", () => {
+  const form = PK.specForm(DECISION, { branches: [{ id: "b1", label: "x", left: { kind: "input", from: "ghost" }, op: V("="), right: V(1) }] }, "x", T, false, { inputs: [], variables: [] });
+  eq(rowsOf(form)[0].all().some(e => textOf(e) === "pl.br.input.none"), true);
+  eq(form.collect().spec.branches[0].left, { kind: "input", from: "ghost" });                                  // what was saved is kept, not lost
 });
 t("a branch is added before the else, a second else cannot be added, and the last branch cannot be removed", () => {
-  const form = PK.specForm(DECISION, { branches: [{ id: "b1", label: "x", op: "<", value: 1 }] }, "x", T, false);
+  const form = PK.specForm(DECISION, { branches: [cmp("b1", "x", V(1), "<", V(2))] }, "x", T, false, ctx);
   const bar = () => form.el.all().filter(e => e.classes.has("pk-bradd"));
   bar()[1].fire("click", {});                                                       // add Else
-  eq(form.collect().spec.branches.map(b => b.op || "custom"), ["<", "else"]);
+  eq(form.collect().spec.branches.map(b => b.op.value || b.op), ["<", "else"]);
   eq(bar()[1].hidden, true);
   bar()[0].fire("click", {});                                                       // a new branch goes before the else
-  eq(form.collect().spec.branches.map(b => b.op || "custom"), ["<", "custom", "else"]);
-  const first = form.el.all().filter(e => e.classes.has("pk-branch"));
-  first.forEach(r => r.all().filter(e => e.attrs["aria-label"] === "pl.br.remove").forEach(b => b.fire("click", {})));
-  eq(form.el.all().filter(e => e.classes.has("pk-branch")).length >= 1, true);
+  eq(form.collect().spec.branches.map(b => (b.op && b.op.value) || b.op), ["<", "<", "else"]);
+  rowsOf(form).forEach(r => r.all().filter(e => e.attrs["aria-label"] === "pl.br.remove").forEach(b => b.fire("click", {})));
+  eq(rowsOf(form).length >= 1, true);
 });
-t("an empty decision lacks its branches, and between has two ends", () => {
-  const form = PK.specForm(DECISION, { branches: [{ id: "b1", label: "mid", op: "between", value: 10, value2: 30 }] }, "x", T, false);
-  eq(form.collect().spec.branches, [{ id: "b1", label: "mid", op: "between", value: "10", value2: "30" }]);
+t("between shows a fourth row for the upper end, and an empty decision lacks its branches", () => {
+  const form = PK.specForm(DECISION, { branches: [cmp("b1", "mid", V(15), "between", V(10), { right2: V(30) })] }, "x", T, false, ctx);
+  eq(rowsOf(form)[0].all().filter(e => e.classes.has("pk-term")).length, 4);
+  eq(form.collect().spec.branches[0], cmp("b1", "mid", V("15"), "between", V("10"), { right2: V("30") }));
   eq(PK.readSpec(DECISION, { branches: [] }).errors, ["branches"]);
 });
+t("the hidden field of a kind is not drawn", () => {
+  const form = PK.specForm(DECISION, { branches: [cmp("b1", "x", V(1), "<", V(2))] }, "x", T, false, ctx);
+  eq(form.el.all().filter(e => e.tagName === "label").map(textOf).some(t => t.includes("pl.spec.input")), false);
+});
 t("a finished decision has its branch controls switched off", () => {
-  const form = PK.specForm(DECISION, { branches: [{ id: "b1", label: "x", op: "<", value: 1 }] }, "x", T, true);
-  eq(form.el.all().filter(e => e.classes.has("pk-branch")).every(r => r.all().filter(e => e.tagName === "input" || e.tagName === "button" || e.tagName === "select").every(e => e.disabled)), true);
+  const form = PK.specForm(DECISION, { branches: [cmp("b1", "x", V(1), "<", V(2))] }, "x", T, true, ctx);
+  eq(rowsOf(form).every(r => r.all().filter(e => e.tagName === "input" || e.tagName === "button" || e.tagName === "select").every(e => e.disabled)), true);
 });
 t("an archives field is the picker, and what it gives is the spec", () => {
   global.ragPick = { create: opts => ({ el: new El("div"), findId: "rp-1-find", get: () => ["a-1", "b-2"], opts }) };

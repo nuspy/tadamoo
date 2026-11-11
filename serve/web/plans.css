@@ -300,3 +300,9 @@ details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; f
 .pl-connadd { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
 .pl-connadd select, .pl-connadd .btn { min-height: 44px; }
 .pk-branch > input:first-child { grid-column: 1 / -1; }   /* the label has its own row: the inspector is a narrow column on every screen */
+
+/* a comparison of three terms: each term a source and what it needs, one under the other */
+.pk-term { display: grid; gap: 4px; grid-column: 1 / -1; padding: 4px 0; border-top: 1px dashed var(--line-soft); }
+.pk-termlab { font-size: 12px; font-weight: 600; color: var(--fg-2); }
+.pk-term select, .pk-term input, .pk-term textarea { width: 100%; min-height: 40px; }
+@media (pointer: coarse) { .pk-term select, .pk-term input { min-height: 44px; } }

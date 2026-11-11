@@ -337,11 +337,14 @@ def clean_spec(node_type: Any, spec: Any, draft: bool = False) -> Dict[str, Any]
     return out
 
 
-PORTS_HELP = ("A decision has an ordered list of branches in spec.branches, each {label, op (< <= = != >= > between in contains, with value and value2, compared with spec.input), "
-              "or condition (an expression over the plan's values); else for the one taken when no other is}, mode first (the first that holds) or all; each branch is an output "
-              "connector named by its id: connect it with [decision, child, branch_id]. A rag node ({archives: [knowledge archive ids]}) is an input to the actions it is connected to "
-              "([rag_node, action]): it neither waits nor is waited for. An action's own archives are spec.rag_archives; the whole plan's are profile.rag_archives (plan_set_profile). "
-              "Use the ids knowledge_list shows.")
+PORTS_HELP = ("A decision has an ordered list of branches in spec.branches, each {label, left, op, right, right2 (between only)}: three terms, each an operand "
+              "{kind: value, value} | {kind: python, expr} | {kind: input, from: name of a wired input, or variable: a plan value} | {kind: agent, describe: how you work it out; "
+              "you report it with plan_mark outputs {\"<branch id>.<left|op|right|right2>\": value}}; the comparison is < <= = != >= > between in contains; or {label, condition} "
+              "(a whole expression); else {label, op: else} is taken when no other is. mode first (the first that holds wins) or all; on_no_match stop (the path ends, the rest goes on) or ask. "
+              "Each branch is an output connector named by its id: connect it with [decision, child, branch_id]. A step's `result`, a sensor's `reading`, a get_var/set_var `value` "
+              "and an input step's `answer` are data outputs: [source, target, port] gives the target that value as a named input, and the target does not run before it has it. "
+              "A rag node ({archives: [knowledge archive ids]}) is an input to the actions and decisions it is connected to ([rag_node, action]): it neither waits nor is waited for. "
+              "An action's own archives are spec.rag_archives; the whole plan's are profile.rag_archives (plan_set_profile). Use the ids knowledge_list shows.")
 
 
 def kinds_line() -> str:

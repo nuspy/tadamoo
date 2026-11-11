@@ -823,7 +823,7 @@
     if (sv.auto_error) facts.push(T("pl.fact.autoerr", sv.auto_error));
     if (sv.runs) facts.push(T("pl.fact.runs", sv.runs));
     const kindFields = PlanKinds.fieldsOf(kindList(), n.type);
-    const specForm = kindFields.length ? PlanKinds.specForm(kindFields, n.spec, "pl-d-sp", T, done) : null;
+    const specForm = kindFields.length ? PlanKinds.specForm(kindFields, n.spec, "pl-d-sp", T, done, { inputs: Object.keys(n.inputs || {}), variables: Object.keys(S.snap.plan.shared_state || {}) }) : null;
     const isReady = S.snap.ready.includes(n.id);
     if (S.rewindAsk && S.rewindAsk.id !== n.id) S.rewindAsk = null;
     ui.detail.append(el("form", { class: "pad pl-dform", onsubmit: e => { e.preventDefault(); saveNode(n.id, cond, specForm); } },

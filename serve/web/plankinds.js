@@ -19,7 +19,6 @@
     log: "M5 4h14v16H5z M8 9h8 M8 13h8 M8 17h5",
     rag: "M4 5h6a2 2 0 012 2v12a2 2 0 00-2-2H4z M20 5h-6a2 2 0 00-2 2v12a2 2 0 012-2h6z",
   };
-  const OPS = ["<", "<=", "=", "!=", ">=", ">", "between", "in", "contains", "else"];
   const OP_WORD = { "<": "lt", "<=": "le", "=": "eq", "!=": "ne", ">=": "ge", ">": "gt", between: "between", in: "in", contains: "contains", else: "else", "": "custom" };
   const UNITS = [["d", 86400], ["h", 3600], ["min", 60], ["s", 1]];
   const TIME_FIELDS = new Set(["seconds", "every", "timeout_s", "poll_s"]);
@@ -211,54 +210,101 @@
     return box;
   }
 
-  /* The branches of a decision: an ordered list, each with a label, an operator and its value(s) (or an expression of its own), reordered and removed with
-     buttons of 44 px. `get()` gives [{id?, label, op?, value?, value2?, condition?}] in the order shown; a branch that was already there keeps its id. */
-  function branchEditor(value, prefix, T, disabled) {
-    let rows = (Array.isArray(value) ? value : []).map(b => ({ id: b.id, label: b.label || "", op: b.op || "", value: b.value == null ? "" : String(b.value), value2: b.value2 == null ? "" : String(b.value2), condition: b.op ? "" : (b.condition || "") }));
+  /* The branches of a decision: an ordered list. A comparison branch is three rows, a first term, a comparison and a second term (a fourth for the upper end of
+     `between`), each an operand with a source: a value, a python expression, an input of the node (or a value of the plan) or a description for the agent. A branch can also
+     be one whole expression, or the Else. Buttons of 44 px move and remove a branch. `ctx` = {inputs: [names wired to the node], variables: [names of the plan's values]}.
+     `get()` gives [{id?, label, left, op, right, right2?} | {id?, label, condition} | {id?, label, op: "else"}] in the order shown; a branch that was there keeps its id. */
+  const KIND_OF_SLOT = { left: ["value", "python", "input", "agent"], op: ["value", "input", "agent"], right: ["value", "python", "input", "agent"], right2: ["value", "python", "input", "agent"] };
+  const operandState = o => {
+    const x = o && typeof o === "object" ? o : { kind: "value", value: o == null ? "" : o };
+    return { kind: x.kind || "value", value: x.value == null ? "" : String(x.value), expr: x.expr || "", pick: x.from ? "from:" + x.from : x.variable ? "var:" + x.variable : "", describe: x.describe || "" };
+  };
+  const operandOut = st => (st.kind === "value" ? { kind: "value", value: st.value } : st.kind === "python" ? { kind: "python", expr: st.expr.trim() }
+    : st.kind === "input" ? { kind: "input", ...(st.pick.startsWith("var:") ? { variable: st.pick.slice(4) } : { from: st.pick.replace(/^from:/, "") }) } : { kind: "agent", describe: st.describe.trim() });
+
+  function branchEditor(value, prefix, T, disabled, ctx) {
+    const known = ctx || { inputs: [], variables: [] };
+    const mk = b => {
+      const kind = b.op === "else" ? "else" : b.left !== undefined || (b.op && typeof b.op === "object") ? "compare" : b.condition !== undefined ? "expr" : "compare";
+      return { id: b.id, label: b.label || "", type: kind, condition: b.condition || "", left: operandState(b.left), op: operandState(b.op || { kind: "value", value: "<" }), right: operandState(b.right), right2: operandState(b.right2) };
+    };
+    let rows = (Array.isArray(value) ? value : []).map(mk);
     const box = h("div", "pk-branches"), list = h("ul", "pk-brlist"), hint = h("p", "help pk-brhint"), add = h("button", "btn pk-bradd", T("pl.br.add")), addElse = h("button", "btn pk-bradd", T("pl.br.addelse"));
     add.type = "button"; addElse.type = "button";
-    const hasElse = () => rows.some(r => r.op === "else");
-    function move(i, d) { const j = i + d; if (j < 0 || j >= rows.length || (rows[j].op === "else" || rows[i].op === "else")) return; [rows[i], rows[j]] = [rows[j], rows[i]]; paint(); }
+    const hasElse = () => rows.some(r => r.type === "else");
+    const move = (i, d) => { const j = i + d; if (j < 0 || j >= rows.length || rows[j].type === "else" || rows[i].type === "else") return; [rows[i], rows[j]] = [rows[j], rows[i]]; paint(); };
+    const field = (el, word) => { el.setAttribute("aria-label", T(word)); el.autocomplete = "off"; el.spellcheck = false; el.disabled = !!disabled; return el; };
+    /* one operand: a source select and what the source needs */
+    function operand(slot, st, i) {
+      const wrap = h("div", "pk-term"), id = `${prefix}-br${i}-${slot}`;
+      const kind = h("select", "pk-kind"); kind.id = id + "-k"; field(kind, "pl.br.kind");
+      KIND_OF_SLOT[slot].forEach(k => { const o = h("option", "", T("pl.br.kind." + k)); o.value = k; o.selected = k === st.kind; kind.append(o); });
+      kind.addEventListener("change", () => { st.kind = kind.value; paint(); });
+      let body;
+      if (st.kind === "value" && slot === "op") {
+        body = h("select"); ["<", "<=", "=", "!=", ">=", ">", "between", "in", "contains"].forEach(o => { const e = h("option", "", T("pl.br.op." + OP_WORD[o])); e.value = o; e.selected = o === st.value; body.append(e); });
+        if (!st.value) st.value = "<";
+        body.addEventListener("change", () => { st.value = body.value; paint(); });
+      } else if (st.kind === "value") {
+        body = h("input"); body.type = "text"; body.value = st.value; body.placeholder = T("pl.br.value"); body.addEventListener("input", () => { st.value = body.value; });
+      } else if (st.kind === "python") {
+        body = h("input"); body.type = "text"; body.value = st.expr; body.placeholder = T("pl.br.custom"); body.addEventListener("input", () => { st.expr = body.value; });
+      } else if (st.kind === "input") {
+        body = h("select");
+        const none = h("option", "", T("pl.br.input.pick")); none.value = ""; none.selected = !st.pick; body.append(none);
+        known.inputs.forEach(n => { const o = h("option", "", T("pl.br.input.wired", n)); o.value = "from:" + n; o.selected = st.pick === "from:" + n; body.append(o); });
+        known.variables.forEach(n => { const o = h("option", "", T("pl.br.input.plan", n)); o.value = "var:" + n; o.selected = st.pick === "var:" + n; body.append(o); });
+        if (st.pick && ![...known.inputs.map(n => "from:" + n), ...known.variables.map(n => "var:" + n)].includes(st.pick)) { const o = h("option", "", st.pick.replace(/^[a-z]+:/, "")); o.value = st.pick; o.selected = true; body.append(o); }
+        body.addEventListener("change", () => { st.pick = body.value; });
+      } else {
+        body = h("textarea"); body.rows = 2; body.value = st.describe; body.placeholder = T("pl.br.describe"); body.addEventListener("input", () => { st.describe = body.value; });
+      }
+      body.id = id; field(body, "pl.br.term." + slot);
+      wrap.append(h("label", "pk-termlab", T("pl.br.term." + slot)), kind, body);
+      if (st.kind === "input" && !known.inputs.length && !known.variables.length) wrap.append(h("p", "help", T("pl.br.input.none")));
+      return wrap;
+    }
     function paint() {
       list.replaceChildren(...rows.map((r, i) => {
         const li = h("li", "pk-branch"), id = `${prefix}-br${i}`;
-        const label = h("input"); label.id = id + "-l"; label.type = "text"; label.maxLength = 40; label.value = r.label; label.autocomplete = "off"; label.placeholder = T("pl.br.label");
-        label.setAttribute("aria-label", T("pl.br.label")); label.disabled = !!disabled; label.addEventListener("input", () => { r.label = label.value; });
-        const op = h("select"); op.id = id + "-o"; op.setAttribute("aria-label", T("pl.br.op")); op.disabled = !!disabled || r.op === "else";
-        [...OPS.filter(o => o !== "else" || r.op === "else"), ""].forEach(o => { const e = h("option", "", T("pl.br.op." + OP_WORD[o])); e.value = o; e.selected = o === r.op; op.append(e); });
-        op.addEventListener("change", () => { r.op = op.value; paint(); });
-        const v1 = h("input"), v2 = h("input"), custom = h("input");
-        [[v1, "value", "pl.br.value"], [v2, "value2", "pl.br.value2"], [custom, "condition", "pl.br.custom"]].forEach(([e, key, word]) => {
-          e.type = "text"; e.value = r[key]; e.autocomplete = "off"; e.spellcheck = false; e.placeholder = T(word); e.setAttribute("aria-label", T(word)); e.disabled = !!disabled;
-          e.addEventListener("input", () => { r[key] = e.value; });
-        });
+        const label = h("input"); label.id = id + "-l"; label.type = "text"; label.maxLength = 40; label.value = r.label; label.placeholder = T("pl.br.label");
+        field(label, "pl.br.label"); label.addEventListener("input", () => { r.label = label.value; });
+        const type = h("select"); type.id = id + "-t"; field(type, "pl.br.type");
+        ["compare", "expr", "else"].filter(t => t !== "else" || r.type === "else").forEach(t => { const o = h("option", "", T("pl.br.type." + t)); o.value = t; o.selected = t === r.type; type.append(o); });
+        type.disabled = !!disabled || r.type === "else";
+        type.addEventListener("change", () => { r.type = type.value; paint(); });
+        const cond = h("input"); cond.type = "text"; cond.value = r.condition; cond.placeholder = T("pl.br.custom"); field(cond, "pl.br.custom"); cond.addEventListener("input", () => { r.condition = cond.value; });
         const btn = (text, word, fn, off) => { const b = h("button", "btn pk-brbtn", text); b.type = "button"; b.title = T(word); b.setAttribute("aria-label", T(word)); b.disabled = !!disabled || !!off; b.addEventListener("click", fn); return b; };
         const last = rows.length - 1 - (hasElse() ? 1 : 0);
-        li.append(label, op,
-          ...(r.op === "else" ? [h("span", "pk-brelse", T("pl.br.elsehelp"))] : r.op === "" ? [custom] : r.op === "between" ? [v1, v2] : [v1]),
-          h("span", "pk-brbtns", btn("\u2191", "pl.br.up", () => move(i, -1), i === 0 || r.op === "else"), btn("\u2193", "pl.br.down", () => move(i, 1), i >= last || r.op === "else"),
-            btn("\u00D7", "pl.br.remove", () => { rows.splice(i, 1); paint(); }, rows.length <= 1)));
+        li.append(label, type,
+          ...(r.type === "else" ? [h("span", "pk-brelse", T("pl.br.elsehelp"))] : r.type === "expr" ? [cond]
+            : [operand("left", r.left, i), operand("op", r.op, i), operand("right", r.right, i), ...(r.op.kind === "value" && r.op.value === "between" ? [operand("right2", r.right2, i)] : [])]),
+          h("span", "pk-brbtns", btn("↑", "pl.br.up", () => move(i, -1), i === 0 || r.type === "else"), btn("↓", "pl.br.down", () => move(i, 1), i >= last || r.type === "else"),
+            btn("×", "pl.br.remove", () => { rows.splice(i, 1); paint(); }, rows.length <= 1)));
         return li;
       }));
       hint.textContent = rows.length && !hasElse() ? T("pl.br.noelse") : "";
       hint.hidden = !hint.textContent;
       addElse.hidden = hasElse(); addElse.disabled = !!disabled; add.disabled = !!disabled || rows.length >= 12;
     }
-    add.addEventListener("click", () => { const at = hasElse() ? rows.length - 1 : rows.length; rows.splice(at, 0, { label: "", op: "", value: "", value2: "", condition: "" }); paint(); });
-    addElse.addEventListener("click", () => { rows.push({ label: T("pl.br.op.else"), op: "else", value: "", value2: "", condition: "" }); paint(); });
+    const blank = () => ({ label: "", type: "compare", condition: "", left: operandState({ kind: "value", value: "" }), op: operandState({ kind: "value", value: "<" }), right: operandState({ kind: "value", value: "" }), right2: operandState({ kind: "value", value: "" }) });
+    add.addEventListener("click", () => { rows.splice(hasElse() ? rows.length - 1 : rows.length, 0, blank()); paint(); });
+    addElse.addEventListener("click", () => { rows.push({ ...blank(), label: T("pl.br.op.else"), type: "else" }); paint(); });
     box.append(list, hint, h("div", "pk-brbar", add, addElse));
     paint();
     return {
       el: box,
-      get: () => rows.map(r => ({ ...(r.id ? { id: r.id } : {}), label: r.label.trim(), ...(r.op === "else" ? { op: "else" } : r.op === "" ? { condition: r.condition.trim() } : r.op === "between" ? { op: r.op, value: r.value, value2: r.value2 } : { op: r.op, value: r.value }) })),
+      get: () => rows.map(r => ({ ...(r.id ? { id: r.id } : {}), label: r.label.trim(),
+        ...(r.type === "else" ? { op: "else" } : r.type === "expr" ? { condition: r.condition.trim() }
+          : { left: operandOut(r.left), op: operandOut(r.op), right: operandOut(r.right), ...(r.op.kind === "value" && r.op.value === "between" ? { right2: operandOut(r.right2) } : {}) }) })),
     };
   }
 
   /* The fields of a kind as a form. `collect()` gives {spec, errors}; ids start with `prefix`. */
-  function specForm(fields, spec, prefix, T, disabled) {
+  function specForm(fields, spec, prefix, T, disabled, ctx) {
     const values = { ...defaultsOf(fields), ...(spec || {}) };
     const inputs = {};
-    const rows = fields.map(f => {
+    const rows = fields.filter(f => !f.hidden).map(f => {
       const id = `${prefix}-${f.name}`;
       const label = h("label", "", T("pl.spec." + f.name) + (f.required ? " *" : ""));
       label.htmlFor = id;
@@ -271,7 +317,7 @@
         return h("div", "pk-row", label, pick ? pick.el : h("p", "help", T("rp.offline")));
       }
       if (f.kind === "branches") {
-        const ed = branchEditor(v, id, T, disabled);
+        const ed = branchEditor(v, id, T, disabled, ctx);
         inputs[f.name] = { get: () => ed.get(), els: [] };
         return h("div", "pk-row", h("span", "pk-lab", T("pl.spec." + f.name) + (f.required ? " *" : "")), ed.el);
       }
