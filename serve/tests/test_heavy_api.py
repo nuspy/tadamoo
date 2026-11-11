@@ -54,7 +54,7 @@ class HeavyRoutes(Server):
         code, out = self.req("POST", heavy_api.BEGIN, {"kind": "video", "purpose": "x"})
         self.assertEqual((code, out["reason"]), (409, "no_provider"))
         self.assertTrue(out["message"] and out["message_it"])
-        self.req("POST", heavy_api.SETTINGS, {"mode": "allow", "provider": self.cloud["id"]})
+        self.req("POST", heavy_api.SETTINGS, {"mode": "allow", "provider": self.cloud["id"], "linger_s": 0})
         code, out = self.req("POST", heavy_api.BEGIN, {"kind": "video", "purpose": "a clip", "minutes": 3})
         self.assertEqual((code, out["ok"], out["swap"]["provider"] != ""), (200, True, True))
         sid = out["swap"]["id"]

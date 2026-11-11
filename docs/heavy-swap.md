@@ -46,7 +46,10 @@ the per-function consent for the cloud, for the time of the swap only; the Provi
 3. While the model is out, the Chat page's requests (header `X-Tadamoo-Function: chat`, from this PC only) go to the swap's provider with its key and
    model (`serve/heavy_forward.py`; an OpenAI-style provider; the page's own fields are dropped, the tokens are counted). A request from any other program on
    `/v1` is refused with 503 and the reason: the engine is not woken by it. Only the job's end wakes it.
-4. The job extends the swap (`/api/heavy/<id>/touch`, every 30 s) and ends it (`/end`). A swap not touched for 90 s ends by itself, and the file
+4. When a job ends the engines stay out for `linger_s` (120 s by default, 0 to 900 in `heavy-swap.json`) in case another job follows; a second job in that
+   time takes over the swap, so a chain of jobs (a newscast: several clips, the anchor) loads and unloads the model once. The conversations stay on the
+   provider meanwhile.
+5. The job extends the swap (`/api/heavy/<id>/touch`, every 30 s) and ends it (`/end`). A swap not touched for 90 s ends by itself, and the file
    lapses after 10 minutes without a touch, so a dead server cannot leave the conversations on the cloud. At the end the registry is released
    first, then the engines come back.
 
