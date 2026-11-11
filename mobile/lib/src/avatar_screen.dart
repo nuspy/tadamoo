@@ -84,6 +84,8 @@ class _AvatarScreenState extends State<AvatarScreen> with WidgetsBindingObserver
   String _note() {
     final g = c.client;
     if (!c.avatarOn) return Texts.t('avatar.off.note');
+    if (c.preparingPc) return Texts.t('avatar.pc.loading');
+    if (c.ensureNote.isNotEmpty) return c.ensureNote;
     if (c.rendererNote.isNotEmpty) return c.rendererNote;
     if (g.status != GatewayStatus.ready) return '';
     if (c.renderer != null) return _engineLine();

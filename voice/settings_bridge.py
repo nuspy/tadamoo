@@ -55,6 +55,7 @@ class Choice:
     device: str           # auto | cpu | cuda:N
     memory: str           # vram | ram
     enabled: bool | None = None   # the stored boolean, None when the file has none (see is_enabled)
+    load: str = "at_load"         # at_load | on_request: the avatar loads when asked for (serve/voice_loader.py), the others with the Loader's Load
 
     @property
     def engine(self) -> str:
@@ -177,7 +178,10 @@ def _choice(service: str, stored) -> Choice:
     if device == "cpu" and memory == "vram":
         memory = "ram"
     enabled = stored.get("enabled")
-    return Choice(service, model, device, memory, enabled if isinstance(enabled, bool) else None)
+    load = stored.get("load")
+    if load not in ("at_load", "on_request"):
+        load = "on_request" if service == "avatar" else "at_load"
+    return Choice(service, model, device, memory, enabled if isinstance(enabled, bool) else None, "at_load" if service != "avatar" else load)
 
 
 def _brain(stored) -> Brain:
@@ -312,7 +316,8 @@ def overrides(settings: Settings) -> dict:
     out["call_transport"], out["outgoing_approval"], out["ai_disclosure_on_start"] = t.transport, t.outgoing_approval, t.ai_disclosure_on_start
     out["incoming_auto_answer"], out["call_on_behalf_of"], out["call_audit_file"] = t.incoming_auto_answer, t.on_behalf_of, settings.audit_file
     out["call_premium_prefixes"], out["call_auto_contacts_only"], out["call_contacts"] = list(t.premium_prefixes), t.auto_contacts_only, list(t.contacts)
-    out["avatar_enabled"] = out["avatar_preload"] = is_enabled(settings.services["avatar"], root)       # the worker starts with the function, not otherwise
+    out["avatar_enabled"] = is_enabled(settings.services["avatar"], root)
+    out["avatar_preload"] = out["avatar_enabled"] and settings.services["avatar"].load != "on_request"       # the worker starts with the function, unless it loads when asked for
     out["avatar_virtual_camera"], out["avatars_dir"] = settings.avatar.virtual_camera, settings.avatars_dir
     out["avatar_enhance"] = settings.avatar.enhance.as_dict()
     out["avatar_engines"], out["avatar_resolution"] = dict(settings.avatar.engines.engines), dict(settings.avatar.engines.resolution)

@@ -85,6 +85,29 @@ offers its download on the card (`voicedl.js`, shared with Settings > Voice). Th
 unloads and, when it applies, that the model is loaded again. After a removal the "Change services in memory" button appears (in the header and on the tab) and its confirmation
 says what is already unloaded, the VRAM recovered, and that the model loads again using all the free VRAM minus the reserve.
 
+## Avatar on request
+
+The avatar is the one function that can load when it is asked for instead of with the Loader's Load: `services.avatar.load` in `voice.json` is
+`on_request` (the default) or `at_load`, written by `POST /api/voice/load-mode {service: "avatar", mode}` and chosen on the avatar card (a select
+next to the placement; a second one sets the idle time). The profile keeps it with the other voice choices (`avatar.load`). STT and TTS stay
+loaded at Load. The service starts no avatar worker for an on-request avatar (`avatar_preload` is off).
+
+- The Loader's Load leaves an on-request avatar out: its item is `action: "on_request"`, it counts 0 MiB, and no model reload is planned for it.
+  The card's own Apply (`only: "avatar"`) still loads it, the old way (the model is unloaded and loaded again).
+- `POST /api/voice/avatar/ensure {wait_s?}` (this PC, or a phone with its key) is what asks for it (`serve/voice_avatar_ensure.py`). The avatar must be
+  on in Models > Voice services. It asks the broker ([../vram-broker.md](../vram-broker.md)) for the avatar's measured or catalogue size (3000 MiB
+  when none is known), then loads only the avatar (`voice_loader.apply_lent`: the model is not touched, the fit check is the lease's, no
+  "reload the model" banner) and answers `{ok: true, state: "loaded", lent_mib, lease}`. A placement on the CPU or in RAM borrows nothing.
+- A refusal is `{ok: false, reason, message, message_it}` with the broker's reasons (`unavailable`, `busy`, `not_enough`, ...) or `avatar_off`,
+  `not_installed`, `voice_service_down`, `load_failed`; the lease is returned and nothing is left half loaded. The avatar does not fall back to the
+  CPU by itself: the placement is the person's choice (set it to CPU in the card to run without VRAM, if the avatar engine supports it).
+- While it is loaded the server keeps the lease (a watcher, every 5 seconds). The avatar is in use while a phone is on the gateway, the preview has
+  a viewer, a voice session with the avatar runs, or the virtual camera runs. After `avatar.idle_unload_s` without use (300 s by default, 30 to
+  86400, set with `POST /api/voice/avatar`) the avatar is unloaded (`voice_loader.unload_lent`, which leaves `voice.json` as it is) and the lease
+  is released, so the expert cache refills. An avatar unloaded by hand, or a lease that is lost, ends the watching the same way.
+- The Android app calls the route when the Avatar tab opens (and when the avatar is switched on), shows "Loading the avatar on the PC" until it
+  answers, requests no video before that, and shows the refusal's text; the voice does not wait. A PC without the route is taken as a yes.
+
 ## The commit of the GPU memory
 
 Under WDDM every GPU allocation is charged its full size to the process commit (`docs/WINDOWS.md`). The processes of the voice engines give it
@@ -100,13 +123,14 @@ can hang until it is stopped. Keep the commit when another program allocates GPU
 ## The load profiles
 
 A load profile saved from the Loader keeps the voice functions as `voice.json` holds them: `{"voice": {"stt": {"on", "model", "device", "memory"},
-"tts": ..., "avatar": ...}}`. Using the profile (the Loader's Use, the Machine Default, the start with a profile, `profiles apply` from the start
+"tts": ..., "avatar": {..., "load"}}}`. Using the profile (the Loader's Use, the Machine Default, the start with a profile, `profiles apply` from the start
 script) writes them back into `voice.json`; they load with the model or when applied on their cards. A profile saved with `"voice": null`, and
 profiles from before, leave the voice settings alone. An import drops a voice block whose model this PC does not list.
 
 ## What the tests cover, and what they cannot
 
 `voice/tests/test_functions.py` (apply order, one load at a time, failures, the measurement and its null paths, the offline rule, the
-routes), `serve/tests/test_voice_loader.py` (the plan, adding, removing, reload, the Loader's Load, a different model, a service that is
+routes), `serve/tests/test_voice_avatar_ensure.py` (the avatar on request: the Loader leaves it out, ensure, the refusals, the idle unload) and
+`serve/tests/test_voice_loader.py` (the plan, adding, removing, reload, the Loader's Load, a different model, a service that is
 down, the call to the service over loopback) and `serve/tests/test_voice_loader_page.py` (the page). They use a stand-in service with a fake
 GPU. Not proven without a GPU: the real load order of the engines, the NVML readings, the reload of the model in the VRAM that is left.

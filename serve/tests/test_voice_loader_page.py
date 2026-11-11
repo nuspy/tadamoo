@@ -92,6 +92,17 @@ class VoiceLoaderPageTest(unittest.TestCase):
         self.assertIn('S.functions.forEach(f => list.append(card(f)))', JS)                  # three cards, not one dialog
         self.assertNotIn("openMain", JS)                                                     # no shared dialog for the three functions
 
+    def test_the_avatar_card_chooses_when_it_loads_and_how_long_it_may_sit_unused(self):
+        self.assertIn('write(f.id, "api/voice/load-mode", { service: f.id, mode: v })', JS)       # saved at once, like the other choices
+        self.assertIn('write(f.id, "api/voice/avatar", { idle_unload_s: Number(v) })', JS)
+        self.assertIn('if (f.id === "avatar") box.append(whenRow(f));', JS)                       # only the avatar may load on request
+        self.assertIn('"/api/voice/load-mode"', HANDLER)
+        self.assertIn('on_request: "vl.act.onrequest"', JS)
+        self.assertIn('select([["at_load", T("vl.when.load")], ["on_request", T("vl.when.req")]]', JS)       # a select, not a new row of buttons
+        self.assertIn('api("GET", "api/voice/avatar")', JS)
+        apply_line = JS.split("const pending = ")[1].splitlines()[0]
+        self.assertNotIn("on_request", apply_line)                                                # a function on request has nothing to apply
+
     def test_settings_voice_does_not_set_the_functions_and_points_to_the_loader(self):
         self.assertIn('S.services.filter(svc => !FUNCTIONS.includes(svc.id))', VOICE_JS)
         self.assertIn('T("vo.functions.moved")', VOICE_JS)

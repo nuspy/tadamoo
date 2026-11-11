@@ -36,6 +36,7 @@ class Texts {
     'avatar.stt': ['il riconoscimento vocale', 'speech recognition'],
     'avatar.tts': ['la sintesi vocale', 'speech synthesis'],
     'avatar.novideo': ['Sul PC non c\'è un avatar caricato: solo voce. Il video parte da solo quando l\'avatar viene caricato.', 'No avatar is loaded on the PC: voice only. The video starts by itself when the avatar is loaded.'],
+    'avatar.pc.loading': ['Carico l\'avatar sul PC… può richiedere un po\'.', 'Loading the avatar on the PC… this can take a while.'],
     'avatar.video.wait': ['Preparo l\'avatar sul PC… {0}', 'Preparing the avatar on the PC… {0}'],
     'avatar.video.nowebrtc': ['Il PC non può inviare il video (manca WebRTC): solo voce.', 'The PC cannot send video (WebRTC is missing): voice only.'],
     'avatar.video.emergency': ['Il PC tiene il video solo per le emergenze: solo voce.', 'The PC keeps the video for emergencies only: voice only.'],

@@ -158,7 +158,7 @@ def status() -> dict:
 
 # ---------------------------------------------------------------------------------------- the service calling the server
 # The same token, the other way: the service sends it to TaDaMoo's server, which accepts it on loopback for these routes and no others.
-# They are what the two brains need: the model, a personality's text, and an agent conversation.
+# They are what the two brains need (the model, a personality's text, and an agent conversation) and the VRAM leases.
 SERVICE_ROUTES = (
     ("POST", re.compile(r"^/v1/chat/completions$")),
     ("POST", re.compile(r"^/api/personas/[a-z0-9][a-z0-9-]{0,60}/compose$")),
@@ -166,6 +166,8 @@ SERVICE_ROUTES = (
     ("POST", re.compile(r"^/api/agent/sessions$")),
     ("GET", re.compile(r"^/api/agent/sessions/[A-Za-z0-9_-]{1,64}/events$")),
     ("POST", re.compile(r"^/api/agent/sessions/[A-Za-z0-9_-]{1,64}/(send|answer|persona)$")),
+    ("POST", re.compile(r"^/api/vram/lease$")),                                     # the VRAM broker: a heavy job borrows VRAM and gives it back
+    ("POST", re.compile(r"^/api/vram/lease/[0-9a-f]{16}/(touch|release)$")),
 )
 
 

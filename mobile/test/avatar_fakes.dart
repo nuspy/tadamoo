@@ -231,6 +231,18 @@ class FakeGatewayApi extends Api {
   int calls = 0;
   bool down = false;
 
+  /// The PC's answer to "load the avatar" (`gate` holds it back until the test completes it) and what was asked.
+  AvatarEnsure ensure = const AvatarEnsure(true);
+  Completer<void>? gate;
+  int ensured = 0;
+
+  @override
+  Future<AvatarEnsure> ensureAvatar({int waitS = 60}) async {
+    ensured++;
+    if (gate != null) await gate!.future;
+    return ensure;
+  }
+
   @override
   Future<Map<String, dynamic>> get(String path, {Map<String, String>? query}) async {
     calls++;

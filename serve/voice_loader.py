@@ -7,7 +7,10 @@ loaded now. This module compares the two, says what loads and unloads and whethe
                            loaded again through the Loader's reload, which plans in what is left and keeps the Loader's reserve
   removing                 the service unloads the function now and the model is NOT touched; the VRAM stays free until
                            `reload_llm` is confirmed, and that reload then uses all the free VRAM minus the reserve
-  the Loader's Load        functions that are on and not loaded load first, so the Loader reads the free VRAM they left
+  the Loader's Load        functions that are on and not loaded load first, so the Loader reads the free VRAM they left; a function that loads
+                           on request (the avatar, by default) is left out and shows as `on_request`
+  on request               the avatar loads when asked for (serve/voice_avatar_ensure.py): the broker lends the VRAM, the model is NOT touched
+                           (`apply_lent`), and an idle avatar is unloaded the same way (`unload_lent`)
 
 Every change runs as a job on a thread and holds the supervisor's job slot, so no reload, calibration or other apply runs meanwhile. A
 different model (the server ends and its owner starts it again) never reaches the service: the functions stay loaded. Measured VRAM is
@@ -72,7 +75,8 @@ def estimate_mib(model: str, device: str, memory: str) -> tuple[int | None, str]
 
 # ------------------------------------------------------------------------------------------------ what is wanted and what is there
 def desired_from_settings() -> dict:
-    return {f: {"on": voice_settings.enabled(f), "model": voice_settings.selected(f), **voice_settings.placement(f)} for f in FUNCTIONS}
+    return {f: {"on": voice_settings.enabled(f), "model": voice_settings.selected(f), **voice_settings.placement(f), "load": voice_settings.load_mode(f)}
+            for f in FUNCTIONS}
 
 
 def normalise(desired) -> dict:
@@ -85,13 +89,15 @@ def normalise(desired) -> dict:
     for f, req in desired.items():
         if f not in FUNCTIONS or not isinstance(req, dict):
             raise voice_settings.VoiceSettingsError("service", "Unknown voice function.", "Funzione vocale sconosciuta.")
-        want = {**out[f], **{k: req[k] for k in ("on", "model", "device", "memory") if k in req}}
+        want = {**out[f], **{k: req[k] for k in ("on", "model", "device", "memory", "load") if k in req}}
         if not isinstance(want["on"], bool):
             raise voice_settings.VoiceSettingsError("enabled", "on is true or false.", "on è true o false.")
         entry = voice_catalog.find(want["model"])
         if entry is None or entry["service"] != f:
             raise voice_settings.VoiceSettingsError("model", "This model is not in the catalog of that service.", "Questo modello non è nel catalogo di quel servizio.")
         voice_settings.check_placement(want["device"], want["memory"])
+        if want["load"] not in voice_settings.LOAD_MODES or (want["load"] == "on_request" and f not in voice_settings.ON_REQUEST_SERVICES):
+            raise voice_settings.VoiceSettingsError("load", "load is at_load, or on_request for the avatar.", "load è at_load, o on_request per l'avatar.")
         out[f] = want
     return out
 
@@ -152,7 +158,8 @@ def vram_now(svc) -> dict:
             "reserve_mib": _reserve_mib(svc), "llm_mib": held}
 
 
-def _item(f: str, want: dict, live: dict, root: str) -> dict:
+def _item(f: str, want: dict, live: dict, root: str, ask: bool = False) -> dict:
+    """`ask`: this function is being loaded on purpose now, so a function that loads on request loads."""
     entry = voice_catalog.find(want["model"])
     loaded = live.get("state") in ("loaded", "loading")
     with_ = live.get("loaded_with") or {"model": want["model"], "device": want["device"], "memory": want["memory"]}
@@ -160,12 +167,14 @@ def _item(f: str, want: dict, live: dict, root: str) -> dict:
     installed = voice_catalog.installed(entry, root)
     est, source = estimate_mib(want["model"], want["device"], want["memory"])
     out = {"id": f, "model": want["model"], "name": entry["name"], "engine": entry["engine"], "device": want["device"], "memory": want["memory"],
-           "state": live.get("state", "unloaded"), "installed": installed, "estimated_mib": est, "estimate_source": source,
+           "load": want.get("load", "at_load"), "state": live.get("state", "unloaded"), "installed": installed, "estimated_mib": est, "estimate_source": source,
            "measured_mib": live.get("measured_mib"), "recover_mib": 0, "error": live.get("error")}
     if want["on"]:
         out["action"] = "keep" if loaded and same else ("reload" if loaded else "load")
         if not installed:
             out["action"], out["reason"] = "missing", live.get("reason") or f"{entry['name']} is not installed: install it in Models > Voice services."
+        elif out["action"] == "load" and want.get("load") == "on_request" and not ask:
+            out["action"] = "on_request"
     else:
         out["action"] = "unload" if loaded else "off"
     if out["action"] in ("unload", "reload"):
@@ -175,14 +184,15 @@ def _item(f: str, want: dict, live: dict, root: str) -> dict:
     return out
 
 
-def plan(svc, desired=None, live=None, only=None) -> dict:
+def plan(svc, desired=None, live=None, only=None, lent=False) -> dict:
     """What an apply would do: the items, the VRAM needed and recovered, the free VRAM now, whether the model must be loaded again and
-    whether the additions fit. `fits` is None when a figure is missing. With `only`, the other functions stay as they are loaded now."""
+    whether the additions fit. `fits` is None when a figure is missing. With `only`, the other functions stay as they are loaded now, and
+    that function loads even when it loads on request. `lent`: the broker lent the VRAM, so the model stays as it is and the additions fit."""
     want = normalise(desired)
     live = live or live_state()
     want = only_one(want, live, check_only(only))
     root = voice_settings.models_dir()
-    items = [_item(f, want[f], live["functions"].get(f) or {}, root) for f in FUNCTIONS]
+    items = [_item(f, want[f], live["functions"].get(f) or {}, root, ask=f == only) for f in FUNCTIONS]
     adds = [i for i in items if i["action"] in ("load", "reload")]
     gone = [i for i in items if i["action"] in ("unload", "reload")]
     vram = [i for i in adds if i["memory"] == "vram" and i["device"] != "cpu"]
@@ -195,9 +205,9 @@ def plan(svc, desired=None, live=None, only=None) -> dict:
     left = None if v["free_mib"] is None else v["free_mib"] + v["llm_mib"] + recover - need - v["reserve_mib"]
     return {"items": items, "changes": any(i["action"] in ("load", "reload", "unload") for i in items), "free_mib": v["free_mib"],
             "total_mib": v["total_mib"], "reserve_mib": v["reserve_mib"], "llm_mib": v["llm_mib"], "need_mib": need, "recover_mib": recover,
-            "recover_known": recover_known, "unknown": unknown, "llm_running": llm, "llm_reload": bool(llm and vram),
-            "left_for_llm_mib": left, "fits": None if left is None or unknown else left >= 0,
-            "reload_suggested": bool(llm and gone and not vram)}
+            "recover_known": recover_known, "unknown": unknown, "llm_running": llm, "llm_reload": bool(llm and vram and not lent),
+            "left_for_llm_mib": left, "fits": True if lent else None if left is None or unknown else left >= 0,
+            "reload_suggested": bool(llm and gone and not vram and not lent), "lent": lent}
 
 
 # ------------------------------------------------------------------------------------------------ what the page reads
@@ -217,8 +227,9 @@ def info(svc) -> dict:
         item = next((i for i in p["items"] if i["id"] == f), None) if p else _item(f, want[f], {}, root)
         rows.append({**item, "on": want[f]["on"], "live": live["functions"].get(f)})
     vram_rows = [r for r in rows if r["memory"] == "vram" and r["device"] != "cpu"]
-    need = sum(r["estimated_mib"] or 0 for r in vram_rows if r["on"])
-    unknown = [r["id"] for r in vram_rows if r["on"] and r["estimated_mib"] is None]
+    wanted_now = [r for r in vram_rows if r["on"] and r["action"] != "on_request"]
+    need = sum(r["estimated_mib"] or 0 for r in wanted_now)
+    unknown = [r["id"] for r in wanted_now if r["estimated_mib"] is None]
     held = sum((r["measured_mib"] if r["measured_mib"] is not None else r["estimated_mib"]) or 0 for r in vram_rows if r["state"] == "loaded")
     room = None if v["free_mib"] is None else v["free_mib"] + v["llm_mib"] + held - v["reserve_mib"]      # all the VRAM the model and the functions share
     with _lock:
@@ -283,7 +294,7 @@ def _run(svc, sup, want, p, then) -> None:
                 record_measured(i["model"], i["device"], i["memory"], r["measured_mib"])
         _set(problems=[f"{k}: {r['error']}" for k, r in body["report"].items() if r.get("error")])
         removed = [i for i in p["items"] if i["action"] == "unload"]
-        if removed and p["llm_running"] and not p["llm_reload"] and then is None:
+        if removed and p["llm_running"] and not p["llm_reload"] and then is None and not p.get("lent"):
             recovered = sum((body["report"].get(i["id"]) or {}).get("measured_mib") or i["recover_mib"] or 0 for i in removed)
             with _lock:
                 _pending = {"recovered_mib": recovered, "removed": [i["id"] for i in removed], "at": time.time()}
@@ -313,15 +324,16 @@ def _run(svc, sup, want, p, then) -> None:
         _set(phase="failed" if error else "done", error=error, finished=time.time())
 
 
-def start(svc, want: dict, p: dict, then=None, wait: bool = False, only: str | None = None) -> dict:
-    """Take the supervisor's slot, write voice.json and run the job; Refused when a job is running."""
+def start(svc, want: dict, p: dict, then=None, wait: bool = False, only: str | None = None, persist: bool = True) -> dict:
+    """Take the supervisor's slot, write voice.json (unless `persist` is off) and run the job; Refused when a job is running."""
     sup = loader_api.sup_of(svc)
     with _lock:
         if _job.get("phase") in ("unloading_llm", "applying", "reloading_llm", "loading_llm"):
             raise _refuse(409, "busy", "the voice functions are being changed already")
     if not sup.hold("voice", "voice"):
         raise _refuse(409, "busy", "a load or a calibration is already running")
-    _persist(want, only)
+    if persist:
+        _persist(want, only)
     with _lock:
         _job.clear()
         _job.update(phase="starting", started=time.time(), finished=None, error=None, report=None,
@@ -350,6 +362,30 @@ def apply(svc, req: dict, wait: bool = False) -> dict:
                                              "message": "the functions do not fit in the VRAM that is free once the Loader's reserve is kept"}, "plan": p})
     job = start(svc, want, p, wait=wait, only=only)
     return {"status": "started", "job": job, "plan": p}
+
+
+def apply_lent(svc, only: str, wait: bool = True) -> dict:
+    """Load one function into VRAM the broker lent: the model is not unloaded and the plan's fit check is not made (the lease checked the free
+    VRAM). The job, or {"status": "nothing"}."""
+    only = check_only(only)
+    live = live_state()
+    want = only_one(normalise(None), live, only)
+    p = plan(svc, want, live, only=only, lent=True)
+    if not p["changes"]:
+        return {"status": "nothing", "plan": p}
+    return {"status": "started", "job": start(svc, want, p, wait=wait, only=only), "plan": p}
+
+
+def unload_lent(svc, only: str, wait: bool = True) -> dict:
+    """Unload one function that was loaded on request, leaving the choices of voice.json (it is still wanted) and the model as they are."""
+    only = check_only(only)
+    live = live_state()
+    want = only_one(normalise(None), live, only)
+    want[only] = {**want[only], "on": False}
+    p = plan(svc, want, live, lent=True)
+    if not p["changes"]:
+        return {"status": "nothing", "plan": p}
+    return {"status": "started", "job": start(svc, want, p, wait=wait, only=only, persist=False), "plan": p}
 
 
 def before_load(svc, req: dict, wait: bool = False) -> dict | None:

@@ -84,6 +84,26 @@ class Store(unittest.TestCase):
         self.assertEqual((voice_settings.enabled("tts"), voice_settings.enabled("stt"), voice_settings.placement("tts")),
                          (True, False, {"device": "cuda:1", "memory": "vram"}))
 
+    def test_a_profile_keeps_when_the_avatar_loads_and_using_it_restores_that(self):
+        from serve import voice_settings
+        voice_settings.set_load_mode("avatar", "at_load")
+        profiles.change({"action": "save", "kind": "load", "name": "Subito", "values": FAST})
+        self.assertEqual(profiles._read()["load"]["Subito"]["voice"]["avatar"]["load"], "at_load")
+        voice_settings.set_load_mode("avatar", "on_request")
+        profiles.change({"action": "use", "name": "Subito"})
+        self.assertEqual(voice_settings.load_mode("avatar"), "at_load")
+        profiles.change({"action": "save", "kind": "load", "name": "Cat", "values": FAST, "voice": {"avatar": {"load": "on_request"}}})
+        profiles.change({"action": "use", "name": "Cat"})
+        self.assertEqual(voice_settings.load_mode("avatar"), "on_request")
+        for bad in ({"avatar": {"load": "later"}}, {"stt": {"load": "on_request"}}):
+            with self.assertRaises(ValueError):
+                profiles.change({"action": "save", "kind": "load", "name": "X", "values": FAST, "voice": bad})
+        old = {"load": {"Vecchio": {"values": FAST, "voice": {"avatar": {"on": True, "model": "musetalk-v15", "device": "auto", "memory": "vram"}}}}}
+        profiles._write(old, "load")
+        voice_settings.set_load_mode("avatar", "at_load")
+        profiles.change({"action": "use", "name": "Vecchio"})
+        self.assertEqual(voice_settings.load_mode("avatar"), "at_load")                  # a profile saved before the choice existed leaves it
+
     def test_a_voice_function_of_a_profile_is_checked_when_saved_and_dropped_when_imported(self):
         for bad in ({"tts": {"model": "whisper-small"}}, {"nope": {"on": True}}, {"tts": {"on": "yes"}}, {"tts": {"device": "cpu", "memory": "vram"}}):
             with self.assertRaises(ValueError):

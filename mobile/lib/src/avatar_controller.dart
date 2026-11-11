@@ -94,6 +94,10 @@ class AvatarController extends ChangeNotifier {
   final Duration duckHold;
 
   bool active = false;
+
+  /// The PC is loading the avatar (it loads on request), and the text of the PC's refusal when it could not.
+  bool preparingPc = false;
+  String ensureNote = '';
   bool micDenied = false;
   String? unavailable;
   List<Map<String, String>> personas = const [];
@@ -145,7 +149,26 @@ class AvatarController extends ChangeNotifier {
     notifyListeners();
     await route.start();
     await hub.refresh();
+    final ensuring = _ensureAvatar();
     await _connect();
+    unawaited(ensuring.then((_) => _maybeVideo()));
+  }
+
+  /// The avatar loads on the PC when it is asked for: ask, and wait for the answer before any video is requested. The voice does not wait.
+  Future<void> _ensureAvatar() async {
+    if (!avatarOn || !settings.configured) return;
+    preparingPc = true;
+    ensureNote = '';
+    notifyListeners();
+    try {
+      final r = await api.ensureAvatar();
+      if (!r.ok) ensureNote = r.message;
+    } on ApiError catch (e) {
+      ensureNote = e.message;
+    } finally {
+      preparingPc = false;
+      if (active) notifyListeners();
+    }
   }
 
   Future<void> deactivate() async {
@@ -203,7 +226,7 @@ class AvatarController extends ChangeNotifier {
     if (settings.avatarEnabled != _seenEnabled) {
       _seenEnabled = settings.avatarEnabled;
       if (_seenEnabled) {
-        _maybeVideo();
+        unawaited(_ensureAvatar().then((_) => _maybeVideo()));
       } else {
         _dropVideo(tell: false);
         if (ready) client.sendVideoStop();
@@ -404,7 +427,7 @@ class AvatarController extends ChangeNotifier {
   // ---- the video
 
   Future<void> _maybeVideo() async {
-    if (!active || !avatarOn || _video != null || !(mode == 'video' || client.renderMode == 'video') || !client.avatar || client.status != GatewayStatus.ready || !devices.videoSupported) return;
+    if (!active || !avatarOn || preparingPc || _video != null || !(mode == 'video' || client.renderMode == 'video') || !client.avatar || client.status != GatewayStatus.ready || !devices.videoSupported) return;
     final session = devices.newVideo();
     if (session == null) return;
     _video = session;

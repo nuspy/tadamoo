@@ -2,7 +2,7 @@
 
 `voice.json` in the user data folder holds only what the person chose:
     {"models_dir": "<absolute path>", "services": {"<service>": {"selected": "<model id>", "device": "auto|cpu|cuda:N", "memory": "vram|ram",
-                                                                  "enabled": true|false}},
+                                                                  "enabled": true|false, "load": "at_load|on_request"}},
      "brain": {"mode": "direct|harness", "persona": "<slug>", "workspace": "<folder>",
                "base_url": "http://127.0.0.1:<port>", "hotkeys": true|false},
      "meetings": {"speak": true|false, "camera": true|false, "proactive": true|false, "consent_mode": "window|explicit", "consent_window_s": 20..300, "on_behalf_of": "<name>",
@@ -158,6 +158,40 @@ def enabled(service: str) -> bool:
         return stored
     entry = voice_catalog.find(selected(service))
     return service == "stt" and entry is not None and voice_catalog.installed(entry, models_dir())
+
+
+LOAD_MODES = ("at_load", "on_request")
+ON_REQUEST_SERVICES = ("avatar",)                 # the services that may load when asked for instead of with the Loader's Load
+AVATAR_IDLE_S = (30, 86400, 300)                  # lowest, highest, default seconds of idleness before an avatar loaded on request is unloaded
+
+
+def load_mode(service: str) -> str:
+    """When a service loads: `at_load` (with the Loader's Load) or `on_request` (when something asks, and its VRAM is lent for the time). Only
+    the avatar may be on request, and it is by default."""
+    if service not in ON_REQUEST_SERVICES:
+        return "at_load"
+    stored = ((_read().get("services") or {}).get(service) or {}).get("load")
+    return stored if stored in LOAD_MODES else "on_request"
+
+
+def set_load_mode(service, mode) -> str:
+    _check_service(service)
+    if service not in ON_REQUEST_SERVICES:
+        raise VoiceSettingsError("load", "Only the avatar can load on request.", "Solo l'avatar può caricarsi su richiesta.")
+    if mode not in LOAD_MODES:
+        raise VoiceSettingsError("load", "load is at_load or on_request.", "load è at_load o on_request.")
+    with _lock:
+        data = _read()
+        data.setdefault("services", {}).setdefault(service, {})["load"] = mode
+        _write(data)
+    return mode
+
+
+def avatar_idle_s() -> int:
+    """Seconds an avatar loaded on request may sit unused before it is unloaded and its VRAM given back."""
+    v = (_read().get("avatar") or {}).get("idle_unload_s") if isinstance(_read().get("avatar"), dict) else None
+    ok = isinstance(v, int) and not isinstance(v, bool) and AVATAR_IDLE_S[0] <= v <= AVATAR_IDLE_S[1]
+    return v if ok else AVATAR_IDLE_S[2]
 
 
 def set_enabled(service, on) -> bool:

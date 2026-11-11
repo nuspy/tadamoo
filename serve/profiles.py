@@ -296,9 +296,10 @@ VOICE_FUNCTIONS = ("stt", "tts", "avatar")
 
 
 def voice_now() -> dict:
-    """The voice functions as voice.json holds them: {"stt": {"on", "model", "device", "memory"}, "tts": ..., "avatar": ...}."""
+    """The voice functions as voice.json holds them: {"stt": {"on", "model", "device", "memory"}, "tts": ..., "avatar": {..., "load"}}."""
     from serve import voice_settings
-    return {f: {"on": voice_settings.enabled(f), "model": voice_settings.selected(f), **voice_settings.placement(f)}
+    return {f: {"on": voice_settings.enabled(f), "model": voice_settings.selected(f), **voice_settings.placement(f),
+                **({"load": voice_settings.load_mode(f)} if f in voice_settings.ON_REQUEST_SERVICES else {})}
             for f in VOICE_FUNCTIONS}
 
 
@@ -311,12 +312,14 @@ def check_voice(value) -> dict:
     for f, want in value.items():
         if f not in VOICE_FUNCTIONS or not isinstance(want, dict):
             raise ValueError(f"voice: {f}: not a voice function")
-        merged = {**out[f], **{k: want[k] for k in ("on", "model", "device", "memory") if k in want}}
+        merged = {**out[f], **{k: want[k] for k in ("on", "model", "device", "memory", "load") if k in want}}
         entry = voice_catalog.find(merged["model"]) if isinstance(merged["model"], str) else None
         if entry is None or entry["service"] != f:
             raise ValueError(f"voice: {f}: the model is not in the catalog of that service")
         if not isinstance(merged["on"], bool):
             raise ValueError(f"voice: {f}: on is true or false")
+        if "load" in merged and (merged["load"] not in voice_settings.LOAD_MODES or (merged["load"] == "on_request" and f not in voice_settings.ON_REQUEST_SERVICES)):
+            raise ValueError(f"voice: {f}: load is at_load, or on_request for the avatar")
         try:
             voice_settings.check_placement(merged["device"], merged["memory"])
         except ValueError as e:
@@ -342,6 +345,11 @@ def use_voice(voice: dict) -> None:
             pass
         if isinstance(want.get("on"), bool):
             voice_settings.set_enabled(f, want["on"])
+        try:
+            if "load" in want:
+                voice_settings.set_load_mode(f, want["load"])
+        except ValueError:
+            pass
 
 
 def _load_item(values, model, voice=None) -> dict:

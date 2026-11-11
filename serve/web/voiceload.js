@@ -14,8 +14,9 @@
   const DEVICES = ["auto", "cpu", "cuda:0", "cuda:1"];
   const BUSY = ["waiting", "stopping", "starting", "calibrating", "measuring", "voice"];
   const PHASE = { starting: "vl.ph.applying", unloading_llm: "vl.ph.unloading", applying: "vl.ph.applying", loading_llm: "vl.ph.loading", reloading_llm: "vl.ph.loading" };
-  const ACT = { load: "vl.act.load", reload: "vl.act.reload", unload: "vl.act.unload", keep: "vl.act.keep", off: "vl.act.off", missing: "vl.act.missing" };
-  let S = null, models = null, loaderPhase = "idle", timer = 0, loadFailed = "";
+  const ACT = { load: "vl.act.load", reload: "vl.act.reload", unload: "vl.act.unload", keep: "vl.act.keep", off: "vl.act.off", missing: "vl.act.missing", on_request: "vl.act.onrequest" };
+  const IDLE_MIN = [1, 2, 5, 10, 30, 60];                // minutes an avatar loaded on request may sit unused before it is unloaded
+  let S = null, models = null, loaderPhase = "idle", timer = 0, loadFailed = "", idleS = 300;
   const lines = {};                                    // per function: the line under its card
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -48,6 +49,8 @@
     }
     const r = await api("GET", "api/voice/functions");
     if (r.ok) { S = r.data; loadFailed = ""; } else loadFailed = errText(r);
+    const a = await api("GET", "api/voice/avatar");
+    if (a.ok && a.data.idle_unload_s) idleS = a.data.idle_unload_s;
     const l = await api("GET", "api/loader/status");
     loaderPhase = l.ok && l.data.phase ? l.data.phase : "idle";
     paint();
@@ -143,6 +146,17 @@
     const src = f.estimate_source === "measured" ? T("vl.est.measured") : f.estimate_source === "catalog" ? T("vl.est.catalog") : "";
     return f.estimated_mib == null ? T("vl.est.unknown") : gb(f.estimated_mib) + (src ? " (" + src + ")" : "");
   }
+  function whenRow(f) {                                  // when the avatar loads, and how long it may sit unused before it is unloaded
+    const row = el("div", "vl-place");
+    row.append(field("vl-load-" + f.id, T("vl.when"), select([["at_load", T("vl.when.load")], ["on_request", T("vl.when.req")]], f.load || "on_request",
+      v => write(f.id, "api/voice/load-mode", { service: f.id, mode: v }))));
+    if ((f.load || "on_request") === "on_request") {
+      const mins = IDLE_MIN.includes(idleS / 60) ? IDLE_MIN : IDLE_MIN.concat([idleS / 60]).sort((x, y) => x - y);
+      row.append(field("vl-idle-" + f.id, T("vl.idle"), select(mins.map(m => [String(m * 60), T("vl.min", String(m))]), String(idleS),
+        v => write(f.id, "api/voice/avatar", { idle_unload_s: Number(v) }))));
+    }
+    return row;
+  }
   function card(f) {
     const box = el("section", "vl-card"), h = el("h3", "vl-h", NAME[f.id]());
     h.id = "vl-h-" + f.id;
@@ -170,6 +184,7 @@
     const where = el("div", "vl-place");
     where.append(device, memory);
     box.append(sw, model, where);
+    if (f.id === "avatar") box.append(whenRow(f));
 
     const facts = el("dl", "vl-facts"), m = entry(f.id, f.model);
     row(facts, T("vo.engine"), f.engine);

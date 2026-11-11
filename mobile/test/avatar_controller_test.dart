@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:basalt_mobile/src/api.dart';
 import 'package:basalt_mobile/src/avatar_controller.dart';
 import 'package:basalt_mobile/src/gateway_client.dart';
 import 'package:basalt_mobile/src/i18n.dart';
@@ -113,6 +116,54 @@ void main() {
     final ch = await up(ready: {...readyMessage, 'avatar': true});
     expect(ch.kinds, contains('video_start'));
     expect(devices.sessions.length, 1);
+  });
+
+  test('the avatar loads on the PC when it is asked for: the phone asks first and requests no video until the PC says it is loaded', () async {
+    await make();
+    api.gate = Completer<void>();
+    final ch = await up(ready: {...readyMessage, 'avatar': true});
+    expect(api.ensured, 1);
+    expect(c.preparingPc, isTrue);
+    expect(ch.kinds, isNot(contains('video_start')));          // the avatar is loaded on the PC, but the PC has not said so yet
+    expect(c.client.canTalk, isTrue);                          // the voice does not wait
+
+    api.gate!.complete();
+    await pumpEventQueue();
+    expect(c.preparingPc, isFalse);
+    expect(c.ensureNote, '');
+    expect(ch.kinds, contains('video_start'));
+  });
+
+  test('when the PC cannot load the avatar the phone shows its reason and stays in voice', () async {
+    await make();
+    api.ensure = const AvatarEnsure(false, reason: 'unavailable', message: 'The model cannot lend VRAM; use the CPU.');
+    final ch = await up();                                     // nothing was loaded: the PC says no avatar
+    await pumpEventQueue();
+    expect(c.ensureNote, 'The model cannot lend VRAM; use the CPU.');
+    expect(c.preparingPc, isFalse);
+    expect(c.client.canTalk, isTrue);
+    expect(ch.kinds, isNot(contains('video_start')));
+  });
+
+  test('an avatar turned off on the phone is not asked for', () async {
+    await make(prefs: {'flutter.avatarEnabled': false});
+    await up();
+    expect(api.ensured, 0);
+    expect(c.preparingPc, isFalse);
+  });
+
+  test('turning the avatar on asks the PC, and the video starts after the answer', () async {
+    await make(prefs: {'flutter.avatarEnabled': false});
+    final ch = await up(ready: {...readyMessage, 'avatar': true});
+    api.gate = Completer<void>();
+    await settings.setAvatarEnabled(true);
+    await pumpEventQueue();
+    expect(api.ensured, 1);
+    expect(c.preparingPc, isTrue);
+    expect(ch.kinds, isNot(contains('video_start')));
+    api.gate!.complete();
+    await pumpEventQueue();
+    expect(ch.kinds, contains('video_start'));
   });
 
   test('video_unavailable closes the session and stays in voice; the video is tried again only when the avatar state changes', () async {
