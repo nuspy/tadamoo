@@ -12,6 +12,7 @@ context are rejected with a 400, never truncated.
 from __future__ import annotations
 
 import json
+import os
 import signal
 import sys
 import threading
@@ -249,7 +250,6 @@ def main() -> int:
         print(f"[server] warning: the Loader cannot read {a.model} ({e}); it uses the demo sizes", flush=True)
         facts = dict(loader.DEMO_FACTS)
     if a.mock_engine:
-        import os
         os.environ["TADAMOO_FAKE_SYSTEM_OK"] = "1"        # TADAMOO_FAKE_SYSTEM: demo memory readings for the mock
     svc.supervisor = supervisor.Supervisor(svc, sys.argv[1:], mock=bool(a.mock_engine), facts=facts)
     svc.model_catalog = model_list.Catalog()            # GET /v1/models lists the folders' other models too
@@ -272,6 +272,7 @@ def main() -> int:
     svc.lengths = lengthprobe.Lengths(lambda: svc.supervisor.facts)
     svc.gpu_indices = gpus_in_play(cfg, engine_args(cfg) if cfg.get("args") else [])   # the cards /metrics reads
     svc.gpu_index = svc.gpu_indices[0]
+    os.environ["TADAMOO_URL"] = f"http://127.0.0.1:{a.port}"      # the workers and helpers this server starts ask it for VRAM leases here
     svc.control_token = write_control_token(a.port, a.control_secret_value) if a.control_secret else ""
     svc.allowed_hosts = tuple(dict.fromkeys(a.allowed_hosts or ()))
     svc.allowed_origins = tuple(dict.fromkeys(a.allowed_origins or ()))
