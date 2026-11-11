@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # also runnable as a script
-from serve import ROOT, lengthprobe, loader, loader_api, model_list, service, settings, supervisor  # noqa: E402
+from serve import ROOT, lengthprobe, loader, loader_api, model_list, service, settings, supervisor, voice_loader  # noqa: E402
 from serve.config import (RELAUNCH_EXIT_CODE, build_parser, check_engine_flags, engine_flags_of,  # noqa: E402
                           engine_line, grammar_words, parse_settings, sampling_defaults_from_config, sampling_line)
 from serve.control import write_control_token  # noqa: E402
@@ -204,6 +204,11 @@ def main() -> int:
         if a.grammar and not has_grammar:
             print(tagged("warning", "grammar is on but this engine has no --grammar; requests go without one"), flush=True)
         gwords = grammar_words(known_flags)
+        if not (lazy or listen_first):                  # the engine starts now: the voice functions that load at the Load go in first
+            try:
+                voice_loader.ensure_first(voice_loader.Booting(settings_info(a, words), loader.model_facts(a.model)))
+            except (OSError, ValueError, KeyError) as e:
+                print(f"[server] warning: the voice functions were not loaded before the model ({e})", flush=True)
         try:
             started_from = loader.system_now()            # RAM and commit before the engine starts
             engine = ProcessEngine(cfg["engine_bin"], engine_args(cfg) + gwords, log=cfg.get("log"), env=env,
@@ -379,7 +384,7 @@ def main() -> int:
     except KeyboardInterrupt:
         print("[server] stopping (Ctrl+C again to force)", flush=True)
     engine = svc.engine
-    closers = [stop_sessions, (lambda: svc.avatar_on_request.shutdown() if getattr(svc, "avatar_on_request", None) else None), (lambda: svc.vram_broker.shutdown() if getattr(svc, "vram_broker", None) else None), svc.stop, (lambda: svc.remote.close() if getattr(svc, "remote", None) else None), httpd.shutdown, getattr(engine, "close", None), svc.vision.close if svc.vision else None]
+    closers = [stop_sessions, (lambda: svc.avatar_on_request.shutdown() if getattr(svc, "avatar_on_request", None) else None), (lambda: svc.voice_lend.shutdown() if getattr(svc, "voice_lend", None) else None), (lambda: svc.vram_broker.shutdown() if getattr(svc, "vram_broker", None) else None), svc.stop, (lambda: svc.remote.close() if getattr(svc, "remote", None) else None), httpd.shutdown, getattr(engine, "close", None), svc.vision.close if svc.vision else None]
     for close in filter(None, closers):
         try:
             close()

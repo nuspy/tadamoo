@@ -130,14 +130,26 @@ def with_projectors(facts: dict) -> dict:
     return {**facts, "projectors": models.projector_files()}
 
 
-def evaluate(svc, values: dict, lang: str = "en", model: str | None = None) -> dict:
+def evaluate(svc, values: dict, lang: str = "en", model: str | None = None, voice_commit: int | None = None) -> dict:
     """The plan and speed of `values` ({"engine.kv": "q4_0", ...}; None = the engine's default) against now, for the
-    running model or `model` (a .basalt file)."""
+    running model or `model` (a .basalt file). The voice functions that load before the model take commit too: `voice_commit` bytes
+    (by default what voice_loader.pending_commit says) are counted as in use already."""
     sup = sup_of(svc)
     facts = with_projectors(facts_of(svc, model))
     holds, holds_vram = _holds(svc, sup)
     system = loader.system_now(getattr(svc, "gpu_index", 0))
+    if voice_commit is None:
+        from serve import voice_loader
+        voice_commit = voice_loader.pending_commit(svc)
+    seen = system
+    if voice_commit and system.get("commit_used") is not None:
+        system = {**system, "commit_used": system["commit_used"] + voice_commit}
     p = loader.plan(values, facts, system, holds, holds_vram)
+    if voice_commit:
+        p["voice_commit"] = voice_commit
+        for x in p["problems"]:
+            if x["code"] == "commit":
+                x["voice"] = voice_commit
     p["model"] = {k: v for k, v in facts.items() if k != "path"} | {"path": facts.get("path")}
     mode = str(p["values"].get("server.vision"))
     p["vision_gpu"] = {"index": int(mode), "name": hardware.gpu_name(mode)} if mode.isdigit() else None
@@ -147,7 +159,7 @@ def evaluate(svc, values: dict, lang: str = "en", model: str | None = None) -> d
     p["speed"] = loader.predict_speed(p, cal)
     p["problems"] = [{**x, "text": loader.problem_text(x, "en"), "text_it": loader.problem_text(x, "it")}
                      for x in p["problems"]]
-    p["system"] = system
+    p["system"] = seen
     return p
 
 
@@ -252,13 +264,23 @@ def load(svc, req: dict, voice_done: bool = False) -> dict:
                                       "message": ", ".join(f"--{n.split('.', 1)[1]}" for n in refused)
                                       + ": this engine binary does not know the flag; build the engine again or leave the field empty"}})
     running = (getattr(svc, "settings_info", None) or {}).get("model")
-    if not voice_done and (model is None or _same(model, running)) and (running or sup.mock):       # a different model ends this server: the service is not touched
+    force = isinstance(req, dict) and bool(req.get("force"))
+    mine = model is None or _same(model, running)
+    voice_commit = None if mine else 0                  # a different model ends this server: the voice functions are not touched
+    if not voice_done and mine and (running or sup.mock):
         from serve import voice_loader
+        extra = 0 if force else voice_loader.pending_commit(svc)
+        if extra:                                       # the functions would take commit first: refuse before anything loads
+            early = evaluate(svc, merged, model=model, voice_commit=extra)
+            short = [x for x in early["problems"] if x["code"] == "commit"]
+            if short:
+                raise Refused(422, {"error": {"type": "insufficient_memory", "code": "does_not_fit",
+                                              "message": " ".join(x["text"] for x in short)},
+                                    "problems": short, "plan": early})
         first = voice_loader.before_load(svc, req)
         if first is not None:
             return first
-    p = evaluate(svc, merged, model=model)
-    force = isinstance(req, dict) and bool(req.get("force"))
+    p = evaluate(svc, merged, model=model, voice_commit=voice_commit)
     if not p["fits"] and not force:
         raise Refused(422, {"error": {"type": "insufficient_memory", "code": "does_not_fit",
                                       "message": " ".join(x["text"] for x in p["problems"])},
@@ -299,6 +321,23 @@ def load(svc, req: dict, voice_done: bool = False) -> dict:
         notes.append("port_on_restart")                 # the HTTP server keeps its port until it starts again
     return {"status": "reloading", "changed": result["changed"], "values": result["values"], "plan": p,
             "notes": notes}
+
+
+def autoload(svc) -> dict:
+    """POST /api/loader/autoload: the Load with the Machine Default (else the default load profile): its voice functions are written to
+    voice.json and, as for any Load, they load first and the model after. The Load's own answer with `profile`; Refused as `load` refuses."""
+    from serve import profiles
+    facts = sup_of(svc).facts
+    name = profiles.MACHINE_NAME if profiles.get_load(profiles.MACHINE_NAME) is not None else profiles.default_name()
+    values = profiles.get_load(name, facts)
+    if values is None:
+        raise Refused(404, {"error": {"type": "invalid_request_error", "code": "no_profile", "message": f"there is no load profile named {name!r}"}})
+    req = {"values": {k: v for k, v in values.items() if k in FIELD_NAMES}}
+    model = profiles.get_model(name)
+    if model:
+        req["model"] = model
+    profiles.change({"action": "use", "name": name})
+    return {**load(svc, req), "profile": name}
 
 
 # ------------------------------------------------------------------------------------------------ the wizard

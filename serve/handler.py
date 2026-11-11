@@ -1490,7 +1490,7 @@ def make_handler(svc: Service, remote: bool = False):
 
         def _loader_post(self, what: str):
             """POST /api/loader/plan | load | calibrate, as JSON (and with the API key, if set).
-            From any client; the server loads from its own disks."""
+            From any client; the server loads from its own disks. `autoload` (the Machine Default, voice functions first) is this PC's only."""
             try:                                            # read first: a refusal then reaches the client whole
                 raw = self._body(settings.BODY_MAX)
             except BadBody as e:
@@ -1500,7 +1500,7 @@ def make_handler(svc: Service, remote: bool = False):
             if len(parts) == 3 and parts[0] == "engines":
                 self._engine_post(parts[1], parts[2], raw)
                 return
-            if what not in ("plan", "load", "calibrate", "length"):
+            if what not in ("plan", "load", "calibrate", "length", "autoload"):
                 self._json(404, {"error": {"message": "not found"}})
                 return
             try:
@@ -1516,6 +1516,13 @@ def make_handler(svc: Service, remote: bool = False):
                 elif what == "load":
                     engine_host.HOST.stop()                  # Basalt-Plus's engine takes the GPU back from another one
                     out = loader_api.load(svc, req)
+                    self._json(200 if out.get("status") == "saved" else 202, out)
+                elif what == "autoload":
+                    if self.remote_listener or not settings.is_loopback(self.client_address[0]):
+                        self._json(403, {"error": {"type": "forbidden", "message": "the automatic load is asked for only from the PC the server runs on"}})
+                        return
+                    engine_host.HOST.stop()
+                    out = loader_api.autoload(svc)
                     self._json(200 if out.get("status") == "saved" else 202, out)
                 elif what == "length":
                     sup = loader_api.sup_of(svc)

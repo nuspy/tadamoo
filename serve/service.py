@@ -71,6 +71,14 @@ STANDBY_MESSAGE = ("no model is loaded yet: choose one in the Loader (the web pa
                    "and press Load")
 
 
+def voice_first(svc) -> None:
+    """Before any start of the model's engine: the voice functions that load at the Load load first (serve/voice_loader.py). A mock engine has
+    nothing to start, so it leaves the voice service alone."""
+    if hasattr(svc.engine, "restart"):
+        from serve import voice_loader
+        voice_loader.ensure_first(svc)
+
+
 class Service:
     loading = booting = False                      # a load or wake runs; the start-up load runs
     load_kind = "weights"                               # what the running load is: "weights" or "wake"
@@ -321,6 +329,7 @@ class Service:
             self._wake()
         if self.loaded() and not self._vision_down():
             return
+        voice_first(self)
         if self.before_load:
             cmd = self.before_load
             print(f"[server] before_load: {cmd if isinstance(cmd, str) else ' '.join(map(str, cmd))}", flush=True)
