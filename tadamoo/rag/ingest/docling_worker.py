@@ -7,8 +7,9 @@ Lines:  {"event": "start", "format", "pages"}  {"event": "progress", "page", "pa
 
 A block is `{type: heading|paragraph|list|table|code|caption|footnote|page_break, text, page, level?}`, a table as Markdown. A big PDF is
 converted in windows of `--window` pages, so the memory a page needs is given back before the next window. The device is chosen by asking the
-server for VRAM first (a lease, tadamoo/vram_lease.py): with the lease the GPU is used, without it the CPU. Closing stdin ends the work. Nothing
-here imports the rest of TaDaMoo but the standard-library lease client, which is read by its path."""
+server for VRAM first (a lease, tadamoo/vram_lease.py): with the lease the GPU is used, without it the CPU. Closing stdin ends the work: a thread
+looks at the pipe twice a second without ever blocking on it (a thread blocked on stdin keeps the main thread from loading a DLL on Windows).
+Nothing here imports the rest of TaDaMoo but the standard-library lease client, which is read by its path."""
 from __future__ import annotations
 
 import argparse
@@ -17,6 +18,7 @@ import json
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 
 DOCLING_MIB = 3000
@@ -36,13 +38,26 @@ def lease_client():
     return module
 
 
+def stdin_closed() -> bool:
+    """Whether the other end of stdin is gone, asked without waiting for anything to be written."""
+    try:
+        if os.name == "nt":
+            import ctypes
+            import msvcrt
+            handle = ctypes.c_void_p(msvcrt.get_osfhandle(sys.stdin.fileno()))
+            available = ctypes.c_ulong(0)
+            return not ctypes.windll.kernel32.PeekNamedPipe(handle, None, 0, None, ctypes.byref(available), None)
+        import select
+        readable, _, _ = select.select([sys.stdin], [], [], 0)
+        return bool(readable) and not sys.stdin.buffer.peek(1)
+    except Exception:
+        return False
+
+
 def watch_stdin(stop: threading.Event) -> None:
     """A closed stdin is the order to stop."""
-    try:
-        while sys.stdin.read(1):
-            pass
-    except Exception:
-        pass
+    while not stdin_closed():
+        time.sleep(0.5)
     stop.set()
     os._exit(3)
 
@@ -133,7 +148,6 @@ def main() -> int:
     parser.add_argument("--cpu", action="store_true")
     args = parser.parse_args()
     stop = threading.Event()
-    threading.Thread(target=watch_stdin, args=(stop,), daemon=True).start()
     lease = None
     device = "cpu"
     try:
@@ -145,9 +159,10 @@ def main() -> int:
             except Exception:
                 lease, device = None, "cpu"
         pdf = args.format.lower() == ".pdf"
+        converter = build_converter(device)                    # the libraries first: the PDF library loaded before them stops numpy from loading
         pages = page_count(args.file) if pdf else 0
         emit({"event": "start", "format": args.format, "pages": pages, "device": device})
-        converter = build_converter(device)
+        threading.Thread(target=watch_stdin, args=(stop,), daemon=True).start()
         windows = [(a, min(a + args.window - 1, pages)) for a in range(1, pages + 1, args.window)] if pdf and pages > args.window else [None]
         total = 0
         for window in windows:

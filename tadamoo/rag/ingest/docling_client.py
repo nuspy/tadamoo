@@ -125,7 +125,7 @@ def read(python: str, path: Path, ext: str, progress: Optional[Progress] = None,
         except OSError:
             pass
         try:
-            proc.wait(timeout=5)
+            proc.wait(timeout=3)
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=5)
