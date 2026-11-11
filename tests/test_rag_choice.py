@@ -143,7 +143,7 @@ def test_the_model_lists_attaches_drops_and_searches(tmp_path):
 
 def config(tmp_path, **more):
     (tmp_path / "w").mkdir(exist_ok=True)
-    return dict(workspace=str(tmp_path / "w"), data_dir=str(tmp_path / "d"), use_memory=False, use_checkpoints=False, rag_dir=str(tmp_path / "rag"), rag_project=HERE, **more)
+    return dict(workspace=str(tmp_path / "w"), data_dir=str(tmp_path / "d"), use_memory=False, use_checkpoints=False, rag_dir=str(tmp_path / "rag"), endpoint="http://127.0.0.1:9", rag_project=HERE, **more)
 
 
 def test_the_harness_offers_the_tools_and_says_so_in_its_self_description(tmp_path):

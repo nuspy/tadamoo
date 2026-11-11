@@ -33,6 +33,7 @@ from tadamoo.rag.ingest import chunker, extraction_of, formats, normalize, read_
 from tadamoo.rag.project import is_key
 from tadamoo.rag.settings import RagSettings
 
+SPEAK = ("ask", "allow", "deny")          # may an archive's content be spoken before other people: ask each time, always, never
 LIMITS = {"name": 60, "description": 500, "archives": 50, "documents": 1000, "document_bytes": 200 << 20, "document_chars": 40_000_000, "chunks": 200_000, "top_k": 20}
 TOP_K = 4
 ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
@@ -72,6 +73,11 @@ def _extraction(meta: Dict[str, Any]) -> str:
     return "" if not kinds else kinds.pop() if len(kinds) == 1 else "mixed"
 
 
+def speak_of(meta: Dict[str, Any]) -> str:
+    """Whether the archive's content may be spoken before other people: `ask` (the default), `allow` or `deny`."""
+    return meta["speak_ok"] if meta.get("speak_ok") in SPEAK else "ask"
+
+
 def _copy(meta: Dict[str, Any]) -> Dict[str, Any]:
     return json.loads(json.dumps(meta))
 
@@ -103,6 +109,7 @@ class RagStore:
         self.forbidden = [Path(p).resolve() for p in forbidden]
         self._lock = threading.RLock()
         self._cache: Dict[str, Tuple[int, Archive]] = {}
+        self._metas_cache: Dict[str, Tuple[int, Dict[str, Any]]] = {}
 
     def embedder(self) -> Optional[Embedder]:
         try:
@@ -133,6 +140,7 @@ class RagStore:
     def _put_meta(self, folder: Path, meta: Dict[str, Any]) -> None:
         self._put(folder / "meta.json", json.dumps(meta, indent=1, ensure_ascii=False))
         self._cache.pop(folder.name, None)
+        self._metas_cache.pop(folder.name, None)
 
     @staticmethod
     def _read_meta(folder: Path) -> Dict[str, Any]:
@@ -145,6 +153,19 @@ class RagStore:
         if not isinstance(meta, dict) or not isinstance(meta.get("documents"), list) or meta.get("id") != folder.name:
             raise RagError("the archive file is damaged")
         return meta
+
+    def meta(self, aid: Any) -> Dict[str, Any]:
+        """The meta of an archive alone (no passages, no vectors): what a process needs to know whether it exists and what it allows."""
+        folder = self._dir(aid)
+        with self._lock:
+            meta_file = folder / "meta.json"
+            stamp = meta_file.stat().st_mtime_ns if meta_file.is_file() else 0
+            cached = self._metas_cache.get(aid)
+            if cached and cached[0] == stamp:
+                return cached[1]
+            meta = self._read_meta(folder)
+            self._metas_cache[aid] = (stamp, meta)
+            return meta
 
     def load(self, aid: Any) -> Archive:
         """The archive with its passages and vectors, kept in memory until it changes."""
@@ -217,7 +238,7 @@ class RagStore:
                 "rechunk": bool(meta["documents"]) and meta.get("ingest") != INGEST}
 
     def _summary(self, meta: Dict[str, Any]) -> Dict[str, Any]:
-        return {"id": meta["id"], "name": meta["name"], "description": meta["description"], "project": meta.get("project", ""), "project_name": meta.get("project_name", ""), "cloud_ok": bool(meta.get("cloud_ok")), "created": meta["created"],
+        return {"id": meta["id"], "name": meta["name"], "description": meta["description"], "project": meta.get("project", ""), "project_name": meta.get("project_name", ""), "cloud_ok": bool(meta.get("cloud_ok")), "speak_ok": speak_of(meta), "created": meta["created"],
                 "updated": meta["updated"], "documents": len(meta["documents"]), "chunks": meta["chunks"], "bytes": sum(d["bytes"] for d in meta["documents"]),
                 "flagged": sum(d.get("flagged", 0) for d in meta["documents"]), "extraction": _extraction(meta), **self.status(meta)}
 
@@ -273,13 +294,13 @@ class RagStore:
             aid = f"{slug_of(name) or 'archive'}-{secrets.token_hex(3)}"
             now = self.clock()
             meta = {"id": aid, "name": name, "description": description, "project": project, "project_name": str(project_name or "").strip()[:LIMITS["name"]],
-                    "cloud_ok": False, "created": now, "updated": now, "chunks": 0,
+                    "cloud_ok": False, "speak_ok": "ask", "created": now, "updated": now, "chunks": 0,
                     "embed_model": "", "embed_dim": 0, "embed_version": "", "ingest": dict(INGEST), "documents": []}
             self._put_meta(self._dir(aid), meta)
             return self.get(aid)
 
     def update(self, aid: Any, data: Dict[str, Any]) -> Dict[str, Any]:
-        extra = [k for k in data if k not in ("name", "description", "cloud_ok")]
+        extra = [k for k in data if k not in ("name", "description", "cloud_ok", "speak_ok")]
         if extra:
             raise RagError("unknown field: " + ", ".join(sorted(map(str, extra))[:5]))
         with self._lock:
@@ -295,6 +316,10 @@ class RagStore:
                 if not isinstance(data["cloud_ok"], bool):
                     raise RagError("cloud_ok: true or false")
                 meta["cloud_ok"] = data["cloud_ok"]
+            if "speak_ok" in data:
+                if data["speak_ok"] not in SPEAK:
+                    raise RagError("speak_ok: ask, allow or deny")
+                meta["speak_ok"] = data["speak_ok"]
             meta["updated"] = self.clock()
             self._put_meta(folder, meta)
             return self.get(aid)
@@ -306,6 +331,7 @@ class RagStore:
             folder, meta = self._dir(aid), self.load(aid).meta
             shutil.rmtree(folder)
             self._cache.pop(aid, None)
+            self._metas_cache.pop(aid, None)
             return {"deleted": True, "documents": len(meta["documents"])}
 
     # -- the documents ---------------------------------------------------------------------------
@@ -537,6 +563,19 @@ class RagStore:
         from tadamoo.rag.query import run
         if not isinstance(query, str):
             raise RagError("query: the text of the question")
+        top_k = max(1, min(int(top_k), LIMITS["top_k"]))
+        if self.remote is not None:                        # the archives are only checked to exist (their meta); the server holds their passages
+            there = []
+            for aid in ids:
+                try:
+                    there.append(self.meta(aid)["id"])
+                except RagError:
+                    if strict:
+                        raise
+            try:
+                return self.remote(there, query.strip()[:2000], top_k, min_share)
+            except Exception:                              # the server that holds the embedder does not answer: words alone
+                pass
         loaded = []
         for aid in ids:
             try:
@@ -544,9 +583,4 @@ class RagStore:
             except RagError:
                 if strict:
                     raise
-        if self.remote is not None:
-            try:
-                return self.remote([a.meta["id"] for a in loaded], query.strip()[:2000], max(1, min(int(top_k), LIMITS["top_k"])), min_share)
-            except Exception:                              # the server that holds the embedder does not answer: words alone
-                pass
-        return run(loaded, self.embedder(), query.strip()[:2000], max(1, min(int(top_k), LIMITS["top_k"])), min_share, self.settings.read())
+        return run(loaded, self.embedder(), query.strip()[:2000], top_k, min_share, self.settings.read())

@@ -91,7 +91,7 @@ def persona_store(tmp_path):
 def config(tmp_path, **more):
     (tmp_path / "w").mkdir(exist_ok=True)
     return dict(workspace=str(tmp_path / "w"), data_dir=str(tmp_path / "d"), use_memory=False, use_checkpoints=False, personas_dir=str(tmp_path / "personas"),
-                personal_memory_keys=str(tmp_path / KEY_DIR), rag_dir=str(tmp_path / "rag"), rag_project=PROJ, **more)
+                personal_memory_keys=str(tmp_path / KEY_DIR), rag_dir=str(tmp_path / "rag"), endpoint="http://127.0.0.1:9", rag_project=PROJ, **more)
 
 
 def test_only_the_archives_of_the_project_are_searched(tmp_path):
