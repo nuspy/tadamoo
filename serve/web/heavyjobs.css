@@ -1,0 +1,17 @@
+/* Heavy jobs: the three levels in Settings and the question a job asks. Colours are the app's own variables. */
+.hv-levels { margin: 0 0 12px; padding: 0; border: 0; display: flex; flex-direction: column; gap: 6px; }
+.hv-levels legend { padding: 0; margin-bottom: 6px; font-weight: 600; }
+.hv-level { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.hv-level input { width: 20px; height: 20px; margin-top: 2px; flex: none; }
+.hv-level b { display: block; }
+.hv-level .help { display: block; margin: 2px 0 0; }
+#hv-provider { width: 100%; min-height: 44px; padding: 6px 10px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font: 400 16px/1.5 var(--font-sans); }
+
+.hv-dialog { width: min(560px, 96vw); max-height: calc(94vh / var(--z, 1)); padding: 0; border: 1px solid var(--warn); border-radius: 8px; background: var(--panel); color: var(--fg); overflow: auto; }
+.hv-dialog::backdrop { background: rgba(0, 0, 0, .65); }
+.hv-dialog :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hv-form { display: flex; flex-direction: column; gap: 10px; padding: 16px 20px 20px; }
+.hv-form h2 { margin: 0; font: 600 17px/1.3 var(--font-sans); }
+.hv-form p { margin: 0; line-height: 1.5; }
+.hv-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.hv-actions .btn { min-height: 44px; }
