@@ -14,7 +14,8 @@ option names are Strata's (`Avvia-Strata.ps1`), each with one or two dashes and 
 
 * **Three modes.** `-gui` (the default, no option) opens `tools\windows\desktop\publish\TaDaMoo.exe` (an older `TaDaMoo.exe` is used when it is the
   only one built) with
-  `--config`, `--model`, `--port`, `--vram-libera` and `--file`, prints the address and does not open the browser;
+  `--config`, `--model`, `--port`, `--vram-libera` and `--file` (and `--load` when `-load` is given: see "Load at start" below),
+  prints the address and does not open the browser;
   when the app is not built it prints `dotnet publish tools\windows\desktop -c Release -o tools\windows\desktop\publish`
   and falls back to `-browser`. `-browser` is the server tied to the script's window with the UI in the browser.
   `-server` is the server alone, detached, without app or browser, for agents: the script returns once `/health`
@@ -121,7 +122,7 @@ header scan `models-scan.json`, the job logs `models-jobs\`, and per model the u
 * **The desktop app** `tools\windows\desktop` (`dotnet publish -c Release -o publish`, .NET 8, WebView2) builds
   `TaDaMoo.exe` (window title, tray and dialogs "TaDaMoo Win+GUI"; the file name differs from the engine's
   `basalt.exe` on purpose; the icon `tadamoo.ico` is also the web page's favicon; options
-  `--config`, `--model`, `--port`, `--vram-libera`, `--file`, `--lang it|en`, as the script; its texts and WebView2's
+  `--config`, `--model`, `--port`, `--vram-libera`, `--file`, `--load`, `--lang it|en`, as the script; its texts and WebView2's
   language follow `--lang` > `TADAMOO_LANG` > `prefs.json` > English, never the Windows display language). It starts `bin\basalt.exe serve --config
   tadamoo_config.json --standby --relaunch-on-model-change` in its kill-on-close job without a console window (a new
   installation gets a config file without a model) and opens the web Loader in its window: the command line's profile,
@@ -134,12 +135,18 @@ header scan `models-scan.json`, the job logs `models-jobs\`, and per model the u
   check, Avvia / Avvia solo server) as a fallback. Without WebView2 the page opens in the default browser. Closing the
   window hides it to the notification area (the window's place and size, and whether it was maximized, are kept in
   `desktop.json` and used at the next start; a place that no screen shows any more falls back to the centre); the icon's menu has Open, Reload with other settings… (the Loader), Start
-  the server alone (for agents)… and Turn off (unload, end the job, report the RAM freed). A second start brings the
+  the server alone (for agents)…, the check "Load the Machine Default at start" (`autoload` in `desktop.json`) and Turn off (unload, end the job, report the RAM freed). A second start brings the
   first window to the front; when a TaDaMoo server already runs it offers "Connect to the running server" or "Change
   model" (stops only that server's tree with `Ferma-TaDaMoo.ps1 --port N`, then opens the Loader). Hidden test
   options: `--test-mock` (the mock engine on port 7288), `--test-screenshot FILE`, `--test-exit`, `--test-no-wizard`,
   `--test-fallback`, `--test-folder-prompt [--test-models-dir DIR]`, `--test-no-webview`, `--test-window` (with `--test-mock`: keep
   the window's place and size in the test state file).
+* **Load at start.** The app starts the server in standby and, after a restart, nothing loads until Load is pressed. With `--load` (the script's
+  `-gui -load`), or with the icon's check "Load the Machine Default at start" ticked (kept as `autoload` in `desktop.json`), the app calls
+  `POST /api/loader/autoload` once `/health` answers, and then shows the Loader as always. The route (this PC only) writes the Machine Default's
+  voice functions to `voice.json` (the default load profile when there is no Machine Default) and runs the Loader's Load: the voice functions
+  first, then the model ([voice/loading.md](voice/loading.md)). It is tried once per start of the app: a refusal (not enough commit, no model, a
+  job running) is shown in a message box with its plain reason and nothing is asked again.
 
 ### For agents
 
