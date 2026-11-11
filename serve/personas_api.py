@@ -8,6 +8,7 @@ import re
 from typing import Any, Dict, Optional
 
 from serve.memories_api import MemoriesApi
+from tadamoo import persona_presets as presets
 from tadamoo import personas as pe
 from tadamoo.personal_memory import INFERRED_SECTIONS, LONG_SECTIONS, SHORT_SECTIONS, PersonalMemoryError
 
@@ -33,6 +34,10 @@ class PersonasApi:
     def overview(self) -> Dict[str, Any]:
         return {"personas": [self._summary(p) for p in self.store.list()], "limits": pe.LIMITS, "max": pe.MAX_PERSONAS}
 
+    def names(self) -> Dict[str, Any]:
+        """What a phone's menu needs: each personality's slug and name, and whether it has an avatar (else it is a colleague for the work)."""
+        return {"personas": [{"slug": p["slug"], "name": p["name"], "kind": "avatar" if p["avatar"] else "colleague"} for p in self.store.list()]}
+
     def get(self, slug: str, query: str = "", kind: str = "", section: str = "") -> Dict[str, Any]:
         persona = self.store.get(slug)
         memory = self.store.memory(slug)
@@ -50,6 +55,9 @@ class PersonasApi:
 
     def update(self, slug: str, req: Dict[str, Any]) -> Dict[str, Any]:
         return {"persona": self.store.update(slug, req)}
+
+    def presets(self) -> Dict[str, Any]:
+        return presets.add_missing(self.store)
 
     def delete(self, slug: str, req: Dict[str, Any]) -> Dict[str, Any]:
         return self.store.delete(slug, req.get("confirm"))

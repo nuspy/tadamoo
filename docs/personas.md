@@ -1,7 +1,7 @@
 # Personalities
 
 A personality gives a conversation a name, a manner of speaking and a memory of its own. It is made in Settings > Personalities and chosen
-from a menu in the header of Chat and Code.
+from a menu in the header of Chat and Code, and from a small menu in the bar of a conversation in the phone's app. The menus show two groups: the personalities with an avatar and the colleagues (without one); the ready-made colleagues (critic, analyst, exact, sceptic, pragmatic, brief) are added with one button on the page and can be edited or deleted like any other.
 
 ## What a personality holds
 
@@ -114,6 +114,8 @@ All under `/api/personas`, from this PC only (403 otherwise). callAPIcall's `/pe
 | `POST /api/personas/<slug>/memory/<item\|confirm\|delete\|clear\|forget-learned>` | the notes (`clear` and `forget-learned` need `confirm: true`) |
 | `POST /api/personas/<slug>/learn` | `{conversation, messages: [{role, text}]}` from the model-only chat; `{queued}` |
 | `POST /api/personas/<slug>/compose` | `{goal}` returns `{system, memory}` for a conversation without a harness |
+| `POST /api/personas/presets` | makes the ready-made colleagues that are not there yet (`tadamoo/persona_presets.py`: no avatar, no voice, no learning); `{added, kept}` |
+| `GET /api/persona-names` | `{personas: [{slug, name, kind}]}`, `kind` `avatar` or `colleague` (no avatar); also for a phone with its key: the menu of its chat |
 
 ## Code
 

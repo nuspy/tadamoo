@@ -18,6 +18,7 @@
 .pe-pname { overflow-wrap: anywhere; font-weight: 600; }
 .pe-pcount { font-size: 13px; color: var(--fg-2); white-space: nowrap; }
 .pe-newbtn { width: 100%; }
+.pe-newbtn + .pe-newbtn { margin-top: 8px; }
 .pe-form { display: grid; gap: 12px; margin: 0 0 20px; }
 .pe-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; }
 .pe-row .pe-field { flex: 1 1 220px; }

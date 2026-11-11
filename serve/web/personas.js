@@ -42,11 +42,19 @@
     const now = current(), view = document.body.dataset.view;
     label.hidden = denied || !(view === "chat" || view === "agent") || !(list.length || now);
     if (label.hidden) return;
-    const options = [["", T("pe.none")], ...list.map(p => [p.slug, p.name])];
-    if (now && !list.some(p => p.slug === now)) options.push([now, T("pe.gone", now)]);
-    const sig = JSON.stringify(options);
+    const option = ([value, text]) => { const o = el("option", "", text); o.value = value; return o; };
+    const avatars = list.filter(p => p.avatar).map(p => [p.slug, p.name]), colleagues = list.filter(p => !p.avatar).map(p => [p.slug, p.name]);
+    const gone = now && !list.some(p => p.slug === now) ? [[now, T("pe.gone", now)]] : [];
+    const groups = [[T("pe.group.avatars"), avatars], [T("pe.group.colleagues"), colleagues]].filter(g => g[1].length);
+    const sig = JSON.stringify([groups, gone]);
     if (sel.dataset.sig !== sig) {                                    // rebuilt only when the list changed: a menu being used stays open
-      sel.replaceChildren(...options.map(([value, text]) => { const o = el("option", "", text); o.value = value; return o; }));
+      const kids = [option(["", T("pe.none")])];
+      groups.forEach(([title, items]) => {                            // with avatars and colleagues both, each has its own heading
+        if (groups.length < 2) { kids.push(...items.map(option)); return; }
+        const g = el("optgroup"); g.label = title; g.append(...items.map(option)); kids.push(g);
+      });
+      kids.push(...gone.map(option));
+      sel.replaceChildren(...kids);
       sel.dataset.sig = sig;
     }
     if (document.activeElement !== sel) sel.value = now;
@@ -318,7 +326,12 @@
       li.append(b); ul.append(li);
     });
     side.append(el("h3", "pe-h2", T("pe.list.title")), list.length ? ul : el("p", "pe-help", T("pe.list.none")),
-      btn(T("pe.new"), "primary pe-newbtn", () => { creating = true; chosen = ""; detail = null; say("", false); paint(); }));
+      btn(T("pe.new"), "primary pe-newbtn", () => { creating = true; chosen = ""; detail = null; say("", false); paint(); }),
+      btn(T("pe.presets"), "pe-newbtn", async () => {
+        const r = await api("POST", "api/personas/presets", {});
+        say(r.ok ? T("pe.presets.done", (r.data.added || []).length, (r.data.kept || []).length) : why(r), !r.ok);
+        await refresh();
+      }));
     return side;
   }
   function paint() {

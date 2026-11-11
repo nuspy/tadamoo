@@ -255,6 +255,27 @@ class Routes(unittest.TestCase):
         self.assertEqual(self.call("POST", "/api/personas/route-test/delete", {"confirm": True})[1]["deleted"], True)
         self.assertEqual(self.call("GET", "/api/personas/route-test")[0], 404)
 
+    def test_the_ready_made_colleagues_are_added_once_and_cleaned_up_here(self):
+        status, first = self.call("POST", "/api/personas/presets", {})
+        self.assertEqual(status, 200)
+        self.assertEqual(len(first["added"]), 6)
+        self.assertEqual(self.call("POST", "/api/personas/presets", {})[1], {"added": [], "kept": first["added"]})
+        slugs = [p["slug"] for p in self.call("GET", "/api/personas")[1]["personas"]]
+        for slug in slugs:
+            self.assertEqual(self.call("POST", f"/api/personas/{slug}/delete", {"confirm": True})[0], 200)
+
+    def test_the_names_for_a_phone_menu_carry_no_text_and_tell_avatars_from_colleagues(self):
+        self.call("POST", "/api/personas", {"name": "Names Avatar", "avatar": "x", "personality": "SECRET WORDS"})
+        self.call("POST", "/api/personas", {"name": "Names Colleague", "system_prompt": "SECRET RULES"})
+        status, body = self.call("GET", "/api/persona-names")
+        self.assertEqual(status, 200)
+        rows = {r["slug"]: r for r in body["personas"]}
+        self.assertEqual((rows["names-avatar"]["kind"], rows["names-colleague"]["kind"]), ("avatar", "colleague"))
+        self.assertEqual(set(rows["names-avatar"]), {"slug", "name", "kind"})
+        self.assertNotIn("SECRET", json.dumps(body))
+        for slug in ("names-avatar", "names-colleague"):
+            self.call("POST", f"/api/personas/{slug}/delete", {"confirm": True})
+
     def test_bad_requests_and_unknown_things(self):
         self.assertEqual(self.call("GET", "/api/personas/..%2F..%2Fx")[0], 404)
         self.assertEqual(self.call("GET", "/api/personas/nobody")[0], 404)
@@ -265,7 +286,7 @@ class Routes(unittest.TestCase):
     def test_only_this_pc_reaches_them(self):
         with mock.patch.object(handler.settings, "is_loopback", lambda address: False):
             for method, path in (("GET", "/api/personas"), ("GET", "/api/personas/x"), ("POST", "/api/personas"), ("POST", "/api/personas/x/compose"),
-                                 ("POST", "/api/personas/x/memory/item"), ("POST", "/api/personas/x/learn"), ("POST", "/api/personas/x/memory/forget-learned")):
+                                 ("POST", "/api/personas/x/memory/item"), ("POST", "/api/personas/x/learn"), ("POST", "/api/personas/x/memory/forget-learned"), ("POST", "/api/personas/presets")):
                 status, _ = self.call(method, path, {} if method == "POST" else None)
                 self.assertEqual(status, 403, path)
 
@@ -337,3 +358,17 @@ def test_the_change_is_kept_and_told_to_the_running_conversation(tmp_path):
         assert s.mgr.get(sid)["persona"] == "maria"
     finally:
         s.mgr.shutdown()
+
+
+def test_the_colleagues_have_no_avatar_or_voice_do_not_learn_and_an_existing_one_is_left_alone(tmp_path):
+    from tadamoo import persona_presets
+    st = store(tmp_path)
+    st.create({"name": "Il Critico", "personality": "Mine."})                      # the person's own, with the same name
+    done = persona_presets.add_missing(st)
+    assert done["kept"] == ["Il Critico"] and len(done["added"]) == 5
+    assert st.get("il-critico")["personality"] == "Mine."
+    for p in st.list():
+        if p["slug"] != "il-critico":
+            assert (p["avatar"], p["voice"], p["learn"]) == ("", {"engine": "", "voice": ""}, False)
+            assert p["personality"] and p["system_prompt"]
+    assert {slug for slug in (persona_presets.slug_of(c["name"]) for c in persona_presets.COLLEAGUES)} == {p["slug"] for p in st.list()}

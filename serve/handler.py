@@ -704,6 +704,11 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/personas" or path.startswith("/api/personas/"):
                 if self._authorized():
                     self._personas_get(path)
+            elif path == "/api/persona-names":                                  # the menu of a phone's chat: names and kind only, never what a personality says
+                if self._authorized():
+                    if not self._local_or_device():
+                        return self._json(403, {"error": {"type": "forbidden", "message": "the names of the personalities are shown on this PC and to a phone with its key"}})
+                    self._json(200, self._personas().names())
             elif path == "/api/rag" or path.startswith("/api/rag/"):
                 if self._authorized():
                     self._rag_route(path, "GET")
@@ -2708,6 +2713,8 @@ def make_handler(svc: Service, remote: bool = False):
                 api, parts = self._personas(), [p for p in path[len("/api/personas"):].split("/") if p]
                 if not parts:
                     return self._json(200, api.create(req))
+                if parts == ["presets"]:
+                    return self._json(200, api.presets())
                 if len(parts) == 2 and parts[1] == "update":
                     return self._json(200, api.update(parts[0], req))
                 if len(parts) == 2 and parts[1] == "delete":
