@@ -1,10 +1,10 @@
 """The knowledge archives: a folder of the user data, `rag/<id>/`, for each.
 
     meta.json         name, description, the project it belongs to (a key, tadamoo/rag/project.py, and its name as it was when the archive was made), the documents, how many passages, the embedding model
-                      of the vectors (empty: text only)
+                      of the vectors with their size and version (`embed_model` empty: text only)
     chunks.jsonl      one passage per line: {"doc", "n", "text", "path", "page_start", "page_end", "kind", "section", "flag"?}
     sections.jsonl    one section per line, to expand a hit to the part of the document it came from: {"doc", "id", "parent", "path", "page_start", "page_end", "text"}
-    embeddings.npy    float32, one L2-normalized row per passage, present only when every passage has one
+    embeddings.npy    float16, one L2-normalized row per passage (read back as float32 and normalized again), present only when every passage has one
     blocks/<doc>.json.gz   the blocks read from each document, before cleaning, so an archive can be cut again without the original or a new reading
 
 The files are written to a temporary name and renamed; `meta.json` goes last. Nothing outside `rag/` is reachable: an archive id is a plain
@@ -27,7 +27,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from tadamoo.rag import search as ranking
-from tadamoo.rag.embed import Embedder, EmbedderProvider, embed_all, no_embedder
+from tadamoo.rag.embed import Embedder, EmbedderProvider, compatible, embed_all, no_embedder, normalize as unit_rows
 from tadamoo.rag.errors import RagError
 from tadamoo.rag.ingest import chunker, extraction_of, formats, normalize, read_document
 from tadamoo.rag.project import is_key
@@ -99,6 +99,7 @@ class RagStore:
         self.root = Path(root)
         self.settings = RagSettings(self.root)
         self.provider, self.clock = embedder, clock
+        self.remote: Optional[Callable[[List[str], str, int, float], Dict[str, Any]]] = None      # a process with no embedder asks the server's store instead
         self.forbidden = [Path(p).resolve() for p in forbidden]
         self._lock = threading.RLock()
         self._cache: Dict[str, Tuple[int, Archive]] = {}
@@ -181,7 +182,7 @@ class RagStore:
                 try:
                     found = np.load(folder / "embeddings.npy", allow_pickle=False)
                     if found.ndim == 2 and found.shape[0] == len(chunks) == meta.get("chunks"):
-                        vectors = found.astype(np.float32)
+                        vectors = unit_rows(found)
                 except (OSError, ValueError):
                     vectors = None
             archive = Archive(meta, chunks, vectors, sections)
@@ -189,15 +190,17 @@ class RagStore:
             return archive
 
     def _commit(self, folder: Path, meta: Dict[str, Any], chunks: List[Dict[str, Any]], vectors: Optional[np.ndarray], model: str,
-                sections: Optional[Dict[str, Dict[str, Any]]] = None) -> None:
-        meta.update(chunks=len(chunks), embed_model=model if vectors is not None else "", updated=self.clock(), ingest=dict(INGEST))
+                sections: Optional[Dict[str, Dict[str, Any]]] = None, version: str = "") -> None:
+        has = vectors is not None
+        meta.update(chunks=len(chunks), embed_model=model if has else "", embed_dim=int(vectors.shape[1]) if has else 0, embed_version=version if has else "",
+                    updated=self.clock(), ingest=dict(INGEST))
         self._put(folder / "chunks.jsonl", "".join(json.dumps(c, ensure_ascii=False) + "\n" for c in chunks))
         if sections is not None:
             self._put(folder / "sections.jsonl", "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in sections.values()))
         if vectors is not None:
             tmp = folder / "embeddings.npy.tmp"
             with open(tmp, "wb") as f:
-                np.save(f, vectors, allow_pickle=False)
+                np.save(f, np.asarray(vectors, dtype=np.float16), allow_pickle=False)
             os.replace(tmp, folder / "embeddings.npy")
         else:
             (folder / "embeddings.npy").unlink(missing_ok=True)
@@ -206,9 +209,10 @@ class RagStore:
     # -- the archives ----------------------------------------------------------------------------
 
     def status(self, meta: Dict[str, Any]) -> Dict[str, Any]:
-        """How an archive is searched now: `hybrid` (words and the vectors of the embedder in use) or `text`; `reindex` says that indexing it again would change that."""
+        """How an archive is searched now: `hybrid` (words and the vectors of the embedder in use, same model and version) or `text`; `reindex` says that
+        indexing it again would change that."""
         emb, model = self.embedder(), meta.get("embed_model", "")
-        hybrid = bool(model and emb is not None and emb.model == model)
+        hybrid = compatible(meta, emb)
         return {"mode": "hybrid" if hybrid else "text", "embed_model": model, "reindex": bool(meta["chunks"]) and emb is not None and not hybrid,
                 "rechunk": bool(meta["documents"]) and meta.get("ingest") != INGEST}
 
@@ -270,7 +274,7 @@ class RagStore:
             now = self.clock()
             meta = {"id": aid, "name": name, "description": description, "project": project, "project_name": str(project_name or "").strip()[:LIMITS["name"]],
                     "cloud_ok": False, "created": now, "updated": now, "chunks": 0,
-                    "embed_model": "", "ingest": dict(INGEST), "documents": []}
+                    "embed_model": "", "embed_dim": 0, "embed_version": "", "ingest": dict(INGEST), "documents": []}
             self._put_meta(self._dir(aid), meta)
             return self.get(aid)
 
@@ -422,6 +426,8 @@ class RagStore:
         chunks, sections, stats = self._build(doc_id, name, reading["blocks"])
         if cancel is not None and cancel.is_set():
             raise RagError("the reading was cancelled", "cancelled")
+        tell({"event": "stage", "stage": "indexing"})
+        made = self._embed_new(self.load(aid), [searchable(c) for c in chunks], progress, cancel)        # the slow part, out of the lock: searches go on meanwhile
         with self._lock:
             archive = self.load(aid)
             meta = _copy(archive.meta)
@@ -434,29 +440,42 @@ class RagStore:
             doc = {"id": doc_id, "name": name, "ext": Path(name).suffix.lower(), "bytes": size, "chars": stats["chars"], "chunks": len(chunks), "sha256": sha,
                    "added": self.clock(), "extraction": reading["extraction"], "pages": int(reading.get("pages") or 0), "flagged": stats["flagged"]}
             folder = self._dir(aid)
-            tell({"event": "stage", "stage": "indexing"})
             self._save_blocks(folder, doc_id, reading["blocks"])
             try:
-                vectors, model, note = self._extend(archive, [searchable(c) for c in chunks])
+                vectors, model, version, note = self._join(archive, made)
                 meta["documents"].append(doc)
-                self._commit(folder, meta, archive.chunks + chunks, vectors, model, {**archive.sections, **sections})
+                self._commit(folder, meta, archive.chunks + chunks, vectors, model, {**archive.sections, **sections}, version)
             except BaseException:
                 (folder / "blocks" / (doc_id + ".json.gz")).unlink(missing_ok=True)
                 raise
             return {"document": doc, "embedded": vectors is not None, "note": "; ".join(x for x in [note] + list(reading.get("notes") or []) if x)}
 
-    def _extend(self, archive: Archive, pieces: List[str]) -> Tuple[Optional[np.ndarray], str, str]:
-        """(the archive's vectors with these passages added, their model, a note): vectors only when every passage has one."""
+    def _embed_new(self, archive: Archive, pieces: List[str], progress: Optional[Callable[[Dict[str, Any]], None]] = None,
+                   cancel: Optional[threading.Event] = None) -> Tuple[Optional[np.ndarray], str, str, str]:
+        """(vectors of `pieces`, their model, their version, a note) from the embedder in use: nothing when there is none, when the archive's own vectors are of
+        another model or version (they are never mixed), or when it fails. A cancel raises RagError (`cancelled`)."""
         emb = self.embedder()
         if emb is None or not pieces:
-            return None, "", ""
+            return None, "", "", ""
+        if archive.chunks and not (archive.vectors is not None and compatible(archive.meta, emb)):
+            return None, "", "", "some passages of the archive have no vectors: index it again to use them"
         try:
-            fresh = embed_all(emb, pieces)
+            return embed_all(emb, pieces, progress, cancel), emb.model, str(getattr(emb, "version", "")), ""
+        except RagError:
+            raise
         except Exception as e:
-            return None, "", f"text search only: the embedder failed ({str(e)[:120]})"
-        if archive.chunks and (archive.vectors is None or archive.meta["embed_model"] != emb.model or archive.vectors.shape[1] != fresh.shape[1]):
-            return None, "", "some passages of the archive have no vectors: index it again to use them"
-        return (fresh if archive.vectors is None else np.vstack([archive.vectors, fresh])), emb.model, ""
+            return None, "", "", f"text search only: the embedder failed ({str(e)[:120]})"
+
+    @staticmethod
+    def _join(archive: Archive, made: Tuple[Optional[np.ndarray], str, str, str]) -> Tuple[Optional[np.ndarray], str, str, str]:
+        """(the archive's vectors with the new ones added, model, version, note), looked at again now that the archive may have changed since they were made."""
+        fresh, model, version, note = made
+        if fresh is None:
+            return None, "", "", note
+        if archive.chunks and (archive.vectors is None or archive.meta["embed_model"] != model or archive.meta.get("embed_version", "") != version
+                               or archive.vectors.shape[1] != fresh.shape[1]):
+            return None, "", "", "some passages of the archive have no vectors: index it again to use them"
+        return (fresh if archive.vectors is None else np.vstack([archive.vectors, fresh])), model, version, ""
 
     def remove_document(self, aid: Any, doc_id: Any) -> Dict[str, Any]:
         if not isinstance(doc_id, str) or not DOC_ID.match(doc_id):
@@ -470,28 +489,33 @@ class RagStore:
             keep = [i for i, c in enumerate(archive.chunks) if c["doc"] != doc_id]
             vectors = archive.vectors[keep] if archive.vectors is not None and keep else None
             sections = {k: v for k, v in archive.sections.items() if v.get("doc") != doc_id}
-            self._commit(folder, meta, [archive.chunks[i] for i in keep], vectors, archive.meta["embed_model"], sections)
+            self._commit(folder, meta, [archive.chunks[i] for i in keep], vectors, archive.meta["embed_model"], sections, archive.meta.get("embed_version", ""))
             (folder / "blocks" / (doc_id + ".json.gz")).unlink(missing_ok=True)
             return {"removed": True, "chunks": len(keep)}
 
-    def reindex(self, aid: Any) -> Dict[str, Any]:
+    def reindex(self, aid: Any, progress: Optional[Callable[[Dict[str, Any]], None]] = None, cancel: Optional[threading.Event] = None) -> Dict[str, Any]:
         """Cleans and cuts every document's saved reading into passages again (with the versions of the cleaning and the cutting now in use) and
-        embeds them with the embedder in use, if there is one. Docling is not asked again."""
+        embeds them with the embedder in use, if there is one. Docling is not asked again. The archive stays searchable while it is embedded."""
+        tell = progress or (lambda event: None)
+        archive, folder = self.load(aid), self._dir(aid)
+        meta = _copy(archive.meta)
+        chunks: List[Dict[str, Any]] = []
+        sections: Dict[str, Dict[str, Any]] = {}
+        tell({"event": "stage", "stage": "cutting"})
+        for doc in meta["documents"]:
+            made, secs, stats = self._build(doc["id"], doc["name"], self._load_blocks(folder, doc))
+            doc.update(chunks=len(made), chars=stats["chars"], flagged=stats["flagged"])
+            chunks += made
+            sections.update(secs)
+        if len(chunks) > LIMITS["chunks"]:
+            raise RagError(f"the archive would hold more than {LIMITS['chunks']:,} passages")
+        tell({"event": "stage", "stage": "indexing"})
+        vectors, model, version, note = self._embed_new(Archive(meta, [], None), [searchable(c) for c in chunks], progress, cancel)
         with self._lock:
-            archive, folder = self.load(aid), self._dir(aid)
-            meta = _copy(archive.meta)
-            chunks: List[Dict[str, Any]] = []
-            sections: Dict[str, Dict[str, Any]] = {}
-            for doc in meta["documents"]:
-                made, secs, stats = self._build(doc["id"], doc["name"], self._load_blocks(folder, doc))
-                doc.update(chunks=len(made), chars=stats["chars"], flagged=stats["flagged"])
-                chunks += made
-                sections.update(secs)
-            if len(chunks) > LIMITS["chunks"]:
-                raise RagError(f"the archive would hold more than {LIMITS['chunks']:,} passages")
-            vectors, model, note = self._extend(Archive(meta, [], None), [searchable(c) for c in chunks])
-            self._commit(folder, meta, chunks, vectors, model, sections)
-            return {"chunks": len(chunks), "embedded": vectors is not None, "note": note}
+            if self.load(aid).meta["updated"] != archive.meta["updated"]:
+                raise RagError("the archive changed while it was indexed: index it again")
+            self._commit(folder, meta, chunks, vectors, model, sections, version)
+        return {"chunks": len(chunks), "embedded": vectors is not None, "note": note}
 
     def section(self, aid: Any, sid: Any) -> Dict[str, Any]:
         """The section a passage came from (`section` of a hit): its path, pages and text (capped), for a reader that wants more than the passage."""
@@ -517,4 +541,9 @@ class RagStore:
             except RagError:
                 if strict:
                     raise
-        return run(loaded, self.embedder(), query.strip()[:2000], max(1, min(int(top_k), LIMITS["top_k"])), min_share)
+        if self.remote is not None:
+            try:
+                return self.remote([a.meta["id"] for a in loaded], query.strip()[:2000], max(1, min(int(top_k), LIMITS["top_k"])), min_share)
+            except Exception:                              # the server that holds the embedder does not answer: words alone
+                pass
+        return run(loaded, self.embedder(), query.strip()[:2000], max(1, min(int(top_k), LIMITS["top_k"])), min_share, self.settings.read())

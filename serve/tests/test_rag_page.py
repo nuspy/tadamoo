@@ -106,8 +106,8 @@ class RagPageTest(unittest.TestCase):
     def test_the_banner_says_text_only_until_an_embedding_model_is_there(self):
         self.assertIn("S.embedding && S.embedding.available", JS)
         self.assertIn('on ? T("rg.hybrid", S.embedding.model) : T("rg.textonly")', JS)
-        self.assertIn("Text search only: no embedding model installed.", I18N)
-        self.assertIn("Solo ricerca testuale: nessun modello di embedding installato.", I18N)
+        self.assertIn("Text search only: semantic search is not active.", I18N)
+        self.assertIn("Solo ricerca testuale: la ricerca semantica non è attiva.", I18N)
 
     def test_the_formats_and_limits_come_from_the_server(self):
         self.assertIn("pick.accept = S.formats.join(\",\")", JS)

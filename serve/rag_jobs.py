@@ -32,9 +32,11 @@ class Jobs:
                 if event.get("event") == "stage":
                     job["stage"] = str(event.get("stage") or "")
                 else:
-                    job["page"] = int(event.get("page") or job["page"] or 0)
-                    job["pages"] = int(event.get("pages") or job["pages"] or 0)
-                    job["device"] = str(event.get("device") or job["device"])
+                    for key in ("page", "pages"):
+                        if event.get(key) is not None:                                  # a count of 0 starts a new count
+                            job[key] = int(event[key])
+                    if event.get("device") is not None:
+                        job["device"] = str(event["device"])
 
         def run() -> None:
             try:

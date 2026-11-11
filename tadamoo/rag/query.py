@@ -1,72 +1,110 @@
-"""Asking the archives: words always, vectors when the archive has some made by the embedder in use, the two rankings merged by reciprocal rank."""
+"""Asking the archives: words always, vectors when an archive has some made by the embedder in use.
+
+With vectors a passage scores its cosine with the question plus a small share of its word score (`lexical_weight` times the BM25 score over the best BM25
+score of the question): the words break ties and find a rare name, the vectors decide the order. Rank fusion of the two lists was measured to be worse
+across languages and is not used. The best twenty are judged again by a reranker when there is one, then the first `top_k` are given, passages with the same
+text counted once. A passage that is too far from the question (`min_cosine`, `min_rerank`) is not given at all. An archive with no vectors in the same
+search is searched by words and comes after the others."""
 from __future__ import annotations
 
+import hashlib
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from tadamoo.rag import search as ranking
-from tadamoo.rag.embed import Embedder, embed_all
+from tadamoo.rag.embed import Embedder, compatible, embed_query
+from tadamoo.rag.store import searchable
 
-POOL = 5                          # candidates taken from each ranking, as a multiple of the answers wanted
+POOL = 20                         # passages the reranker judges
+KEEP = 100                        # candidates kept from one archive before the best are taken
+RETRIEVAL = {"lexical_weight": 0.05, "min_cosine": 0.3, "min_rerank": 0.2, "rerank": True}
+Candidate = Tuple[int, float, int, int, Optional[float], Optional[float]]            # (tier, -score, archive, passage, bm25, cosine)
 
 
-def _hit(archive: Any, i: int, lexical: Optional[float], semantic: Optional[float], score: float, mode: str) -> Dict[str, Any]:
+def _fingerprint(text: str) -> bytes:
+    return hashlib.blake2b(" ".join(text.lower().split()).encode("utf-8"), digest_size=12).digest()
+
+
+def _hit(archive: Any, i: int, lexical: Optional[float], semantic: Optional[float], rerank: Optional[float], score: float) -> Dict[str, Any]:
     chunk = archive.chunks[i]
     doc = archive.document(chunk["doc"])
+    stages = [name for name, v in (("lexical", lexical), ("dense", semantic), ("rerank", rerank)) if v is not None]
     return {"archive_id": archive.meta["id"], "archive": archive.meta["name"], "doc_id": chunk["doc"], "document": doc["name"], "chunk": chunk["n"],
             "text": chunk["text"], "path": chunk.get("path", ""), "page_start": chunk.get("page_start", 0), "page_end": chunk.get("page_end", 0),
-            "kind": chunk.get("kind", "text"), "section": chunk.get("section", ""), "flag": chunk.get("flag", ""), "score": round(score, 4), "lexical": None if lexical is None else round(lexical, 4),
-            "semantic": None if semantic is None else round(semantic, 4), "mode": mode}
+            "kind": chunk.get("kind", "text"), "section": chunk.get("section", ""), "flag": chunk.get("flag", ""), "score": round(score, 4),
+            "lexical": None if lexical is None else round(lexical, 4), "semantic": None if semantic is None else round(semantic, 4),
+            "rerank": None if rerank is None else round(rerank, 4), "stages": stages, "mode": "hybrid" if semantic is not None else "lexical"}
 
 
-def run(archives: Sequence[Any], embedder: Optional[Embedder], query: str, top_k: int, min_share: float = 0.0) -> Dict[str, Any]:
-    """{"mode", "note", "hits"}: `mode` is `hybrid` when vectors took part and `lexical` when only words did. A hit's `score` is the BM25 score
-    (words only) or the merged rank score (hybrid); it compares passages within one answer, not between answers."""
-    out: Dict[str, Any] = {"mode": "lexical", "note": "", "hits": []}
+def _said(note: str, more: str) -> str:
+    return (note + " " + more) if note else more
+
+
+def run(archives: Sequence[Any], embedder: Optional[Embedder], query: str, top_k: int, min_share: float = 0.0, cfg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """{"mode", "stages", "note", "reranked", "hits"}: `mode` is `hybrid` when vectors took part and `lexical` when only words did. A hit's `score` is the
+    rerank score, else the cosine plus the word share (vectors), else the BM25 score; it compares passages within one answer, not between answers."""
+    cfg = {**RETRIEVAL, **(cfg or {})}
+    out: Dict[str, Any] = {"mode": "lexical", "stages": ["lexical"], "note": "", "reranked": False, "hits": []}
     if not query or not archives:
         return out
     indexes = [a.index() for a in archives]
     lex = ranking.bm25(indexes, query)
-    floor = min_share * ranking.information(indexes, query)             # the least a words-only hit may score
-    pool = max(top_k * POOL, 20)
-    lex_rank: List[Tuple[int, int]] = _ordered(lex)[:pool]
-    dense: Dict[Tuple[int, int], float] = {}
-    usable = [k for k, a in enumerate(archives) if a.vectors is not None and embedder is not None and a.meta["embed_model"] == embedder.model]
-    if usable:
+    top_lex = max((v for per in lex for v in per.values()), default=0.0)
+    floor = min_share * ranking.information(indexes, query)                 # the least a words-only hit may score
+    ready = [k for k, a in enumerate(archives) if a.vectors is not None and compatible(a.meta, embedder)]
+    scored: Dict[int, np.ndarray] = {}
+    if ready:
         try:
-            q = embed_all(embedder, [query])[0]
-            for k in usable:
-                if archives[k].vectors.shape[1] != q.shape[0]:
-                    continue
-                for i, c in enumerate(ranking.cosine(archives[k].vectors, q)):
-                    if c >= ranking.MIN_COSINE:
-                        dense[(k, i)] = float(c)
+            q = embed_query(embedder, query)
+            scored = {k: ranking.cosine(archives[k].vectors, q) for k in ready if archives[k].vectors.shape[1] == q.shape[0]}
         except Exception as e:
-            dense = {}
             out["note"] = f"text search only: the embedder failed ({str(e)[:120]})"
-    if not dense:
-        for k, i in lex_rank:
-            score = lex[k][i]
-            if score <= 0 or score < floor:
-                continue
-            out["hits"].append(_hit(archives[k], i, score, None, score, "lexical"))
-            if len(out["hits"]) == top_k:
-                break
-        return out
-    dense_rank = [key for key, _ in sorted(dense.items(), key=lambda kv: (-kv[1], kv[0]))][:pool]
-    fused = ranking.fuse([lex_rank, dense_rank])
-    out["mode"] = "hybrid"
-    for (k, i), score in sorted(fused.items(), key=lambda kv: (-kv[1], kv[0])):
-        lexical, semantic = lex[k].get(i), dense.get((k, i))
-        if semantic is None and (lexical is None or lexical < floor):
+    weight, near_enough = float(cfg["lexical_weight"]), float(cfg["min_cosine"])
+    cands: List[Candidate] = []
+    for k, cos in scored.items():
+        total = cos.copy()
+        for i, v in lex[k].items():
+            total[i] += weight * v / top_lex
+        near = np.flatnonzero(cos >= near_enough)
+        if near.size > KEEP:
+            near = near[np.argpartition(-total[near], KEEP)[:KEEP]]
+        cands += [(0, -float(total[i]), k, int(i), lex[k].get(int(i)), float(cos[i])) for i in near]
+        cands += [(0, -weight * v / top_lex, k, i, v, None) for i, v in lex[k].items() if cos[i] < near_enough and v > 0 and v >= floor]      # a word match the vectors do not see
+    for k, per in enumerate(lex):
+        if k not in scored:
+            cands += [(1, -v, k, i, v, None) for i, v in per.items() if v > 0 and v >= floor]
+    cands.sort(key=lambda c: (c[0], c[1], c[2], c[3]))
+    if scored:
+        out["mode"], out["stages"] = "hybrid", ["lexical", "dense"]
+        if len(scored) < len(archives):
+            out["note"] = _said(out["note"], "some archives have no vectors of this model and were searched by words: index them again")
+    rerank = getattr(embedder, "rerank", None) if scored and cfg["rerank"] else None
+    pool: List[Candidate] = []
+    seen = set()
+    for c in cands:
+        key = _fingerprint(archives[c[2]].chunks[c[3]]["text"])
+        if key in seen:
             continue
-        out["hits"].append(_hit(archives[k], i, lexical, semantic, score, "hybrid" if k in usable else "lexical"))
-        if len(out["hits"]) == top_k:
+        seen.add(key)
+        pool.append(c)
+        if len(pool) == max(top_k, POOL if rerank is not None else 0):
             break
+    judged: Dict[Tuple[int, int], float] = {}
+    if rerank is not None and pool:
+        got = None
+        try:
+            got = rerank(query, [searchable(archives[c[2]].chunks[c[3]]) for c in pool])
+        except Exception as e:
+            out["note"] = _said(out["note"], f"not reranked: the reranker failed ({str(e)[:120]})")
+        if got is not None and len(got) == len(pool):
+            judged = {(c[2], c[3]): float(s) for c, s in zip(pool, got)}
+            pool = sorted((c for c in pool if judged[(c[2], c[3])] >= float(cfg["min_rerank"])), key=lambda c: -judged[(c[2], c[3])])
+            out["reranked"] = True
+            out["stages"].append("rerank")
+        elif got is None and "reranker failed" not in out["note"]:
+            out["note"] = _said(out["note"], "not reranked: no GPU was lent for the reranker")
+    for tier, neg, k, i, lexical, semantic in pool[:top_k]:
+        r = judged.get((k, i))
+        out["hits"].append(_hit(archives[k], i, lexical, semantic, r, r if r is not None else (-neg if tier == 0 else lexical)))
     return out
-
-
-def _ordered(scores: List[Dict[int, float]]) -> List[Tuple[int, int]]:
-    flat = [(k, i, s) for k, per in enumerate(scores) for i, s in per.items()]
-    return [(k, i) for k, i, _ in sorted(flat, key=lambda t: (-t[2], t[0], t[1]))]

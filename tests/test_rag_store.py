@@ -112,8 +112,10 @@ def test_with_an_embedder_vectors_are_kept_and_the_search_is_hybrid(tmp_path):
     out = add(s, tmp_path, a, "boats.txt", SAILING)
     assert out["embedded"] is True and (tmp_path / "rag" / a / "embeddings.npy").is_file()
     vectors = np.load(tmp_path / "rag" / a / "embeddings.npy")
-    assert vectors.dtype == np.float32 and np.allclose(np.linalg.norm(vectors, axis=1), 1.0, atol=1e-5)
-    assert s.get(a)["mode"] == "hybrid" and s.get(a)["embed_model"] == "fake-1"
+    assert vectors.dtype == np.float16 and np.allclose(np.linalg.norm(vectors.astype(np.float32), axis=1), 1.0, atol=2e-3)
+    meta = s.get(a)
+    assert meta["mode"] == "hybrid" and meta["embed_model"] == "fake-1" and s.load(a).meta["embed_dim"] == 4 and s.load(a).vectors.dtype == np.float32
+    assert np.allclose(np.linalg.norm(s.load(a).vectors, axis=1), 1.0, atol=1e-6)
     found = s.search([a], "yacht keel")
     assert found["mode"] == "hybrid" and found["hits"][0]["semantic"] is not None and found["hits"][0]["mode"] == "hybrid"
 

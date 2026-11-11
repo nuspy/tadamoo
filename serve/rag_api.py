@@ -33,18 +33,29 @@ def _project(value: Any) -> str:
 
 
 class RagApi:
-    def __init__(self, store: RagStore, folders: Callable[[], List[Dict[str, Any]]] = lambda: [], jobs: Optional[Jobs] = None) -> None:
+    def __init__(self, store: RagStore, folders: Callable[[], List[Dict[str, Any]]] = lambda: [], jobs: Optional[Jobs] = None, service: Any = None) -> None:
         """`folders` lists the projects as `{name, path, chat}`: the folders of the Agent tab and the Chat's own folder (`chat` true). `jobs` is the
-        board of the long jobs, kept by the server between requests."""
-        self.store, self.folders = store, folders
+        board of the long jobs, kept by the server between requests. `service` is the embedding service (tadamoo/rag/embed_client.py) the store's embedder
+        comes from, when there is one: it tells where the embeddings run and can be tried."""
+        self.store, self.folders, self.service = store, folders, service
         self.jobs = jobs if jobs is not None else Jobs()
 
     # -- reading ---------------------------------------------------------------------------------
 
     def embedding(self) -> Dict[str, Any]:
-        """Whether hybrid search is on: it is when an embedder is installed; else every archive is searched by words alone."""
+        """Whether hybrid search is on: it is when an embedder is installed; else every archive is searched by words alone. With the embedding service
+        also the reason it is not, the reranker, and where the work runs now."""
         emb = self.store.embedder()
-        return {"available": emb is not None, "model": emb.model if emb is not None else ""}
+        out: Dict[str, Any] = {"available": emb is not None, "model": emb.model if emb is not None else ""}
+        if self.service is not None:
+            out.update({k: v for k, v in self.service.info().items() if k not in ("available", "model")})
+        return out
+
+    def embedding_test(self) -> Dict[str, Any]:
+        """Embeds one sentence with the model in use: `{ok, model, device, seconds, dim}`, or `{ok: false, error}`."""
+        if self.service is None:
+            return {"ok": False, "error": "there is no embedding service"}
+        return self.service.test()
 
     def overview(self, project: Any) -> Dict[str, Any]:
         pdf = any(importlib.util.find_spec(m) is not None for m in ("pypdf", "fitz"))
@@ -55,7 +66,8 @@ class RagApi:
 
     def settings(self) -> Dict[str, Any]:
         settings = self.store.settings.read()
-        return {"settings": settings, "extraction": extraction_of(settings), "docling_python": docling_client.find_python(settings["docling_python"]), "formats": self.store.formats()}
+        return {"settings": settings, "extraction": extraction_of(settings), "docling_python": docling_client.find_python(settings["docling_python"]), "formats": self.store.formats(),
+                "embedding": self.embedding()}
 
     def set_settings(self, req: Dict[str, Any]) -> Dict[str, Any]:
         self.store.settings.write(req)
@@ -142,23 +154,29 @@ class RagApi:
         return self.store.remove_document(aid, doc_id)
 
     def reindex(self, aid: str) -> Dict[str, Any]:
-        return self.store.reindex(aid)
+        """Cuts the saved texts again and embeds them, in the background: `{job}`; its result is `{chunks, embedded, note}`."""
+        name = self.store.load(aid).meta["name"]
+        return {"job": self.jobs.start("index " + name, lambda progress, cancel: self.store.reindex(aid, progress, cancel), aid)}
 
     def search(self, req: Dict[str, Any]) -> Dict[str, Any]:
-        """`{query, archives: [ids] | project: key, top_k}`: the best passages of those archives, or of all the archives of the project."""
+        """`{query, archives: [ids] | project: key, top_k, min_share?, strict?}`: the best passages of those archives, or of all the archives of the project.
+        `min_share` (0 to 1) is how much of the question's words a words-only hit must answer; `strict` false leaves out an archive that is gone."""
         query = req.get("query")
         if not isinstance(query, str) or not query.strip():
             raise RagError("query: the text of the question")
         top_k = req.get("top_k", 4)
         if isinstance(top_k, bool) or not isinstance(top_k, int) or not 1 <= top_k <= LIMITS["top_k"]:
             raise RagError(f"top_k: a number from 1 to {LIMITS['top_k']}")
+        share = req.get("min_share", 0)
+        if isinstance(share, bool) or not isinstance(share, (int, float)) or not 0 <= share <= 1:
+            raise RagError("min_share: a number from 0 to 1")
         if req.get("archives") is not None:
-            ids, strict = req["archives"], True
+            ids, strict = req["archives"], req.get("strict", True) is not False
             if not isinstance(ids, list) or any(not isinstance(i, str) for i in ids):
                 raise RagError("archives: a list of archive ids")
         else:
             ids, strict = self.store.ids(_project(req.get("project"))), False
-        out = self.store.search(ids, query[:QUERY_CHARS], top_k=top_k, strict=strict)
+        out = self.store.search(ids, query[:QUERY_CHARS], top_k=top_k, min_share=float(share), strict=strict)
         return {**out, "searched": len(ids)}
 
     def recall(self, req: Dict[str, Any]) -> Dict[str, Any]:
@@ -208,6 +226,8 @@ class RagApi:
             return self.choose(req)
         if parts == ["settings"]:
             return self.set_settings(req)
+        if parts == ["embedding", "test"]:
+            return self.embedding_test()
         if len(parts) == 3 and parts[0] == "jobs" and parts[2] == "cancel":
             return self.cancel_job(parts[1])
         if parts == ["archives"]:

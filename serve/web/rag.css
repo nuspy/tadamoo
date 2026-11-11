@@ -26,7 +26,7 @@
 .rg-row input { flex: 1 1 220px; }
 .rg-field { display: grid; align-content: start; gap: 4px; min-width: 0; }
 .rg-field label { font-weight: 600; color: var(--fg); }
-.rg-field input[type="text"], .rg-field textarea, .rg-row input[type="text"] {
+.rg-field input[type="text"], .rg-field input[type="number"], .rg-field textarea, .rg-row input[type="text"] {
   width: 100%; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font: 16px/1.4 var(--font-sans); }
 .rg-field textarea { resize: vertical; }
 .rg-field select { width: 100%; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font: 16px/1.4 var(--font-sans); }
