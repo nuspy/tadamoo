@@ -1,12 +1,14 @@
 """Reads one document with Docling and prints what it found as JSON lines on stdout. Run by the Python of a Docling environment, never imported.
 
-    python docling_worker.py --file PATH --format .pdf [--window 40] [--url http://127.0.0.1:7242] [--cpu]
+    python docling_worker.py --file PATH --format .pdf [--window 40] [--url http://127.0.0.1:7242] [--cpu] [--from-page N] [--paged] [--skip 3,9]
 
-Lines:  {"event": "start", "format", "pages"}  {"event": "progress", "page", "pages", "device"}  {"event": "blocks", "blocks": [...]}
-        {"event": "done", "pages", "device"}  or  {"event": "error", "message"}.
+Lines:  {"event": "start", "format", "pages", "device", "from_page"}  {"event": "progress", "page", "pages", "device"}  {"event": "blocks", "blocks": [...]}
+        {"event": "skipped", "page", "message"}  {"event": "done", "pages", "device"}  or  {"event": "error", "message"}.
 
 A block is `{type: heading|paragraph|list|table|code|caption|footnote|page_break, text, page, level?}`, a table as Markdown. A big PDF is
-converted in windows of `--window` pages, so the memory a page needs is given back before the next window. The device is chosen by asking the
+converted in windows of `--window` pages, so the memory a page needs is given back before the next window; a window that fails is read page by page,
+each page tried three times (as it is, with a new converter, with a new converter on the CPU) and a page that fails all three is `skipped`. `--from-page`,
+`--paged` and `--skip` are how the caller resumes after the worker itself died. The device is chosen by asking the
 server for VRAM first (a lease, tadamoo/vram_lease.py): with the lease the GPU is used, without it the CPU. Closing stdin ends the work: a thread
 looks at the pipe twice a second without ever blocking on it (a thread blocked on stdin keeps the main thread from loading a DLL on Windows).
 Nothing here imports the rest of TaDaMoo but the standard-library lease client, which is read by its path."""
@@ -139,6 +141,71 @@ def build_converter(device: str):
     return DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options), InputFormat.IMAGE: ImageFormatOption(pipeline_options=options)})
 
 
+PAGE_TRIES = 3
+
+
+def free_memory() -> None:
+    import gc
+    gc.collect()
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
+class Reader:
+    """Converts pages with a Docling converter that can be built again, on the same device or on the CPU, when a page fails."""
+
+    def __init__(self, path: str, device: str) -> None:
+        self.path, self.device = path, device
+        self.converter = build_converter(device)
+
+    def rebuild(self, device: str) -> None:
+        self.converter = None
+        free_memory()
+        self.device = device
+        self.converter = build_converter(device)
+
+    def convert(self, first: int, last: int) -> list:
+        result = self.converter.convert(self.path, page_range=(first, last))
+        try:
+            return blocks_of(result.document)
+        finally:
+            del result
+
+    def page(self, number: int) -> tuple:
+        """(blocks, "") for one page, tried `PAGE_TRIES` times: again as it is, then with a new converter, then with a new converter on the CPU.
+        (None, the last error) when every try failed."""
+        message = ""
+        for attempt in range(PAGE_TRIES):
+            try:
+                if attempt == 1:
+                    self.rebuild(self.device)
+                elif attempt == 2 and self.device != "cpu":
+                    self.rebuild("cpu")
+                return self.convert(number, number), ""
+            except Exception as exc:
+                message = f"{type(exc).__name__}: {str(exc)[:200]}"
+        return None, message
+
+
+def spans(first: int, last: int, size: int, skip: set) -> list:
+    """The runs of pages from `first` to `last`, at most `size` long, with the pages in `skip` left out."""
+    out, a = [], first
+    while a <= last:
+        if a in skip:
+            a += 1
+            continue
+        b = a
+        while b < last and b - a + 1 < size and b + 1 not in skip:
+            b += 1
+        out.append((a, b))
+        a = b + 1
+    return out
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--file", required=True)
@@ -146,6 +213,9 @@ def main() -> int:
     parser.add_argument("--window", type=int, default=40)
     parser.add_argument("--url", default="")
     parser.add_argument("--cpu", action="store_true")
+    parser.add_argument("--from-page", type=int, default=1)
+    parser.add_argument("--paged", action="store_true")
+    parser.add_argument("--skip", default="")
     args = parser.parse_args()
     stop = threading.Event()
     lease = None
@@ -159,22 +229,39 @@ def main() -> int:
             except Exception:
                 lease, device = None, "cpu"
         pdf = args.format.lower() == ".pdf"
-        converter = build_converter(device)                    # the libraries first: the PDF library loaded before them stops numpy from loading
+        reader = Reader(args.file, device)                     # the libraries first: the PDF library loaded before them stops numpy from loading
         pages = page_count(args.file) if pdf else 0
-        emit({"event": "start", "format": args.format, "pages": pages, "device": device})
+        emit({"event": "start", "format": args.format, "pages": pages, "device": device, "from_page": args.from_page})
         threading.Thread(target=watch_stdin, args=(stop,), daemon=True).start()
-        windows = [(a, min(a + args.window - 1, pages)) for a in range(1, pages + 1, args.window)] if pdf and pages > args.window else [None]
         total = 0
-        for window in windows:
-            result = converter.convert(args.file, page_range=window) if window else converter.convert(args.file)
-            blocks = blocks_of(result.document)
-            total = max([total] + [b["page"] for b in blocks])
+        if pdf and pages:
+            skip = {int(n) for n in args.skip.split(",") if n.strip()}
+            for first, last in spans(max(1, args.from_page), pages, 1 if args.paged else args.window, skip):
+                blocks = None
+                if first != last:
+                    try:
+                        blocks = reader.convert(first, last)
+                    except Exception:
+                        pass
+                if blocks is not None:
+                    total = max([total] + [b["page"] for b in blocks])
+                    emit({"event": "blocks", "blocks": blocks})
+                    emit({"event": "progress", "page": last, "pages": pages, "device": reader.device})
+                    continue
+                for number in range(first, last + 1):             # one page, or a window that failed: its pages one by one
+                    got, message = reader.page(number)
+                    if got is None:
+                        emit({"event": "skipped", "page": number, "message": message})
+                    else:
+                        emit({"event": "blocks", "blocks": got})
+                    emit({"event": "progress", "page": number, "pages": pages, "device": reader.device})
+        else:
+            blocks = blocks_of(reader.converter.convert(args.file).document)
+            total = max([0] + [b["page"] for b in blocks])
             emit({"event": "blocks", "blocks": blocks})
-            emit({"event": "progress", "page": window[1] if window else total, "pages": pages or total, "device": device})
-            del result
-        emit({"event": "done", "pages": pages or total, "device": device})
+        emit({"event": "done", "pages": pages or total, "device": reader.device})
         return 0
-    except Exception as exc:                                   # the reader says what went wrong; the caller falls back
+    except Exception as exc:                                   # the reader says what went wrong; the caller tries again or falls back
         emit({"event": "error", "message": f"{type(exc).__name__}: {str(exc)[:300]}"})
         return 1
     finally:

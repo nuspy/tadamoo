@@ -47,6 +47,7 @@
 .rg-doc-t { display: grid; gap: 2px; min-width: 0; flex: 1 1 200px; }
 .rg-dname { font-weight: 600; color: var(--fg); overflow-wrap: anywhere; }
 .rg-dmeta { font-size: 13px; color: var(--fg-2); }
+.rg-warnline { color: var(--warn); }
 .rg-hit { padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 8px; display: grid; gap: 6px; }
 .rg-hit-h { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; overflow-wrap: anywhere; }
 .rg-tag { padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; color: var(--fg-2); white-space: nowrap; }

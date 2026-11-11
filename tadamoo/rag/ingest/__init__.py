@@ -27,8 +27,8 @@ def extraction_of(settings: Optional[Dict[str, Any]] = None) -> str:
 
 def read_document(path: Path, name: str, settings: Optional[Dict[str, Any]] = None, progress: Optional[Progress] = None,
                   cancel: Optional[threading.Event] = None, python: Optional[str] = None, url: str = "") -> Dict[str, Any]:
-    """`{blocks, pages, extraction, device, notes}` for the file `path` called `name`. When Docling fails on a format the basic readers have, those
-    are used and `notes` says why."""
+    """`{blocks, pages, extraction, device, notes}` for the file `path` called `name`; `skipped_pages` lists the pages Docling could not read
+    (each tried three times: a note says so). When Docling fails on a format the basic readers have, those are used and `notes` says why."""
     ext = Path(name).suffix.lower()
     found = python if python is not None else docling_client.find_python((settings or {}).get("docling_python", ""))
     notes: List[str] = []
@@ -37,7 +37,11 @@ def read_document(path: Path, name: str, settings: Optional[Dict[str, Any]] = No
     if found and ext in docling_client.DOCLING_FORMATS:
         try:
             got = docling_client.read(found, path, ext, progress=progress, cancel=cancel, url=url, cpu=(settings or {}).get("docling_device") == "cpu")
-            return {**got, "extraction": "docling", "notes": notes}
+            skipped = sorted(got.pop("skipped", None) or [])
+            if skipped:
+                notes.append(f"{len(skipped)} page{'s' if len(skipped) > 1 else ''} could not be read after three tries and "
+                             f"{'are' if len(skipped) > 1 else 'is'} missing: {', '.join(str(n) for n in skipped)}. Read {'them' if len(skipped) > 1 else 'it'} by hand")
+            return {**got, "extraction": "docling", "notes": notes, "skipped_pages": skipped}
         except docling_client.Cancelled:
             raise
         except RagError as e:

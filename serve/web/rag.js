@@ -334,6 +334,7 @@
       const li = el("li", "rg-doc"), text = el("div", "rg-doc-t");
       text.append(el("span", "rg-dname", d.name), el("span", "rg-dmeta", T("rg.doc.meta", size(d.bytes), d.chunks)),
         el("span", "rg-dmeta", T(READ_BY[d.extraction] || READ_BY.basic, d.pages || 0) + (d.flagged ? " " + T("rg.doc.flagged", d.flagged) : "")));
+      if ((d.skipped_pages || []).length) { const w = el("span", "rg-dmeta rg-warnline", T("rg.doc.skipped", d.skipped_pages.join(", "))); w.setAttribute("role", "status"); text.append(w); }
       const key = "d" + d.id, sure = armed === key;
       const b = btn(sure ? T("rg.doc.remove.sure") : T("rg.doc.remove"), sure ? "rg-warn" : "", () => { if (!sure) arm(key); else removeDoc(d); });
       b.id = "rg-rm-" + d.id;

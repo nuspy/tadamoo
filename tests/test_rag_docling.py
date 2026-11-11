@@ -273,3 +273,93 @@ def test_the_harness_offers_read_document_in_every_role_and_lists_the_archives_i
             assert "knowledge=Boats (0 documents, text search; Small boats)" in built.agent.state_note()
         finally:
             built.close()
+
+
+# A stand-in worker that reads "pages" one at a time and dies on the pages in DIE (as many times as the run numbers in DIE_RUNS allow).
+FLAKY = """
+import os
+args = sys.argv
+flag = lambda n: args[args.index(n) + 1] if n in args else ""
+first = int(flag("--from-page") or 1)
+skip = {int(n) for n in flag("--skip").split(",") if n}
+log = os.environ["FLAKY_LOG"]
+open(log, "a").write(" ".join(a for a in args[1:] if a.startswith("--") and not a.startswith("--file")) + "\\n")
+emit({"event": "start", "pages": 6, "device": "cpu", "from_page": first})
+for p in range(first, 7):
+    if p in skip:
+        continue
+    if p == DIE and not (("--paged" in args and "--cpu" in args) and HEAL):
+        os._exit(1)
+    emit({"event": "blocks", "blocks": [{"type": "paragraph", "text": "text of page %d" % p, "page": p}]})
+    emit({"event": "progress", "page": p, "pages": 6, "device": "cpu"})
+emit({"event": "done", "pages": 6, "device": "cpu"})
+"""
+
+
+def flaky(tmp_path, die, heal):
+    return worker(tmp_path, f"DIE, HEAL = {die}, {heal}\n" + FLAKY, "flaky.py")
+
+
+def test_a_worker_that_dies_part_way_is_started_again_where_it_stopped_and_what_was_read_is_kept(tmp_path, monkeypatch):
+    monkeypatch.setenv("FLAKY_LOG", str(tmp_path / "runs.log"))
+    got = docling_client.read("", tmp_path / "x.pdf", ".pdf", command=flaky(tmp_path, 4, True))
+    runs = (tmp_path / "runs.log").read_text().splitlines()
+    assert runs == ["", "--paged --from-page", "--paged --cpu --from-page"]          # as it was, page by page, page by page on the CPU
+    assert [b["text"] for b in got["blocks"]] == [f"text of page {p}" for p in range(1, 7)] and got["skipped"] == {}
+
+
+def test_a_page_that_fails_three_times_is_skipped_with_a_marker_and_the_reading_goes_on(tmp_path, monkeypatch):
+    monkeypatch.setenv("FLAKY_LOG", str(tmp_path / "runs.log"))
+    got = docling_client.read("", tmp_path / "x.pdf", ".pdf", command=flaky(tmp_path, 4, False))
+    assert list(got["skipped"]) == [4] and "reader ended" in got["skipped"][4]
+    text = [b["text"] for b in got["blocks"] if b["type"] == "paragraph"]
+    assert text == ["text of page 1", "text of page 2", "text of page 3", "[Page 4 of this document could not be read automatically and is missing from this text.]",
+                    "text of page 5", "text of page 6"]
+    assert [b["page"] for b in got["blocks"] if b["type"] == "page_break"] == [4]
+    assert len((tmp_path / "runs.log").read_text().splitlines()) == 4          # three tries on page 4, then the rest after it
+
+
+def test_a_worker_that_never_starts_is_an_error_and_no_page_is_skipped(tmp_path):
+    with pytest.raises(RagError, match="could not read the file: ImportError"):
+        docling_client.read("", tmp_path / "x.pdf", ".pdf", command=worker(tmp_path, 'emit({"event": "error", "message": "ImportError: no docling"})', "late.py"))
+
+
+def test_the_skipped_pages_reach_the_notes_and_the_document_of_the_archive(tmp_path, monkeypatch):
+    monkeypatch.setattr(docling_client, "read", lambda *a, **k: {"blocks": [{"type": "paragraph", "text": "text of page 1 about cells", "page": 1}], "pages": 3,
+                                                                  "device": "cpu", "skipped": {2: "boom", 3: "boom"}})
+    got = read_document(tmp_path / "a.pdf", "a.pdf", {}, python="x")
+    assert got["skipped_pages"] == [2, 3] and "2 pages could not be read after three tries and are missing: 2, 3" in got["notes"][0]
+
+
+def worker_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("docling_worker_under_test", docling_client.WORKER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_worker_cuts_pages_in_windows_and_leaves_out_the_skipped_ones():
+    w = worker_module()
+    assert w.spans(1, 10, 4, set()) == [(1, 4), (5, 8), (9, 10)]
+    assert w.spans(3, 10, 4, {5, 6}) == [(3, 4), (7, 10)] and w.spans(1, 3, 1, {2}) == [(1, 1), (3, 3)]
+
+
+def test_a_page_is_tried_again_then_with_a_new_converter_then_on_the_cpu(monkeypatch):
+    w = worker_module()
+    built = []
+    monkeypatch.setattr(w, "build_converter", lambda device: built.append(device) or device)
+    monkeypatch.setattr(w, "free_memory", lambda: None)
+    reader = w.Reader("x.pdf", "cuda")
+    calls = []
+
+    def convert(first, last):
+        calls.append(reader.device)
+        if len(calls) < 3:
+            raise RuntimeError("out of memory")
+        return [{"type": "paragraph", "text": "ok", "page": first}]
+    monkeypatch.setattr(reader, "convert", convert)
+    assert reader.page(7) == ([{"type": "paragraph", "text": "ok", "page": 7}], "") and calls == ["cuda", "cuda", "cpu"] and built == ["cuda", "cuda", "cpu"]
+    monkeypatch.setattr(reader, "convert", lambda a, b: (_ for _ in ()).throw(ValueError("bad page")))
+    got, message = reader.page(8)
+    assert got is None and message == "ValueError: bad page"

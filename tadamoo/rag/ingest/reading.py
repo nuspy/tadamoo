@@ -41,7 +41,8 @@ def cached_reading(path: Path, cache: Path, settings: Dict[str, Any], python: Op
         pass
     got = read_document(path, path.name, settings, python=python)
     blocks, _ = normalize.normalize_blocks(got["blocks"])
-    out = {"blocks": blocks, "pages": got.get("pages") or page_count(blocks), "extraction": got["extraction"], "notes": got.get("notes", [])}
+    out = {"blocks": blocks, "pages": got.get("pages") or page_count(blocks), "extraction": got["extraction"], "notes": got.get("notes", []),
+           "skipped_pages": got.get("skipped_pages", [])}
     try:
         cache.mkdir(parents=True, exist_ok=True)
         tmp = entry.with_name(entry.name + ".tmp")
@@ -69,7 +70,8 @@ def read_pages(path: Path, cache: Path, settings: Dict[str, Any], pages: Any = D
     elif last < total:
         note = f"pages {last + 1}-{total} have not been read: ask for them with pages"
     return {"path": str(path), "pages_total": total, "pages": [first, min(last, total)], "extraction": reading["extraction"], "format": fmt,
-            "text": text, **({"note": note} if note else {}), **({"reader_notes": reading["notes"]} if reading.get("notes") else {})}
+            "text": text, **({"note": note} if note else {}), **({"reader_notes": reading["notes"]} if reading.get("notes") else {}),
+            **({"skipped_pages": reading["skipped_pages"]} if reading.get("skipped_pages") else {})}
 
 
 def register_document_tools(registry: Any, root: Path, rag_dir: Optional[Path], cache: Path, protected: Optional[Callable[[Path], str]] = None) -> None:
