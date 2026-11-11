@@ -103,14 +103,13 @@ def test_a_later_branch_that_cannot_be_read_does_not_matter_when_an_earlier_one_
     assert dag.nodes["choose"].state_variables["selected_branches"] == ["b1"]
 
 
-@pytest.mark.parametrize("op, value, value2, text", [
-    ("<", 10, None, "(n) < 10"), ("<=", "10", None, "(n) <= 10"), ("=", 10, None, "(n) == 10"), ("!=", "red", None, '(n) != "red"'), (">=", 2.5, None, "(n) >= 2.5"),
-    (">", 10, None, "(n) > 10"), ("between", 10, 30, "((n) >= 10 and (n) <= 30)"), ("in", "a, b, 3", None, '(n) in ["a", "b", 3]'), ("contains", "x", None, '"x" in (n)'),
-])
-def test_the_helper_builds_the_expression_of_a_branch(op, value, value2, text):
-    assert plan_nodes.build_condition("n", op, value, value2) == text
+@pytest.mark.parametrize("op, value, value2", [("<", 10, None), ("<=", "10", None), ("=", 10, None), ("!=", "red", None), (">=", 2.5, None), (">", 10, None),
+                                               ("between", 10, 30), ("in", "a, b, 3", None), ("contains", "x", None)])
+def test_the_helper_form_of_a_branch_becomes_the_three_terms(op, value, value2):
     spec = plan_nodes.clean_spec("decision", {"input": "n", "branches": [{"label": "L", "op": op, "value": value, "value2": value2}]})
-    assert spec["branches"][0]["condition"] == text and spec["branches"][0]["op"] == op and spec["mode"] == "first"
+    b = spec["branches"][0]
+    assert b["left"] == {"kind": "python", "expr": "n"} and b["op"] == {"kind": "value", "value": op} and b["right"] == {"kind": "value", "value": value}
+    assert ("right2" in b) == (op == "between") and spec["mode"] == "first" and spec["on_no_match"] == "stop"
 
 
 def test_a_branch_is_checked():
@@ -119,9 +118,9 @@ def test_a_branch_is_checked():
         ([{"label": "a", "condition": "x > 1"}, {"label": "A", "condition": "x < 1"}], "labels are unique"),
         ([{"label": "", "condition": "x > 1"}], "label"),
         ([{"label": "a", "op": "else"}, {"label": "b", "condition": "x"}], "last"),
-        ([{"label": "a", "op": ">", "value": 1}], "input"),
+        ([{"label": "a", "op": ">", "value": 1}], "left"),
         ([{"label": "a", "condition": "open('f')"}], "may not use"),
-        ([{"label": "a", "op": "~", "value": 1}], "operator"),
+        ([{"label": "a", "op": "~", "value": 1}], "left"),
         ([{"label": "a", "id": "x", "condition": "y"}, {"label": "b", "id": "x", "condition": "z"}], "not used twice"),
     ]
     for branches, word in bad:
@@ -175,8 +174,11 @@ def test_edges_are_listed_with_their_ports_and_kinds():
 
 def test_the_table_describes_every_connector():
     table = {row["type"]: row["ports"] for row in plan_nodes.catalogue()}
-    assert table["action"] == {"in": [{"id": "in", "kind": "flow"}, {"id": "rag", "kind": "input"}], "out": [{"id": "out", "kind": "flow"}]}
-    assert table["rag"] == {"in": [], "out": [{"id": "rag", "kind": "input"}]} and table["decision"]["out"] == "branches"
+    assert [p["id"] for p in table["action"]["in"]] == ["in", "data", "rag"] and [p["id"] for p in table["action"]["out"]] == ["out", "result"]
+    assert table["action"]["in"][2] == {"id": "rag", "kind": "data", "accepts": ["archives"], "label": "archives"}
+    assert table["rag"] == {"in": [], "out": [{"id": "rag", "kind": "data", "carries": "archives", "label": "rag"}]} and table["decision"]["out"] == "branches"
+    assert [p["id"] for p in table["sensor"]["out"]] == ["out", "reading"] and [p["id"] for p in table["get_var"]["out"]] == ["out", "value"]
+    assert [p["id"] for p in table["set_var"]["out"]] == ["out", "value"] and [p["id"] for p in table["input"]["out"]] == ["out", "answer"]
     assert plan_nodes.out_ports("decision", {"branches": [{"id": "a", "label": "yes"}]}) == [{"id": "a", "kind": "flow", "label": "yes"}]
 
 
@@ -232,8 +234,8 @@ def test_a_rag_node_feeds_actions_without_ordering_anything():
     dag.add_edge("kb", "c")
     kb = dag.nodes["kb"]
     assert kb.routes == {"rag": ["b", "c"]} and kb.outputs == [] and dag.nodes["b"].dependencies == ["a"] and dag.nodes["c"].dependencies == []
-    assert dag.edges()[-2:] == [{"from": {"node": "kb", "port": "rag"}, "to": {"node": "b", "port": "rag"}, "kind": "input"},
-                                {"from": {"node": "kb", "port": "rag"}, "to": {"node": "c", "port": "rag"}, "kind": "input"}]
+    assert dag.edges()[-2:] == [{"from": {"node": "kb", "port": "rag"}, "to": {"node": "b", "port": "rag"}, "kind": "data", "carries": "archives"},
+                                {"from": {"node": "kb", "port": "rag"}, "to": {"node": "c", "port": "rag"}, "kind": "data", "carries": "archives"}]
     assert dag.ready_nodes() == ["a", "c"]                                         # c is not held by the RAG node
     assert dag.advance(0)["done"] == ["kb"] and kb.status == "completed"           # it resolves itself
     assert dag.ready_nodes() == ["a", "c"] and dag.layers()[0].count("kb") == 1
@@ -247,7 +249,7 @@ def test_a_rag_node_only_feeds_actions_and_nothing_feeds_it():
     dag.add_node(node("w", NodeType.LOG, spec={"message": "x"}))
     dag.add_node(node("s", NodeType.SENSOR))
     for target in ("w", "s"):
-        with pytest.raises(PlanError, match="has no input input"):
+        with pytest.raises(PlanError, match="cannot take archives"):
             dag.add_edge("kb", target)
     with pytest.raises(PlanError, match="no output connector"):
         dag.add_edge("b", "kb", "rag")

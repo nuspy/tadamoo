@@ -55,6 +55,14 @@ class PlanError(ValueError):
     """The change would leave the plan invalid; the plan is unchanged."""
 
 
+class NeedValue(PlanError):
+    """A decision cannot be taken yet: a value it compares is for the agent to work out, or an input has no value. `facts` says which."""
+
+    def __init__(self, message: str, facts: Dict[str, Any]) -> None:
+        super().__init__(message)
+        self.facts = facts
+
+
 class NoRoute(PlanError):
     """A decision was completed and none of its exits holds; `facts` says which conditions were read and with what values."""
 
@@ -190,9 +198,10 @@ class PlanNode:
     spec: Dict[str, Any] = field(default_factory=dict)   # what the kinds beyond action/sensor/decision/merge need (tadamoo/planner/nodes.py)
     produces: List[Dict[str, str]] = field(default_factory=list)   # the values this step must write when it completes: [{"name", "type"}]
     routes: Dict[str, List[str]] = field(default_factory=dict)     # output port id -> the steps it is connected to; kept for the nodes with named ports (a decision's branches, a RAG node)
+    inputs: Dict[str, Dict[str, str]] = field(default_factory=dict)  # the values wired to this step, by the name it refers to them with: {"node", "port"} of the step they come from
 
 
-EDITABLE = ("title", "description", "assignee", "conditions", "state_variables", "retry_policy", "position", "call_request", "wiki_query", "repeat", "spec", "produces")
+EDITABLE = ("title", "description", "assignee", "conditions", "state_variables", "retry_policy", "position", "call_request", "wiki_query", "repeat", "spec", "produces", "inputs")
 
 # -- what a node may carry ---------------------------------------------------------------------------------
 
@@ -346,6 +355,19 @@ def clean_field(node_type: Any, key: str, value: Any, draft: bool = False) -> An
         return clean_conditions(node_type, value)
     if key == "repeat":
         return clean_repeat(value)
+    if key == "inputs":
+        if value is None:
+            return {}
+        if not isinstance(value, dict) or len(value) > 20:
+            raise PlanError("inputs is an object: name -> {node, port} (at most 20)")
+        out = {}
+        for name, ref in value.items():
+            if not isinstance(name, str) or not re.match(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$", name) or keyword.iskeyword(name):
+                raise PlanError(f"'{str(name)[:40]}' is not a name an input can have: letters, digits and _, starting with a letter")
+            if not isinstance(ref, dict) or not isinstance(ref.get("node"), str):
+                raise PlanError(f"the input '{name}' is {{node, port}}")
+            out[name] = {"node": ref["node"], "port": str(ref.get("port") or "result")}
+        return out
     if key == "spec":
         from tadamoo.planner import nodes
         return nodes.clean_spec(node_type, value, draft)
@@ -356,6 +378,7 @@ def clean_field(node_type: Any, key: str, value: Any, draft: bool = False) -> An
 
 
 MAX_OUTPUTS, MAX_VALUE_BYTES, MAX_STATE_BYTES, MAX_NAME = 30, 4000, 50_000, 64
+OPERAND_KEY = re.compile(r"^[A-Za-z0-9_.-]+\.(left|op|right|right2)$")
 
 
 def _json_value(value: Any, depth: int = 0) -> bool:
@@ -421,7 +444,7 @@ def migrate_decision(node: PlanNode) -> None:
             node.routes.setdefault(key, [key])
 
 
-def _ports(node: PlanNode) -> Dict[str, Dict[str, str]]:
+def _ports(node: PlanNode) -> Dict[str, Dict[str, Any]]:
     from tadamoo.planner import nodes
     return {p["id"]: p for p in nodes.out_ports(node.type.value, node.spec)}
 
@@ -503,6 +526,7 @@ class PlanDAG:
             if c in self.nodes and node_id in self.nodes[c].dependencies:
                 self.nodes[c].dependencies.remove(node_id)
         for other in self.nodes.values():                        # an input edge from or to this step goes too
+            other.inputs = {k: r for k, r in other.inputs.items() if r.get("node") != node_id}
             other.routes = {port: [k for k in kids if k != node_id] for port, kids in other.routes.items() if other.id != node_id}
             other.routes = {port: kids for port, kids in other.routes.items() if kids}
         node.dependencies, node.outputs, node.routes = [], [], {}
@@ -518,18 +542,20 @@ class PlanDAG:
         it goes to (a decision stored with a condition for each exit) is that exit's branch."""
         ports = _ports(parent)
         if port is None:
-            if len(ports) == 1:
-                return next(iter(ports.values()))
-            if child.id in ports:
+            flow = [p for p in ports.values() if p["kind"] == "flow"]
+            if parent.type == NodeType.DECISION and child.id in ports:
                 return ports[child.id]
+            if len(flow) == 1 or (not flow and len(ports) == 1):
+                return flow[0] if flow else next(iter(ports.values()))
             raise PlanError(f"'{parent.id}' has several output connectors: say which one the edge leaves from ({', '.join(ports) or 'none yet'})")
         if port not in ports:
             raise PlanError(f"'{parent.id}' has no output connector '{port}' ({', '.join(ports) or 'none'})")
         return ports[port]
 
     def add_edge(self, parent_id: str, child_id: str, port: Optional[str] = None) -> None:
-        """Connects an output port of `parent_id` to `child_id`. A `flow` port makes the child wait for the parent; an `input` port (a RAG node) gives the
-        child data and nobody waits."""
+        """Connects an output port of `parent_id` to `child_id`. A `flow` port makes the child wait for the parent. A `data` port that carries archives (a RAG node)
+        or a value (a step's result, a sensor's reading, a variable's value, an answer) gives the child that data and nobody waits for it: a value is kept in the
+        child's `inputs` under a name, and the child does not run before it has one."""
         from tadamoo.planner import nodes
         for nid in (parent_id, child_id):
             if nid not in self.nodes:
@@ -538,13 +564,20 @@ class PlanDAG:
             raise PlanError("a node cannot depend on itself")
         parent, child = self.nodes[parent_id], self.nodes[child_id]
         out = self._port_of(parent, child, port)
-        if not any(p["kind"] == out["kind"] for p in nodes.in_ports(child.type.value)):
-            raise PlanError(f"'{child_id}' ({child.type.value}) has no {out['kind']} input" + (": a RAG node feeds actions" if out["kind"] == "input" else ""))
+        accepts = [p for p in nodes.in_ports(child.type.value) if p["kind"] == out["kind"] and (out["kind"] == "flow" or out.get("carries") in p.get("accepts", []))]
+        if not accepts:
+            what = {"archives": "archives", "value": "a value", "reading": "a value"}.get(out.get("carries"), "this")
+            raise PlanError(f"'{child_id}' ({child.type.value}) cannot take {what} from '{parent_id}'" + (": a RAG node feeds actions and decisions" if out.get("carries") == "archives" else ""))
         backup = copy.deepcopy(self.nodes)
         try:
             if out["kind"] == "flow":
                 self._link(parent_id, child_id)
-            if parent.type in (NodeType.DECISION, NodeType.RAG):
+            if out["kind"] == "data" and out.get("carries") != "archives":
+                if self._depends(parent_id, child_id):
+                    raise PlanError(f"'{parent_id}' depends on '{child_id}': a value cannot come back round")
+                if not any(r.get("node") == parent_id and r.get("port") == out["id"] for r in child.inputs.values()):
+                    child.inputs[self._input_name(child, parent)] = {"node": parent_id, "port": out["id"]}
+            elif parent.type in (NodeType.DECISION, NodeType.RAG):
                 kids = parent.routes.setdefault(out["id"], [])
                 if child_id not in kids:
                     kids.append(child_id)
@@ -552,9 +585,40 @@ class PlanDAG:
         except PlanError:
             self.nodes = backup
             raise
+        if out["kind"] == "data":
+            self.refresh_blocking()
         self._touch()
 
+    def _input_name(self, child: PlanNode, parent: PlanNode) -> str:
+        """The name a step refers to a wired value by: the title of the step it comes from as an identifier, unique among the step's inputs."""
+        base = re.sub(r"[^A-Za-z0-9_]+", "_", parent.title.strip()).strip("_") or parent.id
+        base = (base if re.match(r"[A-Za-z_]", base) else "v_" + base)[:40]
+        name, n = base, 1
+        while name in child.inputs:
+            n += 1
+            name = f"{base}_{n}"
+        return name
+
+    def _depends(self, a: str, b: str) -> bool:
+        """Whether step `a` waits for step `b`, through the steps it waits for and the values it takes."""
+        seen, stack = set(), [a]
+        while stack:
+            cur = stack.pop()
+            if cur == b:
+                return True
+            if cur in seen or cur not in self.nodes:
+                continue
+            seen.add(cur)
+            node = self.nodes[cur]
+            stack.extend(node.dependencies)
+            stack.extend(r["node"] for r in node.inputs.values() if isinstance(r, dict) and "node" in r)
+        return False
+
     def remove_edge(self, parent_id: str, child_id: str, port: Optional[str] = None) -> None:
+        child_node = self.nodes.get(child_id)
+        if child_node is not None:                                       # a value wired from the parent
+            for name in [n for n, r in child_node.inputs.items() if r.get("node") == parent_id and (not port or r.get("port") == port)]:
+                del child_node.inputs[name]
         parent = self.nodes.get(parent_id)
         if parent is not None:
             for name in [port] if port else list(parent.routes):
@@ -572,17 +636,20 @@ class PlanDAG:
         self._touch()
 
     def edges(self) -> List[Dict[str, Any]]:
-        """Every edge as {"from": {"node", "port"}, "to": {"node", "port"}, "kind": "flow" | "input"}, for the page and the tools."""
+        """Every edge as {"from": {"node", "port"}, "to": {"node", "port"}, "kind": "flow" | "data", "carries"?}, for the page and the tools. A value edge names
+        the input it makes (`to.name`)."""
         out: List[Dict[str, Any]] = []
         for nid, n in self.nodes.items():
-            ports, seen = _ports(n), set()
+            ports = _ports(n)
             for port, kids in n.routes.items():
                 for c in kids:
                     kind = ports.get(port, {}).get("kind", "flow")
-                    out.append({"from": {"node": nid, "port": port}, "to": {"node": c, "port": "in" if kind == "flow" else "rag"}, "kind": kind})
-                    seen.add((port if kind == "flow" else None, c))
-            default = next((p["id"] for p in ports.values()), "out")
+                    out.append({"from": {"node": nid, "port": port}, "to": {"node": c, "port": "in" if kind == "flow" else "rag"}, "kind": kind,
+                                **({"carries": "archives"} if kind == "data" else {})})
+            default = next((p["id"] for p in ports.values() if p["kind"] == "flow"), "out")
             out.extend({"from": {"node": nid, "port": default}, "to": {"node": c, "port": "in"}, "kind": "flow"} for c in n.outputs if not any(c in kids for kids in n.routes.values()))
+            out.extend({"from": {"node": ref["node"], "port": ref["port"]}, "to": {"node": nid, "port": "data", "name": name}, "kind": "data", "carries": "value"}
+                       for name, ref in n.inputs.items() if isinstance(ref, dict) and "node" in ref)
         return out
 
     def remove_node(self, node_id: str) -> None:
@@ -594,6 +661,7 @@ class PlanDAG:
         for c in list(node.outputs):
             self.remove_edge(node_id, c)
         for other in self.nodes.values():                        # input edges are not in the dependency lists
+            other.inputs = {k: r for k, r in other.inputs.items() if r.get("node") != node_id}
             for port in list(other.routes):
                 other.routes[port] = [k for k in other.routes[port] if k != node_id]
                 if not other.routes[port]:
@@ -628,8 +696,13 @@ class PlanDAG:
                         raise PlanError(f"node '{nid}' is connected to unknown node '{c}'")
                     if ports[port]["kind"] == "flow" and c not in n.outputs:
                         raise PlanError(f"edge {nid}.{port} -> {c} is not in the outputs of '{nid}'")
-                    if ports[port]["kind"] == "input" and c in n.outputs:
-                        raise PlanError(f"an input edge {nid} -> {c} must not be a dependency")
+                    if ports[port]["kind"] == "data" and c in n.outputs:
+                        raise PlanError(f"a data edge {nid} -> {c} must not be a dependency")
+            for name, ref in n.inputs.items():
+                if not isinstance(ref, dict) or ref.get("node") not in self.nodes:
+                    raise PlanError(f"node '{nid}' takes its input '{name}' from a step that does not exist")
+                if ref.get("port") not in _ports(self.nodes[ref["node"]]):
+                    raise PlanError(f"node '{nid}' takes its input '{name}' from a connector that does not exist")
             if nid in n.outputs:
                 raise PlanError(f"node '{nid}' depends on itself")
         in_degree = {nid: 0 for nid in self.nodes}
@@ -811,6 +884,31 @@ class PlanDAG:
 
     # execution state ---------------------------------------------------------------------------------
 
+    def input_values(self, node: PlanNode) -> Dict[str, Any]:
+        """The values of the node's wired inputs that exist now, by name. A step's result is its one value, or all of them when it wrote several; a sensor gives
+        the text it matched, a variable step its value, an input step the answer."""
+        out: Dict[str, Any] = {}
+        for name, ref in node.inputs.items():
+            src = self.nodes.get(ref.get("node")) if isinstance(ref, dict) else None
+            if src is None or src.status != "completed":
+                continue
+            sv, kind = src.state_variables, src.type
+            if kind == NodeType.SENSOR:
+                found = (sv.get("matched") or {}).get("text")
+            elif kind in (NodeType.GET_VAR, NodeType.SET_VAR):
+                found = sv.get("value")
+            else:
+                wrote = sv.get("outputs") or {}
+                found = next(iter(wrote.values())) if len(wrote) == 1 else (dict(wrote) if wrote else None)
+            if found is not None:
+                out[name] = found
+        return out
+
+    def waiting_inputs(self, node: PlanNode) -> List[str]:
+        """The names of the node's inputs that have no value yet: what the step waits for."""
+        have = self.input_values(node)
+        return [name for name in node.inputs if name not in have]
+
     def _blockers(self, node: PlanNode) -> List[str]:
         """Unfinished parents that the user must do, which keep this node from starting."""
         return [p for p in node.dependencies
@@ -828,6 +926,12 @@ class PlanDAG:
     def refresh_blocking(self) -> None:
         """Marks nodes blocked while a user task above them is open, and releases them when it is done. A step below a failed or
         timed-out one is parked with the reason in `parked_by` until that step is dealt with; independent branches are not touched."""
+        for n in self.nodes.values():                           # a step whose wired values are not all there yet says which it waits for
+            missing = self.waiting_inputs(n) if n.status == "pending" else []
+            if missing:
+                n.state_variables["waiting_inputs"] = missing
+            else:
+                n.state_variables.pop("waiting_inputs", None)
         changed = True
         while changed:                                          # a parked step parks what is below it, until nothing moves
             changed = False
@@ -860,7 +964,7 @@ class PlanDAG:
         now = time.time() if now is None else now
         for nid in self.topological_order():
             n = self.nodes[nid]
-            if (n.status != "pending" or n.state_variables.get("draft") or n.type.value in nodes.AUTO or self._blockers(n) or n.state_variables.get("retry_at", 0) > now
+            if (n.status != "pending" or n.state_variables.get("draft") or n.type.value in nodes.AUTO or self._blockers(n) or self.waiting_inputs(n) or n.state_variables.get("retry_at", 0) > now
                     or n.state_variables.get("repeat_at", 0) > now):
                 continue
             parents = [self.nodes[p].status for p in n.dependencies]
@@ -922,11 +1026,23 @@ class PlanDAG:
             raise PlanError("a step writes plan values when it is completed")
         if status == "completed":
             backup = copy.deepcopy((self.nodes, self.shared_state))
+            kept_operands: Dict[str, Any] = {}
             try:
                 if node.type == NodeType.DECISION:
                     problems = self._decision_problems(node)
                     if problems:
                         raise PlanError("; ".join(problems))
+                    if outputs:                                          # the values the agent worked out for the terms that are its to work out: "<branch>.<slot>" -> value
+                        from tadamoo.planner import operands
+                        outputs = dict(outputs)
+                        for key in [k for k in outputs if OPERAND_KEY.match(k)]:
+                            bid, slot = key.rsplit(".", 1)
+                            branch = next((b for b in node.spec.get("branches") or [] if b["id"] == bid), None)
+                            if branch is None or (branch.get(slot) or {}).get("kind") != "agent":
+                                raise PlanError(f"'{key}' is not a term of this decision that the agent works out")
+                            node.state_variables.setdefault("operands", {})[key] = operands.typed(outputs.pop(key), slot)
+                        outputs = outputs or None
+                    kept_operands = dict(node.state_variables.get("operands") or {})
                 if node.type == NodeType.INPUT and (node.spec["into"] not in (outputs or {}) and node.spec["into"] not in self.shared_state):
                     raise PlanError(f"this step asks the person for '{node.spec['into']}': complete it with outputs {{{node.spec['into']}: their answer}}")
                 if node.produces:
@@ -949,6 +1065,16 @@ class PlanDAG:
                 from tadamoo.planner import nodes
                 if nodes.repeat_of(node):
                     retry = self._rearm(node, time.time() if now is None else now)
+            except NeedValue as wait:
+                self.nodes, self.shared_state = backup           # not taken yet: it waits for a value, and what the agent already reported is kept
+                node = self.nodes[node_id]
+                node.state_variables["waiting_for"] = wait.facts
+                if kept_operands:
+                    node.state_variables["operands"] = kept_operands
+                node.status = "pending"
+                self.refresh_blocking()
+                self._touch()
+                return {"waiting": wait.facts, "message": str(wait)}
             except NoRoute as stop:
                 self.nodes, self.shared_state = backup           # the decision is not taken: it goes to the person with the facts
                 node = self.nodes[node_id]
@@ -988,31 +1114,54 @@ class PlanDAG:
         self._touch()
 
     def _route(self, node: PlanNode) -> None:
-        """Takes the branches whose condition holds and skips the steps only the others lead to. In mode `first` the first branch that holds is the one, in
-        the order shown; in mode `all` every branch that holds. The `else` branch is taken when no other is. When none can be taken, or a condition cannot be
-        read yet, the decision is not taken: NoRoute says which conditions were read, with which values."""
+        """Takes the branches whose comparison holds and skips the steps only the others lead to. In mode `first` the first branch that holds is the one, in the
+        order shown; in mode `all` every branch that holds. The `else` branch is taken when no other is. A term that is for the agent to work out, or an input
+        with no value yet, makes the decision wait (NeedValue). When no branch holds the path stops (`on_no_match` stop) or the decision goes to the person
+        (ask), and an operator that is not a known one or terms that cannot be compared stop it with the reason: NoRoute says what was read."""
+        from tadamoo.planner import operands
         read: List[Dict[str, Any]] = []
         used: Set[str] = set()
         chosen: List[str] = []
+        waits: List[Dict[str, Any]] = []
         first = node.spec.get("mode", "first") == "first"
+        inputs, reported = self.input_values(node), node.state_variables.get("operands") or {}
+        env = {**self.shared_state, **inputs}
         for b in node.spec.get("branches") or []:
             if b.get("op") == "else":
                 continue
-            expr = b["condition"]
-            used.update(n.id for n in ast.walk(ast.parse(expr.strip(), mode="eval")) if isinstance(n, ast.Name) and n.id not in _FUNCS)
             if first and chosen:
                 break
-            try:
-                holds = bool(safe_eval(expr, self.shared_state))
-                read.append({"to": b["id"], "title": b["label"], "condition": expr, "holds": holds})
-                if holds:
-                    chosen.append(b["id"])
-            except PlanError as exc:
-                read.append({"to": b["id"], "title": b["label"], "condition": expr, "holds": None, "error": str(exc)[:200]})
+            if "condition" in b:
+                expr = b["condition"]
+                used.update(n.id for n in ast.walk(ast.parse(expr.strip(), mode="eval")) if isinstance(n, ast.Name) and n.id not in _FUNCS)
+                try:
+                    holds = bool(safe_eval(expr, env))
+                    read.append({"to": b["id"], "title": b["label"], "condition": expr, "holds": holds})
+                    if holds:
+                        chosen.append(b["id"])
+                except PlanError as exc:
+                    read.append({"to": b["id"], "title": b["label"], "condition": expr, "holds": None, "error": str(exc)[:200]})
+                continue
+            got = operands.evaluate(b, self.shared_state, inputs, {k.split(".", 1)[1]: v for k, v in reported.items() if k.startswith(b["id"] + ".")}, safe_eval)
+            for slot in operands.SLOTS:
+                if (b.get(slot) or {}).get("kind") == "python":
+                    used.update(n.id for n in ast.walk(ast.parse(b[slot]["expr"].strip(), mode="eval")) if isinstance(n, ast.Name) and n.id not in _FUNCS)
+            waits.extend({**w, "branch": b["id"], "label": b["label"]} for w in got.waits)
+            text = " ".join(str(got.compared.get(k, "?")) for k in ("left", "op", "right") if got.compared) or b["label"]
+            entry = {"to": b["id"], "title": b["label"], "condition": text, "compared": got.compared}
+            read.append({**entry, "holds": got.holds, **({"error": got.error} if got.error else {}), **({"waiting": True} if got.waits else {})})
+            if got.holds:
+                chosen.append(b["id"])
+        if waits:
+            node.state_variables.pop("compared", None)
+            facts = {"waiting": waits, "inputs": {k: _brief(v) for k, v in inputs.items()}, "missing_inputs": self.waiting_inputs(node), "at": _now()}
+            raise NeedValue("the decision '" + node.id + "' waits for " + "; ".join(
+                (f"the {w['slot']} of '{w['label']}' (to be worked out: {w['describe'][:120]})" if w["kind"] == "agent" else f"the input '{w['name']}'") for w in waits), facts)
         other = next((b for b in node.spec.get("branches") or [] if b.get("op") == "else"), None)
         if not chosen and other is not None and not any(r["holds"] is None for r in read):
             chosen.append(other["id"])
         unreadable = any(r["holds"] is None for r in read)
+        node.state_variables["compared"] = {r["to"]: {**r["compared"], "holds": r["holds"]} for r in read if r.get("compared")}
         if not chosen and not unreadable and node.spec.get("on_no_match", "stop") == "stop":
             values = {v: _brief(self.shared_state[v]) if v in self.shared_state else None for v in sorted(used - {"True", "False", "None"})}
             node.state_variables["no_branch"] = {"exits": read, "values": values, "at": _now()}      # no branch holds: this path stops here, the rest of the plan goes on
@@ -1024,11 +1173,12 @@ class PlanDAG:
             values = {v: _brief(self.shared_state[v]) if v in self.shared_state else None for v in sorted(used - {"True", "False", "None"})}
             facts = {"exits": read, "values": values, "unset": sorted(v for v in values if v not in self.shared_state), "at": _now()}
             raise NoRoute(f"no branch of '{node.id}' can be taken: " + "; ".join(
-                f"'{r['condition']}' " + ("holds" if r["holds"] else "does not hold" if r["holds"] is False else f"could not be read ({r['error']})")
+                f"'{r['condition']}' " + ("holds" if r["holds"] else "does not hold" if r["holds"] is False else f"could not be read ({r.get('error', '')})")
                 for r in read) + f"; values: {json.dumps(values, ensure_ascii=False)}", facts)
         kept = [c for port in chosen for c in node.routes.get(port, [])]
         node.state_variables["selected"] = list(dict.fromkeys(kept))
         node.state_variables["selected_branches"] = chosen
+        node.state_variables.pop("waiting_for", None)
         for c in node.outputs:
             if c not in kept:
                 self._skip(c, because=node.id)
@@ -1247,6 +1397,7 @@ def node_to_dict(n: PlanNode) -> Dict[str, Any]:
         **({"spec": n.spec} if n.spec else {}),
         **({"produces": n.produces} if n.produces else {}),
         **({"routes": {port: list(kids) for port, kids in n.routes.items()}} if n.routes else {}),
+        **({"inputs": {name: dict(ref) for name, ref in n.inputs.items()}} if n.inputs else {}),
     }
 
 
@@ -1272,6 +1423,7 @@ def node_from_dict(nd: Dict[str, Any]) -> PlanNode:
         produces=clean_field(node_type, "produces", nd.get("produces")),
     )
     node.routes = {str(port): [str(k) for k in kids] for port, kids in (nd.get("routes") or {}).items() if isinstance(kids, list)}
+    node.inputs = {str(name): {"node": str(ref["node"]), "port": str(ref.get("port") or "result")} for name, ref in (nd.get("inputs") or {}).items() if isinstance(ref, dict) and ref.get("node")}
     if node_type == NodeType.INPUT:
         node.assignee = Assignee.USER                       # a question is answered by the person
     migrate_decision(node)

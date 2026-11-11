@@ -9,6 +9,7 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from tadamoo.planner import operands
 from tadamoo.planner.dag import PlanError, _json_value, check_expression
 
 NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
@@ -30,7 +31,7 @@ NODE_SPECS: Dict[str, Dict[str, Any]] = {
         {"name": "rag_archives", "kind": "archives", "max": MAX_ARCHIVES}]},
     "sensor": {"family": "action", "auto": False, "summary": "Listens for an event and resolves when its condition holds", "fields": []},
     "decision": {"family": "flow", "auto": False, "summary": "Has several outcomes, each its own connector: the branches whose condition holds are taken", "fields": [
-        {"name": "input", "kind": "expression", "max": 300}, {"name": "mode", "kind": "choice", "choices": list(MODES), "default": "first"},
+        {"name": "input", "kind": "expression", "max": 300, "hidden": True}, {"name": "mode", "kind": "choice", "choices": list(MODES), "default": "first"},
         {"name": "on_no_match", "kind": "choice", "choices": list(ON_NO_MATCH), "default": "stop"},
         {"name": "branches", "kind": "branches", "required": True, "max": MAX_BRANCHES}]},
     "merge": {"family": "flow", "auto": False, "summary": "Waits for the parallel branches above it", "fields": []},
@@ -125,19 +126,34 @@ def _archives(spec: Dict[str, Any], key: str, required: bool = False) -> Optiona
 
 
 # -- the connectors of a step: one table for the checks, the tools and the page ----------------------------------------------------
-# A port has an id, a kind (`flow`: the step below waits for this one; `input`: data given to a step, which neither waits nor is waited for) and a label.
-# An edge goes from an output port of one step to an input port of another of the same kind. A decision has one output port for each of its branches.
+# A port has an id, a kind and a label. `flow`: the step below waits for this one. `data`: a value or archives given to a step; it never orders anything,
+# except that a step that takes a value does not run before the step it comes from has produced it. A data port also says what it `carries` (`value`,
+# `reading`, `archives`) or `accepts`. An edge goes from an output port to an input port of the same kind that accepts what it carries.
+# A decision has one flow output port for each of its branches.
 
-PORT_IN = {"default": [{"id": "in", "kind": "flow"}], "action": [{"id": "in", "kind": "flow"}, {"id": "rag", "kind": "input"}], "rag": []}
-PORT_OUT = {"default": [{"id": "out", "kind": "flow"}], "decision": "branches", "rag": [{"id": "rag", "kind": "input"}]}
+FLOW_IN = {"id": "in", "kind": "flow"}
+DATA_IN = {"id": "data", "kind": "data", "accepts": ["value", "reading"], "label": "inputs"}
+RAG_IN = {"id": "rag", "kind": "data", "accepts": ["archives"], "label": "archives"}
+FLOW_OUT = {"id": "out", "kind": "flow"}
+
+
+def _data_out(port: str, carries: str) -> Dict[str, Any]:
+    return {"id": port, "kind": "data", "carries": carries, "label": port}
+
+
+PORT_IN = {"default": [FLOW_IN], "action": [FLOW_IN, DATA_IN, RAG_IN], "decision": [FLOW_IN, DATA_IN, RAG_IN], "rag": [],
+           **{k: [FLOW_IN, DATA_IN] for k in ("set_var", "output", "log", "wait_condition", "loop", "input")}}
+PORT_OUT = {"default": [FLOW_OUT], "decision": "branches", "rag": [_data_out("rag", "archives")],
+            "action": [FLOW_OUT, _data_out("result", "value")], "sensor": [FLOW_OUT, _data_out("reading", "reading")], "get_var": [FLOW_OUT, _data_out("value", "value")],
+            "set_var": [FLOW_OUT, _data_out("value", "value")], "input": [FLOW_OUT, _data_out("answer", "value")]}
 BRANCH_ID = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 
-def in_ports(kind: str) -> List[Dict[str, str]]:
+def in_ports(kind: str) -> List[Dict[str, Any]]:
     return [dict(p) for p in PORT_IN.get(kind, PORT_IN["default"])]
 
 
-def out_ports(kind: str, spec: Optional[Dict[str, Any]] = None) -> List[Dict[str, str]]:
+def out_ports(kind: str, spec: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """The output connectors of a step of this kind: for a decision its branches in the order shown, with their labels."""
     ports = PORT_OUT.get(kind, PORT_OUT["default"])
     if ports == "branches":
@@ -145,54 +161,10 @@ def out_ports(kind: str, spec: Optional[Dict[str, Any]] = None) -> List[Dict[str
     return [dict(p) for p in ports]
 
 
-def _literal(value: Any) -> str:
-    if isinstance(value, bool):
-        return "True" if value else "False"
-    if isinstance(value, (int, float)):
-        return repr(value)
-    text = str(value).strip()
-    try:
-        return repr(int(text))
-    except ValueError:
-        pass
-    try:
-        number = float(text)
-        if number == number and abs(number) != float("inf"):
-            return repr(number)
-    except ValueError:
-        pass
-    if not text or len(text) > 100 or any(c in text for c in ("\\", "\n", "\r")):
-        raise PlanError("a value to compare is a number or a short text")
-    return '"' + text.replace('"', "'") + '"'
-
-
-def build_condition(subject: Any, op: str, value: Any = None, value2: Any = None) -> str:
-    """The expression a branch's helper stands for: `input op value` (between: both ends; in: a list; contains: the value is in the input)."""
-    if not isinstance(subject, str) or not subject.strip():
-        raise PlanError("set the value the branches compare (the decision's 'input') to build a condition from an operator")
-    s = f"({subject.strip()})"
-    if op in ("<", "<=", ">=", ">", "!="):
-        text = f"{s} {op} {_literal(value)}"
-    elif op == "=":
-        text = f"{s} == {_literal(value)}"
-    elif op == "between":
-        text = f"({s} >= {_literal(value)} and {s} <= {_literal(value2)})"
-    elif op == "in":
-        items = value if isinstance(value, list) else [x for x in str(value).split(",") if x.strip()]
-        if not items:
-            raise PlanError("'in list' needs at least one value")
-        text = f"{s} in [{', '.join(_literal(x) for x in items)}]"
-    elif op == "contains":
-        text = f"{_literal(value)} in {s}"
-    else:
-        raise PlanError(f"an operator is one of {', '.join(OPS)}")
-    check_expression(text)
-    return text
-
-
 def clean_branches(raw: Any, subject: Optional[str]) -> List[Dict[str, Any]]:
-    """The ordered branches of a decision, each {id, label, condition} (and the helper's op, value, value2 when it was built from them). New branches get
-    an id; the labels are unique; `else` is at most one and last."""
+    """The ordered branches of a decision. A comparison branch is {id, label, left, op, right, right2?} (operands, tadamoo/planner/operands.py); a branch stored as
+    {op, value, value2} with the decision's `input` is made into one; {id, label, condition} is a whole expression; {id, label, op: "else"} is taken when no
+    other is. New branches get an id; the labels are unique; `else` is at most one and last."""
     if not isinstance(raw, list) or not raw:
         raise PlanError("a decision needs at least one branch")
     if len(raw) > MAX_BRANCHES:
@@ -202,7 +174,7 @@ def clean_branches(raw: Any, subject: Optional[str]) -> List[Dict[str, Any]]:
     labels, ids, n = set(), set(), 0
     for i, b in enumerate(raw):
         if not isinstance(b, dict):
-            raise PlanError("a branch is an object with a label and a condition")
+            raise PlanError("a branch is an object with a label and a comparison")
         label = b.get("label")
         if not isinstance(label, str) or not label.strip() or len(label.strip()) > LABEL_MAX:
             raise PlanError(f"a branch has a label of 1 to {LABEL_MAX} characters")
@@ -219,18 +191,15 @@ def clean_branches(raw: Any, subject: Optional[str]) -> List[Dict[str, Any]]:
         if not isinstance(bid, str) or not BRANCH_ID.match(bid) or bid in ids:
             raise PlanError("a branch id is letters, digits and - _ . and is not used twice")
         ids.add(bid)
-        op = b.get("op")
         entry: Dict[str, Any] = {"id": bid, "label": label}
-        if op == "else":
+        if b.get("op") == "else":
             if i != len(raw) - 1:
                 raise PlanError("the 'else' branch is the last one")
             entry["op"] = "else"
-        elif op:
-            if op not in OPS:
-                raise PlanError(f"an operator is one of {', '.join(OPS)}")
-            entry.update(op=op, value=b.get("value"), condition=build_condition(subject, op, b.get("value"), b.get("value2")))
-            if op == "between":
-                entry["value2"] = b.get("value2")
+        elif isinstance(b.get("op"), str):                      # the helper's operator with its value(s): the decision's `input` is the first term
+            entry.update(operands.clean_compare({**operands.legacy(b, subject), **{k: b[k] for k in ("left",) if k in b}}))
+        elif b.get("left") is not None or b.get("op") is not None:
+            entry.update(operands.clean_compare(b))
         else:
             cond = b.get("condition")
             check_expression(cond)
