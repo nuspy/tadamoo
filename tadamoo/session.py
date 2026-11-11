@@ -6,14 +6,14 @@ for the start, and saves the history after every model turn, so a process that d
 
 Commands: {"cmd": "send", "id", "text"}, {"cmd": "answer", "id", "value"}, {"cmd": "cancel"}, {"cmd": "resume"}, {"cmd": "close"},
 {"cmd": "promote", "id"}, {"cmd": "drop", "id"}, {"cmd": "ping"}, {"cmd": "mode", "mode"} (the permission mode of the conversation),
-{"cmd": "role", "role"} (what the agent is for: tadamoo/roles.py), {"cmd": "checks", "safe", "checks"} (the commands that run without a question and the accepted checks of the verify gate),
+{"cmd": "role", "role"} (what the agent is for: tadamoo/roles.py), {"cmd": "knowledge", "ids"} (the knowledge archives attached besides the project's own), {"cmd": "checks", "safe", "checks"} (the commands that run without a question and the accepted checks of the verify gate),
 {"cmd": "effort", "level"} (how long the model thinks), {"cmd": "intake", "mode"} (off, rules or full: how a request is looked at), {"cmd": "optimize", "on"} (whether a message is rewritten by the technical session first; a "send" may carry "optimize": false), {"cmd": "settings", "max_turns", "end_turn_bias", "temperature", "max_tokens"} (the steps one answer may take,
 -1 for no limit, the end-of-turn bias, the sampling temperature, null for the model file's own, and the most a reply may write, null for the server's own; any of them), {"cmd": "command", "id", "name", "args"} (a slash command: tadamoo/commands.py),
 {"cmd": "skill", "id", "name", "display", "script", "values", "timeout", "cache_dir"} (runs a personal skill in the conversation).
 Events: ready, accepted, queued, routed, started, suspended, resumed, agent (an assistant text or a tool start or end), delta
 (text as it is written), ask (a confirmation the task waits for, or a card of questions that ends the turn), intake (what the look at a request assumed
 or recorded), optimizing and optimized (the technical session's rewrite of the message is being made; then the rewrite, or why it was not used), suggestions (the next-message chips after an answer),
-retrying, model_error (only with the error classifier on), done (with `more` when other tasks are waiting), blocked, cleared, dropped, mode, role, checks, effort, intake_mode, optimize_prompt, settings, command, skill, skill_say, heartbeat, error.
+retrying, model_error (only with the error classifier on), done (with `more` when other tasks are waiting), blocked, cleared, dropped, mode, role, knowledge, checks, effort, intake_mode, optimize_prompt, settings, command, skill, skill_say, heartbeat, error.
 
 A message that comes while a task is under way is looked at before the task's next model call (tadamoo/router.py): it goes into
 that task (steer), waits its turn (queue), or, when it cannot wait and has nothing to do with the task, the task is put aside where
@@ -1932,6 +1932,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     except Exception as exc:
         emit({"event": "error", "code": "start", "message": f"{type(exc).__name__}: {exc}"})
         return 1
+    if built.project_recall is not None:
+        built.project_recall.on_change = lambda ids, kind, name: emit({"event": "knowledge", "ids": list(ids), "change": kind, "name": name})       # an archive attached or dropped by a tool
     if args.ask_only:
         from tadamoo.tools.registry import ToolRegistry
         built.agent.tools = ToolRegistry()
@@ -2075,6 +2077,11 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                 if note:
                     session.tell(note)
                 emit({"event": "persona", "slug": cmd["slug"]})
+            elif name == "knowledge" and isinstance(cmd.get("ids"), list) and built.knowledge_switch is not None:
+                note = built.knowledge_switch([str(i) for i in cmd["ids"]])
+                if note:
+                    session.tell(note)
+                emit({"event": "knowledge", "ids": list(built.project_recall.attached)})
             elif name == "intake" and cmd.get("mode") in it.MODES and session.intake is not None:
                 session.intake.mode = cmd["mode"]
                 emit({"event": "intake_mode", "mode": cmd["mode"]})
