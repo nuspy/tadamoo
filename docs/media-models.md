@@ -2,8 +2,9 @@
 
 Models for pictures and video that fit beside the language model on one 32 GB GPU. Sizes are the weights on disk; VRAM is what a worker
 needs while it runs. **Measured** means run on the maintainer's RTX 5090; everything else is read from the LTX Studio project
-(`E:\AI\LTXStudio`, its `data/weights_catalog.json` and workers) and is an estimate. Nothing here is built into TaDaMoo yet: the weights and
-workers belong to LTX Studio, and a TaDaMoo component would call them through its job runner or its REST API (`python -m api.app`, port 8200).
+(`E:\AI\LTXStudio`, its `data/weights_catalog.json` and workers) and is an estimate. The weights and workers belong to LTX Studio; TaDaMoo
+runs the two it chose as one subprocess per job under a lease, and offers them to the Chat and the Agent as `generate_image` and
+`generate_video` ([media/README.md](media/README.md)). The other rows are the catalogue of what else would fit.
 
 The VRAM comes from the lease broker (`docs/vram-broker.md`): a heavy job runs alone, the expert cache shrinks for its duration and the
 language model is slow meanwhile. Where the model does not fit even then, the local engine can sleep (`SLEEP`/`WAKE`) and the text side can
@@ -19,9 +20,11 @@ run on a provider the person authorised.
 | FLUX.1 with nunchaku fp4 | 6.6 GB | 9.5 GB measured by LTX Studio | Needs a Blackwell card. |
 | Upscalers: ESRGAN family, SeedVR2 3B fp8, RIFE | 0.03-3.2 GB | up to about 4 GB | The smallest and the most useful with little VRAM. |
 
-The text encoder (Qwen3-VL-8B) runs once per prompt and is the larger part of the VRAM. Decision: it stays in RAM when a CPU copy
-exists (fp8 storage, about 9 GB, computed in bf16); the nvfp4 encoder on disk is GPU only. Another way to the same peak: encode the prompt
-first, free the encoder, then load the DiT, which brings the peak from 10.5 GB to about 7 GB.
+The text encoder (Qwen3-VL-8B) runs once per prompt and is the larger part of the VRAM. The wish was to keep it in RAM (fp8 storage, about
+9 GB, computed in bf16), which needs a CPU copy of the encoder that is not on the disk (about 16 GB bf16) and a worker that can run it there:
+LTX Studio's worker loads the nvfp4 encoder on the GPU only. What is built is that worker as it is (the 10.5 GB path, lease 11000 MiB); no
+encoder was downloaded. Another way to a lower peak, not built: encode the prompt first, free the encoder, then load the DiT (about 7 GB
+at the peak; the pipeline takes `prompt_embeds`), which would need a worker of TaDaMoo's own and a real run to prove it.
 
 ## Video
 

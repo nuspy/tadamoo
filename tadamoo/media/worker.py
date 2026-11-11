@@ -25,6 +25,7 @@ from pathlib import Path
 
 LEASE_CLIENT = Path(__file__).resolve().parents[1] / "vram_lease.py"
 OWNER = {"image": "image", "video": "video"}
+PURPOSE = {"image": "making a picture", "video": "making a clip"}
 STEP = re.compile(r"(\d+)/(\d+)\s*\[")                   # a progress bar: "  3/8 [00:12<00:20"
 HTTP_SLACK_S = 135.0                                      # the call that asks for the lease may last as long as the wait plus the engine's own time
 
@@ -204,7 +205,7 @@ def main() -> int:
             raise JobError("LTX Studio lacks weights this needs: " + ", ".join(plan["missing"]))
         module = lease_module()
         wait = float(spec.get("wait_s") or 0)
-        state["lease"] = lease = module.VramLease(OWNER[kind], int(spec["mib"]), f"making a {kind}", wait_s=wait,
+        state["lease"] = lease = module.VramLease(OWNER[kind], int(spec["mib"]), PURPOSE[kind], wait_s=wait,
                                                   transport=module.http_transport(spec.get("url") or None, timeout=wait + HTTP_SLACK_S)).acquire()
         emit({"event": "lease", "ok": lease.gpu_ok, "granted_mib": lease.granted_mib, "reason": lease.reason, "message": lease.message, "message_it": lease.message_it})
         if not lease.gpu_ok:
