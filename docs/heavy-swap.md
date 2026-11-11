@@ -10,7 +10,7 @@ Whatever holds the GPU for the local model and can be asked to (`serve/heavy_hol
 
 | engine | steps aside by | comes back by |
 |---|---|---|
-| Basalt-Plus, Strata | `SLEEP`: its VRAM is free, its experts stay in RAM; nothing else may wake it | `WAKE`, a few seconds |
+| Basalt-Plus, Strata | `SLEEP`: its VRAM is free, its experts stay in RAM; nothing else may wake it. Where the driver cannot suspend a process (this PC) the engine is unloaded instead | `WAKE`, a few seconds; or loaded again (about 2 minutes), started when the job ends |
 | llama.cpp started from TaDaMoo | the server is stopped (the model is unloaded) | started again with the same settings |
 | LM Studio | `lms unload` on its loaded models | `lms load` of the same models |
 
@@ -43,7 +43,7 @@ the per-function consent for the cloud, for the time of the swap only; the Provi
 2. The swap is a file, `llm_swap.json` next to the providers file, read by every process that routes a function: the server and the agent
    sessions (processes of their own). Every function with no provider, or on the model loaded in this server, reads as the swap's provider;
    a function the person assigned to another provider keeps it. The saved assignments are never rewritten.
-3. A request for the local model meanwhile (another program on `/v1`, the Chat without the harness) is refused with 503 and the reason: the
+3. While the model is out, a request for it (another program on `/v1`, the Chat without the harness) is refused with 503 and the reason: the
    engine is not woken by it. Only the job's end wakes it.
 4. The job extends the swap (`/api/heavy/<id>/touch`, every 30 s) and ends it (`/end`). A swap not touched for 90 s ends by itself, and the file
    lapses after 10 minutes without a touch, so a dead server cannot leave the conversations on the cloud. At the end the registry is released
@@ -60,6 +60,13 @@ with HeavyLease("video", 24000, "a clip for the newscast", minutes=5) as lease:
 ```
 
 It asks the broker first and the swap only on `not_enough`, then the broker again. `release` gives the VRAM back and then ends the swap.
+
+A job that runs real GPU kernels beside the loaded engine passes `exclusive=True` (the picture and video jobs do): the model steps aside first and the
+VRAM is asked for afterwards. Measured on the RTX 5090 with an engine started with `--vram-elastic`: a lease of the same size taken by the Qwen-Image job
+left the engine failing its next request ("verify: layer 0 never rang (an illegal instruction was encountered)", three times in three), while a lease
+used by a torch process that only allocated and ran matrix products, and a lease nobody used, did not. So for such a job the borrowing is the fallback:
+when the person does not allow the model to step aside, the VRAM is borrowed anyway and `risky` is set, with a message that the model may stop and
+restart after the job. With no local engine up the job only takes the free VRAM.
 Standard library only (`tadamoo/heavy.py`).
 
 ## Not done
