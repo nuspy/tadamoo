@@ -32,6 +32,13 @@ The client turns them into `{path, bytes, seconds, lease}`, or raises `Refused` 
 3. The model process, in LTX Studio's folder, with `HF_HUB_OFFLINE=1`. Its parameters are written next to the output.
 4. The file is checked to exist; the job ends.
 
+## Held swap, and the talking head
+
+`request` carries `held: true` when the caller keeps the local model out of the way itself (`HeavyLease.step_aside`, [../heavy-swap.md](../heavy-swap.md)): the worker then
+asks the broker for its VRAM and nothing else, and neither starts nor ends a swap. Kind `avatar` has the request `{image, audio, prompt, resolution, seed}` (paths
+on this PC); the worker runs LongCat's own script with its environment, folder and `LONGCAT_CODE_DIR`, a lease of `avatar_mib`, and the `done` line gives the MP4
+with the recording as its sound.
+
 ## Cancel, silence, time
 
 - A cancel closes the worker's stdin. The worker looks at the pipe twice a second, kills the model process and what it started
