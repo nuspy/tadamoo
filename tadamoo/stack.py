@@ -1064,6 +1064,10 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         agent.state_note = lambda: teller.note(settings(), getattr(getattr(context, "compaction", None), "count", 0))
         awareness.register_self_status(registry, lambda: awareness.status_of(agent, context.budget_tokens, {"settings": settings()}))
     quick = technical if technical is not None else client          # the quick jobs never take the conversation's own route
+    if project_recall is not None:                      # the questions a long request holds, written by the technical session (tadamoo/rag/expand.py)
+        from tadamoo.rag import expand, nudge
+        agent.read_hint = nudge.read_hint(project_recall.store, project_recall)
+        project_recall.plan = lambda goal, documents: expand.ask(quick if quick is not None else agent.client, goal, documents, int(side_uses.param("recall_queries", "queries")))
     if quick is not None:                               # the technical session's two readers of tool results (both off until switched on)
         compactor.extract = tool_extract.make_extractor(quick, lambda: agent.last_user_text)
         agent.screen = inject_screen.make_screen(quick)

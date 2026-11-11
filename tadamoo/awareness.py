@@ -54,7 +54,11 @@ def self_model(*, model: str, window: int, mask_at: float, compaction_at: float,
     if knowledge:
         lines.append("- The person keeps knowledge archives (named collections of their documents, also called RAG): this project's are searched for every request, and any archive can be attached "
                      "to this conversation by name with `knowledge_use` (`knowledge_drop`, `knowledge_list` and `knowledge_search` go with it) when the person asks for one, in any wording. "
-                     "The `[state]` note lists the archives this conversation can use now (`knowledge=`) and says when they change.")
+                     "The `[state]` note lists the archives this conversation can use now (`knowledge=`: their documents, pages and languages) and says when they change. "
+                     "An archive holds its documents already read (OCR included) and indexed: to find a specific fact, number, name or claim in them, or when you do not know the page, "
+                     "or across several documents, use `knowledge_search` (one short search for each point you need) and then `knowledge_read` for the pages around what it found, "
+                     "instead of reading the files page by page; the passages added to a request are only a first sample. Read a known page directly with `read_document` or `read_file`, "
+                     "and files that are not in an archive.")
     if council:
         lines.append(council)
     if lessons:
