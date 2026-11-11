@@ -16,6 +16,9 @@ class Voice extends ChangeNotifier {
   bool listening = false;
   String? problem;
 
+  /// What the phone's voice said when it could not read (shown once by the chat, then cleared).
+  String? speechProblem;
+
   String get _locale {
     if (settings.speechLocale.isNotEmpty) return settings.speechLocale;
     return Texts.language == 'it' ? 'it-IT' : 'en-GB';
@@ -30,8 +33,9 @@ class Voice extends ChangeNotifier {
       speaking = false;
       notifyListeners();
     });
-    _tts.setErrorHandler((_) {
+    _tts.setErrorHandler((message) {
       speaking = false;
+      speechProblem = '$message';
       notifyListeners();
     });
   }
@@ -49,13 +53,15 @@ class Voice extends ChangeNotifier {
     final text = plain(markdown);
     if (text.isEmpty) return;
     try {
+      if (speaking) await _tts.stop();               // a new reading replaces the one in progress
+      speechProblem = null;
       await _tts.setLanguage(_locale);
       speaking = true;
       notifyListeners();
       await _tts.speak(text);
     } catch (e) {
       speaking = false;
-      problem = '$e';
+      speechProblem = '$e';
       notifyListeners();
     }
   }

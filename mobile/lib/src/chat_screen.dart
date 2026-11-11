@@ -87,6 +87,11 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   void _changed() {
     if (!mounted) return;
     setState(() {});
+    final heard = widget.voice.speechProblem;
+    if (heard != null) {
+      widget.voice.speechProblem = null;
+      _say(heard);
+    }
     if (openedAtLast && ctl.items.isNotEmpty && !ctl.busy) {
       openedAtLast = false;
       stickToEnd = false;
@@ -303,6 +308,14 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// The loudspeaker in the bar: reading answers aloud on or off, the same switch as in Settings; turning it off also stops what is being read.
+  Future<void> _toggleReadAloud() async {
+    final on = !widget.settings.autoSpeak;
+    await widget.settings.setAutoSpeak(on);
+    if (!on) await widget.voice.stopSpeaking();
+    if (mounted) setState(() {});
+  }
+
   Future<void> _options() => showChatOptions(context, prefs: prefs, role: widget.agent ? _role : null, onRole: widget.agent ? _setRole : null);
 
   // ---- drawing ----
@@ -313,7 +326,12 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       appBar: AppBar(
         title: Text(ctl.info == null || ctl.info!.title.isEmpty ? Texts.t('conv.untitled') : ctl.info!.title, maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
-          if (widget.voice.speaking) IconButton(tooltip: Texts.t('chat.silence'), icon: const Icon(Icons.volume_off), onPressed: widget.voice.stopSpeaking),
+          IconButton(
+            key: const ValueKey('read-aloud'),
+            tooltip: Texts.t(widget.settings.autoSpeak ? 'chat.readoff' : 'chat.readon'),
+            icon: Icon(widget.settings.autoSpeak ? Icons.volume_up : Icons.volume_off),
+            onPressed: _toggleReadAloud,
+          ),
           IconButton(tooltip: Texts.t('opts.title'), icon: const Icon(Icons.tune), onPressed: _options),
           Padding(
             padding: const EdgeInsets.only(right: 8),
