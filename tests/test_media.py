@@ -187,3 +187,59 @@ def test_a_job_that_runs_too_long_is_ended(world):
 def test_a_worker_that_prints_nothing_useful_is_an_error():
     with pytest.raises(MediaError, match="ended before it made a file"):
         client._run([sys.executable, "-c", "import sys; sys.stderr.write('boom\\n')"], "image", None, None, 10, 10)
+
+
+def wav_bytes(seconds, rate=24000):
+    import io
+    import wave
+    out = io.BytesIO()
+    with wave.open(out, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(b"" * int(rate * seconds))
+    return out.getvalue()
+
+
+def test_the_avatar_request_is_checked():
+    r = limits.avatar_request("a.jpg", "b.wav", "an anchor", "480p", seed=3)
+    assert r["image"] == "a.jpg" and r["audio"] == "b.wav" and r["seed"] == 3
+    for bad in (lambda: limits.avatar_request("", "b.wav"), lambda: limits.avatar_request("a.jpg", None), lambda: limits.avatar_request("a.jpg", "b.wav", resolution="4k"),
+                lambda: limits.avatar_request("a.jpg", "b.wav", "x" * 5000)):
+        with pytest.raises(MediaError):
+            bad()
+
+
+def avatar_job(world, **kw):
+    image, audio = world["tmp"] / "p.jpg", world["tmp"] / "a.wav"
+    image.write_bytes(b"x")
+    audio.write_bytes(wav_bytes(1))
+    out = world["tmp"] / "job" / "out.mp4"
+    return client.run("avatar", limits.avatar_request(str(image), str(audio), "an anchor", seed=4), out, world["settings"], url=world["broker"].url, **kw), out
+
+
+def test_a_talking_head_asks_for_its_own_lease_size_and_runs_the_environment_of_longcat(world):
+    got, out = avatar_job(world)
+    assert out.read_bytes()[4:8] == b"ftyp" and got["lease"]["owner"] == "avatar" and got["lease"]["granted_mib"] == DEFAULTS["avatar_mib"]
+    params = json.loads((out.parent / "params.json").read_text(encoding="utf-8"))
+    assert params["mode"] == "ai2v" and params["image_path"].endswith("p.jpg") and params["audio_path"].endswith("a.wav") and params["precision"] == "int8"
+    assert params["prompt"] == "an anchor" and params["resolution"] == "480p" and params["seed"] == 4 and params["output"] == str(out) and params["vocal_separation"] is False
+    assert world["broker"].paths()[0] == "/api/heavy/begin"                    # not held: it asks for the swap itself
+
+
+def test_a_held_job_asks_for_the_vram_only(world):
+    got, out = avatar_job(world, held=True)
+    assert "/api/heavy/begin" not in world["broker"].paths() and world["broker"].lease_calls()[0][1]["owner"] == "avatar" and got["lease"]["granted_mib"] == DEFAULTS["avatar_mib"]
+
+
+def test_what_a_talking_head_lacks_is_told_before_the_lease(tmp_path, world):
+    other = make_ltx(tmp_path / "ltx2", avatar_missing=["lcav15-int8"])
+    got = client.check({**world["settings"], "ltx_dir": str(other)})
+    assert not got["avatar"]["ready"] and got["avatar"]["missing"] == ["weights lcav15-int8"] and got["video"]["ready"]
+    not_installed = make_ltx(tmp_path / "ltx3", avatar=False)
+    got = client.check({**world["settings"], "ltx_dir": str(not_installed)})
+    assert got["avatar"]["missing"] == ["the LongCat Avatar environment"]
+    with pytest.raises(MediaError, match="lacks weights.*LongCat"):
+        client.run("avatar", limits.avatar_request(str(tmp_path / "a.jpg"), str(tmp_path / "a.wav")), tmp_path / "j" / "o.mp4", {**world["settings"], "ltx_dir": str(not_installed)}, url=world["broker"].url)
+    with pytest.raises(MediaError, match="the file"):
+        client.run("avatar", limits.avatar_request(str(tmp_path / "nope.jpg"), str(tmp_path / "nope.wav")), tmp_path / "j2" / "o.mp4", world["settings"], url=world["broker"].url)

@@ -31,6 +31,10 @@ tool call -> tadamoo/media/tools.py        checks the parameters (limits.py), pi
   GPU with the DiT for the few seconds of the job.
 - **Video:** LTX 2.5 distilled, transformer nvfp4 (`ltx-2.5-22b-distilled-transformer-nvfp4.safetensors`), 704x512 and 65 frames unless
   asked otherwise, lease 25000 MiB (23.8 GB peak measured).
+- **Talking head** (kind `avatar`, no tool of its own): a portrait and a recording become a video of the person speaking, as long as the recording, with
+  LongCat-Video-Avatar 1.5 in LTX Studio's `LongCatAvatar` environment (int8, 480p), lease 25000 MiB. It is used by [the newscast](../newscast/README.md).
+- **A caller that makes several jobs** steps the model aside once and passes `held=True` to `client.run`: each job then asks for its VRAM only
+  ([runner.md](runner.md)).
 - **When the VRAM is not lent** the answer is `refused` with the broker's reason (`not_enough`, `busy`, `unavailable`, `no_engine`,
   `disabled`, `engine_died`) and its message. Nothing falls back: the nvfp4 models have no CPU path. Putting the language model to sleep,
   or routing it to a provider, is up to the caller.

@@ -10,7 +10,8 @@ It asks the server for the VRAM first (tadamoo/vram_lease.py). Only when the ans
 (`/api/heavy/begin`: the person answers on a card, or has allowed it for this kind of job), then asks for the VRAM again. `release` gives the VRAM back and
 then lets the model come back. A job that runs real GPU kernels beside the loaded engine (`exclusive`) goes the other way round: the model steps aside
 first, because an engine that lent its cache to such a job can fail on its next request; only when the person does not allow that does it borrow anyway,
-and `risky` says so. Nothing here raises for a missing server."""
+and `risky` says so. A caller that already holds a swap of its own across several jobs passes `held`: only the VRAM is asked for, and nothing
+steps aside or comes back at this lease's end. Nothing here raises for a missing server."""
 from __future__ import annotations
 
 import http.client
@@ -32,9 +33,9 @@ ASK_TIMEOUT_S = 700.0                              # the person may take their t
 
 class HeavyLease:
     def __init__(self, owner: str, mib: int, purpose: str = "", minutes: float = 5, kind: str | None = None, ask_wait_s: float = 600.0, wait_s: float = 0,
-                 exclusive: bool = False, transport: Transport | None = None, base_url: str | None = None, token: str = "", control_secret: str = "") -> None:
+                 exclusive: bool = False, held: bool = False, transport: Transport | None = None, base_url: str | None = None, token: str = "", control_secret: str = "") -> None:
         self.owner, self.mib, self.purpose, self.minutes, self.kind, self.ask_wait_s = owner, mib, purpose, minutes, kind or owner, ask_wait_s
-        self.wait_s, self.exclusive, self.risky = wait_s, exclusive, False
+        self.wait_s, self.exclusive, self.held, self.risky = wait_s, exclusive, held, False
         self._call = transport or http_transport(base_url, token, control_secret, timeout=ASK_TIMEOUT_S)
         self._vram = transport or http_transport(base_url, token, control_secret, timeout=wait_s + 135.0)
         self.lease: VramLease | None = None
@@ -67,7 +68,17 @@ class HeavyLease:
         threading.Thread(target=self._keep, name="heavy-swap-keepalive", daemon=True).start()
         return swap, ("", "", "")
 
+    def step_aside(self) -> bool:
+        """Only the swap, with no VRAM asked for: the local model leaves and stays out until `release`, for jobs that each ask for their own VRAM with `held`.
+        False when it could not (`swap_reason` says why, `no_local_engine` when there is nothing local to step aside)."""
+        swap, (why, en, it) = self._begin()
+        if swap is None:
+            self.swap_reason, self.message, self.message_it = why, en, it
+        return swap is not None
+
     def acquire(self) -> "HeavyLease":
+        if self.held:
+            return self._done(self._ask())
         if self.exclusive:
             return self._acquire_exclusive()
         lease = self._ask()

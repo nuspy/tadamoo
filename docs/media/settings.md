@@ -10,7 +10,7 @@
 | `ltx_dir` | "" | the folder of LTX Studio; empty: `TADAMOO_LTX_STUDIO`, then `E:/AI/LTXStudio` |
 | `image_python`, `video_python` | "" | a Python to use instead of the one LTX Studio names for the model |
 | `video_model` | "" | file name of the LTX 2.5 checkpoint; empty: `ltx-2.5-22b-distilled-transformer-nvfp4.safetensors` |
-| `image_mib`, `video_mib` | 11000, 25000 | the VRAM each kind asks the server for |
+| `image_mib`, `video_mib`, `avatar_mib` | 11000, 25000, 25000 | the VRAM each kind asks the server for |
 | `wait_s` | 600 | how long a job may wait in the broker's queue |
 | `idle_s` | 900 | how long the worker may print nothing |
 
