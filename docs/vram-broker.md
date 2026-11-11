@@ -74,3 +74,6 @@ to ask for it: nothing is lent unasked.
 
 The avatar is the first user: [voice/loading.md](voice/loading.md#avatar-on-request). The voice functions share one lease (owner `voice`,
 sized to the sum of what they borrowed) because only one holder is allowed: [voice/loading.md](voice/loading.md#a-function-added-while-the-model-runs).
+
+When even the whole cache is not enough (`not_enough`), a heavy job may ask to put the engine to sleep and move the conversations to a provider the
+person chose: [heavy-swap.md](heavy-swap.md).
