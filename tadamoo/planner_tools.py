@@ -30,7 +30,7 @@ from tadamoo.integrations.planner_client import PlannerClient
 from tadamoo.planner import nodes as nodes_mod
 from tadamoo.planner.archives import of_step as step_archive_ids
 from tadamoo.planner.bridge import classify_diff
-from tadamoo.planner.dag import PlanError, clean_outputs
+from tadamoo.planner.dag import PlanError, clean_outputs, edge_parts
 from tadamoo.planner.involvement import split_diff, step_facts
 from tadamoo.questions import KINDS as QUESTION_KINDS, AskGuard, QuestionError, summary
 from tadamoo.tools.registry import EffectClass, ToolRegistry
@@ -182,8 +182,11 @@ def describe_diff(diff: Dict[str, Any], nodes: Dict[str, Any]) -> List[str]:
             out.append(f'changes {i} "{title(i)}": ' + "; ".join(f"{k} -> {json.dumps(v, ensure_ascii=False)[:100]}" for k, v in fields.items()))
     for verb, key in (("links", "add_edges"), ("unlinks", "remove_edges")):
         for edge in diff.get(key) or []:
-            if isinstance(edge, (list, tuple)) and len(edge) == 2:
-                out.append(f'{verb} "{title(edge[0])}" -> "{title(edge[1])}"')
+            try:
+                a, b, port = edge_parts(edge)
+            except PlanError:
+                continue
+            out.append(f'{verb} "{title(a)}"{" (" + port + ")" if port else ""} -> "{title(b)}"')
     return out or ["changes nothing"]
 
 

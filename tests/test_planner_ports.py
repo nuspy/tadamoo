@@ -297,3 +297,29 @@ def test_the_archives_of_a_step_are_the_plans_its_own_and_those_of_the_rag_nodes
     assert feeders(plan, "b") == ["kb", "kb2"] and feeders(plan, "c") == []
     with pytest.raises(ValueError):
         PlanProfile.from_dict({"rag_archives": ["Bad Id"]})
+
+
+# -- proposals that carry edges with a connector ---------------------------------------------------------------------
+
+def test_a_proposal_with_connector_edges_can_be_shown_classified_and_split():
+    from tadamoo.planner.bridge import classify_diff
+    from tadamoo.planner.involvement import split_diff
+    from tadamoo.planner_tools import describe_diff
+    diff = {"add_edges": [["choose", "small", "b1"], {"from": {"node": "kb", "port": "rag"}, "to": {"node": "mid"}}, ["start", "big"]], "remove_edges": [["choose", "ten", "b2"], "nonsense"]}
+    assert classify_diff(diff)["updated"] == ["choose", "small", "kb", "mid", "start", "big", "ten"]       # one bad edge does not break the others
+    dag = branching()
+    nodes = dag.to_dict()["nodes"]
+    split = split_diff(nodes, diff)
+    assert split.safe["add_edges"] == diff["add_edges"] and not split.parked
+    text = "; ".join(describe_diff(diff, nodes))
+    assert 'links "Choose" (b1) -> "Small"' in text and 'links "kb" (rag) -> "Mid"' in text and 'unlinks "Choose" (b2) -> "Ten"' in text
+
+
+def test_a_rag_node_stays_editable_after_it_has_resolved_itself():
+    dag = rag_plan()
+    dag.advance(0)
+    assert dag.nodes["kb"].status == "completed"
+    dag.update_node("kb", spec={"archives": ["docs-333333"]})
+    assert dag.nodes["kb"].spec == {"archives": ["docs-333333"]}
+    with pytest.raises(PlanError, match="already completed"):
+        dag.update_node("a", title="x") if dag.mark("a", "completed") is None else None

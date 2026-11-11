@@ -790,7 +790,7 @@
       return;
     }
     if (!n) { ui.detail.append(el("p", { class: "pad dim", text: T("pl.detail.none") })); return; }
-    const done = n.status === "completed";
+    const done = n.status === "completed" && n.type !== "rag";            // a RAG node completes by itself at once and stays editable
     const title = el("input", { id: "pl-d-title", value: n.title, maxlength: "200", disabled: done });
     const desc = el("textarea", { id: "pl-d-desc", rows: "3", disabled: done, text: n.description });
     const assignee = el("select", { id: "pl-d-assignee", disabled: done },
@@ -861,7 +861,7 @@
       return by.length ? el("fieldset", { class: "pl-parents pl-conn" }, el("legend", { text: T("pl.conn.title") }), el("p", { class: "help", text: T("pl.conn.fedby", by.map(x => x.title).join(", ")) })) : [];
     }
     if (!sets.length) return [];
-    const done = n.status === "completed";
+    const done = n.status === "completed" && n.type !== "rag";
     const choices = n.type === "rag" ? Object.values(nodes).filter(x => x.type === "action") : Object.values(nodes).filter(x => x.id !== n.id && x.type !== "rag");
     return el("fieldset", { class: "pl-parents pl-conn" }, el("legend", { text: T("pl.conn.title") }), el("p", { class: "help", text: T(n.type === "rag" ? "pl.conn.rag.help" : "pl.conn.branch.help") }),
       ...sets.map((set, i) => {

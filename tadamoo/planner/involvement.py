@@ -7,6 +7,8 @@ from __future__ import annotations
 import copy
 from typing import Any, Dict, List, NamedTuple
 
+from tadamoo.planner.dag import PlanError, edge_parts
+
 PEOPLE = "a step for someone else"
 CALL = "a phone call to prepare"
 EFFECTS = "a booking, a payment or a resource out of the software's control, already done"
@@ -70,8 +72,15 @@ def split_diff(nodes: Dict[str, Dict[str, Any]], diff: Dict[str, Any]) -> Split:
         if note(str(before.get("title") or i)[:60], list(dict.fromkeys(step_facts(before) + step_facts(after)))):
             parked_update[i] = fields
 
+    def edge_checked(edge: Any) -> bool:
+        try:
+            edge_parts(edge)
+            return True
+        except PlanError:
+            return False
+
     def edge_parked(edge: Any) -> bool:
-        a, b = edge
+        a, b, _ = edge_parts(edge)
         if a in parked_ids or b in parked_ids:
             return True
         return a in nodes and b in nodes and bool(note(str(nodes[a].get("title") or a)[:60], step_facts(nodes[a]))
@@ -83,7 +92,7 @@ def split_diff(nodes: Dict[str, Dict[str, Any]], diff: Dict[str, Any]) -> Split:
     parked: Dict[str, Any] = {"add_nodes": [], "remove_nodes": parked_remove, "update_nodes": parked_update, "add_edges": [], "remove_edges": []}
     for key in ("add_edges", "remove_edges"):
         for edge in diff.get(key) or []:
-            (parked if isinstance(edge, (list, tuple)) and len(edge) == 2 and edge_parked(edge) else safe)[key].append(edge)
+            (parked if edge_checked(edge) and edge_parked(edge) else safe)[key].append(edge)
     for nid, n in added.items():
         if nid in parked_ids:
             parked["add_nodes"].append(n)

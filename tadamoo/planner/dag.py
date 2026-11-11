@@ -778,7 +778,7 @@ class PlanDAG:
         unknown = [k for k in changes if k not in EDITABLE]
         if unknown:
             raise PlanError(f"cannot edit {', '.join(unknown)}; editable: {', '.join(EDITABLE)}")
-        if node.status == "completed" and any(k != "position" for k in changes):
+        if node.status == "completed" and node.type != NodeType.RAG and any(k != "position" for k in changes):      # a RAG node completes by itself at once and stays editable
             raise PlanError(f"'{node_id}' is already completed; rewind it to change it")
         if "assignee" in changes:
             changes["assignee"] = Assignee(changes["assignee"])

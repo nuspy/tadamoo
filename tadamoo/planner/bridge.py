@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Callable, Deque, Dict, List, Optional
 
 from .card import CARD_FIELDS, DERIVED_FIELDS, PlanInsightCard, card_gaps, derive_card
-from .dag import Assignee, PlanDAG, PlanError, node_to_dict
+from .dag import Assignee, PlanDAG, PlanError, edge_parts, node_to_dict
 from .horizon import PlanProfile
 from .involvement import EXCEPTION_KINDS, split_diff
 from .nodes import catalogue as node_kinds
@@ -45,7 +45,11 @@ def classify_diff(diff: Dict[str, Any]) -> Dict[str, List[str]]:
     added = [n.get("id") for n in diff.get("add_nodes", []) if isinstance(n, dict)]
     removed = list(diff.get("remove_nodes", []))
     updated = list((diff.get("update_nodes") or {}).keys())
-    for p, c in list(diff.get("add_edges", [])) + list(diff.get("remove_edges", [])):
+    for edge in list(diff.get("add_edges", [])) + list(diff.get("remove_edges", [])):
+        try:
+            p, c, _ = edge_parts(edge)                     # [parent, child], [parent, child, port] or {from: {node, port}, to: {node}}
+        except PlanError:
+            continue                                         # a proposal that is not a valid diff is refused when it is applied, not here
         updated.extend([p, c])
     return {"added": added, "removed": removed, "updated": [u for u in dict.fromkeys(updated) if u not in added + removed]}
 
