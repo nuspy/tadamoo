@@ -84,6 +84,9 @@ class _Assignments(dict):
         super().__init__(data)
         self.swap = swap
 
+    def __bool__(self) -> bool:
+        return True                                  # callers write `data.get("assignments") or {}`: an empty one must not drop the swap
+
     def get(self, key: Any, default: Any = None) -> Any:
         value = super().get(key)
         if functions.known(key) and (not value or value in self.swap["replace"]):

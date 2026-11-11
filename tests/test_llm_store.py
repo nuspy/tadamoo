@@ -166,3 +166,11 @@ def test_while_a_swap_lasts_its_provider_is_allowed_for_every_function_without_t
     assert reg.check("executor", cloud["id"]) == (True, "") and reg.check("chat", cloud["id"]) == (True, "")
     reg.end_swap()
     assert not reg.check("executor", cloud["id"])[0]
+
+
+def test_a_swap_reaches_the_callers_even_when_nothing_was_assigned(reg):
+    cloud = reg.add({"type": "zai_coding", "api_key": "zk-123456789012"})
+    reg.begin_swap(cloud["id"])
+    data = reg.load()
+    assert (data.get("assignments") or {}).get("executor") == cloud["id"] and reg.fallback_chain("executor")[0] == cloud["id"]
+    assert reg.endpoint_for("executor", carica=False) is not None
