@@ -4,6 +4,7 @@ import time
 import unittest
 
 from serve import heavy_api
+from serve.heavy_holders import BasaltHolder
 from serve.heavy_swap import HeavyPrefs, HeavySwap
 from serve.tests.test_vram_api import Server
 from tadamoo.llm.credentials import FileCredentials
@@ -39,7 +40,8 @@ class HeavyRoutes(Server):
         self.registry = SecureRegistry(base / "llm.json", credentials=FileCredentials(base / "creds.json"))
         self.cloud = self.registry.add({"type": "zai_coding", "api_key": "zk-123456789012"})
         self.model = Asleep()
-        self.svc.heavy_swap = HeavySwap(self.model, self.registry, HeavyPrefs(base / "heavy.json"), pause=lambda s: None)
+        self.svc.heavy_swap = HeavySwap(self.model, self.registry, HeavyPrefs(base / "heavy.json"), pause=lambda s: None,
+                                     holders=lambda: [BasaltHolder(self.model, lambda s: None)])
 
     def test_the_settings_are_shown_and_changed_and_a_wrong_value_is_a_400(self):
         code, out = self.req("GET", heavy_api.BASE)

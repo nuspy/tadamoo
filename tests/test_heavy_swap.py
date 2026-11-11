@@ -5,6 +5,7 @@ import time
 
 import pytest
 
+from serve.heavy_holders import BasaltHolder
 from serve.heavy_swap import HeavyPrefs, HeavySwap
 from tadamoo.heavy import HeavyLease
 from tadamoo.llm.credentials import FileCredentials
@@ -44,7 +45,8 @@ def world(tmp_path):
 
 def make(world, **kw):
     reg, prefs, engine, _ = world
-    return HeavySwap(engine, reg, prefs, pause=lambda s: None, **kw)
+    holders = kw.pop("holders", None) or (lambda: [BasaltHolder(engine, lambda s: None)])
+    return HeavySwap(engine, reg, prefs, pause=lambda s: None, holders=holders, **kw)
 
 
 def ask_in_thread(swap, *args, **kw):
@@ -190,13 +192,48 @@ def test_the_client_says_why_when_the_person_said_no_or_the_vram_is_still_missin
     assert s.log[-1] == "/api/heavy/" + "c" * 16 + "/end"                          # the model is woken again
 
 
-def test_with_no_local_model_or_an_engine_that_cannot_sleep_nothing_is_asked_and_nothing_moves(world):
+class Holder:
+    """A stand-in for llama.cpp or LM Studio: up or not, frees or refuses, comes back."""
+
+    def __init__(self, name, log, up=True, refuse=""):
+        self.name, self.log, self.up, self.refuse = name, log, up, refuse
+
+    def active(self):
+        return self.up
+
+    def free(self, reason):
+        self.log.append("free " + self.name)
+        return self.refuse
+
+    def restore(self):
+        self.log.append("restore " + self.name)
+
+
+def test_with_no_local_engine_up_nothing_is_asked_and_nothing_moves(world):
     reg, prefs, engine, _ = world
-    swap = make(world)
     engine.up = False                                                            # a cloud service answers, or no model is loaded
+    swap = make(world)
     got = swap.begin("video", "x")
-    assert got["reason"] == "no_local_engine" and swap.pending() == [] and reg.swap() is None and engine.calls == 0 and swap.state()["engine"] == "no_local_engine"
-    engine.up, engine.engine = True, object()                                    # llama.cpp or vLLM: no SLEEP command
+    assert got["reason"] == "no_local_engine" and "nothing to free" in got["message"] and "nulla da liberare" in got["message_it"]
+    assert swap.pending() == [] and reg.swap() is None and engine.calls == 0 and swap.state()["engine"] == "no_local_engine"
+
+
+def test_llama_cpp_and_lm_studio_step_aside_and_come_back_in_reverse_order(world):
+    reg, prefs, engine, cloud = world
+    prefs.write({"mode": "allow"})
+    log = []
+    swap = make(world, holders=lambda: [Holder("llama.cpp", log), Holder("LM Studio", log), Holder("vllm", log, up=False)])
+    out = swap.begin("video", "x")
+    assert out["ok"] and log == ["free llama.cpp", "free LM Studio"] and reg.swap()["pid"] == cloud["id"]
+    swap.end(out["swap"]["id"])
+    assert log[2:] == ["restore LM Studio", "restore llama.cpp"] and reg.swap() is None
+
+
+def test_an_engine_that_will_not_step_aside_brings_back_the_ones_that_did_and_nothing_moves(world):
+    reg, prefs, engine, _ = world
+    prefs.write({"mode": "allow"})
+    log = []
+    swap = make(world, holders=lambda: [Holder("llama.cpp", log), Holder("LM Studio", log, refuse="no lms")])
     got = swap.begin("video", "x")
-    assert got["reason"] == "unsupported_engine" and "Basalt and Strata" in got["message"] and "Basalt e Strata" in got["message_it"]
-    assert swap.pending() == [] and reg.swap() is None and engine.calls == 0
+    assert got["reason"] == "cannot_sleep" and "LM Studio: no lms" in got["message"] and log == ["free llama.cpp", "free LM Studio", "restore llama.cpp"]
+    assert reg.swap() is None and swap.state()["active"] is None

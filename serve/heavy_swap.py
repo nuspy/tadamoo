@@ -9,11 +9,11 @@ A job that asks waits for the answer on a card the pages show (`pending()`), up 
 the loaded model reads as the chosen provider, `SecureRegistry.begin_swap`), the engine sleeps (`Service.sleep`: its VRAM is free, its RAM kept) and the
 server refuses to wake it for anyone else until `end`. A swap not touched for `hold_s` ends by itself, as a lease does.
 
-It exists only for a local Basalt or Strata engine, the two that have the VRAM, SLEEP and WAKE commands: with no local model (a cloud service answers, or
-none is loaded) there is nothing to put to sleep, and llama.cpp or vLLM cannot be put to sleep from here.
+What steps aside is whatever holds the GPU for the local model and can be asked to (serve/heavy_holders.py): Basalt and Strata sleep, a llama-server started from here is
+stopped, LM Studio unloads its models; each comes back at the end. With none of them up (a cloud service answers, or no model is loaded) there is nothing to free.
 
 Refusal codes: not_allowed (the level is never, or the person said no), no_provider, bad_provider, busy (another swap), timeout (nobody answered),
-no_local_engine, unsupported_engine, cannot_sleep (the engine cannot sleep now), bad_request."""
+no_local_engine, cannot_sleep (an engine could not step aside), bad_request."""
 from __future__ import annotations
 
 import json
@@ -22,11 +22,12 @@ import time
 import uuid
 from pathlib import Path
 
+from serve.heavy_holders import SLEEP_TRIES, BasaltHolder, default_holders
+
 MODES = ("ask", "allow", "never")
 ALLOWED_KINDS = ("image", "video")                 # what the level `allow` covers
 HOLD_DEFAULT_S = 90
 ASK_WAIT_S = 600.0
-SLEEP_TRIES = 60                                   # one try a second: a request the engine still runs has to finish first
 TICK_S = 1.0
 MESSAGES = {
     "not_allowed": ("The person did not allow the local model to sleep for this job.", "Non hai permesso di mettere a riposo il modello locale per questo lavoro."),
@@ -36,9 +37,8 @@ MESSAGES = {
     "busy": ("Another heavy job already holds the local model.", "Un altro lavoro pesante tiene già il modello locale."),
     "timeout": ("Nobody answered the question in time.", "Nessuno ha risposto alla domanda in tempo."),
     "cannot_sleep": ("The local model cannot go to sleep now.", "Il modello locale non può mettersi a riposo ora."),
-    "no_local_engine": ("No local model is running, so there is nothing to put to sleep.", "Nessun modello locale è in funzione: non c'è nulla da mettere a riposo."),
-    "unsupported_engine": ("Only Basalt and Strata can be put to sleep from here; this engine cannot.",
-                           "Solo Basalt e Strata si possono mettere a riposo da qui; questo motore no."),
+    "no_local_engine": ("No local engine that can step aside is running (Basalt, Strata, a llama-server started here, LM Studio): there is nothing to free.",
+                        "Nessun motore locale che possa farsi da parte è in funzione (Basalt, Strata, un llama-server avviato da qui, LM Studio): non c'è nulla da liberare."),
     "bad_request": ("Send kind (text) and purpose (text).", "Manda kind (testo) e purpose (testo)."),
     "not_found": ("No such swap: it ended.", "Nessun passaggio con questo id: è finito."),
 }
@@ -86,23 +86,23 @@ class HeavyPrefs:
 
 class HeavySwap:
     def __init__(self, service, registry, prefs: HeavyPrefs, ledger=None, clock=time.monotonic, hold_s: float = HOLD_DEFAULT_S,
-                 sleep_tries: int = SLEEP_TRIES, pause=time.sleep) -> None:
+                 sleep_tries: int = SLEEP_TRIES, pause=time.sleep, holders=None) -> None:
         self.service, self.registry, self.prefs, self.ledger = service, registry, prefs, ledger
-        self.clock, self.hold_s, self.sleep_tries, self.pause = clock, hold_s, sleep_tries, pause
+        self.clock, self.hold_s = clock, hold_s
+        self.holders = holders if holders is not None else (lambda: [BasaltHolder(service, pause, sleep_tries)] + default_holders(service)[1:])
+        self._freed: list = []
         self._cv = threading.Condition()
         self._active: dict | None = None
         self._pending: dict[str, dict] = {}
         self._timer: threading.Thread | None = None
         self._closed = False
 
+    def _up(self) -> list:
+        return [h for h in self.holders() if h.active()]
+
     def engine_problem(self) -> str:
-        """"" when the model of this server is a local engine that can be put to sleep, else the refusal code."""
-        if not self.service.loaded():
-            return "no_local_engine"
-        engine = getattr(self.service, "engine", None)
-        if not (hasattr(engine, "sleep") and hasattr(engine, "can_sleep")):
-            return "unsupported_engine"
-        return ""
+        """"" when something local that can step aside is up, else the refusal code."""
+        return "" if self._up() else "no_local_engine"
 
     # ---- the question
     def _card(self, kind: str, purpose: str, minutes: float, cfg: dict) -> dict:
@@ -143,8 +143,8 @@ class HeavySwap:
             return self._begin(kind, purpose, minutes, wait_s)
         except Exception as e:  # noqa: BLE001 - the caller gets a result, never an exception
             self._leave()
+            self._restore_all()
             self.registry.end_swap()
-            self.service.heavy_hold = None
             return refusal("cannot_sleep", f"{e.__class__.__name__}: {e}")
 
     def _begin(self, kind, purpose, minutes, wait_s) -> dict:
@@ -185,12 +185,11 @@ class HeavySwap:
                 swap = self.registry.begin_swap(cfg["provider"])
             except ValueError as e:
                 return self._fail("bad_provider", str(e))
-            self.service.heavy_hold = (f"the local model sleeps while a {kind.strip()} job runs ({purpose[:80]}); the conversations use {swap['name']} "
-                                       "meanwhile. Try again when the job has finished")
-            why = self._sleep()
+            reason = (f"the local model sleeps while a {kind.strip()} job runs ({purpose[:80]}); the conversations use {swap['name']} "
+                      "meanwhile. Try again when the job has finished")
+            why = self._free_all(reason)
             if why:
                 self.registry.end_swap()
-                self.service.heavy_hold = None
                 return self._fail("cannot_sleep", why)
             now = self.clock()
             with self._cv:
@@ -211,17 +210,23 @@ class HeavySwap:
             if self._active is not None and self._active.get("id") is None:
                 self._active = None
 
-    def _sleep(self) -> str:
-        """"" when the engine sleeps (or there is none to put to sleep), else why not."""
-        last = ""
-        for _ in range(max(1, self.sleep_tries)):
-            last = self.service.sleep()
-            if last in ("asleep", "not loaded"):
-                return ""
-            if last != "busy":
-                return last
-            self.pause(1.0)
-        return "a request is still running"
+    def _free_all(self, reason: str) -> str:
+        """"" when every local engine that is up has stepped aside, else why not (those that had are brought back)."""
+        for holder in self._up():
+            why = holder.free(reason)
+            if why:
+                self._restore_all()
+                return f"{holder.name}: {why}"
+            self._freed.append(holder)
+        return ""
+
+    def _restore_all(self) -> None:
+        freed, self._freed = self._freed, []
+        for holder in reversed(freed):
+            try:
+                holder.restore()
+            except Exception as e:  # noqa: BLE001 - the next request starts it again
+                print(f"[server] warning: bringing {holder.name} back after a heavy job failed ({e})", flush=True)
 
     def touch(self, swap_id) -> dict:
         with self._cv:
@@ -240,13 +245,9 @@ class HeavySwap:
         return {"ok": True}
 
     def _finish(self) -> None:
-        """The conversations come back first, then the engine wakes: nothing asks it for an answer while it fills its cache."""
+        """The conversations come back first, then the engines: nothing asks one for an answer while it fills its cache."""
         self.registry.end_swap()
-        try:
-            self.service.heavy_hold = None
-            self.service.wake_now()
-        except Exception as e:  # noqa: BLE001 - the next request wakes it, or loads it again
-            print(f"[server] warning: waking the model after a heavy job failed ({e})", flush=True)
+        self._restore_all()
 
     # ---- the safety net
     def _start_timer(self) -> None:

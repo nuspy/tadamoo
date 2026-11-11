@@ -160,8 +160,8 @@ class SecureRegistry(Registry):
         os.replace(tmp, self.swap_path)
 
     def begin_swap(self, pid: str) -> Dict[str, Any]:
-        """Until `end_swap` (or `SWAP_HOLD_S` without a `touch_swap`), every function with no provider, or on the model loaded in this server, reads
-        as `pid`. The consent for the cloud is not asked here: whoever begins the swap has the person's yes for it. Raises ValueError when the
+        """Until `end_swap` (or `SWAP_HOLD_S` without a `touch_swap`), every function with no provider, or on a local one (the model loaded in this
+        server, LM Studio, vLLM, llama.cpp), reads as `pid`. The consent for the cloud is not asked here: whoever begins the swap has the person's yes for it. Raises ValueError when the
         provider does not exist or cannot chat."""
         with self._io:
             data = Registry.load(self)
@@ -170,7 +170,7 @@ class SecureRegistry(Registry):
                 raise ValueError(f"there is no provider {pid!r}")
             if TYPES.get(prov.get("type") or "", {}).get("api", "") not in CHAT_APIS:
                 raise ValueError(f"{prov.get('name') or pid} cannot hold a conversation")
-            here = [p["id"] for p in data.get("providers", []) if TYPES.get(p.get("type") or "", {}).get("this_server")]
+            here = [p["id"] for p in data.get("providers", []) if TYPES.get(p.get("type") or "", {}).get("this_server") or TYPES.get(p.get("type") or "", {}).get("local")]
             swap = {"pid": pid, "replace": here, "name": prov.get("name") or pid, "until": self.clock() + self.SWAP_HOLD_S}
             self._write_swap(swap)
             return swap

@@ -4,12 +4,21 @@ A video or a big picture can need more VRAM than the broker can lend even with t
 answer `not_enough`). Then the job may ask for more: the local engine sleeps (`SLEEP`: its VRAM is free, its experts stay in RAM) and the
 conversations use a provider the person chose, until the job ends. Only with the person's yes, never silently.
 
-## Only for a local Basalt or Strata
+## What steps aside
 
-The lending and the sleep need the engine's `VRAM`, `SLEEP` and `WAKE` commands, which only Basalt-Plus and Strata have. With a cloud service
-answering (no local model loaded) there is nothing to lend or put to sleep; with llama.cpp or vLLM the server cannot ask them to. In those cases
-a heavy job only checks the free VRAM (the broker's answer with no engine, or `unavailable`), `POST /api/heavy/begin` answers `no_local_engine` or
-`unsupported_engine` without asking the person, and Settings says so. Nothing moves to a provider.
+Whatever holds the GPU for the local model and can be asked to (`serve/heavy_holders.py`), each brought back at the end, in reverse order:
+
+| engine | steps aside by | comes back by |
+|---|---|---|
+| Basalt-Plus, Strata | `SLEEP`: its VRAM is free, its experts stay in RAM; nothing else may wake it | `WAKE`, a few seconds |
+| llama.cpp started from TaDaMoo | the server is stopped (the model is unloaded) | started again with the same settings |
+| LM Studio | `lms unload` on its loaded models | `lms load` of the same models |
+
+vLLM, and a llama-server that was not started here, cannot be asked from here: they are not holders. With none up (a cloud service answers, or no
+model is loaded) there is nothing to free: the broker only checks the free VRAM, `POST /api/heavy/begin` answers `no_local_engine` without asking the
+person, and Settings says so. The lending of VRAM itself (`docs/vram-broker.md`) is Basalt-Plus and Strata only. An engine that refuses to step aside
+brings back the ones that already had, and nothing moves to a provider. Every function on a local provider (the model of this server, LM Studio, vLLM,
+llama.cpp) reads as the swap's provider meanwhile.
 
 ## The level
 
@@ -30,8 +39,7 @@ the per-function consent for the cloud, for the time of the swap only; the Provi
 ## What happens
 
 1. `POST /api/heavy/begin {kind, purpose, minutes}` waits for the answer (up to 10 minutes) and then swaps the registry
-   (`SecureRegistry.begin_swap`), puts the engine to sleep (`Service.sleep`, retried for a minute while a request still runs) and sets
-   `Service.heavy_hold`. Any failure leaves everything as it was.
+   (`SecureRegistry.begin_swap`), frees the engines (for Basalt and Strata `Service.sleep`, retried for a minute while a request still runs, and `Service.heavy_hold`). Any failure leaves everything as it was.
 2. The swap is a file, `llm_swap.json` next to the providers file, read by every process that routes a function: the server and the agent
    sessions (processes of their own). Every function with no provider, or on the model loaded in this server, reads as the swap's provider;
    a function the person assigned to another provider keeps it. The saved assignments are never rewritten.
@@ -39,7 +47,7 @@ the per-function consent for the cloud, for the time of the swap only; the Provi
    engine is not woken by it. Only the job's end wakes it.
 4. The job extends the swap (`/api/heavy/<id>/touch`, every 30 s) and ends it (`/end`). A swap not touched for 90 s ends by itself, and the file
    lapses after 10 minutes without a touch, so a dead server cannot leave the conversations on the cloud. At the end the registry is released
-   first, then the engine wakes.
+   first, then the engines come back.
 
 ## The client
 
