@@ -20,6 +20,10 @@ Ultimo aggiornamento: 11 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e
 - Impostazione che ho cambiato per la prova: cartella dei modelli di embedding del RAG = E:\Modelliasalt
 ag\embedding (il server cercava in E:\Modelliasalt2
 ag\embedding).
+- In corso (ramo feature/rag-used, fase 1 fatta in parte): far usare davvero gli archivi RAG all'agente. Nella prova dei brevetti l'agente ha cercato nell'archivio una sola volta (la parola «ER100»), tutto il resto lo ha letto pagina per pagina. Cause trovate nei log: la nota di stato diceva solo il nome e «ricerca per parole» (sbagliato: era per significato), la descrizione dello strumento diceva di usarlo solo se l'utente lo chiede, i passaggi messi all'inizio erano scelti con tutta la richiesta come un'unica domanda.
+- Fatto nel ramo: la nota di stato elenca i documenti dell'archivio (pagine, lingua); nuovo strumento `knowledge_read` (indice e pagine senza OCR); `knowledge_search` con più domande, documento e filtri; una richiesta lunga viene divisa in domande (le scrive la sessione tecnica, altrimenti il codice); un avviso quando l'agente legge un file che è già nell'archivio. Prova offline sui 14 fatti: con la richiesta intera 0 fatti raggiunti, con le domande della sessione 12, con le ricerche sugli aspetti 13, con una ricerca che nomina il fatto 14. Manca la prova dal vivo con l'agente (fase 2).
+- Fatto nel ramo: metadati per regole (lingua, numeri di brevetto, SEQ ID NO, date, geni, dosi e unità) per ogni passaggio e per ogni documento, con filtri nella ricerca; lavoro in background che fa scrivere a un modello riassunto e domande per ogni passaggio, sezione e documento nella lingua che scegli (italiano di base), cercabili. Non ancora provato con il modello vero: serve la fase 2.
+- In corso: confronto dei modi di tagliare i documenti (vecchio taglio a 1000 caratteri, taglio per struttura a varie dimensioni, taglio semantico, passaggio padre) sulle stesse 96 domande, stesso embedder e reranker. Strumento: `tools/rag_chunk_eval.py`. Il taglio semantico non si accende di base se non migliora i numeri.
 
 ## 9 novembre
 

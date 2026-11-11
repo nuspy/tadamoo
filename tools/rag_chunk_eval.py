@@ -11,7 +11,8 @@ when it contains at least `HOLD` of the evidence's text (pieces of 30 characters
 Variants: `flat` (1000 characters, 150 overlap, the first chunking), `struct-<target>-<hard>` (tokens; the structural cut), `sem-valleys` (structural 350/600 with
 the semantic splitter inside long paragraphs), `sem-valleys-merge`, `sem-free` (cut at valleys with no size target), `sem-free-nomerge`, `struct-merge`
 (structural 350/600 and small neighbours that are close in meaning joined), `parent-nbr` (match 250/400 passages, give the passage and its neighbours),
-`parent-section` (match 250/400 passages, give their section). For a parent variant a hit is the text handed to the model, and several hits with the same parent count once.
+`parent-section` (match 250/400 passages, give their section). Any name followed by `+facts` has the facts read off each passage (tadamoo/rag/ingest/meta.py)
+written as the first lines of its searched text. For a parent variant a hit is the text handed to the model, and several hits with the same parent count once.
 """
 from __future__ import annotations
 
@@ -34,6 +35,7 @@ if str(ROOT) not in sys.path:
 
 from tadamoo.rag.embed import normalize as unit_rows  # noqa: E402
 from tadamoo.rag.ingest import chunker, normalize, semantic  # noqa: E402
+from tadamoo.rag.ingest import meta as facts  # noqa: E402
 from tadamoo.rag.language import guess_language  # noqa: E402
 from tadamoo.rag.query import RETRIEVAL, run  # noqa: E402
 from tadamoo.rag.store import Archive, RagStore, searchable  # noqa: E402
@@ -176,6 +178,8 @@ def merge_close(chunks: List[Dict[str, Any]], vectors: np.ndarray, soft_min: int
 def build(name: str, names: Dict[str, str], blocks: Dict[str, List[Dict[str, Any]]], memory: Memory) -> Dict[str, Any]:
     """`{chunks, sections, parents}` of a variant; `parents` maps a passage index to the text handed to the model when it differs from the passage."""
     t0 = time.perf_counter()
+    with_facts = name.endswith("+facts")
+    name = name[:-len("+facts")] if with_facts else name
     chunks: List[Dict[str, Any]] = []
     sections: Dict[str, str] = {}
     embed = lambda texts: memory.embed(texts, name)             # noqa: E731
@@ -218,6 +222,8 @@ def build(name: str, names: Dict[str, str], blocks: Dict[str, List[Dict[str, Any
         sections.update({f"{doc}.{s['id']}": s["text"] for s in built["sections"]})
     for i, c in enumerate(chunks):
         c["i"] = i
+        if with_facts:                                              # the facts read off the passage, written out, as the first lines of its searched text
+            c["summary"] = "; ".join(f"{k}: {', '.join(map(str, v)) if isinstance(v, list) else v}" for k, v in facts.passage(c["text"]).items())
     parents: Dict[int, str] = {}
     if name == "parent-nbr":
         for i, c in enumerate(chunks):
