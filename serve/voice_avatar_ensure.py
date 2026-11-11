@@ -159,7 +159,7 @@ class OnRequest:
     def unload(self) -> bool:
         """Unload the avatar, then give the VRAM back. False when the unload failed (the lease stays and the next look tries again)."""
         try:
-            job = voice_loader.unload_lent(self.svc, "avatar", wait=True).get("job") or {}
+            voice_loader.unload_lent(self.svc, "avatar", wait=True)
             still = (voice_loader.live_state()["functions"].get("avatar") or {}).get("state") == "loaded"
         except models.Refused as e:
             if e.body.get("error", {}).get("code") == "voice_service_down":

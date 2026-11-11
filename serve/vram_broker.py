@@ -13,7 +13,6 @@ request the engine is still running), not_enough (even with the whole cache lent
 from __future__ import annotations
 
 import json
-import re
 import threading
 import time
 import uuid
@@ -395,5 +394,3 @@ class VramBroker:
         out["free_mib"] = self._free()
         return out
 
-
-LEASE_ID = re.compile(r"[0-9a-f]{16}")

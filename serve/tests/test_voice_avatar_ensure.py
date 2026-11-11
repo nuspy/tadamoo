@@ -83,8 +83,8 @@ class Ensure(Base):
         self.svc.avatar_on_request = self.watch
         self.addCleanup(self.watch.shutdown)
         p = mock.patch.object(voice_service, "call", self.state.call)
+        self.patches.insert(0, p)                                           # stopped before the base class's own patch, which it replaces
         p.start()
-        self.addCleanup(p.stop)
 
     def ensure(self, body=None):
         return self.req("POST", "/api/voice/avatar/ensure", body or {})
