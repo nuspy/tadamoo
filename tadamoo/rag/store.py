@@ -26,6 +26,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from tadamoo.rag import enrich
 from tadamoo.rag import search as ranking
 from tadamoo.rag.embed import Embedder, EmbedderProvider, compatible, embed_all, no_embedder, normalize as unit_rows
 from tadamoo.rag.errors import RagError
@@ -524,6 +525,7 @@ class RagStore:
             sections.update(secs)
         if len(chunks) > LIMITS["chunks"]:
             raise RagError(f"the archive would hold more than {LIMITS['chunks']:,} passages")
+        self._describe(folder, meta, chunks, sections)
         tell({"event": "stage", "stage": "indexing"})
         vectors, model, version, note = self._embed_new(Archive(meta, [], None), [searchable(c) for c in chunks], progress, cancel)
         with self._lock:
@@ -531,6 +533,25 @@ class RagStore:
                 raise RagError("the archive changed while it was indexed: index it again")
             self._commit(folder, meta, chunks, vectors, model, sections, version)
         return {"chunks": len(chunks), "embedded": vectors is not None, "note": note}
+
+    def _describe(self, folder: Path, meta: Dict[str, Any], chunks: List[Dict[str, Any]], sections: Dict[str, Dict[str, Any]]) -> None:
+        """Puts the summaries and questions a model wrote (`enrich.jsonl`, tadamoo/rag/enrich.py) on the passages, sections and documents they belong to, in the
+        language now set, and says in `meta["enriched"]` how many were found."""
+        cache = enrich.Cache(folder)
+        language = self.settings.read()["enrich_language"]
+        got = enrich.attach(cache, language, chunks, sections, meta["documents"]) if cache.entries else {"passages": 0, "sections": 0, "documents": 0}
+        if got["passages"] or got["sections"]:
+            meta["enriched"] = {"language": language, "version": enrich.VERSION, **got, "total": len(chunks), "at": self.clock()}
+        else:
+            meta.pop("enriched", None)
+
+    def enrichment(self, aid: Any) -> Dict[str, Any]:
+        """How much of an archive a model has described (`{}` when none of it): language, passages and sections, and what is cached for the language now set."""
+        folder = self._dir(aid)
+        meta = self._read_meta(folder)
+        language = self.settings.read()["enrich_language"]
+        cached = sum(1 for e in enrich.Cache(folder).entries.values() if str(e.get("language", "")).lower() == language.lower())
+        return {"language": language, "cached": cached, "applied": meta.get("enriched") or {}, "passages": meta["chunks"]}
 
     def section(self, aid: Any, sid: Any) -> Dict[str, Any]:
         """The section a passage came from (`section` of a hit): its path, pages and text (capped), for a reader that wants more than the passage."""
@@ -596,7 +617,7 @@ class RagStore:
             if out and out[-1]["title"] == title:
                 out[-1]["page_end"] = max(out[-1]["page_end"], last)
             else:
-                out.append({"title": title, "level": int(r.get("level") or 0), "page_start": first, "page_end": last})
+                out.append({"title": title, "level": int(r.get("level") or 0), "page_start": first, "page_end": last, **({"summary": r["summary"]} if r.get("summary") else {})})
         return out
 
     def read_pages(self, aid: Any, doc_id: str, pages: Any, max_chars: int = 30000) -> Dict[str, Any]:

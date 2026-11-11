@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 from pathlib import Path
 from typing import Any, Dict
@@ -14,13 +15,15 @@ from tadamoo.rag.errors import RagError
 FILE = "settings.json"
 DEFAULTS: Dict[str, Any] = {"docling_python": "", "docling_device": "auto", "flagged": "keep",
                             "embed_enabled": True, "embed_python": "", "embed_models_dir": "", "embed_model": "", "rerank": True, "rerank_model": "",
-                            "lexical_weight": 0.05, "min_cosine": 0.3, "min_rerank": 0.2, "idle_s": 120}
+                            "lexical_weight": 0.05, "min_cosine": 0.3, "min_rerank": 0.2, "idle_s": 120,
+                            "enrich_language": "Italian", "enrich_batch": 5}
 FLAGGED = ("keep", "drop")
 DEVICES = ("auto", "cpu")
 FLAGS = ("embed_enabled", "rerank")
 PATHS = ("docling_python", "embed_python")
 NAMES = ("embed_model", "rerank_model")                 # the name of a model folder, not a path
-RANGES = {"lexical_weight": (0.0, 0.3), "min_cosine": (0.0, 0.9), "min_rerank": (0.0, 0.95), "idle_s": (10, 3600)}
+RANGES = {"lexical_weight": (0.0, 0.3), "min_cosine": (0.0, 0.9), "min_rerank": (0.0, 0.95), "idle_s": (10, 3600), "enrich_batch": (1, 12)}
+LANGUAGE = re.compile(r"^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ ]{1,28}[A-Za-zÀ-ÿ]$")
 
 
 def _number(value: Any, lo: float, hi: float) -> Any:
@@ -57,6 +60,8 @@ class RagSettings:
             for key in FLAGS:
                 if isinstance(raw.get(key), bool):
                     out[key] = raw[key]
+            if isinstance(raw.get("enrich_language"), str) and LANGUAGE.match(raw["enrich_language"].strip()):
+                out["enrich_language"] = raw["enrich_language"].strip()
             for key in NAMES + ("embed_models_dir",):
                 if isinstance(raw.get(key), str):
                     out[key] = raw[key].strip()[:500]
@@ -94,6 +99,11 @@ class RagSettings:
                     if not isinstance(changes[key], bool):
                         raise RagError(f"{key}: true or false")
                     now[key] = changes[key]
+            if "enrich_language" in changes:
+                value = changes["enrich_language"]
+                if not isinstance(value, str) or not LANGUAGE.match(value.strip()):
+                    raise RagError("enrich_language: the name of a language, such as Italian")
+                now["enrich_language"] = value.strip()
             if "embed_models_dir" in changes:
                 value = changes["embed_models_dir"]
                 if not isinstance(value, str) or len(value) > 500 or "\x00" in value or (value.strip() and not Path(value.strip()).is_dir()):

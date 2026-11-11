@@ -33,11 +33,13 @@ def _project(value: Any) -> str:
 
 
 class RagApi:
-    def __init__(self, store: RagStore, folders: Callable[[], List[Dict[str, Any]]] = lambda: [], jobs: Optional[Jobs] = None, service: Any = None) -> None:
+    def __init__(self, store: RagStore, folders: Callable[[], List[Dict[str, Any]]] = lambda: [], jobs: Optional[Jobs] = None, service: Any = None,
+                 describer: Optional[Callable[[], Any]] = None) -> None:
         """`folders` lists the projects as `{name, path, chat}`: the folders of the Agent tab and the Chat's own folder (`chat` true). `jobs` is the
         board of the long jobs, kept by the server between requests. `service` is the embedding service (tadamoo/rag/embed_client.py) the store's embedder
         comes from, when there is one: it tells where the embeddings run and can be tried."""
         self.store, self.folders, self.service = store, folders, service
+        self.describer = describer                          # a function that gives the model client for the function `rag_enrich` (None: no model to describe archives)
         self.jobs = jobs if jobs is not None else Jobs()
 
     # -- reading ---------------------------------------------------------------------------------
@@ -158,6 +160,23 @@ class RagApi:
         name = self.store.load(aid).meta["name"]
         return {"job": self.jobs.start("index " + name, lambda progress, cancel: self.store.reindex(aid, progress, cancel), aid)}
 
+    def enrich(self, aid: str, req: Dict[str, Any]) -> Dict[str, Any]:
+        """Has a model describe every passage, section and document of the archive that is not described yet (`tadamoo/rag/enrich.py`), in the background: `{job}`.
+        `language` sets the language of the descriptions first. The job reports its calls and tokens, can be cancelled, and is paused (not failed) when the model stays away."""
+        from tadamoo.rag.enrich import Enricher
+        meta = self.store.load(aid).meta
+        if self.describer is None:
+            raise RagError("there is no model to describe the archive with")
+        if req.get("language") is not None:
+            self.store.settings.write({"enrich_language": req["language"]})
+        client = self.describer()
+        worker = Enricher(self.store, client)
+        worker.allowed(meta)
+        return {"job": self.jobs.start("describe " + meta["name"], lambda progress, cancel: worker.run(aid, progress, cancel), aid)}
+
+    def enrichment(self, aid: str) -> Dict[str, Any]:
+        return {"enrichment": self.store.enrichment(aid)}
+
     def search(self, req: Dict[str, Any]) -> Dict[str, Any]:
         """`{query, archives: [ids] | project: key, top_k, min_share?, strict?}`: the best passages of those archives, or of all the archives of the project.
         `min_share` (0 to 1) is how much of the question's words a words-only hit must answer; `strict` false leaves out an archive that is gone.
@@ -204,6 +223,8 @@ class RagApi:
             return self.settings()
         if len(parts) == 2 and parts[0] == "jobs":
             return self.job(parts[1])
+        if len(parts) == 3 and parts[0] == "archives" and parts[2] == "enrichment":
+            return self.enrichment(parts[1])
         if len(parts) == 4 and parts[0] == "archives" and parts[2] == "sections":
             return self.section(parts[1], parts[3])
         if len(parts) == 2 and parts[0] == "archives":
@@ -235,7 +256,7 @@ class RagApi:
             return self.create(req)
         if len(parts) == 3 and parts[0] == "archives":
             aid, action = parts[1], parts[2]
-            handlers = {"update": self.update, "delete": self.delete, "documents": self.add_path, "reindex": lambda a, _req: self.reindex(a)}
+            handlers = {"update": self.update, "delete": self.delete, "documents": self.add_path, "reindex": lambda a, _req: self.reindex(a), "enrich": self.enrich}
             if action in handlers:
                 return handlers[action](aid, req)
         if len(parts) == 5 and parts[0] == "archives" and parts[2] == "documents" and parts[4] == "remove":

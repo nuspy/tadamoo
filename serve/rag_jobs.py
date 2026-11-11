@@ -24,7 +24,7 @@ class Jobs:
         """Runs `work(progress, cancel)` in the background; `work` returns the result of the job (a dict) or raises RagError."""
         jid = secrets.token_hex(5)
         cancel = threading.Event()
-        job = {"id": jid, "label": label, "archive": archive, "state": "running", "stage": "", "page": 0, "pages": 0, "device": "", "result": None, "error": "",
+        job = {"id": jid, "label": label, "archive": archive, "state": "running", "stage": "", "page": 0, "pages": 0, "calls": 0, "tokens": 0, "device": "", "result": None, "error": "",
                "started": time.time(), "ended": 0.0}
 
         def progress(event: Dict[str, Any]) -> None:
@@ -32,7 +32,7 @@ class Jobs:
                 if event.get("event") == "stage":
                     job["stage"] = str(event.get("stage") or "")
                 else:
-                    for key in ("page", "pages"):
+                    for key in ("page", "pages", "calls", "tokens"):
                         if event.get(key) is not None:                                  # a count of 0 starts a new count
                             job[key] = int(event[key])
                     if event.get("device") is not None:
@@ -45,7 +45,7 @@ class Jobs:
                     job.update(state="done", result=result, ended=time.time())
             except RagError as e:
                 with self._lock:
-                    job.update(state="cancelled" if e.code == "cancelled" else "failed", error=str(e), ended=time.time())
+                    job.update(state={"cancelled": "cancelled", "paused": "paused"}.get(e.code, "failed"), error=str(e), ended=time.time())
             except Exception as e:                           # a reader's own failure is told, never lost
                 with self._lock:
                     job.update(state="failed", error=f"{type(e).__name__}: {str(e)[:200]}", ended=time.time())

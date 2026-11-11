@@ -72,6 +72,7 @@ USES: Tuple[Use, ...] = (
     Use("memory_rank", needs_session=True, params=(Param("candidates", 12, 4, 40), Param("timeout_s", 8, 2, 60, False)), prompt="tadamoo.memory_rank:SYSTEM"),
     Use("recall_queries", needs_session=True, params=(Param("request_chars", 200, 40, 4000), Param("queries", 6, 2, 12), Param("timeout_s", 10, 2, 60, False)),
         prompt="tadamoo.rag.expand:SYSTEM"),
+    Use("rag_enrich", params=(Param("timeout_s", 120, 10, 600, False),), prompt="tadamoo.rag.enrich:SYSTEM"),
     Use("progress", needs_session=True, params=(Param("every_steps", 8, 2, 60), Param("timeout_s", 10, 2, 60, False)), prompt="tadamoo.progress:SYSTEM"),
     Use("planner", params=(Param("timeout_s", 120, 10, 600, False),)),
     Use("tool_extract", needs_session=True, default_on=False,

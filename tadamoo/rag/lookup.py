@@ -160,7 +160,8 @@ def read(store: RagStore, recall: ProjectRecall, document: Any, pages: Any = "",
             total = int(doc.get("pages") or 0)
             shown_rows = rows[:OUTLINE_SHOWN]
             out: Dict[str, Any] = {"status": "ok", "document": doc["name"], "pages_total": total or None, "chunks": doc.get("chunks"),
-                                   "outline": [{"section": r["title"], "pages": _title_range(r)} for r in shown_rows],
+                                   "outline": [{"section": r["title"], "pages": _title_range(r), **({"summary": r["summary"]} if r.get("summary") else {})} for r in shown_rows],
+                                   **({"summary": doc["summary"]} if doc.get("summary") else {}),
                                    "note": "ask for pages with knowledge_read(document, pages), for example \"" + (f"{rows[0]['page_start']}-{rows[0]['page_end']}" if rows else "1-10") + "\""}
             if len(rows) > OUTLINE_SHOWN:
                 out["more_sections"] = len(rows) - OUTLINE_SHOWN
