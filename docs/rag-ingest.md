@@ -61,7 +61,7 @@ everywhere. A page with fewer than 4 blocks has none.
 
 ## Cutting
 
-`chunker.py`, `VERSION` 1 (sizes: `target` and `hard`, in tokens). The headings make a tree of sections; a passage is inside one section, and its `path` is `Document > Section >
+`chunker.py`, `VERSION` 1. The sizes are the settings `chunk_target` (350) and `chunk_hard` (600), in tokens, and are part of `ingest` in `meta.json`; what was compared is in [rag-chunking.md](rag-chunking.md). The headings make a tree of sections; a passage is inside one section, and its `path` is `Document > Section >
 Subsection`. A token is counted as 3.5 characters.
 
 | Kind of text | Becomes |

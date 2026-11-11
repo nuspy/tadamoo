@@ -16,13 +16,13 @@ FILE = "settings.json"
 DEFAULTS: Dict[str, Any] = {"docling_python": "", "docling_device": "auto", "flagged": "keep",
                             "embed_enabled": True, "embed_python": "", "embed_models_dir": "", "embed_model": "", "rerank": True, "rerank_model": "",
                             "lexical_weight": 0.05, "min_cosine": 0.3, "min_rerank": 0.2, "idle_s": 120,
-                            "enrich_language": "Italian", "enrich_batch": 5}
+                            "enrich_language": "Italian", "enrich_batch": 5, "chunk_target": 350, "chunk_hard": 600}
 FLAGGED = ("keep", "drop")
 DEVICES = ("auto", "cpu")
 FLAGS = ("embed_enabled", "rerank")
 PATHS = ("docling_python", "embed_python")
 NAMES = ("embed_model", "rerank_model")                 # the name of a model folder, not a path
-RANGES = {"lexical_weight": (0.0, 0.3), "min_cosine": (0.0, 0.9), "min_rerank": (0.0, 0.95), "idle_s": (10, 3600), "enrich_batch": (1, 12)}
+RANGES = {"lexical_weight": (0.0, 0.3), "min_cosine": (0.0, 0.9), "min_rerank": (0.0, 0.95), "idle_s": (10, 3600), "enrich_batch": (1, 12), "chunk_target": (100, 3000), "chunk_hard": (150, 6000)}
 LANGUAGE = re.compile(r"^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ ]{1,28}[A-Za-zÀ-ÿ]$")
 
 
@@ -68,6 +68,8 @@ class RagSettings:
             for key, (lo, hi) in RANGES.items():
                 if _number(raw.get(key), lo, hi) is not None:
                     out[key] = type(DEFAULTS[key])(raw[key])
+            if out["chunk_hard"] < 1.2 * out["chunk_target"]:
+                out["chunk_target"], out["chunk_hard"] = DEFAULTS["chunk_target"], DEFAULTS["chunk_hard"]
         self._seen = (stamp, out)
         return dict(out)
 
@@ -120,6 +122,8 @@ class RagSettings:
                     if _number(changes[key], lo, hi) is None:
                         raise RagError(f"{key}: a number from {lo:g} to {hi:g}")
                     now[key] = type(DEFAULTS[key])(changes[key])
+            if now["chunk_hard"] < 1.2 * now["chunk_target"]:
+                raise RagError("chunk_hard: at least 1.2 times chunk_target (the sizes of a passage, in tokens)")
             self.file.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.file.with_name(FILE + ".tmp")
             tmp.write_text(json.dumps(now, indent=1), encoding="utf-8")

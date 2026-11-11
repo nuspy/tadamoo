@@ -113,6 +113,12 @@ class RagStore:
         self._lock = threading.RLock()
         self._cache: Dict[str, Tuple[int, Archive]] = {}
 
+    def ingest(self) -> Dict[str, Any]:
+        """What cuts the passages of an archive now: the versions of the cleaning, the cutting and the facts, and the sizes (the settings `chunk_target` and `chunk_hard`);
+        an archive whose `meta.json` says otherwise is cut again by "Index again"."""
+        cfg = self.settings.read()
+        return {**INGEST, "target": cfg["chunk_target"], "hard": cfg["chunk_hard"]}
+
     def embedder(self) -> Optional[Embedder]:
         try:
             return self.provider()
@@ -202,7 +208,7 @@ class RagStore:
                 sections: Optional[Dict[str, Dict[str, Any]]] = None, version: str = "") -> None:
         has = vectors is not None
         meta.update(chunks=len(chunks), embed_model=model if has else "", embed_dim=int(vectors.shape[1]) if has else 0, embed_version=version if has else "",
-                    updated=self.clock(), ingest=dict(INGEST))
+                    updated=self.clock(), ingest=self.ingest())
         self._put(folder / "chunks.jsonl", "".join(json.dumps(c, ensure_ascii=False) + "\n" for c in chunks))
         if sections is not None:
             self._put(folder / "sections.jsonl", "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in sections.values()))
@@ -223,7 +229,7 @@ class RagStore:
         emb, model = self.embedder(), meta.get("embed_model", "")
         hybrid = compatible(meta, emb) or (emb is None and self.remote is not None and bool(model))      # a process with no embedder is searched by the server's, which holds the vectors' model
         return {"mode": "hybrid" if hybrid else "text", "embed_model": model, "reindex": bool(meta["chunks"]) and emb is not None and not hybrid,
-                "rechunk": bool(meta["documents"]) and meta.get("ingest") != INGEST}
+                "rechunk": bool(meta["documents"]) and meta.get("ingest") != self.ingest()}
 
     def _summary(self, meta: Dict[str, Any]) -> Dict[str, Any]:
         return {"id": meta["id"], "name": meta["name"], "description": meta["description"], "project": meta.get("project", ""), "project_name": meta.get("project_name", ""), "cloud_ok": bool(meta.get("cloud_ok")), "created": meta["created"],
@@ -283,7 +289,7 @@ class RagStore:
             now = self.clock()
             meta = {"id": aid, "name": name, "description": description, "project": project, "project_name": str(project_name or "").strip()[:LIMITS["name"]],
                     "cloud_ok": False, "created": now, "updated": now, "chunks": 0,
-                    "embed_model": "", "embed_dim": 0, "embed_version": "", "ingest": dict(INGEST), "documents": []}
+                    "embed_model": "", "embed_dim": 0, "embed_version": "", "ingest": self.ingest(), "documents": []}
             self._put_meta(self._dir(aid), meta)
             return self.get(aid)
 
@@ -387,7 +393,8 @@ class RagStore:
             raise RagError("the file holds no text to search (a scanned page needs Docling to be read)")
         if chars > LIMITS["document_chars"]:
             raise RagError(f"the text is {chars:,} characters: at most {LIMITS['document_chars']:,} per document")
-        built = chunker.chunk_blocks(blocks, Path(name).stem)
+        cfg = self.settings.read()
+        built = chunker.chunk_blocks(blocks, Path(name).stem, target=cfg["chunk_target"], hard=cfg["chunk_hard"])
         chunks: List[Dict[str, Any]] = []
         flagged = 0
         known = facts.load_entities(self.root)

@@ -107,10 +107,20 @@ class Memory:
         self.model, self.version = emb.model, getattr(emb, "version", "")
         self.file = folder / "vectors.npz"
         self.vectors: Dict[str, np.ndarray] = {}
+        self.saved = time.monotonic()
         self.stats: Dict[str, float] = {"seconds": 0.0, "texts": 0, "chars": 0}
         if self.file.is_file():
-            data = np.load(self.file, allow_pickle=False)
-            self.vectors = {k: data[k] for k in data.files}
+            try:
+                data = np.load(self.file, allow_pickle=False)
+                self.vectors = {k: data[k] for k in data.files}
+            except (OSError, ValueError):                         # a file half written when the run stopped: start again
+                self.vectors = {}
+
+    def save(self) -> None:
+        self.saved = time.monotonic()
+        tmp = self.file.with_name("vectors.tmp.npz")
+        np.savez(tmp, **self.vectors)
+        tmp.replace(self.file)
 
     @staticmethod
     def key(text: str) -> str:
@@ -119,13 +129,23 @@ class Memory:
     def embed(self, texts: Sequence[str], label: str = "") -> np.ndarray:
         missing = [t for t in dict.fromkeys(texts) if self.key(t) not in self.vectors]
         t0 = time.perf_counter()
-        for i in range(0, len(missing), 256):
-            part = missing[i:i + 256]
-            got = np.asarray(self.emb.embed(part), dtype=np.float32)
+        for i in range(0, len(missing), 64):
+            part = missing[i:i + 64]
+            for attempt in range(4):                                  # the worker can be busy with another job on the shared GPU
+                try:
+                    got = np.asarray(self.emb.embed(part), dtype=np.float32)
+                    break
+                except Exception as e:
+                    if attempt == 3:
+                        raise
+                    print(f"  retrying after {type(e).__name__}", flush=True)
+                    time.sleep(20)
             for t, v in zip(part, unit_rows(got)):
                 self.vectors[self.key(t)] = v.astype(np.float16)
-            np.savez(self.file, **self.vectors)
-            print(f"  embedded {min(i + 256, len(missing))}/{len(missing)} for {label}", flush=True)
+            if (i // 64) % 8 == 0:
+                print(f"  embedded {min(i + 64, len(missing))}/{len(missing)} for {label}", flush=True)
+        if missing and time.monotonic() - self.saved > 120:       # the file is large: not after every small call
+            self.save()
         self.stats["seconds"] += time.perf_counter() - t0
         self.stats["texts"] += len(missing)
         self.stats["chars"] += sum(len(t) for t in missing)
@@ -265,13 +285,16 @@ def evaluate(variant: Dict[str, Any], names: Dict[str, str], memory: Memory, evi
     cfg = {**cfg, "rerank": rerank}
     index = {(c["doc"], c["n"]): c["i"] for c in chunks}
     ranks: List[Optional[int]] = []
+    judged = 0
     split = 0
     seconds = 0.0
     for ev in evidence:
         mine = [c for c in chunks if c["doc"] == ev["doc"]]
         split += not any(coverage(ev, parents.get(c["i"], c["text"])) >= HOLD for c in mine)
         t0 = time.perf_counter()
-        got = run([archive], memory, ev["question"], 10, 0.0, cfg)["hits"]
+        answer = run([archive], memory, ev["question"], 10, 0.0, cfg)
+        got = answer["hits"]
+        judged += bool(answer.get("reranked"))
         seconds += time.perf_counter() - t0
         seen, rank = set(), None
         for h in got:
@@ -284,7 +307,7 @@ def evaluate(variant: Dict[str, Any], names: Dict[str, str], memory: Memory, evi
                 break
         ranks.append(rank)
     out: Dict[str, Any] = {"passages": len(chunks), "mean_tokens": round(statistics.mean(chunker.tokens(c["text"]) for c in chunks)), "max_tokens": max(chunker.tokens(c["text"]) for c in chunks),
-                           "split": split, "questions": len(evidence), "seconds_per_question": round(seconds / max(1, len(evidence)), 2), "build_s": round(variant["build_s"], 1)}
+                           "split": split, "questions": len(evidence), "seconds_per_question": round(seconds / max(1, len(evidence)), 2), "reranked": judged, "build_s": round(variant["build_s"], 1)}
     for label, sel in (("all", range(len(evidence))), *[(lang, [i for i, e in enumerate(evidence) if e["lang"] == lang]) for lang in ("en", "fr", "zh")]):
         r = [ranks[i] for i in sel]
         n = max(1, len(r))
@@ -305,7 +328,7 @@ def table(report: Dict[str, Dict[str, Any]]) -> str:
     lines = [head]
     for name, r in report.items():
         f = r.get("facts", {})
-        lines.append(f"{name.split('|')[0]:<20}{('yes' if name.endswith('|rerank') else 'no'):<4}{r['passages']:>6}{r['mean_tokens']:>6}{r['max_tokens']:>6}{r['split']:>6}"
+        lines.append(f"{name.split('|')[0]:<20}{(('yes' if r.get('reranked') == r['questions'] else 'part' if r.get('reranked') else 'NONE') if name.endswith('|rerank') else 'no'):<4}{r['passages']:>6}{r['mean_tokens']:>6}{r['max_tokens']:>6}{r['split']:>6}"
                      f"{r['all']['R@1']:>7.3f}{r['all']['R@5']:>7.3f}{r['all']['R@10']:>7.3f}{r['all']['MRR']:>7.3f}"
                      f"{r['en']['R@5']:>8.3f}{r['fr']['R@5']:>8.3f}{r['zh']['R@5']:>8.3f}{r['build_s']:>7.1f}"
                      + "".join(f"{('yes' if f.get(k) else '-') if k in f else '.':>5}" for k in ("F11", "F13", "F14")))
@@ -344,6 +367,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     for name in [v for v in args.variants.split(",") if v]:
         print(f"building {name}", flush=True)
         variant = build(name, names, blocks, memory)
+        memory.save()
         for rr in ((False, True) if name in also else (False,)):
             t0 = time.perf_counter()
             res = evaluate(variant, names, memory, evidence, cfg, rr, facts, oracle)

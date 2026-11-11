@@ -155,11 +155,12 @@ def semantic_chunks(blocks: Sequence[Dict[str, Any]], title: str, embed: Embed, 
             chunks.append({"text": text.strip(), "path": section.path, "page_start": pages[0], "page_end": pages[1], "kind": kind, "section": section.id,
                             **({"flag": flag} if flag else {})})
 
-    for section, items in pending:
-        if not items:
-            continue
-        units = _units(items, cfg)
-        vectors = np.asarray(embed([u.text for u in units]), dtype=np.float32)
+    todo = [(section, _units(items, cfg)) for section, items in pending if items]
+    everything = np.asarray(embed([u.text for _, units in todo for u in units]), dtype=np.float32) if todo else np.zeros((0, 1), dtype=np.float32)     # one call for the whole document
+    at = 0
+    for section, units in todo:
+        vectors = everything[at:at + len(units)]
+        at += len(units)
         for group in _group(units, vectors, cfg):
             members = [units[i] for i in group]
             pages = [u.page for u in members if u.page]
