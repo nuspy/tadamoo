@@ -6,14 +6,14 @@ for the start, and saves the history after every model turn, so a process that d
 
 Commands: {"cmd": "send", "id", "text"}, {"cmd": "answer", "id", "value"}, {"cmd": "cancel"}, {"cmd": "resume"}, {"cmd": "close"},
 {"cmd": "promote", "id"}, {"cmd": "drop", "id"}, {"cmd": "ping"}, {"cmd": "mode", "mode"} (the permission mode of the conversation),
-{"cmd": "role", "role"} (what the agent is for: tadamoo/roles.py), {"cmd": "checks", "safe", "checks"} (the commands that run without a question and the accepted checks of the verify gate),
+{"cmd": "role", "role"} (what the agent is for: tadamoo/roles.py), {"cmd": "council", "on"} (whether each real question is debated by the council first), {"cmd": "checks", "safe", "checks"} (the commands that run without a question and the accepted checks of the verify gate),
 {"cmd": "effort", "level"} (how long the model thinks), {"cmd": "intake", "mode"} (off, rules or full: how a request is looked at), {"cmd": "optimize", "on"} (whether a message is rewritten by the technical session first; a "send" may carry "optimize": false), {"cmd": "settings", "max_turns", "end_turn_bias", "temperature", "max_tokens"} (the steps one answer may take,
 -1 for no limit, the end-of-turn bias, the sampling temperature, null for the model file's own, and the most a reply may write, null for the server's own; any of them), {"cmd": "command", "id", "name", "args"} (a slash command: tadamoo/commands.py),
 {"cmd": "skill", "id", "name", "display", "script", "values", "timeout", "cache_dir"} (runs a personal skill in the conversation).
 Events: ready, accepted, queued, routed, started, suspended, resumed, agent (an assistant text or a tool start or end), delta
 (text as it is written), ask (a confirmation the task waits for, or a card of questions that ends the turn), intake (what the look at a request assumed
 or recorded), optimizing and optimized (the technical session's rewrite of the message is being made; then the rewrite, or why it was not used), suggestions (the next-message chips after an answer),
-retrying, model_error (only with the error classifier on), done (with `more` when other tasks are waiting), blocked, cleared, dropped, mode, role, checks, effort, intake_mode, optimize_prompt, settings, command, skill, skill_say, heartbeat, error.
+retrying, model_error (only with the error classifier on), done (with `more` when other tasks are waiting), blocked, cleared, dropped, mode, role, checks, effort, intake_mode, optimize_prompt, council, settings, command, skill, skill_say, heartbeat, error.
 
 A message that comes while a task is under way is looked at before the task's next model call (tadamoo/router.py): it goes into
 that task (steer), waits its turn (queue), or, when it cannot wait and has nothing to do with the task, the task is put aside where
@@ -54,6 +54,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, TextIO, Tuple
 
 from tadamoo import agent_loop as al
+from tadamoo import council
 from tadamoo import error_classifier
 from tadamoo import intake as it
 from tadamoo import nextsteps as ns
@@ -195,6 +196,7 @@ class Task:
     registered: Optional[Tuple[str, List[str]]] = None   # the parent and the parts this request has in the task registry
     progress: Optional[Any] = None                # tadamoo/progress.py: the newest steps, for the line that says how far a task got
     since: int = 0                                # how many turns the agent had when this request began
+    council: str = ""                             # "each": the conversation's box is on, so a real question is debated first; "once": the person wrote /council
 
 
 class _Current:
@@ -302,6 +304,9 @@ class Session:
         self.task_sink: Optional[it.TaskSink] = None            # the server's task registry, where a large request's parts are recorded
         self.suggester: Optional[sg.Suggester] = None           # the next-prompt chips (tadamoo/suggestions.py)
         self.ask_only = False                                   # a conversation without tools
+        self.council_each = False                               # the conversation's box: every real question goes to the council first (tadamoo/council.py)
+        self.council_clients: Optional[Callable[[str], Any]] = None   # the client of a council function, for a conversation that has not the tool yet
+        self.council_personas: Tuple[str, str] = ("", "")       # the folder of the personalities and of the key that opens them, for the roles that take a job from one
         self._suggest_cancel = threading.Event()                # set when the person sends something: a suggestion call in flight stops
         self._card_at: Optional[float] = None                   # when the card now on the screen was shown
         self._long_asked: Optional[List[str]] = None            # the labels that refuse the parts, while the card that offered them is open
@@ -706,7 +711,7 @@ class Session:
 
     # -- commands --------------------------------------------------------------------------------------
 
-    def _begin_main(self, turn: str, text: str, origin: str = "user", attachments: Optional[List[str]] = None, optimize: bool = True) -> Task:
+    def _begin_main(self, turn: str, text: str, origin: str = "user", attachments: Optional[List[str]] = None, optimize: bool = True, once: bool = False) -> Task:
         """Starts a turn of the person's own conversation: what the agent should know first, then their message."""
         agent = self.agent
         agent.cancel.clear()
@@ -724,7 +729,7 @@ class Session:
             agent.append(retrieved)
         self._save()                                   # the message is kept before the model sees it
         task = Task(turn, text, agent, intake={"origin": origin, "attachments": list(attachments or []), "optimize": optimize} if origin == "user" else None,
-                    since=len(agent.turns))
+                    since=len(agent.turns), council="once" if once and origin == "user" else "each" if self.council_each and origin == "user" else "")
         self._adopt(task)
         self.tasks[turn] = task
         return task
@@ -745,6 +750,14 @@ class Session:
         threading.Thread(target=self._work, args=(task,), name=f"session-task-{task.turn}", daemon=True).start()
 
     def send(self, turn_id: str, text: str, origin: str = "user", attachments: Optional[List[str]] = None, optimize: bool = True) -> bool:
+        once = False
+        if origin == "user":
+            asked = council.parse_command(text)
+            if asked is not None:                      # /council <question>: the question is debated once, whatever the conversation's box says
+                if not asked:
+                    self.emit({"event": "council", "turn": turn_id, "state": "usage"})
+                    return True
+                text, once = asked, True
         if origin == "user":
             self._suggest_cancel.set()                 # a suggestion call in flight stops: the person's message is next
             if self.suggester is not None:
@@ -769,7 +782,7 @@ class Session:
                 self._interrupt_for_urgent()
             self._save()
             return True
-        task = self._begin_main(turn_id, text, origin, attachments, optimize)
+        task = self._begin_main(turn_id, text, origin, attachments, optimize, once)
         self.emit({"event": "accepted", "turn": turn_id} if origin == "user" else {"event": "woke", "turn": turn_id, "text": text[:300]})
         threading.Thread(target=self._work, args=(task,), name="session-task", daemon=True).start()
         return True
@@ -1213,6 +1226,46 @@ class Session:
         agent.stop_reason, agent.error = al.ASKED, ""
         self._save()
         return True
+
+    def _council_tool(self, agent: Any) -> bool:
+        """Whether `ask_council` is among the agent's tools; a conversation without tools gets it for the moment of the debate (see `_council_step`)."""
+        if agent.tools.get("ask_council") is not None:
+            return True
+        if self.council_clients is None:
+            return False
+        from tadamoo.llm import registry
+        return council.offer_council(agent.tools, self.council_clients, registry(), *self.council_personas)
+
+    def _council_step(self, task: Task) -> bool:
+        """The council before the model's first step, when the person asked for it: the box of the conversation (a real question only: not a command,
+        not the answer to a card, not an acknowledgement) or /council. The debate is the tool `ask_council` called for the person, so it goes through the
+        same gate, is shown as a tool block with the debate inside and is kept in the conversation as untrusted text, and the model answers with it read.
+        True: the person stopped it and the turn ends. Never raises."""
+        agent = task.agent
+        text = agent.last_user_text.strip()
+        had = agent.tools.get("ask_council") is not None
+        try:
+            if task.council == "each" and (text.startswith(qs.ANSWER_HEADER) or not council.is_real_question(text)):
+                return False
+            if not self._council_tool(agent):
+                self.emit({"event": "council", "turn": task.turn, "state": "unavailable"})
+                return False
+            self._audit("council", {"how": task.council, "chars": len(text)})
+            agent.call_tool("ask_council", {"question": text, "context": council.recent_context(agent.messages)})
+        except Exception as exc:
+            it.log.warning("council: failed: %s", type(exc).__name__)
+            return False
+        finally:
+            if not had and self.ask_only:
+                agent.tools.unregister("ask_council")           # a conversation without tools keeps none after the debate
+        self._save()
+        if agent.cancel.is_set():
+            agent.stop_reason = al.CANCELLED
+            return True
+        return False
+
+    def set_council(self, on: bool) -> None:
+        self.council_each = bool(on)
 
     def _optimize_step(self, task: Task, facts: Dict[str, Any]) -> None:
         """Optimize prompt (tadamoo/optimize.py): the model reads the technical session's rewrite of the person's message in place of the
@@ -1682,7 +1735,10 @@ class Session:
         refresh = getattr(self.built, "refresh_budget", None)       # the model may have been loaded or changed since the last request
         if refresh is not None:
             refresh()
-        if task.intake is not None and self._intake_step(task):
+        fresh = task.intake is not None
+        if fresh and self._intake_step(task):
+            return "done"
+        if fresh and task.council and self._council_step(task):
             return "done"
         while True:
             self.last_progress = time.monotonic()
@@ -1855,6 +1911,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
                         help="a conversation (a name, an id or a pattern with * and ?) whose messages may give orders here; what any other conversation sends is data")
     parser.add_argument("--ask-server", action="store_true", help="ask for approvals on the server's pages instead of in the conversation")
     parser.add_argument("--ask-only", action="store_true", help="answer without tools: a greeting does not become a loop")
+    parser.add_argument("--council-each", action="store_true", help="every real question of the conversation goes to the council first, and the model answers with its verdict read (tadamoo/council.py)")
     parser.add_argument("--report-changes", action="store_true", help="send each file edit to the server's Changes panel, to keep or undo by block")
     parser.add_argument("--no-planner", action="store_true", help="do not offer the planner's tools")
     parser.add_argument("--effort", default="", choices=["", *EFFORT_LEVELS], help="how long the model thinks (empty: the model's own default)")
@@ -1918,7 +1975,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     except FileNotFoundError as exc:                              # the reference folder is gone
         emit({"event": "error", "code": "start", "message": str(exc)})
         return 1
-    settings["council"] = not args.ask_only                       # the council is offered whenever the person set one up
+    settings["council"] = not args.ask_only                       # the council is a tool of every conversation with tools
     settings["unattended"] = args.unattended
     if args.ask_only:                                             # answers without tools: nothing that reaches outside is built
         settings.update(capabilities=False, lsp=False, vault_dir="", payments_dir="", browser=False, wiki=False, phone=False)
@@ -1952,6 +2009,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     built.agent.cross_commands = tuple(args.cross_commands)
     seen = prov.SeenDeliveries(history)
     session.ask_only = args.ask_only
+    session.council_each = args.council_each
+    session.council_clients, session.council_personas = (lambda function: client_for(function, here)), (cfg.personas_dir, cfg.personal_memory_keys)
     session.workspace, session.checks_offer = cfg.workspace, args.offer_checks and not args.ask_only and not args.unattended
     session.intake = it.Intake(args.intake, built.technical, args.side_call_tokens)
     built.agent.empty_retry = args.empty_retry == "on"
@@ -2075,6 +2134,9 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                 if note:
                     session.tell(note)
                 emit({"event": "persona", "slug": cmd["slug"]})
+            elif name == "council" and isinstance(cmd.get("on"), bool):
+                session.set_council(cmd["on"])
+                emit({"event": "council", "on": cmd["on"]})
             elif name == "intake" and cmd.get("mode") in it.MODES and session.intake is not None:
                 session.intake.mode = cmd["mode"]
                 emit({"event": "intake_mode", "mode": cmd["mode"]})

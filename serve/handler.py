@@ -3563,7 +3563,8 @@ def make_handler(svc: Service, remote: bool = False):
                                                                       req.get("images", ""), req.get("charts", ""),
                                                                       req.get("unattended") is True, req.get("role", "general"), req.get("private") is True,
                                                                       req.get("alias", ""), req.get("cross_commands"), req.get("parent", ""), req.get("rules"),
-                                                                      req.get("budget_day_tokens"), req.get("persona", ""), channel or "chat")})
+                                                                      req.get("budget_day_tokens"), req.get("persona", ""), channel or "chat",
+                                                                      req.get("council") is True)})
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "apply":
                         return self._json(200, mgr.copy_apply(parts[1], req.get("paths")))
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "discard":
@@ -3614,6 +3615,8 @@ def make_handler(svc: Service, remote: bool = False):
                         return self._json(200, {"session": mgr.set_visuals(parts[1], req.get("images", ""), req.get("charts", ""))})
                     if len(parts) == 3 and parts[2] == "persona":
                         return self._json(200, {"session": mgr.set_persona(parts[1], req.get("persona", ""))})
+                    if len(parts) == 3 and parts[2] == "council":
+                        return self._json(200, {"session": mgr.set_council(parts[1], req.get("on"))})
                     if len(parts) == 3 and parts[2] == "telegram":
                         if not settings.is_loopback(self.client_address[0]):
                             return self._json(403, {"error": {"type": "forbidden", "message": "a conversation is moved to Telegram only from the PC the server runs on"}})

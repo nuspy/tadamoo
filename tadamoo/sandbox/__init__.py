@@ -59,6 +59,12 @@ def cancel_scope(event: Optional[threading.Event], tap: Optional[Callable[[str, 
         _scope.state = before
 
 
+def cancelled() -> bool:
+    """Whether the tool call this thread is running has been told to stop (the person pressed Stop)."""
+    state = getattr(_scope, "state", None)
+    return bool(state is not None and state.event is not None and state.event.is_set())
+
+
 def safe_environment(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
     env = {k: v for k, v in os.environ.items() if k.upper() in SAFE_ENV_KEYS}
     if extra:

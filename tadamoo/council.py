@@ -330,10 +330,10 @@ class Council:
         said = [f'<said round="{t["round"]}" by="{t["role"]}">\n{_defang(clip(t["text"], SAID_MAX)[0])}\n</said>' for t in transcript if t.get("text")]
         return "\n".join(fit(said, budget=DEBATE_MAX)[0])
 
-    def convene(self, question: str, context: str = "") -> Dict[str, Any]:
+    def convene(self, question: str, context: str = "", should_stop: Optional[Callable[[], bool]] = None) -> Dict[str, Any]:
         """{"transcript": [{"round", "member", "role", "text"|"error"}], "rounds", "advisers", "notes", "stopped": "consensus"|"round_cap"|"too_few"|
-        "moderator_failed"|"no_council", "consensus": bool, "verdict": str, "calls": int}. The moderator's summary of each round is in the transcript
-        as member `council:moderator`; `notes` says what a cap on calls took away."""
+        "moderator_failed"|"no_council"|"stopped", "consensus": bool, "verdict": str, "calls": int}. The moderator's summary of each round is in the
+        transcript as member `council:moderator`; `notes` says what a cap on calls took away. `should_stop` is asked before each speaker."""
         question, context = clip(question.strip(), QUESTION_MAX)[0], clip((context or "").strip(), CONTEXT_MAX)[0]
         body = f"<question>\n{question}\n</question>" + (f"\n<context>\n{context}\n</context>" if context else "")
         plan = shape(self.settings)
@@ -348,6 +348,8 @@ class Council:
             rounds_done = rnd
             spoke = 0
             for role in plan["advisers"]:
+                if should_stop is not None and should_stop():
+                    return {**result, "rounds": rounds_done, "stopped": "stopped", "verdict": verdict, "calls": calls}
                 function = council_function(role["id"])
                 said = self._heard(transcript)
                 system = SPEAKER_RULES.format(name=role["name"], job=job_of(role, self.persona_of))
@@ -382,7 +384,7 @@ class Council:
 
 STOPPED = {"consensus": "the moderator declared consensus", "round_cap": "the limit of rounds was reached without consensus",
            "too_few": "fewer than two advisers answered in a round", "moderator_failed": "the moderator could not answer",
-           "no_council": "fewer than two advisers are enabled"}
+           "no_council": "fewer than two advisers are enabled", "stopped": "the person stopped it"}
 
 
 def render(result: Dict[str, Any]) -> str:
@@ -436,7 +438,8 @@ def offer_council(registry: Any, client_for: Callable[[str], Any], llm_registry:
         now = load_settings(llm_registry)
         if not ready(now):
             return "The council has fewer than two enabled advisers: the person turns them on in Providers > Council."
-        return render(Council(client_for, settings=now, persona_of=persona_of).convene(question, context if isinstance(context, str) else ""))
+        from tadamoo.sandbox import cancelled
+        return render(Council(client_for, settings=now, persona_of=persona_of).convene(question, context if isinstance(context, str) else "", should_stop=cancelled))
 
     registry.register("ask_council", tool_description(settings, cost),
                       {"type": "object", "properties": {"question": {"type": "string"}, "context": {"type": "string", "description": "optional, short"}},
