@@ -79,6 +79,7 @@ class Brain:
     workspace: str = ""
     base_url: str = ""          # TaDaMoo's address on this PC; "" keeps the config's default
     hotkeys: bool = False       # whether the service registers the global push-to-talk hotkeys
+    archives: tuple = ()        # ids of the knowledge archives the avatar and the voice chat draw on
 
 
 @dataclass(frozen=True)
@@ -93,6 +94,7 @@ class Telephony:
     premium_prefixes: tuple = DEFAULT_PREMIUM_PREFIXES      # numbers the agent and programs never call
     auto_contacts_only: bool = False                        # `auto` approval only for `contacts`
     contacts: tuple = ()
+    archives: tuple = ()                                    # ids of the knowledge archives a call may draw on
 
 
 @dataclass(frozen=True)
@@ -112,6 +114,9 @@ class Meetings:
     copilot_replies: int = 3
     copilot_audio_reply: bool = False
     copilot_hide_from_capture: bool = True
+    archives: tuple = ()                # ids of the knowledge archives a meeting draws on unless its plan item names others
+    copilot_archives: tuple = ()        # ids of the knowledge archives the copilot's suggestions draw on
+    private_output: str = ""            # part of the name of an output device only the person hears (headphones): where an archive that asks by voice asks
 
 
 @dataclass(frozen=True)
@@ -192,7 +197,13 @@ def _brain(stored) -> Brain:
                  persona if isinstance(persona, str) and _SLUG_RE.match(persona) else "",
                  workspace if isinstance(workspace, str) and os.path.isabs(workspace) else "",
                  base_url.rstrip("/") if isinstance(base_url, str) and _BASE_URL_RE.match(base_url) else "",
-                 hotkeys is True)
+                 hotkeys is True, archive_ids(stored.get("archives")))
+
+
+def archive_ids(values) -> tuple:
+    """The valid archive ids of a list, without repeats (the same rule as serve/voice_settings.py)."""
+    ok = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
+    return tuple(dict.fromkeys(v for v in values if isinstance(v, str) and ok.match(v)))[:20] if isinstance(values, list) else ()
 
 
 def clean_contacts(values) -> list[str]:
@@ -215,7 +226,7 @@ def _telephony(stored) -> Telephony:
                      who.strip()[:80] if isinstance(who, str) and not any(ord(c) < 32 for c in who) else "",
                      tuple(clean_prefixes(stored["premium_prefixes"])) if isinstance(stored.get("premium_prefixes"), list) else DEFAULT_PREMIUM_PREFIXES,
                      stored.get("auto_contacts_only") is True,
-                     tuple(clean_contacts(stored.get("contacts"))))
+                     tuple(clean_contacts(stored.get("contacts"))), archive_ids(stored.get("archives")))
 
 
 def _text(value, limit: int, default: str = "") -> str:
@@ -230,7 +241,8 @@ def _meetings(stored) -> Meetings:
                     _text(stored.get("on_behalf_of"), 80), _text(stored.get("display_name"), 40, Meetings.display_name) or Meetings.display_name,
                     _text(stored.get("virtual_mic"), 80), _text(stored.get("wake_phrase"), 40), stored.get("autojoin") is True,
                     replies if isinstance(replies, int) and not isinstance(replies, bool) and 1 <= replies <= 6 else 3,
-                    stored.get("copilot_audio_reply") is True, stored.get("copilot_hide_from_capture") is not False)
+                    stored.get("copilot_audio_reply") is True, stored.get("copilot_hide_from_capture") is not False,
+                    archive_ids(stored.get("archives")), archive_ids(stored.get("copilot_archives")), _text(stored.get("private_output"), 80))
 
 
 def _avatar(stored) -> Avatar:
@@ -310,12 +322,14 @@ def overrides(settings: Settings) -> dict:
     out["stt_vad_model"] = os.path.join(vad, "silero_vad_v4.onnx")
     b = settings.brain
     out["brain_mode"], out["brain_persona"], out["brain_workspace"] = b.mode, b.persona, b.workspace
+    out["brain_archives"] = b.archives
     if b.base_url:
         out["tadamoo_base_url"] = b.base_url
     t = settings.telephony
     out["call_transport"], out["outgoing_approval"], out["ai_disclosure_on_start"] = t.transport, t.outgoing_approval, t.ai_disclosure_on_start
     out["incoming_auto_answer"], out["call_on_behalf_of"], out["call_audit_file"] = t.incoming_auto_answer, t.on_behalf_of, settings.audit_file
     out["call_premium_prefixes"], out["call_auto_contacts_only"], out["call_contacts"] = list(t.premium_prefixes), t.auto_contacts_only, list(t.contacts)
+    out["calls_archives"] = t.archives
     out["avatar_enabled"] = is_enabled(settings.services["avatar"], root)
     out["avatar_preload"] = out["avatar_enabled"] and settings.services["avatar"].load != "on_request"       # the worker starts with the function, unless it loads when asked for
     out["avatar_virtual_camera"], out["avatars_dir"] = settings.avatar.virtual_camera, settings.avatars_dir
@@ -333,7 +347,8 @@ def overrides(settings: Settings) -> dict:
     out.update(meetings_speak=m.speak, meetings_camera=m.camera, meetings_proactive=m.proactive, meetings_consent_mode=m.consent_mode, meetings_consent_window_s=m.consent_window_s,
                meetings_on_behalf_of=m.on_behalf_of, meetings_display_name=m.display_name, meetings_virtual_mic=m.virtual_mic, meetings_wake_phrase=m.wake_phrase,
                meetings_autojoin=m.autojoin, meetings_audit_file=settings.meetings_audit_file, copilot_num_responses=m.copilot_replies,
-               copilot_audio_reply=m.copilot_audio_reply, copilot_hide_from_capture=m.copilot_hide_from_capture)
+               copilot_audio_reply=m.copilot_audio_reply, copilot_hide_from_capture=m.copilot_hide_from_capture,
+               meetings_archives=m.archives, copilot_archives=m.copilot_archives, meetings_private_output=m.private_output)
     return out
 
 

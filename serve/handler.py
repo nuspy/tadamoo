@@ -22,7 +22,7 @@ from tadamoo import exec_level, nextsteps, persistence, side_uses
 from tadamoo import telegram as tg
 from tadamoo import permission_level
 from tadamoo.permission_level import PermissionLevelError, PermissionLevels
-from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, heavy_api, heavy_forward, engine_install, engines, loader, llamacpp_api, loader_api, media_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, vram_api, voice_api, voice_avatar_ensure, voice_compat, voice_import, voice_loader, voice_service, voice_settings
+from serve import ROOT, voice_rag_api, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, heavy_api, heavy_forward, engine_install, engines, loader, llamacpp_api, loader_api, media_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, vram_api, voice_api, voice_avatar_ensure, voice_compat, voice_import, voice_loader, voice_service, voice_settings
 from serve import origin_guard, voice_avatar, voice_gateway_relay, voice_phone_call
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX, checked_sampling
@@ -718,6 +718,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/rag" or path.startswith("/api/rag/"):
                 if self._authorized():
                     self._rag_route(path, "GET")
+            elif voice_rag_api.handles(path):
+                if self._authorized():
+                    self._voice_rag_route("GET")
             elif path in (vram_api.LEASES, vram_api.SETTINGS):
                 if self._authorized():
                     vram_api.get(self, svc, path)
@@ -982,6 +985,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path.startswith("/api/rag/"):
                 self._rag_route(path, "POST")
+                return
+            if voice_rag_api.handles(path):
+                self._voice_rag_route("POST")
                 return
             if path == vram_api.SETTINGS or path == vram_api.LEASE or path.startswith(vram_api.LEASE + "/"):
                 vram_api.post(self, svc, path)
@@ -2732,6 +2738,31 @@ def make_handler(svc: Service, remote: bool = False):
                 _RAG_JOBS = RagJobs()
             return RagApi(self._rag_store(), jobs=_RAG_JOBS, service=self._rag_embed(), sync=self._rag_sync(), folders=lambda: [{"name": "Chat", "path": str(chat), "chat": True}]
                           + [{"name": p["name"], "path": p["path"], "chat": False} for p in self._projects().list() if p.get("exists")])
+
+        def _voice_rag(self):
+            def make():
+                from tadamoo import llm
+                from tadamoo.rag import realtime
+                from serve.voice_consent import Consents
+                from serve.voice_rag import VoiceRag
+                store, port = self._rag_store(), self.server.server_address[1]
+                query = realtime.query_service(models.dirs)
+                build = realtime.build_service(models.dirs, lambda: f"http://127.0.0.1:{port}")
+                searcher = realtime.Searcher(store, query.provider)
+                indexer = realtime.Indexer(store, build.provider, build.rest)
+                holder: list = []
+                consents = Consents(lambda aid: holder[0].save_always(aid))
+                holder.append(VoiceRag(store, searcher, consents, indexer, lambda: llm.registry().swap() is not None))
+                return holder[0]
+            return voice_rag_api.instance(svc, make)
+
+        def _voice_rag_route(self, method):
+            """/api/voice/rag/* (the voice service's token) and /api/voice/consent* (the page): from this PC only."""
+            if self.remote_listener or not settings.is_loopback(self.client_address[0]):
+                if method == "POST":
+                    self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the knowledge archives are used only on the PC the server runs on"}})
+            voice_rag_api.route(self, self._voice_rag(), method)
 
         def _rag_route(self, path, method):
             """/api/rag/*: the knowledge archives, from this PC only."""

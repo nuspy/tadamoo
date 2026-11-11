@@ -155,12 +155,16 @@
     const f = keep && (document.getElementById("vt" + keep) || document.getElementById("vb" + keep));
     if (f && document.body.contains(f) && !document.activeElement.matches("input, select, button")) f.focus();
   }
+  function archivesPick() {
+    return window.VoiceArchives.picker({ id: "vb-archives", label: T("va.brain.label"), help: T("va.brain.help"), ids: B.archives || [],
+      onSave: async ids => { const r = await api("POST", "api/voice/brain", { archives: ids }); if (r.ok) B = r.data; } });       // no repaint: the checklist keeps its focus
+  }
   function paintSettings() {
     if (!setRoot) return;
     if (!B) { setRoot.replaceChildren(el("p", "vt-help", loadFailed || T("vt.loading"))); return; }
     const box = el("section", "vt-card"), h = el("h3", "vt-h", T("vt.set.title"));
     h.id = "vb-h2"; box.setAttribute("aria-labelledby", h.id);
-    box.append(h, el("p", "vt-help", T("vt.set.intro")), permission("vb"), hotkeys("vb"), note(brainMsg.text, brainMsg.bad));
+    box.append(h, el("p", "vt-help", T("vt.set.intro")), permission("vb"), hotkeys("vb"), ...(window.VoiceArchives ? [archivesPick()] : []), note(brainMsg.text, brainMsg.bad));
     setRoot.replaceChildren(box, ...(window.VoiceAvatar ? [window.VoiceAvatar.settingsCard(api)] : []), ...(window.VoiceEngines ? [window.VoiceEngines.settingsCard(api)] : []), ...(window.VoiceEnhance ? [window.VoiceEnhance.settingsCard(api)] : []), ...(window.VoiceMeet ? [window.VoiceMeet.settingsCard(api)] : []), ...(window.VoiceInterrupt ? [window.VoiceInterrupt.settingsCard(api)] : []), ...(window.VoiceLanguage ? [window.VoiceLanguage.settingsCard(api, svc)] : []), ...(window.VoiceDictation ? [window.VoiceDictation.settingsCard(api)] : []));
   }
 

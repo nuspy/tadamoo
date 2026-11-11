@@ -324,11 +324,22 @@
     const reps = el("input"); reps.type = "number"; reps.inputMode = "numeric"; reps.min = "1"; reps.max = "6";
     reps.onchange = () => save({ copilot_replies: Number(reps.value) });
     inputs.copilot_replies = reps; box.append(field("vm-set-copilot_replies", T("vm.set.replies"), reps));
+    if (window.VoiceArchives) {
+      const pickers = {};
+      for (const [key, label, help] of [["archives", "va.meet.label", "va.meet.help"], ["copilot_archives", "va.cop.label", "va.cop.help"]]) {
+        pickers[key] = window.VoiceArchives.picker({ id: "vm-set-" + key, label: T(label), help: T(help), ids: (cur && cur[key]) || [],
+          onSave: async ids => { const r = await api("POST", "api/voice/meetings", { [key]: ids }); if (r.ok) { cur = r.data; D = r.data; } } });
+        box.append(pickers[key]);
+      }
+      box.pickers = pickers;
+    }
+    add("private_output", T("vm.set.private"), T("vm.set.private.help"), () => { const [i] = text("private_output", "", 80); return [i, i]; });
     boolBox("copilot_audio_reply", "vm.set.audio", "vm.set.audio.help");
     boolBox("copilot_hide_from_capture", "vm.set.hide", "vm.set.hide.help");
     box.append(msg);
     function fill() {
       if (!cur) return;
+      if (box.pickers) for (const [key, p] of Object.entries(box.pickers)) if (!p.contains(document.activeElement)) p.refresh(cur[key] || []);
       for (const [key, input] of Object.entries(inputs)) {
         if (document.activeElement === input) continue;
         if (input.type === "checkbox") input.checked = !!cur[key]; else input.value = cur[key] == null ? "" : cur[key];
