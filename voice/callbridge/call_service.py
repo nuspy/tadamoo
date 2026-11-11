@@ -66,7 +66,11 @@ class CallService:
 
     def _direct_brain(self):
         from .brains import DirectBrain
-        return DirectBrain(self.cfg)
+        brain = DirectBrain(self.cfg)
+        if self.cfg.calls_archives:                    # this call's own archives: the other side is a third party, so what the archives say to it asks first (rag_client)
+            from .rag_client import Knowledge
+            brain.knowledge = Knowledge(self.cfg, "call", self.cfg.calls_archives, lang=self.cfg.default_lang)
+        return brain
 
     def _make_router(self):
         from .transport import CallRouter
