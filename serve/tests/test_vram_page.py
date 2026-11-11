@@ -15,8 +15,8 @@ class PageTests(unittest.TestCase):
         keys = sorted(set(re.findall(r'"(vb\.[\w.]+)":', I18N)))
         self.assertEqual(keys, ["vb.e.offline", "vb.gb", "vb.idle", "vb.lent", "vb.off", "vb.title", "vb.unknown"])
         for key in keys:
-            e = re.search(rf'"{re.escape(key)}": "((?:[^"\]|\.)*)"', en)
-            i = re.search(rf'"{re.escape(key)}": "((?:[^"\]|\.)*)"', it)
+            e = re.search(rf'"{re.escape(key)}": "((?:[^"\\]|\\.)*)"', en)
+            i = re.search(rf'"{re.escape(key)}": "((?:[^"\\]|\\.)*)"', it)
             self.assertTrue(e and i, key)
             self.assertEqual(sorted(re.findall(r"\{\d\}", e.group(1))), sorted(re.findall(r"\{\d\}", i.group(1))), key)
         used = set(re.findall(r'T\("(vb\.[\w.]+)"', JS)) | set(re.findall(r'data-t="(vb\.[\w.]+)"', HTML))
