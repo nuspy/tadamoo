@@ -684,7 +684,7 @@ def safe(facts: dict, system: dict, holds: dict | None = None, holds_vram: int =
     vision = "dynamic" if picked and not picked["problem"] else "off"
     out = {"engine.max-context": CONTEXT_STEPS[-1], "engine.kv": "q4_0", "engine.prefill": "auto",
            "engine.spec": 7 if mtp else 0, "engine.expert-cache": "auto",
-           "engine.resident-experts": True, "engine.vram-reserve-mib": reserve, "engine.ple-io": "direct",
+           "engine.resident-experts": True, "engine.vram-elastic": True, "engine.vram-reserve-mib": reserve, "engine.ple-io": "direct",
            "engine.pool-workers": workers, "server.parallel": 1, "server.slot-full-context": False, "server.side-slot": 0,
            "server.vision": vision}
     fitted = False
