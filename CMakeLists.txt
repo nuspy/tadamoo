@@ -530,6 +530,7 @@ add_executable(basalt src/program/generate.cpp src/program/engine_local.cpp src/
                        src/program/serve/kv.cpp
                        src/program/serve/loans.cpp
                        src/program/serve/loan_moves.cpp
+                       src/program/serve/vram_arbiter.cpp
                        src/program/serve/memory.cpp
                        src/program/serve/prompt.cpp
                        src/program/serve/prompt_read.cpp
@@ -1163,6 +1164,15 @@ target_link_libraries(loan_moves_test PRIVATE warnings)
 basalt_embed_manifest(loan_moves_test)
 basalt_cpu_test(NAME loan_moves_test COMMAND loan_moves_test)
 set_tests_properties(loan_moves_test PROPERTIES TIMEOUT 60)
+# the expert cache's backed size: the segment layouts, the elastic KV's and the lends' targets, on a model of the
+# cache and the card (CPU only)
+add_executable(vram_arbiter_test tests/program/vram_arbiter_test.cpp src/program/serve/vram_arbiter.cpp
+               src/core/segment_plan.cpp)
+target_include_directories(vram_arbiter_test PRIVATE src/program/serve include)
+target_link_libraries(vram_arbiter_test PRIVATE warnings)
+basalt_embed_manifest(vram_arbiter_test)
+basalt_cpu_test(NAME vram_arbiter_test COMMAND vram_arbiter_test)
+set_tests_properties(vram_arbiter_test PROPERTIES TIMEOUT 60)
 add_executable(auto_plan_test tests/program/auto_plan_test.cpp)
 target_link_libraries(auto_plan_test PRIVATE engine_session warnings)
 basalt_embed_manifest(auto_plan_test)

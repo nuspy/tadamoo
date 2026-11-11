@@ -79,14 +79,16 @@ void Runtime::relend() {   // the prompt path's loan: the end of the slots left,
 // The resident RAM mode holds only the experts no slot holds, so an expert in a slot about to go has no RAM
 // copy: it is copied from its slot into a RAM home first and read from there like the compact copy's.  Refused
 // (nothing copied) when the RAM above the floor cannot take them.  `live`: the slots that stay.
-bool Runtime::home_given_up(int64_t live, std::string& e) {
+bool Runtime::home_given_up(int64_t live, std::string& e, int64_t reach_from) {
     if (!src.complement_ready()) return true;
-    // the slots the loan will overwrite keep a RAM copy too, so a prompt never costs a file read
+    // the slots the loan will overwrite keep a RAM copy too, so a prompt never costs a file read, and so do the
+    // slots the elastic KV may take during a lend (from `reach_from`)
     int64_t from = live;
     if (!pf_parts.empty() && pf_parts[0].first >= 0) {
         int64_t c = 0;
         from = std::min<int64_t>(live, loan_plan(live, c));
     }
+    from = std::min(from, reach_from);
     std::vector<std::pair<int32_t, int32_t>> give;
     std::vector<int32_t> slots;
     for (size_t i = 0; i < host_res.size(); ++i) {
@@ -122,14 +124,24 @@ bool Runtime::home_given_up(int64_t live, std::string& e) {
     return true;
 }
 
+// the owner of the cache's backed size, before anything shrinks or grows it: the layout, the start's reserve and
+// slots, and whether VRAM may lend
+void Runtime::init_arbiter() {
+    std::vector<int64_t> slot_end((size_t) std::max<int64_t>(xcache.full_slots(), 0));
+    for (size_t i = 0; i < slot_end.size(); ++i) slot_end[i] = xcache.bytes_of((int64_t) i + 1);
+    arbiter.start(xcache.segment_ends(), std::move(slot_end), o.vram_reserve_mib, o.vram_elastic && xcache.segmented());
+}
+
 // `for_sleep` (SLEEP and WAKE): the cache goes to its smallest size and comes back to the same placement, with no
 // request between the two, so neither --vram-elastic (any segmented cache does) nor a peer card's tier stands in
-// the way
+// the way.  The arbiter keeps the reserve in force: a VRAM command sets it, SLEEP leaves it, WAKE grows back to it.
 bool Runtime::vram_command(const std::string& cmd, std::string& e, bool for_sleep, std::string* reply) {
-    // `VRAM` alone: the reserve the engine started with (--vram-reserve-mib)
+    // `VRAM` alone: the reserve the engine started with (--vram-reserve-mib), which returns a lend; WAKE's: the one
+    // in force before the SLEEP
     char* end = nullptr;
     const bool bare = cmd.find_first_not_of(' ', 4) == std::string::npos;
-    const long long reserve = bare ? (long long) o.vram_reserve_mib : std::strtoll(cmd.c_str() + 4, &end, 10);
+    const long long reserve = bare ? (long long) (for_sleep ? arbiter.reserve_mib() : arbiter.start_reserve_mib())
+                                   : std::strtoll(cmd.c_str() + 4, &end, 10);
     if (!bare && (end == cmd.c_str() + 4 || reserve < 0)) { e = "expected: VRAM [reserve_mib]"; return false; }
     if (reserve < vram_floor_mib() && !for_sleep) {
         e = "VRAM: a reserve below " + std::to_string(vram_floor_mib()) + " MiB is too small for what is allocated "
@@ -154,20 +166,28 @@ bool Runtime::vram_command(const std::string& cmd, std::string& e, bool for_slee
     const auto t0 = Clock::now();
     size_t free_b = 0, total_b = 0;
     cudaMemGetInfo(&free_b, &total_b);
-    const int64_t want_free = (int64_t) reserve << 20, mapped = xcache.mapped_bytes();
+    const int64_t mapped = xcache.mapped_bytes();
     const int64_t before = xcache.slots();
-    // what stays at least: the prompt path's smallest loan (256 tokens) and the 128 slots it must leave
-    const int64_t floor_slots = std::min<int64_t>(xcache.full_slots(),
+    // what stays at least: the prompt path's smallest loan (256 tokens) and the 128 slots it must leave; with the
+    // elastic KV, also its floor and what the KV still needs to reach its maximum cells (not for SLEEP: nothing runs
+    // until WAKE)
+    int64_t floor_slots = std::min<int64_t>(xcache.full_slots(),
         128 + (pf_parts.empty() || pf_parts[0].first < 0 ? 0 : part_slots(pf_parts[0], 256)));
+    const int64_t kv_growth_now = kv_growth_bytes(), kv_growth = for_sleep ? 0 : kv_growth_now;
+    if (kv_growth_now > 0) floor_slots = std::max(floor_slots, cache_floor_slots());
+    const VramArbiter::Plan plan = arbiter.plan(reserve, mapped, (int64_t) free_b, floor_slots, kv_growth);
+    const int64_t reserve_max = arbiter.reserve_max_mib(mapped, (int64_t) free_b, floor_slots, kv_growth);
     std::string note;
-    if ((int64_t) free_b < want_free) {
-        const int64_t floor_b = xcache.bytes_of(floor_slots);
-        int64_t keep = mapped - (want_free - (int64_t) free_b);
-        if (keep < floor_b) {
-            keep = floor_b;
-            note = " (the cache keeps its smallest size: the prompt path's buffers)";
-        }
-        if (!home_given_up(xcache.slots_after_shrink(keep), e)) { e = "VRAM: " + e + " (nothing changed)"; return false; }
+    if (plan.kind == VramArbiter::Plan::shrink) {
+        const int64_t keep = plan.bytes;
+        if (plan.capped)
+            note = kv_growth > 0 ? " (the cache keeps the prompt path's buffers and the " + std::to_string(kv_growth >> 20) +
+                                       " MiB the KV needs to reach its maximum context; at most " +
+                                       std::to_string(reserve_max) + " MiB can be kept free now)"
+                                 : std::string(" (the cache keeps its smallest size: the prompt path's buffers)");
+        const int64_t reach = kv_growth > 0 ? arbiter.reach_from(arbiter.kept_by_shrink(keep, mapped), kv_growth)
+                                            : INT64_MAX;
+        if (!home_given_up(xcache.slots_after_shrink(keep), e, reach)) { e = "VRAM: " + e + " (nothing changed)"; return false; }
         // the homes are committed by now: whatever the shrink left or took is followed from the cache itself
         const bool shrunk = xcache.shrink(keep, e);
         const int64_t live = xcache.slots();
@@ -178,9 +198,9 @@ bool Runtime::vram_command(const std::string& cmd, std::string& e, bool for_slee
             }
         res_upload();
         if (!shrunk) return false;
-    } else if (mapped < xcache.full_bytes()) {
+    } else if (plan.kind == VramArbiter::Plan::grow) {
         std::string gerr;
-        if (!xcache.grow(mapped + ((int64_t) free_b - want_free), gerr)) note = " (" + gerr + ")";
+        if (!xcache.grow(plan.bytes, gerr)) note = " (" + gerr + ")";
         const int64_t live = xcache.slots();
         std::string ferr;
         std::vector<std::pair<int32_t, int32_t>> keep_out;
@@ -233,9 +253,12 @@ bool Runtime::vram_command(const std::string& cmd, std::string& e, bool for_slee
         // back).  The loan's own slots keep theirs: a prompt overwrites them and reads those experts from RAM.
         if (src.complement_ready()) {
             const int64_t loan_from = pf_parts.empty() || pf_parts[0].first < 0 ? INT64_MAX : pf_parts[0].first;
+            // the slots the KV may take while VRAM stays lent keep theirs too
+            const int64_t keep_from = kv_growth > 0 && reserve > arbiter.start_reserve_mib()
+                ? std::min(loan_from, arbiter.reach_from(xcache.mapped_bytes(), kv_growth)) : loan_from;
             size_t released = 0;
             for (size_t j = 0; j < host_res.size(); ++j)
-                if (host_res[j] >= 0 && host_res[j] < loan_from &&
+                if (host_res[j] >= 0 && host_res[j] < keep_from &&
                     src.home_release((int64_t) j / g.n_expert, (int64_t) j % g.n_expert))
                     ++released;
             const uint64_t freed = src.homes_reclaim() + src.homes_compact();
@@ -246,18 +269,25 @@ bool Runtime::vram_command(const std::string& cmd, std::string& e, bool for_slee
     }
     relend();
     cudaMemGetInfo(&free_b, &total_b);
+    if (!for_sleep || bare)   // not SLEEP's: the reserve granted, which leaves the KV what it needs beyond the cache
+        arbiter.set_reserve_mib(reserve, (int64_t) free_b, vram_usage(),
+                                arbiter.kv_hold(xcache.mapped_bytes(), floor_slots, kv_growth_now));
+    const bool capped = plan.capped || (reserve > arbiter.start_reserve_mib() && arbiter.reserve_mib() < reserve);
     basalt::log::info("basalt serve", "VRAM %lld MiB kept free: the expert cache %lld -> %lld of %lld slots "
                          "(%.2f of %.2f GiB), %lld MiB free now, prompt chunk %lld, in %.0f ms%s",
                  reserve, (long long) before, (long long) xcache.slots(), (long long) xcache.full_slots(),
                  (double) xcache.mapped_bytes() / 1073741824.0, (double) xcache.full_bytes() / 1073741824.0,
                  (long long) (free_b >> 20), (long long) o.prefill_chunk,
                  std::chrono::duration<double, std::milli>(Clock::now() - t0).count(), note.c_str());
-    char line[400];
+    char line[512];
     std::snprintf(line, sizeof line, "VRAM reserve_mib=%lld expert_slots=%lld expert_slots_full=%lld "
                   "expert_cache_mib=%lld expert_cache_full_mib=%lld vram_free_mib=%lld prompt_chunk=%lld "
-                  "ram_homes_mib=%lld\n", reserve, (long long) xcache.slots(), (long long) xcache.full_slots(),
+                  "ram_homes_mib=%lld lent_mib=%lld expert_slots_start=%lld kv_growth_mib=%lld reserve_max_mib=%lld "
+                  "capped=%d\n", reserve, (long long) xcache.slots(), (long long) xcache.full_slots(),
                   (long long) (xcache.mapped_bytes() >> 20), (long long) (xcache.full_bytes() >> 20),
-                  (long long) (free_b >> 20), (long long) o.prefill_chunk, (long long) (src.homes_bytes() >> 20));
+                  (long long) (free_b >> 20), (long long) o.prefill_chunk, (long long) (src.homes_bytes() >> 20),
+                  (long long) arbiter.lent_mib(), (long long) arbiter.slots_at_start(), (long long) (kv_growth >> 20),
+                  (long long) reserve_max, capped ? 1 : 0);
     if (reply != nullptr) *reply = line;
     else std::fputs(line, stdout);
     return true;

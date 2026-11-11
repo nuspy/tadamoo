@@ -4,6 +4,7 @@
 namespace basalt::program::serve {
 
 int Runtime::execute() {
+    init_arbiter();
     if (const int code = init_prompt()) return code;
     if (const int code = init_verify()) return code;
     if (const int code = init_conversations()) return code;

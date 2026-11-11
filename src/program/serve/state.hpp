@@ -5,6 +5,7 @@
 #include "../cli/tokens.hpp"
 #include "loans.hpp"
 #include "loan_moves.hpp"
+#include "vram_arbiter.hpp"
 #include "basalt/program/options.hpp"
 #include "basalt/program/community_row.hpp"
 #include "basalt/kernels/cvec.hpp"
@@ -350,6 +351,7 @@ private:
     std::vector<float> img_rows{};
     std::vector<const float*> row_ptr{};
     std::vector<std::pair<int32_t, int32_t>> vram_evicted{};   // (residency index, slot) the shrinks took
+    VramArbiter arbiter{};   // the reserve in force and the targets of every shrink and grow of the cache
     int64_t chunk_full{};
     int64_t kKvGrowCells{};
     static constexpr int64_t kKvWindowCells = 2* basalt::kernels::kVerifyMaxT + 64;   // a decoding session's next window
@@ -540,9 +542,12 @@ private:
     void make_view(basalt::core::SessionState& v, int b);
     int32_t loan_plan(int64_t live, int64_t& chunk);
     void relend();
-    bool home_given_up(int64_t live, std::string& e);
+    bool home_given_up(int64_t live, std::string& e, int64_t reach_from = INT64_MAX);
     bool vram_command(const std::string& cmd, std::string& e, bool for_sleep, std::string* reply = nullptr);
     int64_t cache_floor_slots();
+    int64_t kv_growth_bytes();
+    int64_t vram_usage();
+    void init_arbiter();
     bool move_routed_below(int64_t first, const char* why, std::string& e,
                            const std::vector<serve_loans::LentEntry>* lent_out = nullptr);
     bool kv_drain(std::string& e);
