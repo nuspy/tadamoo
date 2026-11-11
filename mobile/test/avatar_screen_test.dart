@@ -310,9 +310,22 @@ void main() {
   testWidgets('voice not loaded on the PC: the screen says what is missing and the bar does nothing', (tester) async {
     final ch = await show(tester, ready: {...readyMessage, 'voice': false, 'missing': ['stt', 'tts']});
     expect(find.textContaining('speech recognition, speech synthesis'), findsOneWidget);
+    expect(find.textContaining('press Load on the PC'), findsOneWidget);
     await tester.tap(find.text('Hold to talk'));
     await tester.pump();
     expect(ch.kinds, isNot(contains('start')));
+  });
+
+  testWidgets('the PC refusing a turn because nothing is loaded says what to do, in both languages, and keeps the code the app reads', (tester) async {
+    final ch = await show(tester, ready: {...readyMessage, 'voice': false, 'missing': ['stt']});
+    ch.say({'type': 'error', 'code': 'not_loaded', 'missing': ['stt'], 'message': 'The PC has not loaded the model/voice yet: press Load on the PC (missing: stt).'});
+    await tester.pump();
+    expect(c.client.problemCode, 'not_loaded');
+    expect(find.text('The PC has not loaded the model/voice yet: press Load on the PC.'), findsOneWidget);
+    Texts.use('it');
+    ch.say({'type': 'error', 'code': 'not_loaded', 'missing': ['stt'], 'message': 'x'});                   // the screen is drawn again
+    await tester.pump();
+    expect(find.text('Il PC non ha ancora caricato il modello o la voce: premi Carica sul PC.'), findsOneWidget);
   });
 
   testWidgets('the continuation the PC offers after an interruption is a line with a button; taking it tells the PC', (tester) async {

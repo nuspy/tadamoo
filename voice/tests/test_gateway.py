@@ -271,6 +271,7 @@ def test_the_functions_not_loaded_on_the_pc_are_reported_and_the_turn_is_not_sta
     assert ws.json("ready")[0]["voice"] is False and ws.json("ready")[0]["missing"] == ["stt"]
     err = ws.json("error")[0]
     assert err["code"] == "not_loaded" and err["missing"] == ["stt"]
+    assert "press Load on the PC" in err["message"] and "premi Carica sul PC" in err["message_it"] and "stt" in err["message"]
     assert ws.kinds[-1] == "done" and host.stt.frames == [] and host.brains.heard == []
 
 

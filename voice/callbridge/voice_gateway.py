@@ -389,7 +389,8 @@ class Connection:
         missing = [n for n in ("stt", "tts") if not fn.get(n)]
         if missing:
             self._send_json({"type": "error", "code": "not_loaded", "missing": missing,
-                             "message": "the PC has not loaded: " + ", ".join(missing)})
+                             "message": "The PC has not loaded the model/voice yet: press Load on the PC (missing: " + ", ".join(missing) + ").",
+                             "message_it": "Il PC non ha ancora caricato il modello o la voce: premi Carica sul PC (mancano: " + ", ".join(missing) + ")."})
             return False
         try:
             if self.stt is None:
