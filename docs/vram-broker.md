@@ -6,7 +6,7 @@ alone: the model may become very slow meanwhile, and the cache may shrink to its
 
 ## What lends the VRAM
 
-The engine, with `--vram-elastic` (`engine.vram-elastic` in the config file). `POST /v1/vram {"reserve_mib": N}` shrinks the expert
+The engine, with `--vram-elastic` (`engine.vram-elastic` in the config file). The values the Loader proposes (the Machine Default and the safe values) turn it on. `POST /v1/vram {"reserve_mib": N}` shrinks the expert
 cache so that N MiB stay free; `{"reserve_mib": null}` gives the cache its VRAM back (it refills from RAM in a few seconds). The reply
 carries `reserve_mib`, `expert_slots`, `expert_slots_full`, `expert_cache_mib`, `vram_free_mib` and, with newer engines, more keys
 (`lent_mib`, `capped`, `reserve_max_mib`, ...): the broker keeps the last reply whole and depends on none of the extra keys.

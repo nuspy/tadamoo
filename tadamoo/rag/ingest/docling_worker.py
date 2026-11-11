@@ -3,7 +3,8 @@
     python docling_worker.py --file PATH --format .pdf [--window 40] [--url http://127.0.0.1:7242] [--cpu] [--from-page N] [--paged] [--skip 3,9]
 
 Lines:  {"event": "start", "format", "pages", "device", "from_page"}  {"event": "progress", "page", "pages", "device"}  {"event": "blocks", "blocks": [...]}
-        {"event": "skipped", "page", "message"}  {"event": "done", "pages", "device"}  or  {"event": "error", "message"}.
+        {"event": "skipped", "page", "message"}  {"event": "empty", "page", "reason": "image"|"text"|"unknown"}  {"event": "done", "pages", "device"}
+        or  {"event": "error", "message"}. `empty` is a page that came out with no text although it has a picture or a text layer.
 
 A block is `{type: heading|paragraph|list|table|code|caption|footnote|page_break, text, page, level?}`, a table as Markdown. A big PDF is
 converted in windows of `--window` pages, so the memory a page needs is given back before the next window; a window that fails is read page by page,
@@ -76,8 +77,28 @@ def page_count(path: str) -> int:
         return 0
 
 
+def page_pieces(raw: str, prov: list) -> list:
+    """[(page, text)] for a text item that Docling spread over several pages (a scanned page read as one block): each piece is the part of the text that
+    belongs to its page by the character span Docling gives. The whole text on its first page when the spans are missing or do not fit."""
+    first = int(prov[0].page_no) if prov else 0
+    spans = []
+    for p in prov:
+        span = getattr(p, "charspan", None)
+        if not span or len(span) != 2 or not 0 <= int(span[0]) <= int(span[1]):
+            return [(first, raw)]
+        spans.append((int(p.page_no), min(int(span[0]), len(raw)), min(int(span[1]), len(raw))))      # the span may run a character or two past the text
+    pieces: list = []
+    for page, a, b in sorted(spans, key=lambda s: s[1]):
+        if pieces and pieces[-1][0] == page:
+            pieces[-1] = (page, pieces[-1][1] + raw[a:b])
+        else:
+            pieces.append((page, raw[a:b]))
+    return pieces if "".join(t for _, t in pieces).strip() == raw.strip() or len("".join(t for _, t in pieces)) >= 0.9 * len(raw) else [(first, raw)]
+
+
 def blocks_of(document, offset: int = 0) -> list:
-    """The blocks of a converted Docling document, in reading order. Running headers and footers that Docling classified are left out."""
+    """The blocks of a converted Docling document, in reading order. Running headers and footers that Docling classified are left out. A text item that
+    covers several pages is cut at the page borders Docling records, so every part is cited on its own page."""
     out: list = []
     items = []
     for item, level in document.iterate_items():
@@ -114,6 +135,17 @@ def blocks_of(document, offset: int = 0) -> list:
             kind, extra = "table", {}
         else:
             text = (getattr(item, "text", "") or "").strip()
+            if len(prov) > 1 and label in ("text", "paragraph", "code", "caption", "footnote"):
+                pieces = page_pieces(getattr(item, "text", "") or "", prov)
+                if len(pieces) > 1:
+                    for number, part in pieces:
+                        if number != current:
+                            current = number
+                            out.append({"type": "page_break", "text": "", "page": number})
+                        if part.strip():
+                            out.append({"type": "caption" if label == "caption" else "code" if label == "code" else "footnote" if label == "footnote" else "paragraph",
+                                        "text": part.strip(), "page": number})
+                    continue
             if label in ("section_header", "title"):
                 kind, extra = "heading", {"level": 1 if label == "title" else max(1, min(6, int(getattr(item, "level", 1) or 1) + 1))}
             elif label == "code":
@@ -191,6 +223,26 @@ class Reader:
         return None, message
 
 
+def pages_of(blocks: list) -> set:
+    return {int(b.get("page") or 0) for b in blocks if b.get("type") != "page_break"}
+
+
+def what_is_on(path: str, number: int) -> str:
+    """"blank" for a page with no text layer and no picture, "image" for a page that is a picture, "text" for a page whose own text layer has words."""
+    try:
+        import pypdfium2 as pdfium
+        doc = pdfium.PdfDocument(path)
+        try:
+            page = doc[number - 1]
+            if len(page.get_textpage().get_text_range().strip()) > 20:
+                return "text"
+            return "image" if any(o.type == 3 for o in page.get_objects()) else "blank"
+        finally:
+            doc.close()
+    except Exception:
+        return "unknown"
+
+
 def spans(first: int, last: int, size: int, skip: set) -> list:
     """The runs of pages from `first` to `last`, at most `size` long, with the pages in `skip` left out."""
     out, a = [], first
@@ -244,6 +296,17 @@ def main() -> int:
                     except Exception:
                         pass
                 if blocks is not None:
+                    have = pages_of(blocks)
+                    for number in range(first, last + 1):             # a page with nothing: read alone, and said so when it stays empty
+                        if number in have:
+                            continue
+                        again, _ = reader.page(number)
+                        if again and pages_of(again):
+                            blocks += again
+                        else:
+                            kind = what_is_on(args.file, number)
+                            if kind != "blank":
+                                emit({"event": "empty", "page": number, "reason": kind})
                     total = max([total] + [b["page"] for b in blocks])
                     emit({"event": "blocks", "blocks": blocks})
                     emit({"event": "progress", "page": last, "pages": pages, "device": reader.device})
@@ -254,6 +317,8 @@ def main() -> int:
                         emit({"event": "skipped", "page": number, "message": message})
                     else:
                         emit({"event": "blocks", "blocks": got})
+                        if not pages_of(got) and what_is_on(args.file, number) != "blank":
+                            emit({"event": "empty", "page": number, "reason": what_is_on(args.file, number)})
                     emit({"event": "progress", "page": number, "pages": pages, "device": reader.device})
         else:
             blocks = blocks_of(reader.converter.convert(args.file).document)

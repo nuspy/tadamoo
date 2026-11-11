@@ -3,6 +3,7 @@
 Only these internal functions can be pointed at another provider. What other applications see of this server stays the
 loaded model, whatever is chosen here (see `docs/harness.md`). A function names a kind of work:
 
+* `voice`: what the voice service asks of the model: the copilot, the spoken replies of a meeting or a call, the avatar's direct brain, the minutes;
 * `chat`: a conversation with tools or without (Chat, the agent's loop, the planner's re-plan, summaries);
 * `judge`: a short typed answer to a question (a choice, a score): the router of messages, the checks of the pipeline, the
   triage of a plan's events. A judge can be the loaded model, or a service that only judges (Jev).
@@ -20,6 +21,7 @@ LOCAL = ""                                         # no provider assigned: the m
 FUNCTIONS: Dict[str, Dict[str, Any]] = {
     "chat": {"label": "Chat", "kind": "chat", "data": "personal", "tools": False},
     "executor": {"label": "Executor (the agent's loop)", "kind": "chat", "data": "personal", "tools": True},
+    "voice": {"label": "Voice (copilot, meetings, calls, avatar)", "kind": "chat", "data": "personal", "tools": False},
     "planner": {"label": "Planner (re-plan)", "kind": "chat", "data": "personal", "tools": False},
     "compaction": {"label": "Context compaction", "kind": "chat", "data": "personal", "tools": False},
     "technical": {"label": "Technical session (quick jobs)", "kind": "chat", "data": "personal", "tools": False},

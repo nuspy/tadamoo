@@ -17,7 +17,7 @@ from tadamoo.rag.ingest import extraction_of, formats, normalize, read_document
 from tadamoo.rag.ingest.blocks import blocks_to_markdown, page_count, parse_pages
 from tadamoo.rag.settings import RagSettings
 
-VERSION = 1                          # of what the cache holds
+VERSION = 2                          # of what the cache holds (2: pages cut at their borders)
 MAX_BYTES = 200 << 20
 MAX_CHARS = 60000                    # the most text one answer holds; the rest is asked for by pages
 DEFAULT_PAGES = "1-20"
@@ -42,7 +42,7 @@ def cached_reading(path: Path, cache: Path, settings: Dict[str, Any], python: Op
     got = read_document(path, path.name, settings, python=python)
     blocks, _ = normalize.normalize_blocks(got["blocks"])
     out = {"blocks": blocks, "pages": got.get("pages") or page_count(blocks), "extraction": got["extraction"], "notes": got.get("notes", []),
-           "skipped_pages": got.get("skipped_pages", [])}
+           "skipped_pages": got.get("skipped_pages", []), "empty_pages": got.get("empty_pages", [])}
     try:
         cache.mkdir(parents=True, exist_ok=True)
         tmp = entry.with_name(entry.name + ".tmp")
@@ -71,7 +71,8 @@ def read_pages(path: Path, cache: Path, settings: Dict[str, Any], pages: Any = D
         note = f"pages {last + 1}-{total} have not been read: ask for them with pages"
     return {"path": str(path), "pages_total": total, "pages": [first, min(last, total)], "extraction": reading["extraction"], "format": fmt,
             "text": text, **({"note": note} if note else {}), **({"reader_notes": reading["notes"]} if reading.get("notes") else {}),
-            **({"skipped_pages": reading["skipped_pages"]} if reading.get("skipped_pages") else {})}
+            **({"skipped_pages": reading["skipped_pages"]} if reading.get("skipped_pages") else {}),
+            **({"empty_pages": reading["empty_pages"]} if reading.get("empty_pages") else {})}
 
 
 def register_document_tools(registry: Any, root: Path, rag_dir: Optional[Path], cache: Path, protected: Optional[Callable[[Path], str]] = None) -> None:

@@ -124,6 +124,12 @@ request; a passage already sent in this conversation is not sent again (one `Pro
 A request that leaves this PC (a cloud model) takes only archives whose `cloud_ok` is on; it is off by default. The model-only chat is
 treated as local, as for notes.
 
+### The voice functions
+
+The copilot, the meeting bot (replies and minutes), phone calls and the avatar's direct brain use archives through the voice service's own routes
+(`/api/voice/rag/*`, with the voice token): a real-time hybrid search with a small embedder on the CPU and a second set of vectors per archive, a time budget with a marked
+fallback, passages at the tail of the prompt, and the consent `others_ok` for what other people perceive. All of it is in [voice/knowledge.md](voice/knowledge.md).
+
 ## Routes
 
 All under `/api/rag`, from this PC only (403 otherwise).

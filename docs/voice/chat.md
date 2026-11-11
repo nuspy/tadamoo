@@ -12,9 +12,9 @@ HTTP API on loopback (`voice/callbridge/tadamoo_api.py`).
 
 ## Direct
 
-The system message is the voice base prompt (`direct_system_prompt`), the personality block, a reply-language line, then the notes and archive
-passages TaDaMoo recalls for the request. Both come from `POST /api/personas/<slug>/compose {goal}`: the server builds the block, recalls the
-notes and fences the passages as data, so a document cannot give orders. The rolling context keeps the last `direct_history_turns` turns. Only
+The system message is the voice base prompt (`direct_system_prompt`), the personality block, a reply-language line, then the notes TaDaMoo recalls for the request. Both come from `POST /api/personas/<slug>/compose {goal}`: the server builds the block and fences the notes
+as data. The passages of the knowledge archives the session chose (`brain.archives`, [knowledge.md](knowledge.md)) are not in the system message: they follow the person's words in the last message
+as a data block and are not kept in the context. The rolling context keeps the last `direct_history_turns` turns. Only
 `content` is used: reasoning pieces are never read. A server that does not answer, or refuses, is one spoken line (`The assistant refused the request.`)
 and nothing is added to the context. `ask_stream` is the model alone: no personality, no history.
 

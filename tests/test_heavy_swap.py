@@ -38,7 +38,7 @@ def world(tmp_path):
     reg = SecureRegistry(tmp_path / "llm_providers.json", credentials=FileCredentials(tmp_path / "creds.json"))
     cloud = reg.add({"type": "zai_coding", "api_key": "zk-123456789012"})
     prefs = HeavyPrefs(tmp_path / "heavy.json")
-    prefs.write({"provider": cloud["id"]})
+    prefs.write({"provider": cloud["id"], "linger_s": 0})
     engine = Engine()
     return reg, prefs, engine, cloud
 
@@ -291,3 +291,32 @@ def test_an_exclusive_job_the_person_did_not_allow_borrows_anyway_and_says_the_m
     with HeavyLease("video", 24000, "x", exclusive=True, transport=s) as lease:
         assert lease.gpu_ok and lease.risky and lease.swap_reason == "not_allowed"
         assert "may stop and restart" in lease.message and "potrebbe fermarsi" in lease.message_it
+
+
+def test_a_second_job_inside_the_linger_takes_over_the_swap_without_the_engine_coming_back(world):
+    reg, prefs, engine, cloud = world
+    prefs.write({"mode": "allow", "linger_s": 60})
+    swap = make(world)
+    first = swap.begin("video", "one")
+    swap.end(first["swap"]["id"])
+    assert engine.woken == 0 and reg.swap() is not None and swap.state()["linger"] and swap.state()["engine"] == "" and engine.heavy_hold
+    second = swap.begin("image", "two")
+    assert second["ok"] and engine.calls == 1 and not swap.state()["linger"]                   # the engine was put to sleep once, for both jobs
+    swap.end(second["swap"]["id"])
+    swap._stop_linger()
+    swap._finish()
+    assert engine.woken == 1 and reg.swap() is None and engine.heavy_hold is None
+
+
+def test_when_the_linger_runs_out_the_engine_comes_back(world):
+    reg, prefs, engine, _ = world
+    prefs.write({"mode": "allow", "linger_s": 1})
+    swap = make(world)
+    out = swap.begin("image", "x")
+    swap.end(out["swap"]["id"])
+    assert engine.woken == 0
+    for _ in range(150):
+        if engine.woken:
+            break
+        time.sleep(0.02)
+    assert engine.woken == 1 and reg.swap() is None and not swap.state()["linger"] and swap.state()["engine"] == ""

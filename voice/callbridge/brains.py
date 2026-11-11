@@ -6,7 +6,8 @@ full answer text, for what is read on a screen (analyses, Telegram, the copilot)
 person's own microphone, can answer an approval question.
 
 DIRECT: TaDaMoo's own OpenAI-compatible server on loopback, no tools, a short rolling context. The system message is the voice base prompt,
-the personality's block, and the notes and archive passages TaDaMoo recalls for the request (`/api/personas/<slug>/compose`, fenced there as data).
+the personality's block, and the notes TaDaMoo recalls for the request (`/api/personas/<slug>/compose`, fenced there as data). The passages of the knowledge archives
+the session chose (`rag_client.Knowledge`, one for each session) go after the person's words in the last message, as a data block, and are not kept in the history.
 HARNESS: an agent conversation of TaDaMoo (`/api/agent/sessions`), with its permissions, Rule of Two and tools; the server gives every turn
 the voice's own permission level, and the voice never asks for one. The voice never reads its
 code, commands, tool output or reasoning: it says one sentence built from the counts of what the turn did (`spoken.what_was_done`), or, when
@@ -52,6 +53,7 @@ class Exchange:
     mode: str
     at: float = field(default_factory=time.time)
     error: str = ""
+    note: str = ""                    # about the knowledge archives: which were used, or why the search was not complete
 
 
 def _api_of(cfg: Config, given) -> TadamooApi:
@@ -79,6 +81,7 @@ class DirectBrain:
         self._reply_lang = ""
         self._history: list[dict] = []
         self._lock = threading.Lock()
+        self.knowledge = None            # the archives of the one conversation this brain serves (a call's own brain); a shared brain never holds one: sessions pass theirs
 
     # -- session hooks the sessions call when they exist
     def begin_session(self, persona=None) -> None:
@@ -106,7 +109,8 @@ class DirectBrain:
         got = api.post(f"/api/personas/{slug}/compose", {"goal": text[:2000]})
         return str(got.get("system") or ""), str(got.get("memory") or "")
 
-    def messages(self, api, text: str, note: str = "", reply_language: str = "") -> list[dict]:
+    def messages(self, api, text: str, note: str = "", reply_language: str = "", tail: str = "") -> list[dict]:
+        """`tail`: the passages of the archives, put after the person's words in the last message (never in the system message, so the cached prefix stays) and not kept in the history."""
         persona, memory = self.compose(api, text)
         parts = [self.cfg.direct_system_prompt.strip()]
         if persona.strip():
@@ -120,17 +124,22 @@ class DirectBrain:
         keep = max(0, int(self.cfg.direct_history_turns)) * 2
         with self._lock:
             history = self._history[-keep:] if keep else []
-        return [{"role": "system", "content": "\n\n".join(p for p in parts if p)}, *history, {"role": "user", "content": text}]
+        return [{"role": "system", "content": "\n\n".join(p for p in parts if p)}, *history, {"role": "user", "content": f"{text}\n\n{tail}" if tail else text}]
 
     # -- the interface
-    def respond_stream(self, text: str, source: str = "mic", context_note: str = "", reply_language: str = "") -> Iterator[str]:
+    def respond_stream(self, text: str, source: str = "mic", context_note: str = "", reply_language: str = "", knowledge=None) -> Iterator[str]:
         api = _api_of(self.cfg, self._api)
         raw: list[str] = []
         said: list[str] = []
         error = ""
         stripper = spoken.CodeStripper()
+        tail, note = "", ""
+        k = knowledge or self.knowledge
+        if k is not None and k.enabled:
+            found = k.fetch(text, how="speech")                   # inside the function's time budget; late or failed: no passages, and the note says so
+            tail, note = found.block, ("; ".join(p for p in ("archives: " + ", ".join(found.names) if found.names else "", found.marker) if p))
         try:
-            for piece in api.chat_stream(self.messages(api, text, context_note, reply_language), max_tokens=int(self.cfg.direct_max_tokens), temperature=float(self.cfg.direct_temperature), extra=SIDE):
+            for piece in api.chat_stream(self.messages(api, text, context_note, reply_language, tail), max_tokens=int(self.cfg.direct_max_tokens), temperature=float(self.cfg.direct_temperature), extra=SIDE):
                 raw.append(piece)
                 clean = stripper.feed(piece)
                 if clean:
@@ -146,7 +155,7 @@ class DirectBrain:
             if reply and not error:
                 with self._lock:
                     self._history += [{"role": "user", "content": text}, {"role": "assistant", "content": reply}]
-            self._sink(Exchange(text, reply or error, "".join(said), "direct", error=error))
+            self._sink(Exchange(text, reply or error, "".join(said), "direct", error=error, note=note))
 
     def ask_stream(self, text: str, source: str = "remote") -> Iterator[str]:
         """The full answer for a screen or an analysis: the model alone, no personality, no memory, no history, nothing spoken-style."""
@@ -196,11 +205,11 @@ class HarnessBrain:
 
     # -- the conversation
     def _wanted(self) -> tuple:
-        return (self._persona or _persona_slug(self.cfg.brain_persona), str(self.cfg.brain_workspace or ""))
+        return (self._persona or _persona_slug(self.cfg.brain_persona), str(self.cfg.brain_workspace or ""), tuple(getattr(self.cfg, "brain_archives", ()) or ()))
 
     def _ensure(self, api) -> None:
         want = self._wanted()
-        if self._sid and want[1] != self._made[1]:
+        if self._sid and want[1:] != self._made[1:]:                # another folder or other archives: another conversation
             self.reset_session()
         if self._sid:
             if want[0] != self._made[0]:
@@ -210,6 +219,8 @@ class HarnessBrain:
         body = {"title": "Voice", "persona": want[0]}
         if want[1]:
             body["workspace"] = want[1]
+        if want[2]:
+            body["knowledge"] = list(want[2])                       # the conversation's own archives (ids), besides its project's
         made = api.post("/api/agent/sessions", body)
         self._sid = str((made.get("session") or {}).get("id") or "")
         if not self._sid:
@@ -369,10 +380,21 @@ class ModeBrain:
         self._reply_name = ""             # the language of the answer, as this session was told
         self._reply_code = ""
         self._told = ""                   # the language the brain was last given a `[state]` line for
+        self.knowledge = None             # the archives of THIS session (rag_client.Knowledge); the shared brains never hold one
 
     def fork(self, mode: str = "") -> "ModeBrain":
-        """A brain for one session: the same two brains and the same log, its own mode (the configured one when `mode` is empty)."""
-        return ModeBrain(self.cfg, self.direct, self.harness, mode, self._log)
+        """A brain for one session: the same two brains and the same log, its own mode (the configured one when `mode` is empty) and its own archives."""
+        child = ModeBrain(self.cfg, self.direct, self.harness, mode, self._log)
+        child.knowledge = self.new_knowledge()
+        return child
+
+    def new_knowledge(self):
+        """The archives of a new session of the avatar or the voice chat, or None when none are chosen: the person talking to the assistant, nobody else listening."""
+        archives = tuple(getattr(self.cfg, "brain_archives", ()) or ())
+        if not archives:
+            return None
+        from .rag_client import Knowledge
+        return Knowledge(self.cfg, "avatar", archives, alone=True)
 
     @property
     def current(self):
@@ -395,8 +417,8 @@ class ModeBrain:
         line = self._state_line()
         if self.mode == "direct":
             note = "\n".join(p for p in (context_note, line) if p)
-            if note or self._reply_name:
-                return self.current.respond_stream(text, source, context_note=note, reply_language=self._reply_name)
+            if note or self._reply_name or self.knowledge is not None:
+                return self.current.respond_stream(text, source, context_note=note, reply_language=self._reply_name, knowledge=self.knowledge)
             return self.current.respond_stream(text, source)
         return self.current.respond_stream(text, source, state=line) if line else self.current.respond_stream(text, source)
 

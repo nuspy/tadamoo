@@ -47,6 +47,9 @@ class BasaltHolder:
         self.service.heavy_hold = None
         return "a request is still running" if last == "busy" else last
 
+    def hold(self, reason: str) -> None:
+        self.service.heavy_hold = reason
+
     def restore(self) -> None:
         self.service.heavy_hold = None
         if self.unloaded:

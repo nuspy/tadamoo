@@ -9,6 +9,9 @@ A job that asks waits for the answer on a card the pages show (`pending()`), up 
 the loaded model reads as the chosen provider, `SecureRegistry.begin_swap`), the engine sleeps (`Service.sleep`: its VRAM is free, its RAM kept) and the
 server refuses to wake it for anyone else until `end`. A swap not touched for `hold_s` ends by itself, as a lease does.
 
+When a job ends the engines stay out for `linger_s` (120 s, `linger_s` in the preferences, 0 for none) in case another job follows: a second job in that time
+takes over the swap without the engine being loaded and unloaded in between. The conversations stay on the provider meanwhile.
+
 What steps aside is whatever holds the GPU for the local model and can be asked to (serve/heavy_holders.py): Basalt and Strata sleep, a llama-server started from here is
 stopped, LM Studio unloads its models; each comes back at the end. With none of them up (a cloud service answers, or no model is loaded) there is nothing to free.
 
@@ -27,6 +30,7 @@ from serve.heavy_holders import SLEEP_TRIES, BasaltHolder, default_holders
 MODES = ("ask", "allow", "never")
 ALLOWED_KINDS = ("image", "video")                 # what the level `allow` covers
 HOLD_DEFAULT_S = 90
+LINGER_DEFAULT_S = 120
 ASK_WAIT_S = 600.0
 TICK_S = 1.0
 MESSAGES = {
@@ -63,8 +67,10 @@ class HeavyPrefs:
             except (OSError, ValueError):
                 data = {}
         data = data if isinstance(data, dict) else {}
-        provider = data.get("provider")
-        return {"mode": data.get("mode") if data.get("mode") in MODES else "ask", "provider": provider if isinstance(provider, str) else ""}
+        provider, linger = data.get("provider"), data.get("linger_s")
+        ok = isinstance(linger, int) and not isinstance(linger, bool) and 0 <= linger <= 900
+        return {"mode": data.get("mode") if data.get("mode") in MODES else "ask", "provider": provider if isinstance(provider, str) else "",
+                "linger_s": linger if ok else LINGER_DEFAULT_S}
 
     def write(self, changes: dict) -> dict:
         now = self.read()
@@ -76,6 +82,11 @@ class HeavyPrefs:
             if not isinstance(changes["provider"], str):
                 raise ValueError("provider is the id of a provider, or empty")
             now["provider"] = changes["provider"]
+        if "linger_s" in changes:
+            v = changes["linger_s"]
+            if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= 900:
+                raise ValueError("linger_s is a whole number of seconds from 0 to 900")
+            now["linger_s"] = v
         if self.path is not None:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_name(self.path.name + ".tmp")
@@ -91,6 +102,7 @@ class HeavySwap:
         self.clock, self.hold_s = clock, hold_s
         self.holders = holders if holders is not None else (lambda: [BasaltHolder(service, pause, sleep_tries)] + default_holders(service)[1:])
         self._freed: list = []
+        self._linger: threading.Timer | None = None
         self._cv = threading.Condition()
         self._active: dict | None = None
         self._pending: dict[str, dict] = {}
@@ -153,7 +165,9 @@ class HeavySwap:
         if isinstance(minutes, bool) or not isinstance(minutes, (int, float)) or not 0 < minutes <= 24 * 60:
             minutes = 5
         cfg = self.prefs.read()
-        problem = self.engine_problem()
+        with self._cv:
+            lingering = self._linger is not None and bool(self._freed)
+        problem = "" if lingering else self.engine_problem()                          # the engines are still out from the job before
         if problem:
             return refusal(problem)
         if cfg["mode"] == "never":
@@ -187,10 +201,15 @@ class HeavySwap:
                 return self._fail("bad_provider", str(e))
             reason = (f"the local model sleeps while a {kind.strip()} job runs ({purpose[:80]}); the conversations use {swap['name']} "
                       "meanwhile. Try again when the job has finished")
-            why = self._free_all(reason)
-            if why:
-                self.registry.end_swap()
-                return self._fail("cannot_sleep", why)
+            if lingering and self._stop_linger():
+                for holder in self._freed:
+                    if hasattr(holder, "hold"):
+                        holder.hold(reason)
+            else:
+                why = self._free_all(reason)
+                if why:
+                    self.registry.end_swap()
+                    return self._fail("cannot_sleep", why)
             now = self.clock()
             with self._cv:
                 self._active = {"id": uuid.uuid4().hex[:16], "kind": kind.strip(), "purpose": purpose[:200], "provider": swap["name"], "began": now, "last": now}
@@ -241,11 +260,38 @@ class HeavySwap:
             if self._active is None or self._active.get("id") != swap_id:
                 return refusal("not_found")
             self._active = None
-        self._finish()
+        linger = self.prefs.read()["linger_s"]
+        if linger > 0 and self._freed:
+            self._start_linger(linger)
+        else:
+            self._finish()
         return {"ok": True}
+
+    def _start_linger(self, seconds: float) -> None:
+        with self._cv:
+            self._linger = threading.Timer(seconds, self._end_linger)
+            self._linger.daemon = True
+            self._linger.start()
+
+    def _stop_linger(self) -> bool:
+        """Cancels the wait before the engines come back; False when it had ended already."""
+        with self._cv:
+            timer, self._linger = self._linger, None
+        if timer is None:
+            return False
+        timer.cancel()
+        return bool(self._freed)
+
+    def _end_linger(self) -> None:
+        with self._cv:
+            if self._linger is None or self._active is not None:
+                return
+            self._linger = None
+        self._finish()
 
     def _finish(self) -> None:
         """The conversations come back first, then the engines: nothing asks one for an answer while it fills its cache."""
+        self._stop_linger()
         self.registry.end_swap()
         self._restore_all()
 
@@ -269,6 +315,7 @@ class HeavySwap:
                 return
 
     def shutdown(self) -> None:
+        self._stop_linger()
         with self._cv:
             self._closed = True
             was = self._active is not None and self._active.get("id") is not None
@@ -280,4 +327,4 @@ class HeavySwap:
     def state(self) -> dict:
         with self._cv:
             active = {k: v for k, v in (self._active or {}).items() if k in ("id", "kind", "purpose", "provider")} if self._active and self._active.get("id") else None
-        return {**self.prefs.read(), "active": active, "pending": self.pending(), "engine": self.engine_problem()}
+        return {**self.prefs.read(), "active": active, "pending": self.pending(), "engine": "" if self._linger is not None else self.engine_problem(), "linger": self._linger is not None}

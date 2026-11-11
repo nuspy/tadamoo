@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .. import analysis as analysis_mod
 from ..config import Config
+from ..rag_client import Knowledge
 
 log = logging.getLogger("callbridge.meetbot.summary")
 
@@ -25,7 +26,9 @@ def analyze_meeting(cfg: Config, meeting_dir: Path, meta: dict) -> dict:
     try:
         if not segments:
             raise RuntimeError("the transcript is empty")
-        result = analysis_mod.analyze_transcript(cfg, segments, participants=meta.get("participants") or None, kind="meeting")
+        ids = [a for a in meta.get("archives") or [] if isinstance(a, str)]
+        knowledge = Knowledge(cfg, "minutes", ids, session=meeting_dir.name) if ids else None       # the minutes are the person's: no consent about other people is needed
+        result = analysis_mod.analyze_transcript(cfg, segments, participants=meta.get("participants") or None, kind="meeting", knowledge=knowledge)
         (meeting_dir / "analysis.json").write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
         (meeting_dir / "summary.md").write_text(analysis_mod.analysis_to_markdown(meta.get("title") or meeting_dir.name, result), encoding="utf-8")
         meta["analysis_state"] = "done"

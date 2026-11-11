@@ -452,7 +452,8 @@ class RagStore:
                 raise RagError(f"the archive would hold more than {LIMITS['chunks']:,} passages")
             doc = {"id": doc_id, "name": name, "ext": Path(name).suffix.lower(), "bytes": size, "chars": stats["chars"], "chunks": len(chunks), "sha256": sha,
                    "added": self.clock(), "extraction": reading["extraction"], "pages": int(reading.get("pages") or 0), "flagged": stats["flagged"],
-                   "info": stats["info"], **({"skipped_pages": reading["skipped_pages"]} if reading.get("skipped_pages") else {})}
+                   "info": stats["info"], **({"skipped_pages": reading["skipped_pages"]} if reading.get("skipped_pages") else {}),
+                   **({"empty_pages": reading["empty_pages"]} if reading.get("empty_pages") else {})}
             folder = self._dir(aid)
             self._save_blocks(folder, doc_id, reading["blocks"])
             try:

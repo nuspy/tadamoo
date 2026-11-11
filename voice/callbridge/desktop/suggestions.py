@@ -128,6 +128,8 @@ class TkSuggestions:
             self._text.insert("end", "...\n", ("ctx",))
         else:
             self._text.delete(mark, "end-1c")
+            for note in getattr(entry, "notes", ()):
+                self._text.insert("end", note + "\n", ("ctx",))
             for line in entry.body.split("\n"):
                 self._text.insert("end", line + "\n", (line_tag(line),))
         self._text.config(state="disabled")

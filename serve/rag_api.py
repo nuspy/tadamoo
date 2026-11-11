@@ -207,7 +207,9 @@ class RagApi:
             raise RagError("goal: the text of the request")
         if not isinstance(attached, list) or any(not isinstance(i, str) for i in attached) or len(attached) > LIMITS["archives"]:
             raise RagError("attached: a list of archive ids")
-        return {"block": compose_message(self.store, _project(req.get("project")), goal[:QUERY_CHARS], attached)}
+        from tadamoo import llm
+        stays = lambda: llm.registry().swap() is None                          # a swap sends the Chat page's request to a provider outside this PC
+        return {"block": compose_message(self.store, _project(req.get("project")), goal[:QUERY_CHARS], attached, local=stays)}
 
     # -- the routes ------------------------------------------------------------------------------
 

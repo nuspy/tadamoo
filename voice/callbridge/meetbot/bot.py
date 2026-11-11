@@ -64,6 +64,7 @@ class Plan:
     voice_engine: str = ""
     voice_name: str = ""
     camera_blocked: str = ""               # why a camera the person asked for stays off, or ""
+    archives: tuple = ()                   # ids of the knowledge archives this meeting may draw on (the item's choice, else the settings')
 
 
 @dataclass
@@ -81,6 +82,7 @@ class Deps:
     configure_tts: Callable | None = None
     lips: Callable | None = None
     on_finished: Callable[[dict, Path], None] | None = None
+    knowledge_factory: Callable[[Plan, str], object] | None = None       # (plan, session id) -> rag_client.Knowledge for this meeting
     clock: Callable[[], float] = time.monotonic
     sleep: Callable[[float], None] = time.sleep
 
@@ -108,6 +110,7 @@ class MeetingSession:
         self.announced = {"chat": False, "voice": False}
         self._names = speak.names_of(plan.display_name, plan.wake_phrase)
         self.voice = self._make_voice()
+        self.knowledge = deps.knowledge_factory(plan, self.session_id) if deps.knowledge_factory is not None and plan.archives else None
         self._cmds: "queue.Queue[str]" = queue.Queue()
         self._said: list[str] = []
         self._posted: list[str] = []
@@ -149,6 +152,8 @@ class MeetingSession:
     def start(self) -> None:
         """Write the first audit row (the bot does not join if it cannot) and run the session in its own thread."""
         self.audit_join()
+        if self.knowledge is not None:
+            self.knowledge.warm()                       # the small embedder loads while the bot is joining
         t = threading.Thread(target=self.run, name="meeting-session", daemon=True)
         t.start()
         self._threads.append(t)
@@ -367,7 +372,8 @@ class MeetingSession:
 
     def _write_meta(self, **more) -> None:
         meta = {"title": self.plan.title or self.platform, "url": safe_url(self.plan.url), "platform": self.platform,
-                "created": time.strftime("%Y-%m-%dT%H:%M:%S"), "consent": {"mode": self.gate.mode, "outcome": self.gate.outcome}}
+                "created": time.strftime("%Y-%m-%dT%H:%M:%S"), "consent": {"mode": self.gate.mode, "outcome": self.gate.outcome},
+                "archives": list(self.plan.archives)}
         path = self.dir / "meta.json"
         try:
             meta = {**json.loads(path.read_text(encoding="utf-8")), **more}
@@ -437,7 +443,8 @@ class MeetingSession:
         try:
             p = self.plan
             context = [f"{s['speaker']}: {s['text']}" for s in self.transcript.tail(speak.CONTEXT_LINES)]
-            answer = speak.ask(self.deps.brains, speak.reply_prompt(p.display_name, p.on_behalf_of, context, text, p.lang, p.persona_block))
+            block = self.knowledge.fetch(text, how="speech").block if self.knowledge is not None else ""      # at the tail; what is left out for the others' sake is asked about
+            answer = speak.ask(self.deps.brains, speak.reply_prompt(p.display_name, p.on_behalf_of, context, text, p.lang, p.persona_block, block))
             if answer and not self._ending and self.gate.state == consent.GRANTED:
                 self._said.append(answer)
                 ok = self.voice.say(answer)

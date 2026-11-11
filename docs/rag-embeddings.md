@@ -78,7 +78,7 @@ The lease (owner `embedding`) is asked for in the biggest of three sizes the bro
 Only `not_enough` goes down a size; `busy`, `unavailable` and `no_engine` mean no GPU. **Without a lease** a question is embedded on the CPU with the same
 model (slow, correct), nothing is reranked, and indexing runs on the CPU with the tab saying that it is very slow and offering Cancel (a cancelled
 document is not added; add it again when the GPU is free). A refused lease is asked for again after 20 s, and a worker on the CPU moves to the GPU when it
-is granted. A worker that dies, or whose lease was lost, is started again by the next request. The harness (agent) does not start a second worker: its
+is granted. A worker that dies, or whose lease was lost, is started again by the next request. Real-time functions (voice, meetings, copilot) do not use this worker: they use a small model on the CPU and a second set of vectors per archive ([voice/knowledge.md](voice/knowledge.md)). The harness (agent) does not start a second worker: its
 store asks the server's `/api/rag/search` (loopback only) and falls back to words if the server does not answer.
 
 ## Storage
