@@ -215,7 +215,8 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--personal-memory", default="", help="the folder of the person's own memories (long-term and short-term): what the person switched on is put in the answers where it matters")
     parser.add_argument("--personal-memory-keys", default="", help="the folder of the device key that opens them (the vault's)")
     parser.add_argument("--personas-dir", default="", help="the folder of the personalities (tadamoo/personas.py): with it the conversation can speak as one and change it while it runs")
-    parser.add_argument("--rag-dir", default="", help="the folder of the knowledge archives (tadamoo/rag): with it a personality's linked archives are searched and the matching passages put in where they matter")
+    parser.add_argument("--rag-dir", default="", help="the folder of the knowledge archives (tadamoo/rag): with --rag-project the archives of that project are searched and the matching passages put in where they matter")
+    parser.add_argument("--rag-project", default="", help="the key of the project (tadamoo/rag/project.py) whose knowledge archives this conversation draws on")
     parser.add_argument("--persona", default="", help="the personality (a folder of --personas-dir) the conversation speaks as from the start: its text is pinned and its notes are put in where they matter")
     parser.add_argument("--exec-level-file", default="", help="the file that holds how freely the code the model writes runs (contained, free or admin; tadamoo/exec_level.py); empty: contained")
     parser.add_argument("--personal-skills-dir", default="", help="the folder of the person's personal skills: the conversation can write one with create_skill")
@@ -249,7 +250,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
         hooks_file=args.hooks, workspace_hooks=args.workspace_hooks, after_plan=args.after_plan, images=args.images, charts=args.charts, page_files=args.page_files,
         tool_timeout=tool_timeout, tool_timeouts=tool_timeouts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
-        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys, personas_dir=args.personas_dir, rag_dir=args.rag_dir, persona=args.persona, past_index=args.past_index, persistence_file=args.persistence_file, next_steps_file=args.next_steps_file, rules_file=args.rules_file, orchestration=args.orchestration, file_owners_path=args.file_owners, lessons_dir=args.lessons_dir, personal_skills_dir=args.personal_skills_dir, exec_level_file=args.exec_level_file,
+        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys, personas_dir=args.personas_dir, rag_dir=args.rag_dir, rag_project=args.rag_project, persona=args.persona, past_index=args.past_index, persistence_file=args.persistence_file, next_steps_file=args.next_steps_file, rules_file=args.rules_file, orchestration=args.orchestration, file_owners_path=args.file_owners, lessons_dir=args.lessons_dir, personal_skills_dir=args.personal_skills_dir, exec_level_file=args.exec_level_file,
     )
 
 
@@ -309,7 +310,8 @@ class AgentConfig:
     personal_memory_keys: str = ""      # where the device key that opens them is (default: the same folder)
     personas_dir: str = ""              # the personalities (tadamoo/personas.py); empty: the conversation cannot speak as one
     persona: str = ""                   # the one it speaks as from the start
-    rag_dir: str = ""                   # the knowledge archives (tadamoo/rag); empty: a personality's linked archives are not searched
+    rag_dir: str = ""                   # the knowledge archives (tadamoo/rag); empty: none are searched
+    rag_project: str = ""               # the key of the project whose archives are searched; empty: none are
     exec_level_file: str = ""           # where the person's choice of how freely code runs is kept (tadamoo/exec_level.py); empty: contained
     lessons_dir: Optional[str] = None   # the folder of the global lessons; None: the conversation keeps none, "": only the project's own
     self_block: bool = True             # the fixed block "what you are" in the prompt and the self_status tool (tadamoo/awareness.py)
@@ -410,6 +412,7 @@ class BuiltAgent:
     persona_switch: Optional[Callable[[str], str]] = None           # the personality the person has now; returns the note for the model, empty when nothing changed
     persona_use: Optional[Any] = None         # the personality this conversation speaks as (tadamoo/personas.py PersonaUse); its notes go in with the person's own
     persona_switch: Optional[Callable[[str], str]] = None           # the personality the person has now; returns the note for the model, empty when nothing changed
+    project_recall: Optional[Any] = None      # the passages of the project's knowledge archives (tadamoo/rag/recall.py ProjectRecall), whatever personality speaks
     visuals_switch: Optional[Callable[[str, str], str]] = None      # the pictures and diagrams levels the person has now; returns the note for the model, empty when nothing changed
     role: Optional[RolePolicy] = None
     checks_switch: Optional[Callable[[List[str], List[str]], None]] = None
@@ -474,8 +477,14 @@ class BuiltAgent:
         mine = self.persona_use.message(goal) if self.persona_use is not None else None
         if mine:
             message = {**message, "content": message["content"] + "\n" + mine} if message else {"role": "user", "content": mine}
-            if self.persona_use.fenced:
-                message["untrusted"] = True              # passages from the person's documents are text written by others
+        passages = None
+        try:
+            passages = self.project_recall.message(goal) if self.project_recall is not None else None
+        except Exception:
+            pass                                         # an archive that cannot be read never stops the conversation
+        if passages:
+            message = {**message, "content": message["content"] + "\n" + passages} if message else {"role": "user", "content": passages}
+            message["untrusted"] = True                  # passages from the project's documents are text written by others
         return message
 
     def close(self) -> None:
@@ -881,11 +890,15 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
     persona_use = None
     if cfg.personas_dir:
         from tadamoo.personas import PersonaStore, PersonaUse
-        from tadamoo.rag import RagStore
-        persona_use = PersonaUse(PersonaStore(cfg.personas_dir, key_dir=cfg.personal_memory_keys or None), local=lambda: getattr(client, "stays_local", lambda: True)(),
-                                 rag=RagStore(cfg.rag_dir) if cfg.rag_dir else None)
+        persona_use = PersonaUse(PersonaStore(cfg.personas_dir, key_dir=cfg.personal_memory_keys or None), local=lambda: getattr(client, "stays_local", lambda: True)())
         if persona_use.select(cfg.persona):
             builder.pin("persona", persona_use.block())
+
+    project_recall = None
+    if cfg.rag_dir and cfg.rag_project:
+        from tadamoo.rag import RagStore
+        from tadamoo.rag.recall import ProjectRecall
+        project_recall = ProjectRecall(RagStore(cfg.rag_dir), cfg.rag_project, local=lambda: getattr(client, "stays_local", lambda: True)())
 
     def switch_persona(slug: str) -> str:
         if persona_use is None or not persona_use.select(slug):
@@ -1025,7 +1038,7 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         return True
 
     return BuiltAgent(agent, sandbox, permissions, audit, memory, builder, cancel, data, kb, patterns=patterns, capabilities=capability_index, lsp=lsp_hub, payment_confirm=payment_confirm, browser=browser,
-                      plan_gate=plan_gate, mode_switch=switch_mode, visuals_switch=switch_visuals, persona_use=persona_use, persona_switch=switch_persona, role=role, checks_switch=switch_checks, personal=personal, take_place=take_place,
+                      plan_gate=plan_gate, mode_switch=switch_mode, visuals_switch=switch_visuals, persona_use=persona_use, persona_switch=switch_persona, project_recall=project_recall, role=role, checks_switch=switch_checks, personal=personal, take_place=take_place,
                       mcp=mcp_hub, mcp_errors=dict(mcp_hub.errors) if mcp_hub is not None else {}, refresh_budget=refresh_budget, technical=quick,
                       memory_min_score=cfg.memory_min_score, memory_notes=cfg.memory_notes, memory_budget_tokens=cfg.memory_budget_tokens, notices=notices,
                       skills=catalog)

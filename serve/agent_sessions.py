@@ -39,6 +39,7 @@ from tadamoo import questions as qs
 from tadamoo.permission_level import CHANNELS, lower as lower_level
 from tadamoo.personal_skills.store import PersonalSkills, SkillError
 from tadamoo.personal_skills.values import resolve as resolve_values
+from tadamoo.rag.project import project_key as rag_project_key
 from tadamoo.vault import valid_code
 from serve.coding_prefs import project_key
 from tadamoo.roles import GENERAL as GENERAL_ROLE, ROLE_IDS, valid as valid_role
@@ -159,7 +160,7 @@ class SessionManager:
         self.skills = PersonalSkills(skills_dir) if skills_dir else None            # the person's skills, which a conversation can run
         self.projects = projects                                # the folders of the Agent tab, whose own registry lists the conversations held in them
         self.personal_dir, self.personal_keys = personal_dir, personal_keys     # the person's own memories and the key that opens them: each conversation takes in the notes that matter
-        self.rag_dir = rag_dir                                  # the knowledge archives (tadamoo/rag) a personality's linked archives are searched in
+        self.rag_dir = rag_dir                                  # the knowledge archives (tadamoo/rag): those of the conversation's project are searched
         self.personas_dir = personas_dir                        # the personalities a conversation may speak as (tadamoo/personas.py); the key that opens their memory is personal_keys
         self.learn = learn                                      # told what the person wrote and what was searched for it, when a turn ends, to learn from
         self.persona_learning = persona_learning                # told when a turn of a conversation that speaks as a personality ends, so that the personality learns from it once it is over (serve/persona_learning_worker.py)
@@ -1085,9 +1086,11 @@ class SessionManager:
         if self.personal_dir:
             cmd += ["--personal-memory", str(self.personal_dir)] + (["--personal-memory-keys", str(self.personal_keys)] if self.personal_keys else [])
         if self.personas_dir:
-            cmd += ["--personas-dir", str(self.personas_dir)] + (["--persona", rec["persona"]] if rec.get("persona") else []) + (["--rag-dir", str(self.rag_dir)] if self.rag_dir else [])
+            cmd += ["--personas-dir", str(self.personas_dir)] + (["--persona", rec["persona"]] if rec.get("persona") else [])
             if "--personal-memory-keys" not in cmd and self.personal_keys:
                 cmd += ["--personal-memory-keys", str(self.personal_keys)]
+        if self.rag_dir:
+            cmd += ["--rag-dir", str(self.rag_dir), "--rag-project", rag_project_key(rec["workspace"])]
         if rec.get("ask_only"):
             cmd.append("--ask-only")
         elif self.vault_dir:
