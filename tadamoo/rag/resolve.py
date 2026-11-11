@@ -28,7 +28,7 @@ Source = Callable[[Dict[str, Any]], Any]
 
 @dataclass
 class Resolution:
-    """The answer: `archives` (each `{id, name, project_name, description, documents, cloud_ok, others_ok, verdict, via}`; the verdict is `allow`,
+    """The answer: `archives` (each `{id, name, project, project_name, description, documents, cloud_ok, others_ok, verdict, via}`; the verdict is `allow`,
     or `ask_dialog` / `ask_voice` when the person must agree before it is said, written or shown to others, and in which way to ask) and `blocked`
     (`{id, name, project_name, codes, reason, verdict: "deny"}`: left out because of the cloud rule or because the archive says no to others)."""
     function: str
@@ -118,9 +118,9 @@ def resolve(store: RagStore, context: Mapping[str, Any], sources: Optional[Mappi
         try:
             meta = store.meta(aid)
         except RagError:
-            out.blocked.append({"id": aid, "name": aid, "project_name": "", "codes": ["missing"], "reason": WHY["missing"], "verdict": DENY})
+            out.blocked.append({"id": aid, "name": aid, "project": "", "project_name": "", "codes": ["missing"], "reason": WHY["missing"], "verdict": DENY})
             continue
-        row = {"id": aid, "name": meta["name"], "project_name": meta.get("project_name", ""), "description": meta.get("description", ""),
+        row = {"id": aid, "name": meta["name"], "project": meta.get("project", ""), "project_name": meta.get("project_name", ""), "description": meta.get("description", ""),
                "documents": len(meta["documents"]), "cloud_ok": bool(meta.get("cloud_ok")), "others_ok": others_of(meta), "via": via}
         codes = []
         if cloud and not row["cloud_ok"]:
@@ -128,7 +128,7 @@ def resolve(store: RagStore, context: Mapping[str, Any], sources: Optional[Mappi
         if audience == "others" and row["others_ok"] == DENY:
             codes.append("others")
         if codes:
-            out.blocked.append({k: row[k] for k in ("id", "name", "project_name")} | {"codes": codes, "reason": "; ".join(WHY[c] for c in codes), "verdict": DENY})
+            out.blocked.append({k: row[k] for k in ("id", "name", "project", "project_name")} | {"codes": codes, "reason": "; ".join(WHY[c] for c in codes), "verdict": DENY})
         else:
             ask = audience == "others" and row["others_ok"] in (ASK_DIALOG, ASK_VOICE) and aid not in granted
             out.archives.append({**row, "verdict": row["others_ok"] if ask else ALLOW})

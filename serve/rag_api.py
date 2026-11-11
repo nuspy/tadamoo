@@ -14,11 +14,13 @@ from tadamoo.rag.choice import decide, known
 from tadamoo.rag.ingest import docling_client, extraction_of
 from tadamoo.rag.project import is_key, project_key
 from tadamoo.rag.recall import compose_message
+from tadamoo.rag.resolve import FUNCTIONS, Resolution, resolve, routes_outside
 from serve.rag_jobs import Jobs
 
 UPLOAD_MAX = LIMITS["document_bytes"]
 JSON_MAX = 1 << 17
 QUERY_CHARS = 2000
+CONTEXT_IDS = ("function", "session", "plan", "node", "routine", "meeting", "project", "audience")
 
 
 def upload_limit(parts: Sequence[str]) -> int:
@@ -33,11 +35,13 @@ def _project(value: Any) -> str:
 
 
 class RagApi:
-    def __init__(self, store: RagStore, folders: Callable[[], List[Dict[str, Any]]] = lambda: [], jobs: Optional[Jobs] = None, service: Any = None) -> None:
+    def __init__(self, store: RagStore, folders: Callable[[], List[Dict[str, Any]]] = lambda: [], jobs: Optional[Jobs] = None, service: Any = None,
+                 sources: Callable[[], Dict[str, Callable[[Dict[str, Any]], Any]]] = lambda: {}, leaves_pc: Callable[[str], bool] = routes_outside) -> None:
         """`folders` lists the projects as `{name, path, chat}`: the folders of the Agent tab and the Chat's own folder (`chat` true). `jobs` is the
         board of the long jobs, kept by the server between requests. `service` is the embedding service (tadamoo/rag/embed_client.py) the store's embedder
-        comes from, when there is one: it tells where the embeddings run and can be tried."""
-        self.store, self.folders, self.service = store, folders, service
+        comes from, when there is one: it tells where the embeddings run and can be tried. `sources` gives what the resolver cannot know alone (the session's
+        record, the archives a plan step, a routine or a meeting declares); `leaves_pc(function)` says whether a function's model calls leave this PC."""
+        self.store, self.folders, self.service, self.sources, self.leaves_pc = store, folders, service, sources, leaves_pc
         self.jobs = jobs if jobs is not None else Jobs()
 
     # -- reading ---------------------------------------------------------------------------------
@@ -93,6 +97,26 @@ class RagApi:
         """Every archive of every project, with the name of its project: what a conversation may attach."""
         names = self.names()
         return {"archives": [{**a, "project_name": names.get(a["project"]) or a["project_name"]} for a in self.store.list()]}
+
+    def resolve(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """`{function, session?, plan?, node?, routine?, meeting?, project?, attached?, routed_to_cloud?, audience?, granted?}`: the archives that apply, by name,
+        and those left out with the reason (tadamoo/rag/resolve.py). Where the model runs and who listens are worked out here; the caller can only say more."""
+        for key in CONTEXT_IDS:
+            if key in req and not isinstance(req[key], str):
+                raise RagError(f"{key}: a text")
+        for key in ("attached", "granted"):
+            if key in req and (not isinstance(req[key], list) or any(not isinstance(i, str) for i in req[key]) or len(req[key]) > LIMITS["archives"] * 4):
+                raise RagError(f"{key}: a list of archive ids")
+        if "routed_to_cloud" in req and not isinstance(req["routed_to_cloud"], bool):
+            raise RagError("routed_to_cloud: true or false")
+        if req.get("function") not in FUNCTIONS:
+            raise RagError("function: one of " + ", ".join(FUNCTIONS))
+        got: Resolution = resolve(self.store, {k: req[k] for k in (*CONTEXT_IDS, "attached", "granted", "routed_to_cloud") if k in req}, self.sources(), self.leaves_pc)
+        names = self.names()
+        out = got.to_dict()
+        for row in out["archives"] + out["blocked"]:
+            row["project_name"] = names.get(row.get("project", "")) or row.get("project_name", "")
+        return out
 
     def choose(self, req: Dict[str, Any]) -> Dict[str, Any]:
         """`{action: attach|detach|clear, name, attached: [ids], project}` for a conversation the server does not keep (the model-only chat): what the
@@ -176,8 +200,17 @@ class RagApi:
                 raise RagError("archives: a list of archive ids")
         else:
             ids, strict = self.store.ids(_project(req.get("project"))), False
+        blocked: List[Dict[str, Any]] = []
+        if req.get("context") is not None:                  # a caller that says what it is for gets only what the resolver allows it, whatever it asks for
+            context = req["context"]
+            if not isinstance(context, dict):
+                raise RagError("context: an object, as for /api/rag/resolve")
+            mine = self.resolve({**context, "attached": ids, "project": "", **({"session": context["session"]} if "session" in context else {})})
+            allowed = set(mine["ids"])
+            blocked = mine["blocked"]
+            ids = [i for i in ids if i in allowed]
         out = self.store.search(ids, query[:QUERY_CHARS], top_k=top_k, min_share=float(share), strict=strict)
-        return {**out, "searched": len(ids)}
+        return {**out, "searched": len(ids), **({"blocked": blocked} if blocked else {})}
 
     def recall(self, req: Dict[str, Any]) -> Dict[str, Any]:
         """`{project, goal, attached}`: the data block of the passages of the project's archives and of the attached ones that match the request, for a
@@ -201,6 +234,15 @@ class RagApi:
             return self.projects()
         if parts == ["catalog"]:
             return self.catalog()
+        if parts == ["resolve"]:
+            q = query or {}
+            req: Dict[str, Any] = {k: (q.get(k) or [""])[0] for k in (*CONTEXT_IDS,) if q.get(k)}
+            for key in ("attached", "granted"):
+                if q.get(key):
+                    req[key] = [i for i in q[key][0].split(",") if i]
+            if q.get("routed_to_cloud"):
+                req["routed_to_cloud"] = q["routed_to_cloud"][0] == "true"
+            return self.resolve(req)
         if parts == ["settings"]:
             return self.settings()
         if len(parts) == 2 and parts[0] == "jobs":
@@ -224,6 +266,8 @@ class RagApi:
             return self.search(req)
         if parts == ["recall"]:
             return self.recall(req)
+        if parts == ["resolve"]:
+            return self.resolve(req)
         if parts == ["choose"]:
             return self.choose(req)
         if parts == ["settings"]:

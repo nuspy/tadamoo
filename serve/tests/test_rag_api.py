@@ -417,3 +417,38 @@ def test_recall_adds_the_attached_archives_to_the_projects_own(tmp_path):
         with pytest.raises(RagError):
             api.recall(bad)
     assert api.route_get(["catalog"])["archives"] and api.route_post(["choose"], {}, json.dumps({"action": "clear", "project": PROJ}).encode())["status"] == "cleared"
+
+
+# -- the resolver over the API, and the search that obeys it -----------------------------------------------------------
+
+def test_resolve_names_the_archives_and_says_why_one_is_left_out(tmp_path):
+    api = RagApi(RagStore(tmp_path / "rag", embedder=lambda: None), lambda: [{"name": "Work", "path": str(tmp_path / "work"), "chat": False}],
+                 sources=lambda: {"session": lambda ctx: {"workspace": str(tmp_path / "work"), "knowledge": []}}, leaves_pc=lambda fn: fn == "agent")
+    work = project_key(str(tmp_path / "work"))
+    open_, private = new(api, "Open", work)["archive"]["id"], new(api, "Private", work)["archive"]["id"]
+    api.update(open_, {"cloud_ok": True})
+    got = api.route_post(["resolve"], {}, json.dumps({"function": "agent", "session": "s1", "project": PROJ}).encode())
+    assert got["routed_to_cloud"] is True and got["ids"] == [open_] and got["project"] == work
+    assert got["archives"][0]["name"] == "Open" and got["archives"][0]["project_name"] == "Work"
+    assert got["blocked"][0]["name"] == "Private" and got["blocked"][0]["reason"] == "not cleared for cloud models" and private == got["blocked"][0]["id"]
+    local = api.route_get(["resolve"], {"function": ["meeting"], "project": [work]})
+    assert local["audience"] == "others" and local["ids"] == [] and sorted(local["ask_dialog"]) == sorted([open_, private])
+    for bad in ({"function": "chat"}, {"function": "agent", "attached": "x"}, {"function": "agent", "routed_to_cloud": "yes"}):
+        with pytest.raises(RagError):
+            api.resolve(bad)
+
+
+def test_search_with_a_context_leaves_out_what_the_route_may_not_carry(tmp_path):
+    api = RagApi(RagStore(tmp_path / "rag", embedder=lambda: None), leaves_pc=lambda fn: True)
+    a, b = new(api, "Open")["archive"]["id"], new(api, "Private")["archive"]["id"]
+    api.update(a, {"cloud_ok": True})
+    up(api, a, "boats.txt", BOATS)
+    up(api, b, "rice.txt", RICE)
+    free = api.search({"query": "sloop keel risotto stock", "archives": [a, b]})
+    assert {h["archive_id"] for h in free["hits"]} == {a, b} and "blocked" not in free                 # the person's own view in the tab
+    held = api.search({"query": "sloop keel risotto stock", "archives": [a, b], "context": {"function": "agent"}})
+    assert {h["archive_id"] for h in held["hits"]} == {a} and held["searched"] == 1 and held["blocked"][0]["id"] == b
+    by_project = api.search({"query": "sloop keel risotto stock", "project": PROJ, "context": {"function": "agent", "routed_to_cloud": True}})
+    assert {h["archive_id"] for h in by_project["hits"]} == {a}
+    with pytest.raises(RagError):
+        api.search({"query": "sloop", "archives": [a], "context": "agent"})

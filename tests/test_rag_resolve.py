@@ -35,7 +35,7 @@ def test_a_model_that_leaves_the_pc_takes_only_archives_cleared_for_cloud(tmp_pa
     rag, (a, b) = make(tmp_path, ("Open", PROJ, {"cloud_ok": True}), ("Private", PROJ, {}))
     got = resolve(rag, {"function": "agent", "project": PROJ}, leaves_pc=CLOUD)
     assert got.ids == [a] and got.routed_to_cloud
-    assert got.blocked == [{"id": b, "name": "Private", "project_name": "Project One", "codes": ["cloud"], "reason": "not cleared for cloud models", "verdict": "deny"}]
+    assert got.blocked == [{"id": b, "name": "Private", "project": PROJ, "project_name": "Project One", "codes": ["cloud"], "reason": "not cleared for cloud models", "verdict": "deny"}]
     assert "Private (not cleared for cloud models)" in describe(got)
     assert sorted(resolve(rag, {"function": "agent", "project": PROJ}, leaves_pc=LOCAL).ids) == sorted([a, b])
 
@@ -86,7 +86,7 @@ def test_a_missing_archive_is_reported_and_other_sources_add_their_ids(tmp_path)
     rag, (a,) = make(tmp_path, ("Boats", OTHER, {}))
     got = resolve(rag, {"function": "plan_node", "plan": "p1", "node": "n1"}, sources={"plan_node": lambda ctx: [a, "gone-123456"]}, leaves_pc=LOCAL)
     assert got.ids == [a] and got.archives[0]["via"] == "plan_node"
-    assert got.blocked == [{"id": "gone-123456", "name": "gone-123456", "project_name": "", "codes": ["missing"], "reason": "no longer exists", "verdict": "deny"}]
+    assert got.blocked == [{"id": "gone-123456", "name": "gone-123456", "project": "", "project_name": "", "codes": ["missing"], "reason": "no longer exists", "verdict": "deny"}]
     assert "gone" not in describe(got)
     routine = resolve(rag, {"function": "routine", "routine": "r1"}, sources={"routine": lambda ctx: [a]}, leaves_pc=LOCAL)
     assert routine.ids == [a]
@@ -136,3 +136,24 @@ def test_others_ok_is_kept_in_meta_and_checked(tmp_path):
     assert rag.update(a, {"others_ok": "ask_voice"})["others_ok"] == "ask_voice" and rag.meta(a)["others_ok"] == "ask_voice"
     with pytest.raises(RagError):
         rag.update(a, {"others_ok": "yes"})
+
+
+def test_the_remote_search_tells_the_server_what_it_is_for(monkeypatch):
+    import io
+    import json
+    from tadamoo.rag.remote import server_search
+    seen = []
+
+    class Reply(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+    monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout=0: seen.append(json.loads(req.data)) or Reply(b'{"hits": []}'))
+    search = server_search("http://127.0.0.1:7232", "", context=lambda: {"function": "agent", "routed_to_cloud": True})
+    search(["a"], "q", 4, 0.0)
+    assert seen[0]["context"] == {"function": "agent", "routed_to_cloud": True} and seen[0]["archives"] == ["a"]
+    seen.clear()
+    server_search("http://127.0.0.1:7232")(["a"], "q", 4, 0.0)
+    assert "context" not in seen[0]

@@ -2714,8 +2714,14 @@ def make_handler(svc: Service, remote: bool = False):
             global _RAG_JOBS
             if _RAG_JOBS is None:
                 _RAG_JOBS = RagJobs()
+            def session(ctx):
+                try:
+                    return self._agent_sessions().get(ctx["session"])
+                except Exception:                                    # a conversation that is gone has no record: the caller's own words stand, and the cloud rule still applies
+                    return None
             return RagApi(self._rag_store(), jobs=_RAG_JOBS, service=self._rag_embed(), folders=lambda: [{"name": "Chat", "path": str(chat), "chat": True}]
-                          + [{"name": p["name"], "path": p["path"], "chat": False} for p in self._projects().list() if p.get("exists")])
+                          + [{"name": p["name"], "path": p["path"], "chat": False} for p in self._projects().list() if p.get("exists")],
+                          sources=lambda: {"session": session})
 
         def _rag_route(self, path, method):
             """/api/rag/*: the knowledge archives, from this PC only."""
