@@ -17,7 +17,10 @@
     input: "M4 5h16v10H9l-5 4z",
     output: "M4 19h16 M12 4v11 M7 10l5 5 5-5",
     log: "M5 4h14v16H5z M8 9h8 M8 13h8 M8 17h5",
+    rag: "M4 5h6a2 2 0 012 2v12a2 2 0 00-2-2H4z M20 5h-6a2 2 0 00-2 2v12a2 2 0 012-2h6z",
   };
+  const OPS = ["<", "<=", "=", "!=", ">=", ">", "between", "in", "contains", "else"];
+  const OP_WORD = { "<": "lt", "<=": "le", "=": "eq", "!=": "ne", ">=": "ge", ">": "gt", between: "between", in: "in", contains: "contains", else: "else", "": "custom" };
   const UNITS = [["d", 86400], ["h", 3600], ["min", 60], ["s", 1]];
   const TIME_FIELDS = new Set(["seconds", "every", "timeout_s", "poll_s"]);
 
@@ -44,6 +47,9 @@
       if (f.kind === "number" || f.kind === "integer") {
         v = TIME_FIELDS.has(f.name) && v && typeof v === "object" ? joinDuration(v.value, v.unit) : Number(v);
         if (!Number.isFinite(v)) { errors.push(f.name); continue; }
+      } else if (f.kind === "archives" || f.kind === "branches") {
+        v = Array.isArray(v) ? v : [];
+        if (!v.length) { if (f.required) errors.push(f.name); continue; }
       } else if (f.kind === "names") {
         v = (Array.isArray(v) ? v : String(v).split(/[,\n]/)).map(x => String(x).trim()).filter(Boolean);
         if (!v.length) { if (f.required) errors.push(f.name); continue; }
@@ -71,6 +77,8 @@
     if (type === "input") return String(spec.prompt || "");
     if (type === "output") return String(spec.name || "");
     if (type === "log") return String(spec.message || "");
+    if (type === "rag") return `RAG \u00D7${(spec.archives || []).length}`;
+    if (type === "decision") return `${(spec.branches || []).length} \u2192`;
     return "";
   }
 
@@ -203,6 +211,49 @@
     return box;
   }
 
+  /* The branches of a decision: an ordered list, each with a label, an operator and its value(s) (or an expression of its own), reordered and removed with
+     buttons of 44 px. `get()` gives [{id?, label, op?, value?, value2?, condition?}] in the order shown; a branch that was already there keeps its id. */
+  function branchEditor(value, prefix, T, disabled) {
+    let rows = (Array.isArray(value) ? value : []).map(b => ({ id: b.id, label: b.label || "", op: b.op || "", value: b.value == null ? "" : String(b.value), value2: b.value2 == null ? "" : String(b.value2), condition: b.op ? "" : (b.condition || "") }));
+    const box = h("div", "pk-branches"), list = h("ul", "pk-brlist"), hint = h("p", "help pk-brhint"), add = h("button", "btn pk-bradd", T("pl.br.add")), addElse = h("button", "btn pk-bradd", T("pl.br.addelse"));
+    add.type = "button"; addElse.type = "button";
+    const hasElse = () => rows.some(r => r.op === "else");
+    function move(i, d) { const j = i + d; if (j < 0 || j >= rows.length || (rows[j].op === "else" || rows[i].op === "else")) return; [rows[i], rows[j]] = [rows[j], rows[i]]; paint(); }
+    function paint() {
+      list.replaceChildren(...rows.map((r, i) => {
+        const li = h("li", "pk-branch"), id = `${prefix}-br${i}`;
+        const label = h("input"); label.id = id + "-l"; label.type = "text"; label.maxLength = 40; label.value = r.label; label.autocomplete = "off"; label.placeholder = T("pl.br.label");
+        label.setAttribute("aria-label", T("pl.br.label")); label.disabled = !!disabled; label.addEventListener("input", () => { r.label = label.value; });
+        const op = h("select"); op.id = id + "-o"; op.setAttribute("aria-label", T("pl.br.op")); op.disabled = !!disabled || r.op === "else";
+        [...OPS.filter(o => o !== "else" || r.op === "else"), ""].forEach(o => { const e = h("option", "", T("pl.br.op." + OP_WORD[o])); e.value = o; e.selected = o === r.op; op.append(e); });
+        op.addEventListener("change", () => { r.op = op.value; paint(); });
+        const v1 = h("input"), v2 = h("input"), custom = h("input");
+        [[v1, "value", "pl.br.value"], [v2, "value2", "pl.br.value2"], [custom, "condition", "pl.br.custom"]].forEach(([e, key, word]) => {
+          e.type = "text"; e.value = r[key]; e.autocomplete = "off"; e.spellcheck = false; e.placeholder = T(word); e.setAttribute("aria-label", T(word)); e.disabled = !!disabled;
+          e.addEventListener("input", () => { r[key] = e.value; });
+        });
+        const btn = (text, word, fn, off) => { const b = h("button", "btn pk-brbtn", text); b.type = "button"; b.title = T(word); b.setAttribute("aria-label", T(word)); b.disabled = !!disabled || !!off; b.addEventListener("click", fn); return b; };
+        const last = rows.length - 1 - (hasElse() ? 1 : 0);
+        li.append(label, op,
+          ...(r.op === "else" ? [h("span", "pk-brelse", T("pl.br.elsehelp"))] : r.op === "" ? [custom] : r.op === "between" ? [v1, v2] : [v1]),
+          h("span", "pk-brbtns", btn("\u2191", "pl.br.up", () => move(i, -1), i === 0 || r.op === "else"), btn("\u2193", "pl.br.down", () => move(i, 1), i >= last || r.op === "else"),
+            btn("\u00D7", "pl.br.remove", () => { rows.splice(i, 1); paint(); }, rows.length <= 1)));
+        return li;
+      }));
+      hint.textContent = rows.length && !hasElse() ? T("pl.br.noelse") : "";
+      hint.hidden = !hint.textContent;
+      addElse.hidden = hasElse(); addElse.disabled = !!disabled; add.disabled = !!disabled || rows.length >= 12;
+    }
+    add.addEventListener("click", () => { const at = hasElse() ? rows.length - 1 : rows.length; rows.splice(at, 0, { label: "", op: "", value: "", value2: "", condition: "" }); paint(); });
+    addElse.addEventListener("click", () => { rows.push({ label: T("pl.br.op.else"), op: "else", value: "", value2: "", condition: "" }); paint(); });
+    box.append(list, hint, h("div", "pk-brbar", add, addElse));
+    paint();
+    return {
+      el: box,
+      get: () => rows.map(r => ({ ...(r.id ? { id: r.id } : {}), label: r.label.trim(), ...(r.op === "else" ? { op: "else" } : r.op === "" ? { condition: r.condition.trim() } : r.op === "between" ? { op: r.op, value: r.value, value2: r.value2 } : { op: r.op, value: r.value }) })),
+    };
+  }
+
   /* The fields of a kind as a form. `collect()` gives {spec, errors}; ids start with `prefix`. */
   function specForm(fields, spec, prefix, T, disabled) {
     const values = { ...defaultsOf(fields), ...(spec || {}) };
@@ -213,6 +264,17 @@
       label.htmlFor = id;
       let input;
       let v = values[f.name];
+      if (f.kind === "archives") {
+        const pick = root.ragPick && root.ragPick.create ? root.ragPick.create({ T, ids: Array.isArray(v) ? v : [], disabled, label: T("pl.spec." + f.name) }) : null;
+        inputs[f.name] = { get: () => (pick ? pick.get() : []), els: [] };
+        if (pick) label.htmlFor = pick.findId;
+        return h("div", "pk-row", label, pick ? pick.el : h("p", "help", T("rp.offline")));
+      }
+      if (f.kind === "branches") {
+        const ed = branchEditor(v, id, T, disabled);
+        inputs[f.name] = { get: () => ed.get(), els: [] };
+        return h("div", "pk-row", h("span", "pk-lab", T("pl.spec." + f.name) + (f.required ? " *" : "")), ed.el);
+      }
       if (f.kind === "choice") {
         input = h("select", "", ...f.choices.map(c => { const o = h("option", "", T("pl.spec.opt." + c)); o.value = c; o.selected = c === v; return o; }));
       } else if (f.kind === "textarea" || f.kind === "names" || f.kind === "json") {

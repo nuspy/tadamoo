@@ -32,9 +32,10 @@ class PlansPageTest(unittest.TestCase):
 
     def test_links_are_drawn_from_the_round_ends_picked_and_removed(self):
         self.assertIn("function startLink(", JS)
-        self.assertIn('add_edges: [[a, b]]', JS)
-        self.assertIn('remove_edges: [[a, b]]', JS)
-        self.assertIn('port.addEventListener("pointerdown", e => startLink(e, n.id, side))', JS)
+        self.assertIn('add_edges: [port ? [a, b, port] : [a, b]]', JS)                 # an edge leaves a named connector
+        self.assertIn('remove_edges: [port ? [a, b, port] : [a, b]]', JS)
+        self.assertIn('startLink(e, n.id, "out", b.id, "flow")', JS)                    # each branch of a decision is a connector of its own
+        self.assertIn('startLink(e, n.id, "in", "rag", "input")', JS)                   # an action takes archives at a data input
         self.assertIn('ev.key === "Escape"', JS)                                       # letting go elsewhere or Escape drops the link
         self.assertIn('e.key === "Delete"', JS)                                        # a picked link is removed by the keyboard too
         for cls in (".pl-port", ".pl-edgehit", ".pl-x", ".linktarget"):
@@ -107,6 +108,51 @@ class PlansPageTest(unittest.TestCase):
         for key in ("pl.set.key.field", "pl.set.key.remove", "pl.set.threshold", "pl.set.timeout", "pl.set.chunk"):
             self.assertEqual(I18N.count(f'"{key}":'), 2, key)
             self.assertEqual(I18N.count(f'"{key}.help":'), 2 if key != "pl.set.key.remove" else 0, key)
+
+
+class PortsOnThePageTest(unittest.TestCase):
+    KINDS = (WEB / "plankinds.js").read_text(encoding="utf-8")
+
+    def test_a_decision_draws_a_labelled_connector_for_each_branch_and_the_label_is_cut_with_its_whole_text_in_a_tooltip(self):
+        self.assertIn("const rows = branchesOf(n);", JS)
+        self.assertIn('class: "pl-br"', JS)
+        self.assertIn("clip(b.label, 17)", JS)
+        self.assertIn("svg(\"title\", {}, document.createTextNode(b.label))".replace('\\"', '"'), JS)
+        self.assertIn('"aria-label": name', JS)                                       # the connector's name is its label
+        self.assertNotIn('svg("polygon", { points: `${x + W / 2},${y}', JS)            # a decision is a box that grows with its branches, not a diamond
+        self.assertIn("hOf(n)", JS)
+
+    def test_the_connectors_are_small_and_the_touch_area_is_a_larger_one_that_draws_nothing(self):
+        self.assertRegex(CSS, r"\.pl-hit \{ fill: transparent; stroke: none; pointer-events: all;")
+        self.assertIn("{ dot: 5.5, hit: 22 }", JS)                                     # an 11 px dot, a 44 px area
+        self.assertRegex(CSS, r"\.pl-t \{ font: 500 13px")
+        self.assertRegex(CSS, r"\.pl-br \{[^}]*font: 400 11px")
+        self.assertRegex(CSS, r"\.pl-connx \{ min-width: 44px; min-height: 44px; \}")
+        self.assertRegex(CSS, r"\.pk-brbtn, \.pk-bradd \{ min-height: 44px; min-width: 44px; \}")
+        self.assertIn("prefers-reduced-motion", CSS[CSS.index(".pl-port { stroke-width"):])
+
+    def test_a_link_from_a_rag_node_is_drawn_apart_from_a_wait_and_stored_as_a_connector_not_a_dependency(self):
+        self.assertIn('class: "pl-edge " + (feed ? "feed " : "")', JS.replace("svg(\"path\", { d, ", "").replace('svg("path", { d, class: "pl-edge " + (feed ? "feed " : "")', 'class: "pl-edge " + (feed ? "feed " : "")'))
+        self.assertIn('"marker-end": feed ? "url(#pl-dot)" : "url(#pl-arrow)"', JS)     # a dot where the data arrives, not the arrow of "waits for"
+        self.assertRegex(CSS, r"\.pl-edge\.feed \{ stroke-dasharray: 4 4; \}")
+        self.assertIn("function connectionsBox(n)", JS)                                  # the phone and the keyboard connect from the panel
+        self.assertIn('T("pl.link.ragonly")', JS)
+
+    def test_a_palette_kind_with_only_optional_fields_is_not_a_draft(self):
+        self.assertIn("const needs = fields.some(f => f.required) || type === \"sensor\";", JS)
+
+    def test_every_word_the_new_parts_use_exists_in_both_languages(self):
+        keys = set(re.findall(r'T\("(pl\.(?:br|feed|conn|port|link|f\.profile)[\w.]*)"', JS + self.KINDS))
+        keys = {k for k in keys if not k.endswith(".")}                                   # a prefix the page completes from a table, listed below
+        keys |= {f"pl.br.op.{w}" for w in ("lt", "le", "eq", "ne", "ge", "gt", "between", "in", "contains", "else", "custom")}
+        keys |= {"pl.type.rag", "pl.kind.rag.d", "pl.spec.archives", "pl.spec.rag_archives", "pl.spec.branches", "pl.spec.mode", "pl.spec.input", "pl.spec.opt.first", "pl.spec.opt.all", "pl.spec.on_no_match", "pl.spec.opt.stop", "pl.spec.opt.ask", "pl.fact.nobranch"}
+        self.assertGreater(len(keys), 40)
+        for key in sorted(keys):
+            self.assertEqual(I18N.count(f'"{key}":'), 2, key)
+
+    def test_the_plan_has_a_picker_for_its_own_archives(self):
+        self.assertIn("window.ragPick.create({ T, ids: p.rag_archives || []", JS)
+        self.assertIn("profile.rag_archives = S.horizonPick.get()", JS)
 
 
 if __name__ == "__main__":

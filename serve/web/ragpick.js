@@ -65,7 +65,7 @@
       paint();
     }
     paint(); refresh();
-    return { el: box, get: () => ids.slice(), set(next) { ids = (next || []).slice(); paint(); }, refresh };
+    return { el: box, findId: find.id, get: () => ids.slice(), set(next) { ids = (next || []).slice(); paint(); }, refresh };
   }
   api.create = create;
 })(typeof window !== "undefined" ? window : globalThis);

@@ -13,6 +13,7 @@ class El {
   get className() { return [...this.classes].join(" "); }
   append(...nodes) { nodes.forEach(n => this.children.push(typeof n === "string" ? new Text(n) : n)); }
   setAttribute(k, v) { this.attrs[k] = String(v); }
+  replaceChildren(...nodes) { this.children = []; this.append(...nodes); }
   addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); }
   fire(type, ev) { (this.listeners[type] || []).forEach(fn => fn(ev)); }
   all() { return this.children.filter(c => c instanceof El).flatMap(c => [c, ...c.all()]); }
@@ -121,5 +122,47 @@ t("a saved spec fills the form back in, in the biggest unit", () => {
 t("a finished step has its fields switched off", () => {
   const form = PK.specForm(KINDS[2].fields, { message: "hello" }, "x", T, true);
   eq(form.el.all().filter(e => e.tagName === "textarea").every(e => e.disabled), true);
+});
+const DECISION = [{ name: "input", kind: "expression" }, { name: "mode", kind: "choice", choices: ["first", "all"], default: "first" }, { name: "branches", kind: "branches", required: true }];
+t("the branches of a decision are rows with a label, an operator and a value; each can be moved and removed with a button of its own", () => {
+  const form = PK.specForm(DECISION, { mode: "first", input: "n", branches: [{ id: "b1", label: "< 10", op: "<", value: 10 }, { id: "b2", label: "big", condition: "n > 99" }, { id: "b3", label: "else", op: "else" }] }, "x", T, false);
+  const rows = form.el.all().filter(e => e.classes.has("pk-branch"));
+  eq(rows.length, 3);
+  const buttons = r => r.all().filter(e => e.tagName === "button");
+  eq(buttons(rows[0]).map(b => b.attrs["aria-label"]), ["pl.br.up", "pl.br.down", "pl.br.remove"]);
+  eq(buttons(rows[0])[0].disabled, true);                                           // the first cannot go up
+  eq(buttons(rows[2]).every(b => b.disabled === true || b.attrs["aria-label"] === "pl.br.remove"), true);   // the else stays last
+  eq(form.collect(), { spec: { input: "n", mode: "first", branches: [{ id: "b1", label: "< 10", op: "<", value: "10" }, { id: "b2", label: "big", condition: "n > 99" }, { id: "b3", label: "else", op: "else" }] }, errors: [] });
+  buttons(rows[0])[1].fire("click", {});                                            // down
+  const again = form.el.all().filter(e => e.classes.has("pk-branch"));
+  eq(form.collect().spec.branches.map(b => b.id), ["b2", "b1", "b3"]);
+  eq(again.length, 3);
+});
+t("a branch is added before the else, a second else cannot be added, and the last branch cannot be removed", () => {
+  const form = PK.specForm(DECISION, { branches: [{ id: "b1", label: "x", op: "<", value: 1 }] }, "x", T, false);
+  const bar = () => form.el.all().filter(e => e.classes.has("pk-bradd"));
+  bar()[1].fire("click", {});                                                       // add Else
+  eq(form.collect().spec.branches.map(b => b.op || "custom"), ["<", "else"]);
+  eq(bar()[1].hidden, true);
+  bar()[0].fire("click", {});                                                       // a new branch goes before the else
+  eq(form.collect().spec.branches.map(b => b.op || "custom"), ["<", "custom", "else"]);
+  const first = form.el.all().filter(e => e.classes.has("pk-branch"));
+  first.forEach(r => r.all().filter(e => e.attrs["aria-label"] === "pl.br.remove").forEach(b => b.fire("click", {})));
+  eq(form.el.all().filter(e => e.classes.has("pk-branch")).length >= 1, true);
+});
+t("an empty decision lacks its branches, and between has two ends", () => {
+  const form = PK.specForm(DECISION, { branches: [{ id: "b1", label: "mid", op: "between", value: 10, value2: 30 }] }, "x", T, false);
+  eq(form.collect().spec.branches, [{ id: "b1", label: "mid", op: "between", value: "10", value2: "30" }]);
+  eq(PK.readSpec(DECISION, { branches: [] }).errors, ["branches"]);
+});
+t("a finished decision has its branch controls switched off", () => {
+  const form = PK.specForm(DECISION, { branches: [{ id: "b1", label: "x", op: "<", value: 1 }] }, "x", T, true);
+  eq(form.el.all().filter(e => e.classes.has("pk-branch")).every(r => r.all().filter(e => e.tagName === "input" || e.tagName === "button" || e.tagName === "select").every(e => e.disabled)), true);
+});
+t("an archives field is the picker, and what it gives is the spec", () => {
+  global.ragPick = { create: opts => ({ el: new El("div"), findId: "rp-1-find", get: () => ["a-1", "b-2"], opts }) };
+  const form = PK.specForm([{ name: "archives", kind: "archives", required: true }], { archives: ["a-1"] }, "x", T, false);
+  eq(form.collect(), { spec: { archives: ["a-1", "b-2"] }, errors: [] });
+  delete global.ragPick;
 });
 console.log(JSON.stringify(cases.map(([name, fn]) => { try { fn(); return { name, ok: true }; } catch (e) { return { name, ok: false, error: String(e.message || e) }; } })));

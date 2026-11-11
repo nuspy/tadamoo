@@ -12,6 +12,21 @@
 
   const SVGNS = "http://www.w3.org/2000/svg";
   const W = 156, H = 56, GX = 54, GY = 28, PAD = 16;
+  /* a decision grows with its branches: a header, then one row for each, with the output connector at its right edge */
+  const HEAD = 40, BR = 24;
+  const branchesOf = n => (n && n.type === "decision" && n.spec && Array.isArray(n.spec.branches) ? n.spec.branches : []);
+  const hOf = n => (n && n.type === "decision" ? Math.max(H, HEAD + Math.max(1, branchesOf(n).length) * BR + 6) : H);
+  /* where an edge meets a step: `out` on the right (a decision: at the row of its branch), `in` on the left; the data input of an action is on its top edge */
+  function portPt(lay, n, side, port, kind) {
+    const p = lay.pos[n.id] || { x: 0, y: 0 };
+    if (side === "in") return kind === "input" ? { x: p.x + W / 2, y: p.y } : { x: p.x, y: p.y + (n.type === "decision" ? 22 : H / 2) };
+    if (n.type === "decision") return { x: p.x + W, y: p.y + HEAD + Math.max(0, branchesOf(n).findIndex(b => b.id === port)) * BR + BR / 2 };
+    return { x: p.x + W, y: p.y + H / 2 };
+  }
+  const edgeKey = (a, b, port) => a + ">" + b + (port ? "#" + port : "");
+  const parseKey = key => { const [ab, port] = key.split("#"), [a, b] = ab.split(">"); return { a, b, port: port || "" }; };
+  /* an edge of a diff as [parent, child, port]: it may be a list, or {from: {node, port}, to: {node}} */
+  const edgeParts = e => (Array.isArray(e) ? [e[0], e[1], e[2] || ""] : [(e.from || {}).node, (e.to || {}).node, (e.from || {}).port || ""]);
   const ICON = { pending: "○", in_progress: "▶", completed: "✓", failed: "✕", blocked: "⏸", skipped: "↷" };
   const TYPES = ["action", "sensor", "decision", "merge"];
   /* events that write into the plan carry the revision the page last read, so a late one cannot overwrite a newer one */
@@ -353,34 +368,37 @@
 
   /* ---- layout and drawing ---- */
   function layoutOf(snap) {
-    const pos = {}, ghosts = [];
+    const pos = {}, ghosts = [], all = snap.plan.nodes;
     const layerOf = {};
     snap.layers.forEach((ids, i) => ids.forEach(id => { layerOf[id] = i; }));
-    const rows = snap.layers.map(ids => ids.length);
-    snap.layers.forEach((ids, i) => ids.forEach((id, j) => { pos[id] = { layer: i, row: j }; }));
+    const cols_ = snap.layers.map(ids => ids.filter(id => all[id]));
+    const heights = cols_.map(ids => ids.map(id => hOf(all[id])));
+    cols_.forEach((ids, i) => ids.forEach((id, j) => { pos[id] = { layer: i, row: j }; }));
     const prop = snap.proposals.find(p => p.proposal_id === S.proposal);
     if (prop) {
       (prop.diff.add_nodes || []).forEach(n => {
         const known = (n.dependencies || []).filter(d => d in layerOf).map(d => layerOf[d]);
         const after = (n.outputs || []).filter(o => o in layerOf).map(o => layerOf[o]);
         const layer = known.length ? Math.max(...known) + 1 : after.length ? Math.max(0, Math.min(...after) - 1) : 0;
-        while (rows.length <= layer) rows.push(0);
-        pos[n.id] = { layer, row: rows[layer]++ };
+        while (heights.length <= layer) heights.push([]);
+        pos[n.id] = { layer, row: heights[layer].length };
+        heights[layer].push(hOf(n));
         ghosts.push(n);
       });
     }
-    const maxRows = Math.max(1, ...rows);
-    const cols = Math.max(1, rows.length);
+    const total = heights.map(hs => hs.reduce((a, b) => a + b, 0) + Math.max(0, hs.length - 1) * GY);
+    const tallest = Math.max(H, ...total);
+    const cols = Math.max(1, heights.length);
     Object.values(pos).forEach(p => {
       p.x = PAD + p.layer * (W + GX);
-      p.y = PAD + p.row * (H + GY) + ((maxRows - rows[p.layer]) * (H + GY)) / 2;
+      p.y = PAD + (tallest - total[p.layer]) / 2 + heights[p.layer].slice(0, p.row).reduce((a, b) => a + b + GY, 0);
     });
-    let width = PAD * 2 + cols * W + (cols - 1) * GX, height = PAD * 2 + maxRows * H + (maxRows - 1) * GY;
+    let width = PAD * 2 + cols * W + (cols - 1) * GX, height = PAD * 2 + tallest;
     Object.entries(pos).forEach(([id, p]) => {
       const own = placeOf(id);
       if (own) { p.x = own.x; p.y = own.y; }
       width = Math.max(width, p.x + W + PAD);
-      height = Math.max(height, p.y + H + PAD);
+      height = Math.max(height, p.y + hOf(all[id] || ghosts.find(g => g.id === id)) + PAD);
     });
     return { pos, ghosts, width, height };
   }
@@ -405,10 +423,9 @@
     return c;
   }
 
-  function shape(type, x, y) {
-    if (type === "decision") return svg("polygon", { points: `${x + W / 2},${y} ${x + W},${y + H / 2} ${x + W / 2},${y + H} ${x},${y + H / 2}` });
+  function shape(type, x, y, h) {
     if (type === "merge") return svg("polygon", { points: `${x + 14},${y} ${x + W - 14},${y} ${x + W},${y + H / 2} ${x + W - 14},${y + H} ${x + 14},${y + H} ${x},${y + H / 2}` });
-    return svg("rect", { x, y, width: W, height: H, rx: type === "sensor" || type.startsWith("wait_") ? H / 2 : 8 });
+    return svg("rect", { x, y, width: W, height: h || H, rx: type === "sensor" || type.startsWith("wait_") ? H / 2 : 8 });
   }
 
   function drawGraph() {
@@ -417,46 +434,54 @@
     const nodes = S.snap.plan.nodes;
     const root_ = svg("svg", { class: "pl-svg", viewBox: `0 0 ${lay.width} ${lay.height}`, role: "img", "aria-label": T("pl.graph.label") },
       svg("defs", {}, svg("marker", { id: "pl-arrow", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" },
-        svg("path", { d: "M0,0 L10,5 L0,10 z", class: "pl-arrowhead" }))));
-    const edge = (a, b, cls) => {
-      const p = lay.pos[a], q = lay.pos[b];
-      if (!p || !q) return;
-      const x1 = p.x + W, y1 = p.y + H / 2, x2 = q.x, y2 = q.y + H / 2, dx = Math.max(24, (x2 - x1) / 2);
-      const d = `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`, key = a + ">" + b, sel = S.edge === key;
+        svg("path", { d: "M0,0 L10,5 L0,10 z", class: "pl-arrowhead" })),
+      svg("marker", { id: "pl-dot", viewBox: "0 0 10 10", refX: "5", refY: "5", markerWidth: "6", markerHeight: "6" }, svg("circle", { cx: "5", cy: "5", r: "4", class: "pl-arrowhead feed" }))));
+    const edge = (a, b, cls, port, kind) => {
+      const na = nodes[a] || (lay.ghosts.find(g => g.id === a)), nb = nodes[b] || (lay.ghosts.find(g => g.id === b));
+      if (!na || !nb || !lay.pos[a] || !lay.pos[b]) return;
+      const feed = kind === "input";
+      const p1 = portPt(lay, na, "out", port, kind), p2 = portPt(lay, nb, "in", "", kind);
+      const x1 = p1.x, y1 = p1.y, x2 = p2.x, y2 = p2.y, dx = Math.max(24, Math.abs(x2 - x1) / 2);
+      const d = feed ? `M${x1},${y1} C${x1 + dx},${y1} ${x2},${y2 - dx} ${x2},${y2}` : `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
+      const key = edgeKey(a, b, port), sel = S.edge === key;
       const g = svg("g", { class: "pl-edgeg" + (sel ? " sel" : ""), "data-edge": key },
-        svg("path", { d, class: "pl-edge " + cls + (sel ? " sel" : ""), "marker-end": "url(#pl-arrow)" }));
+        svg("path", { d, class: "pl-edge " + (feed ? "feed " : "") + cls + (sel ? " sel" : ""), "marker-end": feed ? "url(#pl-dot)" : "url(#pl-arrow)" }));
       if (!cls.includes("ghost") && !cls.includes("hl-removed")) {
-        const names = [(nodes[a] || {}).title || a, (nodes[b] || {}).title || b];
-        const hit = svg("path", { d, class: "pl-edgehit", tabindex: "0", role: "button", "aria-pressed": String(sel), "aria-label": T("pl.link.label", ...names) },
+        const names = [na.title || a, nb.title || b];
+        const hit = svg("path", { d, class: "pl-edgehit", tabindex: "0", role: "button", "aria-pressed": String(sel), "aria-label": T(feed ? "pl.feed.label" : "pl.link.label", ...names) },
           svg("title", {}, document.createTextNode(T("pl.link.tip"))));
         hit.addEventListener("click", () => pickEdge(key));
         hit.addEventListener("keydown", e => {
-          if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeLink(a, b); }
+          if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeLink(a, b, port); }
           else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pickEdge(key); }
         });
         g.append(hit);
         if (sel) {
           const mark = svg("g", { class: "pl-x", tabindex: "0", role: "button", "aria-label": T("pl.link.remove"), transform: `translate(${(x1 + x2) / 2},${(y1 + y2) / 2})` },
             svg("title", {}, document.createTextNode(T("pl.link.remove"))), svg("circle", { r: "11" }), svg("text", { y: "5", "text-anchor": "middle" }, document.createTextNode("\u00D7")));
-          mark.addEventListener("click", () => removeLink(a, b));
-          mark.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); removeLink(a, b); } });
+          mark.addEventListener("click", () => removeLink(a, b, port));
+          mark.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); removeLink(a, b, port); } });
           g.append(mark);
         }
       }
       root_.append(g);
     };
-    Object.values(nodes).forEach(n => n.outputs.forEach(c => {
+    const proposal = S.snap.proposals.find(p => p.proposal_id === S.proposal);
+    const wiring = n => (n.type === "decision" || n.type === "rag"
+      ? Object.entries(n.routes || {}).flatMap(([port, kids]) => kids.map(c => [c, port, n.type === "rag" ? "input" : "flow"]))
+      : (n.outputs || []).map(c => [c, "", "flow"]));
+    Object.values(nodes).forEach(n => wiring(n).forEach(([c, port, kind]) => {
+      if (!nodes[c]) return;
       const dead = nodes[n.id].status === "skipped" || nodes[c].status === "skipped";
-      const prop = S.snap.proposals.find(p => p.proposal_id === S.proposal);
-      const gone = prop && (prop.diff.remove_edges || []).some(e => e[0] === n.id && e[1] === c);
-      edge(n.id, c, (dead ? "dead " : "") + (gone ? "hl-removed" : ""));
+      const gone = proposal && (proposal.diff.remove_edges || []).some(e => { const [x, y] = edgeParts(e); return x === n.id && y === c; });
+      edge(n.id, c, (dead ? "dead " : "") + (gone ? "hl-removed" : ""), port, kind);
     }));
     lay.ghosts.forEach(g => {
-      (g.dependencies || []).forEach(d => edge(d, g.id, "ghost"));
-      (g.outputs || []).forEach(o => edge(g.id, o, "ghost"));
+      (g.dependencies || []).forEach(d => edge(d, g.id, "ghost", "", "flow"));
+      (g.outputs || []).forEach(o => edge(g.id, o, "ghost", "", "flow"));
+      Object.entries(g.routes || {}).forEach(([port, kids]) => kids.forEach(o => edge(g.id, o, "ghost", port, g.type === "rag" ? "input" : "flow")));
     });
-    const prop = S.snap.proposals.find(p => p.proposal_id === S.proposal);
-    (prop && prop.diff.add_edges || []).forEach(e => edge(e[0], e[1], "ghost"));
+    (proposal && proposal.diff.add_edges || []).forEach(e => { const [x, y, port] = edgeParts(e); const nx = nodes[x] || lay.ghosts.find(g => g.id === x); edge(x, y, "ghost", port, nx && nx.type === "rag" ? "input" : "flow"); });
 
     const drawNode = (n, ghost) => {
       const p = lay.pos[n.id];
@@ -466,7 +491,7 @@
         class: `pl-node t-${n.type} st-${status} ${ghost ? "ghost hl-added" : hlClass(n.id)} ${S.selected === n.id ? "sel" : ""}${S.drag && S.drag.id === n.id ? " dragging" : ""}${n.state_variables && n.state_variables.draft ? " draft" : ""}`,
         "data-id": n.id, tabindex: "0", role: "button", "aria-pressed": String(S.selected === n.id),
         "aria-label": `${n.title}. ${T("pl.type." + n.type)}, ${T("pl.status." + status)}, ${T("pl.assignee." + n.assignee)}`,
-      }, svg("title", {}, document.createTextNode(`${n.title}\n${n.description || ""}`)), shape(n.type, p.x, p.y));
+      }, svg("title", {}, document.createTextNode(`${n.title}\n${n.description || ""}`)), shape(n.type, p.x, p.y, hOf(n)));
       const label = svg("text", { x: p.x + W / 2, y: p.y + H / 2 - 4, class: "pl-t", "text-anchor": "middle" });
       label.textContent = clip(n.title, 20);
       const sub = svg("text", { x: p.x + W / 2, y: p.y + H / 2 + 14, class: "pl-s", "text-anchor": "middle" });
@@ -482,13 +507,40 @@
           moveBy(n.id, dx * step, dy * step, true);
         }
       });
+      const rows = branchesOf(n);
+      rows.forEach((b, i) => {                                           // a decision: the label of each branch beside its connector, cut with an ellipsis (the whole text in the tooltip)
+        const row = svg("text", { x: p.x + W - 12, y: p.y + HEAD + i * BR + BR / 2 + 4, class: "pl-br", "text-anchor": "end" }, svg("title", {}, document.createTextNode(b.label)));
+        row.textContent = clip(b.label, 17);
+        g.append(row);
+      });
       if (!ghost) {
         g.addEventListener("pointerdown", e => startDrag(e, n.id, lay));
-        for (const side of ["in", "out"]) {                              // the ends a link is drawn from: out to the step that waits, in from the step it waits for
-          const port = svg("circle", { class: "pl-port " + side, cx: side === "out" ? p.x + W : p.x, cy: p.y + H / 2, r: "6" },
-            svg("title", {}, document.createTextNode(T(side === "out" ? "pl.port.out" : "pl.port.in"))));
-          port.addEventListener("pointerdown", e => startLink(e, n.id, side));
-          g.append(port);
+        const dot = (cls, at, r, word, label, start) => {               // a small, quiet connector; the touch target is a larger area that draws nothing
+          const grp = svg("g", { class: "pl-pg " + cls, role: "button", tabindex: "0", "aria-label": label },
+            svg("title", {}, document.createTextNode(word)),
+            svg("circle", { class: "pl-hit", cx: at.x, cy: at.y, r: String(r.hit) }),
+            svg("circle", { class: "pl-port " + cls, cx: at.x, cy: at.y, r: String(r.dot) }));
+          grp.addEventListener("pointerdown", start);
+          grp.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); S.selected = n.id; S.refocus = n.id; render(); say(T("pl.port.key")); } });
+          g.append(grp);
+        };
+        if (n.type !== "rag") dot("in", portPt(lay, n, "in", "", "flow"), { dot: 5.5, hit: 22 }, T("pl.port.in"), T("pl.port.in"), e => startLink(e, n.id, "in", "", "flow"));
+        if (n.type === "action") dot("in data", portPt(lay, n, "in", "", "input"), { dot: 5.5, hit: 16 }, T("pl.port.rag.in"), T("pl.port.rag.in"), e => startLink(e, n.id, "in", "rag", "input"));
+        if (n.type === "decision") {
+          rows.forEach((b, i) => {
+            const at = portPt(lay, n, "out", b.id, "flow"), name = T("pl.port.branch", b.label);
+            const grp = svg("g", { class: "pl-pg out branch", role: "button", tabindex: "0", "aria-label": name },
+              svg("title", {}, document.createTextNode(name)),
+              svg("rect", { class: "pl-hit", x: p.x + W - 104, y: p.y + HEAD + i * BR, width: 110, height: BR }),
+              svg("circle", { class: "pl-port out", cx: at.x, cy: at.y, r: "5.5" }));
+            grp.addEventListener("pointerdown", e => startLink(e, n.id, "out", b.id, "flow"));
+            grp.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); S.selected = n.id; S.refocus = n.id; render(); say(T("pl.port.key")); } });
+            g.append(grp);
+          });
+        } else if (n.type === "rag") {
+          dot("out data", portPt(lay, n, "out", "rag", "input"), { dot: 5.5, hit: 22 }, T("pl.port.rag.out"), T("pl.port.rag.out"), e => startLink(e, n.id, "out", "rag", "input"));
+        } else {
+          dot("out", portPt(lay, n, "out", "", "flow"), { dot: 5.5, hit: 22 }, T("pl.port.out"), T("pl.port.out"), e => startLink(e, n.id, "out", "", "flow"));
         }
       }
       if (ghost) g.setAttribute("aria-disabled", "true");
@@ -509,29 +561,36 @@
   function pickEdge(key) {
     S.edge = S.edge === key ? "" : key;
     S.selected = "";
-    if (S.edge) { const [a, b] = key.split(">"), nodes = S.snap.plan.nodes; say(T("pl.link.picked", (nodes[a] || {}).title || a, (nodes[b] || {}).title || b)); }
+    if (S.edge) { const { a, b } = parseKey(key), nodes = S.snap.plan.nodes; say(T((nodes[a] || {}).type === "rag" ? "pl.feed.picked" : "pl.link.picked", (nodes[a] || {}).title || a, (nodes[b] || {}).title || b)); }
     render();
   }
-  async function removeLink(a, b) {
+  async function removeLink(a, b, port) {
     S.edge = "";
-    await userDiff({ remove_edges: [[a, b]] }, T("pl.link.removed"));
+    await userDiff({ remove_edges: [port ? [a, b, port] : [a, b]] }, T("pl.link.removed"));
   }
-  async function addLink(a, b) {
-    const nodes = S.snap.plan.nodes;
-    if ((nodes[a] || { outputs: [] }).outputs.includes(b)) { say(T("pl.link.exists"), true); return; }
-    await userDiff({ add_edges: [[a, b]] }, T("pl.link.added"));
-    S.edge = a + ">" + b;
+  const isLinked = (a, b, port) => { const n = (S.snap.plan.nodes[a] || {}); return n.routes && port ? (n.routes[port] || []).includes(b) : (n.outputs || []).includes(b); };
+  /* the step `a` is connected to `b` from its connector `port` (empty: the only one it has); a RAG node feeds an action, nothing waits for it */
+  async function addLink(a, b, port) {
+    const nodes = S.snap.plan.nodes, from = nodes[a], to = nodes[b];
+    if (!from || !to) return;
+    if (from.type === "decision" && !port) { say(T("pl.link.pickbranch"), true); return; }
+    if (from.type === "rag" && to.type !== "action") { say(T("pl.link.ragonly"), true); return; }
+    if (to.type === "rag") { say(T("pl.link.ragin"), true); return; }
+    if (isLinked(a, b, port)) { say(T("pl.link.exists"), true); return; }
+    await userDiff({ add_edges: [port ? [a, b, port] : [a, b]] }, T(from.type === "rag" ? "pl.feed.added" : "pl.link.added"));
+    S.edge = edgeKey(a, b, from.type === "decision" || from.type === "rag" ? port : "");
     render();
   }
   /* a link follows the pointer from the port until it is let go over a step; anywhere else it is dropped */
-  function startLink(e, id, side) {
+  function startLink(e, id, side, port, kind) {
     if (e.button !== undefined && e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
     const svgEl = S.svg, ctm = svgEl && svgEl.getScreenCTM();
     if (!ctm) return;
     const toSvg = ev => { const pt = svgEl.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY; return pt.matrixTransform(ctm.inverse()); };
-    const at = shownAt(id), from = { x: side === "out" ? at.x + W : at.x, y: at.y + H / 2 };
+    const nodeNow = S.snap.plan.nodes[id], lay0 = S.lastLayout;
+    const from = nodeNow && lay0 ? portPt(lay0, nodeNow, side, port, kind) : (() => { const at = shownAt(id); return { x: side === "out" ? at.x + W : at.x, y: at.y + H / 2 }; })();
     const line = svg("path", { class: "pl-edge ghost pl-linking" });
     svgEl.append(line);
     let over = "";
@@ -562,7 +621,10 @@
       done();
       S.justDragged = true;                                            // the click that follows must not select a step
       setTimeout(() => { S.justDragged = false; }, 0);
-      if (target) addLink(side === "out" ? id : target, side === "out" ? target : id);
+      if (target) {
+        const a = side === "out" ? id : target, b = side === "out" ? target : id, na = S.snap.plan.nodes[a];
+        addLink(a, b, kind === "input" ? "rag" : na && na.type === "decision" ? (side === "out" ? port : "") : "");
+      }
     };
     const cancel = () => done();
     const esc = ev => { if (ev.key === "Escape") { ev.preventDefault(); done(); } };
@@ -645,7 +707,7 @@
   /* ---- the layout of the whole plan: an icon at the corner of the graph opens the kinds of layout; choosing one shows it, Apply keeps it, a click outside
      (or Escape) puts everything back ---- */
   const AUTO = PlanKinds.LAYOUTS;
-  const autoPlace = kind => PlanKinds.arrange(kind, S.snap, { W, H, GX, GY, PAD, clamp });
+  const autoPlace = kind => PlanKinds.arrange(kind, S.snap, { W, H: Math.max(H, ...Object.values(S.snap.plan.nodes).map(hOf)), GX, GY, PAD, clamp });
   function openAuto(open) {
     S.auto = open ? { kind: "", at: null } : null;
     ui.autoBox.hidden = !open;
@@ -722,9 +784,9 @@
     const n = S.selected && S.snap.plan.nodes[S.selected];
     ui.detail.replaceChildren(el("div", { class: "sh" }, el("b", { id: "pl-detail-h", text: T("pl.detail") })));
     if (!n && S.edge) {
-      const [a, b] = S.edge.split(">"), nodes = S.snap.plan.nodes;
-      ui.detail.append(el("div", { class: "pad" }, el("p", { text: T("pl.link.picked", (nodes[a] || {}).title || a, (nodes[b] || {}).title || b) }),
-        el("button", { type: "button", class: "btn pl-btn pl-danger", title: T("pl.link.tip"), text: T("pl.link.remove"), onclick: () => removeLink(a, b) })));
+      const { a, b, port } = parseKey(S.edge), nodes = S.snap.plan.nodes;
+      ui.detail.append(el("div", { class: "pad" }, el("p", { text: T((nodes[a] || {}).type === "rag" ? "pl.feed.picked" : "pl.link.picked", (nodes[a] || {}).title || a, (nodes[b] || {}).title || b) }),
+        el("button", { type: "button", class: "btn pl-btn pl-danger", title: T("pl.link.tip"), text: T("pl.link.remove"), onclick: () => removeLink(a, b, port) })));
       return;
     }
     if (!n) { ui.detail.append(el("p", { class: "pad dim", text: T("pl.detail.none") })); return; }
@@ -733,7 +795,7 @@
     const desc = el("textarea", { id: "pl-d-desc", rows: "3", disabled: done, text: n.description });
     const assignee = el("select", { id: "pl-d-assignee", disabled: done },
       ["agent", "user", "third_party"].map(a => el("option", { value: a, text: T("pl.assignee." + a), selected: a === n.assignee })));
-    const cond = n.type === "decision" || n.type === "sensor"
+    const cond = n.type === "sensor"
       ? el("textarea", { id: "pl-d-cond", rows: "4", disabled: done, spellcheck: "false", text: JSON.stringify(n.conditions, null, 2) })
       : null;
     const produces = el("input", { id: "pl-d-produces", value: (n.produces || []).map(p => p.type === "any" ? p.name : `${p.name}:${p.type}`).join(", "), disabled: done, autocomplete: "off", spellcheck: "false", placeholder: "uova:number, presenti:number" });
@@ -752,6 +814,7 @@
     if (n.state_variables.matched) facts.push(T("pl.fact.matched", n.state_variables.matched.text));
     if (n.state_variables.sensor_error) facts.push(T("pl.fact.sensorerr", n.state_variables.sensor_error));
     if (n.state_variables.no_route) facts.push(T("pl.fact.noroute", noRouteText(n.state_variables.no_route)));
+    if (n.state_variables.no_branch) facts.push(T("pl.fact.nobranch", noRouteText(n.state_variables.no_branch)));
     if (n.call_request) facts.push(T("pl.fact.call", n.call_request.number, n.call_request.reason));
     if (n.wiki_query) facts.push(T("pl.fact.wiki", n.wiki_query));
     const sv = n.state_variables;
@@ -773,7 +836,8 @@
       el("label", { for: "pl-d-assignee", text: T("pl.f.assignee") }), assignee,
       n.type === "action" ? [el("label", { for: "pl-d-produces", text: T("pl.f.produces") }), produces, el("p", { class: "help", text: T("pl.f.produces.help") })] : [],
       specForm ? el("fieldset", { class: "pl-parents pl-spec" }, el("legend", { text: T("pl.type." + n.type) }), el("p", { class: "help", text: T("pl.kind." + n.type + ".d") }), specForm.el) : [],
-      cond ? [el("label", { for: "pl-d-cond", text: T("pl.f.cond") }), cond, el("p", { class: "help", text: T(n.type === "sensor" ? "pl.f.cond.sensor.help" : "pl.f.cond.help") })] : [],
+      cond ? [el("label", { for: "pl-d-cond", text: T("pl.f.cond") }), cond, el("p", { class: "help", text: T("pl.f.cond.sensor.help") })] : [],
+      connectionsBox(n),
       el("label", { for: "pl-d-tries", text: T("pl.f.tries") }), tries,
       el("label", { for: "pl-d-wait", text: T("pl.f.wait") }), wait,
       el("p", { class: "help", text: T("pl.f.retry.help") }),
@@ -785,6 +849,30 @@
         el("button", { type: "button", class: "btn pl-btn", title: T("pl.tip.fail"), text: T("pl.fail"), onclick: () => mark(n.id, "failed") }),
         el("button", { type: "button", class: "btn pl-btn", title: T("pl.tip.rewind"), text: T("pl.rewind"), onclick: () => rewind(n.id) }),
         removeButton(n))));
+  }
+
+  /* the connections of a step as a list with buttons: what the graph does with a drag, for a phone and a keyboard. A decision shows each branch with the steps
+     it leads to and a choice of one more; a RAG node shows the actions it feeds; an action shows the RAG nodes that feed it. */
+  function connectionsBox(n) {
+    const nodes = S.snap.plan.nodes, title = id => (nodes[id] || {}).title || id;
+    const sets = n.type === "decision" ? branchesOf(n).map(b => ({ port: b.id, label: b.label, kids: (n.routes || {})[b.id] || [] })) : n.type === "rag" ? [{ port: "rag", label: T("pl.conn.feeds"), kids: (n.routes || {}).rag || [] }] : [];
+    if (n.type === "action") {
+      const by = Object.values(nodes).filter(x => x.type === "rag" && ((x.routes || {}).rag || []).includes(n.id));
+      return by.length ? el("fieldset", { class: "pl-parents pl-conn" }, el("legend", { text: T("pl.conn.title") }), el("p", { class: "help", text: T("pl.conn.fedby", by.map(x => x.title).join(", ")) })) : [];
+    }
+    if (!sets.length) return [];
+    const done = n.status === "completed";
+    const choices = n.type === "rag" ? Object.values(nodes).filter(x => x.type === "action") : Object.values(nodes).filter(x => x.id !== n.id && x.type !== "rag");
+    return el("fieldset", { class: "pl-parents pl-conn" }, el("legend", { text: T("pl.conn.title") }), el("p", { class: "help", text: T(n.type === "rag" ? "pl.conn.rag.help" : "pl.conn.branch.help") }),
+      ...sets.map((set, i) => {
+        const pick = el("select", { id: `pl-c-${i}`, "aria-label": T("pl.conn.pick", set.label), disabled: done },
+          el("option", { value: "", text: T("pl.conn.choose") }), ...choices.filter(x => !set.kids.includes(x.id)).map(x => el("option", { value: x.id, text: x.title })));
+        return el("div", { class: "pl-connrow" },
+          el("b", { class: "pl-connlabel", title: set.label, text: clip(set.label, 40) }),
+          el("ul", { class: "pl-connlist" }, ...set.kids.map(k => el("li", {}, el("span", { text: title(k) }),
+            el("button", { type: "button", class: "btn pl-btn pl-connx", title: T("pl.link.remove"), "aria-label": T("pl.conn.removeone", title(k), set.label), disabled: done, text: "\u00D7", onclick: () => removeLink(n.id, k, set.port) })))),
+          el("div", { class: "pl-connadd" }, pick, el("button", { type: "button", class: "btn pl-btn", disabled: done, text: T("pl.conn.connect"), onclick: () => { if (pick.value) addLink(n.id, pick.value, set.port); } })));
+      }));
   }
 
   function removeButton(n) {
@@ -959,7 +1047,7 @@
   async function putKind(type, at) {
     if (!S.snap) return;
     const fields = PlanKinds.fieldsOf(kindList(), type);
-    const needs = fields.length > 0 || type === "decision" || type === "sensor";
+    const needs = fields.some(f => f.required) || type === "sensor";
     const id = "n_" + Math.random().toString(36).slice(2, 8);
     const node = { id, type, title: T("pl.type." + type), description: "", assignee: type === "input" ? "user" : "agent", dependencies: [], outputs: [],
       ...(needs ? { state_variables: { draft: true } } : {}), ...(at ? { position: at } : {}) };
@@ -1094,6 +1182,8 @@
         ...field("pl-h-cost", T("pl.hz.cost"), el("input", { id: "pl-h-cost", inputmode: "decimal", autocomplete: "off", value: money(p.cost) })),
         ...field("pl-h-costcur", T("pl.hz.currency"), el("input", { id: "pl-h-costcur", maxlength: "3", autocomplete: "off", value: p.cost ? p.cost.currency : "EUR" })));
     }
+    S.horizonPick = window.ragPick ? window.ragPick.create({ T, ids: p.rag_archives || [], label: T("pl.f.profile.rag") }) : null;
+    if (S.horizonPick) rows.push(el("b", { class: "pl-hzrag", text: T("pl.f.profile.rag") }), el("p", { class: "help", text: T("pl.f.profile.rag.help") }), S.horizonPick.el);
     ui.horizon.replaceChildren(head(T("pl.hz.title")),
       el("form", { class: "pad pl-dform", onsubmit: saveHorizon }, el("p", { class: "help", text: T(constant ? "pl.hz.help.long" : "pl.hz.help.short") }), ...rows,
         el("button", { class: "btn primary pl-btn", text: T("pl.save") })));
@@ -1115,6 +1205,7 @@
     } else {
       profile = { ...S.snap.profile, starts_on: val("pl-h-start"), ends_on: val("pl-h-end"), cost: amount("pl-h-cost", "pl-h-costcur") };
     }
+    if (S.horizonPick) profile.rag_archives = S.horizonPick.get();
     ui.horizon.dataset.key = "";
     await event({ type: "plan:update_meta", changes: { profile } }, T("pl.hz.saved"));
     await refresh();
