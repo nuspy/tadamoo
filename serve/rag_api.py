@@ -155,8 +155,8 @@ class RagApi:
 
     def reindex(self, aid: str) -> Dict[str, Any]:
         """Cuts the saved texts again and embeds them, in the background: `{job}`; its result is `{chunks, embedded, note}`."""
-        self.store.load(aid)
-        return {"job": self.jobs.start("index " + aid, lambda progress, cancel: self.store.reindex(aid, progress, cancel), aid)}
+        name = self.store.load(aid).meta["name"]
+        return {"job": self.jobs.start("index " + name, lambda progress, cancel: self.store.reindex(aid, progress, cancel), aid)}
 
     def search(self, req: Dict[str, Any]) -> Dict[str, Any]:
         """`{query, archives: [ids] | project: key, top_k, min_share?, strict?}`: the best passages of those archives, or of all the archives of the project.

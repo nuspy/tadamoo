@@ -62,7 +62,7 @@
     if (S.jobs && S.jobs.length && !jobNow && !working) {                 // a document is still being read: show how it goes
       const job = S.jobs[0];
       working = true;
-      followJob(job, String(job.label || "").replace(/^add /, "")).then(out => { working = false; say(out.text, !out.ok); reloadAll(); });
+      followJob(job, String(job.label || "").replace(/^(add|index) /, "")).then(out => { working = false; say(out.text, !out.ok); reloadAll(); });
     }
     if (chosen) await reloadDetail(); else paint();
   }

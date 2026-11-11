@@ -197,6 +197,45 @@ def test_hybrid_search_switches_on_when_an_embedder_appears(tmp_path):
     assert api.get(aid)["archive"]["mode"] == "hybrid" and api.search({"query": "boat keel", "project": PROJ})["mode"] == "hybrid"
 
 
+class EmbedInfo:
+    """What the embedding service tells the page, without a model."""
+
+    def info(self):
+        return {"enabled": True, "available": True, "model": "fake-1", "reason": "", "device": "cuda", "models": [{"name": "fake-1", "kind": "embed", "bytes": 5}]}
+
+    def test(self):
+        return {"ok": True, "model": "fake-1", "device": "cuda", "seconds": 0.5, "dim": 2}
+
+
+def test_the_embedding_state_the_test_and_the_settings_come_through_the_service(tmp_path):
+    api = make(tmp_path, lambda: Embedder())
+    assert api.embedding() == {"available": True, "model": "fake-1"} and api.embedding_test()["ok"] is False                  # no service: nothing to try
+    api.service = EmbedInfo()
+    got = api.overview(PROJ)["embedding"]
+    assert got["available"] and got["model"] == "fake-1" and got["device"] == "cuda" and got["models"][0]["name"] == "fake-1"
+    assert api.route_post(["embedding", "test"], {}, b"{}")["dim"] == 2
+    out = api.route_post(["settings"], {}, json.dumps({"lexical_weight": 0.1, "rerank": False, "idle_s": 30}).encode())
+    assert out["settings"]["lexical_weight"] == 0.1 and out["settings"]["rerank"] is False and out["embedding"]["device"] == "cuda"
+    with pytest.raises(RagError):
+        api.route_post(["settings"], {}, json.dumps({"lexical_weight": 2}).encode())
+
+
+def test_indexing_again_is_a_job_that_tells_its_passages_and_search_takes_a_share_and_a_strictness(tmp_path):
+    api = make(tmp_path, lambda: Embedder())
+    aid = new(api, "Boats")["archive"]["id"]
+    up(api, aid, "boats.txt", BOATS)
+    job = api.reindex(aid)["job"]
+    assert job["label"] == "index Boats"
+    done = api.jobs.wait(job["id"])
+    assert done["state"] == "done" and done["result"]["embedded"] is True and done["pages"] == done["result"]["chunks"] and done["stage"] == "indexing"
+    assert api.search({"query": "boat keel", "archives": [aid, "gone-000000"], "strict": False})["searched"] == 2
+    with pytest.raises(RagError):
+        api.search({"query": "boat keel", "archives": [aid, "gone-000000"]})
+    with pytest.raises(RagError, match="min_share"):
+        api.search({"query": "boat", "archives": [aid], "min_share": 2})
+    assert api.search({"query": "boat keel", "archives": [aid], "min_share": 0.5})["hits"]
+
+
 class Routes(unittest.TestCase):
     """The routes, on a server with this PC's own page."""
 
