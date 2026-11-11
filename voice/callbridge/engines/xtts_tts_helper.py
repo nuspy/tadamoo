@@ -30,6 +30,7 @@ import struct
 import sys
 
 import helper_models
+import vram_backing
 
 # Le librerie stampano su stdout, che qui trasporta audio binario: si dirotta
 # tutto su stderr PRIMA di qualunque import pesante.
@@ -293,7 +294,7 @@ def _fine_stream() -> None:
 
 
 def main() -> int:
-    for riga in sys.stdin:
+    for riga in vram_backing.release_between(sys.stdin):
         riga = riga.strip()
         if not riga:
             continue

@@ -36,6 +36,11 @@ import time
 # pacchetto la imposta gia'; qui resta per chi lancia l'helper da solo.
 os.environ.setdefault("MIMALLOC_PURGE_DELAY", "0")
 
+try:                                  # gives back the commit Windows charges for GPU memory (engines/vram_backing.py)
+    from callbridge.engines import vram_backing
+except ImportError:
+    import vram_backing
+
 # Protezione dello stdout del protocollo PRIMA di importare librerie: un loro
 # print() finirebbe nel flusso e lo corromperebbe (gotcha gia' pagato con
 # l'helper Chatterbox).
@@ -110,6 +115,7 @@ def main() -> int:
     stdin = sys.stdin.buffer
 
     while True:
+        vram_backing.release()             # what the last command allocated, while waiting for the next
         line = stdin.readline()
         if not line:
             return 0                       # EOF: il bridge e' andato via

@@ -37,6 +37,7 @@ import struct
 import sys
 
 import helper_models
+import vram_backing
 
 # Pesi: FunAudioLLM/Fun-CosyVoice3-0.5B-2512, in <models folder>/tts/cosyvoice-3/.
 _BINARY_OUT = sys.stdout.buffer
@@ -135,7 +136,7 @@ def _fine_stream() -> None:
 
 
 def main() -> int:
-    for riga in sys.stdin:
+    for riga in vram_backing.release_between(sys.stdin):
         riga = riga.strip()
         if not riga:
             continue

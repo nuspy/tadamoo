@@ -837,7 +837,21 @@ def _cache_of(pdir: str, clip: str) -> str:
     return os.path.join(pdir, "prepared", stem + (f"__h{OUTPUT_HEIGHT}" if OUTPUT_HEIGHT else ""))
 
 
+def _start_vram_backing() -> None:
+    """Gives back the commit Windows charges for the GPU memory (callbridge/engines/vram_backing.py, loaded from its file: it needs only the standard library)."""
+    import importlib.util
+    try:
+        path = os.path.join(HERE, "..", "callbridge", "engines", "vram_backing.py")
+        spec = importlib.util.spec_from_file_location("vram_backing", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.start_sweeper()
+    except Exception as e:  # noqa: BLE001 (a missing file only means the commit stays as it is)
+        log(f"vram_backing not started: {e}")
+
+
 def main() -> int:
+    _start_vram_backing()
     engine = Engine()
     emit("ready")
 

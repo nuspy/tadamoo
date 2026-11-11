@@ -33,6 +33,7 @@ import struct
 import sys
 
 import helper_models
+import vram_backing
 
 _BINARY_OUT = sys.stdout.buffer
 sys.stdout = sys.stderr
@@ -94,7 +95,7 @@ def _errore() -> None:
 
 
 def main() -> int:
-    for riga in sys.stdin:
+    for riga in vram_backing.release_between(sys.stdin):
         riga = riga.strip()
         if not riga:
             continue

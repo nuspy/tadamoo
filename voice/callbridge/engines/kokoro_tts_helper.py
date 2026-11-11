@@ -34,6 +34,7 @@ import struct
 import sys
 
 from kokoro_lang import kokoro_lang      # next to this script; the same mapping as the engine
+import vram_backing                      # gives back the commit Windows charges for GPU memory
 
 # --- protezione dello stdout binario (PRIMA di importare qualunque libreria) ---
 _BINARY_OUT = sys.stdout.buffer
@@ -146,7 +147,7 @@ def main() -> int:
     if device == "cuda" and prov and not prov[0].startswith("CUDA"):
         log("ATTENZIONE: CUDA richiesta ma onnxruntime usa " + prov[0])
 
-    for riga in sys.stdin:
+    for riga in vram_backing.release_between(sys.stdin):
         riga = riga.strip()
         if not riga:
             continue

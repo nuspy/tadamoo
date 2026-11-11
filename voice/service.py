@@ -191,12 +191,24 @@ def _install_stop(stop: threading.Event, done: threading.Event) -> None:
         ctypes.windll.kernel32.SetConsoleCtrlHandler(on_console, True)
 
 
+def _keep_vram_commit(settings_path: str) -> None:
+    """`"keep_vram_commit": true` in voice.json: the helpers and the avatar worker (this process's children) do not give back the commit Windows
+    charges for GPU memory (engines/vram_backing.py)."""
+    try:
+        with open(settings_path, encoding="utf-8") as f:
+            if json.load(f).get("keep_vram_commit") is True:
+                os.environ["TADAMOO_KEEP_VRAM_COMMIT"] = "1"
+    except (OSError, ValueError, AttributeError):
+        pass
+
+
 def serve(args) -> int:
     host = args.host
     if host not in LOOPBACK:
         raise StartError(f"the service listens on loopback only, not on {host}")
     token = read_token(args.token_file)
     logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    _keep_vram_commit(args.settings)
     app, state = build_app(args.settings, token, args.default_models_dir, host, args.port, with_gateway=not args.no_gateway)
     from werkzeug.serving import make_server
     try:

@@ -85,6 +85,18 @@ offers its download on the card (`voicedl.js`, shared with Settings > Voice). Th
 unloads and, when it applies, that the model is loaded again. After a removal the "Change services in memory" button appears (in the header and on the tab) and its confirmation
 says what is already unloaded, the VRAM recovered, and that the model loads again using all the free VRAM minus the reserve.
 
+## The commit of the GPU memory
+
+Under WDDM every GPU allocation is charged its full size to the process commit (`docs/WINDOWS.md`). The processes of the voice engines give it
+back, as the engine does (`voice/callbridge/engines/vram_backing.py`, standard library only): every TTS helper, the STT helper and the avatar
+worker decommit the eviction backing of what they allocate, a region only when none of its pages is in RAM and only once, so content an eviction
+wrote is never discarded. The helpers sweep before the first request and after each one; the avatar worker every 5 seconds. Each sweep that gives
+something back writes one line to the log (`vram_backing: N MiB of commit given back in M regions`). `"keep_vram_commit": true` in `voice.json`, or
+`TADAMOO_KEEP_VRAM_COMMIT=1` in the environment, keeps the commit as it is.
+
+The same risk as the engine's applies: with the backing released, an allocation another program's CUDA work evicts has nowhere to go and its process
+can hang until it is stopped. Keep the commit when another program allocates GPU memory while the voice engines are loaded.
+
 ## The load profiles
 
 A load profile saved from the Loader keeps the voice functions as `voice.json` holds them: `{"voice": {"stt": {"on", "model", "device", "memory"},

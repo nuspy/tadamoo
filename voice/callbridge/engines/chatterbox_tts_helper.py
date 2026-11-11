@@ -49,6 +49,7 @@ import struct
 import sys
 
 import helper_models
+import vram_backing
 
 
 def log(*a) -> None:
@@ -165,7 +166,7 @@ def main() -> int:
     # quando cambia la voce richiesta.
     current_voice: str | None = object()  # sentinella != None (None = builtin)
 
-    for line in sys.stdin:
+    for line in vram_backing.release_between(sys.stdin):
         line = line.strip()
         if not line:
             continue
