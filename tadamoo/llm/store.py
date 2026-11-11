@@ -108,7 +108,7 @@ class SecureRegistry(Registry):
         self.credentials = credentials or default_store(self.path.parent)
         self.consumers = _Consumers(self.consumers)
         self._io = threading.RLock()
-        self._swap: Optional[Dict[str, Any]] = None
+        self.clock = time.time
         self.local_hosts = LOOPBACK                   # the addresses that are this PC (tests can say there are none)
 
     # -- the keys are not in the file --------------------------------------------------------------------
@@ -131,33 +131,64 @@ class SecureRegistry(Registry):
                     for field in OAUTH_FIELDS:
                         if oauth.get(field) == "@cred":
                             oauth[field] = self.credentials.read(self._ref(pid, "oauth." + field))
-            if self._swap is not None:
-                data["assignments"] = _Assignments(data.get("assignments") or {}, self._swap)
+            swap = self._read_swap()
+            if swap is not None:
+                data["assignments"] = _Assignments(data.get("assignments") or {}, {"pid": swap["pid"], "replace": set(swap.get("replace") or [])})
             return data
 
     # -- a swap: every function that runs on the loaded model uses one provider for a while ---------------------
 
+    SWAP_HOLD_S = 600.0
+
+    @property
+    def swap_path(self) -> Path:
+        return self.path.with_name("llm_swap.json")
+
+    def _read_swap(self) -> Optional[Dict[str, Any]]:
+        """The swap in force, from a file so that the agent sessions (processes of their own) read it too; one not renewed for `SWAP_HOLD_S` lapses."""
+        try:
+            swap = json.loads(self.swap_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(swap, dict) or not swap.get("pid") or float(swap.get("until") or 0) < self.clock():
+            return None
+        return swap
+
+    def _write_swap(self, swap: Dict[str, Any]) -> None:
+        tmp = self.swap_path.with_name("llm_swap.tmp")
+        tmp.write_text(json.dumps(swap), encoding="utf-8")
+        os.replace(tmp, self.swap_path)
+
     def begin_swap(self, pid: str) -> Dict[str, Any]:
-        """Until `end_swap`, every function with no provider, or on the model loaded in this server, reads as `pid`. The consent for the cloud is
-        not asked here: whoever begins the swap has the person's yes for it. Raises ValueError when the provider does not exist or cannot chat."""
+        """Until `end_swap` (or `SWAP_HOLD_S` without a `touch_swap`), every function with no provider, or on the model loaded in this server, reads
+        as `pid`. The consent for the cloud is not asked here: whoever begins the swap has the person's yes for it. Raises ValueError when the
+        provider does not exist or cannot chat."""
         with self._io:
-            self._swap = None
-            data = self.load()
+            data = Registry.load(self)
             prov = self._find(data, pid)
             if prov is None:
                 raise ValueError(f"there is no provider {pid!r}")
             if TYPES.get(prov.get("type") or "", {}).get("api", "") not in CHAT_APIS:
                 raise ValueError(f"{prov.get('name') or pid} cannot hold a conversation")
-            here = {p["id"] for p in data.get("providers", []) if TYPES.get(p.get("type") or "", {}).get("this_server")}
-            self._swap = {"pid": pid, "replace": here, "name": prov.get("name") or pid}
-            return dict(self._swap)
+            here = [p["id"] for p in data.get("providers", []) if TYPES.get(p.get("type") or "", {}).get("this_server")]
+            swap = {"pid": pid, "replace": here, "name": prov.get("name") or pid, "until": self.clock() + self.SWAP_HOLD_S}
+            self._write_swap(swap)
+            return swap
+
+    def touch_swap(self) -> bool:
+        with self._io:
+            swap = self._read_swap()
+            if swap is None:
+                return False
+            self._write_swap({**swap, "until": self.clock() + self.SWAP_HOLD_S})
+            return True
 
     def end_swap(self) -> None:
         with self._io:
-            self._swap = None
+            self.swap_path.unlink(missing_ok=True)
 
     def swap(self) -> Optional[Dict[str, Any]]:
-        return dict(self._swap) if self._swap is not None else None
+        return self._read_swap()
 
     def save(self, data: Dict[str, Any]) -> None:
         with self._io:

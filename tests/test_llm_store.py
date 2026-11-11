@@ -143,3 +143,16 @@ def test_a_swap_needs_a_provider_that_exists_and_can_chat(reg):
     with pytest.raises(ValueError, match="cannot hold a conversation"):
         reg.begin_swap(judge["id"])
     assert reg.swap() is None
+
+
+def test_a_swap_is_seen_by_another_process_and_lapses_when_it_is_not_renewed(reg, tmp_path):
+    cloud = reg.add({"type": "zai_coding", "api_key": "zk-123456789012"})
+    session = SecureRegistry(tmp_path / "llm_providers.json", credentials=FileCredentials(tmp_path / "creds.json"))      # an agent session reads the same files
+    now = [1000.0]
+    reg.clock = session.clock = lambda: now[0]
+    reg.begin_swap(cloud["id"])
+    assert session.load()["assignments"].get("chat") == cloud["id"] and session.swap()["name"]
+    now[0] += reg.SWAP_HOLD_S - 1
+    assert reg.touch_swap() and session.load()["assignments"].get("chat") == cloud["id"]
+    now[0] += reg.SWAP_HOLD_S + 1
+    assert session.load()["assignments"].get("chat") is None and session.swap() is None and reg.touch_swap() is False
