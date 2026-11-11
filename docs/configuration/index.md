@@ -138,7 +138,7 @@ Server options. Command line `--name`, config `server` block `"name"`.
 A server with `max-context` above 32768 has an elastic KV cache: each session backs its first 32768 cells at startup and
 takes more from the expert cache only when a request needs it. With `parallel`, each slot whose share is above 4096
 tokens does the same from 4096 cells, growing by 4096, and an idle conversation's KV moves to RAM once requests beside
-it have run 15 s. It is off with `kv-resident` or `vram-elastic`. See [running](../running.md#concurrent-requests---parallel-n).
+it have run 15 s. It is off with `kv-resident`. See [running](../running.md#concurrent-requests---parallel-n).
 
 ## Expert cache and memory
 
@@ -154,7 +154,7 @@ The model's experts live in VRAM (the expert cache), in RAM, or in the file. The
 | `expert-profile-save` | engine | file path | off | Save what the adaptive tier learned (experts in VRAM and routing counts) to this file on exit and periodically. A start that finds the file places it instead of the engine's profile, so the first request runs on what the last run learned: faster when the workload continues, slower when it changes ([adaptive tier](adaptive.md)). Needs the adaptive tier on. `tools/convert/convert.py --profile` reads it too. |
 | `expert-profile-save-every` | engine | minutes | 10 (`0` = on exit only) | How often the profile is saved. |
 | `resident-cpu-experts` | engine | switch | off (implied by `resident-experts`) | With `mmap-experts` and an expert profile: keep the experts the GPU does not hold in ordinary RAM, so none is read from the file again. `resident-experts` is this with the copy page-locked when possible and the file mapping as a fallback when it does not fit. |
-| `vram-elastic` | engine | switch | off | Hold the expert cache in segments so `POST /v1/vram` can lend VRAM to other programs between requests. Works with `resident-experts`: a shrink first copies the experts it gives back into RAM, so none is read from the file, and is refused (nothing changed) when the RAM above the floor cannot hold them; a grow frees those copies. |
+| `vram-elastic` | engine | switch | off | Hold the expert cache in segments so `POST /v1/vram` can lend VRAM to other programs between requests. With the elastic KV it lends only what leaves the KV room to reach `max-context` (a larger lend is granted down to that; the reply's `reserve_max_mib` and `capped` say so), and `null` returns the lend ([design](../engine-vram-arbiter.md)). Works with `resident-experts`: a shrink first copies the experts it gives back into RAM (and those of the slots the KV may take during the lend), so none is read from the file, and is refused (nothing changed) when the RAM above the floor cannot hold them; a grow frees those copies. |
 | `vram-segment-mib` | engine | integer MiB, at least 64 | 512 | The segment size of `vram-elastic`'s expert cache: the step VRAM is lent and taken back in. Below 64 turns `vram-elastic` off with a warning. |
 | `expert-cache` | engine | `auto`, or an integer count of expert blobs | `auto` (with an expert profile) | Keep this many expert blobs in VRAM and compute their rows on the GPU. `auto` takes as many as fit in the VRAM left after the weights, the session and `vram-reserve-mib`. |
 | `adapt-every` | engine | integer windows | 1 on a server, 4 with a layer split (`0` = off) | An adaptive round every N decode windows. [Adaptive tier](adaptive.md). |

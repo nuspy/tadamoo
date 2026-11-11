@@ -5,6 +5,7 @@
 
 #include <cuda_runtime.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -107,6 +108,30 @@ int main() {
         if (c.slots() != c.slots_within(c.mapped_bytes()) || !check(c, c.slots(), kBlob)) return fail("tail kept");
         if (!c.grow(c.full_bytes(), err) || c.slots() != kSlots || c.device_slot(0) != first) return fail("tail grow", err);
         if (!check(c, keep / kBlob, kBlob)) return fail("tail head after grow");
+    }
+    // both (--vram-elastic with the elastic KV): segments of the asked size, then the granule tail; a shrink inside the
+    // tail by whole granules, one inside the head keeps the segment its target falls in
+    {
+        basalt::core::ExpertCache c;
+        std::string err;
+        constexpr int64_t kTail = 20ll << 20;
+        c.set_segment_bytes(kSeg);
+        c.set_elastic_tail(kTail);
+        if (!c.open(kSlots, 4, 64, kBlob, err)) return fail("both open", err);
+        const std::vector<int64_t> ends = c.segment_ends();
+        if (!c.segmented() || c.elastic_bytes() < kTail - (2ll << 20) || c.elastic_bytes() > kTail || ends.empty() ||
+            ends.back() != c.mapped_bytes() || ends.front() != kSeg)
+            return fail("both layout");
+        if (!fill(c, 0, kSlots, kBlob)) return fail("both fill");
+        const int64_t keep = c.full_bytes() - c.elastic_bytes() / 2;
+        if (!c.shrink(keep, err) || c.mapped_bytes() > keep + (2ll << 20) || c.mapped_bytes() < keep)
+            return fail("both tail shrink", err);
+        const int64_t target = c.full_bytes() - c.elastic_bytes() - kSeg - 1;
+        if (!c.shrink(target, err) || c.mapped_bytes() != *std::lower_bound(ends.begin(), ends.end(), target))
+            return fail("both head shrink", err);
+        if (!check(c, c.slots(), kBlob)) return fail("both kept");
+        if (!c.grow(c.full_bytes(), err) || c.slots() != kSlots || !check(c, c.slots_within(target), kBlob))
+            return fail("both grow", err);
     }
     // the default (no segment size): one allocation, shrink refused
     basalt::core::ExpertCache d;

@@ -2,6 +2,7 @@
 #include "basalt/core/expert_cache.hpp"
 
 #include <cuda_runtime.h>
+#include "basalt/core/segment_plan.hpp"
 #include "basalt/core/vmm.hpp"
 
 #include <algorithm>
@@ -154,27 +155,19 @@ bool ExpertCache::open_segmented(uint64_t want, std::string& err) {
         err = "ExpertCache: cannot read the driver's allocation granularity";
         return false;
     }
-    const uint64_t total = (want + g - 1) / g * g;
-    // uniform segments (--vram-elastic), or large head segments then granule-sized ones over the elastic tail
-    const uint64_t seg = seg_req_ > 0 ? ((uint64_t) seg_req_ + g - 1) / g * g : g;
-    const uint64_t tail = std::min<uint64_t>(total, (uint64_t) std::max<int64_t>(tail_req_, 0) / g * g);
-    const uint64_t head_end = seg_req_ > 0 ? 0 : total - tail;
-    const uint64_t head_seg = std::max<uint64_t>(g, (1ull << 30) / g * g);
-    seg_ = (int64_t) seg;
-    head_end_ = (int64_t) head_end;
-    base_ = vmm::reserve(total);
+    // head segments (--vram-segment-mib, else large ones), then granule-sized ones over the elastic tail
+    SegmentPlan plan = plan_segments(want, g, seg_req_, tail_req_);
+    seg_ = plan.seg;
+    head_end_ = plan.head_end;
+    base_ = vmm::reserve((uint64_t) plan.total);
     if (base_ == nullptr) {
         err = "ExpertCache: cannot reserve the address range of the segmented expert cache";
         return false;
     }
-    reserved_ = total;
-    for (uint64_t at = 0; at < total;) {
-        const uint64_t n = at < head_end ? std::min(head_seg, head_end - at) : std::min(seg, total - at);
-        segs_.push_back(0);
-        seg_off_.push_back((int64_t) at);
-        seg_size_.push_back((int64_t) n);
-        at += n;
-    }
+    reserved_ = (uint64_t) plan.total;
+    seg_off_ = std::move(plan.off);
+    seg_size_ = std::move(plan.size);
+    segs_.assign(seg_off_.size(), 0);
     for (size_t i = 0; i < segs_.size(); ++i) {
         segs_[i] = vmm::map(base_ + seg_off_[i], (uint64_t) seg_size_[i]);
         if (segs_[i] == 0) {
@@ -272,7 +265,13 @@ bool ExpertCache::grow(int64_t want_bytes, std::string& err) {
 }
 
 int64_t ExpertCache::elastic_bytes() const {
-    return segs_.empty() || seg_req_ > 0 ? 0 : (int64_t) reserved_ - head_end_;
+    return segs_.empty() ? 0 : (int64_t) reserved_ - head_end_;
+}
+
+std::vector<int64_t> ExpertCache::segment_ends() const {
+    std::vector<int64_t> ends(seg_off_.size());
+    for (size_t i = 0; i < ends.size(); ++i) ends[i] = seg_off_[i] + seg_size_[i];
+    return ends;
 }
 
 bool ExpertCache::open(int64_t n_slots, int64_t n_layers, int64_t n_expert, int64_t blob_bytes,

@@ -96,12 +96,15 @@ public:
     /// prompt path's loan all hold addresses into it).  0 (the default): one cudaMalloc.  The slots past `slots()`
     /// after a shrink must hold no resident expert and no loan: the CALLER evicts them first (they become CPU misses).
     void set_segment_bytes(int64_t seg_bytes) { seg_req_ = seg_bytes > 0 ? seg_bytes : 0; }
-    /// **THE ELASTIC TAIL.**  With `tail_bytes` set before `open`/`open_sized` (and no segment size), the arena is
-    /// segmented too: large segments up to the last `tail_bytes`, then segments of the driver's granularity, so the
-    /// tail can be lent to the elastic KV pools one granule at a time (`shrink`/`grow`, same rules as above).
+    /// **THE ELASTIC TAIL.**  With `tail_bytes` set before `open`/`open_sized`, the arena is segmented too: head
+    /// segments (the segment size when one is set, else large ones) up to the last `tail_bytes`, then segments of the
+    /// driver's granularity, so the tail can be lent to the elastic KV pools one granule at a time
+    /// (`shrink`/`grow`, same rules as above).  The layout is `plan_segments` (segment_plan.hpp).
     void set_elastic_tail(int64_t tail_bytes) { tail_req_ = tail_bytes > 0 ? tail_bytes : 0; }
     /// The bytes of the granule-sized tail (0 when there is none).
     int64_t elastic_bytes() const;
+    /// Each segment's end offset, ascending (empty when not segmented).
+    std::vector<int64_t> segment_ends() const;
     bool segmented() const { return !segs_.empty(); }
     int64_t segment_bytes() const { return seg_; }
     /// Bytes of the arena backed by VRAM now (a whole number of segments; the arena when not segmented).

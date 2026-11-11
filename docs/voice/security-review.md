@@ -32,7 +32,7 @@ Nothing was run. Line numbers refer to that HEAD (34fcd135); each finding's Stat
   `/api/telegram/*` and `/api/personas/*`. DNS rebinding also works, because `Host` is not checked: it gives same-origin access, so the page
   can read answers as well (for example pending call approvals and then approve them). Chromium's Local Network Access prompt reduces this in
   recent Chrome and Edge, but other browsers and older builds do not have it.
-- Note: the trade-off is documented (`docs/WINDOWS.md:219-224`), but the branch adds routes where it leads to code execution.
+- Note: the trade-off is documented (`docs/windows-scripts.md`, the `--control-secret` paragraph), but the branch adds routes where it leads to code execution.
 - Fix: for every `/api/*` write (and every `/api/voice/*` request), refuse a request whose `Origin` is present and not the server's own, or
   whose `Sec-Fetch-Site` is `cross-site`. Refuse a `Host` that is not a loopback name unless a key was presented. That is the check already in
   `serve/voice_compat.py:142-148`; move it into the handler. Alternatively, make `--control-secret` the default.
