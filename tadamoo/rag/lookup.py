@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from tadamoo.rag import card
+from tadamoo.rag.ingest import meta as facts
 from tadamoo.rag.errors import RagError
 from tadamoo.rag.match import find
 from tadamoo.rag.recall import ProjectRecall, citation, shown, spread
@@ -66,7 +67,7 @@ def _queries(query: Any, queries: Any) -> List[str]:
 
 
 def search(store: RagStore, recall: ProjectRecall, query: Any = "", queries: Any = None, archive: str = "", document: str = "", expand: bool = False,
-           limit: Any = LIMIT) -> Dict[str, Any]:
+           limit: Any = LIMIT, filters: Any = None) -> Dict[str, Any]:
     """`{status, searched, passages: [{cite, archive, document, page, section, score, text, for?, flagged?}], mode, note?}`."""
     asked = _queries(query, queries)
     if not asked:
@@ -74,24 +75,25 @@ def search(store: RagStore, recall: ProjectRecall, query: Any = "", queries: Any
     ids, refused = scope(store, recall, archive if isinstance(archive, str) else "")
     if refused:
         return refused
-    only: Optional[Tuple[str, str]] = None
+    try:
+        narrow = facts.clean_filters(filters)
+    except RagError as e:
+        return {"status": "error", "note": str(e)}
     if isinstance(document, str) and document.strip():
         only, refused = pick_document(store, ids, document)
         if refused:
             return refused
-        ids = [only[0]]
+        ids, narrow = [only[0]], {**narrow, "document": only[1]["id"]}
     wanted = limit if isinstance(limit, int) and not isinstance(limit, bool) and limit >= 1 else (LIMIT if len(asked) == 1 else PER_QUERY)       # passages for each query
     wanted = min(wanted, LIMITS["top_k"])
-    per = LIMITS["top_k"] if only else wanted                                    # a filter by document takes the best of a wide search
     found: List[List[Dict[str, Any]]] = []
     mode, notes = "lexical", []
     for q in asked:
         try:
-            got = store.search(ids, q, top_k=per, strict=False) if ids else {"hits": [], "mode": "lexical", "note": ""}
+            got = store.search(ids, q, top_k=wanted, strict=False, filters=narrow) if ids else {"hits": [], "mode": "lexical", "note": ""}
         except RagError as e:
             return {"status": "error", "note": str(e)}
-        hits = [h for h in got["hits"] if only is None or (h["archive_id"], h["doc_id"]) == (only[0], only[1]["id"])][:wanted]
-        found.append(hits)
+        found.append(got["hits"])
         mode = "hybrid" if got.get("mode") == "hybrid" else mode
         if got.get("note") and got["note"] not in notes:
             notes.append(got["note"])
@@ -118,6 +120,10 @@ def search(store: RagStore, recall: ProjectRecall, query: Any = "", queries: Any
             break
         row = {"cite": citation(h), "archive": h["archive"], "document": h["document"], "page": h.get("page_start") or None, "section": h.get("path", ""),
                "score": h["score"], "text": text}
+        if h.get("summary"):
+            row["summary"] = h["summary"]
+        if h.get("facts"):
+            row["facts"] = h["facts"]
         if len(asked) > 1:
             row["for"] = owner.get(id(h), "")
         if h.get("flag"):
@@ -128,7 +134,7 @@ def search(store: RagStore, recall: ProjectRecall, query: Any = "", queries: Any
     if notes:
         answer["note"] = "; ".join(notes)
     elif not out:
-        answer["note"] = ("no passage of that document is among the best matches: try other terms, or read it with knowledge_read" if only else "no passage matches")
+        answer["note"] = "no passage matches" + (" with those filters or in that document: try other terms or fewer filters, or read it with knowledge_read" if narrow else "")
     return answer
 
 

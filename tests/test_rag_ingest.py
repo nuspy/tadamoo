@@ -7,6 +7,7 @@ import pytest
 from tadamoo.rag import RagStore, project_key
 from tadamoo.rag.ingest import blocks as bl
 from tadamoo.rag.ingest import chunker, normalize
+from tadamoo.rag.ingest import meta as facts
 from tadamoo.rag.ingest.basic import guess_headings
 from tadamoo.rag.recall import FLAG_NOTE, ProjectRecall, citation
 
@@ -257,7 +258,7 @@ def test_citations_name_the_pages_of_a_passage_that_spans_two():
 def test_the_versions_of_the_cleaning_and_the_cutting_are_kept_and_a_change_asks_for_a_new_cut(tmp_path, monkeypatch):
     from tadamoo.rag import store as st
     store, aid, _ = archive(tmp_path)
-    assert store.get(aid)["rechunk"] is False and store.load(aid).meta["ingest"] == {"normalizer": normalize.VERSION, "chunker": chunker.VERSION}
+    assert store.get(aid)["rechunk"] is False and store.load(aid).meta["ingest"] == {"normalizer": normalize.VERSION, "chunker": chunker.VERSION, "facts": facts.VERSION}
     monkeypatch.setitem(st.INGEST, "chunker", chunker.VERSION + 1)
     assert store.get(aid)["rechunk"] is True
     before = store.get(aid)["chunks"]

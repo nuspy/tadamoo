@@ -160,7 +160,8 @@ class RagApi:
 
     def search(self, req: Dict[str, Any]) -> Dict[str, Any]:
         """`{query, archives: [ids] | project: key, top_k, min_share?, strict?}`: the best passages of those archives, or of all the archives of the project.
-        `min_share` (0 to 1) is how much of the question's words a words-only hit must answer; `strict` false leaves out an archive that is gone."""
+        `min_share` (0 to 1) is how much of the question's words a words-only hit must answer; `strict` false leaves out an archive that is gone.
+        `filters` narrows the passages searched (`language`, `number`, `gene`, `seq`, `year`, `kind`, `unit`, `document`)."""
         query = req.get("query")
         if not isinstance(query, str) or not query.strip():
             raise RagError("query: the text of the question")
@@ -176,7 +177,7 @@ class RagApi:
                 raise RagError("archives: a list of archive ids")
         else:
             ids, strict = self.store.ids(_project(req.get("project"))), False
-        out = self.store.search(ids, query[:QUERY_CHARS], top_k=top_k, min_share=float(share), strict=strict)
+        out = self.store.search(ids, query[:QUERY_CHARS], top_k=top_k, min_share=float(share), strict=strict, filters=req.get("filters"))
         return {**out, "searched": len(ids)}
 
     def recall(self, req: Dict[str, Any]) -> Dict[str, Any]:

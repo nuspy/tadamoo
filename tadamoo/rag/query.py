@@ -14,6 +14,7 @@ import numpy as np
 
 from tadamoo.rag import search as ranking
 from tadamoo.rag.embed import Embedder, compatible, embed_query
+from tadamoo.rag.ingest import meta as facts
 from tadamoo.rag.store import searchable
 
 POOL = 20                         # passages the reranker judges
@@ -32,7 +33,8 @@ def _hit(archive: Any, i: int, lexical: Optional[float], semantic: Optional[floa
     stages = [name for name, v in (("lexical", lexical), ("dense", semantic), ("rerank", rerank)) if v is not None]
     return {"archive_id": archive.meta["id"], "archive": archive.meta["name"], "doc_id": chunk["doc"], "document": doc["name"], "chunk": chunk["n"],
             "text": chunk["text"], "path": chunk.get("path", ""), "page_start": chunk.get("page_start", 0), "page_end": chunk.get("page_end", 0),
-            "kind": chunk.get("kind", "text"), "section": chunk.get("section", ""), "flag": chunk.get("flag", ""), "score": round(score, 4),
+            "kind": chunk.get("kind", "text"), "section": chunk.get("section", ""), "facts": chunk.get("facts") or {}, "summary": chunk.get("summary", ""),
+            "questions": chunk.get("questions") or [], "flag": chunk.get("flag", ""), "score": round(score, 4),
             "lexical": None if lexical is None else round(lexical, 4), "semantic": None if semantic is None else round(semantic, 4),
             "rerank": None if rerank is None else round(rerank, 4), "stages": stages, "mode": "hybrid" if semantic is not None else "lexical"}
 
@@ -41,7 +43,18 @@ def _said(note: str, more: str) -> str:
     return (note + " " + more) if note else more
 
 
-def run(archives: Sequence[Any], embedder: Optional[Embedder], query: str, top_k: int, min_share: float = 0.0, cfg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def _mask(archive: Any, filters: Dict[str, Any]) -> np.ndarray:
+    """Which passages of an archive pass `filters` (tadamoo/rag/ingest/meta.py): `document` is a document id (or a list of them), the rest are read from the
+    facts kept beside each passage and from its document's own facts."""
+    infos = {d["id"]: d.get("info") or {} for d in archive.meta["documents"]}
+    only = filters.get("document")
+    only = {only} if isinstance(only, str) else set(only or ())
+    rest = {k: v for k, v in filters.items() if k != "document"}
+    return np.array([(not only or c["doc"] in only) and facts.matches(c.get("facts") or {}, infos.get(c["doc"], {}), c.get("kind", "text"), rest) for c in archive.chunks], dtype=bool)
+
+
+def run(archives: Sequence[Any], embedder: Optional[Embedder], query: str, top_k: int, min_share: float = 0.0, cfg: Optional[Dict[str, Any]] = None,
+        filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """{"mode", "stages", "note", "reranked", "hits"}: `mode` is `hybrid` when vectors took part and `lexical` when only words did. A hit's `score` is the
     rerank score, else the cosine plus the word share (vectors), else the BM25 score; it compares passages within one answer, not between answers."""
     cfg = {**RETRIEVAL, **(cfg or {})}
@@ -50,6 +63,10 @@ def run(archives: Sequence[Any], embedder: Optional[Embedder], query: str, top_k
         return out
     indexes = [a.index() for a in archives]
     lex = ranking.bm25(indexes, query)
+    masks = [_mask(a, filters) if filters else None for a in archives]
+    for k, m in enumerate(masks):
+        if m is not None:
+            lex[k] = {i: v for i, v in lex[k].items() if m[i]}
     top_lex = max((v for per in lex for v in per.values()), default=0.0)
     floor = min_share * ranking.information(indexes, query)                 # the least a words-only hit may score
     ready = [k for k, a in enumerate(archives) if a.vectors is not None and compatible(a.meta, embedder)]
@@ -58,6 +75,9 @@ def run(archives: Sequence[Any], embedder: Optional[Embedder], query: str, top_k
         try:
             q = embed_query(embedder, query)
             scored = {k: ranking.cosine(archives[k].vectors, q) for k in ready if archives[k].vectors.shape[1] == q.shape[0]}
+            for k, m in enumerate(masks):
+                if m is not None and k in scored:
+                    scored[k] = np.where(m, scored[k], -1.0).astype(np.float32)
         except Exception as e:
             out["note"] = f"text search only: the embedder failed ({str(e)[:120]})"
     weight, near_enough = float(cfg["lexical_weight"]), float(cfg["min_cosine"])
