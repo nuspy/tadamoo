@@ -297,6 +297,9 @@ class SecureRegistry(Registry):
         spec = functions.spec(function)
         if not pid:
             return True, ""
+        swap = self._read_swap()
+        if swap is not None and pid == swap["pid"]:
+            return True, ""                                         # the person's yes for the swap stands in for the consent, while it lasts
         prov = self._find(self.load(), pid)
         if prov is None:
             return False, f"there is no provider {pid!r}"

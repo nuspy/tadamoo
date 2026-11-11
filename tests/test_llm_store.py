@@ -156,3 +156,13 @@ def test_a_swap_is_seen_by_another_process_and_lapses_when_it_is_not_renewed(reg
     assert reg.touch_swap() and session.load()["assignments"].get("chat") == cloud["id"]
     now[0] += reg.SWAP_HOLD_S + 1
     assert session.load()["assignments"].get("chat") is None and session.swap() is None and reg.touch_swap() is False
+
+
+def test_while_a_swap_lasts_its_provider_is_allowed_for_every_function_without_the_consent_and_not_after(reg):
+    cloud = reg.add({"type": "zai_coding", "api_key": "zk-123456789012"})
+    ok, why = reg.check("executor", cloud["id"])
+    assert not ok and "say yes" in why
+    reg.begin_swap(cloud["id"])
+    assert reg.check("executor", cloud["id"]) == (True, "") and reg.check("chat", cloud["id"]) == (True, "")
+    reg.end_swap()
+    assert not reg.check("executor", cloud["id"])[0]
