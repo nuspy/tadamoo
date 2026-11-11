@@ -216,6 +216,7 @@
     const yieldS = el("input"); yieldS.id = "cj-yield"; yieldS.type = "number"; yieldS.min = "0"; yieldS.max = "3600"; yieldS.inputMode = "numeric"; yieldS.placeholder = T("cj.yield.never");
     yieldS.value = Number.isInteger(v.yield_s) ? String(v.yield_s) : "";
     const check = el("input"); check.id = "cj-check"; check.value = v.check || ""; check.maxLength = 1000; check.autocomplete = "off"; check.spellcheck = false;
+    const archives = window.ragPick ? window.ragPick.create({ T, ids: v.rag_archives || [], label: T("cj.rag") }) : null;
     const indexPast = el("input"); indexPast.id = "cj-index"; indexPast.type = "checkbox"; indexPast.checked = v.index_past === true;
     // what it runs: a task written here, or one of the person's personal skills with its values
     const kinds = el("fieldset", "cj-modes"); kinds.append(el("legend", "", T("cj.kind")));
@@ -249,7 +250,7 @@
     const msg = el("p", "cj-msg"); msg.id = "cj-msg"; msg.setAttribute("role", "status");
     const promptWrap = field("cj-prompt", T("cj.prompt"), prompt, T("cj.prompt.help"));
     const valuesNow = () => { const out = {}; fields.forEach(f => { const x = f.get(); if (String(x).trim() !== "") out[f.spec.name] = x; }); return out; };
-    form = { name, prompt, folder, schedule, steps, minutes, yieldS, check, indexPast, msg, kindNow, skillSel, valuesNow };
+    form = { name, prompt, folder, schedule, steps, minutes, yieldS, check, indexPast, archives, msg, kindNow, skillSel, valuesNow };
     host.replaceChildren(
       el("div", "sh", ""),
       (() => { const f = el("form", "pad cj-form"); f.noValidate = true; f.onsubmit = e => { e.preventDefault(); saveJob(existing); };
@@ -258,6 +259,7 @@
           field("cj-schedule", T("cj.schedule"), schedule, T("cj.schedule.help")), presets, el("p", "help", T("cj.auto.help")),
           field("cj-steps", T("cj.steps"), steps, T("cj.steps.help")), field("cj-minutes", T("cj.minutes"), minutes, T("cj.minutes.help")), field("cj-yield", T("cj.yield"), yieldS, T("cj.yield.help")),
           field("cj-check", T("cj.check"), check, T("cj.check.help")),
+          ...(archives ? [(() => { const w = el("div", "cj-field"); w.append(el("b", "", T("cj.rag")), el("p", "help", T("cj.rag.help")), archives.el); return w; })()] : []),
           field("cj-index", T("cj.index"), indexPast, T("cj.index.help")),
           el("p", "help", T(existing ? (existing.enabled ? "cj.is.on" : "cj.is.off") : "cj.new.on")), msg,
           (() => { const row = el("div", "cj-buttons"); row.append(save, ...(existing ? [btn(T("cj.improve"), "ghost", () => improveJob(existing), T("cj.improve.help"))] : [])); return row; })(),
@@ -273,7 +275,7 @@
     const skill = f.kindNow() === "skill";
     const body = { name: f.name.value.trim(), prompt: skill ? "" : f.prompt.value.trim(), workspace: f.folder.value.trim(), schedule: f.schedule.value.trim(),
       max_turns: f.steps.value.trim() === "" ? null : Number(f.steps.value), max_minutes: f.minutes.value.trim() === "" ? null : Number(f.minutes.value),
-      yield_s: f.yieldS.value.trim() === "" ? null : Number(f.yieldS.value), index_past: f.indexPast.checked, check: f.check.value.trim(),
+      yield_s: f.yieldS.value.trim() === "" ? null : Number(f.yieldS.value), index_past: f.indexPast.checked, check: f.check.value.trim(), rag_archives: f.archives ? f.archives.get() : [],
       skill: skill ? f.skillSel.value : "", values: skill ? f.valuesNow() : {} };
     const r = existing ? await api("POST", `api/routines/${existing.id}/update`, body) : await api("POST", "api/routines", body);
     if (!r.ok) { f.msg.textContent = errText(r); f.msg.classList.add("bad"); return; }
