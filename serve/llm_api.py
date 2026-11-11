@@ -65,19 +65,73 @@ class LlmApi:
                 "reasoning_levels": reasoning.choices("en"), "imported": self.registry.imported(),
                 "shared": [{"path": str(p), "providers": n} for p, n in self.shared_candidates()]}
 
+    def _role_view(self, role: Dict[str, Any], assigned: Dict[str, Any], consent: Dict[str, bool]) -> Dict[str, Any]:
+        fid = functions.council_function(role["id"])
+        pid = assigned.get(fid) or ""
+        ok, why = self.registry.check(fid, pid or None)
+        return {**role, "route": pid, "consent": bool(consent.get(fid)), "ok": ok, "why": why}
+
     def council_view(self) -> Dict[str, Any]:
-        """The council's roles and rounds as saved, the defaults, the limits, and what a debate costs at most and at least."""
+        """The council as saved (each role with its route and its consent for personal data), the defaults, the limits, and what a debate costs
+        at most and at least after the cap on calls."""
         settings = council.load_settings(self.registry)
-        away = council.outside(self.registry)
-        return {"settings": settings, "defaults": council.clean_settings(None), "estimate": council.estimate(settings=settings, away=away), "outside": away,
-                "limits": {"rounds": council.ROUNDS_MAX, "name": council.NAME_MAX, "job": council.JOB_MAX}, "configured": council.configured(self.registry)}
+        away = council.outside(self.registry, settings)
+        assigned, consent = self.registry.load().get("assignments") or {}, self.registry.consent()
+        shown = {**settings, "roles": [self._role_view(r, assigned, consent) for r in settings["roles"]], "moderator": self._role_view(settings["moderator"], assigned, consent)}
+        defaults = council.clean_settings(None)
+        return {"settings": shown, "defaults": {**defaults, "roles": [{**r, "route": "", "consent": False} for r in defaults["roles"]],
+                                                "moderator": {**defaults["moderator"], "route": "", "consent": False}},
+                "estimate": council.estimate(settings=settings, away=away), "outside": away, "ready": council.ready(settings),
+                "limits": {"rounds": council.ROUNDS_MAX, "name": council.NAME_MAX, "job": council.JOB_MAX, "roles": council.ROLES_MAX, "calls_min": council.CALLS_MIN}}
 
     def set_council(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        """Saves the council: rounds, cap, `council_auto`, the advisers and the moderator, and for each role its route (a provider id, empty for the
+        model loaded here) and its consent for personal data. What the body leaves out stays as it is. Nothing is saved if one route is not allowed."""
+        keys = ("rounds", "max_calls", "council_auto", "roles", "moderator")
         try:
-            settings = council.clean_settings({k: body[k] for k in ("rounds", "roles", "moderator") if k in body})
+            settings = council.clean_settings({**council.load_settings(self.registry), **{k: body[k] for k in keys if k in body}})
         except ValueError as exc:
             raise LlmError(str(exc), "bad_council") from None
-        self.registry._set_extra("council", settings)
+        sent = body.get("roles") if isinstance(body.get("roles"), list) else None
+        entries = list(zip(sent, settings["roles"])) if sent is not None else [(None, r) for r in settings["roles"]]
+        entries.append((body.get("moderator"), settings["moderator"]))
+        with self.registry._io:
+            data = self.registry.load()
+            assigned = dict(data.get("assignments") or {})
+            before = {k: bool(v) for k, v in (data.get("consent") or {}).items()}
+            consent = dict(before)
+            keep = {functions.council_function(r["id"]) for _, r in entries}
+            for fid in [f for f in {*assigned, *consent} if functions.is_council(f) and f not in keep]:
+                assigned.pop(fid, None)                                   # a role that was removed takes its route and its yes with it
+                consent.pop(fid, None)
+            moved = set()
+            for raw, role in entries:
+                fid = functions.council_function(role["id"])
+                if not isinstance(raw, dict):
+                    continue
+                if "consent" in raw:
+                    if not isinstance(raw["consent"], bool):
+                        raise LlmError("Say yes or no for personal data going to a provider outside this PC.", "bad_request")
+                    consent[fid] = raw["consent"]
+                if "route" in raw:
+                    pid = raw["route"] or ""
+                    if pid and self.registry._find(data, pid) is None:
+                        raise LlmError("That provider is not there any more.", "gone")
+                    moved.add(fid)
+                    if pid:
+                        assigned[fid] = pid
+                    else:
+                        assigned.pop(fid, None)
+            for _, role in entries:
+                fid = functions.council_function(role["id"])
+                ok, why = self.registry.check(fid, assigned.get(fid) or None, consent=consent)
+                if not ok and (fid not in moved or (before.get(fid) and not consent.get(fid))):
+                    assigned.pop(fid, None)                               # taking the yes back takes the role off the outside provider
+                    ok = True
+                if not ok:
+                    raise LlmError(f"{role['name']}: {why}", "not_allowed")
+            data.update(council=settings, assignments=assigned, consent=consent)
+            self.registry.save(data)
         return self.overview()
 
     def shared_candidates(self) -> List[tuple]:
