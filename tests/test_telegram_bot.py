@@ -271,6 +271,21 @@ def test_the_commands(rig):
     assert rig.sessions.sent[-1][1] == "again"                                  # commands are never sent to the agent
 
 
+def test_rag_is_passed_to_the_conversation_with_its_name_and_never_taken_for_an_unknown_command(rig):
+    talk(rig, "/rag@tadamoo_test_bot forest man")
+    assert rig.sessions.sent[-1][:2] == ("s1", "/rag forest man")
+    talk(rig, "/knowledge")
+    assert rig.sessions.sent[-1][:2] == ("s1", "/rag")
+    talk(rig, "/rag off")
+    assert rig.sessions.sent[-1][:2] == ("s1", "/rag off")
+    assert "/rag" in tg_start(rig)
+
+
+def tg_start(rig):
+    talk(rig, "/start")
+    return rig.texts()[-1]
+
+
 def test_stop_with_nothing_running_says_so(rig):
     talk(rig, "/stop")
     assert rig.texts()[-1] == "Nothing is running."
