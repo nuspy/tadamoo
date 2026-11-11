@@ -62,7 +62,7 @@ def test_an_archive_is_made_filled_asked_and_deleted(tmp_path):
     found = api.search({"query": "what keeps the boat upright", "archives": [aid]})
     assert found["mode"] == "lexical" and found["hits"][0]["document"] == "boats.txt" and found["searched"] == 1
     assert api.search({"query": "stock for the risotto", "project": PROJ})["hits"][0]["document"] == "rice.md"        # no archive named: all of the project's
-    assert api.reindex(aid)["chunks"] == 2
+    assert api.jobs.wait(api.reindex(aid)["job"]["id"])["result"]["chunks"] == 2
     assert api.remove_document(aid, detail["archive"]["document_list"][0]["id"])["removed"] is True
     assert api.get(aid)["archive"]["documents"] == 1
     assert api.update(aid, {"name": "Sailing"})["archive"]["name"] == "Sailing"
@@ -192,7 +192,8 @@ def test_hybrid_search_switches_on_when_an_embedder_appears(tmp_path):
     assert api.embedding()["available"] is False and api.get(aid)["archive"]["mode"] == "text"
     holder["e"] = Embedder()
     assert api.embedding() == {"available": True, "model": "fake-1"} and api.get(aid)["archive"]["reindex"] is True
-    assert api.reindex(aid)["embedded"] is True
+    job = api.reindex(aid)["job"]
+    assert api.jobs.wait(job["id"])["result"]["embedded"] is True
     assert api.get(aid)["archive"]["mode"] == "hybrid" and api.search({"query": "boat keel", "project": PROJ})["mode"] == "hybrid"
 
 

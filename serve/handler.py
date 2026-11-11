@@ -194,6 +194,7 @@ _PERSONAS = None                                       # Settings > Personalitie
 _PERSONA_LEARNING = None                               # a personality learns from a conversation once it is over, when the GPU is free
 _RAG_JOBS = None                                    # the long jobs of the knowledge archives (reading a big document), made on first use
 _RAG = None                                            # the knowledge archives (the Knowledge tab), made on first use
+_RAG_EMBED = None                                      # the embedding service of the knowledge archives (a worker process on a lease of VRAM), made on first use
 _MCP_AUTH = None                                       # the sign-in of the remote MCP servers, made on first use
 _PLANS = None                                          # the planner's service, made on first use
 from serve.util.reqtrace import RequestTrace
@@ -2675,15 +2676,24 @@ def make_handler(svc: Service, remote: bool = False):
         def _rag_store(self) -> RagStore:
             global _RAG
             if _RAG is None:
-                _RAG = RagStore(userdata.path("rag"), forbidden=[userdata.user_data_dir()])
+                _RAG = RagStore(userdata.path("rag"), embedder=self._rag_embed().provider, forbidden=[userdata.user_data_dir()])
             return _RAG
+
+        def _rag_embed(self):
+            global _RAG_EMBED
+            if _RAG_EMBED is None:
+                from tadamoo.rag.embed_client import EmbedService
+                from tadamoo.rag.settings import RagSettings
+                port, settings_file = self.server.server_address[1], RagSettings(userdata.path("rag"))
+                _RAG_EMBED = EmbedService(settings_file.read, models.dirs, lambda: f"http://127.0.0.1:{port}")
+            return _RAG_EMBED
 
         def _rag(self) -> RagApi:
             chat = userdata.path("chat-workspace")
             global _RAG_JOBS
             if _RAG_JOBS is None:
                 _RAG_JOBS = RagJobs()
-            return RagApi(self._rag_store(), jobs=_RAG_JOBS, folders=lambda: [{"name": "Chat", "path": str(chat), "chat": True}]
+            return RagApi(self._rag_store(), jobs=_RAG_JOBS, service=self._rag_embed(), folders=lambda: [{"name": "Chat", "path": str(chat), "chat": True}]
                           + [{"name": p["name"], "path": p["path"], "chat": False} for p in self._projects().list() if p.get("exists")])
 
         def _rag_route(self, path, method):

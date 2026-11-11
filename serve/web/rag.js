@@ -105,11 +105,14 @@
   const JOB_MS = 800;
   const STAGES = { reading: "rg.job.stage.reading", cutting: "rg.job.stage.cutting", indexing: "rg.job.stage.indexing" };
   const READ_BY = { docling: "rg.doc.read.docling", basic: "rg.doc.read.basic" };
+  const REASON = { off: "rg.sem.reason.off", detecting: "rg.sem.reason.detecting", no_python: "rg.sem.reason.no_python", no_model: "rg.sem.reason.no_model" };
+  const LEASE = { busy: "rg.sem.lease.busy", unavailable: "rg.sem.lease.unavailable", no_engine: "rg.sem.lease.no_engine", not_enough: "rg.sem.lease.not_enough", no_cuda: "rg.sem.lease.no_cuda" };
   async function followJob(job, name) {
     jobNow = job.id;
     for (;;) {
       const stage = T(STAGES[job.stage] || STAGES.reading);
-      say(job.pages ? T("rg.job.pages", name, stage, job.page, job.pages) : T("rg.job.working", name, stage), false); paint();
+      const counting = job.stage === "indexing" ? "rg.job.passages" : "rg.job.pages";
+      say((job.pages ? T(counting, name, stage, job.page, job.pages) : T("rg.job.working", name, stage)) + (job.stage === "indexing" && job.device === "cpu" ? "\n" + T("rg.job.cpu") : ""), false); paint();
       if (job.state !== "running") break;
       await new Promise(r => setTimeout(r, JOB_MS));
       const r = await api("GET", `api/rag/jobs/${encodeURIComponent(job.id)}`);
@@ -117,7 +120,10 @@
       job = r.data.job;
     }
     jobNow = "";
-    if (job.state === "done") return { ok: true, text: T("rg.add.done", name, job.result.document.chunks) + (job.result.note ? " " + job.result.note : "") };
+    if (job.state === "done") {
+      const got = job.result;
+      return { ok: true, text: (got.document ? T("rg.add.done", name, got.document.chunks) : T("rg.index.done", got.chunks)) + (got.note ? " " + got.note : "") };
+    }
     return { ok: false, text: job.state === "cancelled" ? T("rg.job.cancelled", name) : T("rg.add.fail", name, job.error) };
   }
   async function cancelJob() {
@@ -159,10 +165,21 @@
     await reloadAll();
   }
   async function reindex() {
+    if (working) return;
     working = true; say(T("rg.index.working"), false); paint();
+    const name = detail ? detail.archive.name : "";
     const r = await api("POST", `api/rag/archives/${encodeURIComponent(chosen)}/reindex`, {});
+    const out = r.ok ? await followJob(r.data.job, name) : { ok: false, text: why(r) };
     working = false;
-    say(r.ok ? T("rg.index.done", r.data.chunks) + (r.data.note ? " " + r.data.note : "") : why(r), !r.ok);
+    say(out.text, !out.ok);
+    await reloadAll();
+  }
+  async function testEmbedding() {
+    say(T("rg.sem.testing"), false); paint();
+    const r = await api("POST", "api/rag/embedding/test", {});
+    if (!r.ok) say(why(r), true);
+    else if (r.data.ok) say(T("rg.sem.test.ok", r.data.model, String(r.data.device || "").toUpperCase(), r.data.seconds, r.data.dim), false);
+    else say(T("rg.sem.test.bad", r.data.error || ""), true);
     await reloadAll();
   }
   async function ask() {
@@ -199,11 +216,21 @@
     if (cur) wrap.append(el("p", "rg-help rg-path", cur.path));
     return wrap;
   }
+  /* where the semantic search stands: the model and where it runs, or why it is not on */
+  function semanticLine() {
+    const e = S.embedding || {};
+    if (e.enabled === undefined) return "";
+    if (!e.available) return T("rg.sem.words", REASON[e.reason] ? T(REASON[e.reason]) : (e.message || ""));
+    if (e.device === "cuda") return T("rg.sem.status.gpu", e.model);
+    if (e.device === "cpu") return T("rg.sem.status.cpu", e.model, LEASE[e.lease_reason] ? T(LEASE[e.lease_reason]) : (e.lease_message || T("rg.sem.lease.other")));
+    return T("rg.sem.status.idle", e.model, S.settings.idle_s);
+  }
   function banner() {
-    const on = S.embedding && S.embedding.available, box = el("div", "rg-banner");
+    const on = S.embedding && S.embedding.available, box = el("div", "rg-banner"), line = semanticLine();
     box.setAttribute("role", "status"); box.dataset.mode = on ? "hybrid" : "text";
     box.append(el("p", "rg-banner-t", on ? T("rg.hybrid", S.embedding.model) : T("rg.textonly")));
-    if (!on) box.append(el("p", "rg-help", T("rg.textonly.help")));
+    if (line) box.append(el("p", "rg-help", line));
+    else if (!on) box.append(el("p", "rg-help", T("rg.textonly.help")));
     if (!S.pdf && S.extraction !== "docling") box.append(el("p", "rg-help", T("rg.nopdf")));
     box.append(el("p", "rg-help", S.extraction === "docling" ? T("rg.read.docling") : T("rg.read.basic")));
     return box;
@@ -219,6 +246,40 @@
     const go = btn(T("rg.save"), "primary", () => saveSettings({ docling_python: py.value.trim(), docling_device: device.value, flagged: keep.value }));
     box.append(sum, field("rg-docling", T("rg.set.docling"), S.docling_python ? T("rg.set.docling.found", S.docling_python) : T("rg.set.docling.none"), py),
       field("rg-device", T("rg.set.device"), T("rg.set.device.help"), device), field("rg-flagged", T("rg.set.flagged"), T("rg.set.flagged.help"), keep), go);
+    return box;
+  }
+  function numberInput(value, lo, hi, step) {
+    const i = el("input"); i.type = "number"; i.min = String(lo); i.max = String(hi); i.step = String(step); i.value = String(value); i.inputMode = "decimal";
+    return i;
+  }
+  function checkField(id, labelText, help, on) {
+    const box = el("input"), wrap = el("div", "rg-field rg-check"), lab = el("label", "");
+    box.type = "checkbox"; box.checked = !!on; box.id = id; lab.htmlFor = id;
+    lab.append(box, el("span", "", labelText));
+    wrap.append(lab, el("p", "rg-help", help));
+    return { wrap, box };
+  }
+  /* semantic search: the embedding model and the reranker, how they are blended, and when the GPU is given back */
+  function semanticBlock() {
+    const e = S.embedding || {}, cfg = S.settings, box = el("details", "rg-settings"), models = (e.models || []).filter(m => m.kind === "embed");
+    box.append(el("summary", "rg-sum", T("rg.sem.title")));
+    if (e.enabled === undefined) return null;
+    const on = checkField("rg-sem-on", T("rg.sem.on"), T("rg.sem.on.help"), cfg.embed_enabled);
+    const pick = el("select");
+    const auto = el("option", "", T("rg.sem.model.auto")); auto.value = ""; pick.append(auto);
+    models.forEach(m => { const o = el("option", "", T("rg.sem.model.opt", m.name, (m.bytes / (1 << 30)).toFixed(1))); o.value = m.name; pick.append(o); });
+    pick.value = models.some(m => m.name === cfg.embed_model) ? cfg.embed_model : "";
+    const roots = (e.roots || []).join(", ");
+    const rerank = checkField("rg-sem-rerank", T("rg.sem.rerank"), T("rg.sem.rerank.help"), cfg.rerank);
+    const weight = numberInput(cfg.lexical_weight, 0, 0.3, 0.01), cos = numberInput(cfg.min_cosine, 0, 0.9, 0.05), rr = numberInput(cfg.min_rerank, 0, 0.95, 0.05);
+    const idle = numberInput(cfg.idle_s, 10, 3600, 10), py = textInput(cfg.embed_python, 500), dir = textInput(cfg.embed_models_dir, 500);
+    const go = btn(T("rg.save"), "primary", () => saveSettings({ embed_enabled: on.box.checked, embed_model: pick.value, rerank: rerank.box.checked, lexical_weight: Number(weight.value),
+      min_cosine: Number(cos.value), min_rerank: Number(rr.value), idle_s: Number(idle.value), embed_python: py.value.trim(), embed_models_dir: dir.value.trim() }));
+    const test = btn(T("rg.sem.test"), "", testEmbedding); test.disabled = !e.available;
+    box.append(on.wrap, field("rg-sem-model", T("rg.sem.model"), models.length ? T("rg.sem.model.help", roots) : T("rg.sem.model.none", roots), pick), rerank.wrap,
+      field("rg-sem-weight", T("rg.sem.weight"), T("rg.sem.weight.help"), weight), field("rg-sem-cos", T("rg.sem.mincos"), T("rg.sem.mincos.help"), cos),
+      field("rg-sem-rr", T("rg.sem.minrr"), T("rg.sem.minrr.help"), rr), field("rg-sem-idle", T("rg.sem.idle"), T("rg.sem.idle.help"), idle),
+      field("rg-sem-py", T("rg.sem.python"), T("rg.sem.python.help", e.python || "-"), py), field("rg-sem-dir", T("rg.sem.dir"), T("rg.sem.dir.help"), dir), go, test);
     return box;
   }
   function sideList() {
@@ -313,13 +374,14 @@
     box.append(h, form);
     if (asking) box.append(el("p", "rg-help", T("rg.try.working")));
     if (results) {
-      box.append(el("p", "rg-help", results.mode === "hybrid" ? T("rg.try.mode.hybrid") : T("rg.try.mode.lexical") + (results.note ? " " + results.note : "")));
+      box.append(el("p", "rg-help", (results.reranked ? T("rg.try.mode.reranked") : results.mode === "hybrid" ? T("rg.try.mode.hybrid") : T("rg.try.mode.lexical")) + (results.note ? " " + results.note : "")));
       if (!results.hits.length) box.append(el("p", "rg-line", T("rg.try.none")));
       const ul = el("ol", "rg-hits");
       results.hits.forEach(hit => {
         const li = el("li", "rg-hit"), head = el("div", "rg-hit-h");
         head.append(el("strong", "", T("rg.try.from", hit.archive, hit.document)),
-          el("span", "rg-tag", hit.mode === "hybrid" ? T("rg.tag.hybrid") : T("rg.tag.lexical")), el("span", "rg-tag", T("rg.try.score", hit.score)));
+          el("span", "rg-tag", hit.mode === "hybrid" ? T("rg.tag.hybrid") : T("rg.tag.lexical")), el("span", "rg-tag", T("rg.try.score", hit.score)),
+          ...(hit.rerank != null ? [el("span", "rg-tag", T("rg.tag.rerank", hit.rerank))] : []));
         li.append(head, el("p", "rg-hit-text", hit.text)); ul.append(li);
       });
       box.append(ul);
@@ -347,7 +409,7 @@
     const layout = el("div", "rg-layout");
     layout.append(sideList(), main);
     const stop = jobNow ? btn(T("rg.job.cancel"), "", cancelJob) : null;
-    host.replaceChildren(el("p", "rg-intro", T("rg.intro")), projectPicker(), banner(), settingsBlock(), status, ...(stop ? [stop] : []), layout);
+    host.replaceChildren(el("p", "rg-intro", T("rg.intro")), projectPicker(), banner(), ...[semanticBlock(), settingsBlock()].filter(Boolean), status, ...(stop ? [stop] : []), layout);
     const again = focus && document.getElementById(focus);
     if (again && again !== document.activeElement) again.focus();
   }
