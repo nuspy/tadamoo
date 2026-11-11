@@ -5,28 +5,42 @@ page (palette, inspector, graph) all read it, so a field added there appears eve
 
 ## Connectors (ports)
 
-A port has an `id`, a `kind` and a label. `flow`: the step below waits for this one. `input`: data given to a step; nobody waits and nothing is ordered.
-`PORT_IN` / `PORT_OUT` in `nodes.py` say which steps have which; `catalogue()` carries them to the page as `ports: {in, out}` (a decision's output is
-`"branches"`).
+A port has an `id`, a `kind` and a label. `flow`: the step below waits for this one. `data`: something given to a step. A data port says what it `carries`
+(`value`, `reading`, `archives`) or `accepts`; an edge joins an output to an input of the same kind that accepts what it carries. Data orders nothing, except
+that a step that takes a value does not run before the step it comes from has produced it. `PORT_IN` / `PORT_OUT` in `nodes.py` are the table;
+`catalogue()` carries it to the page as `ports: {in, out}` (a decision's output is `"branches"`).
 
 | Step | Inputs | Outputs |
 |---|---|---|
 | any step | `in` (flow) | `out` (flow) |
-| action | `in` (flow), `rag` (input) | `out` (flow) |
-| decision | `in` (flow) | one `flow` port for each branch, named by the branch `id`, labelled with its label |
-| rag | none | `rag` (input) |
+| action | `in`, `data` (values), `rag` (archives) | `out`, `result` (value) |
+| decision | `in`, `data`, `rag` | one `flow` port for each branch, named by the branch `id` |
+| sensor | `in` | `out`, `reading` (value: the text it matched) |
+| get_var, set_var | `in` (set_var also `data`) | `out`, `value` |
+| input (a question) | `in`, `data` | `out`, `answer` |
+| set_var, output, log, wait_condition, loop | `in`, `data` | `out` |
+| rag | none | `rag` (archives) |
 
-An edge goes from an output port of one step to an input port of another of the same kind. In a diff an edge is `[parent, child]`, `[parent, child, port]` or
-`{from: {node, port}, to: {node}}`; the port may be left out when the parent has only one (or, for a decision stored before branches, when a branch has the
-child's name). A step's flow edges are in `dependencies` / `outputs` as before; a decision's and a RAG node's edges are also in `routes: {port: [child ids]}`
-(an `input` edge only there, never in the dependencies, so it cannot be taken for "waits for"). `PlanDAG.edges()` lists every edge as
-`{from: {node, port}, to: {node, port}, kind}`. Removing a step or a branch takes its edges with it.
+In a diff an edge is `[parent, child]`, `[parent, child, port]` or `{from: {node, port}, to: {node}}`; the port may be left out when the parent has only one flow
+port (or, for a decision stored before branches, when a branch has the child's name). Flow edges are in `dependencies` / `outputs`; a decision's and a RAG node's
+edges are also in `routes: {port: [child ids]}` (a data edge only there). A value edge is stored on the step that takes it, in `inputs: {name: {node, port}}`: the
+name is how the step refers to it (made from the source's title, renamed in the inspector); a value cannot come back round (`PlanError`). A step's result is
+its one value, or all of them when it wrote several. `PlanDAG.edges()` lists every edge as `{from: {node, port}, to: {node, port, name?}, kind, carries?}`;
+`waiting_inputs` in a step's state says which inputs have no value yet. Removing a step or a branch takes its edges and inputs with it.
 
 ## Decision
 
-`spec`: `input` (an expression, the value the helper compares), `mode`, `on_no_match`, `branches`. A branch is `{id, label, condition}`; with the helper
-`op` (`<  <=  =  !=  >=  >  between  in  contains  else`), `value` and `value2` the server builds the condition from the input (`build_condition`).
-Labels are unique (at most 40 characters), `else` is at most one and last, a new branch gets an id and ids stay when branches are reordered.
+`spec`: `mode`, `on_no_match`, `branches`. A comparison branch is three terms, `{id, label, left, op, right, right2?}` (`right2` is the upper end of `between`),
+each an **operand** (`tadamoo/planner/operands.py`): `{kind: value, value}`, `{kind: python, expr}` (a condition expression over the plan's values and the inputs),
+`{kind: input, from: name}` (an input wired to the decision) or `{kind: input, variable: key}` (a value of the plan), or `{kind: agent, describe}`. The
+comparison is `<  <=  =  !=  >=  >  between  in  contains`; an operator that is not one of them stops the decision with that message, never a guess; terms that
+are not numbers cannot be ordered. A branch can also be one whole expression `{id, label, condition}`, or `{id, label, op: "else"}`. The older helper form
+`{op, value, value2}` with the decision's `input` expression still makes the three terms. Labels are unique (at most 40 characters), `else` is at most one and
+last, a new branch gets an id and ids stay when branches are reordered.
+
+A term for the agent waits: completing the decision answers `waiting` with what to work out, and the agent completes it again with `outputs` of
+`"<branch id>.<left|op|right|right2>": value` (a text, a number, true/false; kept on the decision, not among the plan's values). An input with no value yet
+makes it wait the same way. What was compared and whether it held is kept in `state_variables.compared`.
 
 - **`mode`**: `first` (default) takes the first branch that holds in the order shown, so overlapping ranges ("> 10", "10 to 30") do what the order says;
   `all` takes every branch that holds. The steps only the other branches lead to are skipped.
@@ -35,7 +49,7 @@ Labels are unique (at most 40 characters), `else` is at most one and last, a new
   values) and skips what is below it; the rest of the plan goes on and the page shows "No route". `ask` hands the decision to the person, as before
   (`state_variables.no_route`). A condition that cannot be read yet always stops the decision for the person.
 
-A decision stored with a condition for each exit loads as `all`-mode branches named by their exits, with `on_no_match: ask` (`migrate_decision`, run when a
+A decision stored with a condition for each exit loads as `all`-mode `condition` branches named by their exits, with `on_no_match: ask` (`migrate_decision`, run when a
 plan is loaded or a node is added); one with nothing to make branches from becomes a draft to set up.
 
 ## The RAG node and knowledge archives
@@ -50,10 +64,14 @@ conversation the run starts. The resolver is described in [rag-resolve.md](rag-r
 ## The page
 
 The graph draws a decision as a box that grows with its branches, each with its label beside its own connector (cut with an ellipsis, the whole text in the
-tooltip and the accessible name). Connectors are 11 px dots; the touch area is a larger, invisible one. A RAG link is dashed and ends in a dot. Linking by drag
-has a twin in the inspector: a Connections section with a select and a Connect button for each branch, or for a RAG node, and a button to disconnect each
-one (44 px), which is how a phone or a keyboard connects. The branch editor is a list of rows (label, operator, value) with up, down and remove buttons.
-Type sizes: title about 13 px, branch and port labels 11 px. The archive picker is `serve/web/ragpick.js`.
+tooltip and the accessible name). Connectors are 10 px dots; the touch area is a larger, invisible one. Flow edges leave the right and enter the left; a value
+leaves the bottom edge of its step (a dot) and enters the top edge at the inputs dot, labelled with the input's name; archives enter at the top centre, dashed.
+Linking by drag has a twin in the inspector: a Connections section (a select and Connect for each branch or for a RAG node, a button to disconnect each, 44 px)
+and an Inputs section (the inputs of a step with their names to rename, their source, a choice of one more), which is how a phone or a keyboard connects. The
+branch editor shows each comparison as three rows, first term, comparison and second term (a fourth for the upper end of `between`), each with a choice of
+source: a value, a python expression, an input, or a description for the agent. Type sizes: title about 13 px, branch and port labels 11 px. The archive picker
+is `serve/web/ragpick.js`. `serve/tests/plan_connect_check.js` drives a real headless browser with mouse and touch pointers and asks the server whether the edge
+landed, for a plain step, a branch, a RAG node and a value.
 
-Tests: `tests/test_planner_ports.py`, `tests/test_planner_decisions.py`, `tests/test_planner_rag.py`, `serve/tests/test_plans_page.py`,
+Tests: `tests/test_planner_ports.py`, `tests/test_planner_operands.py`, `tests/test_planner_decisions.py`, `tests/test_planner_rag.py`, `serve/tests/test_plans_page.py`,
 `serve/tests/plankinds_check.js`, `serve/tests/plankinds_dom_check.js`.
