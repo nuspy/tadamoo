@@ -326,6 +326,8 @@ class Service:
         if getattr(self, "standby", False):
             raise EngineStarting(STANDBY_MESSAGE)
         if getattr(self.engine, "asleep", False) is True:
+            if self.heavy_hold:                         # put to sleep on purpose for a heavy job: it wakes when that job ends
+                raise EngineStarting(self.heavy_hold)
             self._wake()
         if self.loaded() and not self._vision_down():
             return
@@ -450,6 +452,14 @@ class Service:
             return
         print(f"[server] model awake in {time.time() - t:.1f} s (driver restore {self.engine.restore_s:.1f} s)",
               flush=True)
+
+    heavy_hold: str | None = None                        # why the engine is kept asleep (a heavy job runs); None when nothing keeps it so
+
+    def wake_now(self):
+        """Wake the engine if it sleeps, for whoever put it to sleep on purpose."""
+        with self.fifo:
+            if getattr(self.engine, "asleep", False) is True:
+                self._wake()
 
     SLEEP_RAM_MARGIN_MIB = 8192                          # RAM left free once the GPU state is in host memory
 

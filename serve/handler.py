@@ -22,7 +22,7 @@ from tadamoo import exec_level, nextsteps, persistence, side_uses
 from tadamoo import telegram as tg
 from tadamoo import permission_level
 from tadamoo.permission_level import PermissionLevelError, PermissionLevels
-from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, vram_api, voice_api, voice_avatar_ensure, voice_compat, voice_import, voice_loader, voice_service, voice_settings
+from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, heavy_api, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, vram_api, voice_api, voice_avatar_ensure, voice_compat, voice_import, voice_loader, voice_service, voice_settings
 from serve import origin_guard, voice_avatar, voice_gateway_relay, voice_phone_call
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX, checked_sampling
@@ -718,6 +718,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path in (vram_api.LEASES, vram_api.SETTINGS):
                 if self._authorized():
                     vram_api.get(self, svc, path)
+            elif path == heavy_api.BASE:
+                if self._authorized():
+                    heavy_api.get(self, svc)
             elif path in ("/api/voice/gateway", "/api/voice/gateway/ws"):      # the phone's way to the voice gateway (serve/voice_gateway_relay.py)
                 if self._authorized():
                     if not self._local_or_device():
@@ -976,6 +979,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path == vram_api.SETTINGS or path == vram_api.LEASE or path.startswith(vram_api.LEASE + "/"):
                 vram_api.post(self, svc, path)
+                return
+            if path.startswith(heavy_api.BASE + "/"):
+                heavy_api.post(self, svc, path)
                 return
             if path == voice_avatar_ensure.PATH:                 # the avatar loads when asked for: this PC or a phone with its key
                 voice_avatar_ensure.post(self, svc)

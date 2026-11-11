@@ -1,6 +1,7 @@
 """Idle sleep: the engine sleeps between requests (its VRAM released, its process kept) and the next request wakes it."""
 import json
 import unittest
+import urllib.error
 import urllib.request
 from pathlib import Path
 from unittest import mock
@@ -82,6 +83,21 @@ class IdleSleep(unittest.TestCase):
         self.assertIn(self.chat()["choices"][0]["finish_reason"], ("stop", "length"))
         self.assertEqual((self.engine.sleeps, self.engine.wakes), (1, 1))
         self.assertFalse(self.engine.asleep)
+
+    def test_a_model_kept_asleep_for_a_heavy_job_is_not_woken_by_a_request_and_wakes_when_asked(self):
+        with mock.patch.object(self.svc, "_sleep_fits", return_value=None):
+            self.assertEqual(self.svc.sleep(), "asleep")
+        self.svc.heavy_hold = "the local model sleeps while a video job runs"
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.chat()
+        self.assertEqual(caught.exception.code, 503)
+        self.assertIn("video job", caught.exception.read().decode())
+        self.assertEqual((self.engine.wakes, self.engine.asleep), (0, True))
+        self.svc.heavy_hold = None
+        self.svc.wake_now()
+        self.assertEqual((self.engine.wakes, self.engine.asleep), (1, False))
+        self.svc.wake_now()                                              # awake: nothing to do
+        self.assertEqual(self.engine.wakes, 1)
 
     def test_stays_awake_when_the_gpu_state_would_not_fit_in_ram(self):
         with mock.patch.object(self.svc, "used_vram_mib", return_value=40000), \
