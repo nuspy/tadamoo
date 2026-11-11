@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import sys
 import tempfile
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -471,3 +474,43 @@ class TestApi(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FilesHelperTest(unittest.TestCase):
+    """The open files are listed in a process of their own, so a call that never returns costs only that process."""
+
+    ECHO = "import sys, json\nfor line in sys.stdin:\n    print(json.dumps([['/x/' + line.strip(), 'r']]), flush=True)\n"
+    HANG = "import sys, time\nfor line in sys.stdin:\n    time.sleep(60)\n"
+
+    def test_the_files_come_back_from_the_helper(self):
+        from serve.netwatch import FilesHelper
+        h = FilesHelper([sys.executable, "-c", self.ECHO], timeout=10)
+        self.addCleanup(h._stop)
+        self.assertEqual(h.files(7), [{"path": "/x/7", "mode": "r"}])
+        self.assertEqual(h.files(8), [{"path": "/x/8", "mode": "r"}])
+
+    def test_a_call_that_hangs_is_cut_and_the_next_one_starts_a_new_helper(self):
+        from serve.netwatch import FilesHelper
+        h = FilesHelper([sys.executable, "-c", self.HANG], timeout=0.5)
+        self.addCleanup(h._stop)
+        t = time.monotonic()
+        self.assertEqual(h.files(1), [])
+        self.assertLess(time.monotonic() - t, 5)
+        first = h._proc
+        self.assertIsNone(first)
+        self.assertEqual(h.timeouts, 1)
+        self.assertEqual(h.files(2), [])
+        self.assertEqual(h.timeouts, 2)
+
+    def test_a_helper_that_cannot_start_gives_nothing(self):
+        from serve.netwatch import FilesHelper
+        h = FilesHelper(["no-such-program-xyz"], timeout=1)
+        self.assertEqual(h.files(1), [])
+
+    def test_the_real_helper_lists_this_process_files(self):
+        from serve.netwatch import FilesHelper
+        h = FilesHelper(timeout=30)
+        self.addCleanup(h._stop)
+        with open(__file__, "rb"):
+            rows = h.files(os.getpid())
+        self.assertIsInstance(rows, list)

@@ -137,6 +137,66 @@ def default_expected_folders() -> List[str]:
 
 # ---------------------------------------------------------------- sources of facts
 
+_FILES_WORKER = (
+    "import sys, json, psutil\n"
+    "for line in sys.stdin:\n"
+    "    try:\n"
+    "        out = [[f.path, getattr(f, 'mode', '') or ''] for f in psutil.Process(int(line)).open_files()]\n"
+    "    except Exception:\n"
+    "        out = []\n"
+    "    print(json.dumps(out), flush=True)\n")
+
+
+class FilesHelper:
+    """Lists the open files of a process in a process of its own. On Windows psutil's call can hang for good, and a hung call stops this process
+    from starting any new thread; here a hang costs the helper, which is killed after `timeout` seconds and started again by the next call."""
+
+    def __init__(self, argv: Optional[List[str]] = None, timeout: float = 5.0) -> None:
+        self.argv = argv or [sys.executable, "-I", "-c", _FILES_WORKER]
+        self.timeout = timeout
+        self.timeouts = 0
+        self._proc: Any = None
+        self._lines: "queue.Queue[str]" = queue.Queue()
+        self._lock = threading.Lock()
+
+    def _start(self) -> None:
+        import subprocess
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+        self._proc = subprocess.Popen(self.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, creationflags=flags)
+        lines = self._lines = queue.Queue()
+
+        def read(stream: Any = self._proc.stdout) -> None:
+            for line in stream:
+                lines.put(line)
+            lines.put("")                                           # the helper ended
+        threading.Thread(target=read, name="netwatch-files-reader", daemon=True).start()
+
+    def _stop(self) -> None:
+        proc, self._proc = self._proc, None
+        if proc is not None:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+
+    def files(self, pid: int) -> List[Dict[str, Any]]:
+        with self._lock:
+            try:
+                if self._proc is None or self._proc.poll() is not None:
+                    self._start()
+                self._proc.stdin.write(f"{int(pid)}\n")
+                self._proc.stdin.flush()
+                line = self._lines.get(timeout=self.timeout)
+                rows = json.loads(line) if line.strip() else []
+                return [{"path": str(p), "mode": str(m)} for p, m in rows]
+            except queue.Empty:
+                self.timeouts += 1
+                self._stop()
+            except (OSError, ValueError):
+                self._stop()
+            return []
+
+
 class PsutilSource:
     """The processes, connections, open files and environments as psutil reports them. Every call returns empty on failure."""
 
@@ -148,6 +208,7 @@ class PsutilSource:
             self.ps = None
         self.extra_names, self.system_wide = extra_names, system_wide
         self.server_pid = server_pid or os.getpid()
+        self.files_helper = FilesHelper() if os.name == "nt" else None
 
     @property
     def available(self) -> bool:
@@ -206,6 +267,8 @@ class PsutilSource:
     def open_files(self, pid: int) -> List[Dict[str, Any]]:
         if not self.ps:
             return []
+        if self.files_helper is not None:
+            return self.files_helper.files(pid)
         return [{"path": f.path, "mode": getattr(f, "mode", "") or ""} for f in self._proc(pid).open_files()]
 
     def environ(self, pid: int) -> Dict[str, str]:
