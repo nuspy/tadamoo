@@ -1,11 +1,11 @@
 """Tool package providing registry, workspace sandboxing and shell execution."""
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 from tadamoo.secrets_broker import SecretsBroker
 from .registry import ToolRegistry, ToolDefinition, EffectClass
 from .filesystem import WorkspaceSandbox
-from .docx_edit import register_docx_tools
 from .search_code import register_search_code
 from .tree import register_tree
 from .shell import execute_shell_command
@@ -179,7 +179,9 @@ def create_standard_tool_registry(
         outward=True,
     )
     offer_search(registry, secrets=secrets, hub=mcp_hub)     # search_web exists only when a backend does
-    register_docx_tools(registry, sandbox)                    # the Word tools exist only where python-docx is installed
+    if find_spec("docx") is not None:                         # the Word tools exist only where python-docx is installed
+        from .docx_edit import register_docx_tools
+        register_docx_tools(registry, sandbox)
     register_search_code(registry, sandbox.resolve_safe, sandbox.root)
     register_tree(registry, sandbox.resolve_safe, sandbox.root)
     register_repo_map(registry, sandbox.resolve_safe)
