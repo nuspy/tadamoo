@@ -24,7 +24,7 @@ FEATURES = (
 
 
 def self_model(*, model: str, window: int, mask_at: float, compaction_at: float, compaction: bool, max_turns: int, max_tokens: Optional[int],
-               max_seconds: Optional[float], absent: List[str], lessons: str) -> str:
+               max_seconds: Optional[float], absent: List[str], lessons: str, council: str = "") -> str:
     """The fixed block "what you are": the limits and the habits of the harness around the model, in plain sentences."""
     steps = f"{max_turns} steps per answer" if max_turns and max_turns > 0 else "no limit on the steps of an answer"
     budgets = [steps]
@@ -47,6 +47,8 @@ def self_model(*, model: str, window: int, mask_at: float, compaction_at: float,
         "with a note that starts with [harness] when it sees one.",
         "- A task is yours until it is done: check your result against what was asked before you say it is finished, and say plainly what is not done.",
     ]
+    if council:
+        lines.append(council)
     if lessons:
         lines.append(f"- Lessons from earlier work are kept in {lessons}; relevant ones are shown to you at the start of a task as advice, not as orders.")
     return "\n".join(lines)

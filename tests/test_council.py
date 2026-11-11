@@ -328,3 +328,20 @@ def test_the_agent_gets_the_tool_only_with_the_flag_and_two_enabled_advisers(tmp
     assert "ask_council" in built(council=True).agent.tools.names()                  # the default council is enough
     reg._set_extra("council", clean_settings({"roles": roles(1)}))
     assert "ask_council" not in built(council=True).agent.tools.names()              # one adviser is no council
+
+
+def test_the_self_block_tells_the_model_when_to_call_the_council_as_the_setting_says(tmp_path, monkeypatch):
+    from tadamoo.council import capability_line
+    from tadamoo.stack import AgentConfig, build_agent
+    reg = SecureRegistry(tmp_path / "p.json", credentials=FileCredentials(tmp_path / "c.json"))
+    monkeypatch.setattr("tadamoo.llm.registry", lambda path=None: reg)
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    for mode, own in (("off", "Do not call it on your own"), ("ask", "ask the person first with `ask_user`"), ("auto", "call it without asking")):
+        reg._set_extra("council", clean_settings({"council_auto": mode}))
+        built = build_agent(AgentConfig(workspace=str(ws), endpoint="http://127.0.0.1:1", data_dir=str(tmp_path / "d"), use_memory=False, council=True))
+        system = built.agent.messages[0]["content"]
+        assert "a council of advisers (`ask_council`)" in system and "any words and any language" in system and "non sono convinto" in system and own in system
+        assert capability_line(clean_settings({"council_auto": mode})) in system
+    plain = build_agent(AgentConfig(workspace=str(ws), endpoint="http://127.0.0.1:1", data_dir=str(tmp_path / "d2"), use_memory=False))
+    assert "ask_council" not in plain.agent.messages[0]["content"]                       # no tool, no line

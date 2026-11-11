@@ -648,6 +648,15 @@ def _capabilities_directory(cfg: "AgentConfig") -> Path:
         return Path.home() / ".tadamoo" / "capabilities"
 
 
+def council_line(registry: Any) -> str:
+    """The self block's line about the council, when the conversation has the tool."""
+    if registry.get("ask_council") is None:
+        return ""
+    from tadamoo.council import capability_line, load_settings
+    from tadamoo.llm import registry as llm_registry
+    return capability_line(load_settings(llm_registry()))
+
+
 def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summarizer: Optional[Any] = None, technical: Optional[Any] = None) -> BuiltAgent:
     if cfg.permission_mode not in PERMISSION_MODES:
         raise ValueError(f"permission mode must be one of {sorted(PERMISSION_MODES)}")
@@ -951,7 +960,7 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         builder.pin("self", awareness.self_model(
             model="", window=context.budget_tokens, mask_at=context.mask_at, compaction_at=cfg.compaction_threshold, compaction=cfg.compaction, max_turns=cfg.max_turns,
             max_tokens=cfg.max_total_tokens, max_seconds=cfg.max_seconds, absent=awareness.absent_features(present),
-            lessons=""))
+            lessons="", council=council_line(registry)))
     agent = AgentLoop(
         client=client or TadamooClient(base_url=cfg.endpoint, api_key=cfg.api_key),
         tool_registry=registry,
