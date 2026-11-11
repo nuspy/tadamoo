@@ -46,7 +46,7 @@ class RagApi:
 
 def know(api=None, function="meeting", archives=("boats-1",), **kw):
     api = api or RagApi()
-    k = Knowledge(Config(), function, archives, session="s1", api=api, spawn=lambda fn, kind: fn() if kind == "aloud" else k.jobs.append(fn), sleep=lambda s: None, **kw)
+    k = Knowledge(Config(), function, archives, session="s1", api=api, spawn=lambda fn, kind: fn() if kind in ("ask", "aloud") else k.jobs.append(fn), sleep=lambda s: None, **kw)
     k.jobs = []                                  # the watchers wait for the tests to say when the person answered
     return k, api
 

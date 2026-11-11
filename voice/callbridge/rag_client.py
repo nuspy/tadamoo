@@ -120,7 +120,7 @@ class Knowledge:
         self.archives = [a for a in dict.fromkeys(archives or []) if isinstance(a, str) and a]
         self.session = session or f"{function}-{int(time.time())}"
         self._api, self.asker = api, asker
-        self._spawn = spawn or (lambda fn, kind: threading.Thread(target=fn, name="knowledge-" + kind, daemon=True).start())     # kind: aloud | watch
+        self._spawn = spawn or (lambda fn, kind: threading.Thread(target=fn, name="knowledge-" + kind, daemon=True).start())     # kind: ask | aloud | watch
         self._sleep, self._clock = sleep, clock
         self.granted: set[str] = set()            # for the rest of the session
         self.once: set[str] = set()               # for the next passage only
@@ -168,8 +168,8 @@ class Knowledge:
         if out.block:
             with self._lock:
                 self.once -= {s["archive_id"] for s in out.sources}      # a "this time" is used up by the passage that used it
-        for p in out.pending:
-            self._ask(p, "spoken" if how == "speech" else "shown")
+        for p in out.pending:                                         # in a thread of its own: the reply does not wait for the server's note of the question
+            self._spawn(lambda p=p: self._ask(p, "spoken" if how == "speech" else "shown"), "ask")
         return out
 
     # -- the consent of the other people's ears ----------------------------------------------------------

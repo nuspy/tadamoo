@@ -32,7 +32,7 @@ SRC = [{"archive_id": "boats-1", "archive": "Boats", "others_ok": "ask_dialog", 
 
 def know(api=None, function="meeting", **kw):
     api = api or RagApi()
-    k = Knowledge(Config(), function, ("boats-1",), session="s", api=api, spawn=lambda fn, kind: fn() if kind == "aloud" else k.jobs.append(fn), sleep=lambda s: None, **kw)
+    k = Knowledge(Config(), function, ("boats-1",), session="s", api=api, spawn=lambda fn, kind: fn() if kind in ("ask", "aloud") else k.jobs.append(fn), sleep=lambda s: None, **kw)
     k.jobs = []
     return k, api
 
