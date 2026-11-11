@@ -15,6 +15,7 @@ import 'network_screen.dart';
 import 'place.dart';
 import 'server_prefs.dart';
 import 'settings.dart';
+import 'persona_menu.dart';
 import 'voice.dart';
 
 /// One conversation: the messages, what the agent is doing, its questions with their buttons, and the box to write in.
@@ -52,6 +53,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   bool stickToEnd = true;
   late bool openedAtLast = widget.sessionId != null;       // a conversation that is opened starts at its last answer, not at its end
   final lastAnswerKey = GlobalKey();
+  List<PersonaChoice> personas = const [];
 
   @override
   void initState() {
@@ -68,6 +70,32 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     });
     if (widget.sessionId != null) ctl.open(widget.sessionId!);
     input.addListener(_warmPlace);
+    _loadPersonas();
+  }
+
+  /// The names for the menu of personalities and colleagues; without them the menu is not shown.
+  Future<void> _loadPersonas() async {
+    try {
+      final r = await widget.api.get('/api/persona-names');
+      if (mounted) setState(() => personas = PersonaChoice.parse(r['personas']));
+    } catch (_) {
+      // an older PC has no such list: no menu
+    }
+  }
+
+  String get _persona => ctl.ready ? (ctl.info?.persona ?? '') : (pending?.persona ?? '');
+
+  /// Changes who answers: at once in a conversation that exists, else it goes with the request that creates it.
+  Future<void> _setPersona(String slug) async {
+    if (!ctl.ready) {
+      setState(() => pending = (pending ?? NewChat(mode: widget.settings.mode)).copy(persona: slug));
+      return;
+    }
+    try {
+      await ctl.setPersona(slug);
+    } on ApiError catch (e) {
+      _say(e.message);
+    }
   }
 
   /// A reading is taken while the person writes, so sending does not wait for it.
@@ -326,6 +354,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       appBar: AppBar(
         title: Text(ctl.info == null || ctl.info!.title.isEmpty ? Texts.t('conv.untitled') : ctl.info!.title, maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
+          PersonaMenu(choices: personas, current: _persona, onPick: _setPersona),
           IconButton(
             key: const ValueKey('read-aloud'),
             tooltip: Texts.t(widget.settings.autoSpeak ? 'chat.readoff' : 'chat.readon'),

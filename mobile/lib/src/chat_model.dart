@@ -23,6 +23,9 @@ class SessionInfo {
 
   /// What the agent is for in this conversation (general when the server says nothing).
   String get role => '${raw['role'] ?? 'general'}';
+
+  /// The personality or colleague the conversation speaks as ('' for none).
+  String get persona => '${raw['persona'] ?? ''}';
 }
 
 /// A piece of a background command's output: what it wrote to its error stream is told apart from the rest.
@@ -324,6 +327,9 @@ class ChatController extends ChangeNotifier {
         if (info != null) info!.raw['mode'] = m;
         _note('${Texts.t('chat.mode')}: ${Texts.t('mode.$m')}');
         break;
+      case 'persona':
+        if (info != null) info!.raw['persona'] = '${e['slug'] ?? ''}';
+        break;
       case 'role':
         final r = '${e['role']}';
         if (info != null) info!.raw['role'] = r;
@@ -520,6 +526,13 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Changes the personality or colleague the conversation speaks as ('' for none); the conversation goes on.
+  Future<void> setPersona(String slug) async {
+    final r = await api.post('/api/agent/sessions/$sid/persona', {'persona': slug});
+    info = SessionInfo(Map<String, dynamic>.from(r['session'] as Map));
+    notifyListeners();
+  }
+
   Future<void> control(String what) async {
     await api.post('/api/agent/sessions/$sid/$what');
     state = what == 'close' ? 'closed' : 'busy';
@@ -537,8 +550,11 @@ class ChatController extends ChangeNotifier {
 
 /// What a new conversation starts with: the same fields the PC's page sends when it makes one.
 class NewChat {
-  NewChat({this.mode = 'default', this.effort = '', this.allow = const [], this.worktree = 'auto', this.askOnly = false, this.role = ''});
+  NewChat({this.mode = 'default', this.effort = '', this.allow = const [], this.worktree = 'auto', this.askOnly = false, this.role = '', this.persona = ''});
   final String mode;
+
+  /// The personality or colleague the conversation starts with; '' for none.
+  final String persona;
 
   /// What the agent is for (build, plan, ask, debug, orchestrate, general); '' leaves it to the server (general).
   final String role;
@@ -551,8 +567,8 @@ class NewChat {
   final String worktree;
   final bool askOnly;
 
-  NewChat copy({String? mode, String? effort, List<String>? allow, String? worktree, bool? askOnly, String? role}) =>
-      NewChat(mode: mode ?? this.mode, effort: effort ?? this.effort, allow: allow ?? this.allow, worktree: worktree ?? this.worktree, askOnly: askOnly ?? this.askOnly, role: role ?? this.role);
+  NewChat copy({String? mode, String? effort, List<String>? allow, String? worktree, bool? askOnly, String? role, String? persona}) =>
+      NewChat(mode: mode ?? this.mode, effort: effort ?? this.effort, allow: allow ?? this.allow, worktree: worktree ?? this.worktree, askOnly: askOnly ?? this.askOnly, role: role ?? this.role, persona: persona ?? this.persona);
 
-  Map<String, dynamic> body() => {'mode': mode, 'allow': allow, 'ask_only': askOnly, 'effort': effort, 'worktree': worktree, if (role.isNotEmpty) 'role': role};
+  Map<String, dynamic> body() => {'mode': mode, 'allow': allow, 'ask_only': askOnly, 'effort': effort, 'worktree': worktree, if (role.isNotEmpty) 'role': role, if (persona.isNotEmpty) 'persona': persona};
 }
