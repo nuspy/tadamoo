@@ -54,6 +54,7 @@ def self_model(*, model: str, window: int, mask_at: float, compaction_at: float,
     if knowledge:
         lines.append("- The person keeps knowledge archives (named collections of their documents, also called RAG): this project's are searched for every request, and any archive can be attached "
                      "to this conversation by name with `knowledge_use` (`knowledge_drop`, `knowledge_list` and `knowledge_search` go with it) when the person asks for one, in any wording. "
+                     "`knowledge_check` says whether an archive is up to date with its sources and `knowledge_update` reads again what changed, when the person asks. "
                      "The `[state]` note lists the archives this conversation can use now (`knowledge=`) and says when they change.")
     if council:
         lines.append(council)

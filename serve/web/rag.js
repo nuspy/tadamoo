@@ -337,6 +337,7 @@
       const li = el("li", "rg-doc"), text = el("div", "rg-doc-t");
       text.append(el("span", "rg-dname", d.name), el("span", "rg-dmeta", T("rg.doc.meta", size(d.bytes), d.chunks)),
         el("span", "rg-dmeta", T(READ_BY[d.extraction] || READ_BY.basic, d.pages || 0) + (d.flagged ? " " + T("rg.doc.flagged", d.flagged) : "")));
+      if (window.ragSync) text.append(...window.ragSync.docLines(d));
       if ((d.skipped_pages || []).length) { const w = el("span", "rg-dmeta rg-warnline", T("rg.doc.skipped", d.skipped_pages.join(", "))); w.setAttribute("role", "status"); text.append(w); }
       const key = "d" + d.id, sure = armed === key;
       const b = btn(sure ? T("rg.doc.remove.sure") : T("rg.doc.remove"), sure ? "rg-warn" : "", () => { if (!sure) arm(key); else removeDoc(d); });
@@ -394,7 +395,7 @@
   }
   function detailView() {
     const a = detail.archive, main = el("div", "rg-main");
-    main.append(el("h3", "rg-h", a.name), editForm(a), docsBlock(a), indexBlock(a), tryBlock(a));
+    main.append(el("h3", "rg-h", a.name), editForm(a), docsBlock(a), ...(window.ragSync ? [window.ragSync.block(a, { reload: reloadAll })] : []), indexBlock(a), tryBlock(a));
     const sure = armed === "delete", bar = el("div", "rg-bar");
     const del = btn(sure ? T("rg.delete.sure") : T("rg.delete"), "rg-warn", () => { if (!sure) arm("delete"); else remove(); });
     del.id = "rg-delete";

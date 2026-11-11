@@ -76,6 +76,7 @@ from serve.persona_learning_worker import PersonaLearningWorker
 from serve.personas_api import PersonasApi
 from serve.rag_api import RagApi, upload_limit
 from serve.rag_jobs import Jobs as RagJobs
+from serve.rag_sync_api import attention as rag_attention
 from tadamoo.rag import RagError, RagStore
 from tadamoo.personas import PersonaError, PersonaStore
 from tadamoo.context_patterns import catalog as context_patterns_catalog
@@ -194,6 +195,7 @@ _PERSONAS = None                                       # Settings > Personalitie
 _PERSONA_LEARNING = None                               # a personality learns from a conversation once it is over, when the GPU is free
 _RAG_JOBS = None                                    # the long jobs of the knowledge archives (reading a big document), made on first use
 _RAG = None                                            # the knowledge archives (the Knowledge tab), made on first use
+_RAG_SYNC = None                                       # the refresh of the archives (their sources, checks and updates), made on first use
 _RAG_EMBED = None                                      # the embedding service of the knowledge archives (a worker process on a lease of VRAM), made on first use
 _MCP_AUTH = None                                       # the sign-in of the remote MCP servers, made on first use
 _PLANS = None                                          # the planner's service, made on first use
@@ -612,7 +614,8 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/attention":
                 if self._authorized():
                     self._json(200, {"cron": _ROUTINES.attention() if _ROUTINES is not None else {"t": 0.0},
-                                     "plans": _PLANS.attention() if _PLANS is not None else {"t": 0.0}})
+                                     "plans": _PLANS.attention() if _PLANS is not None else {"t": 0.0},
+                                     "rag": rag_attention(userdata.path("rag"))})
             elif path == "/api/technical-session":
                 if self._authorized():
                     self._json(200, {"on": side_uses.session_on()})
@@ -2715,6 +2718,19 @@ def make_handler(svc: Service, remote: bool = False):
                 _RAG_EMBED = EmbedService(settings_file.read, models.dirs, lambda: f"http://127.0.0.1:{port}")
             return _RAG_EMBED
 
+        def _rag_sync(self):
+            """The refresh of the archives, one for the server: it holds the one-run-per-archive guard and the pause between requests to a site. An update waits while a
+            heavy job has the local model out (docs/heavy-swap.md); the company wiki's address is the one of Settings > Memories > Wiki unless a source names its own."""
+            global _RAG_SYNC
+            if _RAG_SYNC is None:
+                from tadamoo.integrations.wikibridge_client import WikiBridgeClient
+                from tadamoo.rag.sources.engine import Sync
+                from tadamoo import llm
+                prefs = KnowledgePrefs(userdata.path("knowledge.json"))
+                _RAG_SYNC = Sync(self._rag_store(), wiki_client=lambda address: WikiBridgeClient.from_environment(url=address or prefs.read()["wiki_url"] or None, timeout=20.0),
+                                 busy=lambda: "a heavy job has the local model out" if llm.registry().swap() is not None else "")
+            return _RAG_SYNC
+
         def _rag(self) -> RagApi:
             chat = userdata.path("chat-workspace")
             global _RAG_JOBS
@@ -2740,7 +2756,7 @@ def make_handler(svc: Service, remote: bool = False):
                     except Exception:                                 # a plan or routine that is gone declares no archive
                         return []
                 return run
-            return RagApi(self._rag_store(), jobs=_RAG_JOBS, service=self._rag_embed(), folders=lambda: [{"name": "Chat", "path": str(chat), "chat": True}]
+            return RagApi(self._rag_store(), jobs=_RAG_JOBS, service=self._rag_embed(), sync=self._rag_sync(), folders=lambda: [{"name": "Chat", "path": str(chat), "chat": True}]
                           + [{"name": p["name"], "path": p["path"], "chat": False} for p in self._projects().list() if p.get("exists")],
                           sources=lambda: {"session": session, "plan_node": guarded(plan_node), "routine": guarded(routine)})
 
@@ -3252,7 +3268,8 @@ def make_handler(svc: Service, remote: bool = False):
                 _ROUTINES = RoutinesApi(userdata.path("journal"), sessions,
                                         power_source=(lambda: tel.snapshot()["now"].get("gpus") or []) if tel else None,
                                         plan_paused=lambda plan_id: self._plan_service().is_paused(plan_id),
-                                        plan_context=lambda plan_id: self._plan_service().template_context(plan_id))
+                                        plan_context=lambda plan_id: self._plan_service().template_context(plan_id),
+                                        knowledge=lambda ref, action, cancel: self._rag().syncing.scheduled(ref, action, cancel))
                 _ROUTINES.scheduler.tick_hooks.append(self._watch_plans)
             return _ROUTINES
 

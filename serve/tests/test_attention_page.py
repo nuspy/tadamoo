@@ -27,10 +27,10 @@ class AttentionLogicTest(unittest.TestCase):
 
 class AttentionWiringTest(unittest.TestCase):
     def test_the_script_watches_the_two_tabs_and_asks_the_server(self):
-        self.assertIn('{ cron: "tab-cron", plans: "tab-plans" }', JS)
+        self.assertIn('{ cron: "tab-cron", plans: "tab-plans", rag: "tab-rag" }', JS)
         self.assertIn('fetch("api/attention"', JS)
         self.assertIn("if (document.hidden) return;", JS)                     # nothing is asked while the page is not looked at
-        for ident in ("tab-cron", "tab-plans", "attn-live"):
+        for ident in ("tab-cron", "tab-plans", "tab-rag", "attn-live"):
             self.assertIn(f'id="{ident}"', HTML)
         self.assertLess(HTML.index("web/i18n.js"), HTML.index("web/attention.js"))
 
