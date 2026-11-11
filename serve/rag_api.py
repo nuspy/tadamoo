@@ -11,9 +11,10 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from tadamoo.rag import LIMITS, RagError, RagStore
 from tadamoo.rag.choice import decide, known
-from tadamoo.rag.extract import FORMATS
+from tadamoo.rag.ingest import docling_client, extraction_of
 from tadamoo.rag.project import is_key, project_key
 from tadamoo.rag.recall import compose_message
+from serve.rag_jobs import Jobs
 
 UPLOAD_MAX = LIMITS["document_bytes"]
 JSON_MAX = 1 << 17
@@ -32,9 +33,11 @@ def _project(value: Any) -> str:
 
 
 class RagApi:
-    def __init__(self, store: RagStore, folders: Callable[[], List[Dict[str, Any]]] = lambda: []) -> None:
-        """`folders` lists the projects as `{name, path, chat}`: the folders of the Agent tab and the Chat's own folder (`chat` true)."""
+    def __init__(self, store: RagStore, folders: Callable[[], List[Dict[str, Any]]] = lambda: [], jobs: Optional[Jobs] = None) -> None:
+        """`folders` lists the projects as `{name, path, chat}`: the folders of the Agent tab and the Chat's own folder (`chat` true). `jobs` is the
+        board of the long jobs, kept by the server between requests."""
         self.store, self.folders = store, folders
+        self.jobs = jobs if jobs is not None else Jobs()
 
     # -- reading ---------------------------------------------------------------------------------
 
@@ -45,7 +48,18 @@ class RagApi:
 
     def overview(self, project: Any) -> Dict[str, Any]:
         pdf = any(importlib.util.find_spec(m) is not None for m in ("pypdf", "fitz"))
-        return {"project": _project(project), "archives": self.store.list(project), "limits": LIMITS, "formats": list(FORMATS), "pdf": pdf, "embedding": self.embedding()}
+        settings = self.store.settings.read()
+        return {"project": _project(project), "archives": self.store.list(project), "limits": LIMITS, "formats": self.store.formats(), "pdf": pdf, "embedding": self.embedding(),
+                "extraction": extraction_of(settings), "settings": settings, "docling_python": docling_client.find_python(settings["docling_python"]),
+                "jobs": [j for j in self.jobs.list() if j["state"] == "running"]}
+
+    def settings(self) -> Dict[str, Any]:
+        settings = self.store.settings.read()
+        return {"settings": settings, "extraction": extraction_of(settings), "docling_python": docling_client.find_python(settings["docling_python"]), "formats": self.store.formats()}
+
+    def set_settings(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        self.store.settings.write(req)
+        return self.settings()
 
     def projects(self) -> Dict[str, Any]:
         """The projects the page can pick, each with its key and how many archives it holds."""
@@ -95,10 +109,34 @@ class RagApi:
         return self.store.delete(aid, req.get("confirm"))
 
     def add_path(self, aid: str, req: Dict[str, Any]) -> Dict[str, Any]:
-        return self.store.add_path(aid, req.get("path"))
+        """Adds the file at `path` in the background: `{job}`; the file is checked at once (a bad path or an archive that is not there is refused now)."""
+        self.store.load(aid)
+        path = self.store.check_path(req.get("path"))
+        return {"job": self.jobs.start("add " + path.name, lambda progress, cancel: self.store.add_file(aid, path.name, path, progress, cancel), aid)}
 
     def upload(self, aid: str, name: str, data: bytes) -> Dict[str, Any]:
-        return self.store.add_bytes(aid, name, data)
+        """Adds an uploaded file in the background: `{job}`. The name, the format and the size are checked now; the reading is the job."""
+        name, tmp = self.store.stage_bytes(aid, name, data)
+
+        def work(progress: Callable[[Dict[str, Any]], None], cancel: Any) -> Dict[str, Any]:
+            try:
+                return self.store.add_file(aid, name, tmp, progress, cancel)
+            finally:
+                tmp.unlink(missing_ok=True)
+        try:
+            return {"job": self.jobs.start("add " + name, work, aid)}
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+
+    def job(self, jid: str) -> Dict[str, Any]:
+        return {"job": self.jobs.get(jid)}
+
+    def cancel_job(self, jid: str) -> Dict[str, Any]:
+        return {"job": self.jobs.cancel(jid)}
+
+    def section(self, aid: str, sid: str) -> Dict[str, Any]:
+        return {"section": self.store.section(aid, sid)}
 
     def remove_document(self, aid: str, doc_id: str) -> Dict[str, Any]:
         return self.store.remove_document(aid, doc_id)
@@ -143,6 +181,12 @@ class RagApi:
             return self.projects()
         if parts == ["catalog"]:
             return self.catalog()
+        if parts == ["settings"]:
+            return self.settings()
+        if len(parts) == 2 and parts[0] == "jobs":
+            return self.job(parts[1])
+        if len(parts) == 4 and parts[0] == "archives" and parts[2] == "sections":
+            return self.section(parts[1], parts[3])
         if len(parts) == 2 and parts[0] == "archives":
             return self.get(parts[1])
         raise RagError("not found", "not_found")
@@ -162,6 +206,10 @@ class RagApi:
             return self.recall(req)
         if parts == ["choose"]:
             return self.choose(req)
+        if parts == ["settings"]:
+            return self.set_settings(req)
+        if len(parts) == 3 and parts[0] == "jobs" and parts[2] == "cancel":
+            return self.cancel_job(parts[1])
         if parts == ["archives"]:
             return self.create(req)
         if len(parts) == 3 and parts[0] == "archives":

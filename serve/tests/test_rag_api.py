@@ -2,6 +2,7 @@
 import json
 import re
 import tempfile
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -36,6 +37,14 @@ def make(tmp_path, embedder=None):
     return RagApi(RagStore(tmp_path / "rag", embedder=embedder or (lambda: None), forbidden=[tmp_path / "personas"]), lambda: folders)
 
 
+def up(api, aid, name, data):
+    """Adds a document and waits for the job: its result (`document`, `embedded`, `note`)."""
+    job = api.upload(aid, name, data)["job"]
+    done = api.jobs.wait(job["id"])
+    assert done["state"] == "done", done
+    return done["result"]
+
+
 def new(api, name, project=PROJ, **more):
     return api.create({"name": name, "project": project, **more})
 
@@ -45,9 +54,9 @@ def test_an_archive_is_made_filled_asked_and_deleted(tmp_path):
     made = new(api, "Boats", description="About sailing")["archive"]
     aid = made["id"]
     assert made["documents"] == 0 and made["mode"] == "text" and made["project"] == PROJ and api.overview(PROJ)["embedding"] == {"available": False, "model": ""}
-    added = api.upload(aid, "boats.txt", BOATS)
+    added = up(api, aid, "boats.txt", BOATS)
     assert added["document"]["name"] == "boats.txt" and added["embedded"] is False
-    api.upload(aid, "rice.md", RICE)
+    up(api, aid, "rice.md", RICE)
     detail = api.get(aid)
     assert [d["name"] for d in detail["archive"]["document_list"]] == ["boats.txt", "rice.md"] and detail["archive"]["chunks"] == 2
     found = api.search({"query": "what keeps the boat upright", "archives": [aid]})
@@ -74,7 +83,8 @@ def test_a_document_can_be_added_by_its_path(tmp_path):
     doc = tmp_path / "docs" / "boats.txt"
     doc.parent.mkdir()
     doc.write_bytes(BOATS)
-    assert api.add_path(aid, {"path": str(doc)})["document"]["name"] == "boats.txt"
+    job = api.add_path(aid, {"path": str(doc)})["job"]
+    assert api.jobs.wait(job["id"])["result"]["document"]["name"] == "boats.txt"
     for bad in ({}, {"path": "boats.txt"}, {"path": str(tmp_path / "docs" / ".." / "docs" / "boats.txt")}, {"path": str(tmp_path / "personas" / "x.txt")}):
         with pytest.raises(RagError):
             api.add_path(aid, bad)
@@ -109,8 +119,8 @@ def test_the_projects_are_the_folders_with_their_keys_and_archive_counts(tmp_pat
 def test_a_search_can_be_for_one_projects_archives(tmp_path):
     api = make(tmp_path)
     a, b = new(api, "Boats")["archive"]["id"], new(api, "Kitchen", OTHER)["archive"]["id"]
-    api.upload(a, "boats.txt", BOATS)
-    api.upload(b, "rice.txt", RICE)
+    up(api, a, "boats.txt", BOATS)
+    up(api, b, "rice.txt", RICE)
     assert api.search({"query": "keel upright boat", "project": OTHER})["hits"] == []
     assert api.search({"query": "stock for risotto", "project": OTHER})["hits"][0]["archive"] == "Kitchen"
     for bad in ({}, {"query": " "}, {"query": 5}, {"query": "x", "project": PROJ, "top_k": 0}, {"query": "x", "project": PROJ, "top_k": 99}, {"query": "x", "project": PROJ, "top_k": True},
@@ -125,8 +135,8 @@ def test_a_search_can_be_for_one_projects_archives(tmp_path):
 def test_recall_gives_the_data_block_of_the_projects_passages(tmp_path):
     api = make(tmp_path)
     a, b = new(api, "Boats")["archive"]["id"], new(api, "Kitchen", OTHER)["archive"]["id"]
-    api.upload(a, "boats.txt", BOATS)
-    api.upload(b, "rice.txt", RICE)
+    up(api, a, "boats.txt", BOATS)
+    up(api, b, "rice.txt", RICE)
     block = api.recall({"project": PROJ, "goal": "what keeps the boat upright, the keel?"})["block"]
     assert "[Boats / boats.txt]" in block and block.startswith("<untrusted_data source=\"knowledge-archive\"") and "Kitchen" not in block
     assert api.recall({"project": PROJ, "goal": "stock for risotto"})["block"] == ""                  # the other project's passages stay out
@@ -142,7 +152,9 @@ def test_the_route_parts_are_dispatched_and_unknown_ones_are_not_found(tmp_path)
     aid = created["id"]
     assert api.route_get([], {"project": [PROJ]})["archives"][0]["id"] == aid and api.route_get(["archives", aid])["archive"]["name"] == "Boats"
     assert api.route_get(["projects"])["projects"][0]["chat"] is True and api.route_get([], {"project": [OTHER]})["archives"] == []
-    assert api.route_post(["archives", aid, "upload"], {"name": ["boats.txt"]}, BOATS)["document"]["name"] == "boats.txt"
+    job = api.route_post(["archives", aid, "upload"], {"name": ["boats.txt"]}, BOATS)["job"]
+    assert api.jobs.wait(job["id"])["state"] == "done"
+    assert api.route_post(["jobs", job["id"], "cancel"], {}, b"{}")["job"]["state"] == "done" and api.route_get(["jobs", job["id"]])["job"]["id"] == job["id"]      # too late to cancel
     assert api.route_post(["search"], {}, json.dumps({"query": "keel", "project": PROJ}).encode())["hits"]
     assert api.route_post(["recall"], {}, json.dumps({"project": PROJ, "goal": "what keeps the boat upright"}).encode())["block"]
     for gone in (["archives", aid, "link"],):
@@ -176,7 +188,7 @@ def test_hybrid_search_switches_on_when_an_embedder_appears(tmp_path):
     holder = {"e": None}
     api = make(tmp_path, lambda: holder["e"])
     aid = new(api, "Boats")["archive"]["id"]
-    api.upload(aid, "boats.txt", BOATS)
+    up(api, aid, "boats.txt", BOATS)
     assert api.embedding()["available"] is False and api.get(aid)["archive"]["mode"] == "text"
     holder["e"] = Embedder()
     assert api.embedding() == {"available": True, "model": "fake-1"} and api.get(aid)["archive"]["reindex"] is True
@@ -223,14 +235,24 @@ class Routes(unittest.TestCase):
             body = e.read()
             return e.code, (json.loads(body) if body[:1] == b"{" else body)
 
+    def wait_job(self, jid):
+        for _ in range(100):
+            job = self.call("GET", f"/api/rag/jobs/{jid}")[1]["job"]
+            if job["state"] != "running":
+                return job
+            time.sleep(0.05)
+        self.fail("the job did not end")
+
     def test_the_whole_cycle_over_http(self):
         status, body = self.call("POST", "/api/rag/archives", {"name": "Route Test", "description": "d", "project": PROJ})
         self.assertEqual(status, 200)
         aid = body["archive"]["id"]
         self.assertEqual(self.call("POST", "/api/rag/archives", {"name": "route test", "project": PROJ})[0], 400)
         self.assertEqual(self.call("POST", "/api/rag/archives", {"name": "no project"})[0], 400)
-        status, up = self.call("POST", f"/api/rag/archives/{aid}/upload?name=boats.txt", raw=BOATS)
-        self.assertEqual((status, up["document"]["name"]), (200, "boats.txt"))
+        status, started = self.call("POST", f"/api/rag/archives/{aid}/upload?name=boats.txt", raw=BOATS)
+        self.assertEqual(status, 200)
+        job = self.wait_job(started["job"]["id"])
+        self.assertEqual((job["state"], job["result"]["document"]["name"]), ("done", "boats.txt"))
         self.assertEqual(self.call("POST", f"/api/rag/archives/{aid}/upload?name=boats.txt", raw=BOATS)[0], 400)           # the same file twice
         self.assertEqual(self.call("POST", f"/api/rag/archives/{aid}/upload?name=..%2Fx.txt", raw=BOATS)[0], 400)
         self.assertEqual(self.call("POST", f"/api/rag/archives/{aid}/upload?name=x.exe", raw=BOATS)[0], 400)
@@ -260,7 +282,7 @@ class Routes(unittest.TestCase):
 
     def test_the_chat_text_for_a_project_and_the_personality_text_without_passages(self):
         aid = self.call("POST", "/api/rag/archives", {"name": "Chat Boats", "project": PROJ})[1]["archive"]["id"]
-        self.call("POST", f"/api/rag/archives/{aid}/upload?name=boats.txt", raw=BOATS)
+        self.wait_job(self.call("POST", f"/api/rag/archives/{aid}/upload?name=boats.txt", raw=BOATS)[1]["job"]["id"])
         status, recalled = self.call("POST", "/api/rag/recall", {"project": PROJ, "goal": "what keeps the boat upright, the keel?"})
         self.assertEqual(status, 200)
         self.assertIn("[Chat Boats / boats.txt]", recalled["block"])
@@ -346,8 +368,8 @@ def test_choose_answers_for_the_model_only_chat_with_the_same_rule_as_the_agent(
 def test_recall_adds_the_attached_archives_to_the_projects_own(tmp_path):
     api = make(tmp_path)
     mine, other = new(api, "Boats")["archive"]["id"], new(api, "Kitchen", OTHER)["archive"]["id"]
-    api.upload(mine, "boats.txt", BOATS)
-    api.upload(other, "rice.txt", RICE)
+    up(api, mine, "boats.txt", BOATS)
+    up(api, other, "rice.txt", RICE)
     assert api.recall({"project": PROJ, "goal": "stock for risotto"})["block"] == ""
     block = api.recall({"project": PROJ, "goal": "stock for risotto", "attached": [other]})["block"]
     assert "[Kitchen / rice.txt]" in block

@@ -8,7 +8,7 @@
   if (!host) return;
 
   const ARM_MS = 4000, TOP_K = 4;
-  let S = null, projects = [], project = "", picked = false, chatKey = "", recallOff = false, list = [], chosen = "", creating = false, detail = null, note = "", noteBad = false, armed = "", armTimer = 0, question = "", results = null, asking = false, working = false;
+  let jobNow = "", S = null, projects = [], project = "", picked = false, chatKey = "", recallOff = false, list = [], chosen = "", creating = false, detail = null, note = "", noteBad = false, armed = "", armTimer = 0, question = "", results = null, asking = false, working = false;
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; return b; };
@@ -59,6 +59,11 @@
     const r = await loadArchives();
     if (!r.ok) { S = null; say(why(r), true); paint(); return; }
     if (chosen && !list.some(a => a.id === chosen)) { chosen = ""; detail = null; }
+    if (S.jobs && S.jobs.length && !jobNow && !working) {                 // a document is still being read: show how it goes
+      const job = S.jobs[0];
+      working = true;
+      followJob(job, String(job.label || "").replace(/^add /, "")).then(out => { working = false; say(out.text, !out.ok); reloadAll(); });
+    }
     if (chosen) await reloadDetail(); else paint();
   }
   async function reloadDetail() {
@@ -96,6 +101,28 @@
     chosen = ""; detail = null; results = null; say(T("rg.deleted"), false);
     await reloadAll();
   }
+  /* a document is added by a job on the server (a big one takes minutes): follow it, show the stage and the page, end with its result */
+  const JOB_MS = 800;
+  const STAGES = { reading: "rg.job.stage.reading", cutting: "rg.job.stage.cutting", indexing: "rg.job.stage.indexing" };
+  const READ_BY = { docling: "rg.doc.read.docling", basic: "rg.doc.read.basic" };
+  async function followJob(job, name) {
+    jobNow = job.id;
+    for (;;) {
+      const stage = T(STAGES[job.stage] || STAGES.reading);
+      say(job.pages ? T("rg.job.pages", name, stage, job.page, job.pages) : T("rg.job.working", name, stage), false); paint();
+      if (job.state !== "running") break;
+      await new Promise(r => setTimeout(r, JOB_MS));
+      const r = await api("GET", `api/rag/jobs/${encodeURIComponent(job.id)}`);
+      if (!r.ok) { jobNow = ""; return { ok: false, text: T("rg.add.fail", name, why(r)) }; }
+      job = r.data.job;
+    }
+    jobNow = "";
+    if (job.state === "done") return { ok: true, text: T("rg.add.done", name, job.result.document.chunks) + (job.result.note ? " " + job.result.note : "") };
+    return { ok: false, text: job.state === "cancelled" ? T("rg.job.cancelled", name) : T("rg.add.fail", name, job.error) };
+  }
+  async function cancelJob() {
+    if (jobNow) await api("POST", `api/rag/jobs/${encodeURIComponent(jobNow)}/cancel`, {});
+  }
   async function addFiles(files) {
     if (!files.length || working) return;
     working = true;
@@ -103,8 +130,8 @@
     for (const f of files) {
       say(T("rg.add.reading", f.name), false); paint();
       const r = await api("POST", `api/rag/archives/${encodeURIComponent(chosen)}/upload?name=${encodeURIComponent(f.name)}`, null, f);
-      if (r.ok) lines.push(T("rg.add.done", f.name, r.data.document.chunks) + (r.data.note ? " " + r.data.note : ""));
-      else { bad = true; lines.push(T("rg.add.fail", f.name, why(r))); }
+      const out = r.ok ? await followJob(r.data.job, f.name) : { ok: false, text: T("rg.add.fail", f.name, why(r)) };
+      lines.push(out.text); bad = bad || !out.ok;
     }
     working = false;
     say(lines.join("\n"), bad);
@@ -114,8 +141,14 @@
     if (!path.trim() || working) return;
     working = true; say(T("rg.add.reading", path), false); paint();
     const r = await api("POST", `api/rag/archives/${encodeURIComponent(chosen)}/documents`, { path: path.trim() });
+    const out = r.ok ? await followJob(r.data.job, path.trim().split(/[\\/]/).pop()) : { ok: false, text: why(r) };
     working = false;
-    say(r.ok ? T("rg.add.done", r.data.document.name, r.data.document.chunks) + (r.data.note ? " " + r.data.note : "") : why(r), !r.ok);
+    say(out.text, !out.ok);
+    await reloadAll();
+  }
+  async function saveSettings(body) {
+    const r = await api("POST", "api/rag/settings", body);
+    say(r.ok ? T("rg.saved") : why(r), !r.ok);
     await reloadAll();
   }
   async function removeDoc(doc) {
@@ -171,7 +204,21 @@
     box.setAttribute("role", "status"); box.dataset.mode = on ? "hybrid" : "text";
     box.append(el("p", "rg-banner-t", on ? T("rg.hybrid", S.embedding.model) : T("rg.textonly")));
     if (!on) box.append(el("p", "rg-help", T("rg.textonly.help")));
-    if (!S.pdf) box.append(el("p", "rg-help", T("rg.nopdf")));
+    if (!S.pdf && S.extraction !== "docling") box.append(el("p", "rg-help", T("rg.nopdf")));
+    box.append(el("p", "rg-help", S.extraction === "docling" ? T("rg.read.docling") : T("rg.read.basic")));
+    return box;
+  }
+  function settingsBlock() {
+    const box = el("details", "rg-settings"), sum = el("summary", "rg-sum", T("rg.set.title"));
+    const py = textInput(S.settings.docling_python, 500), keep = el("select");
+    [["keep", "rg.set.flagged.keep"], ["drop", "rg.set.flagged.drop"]].forEach(([k, key]) => { const o = el("option", "", T(key)); o.value = k; keep.append(o); });
+    keep.value = S.settings.flagged;
+    const device = el("select");
+    [["auto", "rg.set.device.auto"], ["cpu", "rg.set.device.cpu"]].forEach(([k, key]) => { const o = el("option", "", T(key)); o.value = k; device.append(o); });
+    device.value = S.settings.docling_device || "auto";
+    const go = btn(T("rg.save"), "primary", () => saveSettings({ docling_python: py.value.trim(), docling_device: device.value, flagged: keep.value }));
+    box.append(sum, field("rg-docling", T("rg.set.docling"), S.docling_python ? T("rg.set.docling.found", S.docling_python) : T("rg.set.docling.none"), py),
+      field("rg-device", T("rg.set.device"), T("rg.set.device.help"), device), field("rg-flagged", T("rg.set.flagged"), T("rg.set.flagged.help"), keep), go);
     return box;
   }
   function sideList() {
@@ -224,7 +271,8 @@
     box.append(h);
     a.document_list.forEach(d => {
       const li = el("li", "rg-doc"), text = el("div", "rg-doc-t");
-      text.append(el("span", "rg-dname", d.name), el("span", "rg-dmeta", T("rg.doc.meta", size(d.bytes), d.chunks)));
+      text.append(el("span", "rg-dname", d.name), el("span", "rg-dmeta", T("rg.doc.meta", size(d.bytes), d.chunks)),
+        el("span", "rg-dmeta", T(READ_BY[d.extraction] || READ_BY.basic, d.pages || 0) + (d.flagged ? " " + T("rg.doc.flagged", d.flagged) : "")));
       const key = "d" + d.id, sure = armed === key;
       const b = btn(sure ? T("rg.doc.remove.sure") : T("rg.doc.remove"), sure ? "rg-warn" : "", () => { if (!sure) arm(key); else removeDoc(d); });
       b.id = "rg-rm-" + d.id;
@@ -298,7 +346,8 @@
     else { main = el("div", "rg-main"); main.append(el("p", "rg-help", T("rg.pick"))); }
     const layout = el("div", "rg-layout");
     layout.append(sideList(), main);
-    host.replaceChildren(el("p", "rg-intro", T("rg.intro")), projectPicker(), banner(), status, layout);
+    const stop = jobNow ? btn(T("rg.job.cancel"), "", cancelJob) : null;
+    host.replaceChildren(el("p", "rg-intro", T("rg.intro")), projectPicker(), banner(), settingsBlock(), status, ...(stop ? [stop] : []), layout);
     const again = focus && document.getElementById(focus);
     if (again && again !== document.activeElement) again.focus();
   }

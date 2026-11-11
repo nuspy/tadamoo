@@ -31,6 +31,8 @@
 .rg-field textarea { resize: vertical; }
 .rg-field select { width: 100%; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font: 16px/1.4 var(--font-sans); }
 .rg-project { margin: 0 0 12px; max-width: 520px; }
+.rg-settings { margin: 0 0 12px; padding: 4px 12px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); display: grid; gap: 12px; }
+.rg-sum { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 600; color: var(--fg); }
 .rg-path { font-family: var(--font-mono, monospace); font-size: 13px; }
 .rg-field input[type="file"] { min-height: 44px; max-width: 100%; color: var(--fg); font: 15px/1.4 var(--font-sans); }
 .rg-field input[type="file"]::file-selector-button { min-height: 44px; margin-right: 10px; padding: 8px 16px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font: inherit; cursor: pointer; }

@@ -43,7 +43,7 @@ const fetch = async (url, opts) => {
   if (url === "api/rag/projects") return answer(200, { projects: [CHAT, WORK] });
   if (url.startsWith("api/rag?project=")) {
     const key = decodeURIComponent(url.split("=")[1]);
-    return answer(200, { project: key, archives: archives[key] || [], limits: { name: 60, description: 500, document_bytes: 25 << 20 }, formats: [".txt"], pdf: true, embedding: { available: false, model: "" } });
+    return answer(200, { project: key, archives: archives[key] || [], limits: { name: 60, description: 500, document_bytes: 25 << 20 }, formats: [".txt"], pdf: true, embedding: { available: false, model: "" }, extraction: "basic", settings: { docling_python: "", flagged: "keep" }, docling_python: "", jobs: [] });
   }
   if (url === "api/rag/archives") return answer(200, { archive: { id: "new-1" } });
   if (url === "api/rag/recall") return answer(200, { block: "<untrusted_data>passage</untrusted_data>" });

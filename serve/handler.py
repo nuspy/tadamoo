@@ -75,6 +75,7 @@ from serve.telegram_service import TelegramService, TelegramServiceError
 from serve.persona_learning_worker import PersonaLearningWorker
 from serve.personas_api import PersonasApi
 from serve.rag_api import RagApi, upload_limit
+from serve.rag_jobs import Jobs as RagJobs
 from tadamoo.rag import RagError, RagStore
 from tadamoo.personas import PersonaError, PersonaStore
 from tadamoo.context_patterns import catalog as context_patterns_catalog
@@ -191,6 +192,7 @@ _TELEGRAM = None                                       # the Telegram bot and it
 _LEVELS = None                                         # the permission level of each channel, made on first use
 _PERSONAS = None                                       # Settings > Personalities, made on first use
 _PERSONA_LEARNING = None                               # a personality learns from a conversation once it is over, when the GPU is free
+_RAG_JOBS = None                                    # the long jobs of the knowledge archives (reading a big document), made on first use
 _RAG = None                                            # the knowledge archives (the Knowledge tab), made on first use
 _MCP_AUTH = None                                       # the sign-in of the remote MCP servers, made on first use
 _PLANS = None                                          # the planner's service, made on first use
@@ -2671,7 +2673,10 @@ def make_handler(svc: Service, remote: bool = False):
 
         def _rag(self) -> RagApi:
             chat = userdata.path("chat-workspace")
-            return RagApi(self._rag_store(), lambda: [{"name": "Chat", "path": str(chat), "chat": True}]
+            global _RAG_JOBS
+            if _RAG_JOBS is None:
+                _RAG_JOBS = RagJobs()
+            return RagApi(self._rag_store(), jobs=_RAG_JOBS, folders=lambda: [{"name": "Chat", "path": str(chat), "chat": True}]
                           + [{"name": p["name"], "path": p["path"], "chat": False} for p in self._projects().list() if p.get("exists")])
 
         def _rag_route(self, path, method):
