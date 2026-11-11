@@ -307,7 +307,7 @@ int Runtime::announce() {
                     "expert_slots_primary=%lld expert_cache_primary_mib=%lld spec=%d "
                     "mtp_max=%d lookup=%d vram_free_mib=%lld cvec=%s arena_mib=%lld pool_workers=%d pcie_frac=%.2f "
                     "conversation_cache_mib=%lld conversation_cache_slots=%d "
-                    "conversation_cache_min_free_mib=%lld conversation_cache_min_tokens=%d tail_role_token=%lld vram_elastic=%d%s quant=%s gpus=%s engine=" BASALT_VERSION "\n",
+                    "conversation_cache_min_free_mib=%lld conversation_cache_min_tokens=%d tail_role_token=%lld vram_elastic=%d kv_elastic=%lld%s quant=%s gpus=%s engine=" BASALT_VERSION "\n",
                     (long long) n_vocab, (long long) o.max_context, o.kv.c_str(),
                     (long long) (g.n_qsa_layers() > 0 && ss.qsa_states[ss.qsa_primary()].kv_mode == 1
                                      ? ss.qsa_states[ss.qsa_primary()].n_slots * 4 : 0),
@@ -319,6 +319,7 @@ int Runtime::announce() {
                     pool.workers(), o.pcie_frac,
                     (long long) o.conversation_cache_mib, o.conversation_cache_slots,
                     (long long) o.conversation_cache_min_free_mib, o.conversation_cache_min_tokens, (long long) o.tail_role_token, o.vram_elastic && xcache.segmented() ? 1 : 0,
+                    (long long) kv_floor,
                     batch_info.c_str(), quant_label.c_str(), gpu_ids.c_str());
     }
     if (text_tokenizer_note.empty()) std::printf("INFO text_prompt=1\n");

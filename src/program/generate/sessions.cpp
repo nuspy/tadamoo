@@ -150,13 +150,12 @@ int sessions(Context& context) {
     // ---- THE ELASTIC KV.  A server on one GPU backs only the first kKvElasticFloor cells of each session's K/V pools at
     // start; the rest of their VRAM goes to the expert cache as its tail, and a request that needs more cells takes
     // them back from that tail (kv_fit below), so a short request decodes with the larger cache.  Not with KV
-    // streaming (its pools are a fixed set of VRAM pages) nor with --vram-elastic (that resizes the same tail).
-    // With --batch a session's base is smaller: the slots' sessions are many, and an idle or short one would hold its
-    // whole base out of the expert cache.
+    // streaming (its pools are a fixed set of VRAM pages).  With --vram-elastic the VRAM command lends what the KV's
+    // growth leaves (VramArbiter).  With --batch a session's base is smaller: the slots' sessions are many, and an idle
+    // or short one would hold its whole base out of the expert cache.
     constexpr int64_t kKvElasticFloor = 32768, kKvElasticFloorBatch = 4096;
     const int64_t kv_base = o.batch > 0 ? kKvElasticFloorBatch : kKvElasticFloor;
-    const int64_t kv_floor = o.serve && !multi_gpu && o.kv_resident == 0 && !o.vram_elastic &&
-                             o.max_context > kv_base ? kv_base : 0;
+    const int64_t kv_floor = o.serve && !multi_gpu && o.kv_resident == 0 && o.max_context > kv_base ? kv_base : 0;
     basalt::core::qsa_set_kv_elastic(kv_floor);
     // ---- CUDA0's session, and the stages' sessions: sized to each device's own layer range (the carve).  A
     // stage that runs [lb, le) carves only those layers' GDN rows and QSA pools - before the carve every stage
