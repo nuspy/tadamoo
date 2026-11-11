@@ -79,9 +79,10 @@ class TadamooApi:
     def post(self, path: str, body: dict | None = None) -> dict:
         return self.call("POST", path, body if body is not None else {})
 
-    def chat_stream(self, messages: list[dict], max_tokens: int = 400, timeout: float = 120.0, temperature: float | None = None) -> Iterator[str]:
-        """The `content` pieces of a streamed /v1/chat/completions answer. Reasoning pieces are not returned."""
-        request = {"messages": messages, "stream": True, "max_tokens": max_tokens}
+    def chat_stream(self, messages: list[dict], max_tokens: int = 400, timeout: float = 120.0, temperature: float | None = None,
+                    extra: dict | None = None) -> Iterator[str]:
+        """The `content` pieces of a streamed /v1/chat/completions answer. Reasoning pieces are not returned. `extra` fields go in the request."""
+        request = {**(extra or {}), "messages": messages, "stream": True, "max_tokens": max_tokens}
         if temperature is not None:
             request["temperature"] = temperature
         payload = json.dumps(request).encode("utf-8")

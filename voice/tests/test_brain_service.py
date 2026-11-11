@@ -134,6 +134,8 @@ def test_the_stream_gives_the_content_and_not_the_reasoning(server):
     assert sent[3]["stream"] is True and sent[3]["max_tokens"] == 50 and sent[3]["temperature"] == 0.3
     list(api.chat_stream([{"role": "user", "content": "hi"}]))
     assert "temperature" not in [s for s in Handler.seen if s[1] == "/v1/chat/completions"][1][3]       # the server's own default when none is asked
+    list(api.chat_stream([{"role": "user", "content": "hi"}], extra={"cache_slot": "side"}))
+    assert [s for s in Handler.seen if s[1] == "/v1/chat/completions"][2][3]["cache_slot"] == "side"    # extra fields go in the request
 
 
 def test_a_refused_stream_is_an_api_error(server):

@@ -132,3 +132,13 @@ def test_the_direct_brain_asks_for_a_low_temperature_so_the_language_holds():
     b2, _ = brain(api, direct_temperature=0.5)
     say(b2, "ciao")
     assert api.temperature == 0.5
+
+
+def test_the_spoken_answer_asks_for_the_technical_session_and_the_full_answer_does_not():
+    api = FakeApi()
+    b, _ = brain(api)
+    say(b, "ciao")
+    assert api.extra == {"cache_slot": "side", "side_use": "voice_reply"}       # it does not wait behind a conversation's long turn
+    api.extra = "unset"
+    "".join(b.ask_stream("analyse this"))
+    assert api.extra == "unset" or not api.extra                                # the long answer for a screen takes an ordinary slot

@@ -37,6 +37,8 @@ from .tadamoo_api import ApiError, TadamooApi
 log = logging.getLogger("callbridge.brains")
 
 MODES = ("direct", "harness")
+# The spoken answer runs in the server's technical session, so it does not wait behind a conversation's long turn; a server without one serves it as usual.
+SIDE = {"cache_slot": "side", "side_use": "voice_reply"}   # the name in tadamoo/side_uses.py
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
 _NAME = re.compile(r"[^A-Za-z0-9._-]")
 
@@ -128,7 +130,7 @@ class DirectBrain:
         error = ""
         stripper = spoken.CodeStripper()
         try:
-            for piece in api.chat_stream(self.messages(api, text, context_note, reply_language), max_tokens=int(self.cfg.direct_max_tokens), temperature=float(self.cfg.direct_temperature)):
+            for piece in api.chat_stream(self.messages(api, text, context_note, reply_language), max_tokens=int(self.cfg.direct_max_tokens), temperature=float(self.cfg.direct_temperature), extra=SIDE):
                 raw.append(piece)
                 clean = stripper.feed(piece)
                 if clean:
