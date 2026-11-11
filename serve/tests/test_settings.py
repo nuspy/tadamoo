@@ -324,7 +324,7 @@ class Tabs(unittest.TestCase):
         for key in ("st.load.title", "st.load.help", "st.load.running", "st.load.none", "st.load.next", "st.load.nomtp",
                     "st.load.slots", "st.load.free", "st.load.profile", "st.load.custom", "st.load.file",
                     "st.prefs.title", "st.share", "st.share.help", "st.share.save", "st.share.saved", "st.share.bad",
-                    "st.share.fail", "st.wizard", "st.wizard.help", "ld.open"):
+                    "st.share.fail", "st.pfmax", "st.pfmax.help", "st.pfmax.on", "st.pfmax.off", "st.wizard", "st.wizard.help", "ld.open"):
             self.assertIn(f'"{key}":', i18n[en:it], key)
             self.assertIn(f'"{key}":', i18n[it:], key)
         self.assertNotIn("st.reload", i18n)

@@ -22,7 +22,7 @@ from tadamoo import exec_level, nextsteps, persistence, side_uses
 from tadamoo import telegram as tg
 from tadamoo import permission_level
 from tadamoo.permission_level import PermissionLevelError, PermissionLevels
-from serve import ROOT, voice_rag_api, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, heavy_api, heavy_forward, engine_install, engines, loader, llamacpp_api, loader_api, media_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, vram_api, voice_api, voice_avatar_ensure, voice_compat, voice_import, voice_loader, voice_service, voice_settings
+from serve import ROOT, voice_rag_api, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, hardware, heavy_api, heavy_forward, engine_install, engines, loader, llamacpp_api, loader_api, media_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, vram_api, voice_api, voice_avatar_ensure, voice_compat, voice_import, voice_loader, voice_service, voice_settings
 from serve import origin_guard, voice_avatar, voice_gateway_relay, voice_phone_call
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX, checked_sampling
@@ -1101,7 +1101,11 @@ def make_handler(svc: Service, remote: bool = False):
                     if not isinstance(req, dict):
                         raise ValueError('send {"lang": "it" | "en" | null} and/or {"free_share": 0.15}')
                     share = loader.check_free_share(req["free_share"]) if "free_share" in req else None
-                    if "lang" in req or "free_share" not in req:     # an empty body is "auto", as before
+                    if "commit_counts_page_file_max" in req:
+                        if not isinstance(req["commit_counts_page_file_max"], bool):
+                            raise ValueError("commit_counts_page_file_max: true or false")
+                        loader.save_machine_settings({"commit_counts_page_file_max": req["commit_counts_page_file_max"]})
+                    if "lang" in req or ("free_share" not in req and "commit_counts_page_file_max" not in req):     # an empty body is "auto", as before
                         lang_mod.set_lang(req.get("lang"))
                     if share is not None:
                         loader.save_machine_settings({"free_share": share})
@@ -1396,7 +1400,8 @@ def make_handler(svc: Service, remote: bool = False):
             return {**lang_mod.info(),
                     "free_share": {"value": loader.free_share(), "default": loader.FREE_SHARE,
                                    "min": loader.FREE_SHARE_MIN, "max": loader.FREE_SHARE_MAX,
-                                   "floor_bytes": loader.FREE_FLOOR}}
+                                   "floor_bytes": loader.FREE_FLOOR},
+                    "commit_counts_page_file_max": {"value": loader.counts_page_file_max(), "page_file_max_mib": hardware.page_file_max_mib()}}
 
         def _settings_get(self):
             """GET /api/settings: the config file's main fields, what the server runs with, and whether this client

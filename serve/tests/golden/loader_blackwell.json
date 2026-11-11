@@ -143,6 +143,7 @@
    "commit": {
     "available": 143881404416,
     "elastic": 11408506880,
+    "counts_page_file_max": false,
     "free_now": 143881404416,
     "keep": 23192823398,
     "keep_share": 0.15,
@@ -333,6 +334,7 @@
    "commit": {
     "available": 143881404416,
     "elastic": 0,
+    "counts_page_file_max": false,
     "free_now": 143881404416,
     "keep": 23192823398,
     "keep_share": 0.15,
@@ -536,6 +538,7 @@
   "commit": {
    "available": 143881404416,
    "elastic": 713031680,
+   "counts_page_file_max": false,
    "free_now": 143881404416,
    "keep": 23192823398,
    "keep_share": 0.15,
