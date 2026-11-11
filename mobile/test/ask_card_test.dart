@@ -80,13 +80,6 @@ void main() {
     expect(decode(s.encode('chat'))['status'], 'chat');
   });
 
-  test('one question of single or confirm kind is answered by one tap', () {
-    expect(AskSelection([card()[0]]).fast, true);
-    expect(AskSelection([card()[3]]).fast, true);
-    expect(AskSelection([card()[1]]).fast, false);
-    expect(AskSelection(card()).fast, false);
-  });
-
   testWidgets('the card has rows of 48 dp, tags the recommended option in words, and Send waits for the required answers', (tester) async {
     final sent = <List<String>>[];
     await tester.pumpWidget(MaterialApp(
@@ -116,7 +109,7 @@ void main() {
     expect(decode(sent.first[0])['answers']['q1']['picked'], ['o1']);
   });
 
-  testWidgets('a card with one single question is answered by one tap; Skip and answering in the chat are always there', (tester) async {
+  testWidgets('a choice is only marked, even when it is the one question: it goes when Send is pressed; Skip and answering in the chat are always there', (tester) async {
     final sent = <List<String>>[];
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(body: QuestionsCard(questions: [card()[0]], intro: 'Because.', answered: null, onSend: (v, how) => sent.add([v, how]))),
@@ -128,8 +121,22 @@ void main() {
     sent.clear();
     await tester.tap(find.text('SQLite'));
     await tester.pump();
+    expect(sent, isEmpty);                                          // marked, not sent
+    await tester.tap(find.text('Send answers'));
+    await tester.pump();
     expect(sent.single[1], 'submitted');
     expect(decode(sent.single[0])['answers']['q1']['picked'], ['o2']);
+  });
+
+  testWidgets('a yes/no question is also marked first and sent with the button', (tester) async {
+    final sent = <List<String>>[];
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: QuestionsCard(questions: [card()[3]], intro: '', answered: null, onSend: (v, how) => sent.add([v, how])))));
+    await tester.tap(find.text('Yes'));
+    await tester.pump();
+    expect(sent, isEmpty);
+    await tester.tap(find.text('Send answers'));
+    await tester.pump();
+    expect(decode(sent.single[0])['answers']['q4']['picked'], ['yes']);
   });
 
   testWidgets('after the answer the card is a read-only summary', (tester) async {

@@ -82,9 +82,6 @@ class AskSelection {
     return prefix + jsonEncode({'v': 1, 'status': status, 'answers': answers});
   }
 
-  /// A card with one question of single or confirm kind is answered by one tap.
-  bool get fast => questions.length == 1 && (questions.first['kind'] == 'single' || questions.first['kind'] == 'confirm');
-
   /// One line for each question, for the read-only card after the answer.
   List<String> lines() {
     return [
@@ -204,10 +201,7 @@ class _QuestionsCardState extends State<QuestionsCard> {
           label: label,
           description: kind == 'confirm' ? '' : '${o['description'] ?? ''}',
           recommended: rec,
-          onChanged: (on) {
-            setState(() => sel.setPick(qid, oid, on));
-            if (sel.fast && on) _submit('submitted');
-          },
+          onChanged: (on) => setState(() => sel.setPick(qid, oid, on)),       // a choice is only marked: it goes with the Send button
         ));
       }
       if (q['allow_other'] != false && kind != 'confirm') {
