@@ -928,3 +928,29 @@ def test_a_plan_delivery_is_skipped_while_its_plan_is_paused(manager, folder):
     paused["P1"] = False
     out = runner.run(routine(folder, "run it", deliver_to={"kind": "plan", "ref": "night"}, link={"plan": "P1"}), threading.Event())
     assert out["status"] == "done" and manager.deliveries.entries()
+
+
+# -- knowledge archives of a routine -------------------------------------------------------------------------
+
+def test_a_routine_keeps_its_knowledge_archives_checked_and_without_repeats(tmp_path, folder):
+    S = Scheduler
+    made = S._check("n", "p", folder, "every 1h", rag_archives=["boats-111111", "boats-111111", "forests-2"])
+    assert made["rag_archives"] == ["boats-111111", "forests-2"] and S._check("n", "p", folder, "every 1h")["rag_archives"] == []
+    for bad in ("boats", ["Bad Id"], [1], [f"a-{i}" for i in range(51)]):
+        with pytest.raises(RoutineError, match="archive"):
+            S._check("n", "p", folder, "every 1h", rag_archives=bad)
+
+
+def test_a_run_starts_its_conversation_with_the_routines_archives_attached(tmp_path, folder):
+    from tadamoo.rag import RagStore, project_key
+    store = RagStore(tmp_path / "rag")
+    aid = store.create("Forest Fires", "", project_key(tmp_path / "elsewhere"), "Elsewhere")["id"]
+    mgr = SessionManager(tmp_path / "j", "http://127.0.0.1:1", rag_dir=tmp_path / "rag", tick_s=0.1,
+                         command=lambda sid, rec, history: [sys.executable, STUB, "--session-id", sid, "--history-dir", str(history)])
+    try:
+        out = SessionRoutineRunner(mgr, poll_s=0.05).run(routine(folder, "check the fires", rag_archives=[aid, "gone-123456"]), threading.Event())
+        assert out["status"] == "done" and mgr.get(out["session"])["knowledge"] == [aid]
+        plain = SessionRoutineRunner(mgr, poll_s=0.05).run(routine(folder, "check again"), threading.Event())
+        assert not mgr.get(plain["session"]).get("knowledge")
+    finally:
+        mgr.shutdown()

@@ -4,7 +4,7 @@ import re
 from tadamoo import personas as pe
 from tadamoo import untrusted
 from tadamoo.rag import RagStore, project_key
-from tadamoo.rag.recall import CLOSING, MESSAGE_CHARS, ProjectRecall, compose_message
+from tadamoo.rag.recall import CLOSING, MESSAGE_CHARS, ProjectRecall
 from tadamoo.stack import AgentConfig, build_agent
 
 BOATS = ("A sloop has one mast and two sails, the mainsail and the jib. To tack, the helmsman turns the bow through the wind.\n\n"
@@ -91,7 +91,7 @@ def persona_store(tmp_path):
 def config(tmp_path, **more):
     (tmp_path / "w").mkdir(exist_ok=True)
     return dict(workspace=str(tmp_path / "w"), data_dir=str(tmp_path / "d"), use_memory=False, use_checkpoints=False, personas_dir=str(tmp_path / "personas"),
-                personal_memory_keys=str(tmp_path / KEY_DIR), rag_dir=str(tmp_path / "rag"), rag_project=PROJ, endpoint="http://rag-test.invalid", **more)
+                personal_memory_keys=str(tmp_path / KEY_DIR), rag_dir=str(tmp_path / "rag"), endpoint="http://127.0.0.1:9", rag_project=PROJ, **more)
 
 
 def test_only_the_archives_of_the_project_are_searched(tmp_path):
@@ -104,7 +104,7 @@ def test_only_the_archives_of_the_project_are_searched(tmp_path):
     assert "[Boats / sailing.txt]" in mine and "Elsewhere" not in mine
     theirs = ProjectRecall(rag, OTHER).message("what keeps the boat upright, the keel")
     assert "[Elsewhere / other.txt]" in theirs and "Boats" not in theirs
-    assert compose_message(rag, PROJ, "the keel of the boat").startswith("<untrusted_data") and compose_message(rag, project_key("none"), "the keel") == ""
+    assert ProjectRecall(rag, project_key("none")).message("the keel") is None
 
 
 def test_a_personality_changes_nothing_about_the_passages_and_its_notes_come_first(tmp_path):

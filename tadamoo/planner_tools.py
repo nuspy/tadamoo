@@ -28,6 +28,7 @@ from tadamoo.cron_templates import PLACEHOLDER, render_template
 from tadamoo.integrations._http import ServiceError
 from tadamoo.integrations.planner_client import PlannerClient
 from tadamoo.planner import nodes as nodes_mod
+from tadamoo.planner.archives import of_step as step_archive_ids
 from tadamoo.planner.bridge import classify_diff
 from tadamoo.planner.dag import PlanError, clean_outputs
 from tadamoo.planner.involvement import split_diff, step_facts
@@ -217,6 +218,10 @@ def render_plan(snap: Dict[str, Any]) -> str:
             lines.append(f'      wants from the wiki: {n["wiki_query"][:100]}')
         if n.get("spec"):
             lines.append(f'      {n.get("type")}: ' + json.dumps(n["spec"], ensure_ascii=False)[:200])
+        if (n.get("state_variables") or {}).get("no_branch"):
+            lines.append("      NO BRANCH HELD: this path stopped here (" + ", ".join(f"'{r['title']}' {'holds' if r['holds'] else 'does not hold'}" for r in n["state_variables"]["no_branch"].get("exits", [])) + "); the rest of the plan goes on")
+        for port, kids in (n.get("routes") or {}).items():
+            lines.append(f"      connector '{port}' goes to: " + ", ".join(kids))
         sv = n.get("state_variables") or {}
         if sv.get("wake_at") and n.get("status") == "pending":
             lines.append("      waiting until " + time.strftime("%Y-%m-%d %H:%M", time.localtime(sv["wake_at"])))
@@ -288,8 +293,17 @@ def plans_summary(client: PlannerClient) -> str:
     return "\n".join(lines)
 
 
-def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confirmer: Confirmer) -> None:
+def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confirmer: Confirmer, step_archives: Optional[Callable[[List[str]], str]] = None) -> None:
     seen: Dict[str, int] = {}                       # the revision of each plan as the model last read it
+
+    def bring(ids: List[str]) -> str:
+        """Gives the step the knowledge archives it declares (none: lets go of the last step's); the words that tell the model which, by name."""
+        if step_archives is None:
+            return ""
+        try:
+            return step_archives(ids)
+        except Exception:
+            return ""                                       # an archive that cannot be read never stops a step
 
     def read(plan_id: str) -> Dict[str, Any]:
         snap = client.snapshot(plan_id)
@@ -558,6 +572,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
                     f"in {round(retry['wait_seconds'])} seconds. It is not marked failed. Ready now: {', '.join(res.get('ready', [])) or 'nothing'}.")
         if status in ("completed", "failed", "skipped"):
             link_task(plan_id, node, {"completed": "done", "failed": "failed", "skipped": "closed"}[status])
+            bring([])
         return (f"Step {node_id} marked {status} ({how})" + (f"; plan values set: {writes}" if writes else "")
                 + f". Ready now: {', '.join(res.get('ready', [])) or 'nothing'}.{tail}")
 
@@ -606,6 +621,9 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
             lines.append("Values given to this step by the steps above it: " + json.dumps(given, ensure_ascii=False)[:1500])
         if produce:
             lines.append("When you complete it, plan_mark must carry outputs with: " + ", ".join(f"{p['name']} ({p['type']})" for p in produce) + ".")
+        found = bring(step_archive_ids(snap["plan"], node_id, snap.get("profile")))
+        if found:
+            lines.append(found)
         lines.append("Do it with your tools, read the result, then mark the step completed or failed with plan_mark.")
         return "\n".join(lines)
 
@@ -842,7 +860,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
                            "quote": quote_param,
                            "profile": {"type": "object", "description": "what the plan says about time and money. A short plan: starts_on and ends_on (2026-11-24), "
                                                                        "cost {amount, currency}. A long-term plan: goals [text], review_every_days (1-30), budget {amount, currency, "
-                                                                       "period month|total}, commitments [{text, from, to}]"}}, ["title", "kind", "steps"]), EffectClass.REVERSIBLE, plan_create)
+                                                                       "period month|total}, commitments [{text, from, to}]. Both: rag_archives [knowledge archive ids every step may use]"}}, ["title", "kind", "steps"]), EffectClass.REVERSIBLE, plan_create)
     registry.register("plan_set_card", "Writes into a plan's card what the user said about it: dates, place, who takes part, what limits each person. "
                                        "Incoming events are judged against the card. Needs the user's yes.",
                       obj({"plan_id": {"type": "string"}, "date": {"type": "string", "description": "for example Friday 24 to Sunday 26 October"},
@@ -864,9 +882,10 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
                       obj({"plan_id": {"type": "string"}, "node_id": {"type": "string"}, "quote": quote_param}, ["plan_id", "node_id"]), EffectClass.REVERSIBLE, plan_step_start)
     registry.register("plan_propose_change", "Changes the structure of a plan (add, remove or change steps and links) with a diff. Needs the user's yes. At the Auto level what touches no step for other people, a prepared call or a booking is applied at once; the rest waits in the plan as a proposal for the user.",
                       obj({"plan_id": {"type": "string"}, "title": {"type": "string"}, "rationale": {"type": "string"},
-                           "diff": {"type": "object", "description": "{add_nodes: [node], remove_nodes: [id], update_nodes: {id: fields}, add_edges: [[parent, child]], remove_edges: [[parent, child]]}. "
-                                                                    "A node: {id, type, title, description, assignee, dependencies, spec}. Beyond action, sensor, decision and merge, the type may be: "
-                                                                    + nodes_mod.kinds_line() + " (? is optional). Waits, set_var, get_var, output and log are worked out by the plan itself."},
+                           "diff": {"type": "object", "description": "{add_nodes: [node], remove_nodes: [id], update_nodes: {id: fields}, add_edges: [edge], remove_edges: [edge]}. "
+                                                                    "An edge is [parent, child], or [parent, child, port] from a node with several output connectors, or {from: {node, port}, to: {node}}. "
+                                                                    "A node: {id, type, title, description, assignee, dependencies, spec}. The kinds and the fields of their spec: "
+                                                                    + nodes_mod.kinds_line() + " (? is optional). " + nodes_mod.PORTS_HELP + " Waits, set_var, get_var, output, log and rag are worked out by the plan itself."},
                            "quote": quote_param}, ["plan_id", "title", "diff"]), EffectClass.REVERSIBLE, plan_propose_change)
     registry.register("plan_prepare_call", "Prepares a phone call (number, reason, what to say) and/or a wiki question on an action step of a plan. It places nothing: "
                                            "only phone_call places a call, and it asks the user each time. Needs the user's yes.",

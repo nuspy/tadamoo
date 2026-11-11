@@ -22,7 +22,7 @@ from tadamoo import exec_level, nextsteps, persistence, side_uses
 from tadamoo import telegram as tg
 from tadamoo import permission_level
 from tadamoo.permission_level import PermissionLevelError, PermissionLevels
-from serve import ROOT, voice_rag_api, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, heavy_api, heavy_forward, engine_install, engines, loader, llamacpp_api, loader_api, media_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, vram_api, voice_api, voice_avatar_ensure, voice_compat, voice_import, voice_loader, voice_service, voice_settings
+from serve import ROOT, voice_rag_api, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, hardware, heavy_api, heavy_forward, engine_install, engines, loader, llamacpp_api, loader_api, media_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, vram_api, voice_api, voice_avatar_ensure, voice_compat, voice_import, voice_loader, voice_service, voice_settings
 from serve import origin_guard, voice_avatar, voice_gateway_relay, voice_phone_call
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX, checked_sampling
@@ -76,6 +76,7 @@ from serve.persona_learning_worker import PersonaLearningWorker
 from serve.personas_api import PersonasApi
 from serve.rag_api import RagApi, upload_limit
 from serve.rag_jobs import Jobs as RagJobs
+from serve.rag_sync_api import attention as rag_attention
 from tadamoo.rag import RagError, RagStore
 from tadamoo.personas import PersonaError, PersonaStore
 from tadamoo.context_patterns import catalog as context_patterns_catalog
@@ -194,6 +195,7 @@ _PERSONAS = None                                       # Settings > Personalitie
 _PERSONA_LEARNING = None                               # a personality learns from a conversation once it is over, when the GPU is free
 _RAG_JOBS = None                                    # the long jobs of the knowledge archives (reading a big document), made on first use
 _RAG = None                                            # the knowledge archives (the Knowledge tab), made on first use
+_RAG_SYNC = None                                       # the refresh of the archives (their sources, checks and updates), made on first use
 _RAG_EMBED = None                                      # the embedding service of the knowledge archives (a worker process on a lease of VRAM), made on first use
 _MCP_AUTH = None                                       # the sign-in of the remote MCP servers, made on first use
 _PLANS = None                                          # the planner's service, made on first use
@@ -612,7 +614,8 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/attention":
                 if self._authorized():
                     self._json(200, {"cron": _ROUTINES.attention() if _ROUTINES is not None else {"t": 0.0},
-                                     "plans": _PLANS.attention() if _PLANS is not None else {"t": 0.0}})
+                                     "plans": _PLANS.attention() if _PLANS is not None else {"t": 0.0},
+                                     "rag": rag_attention(userdata.path("rag"))})
             elif path == "/api/technical-session":
                 if self._authorized():
                     self._json(200, {"on": side_uses.session_on()})
@@ -1098,7 +1101,11 @@ def make_handler(svc: Service, remote: bool = False):
                     if not isinstance(req, dict):
                         raise ValueError('send {"lang": "it" | "en" | null} and/or {"free_share": 0.15}')
                     share = loader.check_free_share(req["free_share"]) if "free_share" in req else None
-                    if "lang" in req or "free_share" not in req:     # an empty body is "auto", as before
+                    if "commit_counts_page_file_max" in req:
+                        if not isinstance(req["commit_counts_page_file_max"], bool):
+                            raise ValueError("commit_counts_page_file_max: true or false")
+                        loader.save_machine_settings({"commit_counts_page_file_max": req["commit_counts_page_file_max"]})
+                    if "lang" in req or ("free_share" not in req and "commit_counts_page_file_max" not in req):     # an empty body is "auto", as before
                         lang_mod.set_lang(req.get("lang"))
                     if share is not None:
                         loader.save_machine_settings({"free_share": share})
@@ -1393,7 +1400,8 @@ def make_handler(svc: Service, remote: bool = False):
             return {**lang_mod.info(),
                     "free_share": {"value": loader.free_share(), "default": loader.FREE_SHARE,
                                    "min": loader.FREE_SHARE_MIN, "max": loader.FREE_SHARE_MAX,
-                                   "floor_bytes": loader.FREE_FLOOR}}
+                                   "floor_bytes": loader.FREE_FLOOR},
+                    "commit_counts_page_file_max": {"value": loader.counts_page_file_max(), "page_file_max_mib": hardware.page_file_max_mib()}}
 
         def _settings_get(self):
             """GET /api/settings: the config file's main fields, what the server runs with, and whether this client
@@ -2715,13 +2723,47 @@ def make_handler(svc: Service, remote: bool = False):
                 _RAG_EMBED = EmbedService(settings_file.read, models.dirs, lambda: f"http://127.0.0.1:{port}")
             return _RAG_EMBED
 
+        def _rag_sync(self):
+            """The refresh of the archives, one for the server: it holds the one-run-per-archive guard and the pause between requests to a site. An update waits while a
+            heavy job has the local model out (docs/heavy-swap.md); the company wiki's address is the one of Settings > Memories > Wiki unless a source names its own."""
+            global _RAG_SYNC
+            if _RAG_SYNC is None:
+                from tadamoo.integrations.wikibridge_client import WikiBridgeClient
+                from tadamoo.rag.sources.engine import Sync
+                from tadamoo import llm
+                prefs = KnowledgePrefs(userdata.path("knowledge.json"))
+                _RAG_SYNC = Sync(self._rag_store(), wiki_client=lambda address: WikiBridgeClient.from_environment(url=address or prefs.read()["wiki_url"] or None, timeout=20.0),
+                                 busy=lambda: "a heavy job has the local model out" if llm.registry().swap() is not None else "")
+            return _RAG_SYNC
+
         def _rag(self) -> RagApi:
             chat = userdata.path("chat-workspace")
             global _RAG_JOBS
             if _RAG_JOBS is None:
                 _RAG_JOBS = RagJobs()
-            return RagApi(self._rag_store(), jobs=_RAG_JOBS, service=self._rag_embed(), folders=lambda: [{"name": "Chat", "path": str(chat), "chat": True}]
-                          + [{"name": p["name"], "path": p["path"], "chat": False} for p in self._projects().list() if p.get("exists")])
+            def session(ctx):
+                try:
+                    return self._agent_sessions().get(ctx["session"])
+                except Exception:                                    # a conversation that is gone has no record: the caller's own words stand, and the cloud rule still applies
+                    return None
+            def plan_node(ctx):
+                from tadamoo.planner.archives import of_step
+                snap = self._plan_service().snapshot(ctx["plan"])
+                return of_step(snap["plan"], ctx["node"], snap.get("profile"))
+
+            def routine(ctx):
+                return self._routines().scheduler.get(ctx["routine"]).get("rag_archives") or []
+
+            def guarded(fn):
+                def run(ctx):
+                    try:
+                        return fn(ctx)
+                    except Exception:                                 # a plan or routine that is gone declares no archive
+                        return []
+                return run
+            return RagApi(self._rag_store(), jobs=_RAG_JOBS, service=self._rag_embed(), sync=self._rag_sync(), folders=lambda: [{"name": "Chat", "path": str(chat), "chat": True}]
+                          + [{"name": p["name"], "path": p["path"], "chat": False} for p in self._projects().list() if p.get("exists")],
+                          sources=lambda: {"session": session, "plan_node": guarded(plan_node), "routine": guarded(routine)})
 
         def _voice_rag(self):
             def make():
@@ -3231,7 +3273,8 @@ def make_handler(svc: Service, remote: bool = False):
                 _ROUTINES = RoutinesApi(userdata.path("journal"), sessions,
                                         power_source=(lambda: tel.snapshot()["now"].get("gpus") or []) if tel else None,
                                         plan_paused=lambda plan_id: self._plan_service().is_paused(plan_id),
-                                        plan_context=lambda plan_id: self._plan_service().template_context(plan_id))
+                                        plan_context=lambda plan_id: self._plan_service().template_context(plan_id),
+                                        knowledge=lambda ref, action, cancel: self._rag().syncing.scheduled(ref, action, cancel))
                 _ROUTINES.scheduler.tick_hooks.append(self._watch_plans)
             return _ROUTINES
 

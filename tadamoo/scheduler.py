@@ -51,7 +51,7 @@ NO_STEP_LIMIT = -1                  # `max_turns` the conversation path reads as
 KEEP_RUNS = 200
 NAME_MAX, PROMPT_MAX, SUMMARY_MAX = 80, 4000, 4000
 MESSAGE_MAX = 4000
-DELIVER_KINDS = ("new_session", "session", "plan")
+DELIVER_KINDS = ("new_session", "session", "plan", "knowledge")
 CHECK_MAX, CHECK_TIMEOUT_S, CHECK_OUTPUT_MAX = 1000, 300, 2000
 STOP_FILE = "routines.stop"         # while this file exists in the data folder no routine starts and the ones running are stopped
 OUTCOMES = ("nothing_new", "progress", "done", "blocked")
@@ -66,6 +66,7 @@ _FIXED = re.compile(r"^([a-z,\s]+?)\s+(\d{1,2}):(\d{2})$")
 _UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 _AT = re.compile(r"^at\s+(\d{4})-(\d{2})-(\d{2})[ t](\d{1,2}):(\d{2})$")
 _KEY = re.compile(r"^[A-Za-z0-9_.:-]*$")
+_ARCHIVE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 _CRON_RANGES = ((0, 59), (0, 23), (1, 31), (1, 12), (0, 7))
 _CRON_HELP = "A cron schedule is five fields: minute hour day-of-month month day-of-week, for example 'cron 50 14 * * 1-5'."
 SEARCH_DAYS = 366 * 8                # how far a cron expression is searched before it is called a schedule that never comes
@@ -376,16 +377,17 @@ class Scheduler:
 
     def add(self, name: Any, prompt: Any, workspace: Any, schedule: Any, max_turns: Any = None, max_minutes: Any = None,
             skill: Any = "", values: Any = None, yield_s: Any = None, index_past: Any = False, check: Any = "",
-            ttl_min: Any = None, dedup_key: Any = "", deliver_to: Any = None, message: Any = "", link: Any = None) -> Dict[str, Any]:
+            ttl_min: Any = None, dedup_key: Any = "", deliver_to: Any = None, message: Any = "", link: Any = None, rag_archives: Any = None) -> Dict[str, Any]:
         """A new routine, enabled. With a `skill` it runs that personal skill with `values` instead of a prompt.
         `max_turns` and `max_minutes` limit the steps and the time of a run, `yield_s` how long it may go on once a conversation
         of the person's is at work; empty means no limit. `index_past` adds what the routine does to the index of earlier conversations (off unless the person asks).
         `check` is a command run before the model is woken: exit code 0 goes on (what it prints is given to the model), 1 means nothing to do and the run ends there, anything else fails the run.
         `ttl_min` is how late a scheduled fire may start (empty: any time); `dedup_key` keeps routines that share it from having two fires in flight.
-        `deliver_to` ({"kind": "new_session"|"session"|"plan", "ref": name}) sends `message` (or `prompt` when it is empty) to an existing
-        conversation instead of starting one; `link` ({"plan": plan_id}) is which plan a "plan" delivery speaks for."""
+        `deliver_to` ({"kind": "new_session"|"session"|"plan"|"knowledge", "ref": name}) sends `message` (or `prompt` when it is empty) to an existing
+        conversation instead of starting one; `link` ({"plan": plan_id}) is which plan a "plan" delivery speaks for.
+        `rag_archives` (archive ids) are knowledge archives the run draws on besides its folder's own."""
         routine = self._check(name, prompt, workspace, schedule, max_turns, max_minutes, skill, values, yield_s, index_past, check, ttl_min, dedup_key,
-                              deliver_to, message, link)
+                              deliver_to, message, link, rag_archives)
         now = self.clock()
         routine.update(id=secrets.token_hex(3), enabled=True, enabled_at=now, created=now, last_run=0, last_planned=0, last_status="")
         with self._lock:
@@ -398,11 +400,11 @@ class Scheduler:
         with self._lock:
             current = self._find(routine_id)
             merged = {**current, **{k: v for k, v in fields.items() if k in ("name", "prompt", "workspace", "schedule", "max_turns", "max_minutes", "skill", "values", "yield_s", "index_past", "check", "ttl_min",
-                                                    "dedup_key", "deliver_to", "message", "link")}}
+                                                    "dedup_key", "deliver_to", "message", "link", "rag_archives")}}
             checked = self._check(merged["name"], merged["prompt"], merged["workspace"], merged["schedule"], merged.get("max_turns"),
                                   merged.get("max_minutes"), merged.get("skill", ""), merged.get("values"), merged.get("yield_s"), merged.get("index_past", False),
                                   merged.get("check", ""), merged.get("ttl_min"), merged.get("dedup_key", ""), merged.get("deliver_to"),
-                                  merged.get("message", ""), merged.get("link"))
+                                  merged.get("message", ""), merged.get("link"), merged.get("rag_archives"))
             current.update(checked)
             self._due[routine_id] = self._advance(current, self.clock())
             self._save()
@@ -411,7 +413,7 @@ class Scheduler:
     @staticmethod
     def _check(name: Any, prompt: Any, workspace: Any, schedule: Any, max_turns: Any = None, max_minutes: Any = None,
                skill: Any = "", values: Any = None, yield_s: Any = None, index_past: Any = False, check: Any = "",
-               ttl_min: Any = None, dedup_key: Any = "", deliver_to: Any = None, message: Any = "", link: Any = None) -> Dict[str, Any]:
+               ttl_min: Any = None, dedup_key: Any = "", deliver_to: Any = None, message: Any = "", link: Any = None, rag_archives: Any = None) -> Dict[str, Any]:
         if not isinstance(name, str) or not name.strip() or len(name) > NAME_MAX:
             raise RoutineError(f"Give the routine a name of at most {NAME_MAX} characters.", "bad_name")
         if skill:
@@ -459,9 +461,13 @@ class Scheduler:
             raise RoutineError("A new-session routine has no 'ref'.", "bad_deliver_to")
         if not isinstance(message, str) or len(message) > MESSAGE_MAX:
             raise RoutineError(f"The message is at most {MESSAGE_MAX} characters.", "bad_message")
+        if deliver_to["kind"] == "knowledge" and message.strip() not in ("check", "update"):
+            raise RoutineError("A knowledge routine's message is 'check' (look for changes) or 'update' (look, then read again what changed).", "bad_message")
         if link is not None and (not isinstance(link, dict) or set(link) - {"plan"} or (("plan" in link) and not isinstance(link["plan"], str))):
             raise RoutineError("The link is {\"plan\": a plan id}, or empty.", "bad_link")
-        return {"ttl_min": ttl_min, "dedup_key": dedup_key, "deliver_to": {"kind": deliver_to["kind"], "ref": ref.strip() if isinstance(ref, str) else ""},
+        if rag_archives is not None and (not isinstance(rag_archives, list) or len(rag_archives) > 50 or any(not isinstance(a, str) or not _ARCHIVE.match(a) for a in rag_archives)):
+            raise RoutineError("The knowledge archives are a list of at most 50 archive ids.", "bad_archives")
+        return {"rag_archives": list(dict.fromkeys(rag_archives or [])), "ttl_min": ttl_min, "dedup_key": dedup_key, "deliver_to": {"kind": deliver_to["kind"], "ref": ref.strip() if isinstance(ref, str) else ""},
                 "message": message.strip(), "link": {"plan": link["plan"]} if link and link.get("plan") else {}, "yield_s": yield_s, "index_past": index_past, "check": check.strip(), "name": name.strip(), "prompt": prompt.strip(), "workspace": workspace,
                 "schedule": " ".join(str(schedule).lower().split()), "max_turns": max_turns, "max_minutes": max_minutes,
                 **({"skill": skill, "values": dict(values or {})} if skill else {"skill": "", "values": {}})}
@@ -775,6 +781,7 @@ class SessionRoutineRunner:
     """Runs a routine as an Automatic conversation of the agent through the server's `SessionManager`, then closes it."""
 
     park: Optional[Callable[[str, Dict[str, Any]], None]] = None            # set by the Scheduler: keeps a request for the person
+    knowledge: Optional[Callable[[str, str, threading.Event], Dict[str, Any]]] = None     # (archive, "check" | "update", cancel) -> an outcome; set by the server
 
     def __init__(self, manager: Any, poll_s: float = 0.5, cancel_grace_s: float = 30.0, plan_paused: Optional[Callable[[str], bool]] = None,
                  plan_context: Optional[Callable[[str], Dict[str, Any]]] = None) -> None:
@@ -821,15 +828,28 @@ class SessionRoutineRunner:
                     "seconds": round(time.monotonic() - started, 1)}
         return {"status": "done", "summary": f"Message {state} to {deliver_to['ref']}.", "seconds": round(time.monotonic() - started, 1)}
 
+    def _knowledge(self, routine: Dict[str, Any], deliver_to: Dict[str, Any], cancel: threading.Event) -> Dict[str, Any]:
+        """A fire that looks after a knowledge archive (check it for changes, or update it): no model is woken, nothing runs in a folder."""
+        started = time.monotonic()
+        if self.knowledge is None:
+            return {"status": "failed", "summary": "The knowledge archives are not available here."}
+        try:
+            out = self.knowledge(deliver_to["ref"], (routine.get("message") or "check").strip(), cancel)
+        except Exception as exc:
+            return {"status": "failed", "summary": f"{type(exc).__name__}: {str(exc)[:300]}", "seconds": round(time.monotonic() - started, 1)}
+        return {**out, "seconds": round(time.monotonic() - started, 1)}
+
     def run(self, routine: Dict[str, Any], cancel: threading.Event) -> Dict[str, Any]:
         deliver_to = routine.get("deliver_to") or {"kind": "new_session", "ref": ""}
+        if deliver_to.get("kind") == "knowledge" and deliver_to.get("ref"):
+            return self._knowledge(routine, deliver_to, cancel)
         if deliver_to.get("kind") in ("session", "plan") and deliver_to.get("ref"):
             return self._deliver(routine, deliver_to)
         mgr = self.manager
         started = time.monotonic()
         limit_s = routine["max_minutes"] * 60 if routine.get("max_minutes") else None
         sid = mgr.create(routine["workspace"], "auto", None, False, f"Routine: {routine['name']}"[:80],
-                         routine.get("max_turns") or NO_STEP_LIMIT, worktree="off", unattended=True)["id"]
+                         routine.get("max_turns") or NO_STEP_LIMIT, worktree="off", unattended=True, **({"knowledge": routine["rag_archives"]} if routine.get("rag_archives") else {}))["id"]
         self._own.add(sid)
         getattr(mgr, "keep_out_of_memory", lambda _sid: None)(sid)          # a routine is not the person talking: nothing in it is learned
         getattr(mgr, "routine_run", lambda *_a: None)(sid, routine["name"], bool(routine.get("index_past")))      # indexed for later search only when the routine says so

@@ -133,19 +133,19 @@
   async function ragCommand(rest) {
     const R = window.ragUi;
     if (!R) return;
-    const agent = !!(A() && A().active());
+    if (!(A() && A().active())) { note(T("sl.rag.notools")); return; }     // only a conversation with tools reaches the knowledge archives
     const off = /^off(?:\s+([\s\S]*))?$/i.exec(rest);
     if (!rest) {                                                       // the list, with what this conversation uses
       const c = await R.catalog();
       if (!c) { note(T("sl.rag.offline")); return; }
-      const attached = new Set(agent ? A().knowledgeIds() : R.ids());
+      const attached = new Set(A().knowledgeIds());
       if (!c.archives.length) { note(T("sl.rag.list.none")); return; }
       const rows = c.archives.map(a => `${a.name} (${a.project === c.project ? T("sl.rag.this") : (a.project_name || "?")}${attached.has(a.id) ? ", " + T("sl.rag.on") : ""})`);
       note(T("sl.rag.list", rows.join("; ")));
       return;
     }
     const action = off ? ((off[1] || "").trim() ? "detach" : "clear") : "attach", name = off ? (off[1] || "").trim() : rest;
-    const d = agent ? await A().knowledge(action, name) : await R.choose(action, name);
+    const d = await A().knowledge(action, name);
     if (!d) { note(T("sl.rag.offline")); return; }
     const n = d.archive ? d.archive.name : name;
     switch (d.status) {

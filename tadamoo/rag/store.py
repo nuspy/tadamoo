@@ -35,7 +35,9 @@ from tadamoo.rag.ingest import meta as facts
 from tadamoo.rag.ingest.blocks import blocks_to_markdown, page_count, parse_pages
 from tadamoo.rag.project import is_key
 from tadamoo.rag.settings import RagSettings
+from tadamoo.rag.sources import coverage
 
+OTHERS = ("ask_dialog", "allow", "deny", "ask_voice")      # may an archive's content be said, written or shown to other people: ask in a dialog (default), always, never, ask aloud
 LIMITS = {"name": 60, "description": 500, "archives": 50, "documents": 1000, "document_bytes": 200 << 20, "document_chars": 40_000_000, "chunks": 200_000, "top_k": 20}
 TOP_K = 4
 ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
@@ -81,6 +83,11 @@ def _extraction(meta: Dict[str, Any]) -> str:
     return "" if not kinds else kinds.pop() if len(kinds) == 1 else "mixed"
 
 
+def others_of(meta: Dict[str, Any]) -> str:
+    """Whether the archive's content may be said, written or shown to other people: `ask_dialog` (the default), `allow`, `deny` or `ask_voice`."""
+    return meta["others_ok"] if meta.get("others_ok") in OTHERS else "ask_dialog"
+
+
 def _copy(meta: Dict[str, Any]) -> Dict[str, Any]:
     return json.loads(json.dumps(meta))
 
@@ -112,6 +119,7 @@ class RagStore:
         self.forbidden = [Path(p).resolve() for p in forbidden]
         self._lock = threading.RLock()
         self._cache: Dict[str, Tuple[int, Archive]] = {}
+        self._metas_cache: Dict[str, Tuple[int, Dict[str, Any]]] = {}
 
     def ingest(self) -> Dict[str, Any]:
         """What cuts the passages of an archive now: the versions of the cleaning, the cutting and the facts, and the sizes (the settings `chunk_target` and `chunk_hard`);
@@ -148,6 +156,7 @@ class RagStore:
     def _put_meta(self, folder: Path, meta: Dict[str, Any]) -> None:
         self._put(folder / "meta.json", json.dumps(meta, indent=1, ensure_ascii=False))
         self._cache.pop(folder.name, None)
+        self._metas_cache.pop(folder.name, None)
 
     @staticmethod
     def _read_meta(folder: Path) -> Dict[str, Any]:
@@ -160,6 +169,19 @@ class RagStore:
         if not isinstance(meta, dict) or not isinstance(meta.get("documents"), list) or meta.get("id") != folder.name:
             raise RagError("the archive file is damaged")
         return meta
+
+    def meta(self, aid: Any) -> Dict[str, Any]:
+        """The meta of an archive alone (no passages, no vectors): what a process needs to know whether it exists and what it allows."""
+        folder = self._dir(aid)
+        with self._lock:
+            meta_file = folder / "meta.json"
+            stamp = meta_file.stat().st_mtime_ns if meta_file.is_file() else 0
+            cached = self._metas_cache.get(aid)
+            if cached and cached[0] == stamp:
+                return cached[1]
+            meta = self._read_meta(folder)
+            self._metas_cache[aid] = (stamp, meta)
+            return meta
 
     def load(self, aid: Any) -> Archive:
         """The archive with its passages and vectors, kept in memory until it changes."""
@@ -232,7 +254,7 @@ class RagStore:
                 "rechunk": bool(meta["documents"]) and meta.get("ingest") != self.ingest()}
 
     def _summary(self, meta: Dict[str, Any]) -> Dict[str, Any]:
-        return {"id": meta["id"], "name": meta["name"], "description": meta["description"], "project": meta.get("project", ""), "project_name": meta.get("project_name", ""), "cloud_ok": bool(meta.get("cloud_ok")), "created": meta["created"],
+        return {"id": meta["id"], "name": meta["name"], "description": meta["description"], "project": meta.get("project", ""), "project_name": meta.get("project_name", ""), "cloud_ok": bool(meta.get("cloud_ok")), "others_ok": others_of(meta), "created": meta["created"],
                 "updated": meta["updated"], "documents": len(meta["documents"]), "chunks": meta["chunks"], "bytes": sum(d["bytes"] for d in meta["documents"]),
                 "flagged": sum(d.get("flagged", 0) for d in meta["documents"]), "extraction": _extraction(meta), **self.status(meta)}
 
@@ -288,13 +310,13 @@ class RagStore:
             aid = f"{slug_of(name) or 'archive'}-{secrets.token_hex(3)}"
             now = self.clock()
             meta = {"id": aid, "name": name, "description": description, "project": project, "project_name": str(project_name or "").strip()[:LIMITS["name"]],
-                    "cloud_ok": False, "created": now, "updated": now, "chunks": 0,
+                    "cloud_ok": False, "others_ok": "ask_dialog", "created": now, "updated": now, "chunks": 0,
                     "embed_model": "", "embed_dim": 0, "embed_version": "", "ingest": self.ingest(), "documents": []}
             self._put_meta(self._dir(aid), meta)
             return self.get(aid)
 
     def update(self, aid: Any, data: Dict[str, Any]) -> Dict[str, Any]:
-        extra = [k for k in data if k not in ("name", "description", "cloud_ok")]
+        extra = [k for k in data if k not in ("name", "description", "cloud_ok", "others_ok")]
         if extra:
             raise RagError("unknown field: " + ", ".join(sorted(map(str, extra))[:5]))
         with self._lock:
@@ -310,6 +332,10 @@ class RagStore:
                 if not isinstance(data["cloud_ok"], bool):
                     raise RagError("cloud_ok: true or false")
                 meta["cloud_ok"] = data["cloud_ok"]
+            if "others_ok" in data:
+                if data["others_ok"] not in OTHERS:
+                    raise RagError("others_ok: ask_dialog, allow, deny or ask_voice")
+                meta["others_ok"] = data["others_ok"]
             meta["updated"] = self.clock()
             self._put_meta(folder, meta)
             return self.get(aid)
@@ -321,6 +347,7 @@ class RagStore:
             folder, meta = self._dir(aid), self.load(aid).meta
             shutil.rmtree(folder)
             self._cache.pop(aid, None)
+            self._metas_cache.pop(aid, None)
             return {"deleted": True, "documents": len(meta["documents"])}
 
     # -- the documents ---------------------------------------------------------------------------
@@ -461,6 +488,7 @@ class RagStore:
                    "added": self.clock(), "extraction": reading["extraction"], "pages": int(reading.get("pages") or 0), "flagged": stats["flagged"],
                    "info": stats["info"], **({"skipped_pages": reading["skipped_pages"]} if reading.get("skipped_pages") else {}),
                    **({"empty_pages": reading["empty_pages"]} if reading.get("empty_pages") else {})}
+            doc["coverage"] = coverage.of_document(doc, chunks)
             folder = self._dir(aid)
             self._save_blocks(folder, doc_id, reading["blocks"])
             try:
@@ -666,6 +694,19 @@ class RagStore:
         from tadamoo.rag.query import run
         if not isinstance(query, str):
             raise RagError("query: the text of the question")
+        top_k = max(1, min(int(top_k), LIMITS["top_k"]))
+        if self.remote is not None:                        # the archives are only checked to exist (their meta); the server holds their passages
+            there = []
+            for aid in ids:
+                try:
+                    there.append(self.meta(aid)["id"])
+                except RagError:
+                    if strict:
+                        raise
+            try:
+                return self.remote(there, query.strip()[:2000], top_k, min_share, wanted) if wanted else self.remote(there, query.strip()[:2000], top_k, min_share)
+            except Exception:                              # the server that holds the embedder does not answer: words alone
+                pass
         loaded = []
         for aid in ids:
             try:
@@ -673,10 +714,99 @@ class RagStore:
             except RagError:
                 if strict:
                     raise
-        if self.remote is not None:
+        return run(loaded, self.embedder(), query.strip()[:2000], top_k, min_share, self.settings.read(), wanted)
+
+    # -- hooks for the refresh of archives (tadamoo/rag/sources) ---------------------------------
+
+    def folder(self, aid: Any) -> Path:
+        return self._dir(aid)
+
+    def passages_of(self, doc_id: str, name: str, blocks: List[Dict[str, Any]], aid: Any = None) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]], Dict[str, int]]:
+        """The passages, sections and stats a document's blocks give (the cleaning and the cutting of `add_file`). With `aid` the summaries and questions a model
+        already wrote for the archive (`enrich.jsonl`) are put on the passages and sections they were made for, so that an unchanged passage keeps them (and its vector)."""
+        chunks, sections, stats = self._build(doc_id, name, blocks)
+        if aid is not None:
+            cache = enrich.Cache(self._dir(aid))
+            if cache.entries:
+                enrich.attach(cache, self.settings.read()["enrich_language"], chunks, sections, [])
+        return chunks, sections, stats
+
+    def describe_documents(self, aid: Any, documents: List[Dict[str, Any]]) -> None:
+        """Puts the cached description of a document (by the hash of its file) on each of `documents`, and takes off one made for the text it had before."""
+        cache = enrich.Cache(self._dir(aid))
+        for d in documents:
+            d.pop("summary", None)
+            d.pop("questions", None)
+        if cache.entries:
+            enrich.attach(cache, self.settings.read()["enrich_language"], [], {}, documents)
+
+    def blocks_of(self, aid: Any, doc: Dict[str, Any]) -> List[Dict[str, Any]]:
+        return self._load_blocks(self._dir(aid), doc)
+
+    def embed_pieces(self, aid: Any, pieces: List[str], progress: Optional[Callable[[Dict[str, Any]], None]] = None,
+                     cancel: Optional[threading.Event] = None) -> Tuple[Optional[np.ndarray], str, str, str]:
+        """`_embed_new` for the archive `aid`: (vectors of `pieces`, model, version, note), nothing when they cannot be made to fit the archive's own."""
+        return self._embed_new(self.load(aid), pieces, progress, cancel)
+
+    def annotate_document(self, aid: Any, doc_id: str, fields: Dict[str, Any]) -> None:
+        """Sets fields on one document's meta (where it came from, when it was updated); the passages and vectors are not touched."""
+        with self._lock:
+            meta = _copy(self.load(aid).meta)
+            doc = next((d for d in meta["documents"] if d["id"] == doc_id), None)
+            if doc is None:
+                raise RagError("there is no such document", "not_found")
+            doc.update(fields)
+            self._put_meta(self._dir(aid), meta)
+
+    def swap_documents(self, aid: Any, changes: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+        """Replaces the readings of documents in one commit. A change is `{doc, chunks, sections, blocks, rows, model, version}`: `doc` is the document's new meta (its id
+        names the document it replaces), `rows` the vectors of its passages (None: none) of the embedding `model` and `version`. Passages of the other documents and
+        their vectors are kept as they are; the vectors are kept only when every passage has one of the same embedding. A failure puts the saved readings back."""
+        with self._lock:
+            archive, folder = self.load(aid), self._dir(aid)
+            meta = _copy(archive.meta)
+            by_id = {c["doc"]["id"]: c for c in changes}
+            if any(i not in {d["id"] for d in meta["documents"]} for i in by_id):
+                raise RagError("a document to replace is no longer in the archive", "not_found")
+            keep = [i for i, c in enumerate(archive.chunks) if c["doc"] not in by_id]
+            chunks = [archive.chunks[i] for i in keep]
+            sections = {k: v for k, v in archive.sections.items() if v.get("doc") not in by_id}
+            meta["documents"] = [by_id[d["id"]]["doc"] if d["id"] in by_id else d for d in meta["documents"]]
+            vectors, want = None, None
+            ok = not keep or archive.vectors is not None
+            stacks = [archive.vectors[keep]] if keep and archive.vectors is not None else []
+            if stacks:
+                want = (archive.meta["embed_model"], archive.meta.get("embed_version", ""), archive.vectors.shape[1])
+            for c in changes:
+                chunks += c["chunks"]
+                sections.update(c["sections"])
+                rows = c.get("rows")
+                if not c["chunks"] or not ok:
+                    continue
+                key = (c.get("model", ""), c.get("version", ""), rows.shape[1] if rows is not None and rows.ndim == 2 else 0)
+                if rows is None or len(rows) != len(c["chunks"]) or (want is not None and key != want):
+                    ok = False
+                    continue
+                want = want or key
+                stacks.append(rows)
+            if len(chunks) > LIMITS["chunks"]:
+                raise RagError(f"the archive would hold more than {LIMITS['chunks']:,} passages")
+            if ok and stacks and want is not None:
+                vectors = np.vstack(stacks)
+            before = {}
+            for doc_id in by_id:
+                path = folder / "blocks" / (doc_id + ".json.gz")
+                before[doc_id] = path.read_bytes() if path.is_file() else None
+            if meta.get("enriched"):                                    # the count of what a model described follows the passages that carry it now
+                meta["enriched"] = {**meta["enriched"], "passages": sum(1 for c in chunks if c.get("summary")), "sections": sum(1 for r in sections.values() if r.get("summary")),
+                                    "documents": sum(1 for d in meta["documents"] if d.get("summary")), "total": len(chunks), "at": self.clock()}
             try:
-                ask = [[a.meta["id"] for a in loaded], query.strip()[:2000], max(1, min(int(top_k), LIMITS["top_k"])), min_share]
-                return self.remote(*ask, wanted) if wanted else self.remote(*ask)
-            except Exception:                              # the server that holds the embedder does not answer: words alone
-                pass
-        return run(loaded, self.embedder(), query.strip()[:2000], max(1, min(int(top_k), LIMITS["top_k"])), min_share, self.settings.read(), wanted)
+                for doc_id, c in by_id.items():
+                    self._save_blocks(folder, doc_id, c["blocks"])
+                self._commit(folder, meta, chunks, vectors, want[0] if vectors is not None else "", sections, want[1] if vectors is not None else "")
+            except BaseException:
+                for doc_id, data in before.items():
+                    if data is not None:
+                        self._put(folder / "blocks" / (doc_id + ".json.gz"), data)
+                raise
+            return {"documents": len(changes), "chunks": len(chunks), "embedded": vectors is not None}

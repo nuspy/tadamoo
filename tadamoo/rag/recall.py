@@ -9,6 +9,8 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Set
 from tadamoo import side_uses, untrusted
 from tadamoo.rag import card, expand
 from tadamoo.rag.errors import RagError
+from tadamoo.rag.resolve import Resolution, resolve
+from tadamoo.rag.withhold import Withhold
 from tadamoo.rag.store import FLAG_NOTE, TOP_K, RagStore
 
 SOURCE = "knowledge-archive"
@@ -54,6 +56,8 @@ class ProjectRecall:
         self.store, self.project, self.local = store, project, local
         self.attached: List[str] = list(dict.fromkeys(attached))
         self.sent: Set[str] = set()
+        self.step: List[str] = []                                  # archives a plan step brings along while it runs
+        self.private = Withhold()                                  # passages sent from archives not cleared for cloud models
         self.on_change: Callable[[List[str], str, str], None] = lambda ids, kind, name: None     # told when a tool attaches or drops: the ids now, attached|dropped|cleared, the name
         self.plan: Callable[[str, List[Dict[str, Any]]], Optional[List[str]]] = lambda goal, documents: None   # the queries a model writes for a request and the documents searched; None: split it by code
         self.clock: Callable[[], float] = time.monotonic
@@ -63,8 +67,43 @@ class ProjectRecall:
     def ids(self) -> List[str]:
         """The archives this conversation draws on: the project's own, then the attached ones that still exist."""
         own = self.store.ids(self.project)
-        there = set(self.store.ids(None)) if self.attached else set()
-        return own + [i for i in self.attached if i in there and i not in own]
+        there = set(self.store.ids(None)) if self.attached or self.step else set()
+        return own + [i for i in dict.fromkeys(self.attached + self.step) if i in there and i not in own]
+
+    def resolution(self, ids: Optional[Sequence[str]] = None) -> Resolution:
+        """What the resolver says of `ids` (this conversation's archives when None) on the route the conversation takes now."""
+        mine = {"project": "", "attached": list(ids)} if ids is not None else {"project": self.project, "attached": self.attached + self.step}
+        return resolve(self.store, {"function": "agent", "routed_to_cloud": not self.local(), **mine}, leaves_pc=lambda function: False)     # the harness's own client knows its route
+
+    def permit(self, ids: Sequence[str]) -> List[str]:
+        """`ids` without the archives this conversation's route may not carry."""
+        allowed = set(self.resolution(ids).ids)
+        return [i for i in ids if i in allowed]
+
+    def bring(self, ids: Sequence[str]) -> str:
+        """A plan step brings these archives along until the next step starts or this one ends (none: lets go): they are searched with the project's and
+        attached ones. The words for the model: the archives by name, and what this route leaves out and why."""
+        res = resolve(self.store, {"function": "plan_node", "routed_to_cloud": not self.local()}, sources={"plan_node": lambda ctx: list(ids)}, leaves_pc=lambda function: False)
+        self.step = [a["id"] for a in res.archives] + [b["id"] for b in res.blocked if "cloud" in b["codes"]]
+        if not ids:
+            return ""
+        names = ", ".join(a["name"] + (f" (project {a['project_name']})" if a["project_name"] else "") for a in res.archives)
+        left = "; ".join(f"{b['name']} ({b['reason']})" for b in res.blocked if "missing" not in b["codes"])
+        return ((f"This step has these knowledge archives: {names}. They are searched with the project's own ones: use knowledge_search (`archive` names one) for what the step needs. "
+                 if names else "") + (f"Left out on this route: {left}." if left else "")).strip()
+
+    def forget_sent(self) -> None:
+        """The conversation was compacted: passages that were in it may be sent again."""
+        self.sent.clear()
+
+    def withdrawn(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """What is sent: when the request leaves this PC, passages of archives not cleared for it are taken out of the earlier messages."""
+        return messages if self.local() else self.private.apply(messages)
+
+    def remember(self, hit: Dict[str, Any], *texts: str) -> None:
+        """A passage was put in the conversation: remember it when its archive is not cleared for cloud models."""
+        if not self._cloud_ok(hit["archive_id"]):
+            self.private.add(*texts)
 
     def attach(self, ids: Sequence[str]) -> None:
         self.attached = list(dict.fromkeys(ids))
@@ -94,11 +133,9 @@ class ProjectRecall:
         of each in turn, no document taking more than its share of the places."""
         if not isinstance(goal, str) or not goal.strip():
             return None
-        ids = self.ids()
+        ids = self.permit(self.ids())
         if not ids:
             return None
-        if not self.local():
-            ids = [i for i in ids if self._cloud_ok(i)]
         queries = self.queries(goal, ids)
         many = len(queries) > 1
         found: List[List[Dict[str, Any]]] = []
@@ -138,6 +175,7 @@ class ProjectRecall:
             used += len(block)
             taken.add(key)
             per_doc[doc] = per_doc.get(doc, 0) + 1
+            self.remember(hit, block, shown(hit), citation(hit))
         if not lines:
             return None
         self.sent |= taken
@@ -146,7 +184,7 @@ class ProjectRecall:
 
     def _cloud_ok(self, aid: str) -> bool:
         try:
-            return bool(self.store.load(aid).meta.get("cloud_ok"))
+            return bool(self.store.meta(aid).get("cloud_ok"))
         except RagError:
             return False
 
@@ -169,9 +207,3 @@ def spread(found: Sequence[Sequence[Dict[str, Any]]]) -> Iterator[Dict[str, Any]
         for hits in found:
             if rank < len(hits):
                 yield hits[rank]
-
-
-def compose_message(store: RagStore, project: str, goal: str, attached: Sequence[str] = (), local: Callable[[], bool] = lambda: True) -> str:
-    """For a conversation without a harness: the block for one request ("" when nothing matches). `local` says whether the request stays on this PC;
-    when it does not, the archives not cleared for cloud models are left out."""
-    return ProjectRecall(store, project, local=local, attached=attached).message(goal) or ""

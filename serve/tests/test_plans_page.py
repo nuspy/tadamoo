@@ -1,5 +1,8 @@
 """The Plans page: a column of plans with open, duplicate and delete, four parts, links drawn between steps and rows that move up and down."""
+import json
+import os
 import re
+import sys
 import unittest
 from pathlib import Path
 
@@ -32,9 +35,10 @@ class PlansPageTest(unittest.TestCase):
 
     def test_links_are_drawn_from_the_round_ends_picked_and_removed(self):
         self.assertIn("function startLink(", JS)
-        self.assertIn('add_edges: [[a, b]]', JS)
-        self.assertIn('remove_edges: [[a, b]]', JS)
-        self.assertIn('port.addEventListener("pointerdown", e => startLink(e, n.id, side))', JS)
+        self.assertIn('add_edges: [port ? [a, b, port] : [a, b]]', JS)                 # an edge leaves a named connector
+        self.assertIn('remove_edges: [port ? [a, b, port] : [a, b]]', JS)
+        self.assertIn('startLink(e, n.id, "out", b.id, "flow")', JS)                    # each branch of a decision is a connector of its own
+        self.assertIn('startLink(e, n.id, "in", "rag", "input")', JS)                   # an action takes archives at a data input
         self.assertIn('ev.key === "Escape"', JS)                                       # letting go elsewhere or Escape drops the link
         self.assertIn('e.key === "Delete"', JS)                                        # a picked link is removed by the keyboard too
         for cls in (".pl-port", ".pl-edgehit", ".pl-x", ".linktarget"):
@@ -107,6 +111,108 @@ class PlansPageTest(unittest.TestCase):
         for key in ("pl.set.key.field", "pl.set.key.remove", "pl.set.threshold", "pl.set.timeout", "pl.set.chunk"):
             self.assertEqual(I18N.count(f'"{key}":'), 2, key)
             self.assertEqual(I18N.count(f'"{key}.help":'), 2 if key != "pl.set.key.remove" else 0, key)
+
+
+class PortsOnThePageTest(unittest.TestCase):
+    KINDS = (WEB / "plankinds.js").read_text(encoding="utf-8")
+
+    def test_a_decision_draws_a_labelled_connector_for_each_branch_and_the_label_is_cut_with_its_whole_text_in_a_tooltip(self):
+        self.assertIn("const rows = branchesOf(n);", JS)
+        self.assertIn('class: "pl-br"', JS)
+        self.assertIn("clip(b.label, 17)", JS)
+        self.assertIn("svg(\"title\", {}, document.createTextNode(b.label))".replace('\\"', '"'), JS)
+        self.assertIn('"aria-label": name', JS)                                       # the connector's name is its label
+        self.assertNotIn('svg("polygon", { points: `${x + W / 2},${y}', JS)            # a decision is a box that grows with its branches, not a diamond
+        self.assertIn("hOf(n)", JS)
+
+    def test_the_connectors_are_small_and_the_touch_area_is_a_larger_one_that_draws_nothing(self):
+        self.assertRegex(CSS, r"\.pl-hit \{ fill: transparent; stroke: none; pointer-events: all;")
+        self.assertIn("{ dot: 5, hit: 22 }", JS)                                     # a 10 px dot, a 44 px area
+        self.assertRegex(CSS, r"\.pl-t \{ font: 500 13px")
+        self.assertRegex(CSS, r"\.pl-br \{[^}]*font: 400 11px")
+        self.assertRegex(CSS, r"\.pl-connx \{ min-width: 44px; min-height: 44px; \}")
+        self.assertRegex(CSS, r"\.pk-brbtn, \.pk-bradd \{ min-height: 44px; min-width: 44px; \}")
+        self.assertIn("prefers-reduced-motion", CSS[CSS.index(".pl-port { stroke-width"):])
+
+    def test_a_link_from_a_rag_node_is_drawn_apart_from_a_wait_and_stored_as_a_connector_not_a_dependency(self):
+        self.assertIn('class: "pl-edge " + (feed ? "feed " : "")', JS.replace("svg(\"path\", { d, ", "").replace('svg("path", { d, class: "pl-edge " + (feed ? "feed " : "")', 'class: "pl-edge " + (feed ? "feed " : "")'))
+        self.assertIn('"marker-end": feed ? "url(#pl-dot)" : "url(#pl-arrow)"', JS)     # a dot where the data arrives, not the arrow of "waits for"
+        self.assertRegex(CSS, r"\.pl-edge\.feed \{ stroke-dasharray: 4 4; \}")
+        self.assertIn("function connectionsBox(n)", JS)                                  # the phone and the keyboard connect from the panel
+        self.assertIn('T("pl.link.ragonly")', JS)
+
+    def test_a_palette_kind_with_only_optional_fields_is_not_a_draft(self):
+        self.assertIn("const needs = fields.some(f => f.required) || type === \"sensor\";", JS)
+
+    def test_every_word_the_new_parts_use_exists_in_both_languages(self):
+        keys = set(re.findall(r'T\("(pl\.(?:br|feed|conn|port|link|f\.profile)[\w.]*)"', JS + self.KINDS))
+        keys = {k for k in keys if not k.endswith(".")}                                   # a prefix the page completes from a table, listed below
+        keys |= {f"pl.br.op.{w}" for w in ("lt", "le", "eq", "ne", "ge", "gt", "between", "in", "contains", "else", "custom")}
+        keys |= {"pl.type.rag", "pl.kind.rag.d", "pl.spec.archives", "pl.spec.rag_archives", "pl.spec.branches", "pl.spec.mode", "pl.spec.input", "pl.spec.opt.first", "pl.spec.opt.all", "pl.spec.on_no_match", "pl.spec.opt.stop", "pl.spec.opt.ask", "pl.fact.nobranch"}
+        self.assertGreater(len(keys), 40)
+        for key in sorted(keys):
+            self.assertEqual(I18N.count(f'"{key}":'), 2, key)
+
+    def test_the_plan_has_a_picker_for_its_own_archives(self):
+        self.assertIn("window.ragPick.create({ T, ids: p.rag_archives || []", JS)
+        self.assertIn("profile.rag_archives = S.horizonPick.get()", JS)
+
+
+class DecisionGraphInARealBrowserTest(unittest.TestCase):
+    """The graph of a decision, drawn by the page itself in headless Chrome or Edge on a mock server: every connector has its visible label, the header does not
+    collide with the rows, the type is small. Skipped where there is no browser or no node."""
+
+    @classmethod
+    def setUpClass(cls):
+        import shutil, socket, subprocess, tempfile, time, urllib.request
+        cls.server = None
+        cls.tmp = ""
+        candidates = (os.environ.get("TADAMOO_TEST_BROWSER", ""), r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe", r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                      shutil.which("google-chrome") or "", shutil.which("chromium") or "")
+        cls.browser = next((p for p in candidates if p and os.path.exists(p)), None)
+        cls.node = shutil.which("node")
+        if not cls.browser or not cls.node:
+            raise unittest.SkipTest("no headless browser or no node")
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+        sock.close()
+        cls.tmp = tempfile.mkdtemp(prefix="plg-data-")
+        root = Path(__file__).resolve().parents[2]
+        env = {**os.environ, "TADAMOO_DATA": cls.tmp + "/data", "TADAMOO_CACHE": cls.tmp + "/cache"}
+        cls.server = subprocess.Popen([sys.executable, "-m", "serve.server", "--mock-engine", "--port", str(port)], cwd=str(root), env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cls.url = f"http://127.0.0.1:{port}/"
+        for _ in range(80):
+            try:
+                urllib.request.urlopen(cls.url, timeout=1).read(1)
+                break
+            except OSError:
+                time.sleep(0.25)
+        else:
+            raise unittest.SkipTest("the mock server did not start")
+        sys.path.insert(0, str(root / "tests"))
+        import test_planner_ports as ports
+        dag = ports.branching()
+        dag.plan_id, dag.title = "graph-check", "Decision with five outputs"
+        req = urllib.request.Request(cls.url + "api/plans", data=json.dumps({"plan": dag.to_dict(), "created_by": "test"}).encode(), headers={"Content-Type": "application/json"}, method="POST")
+        urllib.request.urlopen(req, timeout=30).read()
+
+    @classmethod
+    def tearDownClass(cls):
+        import shutil
+        if cls.server:
+            cls.server.terminate()
+            cls.server.wait(timeout=20)
+        if cls.tmp:
+            shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_the_graph_of_a_decision(self):
+        import subprocess
+        out = subprocess.run([self.node, str(Path(__file__).resolve().parent / "plan_graph_dom_check.js"), self.url, "Decision with five outputs", self.browser],
+                             capture_output=True, text=True, timeout=180)
+        results = json.loads(out.stdout.strip().splitlines()[-1])
+        self.assertGreaterEqual(len(results), 10)
+        self.assertEqual([r for r in results if not r["ok"]], [])
 
 
 if __name__ == "__main__":

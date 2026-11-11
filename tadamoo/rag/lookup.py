@@ -26,7 +26,7 @@ def _candidates(rows: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def scope(store: RagStore, recall: ProjectRecall, archive: str) -> Tuple[List[str], Optional[Dict[str, Any]]]:
-    """The archive ids a lookup covers (the named archive, else the conversation's), or an answer that says why not. Archives not cleared for a cloud request are left out."""
+    """The archive ids a lookup covers (the named archive, else the conversation's), or an answer that says why not. The archives the route may not carry are left out."""
     if archive:
         found = find(store.list(), archive)
         if found["status"] == "many":
@@ -36,9 +36,7 @@ def scope(store: RagStore, recall: ProjectRecall, archive: str) -> Tuple[List[st
         ids = [found["archive"]["id"]]
     else:
         ids = recall.ids()
-    if not recall.local():
-        ids = [i for i in ids if recall._cloud_ok(i)]
-    return ids, None
+    return recall.permit(ids), None
 
 
 def pick_document(store: RagStore, ids: Sequence[str], name: str) -> Tuple[Optional[Tuple[str, Dict[str, Any]]], Optional[Dict[str, Any]]]:
@@ -130,6 +128,7 @@ def search(store: RagStore, recall: ProjectRecall, query: Any = "", queries: Any
             row["flagged"] = True
         out.append(row)
         used += len(text)
+        recall.remember(h, text, shown(h), citation(h), h.get("summary") or "")
     answer: Dict[str, Any] = {"status": "ok", "searched": len(ids), "passages": out, "mode": mode}
     if notes:
         answer["note"] = "; ".join(notes)
@@ -163,10 +162,13 @@ def read(store: RagStore, recall: ProjectRecall, document: Any, pages: Any = "",
                                    "outline": [{"section": r["title"], "pages": _title_range(r), **({"summary": r["summary"]} if r.get("summary") else {})} for r in shown_rows],
                                    **({"summary": doc["summary"]} if doc.get("summary") else {}),
                                    "note": "ask for pages with knowledge_read(document, pages), for example \"" + (f"{rows[0]['page_start']}-{rows[0]['page_end']}" if rows else "1-10") + "\""}
+            recall.remember({"archive_id": aid}, doc.get("summary") or "", *[r["summary"] for r in shown_rows if r.get("summary")])
             if len(rows) > OUTLINE_SHOWN:
                 out["more_sections"] = len(rows) - OUTLINE_SHOWN
             return out
-        return {"status": "ok", **store.read_pages(aid, doc["id"], pages, READ_CHARS)}
+        got = store.read_pages(aid, doc["id"], pages, READ_CHARS)
+        recall.remember({"archive_id": aid}, got.get("text") or "")
+        return {"status": "ok", **got}
     except RagError as e:
         return {"status": "error", "note": str(e)}
 

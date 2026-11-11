@@ -67,6 +67,8 @@ fire `skipped_late` instead of running cold; `dedup_key` keeps routines that sha
 
 - `{"kind": "new_session"}` (the default): starts a conversation and runs the prompt in it, as before.
 - `{"kind": "session", "ref": name}`: delivers `message` (or `prompt` if empty) to an existing conversation, `provenance="cron:<id>"`.
+- `{"kind": "knowledge", "ref": archive id}` with `message` `check` or `update`: checks the archive's sources for changes, or also updates what changed (`docs/rag-sources.md`).
+  No model is woken and no conversation is made; the outcome is `nothing_new` or `progress`; an update waits for a heavy job and is skipped, not failed, when it cannot.
 - `{"kind": "plan", "ref": name}` with `link: {"plan": plan_id}`: same delivery, `provenance="plan:<id>"`; skipped
   (`skipped_paused`) instead of sent while that plan is paused (`PlanService.is_paused`, wired through `SessionRoutineRunner`).
 
@@ -93,6 +95,11 @@ exists on the **plan** side instead (next section).
   tools); without one it says so instead of failing silently.
 - `plan_get(plan_id, view="compact")` gives a few lines (state, ready steps, values) instead of the full reading.
 - `plan_digest(plan_id, n)` reads the plan's own history (`rev`, actor, kind, summary), already kept by the bridge; no new storage.
+
+## Knowledge archives in plans and routines
+
+A plan, an action step and a RAG node connected to it can each name knowledge archives; `plan_step_start` gives the step the union by name, under the cloud
+rule. A routine has `rag_archives` too, attached to the conversation its run starts. See [plan-nodes.md](plan-nodes.md) and [rag-resolve.md](rag-resolve.md).
 
 ## Repeating steps (`tadamoo/planner/dag.py`)
 

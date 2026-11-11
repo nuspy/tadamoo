@@ -46,7 +46,6 @@ const fetch = async (url, opts) => {
     return answer(200, { project: key, archives: archives[key] || [], limits: { name: 60, description: 500, document_bytes: 25 << 20 }, formats: [".txt"], pdf: true, embedding: { available: false, model: "" }, extraction: "basic", settings: { docling_python: "", flagged: "keep" }, docling_python: "", jobs: [] });
   }
   if (url === "api/rag/archives") return answer(200, { archive: { id: "new-1" } });
-  if (url === "api/rag/recall") return answer(200, { block: "<untrusted_data>passage</untrusted_data>" });
   if (url.startsWith("api/rag/archives/")) return answer(404, {});
   return answer(404, {});
 };
@@ -107,17 +106,6 @@ t("nothing about personalities is on the page", async () => {
   eq(host.all().filter(e => /personalit|rg\.use/i.test(e.textContent)).length, 0);
   eq(host.tag("INPUT").filter(e => e.type === "checkbox").length <= 1, true);   // only the cloud tick of an open archive, never a list of personalities
 });
-t("the model-only chat asks for the Chat folder's passages, and the agent's conversation does not", async () => {
-  window.agentChat = null;
-  asked.length = 0; posted.length = 0;
-  eq(await window.ragUi.recall("what keeps the boat upright"), "<untrusted_data>passage</untrusted_data>");
-  eq(posted.map(p => p.body), [{ project: CHAT.key, goal: "what keeps the boat upright", attached: [] }]);
-  window.agentChat = { active: () => true };
-  posted.length = 0;
-  eq(await window.ragUi.recall("anything"), "");
-  eq(posted.length, 0);
-});
-
 (async () => {
   const out = [];
   for (const [name, fn] of cases) {

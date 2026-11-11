@@ -237,7 +237,7 @@ def test_the_state_note_lists_the_archives_the_conversation_can_use_and_tells_wh
     first = index()
     assert index() is first                                                                          # worked out again only when something changed
     recall.attach([other])
-    assert "Forests (0 documents, search by words only)" in index()
+    assert "Forests (project Else; 0 documents, search by words only)" in index()
     for i in range(14):
         store.create(f"Extra {i}", "", PROJ)
     assert index().endswith("and 4 more") and index().count("documents") == 12

@@ -189,3 +189,32 @@ def test_the_route_starts_a_job_that_reports_calls_and_tokens(tmp_path):
     enrich.BACKOFF_S, enrich.RETRIES = 0.0, 2
     paused = api.jobs.wait(api.route_post(["archives", aid, "enrich"], {"language": "German"}, json.dumps({"language": "German"}).encode())["job"]["id"])
     assert paused["state"] in ("paused", "done")
+
+
+def test_a_refreshed_document_keeps_what_a_model_wrote_for_its_unchanged_passages(tmp_path):
+    from sources_support import Counting, body, doc_of, make
+    from test_rag_sources_local import put
+    emb = Counting()
+    store, sync, aid = make(tmp_path, emb)
+    src = tmp_path / "docs"
+    put(src, "alpha.md", body(1, "alpha"), 1_700_000_000)
+    sync.add_source(aid, "folder", {"path": str(src)})
+    sync.update(aid)
+    enrich.Enricher(store, Model()).run(aid)
+    before = {c["text"]: c for c in store.load(aid).chunks}
+    assert all(c.get("summary") for c in before.values()) and doc_of(store, aid, "alpha").get("summary")
+    put(src, "alpha.md", body(2, "alpha"), 1_700_000_500)
+    asked = len(emb.texts)
+    done = sync.update(aid)
+    after = store.load(aid)
+    kept = [c for c in after.chunks if c["text"] in before]
+    fresh = [c for c in after.chunks if c["text"] not in before]
+    assert kept and fresh and all(c["summary"] == before[c["text"]]["summary"] and c["questions"] for c in kept)       # unchanged passages keep their descriptions
+    assert not any(c.get("summary") for c in fresh)                                                                        # the new ones wait for the next job
+    assert len(emb.texts) - asked == len(fresh) and done["reused"] == len(kept)                                           # and their vectors: the searched text is the same
+    doc = doc_of(store, aid, "alpha")
+    assert doc["info"] and "summary" not in doc                                                                            # facts follow the new text; a description of the old one is gone
+    meta = store.load(aid).meta
+    assert meta["enriched"]["passages"] == len(kept) and meta["enriched"]["total"] == len(after.chunks)
+    enrich.Enricher(store, Model()).run(aid)                                                                              # the job asks only for what is not described
+    assert all(c.get("summary") for c in store.load(aid).chunks) and doc_of(store, aid, "alpha").get("summary")

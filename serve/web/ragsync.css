@@ -1,0 +1,19 @@
+/* Knowledge, keeping an archive up to date. Same rules as rag.css: one column on a phone, 44px targets, text never cut. */
+.rs-root { display: grid; gap: 12px; }
+.rs-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.rs-inner { margin-top: 8px; padding-left: 12px; border-left: 2px solid var(--line-soft); }
+.rs-item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 8px; }
+.rs-item-t { display: grid; gap: 2px; min-width: 0; flex: 1 1 220px; }
+.rs-item-h { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.rs-item-b { display: flex; flex-wrap: wrap; gap: 8px; }
+.rs-name { font-weight: 600; color: var(--fg); overflow-wrap: anywhere; }
+.rs-tag { padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; color: var(--fg-2); white-space: nowrap; }
+.rs-changed, .rs-new, .rs-would-update, .rs-would-add { border-color: var(--accent); color: var(--fg); }
+.rs-gone, .rs-error, .rs-failed { border-color: var(--warn); color: var(--warn); }
+.rs-ex { font-size: 13px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; padding: 2px 6px; border-left: 3px solid var(--line); color: var(--fg-2); }
+.rs-ex-new { border-left-color: var(--accent); }
+.rs-ex-old { border-left-color: var(--warn); }
+.rs-cov[data-status="incomplete"] { border-left: 3px solid var(--warn); padding-left: 8px; }
+.rs-deep { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
+.rs-deep input { width: 24px; height: 24px; accent-color: var(--accent); }
+@media (max-width: 520px) { .rs-item-b .btn { flex: 1 1 100%; } }

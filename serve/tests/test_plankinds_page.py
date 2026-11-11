@@ -34,7 +34,7 @@ class PaletteOnStandInDomTest(unittest.TestCase):
         out = subprocess.run([NODE, str(HERE / "plankinds_dom_check.js")], capture_output=True, text=True, timeout=60)
         self.assertEqual(out.returncode, 0, out.stderr)
         results = json.loads(out.stdout)
-        self.assertGreaterEqual(len(results), 9)
+        self.assertGreaterEqual(len(results), 14)
         self.assertEqual([f"{r['name']}: {r['error']}" for r in results if not r["ok"]], [])
 
 

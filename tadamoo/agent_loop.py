@@ -320,6 +320,8 @@ class AgentLoop:
         self.untrusted_since_user = False             # content from outside came in after that message
         self.cross_commands: Tuple[str, ...] = ()     # the conversations whose messages may give orders here (tadamoo/provenance.py)
         self.screen: Optional[Callable[[str, str], Optional[str]]] = None      # a second reader of untrusted text (tadamoo/inject_screen.py): a notice or None
+        self.outgoing: Optional[Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]] = None   # what is sent, made from what is kept (archive passages withdrawn on a route outside this PC)
+        self.on_compaction: Optional[Callable[[], None]] = None             # told when the conversation was compacted
         self._end_turn = False
         self.length_stops = 0                         # replies the output limit ended, in the latest run
         self.cut = False                              # the answer delivered by the latest run was ended by the output limit
@@ -1151,6 +1153,8 @@ class AgentLoop:
                     raise RepetitionAbort(guard.kind)
             kwargs["on_delta"] = on_delta
         messages = wire_messages(self.messages)
+        if self.outgoing is not None:
+            messages = self.outgoing(messages)
         note = "\n".join(x for x in (self.role.note() if self.role is not None else "", self._clock_note()) if x)
         if note:
             messages.append({"role": "user", "content": note})          # the role's note and the clock end the request and are not kept, so the start of the prompt never changes
@@ -1403,6 +1407,8 @@ class AgentLoop:
         report = getattr(ctx, "take_compaction", lambda: None)()
         if report and not self.subagent:
             self.append({"role": "user", "content": self._mission_note(), "note": True})
+        if report and self.on_compaction is not None:
+            self.on_compaction()
         if report:
             report["prefix"]["tools_sha"] = hashlib.sha256(json.dumps(self.tools.schemas(), sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:12]
             self._emit({"type": "compaction", **report})

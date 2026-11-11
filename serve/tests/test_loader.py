@@ -82,6 +82,17 @@ class Plan(unittest.TestCase):
         low_ram = {**ROOMY, "ram_available": 30 * GiB}
         self.assertIn("ram", [x["code"] for x in loader.plan(loader.SAFE, F, low_ram)["problems"]])
 
+    def test_the_page_file_s_maximum_is_counted_only_when_the_system_reading_carries_it(self):
+        p = loader.plan(loader.SAFE, F, TIGHT)
+        self.assertFalse(p["fits"])
+        self.assertFalse(p["commit"]["counts_page_file_max"])
+        room = {**TIGHT, "commit_limit_max": TIGHT["commit_limit"] + 100 * GiB}
+        grown = loader.plan(loader.SAFE, F, room)
+        self.assertTrue(grown["commit"]["counts_page_file_max"] and grown["commit"]["limit"] == room["commit_limit_max"])
+        self.assertNotIn("commit", [x["code"] for x in grown["problems"]])
+        shorter = {**TIGHT, "commit_limit_max": TIGHT["commit_limit"] - 1}                         # a maximum below the size now adds nothing
+        self.assertFalse(loader.plan(loader.SAFE, F, shorter)["commit"]["counts_page_file_max"])
+
     def test_the_running_engine_s_memory_counts_as_free(self):
         p = loader.plan(loader.SAFE, F, TIGHT, holds={"ram": 40 * GiB, "commit": 70 * GiB}, holds_vram=0)
         self.assertTrue(p["fits"], p["problems"])

@@ -32,6 +32,7 @@
       share.placeholder = String(Math.round((s.default ?? 0.15) * 100));
       if (document.activeElement !== share) share.value = String(Math.round((s.value ?? s.default ?? 0.15) * 100));
     } catch (e) { /* the controls keep what they show */ }
+    try { const p = await prefs(), m = p.commit_counts_page_file_max || {}; $("#st-pfmax").checked = !!m.value; $("#st-pfmax").dataset.max = String(m.page_file_max_mib || ""); } catch (e) { /* as it is */ }
     let skip = false;
     try { skip = localStorage.getItem("tadamoo.wizard.skip") === "1"; } catch (e) { skip = false; }
     $("#st-wizard").checked = !skip;
@@ -61,6 +62,16 @@
       msg(out, T("st.share.saved", nfmt(p.free_share.value * 100, 0) + "%"), "ok");
       document.dispatchEvent(new CustomEvent("tadamoo:prefs"));
     } catch (err) { msg(out, T("st.share.fail", err.message), "err"); }
+  });
+
+  /* the commit limit the plans use: RAM plus the page file's size now, or plus its maximum */
+  $("#st-pfmax").addEventListener("change", async e => {
+    const out = $("#st-pfmax-msg");
+    try {
+      await postPrefs({ commit_counts_page_file_max: e.target.checked });
+      msg(out, T(e.target.checked ? "st.pfmax.on" : "st.pfmax.off"), "ok");
+      document.dispatchEvent(new CustomEvent("tadamoo:prefs"));
+    } catch (err) { e.target.checked = !e.target.checked; msg(out, err.message, "err"); }
   });
 
   /* the configuration wizard at start (TadamooWizard.offer reads the same key) */

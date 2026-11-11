@@ -315,12 +315,15 @@ def _reply_text(reply: Dict[str, Any]) -> str:
 
 class Council:
     def __init__(self, client_for: Callable[[str], Any], timeout: float = 180.0, settings: Optional[Dict[str, Any]] = None,
-                 persona_of: Optional[Callable[[str], Optional[Dict[str, Any]]]] = None) -> None:
-        self.client_for, self.timeout, self.persona_of = client_for, timeout, persona_of
+                 persona_of: Optional[Callable[[str], Optional[Dict[str, Any]]]] = None, redact: Optional[Callable[[str], str]] = None) -> None:
+        self.client_for, self.timeout, self.persona_of, self.redact = client_for, timeout, persona_of, redact
         self.settings = settings or clean_settings(None)
 
     def _ask(self, function: str, system: str, user: str, max_tokens: int) -> str:
-        reply = self.client_for(function).chat_completion(
+        client = self.client_for(function)
+        if self.redact is not None and not getattr(client, "stays_local", lambda: True)():          # what a role outside this PC reads leaves archive passages out
+            user = self.redact(user)
+        reply = client.chat_completion(
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=0.3, max_tokens=max_tokens, timeout=self.timeout, extra={"reasoning_effort": "none"})
         return _reply_text(reply)
@@ -436,7 +439,8 @@ def tool_description(settings: Dict[str, Any], cost: Dict[str, Any]) -> str:
             f"{AUTO_TEXT[settings['council_auto']]} Give the question and, if it helps, a short context.")
 
 
-def offer_council(registry: Any, client_for: Callable[[str], Any], llm_registry: Any, personas_dir: str = "", personas_keys: str = "") -> bool:
+def offer_council(registry: Any, client_for: Callable[[str], Any], llm_registry: Any, personas_dir: str = "", personas_keys: str = "",
+                  redact: Optional[Callable[[str], str]] = None) -> bool:
     """`ask_council` in the tools. The roles are read again at every call, so a change on the Providers page applies at once; the description is the
     one of the settings at the start. False when the council cannot exist (fewer than two enabled advisers)."""
     settings = load_settings(llm_registry)
@@ -453,7 +457,7 @@ def offer_council(registry: Any, client_for: Callable[[str], Any], llm_registry:
         if not ready(now):
             return "The council has fewer than two enabled advisers: the person turns them on in Providers > Council."
         from tadamoo.sandbox import cancelled
-        return render(Council(client_for, settings=now, persona_of=persona_of).convene(question, context if isinstance(context, str) else "", should_stop=cancelled))
+        return render(Council(client_for, settings=now, persona_of=persona_of, redact=redact).convene(question, context if isinstance(context, str) else "", should_stop=cancelled))
 
     registry.register("ask_council", tool_description(settings, cost),
                       {"type": "object", "properties": {"question": {"type": "string"}, "context": {"type": "string", "description": "optional, short"}},

@@ -49,30 +49,30 @@ details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; f
 .pl-main { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
 .pl-canvas, .pl-side { min-width: 0; }
 .pl-side > .sec { margin-bottom: 12px; }
-.pl-graph { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px; overflow: hidden; }
-.pl-svg { display: block; width: 100%; height: auto; max-height: 70vh; }
+.pl-graph { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px; overflow: auto; max-height: 72vh; }
+.pl-svg { display: block; max-width: none; }   /* drawn 1:1: the type is its real size, a wide plan scrolls inside its frame */
 
 /* graph */
 .pl-node { cursor: grab; outline: none; touch-action: none; }
 .pl-node.dragging { cursor: grabbing; opacity: .85; }
 .pl-node.ghost { cursor: default; }
-.pl-node rect, .pl-node polygon { fill: var(--surface); stroke: var(--fg-2); stroke-width: 2; }
+.pl-node rect, .pl-node polygon { fill: var(--surface); stroke: var(--fg-2); stroke-width: 1.5; }
 .pl-node.st-completed rect, .pl-node.st-completed polygon { stroke: var(--pl-done); }
 .pl-node.st-in_progress rect, .pl-node.st-in_progress polygon { stroke: var(--pl-run); }
 .pl-node.st-failed rect, .pl-node.st-failed polygon { stroke: var(--pl-fail); }
 .pl-node.st-blocked rect, .pl-node.st-blocked polygon { stroke: var(--pl-block); stroke-dasharray: 6 4; }
 .pl-node.st-skipped rect, .pl-node.st-skipped polygon { stroke: var(--pl-skip); stroke-dasharray: 2 4; }
 .pl-node.st-skipped .pl-t { fill: var(--fg-3); text-decoration: line-through; }
-.pl-node.sel rect, .pl-node.sel polygon { stroke-width: 4; }
-.pl-node:focus-visible rect, .pl-node:focus-visible polygon { stroke: var(--accent); stroke-width: 4; }
-.pl-node.hl-added rect, .pl-node.hl-added polygon { stroke: var(--pl-add); stroke-width: 4; }
-.pl-node.hl-updated rect, .pl-node.hl-updated polygon { stroke: var(--pl-upd); stroke-width: 4; }
-.pl-node.hl-removed rect, .pl-node.hl-removed polygon { stroke: var(--pl-del); stroke-width: 4; stroke-dasharray: 8 4; }
+.pl-node.sel rect, .pl-node.sel polygon { stroke-width: 2.5; stroke: var(--accent); }
+.pl-node:focus-visible rect, .pl-node:focus-visible polygon { stroke: var(--accent); stroke-width: 2.5; }
+.pl-node.hl-added rect, .pl-node.hl-added polygon { stroke: var(--pl-add); stroke-width: 2.5; }
+.pl-node.hl-updated rect, .pl-node.hl-updated polygon { stroke: var(--pl-upd); stroke-width: 2.5; }
+.pl-node.hl-removed rect, .pl-node.hl-removed polygon { stroke: var(--pl-del); stroke-width: 2.5; stroke-dasharray: 6 3; }
 .pl-node.ghost rect, .pl-node.ghost polygon { stroke-dasharray: 8 4; fill-opacity: .6; }
 .pl-node.flash rect, .pl-node.flash polygon { animation: plflash 1s ease-in-out 3; }
-.pl-t { fill: var(--fg); font: 600 14px var(--font-sans); pointer-events: none; }
+.pl-t { fill: var(--fg); font: 500 13px var(--font-sans); pointer-events: none; }
 .pl-s { fill: var(--fg-2); font: 400 11px var(--font-mono); pointer-events: none; }
-.pl-edge { fill: none; stroke: var(--fg-3); stroke-width: 2; }
+.pl-edge { fill: none; stroke: var(--fg-3); stroke-width: 1.5; }
 .pl-edge.dead { stroke-dasharray: 3 5; opacity: .6; }
 .pl-edge.ghost { stroke: var(--pl-add); stroke-dasharray: 6 4; }
 .pl-edge.hl-removed { stroke: var(--pl-del); stroke-dasharray: 6 4; }
@@ -193,7 +193,7 @@ details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; f
 /* the graph: the round ends a link is drawn from, a picked link and the cross that removes it */
 .pl-port { fill: var(--panel); stroke: var(--fg-2); stroke-width: 2; cursor: crosshair; }
 .pl-port:hover { fill: var(--accent); stroke: var(--accent); }
-.pl-node.linktarget rect, .pl-node.linktarget polygon { stroke: var(--accent); stroke-width: 4; }
+.pl-node.linktarget rect, .pl-node.linktarget polygon { stroke: var(--accent); stroke-width: 2.5; }
 .pl-linking { pointer-events: none; }
 .pl-edgehit { fill: none; stroke: transparent; stroke-width: 16; pointer-events: stroke; cursor: pointer; outline: none; }
 .pl-edgehit:focus-visible { stroke: var(--accent); stroke-opacity: .35; }
@@ -201,7 +201,7 @@ details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; f
 .pl-x { cursor: pointer; outline: none; }
 .pl-x circle { fill: var(--panel); stroke: var(--pl-fail); stroke-width: 2; }
 .pl-x text { fill: var(--pl-fail); font: 700 16px var(--font-sans); pointer-events: none; }
-.pl-x:focus-visible circle { stroke-width: 4; }
+.pl-x:focus-visible circle { stroke-width: 2.5; }
 
 /* the kinds of step: the palette, the thing being dragged, the fields of a kind, and how the kinds look on the plan */
 .pk { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; }
@@ -223,7 +223,7 @@ details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; f
 .pl-specbox .help { margin: 4px 0; }
 .pk-glyph { color: var(--fg-2); }
 .pl-node.t-wait_duration rect, .pl-node.t-wait_until rect, .pl-node.t-wait_condition rect { fill: var(--raised); }
-.pl-node.t-loop rect { stroke-width: 3; }
+.pl-node.t-loop rect { stroke-width: 2; }
 .pl-node.t-set_var rect, .pl-node.t-get_var rect, .pl-node.t-output rect, .pl-node.t-log rect, .pl-node.t-input rect { fill: var(--raised); }
 @media (max-width: 480px) { .pk-list { flex-wrap: wrap; } }
 
@@ -241,7 +241,7 @@ details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; f
 .pl-detail .pk-row { gap: 2px; }
 .pl-detail .pk-row input, .pl-detail .pk-row select, .pl-detail .pk-row textarea { min-height: 28px; padding: 3px 6px; font-size: 12px; }
 @media (pointer: coarse) { .pl-detail input, .pl-detail select, .pl-detail textarea, .pl-detail .btn, .pl-detail .pk-row input, .pl-detail .pk-row select { min-height: 44px; } }
-@media (max-width: 800px) { .pl-canvas { flex-direction: column; } .pl-detail { flex-basis: auto; width: 100%; max-height: none; } }
+@media (max-width: 800px) { .pl-canvas { flex-direction: column; align-items: stretch; } .pl-stage { flex: 0 0 auto; width: 100%; } .pl-detail { flex-basis: auto; width: 100%; max-height: none; } }
 .pl-node.draft rect, .pl-node.draft polygon { stroke-dasharray: 5 3; }
 .pl-dock { position: sticky; bottom: 0; z-index: 6; margin: 0 -16px -16px; padding: 5px 16px 6px; display: grid; gap: 4px; background: var(--panel); border-top: 1px solid var(--line); }
 .pl-dock .pl-instr { margin: 0; padding: 0; border: 0; background: transparent; }
@@ -266,3 +266,37 @@ details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; f
 .pl-autod { font-size: 10px; color: var(--fg-2); }
 .pl-autoacts { display: flex; gap: 6px; margin-top: 4px; }
 @media (pointer: coarse) { .pl-autobtn { width: 44px; height: 44px; } .pl-autobox { top: 56px; } .pl-autoopt { min-height: 44px; } }
+
+/* the graph, quiet: titles about 13px, port and branch labels about 11px, connectors 11px dots whose touch area is a larger one that draws nothing */
+.pl-t { font: 500 13px var(--font-sans); }
+.pl-s { font: 400 11px var(--font-mono); }
+.pl-br { fill: var(--fg-2); font: 400 11px var(--font-sans); pointer-events: none; }
+.pl-port { stroke-width: 1.5; }
+.pl-hit { fill: transparent; stroke: none; pointer-events: all; cursor: crosshair; }
+.pl-pg:focus-visible .pl-port { stroke: var(--accent); stroke-width: 3; }
+.pl-pg:hover .pl-port { fill: var(--accent); stroke: var(--accent); }
+.pl-port.data { fill: var(--surface); stroke: var(--accent); }
+.pl-node.t-decision rect { stroke-width: 1.5; }
+.pl-node.t-rag rect { fill: var(--raised); stroke-dasharray: 3 3; }
+.pl-edge.feed { stroke-dasharray: 4 4; }
+.pl-arrowhead.feed { fill: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .pl-pg .pl-port { transition: none; } }
+
+/* the editor of the branches of a decision, and the connections list of a step */
+.pk-lab { font-weight: 600; font-size: 12px; color: var(--fg-2); }
+.pk-brlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.pk-branch { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px 6px; padding: 6px; border: 1px solid var(--line-soft); border-radius: 8px; align-items: center; }
+.pk-brelse { grid-column: 1 / -1; font-size: 12px; color: var(--fg-2); }
+.pk-brbtns { grid-column: 1 / -1; display: flex; gap: 6px; justify-content: flex-end; }
+.pk-brbtn, .pk-bradd { min-height: 44px; min-width: 44px; }
+.pk-brbar { display: flex; flex-wrap: wrap; gap: 6px; }
+.pk-brhint { color: var(--fg-2); }
+.pl-conn { display: grid; gap: 8px; }
+.pl-connrow { display: grid; gap: 4px; padding: 6px 0; border-top: 1px solid var(--line-soft); }
+.pl-connlabel { font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.pl-connlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.pl-connlist li { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; overflow-wrap: anywhere; }
+.pl-connx { min-width: 44px; min-height: 44px; }
+.pl-connadd { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+.pl-connadd select, .pl-connadd .btn { min-height: 44px; }
+.pk-branch > input:first-child { grid-column: 1 / -1; }   /* the label has its own row: the inspector is a narrow column on every screen */

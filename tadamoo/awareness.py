@@ -58,7 +58,8 @@ def self_model(*, model: str, window: int, mask_at: float, compaction_at: float,
                      "An archive holds its documents already read (OCR included) and indexed: to find a specific fact, number, name or claim in them, or when you do not know the page, "
                      "or across several documents, use `knowledge_search` (one short search for each point you need) and then `knowledge_read` for the pages around what it found, "
                      "instead of reading the files page by page; the passages added to a request are only a first sample. Read a known page directly with `read_document` or `read_file`, "
-                     "and files that are not in an archive.")
+                     "and files that are not in an archive. "
+                     "`knowledge_check` says whether an archive is up to date with its sources and `knowledge_update` reads again what changed, when the person asks.")
     if council:
         lines.append(council)
     if lessons:

@@ -39,7 +39,7 @@ def documents(store: RagStore, aid: str) -> List[Dict[str, Any]]:
             for d in store.documents(aid)]
 
 
-def line(store: RagStore, row: Dict[str, Any]) -> str:
+def line(store: RagStore, row: Dict[str, Any], where: str = "") -> str:
     """One archive for the `[state]` note: `Name (7 documents, 1126 pages, hybrid search; a.pdf 27 p. zh, b.pdf 20 p. fr, ...; its description)`."""
     docs = documents(store, row["id"])
     pages = sum(d["pages"] for d in docs)
@@ -47,5 +47,5 @@ def line(store: RagStore, row: Dict[str, Any]) -> str:
     if len(docs) > DOCS_SHOWN:
         shown.append(f"and {len(docs) - DOCS_SHOWN} more")
     said = plain(row.get("description"), DESCRIPTION_CHARS)
-    head = f"{row['documents']} documents" + (f", {pages} pages" if pages else "") + f", {SEARCH.get(row['mode'], row['mode'])}"
+    head = (where + "; " if where else "") + f"{row['documents']} documents" + (f", {pages} pages" if pages else "") + f", {SEARCH.get(row['mode'], row['mode'])}"
     return f"{plain(row['name'], NAME_CHARS)} ({head}" + (f"; {', '.join(shown)}" if shown else "") + (f"; {said}" if said else "") + ")"

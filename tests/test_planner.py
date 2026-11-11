@@ -110,11 +110,11 @@ def test_json_round_trip_keeps_everything():
     assert again.to_dict() == dag.to_dict() and again.nodes["scelta"].type == NodeType.DECISION
 
 
-def test_decisions_need_two_exits_and_a_condition_each():
+def test_a_decision_needs_branches_and_a_cervinia_one_is_valid():
     dag = chain("d", "x")
     dag.nodes["d"].type = NodeType.DECISION
     problems = dag.validate_decisions()
-    assert any("at least two exits" in p for p in problems) and any("no condition" in p for p in problems)
+    assert any("at least one branch" in p for p in problems)
     assert cervinia().validate_decisions() == []
 
 

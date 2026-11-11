@@ -43,7 +43,7 @@ UNREADABLE = ("audio", "video_note", "video", "sticker", "animation", "location"
 
 MSG: Dict[str, Dict[str, str]] = {
     "en": {
-        "start": "Hello. This chat is connected to TaDaMoo: what you write here goes to the agent and its answers come back here.\n/new starts a new conversation, /stop stops the task, /where shows which conversation this chat talks to, /help repeats this.",
+        "start": "Hello. This chat is connected to TaDaMoo: what you write here goes to the agent and its answers come back here.\n/new starts a new conversation, /stop stops the task, /where shows which conversation this chat talks to, /rag lists the knowledge archives, /rag name uses one, /rag off drops them, /help repeats this.",
         "new": "A new conversation started.",
         "stop": "Stopped.", "idle": "Nothing is running.",
         "where_moved": "This chat talks to the conversation \"{title}\", moved here from the TaDaMoo page. Permission level: {mode}.",
@@ -69,7 +69,7 @@ MSG: Dict[str, Dict[str, str]] = {
         "level": {"plan": "plan", "read_only": "read only", "default": "default", "auto": "auto"},
     },
     "it": {
-        "start": "Ciao. Questa chat e collegata a TaDaMoo: quello che scrivi qui va all'agente e le sue risposte tornano qui.\n/new apre una nuova conversazione, /stop ferma il lavoro, /where dice con quale conversazione parla questa chat, /help ripete questo testo.",
+        "start": "Ciao. Questa chat e collegata a TaDaMoo: quello che scrivi qui va all'agente e le sue risposte tornano qui.\n/new apre una nuova conversazione, /stop ferma il lavoro, /where dice con quale conversazione parla questa chat, /rag elenca gli archivi di conoscenza, /rag nome ne usa uno, /rag off li lascia, /help ripete questo testo.",
         "new": "Ho aperto una nuova conversazione.",
         "stop": "Fermato.", "idle": "Non c'e niente in corso.",
         "where_moved": "Questa chat parla con la conversazione \"{title}\", trasferita qui dalla pagina di TaDaMoo. Livello di permessi: {mode}.",
@@ -236,6 +236,10 @@ class TelegramBot:
     def _command(self, chat: int, name: str, msg: Dict[str, Any]) -> None:
         if name in ("/start", "/help"):
             return self._say(chat, self._t(chat, "start"))
+        if name in ("/rag", "/knowledge"):                                   # the session manager answers it, by archive name; the reply comes back like an answer
+            rest = str(msg.get("text") or "").split(None, 1)
+            plain = {k: v for k, v in msg.items() if k not in ("reply_to_message", "entities", "caption")}
+            return self._message(chat, {**plain, "text": "/rag" + (" " + rest[1] if len(rest) > 1 else "")})
         if name == "/new":
             self._unmove(chat)
             sid = self._create(chat)

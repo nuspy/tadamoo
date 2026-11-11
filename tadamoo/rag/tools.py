@@ -28,13 +28,15 @@ def knowledge_index(store: RagStore, recall: ProjectRecall) -> Callable[[], str]
     cache: Dict[str, Any] = {"key": None, "text": ""}
 
     def index() -> str:
-        key = (store.stamp(), tuple(recall.attached), recall.project)
+        key = (store.stamp(), tuple(recall.attached), tuple(recall.step), recall.project, recall.local())
         if cache["key"] != key:
-            used = set(recall.ids())
+            res = recall.resolution()
+            used = {a["id"]: a for a in res.archives}
             rows = [a for a in store.list() if a["id"] in used]
-            parts = [card.line(store, a) for a in rows[:INDEX_SHOWN]]
+            parts = [card.line(store, a, "" if a["project"] == recall.project else f"project {a['project_name'] or '?'}") for a in rows[:INDEX_SHOWN]]
             text = "; ".join(parts) + (f"; and {len(rows) - INDEX_SHOWN} more" if len(rows) > INDEX_SHOWN else "")
-            cache.update(key=key, text=text or "none (the project has no archive and none is attached)")
+            left = [f"{b['name']} ({b['reason']})" for b in res.blocked if "missing" not in b["codes"]]
+            cache.update(key=key, text=(text or "none (the project has no archive and none is attached)") + ("; not available on this route: " + "; ".join(left) if left else ""))
         return cache["text"]
     return index
 

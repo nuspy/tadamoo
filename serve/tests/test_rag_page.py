@@ -35,7 +35,7 @@ class RagPageTest(unittest.TestCase):
         self.assertLess(tabs.index("rag"), tabs.index("canary"))
 
     def test_every_route_of_the_server_is_used(self):
-        for route in ('"api/rag/projects"', "`api/rag?project=${encodeURIComponent(project)}`", '"api/rag/recall"', "`api/rag/archives/${encodeURIComponent(chosen)}`", '"api/rag/archives"', '"api/rag/search"',
+        for route in ('"api/rag/projects"', "`api/rag?project=${encodeURIComponent(project)}`", "`api/rag/archives/${encodeURIComponent(chosen)}`", '"api/rag/archives"', '"api/rag/search"',
                       "`api/rag/archives/${encodeURIComponent(chosen)}/update`", "`api/rag/archives/${encodeURIComponent(chosen)}/delete`",
                       "`api/rag/archives/${encodeURIComponent(chosen)}/documents`", "`api/rag/archives/${encodeURIComponent(chosen)}/reindex`",
                       "/documents/${encodeURIComponent(doc.id)}/remove`",
@@ -55,21 +55,19 @@ class RagPageTest(unittest.TestCase):
         for word in ("personalit", "persona"):
             self.assertNotIn(word, JS.replace("whatever personality speaks", ""))
 
-    def test_the_model_only_chat_adds_the_projects_passages_where_it_adds_the_personality(self):
-        self.assertIn("window.ragUi = { recall, choose, catalog,", JS)
-        self.assertIn("await window.ragUi.recall(text)", CHAT)
-        self.assertLess(CHAT.index("await window.personaUi.system(text)"), CHAT.index("await window.ragUi.recall(text)"))
-        self.assertIn("personaText = [personaText, found]", CHAT)
+    def test_the_model_only_chat_does_not_reach_the_archives(self):
+        self.assertIn("window.ragUi = { catalog };", JS)
+        self.assertNotIn("ragUi", CHAT)
+        self.assertNotIn("api/rag/recall", JS)
+        self.assertNotIn("api/rag/choose", JS)
 
     def test_the_slash_command_the_route_and_the_texts_for_choosing_archives_are_in_the_page(self):
         slash = (WEB / "slash.js").read_text(encoding="utf-8")
         agent = (WEB / "agentchat.js").read_text(encoding="utf-8")
         self.assertIn('{ name: "rag", alias: ["knowledge"]', slash)
-        self.assertIn('api("POST", "api/rag/choose"', JS)
         self.assertIn('api("GET", "api/rag/catalog")', JS)
         self.assertIn("`/${sid}/knowledge`", agent)                                                    # api/agent/sessions/<id>/knowledge
         self.assertIn('case "knowledge":', agent)
-        self.assertIn("window.ragUi.reset()", CHAT)                                                    # a new model-only conversation starts with none
         keys = set(re.findall(r'"(sl\.rag\.[\w.]+)"', slash + agent)) | {"sl.d.rag"}
         self.assertGreaterEqual(len(keys), 12)
         for key in sorted(keys):
@@ -77,19 +75,19 @@ class RagPageTest(unittest.TestCase):
         self.assertEqual(sorted(set(re.findall(r'"(sl\.rag\.[\w.]+)":', I18N)) - keys), [])
 
     @unittest.skipUnless(NODE, "node is needed to run the page on the stand-in DOM")
-    def test_slash_rag_works_in_the_model_only_chat_and_in_a_conversation(self):
+    def test_slash_rag_works_in_a_conversation_with_tools_and_says_no_in_the_chat_without(self):
         out = subprocess.run([NODE, str(HERE / "slash_rag_check.js")], capture_output=True, text=True, timeout=60)
         self.assertEqual(out.returncode, 0, out.stderr)
         results = json.loads(out.stdout)
-        self.assertGreaterEqual(len(results), 7)
+        self.assertGreaterEqual(len(results), 3)
         self.assertEqual([f"{r['name']}: {r['error']}" for r in results if not r["ok"]], [])
 
     @unittest.skipUnless(NODE, "node is needed to run the page on the stand-in DOM")
-    def test_the_picker_and_the_recall_work_on_a_stand_in_dom(self):
+    def test_the_picker_works_on_a_stand_in_dom(self):
         out = subprocess.run([NODE, str(HERE / "rag_project_dom_check.js")], capture_output=True, text=True, timeout=60)
         self.assertEqual(out.returncode, 0, out.stderr)
         results = json.loads(out.stdout)
-        self.assertGreaterEqual(len(results), 6)
+        self.assertGreaterEqual(len(results), 5)
         self.assertEqual([f"{r['name']}: {r['error']}" for r in results if not r["ok"]], [])
 
     def test_what_the_server_says_enters_the_page_as_text(self):

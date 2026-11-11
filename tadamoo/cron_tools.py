@@ -6,7 +6,7 @@ may give it orders (tadamoo/provenance.py).
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from tadamoo.integrations._http import ServiceError
 
@@ -37,7 +37,7 @@ def register_cron_tools(registry: Any, client: Any) -> None:
         return "\n".join(_line(r) for r in routines) if routines else "There are no schedules."
 
     def cron_create(name: str, schedule: str, workspace: str, prompt: str = "", deliver_kind: str = "new_session", deliver_ref: str = "",
-                    message: str = "", ttl_min: Optional[int] = None, dedup_key: str = "") -> str:
+                    message: str = "", ttl_min: Optional[int] = None, dedup_key: str = "", rag_archives: Optional[List[str]] = None) -> str:
         if not isinstance(name, str) or not name.strip() or len(name) > NAME_MAX:
             return f"Give the schedule a name of at most {NAME_MAX} characters."
         if deliver_kind != "new_session" and not (isinstance(deliver_ref, str) and deliver_ref.strip()):
@@ -50,6 +50,8 @@ def register_cron_tools(registry: Any, client: Any) -> None:
             fields["ttl_min"] = ttl_min
         if dedup_key:
             fields["dedup_key"] = dedup_key
+        if rag_archives:
+            fields["rag_archives"] = rag_archives
         try:
             made = client.create(fields)
         except Exception as exc:
@@ -100,7 +102,8 @@ def register_cron_tools(registry: Any, client: Any) -> None:
                            "deliver_kind": {"type": "string", "enum": ["new_session", "session"]},
                            "deliver_ref": {"type": "string", "description": "The conversation's name or id, with deliver_kind=session"},
                            "message": {"type": "string", "description": "What is sent, with deliver_kind=session; may use {date} and other names"},
-                           "ttl_min": {"type": "integer"}, "dedup_key": {"type": "string"}},
+                           "ttl_min": {"type": "integer"}, "dedup_key": {"type": "string"},
+                           "rag_archives": {"type": "array", "items": {"type": "string"}, "description": "knowledge archive ids (knowledge_list) the run draws on besides its folder's own"}},
                           ["name", "schedule", "workspace"]), EffectClass.REVERSIBLE, cron_create)
     registry.register("cron_update", "Changes a schedule's fields (by id); only the ones given are changed.",
                       obj({"id": {"type": "string"}}, ["id"]), EffectClass.REVERSIBLE, cron_update)

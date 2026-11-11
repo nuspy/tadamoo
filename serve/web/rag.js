@@ -7,8 +7,9 @@
   const host = document.getElementById("rg-root");
   if (!host) return;
 
-  const ARM_MS = 4000, TOP_K = 4;
-  let jobNow = "", S = null, projects = [], project = "", picked = false, chatKey = "", recallOff = false, list = [], chosen = "", creating = false, detail = null, note = "", noteBad = false, armed = "", armTimer = 0, question = "", results = null, asking = false, working = false;
+  const ARM_MS = 4000, TOP_K = 4, OTHERS = ["ask_dialog", "allow", "deny", "ask_voice"];
+  const OTHERS_WORDS = { ask_dialog: "rg.others.ask_dialog", allow: "rg.others.allow", deny: "rg.others.deny", ask_voice: "rg.others.ask_voice" };
+  let jobNow = "", S = null, projects = [], project = "", picked = false, chatKey = "", list = [], chosen = "", creating = false, detail = null, note = "", noteBad = false, armed = "", armTimer = 0, question = "", results = null, asking = false, working = false;
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; return b; };
@@ -317,12 +318,14 @@
     cloud.id = "rg-cloud";
     lab.htmlFor = "rg-cloud"; lab.append(cloud, el("span", "", T("rg.f.cloud")));
     check.append(lab, el("p", "rg-help", T("rg.f.cloud.help")));
-    form.append(field("rg-name", T("rg.f.name"), "", name), field("rg-desc", T("rg.f.desc"), "", desc), check);
+    const others = el("select");
+    OTHERS.forEach(v => { const o = el("option", "", T(OTHERS_WORDS[v])); o.value = v; o.selected = v === (a.others_ok || "ask_dialog"); others.append(o); });
+    form.append(field("rg-name", T("rg.f.name"), "", name), field("rg-desc", T("rg.f.desc"), "", desc), check, field("rg-others", T("rg.f.others"), T("rg.f.others.help"), others));
     const bar = el("div", "rg-bar"), go = btn(T("rg.save"), "primary", () => {});
     go.type = "submit";
     bar.append(go);
     form.append(bar);
-    form.onsubmit = e => { e.preventDefault(); save({ name: name.value, description: desc.value, cloud_ok: cloud.checked }); };
+    form.onsubmit = e => { e.preventDefault(); save({ name: name.value, description: desc.value, cloud_ok: cloud.checked, others_ok: others.value }); };
     return form;
   }
   function docsBlock(a) {
@@ -334,6 +337,7 @@
       const li = el("li", "rg-doc"), text = el("div", "rg-doc-t");
       text.append(el("span", "rg-dname", d.name), el("span", "rg-dmeta", T("rg.doc.meta", size(d.bytes), d.chunks)),
         el("span", "rg-dmeta", T(READ_BY[d.extraction] || READ_BY.basic, d.pages || 0) + (d.flagged ? " " + T("rg.doc.flagged", d.flagged) : "")));
+      if (window.ragSync) text.append(...window.ragSync.docLines(d));
       if ((d.skipped_pages || []).length) { const w = el("span", "rg-dmeta rg-warnline", T("rg.doc.skipped", d.skipped_pages.join(", "))); w.setAttribute("role", "status"); text.append(w); }
       const key = "d" + d.id, sure = armed === key;
       const b = btn(sure ? T("rg.doc.remove.sure") : T("rg.doc.remove"), sure ? "rg-warn" : "", () => { if (!sure) arm(key); else removeDoc(d); });
@@ -391,7 +395,7 @@
   }
   function detailView() {
     const a = detail.archive, main = el("div", "rg-main");
-    main.append(el("h3", "rg-h", a.name), editForm(a), docsBlock(a), indexBlock(a), tryBlock(a));
+    main.append(el("h3", "rg-h", a.name), editForm(a), docsBlock(a), ...(window.ragSync ? [window.ragSync.block(a, { reload: reloadAll })] : []), indexBlock(a), tryBlock(a));
     const sure = armed === "delete", bar = el("div", "rg-bar");
     const del = btn(sure ? T("rg.delete.sure") : T("rg.delete"), "rg-warn", () => { if (!sure) arm("delete"); else remove(); });
     del.id = "rg-delete";
@@ -415,44 +419,20 @@
     if (again && again !== document.activeElement) again.focus();
   }
 
-  /* the model-only chat: the Chat's own folder is its project, and the archives the person attached with /rag are kept here until a new conversation
-     starts (a conversation of the agent keeps its own on the server) */
-  let mine = [];
+  /* what /rag lists: every archive with its project's name, and the key of the Chat's own folder */
   async function chatProject() {
     if (!chatKey) {
       const p = await api("GET", "api/rag/projects");
-      if (p.status === 403) recallOff = true;
       const chat = p.ok && (p.data.projects || []).find(x => x.chat);
       if (chat) chatKey = chat.key;
     }
     return chatKey;
   }
-  /* the block of passages that match a request ("" when none, when a conversation of the agent runs (its process takes them in itself), or when
-     this page is not on the PC that runs the server) */
-  async function recall(goal) {
-    if (recallOff || (window.agentChat && window.agentChat.active())) return "";
-    const key = await chatProject();
-    if (!key) return "";
-    const r = await api("POST", "api/rag/recall", { project: key, goal: String(goal || "").slice(0, 2000), attached: mine.map(a => a.id) });
-    if (r.status === 403) recallOff = true;
-    return r.ok && typeof r.data.block === "string" ? r.data.block : "";
-  }
-  /* what attaching, dropping or clearing does to the attached list: the server's answer ({status, archive | candidates}), or null when it cannot be asked */
-  async function choose(action, name) {
-    const key = await chatProject();
-    if (!key) return null;
-    const r = await api("POST", "api/rag/choose", { action, name, attached: mine.map(a => a.id), project: key });
-    if (!r.ok) return null;
-    const names = new Map(mine.map(a => [a.id, a.name]));
-    if (r.data.archive) names.set(r.data.archive.id, r.data.archive.name);
-    mine = (r.data.ids || []).map(id => ({ id, name: names.get(id) || id }));
-    return r.data;
-  }
   async function catalog() {
     const r = await api("GET", "api/rag/catalog");
     return r.ok ? { archives: r.data.archives || [], project: await chatProject() } : null;
   }
-  window.ragUi = { recall, choose, catalog, ids: () => mine.map(a => a.id), reset() { mine = []; } };
+  window.ragUi = { catalog };
 
   document.addEventListener("tadamoo:view", e => { if (e.detail === "rag") refresh(); });
   document.addEventListener("tadamoo:lang", () => { if (S) paint(); });

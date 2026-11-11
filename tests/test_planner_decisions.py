@@ -28,72 +28,72 @@ def decision_plan():
     return dag
 
 
-# -- the rule is imposed where plans are made and changed ---------------------------------------------------
+# -- what a decision must have is imposed where plans are made and changed ------------------------------------
 
-def test_a_plan_created_with_a_one_exit_decision_is_refused(tmp_path):
+def legacy(dag, nid, conditions):
+    """Sets the branches of a decision as `all`-mode branches named by their exits: what a decision stored with a condition for each exit becomes."""
+    dag.update_node(nid, spec={"mode": "all", "on_no_match": "ask", "branches": [{"id": k, "label": k, "condition": v} for k, v in conditions.items()]})
+
+
+def test_a_plan_created_with_a_decision_that_has_no_branch_is_refused(tmp_path):
     dag = chain("a", "b")
     dag.nodes["a"].type = NodeType.DECISION
-    dag.nodes["a"].conditions = {"b": "x > 1"}
-    with pytest.raises(PlanError, match="at least two exits"):
+    with pytest.raises(PlanError, match="at least one branch"):
         PlanStore(tmp_path).create(dag)
     assert not (tmp_path / "p.json").exists()
 
 
-def test_a_plan_created_with_an_exit_that_has_no_condition_or_a_bad_one_is_refused(tmp_path):
+def test_a_plan_created_with_a_bad_branch_is_refused(tmp_path):
     dag = decision_plan()
-    del dag.nodes["choose"].conditions["no"]
-    with pytest.raises(PlanError, match="no condition for its exit 'no'"):
-        PlanStore(tmp_path).create(dag)
-    dag.nodes["choose"].conditions["no"] = "__import__('os')"
+    dag.nodes["choose"].spec["branches"][1]["condition"] = "__import__('os')"
     with pytest.raises(PlanError, match="may not use"):
         PlanStore(tmp_path).create(dag)
-    dag.nodes["choose"].conditions["no"] = "count < 2"
+    dag.nodes["choose"].spec["branches"][1]["condition"] = "count < 2"
     PlanStore(tmp_path).create(dag)
 
 
-def test_a_diff_that_adds_a_decision_with_one_exit_is_dropped_whole():
+def test_a_diff_that_adds_a_decision_without_branches_is_dropped_whole():
     dag = chain("a", "b")
     before = json.dumps(dag.to_dict()["nodes"], sort_keys=True)
-    diff = {"add_nodes": [{"id": "d", "type": "decision", "title": "D", "description": "", "assignee": "agent", "dependencies": ["a"],
-                           "outputs": ["b"], "conditions": {"b": "x > 1"}}]}
-    with pytest.raises(PlanError, match="at least two exits"):
+    diff = {"add_nodes": [{"id": "d", "type": "decision", "title": "D", "description": "", "assignee": "agent", "dependencies": ["a"], "spec": {"branches": []}}]}
+    with pytest.raises(PlanError, match="at least one branch"):
         dag.apply_diff(diff)
     assert json.dumps(dag.to_dict()["nodes"], sort_keys=True) == before and "d" not in dag.nodes
-    with pytest.raises(PlanError, match="at least two exits"):
+    with pytest.raises(PlanError, match="at least one branch"):
         dag.preview_diff(diff)
 
 
-def test_a_diff_that_builds_a_decision_in_steps_passes_when_the_result_is_valid():
+def test_a_diff_that_builds_a_decision_with_branches_and_connects_them_passes():
     dag = chain("a", "b")
     dag.add_node(node("c"))
     diff = {"add_nodes": [{"id": "d", "type": "decision", "title": "D", "description": "", "assignee": "agent", "dependencies": ["a"],
-                           "outputs": ["b", "c"], "conditions": {"b": "x > 1", "c": "x <= 1"}}]}
-    assert "d" in dag.apply_diff(diff) and dag.nodes["d"].outputs == ["b", "c"]
+                           "spec": {"mode": "first", "input": "x", "branches": [{"label": "big", "op": ">", "value": 1}, {"label": "rest", "op": "else"}]}}],
+            "add_edges": [{"from": {"node": "d", "port": "b1"}, "to": {"node": "b"}}, ["d", "c", "b2"]]}
+    assert "d" in dag.apply_diff(diff) and dag.nodes["d"].outputs == ["b", "c"] and dag.nodes["d"].routes == {"b1": ["b"], "b2": ["c"]}
 
 
-def test_removing_an_exit_with_a_diff_is_refused_but_an_unrelated_change_is_not_held_up_by_an_old_bad_decision():
+def test_removing_a_branch_disconnects_its_exit_and_an_unrelated_change_is_not_held_up_by_an_old_bad_decision():
     dag = decision_plan()
-    with pytest.raises(PlanError, match="at least two exits"):
-        dag.apply_diff({"remove_nodes": ["no"]})
-    assert "no" in dag.nodes
-    legacy = PlanDAG.from_dict(chain("a", "b").to_dict())
-    legacy.nodes["a"].type = NodeType.DECISION                      # a stored plan from before the rule
-    assert legacy.apply_diff({"update_nodes": {"b": {"title": "B2"}}}) == ["b"]
+    dag.update_node("choose", spec={"mode": "all", "branches": [{"id": "yes", "label": "yes", "condition": "count >= 2"}]})
+    assert dag.nodes["choose"].outputs == ["yes"] and dag.nodes["choose"].routes == {"yes": ["yes"]} and dag.nodes["no"].dependencies == []
+    legacy_dag = PlanDAG.from_dict(chain("a", "b").to_dict())
+    legacy_dag.nodes["a"].type = NodeType.DECISION                  # a stored decision that was never set up
+    assert legacy_dag.apply_diff({"update_nodes": {"b": {"title": "B2"}}}) == ["b"]
 
 
-def test_editing_a_decisions_conditions_cannot_leave_an_exit_without_one():
+def test_editing_a_decisions_branches_cannot_leave_a_condition_that_is_not_one():
     dag = decision_plan()
-    with pytest.raises(PlanError, match="no condition for its exit 'no'"):
-        dag.update_node("choose", conditions={"yes": "count >= 2"})
-    assert dag.nodes["choose"].conditions == {"yes": "count >= 2", "no": "count < 2"}
-    dag.update_node("choose", conditions={"yes": "count >= 3", "no": "count < 3"})
-    assert dag.nodes["choose"].conditions["yes"] == "count >= 3"
+    with pytest.raises(PlanError, match="may not use"):
+        legacy(dag, "choose", {"yes": "count >= 2", "no": "open('x')"})
+    assert [b["condition"] for b in dag.nodes["choose"].spec["branches"]] == ["count >= 2", "count < 2"]
+    legacy(dag, "choose", {"yes": "count >= 3", "no": "count < 3"})
+    assert dag.nodes["choose"].spec["branches"][0]["condition"] == "count >= 3"
 
 
-def test_a_stored_decision_that_breaks_the_rule_cannot_be_completed():
+def test_a_stored_decision_without_branches_cannot_be_completed():
     dag = chain("a", "b")
     dag.nodes["a"].type = NodeType.DECISION
-    with pytest.raises(PlanError, match="at least two exits"):
+    with pytest.raises(PlanError, match="at least one branch"):
         dag.mark("a", "completed")
     assert dag.nodes["a"].status == "pending"
 
@@ -103,7 +103,7 @@ def test_a_model_alternative_with_a_bad_decision_is_not_offered():
     bad = {"title": "t", "description": "d", "diff": {"add_nodes": [{"id": "d", "type": "decision", "title": "D", "description": "", "assignee": "agent",
                                                                      "dependencies": ["a"], "outputs": [], "conditions": {}}]}}
     out = parse_proposal(json.dumps({"diagnosis": "x", "alternatives": [bad, {"title": "ok", "description": "d", "diff": {"update_nodes": {"b": {"title": "B"}}}}]}), dag)
-    assert [a.title for a in out.alternatives] == ["ok"] and "at least two exits" in out.rejected[0]
+    assert [a.title for a in out.alternatives] == ["ok"] and "at least one branch" in out.rejected[0]
 
 
 # -- no exit holds ----------------------------------------------------------------------------------------------
@@ -114,7 +114,7 @@ def test_a_decision_with_no_true_condition_is_not_taken_and_says_why():
     res = dag.mark("choose", "completed", {"count": 5, "other": 1}) or {}
     assert "no_route" not in res and dag.nodes["choose"].state_variables["selected"] == ["yes"]
     dag = decision_plan()
-    dag.nodes["choose"].conditions = {"yes": "count >= 2 and ok", "no": "count < 0"}
+    legacy(dag, "choose", {"yes": "count >= 2 and ok", "no": "count < 0"})
     dag.mark("start", "completed")
     res = dag.mark("choose", "completed", {"count": 1, "ok": True})
     facts = res["no_route"]
@@ -125,7 +125,7 @@ def test_a_decision_with_no_true_condition_is_not_taken_and_says_why():
 
 def test_the_failed_decision_goes_to_the_user_and_nothing_below_it_is_skipped():
     dag = decision_plan()
-    dag.nodes["choose"].conditions = {"yes": "count >= 2", "no": "count < 0"}
+    legacy(dag, "choose", {"yes": "count >= 2", "no": "count < 0"})
     dag.mark("start", "completed")
     res = dag.mark("choose", "completed", {"count": 1})
     node_ = dag.nodes["choose"]
@@ -137,7 +137,7 @@ def test_the_failed_decision_goes_to_the_user_and_nothing_below_it_is_skipped():
 
 def test_the_person_can_correct_the_value_and_complete_the_decision_again():
     dag = decision_plan()
-    dag.nodes["choose"].conditions = {"yes": "count >= 2", "no": "count < 0"}
+    legacy(dag, "choose", {"yes": "count >= 2", "no": "count < 0"})
     dag.mark("start", "completed")
     dag.mark("choose", "completed", {"count": 1})
     assert dag.mark("choose", "completed", {"count": 3}) is None
@@ -153,14 +153,14 @@ def test_a_condition_that_cannot_be_read_yet_also_stops_the_decision():
     assert dag.nodes["yes"].status == "blocked"
     # a decision where one exit holds but the other cannot be read is not taken either: the unread exit would be skipped unseen
     dag2 = decision_plan()
-    dag2.nodes["choose"].conditions = {"yes": "True", "no": "missing > 1"}
+    legacy(dag2, "choose", {"yes": "True", "no": "missing > 1"})
     dag2.mark("start", "completed")
     assert "no_route" in dag2.mark("choose", "completed")
 
 
 def test_a_decision_with_a_true_exit_does_not_hide_a_second_true_exit():
     dag = decision_plan()
-    dag.nodes["choose"].conditions = {"yes": "count >= 1", "no": "count >= 0"}
+    legacy(dag, "choose", {"yes": "count >= 1", "no": "count >= 0"})
     dag.mark("start", "completed")
     dag.mark("choose", "completed", {"count": 3})
     assert dag.nodes["choose"].state_variables["selected"] == ["yes", "no"]
@@ -168,7 +168,7 @@ def test_a_decision_with_a_true_exit_does_not_hide_a_second_true_exit():
 
 def test_the_bridge_reports_the_block_and_the_history_names_it(tmp_path):
     dag = decision_plan()
-    dag.nodes["choose"].conditions = {"yes": "count >= 2", "no": "count < 0"}
+    legacy(dag, "choose", {"yes": "count >= 2", "no": "count < 0"})
     bridge = PlanCanvasBridge(dag)
     seen = []
     bridge.subscribe(seen.append)
@@ -233,7 +233,7 @@ def test_a_sensor_whose_set_cannot_be_written_waits_instead_of_failing_the_whole
 def server_plan(client):
     pid = f"dec-{uuid.uuid4().hex[:6]}"
     nodes = decision_plan().to_dict()["nodes"]
-    nodes["choose"]["conditions"] = {"yes": "count >= 2", "no": "count < 0"}
+    nodes["choose"]["spec"] = {"mode": "all", "on_no_match": "ask", "branches": [{"id": "yes", "label": "yes", "condition": "count >= 2"}, {"id": "no", "label": "no", "condition": "count < 0"}]}
     client.create({"plan_id": pid, "title": "Decisione", "target_type": "occasional", "nodes": nodes})
     return pid
 

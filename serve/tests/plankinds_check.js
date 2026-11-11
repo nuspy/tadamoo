@@ -90,4 +90,15 @@ t("every kind of the table has an icon", () => {
     if (!PK.ICONS[k]) throw new Error("no icon for " + k);
   }
 });
+t("the archives and branches of a kind are read as lists, and empty ones are missing when needed", () => {
+  const fields = [{ name: "archives", kind: "archives", required: true }, { name: "branches", kind: "branches", required: true }, { name: "rag_archives", kind: "archives" }];
+  eq(PK.readSpec(fields, { archives: [], branches: [] }), { spec: {}, errors: ["archives", "branches"] });
+  eq(PK.readSpec(fields, { archives: ["a-1", "b-2"], branches: [{ label: "x", op: ">", value: "1" }] }).spec, { archives: ["a-1", "b-2"], branches: [{ label: "x", op: ">", value: "1" }] });
+  eq(PK.readSpec([fields[2]], {}), { spec: {}, errors: [] });
+});
+t("a rag node and a decision say how many archives and branches they hold", () => {
+  eq(PK.brief("rag", { archives: ["a", "b"] }), "RAG ×2");
+  eq(PK.brief("decision", { branches: [{}, {}, {}] }), "3 →");
+  eq(typeof PK.ICONS.rag, "string");
+});
 console.log(JSON.stringify(cases.map(([name, fn]) => { try { fn(); return { name, ok: true }; } catch (e) { return { name, ok: false, error: String(e.message || e) }; } })));

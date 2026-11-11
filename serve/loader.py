@@ -191,6 +191,10 @@ def system_now(gpu_index: int = 0) -> dict:
     out = {"ram_total": mem.get("ram_total"), "ram_available": mem.get("ram_available"),
            "commit_limit": mem.get("commit_limit"), "commit_used": mem.get("commit_used"),
            "vram_total": None, "vram_free": None}
+    if os.name == "nt" and mem.get("ram_total") and counts_page_file_max():
+        top = hardware.page_file_max_mib()
+        if top:
+            out["commit_limit_max"] = mem["ram_total"] + top * MiB
     try:
         from serve.util.telemetry import _Nvml
         nv = _Nvml(int(gpu_index or 0))
@@ -272,6 +276,12 @@ def free_share() -> float:
         return check_free_share(machine_settings().get("free_share", FREE_SHARE))
     except ValueError:
         return FREE_SHARE
+
+
+def counts_page_file_max() -> bool:
+    """Whether the commit the plan counts is RAM plus the page file's MAXIMUM (the person's choice: Windows grows the file while the model loads) instead of
+    its size now; off until the person turns it on, because an allocation that arrives faster than the file grows stops a load."""
+    return machine_settings().get("commit_counts_page_file_max") is True
 
 
 def free_share_chosen() -> float | None:
@@ -508,6 +518,9 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
     # ---- available and the rules
     total, avail = system.get("ram_total"), system.get("ram_available")
     limit, used = system.get("commit_limit"), system.get("commit_used")
+    counted_max = bool(limit and system.get("commit_limit_max") and system["commit_limit_max"] > limit)
+    if counted_max:
+        limit = system["commit_limit_max"]
     ram_avail = None if avail is None else avail + holds["ram"]
     commit_avail = None if limit is None or used is None else limit - used + holds["commit"]
     # the lent slots' RAM copies: elastic (the engine keeps what fits above its own margin), so they are shown in the
@@ -541,7 +554,7 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
                          "need": ram_need - lend, "have": ram_avail, "keep": ram_keep, "share": share})
     if commit_avail is not None and commit_need - lend > commit_avail - commit_keep:
         problems.append({"code": "commit", "need": commit_need - lend, "have": commit_avail, "keep": commit_keep,
-                         "share": share})
+                         "share": share, "max_counted": counted_max})
     if mode != "off":                                   # the engine would stop at start without a projector it reads
         if projector is None:
             problems.append({"code": "vision", "it": "questo file non ha un proiettore visivo e nelle cartelle dei modelli non ce n'è uno adatto",
@@ -563,7 +576,7 @@ def plan(values: dict, facts: dict, system: dict, holds: dict | None = None, hol
                 "keep": ram_keep, "keep_share": share, "elastic": lend},
         "commit": {"need": commit_need, "available": commit_avail, "free_now": None if limit is None or used is None
                    else limit - used, "limit": limit, "used": used, "keep": commit_keep, "keep_share": share,
-                   "ram_part": ram_need - ple_ram, "vram_part": vram_need, "elastic": lend},
+                   "ram_part": ram_need - ple_ram, "vram_part": vram_need, "elastic": lend, "counts_page_file_max": counted_max},
         "engine_holds": {"ram": holds["ram"], "commit": holds["commit"], "vram": holds_vram},
         "unknown": [k for k, x in (("vram", vram_avail), ("ram", ram_avail), ("commit", commit_avail)) if x is None],
         "fits": not problems, "problems": problems,
@@ -607,11 +620,13 @@ def problem_text(p: dict, lang: str = "en") -> str:
             f"limite e {g(p['keep'])} devono restare liberi ({sh}). Il file di paging non deve crescere: chiudi altri "
             "programmi (la VRAM usata conta nel commit)."
             + (f" Le funzioni vocali che si caricano prima ne prendono circa {g(voice)} GiB." if voice else "")
+            + (" Il limite conta già il massimo del file di paging." if p.get("max_counted") else "")
             if lang == "it" else
             f"Not enough commit: {g(p['need'])} GiB needed, {g(p['have'])} GiB left under the limit and "
             f"{g(p['keep'])} GiB must stay free ({sh}). The page file must not grow: close other programs (the VRAM "
             "in use counts toward the commit)."
-            + (f" The voice functions that load first take about {g(voice)} GiB of it." if voice else ""))
+            + (f" The voice functions that load first take about {g(voice)} GiB of it." if voice else "")
+            + (" The limit already counts the page file's maximum." if p.get("max_counted") else ""))
 
 
 CONTEXT_STEPS = (262144, 131072, 65536, 32768, 16384, 8192, 4096)

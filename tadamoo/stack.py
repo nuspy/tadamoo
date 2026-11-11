@@ -880,7 +880,8 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         from tadamoo.council import offer_council
         from tadamoo.llm import client_for as routed_for, registry as llm_registry
         here = getattr(client, "local", None) or client or TadamooClient(base_url=cfg.endpoint, api_key=cfg.api_key)
-        offer_council(registry, lambda function: routed_for(function, here), llm_registry(), cfg.personas_dir, cfg.personal_memory_keys)
+        offer_council(registry, lambda function: routed_for(function, here), llm_registry(), cfg.personas_dir, cfg.personal_memory_keys,
+                      redact=lambda text: project_recall.private.redact(text) if project_recall is not None else text)
     capability_index = None
     if cfg.capabilities:
         capability_index = _offer_capabilities(cfg, workspace, registry, builder, sandbox, client or TadamooClient(base_url=cfg.endpoint, api_key=cfg.api_key))
@@ -915,9 +916,11 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         from tadamoo.rag.tools import register_knowledge_tools
         rag_store = RagStore(cfg.rag_dir)
         from tadamoo.rag.remote import server_search
-        rag_store.remote = server_search(cfg.endpoint, cfg.api_key)            # the server holds the embedding model: its search is semantic
+        rag_store.remote = server_search(cfg.endpoint, cfg.api_key, context=lambda: {"function": "agent", "routed_to_cloud": not getattr(client, "stays_local", lambda: True)()})        # the server holds the embedding model: its search is semantic
         project_recall = ProjectRecall(rag_store, cfg.rag_project, local=lambda: getattr(client, "stays_local", lambda: True)(), attached=cfg.rag_attached)
         register_knowledge_tools(registry, rag_store, project_recall)
+        from tadamoo.rag.sync_tools import register_sync_tools, server_call
+        register_sync_tools(registry, rag_store, project_recall, server_call(cfg.endpoint, cfg.api_key))       # the server runs the refresh: it holds the model and the guards
     from tadamoo.rag.ingest.reading import register_document_tools
     register_document_tools(registry, sandbox.root, Path(cfg.rag_dir) if cfg.rag_dir else None,
                             (Path(cfg.rag_dir) / ".reading") if cfg.rag_dir else data / "reading", protected=lambda p: sandbox.protected_hit(p) if sandbox.protected_hit else "")
@@ -1063,6 +1066,9 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
             agent.knowledge_index = knowledge_index(project_recall.store, project_recall)
         agent.state_note = lambda: teller.note(settings(), getattr(getattr(context, "compaction", None), "count", 0))
         awareness.register_self_status(registry, lambda: awareness.status_of(agent, context.budget_tokens, {"settings": settings()}))
+    if project_recall is not None:
+        agent.outgoing = project_recall.withdrawn
+        agent.on_compaction = project_recall.forget_sent
     quick = technical if technical is not None else client          # the quick jobs never take the conversation's own route
     if project_recall is not None:                      # the questions a long request holds, written by the technical session (tadamoo/rag/expand.py)
         from tadamoo.rag import expand, nudge

@@ -31,7 +31,7 @@ def _now() -> str:
 class NodeType(str, enum.Enum):
     ACTION = "action"        # Executable task (agent or user)
     SENSOR = "sensor"        # Environment sensing / event monitoring
-    DECISION = "decision"    # Multi-branch routing (N >= 2 exits)
+    DECISION = "decision"    # Several outcomes: an ordered list of branches, each its own output connector
     MERGE = "merge"          # Parallel branch synchronization
     WAIT_DURATION = "wait_duration"      # the kinds below carry a `spec`; tadamoo/planner/nodes.py says what each one is
     WAIT_UNTIL = "wait_until"
@@ -42,6 +42,7 @@ class NodeType(str, enum.Enum):
     INPUT = "input"
     OUTPUT = "output"
     LOG = "log"
+    RAG = "rag"              # a source of knowledge archives, connected as an input to the steps that may use them
 
 
 class Assignee(str, enum.Enum):
@@ -188,6 +189,7 @@ class PlanNode:
     repeat: Optional[Dict[str, Any]] = None              # {"every", "max_runs", "reset_from", "stop_when"}: completing the step re-arms it instead of finishing it
     spec: Dict[str, Any] = field(default_factory=dict)   # what the kinds beyond action/sensor/decision/merge need (tadamoo/planner/nodes.py)
     produces: List[Dict[str, str]] = field(default_factory=list)   # the values this step must write when it completes: [{"name", "type"}]
+    routes: Dict[str, List[str]] = field(default_factory=dict)     # output port id -> the steps it is connected to; kept for the nodes with named ports (a decision's branches, a RAG node)
 
 
 EDITABLE = ("title", "description", "assignee", "conditions", "state_variables", "retry_policy", "position", "call_request", "wiki_query", "repeat", "spec", "produces")
@@ -390,6 +392,40 @@ def clean_outputs(outputs: Any) -> Dict[str, Any]:
     return dict(outputs)
 
 
+def edge_parts(edge: Any) -> tuple:
+    """(parent, child, port) of an edge as a diff gives it: [parent, child], [parent, child, port], or {"from": {"node", "port"}, "to": {"node"}}."""
+    if isinstance(edge, dict):
+        src, dst = edge.get("from"), edge.get("to")
+        if not isinstance(src, dict) or not isinstance(dst, dict) or not isinstance(src.get("node"), str) or not isinstance(dst.get("node"), str):
+            raise PlanError("an edge is {from: {node, port}, to: {node}}")
+        return src["node"], dst["node"], src.get("port")
+    if isinstance(edge, (list, tuple)) and len(edge) in (2, 3):
+        return edge[0], edge[1], edge[2] if len(edge) == 3 else None
+    raise PlanError("an edge is [parent, child], [parent, child, port] or {from: {node, port}, to: {node}}")
+
+
+def migrate_decision(node: PlanNode) -> None:
+    """A decision stored with a condition for each exit (before branches) becomes branches: one for each condition, named by the exit, every branch that holds
+    taken (`all`). One that has no condition to make branches from is left for the person to set up. Run when a plan is loaded or a node is put on it."""
+    if node.type != NodeType.DECISION or node.spec.get("branches"):
+        return
+    legacy = {k: v for k, v in node.conditions.items() if isinstance(k, str) and isinstance(v, str)}
+    if not legacy:
+        if not node.spec and node.outputs:
+            node.state_variables["draft"] = True
+        return
+    node.spec = {"mode": "all", "on_no_match": "ask", "branches": [{"id": key, "label": key, "condition": expr} for key, expr in legacy.items()]}
+    node.conditions = {}
+    for key in legacy:
+        if key in node.outputs:
+            node.routes.setdefault(key, [key])
+
+
+def _ports(node: PlanNode) -> Dict[str, Dict[str, str]]:
+    from tadamoo.planner import nodes
+    return {p["id"]: p for p in nodes.out_ports(node.type.value, node.spec)}
+
+
 @dataclass
 class PlanDAG:
     plan_id: str
@@ -429,20 +465,28 @@ class PlanDAG:
             raise PlanError(f"node '{node.id}' already exists")
         if not node.id or not str(node.id).strip():
             raise PlanError("a node needs an id")
+        migrate_decision(node)
+        if node.type == NodeType.DECISION and node.spec.get("branches"):
+            from tadamoo.planner import nodes
+            node.spec = nodes.clean_spec("decision", node.spec, bool(node.state_variables.get("draft")))
         declared_parents, declared_children = list(node.dependencies), list(node.outputs)
-        for ref in declared_parents + declared_children:
+        routed = {port: list(kids) for port, kids in node.routes.items()}
+        for ref in declared_parents + declared_children + [k for kids in routed.values() for k in kids]:
             if ref not in self.nodes or ref == node.id:
                 raise PlanError(f"node '{node.id}' refers to unknown node '{ref}'")
         backup = copy.deepcopy((self.nodes, self.shared_state))
         try:
             if node.id in self.nodes:
                 self._detach(node.id)
-            node.dependencies, node.outputs = [], []
+            node.dependencies, node.outputs, node.routes = [], [], {}
             self.nodes[node.id] = node
             for p in dict.fromkeys(declared_parents):
-                self._link(p, node.id)
-            for c in dict.fromkeys(declared_children):
-                self._link(node.id, c)
+                self.add_edge(p, node.id)
+            for port, kids in routed.items():
+                for c in dict.fromkeys(kids):
+                    self.add_edge(node.id, c, port)
+            for c in dict.fromkeys(k for k in declared_children if not any(k in kids for kids in routed.values())):
+                self.add_edge(node.id, c)
             self.validate_acyclic()
         except PlanError:
             self.nodes, self.shared_state = backup
@@ -458,7 +502,10 @@ class PlanDAG:
         for c in node.outputs:
             if c in self.nodes and node_id in self.nodes[c].dependencies:
                 self.nodes[c].dependencies.remove(node_id)
-        node.dependencies, node.outputs = [], []
+        for other in self.nodes.values():                        # an input edge from or to this step goes too
+            other.routes = {port: [k for k in kids if k != node_id] for port, kids in other.routes.items() if other.id != node_id}
+            other.routes = {port: kids for port, kids in other.routes.items() if kids}
+        node.dependencies, node.outputs, node.routes = [], [], {}
 
     def _link(self, parent_id: str, child_id: str) -> None:
         if child_id not in self.nodes[parent_id].outputs:
@@ -466,27 +513,77 @@ class PlanDAG:
         if parent_id not in self.nodes[child_id].dependencies:
             self.nodes[child_id].dependencies.append(parent_id)
 
-    def add_edge(self, parent_id: str, child_id: str) -> None:
+    def _port_of(self, parent: PlanNode, child: PlanNode, port: Optional[str]) -> Dict[str, str]:
+        """The output port of `parent` an edge to `child` leaves from: the one named, or the only one it has; a decision's exit that is named after the step
+        it goes to (a decision stored with a condition for each exit) is that exit's branch."""
+        ports = _ports(parent)
+        if port is None:
+            if len(ports) == 1:
+                return next(iter(ports.values()))
+            if child.id in ports:
+                return ports[child.id]
+            raise PlanError(f"'{parent.id}' has several output connectors: say which one the edge leaves from ({', '.join(ports) or 'none yet'})")
+        if port not in ports:
+            raise PlanError(f"'{parent.id}' has no output connector '{port}' ({', '.join(ports) or 'none'})")
+        return ports[port]
+
+    def add_edge(self, parent_id: str, child_id: str, port: Optional[str] = None) -> None:
+        """Connects an output port of `parent_id` to `child_id`. A `flow` port makes the child wait for the parent; an `input` port (a RAG node) gives the
+        child data and nobody waits."""
+        from tadamoo.planner import nodes
         for nid in (parent_id, child_id):
             if nid not in self.nodes:
                 raise KeyError(f"Node '{nid}' not found in DAG")
         if parent_id == child_id:
             raise PlanError("a node cannot depend on itself")
+        parent, child = self.nodes[parent_id], self.nodes[child_id]
+        out = self._port_of(parent, child, port)
+        if not any(p["kind"] == out["kind"] for p in nodes.in_ports(child.type.value)):
+            raise PlanError(f"'{child_id}' ({child.type.value}) has no {out['kind']} input" + (": a RAG node feeds actions" if out["kind"] == "input" else ""))
         backup = copy.deepcopy(self.nodes)
         try:
-            self._link(parent_id, child_id)
+            if out["kind"] == "flow":
+                self._link(parent_id, child_id)
+            if parent.type in (NodeType.DECISION, NodeType.RAG):
+                kids = parent.routes.setdefault(out["id"], [])
+                if child_id not in kids:
+                    kids.append(child_id)
             self.validate_acyclic()
         except PlanError:
             self.nodes = backup
             raise
         self._touch()
 
-    def remove_edge(self, parent_id: str, child_id: str) -> None:
-        if parent_id in self.nodes and child_id in self.nodes[parent_id].outputs:
-            self.nodes[parent_id].outputs.remove(child_id)
-        if child_id in self.nodes and parent_id in self.nodes[child_id].dependencies:
-            self.nodes[child_id].dependencies.remove(parent_id)
+    def remove_edge(self, parent_id: str, child_id: str, port: Optional[str] = None) -> None:
+        parent = self.nodes.get(parent_id)
+        if parent is not None:
+            for name in [port] if port else list(parent.routes):
+                kids = parent.routes.get(name) or []
+                if child_id in kids:
+                    kids.remove(child_id)
+                if not kids:
+                    parent.routes.pop(name, None)
+        still = parent is not None and any(child_id in kids for name, kids in parent.routes.items() if _ports(parent).get(name, {}).get("kind") == "flow")
+        if not still:
+            if parent is not None and child_id in parent.outputs:
+                parent.outputs.remove(child_id)
+            if child_id in self.nodes and parent_id in self.nodes[child_id].dependencies:
+                self.nodes[child_id].dependencies.remove(parent_id)
         self._touch()
+
+    def edges(self) -> List[Dict[str, Any]]:
+        """Every edge as {"from": {"node", "port"}, "to": {"node", "port"}, "kind": "flow" | "input"}, for the page and the tools."""
+        out: List[Dict[str, Any]] = []
+        for nid, n in self.nodes.items():
+            ports, seen = _ports(n), set()
+            for port, kids in n.routes.items():
+                for c in kids:
+                    kind = ports.get(port, {}).get("kind", "flow")
+                    out.append({"from": {"node": nid, "port": port}, "to": {"node": c, "port": "in" if kind == "flow" else "rag"}, "kind": kind})
+                    seen.add((port if kind == "flow" else None, c))
+            default = next((p["id"] for p in ports.values()), "out")
+            out.extend({"from": {"node": nid, "port": default}, "to": {"node": c, "port": "in"}, "kind": "flow"} for c in n.outputs if not any(c in kids for kids in n.routes.values()))
+        return out
 
     def remove_node(self, node_id: str) -> None:
         node = self.nodes.get(node_id)
@@ -496,6 +593,11 @@ class PlanDAG:
             self.remove_edge(p, node_id)
         for c in list(node.outputs):
             self.remove_edge(node_id, c)
+        for other in self.nodes.values():                        # input edges are not in the dependency lists
+            for port in list(other.routes):
+                other.routes[port] = [k for k in other.routes[port] if k != node_id]
+                if not other.routes[port]:
+                    del other.routes[port]
         del self.nodes[node_id]
         self._touch()
 
@@ -517,6 +619,17 @@ class PlanDAG:
                 edges.add((p, nid))
             if len(set(n.outputs)) != len(n.outputs) or len(set(n.dependencies)) != len(n.dependencies):
                 raise PlanError(f"node '{nid}' lists an edge twice")
+            ports = _ports(n)
+            for port, kids in n.routes.items():
+                if port not in ports:
+                    raise PlanError(f"node '{nid}' has an edge from a connector that does not exist: '{port}'")
+                for c in kids:
+                    if c not in self.nodes:
+                        raise PlanError(f"node '{nid}' is connected to unknown node '{c}'")
+                    if ports[port]["kind"] == "flow" and c not in n.outputs:
+                        raise PlanError(f"edge {nid}.{port} -> {c} is not in the outputs of '{nid}'")
+                    if ports[port]["kind"] == "input" and c in n.outputs:
+                        raise PlanError(f"an input edge {nid} -> {c} must not be a dependency")
             if nid in n.outputs:
                 raise PlanError(f"node '{nid}' depends on itself")
         in_degree = {nid: 0 for nid in self.nodes}
@@ -539,29 +652,24 @@ class PlanDAG:
         nid, problems = node.id, []
         if node.state_variables.get("draft"):
             return problems                                 # a step put on the plan and not set up yet is checked when it is
-        if len(node.outputs) < 2:
-            problems.append(f"decision '{nid}' needs at least two exits, it has {len(node.outputs)}")
-        for c in node.outputs:
-            if c not in node.conditions:
-                problems.append(f"decision '{nid}' has no condition for its exit '{c}'")
-                continue
-            try:
-                check_expression(node.conditions[c])
-            except PlanError as exc:
-                problems.append(f"decision '{nid}', exit '{c}': {exc}")
+        from tadamoo.planner import nodes
+        try:
+            nodes.clean_spec("decision", node.spec)
+        except PlanError as exc:
+            problems.append(f"decision '{nid}': {exc}")
         return problems
 
     def validate_decisions(self) -> List[str]:
-        """Problems with decision nodes: fewer than two exits, an exit without a condition, a condition that is not an expression."""
+        """Problems with decision nodes: no branch, a condition that is not an expression, labels used twice."""
         return [p for n in self.nodes.values() if n.type == NodeType.DECISION for p in self._decision_problems(n)]
 
     def _decision_signature(self) -> Dict[str, Any]:
-        return {nid: (tuple(n.outputs), repr(sorted((k, repr(v)) for k, v in n.conditions.items())))
+        return {nid: (tuple(n.outputs), repr(n.spec), repr(sorted(n.routes.items())))
                 for nid, n in self.nodes.items() if n.type == NodeType.DECISION}
 
     def enforce_decisions(self, before: Optional[Dict[str, Any]] = None) -> None:
         """Raises PlanError when a decision is not valid. With `before` (a _decision_signature), only the decisions that are new
-        or whose exits or conditions changed since are checked, so a change elsewhere is not held up by an old plan's decision."""
+        or whose branches or exits changed since are checked, so a change elsewhere is not held up by an old plan's decision."""
         problems, now = [], self._decision_signature()
         for nid, sig in now.items():
             if before is None or before.get(nid) != sig:
@@ -676,17 +784,20 @@ class PlanDAG:
             changes["assignee"] = Assignee(changes["assignee"])
         draft = bool((changes["state_variables"] if isinstance(changes.get("state_variables"), dict) else node.state_variables).get("draft"))
         changes = {k: clean_field(node.type, k, v, draft) for k, v in changes.items()}      # all checked before any is applied
-        if enforce and node.type == NodeType.DECISION and "conditions" in changes:
-            probe = copy.copy(node)
-            probe.conditions = changes["conditions"]
-            problems = self._decision_problems(probe)
-            if problems:
-                raise PlanError("; ".join(problems))
         for key, value in changes.items():
             setattr(node, key, value)
+        if "spec" in changes and node.type == NodeType.DECISION:
+            self._follow_branches(node)
         self.refresh_blocking()
         self._touch()
         return node
+
+    def _follow_branches(self, node: PlanNode) -> None:
+        """A decision whose branches changed: an exit whose branch is gone is disconnected, so no step is left waiting for a branch that does not exist."""
+        ports = _ports(node)
+        for port in [p for p in node.routes if p not in ports]:
+            for c in list(node.routes[port]):
+                self.remove_edge(node.id, c, port)
 
     def reassign_to_user(self, node_id: str, reason: str) -> None:
         """Human fallback: the user takes a task the software cannot do; what depends on it waits."""
@@ -833,6 +944,7 @@ class PlanDAG:
                     node.state_variables.pop(key, None)
                 if node.type == NodeType.DECISION:
                     node.state_variables.pop("no_route", None)
+                    node.state_variables.pop("no_branch", None)
                     self._route(node)
                 from tadamoo.planner import nodes
                 if nodes.repeat_of(node):
@@ -876,30 +988,49 @@ class PlanDAG:
         self._touch()
 
     def _route(self, node: PlanNode) -> None:
-        """Chooses the exits whose condition holds and skips the others. When none holds, or a condition cannot be read yet, the
-        decision is not taken: NoRoute says which conditions were read, with which values."""
+        """Takes the branches whose condition holds and skips the steps only the others lead to. In mode `first` the first branch that holds is the one, in
+        the order shown; in mode `all` every branch that holds. The `else` branch is taken when no other is. When none can be taken, or a condition cannot be
+        read yet, the decision is not taken: NoRoute says which conditions were read, with which values."""
         read: List[Dict[str, Any]] = []
         used: Set[str] = set()
         chosen: List[str] = []
-        for c in node.outputs:
-            expr = node.conditions[c]
+        first = node.spec.get("mode", "first") == "first"
+        for b in node.spec.get("branches") or []:
+            if b.get("op") == "else":
+                continue
+            expr = b["condition"]
             used.update(n.id for n in ast.walk(ast.parse(expr.strip(), mode="eval")) if isinstance(n, ast.Name) and n.id not in _FUNCS)
+            if first and chosen:
+                break
             try:
                 holds = bool(safe_eval(expr, self.shared_state))
-                read.append({"to": c, "title": self.nodes[c].title, "condition": expr, "holds": holds})
+                read.append({"to": b["id"], "title": b["label"], "condition": expr, "holds": holds})
                 if holds:
-                    chosen.append(c)
+                    chosen.append(b["id"])
             except PlanError as exc:
-                read.append({"to": c, "title": self.nodes[c].title, "condition": expr, "holds": None, "error": str(exc)[:200]})
-        if not chosen or any(r["holds"] is None for r in read):
+                read.append({"to": b["id"], "title": b["label"], "condition": expr, "holds": None, "error": str(exc)[:200]})
+        other = next((b for b in node.spec.get("branches") or [] if b.get("op") == "else"), None)
+        if not chosen and other is not None and not any(r["holds"] is None for r in read):
+            chosen.append(other["id"])
+        unreadable = any(r["holds"] is None for r in read)
+        if not chosen and not unreadable and node.spec.get("on_no_match", "stop") == "stop":
+            values = {v: _brief(self.shared_state[v]) if v in self.shared_state else None for v in sorted(used - {"True", "False", "None"})}
+            node.state_variables["no_branch"] = {"exits": read, "values": values, "at": _now()}      # no branch holds: this path stops here, the rest of the plan goes on
+            node.state_variables["selected"], node.state_variables["selected_branches"] = [], []
+            for c in node.outputs:
+                self._skip(c, because=node.id)
+            return
+        if not chosen or unreadable:
             values = {v: _brief(self.shared_state[v]) if v in self.shared_state else None for v in sorted(used - {"True", "False", "None"})}
             facts = {"exits": read, "values": values, "unset": sorted(v for v in values if v not in self.shared_state), "at": _now()}
-            raise NoRoute(f"no exit of '{node.id}' can be taken: " + "; ".join(
+            raise NoRoute(f"no branch of '{node.id}' can be taken: " + "; ".join(
                 f"'{r['condition']}' " + ("holds" if r["holds"] else "does not hold" if r["holds"] is False else f"could not be read ({r['error']})")
                 for r in read) + f"; values: {json.dumps(values, ensure_ascii=False)}", facts)
-        node.state_variables["selected"] = chosen
+        kept = [c for port in chosen for c in node.routes.get(port, [])]
+        node.state_variables["selected"] = list(dict.fromkeys(kept))
+        node.state_variables["selected_branches"] = chosen
         for c in node.outputs:
-            if c not in chosen:
+            if c not in kept:
                 self._skip(c, because=node.id)
 
     def _skip(self, node_id: str, because: str) -> None:
@@ -985,6 +1116,8 @@ class PlanDAG:
             for var in (produced or {}):
                 self.shared_state.pop(var, None)
             n.state_variables.pop("selected", None)
+            n.state_variables.pop("selected_branches", None)
+            n.state_variables.pop("no_branch", None)
             for key in ("attempts", "retry_at", "matched", "sensor_error", "timed_out", "parked_by"):
                 n.state_variables.pop(key, None)
             n.status = "pending"
@@ -1009,25 +1142,31 @@ class PlanDAG:
             declared: List[tuple] = []
             for nd in diff.get("add_nodes", []):
                 node = node_from_dict(nd)
-                declared.append((node.id, list(node.dependencies), list(node.outputs)))
-                node.dependencies, node.outputs = [], []
+                declared.append((node.id, list(node.dependencies), list(node.outputs), {port: list(kids) for port, kids in node.routes.items()}))
+                node.dependencies, node.outputs, node.routes = [], [], {}
                 self.add_node(node)                      # every new node first, so new nodes can refer to each other
                 changed.append(node.id)
-            for nid, parents, children in declared:
+            for nid, parents, children, routed in declared:
                 for p in parents:
                     self.add_edge(p, nid)
+                for port, kids in routed.items():
+                    for c in kids:
+                        self.add_edge(nid, c, port)
                 for c in children:
-                    self.add_edge(nid, c)
+                    if not any(c in kids for kids in routed.values()):
+                        self.add_edge(nid, c)
             for nid, fields in (diff.get("update_nodes") or {}).items():
                 if not isinstance(fields, dict):
                     raise PlanError(f"the changes to '{nid}' are an object")
                 self._update_node(nid, dict(fields), False)
                 changed.append(nid)
-            for p, c in diff.get("remove_edges", []):
-                self.remove_edge(p, c)
+            for edge in diff.get("remove_edges", []):
+                p, c, port = edge_parts(edge)
+                self.remove_edge(p, c, port)
                 changed.extend([p, c])
-            for p, c in diff.get("add_edges", []):
-                self.add_edge(p, c)
+            for edge in diff.get("add_edges", []):
+                p, c, port = edge_parts(edge)
+                self.add_edge(p, c, port)
                 changed.extend([p, c])
             self.validate_acyclic()
             self.enforce_decisions(decisions)
@@ -1061,6 +1200,7 @@ class PlanDAG:
     def from_dict(cls, data: Dict[str, Any]) -> "PlanDAG":
         try:
             nodes = {}
+            legacy = {nid for nid, nd in data.get("nodes", {}).items() if isinstance(nd, dict) and nd.get("type") == "decision" and not (nd.get("spec") or {}).get("branches")}
             for nid, nd in data.get("nodes", {}).items():
                 if nd.get("id", nid) != nid:
                     raise PlanError(f"node key '{nid}' does not match its id '{nd.get('id')}'")
@@ -1078,6 +1218,11 @@ class PlanDAG:
             raise PlanError(f"the plan is not valid: {type(exc).__name__}: {exc}") from None
         if dag.target_type not in ("constant", "occasional"):
             raise PlanError("target_type must be 'constant' or 'occasional'")
+        for n in (dag.nodes[i] for i in legacy if i in dag.nodes):        # a decision made from its exits is labelled with the step each one leads to
+            if n.type == NodeType.DECISION and n.spec.get("branches"):
+                titles = {b["id"]: dag.nodes[n.routes[b["id"]][0]].title for b in n.spec.get("branches") or [] if len(n.routes.get(b["id"], [])) == 1 and b["label"] == b["id"]}
+                if len(set(titles.values())) == len(titles) and not {t.lower() for t in titles.values()} & {b["label"].lower() for b in n.spec.get("branches") or [] if b["id"] not in titles}:
+                    n.spec = {**n.spec, "branches": [{**b, "label": titles[b["id"]][:40]} if b["id"] in titles else b for b in n.spec["branches"]]}
         dag.validate_acyclic()
         return dag
 
@@ -1101,6 +1246,7 @@ def node_to_dict(n: PlanNode) -> Dict[str, Any]:
         "repeat": n.repeat,
         **({"spec": n.spec} if n.spec else {}),
         **({"produces": n.produces} if n.produces else {}),
+        **({"routes": {port: list(kids) for port, kids in n.routes.items()}} if n.routes else {}),
     }
 
 
@@ -1122,9 +1268,13 @@ def node_from_dict(nd: Dict[str, Any]) -> PlanNode:
         call_request=clean_field(node_type, "call_request", nd.get("call_request")),
         wiki_query=clean_field(node_type, "wiki_query", nd.get("wiki_query")),
         repeat=clean_field(node_type, "repeat", nd.get("repeat")),
-        spec=clean_field(node_type, "spec", nd.get("spec"), bool((nd.get("state_variables") or {}).get("draft"))),
+        spec=({} if node_type == NodeType.DECISION and not (nd.get("spec") or {}).get("branches") else clean_field(node_type, "spec", nd.get("spec"), bool((nd.get("state_variables") or {}).get("draft")))),
         produces=clean_field(node_type, "produces", nd.get("produces")),
     )
+    node.routes = {str(port): [str(k) for k in kids] for port, kids in (nd.get("routes") or {}).items() if isinstance(kids, list)}
     if node_type == NodeType.INPUT:
         node.assignee = Assignee.USER                       # a question is answered by the person
+    migrate_decision(node)
+    if node.type == NodeType.DECISION and node.spec.get("branches"):
+        node.spec = clean_field(node_type, "spec", node.spec, bool(node.state_variables.get("draft")))
     return node

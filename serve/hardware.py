@@ -359,6 +359,29 @@ def page_file() -> dict:
     files = data.get("files") or []
     return {"files": files if isinstance(files, list) else [files], "automatic": data.get("automatic"), "known": True}
 
+def page_file_max_mib() -> int | None:
+    """The most the page files may grow to together, in MiB, from the sizes the person set (`PagingFiles` in the registry: path, initial, maximum); None
+    when it cannot be read or Windows manages a file (no maximum is known)."""
+    fake = _fake("TADAMOO_FAKE_PAGEFILE_MAX")
+    if isinstance(fake, int):
+        return fake
+    if os.name != "nt":
+        return None
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management") as key:
+            lines, _ = winreg.QueryValueEx(key, "PagingFiles")
+    except OSError:
+        return None
+    total = 0
+    for line in lines if isinstance(lines, list) else [lines]:
+        parts = str(line).split()
+        if len(parts) < 3 or not parts[-1].isdigit() or not parts[-2].isdigit():
+            return None                                  # a file Windows manages: its growth is not known
+        total += max(int(parts[-1]), int(parts[-2]))
+    return total or None
+
+
 # ------------------------------------------------------------------------------------------------ families
 NVIDIA_FAMILIES = ("nvidia_blackwell", "nvidia_ada", "nvidia_ampere", "nvidia_turing", "nvidia_other")
 VENDOR_FAMILIES = ("amd", "intel", "apple")
