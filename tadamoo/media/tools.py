@@ -9,7 +9,7 @@ from __future__ import annotations
 import shutil
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Sequence
 
 from tadamoo.media import client, limits
 from tadamoo.media.errors import Cancelled, MediaError, Refused
@@ -40,8 +40,8 @@ def usable(settings: Dict[str, Any], kind: str, command: Any = None) -> str:
 
 
 def register_media_tools(registry: Any, sandbox: Any, settings: MediaSettings, work_dir: Path, url: str,
-                         cancelled: Optional[Callable[[], bool]] = None, command: Any = None) -> None:
-    """Offers `generate_image` and `generate_video`. `work_dir` holds each job's working files (kept only when a job fails); `command` replaces the worker (tests)."""
+                         cancelled: Optional[Callable[[], bool]] = None, command: Any = None, kinds: Sequence[str] = ("image", "video")) -> None:
+    """Offers `generate_image` and `generate_video` (those of `kinds`). `work_dir` holds each job's working files (kept only when a job fails); `command` replaces the worker (tests)."""
     from tadamoo.tools.registry import EffectClass
 
     def target(kind: str, path: str, seed: int) -> Path:
@@ -103,29 +103,31 @@ def register_media_tools(registry: Any, sandbox: Any, settings: MediaSettings, w
               "negative": {"type": "string", "description": "What to keep out of it (optional)"},
               "seed": {"type": "integer", "description": "The same seed with the same prompt and size gives the same result; left out, a new one is chosen and returned"},
               "path": {"type": "string", "description": f"Where to save it, relative to the working folder; left out: {FOLDER}/ with a name made of the date and the seed. An existing file is never replaced"}}
-    registry.register(
-        name="generate_image",
-        description=("Makes a picture from a description with the local picture model and saves it as a PNG in the working folder. Use it when the person asks for a picture, "
-                     "illustration, photo or drawing of something ('fammi un'immagine di...', 'genera una foto'). It uses the GPU alone for about half a minute "
-                     "after the model is loaded; the language model may be slow meanwhile. Describe the subject, the setting, the light and the style in a few sentences. "
-                     f"Sizes are rounded to a multiple of {i['multiple']}; the default is {i['width']}x{i['height']}. If the answer says `refused`, the PC had no VRAM to give: tell the person."),
-        parameters={"type": "object", "properties": {**common,
-                                                     "width": {"type": "integer", "description": f"Pixels, {i['side_min']} to {i['side_max']} (default {i['width']})"},
-                                                     "height": {"type": "integer", "description": f"Pixels, {i['side_min']} to {i['side_max']} (default {i['height']})"},
-                                                     "steps": {"type": "integer", "description": f"Denoising steps, 1 to {i['steps_max']} (default {i['steps']}); more is slower"}},
-                    "required": ["prompt"]},
-        effect=EffectClass.REVERSIBLE, handler=generate_image, timeout=None)
-    registry.register(
-        name="generate_video",
-        description=("Makes a short video clip (no sound) from a description with the local video model and saves it as an MP4 in the working folder. Use it when the person asks "
-                     "for a video or an animation of something ('fammi un video di...'). It takes minutes and uses most of the GPU alone: the language model is very slow meanwhile, "
-                     "so ask for it once, with a prompt that says what happens (subject, action, camera, light). "
-                     f"A clip is {v['width']}x{v['height']}, {v['frames']} frames at {v['fps']} fps (about 2.6 seconds) unless asked otherwise, at most {v['frames_max']} frames. "
-                     "If the answer says `refused`, the PC had no VRAM to give: tell the person."),
-        parameters={"type": "object", "properties": {**common,
-                                                     "width": {"type": "integer", "description": f"Pixels, {v['side_min']} to {v['side_max']}, rounded to a multiple of {v['multiple']} (default {v['width']})"},
-                                                     "height": {"type": "integer", "description": f"Pixels, {v['side_min']} to {v['side_max']}, rounded to a multiple of {v['multiple']} (default {v['height']})"},
-                                                     "frames": {"type": "integer", "description": f"Number of frames, {v['frames_min']} to {v['frames_max']}, rounded to 8 times a whole number plus 1 (default {v['frames']})"},
-                                                     "fps": {"type": "integer", "description": f"Frames per second, {v['fps_min']} to {v['fps_max']} (default {v['fps']})"}},
-                    "required": ["prompt"]},
-        effect=EffectClass.REVERSIBLE, handler=generate_video, timeout=None)
+    if "image" in kinds:
+        registry.register(
+            name="generate_image",
+            description=("Makes a picture from a description with the local picture model and saves it as a PNG in the working folder. Use it when the person asks for a picture, "
+                         "illustration, photo or drawing of something ('fammi un'immagine di...', 'genera una foto'). It uses the GPU alone for about half a minute "
+                         "after the model is loaded; the language model may be slow meanwhile. Describe the subject, the setting, the light and the style in a few sentences. "
+                         f"Sizes are rounded to a multiple of {i['multiple']}; the default is {i['width']}x{i['height']}. If the answer says `refused`, the PC had no VRAM to give: tell the person."),
+            parameters={"type": "object", "properties": {**common,
+                                                         "width": {"type": "integer", "description": f"Pixels, {i['side_min']} to {i['side_max']} (default {i['width']})"},
+                                                         "height": {"type": "integer", "description": f"Pixels, {i['side_min']} to {i['side_max']} (default {i['height']})"},
+                                                         "steps": {"type": "integer", "description": f"Denoising steps, 1 to {i['steps_max']} (default {i['steps']}); more is slower"}},
+                        "required": ["prompt"]},
+            effect=EffectClass.REVERSIBLE, handler=generate_image, timeout=None)
+    if "video" in kinds:
+        registry.register(
+            name="generate_video",
+            description=("Makes a short video clip (no sound) from a description with the local video model and saves it as an MP4 in the working folder. Use it when the person asks "
+                         "for a video or an animation of something ('fammi un video di...'). It takes minutes and uses most of the GPU alone: the language model is very slow meanwhile, "
+                         "so ask for it once, with a prompt that says what happens (subject, action, camera, light). "
+                         f"A clip is {v['width']}x{v['height']}, {v['frames']} frames at {v['fps']} fps (about 2.6 seconds) unless asked otherwise, at most {v['frames_max']} frames. "
+                         "If the answer says `refused`, the PC had no VRAM to give: tell the person."),
+            parameters={"type": "object", "properties": {**common,
+                                                         "width": {"type": "integer", "description": f"Pixels, {v['side_min']} to {v['side_max']}, rounded to a multiple of {v['multiple']} (default {v['width']})"},
+                                                         "height": {"type": "integer", "description": f"Pixels, {v['side_min']} to {v['side_max']}, rounded to a multiple of {v['multiple']} (default {v['height']})"},
+                                                         "frames": {"type": "integer", "description": f"Number of frames, {v['frames_min']} to {v['frames_max']}, rounded to 8 times a whole number plus 1 (default {v['frames']})"},
+                                                         "fps": {"type": "integer", "description": f"Frames per second, {v['fps_min']} to {v['fps_max']} (default {v['fps']})"}},
+                        "required": ["prompt"]},
+            effect=EffectClass.REVERSIBLE, handler=generate_video, timeout=None)

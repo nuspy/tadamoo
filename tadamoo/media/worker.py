@@ -89,7 +89,7 @@ def use_ltx(folder: str):
 def image_plan(folder: str, spec: dict) -> dict:
     """What it takes to make a picture: the worker's command, its parameters, and what is missing on disk."""
     use_ltx(folder)
-    from core import img_gen_job, model_paths, weights_catalog
+    img_gen_job, model_paths, weights_catalog = (importlib.import_module("core." + n) for n in ("img_gen_job", "model_paths", "weights_catalog"))
     py, script = img_gen_job._ARCH_RUNNER["qwen_image21"]
     missing = []
     for entry_id in ("qwen21-configs", "qwen21-vae", "qwen21-dit-nvfp4", "qwen21-te-nvfp4"):
@@ -100,12 +100,12 @@ def image_plan(folder: str, spec: dict) -> dict:
     params = {"prompt": req.get("prompt", ""), "width": req.get("width"), "height": req.get("height"), "steps": req.get("steps"), "seed": req.get("seed"),
               "negative": req.get("negative") or None, "output": spec["output"], "arch": "qwen_image21", "qwen21_dit": "qwen21-dit-nvfp4", "qwen21_te": "nvfp4",
               "need_vram_gb": max(4.0, int(spec.get("mib") or 0) / 1024 - 2.0), "need_commit_gb": 6, "parent_pid": os.getpid()}
-    return {"python": spec.get("python") or py, "script": script, "params": params, "missing": missing, "env": {}}
+    return {"python": spec.get("python") or py, "script": script, "params": params, "missing": missing, "env": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}}
 
 
 def video_plan(folder: str, spec: dict) -> dict:
     use_ltx(folder)
-    from core import ltx_release, ltx_video_job
+    ltx_release, ltx_video_job = (importlib.import_module("core." + n) for n in ("ltx_release", "ltx_video_job"))
     py, script = ltx_release.runner("2.5")
     missing = [f"component {c}" for c in ltx_release.missing_components("2.5")]
     name = spec.get("video_model") or ""
@@ -139,12 +139,12 @@ def check(folder: str, video_model: str) -> dict:
 class Run:
     """The model process of one job: its output read line by line (a progress bar ends its lines with a carriage return), its end told."""
 
-    def __init__(self, plan: dict, work: Path) -> None:
+    def __init__(self, plan: dict, work: Path, cwd: str) -> None:
         params_file = work / "params.json"
         params_file.write_text(json.dumps(plan["params"]), encoding="utf-8")
         env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1", "HF_HUB_OFFLINE": "1", **plan["env"]}
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
-        self.proc = subprocess.Popen([plan["python"], "-u", plan["script"], str(params_file)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env,
+        self.proc = subprocess.Popen([plan["python"], "-u", plan["script"], str(params_file)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, cwd=cwd,
                                      creationflags=flags, start_new_session=os.name != "nt")
         self.tail: list = []
         self.result = ""
@@ -211,7 +211,7 @@ def main() -> int:
             emit({"event": "refused", "reason": lease.reason or "unavailable", "message": lease.message, "message_it": lease.message_it})
             return 4
         work = Path(spec["output"]).parent
-        run = Run(plan, work)
+        run = Run(plan, work, spec["ltx_dir"])
         state["proc"] = run.proc
         for line in run.lines():
             run.tail = (run.tail + [line])[-30:]

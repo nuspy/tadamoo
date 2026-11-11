@@ -111,3 +111,52 @@ def test_a_failed_job_says_why_and_where_its_working_files_are(world):
     got = call(world, "generate_image", prompt="please fail")
     assert got["status"] == "error" and "did not load" in got["note"] and str(world["tmp"] / "work") in got["note"]
     assert not (world["sandbox"].root / "media").exists()
+
+
+def build(tmp_path, media_file):
+    from tadamoo.stack import AgentConfig, build_agent
+    ws = tmp_path / "agent-ws"
+    ws.mkdir(exist_ok=True)
+    return build_agent(AgentConfig(workspace=str(ws), data_dir=str(tmp_path / "data"), use_memory=False, use_checkpoints=False, media_file=media_file,
+                                   endpoint="http://127.0.0.1:1"), client=object())
+
+
+def test_a_conversation_offers_the_tools_only_where_ltx_studio_can_make_them_and_says_so_when_not(world, tmp_path):
+    built = build(tmp_path, str(world["settings"].file))
+    try:
+        assert {"generate_image", "generate_video"} <= set(built.agent.tools.names())
+        assert built.agent.tools.timeout_for("generate_video") is None and "no picture or video making" not in built.agent.messages[0]["content"]
+    finally:
+        built.close()
+    world["settings"].write({"enabled": False})
+    built = build(tmp_path, str(world["settings"].file))
+    try:
+        assert "generate_image" not in built.agent.tools.names() and "no picture or video making" in built.agent.messages[0]["content"]
+    finally:
+        built.close()
+    built = build(tmp_path, "")
+    try:
+        assert "generate_video" not in built.agent.tools.names()
+    finally:
+        built.close()
+
+
+def test_a_kind_that_ltx_studio_lacks_is_not_offered(world, tmp_path):
+    world["settings"].write({"ltx_dir": str(make_ltx(tmp_path / "half", video_checkpoint=False))})
+    client.forget_checks()
+    built = build(tmp_path, str(world["settings"].file))
+    try:
+        assert "generate_image" in built.agent.tools.names() and "generate_video" not in built.agent.tools.names()
+    finally:
+        built.close()
+
+
+def test_a_clip_is_offered_to_the_person_only_if_it_opens_like_a_clip(tmp_path):
+    from media_fake import MP4
+    from tadamoo.attachments import verify_output
+    good, bad, web = tmp_path / "a.mp4", tmp_path / "b.mp4", tmp_path / "c.webm"
+    good.write_bytes(MP4)
+    bad.write_bytes(b"this is not a clip at all")
+    web.write_bytes(bytes([0x1A, 0x45, 0xDF, 0xA3]) + b"\x00" * 16)
+    assert verify_output(good)[0] is True and verify_output(web)[0] is True
+    assert verify_output(bad) == (False, "it does not start like an MP4 file")

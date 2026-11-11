@@ -218,6 +218,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--rag-dir", default="", help="the folder of the knowledge archives (tadamoo/rag): with --rag-project the archives of that project are searched and the matching passages put in where they matter")
     parser.add_argument("--rag-project", default="", help="the key of the project (tadamoo/rag/project.py) whose knowledge archives this conversation draws on")
     parser.add_argument("--rag-attached", action="append", default=[], help="the id of a knowledge archive attached to this conversation besides the project's own (repeat for more)")
+    parser.add_argument("--media-file", default="", help="the settings file of the picture and video tools (tadamoo/media/settings.py): with it generate_image and generate_video are offered when LTX Studio is there and the person left them on")
     parser.add_argument("--persona", default="", help="the personality (a folder of --personas-dir) the conversation speaks as from the start: its text is pinned and its notes are put in where they matter")
     parser.add_argument("--exec-level-file", default="", help="the file that holds how freely the code the model writes runs (contained, free or admin; tadamoo/exec_level.py); empty: contained")
     parser.add_argument("--personal-skills-dir", default="", help="the folder of the person's personal skills: the conversation can write one with create_skill")
@@ -251,7 +252,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         attachments_dir=args.attachments_dir or None, outputs_dir=args.outputs_dir or None,
         hooks_file=args.hooks, workspace_hooks=args.workspace_hooks, after_plan=args.after_plan, images=args.images, charts=args.charts, page_files=args.page_files,
         tool_timeout=tool_timeout, tool_timeouts=tool_timeouts, use_memory=not args.no_memory, use_checkpoints=not args.no_checkpoints,
-        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys, personas_dir=args.personas_dir, rag_dir=args.rag_dir, rag_project=args.rag_project, rag_attached=tuple(args.rag_attached), persona=args.persona, past_index=args.past_index, persistence_file=args.persistence_file, next_steps_file=args.next_steps_file, rules_file=args.rules_file, orchestration=args.orchestration, file_owners_path=args.file_owners, lessons_dir=args.lessons_dir, personal_skills_dir=args.personal_skills_dir, exec_level_file=args.exec_level_file,
+        personal_memory_dir=args.personal_memory, personal_memory_keys=args.personal_memory_keys, personas_dir=args.personas_dir, rag_dir=args.rag_dir, media_file=args.media_file, rag_project=args.rag_project, rag_attached=tuple(args.rag_attached), persona=args.persona, past_index=args.past_index, persistence_file=args.persistence_file, next_steps_file=args.next_steps_file, rules_file=args.rules_file, orchestration=args.orchestration, file_owners_path=args.file_owners, lessons_dir=args.lessons_dir, personal_skills_dir=args.personal_skills_dir, exec_level_file=args.exec_level_file,
     )
 
 
@@ -312,6 +313,7 @@ class AgentConfig:
     personas_dir: str = ""              # the personalities (tadamoo/personas.py); empty: the conversation cannot speak as one
     persona: str = ""                   # the one it speaks as from the start
     rag_dir: str = ""                   # the knowledge archives (tadamoo/rag); empty: none are searched
+    media_file: str = ""                # the settings of the picture and video tools (tadamoo/media); empty: the conversation cannot make them
     rag_project: str = ""               # the key of the project whose archives are searched; empty: none are
     rag_attached: Tuple[str, ...] = ()  # the archives attached to the conversation besides the project's own
     exec_level_file: str = ""           # where the person's choice of how freely code runs is kept (tadamoo/exec_level.py); empty: contained
@@ -919,6 +921,16 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
     from tadamoo.rag.ingest.reading import register_document_tools
     register_document_tools(registry, sandbox.root, Path(cfg.rag_dir) if cfg.rag_dir else None,
                             (Path(cfg.rag_dir) / ".reading") if cfg.rag_dir else data / "reading", protected=lambda p: sandbox.protected_hit(p) if sandbox.protected_hit else "")
+    media_ready = False
+    if cfg.media_file:
+        from tadamoo.media import tools as media_tools
+        from tadamoo.media.settings import MediaSettings
+        from tadamoo.sandbox import cancelled as stop_pressed
+        media_settings = MediaSettings(cfg.media_file)
+        kinds = [k for k in ("image", "video") if not media_tools.usable(media_settings.read(), k)]       # each kind only where LTX Studio can make it
+        media_ready = bool(kinds)
+        if kinds:
+            media_tools.register_media_tools(registry, sandbox, media_settings, data / "media", cfg.endpoint, cancelled=stop_pressed, kinds=kinds)
 
     def switch_knowledge(ids: List[str]) -> str:
         """The archives attached to the conversation are now `ids`; returns the note for the model, empty when nothing changed."""
@@ -977,7 +989,7 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         raise ValueError(f"role must be one of {list(ROLE_IDS)}")
     role = RolePolicy(workspace, tool_names, cfg.role, on_change=role_changed, checks=lambda: permissions.safe_commands)
     present = {"browser": cfg.browser, "vault": bool(cfg.vault_dir), "phone": cfg.phone, "memory": memory is not None, "personal_memory": bool(cfg.personal_memory_dir),
-               "past": bool(cfg.past_index), "skills": bool(cfg.personal_skills_dir), "lsp": cfg.lsp, "mcp": bool(cfg.mcp_servers)}
+               "past": bool(cfg.past_index), "skills": bool(cfg.personal_skills_dir), "lsp": cfg.lsp, "mcp": bool(cfg.mcp_servers), "media": media_ready}
     if cfg.self_block:
         builder.pin("self", awareness.self_model(
             model="", window=context.budget_tokens, mask_at=context.mask_at, compaction_at=cfg.compaction_threshold, compaction=cfg.compaction, max_turns=cfg.max_turns,
