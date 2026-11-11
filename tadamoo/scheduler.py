@@ -51,7 +51,7 @@ NO_STEP_LIMIT = -1                  # `max_turns` the conversation path reads as
 KEEP_RUNS = 200
 NAME_MAX, PROMPT_MAX, SUMMARY_MAX = 80, 4000, 4000
 MESSAGE_MAX = 4000
-DELIVER_KINDS = ("new_session", "session", "plan")
+DELIVER_KINDS = ("new_session", "session", "plan", "knowledge")
 CHECK_MAX, CHECK_TIMEOUT_S, CHECK_OUTPUT_MAX = 1000, 300, 2000
 STOP_FILE = "routines.stop"         # while this file exists in the data folder no routine starts and the ones running are stopped
 OUTCOMES = ("nothing_new", "progress", "done", "blocked")
@@ -382,7 +382,7 @@ class Scheduler:
         of the person's is at work; empty means no limit. `index_past` adds what the routine does to the index of earlier conversations (off unless the person asks).
         `check` is a command run before the model is woken: exit code 0 goes on (what it prints is given to the model), 1 means nothing to do and the run ends there, anything else fails the run.
         `ttl_min` is how late a scheduled fire may start (empty: any time); `dedup_key` keeps routines that share it from having two fires in flight.
-        `deliver_to` ({"kind": "new_session"|"session"|"plan", "ref": name}) sends `message` (or `prompt` when it is empty) to an existing
+        `deliver_to` ({"kind": "new_session"|"session"|"plan"|"knowledge", "ref": name}) sends `message` (or `prompt` when it is empty) to an existing
         conversation instead of starting one; `link` ({"plan": plan_id}) is which plan a "plan" delivery speaks for."""
         routine = self._check(name, prompt, workspace, schedule, max_turns, max_minutes, skill, values, yield_s, index_past, check, ttl_min, dedup_key,
                               deliver_to, message, link)
@@ -459,6 +459,8 @@ class Scheduler:
             raise RoutineError("A new-session routine has no 'ref'.", "bad_deliver_to")
         if not isinstance(message, str) or len(message) > MESSAGE_MAX:
             raise RoutineError(f"The message is at most {MESSAGE_MAX} characters.", "bad_message")
+        if deliver_to["kind"] == "knowledge" and message.strip() not in ("check", "update"):
+            raise RoutineError("A knowledge routine's message is 'check' (look for changes) or 'update' (look, then read again what changed).", "bad_message")
         if link is not None and (not isinstance(link, dict) or set(link) - {"plan"} or (("plan" in link) and not isinstance(link["plan"], str))):
             raise RoutineError("The link is {\"plan\": a plan id}, or empty.", "bad_link")
         return {"ttl_min": ttl_min, "dedup_key": dedup_key, "deliver_to": {"kind": deliver_to["kind"], "ref": ref.strip() if isinstance(ref, str) else ""},
@@ -775,6 +777,7 @@ class SessionRoutineRunner:
     """Runs a routine as an Automatic conversation of the agent through the server's `SessionManager`, then closes it."""
 
     park: Optional[Callable[[str, Dict[str, Any]], None]] = None            # set by the Scheduler: keeps a request for the person
+    knowledge: Optional[Callable[[str, str, threading.Event], Dict[str, Any]]] = None     # (archive, "check" | "update", cancel) -> an outcome; set by the server
 
     def __init__(self, manager: Any, poll_s: float = 0.5, cancel_grace_s: float = 30.0, plan_paused: Optional[Callable[[str], bool]] = None,
                  plan_context: Optional[Callable[[str], Dict[str, Any]]] = None) -> None:
@@ -821,8 +824,21 @@ class SessionRoutineRunner:
                     "seconds": round(time.monotonic() - started, 1)}
         return {"status": "done", "summary": f"Message {state} to {deliver_to['ref']}.", "seconds": round(time.monotonic() - started, 1)}
 
+    def _knowledge(self, routine: Dict[str, Any], deliver_to: Dict[str, Any], cancel: threading.Event) -> Dict[str, Any]:
+        """A fire that looks after a knowledge archive (check it for changes, or update it): no model is woken, nothing runs in a folder."""
+        started = time.monotonic()
+        if self.knowledge is None:
+            return {"status": "failed", "summary": "The knowledge archives are not available here."}
+        try:
+            out = self.knowledge(deliver_to["ref"], (routine.get("message") or "check").strip(), cancel)
+        except Exception as exc:
+            return {"status": "failed", "summary": f"{type(exc).__name__}: {str(exc)[:300]}", "seconds": round(time.monotonic() - started, 1)}
+        return {**out, "seconds": round(time.monotonic() - started, 1)}
+
     def run(self, routine: Dict[str, Any], cancel: threading.Event) -> Dict[str, Any]:
         deliver_to = routine.get("deliver_to") or {"kind": "new_session", "ref": ""}
+        if deliver_to.get("kind") == "knowledge" and deliver_to.get("ref"):
+            return self._knowledge(routine, deliver_to, cancel)
         if deliver_to.get("kind") in ("session", "plan") and deliver_to.get("ref"):
             return self._deliver(routine, deliver_to)
         mgr = self.manager

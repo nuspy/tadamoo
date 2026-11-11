@@ -15,6 +15,8 @@ from tadamoo.rag.ingest import docling_client, extraction_of
 from tadamoo.rag.project import is_key, project_key
 from tadamoo.rag.recall import compose_message
 from serve.rag_jobs import Jobs
+from serve.rag_sync_api import RagSyncApi
+from tadamoo.rag.sources.engine import Sync
 
 UPLOAD_MAX = LIMITS["document_bytes"]
 JSON_MAX = 1 << 17
@@ -33,12 +35,14 @@ def _project(value: Any) -> str:
 
 
 class RagApi:
-    def __init__(self, store: RagStore, folders: Callable[[], List[Dict[str, Any]]] = lambda: [], jobs: Optional[Jobs] = None, service: Any = None) -> None:
+    def __init__(self, store: RagStore, folders: Callable[[], List[Dict[str, Any]]] = lambda: [], jobs: Optional[Jobs] = None, service: Any = None, sync: Any = None) -> None:
         """`folders` lists the projects as `{name, path, chat}`: the folders of the Agent tab and the Chat's own folder (`chat` true). `jobs` is the
         board of the long jobs, kept by the server between requests. `service` is the embedding service (tadamoo/rag/embed_client.py) the store's embedder
-        comes from, when there is one: it tells where the embeddings run and can be tried."""
+        comes from, when there is one: it tells where the embeddings run and can be tried. `sync` is the refresh of the archives (tadamoo/rag/sources), kept by the
+        server between requests: it holds the run guard and the politeness state."""
         self.store, self.folders, self.service = store, folders, service
         self.jobs = jobs if jobs is not None else Jobs()
+        self.syncing = RagSyncApi(sync if sync is not None else Sync(store), self.jobs)
 
     # -- reading ---------------------------------------------------------------------------------
 
@@ -201,6 +205,9 @@ class RagApi:
             return self.projects()
         if parts == ["catalog"]:
             return self.catalog()
+        got = self.syncing.route_get(parts)
+        if got is not None:
+            return got
         if parts == ["settings"]:
             return self.settings()
         if len(parts) == 2 and parts[0] == "jobs":
@@ -220,6 +227,9 @@ class RagApi:
         req = json.loads(raw or b"{}")
         if not isinstance(req, dict):
             raise RagError("send a JSON object")
+        got = self.syncing.route_post(parts, req)
+        if got is not None:
+            return got
         if parts == ["search"]:
             return self.search(req)
         if parts == ["recall"]:
