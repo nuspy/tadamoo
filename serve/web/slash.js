@@ -65,6 +65,7 @@
     { name: "reload-skills", run: async rest => { skillsAt = 0; await loadSkills(); server("reload-skills", rest); } },
     { name: "reload-plugins", run: async rest => { skillsAt = 0; await loadSkills(); server("reload-plugins", rest); } },
     { name: "memory", args: "[search]", run: rest => server("memory", rest) },
+    { name: "rag", alias: ["knowledge"], args: "[name | off [name]]", run: rest => ragCommand(rest) },
     { name: "copy", args: "[n]", run: async rest => {
       const all = A() && A().active() ? A().answers() : [];
       const n = Math.max(1, parseInt(rest, 10) || 1), text = all[all.length - n];
@@ -122,6 +123,37 @@
   ];
   COMMANDS.forEach(c => { c.alias = c.alias || []; c.args = c.args || ""; });
   const byName = word => COMMANDS.find(c => c.name === word || c.alias.includes(word));
+
+  /* ---- /rag: the knowledge archives this conversation uses besides its project's own ---- */
+  async function ragCommand(rest) {
+    const R = window.ragUi;
+    if (!R) return;
+    const agent = !!(A() && A().active());
+    const off = /^off(?:\s+([\s\S]*))?$/i.exec(rest);
+    if (!rest) {                                                       // the list, with what this conversation uses
+      const c = await R.catalog();
+      if (!c) { note(T("sl.rag.offline")); return; }
+      const attached = new Set(agent ? A().knowledgeIds() : R.ids());
+      if (!c.archives.length) { note(T("sl.rag.list.none")); return; }
+      const rows = c.archives.map(a => `${a.name} (${a.project === c.project ? T("sl.rag.this") : (a.project_name || "?")}${attached.has(a.id) ? ", " + T("sl.rag.on") : ""})`);
+      note(T("sl.rag.list", rows.join("; ")));
+      return;
+    }
+    const action = off ? ((off[1] || "").trim() ? "detach" : "clear") : "attach", name = off ? (off[1] || "").trim() : rest;
+    const d = agent ? await A().knowledge(action, name) : await R.choose(action, name);
+    if (!d) { note(T("sl.rag.offline")); return; }
+    const n = d.archive ? d.archive.name : name;
+    switch (d.status) {
+      case "attached": note(T("sl.rag.attached", n)); break;
+      case "already": note(T("sl.rag.already", n)); break;
+      case "this_project": note(T("sl.rag.thisproject", n)); break;
+      case "detached": note(T("sl.rag.detached", n)); break;
+      case "cleared": note(d.dropped ? T("sl.rag.cleared") : T("sl.rag.nothing")); break;
+      case "ambiguous": note(T("sl.rag.ambiguous", d.candidates.map(a => `${a.name} (${a.project})`).join("; "))); break;
+      case "not_attached": note(T("sl.rag.notattached", name)); break;
+      default: note(T("sl.rag.none", name));
+    }
+  }
 
   /* ---- skills found on this PC: /name asks for one ---- */
   let skills = [], skillsAt = 0;

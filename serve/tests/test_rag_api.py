@@ -313,3 +313,45 @@ def test_the_chats_own_folder_is_a_project_too_and_no_personalities_are_needed(t
         assert cmd[cmd.index("--rag-project") + 1] == project_key(tmp_path / "chat-workspace") and "--personas-dir" not in cmd
     finally:
         real.shutdown()
+
+
+# -- choosing the archives of a conversation ---------------------------------------------------------------------------
+
+def test_the_catalog_lists_every_archive_with_the_name_of_its_project(tmp_path):
+    api = make(tmp_path)
+    work = project_key(tmp_path / "work")
+    new(api, "Plans", work)
+    new(api, "Notes", OTHER)
+    names = {a["name"]: a["project_name"] for a in api.catalog()["archives"]}
+    assert names == {"Plans": "Work", "Notes": ""}                                                    # a project the page does not know has no name
+    assert api.store.list(work)[0]["project_name"] == "Work"                                          # the name is kept when the archive is made
+
+
+def test_choose_answers_for_the_model_only_chat_with_the_same_rule_as_the_agent(tmp_path):
+    api = make(tmp_path)
+    work, chat = project_key(tmp_path / "work"), project_key(tmp_path / "chat")
+    plans, mine = new(api, "Forest Plans", work)["archive"]["id"], new(api, "Chat notes", chat)["archive"]["id"]
+    new(api, "Forest Fires", work)
+    got = api.choose({"action": "attach", "name": "plans", "attached": [], "project": chat})
+    assert got["status"] == "attached" and got["ids"] == [plans] and got["archive"]["project"] == "Work"
+    assert api.choose({"action": "attach", "name": "forest", "attached": [plans], "project": chat})["status"] == "ambiguous"
+    assert api.choose({"action": "attach", "name": "chat notes", "attached": [], "project": chat})["status"] == "this_project" and mine
+    assert api.choose({"action": "detach", "name": "plans", "attached": [plans, "gone-1"], "project": chat})["ids"] == []
+    assert api.choose({"action": "clear", "attached": [plans], "project": chat})["status"] == "cleared"
+    for bad in ({"action": "swap", "project": chat}, {"action": "attach", "name": 5, "project": chat}, {"action": "attach", "attached": "x", "project": chat}, {"action": "attach"}):
+        with pytest.raises(RagError):
+            api.choose(bad)
+
+
+def test_recall_adds_the_attached_archives_to_the_projects_own(tmp_path):
+    api = make(tmp_path)
+    mine, other = new(api, "Boats")["archive"]["id"], new(api, "Kitchen", OTHER)["archive"]["id"]
+    api.upload(mine, "boats.txt", BOATS)
+    api.upload(other, "rice.txt", RICE)
+    assert api.recall({"project": PROJ, "goal": "stock for risotto"})["block"] == ""
+    block = api.recall({"project": PROJ, "goal": "stock for risotto", "attached": [other]})["block"]
+    assert "[Kitchen / rice.txt]" in block
+    for bad in ({"project": PROJ, "goal": "x", "attached": "a"}, {"project": PROJ, "goal": "x", "attached": [1]}):
+        with pytest.raises(RagError):
+            api.recall(bad)
+    assert api.route_get(["catalog"])["archives"] and api.route_post(["choose"], {}, json.dumps({"action": "clear", "project": PROJ}).encode())["status"] == "cleared"

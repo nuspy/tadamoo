@@ -10,6 +10,7 @@ from collections import Counter
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from tadamoo.rag import LIMITS, RagError, RagStore
+from tadamoo.rag.choice import decide, known
 from tadamoo.rag.extract import FORMATS
 from tadamoo.rag.project import is_key, project_key
 from tadamoo.rag.recall import compose_message
@@ -58,6 +59,24 @@ class RagApi:
             out.append({"key": key, "name": row["name"], "path": row["path"], "chat": bool(row.get("chat")), "archives": counts.get(key, 0)})
         return {"projects": out}
 
+    def names(self) -> Dict[str, str]:
+        """Project key -> name, for the folders the page can pick."""
+        return {project_key(row["path"]): ("Chat" if row.get("chat") else row["name"]) for row in self.folders()}
+
+    def catalog(self) -> Dict[str, Any]:
+        """Every archive of every project, with the name of its project: what a conversation may attach."""
+        names = self.names()
+        return {"archives": [{**a, "project_name": names.get(a["project"]) or a["project_name"]} for a in self.store.list()]}
+
+    def choose(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """`{action: attach|detach|clear, name, attached: [ids], project}` for a conversation the server does not keep (the model-only chat): what the
+        choice does to its list of attached archives, `{status, ids, archive | candidates}`; the same rule as a conversation of the agent."""
+        action, attached = req.get("action"), req.get("attached", [])
+        if action not in ("attach", "detach", "clear") or not isinstance(req.get("name", ""), str) or not isinstance(attached, list):
+            raise RagError("send {action: attach | detach | clear, name, attached: [ids], project}")
+        rows = self.catalog()["archives"]
+        return decide(rows, _project(req.get("project")), known(attached, rows), action, req.get("name", ""))
+
     def get(self, aid: str) -> Dict[str, Any]:
         return {"archive": self.store.get(aid), "embedding": self.embedding()}
 
@@ -67,7 +86,7 @@ class RagApi:
         extra = [k for k in req if k not in ("name", "description", "project")]
         if extra:
             raise RagError("unknown field: " + ", ".join(sorted(map(str, extra))[:5]))
-        return {"archive": self.store.create(req.get("name"), req.get("description", ""), req.get("project"))}
+        return {"archive": self.store.create(req.get("name"), req.get("description", ""), req.get("project"), self.names().get(req.get("project"), ""))}
 
     def update(self, aid: str, req: Dict[str, Any]) -> Dict[str, Any]:
         return {"archive": self.store.update(aid, req)}
@@ -105,11 +124,14 @@ class RagApi:
         return {**out, "searched": len(ids)}
 
     def recall(self, req: Dict[str, Any]) -> Dict[str, Any]:
-        """`{project, goal}`: the data block of the passages of the project's archives that match the request, for a conversation without a harness."""
-        goal = req.get("goal", "")
+        """`{project, goal, attached}`: the data block of the passages of the project's archives and of the attached ones that match the request, for a
+        conversation without a harness."""
+        goal, attached = req.get("goal", ""), req.get("attached", [])
         if not isinstance(goal, str):
             raise RagError("goal: the text of the request")
-        return {"block": compose_message(self.store, _project(req.get("project")), goal[:QUERY_CHARS])}
+        if not isinstance(attached, list) or any(not isinstance(i, str) for i in attached) or len(attached) > LIMITS["archives"]:
+            raise RagError("attached: a list of archive ids")
+        return {"block": compose_message(self.store, _project(req.get("project")), goal[:QUERY_CHARS], attached)}
 
     # -- the routes ------------------------------------------------------------------------------
 
@@ -119,6 +141,8 @@ class RagApi:
             return self.overview(((query or {}).get("project") or [""])[0])
         if parts == ["projects"]:
             return self.projects()
+        if parts == ["catalog"]:
+            return self.catalog()
         if len(parts) == 2 and parts[0] == "archives":
             return self.get(parts[1])
         raise RagError("not found", "not_found")
@@ -136,6 +160,8 @@ class RagApi:
             return self.search(req)
         if parts == ["recall"]:
             return self.recall(req)
+        if parts == ["choose"]:
+            return self.choose(req)
         if parts == ["archives"]:
             return self.create(req)
         if len(parts) == 3 and parts[0] == "archives":

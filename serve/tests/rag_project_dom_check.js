@@ -111,7 +111,7 @@ t("the model-only chat asks for the Chat folder's passages, and the agent's conv
   window.agentChat = null;
   asked.length = 0; posted.length = 0;
   eq(await window.ragUi.recall("what keeps the boat upright"), "<untrusted_data>passage</untrusted_data>");
-  eq(posted.map(p => p.body), [{ project: CHAT.key, goal: "what keeps the boat upright" }]);
+  eq(posted.map(p => p.body), [{ project: CHAT.key, goal: "what keeps the boat upright", attached: [] }]);
   window.agentChat = { active: () => true };
   posted.length = 0;
   eq(await window.ragUi.recall("anything"), "");

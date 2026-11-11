@@ -415,6 +415,10 @@
         noteItem({ s: T("pe.now", e.slug && window.personaUi ? window.personaUi.name(e.slug) : T("pe.none")) });
         if (window.personaUi) window.personaUi.paint();
         break;
+      case "knowledge":                                                  // the archives attached besides the project's own; `change` is set when the model did it
+        if (rec) rec.knowledge = e.ids || [];
+        if (e.change) noteItem({ s: T(e.change === "attached" ? "sl.rag.attached" : e.change === "dropped" ? "sl.rag.detached" : "sl.rag.cleared", e.name || "") });
+        break;
       case "telegram":
         if (rec) rec.telegram_chat = e.chat;
         noteItem({ s: T(e.chat ? "tgm.now" : "tgm.now.off") });
@@ -1534,6 +1538,13 @@
     poll(true);
     return true;
   }
+  async function setKnowledge(action, name) {                               // attach | detach | clear an archive of this conversation; what the server decided
+    if (!(await ensure())) return null;
+    const r = await api("POST", `/${sid}/knowledge`, { [action]: action === "clear" ? true : name });
+    if (!r.ok) { status(errText(r)); return null; }
+    rec = r.json.session;
+    return { ...r.json.result, ids: rec.knowledge || [] };
+  }
   async function rename(title) {
     if (!sid) return false;
     const r = await api("POST", `/${sid}/rename`, { title });
@@ -1557,7 +1568,7 @@
     const listed = known.find(s => s.id === sid) || {};
     return { title: (rec && rec.title) || listed.title || "", session: sid, items: out };
   }
-  window.agentChat = { record: () => rec, folder: curPath, busy: () => busyNow, skills, snapshot, refresh: () => poll(true), active, send, stop, newChat, current: () => sid, ensure, note, runOnServer, rename, transcript, saveBlob, answers: answersOf,
+  window.agentChat = { record: () => rec, folder: curPath, busy: () => busyNow, skills, snapshot, refresh: () => poll(true), active, send, stop, newChat, current: () => sid, ensure, note, runOnServer, knowledge: setKnowledge, knowledgeIds: () => (rec && rec.knowledge) || [], rename, transcript, saveBlob, answers: answersOf,
     perm: { now: permNow, set: setPerm, cycle: cyclePerm, available: () => active() && mode !== "ask", modes: PERM_CYCLE },
     sessions: () => known.filter(s => s.state !== "closed" && inContext(s)).map(s => ({ id: s.id, label: `${s.title || s.id} \u00B7 ${T("ch.state." + s.state)}` })), open: openSession, branch, hasCopy: () => !!(rec && rec.worktree),
     toggleCopy: () => copyOpen.click() };

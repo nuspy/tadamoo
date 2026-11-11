@@ -56,10 +56,33 @@ class RagPageTest(unittest.TestCase):
             self.assertNotIn(word, JS.replace("whatever personality speaks", ""))
 
     def test_the_model_only_chat_adds_the_projects_passages_where_it_adds_the_personality(self):
-        self.assertIn("window.ragUi = { recall };", JS)
+        self.assertIn("window.ragUi = { recall, choose, catalog,", JS)
         self.assertIn("await window.ragUi.recall(text)", CHAT)
         self.assertLess(CHAT.index("await window.personaUi.system(text)"), CHAT.index("await window.ragUi.recall(text)"))
         self.assertIn("personaText = [personaText, found]", CHAT)
+
+    def test_the_slash_command_the_route_and_the_texts_for_choosing_archives_are_in_the_page(self):
+        slash = (WEB / "slash.js").read_text(encoding="utf-8")
+        agent = (WEB / "agentchat.js").read_text(encoding="utf-8")
+        self.assertIn('{ name: "rag", alias: ["knowledge"]', slash)
+        self.assertIn('api("POST", "api/rag/choose"', JS)
+        self.assertIn('api("GET", "api/rag/catalog")', JS)
+        self.assertIn("`/${sid}/knowledge`", agent)                                                    # api/agent/sessions/<id>/knowledge
+        self.assertIn('case "knowledge":', agent)
+        self.assertIn("window.ragUi.reset()", CHAT)                                                    # a new model-only conversation starts with none
+        keys = set(re.findall(r'"(sl\.rag\.[\w.]+)"', slash + agent)) | {"sl.d.rag"}
+        self.assertGreaterEqual(len(keys), 12)
+        for key in sorted(keys):
+            self.assertEqual(I18N.count(f'"{key}":'), 2, key)
+        self.assertEqual(sorted(set(re.findall(r'"(sl\.rag\.[\w.]+)":', I18N)) - keys), [])
+
+    @unittest.skipUnless(NODE, "node is needed to run the page on the stand-in DOM")
+    def test_slash_rag_works_in_the_model_only_chat_and_in_a_conversation(self):
+        out = subprocess.run([NODE, str(HERE / "slash_rag_check.js")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        results = json.loads(out.stdout)
+        self.assertGreaterEqual(len(results), 7)
+        self.assertEqual([f"{r['name']}: {r['error']}" for r in results if not r["ok"]], [])
 
     @unittest.skipUnless(NODE, "node is needed to run the page on the stand-in DOM")
     def test_the_picker_and_the_recall_work_on_a_stand_in_dom(self):

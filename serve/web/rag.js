@@ -303,22 +303,44 @@
     if (again && again !== document.activeElement) again.focus();
   }
 
-  /* the model-only chat: the block of passages of the Chat's own folder that match a request ("" when none, when a conversation of the agent runs
-     (its process takes them in itself), or when this page is not on the PC that runs the server) */
-  async function recall(goal) {
-    if (recallOff || (window.agentChat && window.agentChat.active())) return "";
+  /* the model-only chat: the Chat's own folder is its project, and the archives the person attached with /rag are kept here until a new conversation
+     starts (a conversation of the agent keeps its own on the server) */
+  let mine = [];
+  async function chatProject() {
     if (!chatKey) {
       const p = await api("GET", "api/rag/projects");
       if (p.status === 403) recallOff = true;
       const chat = p.ok && (p.data.projects || []).find(x => x.chat);
-      if (!chat) return "";
-      chatKey = chat.key;
+      if (chat) chatKey = chat.key;
     }
-    const r = await api("POST", "api/rag/recall", { project: chatKey, goal: String(goal || "").slice(0, 2000) });
+    return chatKey;
+  }
+  /* the block of passages that match a request ("" when none, when a conversation of the agent runs (its process takes them in itself), or when
+     this page is not on the PC that runs the server) */
+  async function recall(goal) {
+    if (recallOff || (window.agentChat && window.agentChat.active())) return "";
+    const key = await chatProject();
+    if (!key) return "";
+    const r = await api("POST", "api/rag/recall", { project: key, goal: String(goal || "").slice(0, 2000), attached: mine.map(a => a.id) });
     if (r.status === 403) recallOff = true;
     return r.ok && typeof r.data.block === "string" ? r.data.block : "";
   }
-  window.ragUi = { recall };
+  /* what attaching, dropping or clearing does to the attached list: the server's answer ({status, archive | candidates}), or null when it cannot be asked */
+  async function choose(action, name) {
+    const key = await chatProject();
+    if (!key) return null;
+    const r = await api("POST", "api/rag/choose", { action, name, attached: mine.map(a => a.id), project: key });
+    if (!r.ok) return null;
+    const names = new Map(mine.map(a => [a.id, a.name]));
+    if (r.data.archive) names.set(r.data.archive.id, r.data.archive.name);
+    mine = (r.data.ids || []).map(id => ({ id, name: names.get(id) || id }));
+    return r.data;
+  }
+  async function catalog() {
+    const r = await api("GET", "api/rag/catalog");
+    return r.ok ? { archives: r.data.archives || [], project: await chatProject() } : null;
+  }
+  window.ragUi = { recall, choose, catalog, ids: () => mine.map(a => a.id), reset() { mine = []; } };
 
   document.addEventListener("tadamoo:view", e => { if (e.detail === "rag") refresh(); });
   document.addEventListener("tadamoo:lang", () => { if (S) paint(); });

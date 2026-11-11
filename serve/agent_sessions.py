@@ -39,6 +39,7 @@ from tadamoo import questions as qs
 from tadamoo.permission_level import CHANNELS, lower as lower_level
 from tadamoo.personal_skills.store import PersonalSkills, SkillError
 from tadamoo.personal_skills.values import resolve as resolve_values
+from tadamoo.rag.choice import decide, known as known_archives
 from tadamoo.rag.project import project_key as rag_project_key
 from tadamoo.vault import valid_code
 from serve.coding_prefs import project_key
@@ -943,9 +944,10 @@ class SessionManager:
                context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto", effort: Any = "",
                images: Any = "", charts: Any = "", unattended: bool = False, role: Any = GENERAL_ROLE, private: bool = False,
                alias: Any = "", cross_commands: Any = None, parent: Any = "", operating_rules: Any = None,
-               budget_day_tokens: Any = None, persona: Any = "", channel: str = "chat") -> Dict[str, Any]:
+               budget_day_tokens: Any = None, persona: Any = "", channel: str = "chat", knowledge: Any = None) -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
         persona = self._check_persona(persona)
+        attached = self._check_knowledge(knowledge)
         if channel not in CHANNELS:
             raise RunError("The channel is one of: " + ", ".join(CHANNELS) + ".", "bad_channel")
         if budget_day_tokens is not None and (not isinstance(budget_day_tokens, int) or isinstance(budget_day_tokens, bool) or budget_day_tokens < 1):
@@ -1003,6 +1005,8 @@ class SessionManager:
                "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": 0}
         if copy:
             rec["worktree"], rec["workdir"] = copy, copy["workdir"]
+        if attached:
+            rec["knowledge"] = attached
         if private is True:
             rec["private"] = True                                  # left out of the index of earlier conversations and of what is learned about the person
         if senders:
@@ -1091,6 +1095,8 @@ class SessionManager:
                 cmd += ["--personal-memory-keys", str(self.personal_keys)]
         if self.rag_dir:
             cmd += ["--rag-dir", str(self.rag_dir), "--rag-project", rag_project_key(rec["workspace"])]
+            for aid in rec.get("knowledge") or []:
+                cmd += ["--rag-attached", aid]
         if rec.get("ask_only"):
             cmd.append("--ask-only")
         elif self.vault_dir:
@@ -1270,6 +1276,10 @@ class SessionManager:
                           **({} if event.get("more") else {"waiting_requests": 0, "put_aside": 0}))
             elif kind == "cleared":
                 self._set(rec, waiting_requests=0, put_aside=0)
+            elif kind == "knowledge":                                 # attached or dropped by the model with a tool: the record keeps it for the next start
+                ids = [i for i in event.get("ids") or [] if isinstance(i, str)]
+                if ids != (rec.get("knowledge") or []):
+                    self._set(rec, knowledge=ids)
             elif kind == "blocked":
                 self._set(rec, state="blocked", ask=None, blocked={k: event.get(k) for k in ("reason", "detail", "options", "tool", "arguments")})
             elif kind == "closed":
@@ -2161,6 +2171,35 @@ class SessionManager:
         if not told:
             self._push(sid, {"event": "persona", "slug": slug})
         return self.get(sid)
+
+    def _check_knowledge(self, ids: Any) -> List[str]:
+        """The archives attached to a conversation at its start: those that exist, once each."""
+        if not ids:
+            return []
+        if not isinstance(ids, list) or self.rag_dir is None:
+            raise RunError("The knowledge archives of a conversation are a list of archive ids.", "bad_knowledge")
+        from tadamoo.rag import RagStore
+        return known_archives(ids, RagStore(self.rag_dir).list())
+
+    def set_knowledge(self, sid: str, action: Any, text: Any = "") -> Dict[str, Any]:
+        """`attach`, `detach` or `clear` an archive of this conversation (by name or id; nothing is changed when a name fits two or none): the
+        running conversation is told, and one started again takes it. The answer says what happened, for the page to word."""
+        if action not in ("attach", "detach", "clear") or not isinstance(text, str):
+            raise RunError("The knowledge action is attach, detach or clear, with the name of an archive.", "bad_knowledge")
+        if self.rag_dir is None:
+            raise RunError("The knowledge archives are not available here.", "bad_knowledge")
+        from tadamoo.rag import RagStore
+        with self._lock:
+            rec = self._record(sid)
+            if rec["state"] == "closed":
+                raise RunError("That conversation is closed.", "closed")
+            got = decide(RagStore(self.rag_dir).list(), rag_project_key(rec["workspace"]), rec.get("knowledge") or [], action, text[:200])
+            if got["ids"] != (rec.get("knowledge") or []):
+                self._set(rec, knowledge=got["ids"])
+                told = self._tell_if_running(sid, {"cmd": "knowledge", "ids": got["ids"]})
+                if not told:
+                    self._push(sid, {"event": "knowledge", "ids": got["ids"]})
+        return {"session": self.get(sid), "result": {k: v for k, v in got.items() if k != "ids"}}
 
     def set_telegram(self, sid: str, chat: Any) -> Dict[str, Any]:
         """Moves the conversation to a Telegram chat (its answers go there and what is written there comes here), or back with None. A chat holds one
