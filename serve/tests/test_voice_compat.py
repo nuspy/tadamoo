@@ -325,8 +325,9 @@ class PersonasTests(Base):
         row = out["personas"][0]
         self.assertEqual((status, row["name"], row["display_name"], row["voice"], row["personality"], row["system_prompt"]),
                          (200, "maria-rossi", "Maria Rossi", {"engine": "kokoro", "voice": "if_sara"}, "Warm.", "Be kind."))
-        for key in ("avatar", "language", "knowledge", "learn"):
+        for key in ("avatar", "language", "learn"):
             self.assertIn(key, row)
+        self.assertNotIn("knowledge", row)
         self.assertEqual(self.jsonrequest("GET", "/personas/" + row["name"])[1]["persona"], row)
         self.assertEqual(self.voice.seen, [])                                                   # the voice service is not involved
 
@@ -356,7 +357,7 @@ class PersonasTests(Base):
         self.make()
         status, out = self.jsonrequest("POST", "/personas", {"name": "maria ROSSI"})
         self.assertEqual((status, out["code"]), (409, "exists"))
-        for body in ({}, {"name": ""}, {"name": "../x"}, {"name": "A", "voice": "kokoro"}, {"name": "A", "colour": "red"}, {"name": "A", "knowledge_project": "wiki"}):
+        for body in ({}, {"name": ""}, {"name": "../x"}, {"name": "A", "voice": "kokoro"}, {"name": "A", "colour": "red"}, {"name": "A", "knowledge": []}, {"name": "A", "knowledge_project": "wiki"}):
             status, out = self.jsonrequest("POST", "/personas", body)
             self.assertEqual((status, out["code"]), (400, "bad_request"), body)
         self.assertIn("no equivalent", self.jsonrequest("POST", "/personas", {"name": "A", "knowledge_project": "wiki"})[1]["error"])

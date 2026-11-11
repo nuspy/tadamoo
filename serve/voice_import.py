@@ -1,4 +1,4 @@
-"""Settings > Voice > Import from callAPIcall: the plan and the run of voice/importer.py with TaDaMoo's own personalities and knowledge archives.
+"""Settings > Voice > Import from callAPIcall: the plan and the run of voice/importer.py with TaDaMoo's own personalities.
 
 Both routes come from this PC only. The folder is the one the person names; the server never looks in a default place. The plan reads and writes
 nothing of the person's data; the run needs `confirm: true` and, for an item that holds personal data, that item's own `confirm_personal`."""
@@ -46,6 +46,18 @@ class PersonaPort:
         pe.clean(data)
 
 
+class NoArchives:
+    """The place the importer puts a persona's documents: there is none, because a knowledge archive belongs to a project and not to a personality."""
+
+    @staticmethod
+    def list() -> list:
+        return []
+
+    @staticmethod
+    def create(*_args: Any) -> Any:
+        raise RuntimeError("its documents are not imported: add them to a project in the Knowledge tab")
+
+
 def _dirs() -> tuple[Path, Path, list]:
     return userdata.path("voice") / "avatars", Path(voice_settings.models_dir()) / "tts" / "voices", [userdata.user_data_dir()]
 
@@ -56,16 +68,16 @@ def _source(req: Any) -> str:
     return req["source"]
 
 
-def plan(req: Any, store: pe.PersonaStore, rag: Any) -> Dict[str, Any]:
+def plan(req: Any, store: pe.PersonaStore) -> Dict[str, Any]:
     avatars, voices, forbidden = _dirs()
     mod = importer()
     try:
-        return mod.plan(_source(req), PersonaPort(store), rag, voices, forbidden)
+        return mod.plan(_source(req), PersonaPort(store), NoArchives, voices, forbidden)
     except mod.SourceError as e:
         raise Refused(400, str(e)) from None
 
 
-def run(req: Any, store: pe.PersonaStore, rag: Any) -> Dict[str, Any]:
+def run(req: Any, store: pe.PersonaStore) -> Dict[str, Any]:
     source = _source(req)
     if req.get("confirm") is not True or set(req) - {"source", "confirm", "items"}:
         raise Refused(400, "send {source, confirm: true, items}: the run changes data and needs the confirmation")
@@ -74,7 +86,7 @@ def run(req: Any, store: pe.PersonaStore, rag: Any) -> Dict[str, Any]:
     if not _lock.acquire(blocking=False):
         raise Refused(409, "an import is already running")
     try:
-        return mod.run(source, req.get("items"), PersonaPort(store), rag, avatars, voices, forbidden)
+        return mod.run(source, req.get("items"), PersonaPort(store), NoArchives, avatars, voices, forbidden)
     except mod.SourceError as e:
         raise Refused(400, str(e)) from None
     finally:

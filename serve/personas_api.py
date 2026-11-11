@@ -21,10 +21,9 @@ TURN_CHARS = 20000
 
 
 class PersonasApi:
-    def __init__(self, store: pe.PersonaStore, rag: Optional[Any] = None, learning: Optional[Any] = None) -> None:
+    def __init__(self, store: pe.PersonaStore, learning: Optional[Any] = None) -> None:
         self.store = store
         self.learning = learning        # serve/persona_learning_worker.py: takes the conversations of the model-only chat to learn from
-        self.rag = rag                  # the knowledge archives (tadamoo/rag): the passages of a personality's linked ones go in with its notes
 
     def _summary(self, persona: Dict[str, Any]) -> Dict[str, Any]:
         memory = self.store.memory(persona["slug"])
@@ -93,4 +92,4 @@ class PersonasApi:
         goal = req.get("goal", "")
         if not isinstance(goal, str):
             raise pe.PersonaError("goal: the text of the request")
-        return pe.compose(self.store, slug, goal[:GOAL_CHARS], self.rag)
+        return pe.compose(self.store, slug, goal[:GOAL_CHARS])

@@ -531,6 +531,7 @@
     if (!cont) await codeAbstracts();                                  // old code goes to the model as its description
     if (!cont) {
       try { personaText = window.personaUi ? await window.personaUi.system(text) : ""; } catch (e) { personaText = ""; m.error = e.message || String(e); }
+      try { const found = window.ragUi ? await window.ragUi.recall(text) : ""; if (found) personaText = [personaText, found].filter(Boolean).join("\n\n"); } catch (e) { /* no passages: the request goes on */ }
     }
     const fits = cont ? true : (m.error ? false : await fitContext(m));
     if (!cont && busy && busy.msg === m) { render(); el = busy.el = msgs.lastElementChild; paint(el, m, true); }

@@ -2525,7 +2525,7 @@ def make_handler(svc: Service, remote: bool = False):
             importing = {"/api/voice/import/plan": voice_import.plan, "/api/voice/import/run": voice_import.run}     # the personalities of a callAPIcall folder
             if path in importing:
                 try:
-                    return self._json(200, importing[path](req, self._personas().store, self._rag_store()))
+                    return self._json(200, importing[path](req, self._personas().store))
                 except voice_import.Refused as e:
                     return self._json(e.status, {"error": {"type": "voice_import", "message": str(e)}})
             if path not in routes:
@@ -2638,7 +2638,7 @@ def make_handler(svc: Service, remote: bool = False):
         def _personas(self) -> PersonasApi:
             global _PERSONAS
             if _PERSONAS is None:
-                _PERSONAS = PersonasApi(PersonaStore(userdata.path("personas"), key_dir=userdata.path("vault")), rag=self._rag_store())
+                _PERSONAS = PersonasApi(PersonaStore(userdata.path("personas"), key_dir=userdata.path("vault")))
                 _PERSONAS.learning = self._persona_learning()
             return _PERSONAS
 
@@ -2661,7 +2661,9 @@ def make_handler(svc: Service, remote: bool = False):
             return _RAG
 
         def _rag(self) -> RagApi:
-            return RagApi(self._rag_store(), self._personas().store)
+            chat = userdata.path("chat-workspace")
+            return RagApi(self._rag_store(), lambda: [{"name": "Chat", "path": str(chat), "chat": True}]
+                          + [{"name": p["name"], "path": p["path"], "chat": False} for p in self._projects().list() if p.get("exists")])
 
         def _rag_route(self, path, method):
             """/api/rag/*: the knowledge archives, from this PC only."""
@@ -2672,7 +2674,7 @@ def make_handler(svc: Service, remote: bool = False):
             parts = [p for p in path[len("/api/rag"):].split("/") if p]
             try:
                 if method == "GET":
-                    return self._json(200, self._rag().route_get(parts))
+                    return self._json(200, self._rag().route_get(parts, parse_qs(urlsplit(self.path).query)))
                 try:
                     raw = self._body(upload_limit(parts) + 4096)
                 except BadBody as e:
@@ -2680,7 +2682,7 @@ def make_handler(svc: Service, remote: bool = False):
                 return self._json(200, self._rag().route_post(parts, parse_qs(urlsplit(self.path).query), raw))
             except RagError as e:
                 return self._json(404 if e.code == "not_found" else 400, {"error": {"type": "rag", "code": e.code, "message": str(e)}})
-            except (PersonaError, ValueError, TypeError) as e:
+            except (ValueError, TypeError) as e:
                 return self._json(400, {"error": {"type": "rag", "message": str(e)}})
 
         def _persona_error(self, e: PersonaError):

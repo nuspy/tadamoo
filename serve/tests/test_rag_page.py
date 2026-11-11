@@ -1,14 +1,20 @@
 """The Knowledge tab: the markup, the scripts that use the routes, the texts in both languages, and a layout made for a phone first."""
+import json
 import re
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 
-WEB = Path(__file__).resolve().parent.parent / "web"
+HERE = Path(__file__).resolve().parent
+WEB = HERE.parent / "web"
+NODE = shutil.which("node")
 HTML = (WEB / "index.html").read_text(encoding="utf-8")
 JS = (WEB / "rag.js").read_text(encoding="utf-8")
 CSS = (WEB / "rag.css").read_text(encoding="utf-8")
 I18N = (WEB / "i18n.js").read_text(encoding="utf-8")
 APP = (WEB / "app.js").read_text(encoding="utf-8")
+CHAT = (WEB / "chat.js").read_text(encoding="utf-8")
 EMOJI = re.compile("[\U0001F300-\U0001FAFF☀-➿⬀-⯿]")
 
 
@@ -29,15 +35,39 @@ class RagPageTest(unittest.TestCase):
         self.assertLess(tabs.index("rag"), tabs.index("canary"))
 
     def test_every_route_of_the_server_is_used(self):
-        for route in ('"api/rag"', "`api/rag/archives/${encodeURIComponent(chosen)}`", '"api/rag/archives"', '"api/rag/search"',
+        for route in ('"api/rag/projects"', "`api/rag?project=${encodeURIComponent(project)}`", '"api/rag/recall"', "`api/rag/archives/${encodeURIComponent(chosen)}`", '"api/rag/archives"', '"api/rag/search"',
                       "`api/rag/archives/${encodeURIComponent(chosen)}/update`", "`api/rag/archives/${encodeURIComponent(chosen)}/delete`",
                       "`api/rag/archives/${encodeURIComponent(chosen)}/documents`", "`api/rag/archives/${encodeURIComponent(chosen)}/reindex`",
-                      "`api/rag/archives/${encodeURIComponent(chosen)}/link`", "/documents/${encodeURIComponent(doc.id)}/remove`",
+                      "/documents/${encodeURIComponent(doc.id)}/remove`",
                       "/upload?name=${encodeURIComponent(f.name)}`"):
             self.assertIn(route, JS)
         self.assertIn("authHeaders()", JS)
         self.assertIn("{ confirm: true }", JS)
         self.assertEqual(JS.count("{ confirm: true }"), 1)
+        self.assertNotIn("/link", JS)                                                                 # an archive is not linked to a personality
+
+    def test_the_tab_has_a_project_picker_and_makes_archives_in_the_picked_project(self):
+        self.assertIn('const sel = el("select");', JS)
+        self.assertIn('field("rg-project", T("rg.proj.label")', JS)
+        self.assertIn('api("POST", "api/rag/archives", { name, description, project })', JS)
+        self.assertIn("window.agentChat.record()", JS)                                                # the default is the open conversation's folder
+        self.assertIn("projects.find(p => p.chat)", JS)                                               # else the Chat's own folder
+        for word in ("personalit", "persona"):
+            self.assertNotIn(word, JS.replace("whatever personality speaks", ""))
+
+    def test_the_model_only_chat_adds_the_projects_passages_where_it_adds_the_personality(self):
+        self.assertIn("window.ragUi = { recall };", JS)
+        self.assertIn("await window.ragUi.recall(text)", CHAT)
+        self.assertLess(CHAT.index("await window.personaUi.system(text)"), CHAT.index("await window.ragUi.recall(text)"))
+        self.assertIn("personaText = [personaText, found]", CHAT)
+
+    @unittest.skipUnless(NODE, "node is needed to run the page on the stand-in DOM")
+    def test_the_picker_and_the_recall_work_on_a_stand_in_dom(self):
+        out = subprocess.run([NODE, str(HERE / "rag_project_dom_check.js")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        results = json.loads(out.stdout)
+        self.assertGreaterEqual(len(results), 6)
+        self.assertEqual([f"{r['name']}: {r['error']}" for r in results if not r["ok"]], [])
 
     def test_what_the_server_says_enters_the_page_as_text(self):
         for banned in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function"):
@@ -84,6 +114,7 @@ class RagPageTest(unittest.TestCase):
         self.assertIn("prefers-reduced-motion: reduce", CSS)
         self.assertIn("@media (min-width: 900px)", CSS)                                              # one column first, two on a wide window
         self.assertIn("width: 24px; height: 24px", CSS)                                               # the tick boxes, inside rows 44px high
+        self.assertRegex(CSS, r"\.rg-field select \{[^}]*min-height: 44px")                              # the project picker
         self.assertIn("overflow-wrap: anywhere", CSS)
         self.assertNotIn("hover", CSS)                                                                # nothing that works only with a pointer
 

@@ -31,10 +31,10 @@ def store(tmp_path):
 
 def test_a_personality_is_a_folder_with_a_plain_file_and_an_encrypted_memory(tmp_path):
     s = store(tmp_path)
-    made = s.create({"name": "Maria Rossi", "voice": {"engine": "kokoro", "voice": "if_sara"}, "personality": "Warm.", "language": "it", "knowledge": ["wiki-1"]})
+    made = s.create({"name": "Maria Rossi", "voice": {"engine": "kokoro", "voice": "if_sara"}, "personality": "Warm.", "language": "it"})
     assert made["slug"] == "maria-rossi" and made["voice"] == {"engine": "kokoro", "voice": "if_sara"} and made["avatar"] == ""
     body = json.loads((tmp_path / "personas" / "maria-rossi" / "persona.json").read_text(encoding="utf-8"))
-    assert body["name"] == "Maria Rossi" and body["knowledge"] == ["wiki-1"] and "slug" not in body
+    assert body["name"] == "Maria Rossi" and "slug" not in body
     s.memory("maria-rossi").add("long", "tastes", "Loves the poems of Montale")
     raw = (tmp_path / "personas" / "maria-rossi" / "memories.bin").read_bytes()
     assert b"Montale" not in raw and raw.startswith(b"BPM1")
@@ -88,12 +88,23 @@ def test_sizes_and_fields_are_checked(tmp_path):
     with pytest.raises(pe.PersonaError, match="at most 1500"):
         s.create({"name": "A", "profile": "x" * 1501})
     for bad in ({"colour": "red"}, {"voice": "kokoro"}, {"voice": {"engine": "a", "key": "b"}}, {"voice": {"engine": "a/b"}}, {"avatar": "../a.png"}, {"language": "Italian"},
-                {"knowledge": "a"}, {"knowledge": ["../x"]}, {"knowledge": ["a"] * 51}, {"personality": 5}, {"personality": "bell\x07"}):
+                {"knowledge": ["a"]}, {"personality": 5}, {"personality": "bell\x07"}):
         with pytest.raises(pe.PersonaError):
             s.create({"name": "A", **bad})
     assert s.list() == []
-    ok = s.create({"name": "A", "personality": "line one\r\nline two", "knowledge": ["x", "x", "y"]})
-    assert ok["personality"] == "line one\nline two" and ok["knowledge"] == ["x", "y"]
+    ok = s.create({"name": "A", "personality": "line one\r\nline two"})
+    assert ok["personality"] == "line one\nline two" and "knowledge" not in ok
+
+
+def test_a_file_that_still_holds_a_knowledge_key_is_read_without_it_and_written_without_it(tmp_path):
+    s = store(tmp_path)
+    s.create({"name": "Old"})
+    path = tmp_path / "personas" / "old" / "persona.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    path.write_text(json.dumps({**data, "knowledge": ["recipes-a1b2c3"]}), encoding="utf-8")
+    assert "knowledge" not in s.get("old") and [p["slug"] for p in s.list()] == ["old"]
+    s.update("old", {"personality": "Calm."})
+    assert "knowledge" not in json.loads(path.read_text(encoding="utf-8"))
 
 
 def test_the_number_of_personalities_is_limited(tmp_path):

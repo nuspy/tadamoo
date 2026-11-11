@@ -1,7 +1,7 @@
 """callAPIcall's `/personas` routes, answered from TaDaMoo's own personalities (`serve/personas_api.py`): list, one, create, change, delete.
 
 The fields callAPIcall's manifest had are the personality's: `name`, `voice {engine, voice}`, `personality`, `system_prompt`. TaDaMoo's other
-non-memory fields (`avatar`, `language`, `knowledge`, `learn`) are read and written with the same names. Memory is the person's: the short
+non-memory fields (`avatar`, `language`, `learn`) are read and written with the same names. Memory is the person's: the short
 profile of what the personality knows about them, its notes and what it learned never appear in an answer and cannot be written here.
 `knowledge_project` (a wikibridge project) has no equivalent and is refused when it is not empty.
 
@@ -16,8 +16,8 @@ from urllib.parse import parse_qs, unquote
 from serve.personas_api import PersonasApi
 from tadamoo import personas as pe
 
-BODY_FIELDS = ("name", "voice", "personality", "system_prompt", "avatar", "language", "knowledge", "learn")
-NO_PROJECT = "knowledge_project has no equivalent: archives are linked from the Knowledge tab, or with `knowledge` (a list of archive ids)."
+BODY_FIELDS = ("name", "voice", "personality", "system_prompt", "avatar", "language", "learn")
+NO_PROJECT = "knowledge_project has no equivalent"
 
 
 class Refusal(Exception):
@@ -29,7 +29,7 @@ class Refusal(Exception):
 def item(persona: dict) -> dict:
     """What an answer says of a personality: no memory of any kind."""
     return {"name": persona["slug"], "display_name": persona["name"], "voice": persona["voice"], "avatar": persona["avatar"], "personality": persona["personality"],
-            "system_prompt": persona["system_prompt"], "language": persona["language"], "knowledge": list(persona["knowledge"]), "learn": persona["learn"]}
+            "system_prompt": persona["system_prompt"], "language": persona["language"], "learn": persona["learn"]}
 
 
 def _body(raw: bytes) -> dict:

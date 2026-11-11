@@ -1,5 +1,6 @@
-"""The Knowledge tab's server side: the archives API, the routes (this PC only), the link to personalities, and the harness's flag."""
+"""The Knowledge tab's server side: the archives of a project over the API, the routes (this PC only), and the harness's flags."""
 import json
+import re
 import tempfile
 import unittest
 import urllib.error
@@ -13,30 +14,37 @@ from serve import handler
 from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate
 from serve.handler import serve
-from serve.personas_api import PersonasApi
+from serve.projects import ProjectStore
 from serve.plans import PlanService
 from serve.rag_api import RagApi, upload_limit
 from serve.service import Service
 from serve.tasks import ChangeJournal, TaskJournal
 from serve.util.text import ByteTokenizer
-from tadamoo import personas as pe
-from tadamoo.rag import RagError, RagStore
+from tadamoo.rag import RagError, RagStore, project_key
 
 ROOT = Path(__file__).resolve().parents[2]
 BOATS = b"A sloop has one mast and two sails. The keel keeps the boat upright and stops it sliding sideways. To tack, turn the bow through the wind."
 RICE = b"Risotto needs short grain rice, hot stock and patience. Stir often and add the stock a ladle at a time."
 
 
+PROJ = project_key("project-one")
+OTHER = project_key("project-two")
+
+
 def make(tmp_path, embedder=None):
-    personas = pe.PersonaStore(tmp_path / "personas", key=bytes(range(32)))
-    return RagApi(RagStore(tmp_path / "rag", embedder=embedder or (lambda: None), forbidden=[tmp_path / "personas"]), personas)
+    folders = [{"name": "Chat", "path": str(tmp_path / "chat"), "chat": True}, {"name": "Work", "path": str(tmp_path / "work"), "chat": False}]
+    return RagApi(RagStore(tmp_path / "rag", embedder=embedder or (lambda: None), forbidden=[tmp_path / "personas"]), lambda: folders)
+
+
+def new(api, name, project=PROJ, **more):
+    return api.create({"name": name, "project": project, **more})
 
 
 def test_an_archive_is_made_filled_asked_and_deleted(tmp_path):
     api = make(tmp_path)
-    made = api.create({"name": "Boats", "description": "About sailing"})["archive"]
+    made = new(api, "Boats", description="About sailing")["archive"]
     aid = made["id"]
-    assert made["documents"] == 0 and made["mode"] == "text" and api.overview()["embedding"] == {"available": False, "model": ""}
+    assert made["documents"] == 0 and made["mode"] == "text" and made["project"] == PROJ and api.overview(PROJ)["embedding"] == {"available": False, "model": ""}
     added = api.upload(aid, "boats.txt", BOATS)
     assert added["document"]["name"] == "boats.txt" and added["embedded"] is False
     api.upload(aid, "rice.md", RICE)
@@ -44,25 +52,25 @@ def test_an_archive_is_made_filled_asked_and_deleted(tmp_path):
     assert [d["name"] for d in detail["archive"]["document_list"]] == ["boats.txt", "rice.md"] and detail["archive"]["chunks"] == 2
     found = api.search({"query": "what keeps the boat upright", "archives": [aid]})
     assert found["mode"] == "lexical" and found["hits"][0]["document"] == "boats.txt" and found["searched"] == 1
-    assert api.search({"query": "stock for the risotto"})["hits"][0]["document"] == "rice.md"           # no archive named: all of them
+    assert api.search({"query": "stock for the risotto", "project": PROJ})["hits"][0]["document"] == "rice.md"        # no archive named: all of the project's
     assert api.reindex(aid)["chunks"] == 2
     assert api.remove_document(aid, detail["archive"]["document_list"][0]["id"])["removed"] is True
     assert api.get(aid)["archive"]["documents"] == 1
     assert api.update(aid, {"name": "Sailing"})["archive"]["name"] == "Sailing"
     with pytest.raises(RagError, match="confirmation"):
         api.delete(aid, {})
-    assert api.delete(aid, {"confirm": True}) == {"deleted": True, "documents": 1, "unlinked": 0}
-    assert api.overview()["archives"] == []
+    assert api.delete(aid, {"confirm": True}) == {"deleted": True, "documents": 1}
+    assert api.overview(PROJ)["archives"] == []
 
 
 def test_the_overview_says_what_is_supported(tmp_path):
-    o = make(tmp_path).overview()
+    o = make(tmp_path).overview(PROJ)
     assert ".pdf" in o["formats"] and ".epub" in o["formats"] and o["limits"]["documents"] > 0 and isinstance(o["pdf"], bool)
 
 
 def test_a_document_can_be_added_by_its_path(tmp_path):
     api = make(tmp_path)
-    aid = api.create({"name": "One"})["archive"]["id"]
+    aid = new(api, "One")["archive"]["id"]
     doc = tmp_path / "docs" / "boats.txt"
     doc.parent.mkdir()
     doc.write_bytes(BOATS)
@@ -72,59 +80,75 @@ def test_a_document_can_be_added_by_its_path(tmp_path):
             api.add_path(aid, bad)
 
 
-def test_linking_changes_the_personalitys_own_list_and_deleting_an_archive_unlinks_it(tmp_path):
+def test_an_archive_needs_a_project_and_is_listed_only_in_it(tmp_path):
     api = make(tmp_path)
-    api.personas.create({"name": "Maria"})
-    api.personas.create({"name": "Gino"})
-    a, b = (api.create({"name": n})["archive"]["id"] for n in ("Boats", "Kitchen"))
-    assert api.link(a, {"persona": "maria", "linked": True})["personas"] == [{"slug": "gino", "name": "Gino", "linked": False}, {"slug": "maria", "name": "Maria", "linked": True}]
-    api.link(b, {"persona": "maria", "linked": True})
-    api.link(a, {"persona": "gino", "linked": True})
-    api.link(a, {"persona": "gino", "linked": True})                                                     # twice: still once
-    assert api.personas.get("maria")["knowledge"] == [a, b] and api.personas.get("gino")["knowledge"] == [a]
-    assert [p["slug"] for p in api.get(a)["personas"] if p["linked"]] == ["gino", "maria"]
-    api.link(a, {"persona": "maria", "linked": False})
-    assert api.personas.get("maria")["knowledge"] == [b]
-    api.link(a, {"persona": "maria", "linked": True})
-    assert api.delete(a, {"confirm": True})["unlinked"] == 2
-    assert api.personas.get("maria")["knowledge"] == [b] and api.personas.get("gino")["knowledge"] == []
-    for bad in ({"persona": "maria"}, {"persona": "maria", "linked": "yes"}):
+    for bad in ({"name": "A"}, {"name": "A", "project": "nope"}, {"name": "A", "project": PROJ.upper()}, {"name": "A", "project": PROJ, "persona": "maria"}):
         with pytest.raises(RagError):
-            api.link(b, bad)
-    with pytest.raises(RagError) as e:
-        api.link(b, {"persona": "nobody", "linked": True})
-    assert e.value.code == "not_found"
-    with pytest.raises(RagError) as e:
-        api.link("gone-123456", {"persona": "maria", "linked": True})
-    assert e.value.code == "not_found"
+            api.create(bad)
+    a, b = new(api, "Boats")["archive"]["id"], new(api, "Boats", OTHER)["archive"]["id"]            # the same name in two projects
+    assert [x["id"] for x in api.overview(PROJ)["archives"]] == [a] and [x["id"] for x in api.overview(OTHER)["archives"]] == [b]
+    with pytest.raises(RagError):
+        api.overview("")
+    with pytest.raises(RagError):
+        new(api, "boats")
 
 
-def test_a_search_can_be_for_one_personalitys_archives(tmp_path):
+def test_the_projects_are_the_folders_with_their_keys_and_archive_counts(tmp_path):
     api = make(tmp_path)
-    api.personas.create({"name": "Maria"})
-    a, b = (api.create({"name": n})["archive"]["id"] for n in ("Boats", "Kitchen"))
+    work = project_key(tmp_path / "work")
+    new(api, "One", work)
+    new(api, "Two", work)
+    new(api, "Elsewhere", OTHER)
+    rows = api.projects()["projects"]
+    assert [(r["name"], r["key"], r["archives"], r["chat"]) for r in rows] == [("Chat", project_key(tmp_path / "chat"), 0, True), ("Work", work, 2, False)]
+    assert rows[1]["path"] == str(tmp_path / "work")
+    twin = RagApi(api.store, lambda: [{"name": "A", "path": str(tmp_path / "work"), "chat": False}, {"name": "B", "path": str(tmp_path / "work") + "/", "chat": False}])
+    assert [r["name"] for r in twin.projects()["projects"]] == ["A"]                                  # one folder, spelt twice: one project
+
+
+def test_a_search_can_be_for_one_projects_archives(tmp_path):
+    api = make(tmp_path)
+    a, b = new(api, "Boats")["archive"]["id"], new(api, "Kitchen", OTHER)["archive"]["id"]
     api.upload(a, "boats.txt", BOATS)
     api.upload(b, "rice.txt", RICE)
-    api.link(b, {"persona": "maria", "linked": True})
-    assert api.search({"query": "keel upright boat", "persona": "maria"})["hits"] == []
-    assert api.search({"query": "stock for risotto", "persona": "maria"})["hits"][0]["archive"] == "Kitchen"
-    for bad in ({}, {"query": " "}, {"query": 5}, {"query": "x", "top_k": 0}, {"query": "x", "top_k": 99}, {"query": "x", "top_k": True}, {"query": "x", "archives": "a"}, {"query": "x", "archives": [1]}):
+    assert api.search({"query": "keel upright boat", "project": OTHER})["hits"] == []
+    assert api.search({"query": "stock for risotto", "project": OTHER})["hits"][0]["archive"] == "Kitchen"
+    for bad in ({}, {"query": " "}, {"query": 5}, {"query": "x", "project": PROJ, "top_k": 0}, {"query": "x", "project": PROJ, "top_k": 99}, {"query": "x", "project": PROJ, "top_k": True},
+                {"query": "x"}, {"query": "x", "project": "nope"}, {"query": "x", "archives": "a"}, {"query": "x", "archives": [1]}):
         with pytest.raises(RagError):
             api.search(bad)
     with pytest.raises(RagError) as e:
         api.search({"query": "x", "archives": ["gone-123456"]})
     assert e.value.code == "not_found"
-    with pytest.raises(RagError):
-        api.search({"query": "x", "persona": "nobody"})
+
+
+def test_recall_gives_the_data_block_of_the_projects_passages(tmp_path):
+    api = make(tmp_path)
+    a, b = new(api, "Boats")["archive"]["id"], new(api, "Kitchen", OTHER)["archive"]["id"]
+    api.upload(a, "boats.txt", BOATS)
+    api.upload(b, "rice.txt", RICE)
+    block = api.recall({"project": PROJ, "goal": "what keeps the boat upright, the keel?"})["block"]
+    assert "[Boats / boats.txt]" in block and block.startswith("<untrusted_data source=\"knowledge-archive\"") and "Kitchen" not in block
+    assert api.recall({"project": PROJ, "goal": "stock for risotto"})["block"] == ""                  # the other project's passages stay out
+    assert api.recall({"project": PROJ, "goal": ""})["block"] == ""
+    for bad in ({"goal": "x"}, {"project": "nope", "goal": "x"}, {"project": PROJ, "goal": 5}):
+        with pytest.raises(RagError):
+            api.recall(bad)
 
 
 def test_the_route_parts_are_dispatched_and_unknown_ones_are_not_found(tmp_path):
     api = make(tmp_path)
-    created = api.route_post(["archives"], {}, b'{"name": "Boats"}')["archive"]
+    created = api.route_post(["archives"], {}, json.dumps({"name": "Boats", "project": PROJ}).encode())["archive"]
     aid = created["id"]
-    assert api.route_get([])["archives"][0]["id"] == aid and api.route_get(["archives", aid])["archive"]["name"] == "Boats"
+    assert api.route_get([], {"project": [PROJ]})["archives"][0]["id"] == aid and api.route_get(["archives", aid])["archive"]["name"] == "Boats"
+    assert api.route_get(["projects"])["projects"][0]["chat"] is True and api.route_get([], {"project": [OTHER]})["archives"] == []
     assert api.route_post(["archives", aid, "upload"], {"name": ["boats.txt"]}, BOATS)["document"]["name"] == "boats.txt"
-    assert api.route_post(["search"], {}, json.dumps({"query": "keel"}).encode())["hits"]
+    assert api.route_post(["search"], {}, json.dumps({"query": "keel", "project": PROJ}).encode())["hits"]
+    assert api.route_post(["recall"], {}, json.dumps({"project": PROJ, "goal": "what keeps the boat upright"}).encode())["block"]
+    for gone in (["archives", aid, "link"],):
+        with pytest.raises(RagError) as e:
+            api.route_post(gone, {}, b"{}")
+        assert e.value.code == "not_found"
     assert upload_limit(["archives", aid, "upload"]) > upload_limit(["archives", aid, "update"])
     for parts in (["nothing"], ["archives", aid, "frobnicate"], ["archives", aid, "documents", "x", "frobnicate"], ["upload"]):
         with pytest.raises(RagError) as e:
@@ -135,7 +159,9 @@ def test_the_route_parts_are_dispatched_and_unknown_ones_are_not_found(tmp_path)
     with pytest.raises(RagError):
         api.route_get(["archives"])
     with pytest.raises(RagError):
-        api.route_post(["archives"], {}, b'{"name": "x", "colour": "red"}')
+        api.route_get([])                                                                              # the project is part of the question
+    with pytest.raises(RagError):
+        api.route_post(["archives"], {}, json.dumps({"name": "x", "project": PROJ, "colour": "red"}).encode())
 
 
 class Embedder:
@@ -149,13 +175,13 @@ class Embedder:
 def test_hybrid_search_switches_on_when_an_embedder_appears(tmp_path):
     holder = {"e": None}
     api = make(tmp_path, lambda: holder["e"])
-    aid = api.create({"name": "Boats"})["archive"]["id"]
+    aid = new(api, "Boats")["archive"]["id"]
     api.upload(aid, "boats.txt", BOATS)
     assert api.embedding()["available"] is False and api.get(aid)["archive"]["mode"] == "text"
     holder["e"] = Embedder()
     assert api.embedding() == {"available": True, "model": "fake-1"} and api.get(aid)["archive"]["reindex"] is True
     assert api.reindex(aid)["embedded"] is True
-    assert api.get(aid)["archive"]["mode"] == "hybrid" and api.search({"query": "boat keel"})["mode"] == "hybrid"
+    assert api.get(aid)["archive"]["mode"] == "hybrid" and api.search({"query": "boat keel", "project": PROJ})["mode"] == "hybrid"
 
 
 class Routes(unittest.TestCase):
@@ -167,10 +193,12 @@ class Routes(unittest.TestCase):
         cls.svc = Service(MockEngine(tok, "</think>\n\nok", max_context=32768), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
         cls.tmp = tempfile.TemporaryDirectory()
         base = Path(cls.tmp.name)
-        personas = pe.PersonaStore(base / "personas", key=bytes(range(32)))
         cls.rag = RagStore(base / "rag")
+        (base / "work").mkdir()
+        cls.projects = ProjectStore(base / "journal")
+        cls.work = cls.projects.add(str(base / "work"))["path"]
         cls.patches = [mock.patch.object(handler, "_TASKS", TaskJournal(base / "j")), mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j")),
-                       mock.patch.object(handler, "_PLANS", PlanService(base / "planner")), mock.patch.object(handler, "_PERSONAS", PersonasApi(personas, rag=cls.rag)),
+                       mock.patch.object(handler, "_PLANS", PlanService(base / "planner")), mock.patch.object(handler, "_PROJECTS", cls.projects),
                        mock.patch.object(handler, "_RAG", cls.rag)]
         for p in cls.patches:
             p.start()
@@ -196,20 +224,23 @@ class Routes(unittest.TestCase):
             return e.code, (json.loads(body) if body[:1] == b"{" else body)
 
     def test_the_whole_cycle_over_http(self):
-        status, body = self.call("POST", "/api/rag/archives", {"name": "Route Test", "description": "d"})
+        status, body = self.call("POST", "/api/rag/archives", {"name": "Route Test", "description": "d", "project": PROJ})
         self.assertEqual(status, 200)
         aid = body["archive"]["id"]
-        self.assertEqual(self.call("POST", "/api/rag/archives", {"name": "route test"})[0], 400)
+        self.assertEqual(self.call("POST", "/api/rag/archives", {"name": "route test", "project": PROJ})[0], 400)
+        self.assertEqual(self.call("POST", "/api/rag/archives", {"name": "no project"})[0], 400)
         status, up = self.call("POST", f"/api/rag/archives/{aid}/upload?name=boats.txt", raw=BOATS)
         self.assertEqual((status, up["document"]["name"]), (200, "boats.txt"))
         self.assertEqual(self.call("POST", f"/api/rag/archives/{aid}/upload?name=boats.txt", raw=BOATS)[0], 400)           # the same file twice
         self.assertEqual(self.call("POST", f"/api/rag/archives/{aid}/upload?name=..%2Fx.txt", raw=BOATS)[0], 400)
         self.assertEqual(self.call("POST", f"/api/rag/archives/{aid}/upload?name=x.exe", raw=BOATS)[0], 400)
         self.assertEqual(self.call("POST", f"/api/rag/archives/{aid}/documents", {"path": "relative.txt"})[0], 400)
-        status, listing = self.call("GET", "/api/rag")
+        status, listing = self.call("GET", f"/api/rag?project={PROJ}")
         self.assertEqual((status, [a["id"] for a in listing["archives"]]), (200, [aid]))
+        self.assertEqual(self.call("GET", f"/api/rag?project={OTHER}")[1]["archives"], [])
+        self.assertEqual(self.call("GET", "/api/rag")[0], 400)
         self.assertFalse(listing["embedding"]["available"])
-        status, found = self.call("POST", "/api/rag/search", {"query": "keel upright", "archives": [aid]})
+        status, found = self.call("POST", "/api/rag/search", {"query": "keel upright", "project": PROJ})
         self.assertEqual((status, found["hits"][0]["document"], found["mode"]), (200, "boats.txt", "lexical"))
         status, view = self.call("GET", f"/api/rag/archives/{aid}")
         self.assertEqual((status, view["archive"]["documents"]), (200, 1))
@@ -220,20 +251,30 @@ class Routes(unittest.TestCase):
         self.assertEqual(self.call("POST", f"/api/rag/archives/{aid}/delete", {"confirm": True})[1]["deleted"], True)
         self.assertEqual(self.call("GET", f"/api/rag/archives/{aid}")[0], 404)
 
-    def test_linking_over_http_and_the_chat_text_that_follows(self):
-        self.call("POST", "/api/personas", {"name": "Link Test"})
-        aid = self.call("POST", "/api/rag/archives", {"name": "Linked"})[1]["archive"]["id"]
-        self.call("POST", f"/api/rag/archives/{aid}/upload?name=boats.txt", raw=BOATS)
-        status, linked = self.call("POST", f"/api/rag/archives/{aid}/link", {"persona": "link-test", "linked": True})
-        self.assertEqual((status, [p for p in linked["personas"] if p["linked"]][0]["slug"]), (200, "link-test"))
-        self.assertEqual(self.call("GET", "/api/personas/link-test")[1]["persona"]["knowledge"], [aid])
-        status, composed = self.call("POST", "/api/personas/link-test/compose", {"goal": "what keeps the boat upright, the keel?"})
+    def test_the_projects_the_page_can_pick(self):
+        status, body = self.call("GET", "/api/rag/projects")
         self.assertEqual(status, 200)
-        self.assertIn("[Linked / boats.txt]", composed["memory"])
-        self.assertIn('<untrusted_data source="knowledge-archive"', composed["memory"])
+        chat, work = body["projects"][0], [p for p in body["projects"] if not p["chat"]]
+        self.assertTrue(chat["chat"] and re.fullmatch(r"[0-9a-f]{12}", chat["key"]))
+        self.assertEqual([(p["key"], p["path"]) for p in work], [(project_key(self.work), self.work)])
+
+    def test_the_chat_text_for_a_project_and_the_personality_text_without_passages(self):
+        aid = self.call("POST", "/api/rag/archives", {"name": "Chat Boats", "project": PROJ})[1]["archive"]["id"]
+        self.call("POST", f"/api/rag/archives/{aid}/upload?name=boats.txt", raw=BOATS)
+        status, recalled = self.call("POST", "/api/rag/recall", {"project": PROJ, "goal": "what keeps the boat upright, the keel?"})
+        self.assertEqual(status, 200)
+        self.assertIn("[Chat Boats / boats.txt]", recalled["block"])
+        self.assertIn('<untrusted_data source="knowledge-archive"', recalled["block"])
+        self.assertEqual(self.call("POST", "/api/rag/recall", {"project": OTHER, "goal": "what keeps the boat upright, the keel?"})[1], {"block": ""})
+        self.assertEqual(self.call("POST", "/api/rag/recall", {"goal": "x"})[0], 400)
+        self.call("POST", "/api/personas", {"name": "Compose Test"})
+        status, composed = self.call("POST", "/api/personas/compose-test/compose", {"goal": "what keeps the boat upright, the keel?"})
+        self.assertEqual(status, 200)
+        self.assertNotIn("Chat Boats", composed["memory"])
+        self.assertNotIn("knowledge", self.call("GET", "/api/personas/compose-test")[1]["persona"])
+        self.assertEqual(self.call("POST", "/api/personas/compose-test/update", {"knowledge": []})[0], 400)
+        self.call("POST", "/api/personas/compose-test/delete", {"confirm": True})
         self.call("POST", f"/api/rag/archives/{aid}/delete", {"confirm": True})
-        self.assertEqual(self.call("GET", "/api/personas/link-test")[1]["persona"]["knowledge"], [])
-        self.call("POST", "/api/personas/link-test/delete", {"confirm": True})
 
     def test_unknown_things_and_bad_bodies(self):
         self.assertEqual(self.call("GET", "/api/rag/archives/..%2F..%2Fx")[0], 404)
@@ -244,13 +285,13 @@ class Routes(unittest.TestCase):
 
     def test_only_this_pc_reaches_them(self):
         with mock.patch.object(handler.settings, "is_loopback", lambda address: False):
-            for method, path in (("GET", "/api/rag"), ("GET", "/api/rag/archives/x"), ("POST", "/api/rag/archives"), ("POST", "/api/rag/search"),
+            for method, path in (("GET", "/api/rag"), ("GET", "/api/rag/projects"), ("GET", "/api/rag/archives/x"), ("POST", "/api/rag/archives"), ("POST", "/api/rag/search"), ("POST", "/api/rag/recall"),
                                  ("POST", "/api/rag/archives/x/upload?name=a.txt")):
                 status, _ = self.call(method, path, {} if method == "POST" else None)
                 self.assertEqual(status, 403, path)
 
 
-def test_a_conversation_hands_its_process_the_archive_folder(tmp_path):
+def test_a_conversation_hands_its_process_the_archive_folder_and_its_projects_key(tmp_path):
     from serve.agent_sessions import SessionManager
     real = SessionManager(tmp_path / "j2", "http://127.0.0.1:1", personas_dir=tmp_path / "personas", rag_dir=tmp_path / "rag", personal_keys=tmp_path / "keys", tick_s=0.1)
     try:
@@ -258,5 +299,17 @@ def test_a_conversation_hands_its_process_the_archive_folder(tmp_path):
         sid = real.create(str(tmp_path / "w"))["id"]
         cmd = real._command(sid, real._record(sid), tmp_path / "h")
         assert cmd[cmd.index("--rag-dir") + 1] == str(tmp_path / "rag")
+        assert cmd[cmd.index("--rag-project") + 1] == project_key(tmp_path / "w")                       # the key of the conversation's folder
+    finally:
+        real.shutdown()
+
+
+def test_the_chats_own_folder_is_a_project_too_and_no_personalities_are_needed(tmp_path):
+    from serve.agent_sessions import SessionManager
+    real = SessionManager(tmp_path / "j2", "http://127.0.0.1:1", rag_dir=tmp_path / "rag", default_workspace=tmp_path / "chat-workspace", tick_s=0.1)
+    try:
+        sid = real.create(None)["id"]
+        cmd = real._command(sid, real._record(sid), tmp_path / "h")
+        assert cmd[cmd.index("--rag-project") + 1] == project_key(tmp_path / "chat-workspace") and "--personas-dir" not in cmd
     finally:
         real.shutdown()

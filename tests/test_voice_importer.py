@@ -1,5 +1,5 @@
 """The import of a callAPIcall folder (voice/importer.py through serve/voice_import.py): a plan that writes nothing, personalities made with their
-memory encrypted, an archive linked to them, clips copied and the cache left, conflicts, personal data that needs a confirmation, a second run that
+memory encrypted, no knowledge archive made, clips copied and the cache left, conflicts, personal data that needs a confirmation, a second run that
 changes nothing. The folders are built in a temporary place; the real callAPIcall data is never read."""
 import json
 import os
@@ -11,7 +11,6 @@ import pytest
 
 from serve import voice_import
 from tadamoo import personas as pe
-from tadamoo.rag.store import RagStore
 
 PROFILE_1 = "She likes the early morning and the mountains behind the lake house."
 PROFILE_2 = "She dislikes loud meetings and always asks for the agenda first."
@@ -78,18 +77,17 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("TADAMOO_CACHE", str(tmp_path / "cache"))
     voice_import.userdata.path("voice")                                   # the data folder and its one-off marker exist before the tests look
     store = pe.PersonaStore(tmp_path / "data" / "personas", key_dir=tmp_path / "data" / "vault")
-    rag = RagStore(tmp_path / "data" / "rag", forbidden=[tmp_path / "data"])
     voices = tmp_path / "models" / "tts" / "voices"
     monkeypatch.setattr(voice_import.voice_settings, "models_dir", lambda: str(tmp_path / "models"))
-    return type("Env", (), {"store": store, "rag": rag, "voices": voices, "avatars": tmp_path / "data" / "voice" / "avatars", "data": tmp_path / "data"})
+    return type("Env", (), {"store": store, "voices": voices, "avatars": tmp_path / "data" / "voice" / "avatars", "data": tmp_path / "data"})
 
 
 def _plan(env, source):
-    return voice_import.plan({"source": str(source)}, env.store, env.rag)
+    return voice_import.plan({"source": str(source)}, env.store)
 
 
 def _run(env, source, items):
-    return voice_import.run({"source": str(source), "confirm": True, "items": items}, env.store, env.rag)
+    return voice_import.run({"source": str(source), "confirm": True, "items": items}, env.store)
 
 
 def _by(plan):
@@ -129,7 +127,7 @@ def test_the_run_makes_the_personalities_and_nothing_personal_without_its_confir
     assert not env.avatars.exists() and not env.voices.exists()
 
 
-def test_a_personality_gets_its_fields_its_encrypted_memory_its_archive_and_its_media(env, source):
+def test_a_personality_gets_its_fields_its_encrypted_memory_and_its_media(env, source):
     out = _run(env, source, [{"id": "persona:Shan", "confirm_personal": True}, {"id": "persona:Giulio_Cesare"}])
     got = {r["id"]: r for r in out["results"]}
     assert got["persona:Shan"]["status"] == "created" and got["persona:Giulio_Cesare"]["status"] == "created", out
@@ -148,9 +146,9 @@ def test_a_personality_gets_its_fields_its_encrypted_memory_its_archive_and_its_
     assert list(index) == ["a.mp4"] and index["a.mp4"]["frames"] == 3 and index["a.mp4"]["height"] == 480
     assert not (env.avatars / "shan" / "scratch").exists()                                  # any other folder is left where it is
     caesar = env.store.get("giulio-cesare")
-    assert caesar["profile"] == "A general who writes of his own wars." and len(caesar["knowledge"]) == 1
-    archive = env.rag.get(caesar["knowledge"][0])
-    assert archive["name"] == "Giulio_Cesare (callAPIcall)" and archive["documents"] == 1 and archive["chunks"] >= 1
+    assert caesar["profile"] == "A general who writes of his own wars." and "knowledge" not in caesar
+    assert any("documents are not imported" in w for w in got["persona:Giulio_Cesare"]["warnings"]) and "archive" not in got["persona:Giulio_Cesare"]
+    assert not (env.data / "rag").exists()                                                  # a knowledge archive belongs to a project: none is made here
     assert "avatar" not in {k for k in caesar if caesar[k] and k == "avatar"}
 
 
@@ -165,12 +163,10 @@ def test_the_memory_is_encrypted_on_disk_and_written_nowhere_else(env, source):
             assert not any(n in data for n in needles), path
 
 
-def test_without_documents_the_saved_passages_become_the_archive(env, source):
+def test_the_saved_passages_of_a_persona_are_not_imported_either(env, source):
     out = _run(env, source, [{"id": "persona:Passages"}])
-    assert out["results"][0]["status"] == "created"
-    archive = env.rag.get(env.store.get("passages")["knowledge"][0])
-    assert archive["documents"] == 1 and archive["document_list"][0]["name"] == "book.txt" and archive["chunks"] >= 1
-    assert env.rag.search([archive["id"]], "cold winter north")["hits"]
+    assert out["results"][0]["status"] == "created" and "knowledge" not in env.store.get("passages")
+    assert any("not imported" in w for w in out["results"][0]["warnings"]) and not (env.data / "rag").exists()
 
 
 def test_a_second_run_changes_nothing_and_a_persona_that_exists_is_skipped(env, source, tmp_path):
@@ -183,16 +179,14 @@ def test_a_second_run_changes_nothing_and_a_persona_that_exists_is_skipped(env, 
     assert {p: p.read_bytes() for p in (tmp_path / "data").rglob("*") if p.is_file() and p.name != "device.key"} == snapshot
 
 
-def test_replace_updates_the_personality_without_doubling_its_memory_archive_or_files(env, source):
+def test_replace_updates_the_personality_without_doubling_its_memory_or_files(env, source):
     items = [{"id": "persona:Shan", "confirm_personal": True}, {"id": "persona:Giulio_Cesare"}]
     _run(env, source, items)
     memory = env.store.memory("shan")
-    count, archives = memory.count(), len(env.rag.list())
+    count = memory.count()
     out = _run(env, source, [{**i, "replace": True} for i in items])
     assert out["counts"] == {"updated": 2}, out
-    assert env.store.memory("shan").count() == count and len(env.rag.list()) == archives
-    assert env.rag.get(env.store.get("giulio-cesare")["knowledge"][0])["documents"] == 1
-    assert len(env.store.get("giulio-cesare")["knowledge"]) == 1
+    assert env.store.memory("shan").count() == count
 
 
 def test_a_persona_the_person_already_has_is_a_conflict_and_is_never_overwritten_by_default(env, source):
@@ -224,22 +218,22 @@ def test_a_cloned_voice_is_copied_into_the_models_folder_and_not_over_an_existin
 
 def test_the_run_needs_the_confirmation_and_a_real_folder(env, source, tmp_path):
     with pytest.raises(voice_import.Refused) as e:
-        voice_import.run({"source": str(source), "items": [{"id": "persona:Vanessa"}]}, env.store, env.rag)
+        voice_import.run({"source": str(source), "items": [{"id": "persona:Vanessa"}]}, env.store)
     assert e.value.status == 400 and "confirmation" in str(e.value)
     for bad in ("relative/path", str(tmp_path / "nowhere"), str(tmp_path), ""):
         with pytest.raises(voice_import.Refused):
-            voice_import.plan({"source": bad}, env.store, env.rag)
+            voice_import.plan({"source": bad}, env.store)
     with pytest.raises(voice_import.Refused):
-        voice_import.plan({}, env.store, env.rag)
+        voice_import.plan({}, env.store)
     with pytest.raises(voice_import.Refused):
-        voice_import.run({"source": str(source), "confirm": True, "items": []}, env.store, env.rag)
+        voice_import.run({"source": str(source), "confirm": True, "items": []}, env.store)
 
 
 def test_the_data_folder_of_taDaMoo_is_not_a_source(env, tmp_path):
     inside = env.data / "callAPIcall" / "avatar" / "persone"
     inside.mkdir(parents=True)
     with pytest.raises(voice_import.Refused) as e:
-        voice_import.plan({"source": str(env.data / "callAPIcall")}, env.store, env.rag)
+        voice_import.plan({"source": str(env.data / "callAPIcall")}, env.store)
     assert "data folder" in str(e.value)
 
 

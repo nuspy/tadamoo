@@ -1,16 +1,18 @@
-"""The Knowledge tab: archives, their documents, a question to try, and which personalities use which archive.
+"""The Knowledge tab: the archives of a project, their documents, and a question to try.
 
-Only the server's own page reaches it (this PC): the archives hold the person's documents. The storage and the search are tadamoo/rag; the link
-between an archive and a personality is the personality's own `knowledge` list (tadamoo/personas.py), changed here so the two never disagree."""
+Only the server's own page reaches it (this PC): the archives hold the person's documents. The storage and the search are tadamoo/rag; an archive
+belongs to a project (a workspace folder, or the Chat's own folder), named by its key (tadamoo/rag/project.py)."""
 from __future__ import annotations
 
 import importlib.util
 import json
-from typing import Any, Dict, List, Sequence
+from collections import Counter
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
-from tadamoo.personas import PersonaError, PersonaStore
 from tadamoo.rag import LIMITS, RagError, RagStore
 from tadamoo.rag.extract import FORMATS
+from tadamoo.rag.project import is_key, project_key
+from tadamoo.rag.recall import compose_message
 
 UPLOAD_MAX = LIMITS["document_bytes"]
 JSON_MAX = 1 << 17
@@ -22,9 +24,16 @@ def upload_limit(parts: Sequence[str]) -> int:
     return UPLOAD_MAX if parts[-1:] == ["upload"] else JSON_MAX
 
 
+def _project(value: Any) -> str:
+    if not is_key(value):
+        raise RagError("project: the key of a project")
+    return value
+
+
 class RagApi:
-    def __init__(self, store: RagStore, personas: PersonaStore) -> None:
-        self.store, self.personas = store, personas
+    def __init__(self, store: RagStore, folders: Callable[[], List[Dict[str, Any]]] = lambda: []) -> None:
+        """`folders` lists the projects as `{name, path, chat}`: the folders of the Agent tab and the Chat's own folder (`chat` true)."""
+        self.store, self.folders = store, folders
 
     # -- reading ---------------------------------------------------------------------------------
 
@@ -33,39 +42,38 @@ class RagApi:
         emb = self.store.embedder()
         return {"available": emb is not None, "model": emb.model if emb is not None else ""}
 
-    def overview(self) -> Dict[str, Any]:
+    def overview(self, project: Any) -> Dict[str, Any]:
         pdf = any(importlib.util.find_spec(m) is not None for m in ("pypdf", "fitz"))
-        return {"archives": self.store.list(), "limits": LIMITS, "formats": list(FORMATS), "pdf": pdf, "embedding": self.embedding()}
+        return {"project": _project(project), "archives": self.store.list(project), "limits": LIMITS, "formats": list(FORMATS), "pdf": pdf, "embedding": self.embedding()}
 
-    def _users(self, aid: str) -> List[Dict[str, Any]]:
-        return [{"slug": p["slug"], "name": p["name"], "linked": aid in p["knowledge"]} for p in self.personas.list()]
+    def projects(self) -> Dict[str, Any]:
+        """The projects the page can pick, each with its key and how many archives it holds."""
+        counts = Counter(a["project"] for a in self.store.list())
+        out, seen = [], set()
+        for row in self.folders():
+            key = project_key(row["path"])
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"key": key, "name": row["name"], "path": row["path"], "chat": bool(row.get("chat")), "archives": counts.get(key, 0)})
+        return {"projects": out}
 
     def get(self, aid: str) -> Dict[str, Any]:
-        return {"archive": self.store.get(aid), "personas": self._users(aid), "embedding": self.embedding()}
+        return {"archive": self.store.get(aid), "embedding": self.embedding()}
 
     # -- changing --------------------------------------------------------------------------------
 
     def create(self, req: Dict[str, Any]) -> Dict[str, Any]:
-        extra = [k for k in req if k not in ("name", "description")]
+        extra = [k for k in req if k not in ("name", "description", "project")]
         if extra:
             raise RagError("unknown field: " + ", ".join(sorted(map(str, extra))[:5]))
-        return {"archive": self.store.create(req.get("name"), req.get("description", ""))}
+        return {"archive": self.store.create(req.get("name"), req.get("description", ""), req.get("project"))}
 
     def update(self, aid: str, req: Dict[str, Any]) -> Dict[str, Any]:
         return {"archive": self.store.update(aid, req)}
 
     def delete(self, aid: str, req: Dict[str, Any]) -> Dict[str, Any]:
-        self.store.load(aid)
-        out = self.store.delete(aid, req.get("confirm"))
-        unlinked = 0
-        for p in self.personas.list():
-            if aid in p["knowledge"]:
-                try:
-                    self.personas.update(p["slug"], {"knowledge": [i for i in p["knowledge"] if i != aid]})
-                    unlinked += 1
-                except PersonaError:
-                    continue
-        return {**out, "unlinked": unlinked}
+        return self.store.delete(aid, req.get("confirm"))
 
     def add_path(self, aid: str, req: Dict[str, Any]) -> Dict[str, Any]:
         return self.store.add_path(aid, req.get("path"))
@@ -79,48 +87,38 @@ class RagApi:
     def reindex(self, aid: str) -> Dict[str, Any]:
         return self.store.reindex(aid)
 
-    def link(self, aid: str, req: Dict[str, Any]) -> Dict[str, Any]:
-        """Links the archive to a personality or unlinks it: `{persona: slug, linked: true|false}`."""
-        self.store.load(aid)
-        slug, linked = req.get("persona"), req.get("linked")
-        if not isinstance(linked, bool):
-            raise RagError("linked: true or false")
-        try:
-            ids = [i for i in self.personas.get(slug)["knowledge"] if i != aid] + ([aid] if linked else [])
-            self.personas.update(slug, {"knowledge": ids})
-        except PersonaError as e:
-            raise RagError(str(e), e.code) from None
-        return {"personas": self._users(aid)}
-
     def search(self, req: Dict[str, Any]) -> Dict[str, Any]:
-        """`{query, archives: [ids] | persona: slug, top_k}`: the best passages; with neither archives nor persona, all archives."""
+        """`{query, archives: [ids] | project: key, top_k}`: the best passages of those archives, or of all the archives of the project."""
         query = req.get("query")
         if not isinstance(query, str) or not query.strip():
             raise RagError("query: the text of the question")
         top_k = req.get("top_k", 4)
         if isinstance(top_k, bool) or not isinstance(top_k, int) or not 1 <= top_k <= LIMITS["top_k"]:
             raise RagError(f"top_k: a number from 1 to {LIMITS['top_k']}")
-        if req.get("persona"):
-            try:
-                ids = list(self.personas.get(req["persona"])["knowledge"])
-            except PersonaError as e:
-                raise RagError(str(e), e.code) from None
-            strict = False
-        elif req.get("archives") is not None:
+        if req.get("archives") is not None:
             ids, strict = req["archives"], True
             if not isinstance(ids, list) or any(not isinstance(i, str) for i in ids):
                 raise RagError("archives: a list of archive ids")
         else:
-            ids, strict = [a["id"] for a in self.store.list()], True
+            ids, strict = self.store.ids(_project(req.get("project"))), False
         out = self.store.search(ids, query[:QUERY_CHARS], top_k=top_k, strict=strict)
         return {**out, "searched": len(ids)}
 
+    def recall(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """`{project, goal}`: the data block of the passages of the project's archives that match the request, for a conversation without a harness."""
+        goal = req.get("goal", "")
+        if not isinstance(goal, str):
+            raise RagError("goal: the text of the request")
+        return {"block": compose_message(self.store, _project(req.get("project")), goal[:QUERY_CHARS])}
+
     # -- the routes ------------------------------------------------------------------------------
 
-    def route_get(self, parts: Sequence[str]) -> Dict[str, Any]:
-        """GET /api/rag, /api/rag/archives/<id>: `parts` are the path segments after /api/rag."""
+    def route_get(self, parts: Sequence[str], query: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
+        """GET /api/rag?project=<key>, /api/rag/projects, /api/rag/archives/<id>: `parts` are the path segments after /api/rag."""
         if not parts:
-            return self.overview()
+            return self.overview(((query or {}).get("project") or [""])[0])
+        if parts == ["projects"]:
+            return self.projects()
         if len(parts) == 2 and parts[0] == "archives":
             return self.get(parts[1])
         raise RagError("not found", "not_found")
@@ -136,11 +134,13 @@ class RagApi:
             raise RagError("send a JSON object")
         if parts == ["search"]:
             return self.search(req)
+        if parts == ["recall"]:
+            return self.recall(req)
         if parts == ["archives"]:
             return self.create(req)
         if len(parts) == 3 and parts[0] == "archives":
             aid, action = parts[1], parts[2]
-            handlers = {"update": self.update, "delete": self.delete, "documents": self.add_path, "link": self.link, "reindex": lambda a, _req: self.reindex(a)}
+            handlers = {"update": self.update, "delete": self.delete, "documents": self.add_path, "reindex": lambda a, _req: self.reindex(a)}
             if action in handlers:
                 return handlers[action](aid, req)
         if len(parts) == 5 and parts[0] == "archives" and parts[2] == "documents" and parts[4] == "remove":

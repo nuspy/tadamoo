@@ -1,13 +1,14 @@
 "use strict";
-/* Knowledge: the archives of documents a personality can draw on. Make an archive, add files or a path, see how each is indexed, try a question,
-   and choose which personalities use it. Every archive is searched by words; with an embedding model installed it is searched by meaning too.
-   Everything the server returns enters the page as text. */
+/* Knowledge: the archives of documents of a project (a workspace folder, or the Chat's own folder). Pick the project, make an archive, add files or
+   a path, see how each is indexed, try a question. Every conversation held in the project draws on its archives, whatever personality speaks.
+   Every archive is searched by words; with an embedding model installed it is searched by meaning too. Everything the server returns enters the
+   page as text. */
 (function () {
   const host = document.getElementById("rg-root");
   if (!host) return;
 
   const ARM_MS = 4000, TOP_K = 4;
-  let S = null, list = [], chosen = "", creating = false, detail = null, note = "", noteBad = false, armed = "", armTimer = 0, question = "", results = null, asking = false, working = false;
+  let S = null, projects = [], project = "", picked = false, chatKey = "", recallOff = false, list = [], chosen = "", creating = false, detail = null, note = "", noteBad = false, armed = "", armTimer = 0, question = "", results = null, asking = false, working = false;
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; return b; };
@@ -31,10 +32,32 @@
     paint();
   }
 
+  const norm = p => String(p || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  /* the project of the conversation that is open, else the Chat's own folder */
+  function defaultProject() {
+    const rec = window.agentChat && window.agentChat.record ? window.agentChat.record() : null;
+    const ws = rec && rec.workspace ? norm(rec.workspace) : "";
+    const mine = ws && projects.find(p => norm(p.path) === ws);
+    return ((mine || projects.find(p => p.chat) || projects[0]) || {}).key || "";
+  }
+  async function loadProjects() {
+    const r = await api("GET", "api/rag/projects");
+    if (!r.ok) return r;
+    projects = r.data.projects || [];
+    if (!projects.some(p => p.key === project)) { project = ""; picked = false; }
+    if (!picked) project = defaultProject();
+    return r;
+  }
+  async function loadArchives() {
+    const r = await api("GET", `api/rag?project=${encodeURIComponent(project)}`);
+    if (r.ok) { S = r.data; list = r.data.archives || []; }
+    return r;
+  }
   async function refresh() {
-    const r = await api("GET", "api/rag");
+    const p = await loadProjects();
+    if (!p.ok) { S = null; say(why(p), true); paint(); return; }
+    const r = await loadArchives();
     if (!r.ok) { S = null; say(why(r), true); paint(); return; }
-    S = r.data; list = r.data.archives || [];
     if (chosen && !list.some(a => a.id === chosen)) { chosen = ""; detail = null; }
     if (chosen) await reloadDetail(); else paint();
   }
@@ -49,14 +72,14 @@
     await reloadDetail();
   }
   async function reloadAll() {
-    const r = await api("GET", "api/rag");
-    if (r.ok) { S = r.data; list = r.data.archives || []; }
+    await loadProjects();
+    await loadArchives();
     if (chosen) await reloadDetail(); else paint();
   }
 
   /* ---- actions ---- */
   async function create(name, description) {
-    const r = await api("POST", "api/rag/archives", { name, description });
+    const r = await api("POST", "api/rag/archives", { name, description, project });
     if (!r.ok) { say(why(r), true); paint(); return; }
     creating = false; chosen = r.data.archive.id; say(T("rg.created"), false); results = null; question = "";
     await reloadAll();
@@ -117,11 +140,6 @@
     if (!r.ok) { say(why(r), true); results = null; } else { say("", false); results = r.data; }
     paint();
   }
-  async function link(slug, name, linked) {
-    const r = await api("POST", `api/rag/archives/${encodeURIComponent(chosen)}/link`, { persona: slug, linked });
-    if (r.ok) { detail.personas = r.data.personas; say(T(linked ? "rg.use.linked" : "rg.use.unlinked", name), false); } else say(why(r), true);
-    paint();
-  }
 
   /* ---- the page ---- */
   function field(id, labelText, help, control, target) {
@@ -134,6 +152,19 @@
   function textInput(value, max) {
     const i = el("input"); i.type = "text"; i.value = value || ""; i.maxLength = max; i.autocomplete = "off"; i.spellcheck = false;
     return i;
+  }
+  function projectPicker() {
+    const sel = el("select");
+    projects.forEach(p => { const o = el("option", "", T("rg.proj.opt", p.chat ? T("rg.proj.chat") : p.name, p.archives)); o.value = p.key; sel.append(o); });
+    sel.value = project;
+    sel.onchange = () => {
+      project = sel.value; picked = true; chosen = ""; creating = false; detail = null; results = null; question = ""; armed = ""; say("", false);
+      refresh();
+    };
+    const wrap = field("rg-project", T("rg.proj.label"), T("rg.proj.help"), sel), cur = projects.find(p => p.key === project);
+    wrap.classList.add("rg-project");
+    if (cur) wrap.append(el("p", "rg-help rg-path", cur.path));
+    return wrap;
   }
   function banner() {
     const on = S.embedding && S.embedding.available, box = el("div", "rg-banner");
@@ -247,26 +278,9 @@
     }
     return box;
   }
-  function usesBlock() {
-    const box = el("section", "rg-block");
-    box.setAttribute("aria-labelledby", "rg-use-h");
-    const h = el("h4", "rg-h2", T("rg.use.title")); h.id = "rg-use-h";
-    box.append(h);
-    if (!detail.personas.length) { box.append(el("p", "rg-help", T("rg.use.none"))); return box; }
-    box.append(el("p", "rg-help", T("rg.use.help")));
-    const ul = el("ul", "rg-uses");
-    detail.personas.forEach(p => {
-      const li = el("li"), lab = el("label", "rg-use"), c = el("input");
-      c.type = "checkbox"; c.checked = p.linked; c.id = "rg-use-" + p.slug;
-      c.onchange = () => link(p.slug, p.name, c.checked);
-      lab.append(c, el("span", "", p.name)); li.append(lab); ul.append(li);
-    });
-    box.append(ul);
-    return box;
-  }
   function detailView() {
     const a = detail.archive, main = el("div", "rg-main");
-    main.append(el("h3", "rg-h", a.name), editForm(a), docsBlock(a), indexBlock(a), tryBlock(a), usesBlock());
+    main.append(el("h3", "rg-h", a.name), editForm(a), docsBlock(a), indexBlock(a), tryBlock(a));
     const sure = armed === "delete", bar = el("div", "rg-bar");
     const del = btn(sure ? T("rg.delete.sure") : T("rg.delete"), "rg-warn", () => { if (!sure) arm("delete"); else remove(); });
     del.id = "rg-delete";
@@ -284,10 +298,27 @@
     else { main = el("div", "rg-main"); main.append(el("p", "rg-help", T("rg.pick"))); }
     const layout = el("div", "rg-layout");
     layout.append(sideList(), main);
-    host.replaceChildren(el("p", "rg-intro", T("rg.intro")), banner(), status, layout);
+    host.replaceChildren(el("p", "rg-intro", T("rg.intro")), projectPicker(), banner(), status, layout);
     const again = focus && document.getElementById(focus);
     if (again && again !== document.activeElement) again.focus();
   }
+
+  /* the model-only chat: the block of passages of the Chat's own folder that match a request ("" when none, when a conversation of the agent runs
+     (its process takes them in itself), or when this page is not on the PC that runs the server) */
+  async function recall(goal) {
+    if (recallOff || (window.agentChat && window.agentChat.active())) return "";
+    if (!chatKey) {
+      const p = await api("GET", "api/rag/projects");
+      if (p.status === 403) recallOff = true;
+      const chat = p.ok && (p.data.projects || []).find(x => x.chat);
+      if (!chat) return "";
+      chatKey = chat.key;
+    }
+    const r = await api("POST", "api/rag/recall", { project: chatKey, goal: String(goal || "").slice(0, 2000) });
+    if (r.status === 403) recallOff = true;
+    return r.ok && typeof r.data.block === "string" ? r.data.block : "";
+  }
+  window.ragUi = { recall };
 
   document.addEventListener("tadamoo:view", e => { if (e.detail === "rag") refresh(); });
   document.addEventListener("tadamoo:lang", () => { if (S) paint(); });
