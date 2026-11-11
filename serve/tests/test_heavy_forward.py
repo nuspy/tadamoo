@@ -82,6 +82,19 @@ class ChatThroughTheSwap(Server):
         self.assertIn("[DONE]", text)
         self.assertEqual(Ledger().used(self.cloud["id"]), 42)
 
+    def test_the_passages_of_knowledge_archives_do_not_go_to_the_provider(self):
+        from tadamoo import untrusted
+        from tadamoo.rag.recall import CLOSING, SOURCE
+        block = untrusted.fence(SOURCE, "[Plans / a.pdf, p. 3] a secret figure") + "\n" + CLOSING
+        self.registry.begin_swap(self.cloud["id"])
+        body = {"messages": [{"role": "system", "content": "Be brief."}, {"role": "user", "content": block + "\n\nWhat is the figure?"},
+                             {"role": "user", "content": [{"type": "text", "text": block}, {"type": "image_url", "image_url": {"url": "data:x"}}]}], "max_tokens": 5}
+        self.req("POST", "/v1/chat/completions", body, self.ui)
+        sent = self.provider.seen[0][2]["messages"]
+        self.assertEqual(sent[1]["content"], "What is the figure?")
+        self.assertNotIn("secret", json.dumps(sent))
+        self.assertEqual(sent[2]["content"][1], {"type": "image_url", "image_url": {"url": "data:x"}})
+
     def test_a_request_without_the_pages_header_still_meets_the_local_model(self):
         self.registry.begin_swap(self.cloud["id"])
         code, out = self.req("POST", "/v1/chat/completions", {"messages": self.body["messages"], "max_tokens": 5})

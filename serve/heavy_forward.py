@@ -4,15 +4,19 @@ program that calls the server still meets the local model and the 503 that says 
 from __future__ import annotations
 
 import json
+import re
 
 import requests
 
 from serve import settings
+from tadamoo import untrusted
 from tadamoo.llmswitch.providers import TYPES
+from tadamoo.rag.recall import CLOSING, SOURCE
 
 HEADER = "X-Tadamoo-Function"
 KEEP = ("messages", "model", "stream", "temperature", "top_p", "max_tokens", "stop", "tools", "tool_choice", "response_format", "presence_penalty",
         "frequency_penalty", "seed", "stream_options")        # what an OpenAI-style provider takes; the page's own fields stay here
+ARCHIVE = re.compile(rf'<{untrusted.TAG} source="{re.escape(SOURCE)}"(?: id="([0-9a-f]+)")?>.*?</{untrusted.TAG}(?: id="\1")?>\n?(?:{re.escape(CLOSING)})?', re.S)
 HOP = {"connection", "keep-alive", "transfer-encoding", "content-length", "content-encoding", "server", "date"}
 
 
@@ -39,6 +43,7 @@ def forward(handler, svc, raw: bytes) -> bool:
     except ValueError:
         return False
     body = {k: v for k, v in body.items() if k in KEEP}
+    body["messages"] = without_archives(body.get("messages"))
     body["model"] = model or body.get("model")
     try:
         reply = requests.post(base.rstrip("/") + "/chat/completions", json=body, headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
@@ -68,6 +73,21 @@ def forward(handler, svc, raw: bytes) -> bool:
         if tokens:
             _record(prov["id"], tokens)
     return True
+
+
+def without_archives(messages):
+    """The messages without the passages of knowledge archives the page put in them: which archives they came from is not known here, and an archive not
+    cleared for cloud models must not leave this PC."""
+    if not isinstance(messages, list):
+        return messages
+    out = []
+    for m in messages:
+        if isinstance(m, dict) and isinstance(m.get("content"), str):
+            m = {**m, "content": ARCHIVE.sub("", m["content"]).strip()}
+        elif isinstance(m, dict) and isinstance(m.get("content"), list):
+            m = {**m, "content": [{**p, "text": ARCHIVE.sub("", p["text"]).strip()} if isinstance(p, dict) and isinstance(p.get("text"), str) else p for p in m["content"]]}
+        out.append(m)
+    return out
 
 
 def _usage(chunk: bytes) -> int:
