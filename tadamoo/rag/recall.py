@@ -6,6 +6,8 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Set
 
 from tadamoo import untrusted
 from tadamoo.rag.errors import RagError
+from tadamoo.rag.resolve import Resolution, resolve
+from tadamoo.rag.withhold import Withhold
 from tadamoo.rag.store import TOP_K, RagStore
 
 SOURCE = "knowledge-archive"
@@ -42,13 +44,38 @@ class ProjectRecall:
         self.store, self.project, self.local = store, project, local
         self.attached: List[str] = list(dict.fromkeys(attached))
         self.sent: Set[str] = set()
+        self.step: List[str] = []                                  # archives a plan step brings along while it runs
+        self.private = Withhold()                                  # passages sent from archives not cleared for cloud models
         self.on_change: Callable[[List[str], str, str], None] = lambda ids, kind, name: None     # told when a tool attaches or drops: the ids now, attached|dropped|cleared, the name
 
     def ids(self) -> List[str]:
         """The archives this conversation draws on: the project's own, then the attached ones that still exist."""
         own = self.store.ids(self.project)
-        there = set(self.store.ids(None)) if self.attached else set()
-        return own + [i for i in self.attached if i in there and i not in own]
+        there = set(self.store.ids(None)) if self.attached or self.step else set()
+        return own + [i for i in dict.fromkeys(self.attached + self.step) if i in there and i not in own]
+
+    def resolution(self, ids: Optional[Sequence[str]] = None) -> Resolution:
+        """What the resolver says of `ids` (this conversation's archives when None) on the route the conversation takes now."""
+        mine = {"project": "", "attached": list(ids)} if ids is not None else {"project": self.project, "attached": self.attached + self.step}
+        return resolve(self.store, {"function": "agent", "routed_to_cloud": not self.local(), **mine}, leaves_pc=lambda function: False)     # the harness's own client knows its route
+
+    def permit(self, ids: Sequence[str]) -> List[str]:
+        """`ids` without the archives this conversation's route may not carry."""
+        allowed = set(self.resolution(ids).ids)
+        return [i for i in ids if i in allowed]
+
+    def forget_sent(self) -> None:
+        """The conversation was compacted: passages that were in it may be sent again."""
+        self.sent.clear()
+
+    def withdrawn(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """What is sent: when the request leaves this PC, passages of archives not cleared for it are taken out of the earlier messages."""
+        return messages if self.local() else self.private.apply(messages)
+
+    def remember(self, hit: Dict[str, Any], *texts: str) -> None:
+        """A passage was put in the conversation: remember it when its archive is not cleared for cloud models."""
+        if not self._cloud_ok(hit["archive_id"]):
+            self.private.add(*texts)
 
     def attach(self, ids: Sequence[str]) -> None:
         self.attached = list(dict.fromkeys(ids))
@@ -58,11 +85,9 @@ class ProjectRecall:
         this PC), or None when nothing matches or everything matching was sent already."""
         if not isinstance(goal, str) or not goal.strip():
             return None
-        ids = self.ids()
+        ids = self.permit(self.ids())
         if not ids:
             return None
-        if not self.local():
-            ids = [i for i in ids if self._cloud_ok(i)]
         try:
             found = self.store.search(ids, goal, top_k=top_k, min_share=MIN_SHARE, strict=False)
         except RagError:
@@ -80,13 +105,14 @@ class ProjectRecall:
             lines.append(block)
             used += len(block)
             self.sent.add(key)
+            self.remember(hit, block, shown(hit), citation(hit))
         if not lines:
             return None
         return untrusted.fence(SOURCE, "\n\n".join(lines)) + "\n" + CLOSING
 
     def _cloud_ok(self, aid: str) -> bool:
         try:
-            return bool(self.store.load(aid).meta.get("cloud_ok"))
+            return bool(self.store.meta(aid).get("cloud_ok"))
         except RagError:
             return False
 

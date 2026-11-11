@@ -33,16 +33,19 @@ def knowledge_index(store: RagStore, recall: ProjectRecall) -> Callable[[], str]
     cache: Dict[str, Any] = {"key": None, "text": ""}
 
     def index() -> str:
-        key = (store.stamp(), tuple(recall.attached), recall.project)
+        key = (store.stamp(), tuple(recall.attached), tuple(recall.step), recall.project, recall.local())
         if cache["key"] != key:
-            used = set(recall.ids())
+            res = recall.resolution()
+            used = {a["id"]: a for a in res.archives}
             rows = [a for a in store.list() if a["id"] in used]
             parts = []
             for a in rows[:INDEX_SHOWN]:
                 said = " ".join(a["description"].split())
-                parts.append(f"{a['name']} ({a['documents']} documents, {a['mode']} search" + (f"; {said[:INDEX_DESCRIPTION]}" if said else "") + ")")
+                where = "" if a["project"] == recall.project else f"project {a['project_name'] or '?'}; "
+                parts.append(f"{a['name']} ({where}{a['documents']} documents, {a['mode']} search" + (f"; {said[:INDEX_DESCRIPTION]}" if said else "") + ")")
             text = "; ".join(parts) + (f"; and {len(rows) - INDEX_SHOWN} more" if len(rows) > INDEX_SHOWN else "")
-            cache.update(key=key, text=text or "none (the project has no archive and none is attached)")
+            left = [f"{b['name']} ({b['reason']})" for b in res.blocked if "missing" not in b["codes"]]
+            cache.update(key=key, text=(text or "none (the project has no archive and none is attached)") + ("; not available on this route: " + "; ".join(left) if left else ""))
         return cache["text"]
     return index
 
@@ -103,8 +106,7 @@ def register_knowledge_tools(registry: Any, store: RagStore, recall: ProjectReca
             ids = [found["archive"]["id"]]
         else:
             ids = recall.ids()
-        if not recall.local():
-            ids = [i for i in ids if recall._cloud_ok(i)]
+        ids = recall.permit(ids)
         try:
             hits = store.search(ids, query, top_k=TOP_K, strict=False)["hits"] if ids else []
         except RagError as e:
@@ -128,6 +130,7 @@ def register_knowledge_tools(registry: Any, store: RagStore, recall: ProjectReca
             out.append({"cite": citation(h), "archive": h["archive"], "document": h["document"], "page": h.get("page_start") or None, "section": h.get("path", ""),
                         "text": text})
             used += len(text)
+            recall.remember(h, text, shown(h), citation(h))
         return {"status": "ok", "searched": len(ids), "passages": out, **({} if out else {"note": "no passage matches"})}
 
     registry.register(

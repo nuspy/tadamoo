@@ -1234,7 +1234,8 @@ class Session:
         if self.council_clients is None:
             return False
         from tadamoo.llm import registry
-        return council.offer_council(agent.tools, self.council_clients, registry(), *self.council_personas)
+        recall = self.built.project_recall
+        return council.offer_council(agent.tools, self.council_clients, registry(), *self.council_personas, redact=recall.private.redact if recall is not None else None)
 
     def _council_step(self, task: Task) -> bool:
         """The council before the model's first step, when the person asked for it: the box of the conversation (a real question only: not a command,

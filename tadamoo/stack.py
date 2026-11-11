@@ -880,7 +880,8 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         from tadamoo.council import offer_council
         from tadamoo.llm import client_for as routed_for, registry as llm_registry
         here = getattr(client, "local", None) or client or TadamooClient(base_url=cfg.endpoint, api_key=cfg.api_key)
-        offer_council(registry, lambda function: routed_for(function, here), llm_registry(), cfg.personas_dir, cfg.personal_memory_keys)
+        offer_council(registry, lambda function: routed_for(function, here), llm_registry(), cfg.personas_dir, cfg.personal_memory_keys,
+                      redact=lambda text: project_recall.private.redact(text) if project_recall is not None else text)
     capability_index = None
     if cfg.capabilities:
         capability_index = _offer_capabilities(cfg, workspace, registry, builder, sandbox, client or TadamooClient(base_url=cfg.endpoint, api_key=cfg.api_key))
@@ -1063,6 +1064,9 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
             agent.knowledge_index = knowledge_index(project_recall.store, project_recall)
         agent.state_note = lambda: teller.note(settings(), getattr(getattr(context, "compaction", None), "count", 0))
         awareness.register_self_status(registry, lambda: awareness.status_of(agent, context.budget_tokens, {"settings": settings()}))
+    if project_recall is not None:
+        agent.outgoing = project_recall.withdrawn
+        agent.on_compaction = project_recall.forget_sent
     quick = technical if technical is not None else client          # the quick jobs never take the conversation's own route
     if quick is not None:                               # the technical session's two readers of tool results (both off until switched on)
         compactor.extract = tool_extract.make_extractor(quick, lambda: agent.last_user_text)
