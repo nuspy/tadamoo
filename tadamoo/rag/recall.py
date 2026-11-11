@@ -2,7 +2,7 @@
 context. The text of a document is written by someone else: it is fenced as untrusted data and the closing line says it is not to be obeyed."""
 from __future__ import annotations
 
-from typing import Callable, List, Optional, Set
+from typing import Callable, List, Optional, Sequence, Set
 
 from tadamoo import untrusted
 from tadamoo.rag.errors import RagError
@@ -16,18 +16,29 @@ CLOSING = ("These passages come from the knowledge archives of this project; eac
 
 
 class ProjectRecall:
-    """What one conversation of a project takes in from the project's archives: each passage once."""
+    """What one conversation of a project takes in from the project's archives and from the archives the person attached to it: each passage once."""
 
-    def __init__(self, store: RagStore, project: str, local: Callable[[], bool] = lambda: True) -> None:
+    def __init__(self, store: RagStore, project: str, local: Callable[[], bool] = lambda: True, attached: Sequence[str] = ()) -> None:
         self.store, self.project, self.local = store, project, local
+        self.attached: List[str] = list(dict.fromkeys(attached))
         self.sent: Set[str] = set()
+        self.on_change: Callable[[List[str], str, str], None] = lambda ids, kind, name: None     # told when a tool attaches or drops: the ids now, attached|dropped|cleared, the name
+
+    def ids(self) -> List[str]:
+        """The archives this conversation draws on: the project's own, then the attached ones that still exist."""
+        own = self.store.ids(self.project)
+        there = set(self.store.ids(None)) if self.attached else set()
+        return own + [i for i in self.attached if i in there and i not in own]
+
+    def attach(self, ids: Sequence[str]) -> None:
+        self.attached = list(dict.fromkeys(ids))
 
     def message(self, goal: str, top_k: int = TOP_K) -> Optional[str]:
         """The block for `goal` from all the archives of the project (those not cleared for cloud models are left out when the request leaves
         this PC), or None when nothing matches or everything matching was sent already."""
         if not isinstance(goal, str) or not goal.strip():
             return None
-        ids = self.store.ids(self.project)
+        ids = self.ids()
         if not ids:
             return None
         if not self.local():
@@ -59,6 +70,6 @@ class ProjectRecall:
             return False
 
 
-def compose_message(store: RagStore, project: str, goal: str) -> str:
+def compose_message(store: RagStore, project: str, goal: str, attached: Sequence[str] = ()) -> str:
     """For a conversation without a harness: the block for one request ("" when nothing matches)."""
-    return ProjectRecall(store, project).message(goal) or ""
+    return ProjectRecall(store, project, attached=attached).message(goal) or ""

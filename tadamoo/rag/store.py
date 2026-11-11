@@ -1,6 +1,6 @@
 """The knowledge archives: a folder of the user data, `rag/<id>/`, for each.
 
-    meta.json         name, description, the project it belongs to (a key, tadamoo/rag/project.py), the documents, how many passages, the embedding model
+    meta.json         name, description, the project it belongs to (a key, tadamoo/rag/project.py, and its name as it was when the archive was made), the documents, how many passages, the embedding model
                       of the vectors (empty: text only)
     chunks.jsonl      one passage per line: {"doc", "n", "text"}
     embeddings.npy    float32, one L2-normalized row per passage, present only when every passage has one
@@ -181,7 +181,7 @@ class RagStore:
         return {"mode": "hybrid" if hybrid else "text", "embed_model": model, "reindex": bool(meta["chunks"]) and emb is not None and not hybrid}
 
     def _summary(self, meta: Dict[str, Any]) -> Dict[str, Any]:
-        return {"id": meta["id"], "name": meta["name"], "description": meta["description"], "project": meta.get("project", ""), "cloud_ok": bool(meta.get("cloud_ok")), "created": meta["created"],
+        return {"id": meta["id"], "name": meta["name"], "description": meta["description"], "project": meta.get("project", ""), "project_name": meta.get("project_name", ""), "cloud_ok": bool(meta.get("cloud_ok")), "created": meta["created"],
                 "updated": meta["updated"], "documents": len(meta["documents"]), "chunks": meta["chunks"], "bytes": sum(d["bytes"] for d in meta["documents"]),
                 **self.status(meta)}
 
@@ -204,15 +204,15 @@ class RagStore:
         """The archives of `project` (every archive with None)."""
         return [self._summary(m) for m in self._metas(project)]
 
-    def ids(self, project: str) -> List[str]:
-        """The ids of the archives of `project`, read without looking at the embedder."""
-        return [m["id"] for m in self._metas(project)] if is_key(project) else []
+    def ids(self, project: Optional[str]) -> List[str]:
+        """The ids of the archives of `project` (every archive with None), read without looking at the embedder."""
+        return [m["id"] for m in self._metas(project)] if project is None or is_key(project) else []
 
     def get(self, aid: Any) -> Dict[str, Any]:
         meta = self.load(aid).meta
         return {**self._summary(meta), "document_list": [dict(d) for d in meta["documents"]]}
 
-    def create(self, name: Any, description: Any = "", project: Any = None) -> Dict[str, Any]:
+    def create(self, name: Any, description: Any = "", project: Any = None, project_name: Any = "") -> Dict[str, Any]:
         name, description = _text(name, "name", LIMITS["name"], True), _text(description, "description", LIMITS["description"])
         if not is_key(project):
             raise RagError("project: the key of the project the archive belongs to")
@@ -224,7 +224,8 @@ class RagStore:
                 raise RagError("there is already an archive with that name in this project")
             aid = f"{slug_of(name) or 'archive'}-{secrets.token_hex(3)}"
             now = self.clock()
-            meta = {"id": aid, "name": name, "description": description, "project": project, "cloud_ok": False, "created": now, "updated": now, "chunks": 0,
+            meta = {"id": aid, "name": name, "description": description, "project": project, "project_name": str(project_name or "").strip()[:LIMITS["name"]],
+                    "cloud_ok": False, "created": now, "updated": now, "chunks": 0,
                     "embed_model": "", "documents": []}
             self._put_meta(self._dir(aid), meta)
             return self.get(aid)
