@@ -34,7 +34,7 @@ class Base(unittest.TestCase):
 
 class BrainSettingsTests(Base):
     def test_defaults(self):
-        self.assertEqual(voice_settings.brain(), {"mode": "direct", "persona": "", "workspace": "", "hotkeys": False, "base_url": ""})
+        self.assertEqual(voice_settings.brain(), {"mode": "direct", "persona": "", "workspace": "", "hotkeys": False, "archives": [], "base_url": ""})
 
     def test_a_choice_is_kept_and_only_the_named_fields_change(self):
         voice_settings.set_brain({"mode": "harness"})

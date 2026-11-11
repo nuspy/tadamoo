@@ -24,7 +24,8 @@ I18N = (WEB / "i18n.js").read_text(encoding="utf-8")
 HANDLER = (WEB.parent / "handler.py").read_text(encoding="utf-8")
 
 CAREFUL = {"speak": False, "camera": False, "proactive": False, "consent_mode": "window", "consent_window_s": 45, "on_behalf_of": "", "display_name": "TaDaMoo AI assistant",
-           "virtual_mic": "", "wake_phrase": "", "autojoin": False, "allow_programs_join": False, "copilot_replies": 3, "copilot_audio_reply": False, "copilot_hide_from_capture": True}
+           "virtual_mic": "", "wake_phrase": "", "autojoin": False, "allow_programs_join": False, "copilot_replies": 3, "copilot_audio_reply": False, "copilot_hide_from_capture": True,
+           "archives": [], "copilot_archives": [], "private_output": ""}
 
 
 class Base(unittest.TestCase):
