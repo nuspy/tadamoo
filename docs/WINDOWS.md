@@ -133,6 +133,12 @@ What it risks: an allocation can only be evicted into its backing.  Programs tha
 engine idles evicts the engine's memory, and with the backing released the engine can then hang until it is
 stopped.  Pass `--keep-vram-commit` when another program allocates GPU memory with CUDA while Basalt-Plus runs.
 
+Lending VRAM (`--vram-elastic`, `POST /v1/vram`) frees it: the expert cache's segments are released to the driver, so a
+program that allocates no more than it was lent finds that memory free and evicts nothing, and the elastic KV keeps
+growing out of the cache alone. A program that may go past its share still needs `--keep-vram-commit`. The segments
+and KV pages mapped again later are new allocations; the sweep after each command gives their backing back as for any
+other ([VRAM arbiter](engine-vram-arbiter.md)).
+
 ## Tests
 
 ```powershell

@@ -38,9 +38,12 @@ A lend never takes what the KV needs to reach its maximum context. The cache's l
 where `floor_slots` is the larger of the `VRAM` command's floor (128 slots plus a 256-token prompt chunk's) and the
 elastic KV's floor (`cache_floor_slots`), `kv_growth` is the sum over the elastic sessions on the main card of what
 backing their maximum cells would add now (`session_kv_grow_bytes(s, s.max_cells)`), and `boundary_above(x)` is the
-first segment boundary at or past `x`. A `VRAM` asking for more is granted down to that floor, exactly as the cache's
-floor was already handled: the reply says so (`capped=1`, the log line's note), `reserve_max_mib` is the largest
-reserve that would have been granted in full, and `vram_free_mib` is what is free.
+first segment boundary at or past `x`. When the cache is already below that floor (the KV holds part of its reach),
+the lend also leaves free the `kv_hold = lend_floor - backed` bytes the KV still needs beyond the cache. A `VRAM`
+asking for more is granted down to that, exactly as the cache's floor was already handled: the reserve in force
+becomes what was granted (at most what is free less `kv_hold`, at least the start's), the reply says so (`capped=1`,
+`lent_mib`, the log line's note), `reserve_max_mib` is the largest reserve that would have been granted in full, and
+`vram_free_mib` is what is free.
 
 Why this one and not "lend anything, refuse the request later":
 
@@ -57,10 +60,14 @@ Without the elastic KV (`kv_growth` 0) the floor and every decision are the ones
 
 ## State
 
-`reserve_mib`: the VRAM kept free now, the start's `--vram-reserve-mib` until a `VRAM <reserve_mib>` sets another.
-`lent_mib = max(0, reserve_mib - start)`. Every room the cache or the KV measures is `free - reserve_mib`: a KV fit
-takes the room first and then cache segments; `cache_regrow` (after the KV gives cells back, an idle conversation
-moves out or a lend is returned) grows only into that room, so it never maps lent VRAM.
+`reserve_mib`: the VRAM kept free now, the start's `--vram-reserve-mib` until a `VRAM <reserve_mib>` sets the one
+granted. `lent_mib = max(0, reserve_mib - start)`. The room the cache and the KV may map is, with nothing lent,
+`free - reserve_mib`. While VRAM is lent the borrower's allocations lower `free`, so the room is counted from the
+engine's own use instead: at the command the arbiter notes that use (the cache's backed bytes and the sessions' KV)
+plus what it kept free above the reserve, and the room later is that sum less the use now, never more than `free`
+above the start's reserve. A KV fit takes the room first and then cache segments; `cache_regrow` (after the KV gives
+cells back, an idle conversation moves out or a lend is returned) grows only into that room, so neither ever maps lent
+VRAM, whether or not the borrower has allocated it yet.
 
 | state | what holds the tail | moves |
 | --- | --- | --- |
@@ -78,16 +85,18 @@ refilled from RAM. `SLEEP` shrinks to the floor without the KV term (nothing run
 
 With both features the arena is `--vram-segment-mib` segments up to the elastic tail, then segments of the driver's
 granularity over the tail. A lend's shrink keeps the segment its target falls in, so it lends at most one segment
-less than asked. While VRAM is lent, a KV fit that ends inside a large segment gives that whole segment back (the
-largest boundary at or below its target): the part the KV does not map stays free above the reserve and is the next
-fit's room. With nothing lent the KV's shrink is the one it always had.
+less than asked (and grants what it freed). With `--vram-elastic`, a KV fit that ends inside a large segment gives
+that whole segment back (the largest boundary at or below its target): the part the KV does not map stays the
+engine's room for the next fit, so the KV never maps the reserve or lent VRAM. Without `--vram-elastic` the KV's
+shrink is the one it always had.
 
 ## RAM copies
 
 With the resident RAM copy of the experts, a lend's shrink first copies to RAM the experts of the slots it gives back
 and of the slots the KV may take afterwards (`[slots_within(boundary_below(kept - kv_growth)), kept)`), so neither a
 lend nor a later KV fit reads an expert from the file. It is refused, nothing changed, when the RAM above the floor
-cannot hold them. A return frees the copies of the slots below both the prompt loan and the KV's reach.
+cannot hold them. A grow frees the copies of the slots below the prompt loan, and while some VRAM stays lent, below
+the KV's reach too.
 
 ## Failure modes
 
@@ -95,6 +104,8 @@ cannot hold them. A return frees the copies of the slots below both the prompt l
   cache segments, which are the engine's), the cache does not grow back, and on Windows the engine's memory can be
   evicted: keep `--keep-vram-commit` when a borrower may exceed its share.
 - **The borrower holds the lent VRAM and the KV needs to grow.** The KV never needs it: its reach was kept.
+- **The borrower takes the start's reserve too.** The room is then 0, every KV fit frees whole segments for itself and
+  never maps VRAM the cache did not give back; the rounding may then refuse a request near the floor.
 - **Another program allocates between the cache's shrink and the KV's map.** The map fails and the request is
   refused with the KV's error, which then says how much VRAM is lent and that `VRAM` returns it; the freed segment
   is mapped back by the next regrow.
@@ -121,5 +132,7 @@ appears together with it. The server reads both lines as `key=value` and passes 
 ## What does not change
 
 A server without `--vram-elastic` builds the same arena, the same slots and makes the same KV decisions as before:
-the rules above reduce to the old formulas there, and decode is bitwise identical. Precision is not touched: only
-where experts and KV cells live changes, never how they are computed.
+the rules above reduce to the old formulas there, and decode is bitwise identical. With `--vram-elastic` and nothing
+lent, the slots at load are those of the same server without the flag (the elastic KV's, more than the flag gave
+before with a fully resident KV); only a KV fit that ends inside a large segment rounds differently. Precision is not
+touched: only where experts and KV cells live changes, never how they are computed.
