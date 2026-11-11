@@ -33,7 +33,7 @@ class Base(unittest.TestCase):
 
 
 CAREFUL = {"transport": "off", "outgoing_approval": "manual", "ai_disclosure_on_start": True, "incoming_auto_answer": False, "on_behalf_of": "",
-           "premium_prefixes": list(vs.DEFAULT_PREMIUM_PREFIXES), "auto_contacts_only": False, "contacts": [], "phone_calls": False}
+           "premium_prefixes": list(vs.DEFAULT_PREMIUM_PREFIXES), "auto_contacts_only": False, "contacts": [], "phone_calls": False, "archives": []}
 
 
 class TelephonySettingsTest(Base):

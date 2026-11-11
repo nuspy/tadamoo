@@ -187,6 +187,12 @@ class Config:
     brain_mode: str = "direct"              # direct | harness: the brain a session starts with
     brain_persona: str = ""                 # slug of the personality both brains speak as; "" = none
     brain_workspace: str = ""               # folder of the harness conversation; "" = the server's default
+    # Ids of the knowledge archives each voice function draws on (set from voice.json by settings_bridge); empty = none.
+    brain_archives: tuple = ()              # the avatar and the voice chat
+    meetings_archives: tuple = ()           # a meeting, unless its plan item names others
+    copilot_archives: tuple = ()
+    calls_archives: tuple = ()
+    meetings_private_output: str = ""       # part of the name of an output device only the person hears: where an archive that asks by voice asks
     direct_system_prompt: str = (
         "You are talking by voice, in real time. Answer briefly and naturally, in plain sentences with punctuation: "
         "no markdown, lists, symbols or code."

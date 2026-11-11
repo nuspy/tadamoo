@@ -170,12 +170,16 @@ def analyze_transcript(
     progress: Callable[[str, float], None] | None = None,
     kind: str = "riunione",
     preamble: str | None = None,
+    knowledge=None,
 ) -> dict:
     """Analizza il transcript. `segments`: [{text, speaker?, start_s?}].
 
     `progress(fase, percent)` viene chiamata durante l'elaborazione.
     Ritorna {"summary", "highlights": [...], "tasks": [...]}; su fallimento
     del cervello solleva RuntimeError con un messaggio leggibile.
+
+    `knowledge` (rag_client.Knowledge, funzione "minutes"): per ogni segmento si cercano negli archivi scelti i passaggi pertinenti e si mettono in coda al
+    prompt come dati; nel risultato `archives_used` e `archives_notes` dicono quali archivi sono serviti e perche' una ricerca e' stata incompleta.
     """
     brain = _get_brain(cfg)
     text = _segments_text(segments)
@@ -186,11 +190,20 @@ def analyze_transcript(
     log.info("analisi: %d caratteri in %d chunk", len(text), total)
 
     partials: list[dict] = []
+    used: list[str] = []
+    notes: list[str] = []
     for i, ch in enumerate(chunks):
         if progress:
             progress("analyzing", 100.0 * i / (total + 1))
+        tail = ""
+        if knowledge is not None and knowledge.enabled:
+            found = knowledge.fetch(ch, how="screen")
+            tail = ("\n\n" + found.block) if found.block else ""
+            used += [n for n in found.names if n not in used]
+            if found.marker and found.marker not in notes:
+                notes.append(found.marker)
         res, reply = _ask_json(cfg, brain, _MAP_PROMPT.format(
-            part=i + 1, total=total, text=ch), preamble=preamble)
+            part=i + 1, total=total, text=ch) + tail, preamble=preamble)
         if res is None:
             raise RuntimeError(f"il cervello non ha prodotto JSON sul chunk "
                                f"{i+1} — ha risposto: {_perche(reply)}")
@@ -211,7 +224,9 @@ def analyze_transcript(
         raise RuntimeError("il cervello non ha prodotto il JSON finale — "
                            f"ha risposto: {_perche(reply)}")
 
+    extra = {"archives_used": used, "archives_notes": notes} if knowledge is not None and knowledge.enabled else {}
     return {
+        **extra,
         "summary": str(reduced.get("summary") or ""),
         "highlights": [
             {"title": str(h.get("title") or "Punto saliente"),

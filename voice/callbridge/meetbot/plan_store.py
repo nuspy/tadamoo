@@ -2,7 +2,8 @@
 
 `meetings_plan.json` sits next to the past meetings; it is replaced whole through a temporary file, so a crash leaves the old one. An item is
 {id, title, platform, url, start (UTC, ISO), duration_min, source (manual | google | microsoft), participate, role (listen | minutes | speak),
-persona (a personality's slug, or ""), camera, speak, consent_mode ("" for the person's setting), notes}, plus what the planner records:
+persona (a personality's slug, or ""), camera, speak, consent_mode ("" for the person's setting), notes, archives (ids of knowledge archives; absent: the
+settings' choice for meetings)}, plus what the planner records:
 `session_id` and `joined_at` once the bot joined, `last_error` and `last_note`. The address may hold a passcode: it is stored here, never
 audited. Calendar items are stored only once the person made a choice for them; the calendar owns their title, address and time."""
 from __future__ import annotations
@@ -27,11 +28,12 @@ SOURCES = ("manual", "google", "microsoft")
 MAX_ITEMS = 200
 KEEP_S = 14 * 86400
 URL_MAX = 2000
-EDITABLE = ("title", "platform", "url", "start", "duration_min", "participate", "role", "persona", "camera", "speak", "consent_mode", "notes")
+EDITABLE = ("title", "platform", "url", "start", "duration_min", "participate", "role", "persona", "camera", "speak", "consent_mode", "notes", "archives")
 CALENDAR_OWNED = ("title", "platform", "url", "start", "duration_min")
 RECORDED = ("session_id", "joined_at", "last_error", "last_note")
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,60}")
+ARCHIVE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}")
 
 
 def calendar_id(event_id: str) -> str:
@@ -134,6 +136,14 @@ def clean(data, base: dict | None = None, source: str = "manual") -> dict:
         out["consent_mode"] = data["consent_mode"]
     if "notes" in data:
         out["notes"] = _text(data["notes"], "notes", 500, multiline=True)
+    if "archives" in data:
+        ids = data["archives"]
+        if ids is None:
+            out.pop("archives", None)                          # no choice of its own: the settings' archives for meetings
+        elif isinstance(ids, list) and len(ids) <= 20 and all(isinstance(i, str) and ARCHIVE.fullmatch(i) for i in ids):
+            out["archives"] = list(dict.fromkeys(ids))
+        else:
+            raise _bad("archives is a list of at most 20 archive ids, or null for the settings' choice.")
     return out
 
 

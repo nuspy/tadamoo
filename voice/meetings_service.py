@@ -36,6 +36,8 @@ from callbridge.meetbot.plan_store import FILE as PLAN_FILE, PlanStore
 from callbridge.meetbot.planner import Planner
 from callbridge.meetbot.speak import Floor, MeetingVoice
 from callbridge.meetbot.summary import analyze_meeting
+from callbridge.private_channel import PrivateChannel
+from callbridge.rag_client import Knowledge
 from callbridge.tadamoo_api import ApiError, TadamooApi
 from callbridge.util import is_safe_artifact_id
 from voice import persona_link
@@ -74,7 +76,7 @@ class MeetingsService:
         self._watcher: CalendarWatcher | None = None
         self._planner: Planner | None = None
         self._providers = [GoogleCalendar(self.vault), MicrosoftCalendar(self.vault)]
-        self.copilot = CopilotController(state.config, state.brains, self._desktop, self._stt, self._source, self._copilot_voice)
+        self.copilot = CopilotController(state.config, state.brains, self._desktop, self._stt, self._source, self._copilot_voice, self._copilot_knowledge)
 
     # ---- where things are
     @property
@@ -129,12 +131,30 @@ class MeetingsService:
         return MeetingVoice(enabled=True, mic_name=mic, tts_factory=self._tts if self._loaded("tts") else None, sink_factory=DeviceSink, floor=Floor(),
                             lang=c.copilot_lang, configure=self._configure_tts)
 
+    # ---- the knowledge archives
+    def _asker(self, lang: str):
+        """The way to ask aloud over a channel only the person hears, or None: then a question about an archive goes to the dialog alone."""
+        device = self.cfg.meetings_private_output
+        if not device:
+            return None
+        channel = PrivateChannel(device, self._tts if self._loaded("tts") else None, DeviceSink, self._stt, names=output_device_names, configure=self._configure_tts, lang=lang)
+        return channel.asker()
+
+    def _knowledge(self, plan: Plan, session_id: str) -> Knowledge:
+        return Knowledge(self.cfg, "meeting", plan.archives, session=session_id, asker=self._asker(plan.lang), lang=plan.lang)
+
+    def _copilot_knowledge(self) -> Knowledge | None:
+        c = self.cfg
+        if not c.copilot_archives:
+            return None
+        return Knowledge(c, "copilot", c.copilot_archives, session="copilot-" + time.strftime("%Y%m%d-%H%M%S"), asker=self._asker(c.copilot_lang), lang=c.copilot_lang)
+
     def deps(self, plan: Plan | None = None) -> Deps:
         c = self.cfg
         voice, engine = (plan.voice_name, plan.voice_engine) if plan is not None else ("", "")
         deps = Deps(audit=MeetingAudit(c.meetings_audit_file or None), root=self.root(), brains=self.state.brains, browser_factory=PlaywrightBrowser,
                     stt_factory=self._stt, source_factory=self._source, mic_names=output_device_names, sink_factory=DeviceSink,
-                    tts_factory=self._tts if self._loaded("tts") else None, lips=self._lips, on_finished=self._finished,
+                    tts_factory=self._tts if self._loaded("tts") else None, lips=self._lips, on_finished=self._finished, knowledge_factory=self._knowledge,
                     configure_tts=lambda tts, lang: self._configure_tts(tts, lang, voice, engine))
         return self._deps_hook(deps) if self._deps_hook else deps
 
@@ -173,9 +193,10 @@ class MeetingsService:
         plan = Plan(url=url, on_behalf_of=who.strip(), title=title.strip()[:120], display_name=c.meetings_display_name,
                     rights=rights, speak=flags["speak"], camera=flags["camera"], proactive=flags["proactive"],
                     consent_mode=mode, consent_window_s=window, lang=c.default_lang or "en", wake_phrase=c.meetings_wake_phrase,
-                    virtual_mic=c.meetings_virtual_mic, host=body.get("host", "") if item is not None and isinstance(body.get("host"), str) else "")
+                    virtual_mic=c.meetings_virtual_mic, archives=tuple(c.meetings_archives), host=body.get("host", "") if item is not None and isinstance(body.get("host"), str) else "")
         if item is not None:
             plan.minutes = item.get("role") != "listen"
+            plan.archives = tuple(item.get("archives") if isinstance(item.get("archives"), list) else c.meetings_archives)
             self._apply_persona(plan, item)
         return plan
 

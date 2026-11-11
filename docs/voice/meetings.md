@@ -70,6 +70,10 @@ only, never to the person's microphone; the text goes to the direct brain fenced
 stopped). "Reply with audio" speaks a clicked reply through the virtual microphone under the rules above. The window is a Tk window in its own thread
 (`desktop/suggestions.py`); the desktop layer's `Overlay` is a small status card and does not fit a list of suggestions.
 
+**Archives.** With `meetings.copilot_archives` the copilot searches the person's knowledge archives for each utterance and puts the passages at the tail of the prompt, as data; the window
+lists which archives were used and, when a search was not complete, why. The window is private, so no archive asks anything to be read there. Saying a suggestion aloud is what reaches the others:
+if its passages came from an archive whose `others_ok` asks, the click waits for the person's answer (a dialog on the page). How: [knowledge.md](knowledge.md).
+
 ## Calendar
 
 Off and inert. Nothing is shipped to read a calendar: the person makes their own OAuth app (a desktop client in a Google Cloud project, or a public-client app registration in Azure
@@ -117,7 +121,9 @@ planner, the routes and the page name only registered adapters. Add a fake-DOM t
 
 `speak` (false), `camera` (false), `proactive` (false), `consent_mode` (`window`), `consent_window_s` (45), `on_behalf_of`, `display_name`, `virtual_mic`, `wake_phrase`, `autojoin` (false, the master
 switch of the planner), `allow_programs_join` (false),
-`copilot_replies` (3), `copilot_audio_reply` (false), `copilot_hide_from_capture` (true). Settings > Voice > Meetings edits them; a bad value reads as its default.
+`copilot_replies` (3), `copilot_audio_reply` (false), `copilot_hide_from_capture` (true), `archives` and `copilot_archives` (ids of knowledge archives; none), `private_output` (part of the name of an
+output device only the person hears; none). Settings > Voice > Meetings edits them; a bad value reads as its default. A plan item may carry its own `archives` (a list, or `null` to follow `meetings.archives`);
+the ids are kept in the meeting's `meta.json` and the minutes search them segment by segment. The spoken replies of the bot, the minutes and the copilot all use the search of [knowledge.md](knowledge.md).
 
 ## Routes
 

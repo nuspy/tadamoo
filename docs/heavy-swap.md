@@ -44,7 +44,7 @@ the per-function consent for the cloud, for the time of the swap only; the Provi
    sessions (processes of their own). Every function with no provider, or on the model loaded in this server, reads as the swap's provider;
    a function the person assigned to another provider keeps it. The saved assignments are never rewritten.
 3. While the model is out, the Chat page's requests (header `X-Tadamoo-Function: chat`, from this PC only) go to the swap's provider with its key and
-   model (`serve/heavy_forward.py`; an OpenAI-style provider; the page's own fields are dropped, the tokens are counted). A request from any other program on
+   model (`serve/heavy_forward.py`; an OpenAI-style provider; the page's own fields are dropped, the tokens are counted). The voice service's requests (the copilot, the replies of a meeting or a call, the avatar's direct brain) go the same way with the header `X-Tadamoo-Function: voice` and the voice token, to the provider of the `voice` function; archive passages that are not marked as cleared for cloud models are removed ([voice/knowledge.md](voice/knowledge.md)). A request from any other program on
    `/v1` is refused with 503 and the reason: the engine is not woken by it. Only the job's end wakes it.
 4. When a job ends the engines stay out for `linger_s` (120 s by default, 0 to 900 in `heavy-swap.json`) in case another job follows; a second job in that
    time takes over the swap, so a chain of jobs (a newscast: several clips, the anchor) loads and unloads the model once. The conversations stay on the
