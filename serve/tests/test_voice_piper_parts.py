@@ -81,7 +81,7 @@ class PiperPartsTest(unittest.TestCase):
         i18n = (WEB / "i18n.js").read_text(encoding="utf-8")
         self.assertIn("vo.state.partial", js)
         self.assertEqual(i18n.count('"vo.state.partial":'), 2)
-        self.assertIn("if (!m.installed || partial) box.append(downloadPart(svc, m))", js)
+        self.assertIn("if (!m.installed || partial) box.append(dl.part(svc, m))", js)
 
 
 if __name__ == "__main__":
