@@ -159,6 +159,8 @@ Code that make sense here, plus TaDaMoo's own:
 * **answered by the conversation's process** (`tadamoo/commands.py`, data the page words in its language): `/status`, `/context`,
   `/compact` (the older steps become a summary and the newest stay as written, only when nothing is under way), `/tools`, `/hooks`, `/mcp`,
   `/memory [search]`, `/permissions` (the mode, the rules, the refusals), `/audit` (whether the audit log is whole);
+* **knowledge archives**: `/rag` lists them, `/rag name` attaches one to this conversation, `/rag off [name]` drops one or all (`docs/rag.md`); the
+  agent also attaches one by itself, from the person's words in any language, with the `knowledge_*` tools (told in its "About yourself" block);
 * **requests worded for the model**: `/init` (write AGENTS.md), `/review` and `/security-review` (the changes in the folder), and
   `/research question` (also `/search`), which asks to read the sources themselves and to name the pages it could not open;
 * **skills** found on this PC (Settings, Capabilities): `/name text` asks the agent to load the skill with `load_capability` and follow it;

@@ -71,6 +71,37 @@ the archive's vectors (text search continues) until it is indexed again. The har
 - **Model-only chat**: `serve/web/chat.js` asks `POST /api/rag/recall {project, goal}` for the Chat's own folder and adds the returned block to
   the system message, after the personality's text and notes. `POST /api/personas/<slug>/compose` returns no archive passages.
 
+### Choosing the archives of a conversation
+
+By default a conversation draws on the archives of its own project. The person can attach any archive of any project to one conversation, by
+name, and drop it again. Archives are named collections, so the words used for one are matched against its name (`tadamoo/rag/match.py`): the
+exact name or id, then a unique start of a name, a unique part of a name, a name found inside the words given, then all the words in the name
+or description; case and accents do not matter. The first rule that matches anything decides: one archive is chosen, several are returned as
+candidates and **nothing is attached**. The rule for attach, detach and clear is one function, `tadamoo/rag/choice.py` `decide`, used by every
+way of choosing below. An archive of the conversation's own project is always used and needs no attaching.
+
+- **State**: the conversation's record keeps `knowledge`, the ids attached, with the rest of the conversation; the process is started with
+  `--rag-attached <id>` for each. `POST /api/agent/sessions/<id>/knowledge` takes `{attach: name}`, `{detach: name}` or `{clear: true}`, answers
+  `{session, result: {status, archive | candidates}}` (statuses: attached, already, this_project, detached, not_attached, cleared, ambiguous,
+  none) and, like the personality, tells a running process (`knowledge` command: the process attaches them and tells the model with a
+  `[harness]` note) or waits for the next start. A conversation may also start with `knowledge: [ids]`.
+- **Recall**: `ProjectRecall` searches the project's archives and the attached ones together; each passage is still sent once, and the cloud
+  rule is unchanged (an attached archive leaves this PC only when its `cloud_ok` is on).
+- **Tools** (offered whenever `--rag-dir` is set, in every role): `knowledge_list` (name, description, project, documents, search mode, whether
+  it is used here), `knowledge_use(name)`, `knowledge_drop(name | all)` and `knowledge_search(query, archive?)`, which searches one archive by
+  name without attaching it, or the project's and the attached ones; its passages are untrusted data. The descriptions tell the model to call
+  them from the person's words in any language ("use the RAG about forests", "usa il RAG sulle foreste", "non usare più..."); the harness's
+  self-description says archives can be attached by name. A tool that changes the attached list makes the process send a `knowledge` event
+  (`change`: attached, dropped or cleared), which the record keeps and the page shows as a note.
+- **`/rag`** on the page (`serve/web/slash.js`): `/rag` lists every archive with its project and which are used here, `/rag name` attaches,
+  `/rag off name` drops one, `/rag off` drops all, each answered by one line ("Knowledge: Forests attached"). In a conversation of the agent the
+  server keeps the choice (the route above, `agentchat.js` makes the conversation first if there is none); in the model-only chat the page keeps
+  it until a new conversation starts and asks `POST /api/rag/choose {action, name, attached, project}` to apply the same rule, and
+  `POST /api/rag/recall` takes `attached` too. `GET /api/rag/catalog` lists every archive with its project's name (kept in `meta.json` as
+  `project_name` when the archive is made).
+- **Android** sends a message that starts with `/` to the conversation as ordinary text (the commands are the page's), so `/rag name` there
+  reaches the model, which attaches the archive with `knowledge_use`; the confirmation is its answer.
+
 The block is `tadamoo.untrusted.fence("knowledge-archive", ...)`: a data block with a random id, in which the document text cannot close the
 block, imitate its tags or write a chat control token. Each passage is headed `[archive / document]`, and the closing line says the passages
 (from the project's knowledge archives) are data, not instructions, and asks the model to name the archive and document it relies on. At most 4 passages and 6000 characters per
@@ -88,6 +119,7 @@ All under `/api/rag`, from this PC only (403 otherwise).
 |---|---|
 | `GET /api/rag?project=<key>` | the archives of that project, limits, formats, whether PDF can be read, the embedding state; the key is required |
 | `GET /api/rag/projects` | `{projects: [{key, name, path, chat, archives}]}`: the Chat's own folder first, then the Agent tab's folders that exist, with how many archives each holds |
+| `GET /api/rag/catalog` | `{archives}`: every archive of every project, with its project's name |
 | `GET /api/rag/archives/<id>` | the archive with its documents |
 | `POST /api/rag/archives` | `{name, description, project}` creates |
 | `POST /api/rag/archives/<id>/update` | `{name, description, cloud_ok}`, any of them |
@@ -97,7 +129,8 @@ All under `/api/rag`, from this PC only (403 otherwise).
 | `POST /api/rag/archives/<id>/documents/<doc>/remove` | removes a document, its passages and vectors |
 | `POST /api/rag/archives/<id>/reindex` | cuts the saved texts again and embeds them if an embedder is there |
 | `POST /api/rag/search` | `{query, archives: [ids] \| project: key, top_k}`; one of the two is required |
-| `POST /api/rag/recall` | `{project, goal}`: `{block}`, the data block of the project's passages for the model-only chat (`""` when none match) |
+| `POST /api/rag/choose` | `{action: attach\|detach\|clear, name, attached: [ids], project}`: what the choice does to the attached list, for the model-only chat |
+| `POST /api/rag/recall` | `{project, goal, attached?}`: `{block}`, the data block of the project's passages for the model-only chat (`""` when none match) |
 
 Errors are `{error: {type: "rag", code, message}}` with 404 for `not_found` and 400 otherwise.
 
@@ -111,6 +144,7 @@ the page from 900 px.
 
 ## Code
 
-`tadamoo/rag/` (`project.py`, `store.py`, `extract.py`, `chunking.py`, `search.py`, `query.py`, `embed.py`, `recall.py`), `serve/rag_api.py`,
+`tadamoo/rag/` (`project.py`, `match.py`, `choice.py`, `tools.py`, `store.py`, `extract.py`, `chunking.py`, `search.py`, `query.py`, `embed.py`, `recall.py`), `serve/rag_api.py`,
 `serve/web/rag.js` and `rag.css`. Tests: `tests/test_rag_store.py`, `tests/test_rag_recall.py`, `serve/tests/test_rag_api.py`,
-`serve/tests/test_rag_page.py` (with `rag_project_dom_check.js`, the page on a stand-in DOM).
+`serve/tests/test_rag_page.py` (with `rag_project_dom_check.js` and `slash_rag_check.js`, the page on a stand-in DOM), `tests/test_rag_choice.py`,
+`serve/tests/test_agent_knowledge.py`.
