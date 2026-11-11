@@ -363,3 +363,51 @@ def test_a_page_is_tried_again_then_with_a_new_converter_then_on_the_cpu(monkeyp
     monkeypatch.setattr(reader, "convert", lambda a, b: (_ for _ in ()).throw(ValueError("bad page")))
     got, message = reader.page(8)
     assert got is None and message == "ValueError: bad page"
+
+
+class Doc:
+    """A stand-in for a converted Docling document: its items in reading order."""
+
+    def __init__(self, *items):
+        self.items = items
+
+    def iterate_items(self):
+        return iter([(i, 0) for i in self.items])
+
+
+def item(label, text, *prov):
+    from types import SimpleNamespace as N
+    return N(label=N(value=label), text=text, prov=[N(page_no=p, charspan=span) for p, span in prov], level=1)
+
+
+def test_a_text_item_that_spans_pages_is_cut_at_the_page_borders_so_each_part_is_cited_on_its_own_page():
+    w = worker_module()
+    text = "First page words. " * 3 + "Second page words. " * 3 + "Third page words. " * 3
+    a, b = len("First page words. " * 3), len("First page words. " * 3 + "Second page words. " * 3)
+    blocks = w.blocks_of(Doc(item("text", text, (176, (0, a)), (177, (a, b)), (178, (b, len(text))))))
+    paragraphs = [(x["page"], x["text"][:6]) for x in blocks if x["type"] == "paragraph"]
+    assert paragraphs == [(176, "First "), (177, "Second"), (178, "Third ")]
+    assert [x["page"] for x in blocks if x["type"] == "page_break"] == [176, 177, 178]
+
+
+def test_an_item_whose_spans_make_no_sense_stays_whole_on_its_first_page():
+    w = worker_module()
+    blocks = w.blocks_of(Doc(item("text", "short text here", (5, (4, 2)), (6, (3, 10)))))
+    assert [(x["page"], x["text"]) for x in blocks if x["type"] == "paragraph"] == [(5, "short text here")]
+
+
+EMPTY = """
+emit({"event": "start", "pages": 3, "device": "cpu"})
+emit({"event": "blocks", "blocks": [{"type": "paragraph", "text": "text of page 1", "page": 1}, {"type": "paragraph", "text": "text of page 3", "page": 3}]})
+emit({"event": "empty", "page": 2, "reason": "image"})
+emit({"event": "progress", "page": 3, "pages": 3, "device": "cpu"})
+emit({"event": "done", "pages": 3, "device": "cpu"})
+"""
+
+
+def test_a_page_that_comes_out_empty_although_it_has_a_picture_is_reported_with_its_reason_and_reaches_the_notes(tmp_path, monkeypatch):
+    got = docling_client.read("", tmp_path / "x.pdf", ".pdf", command=worker(tmp_path, EMPTY, "empty.py"))
+    assert got["empty"] == {2: "image"} and got["skipped"] == {}
+    monkeypatch.setattr(docling_client, "read", lambda *a, **k: got)
+    reading = read_document(tmp_path / "a.pdf", "a.pdf", {}, python="x")
+    assert reading["empty_pages"] == [2] and "1 page gave no text although it has a picture or text: 2" in reading["notes"][0]

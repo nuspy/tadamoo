@@ -41,7 +41,11 @@ def read_document(path: Path, name: str, settings: Optional[Dict[str, Any]] = No
             if skipped:
                 notes.append(f"{len(skipped)} page{'s' if len(skipped) > 1 else ''} could not be read after three tries and "
                              f"{'are' if len(skipped) > 1 else 'is'} missing: {', '.join(str(n) for n in skipped)}. Read {'them' if len(skipped) > 1 else 'it'} by hand")
-            return {**got, "extraction": "docling", "notes": notes, "skipped_pages": skipped}
+            empty = got.pop("empty", None) or {}
+            if empty:
+                notes.append(f"{len(empty)} page{'s' if len(empty) > 1 else ''} gave no text although {'they have' if len(empty) > 1 else 'it has'} a picture or text: "
+                             f"{', '.join(str(n) for n in sorted(empty))}. Check {'them' if len(empty) > 1 else 'it'} by hand")
+            return {**got, "extraction": "docling", "notes": notes, "skipped_pages": skipped, "empty_pages": sorted(empty)}
         except docling_client.Cancelled:
             raise
         except RagError as e:
