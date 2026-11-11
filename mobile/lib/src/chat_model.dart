@@ -26,6 +26,9 @@ class SessionInfo {
 
   /// The personality or colleague the conversation speaks as ('' for none).
   String get persona => '${raw['persona'] ?? ''}';
+
+  /// Whether every real question of the conversation goes to the council first (kept on the PC with the conversation).
+  bool get council => raw['council'] == true;
 }
 
 /// A piece of a background command's output: what it wrote to its error stream is told apart from the rest.
@@ -330,6 +333,14 @@ class ChatController extends ChangeNotifier {
       case 'persona':
         if (info != null) info!.raw['persona'] = '${e['slug'] ?? ''}';
         break;
+      case 'council':
+        if (e['state'] != null) {
+          _note(Texts.t('council.state.${e['state']}'));
+        } else {
+          if (info != null) info!.raw['council'] = e['on'] == true;
+          _note(Texts.t(e['on'] == true ? 'council.now.on' : 'council.now.off'));
+        }
+        break;
       case 'role':
         final r = '${e['role']}';
         if (info != null) info!.raw['role'] = r;
@@ -533,6 +544,13 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Turns the council box of the conversation on or off; it stays so until it is turned off.
+  Future<void> setCouncil(bool on) async {
+    final r = await api.post('/api/agent/sessions/$sid/council', {'on': on});
+    info = SessionInfo(Map<String, dynamic>.from(r['session'] as Map));
+    notifyListeners();
+  }
+
   Future<void> control(String what) async {
     await api.post('/api/agent/sessions/$sid/$what');
     state = what == 'close' ? 'closed' : 'busy';
@@ -550,8 +568,11 @@ class ChatController extends ChangeNotifier {
 
 /// What a new conversation starts with: the same fields the PC's page sends when it makes one.
 class NewChat {
-  NewChat({this.mode = 'default', this.effort = '', this.allow = const [], this.worktree = 'auto', this.askOnly = false, this.role = '', this.persona = ''});
+  NewChat({this.mode = 'default', this.effort = '', this.allow = const [], this.worktree = 'auto', this.askOnly = false, this.role = '', this.persona = '', this.council = false});
   final String mode;
+
+  /// Whether the conversation starts with the council box on.
+  final bool council;
 
   /// The personality or colleague the conversation starts with; '' for none.
   final String persona;
@@ -567,8 +588,8 @@ class NewChat {
   final String worktree;
   final bool askOnly;
 
-  NewChat copy({String? mode, String? effort, List<String>? allow, String? worktree, bool? askOnly, String? role, String? persona}) =>
-      NewChat(mode: mode ?? this.mode, effort: effort ?? this.effort, allow: allow ?? this.allow, worktree: worktree ?? this.worktree, askOnly: askOnly ?? this.askOnly, role: role ?? this.role, persona: persona ?? this.persona);
+  NewChat copy({String? mode, String? effort, List<String>? allow, String? worktree, bool? askOnly, String? role, String? persona, bool? council}) =>
+      NewChat(mode: mode ?? this.mode, effort: effort ?? this.effort, allow: allow ?? this.allow, worktree: worktree ?? this.worktree, askOnly: askOnly ?? this.askOnly, role: role ?? this.role, persona: persona ?? this.persona, council: council ?? this.council);
 
-  Map<String, dynamic> body() => {'mode': mode, 'allow': allow, 'ask_only': askOnly, 'effort': effort, 'worktree': worktree, if (role.isNotEmpty) 'role': role, if (persona.isNotEmpty) 'persona': persona};
+  Map<String, dynamic> body() => {'mode': mode, 'allow': allow, 'ask_only': askOnly, 'effort': effort, 'worktree': worktree, if (role.isNotEmpty) 'role': role, if (persona.isNotEmpty) 'persona': persona, if (council) 'council': true};
 }

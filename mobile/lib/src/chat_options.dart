@@ -32,8 +32,9 @@ class RolePicker extends StatelessWidget {
 }
 
 /// Opens the options of a conversation: how a request is looked at, the rewrite of the request, "work until done", the technical session,
-/// and (in a folder) the role. `onRole` returns the server's complaint, or null when the role was changed.
-Future<void> showChatOptions(BuildContext context, {required ServerPrefs prefs, String? role, Future<String?> Function(String role)? onRole}) {
+/// the council box of the conversation and (in a folder) the role. `onRole` and `onCouncil` return the server's complaint, or null when the change was made.
+Future<void> showChatOptions(BuildContext context,
+    {required ServerPrefs prefs, String? role, Future<String?> Function(String role)? onRole, bool council = false, Future<String?> Function(bool on)? onCouncil}) {
   prefs.load();
   return showModalBottomSheet<void>(
     context: context,
@@ -50,11 +51,64 @@ Future<void> showChatOptions(BuildContext context, {required ServerPrefs prefs, 
             _RoleRow(role: role ?? defaultAgentRole, onRole: onRole),
             const SizedBox(height: 16),
           ],
+          if (onCouncil != null) ...[
+            CouncilBox(on: council, onChanged: onCouncil),
+            const Divider(height: 24),
+          ],
           ServerOptionsBody(prefs: prefs),
         ]),
       ),
     ),
   );
+}
+
+/// The council box of a conversation: while it is on, every real question goes to the council first and the answer is written with its verdict read.
+/// It is kept on the PC with the conversation. `onChanged` returns the server's complaint, or null when the change was made.
+class CouncilBox extends StatefulWidget {
+  const CouncilBox({super.key, required this.on, required this.onChanged});
+  final bool on;
+  final Future<String?> Function(bool on) onChanged;
+  @override
+  State<CouncilBox> createState() => _CouncilBoxState();
+}
+
+class _CouncilBoxState extends State<CouncilBox> {
+  late bool on = widget.on;
+  String problem = '';
+  bool busy = false;
+
+  Future<void> _set(bool value) async {
+    setState(() {
+      busy = true;
+      problem = '';
+    });
+    final complaint = await widget.onChanged(value);
+    if (!mounted) return;
+    setState(() {
+      busy = false;
+      if (complaint == null) {
+        on = value;
+      } else {
+        problem = complaint;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      CheckboxListTile(
+        key: const ValueKey('council-box'),
+        contentPadding: EdgeInsets.zero,
+        controlAffinity: ListTileControlAffinity.leading,
+        value: on,
+        onChanged: busy ? null : (v) => _set(v == true),
+        title: Text(Texts.t('council.title')),
+        subtitle: Text(Texts.t('council.tip')),
+      ),
+      if (problem.isNotEmpty) Semantics(liveRegion: true, child: Text(problem, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+    ]);
+  }
 }
 
 class _RoleRow extends StatefulWidget {
