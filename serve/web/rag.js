@@ -7,7 +7,8 @@
   const host = document.getElementById("rg-root");
   if (!host) return;
 
-  const ARM_MS = 4000, TOP_K = 4;
+  const ARM_MS = 4000, TOP_K = 4, OTHERS = ["ask_dialog", "allow", "deny", "ask_voice"];
+  const OTHERS_WORDS = { ask_dialog: "rg.others.ask_dialog", allow: "rg.others.allow", deny: "rg.others.deny", ask_voice: "rg.others.ask_voice" };
   let jobNow = "", S = null, projects = [], project = "", picked = false, chatKey = "", list = [], chosen = "", creating = false, detail = null, note = "", noteBad = false, armed = "", armTimer = 0, question = "", results = null, asking = false, working = false;
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -317,12 +318,14 @@
     cloud.id = "rg-cloud";
     lab.htmlFor = "rg-cloud"; lab.append(cloud, el("span", "", T("rg.f.cloud")));
     check.append(lab, el("p", "rg-help", T("rg.f.cloud.help")));
-    form.append(field("rg-name", T("rg.f.name"), "", name), field("rg-desc", T("rg.f.desc"), "", desc), check);
+    const others = el("select");
+    OTHERS.forEach(v => { const o = el("option", "", T(OTHERS_WORDS[v])); o.value = v; o.selected = v === (a.others_ok || "ask_dialog"); others.append(o); });
+    form.append(field("rg-name", T("rg.f.name"), "", name), field("rg-desc", T("rg.f.desc"), "", desc), check, field("rg-others", T("rg.f.others"), T("rg.f.others.help"), others));
     const bar = el("div", "rg-bar"), go = btn(T("rg.save"), "primary", () => {});
     go.type = "submit";
     bar.append(go);
     form.append(bar);
-    form.onsubmit = e => { e.preventDefault(); save({ name: name.value, description: desc.value, cloud_ok: cloud.checked }); };
+    form.onsubmit = e => { e.preventDefault(); save({ name: name.value, description: desc.value, cloud_ok: cloud.checked, others_ok: others.value }); };
     return form;
   }
   function docsBlock(a) {
