@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 from serve import lengthprobe, loader, settings
+from serve.service import voice_first
 from serve.config import build_parser, check_engine_flags, engine_flags_of, grammar_words, parse_settings, sampling_defaults_from_config, sampling_line
 from serve.engine.errors import EngineStartError
 from serve.engine.flags import flag_index, flag_value
@@ -253,6 +254,7 @@ class Supervisor:
         if old is not None and not getattr(old, "in_engine", False):
             old.close()                                  # its VRAM is free before the engine sizes its cache
         engine.close()
+        voice_first(svc)                                 # the functions that load at the Load go in before the engine sizes its cache
         self._set(phase="starting")
         spawn = list(engine.spawn)
         launch = engine_args(cfg) + grammar_words(engine_flags_of(cfg["engine_bin"]))      # as at start: a request's grammar is enforced

@@ -260,7 +260,8 @@
     text.push(`${T("vl.p.need")}: ${gb(p.need_mib)} · ${T("vl.p.recover")}: ${gb(p.recover_mib)} · ${T("vl.left")}: ${gb(p.left_for_llm_mib)}`);
     if (p.fits === false) text.push(T("vl.p.nofit"));
     else if (p.fits === null && p.need_mib) text.push(T("vl.p.unknown"));
-    text.push(p.llm_reload ? T("vl.c.reload", gb(p.left_for_llm_mib)) : p.reload_suggested ? T("vl.c.noreload") : T("vl.c.noreload2"));
+    if (p.commit_ok === false) text.push(LANG === "it" ? p.commit_reason_it : p.commit_reason);
+    text.push(p.lend_possible ? T("vl.c.lend") : p.llm_reload ? T("vl.c.reload", gb(p.left_for_llm_mib)) : p.reload_suggested ? T("vl.c.noreload") : T("vl.c.noreload2"));
     u.text = ""; u.bad = false;
     confirmDialog("vl-confirm", T("vl.c.title", NAME[f.id]()), text, T("vl.c.ok"), async () => {
       const a = await api("POST", "api/voice/functions/apply", { only: f.id, confirm: true });

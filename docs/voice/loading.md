@@ -2,8 +2,8 @@
 
 The voice functions that use a model are `stt` (speech to text), `tts` (speech synthesis) and `avatar`. Each is wanted on or off, with a model
 and a placement, and the voice service holds what is in memory. `serve/voice_loader.py` compares the two, says what loads and unloads and whether
-it fits, and does it; `voice/functions.py` is the service side. The Loader's own planning (`serve/loader.py`) is unchanged: it reads the free VRAM
-from the GPU, and the functions are loaded before it reads.
+it fits, and does it; `voice/functions.py` is the service side. The Loader's own planning (`serve/loader.py`) reads the free VRAM
+from the GPU, and the functions are loaded before it reads; the commit they will take is counted in it too (see "The commit of the voice functions").
 
 ## What is wanted: `voice.json`
 
@@ -95,7 +95,7 @@ loaded at Load. The service starts no avatar worker for an on-request avatar (`a
 - The Loader's Load leaves an on-request avatar out: its item is `action: "on_request"`, it counts 0 MiB, and no model reload is planned for it.
   The card's own Apply (`only: "avatar"`) still loads it, the old way (the model is unloaded and loaded again).
 - `POST /api/voice/avatar/ensure {wait_s?}` (this PC, or a phone with its key) is what asks for it (`serve/voice_avatar_ensure.py`). The avatar must be
-  on in Models > Voice services. It asks the broker ([../vram-broker.md](../vram-broker.md)) for the avatar's measured or catalogue size (3000 MiB
+  on in Models > Voice services. It asks the broker ([../vram-broker.md](../vram-broker.md), through the voice functions' shared lease, see below) for the avatar's measured or catalogue size (3000 MiB
   when none is known), then loads only the avatar (`voice_loader.apply_lent`: the model is not touched, the fit check is the lease's, no
   "reload the model" banner) and answers `{ok: true, state: "loaded", lent_mib, lease}`. A placement on the CPU or in RAM borrows nothing.
 - A refusal is `{ok: false, reason, message, message_it}` with the broker's reasons (`unavailable`, `busy`, `not_enough`, ...) or `avatar_off`,
@@ -107,6 +107,58 @@ loaded at Load. The service starts no avatar worker for an on-request avatar (`a
   is released, so the expert cache refills. An avatar unloaded by hand, or a lease that is lost, ends the watching the same way.
 - The Android app calls the route when the Avatar tab opens (and when the avatar is switched on), shows "Loading the avatar on the PC" until it
   answers, requests no video before that, and shows the refusal's text; the voice does not wait. A PC without the route is taken as a yes.
+
+## Voice first, then the model: every start of the engine
+
+The rule is in one place, `voice_loader.ensure_first(svc)`, and every start of the model's engine calls it before the engine sizes its cache:
+`Service._ensure_loaded` (a lazy start, the first request, `--listen-first`, an engine that ended), the Supervisor's reload
+(`_reload_engine`, after the old engine is closed: profile use, the Loader's reload), a server started without `--standby`, `--lazy` or
+`--listen-first` (before the engine process is spawned: `voice_loader.Booting` stands in for the service that does not exist yet), and the
+Loader's Load (`before_load`, which runs the job and calls the Load again). A mock engine has nothing to start and leaves the service alone.
+
+- It loads the functions that are on, load with the Load (`at_load`) and are not loaded, in one apply, and waits for them. A function that is
+  loading under another job is waited for (up to 10 minutes). An avatar that loads on request is not loaded.
+- It is idempotent: with nothing to load, or with the voice service down, it returns at once and says nothing.
+- It never fails the start. A function that fails is one log line (`voice function tts did not load: ...`) and the model starts all the same; a
+  function whose state is `error` is not tried again by the next start (the Loader's own Load does try it).
+- If the functions and the model do not fit the Windows commit together, the functions are skipped with one line and the model starts (the Loader's
+  Load refuses earlier, below).
+
+## The commit of the voice functions
+
+The Loader's plan checked the VRAM but not the commit, so a Load could load the functions (a GPU allocation is charged to the commit in full, and the
+processes' host copies come on top) and then be refused for commit. Now each item of the plan carries `commit_mib` and `commit_source`: the commit
+measured when one function loaded alone (`commit_mib` next to its measured VRAM in `voice-measured.json`), else the VRAM estimate times 2 (`rule`, a
+rough rule), else 0 for a CPU or RAM placement, else unknown.
+
+- `POST /api/voice/functions/plan` adds `commit_need_mib`, `commit_ok` (`null` when the commit cannot be read) and, when false, `commit_reason`
+  and `commit_reason_it`. A model that loads again after the functions is part of the check; the Load's own check (`loader.plan`) is the one used. The
+  card's confirmation shows the reason, and Apply answers 422 `not_enough_commit` unless `force` is true.
+- `POST /api/loader/plan` (and the Loader's page) counts the functions that will load first as commit in use (`voice_commit` in the plan, `voice` in the
+  commit problem, whose text says how much of it is the voice functions'). `POST /api/loader/load` refuses a Load that would fail for commit with 422
+  `does_not_fit` before anything loads, naming the numbers; `force` loads anyway.
+
+## A function added while the model runs
+
+With the engine started with `--vram-elastic` (`engine.vram-elastic`), a function added or changed in Models > Voice services does not unload the
+model: `apply` asks the broker ([../vram-broker.md](../vram-broker.md)) for the VRAM of the additions (measured, else catalogue, else 3000 MiB), loads
+them with the plan's fit check replaced by the lease (`voice_loader.apply_lent`'s way) and answers `lent: {used: true}`. If the broker refuses
+(`unavailable`, `busy`, `not_enough`) or the engine does not lend, today's way runs (`lent: {used: false, refused}`): the model is unloaded, the functions
+load, the model loads again. The plan says `lend_possible` and the confirmation says which of the two will happen.
+
+The broker lends to one holder at a time, so the voice functions share one lease: `serve/voice_lend.py`, owner `voice`, sized to the sum of the
+functions that borrowed (the avatar on request uses it too). A function that joins makes it larger (the old lease is returned and a new one asked for,
+so the cache refills for a moment); one that unloads, by hand or because the avatar was idle, makes it smaller, and the last one gives it back, so
+the expert cache refills. A function that did not load keeps no share. The lease is kept alive every 15 seconds while a share is held; a lease the
+broker forgot is asked for again, and when that fails the functions keep running without one. Removing a borrowed function leaves nothing to reload
+(no `pending_reload`); a function loaded with the model, not borrowed, is removed as before.
+
+## Load at start
+
+`POST /api/loader/autoload` (this PC only, 403 otherwise) is the Load with the Machine Default, or the default load profile when there is none: it
+writes that profile's voice functions to `voice.json` and runs the Loader's Load (the answer is the Load's, with `profile`), so the voice functions
+load first and the model after, whatever the profile. The desktop app calls it once after the server answers in standby when it was started with
+`--load` or the icon's check is on ([../windows-scripts.md](../windows-scripts.md)).
 
 ## The commit of the GPU memory
 
@@ -130,7 +182,9 @@ profiles from before, leave the voice settings alone. An import drops a voice bl
 ## What the tests cover, and what they cannot
 
 `voice/tests/test_functions.py` (apply order, one load at a time, failures, the measurement and its null paths, the offline rule, the
-routes), `serve/tests/test_voice_avatar_ensure.py` (the avatar on request: the Loader leaves it out, ensure, the refusals, the idle unload) and
+routes), `serve/tests/test_voice_avatar_ensure.py` (the avatar on request: the Loader leaves it out, ensure, the refusals, the idle unload),
+`serve/tests/test_voice_first.py` (voice first on every start path, a failing voice not failing the start, the commit estimate and plan, the Load
+refused before anything loads, the lending path and its fallback, the automatic load) and
 `serve/tests/test_voice_loader.py` (the plan, adding, removing, reload, the Loader's Load, a different model, a service that is
 down, the call to the service over loopback) and `serve/tests/test_voice_loader_page.py` (the page). They use a stand-in service with a fake
 GPU. Not proven without a GPU: the real load order of the engines, the NVML readings, the reload of the model in the VRAM that is left.

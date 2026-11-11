@@ -602,13 +602,16 @@ def problem_text(p: dict, lang: str = "en") -> str:
                 if lang == "it" else
                 f"Not enough RAM: {g(p['need'])} GiB needed, {g(p['have'])} GiB available and {g(p['keep'])} GiB must "
                 f"stay free ({sh}). Close other heavy programs, or use less context or fewer slots.")
+    voice = p.get("voice") or 0                         # the functions that load before the model are counted in the commit in use
     return (f"Manca memoria impegnabile (commit): servono {g(p['need'])} GiB, ne restano {g(p['have'])} sotto il "
             f"limite e {g(p['keep'])} devono restare liberi ({sh}). Il file di paging non deve crescere: chiudi altri "
             "programmi (la VRAM usata conta nel commit)."
+            + (f" Le funzioni vocali che si caricano prima ne prendono circa {g(voice)} GiB." if voice else "")
             if lang == "it" else
             f"Not enough commit: {g(p['need'])} GiB needed, {g(p['have'])} GiB left under the limit and "
             f"{g(p['keep'])} GiB must stay free ({sh}). The page file must not grow: close other programs (the VRAM "
-            "in use counts toward the commit).")
+            "in use counts toward the commit)."
+            + (f" The voice functions that load first take about {g(voice)} GiB of it." if voice else ""))
 
 
 CONTEXT_STEPS = (262144, 131072, 65536, 32768, 16384, 8192, 4096)

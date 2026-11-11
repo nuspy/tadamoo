@@ -55,7 +55,7 @@ Text frames are JSON, binary frames are 16-bit little-endian mono PCM. Phone to 
 | `error {code, message}` | `auth_failed`, `not_loaded` (with `missing`), `voice_failed`, `brain_failed`, `bad_request`, `video_failed`, `avatar_failed`, `no_persona`, `render_mode_unavailable`, `bad_render_modes`, `render_modes_rate_limited`, `auth_required` |
 
 The gateway starts in standby with the service. It loads nothing: a turn without the STT or TTS function loaded is answered with
-`not_loaded`, and the phone is told by `state` when they are loaded. The modes `wav2lip` and `visemes` need no function loaded.
+`not_loaded` (`message` and `message_it` say that the PC has not loaded the model/voice yet and to press Load on the PC; the app shows its own text for the code), and the phone is told by `state` when they are loaded. The modes `wav2lip` and `visemes` need no function loaded.
 
 ## Brains and permissions
 

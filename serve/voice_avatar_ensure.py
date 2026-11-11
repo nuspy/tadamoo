@@ -4,20 +4,20 @@
                                               409/502/503 {ok: false, reason, message, message_it}; nothing is left half loaded
 
 What it does, with the avatar set to load on request (the default; `at_load` makes it only load the avatar, with no lease and no idle unload):
-the VRAM broker lends the avatar's size (its measured or catalogue size, else 3000 MiB), only the avatar function is loaded, and while it is
-used the lease is kept. Used means a phone on the voice gateway, a viewer of the preview stream, a running voice session with the avatar, or
-the virtual camera running. After the idle time (Settings: `idle_unload_s`, 5 minutes by default) the avatar is unloaded and the lease
-returned, so the model's expert cache refills. Everything the voice service says is read from its own routes."""
+the VRAM broker lends the avatar's size (its measured or catalogue size, else 3000 MiB) through the voice functions' one shared lease
+(serve/voice_lend.py), only the avatar function is loaded, and while it is used the lease is kept. Used means a phone on the voice
+gateway, a viewer of the preview stream, a running voice session with the avatar, or the virtual camera running. After the idle time
+(Settings: `idle_unload_s`, 5 minutes by default) the avatar is unloaded and the lease returned, so the model's expert cache refills.
+Everything the voice service says is read from its own routes."""
 from __future__ import annotations
 
 import json
 import threading
 import time
 
-from serve import models, vram_api, voice_loader, voice_service, voice_settings
+from serve import models, voice_lend, voice_loader, voice_service, voice_settings
 
 PATH = "/api/voice/avatar/ensure"
-FALLBACK_MIB = 3000                    # the avatar's VRAM when no figure is known
 TICK_S = 5.0
 WAIT_MAX_S = 120.0
 BODY_MAX = 1 << 10
@@ -37,11 +37,11 @@ def _fail(status: int, reason: str, message: str | None = None, message_it: str 
 
 
 class OnRequest:
-    def __init__(self, svc, broker, clock=time.monotonic, tick_s: float = TICK_S, idle_s=voice_settings.avatar_idle_s) -> None:
-        self.svc, self.broker, self.clock, self.tick_s, self.idle_s = svc, broker, clock, tick_s, idle_s
+    def __init__(self, svc, lend, clock=time.monotonic, tick_s: float = TICK_S, idle_s=voice_settings.avatar_idle_s) -> None:
+        self.svc, self.lend, self.clock, self.tick_s, self.idle_s = svc, lend, clock, tick_s, idle_s
         self._ensure = threading.Lock()
         self._lock = threading.Lock()
-        self._lease: str | None = None
+        self._leased = False                                         # the avatar holds a share of the lease
         self._last_use = clock()
         self._watcher: threading.Thread | None = None
         self._stop = threading.Event()
@@ -62,9 +62,9 @@ class OnRequest:
         mine = (live["functions"].get("avatar") or {}).get("state")
         if mine == "loaded":
             self._used()
-            if self._lease is not None:
+            if self._leased:
                 self._start_watcher()
-            return 200, {"ok": True, "state": "loaded", "lent_mib": 0, "lease": self._lease is not None}
+            return 200, {"ok": True, "state": "loaded", "lent_mib": 0, "lease": self._leased}
         if mine == "loading":
             return _fail(409, "busy")
         if not voice_settings.enabled("avatar"):
@@ -75,7 +75,7 @@ class OnRequest:
         lend = voice_settings.load_mode("avatar") == "on_request" and item["memory"] == "vram" and item["device"] != "cpu"
         lease = None
         if lend:
-            got = self.broker.acquire("avatar", item["estimated_mib"] or FALLBACK_MIB, "avatar", wait_s=min(max(float(wait_s or 0), 0), WAIT_MAX_S))
+            got = self.lend.acquire({"avatar": item["estimated_mib"] or voice_lend.FALLBACK_MIB}, wait_s=min(max(float(wait_s or 0), 0), WAIT_MAX_S))
             if not got["ok"]:
                 return _fail(409, got["reason"], got["message"], got["message_it"], **{k: got[k] for k in ("free_mib", "needed_mib") if k in got})
             lease = got["lease"]
@@ -91,7 +91,7 @@ class OnRequest:
             return _fail(502, "load_failed", f"The avatar did not load: {problem}" if problem else None,
                          f"L'avatar non si è caricato: {problem}" if problem else None)
         with self._lock:
-            self._lease = lease["id"] if lease else None
+            self._leased = lease is not None
         self._used()
         if voice_settings.load_mode("avatar") == "on_request":
             self._start_watcher()
@@ -99,7 +99,7 @@ class OnRequest:
 
     def _give_back(self, lease) -> None:
         if lease:
-            self.broker.release(lease["id"])
+            self.lend.release("avatar")
 
     def _used(self) -> None:
         self._last_use = self.clock()
@@ -146,8 +146,8 @@ class OnRequest:
             self._end_lease()
             return True                                              # unloaded by hand
         with self._lock:
-            lease = self._lease
-        if lease and not self.broker.touch(lease)["ok"]:
+            lease = self._leased
+        if lease and not self.lend.touch()["ok"]:
             return self.unload()                                     # the lease is lost: the VRAM may be lent to another job
         if self.in_use():
             self._used()
@@ -173,9 +173,9 @@ class OnRequest:
 
     def _end_lease(self) -> None:
         with self._lock:
-            lease, self._lease = self._lease, None
+            lease, self._leased = self._leased, False
         if lease:
-            self.broker.release(lease)
+            self.lend.release("avatar")
 
     def shutdown(self) -> None:
         self._stop.set()
@@ -184,7 +184,7 @@ class OnRequest:
 def of(svc) -> OnRequest:
     o = getattr(svc, "avatar_on_request", None)
     if o is None:
-        o = svc.avatar_on_request = OnRequest(svc, vram_api.broker_of(svc))
+        o = svc.avatar_on_request = OnRequest(svc, voice_lend.of(svc))
     return o
 
 
