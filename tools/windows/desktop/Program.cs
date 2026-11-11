@@ -60,7 +60,8 @@ static class Program
 }
 
 /// <summary>The command line (the same names as Avvia-TaDaMoo.ps1, one or two dashes): --config "profile", --model
-/// FILE.basalt, --port N, --vram-libera GB, --file CONFIG.json, --repo DIR; hidden test options --test-mock,
+/// FILE.basalt, --port N, --vram-libera GB, --file CONFIG.json, --repo DIR, --load (this start loads the Machine Default by itself,
+/// the voice functions first and then the model); hidden test options --test-mock,
 /// --test-screenshot FILE, --test-exit, --test-no-wizard, --test-fallback (the web server cannot start: the native
 /// panel), --test-folder-prompt (with --test-fallback: the models folders unset, the prompt, then --test-models-dir
 /// DIR is chosen as the user would), --test-no-webview, --test-window (with --test-mock: keep the window's place and size
@@ -70,7 +71,7 @@ sealed class Options
     public string Profile, Repo, Error, Screenshot, Model, TestModelsDir, ConfigFile, Lang;
     public int Port;
     public double VramLibera = -1;
-    public bool TestAdmin, TestMock, TestExit, TestFolderPrompt, TestNoWebView, TestNoWizard, TestFallback, TestWindow;
+    public bool Load, TestAdmin, TestMock, TestExit, TestFolderPrompt, TestNoWebView, TestNoWizard, TestFallback, TestWindow;
 
     public static Options Parse(string[] args)
     {
@@ -98,6 +99,7 @@ sealed class Options
                     if (o.Lang != "it" && o.Lang != "en") o.Error = "--lang: it | en";
                     break;
                 case "--repo": o.Repo = Next(); break;
+                case "--load": o.Load = true; break;
                 case "--model": o.Model = Next(); break;
                 case "--test-folder-prompt": o.TestFolderPrompt = o.TestFallback = o.TestMock = true; break;
                 case "--test-models-dir": o.TestModelsDir = Next(); break;
@@ -109,7 +111,7 @@ sealed class Options
                 case "--test-window": o.TestWindow = true; break;
                 case "--test-screenshot": o.Screenshot = Next(); break;
                 case "--test-exit": o.TestExit = true; break;
-                default: o.Error = $"? {args[i]}\nTaDaMoo.exe [--config \"<profile>\"] [--model \"<file .basalt>\"] [--port N] [--vram-libera GB] [--file <config>] [--lang it|en]"; break;
+                default: o.Error = $"? {args[i]}\nTaDaMoo.exe [--config \"<profile>\"] [--model \"<file .basalt>\"] [--port N] [--vram-libera GB] [--file <config>] [--load] [--lang it|en]"; break;
             }
         }
         o.Repo ??= FindRepo(AppContext.BaseDirectory);
@@ -222,6 +224,36 @@ static class Native
             return r.IsSuccessStatusCode;
         }
         catch { return false; }
+    }
+
+    /// <summary>One POST: (HTTP status, body); status 0 and the reason when the server cannot be reached.</summary>
+    public static (int status, string body) PostJsonBody(string url, string body, int timeoutS = 30)
+    {
+        try
+        {
+            using var c = new HttpClient(new HttpClientHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(timeoutS) };
+            using var r = c.PostAsync(url, new StringContent(body, System.Text.Encoding.UTF8, "application/json")).GetAwaiter().GetResult();
+            return ((int)r.StatusCode, r.Content.ReadAsStringAsync().GetAwaiter().GetResult());
+        }
+        catch (Exception e) { return (0, e.Message); }
+    }
+
+    /// <summary>The reason in a server's refusal, in the app's language when the server gives both (the Loader's problems).</summary>
+    public static string ReasonOf(int status, string body)
+    {
+        try
+        {
+            var root = JsonDocument.Parse(body).RootElement;
+            if (root.TryGetProperty("problems", out var list) && list.ValueKind == JsonValueKind.Array)
+            {
+                string key = Tr.Code == "it" ? "text_it" : "text";
+                var texts = list.EnumerateArray().Select(x => x.TryGetProperty(key, out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() : null).Where(t => !string.IsNullOrEmpty(t)).ToList();
+                if (texts.Count > 0) return string.Join(" ", texts);
+            }
+            if (root.TryGetProperty("error", out var e) && e.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String) return m.GetString();
+        }
+        catch { }
+        return status == 0 ? body : "HTTP " + status;
     }
 
     /// <summary>Asks the server on this port to unload its model, so the engine ends cleanly and frees its memory. The

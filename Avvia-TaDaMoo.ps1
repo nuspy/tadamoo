@@ -13,6 +13,9 @@
                 cartelle dei modelli, profili, tutti i valori, la previsione di memoria e velocità, la configurazione
                 guidata, Carica. Il browser NON si apre, ma l'indirizzo resta disponibile e viene stampato. Se l'app
                 non è ancora stata costruita lo script dice come costruirla e intanto usa -browser.
+                Con -load l'app, appena il server risponde, carica da sola il profilo Machine Default (prima le funzioni
+                vocali, poi il modello) e poi mostra il Loader come sempre; l'errore, se c'è, compare nella finestra.
+                L'app ricorda la scelta anche dal menu dell'icona («Carica il Machine Default all'avvio»).
       -browser  il server legato a questa finestra e l'interfaccia nel browser, senza app: Ctrl+C o la X della
                 finestra fermano server e motore e liberano la RAM (un Job Object di Windows chiude tutto anche se
                 PowerShell viene terminato di colpo).
@@ -50,6 +53,7 @@ param(
     [switch]$Gui,
     [switch]$Browser,
     [switch]$Server,
+    [switch]$Load,
     [string]$Config = '',
     [string]$Model = '',
     [int]$Port = 0,
@@ -117,8 +121,8 @@ for ($i = 0; $i -lt $Altri.Count; $i++) {                  # --lang prima di tut
 $Lingua = Get-Lingua $langArg
 if ($langArg) { $env:TADAMOO_LANG = $Lingua }               # --lang: i comandi Python e il server la seguono
 function T([string]$It, [string]$En) { if ($Lingua -eq 'it') { $It } else { $En } }
-$Uso = T 'uso: Avvia-TaDaMoo.ps1 [-gui | -browser | -server] [--config "<profilo>"] [--model "<file .basalt>"] [--port N] [--vram-libera GB] [-riusa | -riavvia] [-converti] [-prova] [--lang it|en] [-file <configurazione>]' `
-         'usage: Avvia-TaDaMoo.ps1 [-gui | -browser | -server] [--config "<profile>"] [--model "<.basalt file>"] [--port N] [--vram-libera GB] [-riusa | -riavvia] [-converti] [-prova] [--lang it|en] [-file <config file>]'
+$Uso = T 'uso: Avvia-TaDaMoo.ps1 [-gui [-load] | -browser | -server] [--config "<profilo>"] [--model "<file .basalt>"] [--port N] [--vram-libera GB] [-riusa | -riavvia] [-converti] [-prova] [--lang it|en] [-file <configurazione>]' `
+         'usage: Avvia-TaDaMoo.ps1 [-gui [-load] | -browser | -server] [--config "<profile>"] [--model "<.basalt file>"] [--port N] [--vram-libera GB] [-riusa | -riavvia] [-converti] [-prova] [--lang it|en] [-file <config file>]'
 
 # ------------------------------------------------------------------ le opzioni: -nome o --nome, --nome valore o --nome=valore
 for ($i = 0; $i -lt $Altri.Count; $i++) {
@@ -136,6 +140,7 @@ for ($i = 0; $i -lt $Altri.Count; $i++) {
         'gui' { $Gui = $true }
         'browser' { $Browser = $true }
         'server' { $Server = $true }
+        'load' { $Load = $true }
         'prova' { $Prova = $true }
         'converti' { $Converti = $true }
         'riusa' { $Riusa = $true }
@@ -358,6 +363,7 @@ if ($Gui) {
     $argApp = @()
     if ($Config) { $argApp += @('--config', $Config) }
     if ($Model) { $argApp += @('--model', $Model) }
+    if ($Load) { $argApp += '--load' }
     if ($Port) { $argApp += @('--port', "$Port") }
     if ($RiservaMib -ge 0) { $argApp += @('--vram-libera', ([double]$RiservaMib / 1024).ToString([Globalization.CultureInfo]::InvariantCulture)) }
     if ($langArg) { $argApp += @('--lang', $Lingua) }

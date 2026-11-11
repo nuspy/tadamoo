@@ -53,6 +53,7 @@ sealed class MainForm : Form
     bool ours;                      // started by this app: in its job object
     bool exiting, checkOk;
     bool waitingHealth;             // the server just started: the page opens when /health answers
+    bool autoLoadPending;           // the server starts in standby and the Machine Default is loaded once /health answers (once per start of the app)
     bool loadingProfiles;           // the profile list is being refilled: no model change, no check
     bool firstPage = true;          // the first page carries the command line's profile, model and VRAM
     string pageView = "loader";     // the view the page opens on
@@ -90,6 +91,9 @@ sealed class MainForm : Form
         menu.Items.Add(Tr.T("Ricarica con altri parametri…", "Reload with other settings…"), null, (_, _) => { ShowWindow(); if (web.Visible) web.CoreWebView2?.Navigate($"http://127.0.0.1:{serverPort}/#loader"); });
         menu.Items.Add(Tr.T("Avvia solo server (per gli agenti)…", "Start the server alone (for agents)…"), null, async (_, _) => await HeadlessFromTray());
         menu.Items.Add(new ToolStripSeparator());
+        var autoItem = new ToolStripMenuItem(Tr.T("Carica il Machine Default all'avvio", "Load the Machine Default at start")) { CheckOnClick = true, Checked = ReadState("autoload") == "True" };
+        autoItem.CheckedChanged += (_, _) => WriteState("autoload", autoItem.Checked);
+        menu.Items.Add(autoItem);
         var voiceItem = new ToolStripMenuItem(voice.StatusText) { Enabled = false };
         menu.Items.Add(voiceItem);
         menu.Opening += (_, _) => voiceItem.Text = voice.StatusText;
@@ -516,6 +520,7 @@ sealed class MainForm : Form
         }
         catch (Exception e) { await Fallback(Tr.T("Avvio del server non riuscito: ", "The server did not start: ") + e.Message); return; }
         pageView = standby ? "loader" : "stats";
+        autoLoadPending = standby && (opt.Load || ReadState("autoload") == "True");
         ShowServer(p, true, standby ? Tr.T($"Avvio di {Program.AppName}…", $"Starting {Program.AppName}…") : Tr.T($"{Program.AppName} riparte con il nuovo modello…", $"{Program.AppName} starts again with the new model…"));
     }
 
@@ -969,10 +974,24 @@ sealed class MainForm : Form
             waitingHealth = false;
             report.Add("health ok");
             if (!ours) poll.Stop();
+            if (autoLoadPending) { autoLoadPending = false; _ = AutoLoad(); }
             if (useBrowser) { OpenBrowser(); return; }
             web.CoreWebView2.Navigate(PageUrl());
             if (opt.Screenshot != null) _ = TestRun();
         }
+    }
+
+    /// <summary>The server answers in standby: it loads the Machine Default (the voice functions first, then the model) as a Load from the Loader
+    /// would. It runs once per start of the app; a refusal is shown with its plain reason and nothing is asked again.</summary>
+    async Task AutoLoad()
+    {
+        report.Add("autoload: the Machine Default");
+        var (status, body) = await Task.Run(() => Native.PostJsonBody($"http://127.0.0.1:{serverPort}/api/loader/autoload", "{}"));
+        if (status >= 200 && status < 300) { report.Add("autoload started"); return; }
+        string why = Native.ReasonOf(status, body);
+        report.Add("autoload refused: " + why);
+        MessageBox.Show(this, Tr.T("Il caricamento automatico del Machine Default non è partito: ", "The automatic load of the Machine Default did not start: ") + why + "\n\n" +
+                              Tr.T("Puoi caricare dal Loader.", "You can load from the Loader."), Program.AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 
     /// <summary>Tray: start the server alone for agents (Avvia-TaDaMoo.ps1 -server, detached) in place of this app's,
