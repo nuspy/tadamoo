@@ -118,6 +118,11 @@
     { name: "skills", alias: ["personal-skills"], run: () => { if (needChat() && window.pskills) window.pskills.openList(); } },
     { name: "start-learn-skill", run: () => { if (needChat()) A().skills.startLearn(); } },
     { name: "stop-learn-skill", run: () => { if (needChat()) A().skills.stopLearn(); } },
+    { name: "council", args: "<question>", run: rest => {
+      if (!needChat()) return;
+      if (!rest) { note(T("co.usage")); return; }
+      A().send("/council " + rest);                       // the conversation's process debates this one question and the model answers with the verdict read
+    } },
     { name: "init", ask: true }, { name: "review", ask: true, args: "[what to look at]" }, { name: "security-review", ask: true },
     { name: "research", alias: ["search"], ask: true, args: "<question>" },
   ];

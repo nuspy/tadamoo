@@ -76,6 +76,13 @@ def runs_here(prov: Optional[Dict[str, Any]], local_hosts: tuple = LOOPBACK) -> 
     return host in local_hosts if host else bool(spec.get("local"))
 
 
+class _Consumers(tuple):
+    """The functions a provider may be assigned to: the fixed ones, and the roles of the council, which come and go as the person edits them."""
+
+    def __contains__(self, item: object) -> bool:
+        return tuple.__contains__(self, item) or functions.is_council(item)
+
+
 class SecureRegistry(Registry):
     """llmswitch's registry with the keys moved to a credential store, and the extra data TaDaMoo keeps next to it."""
 
@@ -84,6 +91,7 @@ class SecureRegistry(Registry):
         kw.setdefault("consumers", functions.names())
         super().__init__(path, app_name="tadamoo", **kw)
         self.credentials = credentials or default_store(self.path.parent)
+        self.consumers = _Consumers(self.consumers)
         self._io = threading.RLock()
         self.local_hosts = LOOPBACK                   # the addresses that are this PC (tests can say there are none)
 
@@ -210,8 +218,9 @@ class SecureRegistry(Registry):
 
     # -- what a route may be ----------------------------------------------------------------------------
 
-    def check(self, function: str, pid: Optional[str]) -> Tuple[bool, str]:
-        """Whether the function may use this provider, and if not, why. No provider is always fine: it is the loaded model."""
+    def check(self, function: str, pid: Optional[str], consent: Optional[Dict[str, bool]] = None) -> Tuple[bool, str]:
+        """Whether the function may use this provider, and if not, why. No provider is always fine: it is the loaded model. `consent` is the
+        consent to judge by when it is not the saved one (a change being checked before it is saved)."""
         spec = functions.spec(function)
         if not pid:
             return True, ""
@@ -224,7 +233,7 @@ class SecureRegistry(Registry):
                 return False, f"{prov.get('name') or pid} cannot hold a conversation" + (" with tools" if api == "cli" else "")
         elif api not in CHAT_APIS and api != "judge" and api != "cli":
             return False, f"{prov.get('name') or pid} cannot judge"
-        if spec.get("data") == "personal" and not is_local(prov, self.local_hosts) and not self.consent().get(function):
+        if spec.get("data") == "personal" and not is_local(prov, self.local_hosts) and not (self.consent() if consent is None else consent).get(function):
             return False, (f"{spec['label']} handles your personal data and {prov.get('name') or pid} is outside this PC: "
                            "say yes for this function first")
         return True, ""

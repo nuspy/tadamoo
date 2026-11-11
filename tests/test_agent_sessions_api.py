@@ -210,3 +210,18 @@ def test_a_fork_runs_from_its_nodes_and_the_node_routes_serve_cost_tree_and_merg
     last = api("GET", f"/api/agent/sessions/{merged['session']['id']}/history")[1]["messages"][-2:]
     assert [m["content"] for m in last] == ["Unisci.", "Sintesi dei due rami."]
     assert api("POST", "/api/agent/sessions/merge", {"a": sid, "b": sid})[0] == 400
+
+
+def test_the_council_box_is_kept_on_the_conversation_and_reaches_its_process(setup, ws, tmp_path):
+    s = setup([answer("x")])
+    api, mgr = s["api"], s["mgr"]
+    code, body = api("POST", "/api/agent/sessions", {"workspace": str(ws), "mode": "read_only", "ask_only": True})
+    sid = body["session"]["id"]
+    assert body["session"]["council"] is False and "--council-each" not in mgr._command(sid, mgr._record(sid), tmp_path)
+    code, body = api("POST", f"/api/agent/sessions/{sid}/council", {"on": True})
+    assert code == 200 and body["session"]["council"] is True and "--council-each" in mgr._command(sid, mgr._record(sid), tmp_path)
+    assert api("GET", f"/api/agent/sessions/{sid}")[1]["session"]["council"] is True                  # kept on the record: it stays on for the conversation
+    assert api("POST", f"/api/agent/sessions/{sid}/council", {"on": "yes"})[0] == 400
+    assert api("POST", f"/api/agent/sessions/{sid}/council", {"on": False})[1]["session"]["council"] is False
+    code, body = api("POST", "/api/agent/sessions", {"workspace": str(ws), "mode": "read_only", "ask_only": True, "council": True})
+    assert body["session"]["council"] is True                                                         # a conversation can start with it on

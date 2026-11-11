@@ -944,7 +944,7 @@ class SessionManager:
                context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto", effort: Any = "",
                images: Any = "", charts: Any = "", unattended: bool = False, role: Any = GENERAL_ROLE, private: bool = False,
                alias: Any = "", cross_commands: Any = None, parent: Any = "", operating_rules: Any = None,
-               budget_day_tokens: Any = None, persona: Any = "", channel: str = "chat", knowledge: Any = None) -> Dict[str, Any]:
+               budget_day_tokens: Any = None, persona: Any = "", channel: str = "chat", knowledge: Any = None, council: Any = False) -> Dict[str, Any]:
         from serve.agent_runs import AgentRunner
         persona = self._check_persona(persona)
         attached = self._check_knowledge(knowledge)
@@ -999,7 +999,7 @@ class SessionManager:
             raise RunError("The copy of the folder is off, auto or always.", "bad_worktree")
         sid = secrets.token_hex(4)
         copy = self._copy_for(sid, path, worktree)
-        rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "role": role, "effort": effort, "images": images, "charts": charts, "persona": persona,
+        rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "role": role, "effort": effort, "images": images, "charts": charts, "persona": persona, "council": council is True,
                "allow": [r.strip() for r in rules], "ask_only": bool(ask_only), "max_turns": max_turns, "unattended": unattended is True, "parent": parent or "", "depth": depth,
                "budget_day_tokens": budget_day_tokens, "channel": channel,
                "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": 0}
@@ -1093,6 +1093,8 @@ class SessionManager:
             cmd += ["--personas-dir", str(self.personas_dir)] + (["--persona", rec["persona"]] if rec.get("persona") else [])
             if "--personal-memory-keys" not in cmd and self.personal_keys:
                 cmd += ["--personal-memory-keys", str(self.personal_keys)]
+        if rec.get("council"):
+            cmd.append("--council-each")
         if self.rag_dir:
             cmd += ["--rag-dir", str(self.rag_dir), "--rag-project", rag_project_key(rec["workspace"])]
             for aid in rec.get("knowledge") or []:
@@ -2200,6 +2202,21 @@ class SessionManager:
                 if not told:
                     self._push(sid, {"event": "knowledge", "ids": got["ids"]})
         return {"session": self.get(sid), "result": {k: v for k, v in got.items() if k != "ids"}}
+
+    def set_council(self, sid: str, on: Any) -> Dict[str, Any]:
+        """Whether every real question of the conversation goes to the council first, from its next message on: kept on the record (it stays until
+        turned off), told to the running conversation, and taken by one started again."""
+        if not isinstance(on, bool):
+            raise RunError("The council is on or off.", "bad_council")
+        with self._lock:
+            rec = self._record(sid)
+            if rec["state"] == "closed":
+                raise RunError("That conversation is closed.", "closed")
+            self._set(rec, council=on)
+            told = self._tell_if_running(sid, {"cmd": "council", "on": on})
+        if not told:
+            self._push(sid, {"event": "council", "on": on})
+        return self.get(sid)
 
     def set_telegram(self, sid: str, chat: Any) -> Dict[str, Any]:
         """Moves the conversation to a Telegram chat (its answers go there and what is written there comes here), or back with None. A chat holds one

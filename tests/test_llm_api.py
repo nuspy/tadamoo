@@ -105,11 +105,64 @@ def test_the_catalog_of_context_patterns_is_served_and_a_preset_keeps_a_checked_
 def test_the_council_roles_and_rounds_are_saved_with_their_cost_and_bad_ones_are_refused(api):
     call, reg = api
     view = call("GET", "/api/llm")[1]["council"]
-    assert view["settings"] == view["defaults"] and view["estimate"]["calls_max"] == 12 and view["configured"] is False
-    roles = [{"name": "lawyer", "job": "Say what the law allows."}, {"name": "accountant", "job": "Say what it costs."}, {"name": "skeptic", "job": "Doubt."}]
-    code, body = call("POST", "/api/llm/council", {"rounds": 2, "roles": roles, "moderator": {"name": "judge", "job": "Decide."}})
-    assert code == 200 and body["council"]["settings"]["roles"][0]["name"] == "lawyer" and body["council"]["estimate"]["calls_max"] == 8
-    assert call("GET", "/api/llm")[1]["council"]["settings"]["moderator"]["name"] == "judge"
+    assert [r["id"] for r in view["settings"]["roles"]] == ["proposer", "critic", "engineer"] and view["estimate"]["calls_max"] == 12 and view["ready"] is True
+    assert all(r["route"] == "" and r["enabled"] for r in view["settings"]["roles"]) and view["settings"]["council_auto"] == "ask" and view["settings"]["max_calls"] == 0
+    assert "council:proposer" not in {f["id"] for f in call("GET", "/api/llm")[1]["functions"]} and not any(f["id"].startswith("council_") for f in call("GET", "/api/llm")[1]["functions"])
+    roles = [{"name": "lawyer", "job": "Say what the law allows."}, {"name": "accountant", "job": "Say what it costs."}, {"name": "skeptic", "job": "Doubt.", "enabled": False}]
+    code, body = call("POST", "/api/llm/council", {"rounds": 2, "roles": roles, "moderator": {"name": "judge", "job": "Decide."}, "max_calls": 5, "council_auto": "auto"})
+    got = body["council"]
+    assert code == 200 and got["settings"]["roles"][0]["name"] == "lawyer" and got["settings"]["roles"][2]["enabled"] is False and got["settings"]["max_calls"] == 5
+    assert got["estimate"]["calls_max"] == 3 and got["estimate"]["notes"] and got["settings"]["council_auto"] == "auto"      # two advisers, 3 calls a round, a cap of 5: one round
+    view = call("GET", "/api/llm")[1]["council"]["settings"]
+    assert view["moderator"]["name"] == "judge" and view["moderator"]["id"] == "moderator"
     code, err = call("POST", "/api/llm/council", {"rounds": 99})
     assert code == 400 and err["error"]["code"] == "bad_council" and call("GET", "/api/llm")[1]["council"]["settings"]["rounds"] == 2
-    assert call("POST", "/api/llm/council", {"roles": roles[:2]})[0] == 400
+    assert call("POST", "/api/llm/council", {"max_calls": 2})[0] == 400 and call("POST", "/api/llm/council", {"council_auto": "x"})[0] == 400
+    call("POST", "/api/llm/council", {"rounds": 3})                                                  # a part left out stays as it was
+    assert call("GET", "/api/llm")[1]["council"]["settings"]["roles"][1]["name"] == "accountant"
+
+
+def test_each_role_has_its_own_route_and_its_own_yes_for_personal_data_and_both_leave_with_the_role(api):
+    call, reg = api
+    here = call("POST", "/api/llm/providers", {"type": "basalt"})[1]["provider"]["id"]
+    cloud = call("POST", "/api/llm/providers", {"type": "openai", "api_key": "k" * 12, "model": "m"})[1]["provider"]["id"]
+    roles = [{"name": "a", "job": "j", "route": here}, {"name": "b", "job": "j", "route": cloud}, {"name": "c", "job": "j"}]
+    code, err = call("POST", "/api/llm/council", {"roles": roles})
+    assert code == 409 and err["error"]["code"] == "not_allowed" and "say yes" in err["error"]["message"] and "b:" in err["error"]["message"]
+    assert reg.load().get("assignments") == {} and call("GET", "/api/llm")[1]["council"]["settings"]["roles"][0]["name"] == "proposer"       # nothing was saved
+    roles[1]["consent"] = True
+    code, body = call("POST", "/api/llm/council", {"roles": roles, "moderator": {"name": "m", "job": "j", "route": here}})
+    got = body["council"]
+    assert code == 200 and [r["route"] for r in got["settings"]["roles"]] == [here, cloud, ""] and [r["consent"] for r in got["settings"]["roles"]] == [False, True, False]
+    assert got["settings"]["moderator"]["route"] == here and got["outside"] == ["council:b"] and got["estimate"]["outside_calls_max"] == 3
+    assert reg.load()["assignments"] == {"council:a": here, "council:b": cloud, "council:moderator": here} and reg.consent() == {"council:b": True}
+    roles = [{**r} for r in got["settings"]["roles"]]
+    roles[1]["consent"] = False                                                                      # taking the yes back takes the role off the outside provider
+    got = call("POST", "/api/llm/council", {"roles": roles})[1]["council"]
+    assert got["settings"]["roles"][1]["route"] == "" and got["outside"] == [] and got["settings"]["roles"][0]["route"] == here
+    roles = [{**r} for r in got["settings"]["roles"]]
+    got = call("POST", "/api/llm/council", {"roles": roles[:2]})[1]["council"]                       # a role that is removed takes its route away
+    assert [r["id"] for r in got["settings"]["roles"]] == ["a", "b"] and "council:c" not in reg.load()["assignments"]
+    assert call("POST", "/api/llm/council", {"roles": [{"name": "x", "job": "j", "route": "ghost"}, roles[0]]})[0] == 409
+    assert call("POST", "/api/llm/council", {"roles": [{"name": "x", "job": "j", "consent": "yes"}, roles[0]]})[0] == 400
+    assert call("POST", "/api/llm/assign", {"function": "council:a", "provider": here})[0] == 400        # the Council section is the one place for it
+
+
+def test_a_provider_that_is_removed_leaves_its_roles_on_the_loaded_model(api):
+    call, reg = api
+    here = call("POST", "/api/llm/providers", {"type": "basalt"})[1]["provider"]["id"]
+    call("POST", "/api/llm/council", {"roles": [{"name": "a", "job": "j", "route": here}, {"name": "b", "job": "j"}]})
+    call("POST", f"/api/llm/providers/{here}/remove", {})
+    assert call("GET", "/api/llm")[1]["council"]["settings"]["roles"][0]["route"] == ""
+
+
+def test_the_council_of_the_old_shape_is_moved_when_the_page_first_asks_for_it(api):
+    call, reg = api
+    here = call("POST", "/api/llm/providers", {"type": "basalt"})[1]["provider"]["id"]
+    data = reg.load()
+    data["council"] = {"rounds": 2, "roles": [{"name": "lawyer", "job": "Law."}, {"name": "accountant", "job": "Cost."}, {"name": "skeptic", "job": "Doubt."}],
+                       "moderator": {"name": "judge", "job": "Decide."}}
+    data["assignments"] = {"council_2": here}
+    reg.save(data)
+    view = call("GET", "/api/llm")[1]["council"]["settings"]
+    assert [r["id"] for r in view["roles"]] == ["lawyer", "accountant", "skeptic"] and view["roles"][1]["route"] == here and view["rounds"] == 2

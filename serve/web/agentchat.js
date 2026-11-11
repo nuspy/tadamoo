@@ -10,11 +10,12 @@
   const FAST_MS = 350, SLOW_MS = 3000, SHOWN_OUTPUT = 1500, EXPLAIN_MAX = 300;
   /* what an action is called when the model gave no sentence for it: a phrase by tool name (ch.act.*), else a generic one */
   const ACTIONS = new Set(["shell_command", "write_file", "edit_file", "read_file", "list_directory", "search_code", "tree", "search_web", "browse_url", "run_code", "spawn_subagent",
-    "browser_open", "read_attachment", "write_output_file", "find_online_capability"]);
+    "browser_open", "read_attachment", "write_output_file", "find_online_capability", "ask_council"]);
   const explainOf = v => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, EXPLAIN_MAX) : "");   // the model's words: text only, cut short
   function actionText(b) {
     const said = explainOf(b.description), name = String(b.name || "");
     if (said) return said;
+    if (name === "ask_council" && b.status !== "running" && b.output) return String(b.output).split("\n")[0].slice(0, 160);      // the first line of what the council wrote: who spoke, how long, how it ended
     const key = ACTIONS.has(name) ? name : name.startsWith("plan_") ? "plan" : name.startsWith("browser_") ? "browser" : "";
     return key ? T("ch.act." + key) : T("ch.act.generic", name);
   }
@@ -410,6 +411,11 @@
       case "mode": if (rec) rec.mode = e.mode; paintChip(); noteItem({ s: T("ch.mode.now", T("ag.mode." + e.mode)) }); break;
       case "role": if (rec) rec.role = e.role; noteItem({ s: T("cd.role.now", T("cd.role." + e.role)) }); setControls(); break;
       case "checks": noteItem({ s: T("cd.checks.now", e.safe) }); break;
+      case "council":
+        if (e.state) noteItem({ s: T("co.state." + e.state), route: e.turn });
+        else { if (rec) rec.council = e.on === true; noteItem({ s: T(e.on ? "co.now.on" : "co.now.off") }); }
+        if (window.councilUi) window.councilUi.paint();
+        break;
       case "persona":
         if (rec) rec.persona = e.slug;
         noteItem({ s: T("pe.now", e.slug && window.personaUi ? window.personaUi.name(e.slug) : T("pe.none")) });
@@ -1400,7 +1406,7 @@
   async function ensure() {
     if (sid) return true;
     if (inAgent() && !curPath() && !(await addFolder())) { status(T("ag.noproject")); return false; }
-    const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath(), ...(window.codingUi ? { role: window.codingUi.role() } : {}) } : {}), mode: permMode(), allow: allowRules(), ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), ...chatSettings.live(), worktree: copyMode(), ...visuals(), ...(window.personaUi && window.personaUi.pending() ? { persona: window.personaUi.pending() } : {}), ...(window.privacy && window.privacy.pending() ? { private: true } : {}) });
+    const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath(), ...(window.codingUi ? { role: window.codingUi.role() } : {}) } : {}), mode: permMode(), allow: allowRules(), ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), ...chatSettings.live(), worktree: copyMode(), ...visuals(), ...(window.personaUi && window.personaUi.pending() ? { persona: window.personaUi.pending() } : {}), ...(window.councilUi && window.councilUi.pending() ? { council: true } : {}), ...(window.privacy && window.privacy.pending() ? { private: true } : {}) });
     if (!r.ok) { status(errText(r)); if (r.json.error && r.json.error.code === "level_above_channel") loadLevel(); return false; }
     sid = r.json.session.id; rec = r.json.session; keep(lastKey(), sid); after = 0; conversationChanged(true);
     const sampling = chatSettings.live();                                      // what the create call does not carry

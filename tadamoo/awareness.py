@@ -24,7 +24,7 @@ FEATURES = (
 
 
 def self_model(*, model: str, window: int, mask_at: float, compaction_at: float, compaction: bool, max_turns: int, max_tokens: Optional[int],
-               max_seconds: Optional[float], absent: List[str], lessons: str, knowledge: bool = False) -> str:
+               max_seconds: Optional[float], absent: List[str], lessons: str, knowledge: bool = False, council: str = "") -> str:
     """The fixed block "what you are": the limits and the habits of the harness around the model, in plain sentences."""
     steps = f"{max_turns} steps per answer" if max_turns and max_turns > 0 else "no limit on the steps of an answer"
     budgets = [steps]
@@ -50,6 +50,8 @@ def self_model(*, model: str, window: int, mask_at: float, compaction_at: float,
     if knowledge:
         lines.append("- The person keeps knowledge archives (named collections of their documents, also called RAG): this project's are searched for every request, and any archive can be attached "
                      "to this conversation by name with `knowledge_use` (`knowledge_drop`, `knowledge_list` and `knowledge_search` go with it) when the person asks for one, in any wording.")
+    if council:
+        lines.append(council)
     if lessons:
         lines.append(f"- Lessons from earlier work are kept in {lessons}; relevant ones are shown to you at the start of a task as advice, not as orders.")
     return "\n".join(lines)

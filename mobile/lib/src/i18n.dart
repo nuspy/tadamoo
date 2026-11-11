@@ -289,6 +289,16 @@ class Texts {
     'role.debug.d': ['Come Developer, ma trova e conferma la causa di un difetto prima di correggerlo.', 'Like Developer, but it finds and confirms the cause of a fault before it fixes it.'],
     'role.orchestrate.d': ['Divide il lavoro tra sotto-agenti e controlla ciò che riportano. Non modifica file né esegue comandi da sé.', 'Splits the work among subagents and checks what they bring back. It does not edit files or run commands itself.'],
     'role.general.d': ['Nessun limite agli strumenti, come nella Chat. Per navigare, scrivere documenti o tutto ciò che non è codice.', 'No limit on tools, as in the Chat. Use it for browsing, planning documents or anything that is not code.'],
+    'council.title': ['Usa il Consiglio', 'Use the Council'],
+    'council.tip': [
+      'Finché è acceso, ogni vera domanda di questa conversazione va prima al consiglio e la risposta è scritta avendone letto il verdetto. Resta acceso finché non lo spegni.',
+      'While on, every real question of this conversation goes to the council first, and the answer is written with its verdict read. It stays on until you turn it off.'
+    ],
+    'council.on.tip': ['Consiglio acceso in questa conversazione', 'Council is on in this conversation'],
+    'council.now.on': ['Consiglio acceso: ogni domanda va prima al consiglio.', 'Council on: each question goes to the council first.'],
+    'council.now.off': ['Consiglio spento per questa conversazione.', 'Council off for this conversation.'],
+    'council.state.usage': ['Scrivi la domanda dopo /council.', 'Write the question after /council.'],
+    'council.state.unavailable': ['Il consiglio ha bisogno di almeno due consiglieri attivi sul PC.', 'The council needs at least two enabled advisers on the PC.'],
     'persona.tip': ['Con chi parli', 'Who answers'],
     'persona.tip.on': ['Risponde: {0}', 'Answering as {0}'],
     'persona.none': ['Nessuna', 'None'],

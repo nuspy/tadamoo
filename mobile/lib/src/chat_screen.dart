@@ -336,6 +336,23 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
+  bool get _council => ctl.ready ? (ctl.info?.council ?? false) : (pending?.council ?? false);
+
+  /// Turns the council box on or off: at once in a conversation that exists, else it goes with the request that creates it. Returns the complaint, if any.
+  Future<String?> _setCouncil(bool on) async {
+    if (!ctl.ready) {
+      pending = (pending ?? NewChat(mode: widget.settings.mode)).copy(council: on);
+      if (mounted) setState(() {});
+      return null;
+    }
+    try {
+      await ctl.setCouncil(on);
+      return null;
+    } on ApiError catch (e) {
+      return e.message;
+    }
+  }
+
   /// The loudspeaker in the bar: reading answers aloud on or off, the same switch as in Settings; turning it off also stops what is being read.
   Future<void> _toggleReadAloud() async {
     final on = !widget.settings.autoSpeak;
@@ -344,7 +361,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     if (mounted) setState(() {});
   }
 
-  Future<void> _options() => showChatOptions(context, prefs: prefs, role: widget.agent ? _role : null, onRole: widget.agent ? _setRole : null);
+  Future<void> _options() => showChatOptions(context, prefs: prefs, role: widget.agent ? _role : null, onRole: widget.agent ? _setRole : null, council: _council, onCouncil: _setCouncil);
 
   // ---- drawing ----
   @override
@@ -354,6 +371,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
       appBar: AppBar(
         title: Text(ctl.info == null || ctl.info!.title.isEmpty ? Texts.t('conv.untitled') : ctl.info!.title, maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
+          if (_council) IconButton(key: const ValueKey('council-on'), tooltip: Texts.t('council.on.tip'), icon: const Icon(Icons.groups), onPressed: _options),
           PersonaMenu(choices: personas, current: _persona, onPick: _setPersona),
           IconButton(
             key: const ValueKey('read-aloud'),

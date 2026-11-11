@@ -12,6 +12,7 @@ for a cloud provider without the person's yes for that function.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Dict
 
 LOCAL = ""                                         # no provider assigned: the model loaded in TaDaMoo, as always
@@ -27,11 +28,22 @@ FUNCTIONS: Dict[str, Dict[str, Any]] = {
     "pipeline": {"label": "Checks of the answer (pipeline)", "kind": "judge", "data": "personal"},
     "triage": {"label": "Plan events (triage)", "kind": "judge", "data": "personal"},
     "relevance": {"label": "Relevance of excerpts", "kind": "judge", "data": "general"},
-    "council_1": {"label": "Council member 1 (answers)", "kind": "chat", "data": "personal", "tools": False},
-    "council_2": {"label": "Council member 2 (reviews)", "kind": "chat", "data": "personal", "tools": False},
-    "council_3": {"label": "Council member 3 (proposes another way)", "kind": "chat", "data": "personal", "tools": False},
-    "council_chair": {"label": "Council chair (sums up)", "kind": "chat", "data": "personal", "tools": False},
 }
+
+COUNCIL_PREFIX = "council:"                        # one function for each role of the council, made from the role's id (tadamoo/council.py)
+COUNCIL_ID = re.compile(r"^council:[a-z0-9][a-z0-9_-]{0,39}$")
+
+
+def council_function(role_id: str) -> str:
+    return COUNCIL_PREFIX + role_id
+
+
+def is_council(function: Any) -> bool:
+    return isinstance(function, str) and COUNCIL_ID.match(function) is not None
+
+
+def known(function: Any) -> bool:
+    return function in FUNCTIONS or is_council(function)
 
 
 def names() -> tuple[str, ...]:
@@ -39,6 +51,9 @@ def names() -> tuple[str, ...]:
 
 
 def spec(function: str) -> Dict[str, Any]:
-    if function not in FUNCTIONS:
-        raise KeyError(f"unknown function {function!r}; the functions are {', '.join(FUNCTIONS)}")
-    return FUNCTIONS[function]
+    """What a function needs from its provider. A role of the council is a function made on the fly, with the needs the old fixed members had."""
+    if function in FUNCTIONS:
+        return FUNCTIONS[function]
+    if is_council(function):
+        return {"label": f"Council ({function[len(COUNCIL_PREFIX):]})", "kind": "chat", "data": "personal", "tools": False}
+    raise KeyError(f"unknown function {function!r}; the functions are {', '.join(FUNCTIONS)}")
