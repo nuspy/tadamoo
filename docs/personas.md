@@ -14,7 +14,6 @@ Stored as `personas/<slug>/persona.json` in the user data folder (plain text, no
 | `avatar` | A reference string. Empty until avatars are connected. | 200 |
 | `personality` | How it is and how it talks, free text. | 8000 |
 | `system_prompt` | What it must always do, free text. | 8000 |
-| `knowledge` | Ids of the knowledge archives it draws on, linked from the Knowledge tab (`docs/rag.md`). The page shows their names (from `GET /api/rag`) and the id of one the list does not know. | 50 ids |
 | `language` | Code such as `en` or `it`, or empty. | |
 | `profile` | A short summary of what it knows about the person, written by the person. | 1500 |
 | `learn` | Whether it learns from its conversations (see below). On unless switched off. | on or off |
@@ -87,7 +86,7 @@ memory off. Marking a conversation private drops its waiting job; "forget" on a 
 profile is a blend and stays; "Forget what was learned" removes it).
 
 **What the model reads.** Only the person's lines and the personality's answers. Taken out before the call: tool results, any message
-flagged `untrusted` (the notes and archive passages put in with a request), every `<untrusted_data>` block (web pages, files, attachments,
+flagged `untrusted` (what is put in with a request), every `<untrusted_data>` block (web pages, files, attachments,
 forwarded Telegram messages, quoted text), the `<documents>` block of an attached file, `[harness]` notes and summaries of old turns; each
 leaves `[text from outside removed]`. The prompt says facts about the person come only from the person's lines.
 
@@ -121,5 +120,5 @@ All under `/api/personas`, from this PC only (403 otherwise). callAPIcall's `/pe
 
 `tadamoo/personas.py` (store, block, `PersonaUse`), `serve/personas_api.py`, `serve/web/personas.js` and `personas.css`; learning:
 `tadamoo/persona_learning.py`, `serve/persona_learning_worker.py`, `PersonalMemory.mark_learned/trim_learned/forget_learned`.
-Tests: `serve/tests/test_personas_api.py`, `serve/tests/test_personas_page.py` (with `personas_knowledge_dom_check.js`, the page on a stand-in DOM), `serve/tests/test_personas_learning.py`, `tests/test_persona_prompt.py`,
+Tests: `serve/tests/test_personas_api.py`, `serve/tests/test_personas_page.py` `serve/tests/test_personas_learning.py`, `tests/test_persona_prompt.py`,
 `tests/test_persona_learning.py`.

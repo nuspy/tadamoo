@@ -25,8 +25,7 @@ button. Links inside the folder are not followed.
 | `manifest.json`: `knowledge_project` | not imported (no equivalent); noted on the item |
 | `memory.json`: `rolling_profile` | one note for each paragraph in the personality's encrypted memory (long-term, origin `inferred`) |
 | `memory.json`: `recent_sessions` | one short-term note each, dated; encrypted too |
-| `docs/` | a knowledge archive "`<Name>` (callAPIcall)", linked to the personality |
-| `rag/chunks.jsonl` | the same archive, only when no document could be read: the passages are grouped by source and written as text |
+| `docs/`, `rag/chunks.jsonl` | not imported: a knowledge archive belongs to a project, not to a personality (docs/rag.md); the item says so and the documents can be added in the Knowledge tab |
 | `clips/*.mp4`, `poster.jpg` | `<user data>/voice/avatars/<slug>/`; the personality's `avatar` is the slug |
 | `wav2lip/face.png` + `box.json` | `<avatar>/wav2lip/` (the phone's Wav2Lip), only when both are there |
 | `<source>/avatar/cache/<Name>__<clip>__h480/` | `<avatar>/prepared/<clip>__h480/` and an entry in `prepared/index.json`: the MuseTalk preparation of that clip, so the first start does not prepare it again. Only a complete folder (latents, coordinates, mask boxes, frames, masks) of a clip the persona still has, at the height TaDaMoo uses (480) |
@@ -47,15 +46,13 @@ are not read here; they come from Hermes' `.env` in the Telegram section.
 ## Idempotent
 
 A second run with the same items skips what exists and changes nothing. A run with `replace` does not double anything: the memory notes
-that say the same count as seen again, the archive is found by its name, a document already in it is not added again, and a clip of the
-same size is not copied again. Nothing in the source is changed, and nothing is deleted anywhere.
+that say the same count as seen again, and a clip of the same size is not copied again. Nothing in the source is changed, and nothing is deleted anywhere.
 
 ## Tests
 
 `tests/test_voice_importer.py` builds a callAPIcall folder in a temporary place (no real data is read) and checks the plan, the personal
-confirmation, the encrypted memory (no clear text on disk), the archive, the media, the conflicts, the second run and the routes;
+confirmation, the encrypted memory (no clear text on disk), the documents left out, the media, the conflicts, the second run and the routes;
 `serve/tests/test_voice_import_page.py` checks the page.
 
 Not proven: a preparation made by callAPIcall being accepted by TaDaMoo's MuseTalk worker (the import only checks that the files are there;
-deleting `<avatar>/prepared/` makes the worker prepare the clip again), and PDF documents without `pypdf` or `PyMuPDF` (they are reported and
-the passages are used instead).
+deleting `<avatar>/prepared/` makes the worker prepare the clip again).
