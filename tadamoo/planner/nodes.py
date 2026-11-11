@@ -18,12 +18,21 @@ TEXT_MAX = 600
 MAX_ITER = 10_000
 
 # kind of field -> what a page draws for it
-FIELD_KINDS = ("number", "integer", "text", "textarea", "expression", "name", "names", "datetime", "choice", "json")
+FIELD_KINDS = ("number", "integer", "text", "textarea", "expression", "name", "names", "datetime", "choice", "json", "archives", "branches")
+ARCHIVE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+MAX_ARCHIVES, MAX_BRANCHES, LABEL_MAX = 50, 12, 40
+OPS = ("<", "<=", "=", "!=", ">=", ">", "between", "in", "contains", "else")      # what the helper of a branch can build; `else` takes what no other branch took
+ON_NO_MATCH = ("stop", "ask")                                                    # no branch holds and there is no else: that path stops, or the decision goes to the person
+MODES = ("first", "all")                                                         # a decision: the first branch that holds wins, or every branch that holds fires
 
 NODE_SPECS: Dict[str, Dict[str, Any]] = {
-    "action": {"family": "action", "auto": False, "summary": "A task for the agent or the person", "fields": []},
+    "action": {"family": "action", "auto": False, "summary": "A task for the agent or the person", "fields": [
+        {"name": "rag_archives", "kind": "archives", "max": MAX_ARCHIVES}]},
     "sensor": {"family": "action", "auto": False, "summary": "Listens for an event and resolves when its condition holds", "fields": []},
-    "decision": {"family": "flow", "auto": False, "summary": "Chooses the exits whose condition holds", "fields": []},
+    "decision": {"family": "flow", "auto": False, "summary": "Has several outcomes, each its own connector: the branches whose condition holds are taken", "fields": [
+        {"name": "input", "kind": "expression", "max": 300}, {"name": "mode", "kind": "choice", "choices": list(MODES), "default": "first"},
+        {"name": "on_no_match", "kind": "choice", "choices": list(ON_NO_MATCH), "default": "stop"},
+        {"name": "branches", "kind": "branches", "required": True, "max": MAX_BRANCHES}]},
     "merge": {"family": "flow", "auto": False, "summary": "Waits for the parallel branches above it", "fields": []},
     "wait_duration": {"family": "wait", "auto": True, "summary": "Waits a fixed time", "fields": [
         {"name": "seconds", "kind": "number", "required": True, "min": MIN_WAIT_S, "max": MAX_WAIT_S}]},
@@ -49,6 +58,8 @@ NODE_SPECS: Dict[str, Dict[str, Any]] = {
     "output": {"family": "io", "auto": True, "summary": "Shows a result of the plan", "fields": [
         {"name": "name", "kind": "name", "required": True}, {"name": "value", "kind": "json"}, {"name": "expr", "kind": "expression"},
         {"name": "template", "kind": "textarea", "max": TEXT_MAX}]},
+    "rag": {"family": "data", "auto": True, "summary": "A source of knowledge archives: connected to the steps that may use them; it never waits and nothing waits for it", "fields": [
+        {"name": "archives", "kind": "archives", "required": True, "max": MAX_ARCHIVES}]},
     "log": {"family": "io", "auto": True, "summary": "Writes a line in the plan's log", "fields": [
         {"name": "message", "kind": "textarea", "required": True, "max": 500}]},
 }
@@ -102,6 +113,132 @@ def _names(spec: Dict[str, Any], key: str, limit: int) -> Optional[List[str]]:
     return [v.strip() for v in value]
 
 
+def _archives(spec: Dict[str, Any], key: str, required: bool = False) -> Optional[List[str]]:
+    value = spec.get(key)
+    if value is None or value == []:
+        if required:
+            raise PlanError(f"'{key}' needs at least one archive")
+        return None
+    if not isinstance(value, list) or len(value) > MAX_ARCHIVES or any(not isinstance(v, str) or not ARCHIVE_ID.match(v) for v in value):
+        raise PlanError(f"'{key}' is a list of at most {MAX_ARCHIVES} knowledge archive ids")
+    return list(dict.fromkeys(value))
+
+
+# -- the connectors of a step: one table for the checks, the tools and the page ----------------------------------------------------
+# A port has an id, a kind (`flow`: the step below waits for this one; `input`: data given to a step, which neither waits nor is waited for) and a label.
+# An edge goes from an output port of one step to an input port of another of the same kind. A decision has one output port for each of its branches.
+
+PORT_IN = {"default": [{"id": "in", "kind": "flow"}], "action": [{"id": "in", "kind": "flow"}, {"id": "rag", "kind": "input"}], "rag": []}
+PORT_OUT = {"default": [{"id": "out", "kind": "flow"}], "decision": "branches", "rag": [{"id": "rag", "kind": "input"}]}
+BRANCH_ID = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+
+
+def in_ports(kind: str) -> List[Dict[str, str]]:
+    return [dict(p) for p in PORT_IN.get(kind, PORT_IN["default"])]
+
+
+def out_ports(kind: str, spec: Optional[Dict[str, Any]] = None) -> List[Dict[str, str]]:
+    """The output connectors of a step of this kind: for a decision its branches in the order shown, with their labels."""
+    ports = PORT_OUT.get(kind, PORT_OUT["default"])
+    if ports == "branches":
+        return [{"id": b["id"], "kind": "flow", "label": b.get("label", b["id"])} for b in (spec or {}).get("branches") or []]
+    return [dict(p) for p in ports]
+
+
+def _literal(value: Any) -> str:
+    if isinstance(value, bool):
+        return "True" if value else "False"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    text = str(value).strip()
+    try:
+        return repr(int(text))
+    except ValueError:
+        pass
+    try:
+        number = float(text)
+        if number == number and abs(number) != float("inf"):
+            return repr(number)
+    except ValueError:
+        pass
+    if not text or len(text) > 100 or any(c in text for c in ("\\", "\n", "\r")):
+        raise PlanError("a value to compare is a number or a short text")
+    return '"' + text.replace('"', "'") + '"'
+
+
+def build_condition(subject: Any, op: str, value: Any = None, value2: Any = None) -> str:
+    """The expression a branch's helper stands for: `input op value` (between: both ends; in: a list; contains: the value is in the input)."""
+    if not isinstance(subject, str) or not subject.strip():
+        raise PlanError("set the value the branches compare (the decision's 'input') to build a condition from an operator")
+    s = f"({subject.strip()})"
+    if op in ("<", "<=", ">=", ">", "!="):
+        text = f"{s} {op} {_literal(value)}"
+    elif op == "=":
+        text = f"{s} == {_literal(value)}"
+    elif op == "between":
+        text = f"({s} >= {_literal(value)} and {s} <= {_literal(value2)})"
+    elif op == "in":
+        items = value if isinstance(value, list) else [x for x in str(value).split(",") if x.strip()]
+        if not items:
+            raise PlanError("'in list' needs at least one value")
+        text = f"{s} in [{', '.join(_literal(x) for x in items)}]"
+    elif op == "contains":
+        text = f"{_literal(value)} in {s}"
+    else:
+        raise PlanError(f"an operator is one of {', '.join(OPS)}")
+    check_expression(text)
+    return text
+
+
+def clean_branches(raw: Any, subject: Optional[str]) -> List[Dict[str, Any]]:
+    """The ordered branches of a decision, each {id, label, condition} (and the helper's op, value, value2 when it was built from them). New branches get
+    an id; the labels are unique; `else` is at most one and last."""
+    if not isinstance(raw, list) or not raw:
+        raise PlanError("a decision needs at least one branch")
+    if len(raw) > MAX_BRANCHES:
+        raise PlanError(f"a decision has at most {MAX_BRANCHES} branches")
+    taken = {b["id"] for b in raw if isinstance(b, dict) and isinstance(b.get("id"), str)}
+    out: List[Dict[str, Any]] = []
+    labels, ids, n = set(), set(), 0
+    for i, b in enumerate(raw):
+        if not isinstance(b, dict):
+            raise PlanError("a branch is an object with a label and a condition")
+        label = b.get("label")
+        if not isinstance(label, str) or not label.strip() or len(label.strip()) > LABEL_MAX:
+            raise PlanError(f"a branch has a label of 1 to {LABEL_MAX} characters")
+        label = label.strip()
+        if label.lower() in labels:
+            raise PlanError(f"two branches are labelled '{label}': labels are unique")
+        labels.add(label.lower())
+        bid = b.get("id")
+        if bid is None or bid == "":
+            while f"b{n + 1}" in taken or f"b{n + 1}" in ids:
+                n += 1
+            n += 1
+            bid = f"b{n}"
+        if not isinstance(bid, str) or not BRANCH_ID.match(bid) or bid in ids:
+            raise PlanError("a branch id is letters, digits and - _ . and is not used twice")
+        ids.add(bid)
+        op = b.get("op")
+        entry: Dict[str, Any] = {"id": bid, "label": label}
+        if op == "else":
+            if i != len(raw) - 1:
+                raise PlanError("the 'else' branch is the last one")
+            entry["op"] = "else"
+        elif op:
+            if op not in OPS:
+                raise PlanError(f"an operator is one of {', '.join(OPS)}")
+            entry.update(op=op, value=b.get("value"), condition=build_condition(subject, op, b.get("value"), b.get("value2")))
+            if op == "between":
+                entry["value2"] = b.get("value2")
+        else:
+            cond = b.get("condition")
+            check_expression(cond)
+            entry["condition"] = cond.strip()
+        out.append(entry)
+    return out
+
+
 def parse_at(text: Any) -> float:
     """The moment a date and time in the plan means, as seconds since the epoch; no zone means this PC's local time."""
     if not isinstance(text, str) or not text.strip():
@@ -144,7 +281,26 @@ def clean_spec(node_type: Any, spec: Any, draft: bool = False) -> Dict[str, Any]
     if set(spec) - allowed:
         raise PlanError(f"a {kind} step has {', '.join(sorted(allowed)) or 'no spec'}; not {', '.join(sorted(set(spec) - allowed))}")
     out: Dict[str, Any] = {}
-    if kind == "wait_duration":
+    if kind == "action":
+        if _archives(spec, "rag_archives"):
+            out["rag_archives"] = _archives(spec, "rag_archives")
+    elif kind == "rag":
+        out["archives"] = _archives(spec, "archives", True)
+    elif kind == "decision":
+        subject = spec.get("input")
+        if subject is not None and subject != "":
+            check_expression(subject)
+            out["input"] = subject.strip()
+        mode = spec.get("mode", "first")
+        if mode not in MODES:
+            raise PlanError("'mode' is first or all")
+        out["mode"] = mode
+        on_no_match = spec.get("on_no_match", "stop")
+        if on_no_match not in ON_NO_MATCH:
+            raise PlanError("'on_no_match' is stop or ask")
+        out["on_no_match"] = on_no_match
+        out["branches"] = clean_branches(spec.get("branches"), out.get("input"))
+    elif kind == "wait_duration":
         out["seconds"] = _number(spec, "seconds", MIN_WAIT_S, MAX_WAIT_S, required=True)
     elif kind == "wait_until":
         parse_at(spec.get("at"))
@@ -212,6 +368,13 @@ def clean_spec(node_type: Any, spec: Any, draft: bool = False) -> Dict[str, Any]
     return out
 
 
+PORTS_HELP = ("A decision has an ordered list of branches in spec.branches, each {label, op (< <= = != >= > between in contains, with value and value2, compared with spec.input), "
+              "or condition (an expression over the plan's values); else for the one taken when no other is}, mode first (the first that holds) or all; each branch is an output "
+              "connector named by its id: connect it with [decision, child, branch_id]. A rag node ({archives: [knowledge archive ids]}) is an input to the actions it is connected to "
+              "([rag_node, action]): it neither waits nor is waited for. An action's own archives are spec.rag_archives; the whole plan's are profile.rag_archives (plan_set_profile). "
+              "Use the ids knowledge_list shows.")
+
+
 def kinds_line() -> str:
     """The kinds beyond the four basic ones, each with the fields of its spec, in a line a tool description can carry."""
     return "; ".join(f"{k} {{{', '.join(f['name'] + ('' if f.get('required') else '?') for f in v['fields'])}}}" for k, v in NODE_SPECS.items() if v["fields"])
@@ -219,7 +382,8 @@ def kinds_line() -> str:
 
 def catalogue() -> List[Dict[str, Any]]:
     """The kinds in the order a page lists them, with their family, summary and fields."""
-    return [{"type": k, **{f: v[f] for f in ("family", "auto", "summary", "fields")}} for k, v in NODE_SPECS.items()]
+    return [{"type": k, **{f: v[f] for f in ("family", "auto", "summary", "fields")}, "ports": {"in": in_ports(k), "out": out_ports(k) if k != "decision" else "branches"}}
+            for k, v in NODE_SPECS.items()]
 
 
 # -- the steps the plan works out itself ------------------------------------------------------------------------
@@ -450,6 +614,8 @@ def _resolve(dag: Any, node: Any, now: float, due: List[float], judge: List[str]
         return _complete(dag, node, now, {spec["name"]: value}, f"{spec['name']}: {_brief(value)}", "output")
     elif kind == "log":
         return _complete(dag, node, now, None, render_template(spec["message"], _template_context(dag, now)), "log")
+    elif kind == "rag":
+        return _complete(dag, node, now, None, f"{node.title}: {len(spec['archives'])} knowledge archive(s) for {len(node.routes.get('rag') or [])} step(s)")
     return False
 
 

@@ -186,6 +186,6 @@ def test_when_no_exit_of_the_decision_holds_it_goes_to_the_person_with_the_facts
     assert all(snap["plan"]["nodes"][n]["status"] in ("blocked", "pending") for n in ("terrazza", "tavolo", "rimanda"))      # nothing was skipped in silence
     # the person decides: they add a condition for three guests and complete the decision again
     client.event(pid, {"type": "plan:update_node", "node_id": "scelta", "actor": "user",
-                       "changes": {"conditions": {"terrazza": "len(invitati_confermati) >= 2", "tavolo": "len(invitati_confermati) == 1", "rimanda": "len(invitati_confermati) == 0"}}})
+                       "changes": {"spec": {"mode": "all", "branches": [{"id": "terrazza", "label": "terrazza", "condition": "len(invitati_confermati) >= 2"}, {"id": "tavolo", "label": "tavolo", "condition": "len(invitati_confermati) == 1"}, {"id": "rimanda", "label": "rimanda", "condition": "len(invitati_confermati) == 0"}]}}})
     res = client.event(pid, {"type": "plan:mark", "node_id": "scelta", "status": "completed", "actor": "user"})
     assert res["status"] == "completed" and client.snapshot(pid)["plan"]["nodes"]["scelta"]["state_variables"]["selected"] == ["terrazza"]

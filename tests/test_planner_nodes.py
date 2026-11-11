@@ -11,9 +11,9 @@ def node(kind, spec=None, **extra):
 
 def test_every_kind_is_in_the_table_with_a_family_and_a_summary():
     kinds = {row["type"] for row in nodes.catalogue()}
-    assert kinds == {"action", "sensor", "decision", "merge", "wait_duration", "wait_until", "wait_condition", "loop", "set_var", "get_var", "input", "output", "log"}
+    assert kinds == {"action", "sensor", "decision", "merge", "wait_duration", "wait_until", "wait_condition", "loop", "set_var", "get_var", "input", "output", "log", "rag"}
     assert all(row["family"] in nodes.FAMILIES and row["summary"] for row in nodes.catalogue())
-    assert set(nodes.AUTO) == {"wait_duration", "wait_until", "wait_condition", "set_var", "get_var", "output", "log"}
+    assert set(nodes.AUTO) == {"wait_duration", "wait_until", "wait_condition", "set_var", "get_var", "output", "log", "rag"}
 
 
 @pytest.mark.parametrize("kind, spec", [
@@ -57,7 +57,7 @@ def test_a_good_spec_is_accepted_and_survives_a_save(kind, spec):
     ("output", {"name": "r"}, "exactly one"),
     ("log", {"message": ""}, "message"),
     ("log", {"message": "x", "extra": 1}, "not extra"),
-    ("action", {"anything": 1}, "no spec"),
+    ("action", {"anything": 1}, "not anything"),
 ])
 def test_a_bad_spec_is_refused_with_a_reason(kind, spec, word):
     with pytest.raises(PlanError, match=word):
