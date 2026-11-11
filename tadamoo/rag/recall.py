@@ -64,6 +64,18 @@ class ProjectRecall:
         allowed = set(self.resolution(ids).ids)
         return [i for i in ids if i in allowed]
 
+    def bring(self, ids: Sequence[str]) -> str:
+        """A plan step brings these archives along until the next step starts or this one ends (none: lets go): they are searched with the project's and
+        attached ones. The words for the model: the archives by name, and what this route leaves out and why."""
+        res = resolve(self.store, {"function": "plan_node", "routed_to_cloud": not self.local()}, sources={"plan_node": lambda ctx: list(ids)}, leaves_pc=lambda function: False)
+        self.step = [a["id"] for a in res.archives] + [b["id"] for b in res.blocked if "cloud" in b["codes"]]
+        if not ids:
+            return ""
+        names = ", ".join(a["name"] + (f" (project {a['project_name']})" if a["project_name"] else "") for a in res.archives)
+        left = "; ".join(f"{b['name']} ({b['reason']})" for b in res.blocked if "missing" not in b["codes"])
+        return ((f"This step has these knowledge archives: {names}. They are searched with the project's own ones: use knowledge_search (`archive` names one) for what the step needs. "
+                 if names else "") + (f"Left out on this route: {left}." if left else "")).strip()
+
     def forget_sent(self) -> None:
         """The conversation was compacted: passages that were in it may be sent again."""
         self.sent.clear()

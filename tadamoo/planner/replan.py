@@ -15,17 +15,19 @@ from tadamoo.side import side_extra_for
 
 from .card import PlanInsightCard
 from .dag import PlanDAG, PlanError, node_to_dict
+from .nodes import NODE_SPECS
 from .triage import TriageResult
 
 NODE_SCHEMA = {
     "type": "object",
     "properties": {
-        "id": {"type": "string"}, "type": {"type": "string", "enum": ["action", "sensor", "decision", "merge"]},
+        "id": {"type": "string"}, "type": {"type": "string", "enum": list(NODE_SPECS)},
         "title": {"type": "string"}, "description": {"type": "string"},
         "assignee": {"type": "string", "enum": ["agent", "user", "third_party"]},
         "dependencies": {"type": "array", "items": {"type": "string"}},
         "outputs": {"type": "array", "items": {"type": "string"}},
         "conditions": {"type": "object"},
+        "spec": {"type": "object"},
         "call_request": {"type": "object", "properties": {"number": {"type": "string"}, "reason": {"type": "string"}, "text": {"type": "string"}},
                          "required": ["number", "reason"]},
         "wiki_query": {"type": "string"},
@@ -39,8 +41,8 @@ DIFF_SCHEMA = {
         "add_nodes": {"type": "array", "items": NODE_SCHEMA},
         "remove_nodes": {"type": "array", "items": {"type": "string"}},
         "update_nodes": {"type": "object"},
-        "add_edges": {"type": "array", "items": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 2}},
-        "remove_edges": {"type": "array", "items": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 2}},
+        "add_edges": {"type": "array", "items": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 3}},
+        "remove_edges": {"type": "array", "items": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 3}},
     },
 }
 REPLAN_SCHEMA = {
