@@ -30,25 +30,12 @@ if str(ROOT) not in sys.path:
 
 from tadamoo.rag import search as ranking  # noqa: E402
 from tadamoo.rag.embed import normalize  # noqa: E402
+from tadamoo.rag.language import guess_language  # noqa: E402
 from tadamoo.rag.query import RETRIEVAL, run  # noqa: E402
 from tadamoo.rag.store import Archive, RagStore, searchable  # noqa: E402
 
 KS = (1, 5, 10)
 FUSE_DEPTH = 50
-EN = {"the", "of", "and", "to", "in", "is", "that", "for", "with", "as", "by", "an", "are", "this", "which"}
-FR = {"le", "la", "les", "de", "des", "du", "et", "un", "une", "est", "que", "pour", "dans", "par", "sur", "au", "aux", "ce"}
-CJK = re.compile(r"[㐀-鿿]")
-WORD = re.compile(r"[a-z]+")
-
-
-def guess_language(text: str) -> str:
-    """`zh` for text that is mostly Chinese characters, `en` or `fr` for Latin text that has more of that language's stop words, else `other`."""
-    letters = [c for c in text if c.isalpha()]
-    if letters and len(CJK.findall(text)) > 0.3 * len(letters):
-        return "zh"
-    words = WORD.findall(text.lower())
-    en, fr = sum(w in EN for w in words), sum(w in FR for w in words)
-    return "en" if en > fr and en >= 3 else "fr" if fr > en and fr >= 3 else "other"
 
 
 def metrics(ranks: Sequence[Optional[int]]) -> Dict[str, float]:
