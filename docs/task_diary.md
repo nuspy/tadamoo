@@ -3,6 +3,19 @@
 Ultimo aggiornamento: 9 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «9 novembre» e da «Decisioni tue in attesa». Le sezioni dell'8, 7, 5 e 4 novembre sono in `docs/task_diary_archive.md`.
 
+## 11 novembre
+
+- Fatto e verificato: la ricerca per significato del RAG è unita al master. Prova vera su 7 brevetti (2269 passaggi, Docling su GPU con prestito, embedding Qwen3-4B con prestito, reranker 4B): con 96 domande in italiano la ricerca completa trova il passaggio giusto al primo posto nel 54%, entro i primi 5 nel 79%, entro i primi 10 nell'83%. Solo i vettori: 43%, 69%, 80%. Solo le parole: 3%, 10%, 20% (le domande sono in un'altra lingua). Il passaggio giusto è uno solo per domanda, quindi i numeri sono prudenti.
+- Trovato e corretto durante la prova: il server non diceva ai suoi lavoratori il proprio indirizzo, e Docling e l'embedder chiedevano la VRAM alla porta sbagliata (restavano su CPU). Ora il server lo esporta.
+- Trovato e corretto: l'embedder teneva 18 GB per 2 minuti dopo ogni documento e Docling tornava su CPU. Ora li restituisce subito dopo l'indicizzazione.
+- Trovato e corretto: senza la libreria python-docx il server non partiva (gli strumenti Word erano importati in cima). Ora si caricano solo se la libreria c'è.
+- Trovato e corretto: il motore copiato dal ramo di prova ricordava la cartella dei sorgenti di quel ramo e avviava un server vecchio. Ricompilato dal master in E:\Projectsasalt; il vecchio è in E:\Modelliasaltackup-bin-pre-arbiter.
+- Da sapere: un documento (WO2025035507A1) è fallito una volta a pagina 40 su GPU e poi è passato; non l'ho riprodotto. Ora l'errore riporta anche il motivo di Docling.
+- Bloccato: il modello non si carica perché servono circa 5,5 GiB di commit in più (94,7 necessari, 111,3 liberi, 22,1 riservati al 15%). Non ho toccato la riserva: è una tua scelta. Chiudere programmi o abbassare la riserva basta.
+- In coda, serve il modello caricato: le due sessioni sui brevetti (senza RAG e con RAG, stessi parametri), con i 14 fatti di controllo già estratti dal brevetto US12274733B2.
+- In coda, da costruire (aspettano tue decisioni): generatore di immagini Qwen-Image (serve una copia CPU del codificatore di testo, 16 GB da scaricare), componente video LTX-2.5, passaggio temporaneo a un provider cloud con autorizzazione.
+- Impostazione che ho cambiato per la prova: cartella dei modelli di embedding del RAG = E:\Modelliasaltag\embedding (il server cercava in E:\Modelliasalt2ag\embedding).
+
 ## 9 novembre
 
 - 10 novembre, giornata di prove sull'app vera: il controllo «lavora fino in fondo» non perde più la richiesta (nota del pianificatore) e non rimanda il modello se la richiesta gli pare ambigua; l'avatar parte (scorciatoie, persona, ambienti Python in voice.json); le scorciatoie vocali sono le quattro del proprietario (Ctrl+Maiusc+F1 diretto, F2 agente, F4 diretto con avatar, F5 agente con avatar, tutte dalle casse); pyvirtualcam si installa da solo in silenzio la prima volta che serve la fotocamera. In coda: la prova decisiva sulla KV preallocata (kv-resident) contro quella elastica, e la sessione tecnica che costa circa 2 GiB di VRAM (KV int8 e 32000 token); il selettore 0-100 di rifinitura; il pulsante per azzerare la scelta amministratore; il pulsante di scaricamento file dell'app (da riprovare da utente normale); l'installatore: poter scegliere nessun motore locale e usare solo i motori in cloud (per esempio Token Factory Cloud) oltre a quelli compatibili con l'hardware.
