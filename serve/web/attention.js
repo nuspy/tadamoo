@@ -1,8 +1,8 @@
 "use strict";
-/* The tabs of Cron Jobs and Plans flash when something new came out of them since the person last opened that tab: a run that ended, a step a plan
+/* The tabs of Cron Jobs, Plans and Knowledge flash when something new came out of them since the person last opened that tab: a run that ended, a step a plan
    made without them. The server gives the time of the latest one (/api/attention); what the person has seen is kept in this browser. */
 (function (root) {
-  const TABS = { cron: "tab-cron", plans: "tab-plans" };
+  const TABS = { cron: "tab-cron", plans: "tab-plans", rag: "tab-rag" };
   const EVERY_MS = 20000;
   const KEY = name => "tadamoo.seen." + name;
 

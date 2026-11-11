@@ -615,7 +615,7 @@ def make_handler(svc: Service, remote: bool = False):
                 if self._authorized():
                     self._json(200, {"cron": _ROUTINES.attention() if _ROUTINES is not None else {"t": 0.0},
                                      "plans": _PLANS.attention() if _PLANS is not None else {"t": 0.0},
-                                     "knowledge": rag_attention(userdata.path("rag"))})
+                                     "rag": rag_attention(userdata.path("rag"))})
             elif path == "/api/technical-session":
                 if self._authorized():
                     self._json(200, {"on": side_uses.session_on()})
