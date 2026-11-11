@@ -1,13 +1,14 @@
 """Knowledge archives: cutting text into passages, the word ranking, hybrid search with a fake embedder, the formats, the limits and the paths."""
 import io
 import json
+import os
 import zipfile
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from tadamoo.rag import LIMITS, RagError, RagStore
+from tadamoo.rag import LIMITS, RagError, RagStore, project_key
 from tadamoo.rag import search as ranking
 from tadamoo.rag.chunking import chunk_text
 from tadamoo.rag.extract import FORMATS, extract
@@ -17,6 +18,9 @@ SAILING = ("Sailing boats use the wind. A sloop has one mast and two sails, the 
 COOKING = ("Risotto needs short grain rice, hot stock and patience. Stir often and add the stock a ladle at a time.\n\n"
            "Parmesan and butter are stirred in at the end, off the heat, to make it creamy.")
 ITALIAN = "La città è bagnata dalla pioggia. Perché non andiamo a prendere un caffè? Il perché è semplice: fa freddo.\n\nI gatti dormono sul divano."
+
+PROJ = project_key("project-one")
+OTHER = project_key("project-two")
 
 
 class Fake:
@@ -98,7 +102,7 @@ def test_scores_from_several_archives_share_their_statistics():
 
 def test_text_search_finds_the_passage_and_names_its_archive_and_document(tmp_path):
     s = store(tmp_path)
-    a, b = s.create("Boats")["id"], s.create("Kitchen")["id"]
+    a, b = s.create("Boats", project=PROJ)["id"], s.create("Kitchen", project=PROJ)["id"]
     add(s, tmp_path, a, "boats.txt", SAILING)
     add(s, tmp_path, b, "rice.md", COOKING)
     found = s.search([a, b], "how does a sloop tack")
@@ -108,14 +112,14 @@ def test_text_search_finds_the_passage_and_names_its_archive_and_document(tmp_pa
     assert only["hits"] == []
     assert s.search([b], "creamy parmesan risotto")["hits"][0]["document"] == "rice.md"
     assert s.search([a], "perche")["hits"] == []
-    c = s.create("Lingua")["id"]
+    c = s.create("Lingua", project=PROJ)["id"]
     add(s, tmp_path, c, "it.txt", ITALIAN)
     assert s.search([c], "perche citta")["hits"][0]["document"] == "it.txt"                  # accents fold
 
 
 def test_a_floor_drops_weak_matches_and_top_k_limits_the_answer(tmp_path):
     s = store(tmp_path)
-    a = s.create("Mix")["id"]
+    a = s.create("Mix", project=PROJ)["id"]
     add(s, tmp_path, a, "boats.txt", "\n\n".join(f"Boat {i} floats on the water near the harbour. " + "filler " * 80 for i in range(30)))
     assert len(s.search([a], "boat harbour", top_k=3)["hits"]) == 3
     assert s.search([a], "boat harbour", min_share=5)["hits"] == []
@@ -128,7 +132,7 @@ def test_a_floor_drops_weak_matches_and_top_k_limits_the_answer(tmp_path):
 def test_with_an_embedder_vectors_are_kept_and_the_search_is_hybrid(tmp_path):
     fake = Fake()
     s = store(tmp_path, fake)
-    a = s.create("Boats")["id"]
+    a = s.create("Boats", project=PROJ)["id"]
     out = add(s, tmp_path, a, "boats.txt", SAILING)
     assert out["embedded"] is True and (tmp_path / "rag" / a / "embeddings.npy").is_file()
     vectors = np.load(tmp_path / "rag" / a / "embeddings.npy")
@@ -140,7 +144,7 @@ def test_with_an_embedder_vectors_are_kept_and_the_search_is_hybrid(tmp_path):
 
 def test_vectors_find_what_the_words_do_not(tmp_path):
     s = store(tmp_path, Fake())
-    a, b = s.create("Boats")["id"], s.create("Kitchen")["id"]
+    a, b = s.create("Boats", project=PROJ)["id"], s.create("Kitchen", project=PROJ)["id"]
     add(s, tmp_path, a, "boats.txt", SAILING)
     add(s, tmp_path, b, "rice.txt", COOKING)
     query = "what holds the mast"                                                                # no word in common with the kitchen text
@@ -153,7 +157,7 @@ def test_vectors_find_what_the_words_do_not(tmp_path):
 def test_an_embedder_that_fails_at_query_time_falls_back_to_words(tmp_path):
     fake = Fake()
     s = store(tmp_path, fake)
-    a = s.create("Boats")["id"]
+    a = s.create("Boats", project=PROJ)["id"]
     add(s, tmp_path, a, "boats.txt", SAILING)
 
     def boom(texts):
@@ -170,7 +174,7 @@ def test_an_embedder_that_fails_at_ingest_leaves_the_document_searchable_by_word
         def embed(self, texts):
             raise RuntimeError("no memory")
     s = store(tmp_path, Broken())
-    a = s.create("Boats")["id"]
+    a = s.create("Boats", project=PROJ)["id"]
     out = add(s, tmp_path, a, "boats.txt", SAILING)
     assert out["embedded"] is False and "embedder failed" in out["note"] and not (tmp_path / "rag" / a / "embeddings.npy").exists()
     assert s.search([a], "keel")["hits"]
@@ -178,7 +182,7 @@ def test_an_embedder_that_fails_at_ingest_leaves_the_document_searchable_by_word
 
 def test_a_document_added_without_the_embedder_drops_the_vectors_and_reindex_restores_them(tmp_path):
     s = store(tmp_path, Fake())
-    a = s.create("Mixed")["id"]
+    a = s.create("Mixed", project=PROJ)["id"]
     add(s, tmp_path, a, "boats.txt", SAILING)
     s.holder["e"] = None
     out = add(s, tmp_path, a, "rice.txt", COOKING)
@@ -191,7 +195,7 @@ def test_a_document_added_without_the_embedder_drops_the_vectors_and_reindex_res
 
 def test_vectors_of_another_model_are_never_mixed_in(tmp_path):
     s = store(tmp_path, Fake())
-    a = s.create("Boats")["id"]
+    a = s.create("Boats", project=PROJ)["id"]
     add(s, tmp_path, a, "boats.txt", SAILING)
 
     class Other(Fake):
@@ -205,7 +209,7 @@ def test_vectors_of_another_model_are_never_mixed_in(tmp_path):
 
 def test_removing_a_document_removes_its_passages_and_vectors(tmp_path):
     s = store(tmp_path, Fake())
-    a = s.create("Mixed")["id"]
+    a = s.create("Mixed", project=PROJ)["id"]
     first = add(s, tmp_path, a, "boats.txt", SAILING)["document"]
     add(s, tmp_path, a, "rice.txt", COOKING)
     total = s.get(a)["chunks"]
@@ -300,12 +304,12 @@ def test_a_zip_that_unpacks_to_too_much_is_not_read(tmp_path, monkeypatch):
 def test_limits_on_archives_documents_size_and_duplicates(tmp_path, monkeypatch):
     from tadamoo.rag import store as st
     s = store(tmp_path)
-    a = s.create("One")["id"]
+    a = s.create("One", project=PROJ)["id"]
     add(s, tmp_path, a, "a.txt", SAILING)
     with pytest.raises(RagError, match="already in the archive"):
         add(s, tmp_path, a, "copy.txt", SAILING)
     with pytest.raises(RagError, match="already an archive"):
-        s.create("one")
+        s.create("one", project=PROJ)
     monkeypatch.setitem(st.LIMITS, "documents", 1)
     with pytest.raises(RagError, match="at most 1 documents"):
         add(s, tmp_path, a, "b.txt", COOKING)
@@ -327,18 +331,18 @@ def test_limits_on_archives_documents_size_and_duplicates(tmp_path, monkeypatch)
         add(s, tmp_path, a, "d.txt", COOKING)
     assert [d["name"] for d in s.get(a)["document_list"]] == ["a.txt"]                    # every refusal left the archive as it was
     monkeypatch.setitem(st.LIMITS, "archives", 1)
-    with pytest.raises(RagError, match="at most 1 archives"):
-        s.create("Two")
+    with pytest.raises(RagError, match="at most 1 archives in a project"):
+        s.create("Two", project=PROJ)
     for bad in ("", "  ", "x" * 61, "tab\tname", 5):
         with pytest.raises(RagError):
-            s.create(bad)
+            s.create(bad, project=PROJ)
     with pytest.raises(RagError):
-        s.create("Ok", "d" * 501)
+        s.create("Ok", "d" * 501, project=PROJ)
 
 
 def test_an_archive_id_cannot_climb_out_of_the_folder(tmp_path):
     s = store(tmp_path)
-    s.create("One")
+    s.create("One", project=PROJ)
     (tmp_path / "secret").mkdir()
     (tmp_path / "secret" / "meta.json").write_text("{}")
     for bad in ("../secret", "..", ".", "a/b", "a\\b", "", "UPPER", "-x", "x" * 65, ".incoming", None, 5, ["a"]):
@@ -351,7 +355,7 @@ def test_an_archive_id_cannot_climb_out_of_the_folder(tmp_path):
 
 def test_a_document_name_and_a_path_are_checked(tmp_path):
     s = store(tmp_path, forbidden=[tmp_path / "private"])
-    a = s.create("One")["id"]
+    a = s.create("One", project=PROJ)["id"]
     for bad in ("../x.txt", "a/b.txt", "a\\b.txt", "..", "", "x\x00.txt", "n" * 201):
         with pytest.raises(RagError):
             s.add_bytes(a, bad, b"some text that is long enough to count")
@@ -368,7 +372,7 @@ def test_a_document_name_and_a_path_are_checked(tmp_path):
 
 def test_files_are_written_whole_and_survive_a_new_store(tmp_path):
     s = store(tmp_path, Fake())
-    a = s.create("Boats", "About sailing")["id"]
+    a = s.create("Boats", "About sailing", project=PROJ)["id"]
     add(s, tmp_path, a, "boats.txt", SAILING)
     folder = tmp_path / "rag" / a
     assert not list(folder.rglob("*.tmp"))
@@ -381,7 +385,7 @@ def test_files_are_written_whole_and_survive_a_new_store(tmp_path):
 
 def test_a_damaged_archive_is_left_out_of_the_list_and_chunks_of_unknown_documents_are_ignored(tmp_path):
     s = store(tmp_path)
-    a = s.create("Good")["id"]
+    a = s.create("Good", project=PROJ)["id"]
     add(s, tmp_path, a, "boats.txt", SAILING)
     (tmp_path / "rag" / "bad-123456").mkdir()
     (tmp_path / "rag" / "bad-123456" / "meta.json").write_text("{nope")
@@ -394,7 +398,7 @@ def test_a_damaged_archive_is_left_out_of_the_list_and_chunks_of_unknown_documen
 
 def test_update_rename_and_delete(tmp_path):
     s = store(tmp_path)
-    a, b = s.create("One")["id"], s.create("Two")["id"]
+    a, b = s.create("One", project=PROJ)["id"], s.create("Two", project=PROJ)["id"]
     assert s.update(a, {"name": "Uno", "description": "d", "cloud_ok": True})["name"] == "Uno" and s.get(a)["cloud_ok"] is True
     with pytest.raises(RagError, match="already"):
         s.update(a, {"name": "two"})
@@ -405,3 +409,65 @@ def test_update_rename_and_delete(tmp_path):
     with pytest.raises(RagError, match="confirmation"):
         s.delete(a, None)
     assert s.delete(a, True)["deleted"] is True and not (tmp_path / "rag" / a).exists() and [x["id"] for x in s.list()] == [b]
+
+
+# -- projects ------------------------------------------------------------------------------------------------
+
+def test_project_key_is_twelve_hex_characters_and_stable(tmp_path):
+    one, two = tmp_path / "one", tmp_path / "two"
+    one.mkdir(); two.mkdir()
+    key = project_key(one)
+    assert len(key) == 12 and key == key.lower() and all(c in "0123456789abcdef" for c in key)
+    assert project_key(str(one)) == key and project_key(str(one) + os.sep) == key and project_key(one / ".." / "one") == key
+    assert project_key(two) != key
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the file system of Windows ignores case")
+def test_project_key_ignores_case_on_windows(tmp_path):
+    folder = tmp_path / "Mixed"
+    folder.mkdir()
+    assert project_key(str(folder).upper()) == project_key(str(folder).lower()) == project_key(folder)
+
+
+def test_an_archive_needs_a_project_and_carries_it(tmp_path):
+    s = store(tmp_path)
+    for bad in (None, "", "ABCDEF123456", "abc", "zzzzzzzzzzzz", 5):
+        with pytest.raises(RagError, match="project"):
+            s.create("Boats", project=bad)
+    with pytest.raises(RagError, match="project"):
+        s.create("Boats")
+    made = s.create("Boats", project=PROJ)
+    assert made["project"] == PROJ and json.loads((tmp_path / "rag" / made["id"] / "meta.json").read_text(encoding="utf-8"))["project"] == PROJ
+    assert s.list()[0]["project"] == PROJ and s.get(made["id"])["project"] == PROJ
+
+
+def test_names_and_the_limit_are_per_project(tmp_path, monkeypatch):
+    from tadamoo.rag import store as st
+    s = store(tmp_path)
+    s.create("Boats", project=PROJ)
+    assert s.create("boats", project=OTHER)["project"] == OTHER                           # the same name in another project is fine
+    with pytest.raises(RagError, match="already an archive"):
+        s.create("BOATS", project=PROJ)
+    monkeypatch.setitem(st.LIMITS, "archives", 2)
+    s.create("Second", project=PROJ)
+    with pytest.raises(RagError, match="at most 2 archives"):
+        s.create("Third", project=PROJ)
+    s.create("Other second", project=OTHER)                                               # the other project has room
+    second = next(a["id"] for a in s.list(PROJ) if a["name"] == "Second")
+    with pytest.raises(RagError, match="already"):
+        s.update(second, {"name": "boats"})                                               # a rename is checked inside the project too
+    assert s.update(second, {"name": "Other second"})["name"] == "Other second"           # a name another project uses is free here
+
+
+def test_list_filters_by_project_and_an_archive_without_one_belongs_to_none(tmp_path):
+    s = store(tmp_path)
+    a, b = s.create("Boats", project=PROJ)["id"], s.create("Kitchen", project=OTHER)["id"]
+    folder = tmp_path / "rag" / "old-123456"
+    folder.mkdir()
+    (folder / "meta.json").write_text(json.dumps({"id": "old-123456", "name": "Old", "description": "", "created": 1, "updated": 1, "chunks": 0, "embed_model": "",
+                                                  "documents": []}), encoding="utf-8")
+    assert [x["id"] for x in s.list(PROJ)] == [a] and [x["id"] for x in s.list(OTHER)] == [b]
+    assert s.list(project_key("nobody")) == [] and s.ids(PROJ) == [a] and s.ids("not-a-key") == []
+    assert {x["id"] for x in s.list()} == {a, b, "old-123456"}
+    assert s.get("old-123456")["project"] == ""
+    s.update("old-123456", {"name": "Boats"})                                             # no project: no neighbour to clash with

@@ -1,6 +1,7 @@
 """The knowledge archives: a folder of the user data, `rag/<id>/`, for each.
 
-    meta.json         name, description, the documents, how many passages, the embedding model of the vectors (empty: text only)
+    meta.json         name, description, the project it belongs to (a key, tadamoo/rag/project.py), the documents, how many passages, the embedding model
+                      of the vectors (empty: text only)
     chunks.jsonl      one passage per line: {"doc", "n", "text"}
     embeddings.npy    float32, one L2-normalized row per passage, present only when every passage has one
     texts/<doc>.txt   the text read from each document, so an archive can be indexed again without the original
@@ -17,17 +18,18 @@ import secrets
 import shutil
 import threading
 import time
+import unicodedata
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from tadamoo.personas import slug_of
 from tadamoo.rag import search as ranking
 from tadamoo.rag.chunking import chunk_text
 from tadamoo.rag.embed import Embedder, EmbedderProvider, embed_all, no_embedder
 from tadamoo.rag.errors import RagError
 from tadamoo.rag.extract import check_name, extract
+from tadamoo.rag.project import is_key
 
 LIMITS = {"name": 60, "description": 500, "archives": 50, "documents": 200, "document_bytes": 25 << 20, "document_chars": 4_000_000, "chunks": 20_000, "top_k": 20}
 TOP_K = 4
@@ -35,6 +37,12 @@ ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 DOC_ID = re.compile(r"^d[0-9a-f]{8}$")
 INCOMING = ".incoming"
 _NAME_BAD = re.compile(r"[\x00-\x1f\\/]")
+
+
+def slug_of(name: str) -> str:
+    """A folder-name stem for an archive's name: lower-case ASCII letters, digits and hyphens."""
+    plain = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii").lower()
+    return re.sub(r"[^a-z0-9]+", "-", plain).strip("-")[:40].strip("-")
 
 
 def _text(value: Any, field: str, limit: int, required: bool = False) -> str:
@@ -173,36 +181,51 @@ class RagStore:
         return {"mode": "hybrid" if hybrid else "text", "embed_model": model, "reindex": bool(meta["chunks"]) and emb is not None and not hybrid}
 
     def _summary(self, meta: Dict[str, Any]) -> Dict[str, Any]:
-        return {"id": meta["id"], "name": meta["name"], "description": meta["description"], "cloud_ok": bool(meta.get("cloud_ok")), "created": meta["created"],
+        return {"id": meta["id"], "name": meta["name"], "description": meta["description"], "project": meta.get("project", ""), "cloud_ok": bool(meta.get("cloud_ok")), "created": meta["created"],
                 "updated": meta["updated"], "documents": len(meta["documents"]), "chunks": meta["chunks"], "bytes": sum(d["bytes"] for d in meta["documents"]),
                 **self.status(meta)}
 
-    def list(self) -> List[Dict[str, Any]]:
+    def _metas(self, project: Optional[str] = None) -> List[Dict[str, Any]]:
+        """The meta of every readable archive (of one project, or of all with None), by name; a folder that is not an archive, or is damaged, is left out.
+        An archive whose meta names no project belongs to none."""
         out = []
         if self.root.is_dir():
             for folder in sorted(self.root.iterdir()):
                 if folder.is_dir() and ID.match(folder.name):
                     try:
-                        out.append(self._summary(self._read_meta(folder)))
+                        meta = self._read_meta(folder)
                     except RagError:
-                        continue                           # a folder that is not an archive, or is damaged, is left out
-        return sorted(out, key=lambda a: (a["name"].lower(), a["id"]))
+                        continue
+                    if project is None or meta.get("project") == project:
+                        out.append(meta)
+        return sorted(out, key=lambda m: (m["name"].lower(), m["id"]))
+
+    def list(self, project: Optional[str] = None) -> List[Dict[str, Any]]:
+        """The archives of `project` (every archive with None)."""
+        return [self._summary(m) for m in self._metas(project)]
+
+    def ids(self, project: str) -> List[str]:
+        """The ids of the archives of `project`, read without looking at the embedder."""
+        return [m["id"] for m in self._metas(project)] if is_key(project) else []
 
     def get(self, aid: Any) -> Dict[str, Any]:
         meta = self.load(aid).meta
         return {**self._summary(meta), "document_list": [dict(d) for d in meta["documents"]]}
 
-    def create(self, name: Any, description: Any = "") -> Dict[str, Any]:
+    def create(self, name: Any, description: Any = "", project: Any = None) -> Dict[str, Any]:
         name, description = _text(name, "name", LIMITS["name"], True), _text(description, "description", LIMITS["description"])
+        if not is_key(project):
+            raise RagError("project: the key of the project the archive belongs to")
         with self._lock:
-            existing = self.list()
+            existing = self._metas(project)
             if len(existing) >= LIMITS["archives"]:
-                raise RagError(f"at most {LIMITS['archives']} archives")
-            if any(a["name"].lower() == name.lower() for a in existing):
-                raise RagError("there is already an archive with that name")
+                raise RagError(f"at most {LIMITS['archives']} archives in a project")
+            if any(m["name"].lower() == name.lower() for m in existing):
+                raise RagError("there is already an archive with that name in this project")
             aid = f"{slug_of(name) or 'archive'}-{secrets.token_hex(3)}"
             now = self.clock()
-            meta = {"id": aid, "name": name, "description": description, "cloud_ok": False, "created": now, "updated": now, "chunks": 0, "embed_model": "", "documents": []}
+            meta = {"id": aid, "name": name, "description": description, "project": project, "cloud_ok": False, "created": now, "updated": now, "chunks": 0,
+                    "embed_model": "", "documents": []}
             self._put_meta(self._dir(aid), meta)
             return self.get(aid)
 
@@ -214,8 +237,8 @@ class RagStore:
             folder, meta = self._dir(aid), _copy(self.load(aid).meta)
             if "name" in data:
                 name = _text(data["name"], "name", LIMITS["name"], True)
-                if any(a["name"].lower() == name.lower() and a["id"] != aid for a in self.list()):
-                    raise RagError("there is already an archive with that name")
+                if any(m["name"].lower() == name.lower() and m["id"] != aid for m in self._metas(meta.get("project") or "-")):
+                    raise RagError("there is already an archive with that name in this project")
                 meta["name"] = name
             if "description" in data:
                 meta["description"] = _text(data["description"], "description", LIMITS["description"])
