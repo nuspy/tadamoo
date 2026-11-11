@@ -1,4 +1,8 @@
 """The knowledge archives a conversation of the agent has attached: kept in its record, handed to its process, changed while it runs."""
+import sys
+import time
+from pathlib import Path
+
 import pytest
 
 from serve.agent_runs import RunError
@@ -124,3 +128,53 @@ def test_the_route_attaches_and_detaches_over_http(tmp_path):
             httpd.shutdown()
             httpd.server_close()
             mgr.shutdown()
+
+
+# -- `/rag` and `/council` written in a client that has no commands of its own (the phone) --------------------------
+
+def kinds_of(manager, sid):
+    return [(e["event"], e.get("text") or e.get("kind")) for e in manager.events(sid)["events"]]
+
+
+def test_slash_rag_as_a_message_is_done_by_the_server_and_answered_in_one_line(world, tmp_path):
+    manager, ids, ws = world
+    sid = manager.create(ws)["id"]
+    out = manager.send(sid, "/rag forest man")
+    assert out["handled"] == "rag" and out["reply"] == "Knowledge: Forest Management attached" and manager.get(sid)["knowledge"] == [ids["forest"]]
+    events = manager.events(sid)["events"]
+    assert [e["event"] for e in events][-3:] == ["user", "delta", "done"] and events[-3]["text"] == "/rag forest man" and events[-2]["text"] == out["reply"]
+    assert manager.get(sid)["state"] == "dormant" and not manager.history(sid)["messages"]            # the model never saw it and no process was started
+    assert manager.send(sid, "/rag")["reply"] == "Knowledge archives: Forest Fires (Elsewhere); Forest Management (Elsewhere, used here); Site notes (this project)"
+    assert manager.send(sid, "/rag forest")["reply"].startswith("Knowledge: several archives match (Forest Fires (Elsewhere)")
+    assert manager.send(sid, "/knowledge astronomy")["reply"] == 'Knowledge: no archive matches "astronomy". Send /rag to see them'
+    assert manager.send(sid, "/rag off forest man")["reply"] == "Knowledge: Forest Management dropped" and manager.get(sid)["knowledge"] == []
+    manager.send(sid, "/rag fires")
+    assert manager.send(sid, "/rag off")["reply"] == "Knowledge: all attached archives dropped" and manager.send(sid, "/rag off")["reply"] == "Knowledge: no archive was attached"
+    assert manager.send(sid, "/rag site notes")["reply"] == "Knowledge: Site notes belongs to this project and is always used"
+
+
+def test_a_message_that_only_mentions_rag_and_a_council_command_go_to_the_model_as_written(world, tmp_path):
+    manager, ids, ws = world
+    real = SessionManager(tmp_path / "j9", "http://127.0.0.1:1", rag_dir=tmp_path / "rag", tick_s=0.1,
+                          command=lambda sid, rec, history: [sys.executable, str(Path(__file__).with_name("session_stub.py")), "--session-id", sid, "--history-dir", str(history)])
+    try:
+        sid = real.create(ws)["id"]
+        for text in ("what is /rag for?", "/council should we use a queue or a table?", "/ragged edges"):
+            assert "handled" not in real.send(sid, text)
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline and len([m for m in real.history(sid)["messages"] if m["role"] == "user"]) < 3:
+            time.sleep(0.05)
+        users = [m["content"] for m in real.history(sid)["messages"] if m["role"] == "user"]
+        assert users == ["what is /rag for?", "/council should we use a queue or a table?", "/ragged edges"]       # `/council` is read by the harness itself (tadamoo/council.py)
+    finally:
+        real.shutdown()
+
+
+def test_without_an_archive_folder_slash_rag_is_an_ordinary_message(tmp_path):
+    (tmp_path / "w").mkdir()
+    manager = SessionManager(tmp_path / "j", "http://127.0.0.1:1", tick_s=0.1)
+    try:
+        sid = manager.create(str(tmp_path / "w"))["id"]
+        assert "handled" not in manager.send(sid, "/rag forest")
+    finally:
+        manager.shutdown()

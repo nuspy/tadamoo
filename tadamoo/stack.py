@@ -914,6 +914,9 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         rag_store = RagStore(cfg.rag_dir)
         project_recall = ProjectRecall(rag_store, cfg.rag_project, local=lambda: getattr(client, "stays_local", lambda: True)(), attached=cfg.rag_attached)
         register_knowledge_tools(registry, rag_store, project_recall)
+    from tadamoo.rag.ingest.reading import register_document_tools
+    register_document_tools(registry, sandbox.root, Path(cfg.rag_dir) if cfg.rag_dir else None,
+                            (Path(cfg.rag_dir) / ".reading") if cfg.rag_dir else data / "reading", protected=lambda p: sandbox.protected_hit(p) if sandbox.protected_hit else "")
 
     def switch_knowledge(ids: List[str]) -> str:
         """The archives attached to the conversation are now `ids`; returns the note for the model, empty when nothing changed."""
@@ -977,7 +980,7 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         builder.pin("self", awareness.self_model(
             model="", window=context.budget_tokens, mask_at=context.mask_at, compaction_at=cfg.compaction_threshold, compaction=cfg.compaction, max_turns=cfg.max_turns,
             max_tokens=cfg.max_total_tokens, max_seconds=cfg.max_seconds, absent=awareness.absent_features(present),
-            lessons="", knowledge=bool(cfg.rag_dir), council=council_line(registry)))
+            lessons="", knowledge=bool(cfg.rag_dir), council=council_line(registry), documents=True))
     agent = AgentLoop(
         client=client or TadamooClient(base_url=cfg.endpoint, api_key=cfg.api_key),
         tool_registry=registry,
@@ -1041,6 +1044,9 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
 
         def settings() -> Dict[str, Any]:
             return capstate.read(agent, window=context.budget_tokens, unattended=cfg.unattended)
+        if project_recall is not None:
+            from tadamoo.rag.tools import knowledge_index
+            agent.knowledge_index = knowledge_index(project_recall.store, project_recall)
         agent.state_note = lambda: teller.note(settings(), getattr(getattr(context, "compaction", None), "count", 0))
         awareness.register_self_status(registry, lambda: awareness.status_of(agent, context.budget_tokens, {"settings": settings()}))
     quick = technical if technical is not None else client          # the quick jobs never take the conversation's own route

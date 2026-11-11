@@ -24,7 +24,7 @@ FEATURES = (
 
 
 def self_model(*, model: str, window: int, mask_at: float, compaction_at: float, compaction: bool, max_turns: int, max_tokens: Optional[int],
-               max_seconds: Optional[float], absent: List[str], lessons: str, knowledge: bool = False, council: str = "") -> str:
+               max_seconds: Optional[float], absent: List[str], lessons: str, knowledge: bool = False, council: str = "", documents: bool = False) -> str:
     """The fixed block "what you are": the limits and the habits of the harness around the model, in plain sentences."""
     steps = f"{max_turns} steps per answer" if max_turns and max_turns > 0 else "no limit on the steps of an answer"
     budgets = [steps]
@@ -47,9 +47,13 @@ def self_model(*, model: str, window: int, mask_at: float, compaction_at: float,
         "with a note that starts with [harness] when it sees one.",
         "- A task is yours until it is done: check your result against what was asked before you say it is finished, and say plainly what is not done.",
     ]
+    if documents:
+        lines.append("- Documents that read_file cannot read well (scanned PDFs, PDFs with tables, images of text, Word, Excel and PowerPoint files) are read with `read_document` "
+                     "(OCR and structure as Markdown with page markers, by range of pages); use it whenever the person asks to read or OCR a document.")
     if knowledge:
         lines.append("- The person keeps knowledge archives (named collections of their documents, also called RAG): this project's are searched for every request, and any archive can be attached "
-                     "to this conversation by name with `knowledge_use` (`knowledge_drop`, `knowledge_list` and `knowledge_search` go with it) when the person asks for one, in any wording.")
+                     "to this conversation by name with `knowledge_use` (`knowledge_drop`, `knowledge_list` and `knowledge_search` go with it) when the person asks for one, in any wording. "
+                     "The `[state]` note lists the archives this conversation can use now (`knowledge=`) and says when they change.")
     if council:
         lines.append(council)
     if lessons:

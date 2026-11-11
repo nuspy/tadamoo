@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-FIELDS = ("window", "effort", "level", "plan_mode", "unattended", "steps", "max_tokens", "orchestration", "long_answer", "compaction", "reader", "sampling")
+FIELDS = ("window", "effort", "level", "plan_mode", "unattended", "steps", "max_tokens", "orchestration", "long_answer", "compaction", "reader", "sampling", "knowledge")
 PROMPT_TOLD = ("window",)         # the fixed block already states these when the session is built
 
 
@@ -46,7 +46,8 @@ def read(agent: Any, *, window: int, unattended: bool) -> Dict[str, Any]:
         folding = f"on (old results masked from {int(mask * 100)}% of the context, older steps folded from {int(max(comp.threshold, mask) * 100)}%)"
     else:
         folding = f"off (old results masked from {int(mask * 100)}% of the context, older steps never folded)"
-    return {
+    index = getattr(agent, "knowledge_index", None)
+    state = {
         "window": int(window),
         "effort": (getattr(agent, "sampling", {}) or {}).get("reasoning_effort") or "default",
         "level": getattr(getattr(perms, "level", None), "value", "") or "unknown",
@@ -60,6 +61,9 @@ def read(agent: Any, *, window: int, unattended: bool) -> Dict[str, Any]:
         "reader": getattr(agent, "reader", "") or "this PC",
         "sampling": sampling,
     }
+    if index is not None:                                       # the knowledge archives this conversation can use now, named (tadamoo/rag/tools.py)
+        state["knowledge"] = index()
+    return state
 
 
 class Teller:

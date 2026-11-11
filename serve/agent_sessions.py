@@ -39,7 +39,7 @@ from tadamoo import questions as qs
 from tadamoo.permission_level import CHANNELS, lower as lower_level
 from tadamoo.personal_skills.store import PersonalSkills, SkillError
 from tadamoo.personal_skills.values import resolve as resolve_values
-from tadamoo.rag.choice import decide, known as known_archives
+from tadamoo.rag.choice import decide, known as known_archives, listing as rag_listing, parse_command as rag_command, reply as rag_reply
 from tadamoo.rag.project import project_key as rag_project_key
 from tadamoo.vault import valid_code
 from serve.coding_prefs import project_key
@@ -1583,6 +1583,9 @@ class SessionManager:
     def send(self, sid: str, text: Any, attachments: Any = None, place: Any = None, optimize: Any = None, reader: Any = None) -> Dict[str, Any]:
         if not isinstance(text, str) or not text.strip():
             raise RunError("Write a message.", "text_missing")
+        asked = rag_command(text)
+        if asked is not None and self.rag_dir is not None:                   # `/rag` typed in a client that has no commands of its own (the phone)
+            return self._answer_rag(sid, text, *asked)
         cards = self._check_attachments(sid, attachments)
         with self._lock:
             rec = self._record(sid)
@@ -2217,6 +2220,24 @@ class SessionManager:
         if not told:
             self._push(sid, {"event": "council", "on": on})
         return self.get(sid)
+
+    def _answer_rag(self, sid: str, text: str, action: str, name: str) -> Dict[str, Any]:
+        """The `/rag` command as a message: done here, answered by one line that shows where an answer of the model would, and never given to the model."""
+        from tadamoo.rag import RagStore
+        with self._lock:
+            rec = self._record(sid)
+            if rec["state"] == "closed":
+                raise RunError("That conversation is closed.", "closed")
+        if action == "list":
+            reply = rag_listing(RagStore(self.rag_dir).list(), rag_project_key(rec["workspace"]), rec.get("knowledge") or [])
+        else:
+            done = self.set_knowledge(sid, action, name)["result"]
+            reply = rag_reply(action, done, name)
+        turn = secrets.token_hex(3)
+        self._push(sid, {"event": "user", "turn": turn, "text": text})
+        self._push(sid, {"event": "delta", "turn": turn, "kind": "text", "text": reply})
+        self._push(sid, {"event": "done", "turn": turn, "stop_reason": "final"})
+        return {"turn": turn, "session": self.get(sid), "handled": "rag", "reply": reply}
 
     def set_telegram(self, sid: str, chat: Any) -> Dict[str, Any]:
         """Moves the conversation to a Telegram chat (its answers go there and what is written there comes here), or back with None. A chat holds one
