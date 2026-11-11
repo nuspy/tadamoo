@@ -16,7 +16,7 @@ on rename.
 | `chunks.jsonl` | one passage per line: `{doc, n, text, path, page_start, page_end, kind, section, flag?}` |
 | `sections.jsonl` | one section per line, for a hit to be expanded to the part of the document it came from |
 | `blocks/<doc>.json.gz` | the blocks read from each document, so an archive can be cut again without the original and without reading it again |
-| `embeddings.npy` | float32, one L2-normalized row per passage; present only when every passage has a row |
+| `embeddings.npy` | float16, one L2-normalized row per passage (read as float32); present only when every passage has a row; `meta.json` names its model, size and version |
 
 A project is named by its key, `project_key(path)` (`tadamoo/rag/project.py`): 12 lower-case hex characters of the SHA-1 of the folder's
 real path (links resolved, case folded where the file system ignores it, no trailing separator), so every spelling of a folder gives the same
@@ -47,19 +47,22 @@ there).
 Always by words: BM25 over lower-case words without accents (`perché` meets `perche`). The statistics are those of all the archives
 searched together, so scores from different archives compare.
 
-With vectors: when an embedder is installed and an archive's vectors were made by it, the question is embedded too and cosine similarity
-ranks the passages (brute force over a numpy matrix; passages below 0.2 are dropped). The two rankings are merged by reciprocal rank
-(`1/(60 + position)`). The text that is searched is the passage with its `path` (`Document > Section > Subsection`) in front, so the name of a
-section finds what is under it. A hit says whether it is `lexical` or `hybrid` and carries its archive, document, passage number, `path`,
-`page_start`, `page_end`, `kind`, `section`, `flag`, `score`, `lexical` and `semantic` values. `score` compares passages within one answer only. An embedder that fails at query time means words only,
-with a note.
+With vectors: when an embedding model is available and an archive's vectors were made by it (same model and version), the question is embedded and
+each passage scores its cosine plus a small share of its word score; the best twenty are judged again by a reranker; passages that are too far from the
+question, and repeated ones, are left out. Rank fusion of words and meaning was measured to be worse and is not used. The whole pipeline, the settings,
+the worker and the measured numbers are in [rag-embeddings.md](rag-embeddings.md). The text that is searched and embedded is the passage with its
+`path` (`Document > Section > Subsection`) in front, so the name of a section finds what is under it. A hit carries its archive, document, passage
+number, `path`, `page_start`, `page_end`, `kind`, `section`, `flag`, `score`, `lexical` (BM25), `semantic` (cosine), `rerank`, `stages` and `mode`
+(`lexical` or `hybrid`). `score` compares passages within one answer only. An embedder that fails at query time means words only, with a note.
 
-**No embedding model is bundled and none is named.** The embedding service in the voice catalog is empty, so every archive is searched by
-words and the tab says "Text search only: no embedding model installed". The seam is `tadamoo/rag/embed.py`: an `Embedder` has a `model`
-id and `embed(texts)` returning a matrix. The store takes a provider, a function that returns an embedder or `None`, and calls it each time
-one is needed; when a model is installed and the provider returns it, new documents are embedded as they are added, and "Index again"
-embeds an existing archive. Vectors of another model are never mixed with an archive's. Adding a document that cannot be embedded drops
-the archive's vectors (text search continues) until it is indexed again. The harness process has no provider yet: it searches by words.
+**Embedding models are not bundled**: the person puts Qwen3 embedding and reranker folders under `rag/embedding` in a models folder of the program, and a
+Python with torch runs them (`tadamoo/rag/embed_client.py`; the server's own Python has none). Without them, or with the service off, every archive is
+searched by words and the tab says why. The seam is `tadamoo/rag/embed.py`: an `Embedder` has a `model` id and `embed(texts)`, and optionally `version`,
+`embed_query`, `rerank`, `device`, `batch`; the store takes a provider, a function that returns an embedder or `None`, and calls it each time one is needed.
+New documents are embedded as they are added and "Index again" embeds an existing archive, both as jobs with progress and a Cancel. Vectors of another
+model or version are never mixed with an archive's: changing the model marks the archives "index again". Adding a document that cannot be embedded (or to an
+archive whose vectors are of another model) drops the archive's vectors, and text search continues until it is indexed again. The harness process has no
+embedder of its own: its store asks the server's `/api/rag/search`, and falls back to words when the server does not answer.
 
 ## Using it in a conversation
 
@@ -136,10 +139,11 @@ All under `/api/rag`, from this PC only (403 otherwise).
 | `GET /api/rag/jobs/<id>` | `{job: {state: running\|done\|failed\|cancelled, stage, page, pages, device, result, error}}`; `result` is what adding returns (`document`, `embedded`, `note`) |
 | `POST /api/rag/jobs/<id>/cancel` | stops the reading; nothing is added |
 | `GET /api/rag/archives/<id>/sections/<section>` | the section a hit came from: path, pages, text (capped) |
-| `GET /api/rag/settings`, `POST /api/rag/settings` | `{docling_python, docling_device: auto\|cpu, flagged: keep\|drop}`, any of them; the answer adds the Python found and the formats now readable |
+| `GET /api/rag/settings`, `POST /api/rag/settings` | `{docling_python, docling_device: auto\|cpu, flagged: keep\|drop}` and the semantic search settings (`embed_enabled`, `embed_python`, `embed_models_dir`, `embed_model`, `rerank`, `rerank_model`, `lexical_weight`, `min_cosine`, `min_rerank`, `idle_s`), any of them; the answer adds the Python found, the formats now readable and `embedding` (models found, reason when off, where it runs) |
+| `POST /api/rag/embedding/test` | embeds one sentence with the model in use: `{ok, model, device, seconds, dim}` or `{ok: false, error}` |
 | `POST /api/rag/archives/<id>/documents/<doc>/remove` | removes a document, its passages and vectors |
-| `POST /api/rag/archives/<id>/reindex` | cuts the saved texts again and embeds them if an embedder is there |
-| `POST /api/rag/search` | `{query, archives: [ids] \| project: key, top_k}`; one of the two is required |
+| `POST /api/rag/archives/<id>/reindex` | cuts the saved texts again and embeds them if an embedder is there, in the background: `{job}`, its result `{chunks, embedded, note}` |
+| `POST /api/rag/search` | `{query, archives: [ids] \| project: key, top_k, min_share?, strict?}`; one of the two is required |
 | `POST /api/rag/choose` | `{action: attach\|detach\|clear, name, attached: [ids], project}`: what the choice does to the attached list, for the model-only chat |
 | `POST /api/rag/recall` | `{project, goal, attached?}`: `{block}`, the data block of the project's passages for the model-only chat (`""` when none match) |
 
@@ -151,12 +155,14 @@ Knowledge, a top-level tab. At the top a project picker (a select, "Name (archiv
 when the page can know it, else on the Chat's own folder, and keeps the person's choice. Below it only that project's archives: create and
 rename, delete (two presses), the documents with size and passage count, upload and add by path, the index state with "Index again", "Try a
 question" (shows each hit's archive, document and score), and the banner for hybrid or text-only search. One column on a phone, a list beside
-the page from 900 px. A reading in progress shows one line with the stage and the page (`reading, page 41 of 361`) and a Cancel button; a
-small Reading section holds the Python of Docling, where it runs and what to do with flagged passages.
+the page from 900 px. A job in progress shows one line with the stage and the page or passage (`reading, page 41 of 361`, `indexing, passage 12 of
+200`; on the CPU it says that indexing is very slow) and a Cancel button. The banner says how the search runs now (the model and the GPU or CPU, or why it is
+words only). A Semantic search section holds the switch, the model, the reranker, the weights, the idle time and a Test button; a small Reading section holds
+the Python of Docling, where it runs and what to do with flagged passages.
 
 ## Code
 
-`tadamoo/rag/` (`project.py`, `match.py`, `choice.py`, `tools.py`, `settings.py`, `ingest/`, `store.py`, `extract.py`, `chunking.py`, `search.py`, `query.py`, `embed.py`, `recall.py`), `serve/rag_api.py`, `serve/rag_jobs.py`,
+`tadamoo/rag/` (`project.py`, `match.py`, `choice.py`, `tools.py`, `settings.py`, `ingest/`, `store.py`, `extract.py`, `chunking.py`, `search.py`, `query.py`, `embed.py`, `embed_worker.py`, `embed_client.py`, `remote.py`, `recall.py`), `serve/rag_api.py`, `serve/rag_jobs.py`,
 `serve/web/rag.js` and `rag.css`. Tests: `tests/test_rag_store.py`, `tests/test_rag_recall.py`, `serve/tests/test_rag_api.py`,
 `serve/tests/test_rag_page.py` (with `rag_project_dom_check.js` and `slash_rag_check.js`, the page on a stand-in DOM), `tests/test_rag_choice.py`,
-`serve/tests/test_agent_knowledge.py`, `tests/test_rag_ingest.py`, `tests/test_rag_docling.py`.
+`serve/tests/test_agent_knowledge.py`, `tests/test_rag_ingest.py`, `tests/test_rag_docling.py`, `tests/test_rag_embed.py`, `tests/test_rag_eval.py`.
