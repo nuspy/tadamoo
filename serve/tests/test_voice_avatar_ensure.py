@@ -9,7 +9,7 @@ import json
 import unittest
 from unittest import mock
 
-from serve import settings, voice_avatar_ensure, voice_catalog, voice_loader, voice_service, voice_settings
+from serve import settings, voice_avatar_ensure, voice_catalog, voice_lend, voice_loader, voice_service, voice_settings
 from serve.tests import test_voice_loader
 from serve.tests.test_voice_loader import Base
 from serve.vram_broker import BrokerPrefs, VramBroker
@@ -79,7 +79,8 @@ class Ensure(Base):
         self.svc.vram_broker = self.broker
         self.state = FakeVoiceWithState(self.voice)
         self.clock = Clock()
-        self.watch = voice_avatar_ensure.OnRequest(self.svc, self.broker, clock=self.clock, tick_s=3600)
+        self.lend = self.svc.voice_lend = voice_lend.Lent(self.svc, self.broker, timer=False)
+        self.watch = voice_avatar_ensure.OnRequest(self.svc, self.lend, clock=self.clock, tick_s=3600)
         self.svc.avatar_on_request = self.watch
         self.addCleanup(self.watch.shutdown)
         p = mock.patch.object(voice_service, "call", self.state.call)
@@ -118,7 +119,7 @@ class Loading(Ensure):
         self.assertNotIn("llm_unload", self.kinds())
         self.assertNotIn("sup_reload", self.kinds())                           # the model was never unloaded or loaded again
         self.assertEqual([e[1] for e in self.log if e[0] == "service_load"], ["avatar"])
-        self.assertEqual(self.broker.state()["leases"][0]["owner"], "avatar")
+        self.assertEqual(self.broker.state()["leases"][0]["owner"], "voice")
         self.assertTrue(voice_settings.enabled("avatar"))
         self.assertEqual(self.pool["free"], START_RESERVE)
         self.assertIsNone(voice_loader._pending)                               # no "reload the model" banner
