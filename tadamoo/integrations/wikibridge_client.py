@@ -5,6 +5,7 @@ Contract (wikibridge server, default port 8775; the key header is optional):
   GET  /projects                        -> [{"slug", "name", ...}]
   GET  /search?project=&q=&limit=       -> {"project", "hits": [{"path", ...}]}
   GET  /wiki/page?project=&path=        -> {"path", "frontmatter", "body"}
+  GET  /wiki/tree?project=              -> {"project", "tree": {section: [{"file", "title", "updated"}]}}
   POST /rag/context {project, query, limit, max_chars, participants}
                                         -> {"blocks": [{"path", "title", "text", ...}], "truncated", "chars"}
 The address and the key are configuration (TADAMOO_WIKIBRIDGE_URL, TADAMOO_WIKIBRIDGE_KEY); without a
@@ -81,8 +82,8 @@ class WikiBridgeClient:
         hits = data.get("hits") if isinstance(data, dict) else None
         return hits if isinstance(hits, list) else []
 
-    def get_page(self, project_slug: str, doc_path: str) -> Optional[str]:
-        """Markdown body of a wiki page; None when absent, hidden or unreachable."""
+    def page(self, project_slug: str, doc_path: str) -> Optional[Dict[str, Any]]:
+        """`{path, frontmatter, body}` of a wiki page; None when absent, hidden or unreachable."""
         path = posixpath.normpath(doc_path.replace("\\", "/")) if doc_path.strip() else ""
         if not path or path == "." or path.startswith("/") or path == ".." or path.startswith("../") or re.match(r"^[A-Za-z]:", path):
             self.last_error = "wikibridge page path must be relative and inside the wiki"
@@ -92,8 +93,26 @@ class WikiBridgeClient:
             data = self._call("GET", f"/wiki/page?{qs}")
         except ServiceError:
             return None
-        body = data.get("body") if isinstance(data, dict) else None
-        return body if isinstance(body, str) else None
+        if not isinstance(data, dict) or not isinstance(data.get("body"), str):
+            return None
+        return {"path": path, "frontmatter": data["frontmatter"] if isinstance(data.get("frontmatter"), dict) else {}, "body": data["body"]}
+
+    def get_page(self, project_slug: str, doc_path: str) -> Optional[str]:
+        """Markdown body of a wiki page; None when absent, hidden or unreachable."""
+        got = self.page(project_slug, doc_path)
+        return None if got is None else got["body"]
+
+    def tree(self, project_slug: str) -> Optional[Dict[str, List[Dict[str, Any]]]]:
+        """`{section: [{file, title, updated}]}`: every page the key may see, with the time of its last change; None when the service did not answer."""
+        try:
+            data = self._call("GET", "/wiki/tree?" + urllib.parse.urlencode({"project": project_slug}))
+        except ServiceError:
+            return None
+        tree = data.get("tree") if isinstance(data, dict) else None
+        if not isinstance(tree, dict):
+            self.last_error = "wikibridge bad_response"
+            return None
+        return {str(k): [e for e in v if isinstance(e, dict) and isinstance(e.get("file"), str)] for k, v in tree.items() if isinstance(v, list)}
 
     get_document = get_page
 

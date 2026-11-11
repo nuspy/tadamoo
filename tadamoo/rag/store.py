@@ -32,6 +32,7 @@ from tadamoo.rag.errors import RagError
 from tadamoo.rag.ingest import chunker, extraction_of, formats, normalize, read_document
 from tadamoo.rag.project import is_key
 from tadamoo.rag.settings import RagSettings
+from tadamoo.rag.sources import coverage
 
 LIMITS = {"name": 60, "description": 500, "archives": 50, "documents": 1000, "document_bytes": 200 << 20, "document_chars": 40_000_000, "chunks": 200_000, "top_k": 20}
 TOP_K = 4
@@ -441,6 +442,7 @@ class RagStore:
                    "added": self.clock(), "extraction": reading["extraction"], "pages": int(reading.get("pages") or 0), "flagged": stats["flagged"],
                    **({"skipped_pages": reading["skipped_pages"]} if reading.get("skipped_pages") else {}),
                    **({"empty_pages": reading["empty_pages"]} if reading.get("empty_pages") else {})}
+            doc["coverage"] = coverage.of_document(doc, chunks)
             folder = self._dir(aid)
             self._save_blocks(folder, doc_id, reading["blocks"])
             try:
@@ -551,3 +553,80 @@ class RagStore:
             except Exception:                              # the server that holds the embedder does not answer: words alone
                 pass
         return run(loaded, self.embedder(), query.strip()[:2000], max(1, min(int(top_k), LIMITS["top_k"])), min_share, self.settings.read())
+
+    # -- hooks for the refresh of archives (tadamoo/rag/sources) ---------------------------------
+
+    def folder(self, aid: Any) -> Path:
+        return self._dir(aid)
+
+    def passages_of(self, doc_id: str, name: str, blocks: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]], Dict[str, int]]:
+        """The passages, sections and stats a document's blocks give (the cleaning and the cutting of `add_file`)."""
+        return self._build(doc_id, name, blocks)
+
+    def blocks_of(self, aid: Any, doc: Dict[str, Any]) -> List[Dict[str, Any]]:
+        return self._load_blocks(self._dir(aid), doc)
+
+    def embed_pieces(self, aid: Any, pieces: List[str], progress: Optional[Callable[[Dict[str, Any]], None]] = None,
+                     cancel: Optional[threading.Event] = None) -> Tuple[Optional[np.ndarray], str, str, str]:
+        """`_embed_new` for the archive `aid`: (vectors of `pieces`, model, version, note), nothing when they cannot be made to fit the archive's own."""
+        return self._embed_new(self.load(aid), pieces, progress, cancel)
+
+    def annotate_document(self, aid: Any, doc_id: str, fields: Dict[str, Any]) -> None:
+        """Sets fields on one document's meta (where it came from, when it was updated); the passages and vectors are not touched."""
+        with self._lock:
+            meta = _copy(self.load(aid).meta)
+            doc = next((d for d in meta["documents"] if d["id"] == doc_id), None)
+            if doc is None:
+                raise RagError("there is no such document", "not_found")
+            doc.update(fields)
+            self._put_meta(self._dir(aid), meta)
+
+    def swap_documents(self, aid: Any, changes: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+        """Replaces the readings of documents in one commit. A change is `{doc, chunks, sections, blocks, rows, model, version}`: `doc` is the document's new meta (its id
+        names the document it replaces), `rows` the vectors of its passages (None: none) of the embedding `model` and `version`. Passages of the other documents and
+        their vectors are kept as they are; the vectors are kept only when every passage has one of the same embedding. A failure puts the saved readings back."""
+        with self._lock:
+            archive, folder = self.load(aid), self._dir(aid)
+            meta = _copy(archive.meta)
+            by_id = {c["doc"]["id"]: c for c in changes}
+            if any(i not in {d["id"] for d in meta["documents"]} for i in by_id):
+                raise RagError("a document to replace is no longer in the archive", "not_found")
+            keep = [i for i, c in enumerate(archive.chunks) if c["doc"] not in by_id]
+            chunks = [archive.chunks[i] for i in keep]
+            sections = {k: v for k, v in archive.sections.items() if v.get("doc") not in by_id}
+            meta["documents"] = [by_id[d["id"]]["doc"] if d["id"] in by_id else d for d in meta["documents"]]
+            vectors, want = None, None
+            ok = not keep or archive.vectors is not None
+            stacks = [archive.vectors[keep]] if keep and archive.vectors is not None else []
+            if stacks:
+                want = (archive.meta["embed_model"], archive.meta.get("embed_version", ""), archive.vectors.shape[1])
+            for c in changes:
+                chunks += c["chunks"]
+                sections.update(c["sections"])
+                rows = c.get("rows")
+                if not c["chunks"] or not ok:
+                    continue
+                key = (c.get("model", ""), c.get("version", ""), rows.shape[1] if rows is not None and rows.ndim == 2 else 0)
+                if rows is None or len(rows) != len(c["chunks"]) or (want is not None and key != want):
+                    ok = False
+                    continue
+                want = want or key
+                stacks.append(rows)
+            if len(chunks) > LIMITS["chunks"]:
+                raise RagError(f"the archive would hold more than {LIMITS['chunks']:,} passages")
+            if ok and stacks and want is not None:
+                vectors = np.vstack(stacks)
+            before = {}
+            for doc_id in by_id:
+                path = folder / "blocks" / (doc_id + ".json.gz")
+                before[doc_id] = path.read_bytes() if path.is_file() else None
+            try:
+                for doc_id, c in by_id.items():
+                    self._save_blocks(folder, doc_id, c["blocks"])
+                self._commit(folder, meta, chunks, vectors, want[0] if vectors is not None else "", sections, want[1] if vectors is not None else "")
+            except BaseException:
+                for doc_id, data in before.items():
+                    if data is not None:
+                        self._put(folder / "blocks" / (doc_id + ".json.gz"), data)
+                raise
+            return {"documents": len(changes), "chunks": len(chunks), "embedded": vectors is not None}
