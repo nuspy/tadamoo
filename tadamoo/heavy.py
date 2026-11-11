@@ -4,7 +4,7 @@
         if lease.gpu_ok:
             ...                                # lease.swapped says whether the conversations run on a provider meanwhile
         else:
-            ...                                # lease.reason: not_enough, not_allowed, no_provider, timeout, ...
+            ...                                # lease.reason: not_enough; lease.swap_reason: why the model could not sleep (not_allowed, no_provider, timeout, ...)
 
 It asks the server for the VRAM first (tadamoo/vram_lease.py). Only when the answer is `not_enough` does it ask to sleep the local model
 (`/api/heavy/begin`: the person answers on a card, or has allowed it for this kind of job), then asks for the VRAM again. `release` gives the VRAM back and
@@ -12,24 +12,33 @@ then lets the model wake. Nothing here raises for a missing server."""
 from __future__ import annotations
 
 import http.client
+import importlib.util
 import threading
+from pathlib import Path
 
-from tadamoo.vram_lease import Transport, VramLease, http_transport
+try:
+    from tadamoo.vram_lease import Transport, VramLease, http_transport
+except ImportError:                                # a process that does not have the package reads the sibling file by its path
+    _spec = importlib.util.spec_from_file_location("tadamoo_vram_lease", Path(__file__).with_name("vram_lease.py"))
+    _module = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(_module)
+    Transport, VramLease, http_transport = _module.Transport, _module.VramLease, _module.http_transport
 
 BASE = "/api/heavy"
 ASK_TIMEOUT_S = 700.0                              # the person may take their time answering the card
 
 
 class HeavyLease:
-    def __init__(self, owner: str, mib: int, purpose: str = "", minutes: float = 5, kind: str | None = None, ask_wait_s: float = 600.0,
+    def __init__(self, owner: str, mib: int, purpose: str = "", minutes: float = 5, kind: str | None = None, ask_wait_s: float = 600.0, wait_s: float = 0,
                  transport: Transport | None = None, base_url: str | None = None, token: str = "", control_secret: str = "") -> None:
         self.owner, self.mib, self.purpose, self.minutes, self.kind, self.ask_wait_s = owner, mib, purpose, minutes, kind or owner, ask_wait_s
+        self.wait_s = wait_s
         self._call = transport or http_transport(base_url, token, control_secret, timeout=ASK_TIMEOUT_S)
-        self._vram = transport or http_transport(base_url, token, control_secret)
+        self._vram = transport or http_transport(base_url, token, control_secret, timeout=wait_s + 135.0)
         self.lease: VramLease | None = None
         self.swap_id: str | None = None
         self.swap_hold_s = 90.0
-        self.reason = self.message = self.message_it = ""
+        self.reason = self.message = self.message_it = self.swap_reason = ""
         self._stop = threading.Event()
 
     @property
@@ -41,7 +50,7 @@ class HeavyLease:
         return self.swap_id is not None
 
     def _ask(self) -> VramLease:
-        return VramLease(self.owner, self.mib, self.purpose, transport=self._vram).acquire()
+        return VramLease(self.owner, self.mib, self.purpose, wait_s=self.wait_s, transport=self._vram).acquire()
 
     def acquire(self) -> "HeavyLease":
         lease = self._ask()
@@ -53,7 +62,9 @@ class HeavyLease:
             return self._done(lease, "no_engine", f"the server does not answer ({e.__class__.__name__})")
         swap = out.get("swap") if isinstance(out.get("swap"), dict) else None
         if status != 200 or not out.get("ok") or not swap:
-            return self._done(lease, str(out.get("reason") or "not_allowed"), str(out.get("message") or ""), str(out.get("message_it") or ""))
+            self.swap_reason = str(out.get("reason") or "not_allowed")                 # the reason stays `not_enough`: that is what the job lacks
+            return self._done(lease, "", f"{lease.message} The local model could not be put to sleep: {out.get('message') or self.swap_reason}.".strip(),
+                              f"{lease.message_it} Il modello locale non si è potuto mettere a riposo: {out.get('message_it') or self.swap_reason}.".strip())
         self.swap_id, self.swap_hold_s = swap["id"], float(swap.get("hold_s") or 90)
         threading.Thread(target=self._keep, name="heavy-swap-keepalive", daemon=True).start()
         again = self._ask()

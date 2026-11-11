@@ -517,6 +517,12 @@ def verify_output(path: Path) -> Tuple[bool, str]:
         elif ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"):
             from PIL import Image
             Image.open(io.BytesIO(raw)).verify()
+        elif ext in (".mp4", ".m4v", ".mov"):
+            if raw[4:8] != b"ftyp":
+                return False, "it does not start like an MP4 file"
+        elif ext == ".webm":
+            if not raw.startswith(bytes([0x1A, 0x45, 0xDF, 0xA3])):
+                return False, "it does not start like a WebM file"
         else:
             raw.decode("utf-8")
         return True, f"{size} bytes, opens correctly"

@@ -72,6 +72,7 @@ between two sessions) blocks the others until its owner lets go. It does not len
 prompt's loan is out (the engine refuses; the answer is `unavailable` or `busy`). The first load of a model that wants VRAM still has
 to ask for it: nothing is lent unasked.
 
+The picture and video tools are users too (owners `image` and `video`, 11000 and 25000 MiB, [media/README.md](media/README.md)).
 The avatar is the first user: [voice/loading.md](voice/loading.md#avatar-on-request). The voice functions share one lease (owner `voice`,
 sized to the sum of what they borrowed) because only one holder is allowed: [voice/loading.md](voice/loading.md#a-function-added-while-the-model-runs).
 

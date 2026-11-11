@@ -1,0 +1,34 @@
+"""The Settings line for the picture and video tools: on the page, in both languages, read only."""
+import re
+import unittest
+from pathlib import Path
+
+WEB = Path(__file__).resolve().parents[2] / "serve" / "web"
+I18N = (WEB / "i18n.js").read_text(encoding="utf-8")
+HTML = (WEB / "index.html").read_text(encoding="utf-8")
+JS = (WEB / "media.js").read_text(encoding="utf-8")
+
+
+class PageTests(unittest.TestCase):
+    def test_the_words_are_in_both_languages_with_the_same_placeholders(self):
+        en, it = I18N.split("\n  it: {")
+        keys = sorted(set(re.findall(r'"(md\.[\w.]+)":', I18N)))
+        self.assertEqual(keys, ["md.can", "md.cannot", "md.e.offline", "md.image", "md.nothing", "md.off", "md.title", "md.video"])
+        for key in keys:
+            e = re.search(rf'"{re.escape(key)}": "((?:[^"\\]|\\.)*)"', en)
+            i = re.search(rf'"{re.escape(key)}": "((?:[^"\\]|\\.)*)"', it)
+            self.assertTrue(e and i, key)
+            self.assertEqual(sorted(re.findall(r"\{\d\}", e.group(1))), sorted(re.findall(r"\{\d\}", i.group(1))), key)
+        used = set(re.findall(r'T\("(md\.[\w.]+)"', JS)) | set(re.findall(r'data-t="(md\.[\w.]+)"', HTML)) | {"md.image", "md.video"}
+        self.assertEqual(sorted(used), keys)
+
+    def test_the_section_and_the_script_are_on_the_page_and_the_line_only_reads(self):
+        self.assertIn('id="md-root"', HTML)
+        self.assertIn('<script defer src="web/media.js"></script>', HTML)
+        self.assertIn('"api/media"', JS)
+        self.assertNotIn('"POST"', JS)
+        self.assertNotIn("innerHTML", JS)
+
+
+if __name__ == "__main__":
+    unittest.main()

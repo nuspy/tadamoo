@@ -174,7 +174,7 @@ def test_the_client_borrows_vram_first_and_asks_to_sleep_the_model_only_when_tha
 def test_the_client_says_why_when_the_person_said_no_or_the_vram_is_still_missing():
     s = Server([NOT_ENOUGH], (409, {"ok": False, "reason": "not_allowed", "message": "no", "message_it": "no"}))
     with HeavyLease("video", 24000, "x", transport=s) as lease:
-        assert not lease.gpu_ok and lease.reason == "not_allowed" and not lease.swapped
+        assert not lease.gpu_ok and lease.reason == "not_enough" and lease.swap_reason == "not_allowed" and "put to sleep" in lease.message and not lease.swapped
     s = Server([NOT_ENOUGH, NOT_ENOUGH], (200, {"ok": True, "swap": {"id": "c" * 16, "hold_s": 90}}))
     with HeavyLease("video", 99000, "x", transport=s) as lease:
         assert not lease.gpu_ok and lease.reason == "not_enough" and not lease.swapped

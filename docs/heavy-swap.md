@@ -41,7 +41,7 @@ with HeavyLease("video", 24000, "a clip for the newscast", minutes=5) as lease:
     if lease.gpu_ok:
         ...                       # lease.swapped: the conversations are on the provider
     else:
-        ...                       # lease.reason: not_enough, not_allowed, no_provider, timeout, busy, cannot_sleep
+        ...                       # lease.reason: not_enough; lease.swap_reason: not_allowed, no_provider, timeout, busy, cannot_sleep
 ```
 
 It asks the broker first and the swap only on `not_enough`, then the broker again. `release` gives the VRAM back and then ends the swap.

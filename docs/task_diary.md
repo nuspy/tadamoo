@@ -1,6 +1,6 @@
 # Diario dei task
 
-Ultimo aggiornamento: 9 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
+Ultimo aggiornamento: 11 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «9 novembre» e da «Decisioni tue in attesa». Le sezioni dell'8, 7, 5 e 4 novembre sono in `docs/task_diary_archive.md`.
 
 ## 11 novembre
@@ -13,7 +13,9 @@ Ultimo aggiornamento: 9 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e 
 - Da sapere: un documento (WO2025035507A1) è fallito una volta a pagina 40 su GPU e poi è passato; non l'ho riprodotto. Ora l'errore riporta anche il motivo di Docling.
 - Bloccato: il modello non si carica perché servono circa 5,5 GiB di commit in più (94,7 necessari, 111,3 liberi, 22,1 riservati al 15%). Non ho toccato la riserva: è una tua scelta. Chiudere programmi o abbassare la riserva basta.
 - In coda, serve il modello caricato: le due sessioni sui brevetti (senza RAG e con RAG, stessi parametri), con i 14 fatti di controllo già estratti dal brevetto US12274733B2.
-- In coda, da costruire (aspettano tue decisioni): generatore di immagini Qwen-Image (serve una copia CPU del codificatore di testo, 16 GB da scaricare), componente video LTX-2.5, passaggio temporaneo a un provider cloud con autorizzazione.
+- Fatto con finti, nessuna GPU e nessun modello vero (11 novembre, ramo feature/media, non unito): immagini e video su richiesta nella Chat e nell'Agent. Due strumenti, `generate_image` (Qwen-Image 2.1 nvfp4) e `generate_video` (LTX-2.5 distilled nvfp4), che usano i modelli di LTX Studio così come sono, un processo per lavoro che finisce con il lavoro. Il lavoro chiede prima la VRAM al server (proprietari `image` e `video`, 11000 e 25000 MiB); se il server non la presta la risposta è «rifiutato» con il motivo e non parte niente. Stop annulla il lavoro e restituisce la VRAM. I file vanno nella cartella di lavoro, in `media/`. Rotta `/api/media`, riga di sola lettura nelle Impostazioni (italiano e inglese), strumenti offerti solo dove LTX Studio può farli. Verificato per davvero: il controllo contro il vero LTX Studio (Python e pesi trovati per immagini e video, parametri costruiti, rifiuto della VRAM con un finto server). Non verificato: nessuna immagine o clip vera, la qualità, i tempi, la VRAM reale. Documenti: `docs/media/`.
+- Non scaricato: la copia CPU del codificatore di testo (16 GB). Il lavoratore di LTX Studio carica il codificatore nvfp4 solo su GPU, quindi la copia non servirebbe a niente senza un lavoratore nostro. Da decidere: restare così (picco 10,5 GB) o scrivere un lavoratore che codifica il prompt, libera il codificatore e poi carica il DiT (picco circa 7 GB, da provare).
+- In coda, da costruire (aspettano tue decisioni): passaggio temporaneo a un provider cloud con autorizzazione (lo costruisce il responsabile). In coda con GPU: una prova vera di un'immagine e di un clip dall'app, con il modello di linguaggio caricato.
 - Impostazione che ho cambiato per la prova: cartella dei modelli di embedding del RAG = E:\Modelliasaltag\embedding (il server cercava in E:\Modelliasalt2ag\embedding).
 
 ## 9 novembre

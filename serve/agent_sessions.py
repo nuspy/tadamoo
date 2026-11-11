@@ -152,7 +152,7 @@ class SessionManager:
                  intake_flags: Optional[Callable[[], List[str]]] = None,
                  gate_flags: Optional[Callable[[], List[str]]] = None, coding: Any = None,
                  compaction_flags: Optional[Callable[[], List[str]]] = None, past: Any = None, exec_level_file: Optional[Path] = None, persistence_file: Optional[Path] = None, lessons_dir: Optional[Path] = None, next_steps_file: Optional[Path] = None, file_owners_path: Optional[Path] = None,
-                 forgetter: Any = None, cards: Any = None, personas_dir: Optional[Path] = None, rag_dir: Optional[Path] = None, persona_learning: Any = None) -> None:
+                 forgetter: Any = None, cards: Any = None, personas_dir: Optional[Path] = None, rag_dir: Optional[Path] = None, persona_learning: Any = None, media_file: Optional[Path] = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
@@ -162,6 +162,7 @@ class SessionManager:
         self.projects = projects                                # the folders of the Agent tab, whose own registry lists the conversations held in them
         self.personal_dir, self.personal_keys = personal_dir, personal_keys     # the person's own memories and the key that opens them: each conversation takes in the notes that matter
         self.rag_dir = rag_dir                                  # the knowledge archives (tadamoo/rag): those of the conversation's project are searched
+        self.media_file = media_file                            # the settings of the picture and video tools (tadamoo/media): with it a conversation offers generate_image and generate_video
         self.personas_dir = personas_dir                        # the personalities a conversation may speak as (tadamoo/personas.py); the key that opens their memory is personal_keys
         self.learn = learn                                      # told what the person wrote and what was searched for it, when a turn ends, to learn from
         self.persona_learning = persona_learning                # told when a turn of a conversation that speaks as a personality ends, so that the personality learns from it once it is over (serve/persona_learning_worker.py)
@@ -1095,6 +1096,8 @@ class SessionManager:
                 cmd += ["--personal-memory-keys", str(self.personal_keys)]
         if rec.get("council"):
             cmd.append("--council-each")
+        if self.media_file:
+            cmd += ["--media-file", str(self.media_file)]
         if self.rag_dir:
             cmd += ["--rag-dir", str(self.rag_dir), "--rag-project", rag_project_key(rec["workspace"])]
             for aid in rec.get("knowledge") or []:

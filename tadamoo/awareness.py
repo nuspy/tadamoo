@@ -20,6 +20,7 @@ FEATURES = (
     ("skills", "cannot write personal skills"),
     ("lsp", "no language-server tools"),
     ("mcp", "no tool servers connected"),
+    ("media", "no picture or video making (LTX Studio is not set up, or the person turned it off in the media settings)"),
 )
 
 
