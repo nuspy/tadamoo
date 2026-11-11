@@ -14,6 +14,15 @@ class Asleep:
     heavy_hold = None
     sleeps = wakes = 0
 
+    def __init__(self):
+        self.engine = self
+
+    def loaded(self):
+        return True
+
+    def can_sleep(self):
+        return True
+
     def sleep(self):
         self.sleeps += 1
         return "asleep"

@@ -7,7 +7,7 @@ WEB = Path(__file__).resolve().parents[2] / "serve" / "web"
 I18N = (WEB / "i18n.js").read_text(encoding="utf-8")
 HTML = (WEB / "index.html").read_text(encoding="utf-8")
 JS = (WEB / "heavyjobs.js").read_text(encoding="utf-8")
-DYNAMIC = [f"hv.mode.{m}{tail}" for m in ("ask", "allow", "never") for tail in ("", ".help")]
+DYNAMIC = [f"hv.mode.{m}{tail}" for m in ("ask", "allow", "never") for tail in ("", ".help")] + ["hv.engine.no_local_engine", "hv.engine.unsupported_engine"]
 
 
 class PageTests(unittest.TestCase):

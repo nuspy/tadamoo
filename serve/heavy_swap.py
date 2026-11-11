@@ -9,8 +9,11 @@ A job that asks waits for the answer on a card the pages show (`pending()`), up 
 the loaded model reads as the chosen provider, `SecureRegistry.begin_swap`), the engine sleeps (`Service.sleep`: its VRAM is free, its RAM kept) and the
 server refuses to wake it for anyone else until `end`. A swap not touched for `hold_s` ends by itself, as a lease does.
 
+It exists only for a local Basalt or Strata engine, the two that have the VRAM, SLEEP and WAKE commands: with no local model (a cloud service answers, or
+none is loaded) there is nothing to put to sleep, and llama.cpp or vLLM cannot be put to sleep from here.
+
 Refusal codes: not_allowed (the level is never, or the person said no), no_provider, bad_provider, busy (another swap), timeout (nobody answered),
-cannot_sleep (the engine cannot sleep now), bad_request."""
+no_local_engine, unsupported_engine, cannot_sleep (the engine cannot sleep now), bad_request."""
 from __future__ import annotations
 
 import json
@@ -33,6 +36,9 @@ MESSAGES = {
     "busy": ("Another heavy job already holds the local model.", "Un altro lavoro pesante tiene già il modello locale."),
     "timeout": ("Nobody answered the question in time.", "Nessuno ha risposto alla domanda in tempo."),
     "cannot_sleep": ("The local model cannot go to sleep now.", "Il modello locale non può mettersi a riposo ora."),
+    "no_local_engine": ("No local model is running, so there is nothing to put to sleep.", "Nessun modello locale è in funzione: non c'è nulla da mettere a riposo."),
+    "unsupported_engine": ("Only Basalt and Strata can be put to sleep from here; this engine cannot.",
+                           "Solo Basalt e Strata si possono mettere a riposo da qui; questo motore no."),
     "bad_request": ("Send kind (text) and purpose (text).", "Manda kind (testo) e purpose (testo)."),
     "not_found": ("No such swap: it ended.", "Nessun passaggio con questo id: è finito."),
 }
@@ -89,6 +95,15 @@ class HeavySwap:
         self._timer: threading.Thread | None = None
         self._closed = False
 
+    def engine_problem(self) -> str:
+        """"" when the model of this server is a local engine that can be put to sleep, else the refusal code."""
+        if not self.service.loaded():
+            return "no_local_engine"
+        engine = getattr(self.service, "engine", None)
+        if not (hasattr(engine, "sleep") and hasattr(engine, "can_sleep")):
+            return "unsupported_engine"
+        return ""
+
     # ---- the question
     def _card(self, kind: str, purpose: str, minutes: float, cfg: dict) -> dict:
         from tadamoo.llm import functions
@@ -138,6 +153,9 @@ class HeavySwap:
         if isinstance(minutes, bool) or not isinstance(minutes, (int, float)) or not 0 < minutes <= 24 * 60:
             minutes = 5
         cfg = self.prefs.read()
+        problem = self.engine_problem()
+        if problem:
+            return refusal(problem)
         if cfg["mode"] == "never":
             return refusal("not_allowed")
         if not cfg["provider"]:
@@ -261,4 +279,4 @@ class HeavySwap:
     def state(self) -> dict:
         with self._cv:
             active = {k: v for k, v in (self._active or {}).items() if k in ("id", "kind", "purpose", "provider")} if self._active and self._active.get("id") else None
-        return {**self.prefs.read(), "active": active, "pending": self.pending()}
+        return {**self.prefs.read(), "active": active, "pending": self.pending(), "engine": self.engine_problem()}

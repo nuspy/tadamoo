@@ -12,8 +12,17 @@ from tadamoo.llm.store import SecureRegistry
 
 
 class Engine:
+    """A stand-in for the service and its engine: a local engine that can be put to sleep."""
+
     def __init__(self, sleeps=("asleep",)):
-        self.sleeps, self.calls, self.woken, self.heavy_hold = list(sleeps), 0, 0, None
+        self.sleeps, self.calls, self.woken, self.heavy_hold, self.up = list(sleeps), 0, 0, None, True
+        self.engine = self
+
+    def loaded(self):
+        return self.up
+
+    def can_sleep(self):
+        return True
 
     def sleep(self):
         self.calls += 1
@@ -179,3 +188,15 @@ def test_the_client_says_why_when_the_person_said_no_or_the_vram_is_still_missin
     with HeavyLease("video", 99000, "x", transport=s) as lease:
         assert not lease.gpu_ok and lease.reason == "not_enough" and not lease.swapped
     assert s.log[-1] == "/api/heavy/" + "c" * 16 + "/end"                          # the model is woken again
+
+
+def test_with_no_local_model_or_an_engine_that_cannot_sleep_nothing_is_asked_and_nothing_moves(world):
+    reg, prefs, engine, _ = world
+    swap = make(world)
+    engine.up = False                                                            # a cloud service answers, or no model is loaded
+    got = swap.begin("video", "x")
+    assert got["reason"] == "no_local_engine" and swap.pending() == [] and reg.swap() is None and engine.calls == 0 and swap.state()["engine"] == "no_local_engine"
+    engine.up, engine.engine = True, object()                                    # llama.cpp or vLLM: no SLEEP command
+    got = swap.begin("video", "x")
+    assert got["reason"] == "unsupported_engine" and "Basalt and Strata" in got["message"] and "Basalt e Strata" in got["message_it"]
+    assert swap.pending() == [] and reg.swap() is None and engine.calls == 0

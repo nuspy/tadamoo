@@ -58,7 +58,8 @@
     field.querySelector("label").htmlFor = "hv-provider";
     const msg = h("p", "setstatus", note); msg.setAttribute("role", "status"); msg.setAttribute("aria-live", "polite");
     if (bad) msg.dataset.bad = "1";
-    root.append(h("p", "help", T("hv.intro")), group, field, state.active ? h("p", "setnote", T("hv.active", state.active.kind, state.active.provider)) : null, msg);
+    root.append(h("p", "help", T("hv.intro")), group, field, state.engine ? h("p", "setnote", T("hv.engine." + state.engine)) : null,
+      state.active ? h("p", "setnote", T("hv.active", state.active.kind, state.active.provider)) : null, msg);
   }
 
   // The question: a dialog on whatever page is open, with the three answers.

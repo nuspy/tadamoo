@@ -4,6 +4,13 @@ A video or a big picture can need more VRAM than the broker can lend even with t
 answer `not_enough`). Then the job may ask for more: the local engine sleeps (`SLEEP`: its VRAM is free, its experts stay in RAM) and the
 conversations use a provider the person chose, until the job ends. Only with the person's yes, never silently.
 
+## Only for a local Basalt or Strata
+
+The lending and the sleep need the engine's `VRAM`, `SLEEP` and `WAKE` commands, which only Basalt-Plus and Strata have. With a cloud service
+answering (no local model loaded) there is nothing to lend or put to sleep; with llama.cpp or vLLM the server cannot ask them to. In those cases
+a heavy job only checks the free VRAM (the broker's answer with no engine, or `unavailable`), `POST /api/heavy/begin` answers `no_local_engine` or
+`unsupported_engine` without asking the person, and Settings says so. Nothing moves to a provider.
+
 ## The level
 
 Settings > General > Heavy jobs, `heavy-swap.json` in the user data folder:
