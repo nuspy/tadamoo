@@ -94,6 +94,8 @@ class Broker:
                 broker.calls.append((self.path, data))
                 if self.path == "/api/vram/lease":
                     status, out = broker.answer or (200, {"ok": True, "lease": {"id": "ab" * 8, "owner": data["owner"], "mib": data["mib"], "granted_mib": data["mib"], "hold_s": 60}})
+                elif self.path == "/api/heavy/begin":              # no engine here that could step aside: only the free VRAM counts
+                    status, out = 409, {"ok": False, "reason": "no_local_engine", "message": "nothing to free", "message_it": "niente da liberare"}
                 else:
                     status, out = 200, {"ok": True}
                 raw = json.dumps(out).encode()
@@ -109,6 +111,9 @@ class Broker:
 
     def paths(self):
         return [p for p, _ in self.calls]
+
+    def lease_calls(self):
+        return [c for c in self.calls if c[0] == "/api/vram/lease"]
 
     def stop(self):
         self.httpd.shutdown()

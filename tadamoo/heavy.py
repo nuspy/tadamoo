@@ -6,9 +6,11 @@
         else:
             ...                                # lease.reason: not_enough; lease.swap_reason: why the model could not sleep (not_allowed, no_provider, timeout, ...)
 
-It asks the server for the VRAM first (tadamoo/vram_lease.py). Only when the answer is `not_enough` does it ask to sleep the local model
+It asks the server for the VRAM first (tadamoo/vram_lease.py). Only when the answer is `not_enough` does it ask the local model to step aside
 (`/api/heavy/begin`: the person answers on a card, or has allowed it for this kind of job), then asks for the VRAM again. `release` gives the VRAM back and
-then lets the model wake. Nothing here raises for a missing server."""
+then lets the model come back. A job that runs real GPU kernels beside the loaded engine (`exclusive`) goes the other way round: the model steps aside
+first, because an engine that lent its cache to such a job can fail on its next request; only when the person does not allow that does it borrow anyway,
+and `risky` says so. Nothing here raises for a missing server."""
 from __future__ import annotations
 
 import http.client
@@ -30,9 +32,9 @@ ASK_TIMEOUT_S = 700.0                              # the person may take their t
 
 class HeavyLease:
     def __init__(self, owner: str, mib: int, purpose: str = "", minutes: float = 5, kind: str | None = None, ask_wait_s: float = 600.0, wait_s: float = 0,
-                 transport: Transport | None = None, base_url: str | None = None, token: str = "", control_secret: str = "") -> None:
+                 exclusive: bool = False, transport: Transport | None = None, base_url: str | None = None, token: str = "", control_secret: str = "") -> None:
         self.owner, self.mib, self.purpose, self.minutes, self.kind, self.ask_wait_s = owner, mib, purpose, minutes, kind or owner, ask_wait_s
-        self.wait_s = wait_s
+        self.wait_s, self.exclusive, self.risky = wait_s, exclusive, False
         self._call = transport or http_transport(base_url, token, control_secret, timeout=ASK_TIMEOUT_S)
         self._vram = transport or http_transport(base_url, token, control_secret, timeout=wait_s + 135.0)
         self.lease: VramLease | None = None
@@ -52,26 +54,50 @@ class HeavyLease:
     def _ask(self) -> VramLease:
         return VramLease(self.owner, self.mib, self.purpose, wait_s=self.wait_s, transport=self._vram).acquire()
 
-    def acquire(self) -> "HeavyLease":
-        lease = self._ask()
-        if lease.gpu_ok or lease.reason != "not_enough":
-            return self._done(lease)
+    def _begin(self) -> tuple:
+        """(the swap, "") when the model stepped aside, else (None, the refusal's reason and the server's words)."""
         try:
             status, out = self._call("POST", BASE + "/begin", {"kind": self.kind, "purpose": self.purpose, "minutes": self.minutes, "wait_s": self.ask_wait_s})
         except (OSError, http.client.HTTPException, ValueError) as e:
-            return self._done(lease, "no_engine", f"the server does not answer ({e.__class__.__name__})")
+            return None, ("no_engine", f"the server does not answer ({e.__class__.__name__})", "")
         swap = out.get("swap") if isinstance(out.get("swap"), dict) else None
         if status != 200 or not out.get("ok") or not swap:
-            self.swap_reason = str(out.get("reason") or "not_allowed")                 # the reason stays `not_enough`: that is what the job lacks
-            return self._done(lease, "", f"{lease.message} The local model could not be put to sleep: {out.get('message') or self.swap_reason}.".strip(),
-                              f"{lease.message_it} Il modello locale non si è potuto mettere a riposo: {out.get('message_it') or self.swap_reason}.".strip())
+            return None, (str(out.get("reason") or "not_allowed"), str(out.get("message") or ""), str(out.get("message_it") or ""))
         self.swap_id, self.swap_hold_s = swap["id"], float(swap.get("hold_s") or 90)
         threading.Thread(target=self._keep, name="heavy-swap-keepalive", daemon=True).start()
+        return swap, ("", "", "")
+
+    def acquire(self) -> "HeavyLease":
+        if self.exclusive:
+            return self._acquire_exclusive()
+        lease = self._ask()
+        if lease.gpu_ok or lease.reason != "not_enough":
+            return self._done(lease)
+        swap, (why, en, it) = self._begin()
+        if swap is None:
+            self.swap_reason = why                                                     # the reason stays `not_enough`: that is what the job lacks
+            return self._done(lease, "", f"{lease.message} The local model could not step aside: {en or why}.".strip(),
+                              f"{lease.message_it} Il modello locale non si è potuto fare da parte: {it or why}.".strip())
         again = self._ask()
-        if again.gpu_ok:
-            return self._done(again)
-        self._end()
+        if not again.gpu_ok:
+            self._end()
         return self._done(again)
+
+    def _acquire_exclusive(self) -> "HeavyLease":
+        swap, (why, en, it) = self._begin()
+        if swap is not None:
+            lease = self._ask()
+            if not lease.gpu_ok:
+                self._end()
+            return self._done(lease)
+        lease = self._ask()                                                            # nothing local to step aside, or the person did not allow it
+        if why != "no_local_engine":
+            self.swap_reason = why
+            if lease.gpu_ok:
+                self.risky = True
+                lease.message = f"The VRAM was borrowed without the model stepping aside ({en or why}): the model may stop and restart after this job."
+                lease.message_it = f"La VRAM è stata presa senza che il modello si facesse da parte ({it or why}): il modello potrebbe fermarsi e ripartire dopo il lavoro."
+        return self._done(lease)
 
     def _done(self, lease: VramLease, reason: str = "", message: str = "", message_it: str = "") -> "HeavyLease":
         self.lease = lease

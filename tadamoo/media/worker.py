@@ -206,7 +206,7 @@ def main() -> int:
             raise JobError("LTX Studio lacks weights this needs: " + ", ".join(plan["missing"]))
         module = lease_module()
         wait = float(spec.get("wait_s") or 0)
-        state["lease"] = heavy = module.HeavyLease(OWNER[kind], int(spec["mib"]), PURPOSE[kind], minutes=MINUTES[kind], wait_s=wait, base_url=spec.get("url") or None)
+        state["lease"] = heavy = module.HeavyLease(OWNER[kind], int(spec["mib"]), PURPOSE[kind], minutes=MINUTES[kind], wait_s=wait, exclusive=True, base_url=spec.get("url") or None)
         heavy.acquire()
         lease = heavy.lease
         emit({"event": "lease", "ok": heavy.gpu_ok, "granted_mib": lease.granted_mib, "reason": heavy.reason, "message": heavy.message, "message_it": heavy.message_it,
@@ -232,7 +232,7 @@ def main() -> int:
         if code != 0 or not out.is_file():
             raise JobError(f"the model process ended with code {code} and made no file: " + " | ".join(run.tail[-4:])[-600:])
         emit({"event": "done", "path": str(out), "bytes": out.stat().st_size, "seconds": round(time.monotonic() - began, 1),
-              "lease": {"id": lease.id or "", "owner": OWNER[kind], "granted_mib": lease.granted_mib, "swapped": heavy.swapped}})
+              "lease": {"id": lease.id or "", "owner": OWNER[kind], "granted_mib": lease.granted_mib, "swapped": heavy.swapped, "risky": heavy.risky}})
         return 0
     except JobError as exc:
         emit({"event": "error", "message": str(exc)})

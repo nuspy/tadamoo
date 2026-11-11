@@ -77,8 +77,8 @@ def test_an_image_asks_for_the_lease_runs_the_model_and_gives_the_lease_back(wor
     assert out.read_bytes()[:4] == b"\x89PNG" and got["path"] == str(out) and got["bytes"] == out.stat().st_size and got["seconds"] >= 0
     assert got["lease"]["granted_mib"] == 11000 and got["lease"]["owner"] == "image"
     paths = world["broker"].paths()
-    assert paths[0] == "/api/vram/lease" and paths[-1].endswith("/release") and paths.count("/api/vram/lease") == 1
-    ask = world["broker"].calls[0][1]
+    assert paths[:2] == ["/api/heavy/begin", "/api/vram/lease"] and paths[-1].endswith("/release") and paths.count("/api/vram/lease") == 1
+    ask = world["broker"].lease_calls()[0][1]
     assert ask["owner"] == "image" and ask["mib"] == 11000 and ask["wait_s"] == 5
     assert [e["event"] for e in seen][:2] == ["start", "lease"] and [(e["step"], e["steps"]) for e in seen if e["event"] == "progress"] == [(1, 3), (2, 3), (3, 3)]
     params = json.loads((out.parent / "params.json").read_text(encoding="utf-8"))
@@ -92,7 +92,7 @@ def test_a_video_runs_the_release_25_checkpoint_with_its_own_lease_size(world):
     assert out.read_bytes()[4:8] == b"ftyp" and got["lease"]["granted_mib"] == 25000 and got["lease"]["owner"] == "video"
     params = json.loads((out.parent / "params.json").read_text(encoding="utf-8"))
     assert params["num_frames"] == 65 and params["fps"] == 25 and params["ltx_release"] == "2.5" and params["model"].endswith("ltx-2.5-22b-distilled-transformer-nvfp4.safetensors")
-    assert world["broker"].calls[0][1]["mib"] == 25000
+    assert world["broker"].lease_calls()[0][1]["mib"] == 25000
 
 
 def test_a_refused_lease_stops_before_the_model_starts_and_carries_the_reason(world):

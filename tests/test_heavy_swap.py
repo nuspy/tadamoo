@@ -185,7 +185,7 @@ def test_the_client_borrows_vram_first_and_asks_to_sleep_the_model_only_when_tha
 def test_the_client_says_why_when_the_person_said_no_or_the_vram_is_still_missing():
     s = Server([NOT_ENOUGH], (409, {"ok": False, "reason": "not_allowed", "message": "no", "message_it": "no"}))
     with HeavyLease("video", 24000, "x", transport=s) as lease:
-        assert not lease.gpu_ok and lease.reason == "not_enough" and lease.swap_reason == "not_allowed" and "put to sleep" in lease.message and not lease.swapped
+        assert not lease.gpu_ok and lease.reason == "not_enough" and lease.swap_reason == "not_allowed" and "step aside" in lease.message and not lease.swapped
     s = Server([NOT_ENOUGH, NOT_ENOUGH], (200, {"ok": True, "swap": {"id": "c" * 16, "hold_s": 90}}))
     with HeavyLease("video", 99000, "x", transport=s) as lease:
         assert not lease.gpu_ok and lease.reason == "not_enough" and not lease.swapped
@@ -270,3 +270,24 @@ def test_where_the_driver_cannot_suspend_a_process_the_engine_is_unloaded_and_lo
             break
         time.sleep(0.02)
     assert (engine.loads, engine.woken) == (1, 0) and engine.heavy_hold is None and reg.swap() is None
+
+
+def test_a_job_that_needs_the_whole_gpu_asks_the_model_to_step_aside_before_it_borrows_anything():
+    s = Server([GRANTED], (200, {"ok": True, "swap": {"id": "d" * 16, "hold_s": 90}}))
+    with HeavyLease("video", 24000, "x", exclusive=True, transport=s) as lease:
+        assert lease.gpu_ok and lease.swapped and not lease.risky
+    assert s.log == ["/api/heavy/begin", "/api/vram/lease", "/api/vram/lease/" + "a" * 16 + "/release", "/api/heavy/" + "d" * 16 + "/end"]
+
+
+def test_an_exclusive_job_with_nothing_local_to_step_aside_only_takes_the_free_vram():
+    s = Server([GRANTED], (409, {"ok": False, "reason": "no_local_engine", "message": "nothing", "message_it": "niente"}))
+    with HeavyLease("video", 24000, "x", exclusive=True, transport=s) as lease:
+        assert lease.gpu_ok and not lease.swapped and not lease.risky
+    assert "/api/heavy/begin" in s.log and not any(p.endswith("/end") for p in s.log)
+
+
+def test_an_exclusive_job_the_person_did_not_allow_borrows_anyway_and_says_the_model_may_restart():
+    s = Server([GRANTED], (409, {"ok": False, "reason": "not_allowed", "message": "no", "message_it": "no"}))
+    with HeavyLease("video", 24000, "x", exclusive=True, transport=s) as lease:
+        assert lease.gpu_ok and lease.risky and lease.swap_reason == "not_allowed"
+        assert "may stop and restart" in lease.message and "potrebbe fermarsi" in lease.message_it
