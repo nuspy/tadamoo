@@ -196,6 +196,17 @@ class DecisionGraphInARealBrowserTest(unittest.TestCase):
         dag.plan_id, dag.title = "graph-check", "Decision with five outputs"
         req = urllib.request.Request(cls.url + "api/plans", data=json.dumps({"plan": dag.to_dict(), "created_by": "test"}).encode(), headers={"Content-Type": "application/json"}, method="POST")
         urllib.request.urlopen(req, timeout=30).read()
+        from tadamoo.planner import NodeType, PlanDAG
+        from test_planner import node
+        wired = PlanDAG(plan_id="connect-check", title="Connect check", target_type="occasional")
+        for nid in ("a1", "a2", "t1", "t2"):
+            wired.add_node(node(nid, title=nid))
+        wired.add_node(node("choose", NodeType.DECISION, title="choose", spec={"mode": "first", "input": "n", "branches": [{"label": "small", "op": "<", "value": 10}, {"label": "rest", "op": "else"}]}))
+        wired.add_node(node("kb", NodeType.RAG, title="kb", spec={"archives": ["boats-111111"]}))
+        for nid, at in {"a1": (20, 20), "a2": (300, 20), "choose": (20, 100), "t1": (300, 100), "kb": (20, 250), "t2": (300, 250)}.items():
+            wired.update_node(nid, position={"x": at[0], "y": at[1]})
+        req = urllib.request.Request(cls.url + "api/plans", data=json.dumps({"plan": wired.to_dict(), "created_by": "test"}).encode(), headers={"Content-Type": "application/json"}, method="POST")
+        urllib.request.urlopen(req, timeout=30).read()
 
     @classmethod
     def tearDownClass(cls):
@@ -212,6 +223,15 @@ class DecisionGraphInARealBrowserTest(unittest.TestCase):
                              capture_output=True, text=True, timeout=180)
         results = json.loads(out.stdout.strip().splitlines()[-1])
         self.assertGreaterEqual(len(results), 10)
+        self.assertEqual([r for r in results if not r["ok"]], [])
+
+    def test_a_link_dragged_from_an_output_connector_lands_in_the_plan(self):
+        """Mouse and touch pointers, from a plain step, from a branch of a decision and from a RAG node, and the Connections section: the edge is in the plan the server keeps."""
+        import subprocess
+        out = subprocess.run([self.node, str(Path(__file__).resolve().parent / "plan_connect_check.js"), self.url, "connect-check", "Connect check", self.browser],
+                             capture_output=True, text=True, timeout=400)
+        results = json.loads(out.stdout.strip().splitlines()[-1])
+        self.assertEqual(len(results), 8, results)
         self.assertEqual([r for r in results if not r["ok"]], [])
 
 
