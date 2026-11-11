@@ -15,14 +15,14 @@ conversation (the selector in the Agent tab, `--role`, the `role` field when a c
 | role | tools | writes | instructions in short |
 |---|---|---|---|
 | `build` (the coding role, shown as Developer) | read, search, `edit_file`, `write_file`, `shell_command`, memory, skills, LSP | anywhere in the folder | look first, change in small steps, run the project's checks, report what they showed |
-| `plan` | read tools, `edit_file`, `write_file` | only `.tadamoo/plans/*.md` | no changes to the project; at most three questions; a plan file, a checklist, a summary |
+| `plan` | read tools, `edit_file`, `write_file`, `docx_edit`, `docx_create` | only `.tadamoo/plans/*.md` | no changes to the project; at most three questions; a plan file, a checklist, a summary |
 | `ask` | read tools | nothing | answer about the project with file and line for each claim |
 | `debug` | the same as `build` | anywhere in the folder | run the failure, list at most four causes, narrow to one or two, confirm, fix, run again |
 | `orchestrate` | read tools, `spawn_subagent` | nothing | hand each part to a subagent with the file and the check, then verify what comes back |
 | `general` | every tool | anywhere in the folder | none: a conversation as it was before roles |
 
 The read tools are `read_file`, `list_directory`, `tree`, `search_code`, `repo_map`, `repo_diagram`, `diagnostics`, `go_to_definition`,
-`find_references`, `recall` and `load_skill`. `ask_user`, `todo_write` and `present_plan` are allowed in every role, so the checklist and
+`find_references`, `recall`, `load_skill`, `docx_outline` and `docx_read`. `docx_edit` and `docx_create` (see [docx-tools.md](docx-tools.md)) count as file writers beside `edit_file` and `write_file`. `ask_user`, `todo_write` and `present_plan` are allowed in every role, so the checklist and
 the way out of the Plan only permission mode always work. The browser, the web tools, the planner, the phone, the vault and MCP tools are
 not in a coding role; `general` has them. The coding role has one name, the constant `CODING_ROLE` in `tadamoo/roles.py` (its id is `build`; the page shows it as
 "Developer" in both languages, the string `cd.role.build`, and it is the Agent tab's default role).
