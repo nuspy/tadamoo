@@ -115,9 +115,3 @@ class ProjectRecall:
             return bool(self.store.meta(aid).get("cloud_ok"))
         except RagError:
             return False
-
-
-def compose_message(store: RagStore, project: str, goal: str, attached: Sequence[str] = (), local: Callable[[], bool] = lambda: True) -> str:
-    """For a conversation without a harness: the block for one request ("" when nothing matches). `local` says whether the request stays on this PC;
-    when it does not, the archives not cleared for cloud models are left out."""
-    return ProjectRecall(store, project, local=local, attached=attached).message(goal) or ""

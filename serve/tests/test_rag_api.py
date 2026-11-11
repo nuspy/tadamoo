@@ -132,20 +132,6 @@ def test_a_search_can_be_for_one_projects_archives(tmp_path):
     assert e.value.code == "not_found"
 
 
-def test_recall_gives_the_data_block_of_the_projects_passages(tmp_path):
-    api = make(tmp_path)
-    a, b = new(api, "Boats")["archive"]["id"], new(api, "Kitchen", OTHER)["archive"]["id"]
-    up(api, a, "boats.txt", BOATS)
-    up(api, b, "rice.txt", RICE)
-    block = api.recall({"project": PROJ, "goal": "what keeps the boat upright, the keel?"})["block"]
-    assert "[Boats / boats.txt]" in block and block.startswith("<untrusted_data source=\"knowledge-archive\"") and "Kitchen" not in block
-    assert api.recall({"project": PROJ, "goal": "stock for risotto"})["block"] == ""                  # the other project's passages stay out
-    assert api.recall({"project": PROJ, "goal": ""})["block"] == ""
-    for bad in ({"goal": "x"}, {"project": "nope", "goal": "x"}, {"project": PROJ, "goal": 5}):
-        with pytest.raises(RagError):
-            api.recall(bad)
-
-
 def test_the_route_parts_are_dispatched_and_unknown_ones_are_not_found(tmp_path):
     api = make(tmp_path)
     created = api.route_post(["archives"], {}, json.dumps({"name": "Boats", "project": PROJ}).encode())["archive"]
@@ -156,7 +142,6 @@ def test_the_route_parts_are_dispatched_and_unknown_ones_are_not_found(tmp_path)
     assert api.jobs.wait(job["id"])["state"] == "done"
     assert api.route_post(["jobs", job["id"], "cancel"], {}, b"{}")["job"]["state"] == "done" and api.route_get(["jobs", job["id"]])["job"]["id"] == job["id"]      # too late to cancel
     assert api.route_post(["search"], {}, json.dumps({"query": "keel", "project": PROJ}).encode())["hits"]
-    assert api.route_post(["recall"], {}, json.dumps({"project": PROJ, "goal": "what keeps the boat upright"}).encode())["block"]
     for gone in (["archives", aid, "link"],):
         with pytest.raises(RagError) as e:
             api.route_post(gone, {}, b"{}")
@@ -320,15 +305,14 @@ class Routes(unittest.TestCase):
         self.assertTrue(chat["chat"] and re.fullmatch(r"[0-9a-f]{12}", chat["key"]))
         self.assertEqual([(p["key"], p["path"]) for p in work], [(project_key(self.work), self.work)])
 
-    def test_the_chat_text_for_a_project_and_the_personality_text_without_passages(self):
+    def test_resolve_is_served_and_the_removed_chat_routes_are_gone(self):
         aid = self.call("POST", "/api/rag/archives", {"name": "Chat Boats", "project": PROJ})[1]["archive"]["id"]
-        self.wait_job(self.call("POST", f"/api/rag/archives/{aid}/upload?name=boats.txt", raw=BOATS)[1]["job"]["id"])
-        status, recalled = self.call("POST", "/api/rag/recall", {"project": PROJ, "goal": "what keeps the boat upright, the keel?"})
-        self.assertEqual(status, 200)
-        self.assertIn("[Chat Boats / boats.txt]", recalled["block"])
-        self.assertIn('<untrusted_data source="knowledge-archive"', recalled["block"])
-        self.assertEqual(self.call("POST", "/api/rag/recall", {"project": OTHER, "goal": "what keeps the boat upright, the keel?"})[1], {"block": ""})
-        self.assertEqual(self.call("POST", "/api/rag/recall", {"goal": "x"})[0], 400)
+        status, got = self.call("POST", "/api/rag/resolve", {"function": "agent", "project": PROJ})
+        self.assertEqual((status, got["ids"], got["archives"][0]["name"]), (200, [aid], "Chat Boats"))
+        self.assertEqual(self.call("GET", f"/api/rag/resolve?function=meeting&project={PROJ}")[1]["ask_dialog"], [aid])
+        self.assertEqual(self.call("POST", "/api/rag/resolve", {"function": "chat"})[0], 400)
+        for gone in ("recall", "choose"):
+            self.assertEqual(self.call("POST", f"/api/rag/{gone}", {"project": PROJ, "goal": "x"})[0], 404)
         self.call("POST", "/api/personas", {"name": "Compose Test"})
         status, composed = self.call("POST", "/api/personas/compose-test/compose", {"goal": "what keeps the boat upright, the keel?"})
         self.assertEqual(status, 200)
@@ -347,7 +331,7 @@ class Routes(unittest.TestCase):
 
     def test_only_this_pc_reaches_them(self):
         with mock.patch.object(handler.settings, "is_loopback", lambda address: False):
-            for method, path in (("GET", "/api/rag"), ("GET", "/api/rag/projects"), ("GET", "/api/rag/archives/x"), ("POST", "/api/rag/archives"), ("POST", "/api/rag/search"), ("POST", "/api/rag/recall"),
+            for method, path in (("GET", "/api/rag"), ("GET", "/api/rag/projects"), ("GET", "/api/rag/archives/x"), ("POST", "/api/rag/archives"), ("POST", "/api/rag/search"), ("POST", "/api/rag/resolve"),
                                  ("POST", "/api/rag/archives/x/upload?name=a.txt")):
                 status, _ = self.call(method, path, {} if method == "POST" else None)
                 self.assertEqual(status, 403, path)
@@ -387,36 +371,6 @@ def test_the_catalog_lists_every_archive_with_the_name_of_its_project(tmp_path):
     names = {a["name"]: a["project_name"] for a in api.catalog()["archives"]}
     assert names == {"Plans": "Work", "Notes": ""}                                                    # a project the page does not know has no name
     assert api.store.list(work)[0]["project_name"] == "Work"                                          # the name is kept when the archive is made
-
-
-def test_choose_answers_for_the_model_only_chat_with_the_same_rule_as_the_agent(tmp_path):
-    api = make(tmp_path)
-    work, chat = project_key(tmp_path / "work"), project_key(tmp_path / "chat")
-    plans, mine = new(api, "Forest Plans", work)["archive"]["id"], new(api, "Chat notes", chat)["archive"]["id"]
-    new(api, "Forest Fires", work)
-    got = api.choose({"action": "attach", "name": "plans", "attached": [], "project": chat})
-    assert got["status"] == "attached" and got["ids"] == [plans] and got["archive"]["project"] == "Work"
-    assert api.choose({"action": "attach", "name": "forest", "attached": [plans], "project": chat})["status"] == "ambiguous"
-    assert api.choose({"action": "attach", "name": "chat notes", "attached": [], "project": chat})["status"] == "this_project" and mine
-    assert api.choose({"action": "detach", "name": "plans", "attached": [plans, "gone-1"], "project": chat})["ids"] == []
-    assert api.choose({"action": "clear", "attached": [plans], "project": chat})["status"] == "cleared"
-    for bad in ({"action": "swap", "project": chat}, {"action": "attach", "name": 5, "project": chat}, {"action": "attach", "attached": "x", "project": chat}, {"action": "attach"}):
-        with pytest.raises(RagError):
-            api.choose(bad)
-
-
-def test_recall_adds_the_attached_archives_to_the_projects_own(tmp_path):
-    api = make(tmp_path)
-    mine, other = new(api, "Boats")["archive"]["id"], new(api, "Kitchen", OTHER)["archive"]["id"]
-    up(api, mine, "boats.txt", BOATS)
-    up(api, other, "rice.txt", RICE)
-    assert api.recall({"project": PROJ, "goal": "stock for risotto"})["block"] == ""
-    block = api.recall({"project": PROJ, "goal": "stock for risotto", "attached": [other]})["block"]
-    assert "[Kitchen / rice.txt]" in block
-    for bad in ({"project": PROJ, "goal": "x", "attached": "a"}, {"project": PROJ, "goal": "x", "attached": [1]}):
-        with pytest.raises(RagError):
-            api.recall(bad)
-    assert api.route_get(["catalog"])["archives"] and api.route_post(["choose"], {}, json.dumps({"action": "clear", "project": PROJ}).encode())["status"] == "cleared"
 
 
 # -- the resolver over the API, and the search that obeys it -----------------------------------------------------------

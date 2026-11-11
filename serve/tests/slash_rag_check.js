@@ -1,6 +1,6 @@
 "use strict";
 // Runs serve/web/slash.js (with serve/web/rag.js) on stand-ins and prints [{name, ok, error}] as JSON (read by test_rag_page.py): what /rag does in the
-// model-only chat (the page keeps the attached archives and asks the server to choose) and in a conversation of the agent (the server keeps them).
+// conversation with tools (the server keeps the attached archives) and in the chat without tools (it has none and says so).
 const fs = require("fs");
 const path = require("path");
 
@@ -29,16 +29,6 @@ const fetch = async (url, opts) => {
   if (method === "POST") posted.push({ url, body: JSON.parse(opts.body || "{}") });
   if (url === "api/rag/projects") return answer(200, { projects: [CHAT] });
   if (url === "api/rag/catalog") return answer(200, { archives: ARCH });
-  if (url === "api/rag/choose") {
-    const b = JSON.parse(opts.body);
-    const hits = ARCH.filter(a => a.name.toLowerCase().includes(b.name.toLowerCase()) && a.project !== CHAT.key);
-    if (b.action === "clear") return answer(200, { status: "cleared", ids: [], dropped: b.attached.length });
-    if (hits.length > 1) return answer(200, { status: "ambiguous", ids: b.attached, candidates: hits.map(a => ({ id: a.id, name: a.name, project: a.project_name })) });
-    if (!hits.length) return answer(200, { status: "none", ids: b.attached });
-    if (b.action === "detach") return answer(200, { status: "detached", ids: b.attached.filter(i => i !== hits[0].id), archive: { id: hits[0].id, name: hits[0].name, project: "Work" } });
-    return answer(200, { status: "attached", ids: [...b.attached, hits[0].id], archive: { id: hits[0].id, name: hits[0].name, project: "Work" } });
-  }
-  if (url === "api/rag/recall") return answer(200, { block: "<untrusted_data>x</untrusted_data>" });
   return answer(404, {});
 };
 const T = (k, ...a) => (a.length ? `${k}:${a.join("|")}` : k);
@@ -58,35 +48,12 @@ t("/rag and /knowledge are one command that has a description", async () => {
   eq(window.slash.byName("rag") === window.slash.byName("knowledge") && !!window.slash.byName("rag"), true);
   eq(window.slash.candidates("ra").some(c => c.name === "rag"), true);
 });
-t("model-only chat: /rag name attaches, and the next recall carries the attached id", async () => {
-  model(); window.ragUi.reset();
-  eq(await run("/rag forest man"), ["sl.rag.attached:Forest Management"]);
-  eq(posted[0].body, { action: "attach", name: "forest man", attached: [], project: CHAT.key });
-  posted.length = 0;
-  await window.ragUi.recall("felling cycle");
-  eq(posted[0].body.attached, ["forest-1"]);
-});
-t("an ambiguous name attaches nothing and names the candidates", async () => {
-  eq(await run("/rag forest"), ["sl.rag.ambiguous:Forest Management (Work); Forest Fires (Work)"]);
-  eq(window.ragUi.ids(), ["forest-1"]);
-  eq(await run("/rag astronomy"), ["sl.rag.none:astronomy"]);
-});
-t("/rag lists every archive with its project and what is used here", async () => {
-  const [line] = await run("/rag");
-  eq(line, "sl.rag.list:Forest Management (Work, sl.rag.on); Forest Fires (Work); Chat notes (sl.rag.this)");
-});
-t("/rag off name drops one, /rag off drops all", async () => {
-  eq(await run("/rag off forest man"), ["sl.rag.detached:Forest Management"]);
-  eq(window.ragUi.ids(), []);
-  await run("/rag forest man");
-  eq(await run("/rag off"), ["sl.rag.cleared"]);
-  eq(window.ragUi.ids(), []);
-  eq(await run("/rag off"), ["sl.rag.nothing"]);
-});
-t("a new conversation forgets what was attached", async () => {
-  await run("/rag forest man");
-  window.ragUi.reset();
-  eq(window.ragUi.ids(), []);
+t("the chat without tools has no archives: /rag says so and asks nothing", async () => {
+  model();
+  eq(await run("/rag forest man"), ["sl.rag.notools"]);
+  eq(await run("/rag"), ["sl.rag.notools"]);
+  eq(await run("/rag off"), ["sl.rag.notools"]);
+  eq(posted.length, 0);
 });
 t("in a conversation of the agent the server keeps the choice: the page only asks it", async () => {
   const asked = [];
@@ -97,8 +64,8 @@ t("in a conversation of the agent the server keeps the choice: the page only ask
   eq(asked, [["attach", "forest man"], ["detach", "forest"]]);
   const [line] = await run("/rag");
   eq(line.includes("Forest Fires (Work, sl.rag.on)") && !line.includes("Forest Management (Work, sl.rag.on)"), true);
-  eq(posted.some(p => p.url === "api/rag/choose"), false);                      // the model-only chat's route is not used here
-  eq(await window.ragUi.recall("x"), "");                                         // and the page adds no passages: the process does
+  eq(line, "sl.rag.list:Forest Management (Work); Forest Fires (Work, sl.rag.on); Chat notes (sl.rag.this)");
+  eq(posted.some(p => p.url === "api/rag/choose"), false);
 });
 
 (async () => {

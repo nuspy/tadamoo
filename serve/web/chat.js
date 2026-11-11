@@ -531,7 +531,6 @@
     if (!cont) await codeAbstracts();                                  // old code goes to the model as its description
     if (!cont) {
       try { personaText = window.personaUi ? await window.personaUi.system(text) : ""; } catch (e) { personaText = ""; m.error = e.message || String(e); }
-      try { const found = window.ragUi ? await window.ragUi.recall(text) : ""; if (found) personaText = [personaText, found].filter(Boolean).join("\n\n"); } catch (e) { /* no passages: the request goes on */ }
     }
     const fits = cont ? true : (m.error ? false : await fitContext(m));
     if (!cont && busy && busy.msg === m) { render(); el = busy.el = msgs.lastElementChild; paint(el, m, true); }
@@ -655,7 +654,7 @@
     if (a) { a.newChat(); prompt.focus(); return; }
     if (busy) busy.controller.abort();
     if (window.personaUi && !isPrivate()) window.personaUi.learn(messages.filter(m => m && (m.role === "user" || m.role === "assistant")).map(m => ({ role: m.role, text: wordsOf(m.text != null ? m.text : m.content) })).filter(m => m.text), chatId());
-    clearTimeout(indexTimer); keep(ID_KEY, ""); keep(PRIV_KEY, "0"); personaText = ""; if (window.personaUi) window.personaUi.reset(); if (window.ragUi) window.ragUi.reset(); messages = []; save(); render(); status(T("ch.new")); prompt.focus(); meter();
+    clearTimeout(indexTimer); keep(ID_KEY, ""); keep(PRIV_KEY, "0"); personaText = ""; if (window.personaUi) window.personaUi.reset(); messages = []; save(); render(); status(T("ch.new")); prompt.focus(); meter();
   };
 
   /* ---- images (only when the server reads them) ---- */
