@@ -356,12 +356,13 @@ class WorkspaceSandbox:
             last = first - 1                                   # a cut text has not been read in full
         return body + "\n[" + "; ".join(notes) + "]", first, last, total
 
-    def _record(self, path: str, kind: str, old: str, new: str) -> Dict[str, Any]:
+    def _record(self, path: str, kind: str, old: str, new: str, keep_text: bool = True) -> Dict[str, Any]:
+        """Records a change and its diff; `keep_text` False for a file whose stored form is not these texts (they must never be written back)."""
         diff_lines = list(difflib.unified_diff(
             old.splitlines(keepends=True), new.splitlines(keepends=True), fromfile=f"a/{path}", tofile=f"b/{path}"))
         added = sum(1 for line in diff_lines if line.startswith("+") and not line.startswith("+++"))
         removed = sum(1 for line in diff_lines if line.startswith("-") and not line.startswith("---"))
-        small = len(old) <= MAX_RECORDED_TEXT and len(new) <= MAX_RECORDED_TEXT
+        small = keep_text and len(old) <= MAX_RECORDED_TEXT and len(new) <= MAX_RECORDED_TEXT
         self.changes.append({"file": path, "kind": kind, "added": added, "removed": removed,
                              "diff": "".join(diff_lines), "old_text": old if small else None,
                              "new_text": new if small else None})
