@@ -117,3 +117,29 @@ def test_what_is_on_this_pc_is_known():
     assert is_local(None) and is_local({"type": "lmstudio"}) and is_local({"type": "basalt"})
     assert is_local({"type": "openai_compat", "base_url": "http://127.0.0.1:9000/v1"})
     assert not is_local({"type": "openai"}) and not is_local({"type": "openai_compat", "base_url": "https://llm.example.com/v1"})
+
+
+def test_a_swap_sends_the_functions_of_the_loaded_model_to_one_provider_and_is_never_saved(reg, tmp_path):
+    here = reg.add({"type": "basalt"})
+    cloud = reg.add({"type": "zai_coding", "api_key": "zk-123456789012"})
+    other = reg.add({"type": "openai", "api_key": "sk-123456789012"})
+    reg.assign("executor", here["id"])
+    reg.assign("planner", other["id"])
+    reg.begin_swap(cloud["id"])
+    got = reg.load()["assignments"]
+    assert got.get("chat") == cloud["id"] and got.get("executor") == cloud["id"] and got.get("council:critic") == cloud["id"]   # none, or the loaded model
+    assert got.get("planner") == other["id"] and got.get("not-a-function") is None                                              # a chosen provider stays
+    assert reg.fallback_chain("chat")[0] == cloud["id"] and reg.provider_for("chat")["id"] == cloud["id"]
+    reg.assign("chat", None)                                                                                                       # a save during the swap
+    assert cloud["id"] not in (tmp_path / "llm_providers.json").read_text(encoding="utf-8").split('"assignments"')[1]
+    reg.end_swap()
+    assert reg.load()["assignments"].get("chat") is None and reg.load()["assignments"].get("executor") == here["id"] and reg.swap() is None
+
+
+def test_a_swap_needs_a_provider_that_exists_and_can_chat(reg):
+    judge = reg.add({"type": "jev", "api_key": "jk-123456789012"})
+    with pytest.raises(ValueError, match="no provider"):
+        reg.begin_swap("nope")
+    with pytest.raises(ValueError, match="cannot hold a conversation"):
+        reg.begin_swap(judge["id"])
+    assert reg.swap() is None

@@ -76,6 +76,21 @@ def runs_here(prov: Optional[Dict[str, Any]], local_hosts: tuple = LOOPBACK) -> 
     return host in local_hosts if host else bool(spec.get("local"))
 
 
+class _Assignments(dict):
+    """The assignments of the functions to their providers as a call reads them while a swap is on (`SecureRegistry.begin_swap`): a function that has no
+    provider, or the model loaded in this server, reads as the swap's provider. What is saved is the dict's own content, so the swap is never written."""
+
+    def __init__(self, data: Dict[str, Any], swap: Dict[str, Any]) -> None:
+        super().__init__(data)
+        self.swap = swap
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        value = super().get(key)
+        if functions.known(key) and (not value or value in self.swap["replace"]):
+            return self.swap["pid"]
+        return default if value is None else value
+
+
 class _Consumers(tuple):
     """The functions a provider may be assigned to: the fixed ones, and the roles of the council, which come and go as the person edits them."""
 
@@ -93,6 +108,7 @@ class SecureRegistry(Registry):
         self.credentials = credentials or default_store(self.path.parent)
         self.consumers = _Consumers(self.consumers)
         self._io = threading.RLock()
+        self._swap: Optional[Dict[str, Any]] = None
         self.local_hosts = LOOPBACK                   # the addresses that are this PC (tests can say there are none)
 
     # -- the keys are not in the file --------------------------------------------------------------------
@@ -115,7 +131,33 @@ class SecureRegistry(Registry):
                     for field in OAUTH_FIELDS:
                         if oauth.get(field) == "@cred":
                             oauth[field] = self.credentials.read(self._ref(pid, "oauth." + field))
+            if self._swap is not None:
+                data["assignments"] = _Assignments(data.get("assignments") or {}, self._swap)
             return data
+
+    # -- a swap: every function that runs on the loaded model uses one provider for a while ---------------------
+
+    def begin_swap(self, pid: str) -> Dict[str, Any]:
+        """Until `end_swap`, every function with no provider, or on the model loaded in this server, reads as `pid`. The consent for the cloud is
+        not asked here: whoever begins the swap has the person's yes for it. Raises ValueError when the provider does not exist or cannot chat."""
+        with self._io:
+            self._swap = None
+            data = self.load()
+            prov = self._find(data, pid)
+            if prov is None:
+                raise ValueError(f"there is no provider {pid!r}")
+            if TYPES.get(prov.get("type") or "", {}).get("api", "") not in CHAT_APIS:
+                raise ValueError(f"{prov.get('name') or pid} cannot hold a conversation")
+            here = {p["id"] for p in data.get("providers", []) if TYPES.get(p.get("type") or "", {}).get("this_server")}
+            self._swap = {"pid": pid, "replace": here, "name": prov.get("name") or pid}
+            return dict(self._swap)
+
+    def end_swap(self) -> None:
+        with self._io:
+            self._swap = None
+
+    def swap(self) -> Optional[Dict[str, Any]]:
+        return dict(self._swap) if self._swap is not None else None
 
     def save(self, data: Dict[str, Any]) -> None:
         with self._io:
