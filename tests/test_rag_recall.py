@@ -91,7 +91,7 @@ def persona_store(tmp_path):
 def config(tmp_path, **more):
     (tmp_path / "w").mkdir(exist_ok=True)
     return dict(workspace=str(tmp_path / "w"), data_dir=str(tmp_path / "d"), use_memory=False, use_checkpoints=False, personas_dir=str(tmp_path / "personas"),
-                personal_memory_keys=str(tmp_path / KEY_DIR), rag_dir=str(tmp_path / "rag"), rag_project=PROJ, **more)
+                personal_memory_keys=str(tmp_path / KEY_DIR), rag_dir=str(tmp_path / "rag"), rag_project=PROJ, endpoint="http://rag-test.invalid", **more)
 
 
 def test_only_the_archives_of_the_project_are_searched(tmp_path):
@@ -202,3 +202,25 @@ def test_the_text_for_a_conversation_without_a_harness_has_the_notes_only(tmp_pa
     s.memory("maria").add("long", "tastes", "Loves keel designs")
     out = pe.compose(s, "maria", "what is a keel for")
     assert "Loves keel designs" in out["memory"] and out["memory"].count("<untrusted_data") == 1 and "[Boats" not in out["memory"]
+
+
+def test_words_alone_still_give_their_hits_when_there_are_no_vectors_or_the_embedder_or_the_server_is_down(tmp_path):
+    rag, _ = make(tmp_path, [("Boats", "sailing.txt", BOATS)])
+    goal = "how does a sloop tack with the mainsail"
+    assert "helmsman turns the bow" in ProjectRecall(rag, PROJ).message(goal)                    # no embedder, no vectors: the score floors of the vector stages do not apply
+
+    class Down:
+        model, version = "stub", "1"
+
+        def embed(self, texts):
+            raise RuntimeError("worker ended")
+        embed_query = embed
+
+    rag.provider = lambda: Down()
+    assert "helmsman turns the bow" in ProjectRecall(rag, PROJ).message(goal)                    # an embedder that fails at question time
+
+    def no_answer(ids, query, top_k, share):
+        raise OSError("server down")
+    rag.provider = lambda: None
+    rag.remote = no_answer
+    assert "helmsman turns the bow" in ProjectRecall(rag, PROJ).message(goal)                    # the server that holds the embedder does not answer
