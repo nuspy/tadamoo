@@ -17,7 +17,7 @@ from tadamoo.rag.ingest import extraction_of, formats, normalize, read_document
 from tadamoo.rag.ingest.blocks import blocks_to_markdown, page_count, parse_pages
 from tadamoo.rag.settings import RagSettings
 
-VERSION = 1                          # of what the cache holds
+VERSION = 2                          # of what the cache holds (2: pages cut at their borders)
 MAX_BYTES = 200 << 20
 MAX_CHARS = 60000                    # the most text one answer holds; the rest is asked for by pages
 DEFAULT_PAGES = "1-20"
