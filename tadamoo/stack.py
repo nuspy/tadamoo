@@ -160,7 +160,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
                         help="draw diagrams in answers, as often as this says (empty: only when asked)")
     parser.add_argument("--page-files", action="store_true", help="the answers are read in a page that turns links to files into buttons that save them")
     parser.add_argument("--lsp", action="store_true", help="offer diagnostics, go_to_definition and find_references when a language server is found")
-    parser.add_argument("--council", action="store_true", help="offer ask_council when a council is set up on the Providers page")
+    parser.add_argument("--council", action="store_true", help="offer ask_council (the roles are on the Providers page; it needs two enabled advisers)")
     parser.add_argument("--wiki", action="store_true", help="offer the wikibridge tools (the address is --wiki-url or TADAMOO_WIKIBRIDGE_URL; the key TADAMOO_WIKIBRIDGE_KEY)")
     parser.add_argument("--wiki-url", default="", help="the wikibridge address (default: TADAMOO_WIKIBRIDGE_URL, else http://127.0.0.1:8775)")
     parser.add_argument("--wiki-project", default="", help="wikibridge project slug used when a call names none")
@@ -357,7 +357,7 @@ class AgentConfig:
     budget_grace: bool = True           # a budget that runs out warns first, then allows one last report with no tools
     error_classifier: bool = True       # a model error that waiting cannot cure ends the turn visibly (tadamoo/error_classifier.py)
     snapshot_dir: Optional[str] = None  # where the context of each turn is kept when versioning is on
-    council: bool = False               # offer ask_council when the person set a council up on the Providers page
+    council: bool = False               # offer ask_council (needs two enabled advisers on the Providers page)
     lsp: bool = False                   # offer diagnostics, go_to_definition and find_references when a language server is found on this PC
     capabilities: bool = False          # offer find_capability, load_capability, read_capability, call_capability and analyze_image (skills, plugins, MCP servers found on this PC)
     capabilities_dir: Optional[str] = None   # where their index and the person's settings are kept (default: the user data folder)
@@ -866,7 +866,7 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         from tadamoo.council import offer_council
         from tadamoo.llm import client_for as routed_for, registry as llm_registry
         here = getattr(client, "local", None) or client or TadamooClient(base_url=cfg.endpoint, api_key=cfg.api_key)
-        offer_council(registry, lambda function: routed_for(function, here), llm_registry())
+        offer_council(registry, lambda function: routed_for(function, here), llm_registry(), cfg.personas_dir, cfg.personal_memory_keys)
     capability_index = None
     if cfg.capabilities:
         capability_index = _offer_capabilities(cfg, workspace, registry, builder, sandbox, client or TadamooClient(base_url=cfg.endpoint, api_key=cfg.api_key))
