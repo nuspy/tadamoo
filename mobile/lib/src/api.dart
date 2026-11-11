@@ -16,6 +16,14 @@ class ApiError implements Exception {
   String toString() => message;
 }
 
+/// The PC's answer to "load the avatar now": `message` says why not, in the app's language.
+class AvatarEnsure {
+  const AvatarEnsure(this.ok, {this.reason = '', this.message = ''});
+  final bool ok;
+  final String reason;
+  final String message;
+}
+
 class Download {
   Download(this.name, this.bytes);
   final String name;
@@ -73,6 +81,23 @@ class Api {
     if (r.bodyBytes.isEmpty) return {};
     final j = jsonDecode(utf8.decode(r.bodyBytes));
     return j is Map<String, dynamic> ? j : <String, dynamic>{'value': j};
+  }
+
+  /// Asks the PC to load the avatar when it loads on request, and waits until it is loaded (a first load takes a while). A PC that does not
+  /// have the route loads it with its model, so that is a yes.
+  Future<AvatarEnsure> ensureAvatar({int waitS = 60}) async {
+    final r = await _send(() => http.post(uri('/api/voice/avatar/ensure'), headers: {...headers, 'Content-Type': 'application/json'}, body: jsonEncode({'wait_s': waitS})));
+    Map<dynamic, dynamic> j = {};
+    try {
+      final d = jsonDecode(utf8.decode(r.bodyBytes));
+      if (d is Map) j = d;
+    } catch (_) {}
+    if (r.statusCode == 404 || (r.statusCode == 200 && j['ok'] == true)) return const AvatarEnsure(true);
+    if (r.statusCode == 401) _fail(r);
+    String text = '${(Texts.language == 'it' ? j['message_it'] : j['message']) ?? ''}';
+    final e = j['error'];
+    if (text.isEmpty && e is Map) text = '${e['message'] ?? ''}';
+    return AvatarEnsure(false, reason: '${j['reason'] ?? ''}', message: text.isEmpty ? Texts.t('err.http', [r.statusCode]) : text);
   }
 
   /// Tells the app that its address and key are good, and the name of the key.
