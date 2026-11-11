@@ -306,3 +306,6 @@ details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; f
 .pk-termlab { font-size: 12px; font-weight: 600; color: var(--fg-2); }
 .pk-term select, .pk-term input, .pk-term textarea { width: 100%; min-height: 40px; }
 @media (pointer: coarse) { .pk-term select, .pk-term input { min-height: 44px; } }
+
+.pl-port.value { fill: var(--surface); stroke: var(--fg-2); }
+.pl-edge.feed.dead { opacity: .5; }

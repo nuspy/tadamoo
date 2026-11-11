@@ -231,7 +231,7 @@ class DecisionGraphInARealBrowserTest(unittest.TestCase):
         out = subprocess.run([self.node, str(Path(__file__).resolve().parent / "plan_connect_check.js"), self.url, "connect-check", "Connect check", self.browser],
                              capture_output=True, text=True, timeout=400)
         results = json.loads(out.stdout.strip().splitlines()[-1])
-        self.assertEqual(len(results), 8, results)
+        self.assertEqual(len(results), 11, results)
         self.assertEqual([r for r in results if not r["ok"]], [])
 
 

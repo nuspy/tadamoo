@@ -19,10 +19,15 @@
   /* where an edge meets a step: `out` on the right (a decision: at the row of its branch), `in` on the left; the data input of an action is on its top edge */
   function portPt(lay, n, side, port, kind) {
     const p = lay.pos[n.id] || { x: 0, y: 0 };
-    if (side === "in") return kind === "input" ? { x: p.x + W / 2, y: p.y } : { x: p.x, y: p.y + H / 2 };
+    if (side === "in") return kind === "input" ? { x: p.x + W / 2, y: p.y } : kind === "value" ? { x: p.x + W * 0.28, y: p.y } : { x: p.x, y: p.y + H / 2 };
+    if (kind === "value") return { x: p.x + W * 0.72, y: p.y + hOf(n) };                  // a value leaves from the bottom edge and enters at the top
     if (n.type === "decision") return { x: p.x + W, y: p.y + HEAD + Math.max(0, branchesOf(n).findIndex(b => b.id === port)) * BR + BR / 2 };
     return { x: p.x + W, y: p.y + H / 2 };
   }
+  /* the data ports of a kind, from the table the server sends: the output that carries a value (a result, a reading, a value, an answer), and whether it takes values or archives */
+  const portsOf = type => ((kindList().find(k => k.type === type) || {}).ports) || { in: [], out: [] };
+  const dataOutOf = type => { const out = portsOf(type).out; return (Array.isArray(out) ? out : []).find(q => q.kind === "data" && q.carries !== "archives") || null; };
+  const takes = (type, id) => (portsOf(type).in || []).some(q => q.id === id);
   const edgeKey = (a, b, port) => a + ">" + b + (port ? "#" + port : "");
   const parseKey = key => { const [ab, port] = key.split("#"), [a, b] = ab.split(">"); return { a, b, port: port || "" }; };
   /* an edge of a diff as [parent, child, port]: it may be a list, or {from: {node, port}, to: {node}} */
@@ -436,19 +441,21 @@
       svg("defs", {}, svg("marker", { id: "pl-arrow", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" },
         svg("path", { d: "M0,0 L10,5 L0,10 z", class: "pl-arrowhead" })),
       svg("marker", { id: "pl-dot", viewBox: "0 0 10 10", refX: "5", refY: "5", markerWidth: "6", markerHeight: "6" }, svg("circle", { cx: "5", cy: "5", r: "4", class: "pl-arrowhead feed" }))));
-    const edge = (a, b, cls, port, kind) => {
+    const edge = (a, b, cls, port, kind, name) => {
       const na = nodes[a] || (lay.ghosts.find(g => g.id === a)), nb = nodes[b] || (lay.ghosts.find(g => g.id === b));
       if (!na || !nb || !lay.pos[a] || !lay.pos[b]) return;
-      const feed = kind === "input";
+      const feed = kind === "input" || kind === "value";
       const p1 = portPt(lay, na, "out", port, kind), p2 = portPt(lay, nb, "in", "", kind);
       const x1 = p1.x, y1 = p1.y, x2 = p2.x, y2 = p2.y, dx = Math.max(24, Math.abs(x2 - x1) / 2);
-      const d = feed ? `M${x1},${y1} C${x1 + dx},${y1} ${x2},${y2 - dx} ${x2},${y2}` : `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
+      const dy = Math.max(24, Math.abs(y2 - y1) / 2);
+      const d = kind === "value" ? `M${x1},${y1} C${x1},${y1 + dy} ${x2},${y2 - dy} ${x2},${y2}` : feed ? `M${x1},${y1} C${x1 + dx},${y1} ${x2},${y2 - dx} ${x2},${y2}` : `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
       const key = edgeKey(a, b, port), sel = S.edge === key;
       const g = svg("g", { class: "pl-edgeg" + (sel ? " sel" : ""), "data-edge": key },
         svg("path", { d, class: "pl-edge " + (feed ? "feed " : "") + cls + (sel ? " sel" : ""), "marker-end": feed ? "url(#pl-dot)" : "url(#pl-arrow)" }));
+      if (name && !cls.includes("ghost")) { const lab = svg("text", { x: x2 + 6, y: y2 - 6, class: "pl-br" }); lab.textContent = clip(name, 14); g.append(lab); }
       if (!cls.includes("ghost") && !cls.includes("hl-removed")) {
         const names = [na.title || a, nb.title || b];
-        const hit = svg("path", { d, class: "pl-edgehit", tabindex: "0", role: "button", "aria-pressed": String(sel), "aria-label": T(feed ? "pl.feed.label" : "pl.link.label", ...names) },
+        const hit = svg("path", { d, class: "pl-edgehit", tabindex: "0", role: "button", "aria-pressed": String(sel), "aria-label": T(kind === "value" ? "pl.value.label" : feed ? "pl.feed.label" : "pl.link.label", ...names) },
           svg("title", {}, document.createTextNode(T("pl.link.tip"))));
         hit.addEventListener("click", () => pickEdge(key));
         hit.addEventListener("keydown", e => {
@@ -475,6 +482,11 @@
       const dead = nodes[n.id].status === "skipped" || nodes[c].status === "skipped";
       const gone = proposal && (proposal.diff.remove_edges || []).some(e => { const [x, y] = edgeParts(e); return x === n.id && y === c; });
       edge(n.id, c, (dead ? "dead " : "") + (gone ? "hl-removed" : ""), port, kind);
+    }));
+    Object.values(nodes).forEach(n => Object.entries(n.inputs || {}).forEach(([name, ref]) => {      // a value wired from another step: leaves its bottom, enters this step's top
+      if (!nodes[ref.node]) return;
+      const dead = nodes[ref.node].status === "skipped" || n.status === "skipped";
+      edge(ref.node, n.id, dead ? "dead" : "", ref.port, "value", name);
     }));
     lay.ghosts.forEach(g => {
       (g.dependencies || []).forEach(d => edge(d, g.id, "ghost", "", "flow"));
@@ -525,7 +537,8 @@
           g.append(grp);
         };
         if (n.type !== "rag") dot("in", portPt(lay, n, "in", "", "flow"), { dot: 5, hit: 22 }, T("pl.port.in"), T("pl.port.in"), e => startLink(e, n.id, "in", "", "flow"));
-        if (n.type === "action") dot("in data", portPt(lay, n, "in", "", "input"), { dot: 5, hit: 16 }, T("pl.port.rag.in"), T("pl.port.rag.in"), e => startLink(e, n.id, "in", "rag", "input"));
+        if (takes(n.type, "data")) dot("in data value", portPt(lay, n, "in", "", "value"), { dot: 5, hit: 16 }, T("pl.port.value.in"), T("pl.port.value.in"), e => startLink(e, n.id, "in", "data", "value"));
+        if (takes(n.type, "rag")) dot("in data", portPt(lay, n, "in", "", "input"), { dot: 5, hit: 16 }, T("pl.port.rag.in"), T("pl.port.rag.in"), e => startLink(e, n.id, "in", "rag", "input"));
         if (n.type === "decision") {
           rows.forEach((b, i) => {
             const at = portPt(lay, n, "out", b.id, "flow"), name = T("pl.port.branch", b.label);
@@ -542,6 +555,9 @@
         } else {
           dot("out", portPt(lay, n, "out", "", "flow"), { dot: 5, hit: 22 }, T("pl.port.out"), T("pl.port.out"), e => startLink(e, n.id, "out", "", "flow"));
         }
+        const dataOut = n.type === "rag" ? null : dataOutOf(n.type);
+        if (dataOut) dot("out data value", portPt(lay, n, "out", dataOut.id, "value"), { dot: 5, hit: 16 }, T("pl.port.value.out", dataOut.label || dataOut.id), T("pl.port.value.out", dataOut.label || dataOut.id),
+          e => startLink(e, n.id, "out", dataOut.id, "value"));
       }
       if (ghost) g.setAttribute("aria-disabled", "true");
       root_.append(g);
@@ -561,14 +577,16 @@
   function pickEdge(key) {
     S.edge = S.edge === key ? "" : key;
     S.selected = "";
-    if (S.edge) { const { a, b } = parseKey(key), nodes = S.snap.plan.nodes; say(T((nodes[a] || {}).type === "rag" ? "pl.feed.picked" : "pl.link.picked", (nodes[a] || {}).title || a, (nodes[b] || {}).title || b)); }
+    if (S.edge) { const { a, b, port } = parseKey(key), nodes = S.snap.plan.nodes; say(T(pickWord(a, b, port), (nodes[a] || {}).title || a, (nodes[b] || {}).title || b)); }
     render();
   }
+  const isValueEdge = (a, b, port) => Object.values((S.snap.plan.nodes[b] || {}).inputs || {}).some(r => r.node === a && r.port === port);
+  const pickWord = (a, b, port) => ((S.snap.plan.nodes[a] || {}).type === "rag" ? "pl.feed.picked" : isValueEdge(a, b, port) ? "pl.value.picked" : "pl.link.picked");
   async function removeLink(a, b, port) {
     S.edge = "";
     await userDiff({ remove_edges: [port ? [a, b, port] : [a, b]] }, T("pl.link.removed"));
   }
-  const isLinked = (a, b, port) => { const n = (S.snap.plan.nodes[a] || {}); return n.routes && port ? (n.routes[port] || []).includes(b) : (n.outputs || []).includes(b); };
+  const isLinked = (a, b, port) => { if (isValueEdge(a, b, port)) return true; const n = (S.snap.plan.nodes[a] || {}); return n.routes && port ? (n.routes[port] || []).includes(b) : (n.outputs || []).includes(b); };
   /* the step `a` is connected to `b` from its connector `port` (empty: the only one it has); a RAG node feeds an action, nothing waits for it */
   async function addLink(a, b, port) {
     const nodes = S.snap.plan.nodes, from = nodes[a], to = nodes[b];
@@ -577,8 +595,9 @@
     if (from.type === "rag" && to.type !== "action") { say(T("pl.link.ragonly"), true); return; }
     if (to.type === "rag") { say(T("pl.link.ragin"), true); return; }
     if (isLinked(a, b, port)) { say(T("pl.link.exists"), true); return; }
-    await userDiff({ add_edges: [port ? [a, b, port] : [a, b]] }, T(from.type === "rag" ? "pl.feed.added" : "pl.link.added"));
-    S.edge = edgeKey(a, b, from.type === "decision" || from.type === "rag" ? port : "");
+    const value = !!dataOutOf(from.type) && port === dataOutOf(from.type).id;
+    await userDiff({ add_edges: [port ? [a, b, port] : [a, b]] }, T(from.type === "rag" ? "pl.feed.added" : value ? "pl.value.added" : "pl.link.added"));
+    S.edge = edgeKey(a, b, from.type === "decision" || from.type === "rag" || value ? port : "");
     render();
   }
   /* a link follows the pointer from the port until it is let go over a step; anywhere else it is dropped */
@@ -623,7 +642,9 @@
       setTimeout(() => { S.justDragged = false; }, 0);
       if (target) {
         const a = side === "out" ? id : target, b = side === "out" ? target : id, na = S.snap.plan.nodes[a];
-        addLink(a, b, kind === "input" ? "rag" : na && na.type === "decision" ? (side === "out" ? port : "") : "");
+        const src = dataOutOf(na ? na.type : "");
+        if (kind === "value" && side === "in" && !src) { say(T("pl.link.novalue"), true); return; }
+        addLink(a, b, kind === "input" ? "rag" : kind === "value" ? (side === "out" ? port : src.id) : na && na.type === "decision" ? (side === "out" ? port : "") : "");
       }
     };
     const cancel = () => done();
@@ -785,7 +806,7 @@
     ui.detail.replaceChildren(el("div", { class: "sh" }, el("b", { id: "pl-detail-h", text: T("pl.detail") })));
     if (!n && S.edge) {
       const { a, b, port } = parseKey(S.edge), nodes = S.snap.plan.nodes;
-      ui.detail.append(el("div", { class: "pad" }, el("p", { text: T((nodes[a] || {}).type === "rag" ? "pl.feed.picked" : "pl.link.picked", (nodes[a] || {}).title || a, (nodes[b] || {}).title || b) }),
+      ui.detail.append(el("div", { class: "pad" }, el("p", { text: T(pickWord(a, b, port), (nodes[a] || {}).title || a, (nodes[b] || {}).title || b) }),
         el("button", { type: "button", class: "btn pl-btn pl-danger", title: T("pl.link.tip"), text: T("pl.link.remove"), onclick: () => removeLink(a, b, port) })));
       return;
     }
@@ -837,7 +858,7 @@
       n.type === "action" ? [el("label", { for: "pl-d-produces", text: T("pl.f.produces") }), produces, el("p", { class: "help", text: T("pl.f.produces.help") })] : [],
       specForm ? el("fieldset", { class: "pl-parents pl-spec" }, el("legend", { text: T("pl.type." + n.type) }), el("p", { class: "help", text: T("pl.kind." + n.type + ".d") }), specForm.el) : [],
       cond ? [el("label", { for: "pl-d-cond", text: T("pl.f.cond") }), cond, el("p", { class: "help", text: T("pl.f.cond.sensor.help") })] : [],
-      connectionsBox(n),
+      connectionsBox(n), valuesBox(n),
       el("label", { for: "pl-d-tries", text: T("pl.f.tries") }), tries,
       el("label", { for: "pl-d-wait", text: T("pl.f.wait") }), wait,
       el("p", { class: "help", text: T("pl.f.retry.help") }),
@@ -873,6 +894,30 @@
             el("button", { type: "button", class: "btn pl-btn pl-connx", title: T("pl.link.remove"), "aria-label": T("pl.conn.removeone", title(k), set.label), disabled: done, text: "\u00D7", onclick: () => removeLink(n.id, k, set.port) })))),
           el("div", { class: "pl-connadd" }, pick, el("button", { type: "button", class: "btn pl-btn", disabled: done, text: T("pl.conn.connect"), onclick: () => { if (pick.value) addLink(n.id, pick.value, set.port); } })));
       }));
+  }
+
+  /* the values wired to a step: each is an input with a name the step refers to it by (a decision's terms use it), where it comes from, and a button to rename or disconnect
+     it; and a choice of one more source, for a phone and a keyboard. */
+  function valuesBox(n) {
+    if (!takes(n.type, "data")) return [];
+    const nodes = S.snap.plan.nodes, done = n.status === "completed", inputs = n.inputs || {};
+    const sources = Object.values(nodes).filter(x => x.id !== n.id && x.type !== "rag" && dataOutOf(x.type));
+    const pick = el("select", { id: "pl-v-pick", "aria-label": T("pl.val.choose"), disabled: done },
+      el("option", { value: "", text: T("pl.val.choose") }), ...sources.map(x => el("option", { value: x.id + "|" + dataOutOf(x.type).id, text: `${x.title} (${dataOutOf(x.type).label || dataOutOf(x.type).id})` })));
+    const rename = async (old, name) => {
+      const next = {};
+      Object.entries(inputs).forEach(([k, ref]) => { next[k === old ? name : k] = ref; });
+      await event({ type: "plan:update_node", node_id: n.id, changes: { inputs: next } }, T("pl.saved"));
+    };
+    return el("fieldset", { class: "pl-parents pl-conn" }, el("legend", { text: T("pl.val.title") }), el("p", { class: "help", text: T("pl.val.help") }),
+      ...(Object.keys(inputs).length ? Object.entries(inputs).map(([name, ref]) => {
+        const field = el("input", { value: name, maxlength: "64", autocomplete: "off", spellcheck: "false", disabled: done, "aria-label": T("pl.val.rename", name) });
+        field.addEventListener("change", () => { if (field.value.trim() && field.value.trim() !== name) rename(name, field.value.trim()); });
+        return el("div", { class: "pl-connrow" }, field, el("span", { class: "help", text: T("pl.val.from", (nodes[ref.node] || {}).title || ref.node, ref.port) }),
+          el("button", { type: "button", class: "btn pl-btn pl-connx", title: T("pl.link.remove"), "aria-label": T("pl.val.removeone", name), disabled: done, text: "\u00D7", onclick: () => removeLink(ref.node, n.id, ref.port) }));
+      }) : [el("p", { class: "help", text: T("pl.val.none") })]),
+      el("div", { class: "pl-connadd" }, pick, el("button", { type: "button", class: "btn pl-btn", disabled: done, text: T("pl.conn.connect"),
+        onclick: () => { if (pick.value) { const [src, port] = pick.value.split("|"); addLink(src, n.id, port); } } })));
   }
 
   function removeButton(n) {

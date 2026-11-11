@@ -58,12 +58,14 @@ async function main() {
     const nodeOf = async n => (await get(`api/plans/${PLAN}`)).plan.nodes[n];
     const has = async (from, to, port) => {
       const n = await nodeOf(from);
+      if (port === "result") return Object.values((await nodeOf(to)).inputs || {}).some(r => r.node === from && r.port === port);       // a value wired from a step's result
       return port ? ((n.routes || {})[port] || []).includes(to) : (n.outputs || []).includes(to);
     };
     const cases = [
       ["a1", "out", "a2", "in", "", "a plain step to the input of another step"],
       ["choose", "out", "t1", "in", "b1", "a branch of a decision to the input of a step"],
       ["kb", "out data", "t2", "in data", "rag", "a RAG node to the data input of an action"],
+      ["a1", "out data value", "a2", "in data value", "result", "a step's result to the inputs of another step"],
     ];
     for (const kind of ["mouse", "touch"]) {
       for (const [from, fromCls, to, toCls, port, name] of cases) {
@@ -82,7 +84,7 @@ async function main() {
         } catch (e) { out.push({ name: label, ok: false, error: e.message }); }
         // the next case starts again from the same page, the edge it made is taken away through the server
         const post = body => fetch(URL + `api/plans/${PLAN}/events`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json()).catch(() => ({}));
-        const proposed = await post({ type: "plan:propose_diff", title: "undo", source: "user", diff: { remove_edges: [from === "a1" ? ["a1", "a2"] : from === "choose" ? ["choose", "t1", "b1"] : ["kb", "t2", "rag"]] } });
+        const proposed = await post({ type: "plan:propose_diff", title: "undo", source: "user", diff: { remove_edges: [from === "a1" && port === "" ? ["a1", "a2"] : from === "choose" ? ["choose", "t1", "b1"] : from === "kb" ? ["kb", "t2", "rag"] : ["a1", "a2", "result"]] } });
         if (proposed.proposal_id) await post({ type: "plan:approve", proposal_id: proposed.proposal_id });
         await sleep(800);
         await ev(`const gb = qa("#plans-root button").find(b => /^(Graph|Grafo)$/.test(b.textContent.trim())); if (gb) gb.click(); await wait(500); return 1;`);
@@ -102,6 +104,17 @@ async function main() {
         out.push({ name: label, ok: true, error: "" });
       } catch (e) { out.push({ name: label, ok: false, error: e.message }); }
     }
+    /* the Inputs section of a step: choose the step whose result it takes and press Connect */
+    try {
+      await ev(`q('#plans-root .pl-node[data-id="t1"]').dispatchEvent(new MouseEvent("click", { bubbles: true })); await wait(600);
+        const sel = q("#pl-v-pick"); if (!sel) throw new Error("no Inputs section");
+        sel.value = "a1|result"; sel.dispatchEvent(new Event("change", { bubbles: true }));
+        sel.parentElement.querySelector("button").click(); return 1;`);
+      let ok = false;
+      for (let i = 0; i < 20 && !ok; i++) { await sleep(400); ok = await has("a1", "t1", "result"); }
+      if (!ok) throw new Error("the value edge a1 -> t1 (result) is not in the plan");
+      out.push({ name: "tap: the Inputs section of a step", ok: true, error: "" });
+    } catch (e) { out.push({ name: "tap: the Inputs section of a step", ok: false, error: e.message }); }
     ws.close();
   } finally { proc.kill(); await sleep(400); try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* temp */ } }
   console.log(JSON.stringify(out));
