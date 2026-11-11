@@ -1,4 +1,4 @@
-"""The settings of the picture and video tools, in one small JSON file (`media.json` in the user data folder): on or off, where LTX Studio
+"""The settings of the picture, video and talking-head tools, in one small JSON file (`media.json` in the user data folder): on or off, where LTX Studio
 lives, the Pythons of its environments (empty: the ones LTX Studio itself names), the VRAM each kind of job asks for, how long a job may
 wait for the lease and for how long it may be silent."""
 from __future__ import annotations
@@ -14,11 +14,11 @@ from tadamoo.media.errors import MediaError
 DEFAULT_LTX_DIRS = tuple(p for p in (os.environ.get("TADAMOO_LTX_STUDIO", ""), "E:/AI/LTXStudio") if p)
 VIDEO_MODEL = "ltx-2.5-22b-distilled-transformer-nvfp4.safetensors"
 DEFAULTS: Dict[str, Any] = {"enabled": True, "ltx_dir": "", "image_python": "", "video_python": "", "video_model": "",
-                            "image_mib": 11000, "video_mib": 25000, "wait_s": 600, "idle_s": 900}
+                            "image_mib": 11000, "video_mib": 25000, "avatar_mib": 25000, "wait_s": 600, "idle_s": 900}
 FLAGS = ("enabled",)
 FOLDERS = ("ltx_dir",)
 FILES = ("image_python", "video_python")
-RANGES = {"image_mib": (2000, 60000), "video_mib": (2000, 60000), "wait_s": (0, 3600), "idle_s": (30, 7200)}
+RANGES = {"image_mib": (2000, 60000), "video_mib": (2000, 60000), "avatar_mib": (2000, 60000), "wait_s": (0, 3600), "idle_s": (30, 7200)}
 
 
 def _number(value: Any, lo: float, hi: float) -> bool:

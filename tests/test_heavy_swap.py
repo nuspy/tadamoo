@@ -291,3 +291,26 @@ def test_an_exclusive_job_the_person_did_not_allow_borrows_anyway_and_says_the_m
     with HeavyLease("video", 24000, "x", exclusive=True, transport=s) as lease:
         assert lease.gpu_ok and lease.risky and lease.swap_reason == "not_allowed"
         assert "may stop and restart" in lease.message and "potrebbe fermarsi" in lease.message_it
+
+
+def test_a_held_job_asks_for_the_vram_only_and_neither_starts_nor_ends_a_swap():
+    s = Server([GRANTED], (200, {"ok": True, "swap": {"id": "e" * 16, "hold_s": 90}}))
+    with HeavyLease("video", 24000, "x", exclusive=True, held=True, transport=s) as lease:
+        assert lease.gpu_ok and not lease.swapped
+    assert s.log == ["/api/vram/lease", "/api/vram/lease/" + "a" * 16 + "/release"]
+    s = Server([NOT_ENOUGH], None)
+    with HeavyLease("video", 24000, "x", held=True, transport=s) as lease:
+        assert not lease.gpu_ok and lease.reason == "not_enough" and s.log == ["/api/vram/lease"]
+
+
+def test_a_caller_can_step_the_model_aside_for_several_jobs_with_no_vram_of_its_own():
+    s = Server([], (200, {"ok": True, "swap": {"id": "f" * 16, "hold_s": 90}}))
+    lease = HeavyLease("newscast", 1, "a newscast", kind="video", transport=s)
+    assert lease.step_aside() and lease.swapped and not lease.gpu_ok
+    lease.release()
+    assert s.log == ["/api/heavy/begin", "/api/heavy/" + "f" * 16 + "/end"]
+    s = Server([], (409, {"ok": False, "reason": "not_allowed", "message": "no", "message_it": "no"}))
+    lease = HeavyLease("newscast", 1, "a newscast", kind="video", transport=s)
+    assert not lease.step_aside() and lease.swap_reason == "not_allowed" and lease.message == "no" and not lease.swapped
+    lease.release()
+    assert s.log == ["/api/heavy/begin"]
