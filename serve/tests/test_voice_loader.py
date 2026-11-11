@@ -82,6 +82,7 @@ class Base(unittest.TestCase):
         self.env.start()
         self.models = root / "voice-models"
         voice_settings.set_models_dir(str(self.models))
+        voice_settings.set_load_mode("avatar", "at_load")                           # the avatar loads on request by default; these tests are about the Loader
         voice_loader._job.clear()
         voice_loader._job["phase"] = "idle"
         voice_loader._pending = None

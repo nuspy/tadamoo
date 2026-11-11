@@ -47,7 +47,7 @@ CHUNK = 1 << 20
 IMAGE_MAX = 20 << 20
 UPLOAD_WAIT_S = 600.0
 STREAM_WAIT_S = 60.0
-KEYS = ("virtual_camera", "enhance") + voice_settings.AVATAR_ENGINE_KEYS
+KEYS = ("virtual_camera", "enhance", "idle_unload_s") + voice_settings.AVATAR_ENGINE_KEYS
 ENGINES = "/api/voice/avatar/engines"
 SELECT = ENGINES + "/select"
 
@@ -61,7 +61,7 @@ def view() -> dict:
     stored = voice_settings._read().get("avatar")
     stored = stored if isinstance(stored, dict) else {}
     return {"virtual_camera": stored.get("virtual_camera") is True, "enhance": voice_settings.enhance(stored.get("enhance")),
-            **voice_settings.avatar_selection(stored)}
+            "idle_unload_s": voice_settings.avatar_idle_s(), **voice_settings.avatar_selection(stored)}
 
 
 def update(req) -> dict:
@@ -72,6 +72,12 @@ def update(req) -> dict:
             raise voice_settings.VoiceSettingsError("field", f"Unknown field: {key}.", f"Campo sconosciuto: {key}.")
     if "virtual_camera" in req and not isinstance(req["virtual_camera"], bool):
         raise voice_settings.VoiceSettingsError("virtual_camera", "virtual_camera is true or false.", "virtual_camera è true o false.")
+    if "idle_unload_s" in req:
+        lo, hi, _ = voice_settings.AVATAR_IDLE_S
+        v = req["idle_unload_s"]
+        if isinstance(v, bool) or not isinstance(v, int) or not lo <= v <= hi:
+            raise voice_settings.VoiceSettingsError("idle_unload_s", f"idle_unload_s is a whole number of seconds from {lo} to {hi}.",
+                                                    f"idle_unload_s è un numero intero di secondi da {lo} a {hi}.")
     with voice_settings._lock:
         data = voice_settings._read()
         stored = data.get("avatar") if isinstance(data.get("avatar"), dict) else {}

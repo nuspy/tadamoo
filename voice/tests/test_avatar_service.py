@@ -63,7 +63,7 @@ class FakeApi:
 class Rig:
     def write_settings(self, **over):
         data = {"models_dir": str(self.models), "brain": {"persona": "ada-p"},
-                "services": {"avatar": {"selected": "musetalk-v15", "enabled": True}}, **over}
+                "services": {"avatar": {"selected": "musetalk-v15", "enabled": True, "load": "at_load"}}, **over}
         self.settings.write_text(json.dumps(data), encoding="utf-8")
         os.utime(self.settings, (time.time() + self.bump, time.time() + self.bump))
         self.bump += 1
@@ -196,9 +196,18 @@ def test_avatar_preload_follows_the_function_being_on(rig):
     rig.write_settings(services={"avatar": {"selected": "musetalk-v15", "enabled": False}})
     rig.get("/status")
     assert rig.state.config.avatar_preload is False and rig.state.config.avatar_enabled is False
-    rig.write_settings(services={"avatar": {"selected": "musetalk-v15", "enabled": True}})
+    rig.write_settings(services={"avatar": {"selected": "musetalk-v15", "enabled": True, "load": "at_load"}})
     rig.get("/status")
     assert rig.state.config.avatar_preload is True
+
+
+def test_an_avatar_that_loads_on_request_is_not_preloaded_and_is_on_request_by_default(rig):
+    rig.write_settings(services={"avatar": {"selected": "musetalk-v15", "enabled": True, "load": "on_request"}})
+    rig.get("/status")
+    assert rig.state.config.avatar_preload is False and rig.state.config.avatar_enabled is True
+    rig.write_settings(services={"avatar": {"selected": "musetalk-v15", "enabled": True}})
+    rig.get("/status")
+    assert rig.state.config.avatar_preload is False and rig.state.config.avatar_enabled is True
 
 
 def test_the_avatar_follows_the_personality_of_settings_voice(rig):

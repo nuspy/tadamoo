@@ -32,7 +32,7 @@ def overview() -> dict:
     services = []
     for service in voice_catalog.SERVICES:
         services.append({"id": service, "selected": voice_settings.selected(service), "placement": voice_settings.placement(service),
-                         "enabled": voice_settings.enabled(service),
+                         "enabled": voice_settings.enabled(service), "load": voice_settings.load_mode(service),
                          "models": [voice_catalog.public(e, root) for e in voice_catalog.models_of(service)]})
     return {"models_dir": root, "default_models_dir": voice_settings.default_models_dir(), "services": services,
             "download": downloads.DOWNLOADS.status()}
@@ -54,6 +54,11 @@ def placement(req: dict) -> dict:
 
 def set_enabled(req: dict) -> dict:
     voice_settings.set_enabled(req.get("service"), req.get("enabled"))
+    return overview()
+
+
+def set_load_mode(req: dict) -> dict:
+    voice_settings.set_load_mode(req.get("service"), req.get("mode"))
     return overview()
 
 
