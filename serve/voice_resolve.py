@@ -50,9 +50,9 @@ def resolve(store: Any, context: Dict[str, Any]) -> Dict[str, List[Dict[str, Any
     except ImportError:
         return stand_in(store, context)
     got = real(store, context)
-    archives = [{**dict(a), "others_ok": others_of(dict(a))} if not isinstance(a, dict) else {**a, "others_ok": others_of(a)} for a in (_field(got, "archives", []) or [])]
-    return {"archives": archives, "blocked": [dict(b) if isinstance(b, dict) else {"id": _field(b, "id", ""), "name": _field(b, "name", ""), "reason": _field(b, "reason", "")}
-                                              for b in (_field(got, "blocked", []) or [])]}
+    archives = [{**dict(a), "others_ok": others_of(dict(a))} for a in (_field(got, "archives", []) or [])]
+    blocked = [dict(b) for b in (_field(got, "blocked", []) or [])]
+    return {"archives": archives, "blocked": blocked}
 
 
 def ids_of(resolution: Dict[str, Sequence[Dict[str, Any]]]) -> List[str]:
