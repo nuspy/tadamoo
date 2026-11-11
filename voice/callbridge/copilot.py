@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import queue
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from . import sospensione
 from .meetbot import speak
@@ -24,22 +24,27 @@ class CopilotEntry:
     utterance: str                # what the other party said
     body: str = ""                # the suggestion, as it is written
     done: bool = False
+    notes: list = field(default_factory=list)      # lines for the window about the archives: which were used, and why a search was not complete
+    sources: list = field(default_factory=list)    # the archives the passages in the prompt came from, with their `others_ok`
 
 
-def prompt_for(cfg, n: int, utterance: str) -> str:
-    return cfg.copilot_preamble.format(n=n) + "<other_party>\n" + speak.fence(utterance) + "\n</other_party>"
+def prompt_for(cfg, n: int, utterance: str, block: str = "") -> str:
+    """The prompt: the other party's words fenced as data, then, at the tail, the passages of the person's archives (data too)."""
+    return cfg.copilot_preamble.format(n=n) + "<other_party>\n" + speak.fence(utterance) + "\n</other_party>" + (("\n\n" + block) if block else "")
 
 
 class CopilotSession:
     """loopback -> speech recognition -> direct brain -> the window. `process` handles one utterance and is what the loop calls."""
 
-    def __init__(self, cfg, brains, panel, stt_factory, source_factory, voice=None, floor=None) -> None:
+    def __init__(self, cfg, brains, panel, stt_factory, source_factory, voice=None, floor=None, knowledge=None) -> None:
         self.cfg, self.brains, self.panel = cfg, brains, panel
+        self.knowledge = knowledge                        # the archives of this window (rag_client.Knowledge) or None
         self._stt_factory, self._source_factory = stt_factory, source_factory
         self.voice, self.floor = voice, floor or speak.Floor()
         self.num_responses = max(1, min(6, int(cfg.copilot_num_responses)))
         self._stop = threading.Event()
         self._seq = 0
+        self._entries: list[CopilotEntry] = []
         self._stt = self._source = None
         self._thread: threading.Thread | None = None
 
@@ -50,6 +55,8 @@ class CopilotSession:
         self._stt = self._stt_factory(self.cfg.copilot_lang)
         self._source = self._source_factory()
         self._source.start(self._stt.send_audio)
+        if self.knowledge is not None:
+            self.knowledge.warm()
         self._thread = threading.Thread(target=self._loop, name="copilot-brain", daemon=True)
         self._thread.start()
 
@@ -83,9 +90,18 @@ class CopilotSession:
         """Show what the other party said, then the suggestion as the direct brain writes it."""
         self._seq += 1
         entry = CopilotEntry(self._seq, text)
+        self._entries = (self._entries + [entry])[-12:]
         self.panel.add_entry(entry)
+        block = ""
+        if self.knowledge is not None and self.knowledge.enabled:
+            found = self.knowledge.fetch(text, how="screen")           # the window is private: no archive needs the other people's consent to be read here
+            block, entry.sources = found.block, found.sources
+            if found.names:
+                entry.notes.append("[archives: " + ", ".join(found.names) + "]")
+            if found.marker:
+                entry.notes.append("[" + found.marker + "]")
         try:
-            for chunk in speak.direct_of(self.brains).ask_stream(prompt_for(self.cfg, self.num_responses, text)):
+            for chunk in speak.direct_of(self.brains).ask_stream(prompt_for(self.cfg, self.num_responses, text, block)):
                 if self._stop.is_set():
                     break
                 if isinstance(chunk, str) and chunk:
@@ -99,22 +115,40 @@ class CopilotSession:
         return entry
 
     def speak(self, text: str) -> bool:
-        """Say a reply the person clicked. False, with a note in the window, when the rules do not allow it."""
+        """Say a reply the person clicked. False, with a note in the window, when the rules do not allow it. A reply that used passages of an archive that asks
+        before its content reaches other people waits for the person's answer first (in the thread that speaks); a no keeps it unsaid, with a note."""
         if self.voice is None:
             return False
         why = self.voice.block_reason()
         if why:
             self.panel.add_note(why)
             return False
-        threading.Thread(target=self.voice.say, args=(text.strip().lstrip("-*• ").strip(),), name="copilot-speak", daemon=True).start()
+        threading.Thread(target=self._say, args=(text.strip().lstrip("-*• ").strip(), self._entry_sources(text)), name="copilot-speak", daemon=True).start()
         return True
+
+    def _entry_sources(self, text: str) -> list:
+        """The archives behind the reply that was clicked: those of the newest suggestion whose text holds it (else of the newest one)."""
+        wanted = " ".join(text.split()).lstrip("-*• ").strip()
+        for entry in reversed(self._entries[-6:]):
+            if wanted and wanted in " ".join(entry.body.split()):
+                return entry.sources
+        return self._entries[-1].sources if self._entries else []
+
+    def _say(self, text: str, sources: list) -> None:
+        if self.knowledge is not None and sources:
+            ok, why = self.knowledge.confirm_output(sources, "spoken")
+            if not ok:
+                self.panel.add_note(why)
+                return
+        self.voice.say(text)
 
 
 class CopilotController:
     """Opens and closes the copilot: the hotkey toggles it, the Voice tab asks for it."""
 
-    def __init__(self, cfg, brains, desktop_factory, stt_factory, source_factory, voice_factory=None) -> None:
+    def __init__(self, cfg, brains, desktop_factory, stt_factory, source_factory, voice_factory=None, knowledge_factory=None) -> None:
         self.cfg, self.brains = cfg, brains
+        self._knowledge_factory = knowledge_factory           # () -> the archives of a new copilot window (rag_client.Knowledge), or None
         self._desktop_factory, self._stt_factory, self._source_factory, self._voice_factory = desktop_factory, stt_factory, source_factory, voice_factory
         self._lock = threading.Lock()
         self._session: CopilotSession | None = None
@@ -151,7 +185,8 @@ class CopilotController:
             log.warning("copilot: %s", why)
             return
         voice = self._voice_factory() if self._voice_factory else None
-        session = CopilotSession(c, self.brains, panel, self._stt_factory, self._source_factory, voice=voice, floor=getattr(voice, "floor", None))
+        session = CopilotSession(c, self.brains, panel, self._stt_factory, self._source_factory, voice=voice, floor=getattr(voice, "floor", None),
+                                  knowledge=self._knowledge_factory() if self._knowledge_factory else None)
         holder.append(session)
         try:
             session.start()

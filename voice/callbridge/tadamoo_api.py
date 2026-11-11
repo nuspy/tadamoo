@@ -10,6 +10,7 @@ from collections.abc import Iterator
 from urllib.parse import urlsplit
 
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
+FUNCTION_HEADER = "X-Tadamoo-Function"          # names the function for the server: with a heavy job running, `voice` moves the request to the swap's provider (serve/heavy_forward.py)
 
 
 class ApiError(Exception):
@@ -89,7 +90,7 @@ class TadamooApi:
         conn = self._connect(timeout)
         try:
             try:
-                conn.request("POST", "/v1/chat/completions", body=payload, headers=self._headers(True))
+                conn.request("POST", "/v1/chat/completions", body=payload, headers={**self._headers(True), FUNCTION_HEADER: "voice"})
                 r = conn.getresponse()
             except (OSError, http.client.HTTPException) as e:
                 raise ApiError(f"TaDaMoo does not answer ({e.__class__.__name__})") from None
@@ -131,7 +132,7 @@ class TadamooApi:
         conn = self._connect(timeout)
         try:
             try:
-                conn.request("POST", "/v1/chat/completions", body=payload, headers=self._headers(True))
+                conn.request("POST", "/v1/chat/completions", body=payload, headers={**self._headers(True), FUNCTION_HEADER: "voice"})
                 r = conn.getresponse()
                 raw = r.read(1 << 20)
             except (OSError, http.client.HTTPException) as e:
