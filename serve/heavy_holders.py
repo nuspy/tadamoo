@@ -3,7 +3,8 @@
     free(reason)   "" when the VRAM is given back, else why not
     restore()      the model comes back
 
-* Basalt-Plus and Strata: the engine sleeps (`SLEEP`: its VRAM is free, its experts stay in RAM) and wakes (`WAKE`) in seconds; nothing else may wake it meanwhile.
+* Basalt-Plus and Strata: the engine sleeps (`SLEEP`: its VRAM is free, its experts stay in RAM) and wakes (`WAKE`) in seconds, where the driver can suspend
+  a process; where it cannot, the engine is unloaded and loaded again (minutes). Nothing else may wake or load it meanwhile.
 * llama.cpp started from TaDaMoo: the server is stopped (the model is unloaded) and started again with the same settings.
 * LM Studio: its loaded models are unloaded (`lms unload`) and loaded again (`lms load`).
 
@@ -12,6 +13,7 @@ cloud service answering, or a model that is not loaded, gives none."""
 from __future__ import annotations
 
 import subprocess
+import threading
 import time
 from typing import Any, Callable, List
 
@@ -24,17 +26,20 @@ class BasaltHolder:
 
     def __init__(self, service: Any, pause: Callable[[float], None] = time.sleep, tries: int = SLEEP_TRIES) -> None:
         self.service, self.pause, self.tries = service, pause, tries
+        self.unloaded = False
 
     def active(self) -> bool:
         engine = getattr(self.service, "engine", None)
         return bool(self.service.loaded()) and hasattr(engine, "sleep") and hasattr(engine, "can_sleep")
 
     def free(self, reason: str) -> str:
+        """Sleep where the driver can suspend a process, else unload; a request the engine still runs is waited for."""
         self.service.heavy_hold = reason
+        self.unloaded = not self.service.engine.can_sleep()
         last = ""
         for _ in range(max(1, self.tries)):
-            last = self.service.sleep()
-            if last in ("asleep", "not loaded"):
+            last = self.service.unload() if self.unloaded else self.service.sleep()
+            if last in ("asleep", "unloaded", "not loaded"):
                 return ""
             if last != "busy":
                 break
@@ -44,7 +49,16 @@ class BasaltHolder:
 
     def restore(self) -> None:
         self.service.heavy_hold = None
-        self.service.wake_now()
+        if self.unloaded:
+            threading.Thread(target=self._load, name="heavy-reload", daemon=True).start()      # minutes: the job's end does not wait for it
+        else:
+            self.service.wake_now()
+
+    def _load(self) -> None:
+        try:
+            self.service.load()
+        except Exception as e:  # noqa: BLE001 - the next request starts it again
+            print(f"[server] warning: loading the model after a heavy job failed ({e})", flush=True)
 
 
 class LlamaCppHolder:

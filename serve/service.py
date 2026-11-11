@@ -325,9 +325,9 @@ class Service:
             raise EngineDied("the server is stopping")
         if getattr(self, "standby", False):
             raise EngineStarting(STANDBY_MESSAGE)
+        if self.heavy_hold:                             # put aside on purpose for a heavy job: it comes back when that job ends
+            raise EngineStarting(self.heavy_hold)
         if getattr(self.engine, "asleep", False) is True:
-            if self.heavy_hold:                         # put to sleep on purpose for a heavy job: it wakes when that job ends
-                raise EngineStarting(self.heavy_hold)
             self._wake()
         if self.loaded() and not self._vision_down():
             return
@@ -453,7 +453,7 @@ class Service:
         print(f"[server] model awake in {time.time() - t:.1f} s (driver restore {self.engine.restore_s:.1f} s)",
               flush=True)
 
-    heavy_hold: str | None = None                        # why the engine is kept asleep (a heavy job runs); None when nothing keeps it so
+    heavy_hold: str | None = None                        # why the engine is kept asleep or unloaded (a heavy job runs); None when nothing keeps it so
 
     def wake_now(self):
         """Wake the engine if it sleeps, for whoever put it to sleep on purpose."""

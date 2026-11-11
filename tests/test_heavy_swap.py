@@ -237,3 +237,36 @@ def test_an_engine_that_will_not_step_aside_brings_back_the_ones_that_did_and_no
     got = swap.begin("video", "x")
     assert got["reason"] == "cannot_sleep" and "LM Studio: no lms" in got["message"] and log == ["free llama.cpp", "free LM Studio", "restore llama.cpp"]
     assert reg.swap() is None and swap.state()["active"] is None
+
+
+class NoSuspend(Engine):
+    """Where the driver cannot suspend a process: the engine is unloaded and loaded again."""
+
+    def __init__(self):
+        super().__init__()
+        self.unloads, self.loads = 0, 0
+
+    def can_sleep(self):
+        return False
+
+    def unload(self):
+        self.unloads += 1
+        return "unloaded"
+
+    def load(self):
+        self.loads += 1
+
+
+def test_where_the_driver_cannot_suspend_a_process_the_engine_is_unloaded_and_loaded_again(world):
+    reg, prefs, _, _ = world
+    prefs.write({"mode": "allow"})
+    engine = NoSuspend()
+    swap = HeavySwap(engine, reg, prefs, pause=lambda s: None, holders=lambda: [BasaltHolder(engine, lambda s: None)])
+    out = swap.begin("video", "x")
+    assert out["ok"] and (engine.unloads, engine.calls) == (1, 0) and engine.heavy_hold
+    swap.end(out["swap"]["id"])
+    for _ in range(100):
+        if engine.loads:
+            break
+        time.sleep(0.02)
+    assert (engine.loads, engine.woken) == (1, 0) and engine.heavy_hold is None and reg.swap() is None
