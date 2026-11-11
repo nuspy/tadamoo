@@ -15,7 +15,8 @@ def _hit(archive: Any, i: int, lexical: Optional[float], semantic: Optional[floa
     chunk = archive.chunks[i]
     doc = archive.document(chunk["doc"])
     return {"archive_id": archive.meta["id"], "archive": archive.meta["name"], "doc_id": chunk["doc"], "document": doc["name"], "chunk": chunk["n"],
-            "text": chunk["text"], "score": round(score, 4), "lexical": None if lexical is None else round(lexical, 4),
+            "text": chunk["text"], "path": chunk.get("path", ""), "page_start": chunk.get("page_start", 0), "page_end": chunk.get("page_end", 0),
+            "kind": chunk.get("kind", "text"), "section": chunk.get("section", ""), "flag": chunk.get("flag", ""), "score": round(score, 4), "lexical": None if lexical is None else round(lexical, 4),
             "semantic": None if semantic is None else round(semantic, 4), "mode": mode}
 
 

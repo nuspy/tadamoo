@@ -10,3 +10,4 @@ _DATA = tempfile.mkdtemp(prefix="basalt-test-data-")
 os.environ["TADAMOO_DATA"] = _DATA
 os.environ["TADAMOO_CREDENTIALS"] = "file"        # never the person's own credential manager
 atexit.register(shutil.rmtree, _DATA, True)
+os.environ["TADAMOO_DOCLING"] = "off"             # no test starts a Docling reader (a slow model, maybe on the GPU); the ones that do say so with their own command

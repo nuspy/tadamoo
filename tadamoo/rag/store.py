@@ -2,14 +2,16 @@
 
     meta.json         name, description, the project it belongs to (a key, tadamoo/rag/project.py, and its name as it was when the archive was made), the documents, how many passages, the embedding model
                       of the vectors (empty: text only)
-    chunks.jsonl      one passage per line: {"doc", "n", "text"}
+    chunks.jsonl      one passage per line: {"doc", "n", "text", "path", "page_start", "page_end", "kind", "section", "flag"?}
+    sections.jsonl    one section per line, to expand a hit to the part of the document it came from: {"doc", "id", "parent", "path", "page_start", "page_end", "text"}
     embeddings.npy    float32, one L2-normalized row per passage, present only when every passage has one
-    texts/<doc>.txt   the text read from each document, so an archive can be indexed again without the original
+    blocks/<doc>.json.gz   the blocks read from each document, before cleaning, so an archive can be cut again without the original or a new reading
 
 The files are written to a temporary name and renamed; `meta.json` goes last. Nothing outside `rag/` is reachable: an archive id is a plain
 slug, a document is named by its own id, and a path given to read is refused when it climbs or is inside the data folder."""
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import os
@@ -25,17 +27,18 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from tadamoo.rag import search as ranking
-from tadamoo.rag.chunking import chunk_text
 from tadamoo.rag.embed import Embedder, EmbedderProvider, embed_all, no_embedder
 from tadamoo.rag.errors import RagError
-from tadamoo.rag.extract import check_name, extract
+from tadamoo.rag.ingest import chunker, extraction_of, formats, normalize, read_document
 from tadamoo.rag.project import is_key
+from tadamoo.rag.settings import RagSettings
 
-LIMITS = {"name": 60, "description": 500, "archives": 50, "documents": 200, "document_bytes": 25 << 20, "document_chars": 4_000_000, "chunks": 20_000, "top_k": 20}
+LIMITS = {"name": 60, "description": 500, "archives": 50, "documents": 1000, "document_bytes": 200 << 20, "document_chars": 40_000_000, "chunks": 200_000, "top_k": 20}
 TOP_K = 4
 ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 DOC_ID = re.compile(r"^d[0-9a-f]{8}$")
 INCOMING = ".incoming"
+INGEST = {"normalizer": normalize.VERSION, "chunker": chunker.VERSION}      # the versions that cut the passages of an archive: a change means cutting them again
 _NAME_BAD = re.compile(r"[\x00-\x1f\\/]")
 
 
@@ -58,6 +61,17 @@ def _text(value: Any, field: str, limit: int, required: bool = False) -> str:
     return value
 
 
+def searchable(chunk: Dict[str, Any]) -> str:
+    """The text of a passage as it is searched and embedded: where it is in the document, then the passage."""
+    return (chunk["path"] + "\n" + chunk["text"]) if chunk.get("path") else chunk["text"]
+
+
+def _extraction(meta: Dict[str, Any]) -> str:
+    """How the documents of an archive were read: `docling`, `basic`, `mixed`, or "" for an archive with no document."""
+    kinds = {d.get("extraction", "basic") for d in meta["documents"]}
+    return "" if not kinds else kinds.pop() if len(kinds) == 1 else "mixed"
+
+
 def _copy(meta: Dict[str, Any]) -> Dict[str, Any]:
     return json.loads(json.dumps(meta))
 
@@ -65,13 +79,14 @@ def _copy(meta: Dict[str, Any]) -> Dict[str, Any]:
 class Archive:
     """One archive as loaded: its meta, its passages and its vectors, with the word index made when first needed."""
 
-    def __init__(self, meta: Dict[str, Any], chunks: List[Dict[str, Any]], vectors: Optional[np.ndarray]) -> None:
+    def __init__(self, meta: Dict[str, Any], chunks: List[Dict[str, Any]], vectors: Optional[np.ndarray], sections: Optional[Dict[str, Dict[str, Any]]] = None) -> None:
         self.meta, self.chunks, self.vectors = meta, chunks, vectors
+        self.sections: Dict[str, Dict[str, Any]] = sections or {}
         self._index: Optional[ranking.Bm25] = None
 
     def index(self) -> ranking.Bm25:
         if self._index is None:
-            self._index = ranking.Bm25([c["text"] for c in self.chunks])
+            self._index = ranking.Bm25([searchable(c) for c in self.chunks])
         return self._index
 
     def document(self, doc_id: str) -> Dict[str, Any]:
@@ -82,6 +97,7 @@ class RagStore:
     def __init__(self, root: str | Path, embedder: EmbedderProvider = no_embedder, forbidden: Sequence[str | Path] = (),
                  clock: Callable[[], float] = time.time) -> None:
         self.root = Path(root)
+        self.settings = RagSettings(self.root)
         self.provider, self.clock = embedder, clock
         self.forbidden = [Path(p).resolve() for p in forbidden]
         self._lock = threading.RLock()
@@ -148,6 +164,18 @@ class RagStore:
                 pass
             except (OSError, ValueError):
                 raise RagError("the passages of the archive could not be read") from None
+            sections: Dict[str, Dict[str, Any]] = {}
+            try:
+                with open(folder / "sections.jsonl", encoding="utf-8") as f:
+                    for line in f:
+                        if line.strip():
+                            row = json.loads(line)
+                            if row.get("doc") in known:
+                                sections[row["id"]] = row
+            except FileNotFoundError:
+                pass
+            except (OSError, ValueError, KeyError):
+                sections = {}
             vectors = None
             if meta.get("embed_model") and (folder / "embeddings.npy").is_file():
                 try:
@@ -156,13 +184,16 @@ class RagStore:
                         vectors = found.astype(np.float32)
                 except (OSError, ValueError):
                     vectors = None
-            archive = Archive(meta, chunks, vectors)
+            archive = Archive(meta, chunks, vectors, sections)
             self._cache[aid] = (stamp, archive)
             return archive
 
-    def _commit(self, folder: Path, meta: Dict[str, Any], chunks: List[Dict[str, Any]], vectors: Optional[np.ndarray], model: str) -> None:
-        meta.update(chunks=len(chunks), embed_model=model if vectors is not None else "", updated=self.clock())
+    def _commit(self, folder: Path, meta: Dict[str, Any], chunks: List[Dict[str, Any]], vectors: Optional[np.ndarray], model: str,
+                sections: Optional[Dict[str, Dict[str, Any]]] = None) -> None:
+        meta.update(chunks=len(chunks), embed_model=model if vectors is not None else "", updated=self.clock(), ingest=dict(INGEST))
         self._put(folder / "chunks.jsonl", "".join(json.dumps(c, ensure_ascii=False) + "\n" for c in chunks))
+        if sections is not None:
+            self._put(folder / "sections.jsonl", "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in sections.values()))
         if vectors is not None:
             tmp = folder / "embeddings.npy.tmp"
             with open(tmp, "wb") as f:
@@ -178,12 +209,13 @@ class RagStore:
         """How an archive is searched now: `hybrid` (words and the vectors of the embedder in use) or `text`; `reindex` says that indexing it again would change that."""
         emb, model = self.embedder(), meta.get("embed_model", "")
         hybrid = bool(model and emb is not None and emb.model == model)
-        return {"mode": "hybrid" if hybrid else "text", "embed_model": model, "reindex": bool(meta["chunks"]) and emb is not None and not hybrid}
+        return {"mode": "hybrid" if hybrid else "text", "embed_model": model, "reindex": bool(meta["chunks"]) and emb is not None and not hybrid,
+                "rechunk": bool(meta["documents"]) and meta.get("ingest") != INGEST}
 
     def _summary(self, meta: Dict[str, Any]) -> Dict[str, Any]:
         return {"id": meta["id"], "name": meta["name"], "description": meta["description"], "project": meta.get("project", ""), "project_name": meta.get("project_name", ""), "cloud_ok": bool(meta.get("cloud_ok")), "created": meta["created"],
                 "updated": meta["updated"], "documents": len(meta["documents"]), "chunks": meta["chunks"], "bytes": sum(d["bytes"] for d in meta["documents"]),
-                **self.status(meta)}
+                "flagged": sum(d.get("flagged", 0) for d in meta["documents"]), "extraction": _extraction(meta), **self.status(meta)}
 
     def _metas(self, project: Optional[str] = None) -> List[Dict[str, Any]]:
         """The meta of every readable archive (of one project, or of all with None), by name; a folder that is not an archive, or is damaged, is left out.
@@ -203,6 +235,18 @@ class RagStore:
     def list(self, project: Optional[str] = None) -> List[Dict[str, Any]]:
         """The archives of `project` (every archive with None)."""
         return [self._summary(m) for m in self._metas(project)]
+
+    def stamp(self) -> Tuple[Tuple[str, int], ...]:
+        """What tells that an archive was made, changed or removed: the id and the modification time of each `meta.json` (one stat each)."""
+        out = []
+        if self.root.is_dir():
+            for folder in sorted(self.root.iterdir()):
+                if ID.match(folder.name):
+                    try:
+                        out.append((folder.name, (folder / "meta.json").stat().st_mtime_ns))
+                    except OSError:
+                        continue
+        return tuple(out)
 
     def ids(self, project: Optional[str]) -> List[str]:
         """The ids of the archives of `project` (every archive with None), read without looking at the embedder."""
@@ -226,7 +270,7 @@ class RagStore:
             now = self.clock()
             meta = {"id": aid, "name": name, "description": description, "project": project, "project_name": str(project_name or "").strip()[:LIMITS["name"]],
                     "cloud_ok": False, "created": now, "updated": now, "chunks": 0,
-                    "embed_model": "", "documents": []}
+                    "embed_model": "", "ingest": dict(INGEST), "documents": []}
             self._put_meta(self._dir(aid), meta)
             return self.get(aid)
 
@@ -276,22 +320,40 @@ class RagStore:
             raise RagError("that file is inside the TaDaMoo data folder and cannot be added")
         return real
 
-    def add_path(self, aid: Any, raw: Any) -> Dict[str, Any]:
-        path = self.check_path(raw)
-        return self.add_file(aid, path.name, path)
+    def formats(self) -> List[str]:
+        """The extensions that can be added now (more when Docling is set or found)."""
+        return formats(self.settings.read())
 
-    def add_bytes(self, aid: Any, name: Any, data: bytes) -> Dict[str, Any]:
+    def _check_ext(self, name: str) -> str:
+        ext = Path(name).suffix.lower()
+        allowed = self.formats()
+        if ext not in allowed:
+            raise RagError(f"{ext or 'a file without an extension'} is not a supported format: use " + ", ".join(allowed))
+        return ext
+
+    def add_path(self, aid: Any, raw: Any, progress: Optional[Callable[[Dict[str, Any]], None]] = None, cancel: Optional[threading.Event] = None) -> Dict[str, Any]:
+        path = self.check_path(raw)
+        return self.add_file(aid, path.name, path, progress, cancel)
+
+    def stage_bytes(self, aid: Any, name: Any, data: bytes) -> Tuple[str, Path]:
+        """The checked name and the temporary file that holds an upload until it is added (`add_file` with it; the caller removes it)."""
         self._dir(aid)
         name = self._doc_name(name)
-        check_name(name)
+        self._check_ext(name)
         if len(data) > LIMITS["document_bytes"]:
             raise RagError(f"a document is at most {LIMITS['document_bytes'] >> 20} MB")
+        if data and any(d["sha256"] == hashlib.sha256(data).hexdigest() for d in self.load(aid).meta["documents"]):
+            raise RagError("this file is already in the archive")
         incoming = self.root / INCOMING
         incoming.mkdir(parents=True, exist_ok=True)
         tmp = incoming / (secrets.token_hex(8) + Path(name).suffix.lower())
+        tmp.write_bytes(data)
+        return name, tmp
+
+    def add_bytes(self, aid: Any, name: Any, data: bytes, progress: Optional[Callable[[Dict[str, Any]], None]] = None, cancel: Optional[threading.Event] = None) -> Dict[str, Any]:
+        name, tmp = self.stage_bytes(aid, name, data)
         try:
-            tmp.write_bytes(data)
-            return self.add_file(aid, name, tmp)
+            return self.add_file(aid, name, tmp, progress, cancel)
         finally:
             tmp.unlink(missing_ok=True)
 
@@ -301,19 +363,65 @@ class RagStore:
             raise RagError("name: the name of a file, without folders, up to 200 characters")
         return name.strip()
 
-    def add_file(self, aid: Any, name: str, path: Path) -> Dict[str, Any]:
-        """Reads the file at `path` as a document called `name` and indexes it; nothing is kept when it is refused."""
+    def _build(self, doc_id: str, name: str, raw_blocks: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]], Dict[str, int]]:
+        """The passages and the sections of a document from the blocks a reader gave: cleaned, cut, and each passage looked at for instructions
+        to an assistant (`flag`). Also `{chars, flagged}` and what the cleaning dropped."""
+        from tadamoo.inject_screen import detect
+        blocks, stats = normalize.normalize_blocks(raw_blocks)
+        blocks = [{**b, "flag": "instructions"} if b.get("type") != "page_break" and detect(b["text"]) else b for b in blocks]
+        chars = sum(len(b["text"]) for b in blocks)
+        if chars < 20:
+            raise RagError("the file holds no text to search (a scanned page needs Docling to be read)")
+        if chars > LIMITS["document_chars"]:
+            raise RagError(f"the text is {chars:,} characters: at most {LIMITS['document_chars']:,} per document")
+        built = chunker.chunk_blocks(blocks, Path(name).stem)
+        chunks: List[Dict[str, Any]] = []
+        flagged = 0
+        for n, c in enumerate(built["chunks"]):
+            row = {"doc": doc_id, "n": n, "text": c["text"], "path": c["path"], "page_start": c["page_start"], "page_end": c["page_end"], "kind": c["kind"],
+                   "section": f"{doc_id}.{c['section']}"}
+            if c.get("flag"):
+                row["flag"] = c["flag"]
+                flagged += 1
+            chunks.append(row)
+        sections = {f"{doc_id}.{r['id']}": {**r, "doc": doc_id, "id": f"{doc_id}.{r['id']}", "parent": f"{doc_id}.{r['parent']}" if r["parent"] else ""} for r in built["sections"]}
+        return chunks, sections, {"chars": chars, "flagged": flagged, **stats}
+
+    @staticmethod
+    def _save_blocks(folder: Path, doc_id: str, blocks: List[Dict[str, Any]]) -> None:
+        RagStore._put(folder / "blocks" / (doc_id + ".json.gz"), gzip.compress(json.dumps(blocks, ensure_ascii=False).encode("utf-8"), 6))
+
+    @staticmethod
+    def _load_blocks(folder: Path, doc: Dict[str, Any]) -> List[Dict[str, Any]]:
+        try:
+            return json.loads(gzip.decompress((folder / "blocks" / (doc["id"] + ".json.gz")).read_bytes()).decode("utf-8"))
+        except (OSError, ValueError):
+            raise RagError(f"the saved reading of {doc['name']} is missing: add the document again") from None
+
+    def add_file(self, aid: Any, name: str, path: Path, progress: Optional[Callable[[Dict[str, Any]], None]] = None, cancel: Optional[threading.Event] = None) -> Dict[str, Any]:
+        """Reads the file at `path` as a document called `name`, cleans it, cuts it into passages and indexes it. Nothing is kept when it is refused or
+        cancelled. `progress` is told of the stages and, for a long reading, of the pages."""
         self.load(aid)
         name = self._doc_name(name)
-        check_name(name)
+        self._check_ext(name)
         size = path.stat().st_size
         if not 0 < size <= LIMITS["document_bytes"]:
             raise RagError("the file is empty" if size == 0 else f"a document is at most {LIMITS['document_bytes'] >> 20} MB")
-        sha = hashlib.sha256(path.read_bytes()).hexdigest()
-        text = extract(path, name)
-        if len(text) > LIMITS["document_chars"]:
-            raise RagError(f"the text is {len(text):,} characters: at most {LIMITS['document_chars']:,} per document")
-        pieces = chunk_text(text)
+        tell = progress or (lambda event: None)
+        sha = hashlib.sha256()
+        with path.open("rb") as f:
+            for part in iter(lambda: f.read(1 << 20), b""):
+                sha.update(part)
+        sha = sha.hexdigest()
+        if any(d["sha256"] == sha for d in self.load(aid).meta["documents"]):
+            raise RagError("this file is already in the archive")
+        tell({"event": "stage", "stage": "reading"})
+        reading = read_document(path, name, self.settings.read(), progress=progress, cancel=cancel)
+        tell({"event": "stage", "stage": "cutting"})
+        doc_id = "d" + secrets.token_hex(4)
+        chunks, sections, stats = self._build(doc_id, name, reading["blocks"])
+        if cancel is not None and cancel.is_set():
+            raise RagError("the reading was cancelled", "cancelled")
         with self._lock:
             archive = self.load(aid)
             meta = _copy(archive.meta)
@@ -321,16 +429,21 @@ class RagStore:
                 raise RagError(f"at most {LIMITS['documents']} documents in an archive")
             if any(d["sha256"] == sha for d in meta["documents"]):
                 raise RagError("this file is already in the archive")
-            if len(archive.chunks) + len(pieces) > LIMITS["chunks"]:
+            if len(archive.chunks) + len(chunks) > LIMITS["chunks"]:
                 raise RagError(f"the archive would hold more than {LIMITS['chunks']:,} passages")
-            doc = {"id": "d" + secrets.token_hex(4), "name": name, "ext": Path(name).suffix.lower(), "bytes": size, "chars": len(text), "chunks": len(pieces),
-                   "sha256": sha, "added": self.clock()}
+            doc = {"id": doc_id, "name": name, "ext": Path(name).suffix.lower(), "bytes": size, "chars": stats["chars"], "chunks": len(chunks), "sha256": sha,
+                   "added": self.clock(), "extraction": reading["extraction"], "pages": int(reading.get("pages") or 0), "flagged": stats["flagged"]}
             folder = self._dir(aid)
-            self._put(folder / "texts" / (doc["id"] + ".txt"), text)
-            vectors, model, note = self._extend(archive, pieces)
-            meta["documents"].append(doc)
-            self._commit(folder, meta, archive.chunks + [{"doc": doc["id"], "n": i, "text": p} for i, p in enumerate(pieces)], vectors, model)
-            return {"document": doc, "embedded": vectors is not None, "note": note}
+            tell({"event": "stage", "stage": "indexing"})
+            self._save_blocks(folder, doc_id, reading["blocks"])
+            try:
+                vectors, model, note = self._extend(archive, [searchable(c) for c in chunks])
+                meta["documents"].append(doc)
+                self._commit(folder, meta, archive.chunks + chunks, vectors, model, {**archive.sections, **sections})
+            except BaseException:
+                (folder / "blocks" / (doc_id + ".json.gz")).unlink(missing_ok=True)
+                raise
+            return {"document": doc, "embedded": vectors is not None, "note": "; ".join(x for x in [note] + list(reading.get("notes") or []) if x)}
 
     def _extend(self, archive: Archive, pieces: List[str]) -> Tuple[Optional[np.ndarray], str, str]:
         """(the archive's vectors with these passages added, their model, a note): vectors only when every passage has one."""
@@ -356,29 +469,38 @@ class RagStore:
             meta["documents"] = [d for d in meta["documents"] if d["id"] != doc_id]
             keep = [i for i, c in enumerate(archive.chunks) if c["doc"] != doc_id]
             vectors = archive.vectors[keep] if archive.vectors is not None and keep else None
-            self._commit(folder, meta, [archive.chunks[i] for i in keep], vectors, archive.meta["embed_model"])
-            (folder / "texts" / (doc_id + ".txt")).unlink(missing_ok=True)
+            sections = {k: v for k, v in archive.sections.items() if v.get("doc") != doc_id}
+            self._commit(folder, meta, [archive.chunks[i] for i in keep], vectors, archive.meta["embed_model"], sections)
+            (folder / "blocks" / (doc_id + ".json.gz")).unlink(missing_ok=True)
             return {"removed": True, "chunks": len(keep)}
 
     def reindex(self, aid: Any) -> Dict[str, Any]:
-        """Cuts every document's saved text into passages again and embeds them with the embedder in use, if there is one."""
+        """Cleans and cuts every document's saved reading into passages again (with the versions of the cleaning and the cutting now in use) and
+        embeds them with the embedder in use, if there is one. Docling is not asked again."""
         with self._lock:
             archive, folder = self.load(aid), self._dir(aid)
             meta = _copy(archive.meta)
             chunks: List[Dict[str, Any]] = []
+            sections: Dict[str, Dict[str, Any]] = {}
             for doc in meta["documents"]:
-                try:
-                    text = (folder / "texts" / (doc["id"] + ".txt")).read_text(encoding="utf-8")
-                except OSError:
-                    raise RagError(f"the saved text of {doc['name']} is missing: add the document again") from None
-                pieces = chunk_text(text)
-                doc["chunks"] = len(pieces)
-                chunks += [{"doc": doc["id"], "n": i, "text": p} for i, p in enumerate(pieces)]
+                made, secs, stats = self._build(doc["id"], doc["name"], self._load_blocks(folder, doc))
+                doc.update(chunks=len(made), chars=stats["chars"], flagged=stats["flagged"])
+                chunks += made
+                sections.update(secs)
             if len(chunks) > LIMITS["chunks"]:
                 raise RagError(f"the archive would hold more than {LIMITS['chunks']:,} passages")
-            vectors, model, note = self._extend(Archive(meta, [], None), [c["text"] for c in chunks])
-            self._commit(folder, meta, chunks, vectors, model)
+            vectors, model, note = self._extend(Archive(meta, [], None), [searchable(c) for c in chunks])
+            self._commit(folder, meta, chunks, vectors, model, sections)
             return {"chunks": len(chunks), "embedded": vectors is not None, "note": note}
+
+    def section(self, aid: Any, sid: Any) -> Dict[str, Any]:
+        """The section a passage came from (`section` of a hit): its path, pages and text (capped), for a reader that wants more than the passage."""
+        archive = self.load(aid)
+        row = archive.sections.get(sid) if isinstance(sid, str) else None
+        if row is None:
+            raise RagError("there is no such section", "not_found")
+        return {"id": row["id"], "path": row["path"], "page_start": row["page_start"], "page_end": row["page_end"], "text": row["text"], "flag": row.get("flag", ""),
+                "document": archive.document(row["doc"])["name"], "archive": archive.meta["name"]}
 
     # -- asking ----------------------------------------------------------------------------------
 

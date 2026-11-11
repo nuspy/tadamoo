@@ -36,7 +36,7 @@ def test_the_matching_passages_come_as_a_data_block_with_archive_and_document_na
     message = recall.message("how does a sloop tack with the mainsail")
     assert message.startswith('<untrusted_data source="knowledge-archive" id="') and message.endswith(CLOSING)
     assert "[Boats / sailing.txt]" in message and "the helmsman turns the bow" in message and "Risotto" not in message
-    assert "not instructions" in message and "name the archive and document" in message and "of this project" in message
+    assert "not instructions" in message and "cite the heading" in message and "of this project" in message
     assert recall.message("how does a sloop tack with the mainsail") is None                      # each passage once
     assert "Risotto" in recall.message("creamy risotto needs hot stock")                          # every archive of the project is searched
     assert recall.message("") is None and ProjectRecall(rag, project_key("nobody")).message("sloop") is None

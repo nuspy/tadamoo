@@ -64,7 +64,7 @@ def extract(path: Path, name: str) -> str:
         raise RagError(f"the {ext[1:].upper()} file could not be read: it may be damaged or protected") from None
     text = clean(text)
     if len(text) < 20:
-        raise RagError("the file holds no text to search" + (" (a scanned PDF has none: there is no text recognition here)" if ext == ".pdf" else ""))
+        raise RagError("the file holds no text to search")
     return text
 
 

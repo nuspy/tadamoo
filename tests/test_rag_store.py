@@ -10,8 +10,8 @@ import pytest
 
 from tadamoo.rag import LIMITS, RagError, RagStore, project_key
 from tadamoo.rag import search as ranking
-from tadamoo.rag.chunking import chunk_text
 from tadamoo.rag.extract import FORMATS, extract
+from tadamoo.rag.ingest import formats
 
 SAILING = ("Sailing boats use the wind. A sloop has one mast and two sails, the mainsail and the jib. To tack, the helmsman turns the bow through the wind.\n\n"
            "The keel keeps the boat upright and stops it sliding sideways. Racing yachts have deep keels and light hulls.")
@@ -58,30 +58,6 @@ def write(tmp_path, name, content):
 
 def add(s, tmp_path, aid, name, text):
     return s.add_file(aid, name, write(tmp_path, name, text))
-
-
-# -- chunking ------------------------------------------------------------------------------------------------
-
-def test_passages_follow_paragraphs_and_start_with_the_tail_of_the_one_before():
-    paras = [f"Paragraph {i} " + "word " * 60 for i in range(8)]
-    chunks = chunk_text("\n\n".join(paras), size=700, overlap=100)
-    assert len(chunks) > 1 and all(len(c) <= 700 + 100 for c in chunks)
-    assert chunks[0].startswith("Paragraph 0") and "Paragraph 7" in chunks[-1]
-    tail = chunks[0][-100:].split(" ", 1)[1].strip()
-    assert tail.split()[-1] in chunks[1].split("\n\n")[0]                                     # the second passage opens with the end of the first
-
-
-def test_a_long_paragraph_is_cut_at_a_sentence_and_nothing_is_lost():
-    text = " ".join(f"Sentence number {i} is here." for i in range(200))
-    chunks = chunk_text(text, size=300, overlap=0)
-    assert all(len(c) <= 300 for c in chunks) and all(c.endswith(".") for c in chunks)
-    assert " ".join(chunks).split() == text.split()
-    assert chunk_text("x" * 2500, size=1000, overlap=0) == ["x" * 1000, "x" * 1000, "x" * 500]
-    assert chunk_text("   \n\n  ") == []
-    with pytest.raises(ValueError):
-        chunk_text("text", size=10)
-    with pytest.raises(ValueError):
-        chunk_text("text", size=100, overlap=60)
 
 
 # -- the word ranking ----------------------------------------------------------------------------------------
@@ -215,7 +191,7 @@ def test_removing_a_document_removes_its_passages_and_vectors(tmp_path):
     total = s.get(a)["chunks"]
     done = s.remove_document(a, first["id"])
     assert done["chunks"] == total - first["chunks"] and len(np.load(tmp_path / "rag" / a / "embeddings.npy")) == done["chunks"]
-    assert [d["name"] for d in s.get(a)["document_list"]] == ["rice.txt"] and not (tmp_path / "rag" / a / "texts" / (first["id"] + ".txt")).exists()
+    assert [d["name"] for d in s.get(a)["document_list"]] == ["rice.txt"] and not (tmp_path / "rag" / a / "blocks" / (first["id"] + ".json.gz")).exists()
     assert s.search([a], "sloop")["hits"] == [] or s.search([a], "sloop")["hits"][0]["document"] == "rice.txt"
     with pytest.raises(RagError) as e:
         s.remove_document(a, first["id"])
@@ -313,11 +289,11 @@ def test_limits_on_archives_documents_size_and_duplicates(tmp_path, monkeypatch)
     monkeypatch.setitem(st.LIMITS, "documents", 1)
     with pytest.raises(RagError, match="at most 1 documents"):
         add(s, tmp_path, a, "b.txt", COOKING)
-    monkeypatch.setitem(st.LIMITS, "documents", 200)
+    monkeypatch.setitem(st.LIMITS, "documents", 1000)
     monkeypatch.setitem(st.LIMITS, "chunks", 2)
     with pytest.raises(RagError, match="passages"):
         add(s, tmp_path, a, "big.txt", "\n\n".join("Paragraph %d " % i + "x" * 900 for i in range(6)))
-    monkeypatch.setitem(st.LIMITS, "chunks", 20000)
+    monkeypatch.setitem(st.LIMITS, "chunks", 200000)
     monkeypatch.setitem(st.LIMITS, "document_bytes", 50)
     with pytest.raises(RagError, match="at most"):
         add(s, tmp_path, a, "c.txt", COOKING)
@@ -376,7 +352,7 @@ def test_files_are_written_whole_and_survive_a_new_store(tmp_path):
     add(s, tmp_path, a, "boats.txt", SAILING)
     folder = tmp_path / "rag" / a
     assert not list(folder.rglob("*.tmp"))
-    assert sorted(p.name for p in folder.iterdir()) == ["chunks.jsonl", "embeddings.npy", "meta.json", "texts"]
+    assert sorted(p.name for p in folder.iterdir()) == ["blocks", "chunks.jsonl", "embeddings.npy", "meta.json", "sections.jsonl"]
     meta = json.loads((folder / "meta.json").read_text(encoding="utf-8"))
     assert meta["name"] == "Boats" and meta["chunks"] == len((folder / "chunks.jsonl").read_text().splitlines())
     again = store(tmp_path, Fake())
