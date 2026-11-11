@@ -148,7 +148,7 @@ def verify(sync: Any, aid: Any, deep: bool = False, sources: bool = True, progre
                     if pages is not None and pages != doc["pages"]:
                         add("error", f"the PDF has {pages} pages and the reading found {doc['pages']}", doc)
     problems.sort(key=lambda p: LEVELS.index(p["level"]))
-    cov = coverage.of_archive(meta["documents"], [])
+    cov = coverage.of_archive([{**d, "coverage": coverage.of_document(d, per_doc.get(d["id"], []))} for d in meta["documents"]], [])     # recomputed: an older document has no record
     errors_n = sum(1 for p in problems if p["level"] == "error")
     return {"archive": aid, "name": meta["name"], "ok": errors_n == 0, "errors": errors_n, "warnings": sum(1 for p in problems if p["level"] == "warn"), "problems": problems[:200],
             "documents": len(meta["documents"]), "passages": len(archive.chunks), "coverage": cov, "out_of_date": out_of_date, "deep": deep, "sources": len(data["sources"])}

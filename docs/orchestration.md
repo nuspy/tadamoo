@@ -67,6 +67,8 @@ fire `skipped_late` instead of running cold; `dedup_key` keeps routines that sha
 
 - `{"kind": "new_session"}` (the default): starts a conversation and runs the prompt in it, as before.
 - `{"kind": "session", "ref": name}`: delivers `message` (or `prompt` if empty) to an existing conversation, `provenance="cron:<id>"`.
+- `{"kind": "knowledge", "ref": archive id}` with `message` `check` or `update`: checks the archive's sources for changes, or also updates what changed (`docs/rag-sources.md`).
+  No model is woken and no conversation is made; the outcome is `nothing_new` or `progress`; an update waits for a heavy job and is skipped, not failed, when it cannot.
 - `{"kind": "plan", "ref": name}` with `link: {"plan": plan_id}`: same delivery, `provenance="plan:<id>"`; skipped
   (`skipped_paused`) instead of sent while that plan is paused (`PlanService.is_paused`, wired through `SessionRoutineRunner`).
 

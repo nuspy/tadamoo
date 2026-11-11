@@ -127,6 +127,8 @@ The copilot, the meeting bot (replies and minutes), phone calls and the avatar's
 (`/api/voice/rag/*`, with the voice token): a real-time hybrid search with a small embedder on the CPU and a second set of vectors per archive, a time budget with a marked
 fallback, passages at the tail of the prompt, and the consent `others_ok` for what other people perceive. All of it is in [voice/knowledge.md](voice/knowledge.md).
 
+Keeping an archive up to date (sources, check, update, versions, verify, coverage) is in [rag-sources.md](rag-sources.md).
+
 ## Routes
 
 All under `/api/rag`, from this PC only (403 otherwise).
@@ -169,6 +171,6 @@ the Python of Docling, where it runs and what to do with flagged passages.
 ## Code
 
 `tadamoo/rag/` (`project.py`, `match.py`, `choice.py`, `tools.py`, `settings.py`, `ingest/`, `store.py`, `extract.py`, `chunking.py`, `search.py`, `query.py`, `embed.py`, `embed_worker.py`, `embed_client.py`, `remote.py`, `recall.py`), `serve/rag_api.py`, `serve/rag_jobs.py`,
-`serve/web/rag.js` and `rag.css`. Tests: `tests/test_rag_store.py`, `tests/test_rag_recall.py`, `serve/tests/test_rag_api.py`,
+`serve/web/rag.js` and `rag.css` (and `tadamoo/rag/sources/`, `serve/rag_sync_api.py`, `serve/web/ragsync.js`: [rag-sources.md](rag-sources.md)). Tests: `tests/test_rag_store.py`, `tests/test_rag_recall.py`, `serve/tests/test_rag_api.py`,
 `serve/tests/test_rag_page.py` (with `rag_project_dom_check.js` and `slash_rag_check.js`, the page on a stand-in DOM), `tests/test_rag_choice.py`,
 `serve/tests/test_agent_knowledge.py`, `tests/test_rag_ingest.py`, `tests/test_rag_docling.py`, `tests/test_rag_embed.py`, `tests/test_rag_eval.py`.
