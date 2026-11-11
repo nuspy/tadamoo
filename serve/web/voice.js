@@ -202,6 +202,8 @@
     box.append(telSelect("vo-tel-transport", T("vo.tel.transport"), Object.keys(TRANSPORTS).map(v => [v, TRANSPORTS[v]()]), TEL.transport, "transport"));
     box.append(telSelect("vo-tel-approval", T("vo.tel.approval"), Object.keys(APPROVALS).map(v => [v, APPROVALS[v]()]), TEL.outgoing_approval, "outgoing_approval"),
       el("p", "vo-help", T("vo.tel.approval.help")));
+    if (window.VoiceArchives) box.append(window.VoiceArchives.picker({ id: "vo-tel-archives", label: T("va.calls.label"), help: T("va.calls.help"), ids: TEL.archives || [],
+      onSave: async ids => { const r = await api("POST", "api/voice/telephony", { archives: ids }); if (r.ok) TEL = r.data; } }));       // no repaint: the checklist keeps its focus
     if (TEL.outgoing_approval === "auto") box.append(note(T("vo.tel.approval.warn"), true));
     box.append(telCheck("vo-tel-contacts-only", T("vo.tel.contacts.only"), TEL.auto_contacts_only, "auto_contacts_only"), el("p", "vo-help", T("vo.tel.contacts.only.help")));
     box.append(telCheck("vo-tel-disclosure", T("vo.tel.disclosure"), TEL.ai_disclosure_on_start, "ai_disclosure_on_start"));

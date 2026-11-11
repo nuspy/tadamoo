@@ -58,6 +58,7 @@
     ui.hint = el("p", "vt-help");
     ui.formMsg = el("p", "vt-note"); ui.formMsg.hidden = true;
     ui.reminder = el("p", "vt-help vp-consent", T("vp.consent"));
+    ui.archives = el("div", "vp-archives");
     f.save = btn(T("vp.save"), "primary", save, "vp-save");
     const urlField = field("vp-url", T("vp.f.url"), f.url);
     ui.urlHelp = el("p", "vt-help");
@@ -65,7 +66,7 @@
     const row = el("div", "vm-actions"); row.append(f.save, btn(T("vp.cancel"), "ghost", closeForm, "vp-cancel"));
     form.append(lg, field("vp-title", T("vp.f.title"), f.title), urlField, field("vp-start", T("vp.f.start"), f.start),
                 field("vp-dur", T("vp.f.dur"), f.dur), field("vp-role", T("vp.f.role"), f.role, T("vp.f.role.help")), field("vp-persona", T("vp.f.persona"), f.persona),
-                cw, ui.hint, pw, field("vp-notes", T("vp.f.notes"), f.notes), ui.reminder, row, ui.formMsg);
+                cw, ui.hint, pw, ui.archives, field("vp-notes", T("vp.f.notes"), f.notes), ui.reminder, row, ui.formMsg);
     form.hidden = true;
     ui.form = form;
     return form;
@@ -98,6 +99,9 @@
     f.camera.checked = !!(item && item.camera);
     f.participate.checked = item ? !!item.participate : true;
     f.notes.value = item ? item.notes || "" : "";
+    f.archives = item && Array.isArray(item.archives) ? item.archives : null;                // null: the item follows the settings
+    clear(ui.archives);
+    if (window.VoiceArchives) ui.archives.append(window.VoiceArchives.picker({ id: "vp-archives", label: T("va.plan.label"), help: T("va.meet.help"), ids: f.archives, inherit: T("va.plan.inherit"), onSave: ids => { f.archives = ids; } }));
     for (const k of ["title", "url", "start", "dur"]) f[k].disabled = cal;
     ui.formMsg.hidden = true;
     ui.form.hidden = false;
@@ -114,7 +118,7 @@
     if (!f.url.disabled && !f.url.value.trim()) return fail(T("vp.e.url"));
     if (!f.start.disabled && isNaN(start)) return fail(T("vp.e.start"));
     if (dur !== null && !(Number.isInteger(dur) && dur >= 1 && dur <= 1440)) return fail(T("vp.e.dur"));
-    const body = { role: f.role.value, persona: f.persona.value, camera: f.camera.checked, participate: f.participate.checked, notes: f.notes.value };
+    const body = { role: f.role.value, persona: f.persona.value, camera: f.camera.checked, participate: f.participate.checked, notes: f.notes.value, archives: f.archives };
     if (!f.url.disabled) Object.assign(body, { title: f.title.value, url: f.url.value.trim(), start: start.toISOString() });
     if (!f.dur.disabled && (dur !== null || editing)) body.duration_min = dur;
     busy = true; f.save.disabled = true;

@@ -239,7 +239,22 @@ def set_placement(service, device, memory) -> dict:
 # ---------------------------------------------------------------------------------------- the brains of the voice
 BRAIN_MODES = ("direct", "harness")
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,60}$")
-_BRAIN_KEYS = ("mode", "persona", "workspace", "hotkeys")
+_BRAIN_KEYS = ("mode", "persona", "workspace", "hotkeys", "archives")
+ARCHIVE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
+MAX_ARCHIVES = 20
+
+
+def archive_ids(value) -> list:
+    """The ids of knowledge archives stored for a voice function: the valid ones, without repeats (an archive that was deleted is dropped where it is used)."""
+    if not isinstance(value, list):
+        return []
+    return list(dict.fromkeys(v for v in value if isinstance(v, str) and ARCHIVE_ID_RE.match(v)))[:MAX_ARCHIVES]
+
+
+def check_archive_ids(key: str, value) -> list:
+    if not isinstance(value, list) or len(value) > MAX_ARCHIVES or any(not isinstance(v, str) or not ARCHIVE_ID_RE.match(v) for v in value):
+        raise VoiceSettingsError(key, f"{key} is a list of at most {MAX_ARCHIVES} archive ids.", f"{key} è un elenco di al massimo {MAX_ARCHIVES} id di archivi.")
+    return list(dict.fromkeys(value))
 
 
 def brain() -> dict:
@@ -252,6 +267,7 @@ def brain() -> dict:
             "persona": persona if isinstance(persona, str) and _SLUG_RE.match(persona) else "",
             "workspace": workspace if isinstance(workspace, str) and os.path.isabs(workspace) else "",
             "hotkeys": stored.get("hotkeys") is True,
+            "archives": archive_ids(stored.get("archives")),
             "base_url": stored.get("base_url") if isinstance(stored.get("base_url"), str) else ""}
 
 
@@ -281,6 +297,8 @@ def check_brain(req) -> dict:
         if not isinstance(req["hotkeys"], bool):
             raise VoiceSettingsError("hotkeys", "hotkeys is true or false.", "hotkeys è true o false.")
         out["hotkeys"] = req["hotkeys"]
+    if "archives" in req:
+        out["archives"] = check_archive_ids("archives", req["archives"])
     return out
 
 
@@ -324,7 +342,7 @@ def write_server_address(port: int) -> None:
 TRANSPORTS = ("off", "auto", "gsm", "android")
 APPROVALS = ("manual", "auto")                   # who approves a call the agent or a program starts: the person, or nobody
 _TELEPHONY_KEYS = ("transport", "outgoing_approval", "ai_disclosure_on_start", "incoming_auto_answer", "on_behalf_of", "premium_prefixes",
-                   "auto_contacts_only", "contacts", "phone_calls")
+                   "auto_contacts_only", "contacts", "phone_calls", "archives")
 ON_BEHALF_MAX = 80
 # Numbers the agent and programs never call (the service's own list: voice/callbridge/call_policy.py). A `+` entry is read against a number
 # with a country code, the others against a national one.
@@ -375,7 +393,8 @@ def telephony() -> dict:
             "premium_prefixes": _stored_list(stored.get("premium_prefixes"), _PREFIX_RE, MAX_PREMIUM_PREFIXES, list(DEFAULT_PREMIUM_PREFIXES)),
             "auto_contacts_only": stored.get("auto_contacts_only") is True,
             "phone_calls": stored.get("phone_calls") is True,
-            "contacts": _stored_list(stored.get("contacts"), _CONTACT_RE, MAX_CONTACTS, [])}
+            "contacts": _stored_list(stored.get("contacts"), _CONTACT_RE, MAX_CONTACTS, []),
+            "archives": archive_ids(stored.get("archives"))}
 
 
 def check_telephony(req) -> dict:
@@ -417,6 +436,8 @@ def check_telephony(req) -> dict:
             raise VoiceSettingsError("contacts", f"Give a list of at most {MAX_CONTACTS} numbers of 6 to 15 digits, each with an optional leading +.",
                                      f"Scrivi un elenco di al massimo {MAX_CONTACTS} numeri di 6-15 cifre, ciascuno con un + iniziale facoltativo.")
         out["contacts"] = contacts
+    if "archives" in req:
+        out["archives"] = check_archive_ids("archives", req["archives"])
     return out
 
 
@@ -625,9 +646,9 @@ CONSENT_MODES = ("window", "explicit")
 CONSENT_WINDOW = (20, 300, 45)                  # lowest, highest, default seconds; voice/callbridge/meetbot/consent.py holds the same numbers (a test compares)
 MEETINGS_DEFAULT = {"speak": False, "camera": False, "proactive": False, "consent_mode": "window", "consent_window_s": CONSENT_WINDOW[2], "on_behalf_of": "",
                     "display_name": "TaDaMoo AI assistant", "virtual_mic": "", "wake_phrase": "", "autojoin": False, "allow_programs_join": False, "copilot_replies": 3,
-                    "copilot_audio_reply": False, "copilot_hide_from_capture": True}
+                    "copilot_audio_reply": False, "copilot_hide_from_capture": True, "archives": [], "copilot_archives": [], "private_output": ""}
 MEETINGS_BOOLS = ("speak", "camera", "proactive", "autojoin", "allow_programs_join", "copilot_audio_reply", "copilot_hide_from_capture")
-MEETINGS_TEXT = {"on_behalf_of": 80, "display_name": 40, "virtual_mic": 80, "wake_phrase": 40}
+MEETINGS_TEXT = {"on_behalf_of": 80, "display_name": 40, "virtual_mic": 80, "wake_phrase": 40, "private_output": 80}
 
 
 def _whole_in(value, lo: int, hi: int) -> bool:
@@ -653,6 +674,7 @@ def meetings() -> dict:
         out["consent_window_s"] = stored["consent_window_s"]
     if _whole_in(stored.get("copilot_replies"), 1, 6):
         out["copilot_replies"] = stored["copilot_replies"]
+    out["archives"], out["copilot_archives"] = archive_ids(stored.get("archives")), archive_ids(stored.get("copilot_archives"))
     for key, limit in MEETINGS_TEXT.items():
         if _text_ok(stored.get(key), limit) and (stored[key].strip() or key not in ("display_name",)):
             out[key] = stored[key].strip()
@@ -685,6 +707,9 @@ def check_meetings(req) -> dict:
         if not _whole_in(req["copilot_replies"], 1, 6):
             raise VoiceSettingsError("copilot_replies", "The copilot shows 1 to 6 replies.", "Il copilota mostra da 1 a 6 risposte.")
         out["copilot_replies"] = req["copilot_replies"]
+    for key in ("archives", "copilot_archives"):
+        if key in req:
+            out[key] = check_archive_ids(key, req[key])
     for key, limit in MEETINGS_TEXT.items():
         if key in req:
             if not _text_ok(req[key], limit) or (key == "display_name" and not req[key].strip()):
