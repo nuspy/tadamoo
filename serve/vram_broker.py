@@ -26,6 +26,7 @@ HOLD_RANGE_S = (5, 3600)
 WAIT_MAX_S = 3600
 MIB_MAX = 1 << 20
 RESTORE_TRIES = 120                                # attempts, one per tick, to put the reserve back
+SHUTDOWN_WAIT_S = 5.0
 TICK_S = 1.0                                       # how often the timer looks for expired leases
 MESSAGES = {
     "no_engine": ("No program holds VRAM here.", "Nessun programma tiene VRAM qui."),
@@ -373,7 +374,10 @@ class VramBroker:
             if self._op or not self._changed:
                 return
             self._op = True
-            self._queue.clear()
+        try:
+            self.service.vram_wait_s = SHUTDOWN_WAIT_S        # a request still running must not hold the server's end
+        except Exception:  # noqa: BLE001
+            pass
         self._after_end()
 
     # ---- what is shown

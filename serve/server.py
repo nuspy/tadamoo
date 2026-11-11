@@ -379,7 +379,7 @@ def main() -> int:
     except KeyboardInterrupt:
         print("[server] stopping (Ctrl+C again to force)", flush=True)
     engine = svc.engine
-    closers = [stop_sessions, svc.stop, (lambda: svc.remote.close() if getattr(svc, "remote", None) else None), httpd.shutdown, getattr(engine, "close", None), svc.vision.close if svc.vision else None]
+    closers = [stop_sessions, (lambda: svc.vram_broker.shutdown() if getattr(svc, "vram_broker", None) else None), svc.stop, (lambda: svc.remote.close() if getattr(svc, "remote", None) else None), httpd.shutdown, getattr(engine, "close", None), svc.vision.close if svc.vision else None]
     for close in filter(None, closers):
         try:
             close()

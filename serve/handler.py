@@ -22,7 +22,7 @@ from tadamoo import exec_level, nextsteps, persistence, side_uses
 from tadamoo import telegram as tg
 from tadamoo import permission_level
 from tadamoo.permission_level import PermissionLevelError, PermissionLevels
-from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, voice_api, voice_compat, voice_import, voice_loader, voice_service, voice_settings
+from serve import ROOT, benchrun, billion_context, canary_api, catalog, chatctx, checkpoints_api, downloads, engine_host, engine_install, engines, loader, llamacpp_api, loader_api, model_list, modelbench, netwatch_api, models, profiles, rea_api, settings, vram_api, voice_api, voice_compat, voice_import, voice_loader, voice_service, voice_settings
 from serve import origin_guard, voice_avatar, voice_gateway_relay, voice_phone_call
 from serve import lang as lang_mod
 from serve.config import PARALLEL_MAX, checked_sampling
@@ -712,6 +712,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/rag" or path.startswith("/api/rag/"):
                 if self._authorized():
                     self._rag_route(path, "GET")
+            elif path in (vram_api.LEASES, vram_api.SETTINGS):
+                if self._authorized():
+                    vram_api.get(self, svc, path)
             elif path in ("/api/voice/gateway", "/api/voice/gateway/ws"):      # the phone's way to the voice gateway (serve/voice_gateway_relay.py)
                 if self._authorized():
                     if not self._local_or_device():
@@ -967,6 +970,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path.startswith("/api/rag/"):
                 self._rag_route(path, "POST")
+                return
+            if path == vram_api.SETTINGS or path == vram_api.LEASE or path.startswith(vram_api.LEASE + "/"):
+                vram_api.post(self, svc, path)
                 return
             if path == voice_avatar.BASE or path.startswith(voice_avatar.BASE + "/"):
                 voice_avatar.post(self, path)
