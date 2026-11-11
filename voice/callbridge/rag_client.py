@@ -141,7 +141,7 @@ class Knowledge:
         if not self.enabled:
             return
         try:
-            self._client(5.0).post(WARM, {})
+            self._client(5.0).post(WARM, {"archives": self.archives})
         except ApiError as e:
             log.info("the archive search could not be warmed: %s", e)
 

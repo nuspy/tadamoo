@@ -57,7 +57,7 @@ def route(handler, vr: VoiceRag, method: str) -> None:
         if path == BASE + "/passages":
             return handler._json(200, vr.passages(req))
         if path == BASE + "/warm":
-            return handler._json(200, vr.warm())
+            return handler._json(200, vr.warm(req))
         if path == BASE + "/ask":
             return handler._json(200, vr.ask(req))
         if path == BASE + "/index":

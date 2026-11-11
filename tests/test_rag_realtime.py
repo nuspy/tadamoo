@@ -175,3 +175,20 @@ def test_the_block_goes_with_a_closing_for_the_ears_or_for_the_screen_and_a_rela
 @pytest.mark.parametrize("function", ["copilot", "meeting", "call", "avatar", "minutes"])
 def test_every_function_has_a_budget(function):
     assert realtime.BUDGET_S[function] > 0
+
+
+def test_the_second_vectors_are_read_once_until_they_change_and_a_warm_loads_them(tmp_path, monkeypatch):
+    rag, (boats, rice) = make(tmp_path)
+    vectors_for(rag, [boats])
+    reads = []
+    real = realtime.read_vectors
+    monkeypatch.setattr(realtime, "read_vectors", lambda folder, chunks: reads.append(folder.name) or real(folder, chunks))
+    s = realtime.Searcher(rag, lambda: Small())
+    assert s.warm([boats]) is True and reads == [boats]
+    for _ in range(3):
+        assert s.search([boats], "the keel of the boat")["profile"] == "hybrid-small"
+    assert reads == [boats]                                                          # not read again for each question
+    realtime.build(rag, boats, Small())                                              # rebuilt: the note changed
+    s.search([boats], "the keel of the boat")
+    assert reads == [boats, boats]
+    assert realtime.Searcher(rag, lambda: None).warm([boats]) is False

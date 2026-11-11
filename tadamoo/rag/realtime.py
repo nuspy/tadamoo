@@ -160,9 +160,16 @@ class Searcher:
         self._pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="rag-rt")
         self._running = 0
         self._lock = threading.Lock()
+        self._vectors: Dict[str, Any] = {}               # id -> (stamp, what `read_vectors` found): the file is read again only when it changed
 
-    def warm(self) -> bool:
-        """Loads the worker and the model now (a meeting or a call is starting). False when there is no small model."""
+    def warm(self, ids: Sequence[str] = ()) -> bool:
+        """Loads the worker and the model now, and the archives `ids` with their word index and second vectors (a meeting or a call is starting). False when there is no small model."""
+        self._views(ids)
+        for aid in ids:
+            try:
+                self.store.load(aid).index()
+            except RagError:
+                continue
         emb = self.embedder()
         if emb is None:
             return False
@@ -181,13 +188,24 @@ class Searcher:
             except RagError:
                 continue
             loaded.append(a)
-            got = read_vectors(self.store.root / aid, a.chunks)
+            got = self._read(aid, a)
             if got is not None:
                 views.append(View(a, got["vectors"], got["model"]))
             else:
                 views.append(a)
                 missing.append(a.meta["id"])
         return loaded, views, missing
+
+    def _read(self, aid: str, archive: Any) -> Optional[Dict[str, Any]]:
+        note = self.store.root / aid / META
+        try:
+            stamp = (id(archive), len(archive.chunks), note.stat().st_mtime_ns)
+        except OSError:
+            return None
+        held = self._vectors.get(aid)
+        if held is None or held[0] != stamp:
+            held = self._vectors[aid] = (stamp, read_vectors(self.store.root / aid, archive.chunks))
+        return held[1]
 
     def words(self, archives: Sequence[Any], query: str, top_k: int, min_share: float = 0.0) -> Dict[str, Any]:
         return q.run(list(archives), None, query, top_k, min_share, {"rerank": False})

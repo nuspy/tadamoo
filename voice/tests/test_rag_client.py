@@ -69,7 +69,7 @@ def test_nothing_is_asked_for_a_short_utterance_or_without_archives():
     off, api2 = know(archives=())
     assert not off.enabled and off.fetch("how does the keel of a sloop work").block == "" and api2.calls == []
     k.warm()
-    assert api.sent(rag_client.WARM) == [{}] and off.warm() is None and api2.calls == []
+    assert api.sent(rag_client.WARM) == [{"archives": ["boats-1"]}] and off.warm() is None and api2.calls == []
     minutes, api3 = know(function="minutes")
     assert minutes.fetch("keel").block == BLOCK and api3.sent(rag_client.PASSAGES)[0]["budget_ms"] == 20000        # a minutes segment is searched whatever its length
 

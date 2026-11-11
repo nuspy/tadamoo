@@ -124,9 +124,12 @@ class VoiceRag:
         out["block"] = rt_block.build(lines, how == "speech", routed)
         return out
 
-    def warm(self) -> Dict[str, Any]:
-        """Starts the small embedder in the background: a meeting or a call is about to begin."""
-        threading.Thread(target=self.searcher.warm, name="rag-rt-warm", daemon=True).start()
+    def warm(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """Starts the small embedder in the background, with the archives the function will use: a meeting or a call is about to begin."""
+        ids = _ids(req.get("archives"), "archives")
+        if self.indexer is not None:
+            self.indexer.ensure(ids)
+        threading.Thread(target=self.searcher.warm, args=(ids,), name="rag-rt-warm", daemon=True).start()
         return {"warming": True}
 
     # -- the questions -----------------------------------------------------------------------------------
