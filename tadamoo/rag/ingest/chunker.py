@@ -176,9 +176,11 @@ def _clip(text: str) -> str:
     return text if len(text) <= PATH_CHARS else text[:PATH_CHARS - 1] + "…"
 
 
-def chunk_blocks(blocks: Sequence[Dict[str, Any]], title: str, valleys: Optional[Valleys] = None) -> Dict[str, Any]:
+def chunk_blocks(blocks: Sequence[Dict[str, Any]], title: str, valleys: Optional[Valleys] = None, target: int = TARGET, hard: int = HARD) -> Dict[str, Any]:
     """`{"chunks": [...], "sections": [...]}` for the blocks of one document called `title`. A chunk is `{text, path, page_start, page_end, kind,
-    section}`; a section is `{id, parent, path, level, page_start, page_end, text}` (ids are local to the document: `s0` is the document itself)."""
+    section}`; a section is `{id, parent, path, level, page_start, page_end, text}` (ids are local to the document: `s0` is the document itself). `target` and `hard`
+    are the sizes in tokens (the settings `chunk_target` and `chunk_hard` of tadamoo/rag/settings.py)."""
+    min_merge = min(MIN_MERGE, target // 2)
     title = _clip(title) or "document"
     root = Section("s0", "", title, 0, 0)
     sections: List[Section] = [root]
@@ -205,23 +207,23 @@ def chunk_blocks(blocks: Sequence[Dict[str, Any]], title: str, valleys: Optional
         section.add(text, page, flag)
         if kind == "table":
             flush()
-            for piece in split_table(text):
+            for piece in split_table(text, target, hard):
                 emit(piece, "table", (page, page), section, flag)
             return
         if kind == "code":
             flush()
-            for piece in ([text] if tokens(text) <= HARD else _split_lines(text, TARGET, HARD)):
+            for piece in ([text] if tokens(text) <= hard else _split_lines(text, target, hard)):
                 emit(piece, "code", (page, page), section, flag)
             return
         size = tokens(text)
-        if size > HARD:
+        if size > hard:
             flush()
-            pieces = _split_list(text, TARGET, HARD) if kind == "list" else split_prose(text, TARGET, HARD, valleys)
+            pieces = _split_list(text, target, hard) if kind == "list" else split_prose(text, target, hard, valleys)
             for piece in pieces:
                 emit(piece, "list" if kind == "list" else "text", (page, page), section, flag)
             return
         have = sum(tokens(t) for t, _, _, _ in buf)
-        if buf and (buf[0][3] != flag or (have + size > TARGET and not (have < MIN_MERGE and have + size <= HARD))):
+        if buf and (buf[0][3] != flag or (have + size > target and not (have < min_merge and have + size <= hard))):
             flush()                                                     # a flagged passage is never merged with one that is not
         buf.append((text, page, "list" if kind == "list" else "text", flag))
 
