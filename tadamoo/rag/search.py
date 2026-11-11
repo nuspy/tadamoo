@@ -1,4 +1,5 @@
-"""Ranking passages: BM25 on words (always available) and cosine over embeddings (when there are any), merged by reciprocal rank."""
+"""Ranking passages: BM25 on words (always available) and cosine over embeddings (when there are any). `fuse` merges rankings by reciprocal rank; the
+search does not use it (tadamoo/rag/query.py), the retrieval test (tools/rag_eval.py) does, to show why."""
 from __future__ import annotations
 
 import re
@@ -11,7 +12,6 @@ import numpy as np
 
 K1, B = 1.5, 0.75
 RRF_K = 60
-MIN_COSINE = 0.2                  # a vector hit below this is too far from the question to count
 _WORD = re.compile(r"\w+", re.UNICODE)
 
 
