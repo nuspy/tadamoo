@@ -33,7 +33,7 @@ from tadamoo.rag.ingest import chunker, extraction_of, formats, normalize, read_
 from tadamoo.rag.project import is_key
 from tadamoo.rag.settings import RagSettings
 
-SPEAK = ("ask", "allow", "deny")          # may an archive's content be spoken before other people: ask each time, always, never
+OTHERS = ("ask_dialog", "allow", "deny", "ask_voice")      # may an archive's content be said, written or shown to other people: ask in a dialog (default), always, never, ask aloud
 LIMITS = {"name": 60, "description": 500, "archives": 50, "documents": 1000, "document_bytes": 200 << 20, "document_chars": 40_000_000, "chunks": 200_000, "top_k": 20}
 TOP_K = 4
 ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
@@ -73,9 +73,9 @@ def _extraction(meta: Dict[str, Any]) -> str:
     return "" if not kinds else kinds.pop() if len(kinds) == 1 else "mixed"
 
 
-def speak_of(meta: Dict[str, Any]) -> str:
-    """Whether the archive's content may be spoken before other people: `ask` (the default), `allow` or `deny`."""
-    return meta["speak_ok"] if meta.get("speak_ok") in SPEAK else "ask"
+def others_of(meta: Dict[str, Any]) -> str:
+    """Whether the archive's content may be said, written or shown to other people: `ask_dialog` (the default), `allow`, `deny` or `ask_voice`."""
+    return meta["others_ok"] if meta.get("others_ok") in OTHERS else "ask_dialog"
 
 
 def _copy(meta: Dict[str, Any]) -> Dict[str, Any]:
@@ -238,7 +238,7 @@ class RagStore:
                 "rechunk": bool(meta["documents"]) and meta.get("ingest") != INGEST}
 
     def _summary(self, meta: Dict[str, Any]) -> Dict[str, Any]:
-        return {"id": meta["id"], "name": meta["name"], "description": meta["description"], "project": meta.get("project", ""), "project_name": meta.get("project_name", ""), "cloud_ok": bool(meta.get("cloud_ok")), "speak_ok": speak_of(meta), "created": meta["created"],
+        return {"id": meta["id"], "name": meta["name"], "description": meta["description"], "project": meta.get("project", ""), "project_name": meta.get("project_name", ""), "cloud_ok": bool(meta.get("cloud_ok")), "others_ok": others_of(meta), "created": meta["created"],
                 "updated": meta["updated"], "documents": len(meta["documents"]), "chunks": meta["chunks"], "bytes": sum(d["bytes"] for d in meta["documents"]),
                 "flagged": sum(d.get("flagged", 0) for d in meta["documents"]), "extraction": _extraction(meta), **self.status(meta)}
 
@@ -294,13 +294,13 @@ class RagStore:
             aid = f"{slug_of(name) or 'archive'}-{secrets.token_hex(3)}"
             now = self.clock()
             meta = {"id": aid, "name": name, "description": description, "project": project, "project_name": str(project_name or "").strip()[:LIMITS["name"]],
-                    "cloud_ok": False, "speak_ok": "ask", "created": now, "updated": now, "chunks": 0,
+                    "cloud_ok": False, "others_ok": "ask_dialog", "created": now, "updated": now, "chunks": 0,
                     "embed_model": "", "embed_dim": 0, "embed_version": "", "ingest": dict(INGEST), "documents": []}
             self._put_meta(self._dir(aid), meta)
             return self.get(aid)
 
     def update(self, aid: Any, data: Dict[str, Any]) -> Dict[str, Any]:
-        extra = [k for k in data if k not in ("name", "description", "cloud_ok", "speak_ok")]
+        extra = [k for k in data if k not in ("name", "description", "cloud_ok", "others_ok")]
         if extra:
             raise RagError("unknown field: " + ", ".join(sorted(map(str, extra))[:5]))
         with self._lock:
@@ -316,10 +316,10 @@ class RagStore:
                 if not isinstance(data["cloud_ok"], bool):
                     raise RagError("cloud_ok: true or false")
                 meta["cloud_ok"] = data["cloud_ok"]
-            if "speak_ok" in data:
-                if data["speak_ok"] not in SPEAK:
-                    raise RagError("speak_ok: ask, allow or deny")
-                meta["speak_ok"] = data["speak_ok"]
+            if "others_ok" in data:
+                if data["others_ok"] not in OTHERS:
+                    raise RagError("others_ok: ask_dialog, allow, deny or ask_voice")
+                meta["others_ok"] = data["others_ok"]
             meta["updated"] = self.clock()
             self._put_meta(folder, meta)
             return self.get(aid)

@@ -3,10 +3,10 @@
 `resolve(store, context)` answers for every function that may draw on archives (the agent, a meeting, the copilot, a call, the avatar, a plan
 step, a routine): the archives it may use, each with its name, and the archives left out with the reason. It never takes the caller's word for where
 the model runs or who listens: a model call that leaves this PC is worked out from the providers registry (the caller may only make it stricter), and
-a function that speaks to other people (meeting, call) always has an audience of others.
+a function whose output other people perceive (meeting, call) always has an audience of others; the private copilot never does.
 
 The context is a dict: `function`, the ids it needs (`session`, `plan` and `node`, `routine`, `meeting`), `project` (a project key), `attached`
-(archive ids), `routed_to_cloud`, `audience` (`me` or `others`), `granted` (archive ids the person agreed just now to have spoken)."""
+(archive ids), `routed_to_cloud`, `audience` (`me` or `others`), `granted` (archive ids the person agreed just now to have said to others)."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -14,21 +14,23 @@ from typing import Any, Callable, Dict, List, Mapping, Optional
 
 from tadamoo.rag.errors import RagError
 from tadamoo.rag.project import is_key, project_key
-from tadamoo.rag.store import RagStore, speak_of
+from tadamoo.rag.store import RagStore, others_of
 
 FUNCTIONS = ("agent", "meeting", "copilot", "call", "avatar", "plan_node", "routine")
 ROUTE_OF = {"agent": "executor", "plan_node": "executor", "routine": "executor"}     # the llm function whose route the model call takes; the others use the loaded model
-SPOKEN_TO_OTHERS = ("meeting", "call")                                                # speech heard by third parties whatever the caller says
-USE, ASK = "use", "ask"
-WHY = {"cloud": "not cleared for cloud models", "speak": "not cleared to be spoken before others", "missing": "no longer exists"}
+ALWAYS_OTHERS = ("meeting", "call")                                                   # what these produce is perceived by other people whatever the caller says
+NEVER_OTHERS = ("copilot",)                                                           # shown only to the person
+ALLOW, DENY, ASK_DIALOG, ASK_VOICE = "allow", "deny", "ask_dialog", "ask_voice"
+WHY = {"cloud": "not cleared for cloud models", "others": "not cleared to be said, written or shown to other people", "missing": "no longer exists"}
 
 Source = Callable[[Dict[str, Any]], Any]
 
 
 @dataclass
 class Resolution:
-    """The answer: `archives` (each `{id, name, project_name, description, documents, cloud_ok, speak_ok, verdict, via}`; verdict `use` or `ask`,
-    `ask` meaning the person must agree before it is spoken) and `blocked` (`{id, name, project_name, codes, reason}`)."""
+    """The answer: `archives` (each `{id, name, project_name, description, documents, cloud_ok, others_ok, verdict, via}`; the verdict is `allow`,
+    or `ask_dialog` / `ask_voice` when the person must agree before it is said, written or shown to others, and in which way to ask) and `blocked`
+    (`{id, name, project_name, codes, reason, verdict: "deny"}`: left out because of the cloud rule or because the archive says no to others)."""
     function: str
     project: str = ""
     routed_to_cloud: bool = False
@@ -39,19 +41,27 @@ class Resolution:
     @property
     def ids(self) -> List[str]:
         """The archives to use now."""
-        return [a["id"] for a in self.archives if a["verdict"] == USE]
+        return [a["id"] for a in self.archives if a["verdict"] == ALLOW]
 
     @property
     def ask(self) -> List[str]:
-        """The archives that wait for the person's yes before they are spoken."""
-        return [a["id"] for a in self.archives if a["verdict"] == ASK]
+        """The archives that wait for the person's yes (either way of asking)."""
+        return [a["id"] for a in self.archives if a["verdict"] != ALLOW]
 
-    def names(self, verdict: str = USE) -> List[str]:
+    @property
+    def ask_dialog(self) -> List[str]:
+        return [a["id"] for a in self.archives if a["verdict"] == ASK_DIALOG]
+
+    @property
+    def ask_voice(self) -> List[str]:
+        return [a["id"] for a in self.archives if a["verdict"] == ASK_VOICE]
+
+    def names(self, verdict: str = ALLOW) -> List[str]:
         return [a["name"] for a in self.archives if a["verdict"] == verdict]
 
     def to_dict(self) -> Dict[str, Any]:
         return {"function": self.function, "project": self.project, "routed_to_cloud": self.routed_to_cloud, "audience": self.audience,
-                "archives": self.archives, "blocked": self.blocked, "ids": self.ids, "ask": self.ask}
+                "archives": self.archives, "blocked": self.blocked, "ids": self.ids, "ask_dialog": self.ask_dialog, "ask_voice": self.ask_voice}
 
 
 def routes_outside(function: str, registry: Any = None) -> bool:
@@ -89,7 +99,7 @@ def resolve(store: RagStore, context: Mapping[str, Any], sources: Optional[Mappi
         project = project_key(record["workspace"]) if record.get("workspace") else project
         attached = _ids(record.get("knowledge"))
     cloud = bool(context.get("routed_to_cloud")) or bool(leaves_pc(function))
-    audience = "others" if function in SPOKEN_TO_OTHERS or context.get("audience") == "others" else "me"
+    audience = "others" if function in ALWAYS_OTHERS or (context.get("audience") == "others" and function not in NEVER_OTHERS) else "me"
     granted = set(_ids(context.get("granted")))
     out = Resolution(function, project, cloud, audience)
 
@@ -108,20 +118,20 @@ def resolve(store: RagStore, context: Mapping[str, Any], sources: Optional[Mappi
         try:
             meta = store.meta(aid)
         except RagError:
-            out.blocked.append({"id": aid, "name": aid, "project_name": "", "codes": ["missing"], "reason": WHY["missing"]})
+            out.blocked.append({"id": aid, "name": aid, "project_name": "", "codes": ["missing"], "reason": WHY["missing"], "verdict": DENY})
             continue
         row = {"id": aid, "name": meta["name"], "project_name": meta.get("project_name", ""), "description": meta.get("description", ""),
-               "documents": len(meta["documents"]), "cloud_ok": bool(meta.get("cloud_ok")), "speak_ok": speak_of(meta), "via": via}
+               "documents": len(meta["documents"]), "cloud_ok": bool(meta.get("cloud_ok")), "others_ok": others_of(meta), "via": via}
         codes = []
         if cloud and not row["cloud_ok"]:
             codes.append("cloud")
-        if audience == "others" and row["speak_ok"] == "deny":
-            codes.append("speak")
+        if audience == "others" and row["others_ok"] == DENY:
+            codes.append("others")
         if codes:
-            out.blocked.append({k: row[k] for k in ("id", "name", "project_name")} | {"codes": codes, "reason": "; ".join(WHY[c] for c in codes)})
+            out.blocked.append({k: row[k] for k in ("id", "name", "project_name")} | {"codes": codes, "reason": "; ".join(WHY[c] for c in codes), "verdict": DENY})
         else:
-            ask = audience == "others" and row["speak_ok"] == "ask" and aid not in granted
-            out.archives.append({**row, "verdict": ASK if ask else USE})
+            ask = audience == "others" and row["others_ok"] in (ASK_DIALOG, ASK_VOICE) and aid not in granted
+            out.archives.append({**row, "verdict": row["others_ok"] if ask else ALLOW})
     return out
 
 
