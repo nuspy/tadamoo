@@ -3,6 +3,7 @@ around what it found, or the outline of a long document (`read`). The answers ar
 are text written by someone else, so the tools that carry them are marked untrusted and the flagged ones say so."""
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from tadamoo.rag import card
@@ -118,6 +119,8 @@ def search(store: RagStore, recall: ProjectRecall, query: Any = "", queries: Any
             break
         row = {"cite": citation(h), "archive": h["archive"], "document": h["document"], "page": h.get("page_start") or None, "section": h.get("path", ""),
                "score": h["score"], "text": text}
+        if h.get("kind") == "figure":                         # a figure: the handle to look at it, with its label and caption
+            row["figure"] = {"id": f"{h['archive_id']}:{h['doc_id']}:{h.get('fig')}", "label": h.get("figure", ""), "caption": h.get("caption", "")}
         if h.get("summary"):
             row["summary"] = h["summary"]
         if h.get("facts"):
@@ -171,6 +174,54 @@ def read(store: RagStore, recall: ProjectRecall, document: Any, pages: Any = "",
         return {"status": "ok", **got}
     except RagError as e:
         return {"status": "error", "note": str(e)}
+
+
+def figure_id(text: Any) -> Optional[Tuple[str, str, int]]:
+    """`(archive id, document id, figure number)` from the handle a figure hit carries (`<archive>:<document>:<n>`), or None."""
+    parts = str(text or "").strip().split(":")
+    if len(parts) != 3 or not parts[2].isdigit():
+        return None
+    return parts[0], parts[1], int(parts[2])
+
+
+def figure(store: RagStore, recall: ProjectRecall, id: Any, workspace: Optional[Path] = None) -> Dict[str, Any]:
+    """The figure a hit named: its citation, caption, what a model said it shows, the words read inside it and what the document says of it, and, when the conversation
+    has a working folder, a PNG copy of the image in `.tadamoo/artifacts/figures/` (`path`) that the model can look at (`analyze_image`), show in the answer (`show`) or put in
+    a document. A figure of an archive this route may not carry is not given."""
+    got = figure_id(id)
+    if got is None:
+        return {"status": "error", "note": "id: the `figure.id` of a knowledge_search result, such as `archive-id:d1a2b3c4:7`"}
+    aid, doc_id, n = got
+    if aid not in recall.ids():
+        return {"status": "none", "note": "no archive of this conversation has that figure: search for it with knowledge_search first"}
+    if aid not in recall.permit([aid]):
+        return {"status": "withheld", "note": "this archive is not cleared for the model this conversation uses: its figures are not given"}
+    try:
+        found = store.figure(aid, doc_id, n)
+    except RagError as e:
+        return {"status": "none", "note": str(e)}
+    row = found["passage"]
+    page = int(row.get("page_start") or 0)
+    label = row.get("figure") or "Figure"
+    cite = citation({**row, "archive": found["archive"], "document": found["document"]})
+    out: Dict[str, Any] = {"status": "ok", "cite": cite, "document": found["document"], "page": page or None, "label": label, "caption": row.get("caption", ""),
+                           "text": row["text"], **({"description": row["summary"]} if row.get("summary") else {}), **({"questions": row["questions"]} if row.get("questions") else {})}
+    credit = f"{row.get('caption') or label} (source: {found['document']}{', p. ' + str(page) if page else ''})"
+    out["credit"] = credit
+    if workspace is None:
+        return {**out, "note": "there is no working folder to copy the image to"}
+    try:
+        from PIL import Image
+        target = Path(workspace) / ".tadamoo" / "artifacts" / "figures" / f"{aid}-{doc_id}-{n}.png"
+        if not target.is_file():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with Image.open(found["path"]) as image:
+                image.convert("RGB").save(target, "PNG", optimize=True)
+        rel = target.relative_to(Path(workspace)).as_posix()
+    except Exception as e:
+        return {**out, "note": f"the image could not be copied ({type(e).__name__})"}
+    return {**out, "path": rel, "show": f"show it in the answer with ![{credit}](tadamoo-path:{rel})",
+            "look": "to see it yourself call analyze_image with this path and your question (a crop of a region gives more detail)"}
 
 
 def documents_of(store: RagStore, ids: Sequence[str]) -> Dict[str, List[Dict[str, Any]]]:

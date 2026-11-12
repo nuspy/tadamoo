@@ -4,6 +4,8 @@
 
 Lines:  {"event": "start", "format", "pages", "device", "from_page"}  {"event": "progress", "page", "pages", "device"}  {"event": "blocks", "blocks": [...]}
         {"event": "skipped", "page", "message"}  {"event": "empty", "page", "reason": "image"|"text"|"unknown"}  {"event": "done", "pages", "device"}
+        {"event": "figures", "figures": [{"page", "box": [x0, y0, x1, y1], "caption", "kind"}]}: the pictures and charts Docling found, each with its place on the page
+        as fractions of the page (top left is 0, 0) and the caption Docling linked to it.
         or  {"event": "error", "message"}. `empty` is a page that came out with no text although it has a picture or a text layer.
 
 A block is `{type: heading|paragraph|list|table|code|caption|footnote|page_break, text, page, level?}`, a table as Markdown. A big PDF is
@@ -162,6 +164,32 @@ def blocks_of(document, offset: int = 0) -> list:
     return out
 
 
+def figures_of(document) -> list:
+    """The pictures and charts of a converted Docling document: `{page, box, caption, kind}`, the box as fractions of the page with the origin at the top left, so
+    whoever draws the page at any size can cut the figure out."""
+    out: list = []
+    for item, _ in document.iterate_items():
+        label = getattr(getattr(item, "label", None), "value", "") or ""
+        prov = getattr(item, "prov", None) or []
+        if label not in ("picture", "chart") or not prov:
+            continue
+        try:
+            page = document.pages[int(prov[0].page_no)]
+            width, height = float(page.size.width), float(page.size.height)
+            box = prov[0].bbox.to_top_left_origin(height)
+            x0, x1 = sorted((box.l / width, box.r / width))
+            y0, y1 = sorted((box.t / height, box.b / height))
+        except Exception:
+            continue
+        try:
+            caption = (item.caption_text(document) or "").strip()
+        except Exception:
+            caption = ""
+        out.append({"page": int(prov[0].page_no), "box": [round(max(0.0, x0), 4), round(max(0.0, y0), 4), round(min(1.0, x1), 4), round(min(1.0, y1), 4)],
+                    "caption": caption[:400], "kind": label})
+    return out
+
+
 def build_converter(device: str):
     from docling.datamodel.accelerator_options import AcceleratorOptions
     from docling.datamodel.base_models import InputFormat
@@ -193,6 +221,7 @@ class Reader:
     def __init__(self, path: str, device: str) -> None:
         self.path, self.device = path, device
         self.converter = build_converter(device)
+        self.figures: list = []                                  # the figures of the pages converted since they were last printed
 
     def rebuild(self, device: str) -> None:
         self.converter = None
@@ -203,9 +232,16 @@ class Reader:
     def convert(self, first: int, last: int) -> list:
         result = self.converter.convert(self.path, page_range=(first, last))
         try:
-            return blocks_of(result.document)
+            blocks = blocks_of(result.document)
+            self.figures += figures_of(result.document)
+            return blocks
         finally:
             del result
+
+    def emit_figures(self) -> None:
+        if self.figures:
+            emit({"event": "figures", "figures": self.figures})
+            self.figures = []
 
     def page(self, number: int) -> tuple:
         """(blocks, "") for one page, tried `PAGE_TRIES` times: again as it is, then with a new converter, then with a new converter on the CPU.
@@ -309,6 +345,7 @@ def main() -> int:
                                 emit({"event": "empty", "page": number, "reason": kind})
                     total = max([total] + [b["page"] for b in blocks])
                     emit({"event": "blocks", "blocks": blocks})
+                    reader.emit_figures()
                     emit({"event": "progress", "page": last, "pages": pages, "device": reader.device})
                     continue
                 for number in range(first, last + 1):             # one page, or a window that failed: its pages one by one
@@ -317,13 +354,16 @@ def main() -> int:
                         emit({"event": "skipped", "page": number, "message": message})
                     else:
                         emit({"event": "blocks", "blocks": got})
+                        reader.emit_figures()
                         if not pages_of(got) and what_is_on(args.file, number) != "blank":
                             emit({"event": "empty", "page": number, "reason": what_is_on(args.file, number)})
                     emit({"event": "progress", "page": number, "pages": pages, "device": reader.device})
         else:
-            blocks = blocks_of(reader.converter.convert(args.file).document)
+            document = reader.converter.convert(args.file).document
+            blocks = blocks_of(document)
             total = max([0] + [b["page"] for b in blocks])
             emit({"event": "blocks", "blocks": blocks})
+            emit({"event": "figures", "figures": figures_of(document)})
         emit({"event": "done", "pages": pages or total, "device": reader.device})
         return 0
     except Exception as exc:                                   # the reader says what went wrong; the caller tries again or falls back

@@ -16,10 +16,10 @@ FILE = "settings.json"
 DEFAULTS: Dict[str, Any] = {"docling_python": "", "docling_device": "auto", "flagged": "keep",
                             "embed_enabled": True, "embed_python": "", "embed_models_dir": "", "embed_model": "", "rerank": True, "rerank_model": "",
                             "lexical_weight": 0.05, "min_cosine": 0.3, "min_rerank": 0.2, "idle_s": 120,
-                            "enrich_language": "Italian", "enrich_batch": 5, "chunk_target": 350, "chunk_hard": 600}
+                            "enrich_language": "Italian", "enrich_batch": 5, "figures": True, "chunk_target": 350, "chunk_hard": 600}
 FLAGGED = ("keep", "drop")
 DEVICES = ("auto", "cpu")
-FLAGS = ("embed_enabled", "rerank")
+FLAGS = ("embed_enabled", "rerank", "figures")
 PATHS = ("docling_python", "embed_python")
 NAMES = ("embed_model", "rerank_model")                 # the name of a model folder, not a path
 RANGES = {"lexical_weight": (0.0, 0.3), "min_cosine": (0.0, 0.9), "min_rerank": (0.0, 0.95), "idle_s": (10, 3600), "enrich_batch": (1, 12), "chunk_target": (100, 3000), "chunk_hard": (150, 6000)}

@@ -31,7 +31,12 @@ def of_document(doc: Dict[str, Any], chunks: Iterable[Dict[str, Any]], pages: in
     rows = list(chunks)
     expected = int(doc.get("pages") or 0) if pages < 0 else int(pages)
     skipped = sorted({int(n) for n in doc.get("skipped_pages") or []})
-    empty = sorted({int(n) for n in doc.get("empty_pages") or []})
+    figure_rows = [c for c in rows if c.get("kind") == "figure"]
+    text_pages = {p for c in rows if c.get("kind") != "figure" for p in range(int(c.get("page_start") or 0), max(int(c.get("page_start") or 0), int(c.get("page_end") or 0)) + 1)}
+    reader_empty = {int(n) for n in doc.get("empty_pages") or []}
+    on_figures = {int(c["page_start"]) for c in figure_rows if int(c.get("page_start") or 0) > 0}
+    figure_pages = sorted(n for n in on_figures if n in reader_empty or n not in text_pages)                 # pages whose only content is a figure
+    empty = sorted(reader_empty - set(figure_pages))                                                           # a page that gave no text but whose figure was kept is not an empty page
     covered = set()
     for c in rows:
         first, last = int(c.get("page_start") or 0), int(c.get("page_end") or 0)
@@ -53,7 +58,7 @@ def of_document(doc: Dict[str, Any], chunks: Iterable[Dict[str, Any]], pages: in
     flagged = sum(1 for c in rows if c.get("flag"))
     status = INCOMPLETE if (not rows or skipped) else CHECK if (empty or uncovered) else OK
     return {"pages": expected, "covered": len(covered) if expected else 0, "uncovered": uncovered[:SHOWN], "empty": empty[:SHOWN], "skipped": skipped[:SHOWN],
-            "passages": len(rows), "flagged": flagged, "status": status, "problems": problems}
+            "passages": len(rows), "flagged": flagged, "status": status, "problems": problems, "figures": len(figure_rows), "figure_pages": figure_pages[:SHOWN]}
 
 
 def of_archive(documents: Sequence[Dict[str, Any]], failed: Sequence[Dict[str, Any]] = ()) -> Dict[str, Any]:

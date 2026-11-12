@@ -918,7 +918,7 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         from tadamoo.rag.remote import server_search
         rag_store.remote = server_search(cfg.endpoint, cfg.api_key, context=lambda: {"function": "agent", "routed_to_cloud": not getattr(client, "stays_local", lambda: True)()})        # the server holds the embedding model: its search is semantic
         project_recall = ProjectRecall(rag_store, cfg.rag_project, local=lambda: getattr(client, "stays_local", lambda: True)(), attached=cfg.rag_attached)
-        register_knowledge_tools(registry, rag_store, project_recall)
+        register_knowledge_tools(registry, rag_store, project_recall, workspace)
         from tadamoo.rag.sync_tools import register_sync_tools, server_call
         register_sync_tools(registry, rag_store, project_recall, server_call(cfg.endpoint, cfg.api_key))       # the server runs the refresh: it holds the model and the guards
     from tadamoo.rag.ingest.reading import register_document_tools

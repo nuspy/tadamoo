@@ -93,6 +93,14 @@ class Plan(unittest.TestCase):
         shorter = {**TIGHT, "commit_limit_max": TIGHT["commit_limit"] - 1}                         # a maximum below the size now adds nothing
         self.assertFalse(loader.plan(loader.SAFE, F, shorter)["commit"]["counts_page_file_max"])
 
+    @unittest.skipUnless(os.name == "nt", "the page file maximum is read from the Windows registry")
+    def test_the_system_reading_carries_the_page_file_maximum_by_default_and_not_when_turned_off(self):
+        with mock.patch.dict(os.environ, {"TADAMOO_DATA": tempfile.mkdtemp()}):
+            reading = loader.system_now()
+            self.assertGreaterEqual(reading.get("commit_limit_max") or 0, reading["commit_limit"])
+            loader.save_machine_settings({"commit_counts_page_file_max": False})
+            self.assertNotIn("commit_limit_max", loader.system_now())
+
     def test_the_running_engine_s_memory_counts_as_free(self):
         p = loader.plan(loader.SAFE, F, TIGHT, holds={"ram": 40 * GiB, "commit": 70 * GiB}, holds_vram=0)
         self.assertTrue(p["fits"], p["problems"])

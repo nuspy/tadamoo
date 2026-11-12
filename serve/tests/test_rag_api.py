@@ -406,3 +406,10 @@ def test_search_with_a_context_leaves_out_what_the_route_may_not_carry(tmp_path)
     assert {h["archive_id"] for h in by_project["hits"]} == {a}
     with pytest.raises(RagError):
         api.search({"query": "sloop", "archives": [a], "context": "agent"})
+
+
+class EnrichIsWired(unittest.TestCase):
+    def test_the_server_gives_the_archive_api_a_model_to_describe_with(self):
+        source = (Path(__file__).resolve().parents[1] / "handler.py").read_text(encoding="utf-8")
+        self.assertIn('describer=describer', source)
+        self.assertIn('llm.client_for("rag_enrich"', source)

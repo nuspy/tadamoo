@@ -26,7 +26,7 @@ controls are not addressable and not listed.
 | `docx_outline(path, detail?)` | pure | Headings with level and address, paragraphs per section, tables (address, rows x columns, first row), image and comment counts, tracked changes present. `detail` lists every paragraph with style and a short preview. |
 | `docx_read(path, target)` | pure | The full text at an address: paragraph or range with style and the bold and italic stretches, a table as Markdown, a cell. |
 | `docx_edit(path, edits, track_changes?)` | reversible | Several edits in one call, applied together. |
-| `docx_create(path, blocks, overwrite?)` | reversible | A new document from blocks: `heading` (level 0 is the title), `paragraph` (`bold`, `italic`, `style`), `bullet`, `numbered`, `table` (`rows`, `header`, `style`), `page_break`. Refuses an existing file unless `overwrite` is true. |
+| `docx_create(path, blocks, overwrite?)` | reversible | A new document from blocks: `heading` (level 0 is the title), `paragraph` (`bold`, `italic`, `style`), `bullet`, `numbered`, `table` (`rows`, `header`, `style`), `picture` (`image`, `caption?`, `width_cm?`, `alt?`, `numbered?`), `page_break`. Refuses an existing file unless `overwrite` is true. |
 
 `docx_outline` and `docx_read` are marked untrusted: a document may come from outside, so its text is returned in a data block
 (`tadamoo/untrusted.py`) like attachments and web pages, and is data, not instructions.
@@ -46,6 +46,7 @@ Each edit is an object with a `kind`:
 | `delete_table_row` | `table`, `row` |
 | `add_comment` | `target`, `text`, `author?` (default TaDaMoo), `find?` to anchor on exact words |
 | `set_style` | `target` (paragraphs or a table), `style` |
+| `insert_picture` | `after` or `before` (`pN`, `tN`, `end`, `start`), `image` (a PNG, JPEG, GIF, BMP or TIFF file of the workspace; a WebP file is refused: convert it), `caption?`, `width_cm?` (default 14, cut to the width of the text), `alt?`, `numbered?` (default true) |
 
 Rules:
 
@@ -57,6 +58,10 @@ Rules:
   the original, so an error at any step leaves the original untouched.
 - **`replace_text` keeps formatting.** The new text goes into the first run the match touches, so it keeps that run's formatting;
   a match that spans several runs (or a tab or line break) is handled. A new line in `replace` or `text` becomes a line break.
+- **Pictures** (`insert_picture`, the `picture` block): a centred paragraph with the picture, `width_cm` wide at most as wide as the text, its alt text set (`alt`, else the caption), and under it the
+  caption in the `Caption` style when the document has one, written `Figure N - caption` where N follows the figures already in the document (`numbered: false` writes the caption as it is). With
+  `track_changes` both paragraphs are tracked insertions. The agent gets a picture from the knowledge archives with `knowledge_figure` (`docs/rag-figures.md`) and puts it after the paragraph that
+  discusses it, with the figure's `credit` line (`caption (source: document, p. N)`) as the caption. A picture file outside the workspace, missing, larger than 25 MB or of another kind is refused.
 - **New paragraphs** take the paragraph properties and the font of the paragraph they are next to, without bold and italic, unless
   that one is a heading, or `style` is given.
 - **Refused:** a paragraph that holds an image or object cannot be rewritten with `set_paragraph` (use `replace_text` for its words);

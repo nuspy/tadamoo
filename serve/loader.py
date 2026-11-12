@@ -192,6 +192,7 @@ def system_now(gpu_index: int = 0) -> dict:
            "commit_limit": mem.get("commit_limit"), "commit_used": mem.get("commit_used"),
            "vram_total": None, "vram_free": None}
     if os.name == "nt" and mem.get("ram_total") and counts_page_file_max():
+        from serve import hardware
         top = hardware.page_file_max_mib()
         if top:
             out["commit_limit_max"] = mem["ram_total"] + top * MiB
@@ -279,9 +280,9 @@ def free_share() -> float:
 
 
 def counts_page_file_max() -> bool:
-    """Whether the commit the plan counts is RAM plus the page file's MAXIMUM (the person's choice: Windows grows the file while the model loads) instead of
-    its size now; off until the person turns it on, because an allocation that arrives faster than the file grows stops a load."""
-    return machine_settings().get("commit_counts_page_file_max") is True
+    """Whether the commit the plan counts is RAM plus the page file's MAXIMUM (Windows grows the file while the model loads) instead of its size now. On unless
+    the person turns it off: an allocation that arrives faster than the file grows can stop a load."""
+    return machine_settings().get("commit_counts_page_file_max") is not False
 
 
 def free_share_chosen() -> float | None:
