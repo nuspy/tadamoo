@@ -86,7 +86,9 @@ class PersonalSkills:
 
     # -- writing -----------------------------------------------------------------------------------------
 
-    def _validate(self, spec: Dict[str, Any], script: str) -> Dict[str, Any]:
+    @staticmethod
+    def validate(spec: Dict[str, Any], script: str) -> Dict[str, Any]:
+        """The definition as it would be saved, or a SkillError naming what is wrong; nothing is written."""
         name = " ".join(str(spec.get("name", "")).split())
         if not name or len(name) > MAX_NAME:
             raise SkillError(f"Give the skill a name of up to {MAX_NAME} characters.")
@@ -109,7 +111,7 @@ class PersonalSkills:
 
     def save(self, spec: Dict[str, Any], script: str, slug: Optional[str] = None) -> Dict[str, Any]:
         """Saves a new skill, or a new version of `slug` (the old one is kept)."""
-        body = self._validate(spec, script)
+        body = self.validate(spec, script)
         with self._lock:
             if slug is None:
                 slug = self._free_slug(slugify(body["name"]))

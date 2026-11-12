@@ -218,3 +218,21 @@ def test_a_refreshed_document_keeps_what_a_model_wrote_for_its_unchanged_passage
     assert meta["enriched"]["passages"] == len(kept) and meta["enriched"]["total"] == len(after.chunks)
     enrich.Enricher(store, Model()).run(aid)                                                                              # the job asks only for what is not described
     assert all(c.get("summary") for c in store.load(aid).chunks) and doc_of(store, aid, "alpha").get("summary")
+
+
+class CutModel(Model):
+    """A model whose answer is cut (finish_reason length) whenever it is asked for more than two passages, with half a JSON as text."""
+
+    def chat_completion(self, messages, **kw):
+        body = json.loads(messages[1]["content"])
+        if len(body["passages"]) > 2:
+            self.calls.append(messages)
+            return {"choices": [{"message": {"content": '{"items": [{"n": 1, "summary": "cut'}, "finish_reason": "length"}], "usage": {}}
+        return super().chat_completion(messages, **kw)
+
+
+def test_an_answer_that_was_cut_is_asked_again_in_halves_and_never_read(tmp_path):
+    items = [{"n": i + 1, "text": f"Passage number {i} with enough words to be described by the model."} for i in range(5)]
+    got = enrich.Enricher(None, CutModel())._ask("system", items, None)
+    assert len(got) == 5 and all(g and g["summary"].startswith("Riassunto") for g in got)
+    assert all("cut" not in g["summary"] for g in got)

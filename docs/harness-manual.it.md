@@ -297,8 +297,13 @@ nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare
 - **Ciò che si trova è utilizzabile.** Non c'è un passaggio di approvazione: una voce su questo PC funziona a meno che tu non la spenga in
   *Impostazioni → Capacità*, dove *Vedi il testo* mostra ciò che l'agente legge (una skill) o esegue (un server). Modificare un file non
   ritira nulla.
+- **Copie importate (consigliato).** *Impostazioni → Capacità → Importati* copia una skill, un plugin, un server MCP o un piano nella cartella
+  di TaDaMoo, e TaDaMoo usa la copia, mai l'originale: modificare l'originale non cambia nulla finché non premi *Reimporta* (che mostra cosa è
+  cambiato e sostituisce la copia solo dopo la tua conferma, e non scarta mai senza chiedere una modifica che hai fatto alla copia).
+  *Elimina* toglie la copia e non tocca mai l'originale. Un server MCP importato parte spento. Vedi `docs/import.md`.
 - **Le tue cartelle di skill.** In *Impostazioni → Capacità → Cartelle di skill* (e con `--skills DIR` da riga di comando) indichi
-  cartelle di skill `SKILL.md`. Le loro skill compaiono lì e `load_skill` le carica così come sono ora.
+  cartelle di skill `SKILL.md`. Le loro skill compaiono lì e `load_skill` le carica così come sono ora, direttamente dalla cartella, quindi
+  una modifica nella cartella cambia ciò che fa l'agente; è una tua scelta esplicita, e importare è il modo per tenere una copia stabile.
 - **Usarle.** L'agente cerca (`find_capability`), carica una skill (`load_capability`) o chiama uno strumento di un server: uno strumento che il server
   dichiara di sola lettura passa da `read_capability` (nessuna domanda, ammesso in modalità piano), ogni altro da `call_capability`, che
   chiede come ogni azione irreversibile; l'agente può leggere gli argomenti di uno strumento prima di chiamarlo). Se un server si ferma per chiederti dei valori, la domanda compare nella conversazione con il nome del server: viene dal

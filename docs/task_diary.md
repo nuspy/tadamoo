@@ -1398,6 +1398,8 @@ Ultimo aggiornamento: 12 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e
 - In corso: arricchimento dell'archivio ER100 v2 con il modello locale (riassunti e domande in italiano, 2284 elementi, circa 2 ore), poi la prova A/B con e senza archivio.
 - In corso (agente del telegiornale): le skill vanno in E:\AI\skills, non in cartelle temporanee; con MCP e piani vanno come plugin; le parti riusabili (video, voce, montaggio, ricerca notizie) diventano skill separate che il notiziario usa soltanto.
 - Fatto: il conteggio del massimo del file di paging è ora il comportamento di partenza (si spegne dalle Impostazioni). Corretto anche un errore che lo faceva fallire.
+- In corso (agente nuovo, ramo feature/import-copies): importazione di skill, plugin, MCP e piani come COPIE nello spazio globale di TaDaMoo (%APPDATA%\TaDaMoo\), con pulsanti Importa, Reimporta, Elimina; mai uso diretto del repo originale. Poi migrazione di quanto messo in E:\AI\skills e di nuovo incarico al comando di installazione del notiziario.
+- Fatto (in master, vivo dopo il prossimo riavvio del server): le risposte a tabella o JSON non vengono più tagliate a circa 620 token. La causa era la guardia contro i giri a vuoto, che contava le chiavi ripetute di una tabella come un ciclo. Ora conta un passaggio solo se lo stretto tra due copie si ripete davvero. L'arricchimento degli archivi, se una risposta arriva tagliata, non la legge: ripete la richiesta in due metà.
 - Fatto: il server dà all'archivio un modello per scrivere riassunti e domande (mancava il collegamento).
 
 ## 11 novembre

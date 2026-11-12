@@ -182,30 +182,56 @@ def mcp_spec_sha(command: str, args: List[str], url: str = "") -> str:
     return _sha(json.dumps([command, args, url.split("?", 1)[0]]))
 
 
+def _record_found(rec: Any, origin: str, path: str) -> Optional[Found]:
+    """An MCP server kept as a record ({name, command (a list), url, env, description}) by TaDaMoo, as an entry."""
+    if not isinstance(rec, dict) or not re.fullmatch(r"[A-Za-z0-9_\-.]{1,64}", str(rec.get("name") or "")):
+        return None
+    command = rec.get("command") if isinstance(rec.get("command"), list) and rec.get("command") else None
+    url = str(rec.get("url") or "")
+    if command:
+        command = [str(c) for c in command]
+        shown = " ".join([command[0], *redact_args(command[1:])])
+        sha = mcp_spec_sha(command[0], command[1:])
+    elif url:
+        shown, sha = url.split("?", 1)[0].split("#", 1)[0], mcp_spec_sha("", [], url)
+    else:
+        return None
+    what = " ".join(str(rec.get("description") or "").split())[:DESC_CHARS - 40]
+    return Found(id=f"mcp:{rec['name']}", name=rec["name"], kind="mcp", origin=origin, description=f"{what} (MCP server: {shown})"[:DESC_CHARS], tags=["mcp"],
+                 path=path, sha=sha, command=shown, raw_command=command, url="" if command else shown)
+
+
 def installed_entries(root: Path) -> List[Found]:
     """What TaDaMoo installed on the person's choice (tadamoo/discovery): the servers listed in installed.json and the skills in the skills folder."""
     out: List[Found] = []
     data = _load_json(root / "installed.json")
     for rec in ((data.get("items") if isinstance(data, dict) else None) or {}).values():
-        if not isinstance(rec, dict) or rec.get("kind") != "mcp" or not re.fullmatch(r"[A-Za-z0-9_\-.]{1,64}", str(rec.get("name") or "")):
-            continue
-        command = rec.get("command") if isinstance(rec.get("command"), list) and rec.get("command") else None
-        url = str(rec.get("url") or "")
-        if command:
-            command = [str(c) for c in command]
-            shown = " ".join([command[0], *redact_args(command[1:])])
-            sha = mcp_spec_sha(command[0], command[1:])
-        elif url:
-            shown, sha = url.split("?", 1)[0].split("#", 1)[0], mcp_spec_sha("", [], url)
-        else:
-            continue
-        what = " ".join(str(rec.get("description") or "").split())[:DESC_CHARS - 40]
-        out.append(Found(id=f"mcp:{rec['name']}", name=rec["name"], kind="mcp", origin="tadamoo", description=f"{what} (MCP server: {shown})"[:DESC_CHARS], tags=["mcp"],
-                         path=str(root / "installed.json"), sha=sha, command=shown, raw_command=command, url="" if command else shown))
+        if isinstance(rec, dict) and rec.get("kind") == "mcp" and (entry := _record_found(rec, "tadamoo", str(root / "installed.json"))):
+            out.append(entry)
     skills = root / "skills"
     if skills.is_dir():
         for f in sorted(skills.rglob("SKILL.md")):
             if entry := _read_skill(f, "tadamoo"):
+                out.append(entry)
+    return out
+
+
+def imported_dir(root: Path) -> Path:
+    return Path(root) / "imported"
+
+
+def imported_entries(root: Path) -> List[Found]:
+    """What the person imported (tadamoo/importer): the copies of skills and MCP servers kept in the global space. The harness uses these, never
+    the place they were imported from."""
+    out: List[Found] = []
+    base = imported_dir(root)
+    if (base / "skills").is_dir():
+        for f in sorted((base / "skills").rglob("SKILL.md")):
+            if entry := _read_skill(f, "imported"):
+                out.append(entry)
+    if (base / "mcp").is_dir():
+        for f in sorted((base / "mcp").glob("*.json")):
+            if entry := _record_found(_load_json(f), "imported", str(f)):
                 out.append(entry)
     return out
 
@@ -355,7 +381,8 @@ class CapabilityIndex:
         with self._lock:
             if rescan or not self.entries:
                 self._scanned_dirs = self.settings()["skill_dirs"]
-                found = discover(self.workspace, self.home, self.appdata, self._scanned_dirs)
+                found = imported_entries(self.dir)                  # the copies the person imported come first: they win over a same name elsewhere
+                found += [e for e in discover(self.workspace, self.home, self.appdata, self._scanned_dirs) if e.id not in {f.id for f in found}]
                 found += [e for e in installed_entries(self.dir) if e.id not in {f.id for f in found}]
                 self._raw = {f.id: f.raw_command for f in found if f.raw_command}
                 self._urls = {f.id: f.url for f in found if f.url}
@@ -523,9 +550,9 @@ class CapabilityIndex:
             return url
         launch = Launch(command)
         e = self.get(entry_id)
-        if e is not None and e["origin"] == "tadamoo":
+        if e is not None and e["origin"] in ("tadamoo", "imported"):
             from tadamoo.discovery.installed import InstalledStore, launch_env
-            record = InstalledStore(self.dir).get(entry_id)
+            record = InstalledStore(self.dir).get(entry_id) if e["origin"] == "tadamoo" else _load_json(Path(e["path"]))
             if record and record.get("env"):
                 launch.env = launch_env(record, self.vault_dir)        # a missing key is a ValueError that names the vault entry
         return launch
