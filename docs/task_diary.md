@@ -3,6 +3,11 @@
 Ultimo aggiornamento: 11 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «9 novembre» e da «Decisioni tue in attesa». Le sezioni dell'8, 7, 5 e 4 novembre sono in `docs/task_diary_archive.md`.
 
+## 12 novembre
+
+- In corso, ramo feature/newscast (non unito): seconda prova del telegiornale, in ungherese. Fatto: il testo parlato passa da una tabella di regole (niente punto finale che l'ungherese e l'italiano leggevano come «punto», numeri, date, percentuali e abbreviazioni scritti in lettere in ungherese, niente indirizzi web né emoji) e ogni pezzo di voce viene riletto dal riconoscimento vocale e rifatto se non coincide; script con tabella delle prove (a favore e contro) e regole editoriali controllate dal programma; atteggiamenti «warm» e «firm» descritti da testo e usati nelle immagini di riferimento e nel prompt di recitazione; camera virtuale con limiti di velocità, grafica che scorre (scheda laterale a destra, poi barra da sinistra, finestra della conduttrice in alto a destra sul B-roll), sigle montate senza toccarle (verificate pacchetto per pacchetto: video identico, audio identico tranne il primo pacchetto di avvio).
+- Prova di 15-20 secondi in ungherese (voce XTTS «Gitta Nikolina», foto di riferimento dell'utente): fatta e aperta per il tuo giudizio, con pagina di confronto delle voci ungheresi. Difetti veri: «Brüsszelben», «Kovács» e l'ultima sillaba a volte sbagliate; il labiale è buono, i gesti delle mani non spariscono del tutto. Non fatto ancora: la produzione lunga a due notizie, la ricerca delle notizie con il modello, il piano modello con il passaggio di approvazione. Da decidere, tuo: se la voce ungherese basta o se serve una voce cloud gratuita (serve il tuo ok), la lista delle pronunce dei nomi, quanto lunga la produzione vera (circa 40-80 secondi di GPU per ogni secondo di parlato).
+
 ## 11 novembre
 
 - Fatto (ramo feature/rag-core, fase 1: codice e prove con finti, non ancora unito al master): un solo posto decide quali archivi vale per ogni funzione (`tadamoo/rag/resolve.py`, rotta `/api/rag/resolve`). Risponde con i nomi degli archivi e dice perché ne lascia fuori uno (non abilitato per il cloud, non abilitato per gli altri). Docs: docs/rag-resolve.md.
