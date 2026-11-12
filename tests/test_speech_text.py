@@ -231,3 +231,22 @@ def test_the_pieces_of_a_number_or_a_date_in_a_transcript_are_spelled_together()
 ])
 def test_hungarian_ordinals_and_numbers_with_an_ending_are_said_in_words(written, spoken):
     assert textnorm.normalise(written, "hu") == spoken
+
+
+def test_the_read_back_waits_for_a_speech_to_text_that_comes_back_and_otherwise_fails(monkeypatch):
+    calls = []
+
+    def service(url, wav, lang, key=""):
+        calls.append(1)
+        if len(calls) < 3:
+            raise OSError("the speech-to-text refused (HTTP 500)")
+        return [{"text": "szia", "start_s": 0.0, "end_s": 0.5}]
+
+    monkeypatch.setattr(voicecheck, "_service_words", service)
+    monkeypatch.setattr(voicecheck, "RETRY_EVERY_S", 0.01)
+    monkeypatch.setattr(voicecheck, "WAIT_FOR_SERVICE_S", 5.0)
+    assert voicecheck.transcribe("http://x", b"", "hu")[0]["text"] == "szia" and len(calls) == 3
+    calls.clear()
+    monkeypatch.setattr(voicecheck, "WAIT_FOR_SERVICE_S", 0.0)
+    with pytest.raises(OSError, match="refused"):
+        voicecheck.transcribe("http://x", b"", "hu")

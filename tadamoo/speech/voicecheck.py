@@ -101,8 +101,30 @@ def compare(text: str, words: List[Dict[str, Any]], lang: str = "") -> Check:
     return check
 
 
+WAIT_FOR_SERVICE_S = 0.0                           # a production sets it: how long the read-back waits for a speech-to-text that does not answer (a restart of the server) before it fails
+RETRY_EVERY_S = 30.0
+
+
 def transcribe(url: str, wav: bytes, lang: str, key: str = "") -> List[Dict[str, Any]]:
-    """The words of a WAV with their times, from the voice service through the server."""
+    """The words of a WAV with their times, from the voice service through the server. Where `WAIT_FOR_SERVICE_S` is set, a refusal or silence is retried every half minute until
+    then, and said once on stderr; after that (or without it) the error is the caller's."""
+    import sys
+    import time
+    deadline, said = time.monotonic() + WAIT_FOR_SERVICE_S, False
+    while True:
+        try:
+            return _service_words(url, wav, lang, key)
+        except OSError as exc:
+            if time.monotonic() >= deadline:
+                raise
+            if not said:
+                said = True
+                print(f"speech-to-text: {exc}; waiting for the voice service (up to {int(WAIT_FOR_SERVICE_S // 60)} min)", file=sys.stderr, flush=True)
+            time.sleep(RETRY_EVERY_S)
+
+
+def _service_words(url: str, wav: bytes, lang: str, key: str = "") -> List[Dict[str, Any]]:
+    """One request to the voice service's speech-to-text."""
     parts = urlsplit(url)
     boundary = uuid.uuid4().hex
     body = (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="a.wav"\r\nContent-Type: audio/wav\r\n\r\n').encode() + wav + f"\r\n--{boundary}--\r\n".encode()
