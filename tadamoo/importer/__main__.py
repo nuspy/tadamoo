@@ -9,7 +9,7 @@
     python -m tadamoo.importer migrate SKILLS_ROOT [--dry-run] [--update]
 
 The copies live in the user data folder (TADAMOO_DATA, else the app's folder; `--data-dir` names another). `reimport` without `--yes` only says what
-would change. `migrate` imports a folder of skills that the harness used to read directly (for example E:/AI/skills) and takes it out of the
+would change. `migrate` imports a folder of skills that the harness used to read directly (for example D:/skills) and takes it out of the
 settings; the folder is not changed. A running app sees the change at its next scan; restart it only for a new version of the app itself."""
 from __future__ import annotations
 

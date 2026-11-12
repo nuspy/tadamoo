@@ -113,7 +113,7 @@ list [kind] | verify KIND PATH [--server NAME] | import KIND PATH [--server NAME
 reimport KIND NAME [--yes] [--overwrite-local] | delete KIND NAME | enable NAME | disable NAME | migrate SKILLS_ROOT [--dry-run]
 ```
 
-**migrate** moves a folder of skills that was read directly (for example `E:/AI/skills`, with `plugins/` and `personal/` inside) to
+**migrate** moves a folder of skills that was read directly (for example `D:/skills`, with `plugins/` and `personal/` inside) to
 imported copies: its skills, its plugins with their parts and dependencies, its personal skills, then it takes the folder out of
 `skill_dirs` and sets aside `personal-skills-dir.json` if it pointed there. A plan the planner already has under the same id is adopted.
 Run it with `--dry-run` first. The folder is not changed. Running it again imports nothing twice.
@@ -123,3 +123,15 @@ Run it with `--dry-run` first. The folder is not changed. Running it again impor
 `tadamoo/importer/`: `common.py` (the scan, the hash, the transaction, the manifest), `skills.py`, `plugins.py`, `mcp.py`, `plans.py`,
 `service.py` (the four operations), `migrate.py`, `__main__.py`. The routes are in `serve/import_api.py`, the page in
 `serve/web/imported.js`. Tests: `tests/test_importer.py`, `tests/test_importer_migrate.py`, `tests/test_import_api.py`.
+
+## From other code
+
+A command that installs something (for example the newscast skills) does not copy into the settings itself; it hands a folder to the service:
+
+```python
+from serve import userdata
+from tadamoo.importer import Importer, Spaces
+from tadamoo.importer.migrate import migrate
+imp = Importer(Spaces.from_data(userdata.user_data_dir()))
+report = migrate(imp, source_folder, update=True)      # skills, plugins (with parts), personal skills; re-imports what changed
+```
