@@ -30,7 +30,8 @@ field), `serve/web/longform.js` and `longform.css` (the control), `tadamoo/sessi
   and the final chunk carries `answer_capped: true`. `0` or `-1` means no limit, which is also what a request without it gets.
 - **Loop guard for a passage.** Besides the guard for one token repeated 256 times, a passage of 12 tokens written 4 times, apart from
   each other, within the last 2000 tokens ends the reply as `length`, with a warning line in the server window and `repeated: true` in
-  the final chunk. A group of at most 3 different tokens (a table rule, a row of dashes) and everything inside a code fence are never
+  the final chunk, but only when the stretch since the previous copy repeats the stretch before it (rows that share their keys and not
+  their values are not a loop). A caller that reads structured answers never reads one that ended as `length`: it asks again in smaller parts. A group of at most 3 different tokens (a table rule, a row of dashes) and everything inside a code fence are never
   counted; nor is a request with a JSON `response_format`, whose keys repeat by nature. `Service.repeat_ngram = (12, 4, 2000)`; `None` turns it off.
 
 ## While the control is on: the model's own work and `write_long`

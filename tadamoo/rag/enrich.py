@@ -217,10 +217,18 @@ class Enricher:
                 self.calls += 1
                 usage = reply.get("usage") or {}
                 self.tokens += int(usage.get("prompt_tokens") or 0) + int(usage.get("completion_tokens") or 0)
-                got = parse(reply["choices"][0]["message"].get("content") or "", len(items))
-                if got is not None:
-                    return got
-                last = "the answer was not the JSON asked for"
+                choice = reply["choices"][0]
+                if choice.get("finish_reason") == "length":              # an answer that was cut is never read: the passages are asked again in two halves
+                    if len(items) > 1:
+                        half = len(items) // 2
+                        return [*self._ask(system, [{**x, "n": i + 1} for i, x in enumerate(items[:half])], cancel, image, retries),
+                                *self._ask(system, [{**x, "n": i + 1} for i, x in enumerate(items[half:])], cancel, image, retries)]
+                    last = "the answer was cut before its end"
+                else:
+                    got = parse(choice["message"].get("content") or "", len(items))
+                    if got is not None:
+                        return got
+                    last = "the answer was not the JSON asked for"
             except Exception as e:                                       # the model is busy, unloaded for a heavy job, or gone: wait and ask again
                 last = f"{type(e).__name__}: {str(e)[:120]}"
             if attempt + 1 < retries:

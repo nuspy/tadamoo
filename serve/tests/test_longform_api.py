@@ -179,6 +179,15 @@ class Guards(unittest.TestCase):
         guard = NgramLoop(4, 2, 100)
         self.assertFalse(any(guard.push(t) for t in [1, 1, 2, 2] * 10))     # at most 3 different tokens: a pattern, not a passage
 
+    def test_ngram_loop_ignores_rows_that_share_only_their_keys(self):
+        keys = [101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112]
+        guard = NgramLoop(12, 4, 2000)
+        rows = [t for i in range(30) for t in keys + [1000 + 7 * i + j for j in range(40)]]    # the same keys, other values each time
+        self.assertFalse(any(guard.push(t) for t in rows))
+        guard = NgramLoop(12, 4, 2000)
+        loop = [t for _ in range(6) for t in keys + [500 + j for j in range(40)]]               # the same passage again and again
+        self.assertTrue(any(guard.push(t) for t in loop))
+
 
 if __name__ == "__main__":
     unittest.main()
