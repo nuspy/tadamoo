@@ -148,6 +148,17 @@ class PlanCanvasBridge:
             finally:
                 self._actor = previous
 
+    def replace_dag(self, dag: PlanDAG, actor: str, summary: str) -> None:
+        """Swaps the plan's steps for `dag` (a re-import of its source); the history, schedule, profile and card stay."""
+        with self._lock:
+            previous, self._actor = self._actor, actor
+            try:
+                self.dag = dag
+                self._bump("import", summary)
+                self._emit("plan:graph", {"seq_graph": True})
+            finally:
+                self._actor = previous
+
     def announce_archived(self, actor: str) -> None:
         """Tells the viewers that this plan is leaving the list."""
         with self._lock:
