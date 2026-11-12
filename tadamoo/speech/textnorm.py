@@ -126,6 +126,58 @@ def hu_day(n: int, suffix: str = "") -> str:
     return word
 
 
+# What a number word takes at its end: the ordinal ("-dik"), the adjective ("-es"), and the case endings whose vowel follows the last word of the number.
+_HU_LAST = [  # (ending of the number word, ordinal, adjective, back vowels in the ending?)
+    ("kettő", "kettedik", "kettes", False), ("egy", "egyedik", "egyes", False), ("három", "harmadik", "hármas", True), ("négy", "negyedik", "négyes", False),
+    ("öt", "ötödik", "ötös", False), ("hat", "hatodik", "hatos", True), ("hét", "hetedik", "hetes", False), ("nyolc", "nyolcadik", "nyolcas", True),
+    ("kilenc", "kilencedik", "kilences", False), ("tíz", "tizedik", "tízes", False), ("húsz", "huszadik", "húszas", True), ("harminc", "harmincadik", "harmincas", True),
+    ("negyven", "negyvenedik", "negyvenes", False), ("ötven", "ötvenedik", "ötvenes", False), ("hatvan", "hatvanadik", "hatvanas", True), ("hetven", "hetvenedik", "hetvenes", False),
+    ("nyolcvan", "nyolcvanadik", "nyolcvanas", True), ("kilencven", "kilencvenedik", "kilencvenes", False), ("száz", "századik", "százas", True), ("ezer", "ezredik", "ezres", False),
+    ("millió", "milliomodik", "milliós", True), ("nulla", "nulladik", "nullás", True),
+]
+_HU_CASES = {"ben": "ban", "ig": "ig", "ra": "ra", "ról": "ról", "tól": "tól"}          # back form of each ending; the front form is "ben", "ig", "re", "ről", "től"
+
+
+def _hu_last(word: str):
+    for ending, ordinal, adjective, back in sorted(_HU_LAST, key=lambda e: -len(e[0])):
+        if word.endswith(ending):
+            return word[: len(word) - len(ending)], ordinal, adjective, back
+    return word, word, word, True
+
+
+def hu_ordinal(n: int) -> str:
+    """A whole number as an ordinal ("312." is háromszáztizenkettedik)."""
+    if n == 1:
+        return "első"
+    if n == 2:
+        return "második"
+    stem, ordinal, _, _ = _hu_last(hu_number(n))
+    return stem + ordinal
+
+
+def hu_suffixed(n: int, ending: str) -> str:
+    """A number with the ending it takes in "2027-ben", "1375-ös", "2026-ig"."""
+    stem, _, adjective, back = _hu_last(hu_number(n))
+    if ending in ("es", "os", "as", "ös"):
+        return stem + adjective
+    base = hu_number(n)
+    if ending in ("ban", "ben"):
+        return base + ("ban" if back else "ben")
+    if ending in ("ra", "re"):
+        return base + ("ra" if back else "re")
+    if ending in ("ról", "ről"):
+        return base + ("ról" if back else "ről")
+    if ending in ("tól", "től"):
+        return base + ("tól" if back else "től")
+    return base + ending
+
+
+def _hu_suffixed_numbers(text: str) -> str:
+    """Years and numbers with a hyphenated ending: "2028-2034-es" (a period), "2027-es", "2027-ben", "2026-ig"."""
+    text = re.sub(r"\b(\d{1,4})\s?[-\u2013]\s?(\d{1,4})-(?:es|os|as|ös)\b", lambda m: f"{hu_number(int(m.group(1)))} és {hu_number(int(m.group(2)))} közötti", text)
+    return re.sub(r"\b(\d{1,9})-(es|os|as|ös|ben|ban|ig|ra|re|ról|ről|tól|től)\b", lambda m: hu_suffixed(int(m.group(1)), m.group(2)), text)
+
+
 def _hu_numbers(text: str, lang: str) -> str:
     """Hungarian dates, percentages, decimals and numbers spelled in words."""
     if lang != "hu":
@@ -143,6 +195,8 @@ def _hu_numbers(text: str, lang: str) -> str:
     text = re.sub(r"\b(\d+),(\d+)\s*(%|százalék)", lambda m: f"{hu_number(int(m.group(1)))} egész {hu_number(int(m.group(2)))} {'tized' if len(m.group(2)) == 1 else 'század' if len(m.group(2)) == 2 else 'ezred'} százalék", text)
     text = re.sub(r"\b(\d+)\s*(?:%|százalék)", lambda m: f"{hu_number(int(m.group(1)))} százalék", text)
     text = re.sub(r"\b(\d+),(\d+)\b", lambda m: f"{hu_number(int(m.group(1)))} egész {hu_number(int(m.group(2)))} {'tized' if len(m.group(2)) == 1 else 'század' if len(m.group(2)) == 2 else 'ezred'}", text)
+    text = _hu_suffixed_numbers(text)
+    text = re.sub(r"\b(\d{1,4})\.(?=\s+[a-záéíóöőúüű])", lambda m: hu_ordinal(int(m.group(1))), text)                  # "4. és 5. klaszter", "312. cikk": ordinals
     return re.sub(r"\b\d{1,9}\b(?!-)", lambda m: hu_number(int(m.group(0))), text)
 
 

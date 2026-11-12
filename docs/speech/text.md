@@ -12,7 +12,7 @@ form to the way to write it so that the engine says it right) goes first.
 | addresses | e-mail addresses go; a link or a domain becomes the site's name (telex.hu is said Telex), never "http" |
 | emoji | emoji and emoticons go |
 | dates | 2026-11-12 and 12.11.2026 become day, month's name and year in the language's order |
-| numbers | thousands separators go; Hungarian numbers, decimals, percentages, clock times and dates ("2026. november 12-én") are spelled in Hungarian |
+| numbers | thousands separators go; Hungarian numbers, decimals, percentages, clock times and dates ("2026. november 12-én") are spelled in Hungarian; so are ordinals ("4. és 5. klaszter", "312. cikk") and numbers with an ending ("2027-ben", "1375-ös", a period "2028-2034-es" as "A és B közötti") |
 | symbols | % & / @ + = and currencies become words; a currency in front of a number goes behind it |
 | quotes | quotation marks of every kind go (typographic, guillemets, Hungarian), apostrophes inside words stay |
 | brackets | an aside is read between commas |

@@ -218,3 +218,16 @@ def test_the_pieces_of_a_number_or_a_date_in_a_transcript_are_spelled_together()
     words = [{"text": t, "start_s": i, "end_s": i + 1} for i, t in enumerate(["Az", "EU", "4", ",5", "%", "-kal", "csökkentette", "november", "12", "-én"])]
     check = voicecheck.compare("Az é ú négy egész öt tized százalékkal csökkentette november tizenkettedikén", words, "hu")
     assert check.missing == 0 and check.similarity == 1.0
+
+
+@pytest.mark.parametrize("written,spoken", [
+    ("a 2028-2034-es költségvetés", "a kétezer-huszonnyolc és kétezer-harmincnégy közötti költségvetés"),
+    ("Kijev 2027-es hiánya", "Kijev kétezer-huszonhetes hiánya"),
+    ("2027-ben választások", "kétezer-huszonhétben választások"),
+    ("Az 1375-ös kormányhatározat", "Az ezerháromszázhetvenötös kormányhatározat"),
+    ("a 4. és 5. klaszter, a 312. cikk", "a negyedik és ötödik klaszter, a háromszáztizenkettedik cikk"),
+    ("2026-ig és 2026-tól", "kétezer-huszonhatig és kétezer-huszonhattól"),
+    ("Végén 5. Utána jön", "Végén öt. Utána jön"),
+])
+def test_hungarian_ordinals_and_numbers_with_an_ending_are_said_in_words(written, spoken):
+    assert textnorm.normalise(written, "hu") == spoken
