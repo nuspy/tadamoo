@@ -1,7 +1,16 @@
 # Diario dei task
 
-Ultimo aggiornamento: 11 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
+Ultimo aggiornamento: 12 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «9 novembre» e da «Decisioni tue in attesa». Le sezioni dell'8, 7, 5 e 4 novembre sono in `docs/task_diary_archive.md`.
+
+## 12 novembre
+
+- In corso: telegiornale completo in ungherese, 6 notizie, punto di vista critico verso governo e UE, con ricerca di relazioni tra notizie e sospetti dichiarati come ipotesi (regole: fatti con fonte, dubbi come commento, mai accuse date per vere). Fase 1 (testo, prove, audio) con il modello locale; i render pesanti partono solo quando metti il file C:\TEMP\newscast_gpu_go.flag.
+- Deciso da te: audio approvato = v2 al ritmo della lista x1,00 (circa 22 s per le tre frasi di prova).
+- In corso: arricchimento dell'archivio ER100 v2 con il modello locale (riassunti e domande in italiano, 2284 elementi, circa 2 ore), poi la prova A/B con e senza archivio.
+- In corso (agente del telegiornale): le skill vanno in E:\AI\skills, non in cartelle temporanee; con MCP e piani vanno come plugin; le parti riusabili (video, voce, montaggio, ricerca notizie) diventano skill separate che il notiziario usa soltanto.
+- Fatto: il conteggio del massimo del file di paging è ora il comportamento di partenza (si spegne dalle Impostazioni). Corretto anche un errore che lo faceva fallire.
+- Fatto: il server dà all'archivio un modello per scrivere riassunti e domande (mancava il collegamento).
 
 ## 11 novembre
 
