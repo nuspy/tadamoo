@@ -111,12 +111,14 @@
         el("label", { for: "pl-new-title", text: T("pl.new.title") }),
         el("input", { id: "pl-new-title", required: true, maxlength: "120", autocomplete: "off" }),
         el("button", { class: "btn primary pl-btn", text: T("pl.create") })));
+    ui.importBtn = el("button", { type: "button", class: "btn pl-btn pl-import", id: "pl-import", title: T("pl.tip.import"), text: T("pl.import"),
+      onclick: () => window.ImportedUI.importDialog("plan", async () => { await loadList(true); say(T("pl.imported")); }) });
     ui.plist = el("ul", { class: "cv-list", "aria-label": T("pl.col.title") });
     ui.empty = el("p", { class: "cv-empty", text: T("pl.none") });
     ui.toggle = el("button", { type: "button", class: "cv-toggle", id: "pl-toggle", "aria-controls": "pl-col-body", onclick: () => setColumn(ui.col.classList.contains("shut")) });
     ui.col = el("aside", { class: "convs plcol", id: "pl-col", "aria-label": T("pl.col.title") },
       el("div", { class: "cv-head" }, el("b", { text: T("pl.col.title") }), ui.toggle),
-      el("div", { class: "cv-body", id: "pl-col-body" }, ui.newForm, ui.plist, ui.empty));
+      el("div", { class: "cv-body", id: "pl-col-body" }, ui.newForm, ui.importBtn, ui.plist, ui.empty));
     setColumn(recall(COL_KEY, "1") !== "0");
 
     ui.modeGraph = el("button", { type: "button", class: "btn pl-btn", "aria-pressed": "false", title: T("pl.tip.graph"), text: T("pl.view.graph"), onclick: () => setMode("graph") });

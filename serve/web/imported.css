@@ -1,0 +1,50 @@
+/* Imported: skills, plugins, MCP servers and plans (serve/web/imported.js). Phone first: one column, 44 px targets, nothing that needs hover. */
+.im-kind { margin: 14px 0; padding-top: 10px; border-top: 1px solid var(--line-soft); }
+.im-kindhead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.im-kindhead h4 { margin: 0; font: 600 16px/1.4 var(--font-sans); }
+.im-kindhead .btn, .im-acts .btn, .im-actions .btn, .im-form .btn { min-height: 44px; min-width: 44px; padding: 8px 16px; font-size: 15px; }
+.im-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.im-item { min-width: 0; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--bg); }
+.im-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.im-name { overflow-wrap: anywhere; }
+.im-desc { margin: 4px 0; overflow-wrap: anywhere; }
+.im-meta { margin: 2px 0; overflow-wrap: anywhere; }
+.im-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.im-note[data-bad="1"] { color: var(--bad, #FF8FA3); }
+
+.im-dialog { width: min(640px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); padding: 0; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.im-dialog::backdrop { background: rgba(0, 0, 0, .65); }
+.im-box { display: flex; flex-direction: column; gap: 12px; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); max-height: calc(100dvh - 28px); overflow: auto; }
+.im-box h2 { margin: 0; font-size: 20px; overflow-wrap: anywhere; }
+.im-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.im-form { display: flex; flex-direction: column; gap: 10px; }
+.im-field { display: flex; flex-direction: column; gap: 4px; font-weight: 600; }
+.im-field input, .im-field select { min-height: 44px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; width: 100%; max-width: 100%; min-width: 0; }
+.im-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.im-status { margin: 0; min-height: 1.5em; overflow-wrap: anywhere; }
+.im-status[data-bad="1"] { color: var(--bad, #FF8FA3); }
+.im-sum { display: flex; flex-direction: column; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.im-dl { display: grid; grid-template-columns: minmax(0, 9em) minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+.im-dl dt { color: var(--fg-2); }
+.im-dl dd { margin: 0; }
+.im-files summary { min-height: 44px; display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; }
+.im-files summary::-webkit-details-marker { display: none; }
+.im-files summary::before { content: "\25B8"; }
+.im-files[open] summary::before { content: "\25BE"; }
+.im-files summary:focus-visible, .im-dialog .btn:focus-visible, .im-dialog input:focus-visible, .im-dialog select:focus-visible, .im-item .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.im-files ul, .im-difflist, .im-deplist { margin: 0; padding-left: 18px; font: 400 14px/1.6 var(--font-mono); max-height: 220px; overflow: auto; }
+.im-difflist { list-style: none; padding-left: 0; }
+.im-add { color: var(--pl-done, #4CC66A); }
+.im-del { color: var(--bad, #FF8FA3); }
+.im-chg { color: var(--warn); }
+.im-check { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.im-check input { width: 22px; height: 22px; flex: none; accent-color: var(--accent); }
+.btn.im-danger { background: #B3263F; border-color: #B3263F; color: #fff; }
+.btn.im-danger:hover { background: #C42C48; border-color: #C42C48; }
+.im-safe { font-weight: 600; }
+@media (max-width: 520px) {
+  .im-dl { grid-template-columns: 1fr; }
+  .im-dl dd { margin-bottom: 6px; }
+  .im-actions .btn { flex: 1 1 120px; }
+}
+#st-imp-body .setnote, .im-dialog .setnote { overflow-wrap: anywhere; }
