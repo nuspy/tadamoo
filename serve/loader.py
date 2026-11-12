@@ -75,7 +75,7 @@ ENGINE_DEFAULTS = {"engine.max-context": 4096, "engine.kv": "fp16", "engine.pref
                    "server.parallel": 1, "server.slot-full-context": False, "server.side-slot": SIDE_SLOT_DEFAULT, "server.vision": "off", "server.vision-projector": "auto", "server.vision-hold": "keep", "engine.relaxed-drafting": None,
                    "server.port": 7232,
                    "engine.kv-resident": 0, "engine.resident-budget-gib": None, "engine.mmap-experts": False,
-                   "engine.adapt-swaps": 96, "engine.prefill-cpu-share": 0.6, "engine.vram-elastic": False,
+                   "engine.adapt-swaps": 96, "engine.prefill-cpu-share": 0.6, "engine.vram-elastic": True,
                    "engine.keep-vram-commit": False, "engine.expert-profile-save": None,
                    "engine.expert-profile-save-every": 10,
                    "engine.prompt-cache": 6, "engine.prompt-cache-every": 16384, "engine.prompt-cache-root": 2048,
