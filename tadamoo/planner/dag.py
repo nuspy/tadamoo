@@ -460,6 +460,7 @@ class PlanDAG:
     created_at: str = field(default_factory=_now)
     updated_at: str = field(default_factory=_now)
     order: List[str] = field(default_factory=list)       # the list the person arranged; list_order() keeps it valid
+    confirmations: bool = True          # false: the person chose that nothing about this plan is asked (except what involves other people), and its text is trusted
     journal: List[Dict[str, Any]] = field(default_factory=list)      # what the plan did by itself and what its log and result steps wrote, newest last
     note_count: int = field(default=0, repr=False, compare=False)    # lines ever written in this run of the program: how many are new since a look
 
@@ -1343,6 +1344,7 @@ class PlanDAG:
             "updated_at": self.updated_at,
             "order": [i for i in self.order if i in self.nodes],
             "nodes": {nid: node_to_dict(n) for nid, n in self.nodes.items()},
+            **({"confirmations": False} if not self.confirmations else {}),
             **({"journal": self.journal} if self.journal else {}),
         }
 
@@ -1362,6 +1364,7 @@ class PlanDAG:
                 shared_state=data.get("shared_state") or {},
                 created_at=data.get("created_at") or _now(), updated_at=data.get("updated_at") or _now(),
                 order=[str(i) for i in (data.get("order") or [])],
+                confirmations=data.get("confirmations") is not False,
                 journal=[dict(j) for j in (data.get("journal") or []) if isinstance(j, dict)],
             )
         except (KeyError, TypeError, ValueError, AttributeError) as exc:

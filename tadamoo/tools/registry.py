@@ -124,6 +124,7 @@ class ToolDefinition:
     effect: EffectClass
     handler: Callable[..., Any]
     untrusted: bool = False
+    trusted_if: Optional[Callable[[Dict[str, Any]], bool]] = None     # given a call's arguments, true when this call's answer is not from outside after all
     outward: bool = False        # sends something the model wrote (an address, a query, a form) out of this PC
     tier: int = 1                # where its definition goes in the tool list: STABLE, SESSION or EXTERNAL (see ToolRegistry.schemas)
 
@@ -212,6 +213,7 @@ class ToolRegistry:
         effect: EffectClass,
         handler: Callable[..., Any],
         untrusted: bool = False,
+        trusted_if: Optional[Callable[[Dict[str, Any]], bool]] = None,
         timeout: Optional[float] = _UNSET,
         outward: bool = False,
         tier: int = SESSION,
@@ -225,6 +227,7 @@ class ToolRegistry:
             effect=effect,
             handler=handler,
             untrusted=untrusted,
+            trusted_if=trusted_if,
             outward=outward,
             tier=tier,
         )

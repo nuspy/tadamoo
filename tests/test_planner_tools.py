@@ -462,3 +462,23 @@ def test_a_step_is_handed_the_values_of_the_steps_above_it_in_its_own_words_and_
     assert "Dividi 30 per 12 e dimmi quante a testa" in started                             # the words carry the values
     assert '"uova": 30' in started and '"presenti": 12' in started                        # and so do the values given
     assert "plan_mark must carry outputs with: a_testa (number)" in started
+
+
+def test_a_plan_set_to_run_without_asking_is_not_asked_about_and_its_text_is_trusted():
+    from tadamoo.agent_loop import AgentLoop
+    from tadamoo.planner.dag import PlanDAG
+    from tadamoo.tools.registry import ToolDefinition, EffectClass
+    plan = {"plan_id": "p1", "title": "T", "target_type": "occasional", "nodes": {}, "confirmations": False}
+    assert PlanDAG.from_dict(plan).to_dict()["confirmations"] is False
+    assert "confirmations" not in PlanDAG.from_dict({**plan, "confirmations": True}).to_dict()          # asking is what a plan does unless told otherwise
+    asker = Asker("confirm", "confirm")
+    confirmer = Confirmer(AgentState(), ask=asker)
+    ok, how = confirmer.check({"kind": "plan_mark"}, "Mark it?", snap={"plan": plan}, touches=[])
+    assert (ok, how) == (True, "auto") and not asker.asked
+    ok, how = confirmer.check({"kind": "plan_mark"}, "Mark it?", snap={"plan": {**plan, "confirmations": True}}, touches=[])
+    assert how == "asked" and len(asker.asked) == 1
+    ok, how = confirmer.check({"kind": "plan_mark"}, "Call them?", snap={"plan": plan}, touches=["a call to Anna"])      # what involves other people still asks
+    assert how == "asked" and len(asker.asked) == 2
+    outside = ToolDefinition("plan_get", "", {}, EffectClass.PURE, lambda **k: "", untrusted=True)
+    free = ToolDefinition("plan_get", "", {}, EffectClass.PURE, lambda **k: "", untrusted=True, trusted_if=lambda a: a.get("plan_id") == "p1")
+    assert AgentLoop._from_outside(outside, {"plan_id": "p1"}) and not AgentLoop._from_outside(free, {"plan_id": "p1"}) and AgentLoop._from_outside(free, {"plan_id": "p2"})

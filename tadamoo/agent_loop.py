@@ -703,7 +703,7 @@ class AgentLoop:
         text = self._stringify(name, result.output)
         worked = result.decision == "executed" and not result.is_error
         if worked:
-            text = self._screened(name, text, tool)
+            text = self._screened(name, text, tool, arguments)
         if result.feedback:
             text += "\n[harness] " + result.feedback
         self._emit({"type": "tool_end", "call_id": call.call_id, "name": name, "status": "completed" if worked else "failed",
@@ -711,10 +711,21 @@ class AgentLoop:
         self.append({"role": "tool", "tool_call_id": call.call_id, "name": name, "content": text})
         return worked, text
 
-    def _screened(self, name: str, text: str, tool: Any) -> str:
+    @staticmethod
+    def _from_outside(tool: Any, arguments: Dict[str, Any]) -> bool:
+        """Whether what a call of this tool returns is content from outside: a tool marked so, unless it says this call reads something the person trusts."""
+        if tool is None or not tool.untrusted:
+            return False
+        trusted = getattr(tool, "trusted_if", None)
+        try:
+            return not (trusted is not None and trusted(arguments or {}))
+        except Exception:
+            return True
+
+    def _screened(self, name: str, text: str, tool: Any, arguments: Optional[Dict[str, Any]] = None) -> str:
         """A tool's answer as the model gets it. Content from outside is fenced as data; the answer of a tool that reads files or runs code is
         only looked at. Text that speaks to an AI is marked, and the permission manager asks the person before anything goes on that changes or sends."""
-        outside = tool is not None and tool.untrusted
+        outside = self._from_outside(tool, arguments or {})
         if not outside and name not in CONTENT_TOOLS:
             return text
         if outside:
@@ -835,7 +846,7 @@ class AgentLoop:
         if cp_note:
             output = f"{output}\n\n[{cp_note}]" if isinstance(output, str) else {**output, "checkpoint": cp_note} if isinstance(output, dict) else output
         if self.permissions:
-            self.permissions.two.observe(name, args, output, untrusted=tool.untrusted, secrets=self.secrets)
+            self.permissions.two.observe(name, args, output, untrusted=self._from_outside(tool, args), secrets=self.secrets)
         feedback = (self.hooks.trigger_post_tool(name, args, output) or "") if self.hooks else ""
         self._audit_call("tool_cancelled" if cancelled else "tool_error" if is_error else "tool_executed", name, args, permission,
                          "cancelled" if cancelled else "error" if is_error else "ok", ran, effect=tool.effect.value,
@@ -1043,7 +1054,7 @@ class AgentLoop:
                 if seen_by_guard.stub:
                     text = seen_by_guard.stub
                 if result.decision == "executed" and not result.is_error:
-                    text = self._screened(call.name, text, tool)
+                    text = self._screened(call.name, text, tool, shown_args)
                 if seen_by_guard.note:
                     text += "\n" + seen_by_guard.note
                 if result.feedback:
