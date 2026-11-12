@@ -51,7 +51,10 @@ def check(settings: Dict[str, Any], command: Optional[Sequence[str]] = None, for
         done = subprocess.run(argv, capture_output=True, timeout=60, creationflags=_flags(), env={**os.environ, "PYTHONIOENCODING": "utf-8"})
         got = json.loads(done.stdout.decode("utf-8", "replace").strip().splitlines()[-1])
     except (OSError, ValueError, IndexError, subprocess.TimeoutExpired) as exc:
-        got = {k: {"ready": False, "missing": [], "error": f"the check of LTX Studio failed ({type(exc).__name__})"} for k in ("image", "video")}
+        heard = (getattr(exc, "stderr", None) or getattr(exc, "stdout", None) or b"")
+        heard = heard.decode("utf-8", "replace") if isinstance(heard, bytes) else str(heard)
+        why = f"the check of LTX Studio failed ({type(exc).__name__}; {Path(argv[0]).name})" + (f": {heard.strip()[-200:]}" if heard.strip() else "")
+        got = {k: {"ready": False, "missing": [], "error": why} for k in ("image", "video")}
     for kind, setting in (("image", "image_python"), ("video", "video_python")):       # a Python the person named instead of LTX Studio's
         if settings[setting] and isinstance(got.get(kind), dict):
             ok = Path(settings[setting]).is_file()
