@@ -326,6 +326,12 @@ class PlanService:
         self._announce(dag.plan_id)
         return bridge.snapshot()
 
+    def plan_changed(self, plan_id: str) -> None:
+        """After the import service made or replaced a plan: the steps it works out by itself are worked out, and the viewers are told."""
+        self.tick(plan_id)
+        self.store.save(plan_id)
+        self._announce(plan_id)
+
     def _replanner(self):
         if self.client_factory is None:
             return None
