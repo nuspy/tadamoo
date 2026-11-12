@@ -3341,7 +3341,7 @@ def make_handler(svc: Service, remote: bool = False):
         def _pskills(self) -> PersonalSkillsApi:
             global _PSKILLS
             if _PSKILLS is None:
-                _PSKILLS = PersonalSkillsApi(userdata.path("personal-skills"))
+                _PSKILLS = PersonalSkillsApi(userdata.personal_skills_dir())
             return _PSKILLS
 
         def _pskills_get(self, path):
@@ -3529,7 +3529,7 @@ def make_handler(svc: Service, remote: bool = False):
                                            rule_of_two=RuleOfTwoPrefs(userdata.path("rule_of_two.json")).read, allow_rules=AllowRules(userdata.path("allow_rules.json")),
                                            rule_of_two_prefs=RuleOfTwoPrefs(userdata.path("rule_of_two.json")),
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
-                                           skills_dir=userdata.path("personal-skills"), projects=self._projects(),
+                                           skills_dir=userdata.personal_skills_dir(), projects=self._projects(),
                                            personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), personas_dir=userdata.path("personas"), rag_dir=userdata.path("rag"), media_file=userdata.path("media.json"), learn=self._memory_worker().offer, past=self._past(),
                                            exec_level_file=userdata.path(exec_level.FILE), persistence_file=userdata.path(persistence.FILE), next_steps_file=userdata.path(nextsteps.FILE), lessons_dir=userdata.path("lessons"), forgetter=self._forgetter(), cards=self._card_worker(), persona_learning=self._persona_learning())
                 _PERSONA_LEARNING.source = _SESSIONS.learning_source
