@@ -100,8 +100,9 @@ def image_plan(folder: str, spec: dict) -> dict:
             missing.append(entry_id)
     req = spec.get("request") or {}
     params = {"prompt": req.get("prompt", ""), "width": req.get("width"), "height": req.get("height"), "steps": req.get("steps"), "seed": req.get("seed"),
-              "negative": req.get("negative") or None, "output": spec["output"], "arch": "qwen_image21", "qwen21_dit": "qwen21-dit-nvfp4", "qwen21_te": "nvfp4",
+              "negative": req.get("negative") or None, "ref_images": req.get("refs") or [], "output": spec["output"], "arch": "qwen_image21", "qwen21_dit": "qwen21-dit-nvfp4", "qwen21_te": "nvfp4",
               "need_vram_gb": max(4.0, int(spec.get("mib") or 0) / 1024 - 2.0), "need_commit_gb": 6, "parent_pid": os.getpid()}
+    missing += [f"the reference {r}" for r in (req.get("refs") or []) if not Path(r).is_file()]
     return {"python": spec.get("python") or py, "script": script, "params": params, "missing": missing, "env": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}}
 
 
@@ -133,6 +134,7 @@ def avatar_plan(folder: str, spec: dict) -> dict:
     req = spec.get("request") or {}
     params = {"mode": "ai2v", "image_path": req.get("image", ""), "audio_path": req.get("audio", ""), "prompt": req.get("prompt", ""), "resolution": req.get("resolution", "480p"),
               "aspect": "16:9", "resize_mode": "crop", "precision": precision, "seed": req.get("seed"), "vocal_separation": False, "output": spec["output"],
+              **({"negative": req["negative"]} if req.get("negative") else {}),
               "need_vram_gb": max(8.0, int(spec.get("mib") or 0) / 1024 - 2.0), "need_commit_gb": 8, "parent_pid": os.getpid()}
     for key in ("image_path", "audio_path"):
         if not missing and params[key] and not Path(params[key]).is_file():
