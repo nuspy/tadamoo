@@ -284,8 +284,13 @@ you the address and the number to call.
   (`~/.claude/skills`, the project's `.claude/skills`, plugins, `.mcp.json` and the like).
 - **What is found is usable.** There is no approval step: an entry on this PC works unless you turn it off in *Settings → Capabilities*,
   where *View text* shows what the agent reads (a skill) or runs (a server). Editing a file never withdraws anything.
+- **Imported copies (recommended).** *Settings → Capabilities → Imported* copies a skill, a plugin, an MCP server or a plan into TaDaMoo's own
+  folder, and TaDaMoo uses the copy, never the original: editing the original changes nothing until you press *Re-import* (which shows what
+  changed and replaces the copy only on your confirmation, and never discards a change you made to the copy without asking). *Delete*
+  removes the copy and never touches the original. An imported MCP server starts turned off. See `docs/import.md`.
 - **Your own skill folders.** In *Settings → Capabilities → Skill folders* (and with `--skills DIR` on the command line) you name folders
-  of `SKILL.md` skills. Their skills are listed there and `load_skill` loads them as they are now.
+  of `SKILL.md` skills. Their skills are listed there and `load_skill` loads them as they are now, straight from the folder, so a change in
+  the folder changes what the agent does; this is your explicit choice, and importing is the way to keep a stable copy.
 - **Using them.** The agent searches (`find_capability`), loads a skill (`load_capability`) or calls a server's tool: a tool the server declares read-only goes
   through `read_capability` (no question, allowed in plan mode), any other through `call_capability`, which asks like any action that cannot be
   undone; the agent can read a tool's arguments before it calls it). If a
