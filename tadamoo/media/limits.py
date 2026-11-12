@@ -49,11 +49,23 @@ def _seed(seed: Any) -> int:
     return _whole("seed", seed, 0, 2 ** 31 - 1)
 
 
-def image_request(prompt: Any, width: Any = None, height: Any = None, steps: Any = None, seed: Any = None, negative: Any = "") -> Dict[str, Any]:
+REFS_MAX = 4
+
+
+def _refs(refs: Any) -> List[str]:
+    """Pictures the model takes as references (an edit of what they show, named image 1, image 2 in the prompt): paths on this PC."""
+    if refs in (None, ""):
+        return []
+    if not isinstance(refs, (list, tuple)) or len(refs) > REFS_MAX or any(not isinstance(r, str) or not r.strip() or "\x00" in r for r in refs):
+        raise MediaError(f"refs: a list of up to {REFS_MAX} paths of pictures on this PC")
+    return [r.strip() for r in refs]
+
+
+def image_request(prompt: Any, width: Any = None, height: Any = None, steps: Any = None, seed: Any = None, negative: Any = "", refs: Any = None) -> Dict[str, Any]:
     w, h, notes = _size(IMAGE, width, height)
     if negative is not None and not isinstance(negative, str):
         raise MediaError("negative: text, or empty")
-    return {"prompt": _prompt(prompt, "picture"), "width": w, "height": h, "steps": _whole("steps", IMAGE["steps"] if steps is None else steps, 1, IMAGE["steps_max"]),
+    return {"refs": _refs(refs), "prompt": _prompt(prompt, "picture"), "width": w, "height": h, "steps": _whole("steps", IMAGE["steps"] if steps is None else steps, 1, IMAGE["steps_max"]),
             "seed": _seed(seed), "negative": (negative or "").strip()[:PROMPT_MAX], "notes": notes}
 
 
@@ -73,7 +85,7 @@ def video_request(prompt: Any, width: Any = None, height: Any = None, frames: An
 AVATAR = {"resolutions": ("480p", "720p")}
 
 
-def avatar_request(image: Any, audio: Any, prompt: Any = "", resolution: Any = "480p", seed: Any = None) -> Dict[str, Any]:
+def avatar_request(image: Any, audio: Any, prompt: Any = "", resolution: Any = "480p", seed: Any = None, negative: Any = "") -> Dict[str, Any]:
     """A talking head: a portrait and a voice recording, made into a video as long as the recording. Both are paths on this PC, read by the model process."""
     for name, value in (("image", image), ("audio", audio)):
         if not isinstance(value, str) or not value.strip() or "\x00" in value:
@@ -82,4 +94,6 @@ def avatar_request(image: Any, audio: Any, prompt: Any = "", resolution: Any = "
         raise MediaError("resolution: " + " or ".join(AVATAR["resolutions"]))
     if not isinstance(prompt, str) or len(prompt) > PROMPT_MAX:
         raise MediaError(f"prompt: text of at most {PROMPT_MAX} characters, or empty")
-    return {"image": image.strip(), "audio": audio.strip(), "prompt": prompt.strip(), "resolution": resolution, "seed": _seed(seed), "notes": []}
+    if not isinstance(negative, str) or len(negative) > PROMPT_MAX:
+        raise MediaError(f"negative: text of at most {PROMPT_MAX} characters, or empty")
+    return {"image": image.strip(), "audio": audio.strip(), "prompt": prompt.strip(), "resolution": resolution, "seed": _seed(seed), "negative": negative.strip(), "notes": []}
