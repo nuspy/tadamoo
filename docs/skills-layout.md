@@ -2,23 +2,20 @@
 
 ## Where
 
-All skills live in **one folder of skills**, `E:\AI\skills` by default (`TADAMOO_SKILLS` or `--skills-dir` change it). Never in a temporary folder, and not only in `%APPDATA%\TaDaMoo`. The folder is named in
-Settings > Capabilities (`skill_dirs`; `tadamoo/capabilities.py` `add_skill_folders` adds to the list and never replaces it), so the Capabilities page, `find_capability` and `load_capability` find every
-skill in it. `E:\AI\skill` (singular) is a third-party repository and is not touched.
+All skills are written in **one source folder**, `E:\AI\skills` by default (`TADAMOO_SKILLS` or `--skills-dir` change it). Never in a temporary folder. The harness does not read that folder: the importer
+(`docs/import.md`) makes copies of what it holds in `%APPDATA%\TaDaMoo\` (the skills in the capabilities space, the personal skills in `personal-skills\`, the plans in the planner), and the harness runs from
+the copies. `E:\AI\skill` (singular) is a third-party repository and is not touched.
 
 ```
-E:\AI\skills\
-  media-generation\      SKILL.md, references\, scripts\     pictures, clips, the talking head          (code: tadamoo/media)
+E:\AI\skills  media-generation\      SKILL.md, references\, scripts\     pictures, clips, the talking head          (code: tadamoo/media)
   speech-synthesis\      SKILL.md, references\, scripts\     the voice: normaliser, lexicon, takes, joins (code: tadamoo/speech)
   video-editing\         SKILL.md, references\, scripts\     virtual camera, overlays, joins, seams      (code: tadamoo/videoedit)
-  news-research\         SKILL.md, scripts\research.py       the investigative procedure and its guardrails (rules: tadamoo/research)
-  plugins\ai-newscast\   plugin.json, README.md, skills\ai-newscast\ (SKILL.md, skill.json, skill.py), plans\, parameters\
-  personal\              the runnable personal skills (skill.json + skill.py), `personal-skills-dir.json` in the user data folder points the harness here
-```
+  news-research\         SKILL.md, scriptsesearch.py       the investigative procedure and its guardrails (rules: tadamoo/research)
+  pluginsi-newscast\   plugin.json, README.md, skillsi-newscast\ (SKILL.md, skill.json, skill.py), plans\, parameters```
 
-The sources are in the repository, `skills/`; `python -m tadamoo.newscast install-skill` copies them into the folder of skills, saves the runnable skill in `personal/`, names the folder in the
-Capabilities settings, tells the user data folder where the personal skills are and removes the copy an earlier version put in `%APPDATA%\TaDaMoo\personal-skills`. It can be run again: it replaces what it
-installed and makes no new version of a skill that did not change.
+The sources are in the repository, `skills/`; `python -m tadamoo.newscast install-skill` copies them into the source folder and hands the folder to the importer
+(`migrate(Importer(Spaces.from_data(data)), skills_dir, update=True)`): skills and the plugin with its parts and dependencies become copies, a changed source is re-imported, the folder is taken out of
+`skill_dirs`. It can be run again: it replaces what it copied and imports nothing twice.
 
 ## The format of a skill
 

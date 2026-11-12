@@ -56,23 +56,6 @@ def path(name: str) -> Path:
     return user_data_dir() / name
 
 
-PERSONAL_SKILLS_FILE = "personal-skills-dir.json"
-
-
-def personal_skills_dir() -> Path:
-    """Where the person's own (runnable) skills are kept: the folder `personal-skills-dir.json` names in the user data folder (the folder of skills, `.../personal`), else `personal-skills/`
-    of the user data folder. A skill must not live only in the user data folder: it goes with the other skills."""
-    try:
-        chosen = json.loads(path(PERSONAL_SKILLS_FILE).read_text(encoding="utf-8")).get("dir")
-    except (OSError, ValueError, AttributeError):
-        chosen = None
-    return Path(chosen) if isinstance(chosen, str) and chosen else path("personal-skills")
-
-
-def set_personal_skills_dir(folder: Path) -> None:
-    path(PERSONAL_SKILLS_FILE).write_text(json.dumps({"dir": str(folder)}, indent=2), encoding="utf-8")
-
-
 def sessions_base() -> Path:
     """The folder whose `sessions/` holds every conversation's files: the one chosen in Settings, else `journal/` of the data folder."""
     chosen = chosen_sessions_base()
