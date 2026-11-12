@@ -170,7 +170,7 @@ class ProjectRecall:
             doc = f"{hit['archive_id']}:{hit['doc_id']}"
             if key in self.sent or key in taken or (drop and hit.get("flag")) or (many and per_doc.get(doc, 0) >= DOC_PLACES):
                 continue
-            block = f"{citation(hit)}\n{shown(hit)}"
+            block = f"{citation(hit)}\n{shown(hit)}" + (f'\n[a figure: see it with knowledge_figure "{hit["archive_id"]}:{hit["doc_id"]}:{hit.get("fig")}"]' if hit.get("kind") == "figure" else "")
             if (used + len(block) > room and lines) or len(lines) >= slots:
                 break
             lines.append(block)

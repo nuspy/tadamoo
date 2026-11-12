@@ -781,7 +781,7 @@ class RagStore:
             found = {**facts.passage(text, known), **({"figure": f["number"]} if f.get("number") else {})}
             rows.append({"doc": doc_id, "n": start + i, "text": text, "path": home["path"] if home else title, "page_start": int(f["page"]), "page_end": int(f["page"]),
                          "kind": "figure", "section": home["section"] if home else f"{doc_id}.s0", "figure": f.get("label", ""), "caption": f.get("caption", ""),
-                         "image": f"{IMAGES}/{doc_id}/{f['image']}", "thumb": f"{IMAGES}/{doc_id}/{f['thumb']}", "fig": int(f["n"]), "box": f["box"], "facts": found})
+                         "image": f"{IMAGES}/{doc_id}/{f['image']}", "thumb": f"{IMAGES}/{doc_id}/{f['thumb']}", "fig": int(f["n"]), "box": f["box"], "image_sha": f.get("sha", ""), "facts": found})
         return rows
 
     @staticmethod

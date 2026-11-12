@@ -100,6 +100,8 @@ way of choosing below. An archive of the conversation's own project is always us
   them from the person's words in any language ("use the RAG about forests", "usa il RAG sulle foreste", "non usare più..."); the harness's
   self-description says archives can be attached by name. A tool that changes the attached list makes the process send a `knowledge` event
   (`change`: attached, dropped or cleared), which the record keeps and the page shows as a note.
+- **Figures**: the charts, diagrams and sheets of drawings of a PDF are kept as images and as passages of kind `figure`; `knowledge_figure` gives one to look at, show or put in a Word
+  document, with its citation: [rag-figures.md](rag-figures.md).
 - **Getting them used**: what the model is told about an archive (its documents, pages and languages), `knowledge_read`, the search by query list, document and filters,
   the long request asked as several questions and the hint on files that are in an archive are in [rag-usage.md](rag-usage.md); the facts read off passages by rule and
   the descriptions a model writes (summaries and questions in the person's language) are in [rag-ingest.md](rag-ingest.md).

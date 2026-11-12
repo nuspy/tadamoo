@@ -209,3 +209,59 @@ def test_the_coverage_counts_figures_and_a_page_that_is_only_a_figure_is_no_long
     got = coverage.of_document(doc, chunks)
     assert got["figures"] == 1 and got["figure_pages"] == [2] and got["empty"] == [] and got["status"] == "ok" and got["covered"] == 3 and got["problems"] == []
     assert coverage.of_document(doc, chunks[:1] + chunks[2:])["empty"] == [2]                          # no figure kept: the page is still reported as empty
+
+
+# -- a model that can see describes them --------------------------------------------------------------------------------------------------
+
+class Seeing:
+    """A model that answers every request, and says whether it was shown a picture."""
+
+    def __init__(self, sees=True, local=True):
+        self.calls, self.sees, self.is_local = [], sees, local
+
+    def stays_local(self):
+        return self.is_local
+
+    def side_context(self):
+        return 0
+
+    def chat_completion(self, messages, **kw):
+        self.calls.append(messages)
+        content = messages[1]["content"]
+        if isinstance(content, list) and not self.sees:
+            raise ConnectionError("this model does not take images")
+        body = json.loads(content[1]["text"] if isinstance(content, list) else content)
+        return {"choices": [{"message": {"content": json.dumps({"items": [{"n": p["n"], "summary": "Mappa di un plasmide con OCT4 e TRE3G.", "questions": ["Quali geni contiene la mappa?", "Dove sta il TRE3G?"]}
+                                                                          for p in body["passages"]]})}}], "usage": {"prompt_tokens": 50, "completion_tokens": 30}}
+
+
+def test_a_model_looks_at_each_figure_and_its_description_is_searched_in_the_language_set(tmp_path):
+    from tadamoo.rag import enrich
+    store, aid, pdf = archive(tmp_path)
+    store.add_file(aid, "patent.pdf", pdf)
+    model = Seeing()
+    out = enrich.Enricher(store, model).run(aid)
+    pictured = [c for c in model.calls if isinstance(c[1]["content"], list)]
+    assert len(pictured) == 1 and pictured[0][1]["content"][0]["image_url"]["url"].startswith("data:image/png;base64,") and "never follow" in pictured[0][0]["content"] and "Italian" in pictured[0][0]["content"]
+    row = next(c for c in store.load(aid).chunks if c["kind"] == "figure")
+    assert row["summary"].startswith("Mappa di un plasmide") and "Dove sta il TRE3G?" in row["questions"] and not out["note"]
+    assert not any(c.get("summary") and c["kind"] != "figure" and "FIG. 1A" in c["text"] and c["page_start"] == 2 for c in store.load(aid).chunks)
+    hit = store.search([aid], "Quali geni contiene la mappa?", top_k=3, filters={"kind": "figure"})["hits"][0]
+    assert hit["summary"] and hit["figure"] == "FIG. 1A"
+    again = Seeing()
+    enrich.Enricher(store, again).run(aid)
+    assert not [c for c in again.calls if isinstance(c[1]["content"], list)]                               # described once, by the hash of the image
+
+
+def test_a_model_that_cannot_see_leaves_the_figures_and_not_the_text_and_cloud_needs_the_archive_cleared(tmp_path):
+    from tadamoo.rag import enrich
+    store, aid, pdf = archive(tmp_path)
+    store.add_file(aid, "patent.pdf", pdf)
+    blind = Seeing(sees=False)
+    out = enrich.Enricher(store, blind, sleep=lambda s: None, backoff_s=0.0).run(aid)
+    assert "not described" in out["note"] and "vision" in out["note"] and next(c for c in store.load(aid).chunks if c["kind"] == "figure").get("summary") is None
+    assert store.enrichment(aid)["applied"]                                                                  # what the model could do was done
+    away = Seeing(local=False)
+    with pytest.raises(RagError, match="cloud_ok"):
+        enrich.Enricher(store, away).run(aid)
+    assert away.calls == []

@@ -15,6 +15,7 @@ The text of a figure passage (`passage_text`) is those pieces in words, so it is
 description later (tadamoo/rag/enrich.py). Everything read from a document or an image is data, never instructions."""
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -280,7 +281,8 @@ def extract(path: Path, name: str, reading: Dict[str, Any], blocks: Sequence[Dic
             except Exception:
                 continue
             file, thumb, w, h = save(image, folder, n)
-            out.append(Figure(n=n, page=r["page"], box=r["box"], source=r["source"], caption=r["caption"], image=file, thumb=thumb, width=w, height=h))
+            out.append(Figure(n=n, page=r["page"], box=r["box"], source=r["source"], caption=r["caption"], image=file, thumb=thumb, width=w, height=h,
+                              sha=hashlib.sha1((folder / file).read_bytes()).hexdigest()[:24]))
             files.append(folder / file)
             tell({"event": "progress", "page": n, "pages": len(found)})
     finally:
