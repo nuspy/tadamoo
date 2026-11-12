@@ -19,15 +19,22 @@ def _norm(p: Any) -> str:
     return os.path.normcase(os.path.abspath(str(p)))
 
 
-def _try(imp: Importer, report: Dict[str, Any], kind: str, path: Path, dry: bool, **opts: Any) -> None:
+def _try(imp: Importer, report: Dict[str, Any], kind: str, path: Path, dry: bool, update: bool = False, **opts: Any) -> None:
     label = f"{kind}:{path.name}"
     try:
         check = imp.verify(kind, path, **opts)
         snap = check["snapshot"]
         if check["already_imported"]:
             have = next((r for r in imp.list(kind) if r["name"] == snap["name"]), {})
-            same = have.get("hash") == snap["hash"]
-            report["skipped"].append({"item": label, "why": "already imported, same content" if same else "already imported, the source has changed: re-import it to see what"})
+            if have.get("hash") == snap["hash"]:
+                report["skipped"].append({"item": label, "why": "already imported, same content"})
+            elif not update:
+                report["skipped"].append({"item": label, "why": "already imported, the source has changed: re-import it to see what"})
+            elif dry:
+                report["would_update"].append(label)
+            else:
+                imp.reimport(kind, snap["name"], confirm=True)
+                report["updated"].append(label)
             return
         if not check["can_import"]:
             report["conflicts"].append({"item": label, "why": check["blockers"][0]["message"]})
@@ -52,19 +59,20 @@ def _same_personal(imp: Importer, name: str, folder: Path) -> bool:
         return False
 
 
-def migrate(imp: Importer, skills_root: Any, dry_run: bool = False) -> Dict[str, Any]:
+def migrate(imp: Importer, skills_root: Any, dry_run: bool = False, update: bool = False) -> Dict[str, Any]:
     """Imports what `skills_root` holds (its skills, its plugins with their parts and dependencies, its personal skills) and undoes the two
-    settings that made the harness read it directly. A plan with an id that the planner already has is taken as the imported copy."""
+    settings that made the harness read it directly. A plan with an id that the planner already has is taken as the imported copy.
+    With `update`, what is already imported and whose source changed is re-imported (a copy changed here is reported, not replaced)."""
     root = Path(skills_root)
     if not root.is_dir():
         raise Problem("no_source", f"There is no folder at {root}.")
-    report: Dict[str, Any] = {"skills_root": str(root), "dry_run": dry_run, "imported": [], "would_import": [], "skipped": [], "conflicts": [], "settings": []}
+    report: Dict[str, Any] = {"skills_root": str(root), "dry_run": dry_run, "imported": [], "would_import": [], "updated": [], "would_update": [], "skipped": [], "conflicts": [], "settings": []}
     for d in sorted(p for p in root.iterdir() if p.is_dir() and p.name not in ("plugins", "personal") and (p / "SKILL.md").is_file()):
-        _try(imp, report, "skill", d, dry_run)
+        _try(imp, report, "skill", d, dry_run, update)
     plugins = root / "plugins"
     for d in sorted(p for p in plugins.iterdir() if p.is_dir()) if plugins.is_dir() else []:
         if (d / "plugin.json").is_file():
-            _try(imp, report, "plugin", d, dry_run, adopt=True, with_dependencies=True)
+            _try(imp, report, "plugin", d, dry_run, update, adopt=True, with_dependencies=True)
     personal = root / "personal"
     for d in sorted(p for p in personal.iterdir() if p.is_dir()) if personal.is_dir() else []:
         if not ((d / "skill.json").is_file() and (d / "skill.py").is_file()):
@@ -76,7 +84,7 @@ def migrate(imp: Importer, skills_root: Any, dry_run: bool = False) -> Dict[str,
         if any(r["name"] == name for r in imp.list("skill")) and _same_personal(imp, name, d):
             report["skipped"].append({"item": f"skill:{d.name}", "why": f"the skill '{name}' is already imported (same script)"})
             continue
-        _try(imp, report, "skill", d, dry_run)
+        _try(imp, report, "skill", d, dry_run, update)
     report["settings"] = _undo_settings(imp, root, dry_run)
     report["source_untouched"] = True
     return report

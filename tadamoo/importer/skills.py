@@ -34,7 +34,7 @@ class SkillKind:
         return PersonalSkills(self.imp.spaces.personal_dir)
 
     def folder(self, name: str) -> Path:
-        return self.imp.root / "skills" / name
+        return self.imp.root / "skills" / check_name(name)
 
     # -- reading a source ----------------------------------------------------------------------------------
 

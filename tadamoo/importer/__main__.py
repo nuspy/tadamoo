@@ -6,7 +6,7 @@
     python -m tadamoo.importer reimport KIND NAME [--yes] [--overwrite-local] [--with-dependencies]
     python -m tadamoo.importer delete KIND NAME
     python -m tadamoo.importer enable|disable NAME
-    python -m tadamoo.importer migrate SKILLS_ROOT [--dry-run]
+    python -m tadamoo.importer migrate SKILLS_ROOT [--dry-run] [--update]
 
 The copies live in the user data folder (TADAMOO_DATA, else the app's folder; `--data-dir` names another). `reimport` without `--yes` only says what
 would change. `migrate` imports a folder of skills that the harness used to read directly (for example E:/AI/skills) and takes it out of the
@@ -50,6 +50,7 @@ def main(argv=None) -> int:
     mg = sub.add_parser("migrate")
     mg.add_argument("skills_root")
     mg.add_argument("--dry-run", action="store_true")
+    mg.add_argument("--update", action="store_true", help="re-import what is already imported and whose source changed")
     a = ap.parse_args(argv)
     if a.data_dir:
         data = Path(a.data_dir)
@@ -70,7 +71,7 @@ def main(argv=None) -> int:
         elif a.cmd in ("enable", "disable"):
             out = imp.set_enabled(a.name, a.cmd == "enable")
         else:
-            out = migrate(imp, a.skills_root, dry_run=a.dry_run)
+            out = migrate(imp, a.skills_root, dry_run=a.dry_run, update=a.update)
     except Problem as exc:
         print(json.dumps({"error": {"code": exc.code, "message": str(exc)}}), file=sys.stderr)
         return 1

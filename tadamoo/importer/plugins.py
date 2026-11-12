@@ -31,7 +31,7 @@ class PluginKind:
         self.imp = imp
 
     def folder(self, name: str) -> Path:
-        return self.imp.root / "plugins" / name
+        return self.imp.root / "plugins" / check_name(name)
 
     # -- reading a source ----------------------------------------------------------------------------------
 

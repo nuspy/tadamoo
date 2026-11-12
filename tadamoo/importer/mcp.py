@@ -13,7 +13,7 @@ from typing import Any, Dict, List
 from tadamoo.capabilities import LONG_TOKEN, SECRET_FLAG, redact_args
 from tadamoo.discovery.installed import env_spec
 
-from .common import Problem, Snapshot, canonical, now_iso, sha_text
+from .common import Problem, Snapshot, canonical, check_name, now_iso, sha_text
 
 KIND = "mcp"
 SERVER_NAME = re.compile(r"^[A-Za-z0-9_\-.]{1,64}$")
@@ -65,7 +65,7 @@ class McpKind:
         self.imp = imp
 
     def file(self, name: str) -> Path:
-        return self.imp.root / "mcp" / f"{name}.json"
+        return self.imp.root / "mcp" / f"{check_name(name)}.json"
 
     def off_id(self, name: str) -> str:
         return f"mcp:{name}"

@@ -89,3 +89,30 @@ def test_the_command_line_does_the_same(world, capsys):
     assert main(["--data-dir", str(data), "delete", "skill", "daily-note"]) == 1
     assert json.loads(capsys.readouterr().err)["error"]["code"] == "not_imported"
     assert Path(root / "personal" / "daily-note" / "skill.py").is_file()
+
+
+def test_update_brings_in_what_changed_and_reports_a_copy_edited_here(world):
+    root, data, imp = world
+    migrate(imp, root)
+    write(root / "shared-research" / "SKILL.md", "---\nname: shared-research\ndescription: Reads a thing.\n---\n\nNew body.\n")
+    write(root / "plugins" / "news" / "skills" / "news-skill" / "SKILL.md", "---\nname: news-skill\ndescription: Reads a thing.\n---\n\nNew plugin body.\n")
+    plain = migrate(imp, root)
+    assert plain["updated"] == [] and any("source has changed" in s["why"] for s in plain["skipped"])
+    assert migrate(imp, root, dry_run=True, update=True)["would_update"] == ["skill:shared-research", "plugin:news"]
+    write(imp.spaces.root / "skills" / "news-skill" / "SKILL.md", "---\nname: news-skill\ndescription: mine\n---\n\nedited here\n")
+    report = migrate(imp, root, update=True)
+    assert report["updated"] == ["skill:shared-research"] and [c["item"] for c in report["conflicts"]] == ["plugin:news"]
+    assert "New body." in (imp.spaces.root / "skills" / "shared-research" / "SKILL.md").read_text(encoding="utf-8")
+    assert "edited here" in (imp.spaces.root / "skills" / "news-skill" / "SKILL.md").read_text(encoding="utf-8")        # not replaced without saying so
+
+
+def test_a_manifest_with_a_name_that_climbs_out_cannot_make_a_delete_leave_the_space(world, tmp_path):
+    root, data, imp = world
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    write(victim / "keep.txt", "x")
+    imp.manifest.save({"skill:../../../victim": {"kind": "skill", "name": "../../../victim", "source": "x", "hash": "h", "copy_hash": "h"}})
+    from tadamoo.importer import Problem
+    with pytest.raises(Problem) as e:
+        imp.delete("skill", "../../../victim")
+    assert e.value.code == "bad_name" and (victim / "keep.txt").is_file()
