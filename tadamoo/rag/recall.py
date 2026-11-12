@@ -38,6 +38,8 @@ def citation(hit: Dict[str, Any]) -> str:
     first, last = int(hit.get("page_start") or 0), int(hit.get("page_end") or 0)
     if first:
         parts.append(f"p. {first}" if not last or last == first else f"pp. {first}-{last}")
+    if hit.get("figure"):
+        parts.append(str(hit["figure"]))
     path = str(hit.get("path") or "")
     if SECTION_SEP in path:
         parts.append(path.split(SECTION_SEP, 1)[1])

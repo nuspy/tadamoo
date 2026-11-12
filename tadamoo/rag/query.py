@@ -34,6 +34,7 @@ def _hit(archive: Any, i: int, lexical: Optional[float], semantic: Optional[floa
     return {"archive_id": archive.meta["id"], "archive": archive.meta["name"], "doc_id": chunk["doc"], "document": doc["name"], "chunk": chunk["n"],
             "text": chunk["text"], "path": chunk.get("path", ""), "page_start": chunk.get("page_start", 0), "page_end": chunk.get("page_end", 0),
             "kind": chunk.get("kind", "text"), "section": chunk.get("section", ""), "facts": chunk.get("facts") or {}, "summary": chunk.get("summary", ""),
+            "figure": chunk.get("figure", ""), "caption": chunk.get("caption", ""), "image": chunk.get("image", ""), "thumb": chunk.get("thumb", ""), "fig": chunk.get("fig", 0),
             "questions": chunk.get("questions") or [], "flag": chunk.get("flag", ""), "score": round(score, 4),
             "lexical": None if lexical is None else round(lexical, 4), "semantic": None if semantic is None else round(semantic, 4),
             "rerank": None if rerank is None else round(rerank, 4), "stages": stages, "mode": "hybrid" if semantic is not None else "lexical"}

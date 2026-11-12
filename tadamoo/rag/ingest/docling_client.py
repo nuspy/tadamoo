@@ -62,6 +62,7 @@ class _Run:
         self.blocks: List[Dict[str, Any]] = []
         self.skipped: Dict[int, str] = {}
         self.empty: Dict[int, str] = {}
+        self.figures: List[Dict[str, Any]] = []
         self.pages, self.device, self.done_to = 0, "cpu", 0
         self.started = self.finished = False
         self.error = ""
@@ -115,6 +116,8 @@ def _run(argv: List[str], progress: Optional[Progress], cancel: Optional[threadi
                 run.blocks += [b for b in event.get("blocks", []) if isinstance(b, dict)]
             elif kind == "skipped":
                 run.skipped[int(event.get("page") or 0)] = str(event.get("message") or "")
+            elif kind == "figures":
+                run.figures += [f for f in event.get("figures", []) if isinstance(f, dict)]
             elif kind == "empty":
                 run.empty[int(event.get("page") or 0)] = str(event.get("reason") or "unknown")
             elif kind in ("start", "progress", "done"):
@@ -147,7 +150,7 @@ def _run(argv: List[str], progress: Optional[Progress], cancel: Optional[threadi
 def read(python: str, path: Path, ext: str, progress: Optional[Progress] = None, cancel: Optional[threading.Event] = None, url: str = "",
          window: int = WINDOW_PAGES, idle_s: float = IDLE_S, total_s: float = TOTAL_S, cpu: bool = False,
          command: Optional[Sequence[str]] = None) -> Dict[str, Any]:
-    """`{blocks, pages, device, skipped, empty}` for the file at `path`, read by the worker. Raises RagError with the worker's own words when it fails before it
+    """`{blocks, pages, device, skipped, empty, figures}` for the file at `path`, read by the worker. Raises RagError with the worker's own words when it fails before it
     has started (nothing about the file is known then), `Cancelled` when `cancel` is set. `command` replaces the worker's command line (for tests).
 
     A worker that dies or hangs part way is started again where the work stopped and the pages already read are kept: the second try reads page by
@@ -160,6 +163,7 @@ def read(python: str, path: Path, ext: str, progress: Optional[Progress] = None,
     blocks: List[Dict[str, Any]] = []
     skipped: Dict[int, str] = {}
     empty: Dict[int, str] = {}
+    figures: List[Dict[str, Any]] = []
     out = {"pages": 0, "device": "cpu"}
     resume, fails, extra = 1, 0, []
     while True:
@@ -175,10 +179,12 @@ def read(python: str, path: Path, ext: str, progress: Optional[Progress] = None,
         empty.update(run.empty)
         if run.finished:
             blocks += run.blocks
-            return {"blocks": _with_gaps(blocks, skipped), "pages": out["pages"], "device": out["device"], "skipped": skipped, "empty": empty}
+            figures += run.figures
+            return {"blocks": _with_gaps(blocks, skipped), "pages": out["pages"], "device": out["device"], "skipped": skipped, "empty": empty, "figures": figures}
         if not run.started or not run.pages:
             raise RagError(run.error)                              # no page was ever reached: the file or the environment is at fault, not a page
         blocks += [b for b in run.blocks if int(b.get("page") or 0) <= run.done_to]      # what the run printed past its last finished page is read again
+        figures += [f for f in run.figures if int(f.get("page") or 0) <= run.done_to]
         position = max(run.done_to, resume - 1) + 1
         fails = fails + 1 if position == resume else 1
         resume = position
@@ -190,7 +196,7 @@ def read(python: str, path: Path, ext: str, progress: Optional[Progress] = None,
             skipped[resume] = run.error
             resume, fails, extra = resume + 1, 0, ["--paged"]
         if resume > out["pages"]:
-            return {"blocks": _with_gaps(blocks, skipped), "pages": out["pages"], "device": out["device"], "skipped": skipped, "empty": empty}
+            return {"blocks": _with_gaps(blocks, skipped), "pages": out["pages"], "device": out["device"], "skipped": skipped, "empty": empty, "figures": figures}
 
 
 def _with_gaps(blocks: List[Dict[str, Any]], skipped: Dict[int, str]) -> List[Dict[str, Any]]:

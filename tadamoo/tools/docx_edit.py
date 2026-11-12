@@ -21,6 +21,9 @@ from tadamoo.tools.docx_schemas import (CREATE_PARAMS, CREATE_TEXT, EDIT_PARAMS,
 from tadamoo.tools.registry import EffectClass, ToolRegistry
 
 W_TBL, W_TR, W_TC, W_SECT = qn("w:tbl"), qn("w:tr"), qn("w:tc"), qn("w:sectPr")
+IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff")      # what Word and python-docx take; a WebP picture is converted to PNG first
+IMAGE_BYTES = 25_000_000
+PICTURE_CM = 14.0                                                           # the width a picture gets unless asked, cut to the width of the text
 READ_CHARS = 40_000
 PREVIEW = 80
 OUTLINE_LINES = 400
@@ -363,6 +366,7 @@ class DocxTools:
         doc = self._open(safe, path)
         old_dump = text_dump(doc)
         session = _Session(doc, track_changes)
+        session.resolve = self.sandbox.resolve_safe
         applied: List[str] = []
         problems: List[str] = []
         for i, item in enumerate(edits, 1):
@@ -411,7 +415,7 @@ class DocxTools:
         problems: List[str] = []
         for i, block in enumerate(blocks, 1):
             try:
-                _add_block(doc, block)
+                _add_block(doc, block, self.sandbox.resolve_safe)
             except (EditError, KeyError, ValueError, TypeError) as exc:
                 problems.append(f"block {i}: {exc}")
         if problems:
@@ -422,17 +426,89 @@ class DocxTools:
         return result
 
 
-def _add_block(doc: Any, block: Any) -> None:
+def _usable_cm(doc: Any) -> float:
+    """The width of the text of the document's last section, in centimetres."""
+    try:
+        sec = doc.sections[-1]
+        return max(2.0, (int(sec.page_width) - int(sec.left_margin) - int(sec.right_margin)) / 360000.0)
+    except Exception:
+        return PICTURE_CM
+
+
+def _image_file(resolve: Optional[Callable[[str], Path]], name: Any) -> Path:
+    """The picture file a block or an edit names, inside the workspace, of a kind Word takes."""
+    if not isinstance(name, str) or not name.strip():
+        raise EditError("'image' is the relative path of a PNG, JPEG, GIF, BMP or TIFF file in the workspace")
+    if resolve is None:
+        raise EditError("pictures cannot be inserted here: there is no workspace to read them from")
+    path = resolve(name)
+    if path.suffix.lower() not in IMAGE_SUFFIXES:
+        raise EditError(f"'{name}' is not a picture Word takes ({', '.join(IMAGE_SUFFIXES)}); a WebP file must be converted to PNG first")
+    if not path.is_file():
+        raise EditError(f"there is no picture file '{name}'")
+    if path.stat().st_size > IMAGE_BYTES:
+        raise EditError(f"'{name}' is larger than {IMAGE_BYTES // 1_000_000} MB")
+    return path
+
+
+def _figure_count(doc: Any) -> int:
+    return sum(1 for p in doc.paragraphs if re.match(r"^\s*(?:Figure|Figura)\s+\d+\b", p.text))
+
+
+def _picture_paragraphs(doc: Any, image: Path, width_cm: Any, alt: str, caption: str, number: Optional[int]) -> List[Any]:
+    """Two new paragraphs, detached from the document: the picture, centred, `width_cm` wide (at most the width of the text; its alt text set) and its caption
+    (`Figure N - caption` when `number` is given), in the Caption style when the document has one."""
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Cm
+    try:
+        wanted = PICTURE_CM if width_cm in (None, "") else float(width_cm)
+    except (TypeError, ValueError):
+        raise EditError("'width_cm' is a number of centimetres") from None
+    if wanted <= 0:
+        raise EditError("'width_cm' must be more than 0")
+    width = min(wanted, _usable_cm(doc))
+    holder = doc.add_paragraph()
+    holder.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    shape = holder.add_run().add_picture(str(image), width=Cm(width))
+    docpr = shape._inline.docPr
+    docpr.set("descr", (alt or caption or image.stem)[:500])
+    docpr.set("title", (caption or image.stem)[:200])
+    made = [holder._p]
+    holder._p.getparent().remove(holder._p)
+    if caption:
+        text = f"Figure {number} - {caption}" if number is not None else caption
+        try:
+            cap = doc.add_paragraph(text, style="Caption")
+        except KeyError:
+            cap = doc.add_paragraph()
+            cap.add_run(text).italic = True
+        cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        made.append(cap._p)
+        cap._p.getparent().remove(cap._p)
+    return made
+
+
+def _add_block(doc: Any, block: Any, resolve: Optional[Callable[[str], Path]] = None) -> None:
     if not isinstance(block, dict) or not isinstance(block.get("kind"), str):
         raise EditError("each block is an object with a 'kind': heading, paragraph, bullet, numbered, table or page_break")
     kind = block["kind"]
     allowed = {"heading": {"text", "level"}, "paragraph": {"text", "bold", "italic", "style"}, "bullet": {"text", "level"},
-               "numbered": {"text"}, "table": {"rows", "header", "style"}, "page_break": set()}
+               "numbered": {"text"}, "table": {"rows", "header", "style"}, "page_break": set(), "picture": {"image", "width_cm", "caption", "alt", "numbered"}}
     if kind not in allowed:
-        raise EditError(f"unknown kind '{kind}': use heading, paragraph, bullet, numbered, table or page_break")
+        raise EditError(f"unknown kind '{kind}': use heading, paragraph, bullet, numbered, table, picture or page_break")
     extra = set(block) - allowed[kind] - {"kind"}
     if extra:
         raise EditError(f"a {kind} block has no field {', '.join(sorted(extra))}; its fields are {', '.join(sorted(allowed[kind])) or 'none'}")
+    if kind == "picture":
+        image = _image_file(resolve, block.get("image"))
+        caption = block.get("caption") or ""
+        if not isinstance(caption, str):
+            raise EditError("a picture block needs 'caption' as a string")
+        number = _figure_count(doc) + 1 if caption and block.get("numbered", True) else None
+        for el in _picture_paragraphs(doc, image, block.get("width_cm"), str(block.get("alt") or ""), caption, number):
+            sect = doc.element.body.find(W_SECT)
+            (sect.addprevious if sect is not None else doc.element.body.append)(el)
+        return
     text = block.get("text", "")
     if kind != "table" and kind != "page_break" and not isinstance(text, str):
         raise EditError(f"a {kind} block needs 'text' as a string")
@@ -485,6 +561,7 @@ class _Session:
         "delete_table_row": {"table", "row"},
         "add_comment": {"target", "text", "author", "initials", "find"},
         "set_style": {"target", "style"},
+        "insert_picture": {"after", "before", "image", "width_cm", "caption", "alt", "numbered"},
     }
 
     def __init__(self, doc: Any, track: bool) -> None:
@@ -495,6 +572,7 @@ class _Session:
         self.gone: set = set()
         self.removals: List[Any] = []                      # deleted elements stay in place until the call ends, so addresses next to them still work
         self.last_after: Dict[Any, Any] = {}
+        self.resolve: Optional[Callable[[str], Path]] = None
         self.handlers: Dict[str, Callable[[Dict[str, Any]], str]] = {k: getattr(self, "_do_" + k) for k in self.ALLOWED}
 
     @staticmethod
@@ -705,6 +783,55 @@ class _Session:
         else:
             anchor.addprevious(new)
         return f"insert_paragraph {'after' if after is not None else 'before'} {ref}"
+
+    def _do_insert_picture(self, item: Dict[str, Any]) -> str:
+        after, before = item.get("after"), item.get("before")
+        if (after is None) == (before is None):
+            raise EditError("give exactly one of 'after' or 'before': an address (p12, t2) or end / start of the document")
+        ref = after if after is not None else before
+        word = str(ref).strip().lower()
+        if word in ("end", "start"):
+            if (word == "end") != (after is not None):
+                raise EditError("use 'after': 'end' for the end of the document and 'before': 'start' for its start")
+            if not self.body.edges:
+                raise EditError("the document body is empty")
+            anchor = self.body.edges[-1] if word == "end" else self.body.edges[0]
+        else:
+            kind, nums = self.body.parse(ref)
+            if kind == "par":
+                if nums[0] != nums[1]:
+                    raise EditError(f"'{ref}' is a range; give one paragraph or table")
+                anchor = self.body.paras[nums[0] - 1]
+            elif kind == "table":
+                anchor = self.body.tables[nums[0] - 1]
+            else:
+                raise EditError(f"'{ref}' is a cell; insert next to a paragraph (pN) or a table (tN)")
+        image = _image_file(self.resolve, item.get("image"))
+        caption = item.get("caption") or ""
+        if not isinstance(caption, str):
+            raise EditError("'caption' is the text under the picture")
+        numbered = bool(caption) and item.get("numbered", True)
+        number = _figure_count(self.doc) + 1 if numbered else None          # the pictures this call added before are in the document already
+        made = _picture_paragraphs(self.doc, image, item.get("width_cm"), str(item.get("alt") or ""), caption, number)
+        if self.track:
+            for p in made:
+                wrapper = self.rev.mark("w:ins")
+                for run in [c for c in p if c.tag == qn("w:r")]:
+                    p.remove(run)
+                    wrapper.append(run)
+                p.append(wrapper)
+                dr.mark_paragraph(p, "w:ins", self.rev)
+        if after is not None:
+            key = anchor
+            anchor = self.last_after.get(key, anchor)
+            for p in made:
+                anchor.addnext(p)
+                anchor = p
+            self.last_after[key] = anchor
+        else:
+            for p in made:
+                anchor.addprevious(p)
+        return f"insert_picture {'after' if after is not None else 'before'} {ref}: {image.name}"
 
     def _do_delete_paragraph(self, item: Dict[str, Any]) -> str:
         pars = self._pars(item.get("target"))

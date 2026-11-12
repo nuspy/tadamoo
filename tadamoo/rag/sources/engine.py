@@ -376,11 +376,13 @@ class Sync:
             reading = read_document(fetched.path, fetched.name, self.store.settings.read(), progress=tell, cancel=cancel)
             tell({"event": "stage", "stage": "cutting"})
             chunks, sections, stats = self.store.passages_of(doc["id"], fetched.name, reading["blocks"], aid)
+            fset = {"records": [], "staging": None} if dry_run else self.store.figure_set(aid, doc["id"], fetched.path, fetched.name, reading, chunks, tell, cancel)
             diff = self._diff(old_chunks.get(doc["id"], []), chunks)
-            new = {k: v for k, v in doc.items() if k not in ("skipped_pages", "empty_pages", "coverage")}
+            new = {k: v for k, v in doc.items() if k not in ("skipped_pages", "empty_pages", "coverage", "figures")}
             new.update(name=fetched.name, ext=Path(fetched.name).suffix.lower(), bytes=fetched.bytes, chars=stats["chars"], chunks=len(chunks), sha256=fetched.sha256,
                        extraction=reading["extraction"], pages=int(reading.get("pages") or 0), flagged=stats["flagged"], updated=now,
-                       origin={"kind": data_src["kind"], "ref": fetched.origin, "version": fetched.version or stamp_text(fetched.stamp)}, revision=int(doc.get("revision") or 1) + 1)
+                       origin={"kind": data_src["kind"], "ref": fetched.origin, "version": fetched.version or stamp_text(fetched.stamp)}, revision=int(doc.get("revision") or 1) + 1,
+                       figures=len(fset["records"]))
             if "info" in stats:
                 new["info"] = stats["info"]
             self.store.describe_documents(aid, [new])
@@ -391,7 +393,7 @@ class Sync:
             new["coverage"] = coverage.of_document(new, chunks)
             item.update(state="would update" if dry_run else "updated", detail=f"{item.get('old', '')} -> {item.get('new', '')}".strip(" ->"), passages=diff["counts"],
                         examples=diff["examples"], coverage=new["coverage"]["status"])
-            prepared.append({"item": item, "doc": new, "chunks": chunks, "sections": sections, "blocks": reading["blocks"], "fetched": fetched, "old_doc": doc})
+            prepared.append({"item": item, "doc": new, "chunks": chunks, "sections": sections, "blocks": reading["blocks"], "fetched": fetched, "old_doc": doc, "figures": fset})
             return
         # a new item: adopt a document that already holds the same file, else add it
         same = next((d for d in by_doc.values() if d["sha256"] == fetched.sha256), None)
@@ -453,7 +455,8 @@ class Sync:
             n = len(p["chunks"])
             part = np.vstack(rows[at:at + n]) if have and n else None
             at += n
-            changes.append({"doc": p["doc"], "chunks": p["chunks"], "sections": p["sections"], "blocks": p["blocks"], "rows": part, "model": model, "version": version})
+            changes.append({"doc": p["doc"], "chunks": p["chunks"], "sections": p["sections"], "blocks": p["blocks"], "rows": part, "model": model, "version": version,
+                            "figures": p.get("figures")})
         settings = self.settings.read()
         state, now = self.state(aid), self.clock()
         kept: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
@@ -475,6 +478,11 @@ class Sync:
                     (state.folder / "versions" / doc["id"] / f"{entry['n']}.json.gz").unlink(missing_ok=True)
             state.change(undo)
             raise
+        finally:
+            for p in prepared:                                          # staged figure images that were not installed (a failed commit) are not kept
+                staging = (p.get("figures") or {}).get("staging")
+                if staging:
+                    shutil.rmtree(staging, ignore_errors=True)
         for p in prepared:
             f: Fetched = p["fetched"]
             link_updates[p["doc"]["id"]] = {"stamp": f.stamp, "fetched": now, "version": f.version, "origin": f.origin}

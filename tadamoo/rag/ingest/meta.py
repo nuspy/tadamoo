@@ -233,7 +233,7 @@ def document(name: str, chunks: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
 
 # -- filters --------------------------------------------------------------------------------------------------------------------------
 
-FILTER_KEYS = ("language", "number", "gene", "seq", "year", "kind", "document", "unit")
+FILTER_KEYS = ("language", "number", "gene", "seq", "year", "kind", "document", "unit", "figure")
 
 
 def clean_filters(raw: Any) -> Dict[str, Any]:
@@ -295,6 +295,9 @@ def matches(meta: Dict[str, Any], doc: Dict[str, Any], kind: str, filters: Dict[
                 return False
         elif key == "kind":
             if kind != str(value).lower():
+                return False
+        elif key == "figure":
+            if _norm(str(value)).replace("FIG", "").replace("FIGURE", "") != _norm(str(meta.get("figure", ""))).replace("FIG", "").replace("FIGURE", ""):
                 return False
         elif key == "unit":
             if not any(str(value).lower() in q.lower() for q in meta.get("qty", [])):
