@@ -1,6 +1,6 @@
 # Diario dei task
 
-Ultimo aggiornamento: 11 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
+Ultimo aggiornamento: 12 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «9 novembre» e da «Decisioni tue in attesa». Le sezioni dell'8, 7, 5 e 4 novembre sono in `docs/task_diary_archive.md`.
 
 ## 11 novembre
@@ -1387,6 +1387,8 @@ Stato (1 novembre, sera): committati il blocco «cosa sei» con `self_status` (`
 - Rilascio per Mac: rimandato a quando il progetto è quasi finale.
 - Studio sulle chiamate in contesti separati: in parte coperto dalla sessione tecnica.
 # Diario dei task
+- In corso (12 novembre, newscast, fase 1 del telegiornale completo): la ricerca delle notizie e il copione in ungherese sono pronti e accettati dal controllo del copione (6 notizie, dubbi con spiegazione alternativa e fatto che li scioglierebbe, uno sul governo e uno sull'UE). Sto facendo l'audio di tutti i blocchi (leggero) e la pagina di revisione; poi aspetto il via per la GPU. Nessun lavoro pesante finché non arriva il file di via.
+- Fatto (12 novembre, newscast): `install-skill` ora copia le skill nella cartella sorgente e la passa all'importatore (le copie vere stanno in %APPDATA%\TaDaMoo); tolti il file `personal-skills-dir.json` e le funzioni relative. La migrazione sui dati veri la lancia il responsabile.
 
 Ultimo aggiornamento: 12 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «9 novembre» e da «Decisioni tue in attesa». Le sezioni dell'8, 7, 5 e 4 novembre sono in `docs/task_diary_archive.md`.
