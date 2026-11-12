@@ -96,10 +96,10 @@ class PlanKind:
         if f"plan:{snap.name}" in items or not store.exists(snap.name):
             return []
         try:
-            live = def_hash(store.get(snap.name).dag)
+            store.get(snap.name)
         except KeyError:
             return [{"code": "plan_archived", "message": f"A plan '{snap.name}' is in the archive. Restore or delete it first."}]
-        if adopt and live == snap.hash:
+        if adopt:
             return []
         return [{"code": "plan_exists", "message": f"A plan with the id '{snap.name}' is already there and was not imported (made in the app, or imported another way)."}]
 
@@ -108,8 +108,10 @@ class PlanKind:
 
     def add(self, txn: Any, snap: Snapshot, items: Dict[str, Any], parent: str = "", adopt: bool = False, **_: Any) -> Dict[str, Any]:
         p, store = _planner(), self.store()
-        if store.exists(snap.name):                                  # adopt: the plan is there and is the same as the source
+        adopted = ""
+        if store.exists(snap.name):                                  # adopt: the plan that is there is taken as the imported copy, as it is
             bridge = store.get(snap.name)
+            adopted = "same" if def_hash(bridge.dag) == snap.hash else "differs"
         else:
             card = p.PlanInsightCard.from_dict(snap.payload["card"]) if snap.payload["card"] else None
             profile = p.PlanProfile.from_dict(snap.payload["profile"])
@@ -120,7 +122,7 @@ class PlanKind:
             store.save(snap.name)
         entry = {"kind": KIND, "name": snap.name, "version": "", "description": snap.description, "source": snap.source, "hash": snap.hash,
                  "copy_hash": def_hash(bridge.dag), "imported_at": now_iso(), "updated_at": now_iso(), "parent": parent, "steps": len(bridge.dag.nodes),
-                 "base": self._baseline(bridge)}
+                 "base": self._baseline(bridge), **({"adopted": adopted} if adopted else {})}
         items[f"plan:{snap.name}"] = entry
         return entry
 

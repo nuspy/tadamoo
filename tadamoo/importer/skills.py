@@ -76,7 +76,7 @@ class SkillKind:
         if py:
             slug = slugify(name if md else str(spec.get("name") or name))
             try:
-                clean = self.store()._validate(spec, script)
+                clean = PersonalSkills.validate(spec, script)
             except SkillError as exc:
                 raise Problem("bad_skill", f"The personal skill is refused: {exc}") from None
         if md and not (meta.get("description") or "").strip():

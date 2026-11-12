@@ -18,7 +18,7 @@ from .skills import SkillKind
 
 KINDS = ("skill", "plugin", "mcp", "plan")
 ROW_FIELDS = ("kind", "name", "version", "description", "source", "imported_at", "updated_at", "hash", "files", "bytes", "parent", "parts", "reused", "dependencies",
-              "forms", "runs", "needs_keys", "steps", "last_reimport")
+              "forms", "runs", "needs_keys", "steps", "last_reimport", "adopted")
 
 
 @dataclass
