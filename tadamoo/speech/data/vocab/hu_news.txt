@@ -1,0 +1,321 @@
+# Words typical of Hungarian and EU politics news: the optimizer (optimize.py) finds the best respelling of each for a voice and writes it to the lexicon.
+# One word or short name per line; a line starting with # is a note. Forms with a suffix are listed where the ending is part of the problem.
+
+# institutions
+Országgyűlés
+Alkotmánybíróság
+Kúria
+Miniszterelnökség
+Kormányszóvivő
+Kormányhivatal
+Önkormányzat
+Minisztérium
+Államtitkár
+Legfőbb Ügyészség
+Állami Számvevőszék
+Európai Számvevőszék
+Közbeszerzési Hatóság
+Gazdasági Versenyhivatal
+Szuverenitásvédelmi Hivatal
+Európai Ügyészség
+Európai Bizottság
+Európai Parlament
+Európai Tanács
+Európai Unió
+Európai Bíróság
+Magyar Nemzeti Bank
+Sándor-palota
+Kossuth tér
+Alaptörvény
+Köztársasági Elnök
+
+# people
+Orbán Viktor
+Magyar Péter
+Szijjártó Péter
+Gulyás Gergely
+Navracsics Tibor
+Varga Judit
+Lázár János
+Rogán Antal
+Pintér Sándor
+Novák Katalin
+Sulyok Tamás
+Matolcsy György
+Kapitány István
+Karácsony Gergely
+Gyurcsány Ferenc
+Dobrev Klára
+Toroczkai László
+Jakab Péter
+Szél Bernadett
+Hadházy Ákos
+Kovács
+Szabó
+Tóth
+Nagy
+Varga
+Horváth
+Kovács Anna
+Szilágyi
+Ursula von der Leyen
+Roberta Metsola
+António Costa
+Kaja Kallas
+Zelenszkij
+Putyin
+Fico
+Tusk
+Macron
+Merz
+Meloni
+Manfred Weber
+Donald Trump
+Orbánék
+Magyar Péterék
+
+# parties and media
+Fidesz
+KDNP
+Tisza
+Demokratikus Koalíció
+Jobbik
+Momentum
+Mi Hazánk
+MSZP
+Párbeszéd
+Kutyapárt
+Fidesz-KDNP
+Tisza Párt
+MTVA
+Hír TV
+Telex
+Magyar Nemzet
+Népszava
+Mediaworks
+KESMA
+Szuverenitásvédelmi
+
+# cities, countries, regions
+Brüsszel
+Brüsszelben
+Brüsszelből
+Brüsszeli
+Strasbourg
+Luxemburg
+Budapest
+Budapesten
+Debrecen
+Szeged
+Miskolc
+Pécs
+Győr
+Székesfehérvár
+Nyíregyháza
+Kecskemét
+Szolnok
+Zalaegerszeg
+Szombathely
+Veszprém
+Tatabánya
+Esztergom
+Sopron
+Eger
+Balatonfüred
+Hódmezővásárhely
+Pozsony
+Bécs
+Prága
+Varsó
+Kijev
+Moszkva
+Washington
+Berlin
+Párizs
+Róma
+Madrid
+Lisszabon
+Athén
+Bukarest
+Szófia
+Belgrád
+Zágráb
+Vilnius
+Tallinn
+Helsinki
+Stockholm
+Koppenhága
+Amszterdam
+Hága
+Csíkszereda
+Kolozsvár
+Nagyvárad
+Szabadka
+Ungvár
+Beregszász
+Kárpátalja
+Vajdaság
+Erdély
+Felvidék
+Ukrajna
+Moldova
+Montenegró
+Szerbia
+Észak-Macedónia
+Albánia
+Törökország
+Grúzia
+Csehország
+Szlovákia
+Lengyelország
+Horvátország
+Szlovénia
+Svédország
+Dánia
+Hollandia
+Portugália
+Spanyolország
+Franciaország
+Németország
+Olaszország
+Görögország
+Írország
+Finnország
+Észtország
+Lettország
+Litvánia
+Luxemburgi
+Egyesült Államok
+Nagy-Britannia
+Kína
+Oroszország
+
+# the EU and the state
+uniós
+költségvetés
+kohéziós
+helyreállítási
+jogállamiság
+kötelezettségszegési
+felfüggesztés
+vétó
+szankció
+kifizetés
+kifizetéseket
+támogatás
+megállapodás
+csúcstalálkozó
+tagállam
+tagállamok
+tagság
+NATO-tagság
+NATO
+euróövezet
+schengeni
+Frontex
+migrációs
+paktum
+energiafüggőség
+olajvezeték
+atomerőmű
+Paks
+Roszatom
+mentesség
+kivételezés
+egyhangúság
+minősített többség
+ratifikáció
+Lisszaboni Szerződés
+Alapjogi Charta
+korrupcióellenes
+átláthatóság
+elszámoltathatóság
+elszámoltathatóságot
+közbeszerzés
+összeférhetetlenség
+vagyonnyilatkozat
+csatlakozás
+bővítés
+EU
+Brexit
+euró
+eurót
+eurókat
+
+# politics and law
+pártelnök
+kormánypárt
+ellenzék
+ellenzéki
+kampány
+népszavazás
+választókerület
+mandátum
+koalíció
+kétharmad
+sarkalatos
+törvényjavaslat
+módosítás
+kormányrendelet
+veszélyhelyzet
+tüntetés
+sztrájk
+korrupció
+vádemelés
+nyomozás
+ügyész
+ítélet
+jogerős
+fellebbezés
+alkotmány
+médiatörvény
+propaganda
+dezinformáció
+kormánypropaganda
+közmédia
+köztársasági
+kormányfő
+miniszterelnök
+külügyminiszter
+országgyűlési
+képviselő
+képviselők
+képviselőtestület
+polgármester
+nyilvánosságra
+nyilvánosságra hozta
+elszámoltatás
+felelősségre vonás
+önkormányzati
+helyhatósági
+összehasonlítás
+megkerülni
+megkerülhetetlen
+
+# economy
+infláció
+forint
+költségvetési hiány
+államadósság
+nyugdíj
+nyugdíjemelés
+minimálbér
+áfa
+bankadó
+extraprofit
+rezsicsökkentés
+üzemanyag
+ársapka
+kamatstop
+hiteltörlesztés
+devizahitel
+vagyonkezelő
+alapítvány
+közérdekű
+beruházás
+gazdasági növekedés
+recesszió
+munkanélküliség
+exportőr
+importőr
+árfolyam
