@@ -33,8 +33,10 @@ def of_document(doc: Dict[str, Any], chunks: Iterable[Dict[str, Any]], pages: in
     skipped = sorted({int(n) for n in doc.get("skipped_pages") or []})
     figure_rows = [c for c in rows if c.get("kind") == "figure"]
     text_pages = {p for c in rows if c.get("kind") != "figure" for p in range(int(c.get("page_start") or 0), max(int(c.get("page_start") or 0), int(c.get("page_end") or 0)) + 1)}
-    figure_pages = sorted({int(c["page_start"]) for c in figure_rows if int(c.get("page_start") or 0) > 0 and int(c["page_start"]) not in text_pages})    # pages whose only content is a figure
-    empty = sorted({int(n) for n in doc.get("empty_pages") or []} - set(figure_pages))             # a page that gave no text but whose figure was kept is not an empty page
+    reader_empty = {int(n) for n in doc.get("empty_pages") or []}
+    on_figures = {int(c["page_start"]) for c in figure_rows if int(c.get("page_start") or 0) > 0}
+    figure_pages = sorted(n for n in on_figures if n in reader_empty or n not in text_pages)                 # pages whose only content is a figure
+    empty = sorted(reader_empty - set(figure_pages))                                                           # a page that gave no text but whose figure was kept is not an empty page
     covered = set()
     for c in rows:
         first, last = int(c.get("page_start") or 0), int(c.get("page_end") or 0)

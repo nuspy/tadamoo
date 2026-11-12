@@ -265,3 +265,27 @@ def test_a_model_that_cannot_see_leaves_the_figures_and_not_the_text_and_cloud_n
     with pytest.raises(RagError, match="cloud_ok"):
         enrich.Enricher(store, away).run(aid)
     assert away.calls == []
+
+
+def test_an_updated_pdf_of_a_followed_folder_gets_its_figures_again_and_a_removed_figure_leaves_none(tmp_path):
+    import os
+    from sources_support import make
+    store, sync, aid = make(tmp_path)
+    src = tmp_path / "docs"
+    src.mkdir()
+    pdf = make_pdf(src)
+    os.utime(pdf, (1_700_000_000, 1_700_000_000))
+    sync.add_source(aid, "folder", {"path": str(src)})
+    sync.update(aid)
+    doc = next(d for d in store.get(aid)["document_list"] if d["name"] == "patent.pdf")
+    assert doc["figures"] == 1 and (tmp_path / "rag" / aid / "images" / doc["id"] / "1.webp").is_file()
+    first = (tmp_path / "rag" / aid / "images" / doc["id"] / "1.webp").read_bytes()
+    plain = fitz.open()
+    plain.new_page().insert_textbox(fitz.Rect(60, 80, 540, 300), "A new version of the patent with text only and no drawing at all, about boats and the wind.", fontsize=11)
+    plain.save(str(pdf))
+    os.utime(pdf, (1_700_000_500, 1_700_000_500))
+    done = sync.update(aid)
+    assert any(i["state"] == "updated" for i in done["items"])
+    doc = next(d for d in store.get(aid)["document_list"] if d["name"] == "patent.pdf")
+    assert doc["figures"] == 0 and not (tmp_path / "rag" / aid / "images" / doc["id"]).exists() and not any(c["kind"] == "figure" for c in store.load(aid).chunks)
+    del first

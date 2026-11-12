@@ -70,4 +70,24 @@ this conversation's is `none`. The copy in the working folder is made only after
 
 ## Measured
 
-On the figure sheets of the ER100 patents (scratch archive, Docling only on the figure pages on the CPU, OCR on the CPU, words only, no GPU): see the end of this page.
+A scratch archive (never the real one) of the figure pages of four ER100 patents: the text blocks of the rebuilt archive, the figures from copies of the PDFs, Docling run only on the 19 figure
+pages (8 of the digital CN patent, 11 sheets that had given no text) on the CPU in 300 s, OCR on the CPU (about 3 s a sheet). Result: **25 figures** (CN 14, US 3, WO2024031059 4, WO2024155957 4); the
+11 empty pages all became figures with their labels (`FIG. 10B`, `FIG. 20`, `FIG. 2K`, ...) and the words inside them (axis titles, gene names such as MSRA, SIRT1, FOXO3, legends in Chinese), and
+Docling's duplicate pictures (a page read twice) were merged. The text of a figure passage was read by eye on a dozen of them: the labels are right; the OCR of tilted or very small text is noisy
+(`ves-d εe ud wn`), and the caption of a sheet is the `FIG.` line inside the image.
+
+Retrieval, 16 questions written from the pictures (8 English, 4 Chinese, 4 Italian), **words only** (no embedder, no model description; the GPU was not asked for), the figure counted when a hit of the right
+document and page is a figure passage:
+
+| | English | Chinese | Italian | all |
+|---|---|---|---|---|
+| a figure is the first hit among all passages | 6/8 | 1/4 | 1/4 | 8/16 |
+| a figure is in the first three, among all passages | 7/8 | 1/4 | 1/4 | 9/16 |
+| in the first three with `filters: {kind: "figure"}` | 8/8 | 2/4 | 1/4 | 11/16 |
+| **the same questions, text passages only** (a passage whose pages hold the figure) | 0/8 | 0/4 | 0/4 | 0/16 |
+
+Without figure passages none of these can be answered: the labels are only in the image. What the words cannot do is also clear: the Italian questions about English or Chinese figures
+find a figure only through shared tokens (gene names), and the Chinese ones are held back by the word index (it takes a run of Chinese characters as one word). Those two are what the embedder (meaning
+across languages) and the model's description in Italian are for; neither was run here. **Left for the live phase**: the same questions with the embedder and the reranker; the enrichment run with the
+local model's vision (how long a figure takes, whether the descriptions name the entities); and whether a multimodal embedder (an image and its text in one vector) beats the text embedding of the caption,
+labels and description: not measured, and not adopted.
