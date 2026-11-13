@@ -55,8 +55,10 @@ def install_steps(major: int, system: Optional[str] = None) -> List[str]:
                 "then in the database: CREATE EXTENSION vector;"]
     if system == "Darwin":
         return ["brew install pgvector", "then in the database: CREATE EXTENSION vector;"]
-    return ["Windows: pgvector has no installer of its own. Use a PostgreSQL package that includes it, or build it with the Visual Studio build tools following "
-            "https://github.com/pgvector/pgvector#windows, then restart the PostgreSQL service.", "then in the database: CREATE EXTENSION vector;"]
+    return ["Windows: pgvector has no installer of its own. Build it with the Visual Studio C++ build tools, in a command prompt started with vcvars64.bat: "
+            "set PGROOT=<the PostgreSQL folder>  then  git clone --branch v0.8.7 https://github.com/pgvector/pgvector.git  then  cd pgvector  then  "
+            "nmake /F Makefile.win  then  nmake /F Makefile.win install  (about a minute, nothing else to download). The PostgreSQL service need not be restarted.",
+            "then, as a PostgreSQL superuser, in the database: CREATE EXTENSION vector;"]
 
 
 def install_command(major: int, system: Optional[str] = None) -> Optional[List[str]]:
