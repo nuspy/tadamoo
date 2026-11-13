@@ -7,7 +7,8 @@ returns when the file is made.
 
 ## generate_image
 
-`prompt` (required), `width`, `height`, `steps`, `seed`, `negative`, `path`.
+`prompt` (required), `width`, `height`, `steps`, `seed`, `negative`, `path`, `refs`. `refs` are up to 4 pictures of the working folder that the picture is conditioned on (an edit of what they
+show); the prompt calls them `image 1`, `image 2`.
 
 | | default | cap |
 |---|---|---|
@@ -17,7 +18,7 @@ returns when the file is made.
 
 ## generate_video
 
-`prompt` (required), `width`, `height`, `frames`, `fps`, `seed`, `negative`, `path`. The distilled model has a fixed schedule, so there are
+`prompt` (required), `image`, `width`, `height`, `frames`, `fps`, `seed`, `negative`, `path`. `image` is a picture of the working folder that the clip starts from. The distilled model has a fixed schedule, so there are
 no steps.
 
 | | default | cap |
@@ -28,6 +29,20 @@ no steps.
 
 A value above a cap is an error that names the cap; a rounding is applied and told in `adjusted`. Without a `seed` a new one is chosen
 and returned.
+
+## enhance_video
+
+`path` (required, a video of the working folder), `scale`, `factor`, `mode`, `output`; at least one of `scale` and `factor`. Offered when the frame maker (RIFE) or the enlarger (FlashVSR+) of
+LTX Studio is ready; asking for the one that is not ready answers `unavailable`. The comparison that led to these two is in [enhance.md](enhance.md).
+
+| | default | cap |
+|---|---|---|
+| scale | the size is kept | 1 to 4 times the width and height |
+| factor | the frame rate is kept | 2 to 4 times the frames a second |
+| mode | turbo | turbo (faster) or base (finer) |
+
+The picture is enlarged first, then the frames are made at the final size (`client.enhance`); each is a job with its own lease. The enlarged video keeps the sound of the source; the frame maker
+keeps it too. The original is never changed; the copy is `media/<name>-enhanced-<date>.mp4` unless `output` says otherwise.
 
 ## Where the file goes
 

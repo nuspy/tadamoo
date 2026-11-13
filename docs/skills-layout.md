@@ -15,7 +15,7 @@ E:\AI\skills  image-generation\   SKILL.md, scripts\                  pictures f
   video-editing\      SKILL.md, references\, scripts\  virtual camera, overlays, joins, seams       (code: tadamoo/videoedit)
   news-research\      SKILL.md, scripts\research.py       the investigative procedure and its guardrails (rules: tadamoo/research)
   plugins\ai-newscast\  plugin.json, README.md, skills\ai-newscast\ (SKILL.md, skill.json, skill.py), plans\, parameters\
-  builtin.json           the catalogue of the built-in skills the setup offers (docs/builtin-skills.md)
+  builtin.json           the catalogue of the built-in skills the setup offers (docs/import.md)
 ```
 
 The sources are in the repository, `skills/`; `python -m tadamoo.newscast install-skill` copies them into the source folder and hands the folder to the importer

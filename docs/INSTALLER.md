@@ -47,9 +47,16 @@ and the internet the first time (Python installer from python.org, wheels from P
   3. creates `.venv` and installs `requirements.txt` from `setup\wheels` (no internet); if the wheels do not fit the
      Python found, from the internet;
   4. checks that the packages and `serve.server` import;
-  5. creates `logs\` writable for users and lets users **create** files in the folder root (`tadamoo.pid`,
+  5. asks which **built-in skills** to install (a page that lists `skills/builtin.json`, with their summaries; a skill
+     ticks what it requires; picture generation, photo editing, video generation with its smoother and larger
+     copies, talking head, video editing, speech, news research and the newscast are separate entries) and imports
+     the chosen ones with `python -m tadamoo.importer builtin install` (copies in the user data folder; a failure is
+     only logged). `--skills all|none|NAME,NAME` answers instead of the page; with `--no-ui` and no `--skills` the
+     ticked-by-default ones are installed. The models of a skill are not downloaded here: the skill checks for them
+     and says how to install only the missing ones (`python -m tadamoo.media.components check SKILL`);
+  6. creates `logs\` writable for users and lets users **create** files in the folder root (`tadamoo.pid`,
      `tadamoo_config.json`); programs, scripts and libraries stay read-only for users;
-  6. precompiles `serve\` (the folder is not writable afterwards), then removes `setup\`.
+  7. precompiles `serve\` (the folder is not writable afterwards), then removes `setup\`.
   Its log is `setup.log` in the installed folder. It shows a small progress window.
 * User data (profiles, model folders, preferences) stays in `%APPDATA%\TaDaMoo`, as in a working copy.
 * The setup is not code-signed: SmartScreen asks for confirmation. InstallForge supports signing (`BuildConfiguration`).
