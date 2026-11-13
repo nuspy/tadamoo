@@ -434,6 +434,8 @@ class PlanService:
         report = bridge.tick(now)
         moment = time.time() if now is None else now
         self._due[plan_id] = report["next_due"]
+        for nid in [*(report.get("failed") or []), *(report.get("timed_out") or [])]:       # a step the plan works out itself failed or a wait ran out of time
+            self._recover(plan_id, nid, moment)
         for call in report.get("calls") or []:
             retry_at = self._call(plan_id, bridge, call, moment)
             if retry_at is not None:
@@ -589,6 +591,7 @@ class PlanService:
                 continue
             dag = bridge.dag
             interrupted = [n for n in dag.nodes.values() if n.status == "in_progress"]
+            stuck = [n for n in dag.nodes.values() if self._stuck(n)] if bridge.run.get("active") else []
             if bridge.paused or not (bridge.run.get("active") or interrupted):
                 continue
             if dag.run_state() == "finished":
@@ -615,32 +618,52 @@ class PlanService:
             self.tick(plan_id, moment)
             self._offered.pop(plan_id, None)
             self._offer(plan_id, "the program stopped while it was running and it is taken up again where it was", moment)
+            for n in stuck:                                         # a recovery that was going on when the program stopped goes on, counted with the step's other recoveries
+                self._recover(plan_id, n.id, moment)
             out.append(plan_id)
         return out
 
+    @staticmethod
+    def _stuck(node: Any) -> str:
+        """Why a step needs recovering: "failed" (it used its tries), "timed out" (it ran out of time), or "" when it does not. What is for the person is not recovered here."""
+        if node.assignee.value == "user":
+            return ""
+        if node.status == "failed":
+            return "failed"
+        if node.state_variables.get("timed_out") and node.status not in ("completed", "skipped"):
+            return "timed out"
+        return ""
+
     def _recover(self, plan_id: str, node_id: str, now: Optional[float] = None) -> bool:
-        """A step failed for good: a conversation of the agent is started to find the cause (it may write code) and to force a way that passes. After a few
-        recoveries of the same step it is left for the person. True when a recovery was started."""
+        """A step failed for good or ran out of time (any kind of step: one the agent does, one the plan works out itself, a wait): a conversation of the agent is
+        started to find the cause (it may write code) and to force a way that passes. After a few recoveries of the same step it is left for the person.
+        True when a recovery was started."""
         if self.launcher is None:
             return False
         bridge = self.store.get(plan_id, self._replanner())
         node = bridge.dag.nodes.get(node_id)
-        if node is None or node.status != "failed" or bridge.paused:
+        why = self._stuck(node) if node is not None else ""
+        if not why or bridge.paused:
             return False
         moment = time.time() if now is None else now
         used = int(node.state_variables.get("recoveries", 0))
         if used >= RECOVER_LIMIT:
-            bridge.dag.note(node.id, "auto", f"{node.title}: failed after {used} recoveries: left for you", moment)
+            bridge.dag.note(node.id, "auto", f"{node.title}: {why} after {used} recoveries: left for you", moment)
             self._saved(plan_id)
             return False
         node.state_variables["recoveries"] = used + 1
         node.state_variables["attempts"] = 0
         reasons = "; ".join(f["reason"] for f in node.state_variables.get("failures") or [])
-        text = (f'The step "{node.title}" (id {node.id}) of the plan "{bridge.dag.title}" (id {plan_id}) failed after its tries. This is recovery {used + 1} of {RECOVER_LIMIT}. '
-                f"What it was to do: {node.description or node.title}. Why it failed so far: {reasons or 'no reason was written'}. "
-                "Read the plan with plan_get and the step's own data, find the real cause (the error, the files, the outputs, the tools it used), and fix it: you may write or change "
-                "code or scripts, set the values the step needs, or force a different way that passes, even doing by a script what the model could not. When it is in place mark the "
-                "step pending with plan_mark, do it again (plan_step_start), and mark it completed with its outputs. If it cannot be fixed, mark it failed with the reason. "
+        kind = node.type.value
+        own = f" It is a '{kind}' step that the plan works out itself, from {json.dumps(node.spec, ensure_ascii=False)[:500]}." if kind in _planner().nodes.AUTO else ""
+        cause = ("it used up its tries" if why == "failed" else
+                 "it waited longer than it may (the thing it waits for did not happen, or the agent running it took too long)")
+        text = (f'The step "{node.title}" (id {node.id}) of the plan "{bridge.dag.title}" (id {plan_id}) {why}: {cause}. This is recovery {used + 1} of {RECOVER_LIMIT}.{own} '
+                f"What it was to do: {node.description or node.title}. What is known: {reasons or 'no reason was written'}. "
+                "Read the plan with plan_get and the step's own data, find the real cause (the error, the files, the outputs, the tools it used, what it was waiting for), and fix it: "
+                "you may write or change code or scripts, change the step with plan_propose_change, set the values it needs, or force a different way that passes, even doing by a script "
+                "what the model could not. When it is in place mark the step pending with plan_mark (it then waits afresh and has its tries again) and do it again, or mark it "
+                "completed with its outputs (or skipped if it can be left out). If it cannot be fixed, say why with plan_mark failed and a reason. "
                 "Do not ask the person unless only they can settle it.")
         self._saved(plan_id)
         try:
@@ -767,7 +790,7 @@ class PlanService:
             self._offer(plan_id, "it was started" if kind == "plan:start" else "an event started it")
         elif kind == "plan:answer" and not mine:
             self._offer(plan_id, "the person answered what it asked")
-        elif kind == "plan:mark" and event.get("status") == "failed" and not result.get("retry"):
+        elif (kind == "plan:mark" and event.get("status") == "failed" and not result.get("retry")) or kind == "plan:timeout":
             self._recover(plan_id, event.get("node_id", ""))
 
     def _replan_parked(self, plan_id: str, bridge: Any, event: Dict[str, Any], result: Dict[str, Any]) -> None:

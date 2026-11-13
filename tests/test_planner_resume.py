@@ -1,6 +1,7 @@
 """A plan that was running when the program stopped takes up again where it was; a step that failed is recovered by the agent instead of stopping the plan.
 The program that starts again is a new PlanService on the same folder; the agent's conversation is a recorder."""
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -123,3 +124,104 @@ def test_the_reason_a_step_failed_is_kept_and_the_tool_asks_for_it(tmp_path):
     work(svc, "p", "a", "failed", reason="x" * 2000)
     reasons = svc.bridge("p").dag.nodes["a"].state_variables["failures"]
     assert len(reasons) == 1 and len(reasons[0]["reason"]) == 600
+
+
+# -- the steps the plan works out itself, and time running out ----------------------------------------------------------
+
+POLICY = {"max_attempts": 2, "wait_seconds": 60, "backoff": 1}
+
+
+def test_a_step_the_plan_works_out_itself_that_cannot_be_done_is_given_to_the_agent_when_its_tries_are_used_up(tmp_path):
+    svc = boot(tmp_path)
+    svc.create({"plan": plan("p", start("go", 1), n("calc", "set_var", deps=["go"], spec={"name": "x", "expr": "missing + 1"}, retry_policy=POLICY), n("after", deps=["calc"]))})
+    svc.start_plan("p", 1, "the person")
+    svc.launcher.runs.clear()
+    dag = svc.bridge("p").dag
+    calc = dag.nodes["calc"]
+    first = calc.state_variables["next_attempt"]
+    assert calc.status == "pending" and calc.state_variables["attempts"] == 1 and "missing" in calc.state_variables["auto_error"]
+    svc.tick("p", first - 1)
+    assert calc.state_variables["attempts"] == 1 and svc.launcher.runs == []        # it is looked at again, but a try is not counted before its wait
+    svc.tick("p", first + 1)
+    assert calc.status == "failed" and dag.nodes["after"].state_variables["parked_by"] == ["calc"]
+    [(plan_id, name, text)] = svc.launcher.runs
+    assert name.startswith("Plan recovery") and "'set_var' step that the plan works out itself" in text and "missing + 1" in text and "recovery 1 of" in text
+
+
+def test_the_moment_the_cause_goes_away_the_step_is_done_without_waiting_for_its_next_try(tmp_path):
+    svc = boot(tmp_path)
+    svc.create({"plan": plan("p", start("go", 1), n("get", "get_var", deps=["go"], spec={"name": "later"}, retry_policy=POLICY), n("after", deps=["get"]))})
+    svc.start_plan("p", 1, "the person")
+    dag = svc.bridge("p").dag
+    assert dag.nodes["get"].state_variables["attempts"] == 1
+    dag.shared_state["later"] = 5
+    svc.tick("p", dag.nodes["get"].state_variables["next_attempt"] - 30)
+    assert dag.nodes["get"].status == "completed" and "attempts" not in dag.nodes["get"].state_variables and "auto_error" not in dag.nodes["get"].state_variables
+
+
+def test_a_wait_that_runs_out_of_time_is_recovered_and_waits_afresh_when_marked_pending(tmp_path):
+    svc = boot(tmp_path)
+    svc.create({"plan": plan("p", start("go", 1), n("w", "wait_condition", deps=["go"], spec={"expr": "ready", "timeout_s": 120, "poll_s": 60, "on_timeout": "fail"}), n("after", deps=["w"]))})
+    svc.start_plan("p", 1, "the person")
+    svc.launcher.runs.clear()
+    dag = svc.bridge("p").dag
+    started = dag.nodes["w"].state_variables["wait_started"]
+    svc.tick("p", started + 121)
+    assert dag.nodes["w"].state_variables["timed_out"] and dag.nodes["after"].state_variables["parked_by"] == ["w"]
+    [(plan_id, name, text)] = svc.launcher.runs
+    assert "timed out" in text and "waited longer than it may" in text and "'wait_condition'" in text
+    dag.mark("w", "pending")                                                        # the agent has set what it waited for right, and puts it back
+    assert dag.nodes["w"].status == "pending" and "timed_out" not in dag.nodes["w"].state_variables and "wait_started" not in dag.nodes["w"].state_variables
+    assert dag.nodes["after"].status == "pending" and "parked_by" not in dag.nodes["after"].state_variables       # and what is below it is let go
+    dag.advance(started + 500)
+    assert dag.nodes["w"].status == "pending" and dag.nodes["w"].state_variables["wait_started"] == started + 500        # it waits afresh: the old start is not held against it
+
+
+def test_a_step_that_timed_out_in_the_agents_hands_is_recovered_too(tmp_path):
+    svc = boot(tmp_path)
+    svc.create({"plan": plan("p", start("go", 1), n("slow", deps=["go"]))})
+    svc.start_plan("p", 1, "the person")
+    svc.launcher.runs.clear()
+    work(svc, "p", "slow", "in_progress")
+    res = svc.handle_event("p", {"type": "plan:timeout", "node_id": "slow", "actor": "chat"})
+    assert res["ok"] and len(svc.launcher.runs) == 1 and "timed out" in svc.launcher.runs[0][2]
+
+
+def test_what_is_for_the_person_is_not_recovered_by_the_agent(tmp_path):
+    svc = boot(tmp_path)
+    svc.create({"plan": plan("p", start("go", 1), n("ask", "input", deps=["go"], assignee="user", spec={"prompt": "How many?", "into": "n"}), n("mine", deps=["go"], assignee="user"))})
+    svc.start_plan("p", 1, "the person")
+    svc.launcher.runs.clear()
+    svc.handle_event("p", {"type": "plan:timeout", "node_id": "ask", "actor": "system"})
+    svc.handle_event("p", {"type": "plan:mark", "node_id": "mine", "status": "failed", "actor": "user"})
+    assert svc.launcher.runs == []
+
+
+def test_a_failed_or_timed_out_step_of_a_run_that_was_going_is_recovered_when_the_program_starts(tmp_path):
+    first = boot(tmp_path)
+    first.create({"plan": plan("p", start("go", 1), n("make", deps=["go"], retry_policy={"max_attempts": 1, "wait_seconds": 0, "backoff": 1}), n("w", "wait_condition", deps=["go"], spec={"expr": "ready", "timeout_s": 120, "poll_s": 60, "on_timeout": "fail"}))})
+    first.start_plan("p", 1, "the person")
+    first.launcher = None                                                           # the program stops before a recovery could begin
+    work(first, "p", "make", "in_progress")
+    work(first, "p", "make", "failed", reason="disk full")
+    started = first.bridge("p").dag.nodes["w"].state_variables["wait_started"]
+    first.tick("p", started + 200)
+    again = boot(tmp_path)
+    assert again.resume_interrupted() == ["p"]
+    recovered = sorted(r[1] for r in again.launcher.runs if r[1].startswith("Plan recovery"))
+    assert recovered == ["Plan recovery: make", "Plan recovery: w"] and "disk full" in " ".join(r[2] for r in again.launcher.runs)
+    dag = again.bridge("p").dag
+    assert dag.nodes["make"].state_variables["recoveries"] == 1 and dag.nodes["w"].state_variables["recoveries"] == 1
+
+
+def test_the_recoveries_of_an_automatic_step_stop_at_the_limit_too(tmp_path):
+    svc = boot(tmp_path)
+    svc.create({"plan": plan("p", start("go", 1), n("calc", "set_var", deps=["go"], spec={"name": "x", "expr": "missing + 1"}, retry_policy={"max_attempts": 1, "wait_seconds": 0, "backoff": 1}))})
+    svc.start_plan("p", 1, "the person")
+    node = svc.bridge("p").dag.nodes["calc"]
+    for i in range(RECOVER_LIMIT):
+        assert node.status == "failed" and len(svc.launcher.runs) >= i + 1
+        work(svc, "p", "calc", "pending")
+        svc.tick("p", time.time() + 10 + i)
+    assert node.status == "failed" and len([r for r in svc.launcher.runs if r[1].startswith("Plan recovery")]) == RECOVER_LIMIT
+    assert any("left for you" in j["text"] for j in svc.bridge("p").dag.journal)
