@@ -4,9 +4,10 @@
 // write permissions the program needs inside its folder. It needs no Python and no .NET of its own: it is published
 // self-contained next to TaDaMoo.exe, so it runs on a PC that has neither.
 //
-//   TaDaMooSetup.exe [--root DIR] [--lang it|en] [--no-ui] [--dry-run] [--keep-files]
+//   TaDaMooSetup.exe [--root DIR] [--lang it|en] [--skills all|none|NAME,NAME] [--no-ui] [--dry-run] [--keep-files]
 //
 // --root      the installed folder (default: found above this exe, the folder that holds Avvia-TaDaMoo.ps1)
+// --skills    the built-in skills to install (skills\builtin.json): all, none, or names; without it a page asks (with --no-ui: the ones the catalogue ticks)
 // --dry-run   says what it would do and changes nothing (no window)
 // --keep-files  keeps setup\ (the bundled Python installer and the wheels) after a successful run
 // --test-no-admin-check  for tests only: runs without administrator rights
@@ -33,6 +34,16 @@ static class Program
         {
             if (o.NoUi || o.DryRun) return new Installer(o, log, _ => { }).Run() ? 0 : 1;
             ApplicationConfiguration.Initialize();
+            if (o.Skills == null)
+            {
+                var catalogue = Catalogue.Load(o.Root);
+                if (catalogue.Count > 0)
+                {
+                    using var ask = new SkillsForm(catalogue);
+                    ask.ShowDialog();
+                    o.Skills = ask.Chosen;
+                }
+            }
             using var form = new ProgressForm();
             int code = 1;
             log.Sink = form.Add;
@@ -57,7 +68,7 @@ static class Program
 
 sealed class Options
 {
-    public string Root, Lang, Error;
+    public string Root, Lang, Error, Skills;
     public bool NoUi, DryRun, KeepFiles, TestNoAdminCheck;
 
     public static Options Parse(string[] args)
@@ -72,11 +83,12 @@ sealed class Options
                     o.Lang = i + 1 < args.Length ? args[++i].ToLowerInvariant() : null;
                     if (o.Lang != "it" && o.Lang != "en") o.Error = "--lang: it | en";
                     break;
+                case "--skills": o.Skills = i + 1 < args.Length ? args[++i].Trim() : null; if (string.IsNullOrEmpty(o.Skills)) o.Error = "--skills: all | none | NAME,NAME"; break;
                 case "--no-ui": o.NoUi = true; break;
                 case "--dry-run": o.DryRun = true; break;
                 case "--keep-files": o.KeepFiles = true; break;
                 case "--test-no-admin-check": o.TestNoAdminCheck = true; break;
-                default: o.Error = $"? {args[i]}\nTaDaMooSetup.exe [--root DIR] [--lang it|en] [--no-ui] [--dry-run] [--keep-files]"; break;
+                default: o.Error = $"? {args[i]}\nTaDaMooSetup.exe [--root DIR] [--lang it|en] [--skills all|none|NAME,NAME] [--no-ui] [--dry-run] [--keep-files]"; break;
             }
         }
         if (o.Root == null) o.Root = FindRoot(AppContext.BaseDirectory);
@@ -91,6 +103,95 @@ sealed class Options
             if (File.Exists(Path.Combine(d.FullName, "Avvia-TaDaMoo.ps1")) && Directory.Exists(Path.Combine(d.FullName, "serve")))
                 return d.FullName;
         return null;
+    }
+}
+
+/// <summary>One built-in skill of skills\builtin.json.</summary>
+sealed class BuiltinSkill
+{
+    public string Name, Title, Summary;
+    public bool Default;
+    public string[] Requires = Array.Empty<string>();
+}
+
+static class Catalogue
+{
+    /// <summary>The catalogue of the built-in skills in the installed folder, titles in the language of the setup; empty when there is none.</summary>
+    public static List<BuiltinSkill> Load(string root)
+    {
+        var list = new List<BuiltinSkill>();
+        try
+        {
+            string file = Path.Combine(root, "skills", "builtin.json");
+            if (!File.Exists(file)) return list;
+            using var doc = JsonDocument.Parse(File.ReadAllText(file, Encoding.UTF8));
+            foreach (var e in doc.RootElement.GetProperty("skills").EnumerateArray())
+            {
+                string Text(string key) { var t = e.GetProperty(key); return (t.TryGetProperty(Tr.Code, out var v) ? v : t.GetProperty("en")).GetString(); }
+                list.Add(new BuiltinSkill
+                {
+                    Name = e.GetProperty("name").GetString(), Title = Text("title"), Summary = Text("summary"),
+                    Default = e.TryGetProperty("default", out var d) && d.GetBoolean(),
+                    Requires = e.TryGetProperty("requires", out var r) ? r.EnumerateArray().Select(x => x.GetString()).ToArray() : Array.Empty<string>(),
+                });
+            }
+        }
+        catch (Exception) { list.Clear(); }
+        return list;
+    }
+}
+
+/// <summary>The page that asks which built-in skills to install: a ticked skill ticks what it requires, an unticked one unticks what requires it.</summary>
+sealed class SkillsForm : Form
+{
+    readonly List<BuiltinSkill> skills;
+    readonly ListView list = new() { Dock = DockStyle.Fill, CheckBoxes = true, View = View.Details, FullRowSelect = true, HeaderStyle = ColumnHeaderStyle.None, MultiSelect = false };
+    readonly Label detail = new() { Dock = DockStyle.Bottom, Height = 64, Padding = new Padding(12, 6, 12, 6) };
+    readonly Button ok = new() { Dock = DockStyle.Bottom, Height = 48 };
+    bool busy;
+    public string Chosen = "none";
+
+    public SkillsForm(List<BuiltinSkill> skills)
+    {
+        this.skills = skills;
+        Text = Tr.T("TaDaMoo Win+GUI - skill incluse", "TaDaMoo Win+GUI - built-in skills");
+        Size = new Size(640, 480);
+        MinimumSize = new Size(420, 360);
+        StartPosition = FormStartPosition.CenterScreen;
+        var head = new Label { Dock = DockStyle.Top, Height = 56, Padding = new Padding(12, 12, 12, 0), Font = new Font("Segoe UI", 10f),
+            Text = Tr.T("Scegli le skill incluse da installare. I modelli che alcune richiedono non si scaricano qui: ogni skill spiega come installarli, e solo se mancano.",
+                        "Choose the built-in skills to install. The models some of them need are not downloaded here: each skill explains how to install them, and only when they are missing.") };
+        list.Columns.Add("", 580);
+        foreach (var s in skills) list.Items.Add(new ListViewItem(s.Title) { Checked = s.Default, Tag = s });
+        list.ItemChecked += OnChecked;
+        list.SelectedIndexChanged += (_, _) => { if (list.SelectedItems.Count > 0) detail.Text = ((BuiltinSkill)list.SelectedItems[0].Tag).Summary; };
+        ok.Click += (_, _) => { Finish(); Close(); };
+        Controls.Add(list); Controls.Add(detail); Controls.Add(ok); Controls.Add(head);
+        UpdateButton();
+        FormClosing += (_, _) => { if (DialogResult == DialogResult.None) Finish(); };
+    }
+
+    void OnChecked(object sender, ItemCheckedEventArgs e)
+    {
+        if (busy) return;
+        busy = true;
+        var s = (BuiltinSkill)e.Item.Tag;
+        foreach (ListViewItem item in list.Items)
+        {
+            var other = (BuiltinSkill)item.Tag;
+            if (e.Item.Checked && s.Requires.Contains(other.Name)) item.Checked = true;
+            if (!e.Item.Checked && other.Requires.Contains(s.Name)) item.Checked = false;
+        }
+        busy = false;
+        UpdateButton();
+    }
+
+    void UpdateButton() { int n = list.CheckedItems.Count; ok.Text = n == 0 ? Tr.T("Non installare skill", "Install no skills") : Tr.T($"Installa {n} skill", $"Install {n} skills"); }
+
+    void Finish()
+    {
+        var names = list.CheckedItems.Cast<ListViewItem>().Select(i => ((BuiltinSkill)i.Tag).Name).ToArray();
+        Chosen = names.Length == 0 ? "none" : names.Length == skills.Count ? "all" : string.Join(",", names);
     }
 }
 
@@ -207,6 +308,9 @@ sealed class Installer
 
             Step(Tr.T("Controllo che il server parta…", "Checking that the server starts…"));
             Verify();
+
+            Step(Tr.T("Installo le skill incluse…", "Installing the built-in skills…"));
+            BuiltinSkills();
 
             Step(Tr.T("Imposto i permessi…", "Setting permissions…"));
             Permissions();
@@ -372,6 +476,19 @@ sealed class Installer
         if (c1 != 0) throw new Exception(Tr.T("I pacchetti Python non si caricano: ", "The Python packages do not load: ") + o1.Trim());
         var (c2, o2) = Capture(VenvPy, "-c \"import serve.server; print('ok')\"", 120000, o.Root);
         if (c2 != 0) throw new Exception(Tr.T("Il server non si carica: ", "The server does not load: ") + o2.Trim());
+    }
+
+    void BuiltinSkills()
+    {
+        // The chosen skills become copies in the user's data folder; a failure is told and does not stop the setup (they can be installed later with the same command).
+        string choice = o.Skills ?? "";
+        string what = choice == "none" ? "--none" : choice == "all" ? "--all" : choice.Replace(',', ' ');
+        if (choice.Length > 0 && choice != "none" && !choice.Replace(",", "").All(c => char.IsLetterOrDigit(c) || c == '-')) throw new Exception("--skills: all | none | NAME,NAME");
+        if (choice == "none") { log.Line(Tr.T("Nessuna skill inclusa richiesta.", "No built-in skills asked for.")); return; }
+        if (o.DryRun) { log.Line($"would run: {VenvPy} -m tadamoo.importer builtin install {(choice.Length == 0 ? "(the ones the catalogue ticks)" : what)}"); return; }
+        int code = Run(VenvPy, "-m tadamoo.importer builtin install " + what, o.Root, 600000);
+        if (code != 0) log.Line(Tr.T($"Avviso: le skill incluse non sono state installate (codice {code}): si possono installare dopo con 'python -m tadamoo.importer builtin install'.",
+                                     $"Warning: the built-in skills were not installed (code {code}): they can be installed later with 'python -m tadamoo.importer builtin install'."));
     }
 
     void Compile()
