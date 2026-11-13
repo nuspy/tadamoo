@@ -20,7 +20,7 @@ What it takes for a synthesised voice to be good enough to put on a news video, 
 |---|---|---|
 | Respelling | `respell.py`, `data/lexicon/hu/*.json` | Rules and a lexicon (word to respelling, per voice, plain JSON a person can edit); only the text sent to the voice is respelled, never the screen text. |
 | Optimizer | `optimize.py`, `asr.py` | For each hard word tries the systematic respellings in a carrier sentence, reads each back with several speech-to-text models, keeps the best that beats the plain word by a margin. |
-| Local XTTS | `xtts_run.py`, `clausevoice.LocalXtts` | XTTS v2 in its own Python with a fixed seed and the sampling settings under control; takes already made are not made again. |
+| Local XTTS | `xtts_run.py`, `clausevoice.LocalXtts` | XTTS v2 in its own Python with a fixed seed and the sampling settings under control, the model kept loaded, the seeds of a piece made in one batch ([Time](#time)); takes already made are not made again. |
 | Judging | `clausevoice.Rater`, `voiceprint.py` | A take is rejected for a bad read-back (Whisper words and CTC letters), a pause inside a phrase, another speaker, a pace outside the range, a wandering pitch. |
 | Joining | `audiojoin.py` | Each piece is cut at both ends, de-clicked, faded 15 ms, and the pause for its punctuation is filled with the room noise of the pieces. |
 | Loudness | `audiofx.py` | One linear gain to -16 LUFS (two passes), so the timbre is not touched. |
@@ -53,6 +53,17 @@ The newscast took far longer than real time for these reasons, and the code chan
 - A dead CUDA context in the speech-to-text worker answers HTTP 500 for ever, and the production waited for it for hours (80 minutes, then 30 more). Now the worker is reloaded once
   (`POST /components/stt/reload` of the voice service) and a second failure stops the production with the service's own message.
 - A piece with a spelled number could never pass: the CTC model's letters match 0.70 to 0.76 for it, the limit is 0.88 (36 takes spent, then the production stopped).
+
+### Making the takes of a round faster
+
+- **Batched seeds.** The takes of a piece in a round share a text and settings, so one autoregressive pass makes them all (`num_return_sequences`, `xtts_batch`, 12 at most): a decoding step
+  is bound by the launch of its small kernels, so a step for four takes costs about what a step for one does. The batch is seeded once, with the seed of its first take; each take is then cut at
+  its own stop token and turned into audio by itself, as a single take is. A batch that runs out of memory is made again in two halves. A piece with a take missing from the cache is made again whole.
+  A take made in a batch is not the take its seed made alone (the draws are shared); a right take is judged by measurement, so this changes nothing in what is right.
+- **Precision.** `xtts_precision` `fp16` or `bf16` runs the autoregressive pass under autocast (the latents and the vocoder stay fp32). The default stays `fp32` until takes made in half precision
+  have been heard and their share of right takes is the same.
+- **No graph compiler.** `torch.compile` and CUDA graphs need Triton, which the XTTS environment does not have on Windows, so they are not used. The inference mode and the cached conditioning
+  latents already were.
 
 ## Joining
 

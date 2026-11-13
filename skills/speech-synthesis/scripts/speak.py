@@ -19,10 +19,12 @@ def main() -> int:
     ap.add_argument("--lang", default="hu")
     ap.add_argument("--speed", type=float, default=1.14)
     ap.add_argument("--seeds", type=int, default=4)
+    ap.add_argument("--batch", type=int, default=12)
+    ap.add_argument("--precision", default="fp32", choices=("fp32", "fp16", "bf16"))
     ap.add_argument("--url", default=service.DEFAULT_URL)
     ap.add_argument("--work", default="")
     args = ap.parse_args()
-    p = clausevoice.Params(speaker=args.speaker, lang=args.lang, speed=args.speed, seeds=args.seeds)
+    p = clausevoice.Params(speaker=args.speaker, lang=args.lang, speed=args.speed, seeds=args.seeds, xtts_batch=args.batch, xtts_precision=args.precision)
     emb = voiceprint.Embedder()
     path = voiceprint.profile_path("xtts", args.speaker, args.lang)
     if path.is_file():

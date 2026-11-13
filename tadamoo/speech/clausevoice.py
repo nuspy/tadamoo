@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from tadamoo.speech import audiofx, audiojoin as J, textnorm, voicecheck, voiceprint
+from tadamoo.speech import audiofx, audiojoin as J, textnorm, voicecheck, voiceprint, xtts_run
 
 RUNNER = Path(__file__).with_name("xtts_run.py")
 XTTS_PYTHON = r"C:\Projects\callAPIcall\tts-venvs\xtts\Scripts\python.exe"
@@ -69,6 +69,8 @@ class Params:
     loudness_lufs: float = -16.0
     xtts_python: str = XTTS_PYTHON
     xtts_model: str = XTTS_MODEL
+    xtts_batch: int = 12                           # takes of one sentence made in one autoregressive pass (the seeds of a round); a pass that runs out of memory is made again in halves
+    xtts_precision: str = "fp32"                   # "fp32", "fp16" or "bf16": autocast over the autoregressive pass only (the vocoder stays fp32)
 
 
 def split_clauses(text: str, max_len: int = 0) -> List[Tuple[str, str, int]]:
@@ -162,18 +164,25 @@ class LocalXtts:
         out = self.work / "out"
         out.mkdir(parents=True, exist_ok=True)
 
-        def have(it: Dict[str, Any]) -> bool:                    # a take made already with the same text, seed and settings is not made again
-            side = out / f"{it['id']}.json"
-            return (out / f"{it['id']}.wav").is_file() and side.is_file() and json.loads(side.read_text(encoding="utf-8")) == {**it, "speaker": self.p.speaker}
+        def side(it: Dict[str, Any]) -> Dict[str, Any]:
+            return {**it, "speaker": self.p.speaker, "precision": self.p.xtts_precision}
 
-        todo = [it for it in items if not have(it)]
+        def have(it: Dict[str, Any]) -> bool:                    # a take made already with the same text, seed and settings is not made again
+            f = out / f"{it['id']}.json"
+            return (out / f"{it['id']}.wav").is_file() and f.is_file() and json.loads(f.read_text(encoding="utf-8")) == side(it)
+
+        def key(it: Dict[str, Any]) -> Tuple[Any, ...]:
+            return (it["text"],) + tuple(it.get(k) for k in xtts_run.SAMPLING)
+
+        missing = {key(it) for it in items if not have(it)}
+        todo = [it for it in items if key(it) in missing]        # the takes of a sentence are made in one pass, so a sentence with a take missing is made again whole
         if todo:
-            job = {"model_dir": self.p.xtts_model, "speaker": self.p.speaker, "out_dir": str(out), "items": todo}
+            job = {"model_dir": self.p.xtts_model, "speaker": self.p.speaker, "out_dir": str(out), "precision": self.p.xtts_precision, "batch": self.p.xtts_batch, "items": todo}
             job_file = self.work / "job.json"
             job_file.write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
             self._batch(job_file)
             for it in todo:
-                (out / f"{it['id']}.json").write_text(json.dumps({**it, "speaker": self.p.speaker}, ensure_ascii=False), encoding="utf-8")
+                (out / f"{it['id']}.json").write_text(json.dumps(side(it), ensure_ascii=False), encoding="utf-8")
         return {it["id"]: (out / f"{it['id']}.wav").read_bytes() for it in items}
 
 

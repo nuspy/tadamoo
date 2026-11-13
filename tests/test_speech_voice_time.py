@@ -149,3 +149,34 @@ def test_the_refusal_carries_the_services_own_words(monkeypatch):
         voicecheck._service_words("http://127.0.0.1:1", b"", "hu")
     except OSError as exc:
         assert "HTTP 500" in str(exc) and "CUDA error" in str(exc)
+
+
+def test_the_seeds_of_a_sentence_are_one_group_and_a_group_is_cut_at_the_batch_size():
+    from tadamoo.speech import xtts_run
+    items = [{"id": f"a{k}", "text": "egy", "seed": k} for k in range(5)] + [{"id": f"b{k}", "text": "kettő", "seed": k} for k in range(2)] + [{"id": "c0", "text": "egy", "seed": 9, "speed": 1.2}]
+    groups = xtts_run.group_items(items, 3)
+    assert [[i["id"] for i in g] for g in groups] == [["a0", "a1", "a2"], ["a3", "a4"], ["b0", "b1"], ["c0"]]
+
+
+def test_a_take_of_a_batch_ends_at_its_first_stop_token():
+    from tadamoo.speech import xtts_run
+    assert xtts_run.take_end([5, 6, 8193, 8193, 8193], 8193) == 3
+    assert xtts_run.take_end([5, 6, 7], 8193) == 3
+
+
+def test_a_sentence_with_one_take_missing_is_made_again_whole_and_the_job_carries_the_batch_and_the_precision(tmp_path, monkeypatch):
+    fake = tmp_path / "fake_xtts.py"
+    fake.write_text(FAKE, encoding="utf-8")
+    monkeypatch.setattr(clausevoice, "RUNNER", fake)
+    p = clausevoice.Params(xtts_python=sys.executable, xtts_model="m", xtts_batch=4, xtts_precision="bf16")
+    runner = clausevoice.LocalXtts(p, tmp_path / "work")
+    item = lambda text, n: {"id": f"{text}_s{n}", "text": text, "lang": "hu", "seed": n}
+    try:
+        runner.run([item("egy", 1), item("egy", 2), item("ketto", 3)])
+        job = json.loads((tmp_path / "work" / "job.json").read_text(encoding="utf-8"))
+        assert job["batch"] == 4 and job["precision"] == "bf16" and len(job["items"]) == 3
+        (tmp_path / "work" / "out" / "egy_s2.wav").unlink()                        # one take of "egy" is gone: both are made again, "ketto" is kept
+        runner.run([item("egy", 1), item("egy", 2), item("ketto", 3)])
+        assert [i["id"] for i in json.loads((tmp_path / "work" / "job.json").read_text(encoding="utf-8"))["items"]] == ["egy_s1", "egy_s2"]
+    finally:
+        runner.close()
