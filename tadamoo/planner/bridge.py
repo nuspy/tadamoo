@@ -36,7 +36,6 @@ HISTORY_SHOWN = 30
 ACTORS = ("user", "chat", "planner", "system")
 # events that write straight into the plan; they may carry `base_rev`, the revision the sender last read
 DIRECT = ("plan:update_node", "plan:move", "plan:mark", "plan:timeout", "plan:rewind", "plan:update_meta", "plan:fallback_response", "plan:start", "plan:answer")
-FAILURES_KEPT = 5                                 # the reasons a step failed, kept on it for whoever looks for the cause
 TARGET_TYPES = ("constant", "occasional")
 TITLE_CHARS = 200
 
@@ -264,14 +263,19 @@ class PlanCanvasBridge:
             previous, self._actor = self._actor, "system"
             try:
                 report = self.dag.advance(now)
+                trouble = report["failed"] or report["timed_out"] or report["retried"]
                 if report["done"]:
                     names = ", ".join(self.dag.nodes[i].title for i in report["done"] if i in self.dag.nodes)
                     self._bump("auto", f"worked out by itself: {names}")
                     self._emit("plan:auto", {"done": report["done"], "ready": self.dag.ready_nodes()})
+                if trouble:
+                    names = ", ".join(self.dag.nodes[i].title for i in trouble if i in self.dag.nodes)
+                    self._bump("auto", f"could not be worked out: {names}")
+                    self._emit("plan:graph", {"seq_graph": True})
             finally:
                 self._actor = previous
             fresh = self.dag.note_count - before
-            return {**report, "changed": bool(report["done"]), "lines": [dict(j) for j in self.dag.journal[-fresh:]] if fresh > 0 else []}
+            return {**report, "changed": bool(report["done"] or report["failed"] or report["timed_out"] or report["retried"]), "lines": [dict(j) for j in self.dag.journal[-fresh:]] if fresh > 0 else []}
 
     def settle_wait(self, node_id: str, now: float, text: str) -> bool:
         """A wait written in words was judged to hold: the step completes, as if its time had come. False when it is not waiting any more."""
@@ -322,13 +326,8 @@ class PlanCanvasBridge:
                 self._actor = previous
             return retry
 
-    @staticmethod
-    def _note_failure(node: Any, reason: str, now: Optional[float] = None) -> None:
-        if not reason:
-            return
-        rows = node.state_variables.setdefault("failures", [])
-        rows.append({"at": time.time() if now is None else now, "reason": " ".join(str(reason).split())[:600]})
-        del rows[:-FAILURES_KEPT]
+    def _note_failure(self, node: Any, reason: str, now: Optional[float] = None) -> None:
+        self.dag.note_failure(node, reason, now)
 
     def begin(self, number: Any, cause: str, actor: str = "system", now: Optional[float] = None, caller: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """Starts the plan at the start with this number (see PlanDAG.begin); the run is marked, to be taken up again if the program stops."""

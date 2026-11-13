@@ -579,13 +579,43 @@ def _startable(dag: Any, node: Any) -> bool:
     return all(s in ("completed", "skipped") for s in parents) and (not parents or "completed" in parents)
 
 
+AUTO_ERROR_KEYS = ("auto_error", "auto_error_at", "next_attempt")
+
+
+def _auto_failed(dag: Any, node: Any, now: float, message: str) -> bool:
+    """A step the plan works out itself cannot do it now (an expression that fails, a value that is not there, a text that cannot be made). It is looked at again at
+    every turn of the clock, so the moment the cause goes away it is done; but the tries of its retry policy are counted over time, and when they are used up it
+    has failed, like any step: what is below it is parked and the plan has it recovered. True when it has failed."""
+    from tadamoo.planner.dag import DEFAULT_RETRY
+    sv = node.state_variables
+    sv["auto_error"] = str(message)[:200]
+    if now < sv.get("next_attempt", 0):
+        return False
+    policy = node.retry_policy or DEFAULT_RETRY
+    attempts = int(sv.get("attempts", 0)) + 1
+    sv["attempts"] = attempts
+    sv.setdefault("auto_error_at", now)
+    dag.note_failure(node, message, now)
+    if attempts >= policy["max_attempts"]:
+        sv.pop("next_attempt", None)
+        node.status = "failed"
+        dag.note(node.id, "auto", f"{node.title}: failed: {str(message)[:200]}", now)
+        dag.advance_failed.append(node.id)
+        dag.refresh_blocking()                                      # what is below it is parked
+        return True
+    sv["next_attempt"] = now + policy["wait_seconds"] * policy["backoff"] ** (attempts - 1)
+    dag.advance_retried.append(node.id)
+    return False
+
+
 def _complete(dag: Any, node: Any, now: float, outputs: Optional[Dict[str, Any]], line: str, kind: str = "auto") -> bool:
     try:
         dag.mark(node.id, "completed", outputs or None, now)
     except PlanError as exc:                       # it cannot finish now (a value too large, a name refused): it stays and says why
-        node.state_variables["auto_error"] = str(exc)[:200]
+        _auto_failed(dag, node, now, str(exc))
         return False
-    node.state_variables.pop("auto_error", None)
+    for key in AUTO_ERROR_KEYS:
+        node.state_variables.pop(key, None)
     dag.note(node.id, kind, line, now)
     return True
 
@@ -631,6 +661,7 @@ def _resolve(dag: Any, node: Any, now: float, due: List[float], judge: List[str]
             else:
                 dag.timed_out(node.id, now)
                 dag.note(node.id, "auto", f"{node.title}: timed out", now)
+                dag.advance_timed_out.append(node.id)
             return True
         if spec.get("timeout_s"):
             due.append(started + spec["timeout_s"])
@@ -641,7 +672,7 @@ def _resolve(dag: Any, node: Any, now: float, due: List[float], judge: List[str]
         try:
             value = _value_of(dag, node)
         except PlanError as exc:
-            sv["auto_error"] = str(exc)[:200]
+            _auto_failed(dag, node, now, str(exc))
             return False
         if spec.get("target") == "global":
             GLOBALS.set(spec["name"], value)
@@ -651,7 +682,7 @@ def _resolve(dag: Any, node: Any, now: float, due: List[float], judge: List[str]
     elif kind == "get_var":
         found, value = read_value(dag, spec, now)
         if not found:
-            sv["auto_error"] = f"'{spec['name']}' has no value yet"
+            _auto_failed(dag, node, now, f"'{spec['name']}' has no value yet")
             return False
         sv["value"] = value
         return _complete(dag, node, now, {spec.get("into") or spec["name"]: value} if spec.get("into") or spec.get("source", "variable") != "variable" else None,
@@ -660,7 +691,7 @@ def _resolve(dag: Any, node: Any, now: float, due: List[float], judge: List[str]
         try:
             value = render_template(spec["template"], _template_context(dag, now)) if spec.get("template") else _value_of(dag, node)
         except PlanError as exc:
-            sv["auto_error"] = str(exc)[:200]
+            _auto_failed(dag, node, now, str(exc))
             return False
         return _complete(dag, node, now, {spec["name"]: value}, f"{spec['name']}: {_brief(value)}", "output")
     elif kind == "log":
@@ -678,12 +709,14 @@ def _resolve(dag: Any, node: Any, now: float, due: List[float], judge: List[str]
 def advance(dag: Any, now: float) -> Dict[str, Any]:
     """Resolves every step the plan can work out by itself at `now`, over and over until nothing more moves (a wait that ends lets what is after it
     start). Returns {"done": ids, "judge": ids of waits that only a reading of their description can settle, "next_due": the next moment
-    something here comes due, or None}."""
+    something here comes due, or None, "calls": the steps that start another plan (which only the service can do), "failed": the steps that used up their tries, "retried":
+    the ones that could not be done and count a try, "timed_out": the waits that ran out of time}."""
     from tadamoo.planner.dag import safe_eval
     done: List[str] = []
     due: List[float] = []
     judge: List[str] = []
     calls: List[Dict[str, Any]] = []
+    dag.advance_failed, dag.advance_retried, dag.advance_timed_out = [], [], []
     moved = True
     while moved:
         moved, due, judge, calls = False, [], [], []
@@ -705,4 +738,7 @@ def advance(dag: Any, now: float) -> Dict[str, Any]:
             if kind in AUTO and _resolve(dag, node, now, due, judge, calls):
                 done.append(nid)
                 moved = True
-    return {"done": list(dict.fromkeys(done)), "judge": judge, "next_due": min(due) if due else None, "calls": calls}
+            elif node.status == "pending" and node.state_variables.get("next_attempt"):
+                due.append(node.state_variables["next_attempt"])              # a step that cannot be done yet counts its next try
+    return {"done": list(dict.fromkeys(done)), "judge": judge, "next_due": min(due) if due else None, "calls": calls,
+            "failed": list(dict.fromkeys(dag.advance_failed)), "retried": list(dict.fromkeys(dag.advance_retried)), "timed_out": list(dict.fromkeys(dag.advance_timed_out))}

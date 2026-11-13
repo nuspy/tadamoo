@@ -464,10 +464,21 @@ class PlanDAG:
     order: List[str] = field(default_factory=list)       # the list the person arranged; list_order() keeps it valid
     confirmations: bool = True          # false: the person chose that nothing about this plan is asked (except what involves other people), and its text is trusted
     journal: List[Dict[str, Any]] = field(default_factory=list)      # what the plan did by itself and what its log and result steps wrote, newest last
+    advance_failed: List[str] = field(default_factory=list, repr=False, compare=False)       # what the latest look at the plan's own steps found: failed for good, a try used, timed out
+    advance_retried: List[str] = field(default_factory=list, repr=False, compare=False)
+    advance_timed_out: List[str] = field(default_factory=list, repr=False, compare=False)
     note_count: int = field(default=0, repr=False, compare=False)    # lines ever written in this run of the program: how many are new since a look
 
     def _touch(self) -> None:
         self.updated_at = _now()
+
+    def note_failure(self, node: PlanNode, reason: str, now: Optional[float] = None) -> None:
+        """The reason a step failed, kept on it (the last few), for whoever looks for the cause."""
+        if not reason:
+            return
+        rows = node.state_variables.setdefault("failures", [])
+        rows.append({"at": time.time() if now is None else now, "reason": " ".join(str(reason).split())[:600]})
+        del rows[:-5]
 
     def note(self, node_id: str, kind: str, text: str, now: Optional[float] = None) -> None:
         """A line in the plan's journal: {"t", "node", "kind" (auto, log or output), "text"}; only the latest few hundred are kept."""
@@ -1068,7 +1079,7 @@ class PlanDAG:
                     self.shared_state.update(outputs)
                     node.state_variables["outputs"] = dict(outputs)
                 node.status = "completed"
-                for key in ("attempts", "retry_at", "sensor_error", "timed_out"):
+                for key in ("attempts", "retry_at", "sensor_error", "timed_out", "auto_error", "auto_error_at", "next_attempt"):
                     node.state_variables.pop(key, None)
                 if node.type == NodeType.DECISION:
                     node.state_variables.pop("no_route", None)
@@ -1106,6 +1117,9 @@ class PlanDAG:
             node.status = status
             node.state_variables.pop("retry_at", None)
             node.state_variables.pop("timed_out", None)
+            if status == "pending":                                  # put back to wait, it waits afresh and has its tries again
+                for key in ("wait_started", "wake_at", "auto_error", "auto_error_at", "next_attempt", "attempts"):
+                    node.state_variables.pop(key, None)
             if status == "skipped":
                 node.state_variables.pop("attempts", None)
         self.refresh_blocking()
