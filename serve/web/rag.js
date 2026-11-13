@@ -415,7 +415,7 @@
     const layout = el("div", "rg-layout");
     layout.append(sideList(), main);
     const stop = jobNow ? btn(T("rg.job.cancel"), "", cancelJob) : null;
-    host.replaceChildren(el("p", "rg-intro", T("rg.intro")), projectPicker(), banner(), ...[semanticBlock(), settingsBlock()].filter(Boolean), status, ...(stop ? [stop] : []), layout);
+    host.replaceChildren(el("p", "rg-intro", T("rg.intro")), projectPicker(), banner(), ...[semanticBlock(), settingsBlock(), window.RagDatabase && project ? window.RagDatabase.block(project, paint, reloadAll) : null].filter(Boolean), status, ...(stop ? [stop] : []), layout);
     const again = focus && document.getElementById(focus);
     if (again && again !== document.activeElement) again.focus();
   }

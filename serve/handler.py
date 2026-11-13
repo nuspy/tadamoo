@@ -59,6 +59,7 @@ from serve.projects import ProjectStore
 from serve.remote import KEY_TTL_DAYS, MODE_ORDER, ApiKeys, Installer, RemoteAccess, tailscale_peers, tailscale_status, tailscale_up
 from serve.personal_skills_api import PersonalSkillsApi
 from serve import import_api
+from tadamoo.rag.backends import vault_password
 from tadamoo.importer import Importer, Spaces
 from tadamoo.forget import Forgetter
 from tadamoo.personal_memory import PersonalMemory, PersonalMemoryError
@@ -618,7 +619,7 @@ def make_handler(svc: Service, remote: bool = False):
                 if self._authorized():
                     self._json(200, {"cron": _ROUTINES.attention() if _ROUTINES is not None else {"t": 0.0},
                                      "plans": _PLANS.attention() if _PLANS is not None else {"t": 0.0},
-                                     "rag": rag_attention(userdata.path("rag"))})
+                                     "rag": rag_attention(self._rag())})
             elif path == "/api/technical-session":
                 if self._authorized():
                     self._json(200, {"on": side_uses.session_on()})
@@ -2749,7 +2750,7 @@ def make_handler(svc: Service, remote: bool = False):
         def _rag_store(self) -> RagStore:
             global _RAG
             if _RAG is None:
-                _RAG = RagStore(userdata.path("rag"), embedder=self._rag_embed().provider, forbidden=[userdata.user_data_dir()])
+                _RAG = RagStore(userdata.path("rag"), embedder=self._rag_embed().provider, forbidden=[userdata.user_data_dir()], password=vault_password(userdata.path("vault")))
             return _RAG
 
         def _rag_embed(self):
@@ -2806,7 +2807,7 @@ def make_handler(svc: Service, remote: bool = False):
                 return llm.client_for("rag_enrich", TadamooClient(base_url=f"http://127.0.0.1:{self.server.server_address[1]}", api_key=svc.api_key or None))
             return RagApi(self._rag_store(), jobs=_RAG_JOBS, service=self._rag_embed(), sync=self._rag_sync(), describer=describer, folders=lambda: [{"name": "Chat", "path": str(chat), "chat": True}]
                           + [{"name": p["name"], "path": p["path"], "chat": False} for p in self._projects().list() if p.get("exists")],
-                          sources=lambda: {"session": session, "plan_node": guarded(plan_node), "routine": guarded(routine)})
+                          sources=lambda: {"session": session, "plan_node": guarded(plan_node), "routine": guarded(routine)}, vault_dir=userdata.path("vault"))
 
         def _voice_rag(self):
             def make():

@@ -11,8 +11,8 @@ in `tadamoo/rag/ingest/`.
 4. **Look** at each passage for text that addresses an assistant (`tadamoo/inject_screen.py`).
 5. **Index**: the archive keeps the passages, the sections and the blocks as read (`tadamoo/rag/store.py`).
 
-The blocks as read are saved before step 2 (`blocks/<doc>.json.gz`), so a change of the cleaning or the cutting is applied again from them by
-"Index again", without the original file and without Docling. `meta.json` keeps the versions in force (`ingest: {normalizer, chunker}`); when they
+The blocks as read are saved before step 2 (in the archive's database), so a change of the cleaning or the cutting is applied again from them by
+"Index again", without the original file and without Docling. The archive's meta keeps the versions in force (`ingest: {normalizer, chunker}`); when they
 differ from the code's, the archive says `rechunk` and the next index brings it up to date.
 
 ## Blocks
@@ -61,7 +61,7 @@ everywhere. A page with fewer than 4 blocks has none.
 
 ## Cutting
 
-`chunker.py`, `VERSION` 1. The sizes are the settings `chunk_target` (350) and `chunk_hard` (600), in tokens, and are part of `ingest` in `meta.json`; what was compared is in [rag-chunking.md](rag-chunking.md). The headings make a tree of sections; a passage is inside one section, and its `path` is `Document > Section >
+`chunker.py`, `VERSION` 1. The sizes are the settings `chunk_target` (350) and `chunk_hard` (600), in tokens, and are part of `ingest` in the meta; what was compared is in [rag-chunking.md](rag-chunking.md). The headings make a tree of sections; a passage is inside one section, and its `path` is `Document > Section >
 Subsection`. A token is counted as 3.5 characters.
 
 | Kind of text | Becomes |
@@ -77,7 +77,7 @@ Subsection`. A token is counted as 3.5 characters.
 topic, and the cuts are made there. Without it the cuts are by size. A passage carries `path`, `page_start`, `page_end`, `kind` (`text`, `list`,
 `table`, `code`), `section` (the id of its section, `<doc>.s<n>`) and, when flagged, `flag`.
 
-A section keeps its own text (8000 characters at most) in `sections.jsonl` with its parent, path and pages. A hit gives its `section`; the section
+A section keeps its own text (8000 characters at most) in the `sections` table with its parent, path and pages. A hit gives its `section`; the section
 is read with `GET /api/rag/archives/<id>/sections/<section>` or `knowledge_search(expand: true)` (small to big).
 
 ## Passages that address an assistant
@@ -89,30 +89,30 @@ Nothing here asks a model.
 
 ## Facts read by rule
 
-`ingest/meta.py`, `VERSION` 1, no model. Each passage keeps in `chunks.jsonl` (`facts`, only the keys that have something): `lang` (en, fr, it, de, es, zh,
+`ingest/meta.py`, `VERSION` 1, no model. Each passage keeps in the database (`facts`, only the keys that have something): `lang` (en, fr, it, de, es, zh,
 from function words and script; empty when the text is too short), `nums` (patent, publication, application and PCT numbers, written without spaces or
 slashes: `WO2023196851A1`, `PCT/US2023/071689`), `seq` (SEQ ID NO, lists and ranges expanded), `years` (from dates in ISO, dotted, `12 March 2021`, `March 12, 2021`, French,
 Italian and Chinese forms), `genes` (symbols with the shape of one, letters then a digit: OCT4, Tet1, TRE3G, p53; plus the words of a built-in list and of the person's
-`entities.txt` in the archives' folder, one a line), `qty` (numbers with units: `1.5E12 vg`, `2 mg/mL`, `60 %`). Each document keeps in `meta.json` (`info`) what its front
+`entities.txt` in the archives' folder, one a line), `qty` (numbers with units: `1.5E12 vg`, `2 mg/mL`, `60 %`). Each document keeps in its meta (`info`) what its front
 pages say: `number` (from the file name or the text), `kind` (`patent` or `document`), `title`, `assignee`, `applicant`, `inventors`, `agent`, `published`, `filed`
 (from the numbered fields of a patent front page, `(54)`, `(71)`, `(72)`, `(73)`, `(43)`, `(22)`, and the Chinese labels), and `languages` (passages by language).
 These are not part of the searched text: they narrow a search and are shown with a hit. `knowledge_search(filters)` and `POST /api/rag/search {filters}` take
 `language`, `number` (a number or its start), `gene`, `seq`, `year` (`2023` or `2019-2023`), `kind`, `unit` (a unit or quantity) and `document`; a passage must pass all.
-`meta.json` `ingest` names the version, so an archive made before it asks for "Index again", which cuts it from the saved blocks without a model.
+The meta's `ingest` names the version, so an archive made before it asks for "Index again", which cuts it from the saved blocks without a model.
 
 ## Descriptions by a model
 
 `tadamoo/rag/enrich.py`. A background job (`POST /api/rag/archives/<id>/enrich`, `{language?}`; `GET .../enrichment` says how much is described) has a model write, for
 each passage and section, a summary (320 characters at most) and up to four questions it answers (160 each), and for each document a two-sentence description made from
-its sections' summaries, all in the language set in `enrich_language` (Italian by default) whatever the language of the passage. They are stored in `chunks.jsonl`
-and `sections.jsonl` (`summary`, `questions`) and `meta.json` (document `summary`), and are part of the searched and embedded text, after the path and before the
+its sections' summaries, all in the language set in `enrich_language` (Italian by default) whatever the language of the passage. They are stored with the passages
+and sections (`summary`, `questions`) and in the meta (document `summary`), and are part of the searched and embedded text, after the path and before the
 passage, so a question in Italian meets an English, French or Chinese passage through words of its own language. A hit shows its `summary` and `facts`; the outline of a
 document shows its sections' summaries; the state note names each document with its description.
 
 The job sends batches of passages (`enrich_batch`, 5; at most 1400 characters of each, 3000 of a section) to the function `rag_enrich`: the technical session when it fits,
 a route the person set for the function, never a provider outside this PC unless the archive is `cloud_ok`. Passages that read as instructions, are shorter than 60
 characters or are mostly digits are not sent. Each answer is read as strict JSON, cut to size, stripped of markup, screened for instructions to an assistant (an entry
-that has any is dropped), and appended to `enrich.jsonl` before the next call; an entry is found again by the hash of its kind, language, version and text, so a stopped
+that has any is dropped), and added to the archive's database before the next call; an entry is found again by the hash of its kind, language, version and text, so a stopped
 job goes on where it was and a new cut of the archive keeps its descriptions. A call that fails is asked again after 20, 40 and 60 seconds (the engine may be unloaded
 for a heavy job or busy); if the model stays away the job ends `paused` with what it did kept. The job shows its progress, `calls` and `tokens`, and can be cancelled. At the
 end the archive is cut and embedded again so that the descriptions are searched.

@@ -142,7 +142,7 @@ def test_versions_are_kept_in_a_limited_number(tmp_path):
         sync.update(aid)
     kept = [v["n"] for v in sync.versions(aid, doc["id"])]
     assert kept == [4, 3]
-    assert sorted(p.name for p in (store.folder(aid) / "versions" / doc["id"]).iterdir()) == ["3.json.gz", "4.json.gz"]
+    assert store._backend(aid).list_blobs(aid, "version") == [f"{doc['id']}/3", f"{doc['id']}/4"]
     sync.settings.write({"keep_versions": 0})
     put(src, "alpha.md", body(9, "alpha"), 1_700_009_000)
     sync.update(aid)
@@ -199,8 +199,8 @@ def test_a_failure_in_the_commit_puts_everything_back(tmp_path, monkeypatch):
     store, sync, aid, src, sid = folder_archive(tmp_path)
     sync.update(aid)
     alpha = doc_of(store, aid, "alpha")
-    blocks_before = (store.folder(aid) / "blocks" / (alpha["id"] + ".json.gz")).read_bytes()
-    chunks_before = (store.folder(aid) / "chunks.jsonl").read_bytes()
+    blocks_before = store._backend(aid).get_blob(aid, "blocks", alpha["id"])
+    chunks_before = store._backend(aid).read_chunks(aid)
     put(src, "alpha.md", body(2, "alpha"), 1_700_000_500)
 
     def boom(*a, **k):
@@ -208,8 +208,8 @@ def test_a_failure_in_the_commit_puts_everything_back(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "_commit", boom)
     with pytest.raises(OSError):
         sync.update(aid)
-    assert (store.folder(aid) / "blocks" / (alpha["id"] + ".json.gz")).read_bytes() == blocks_before
-    assert (store.folder(aid) / "chunks.jsonl").read_bytes() == chunks_before
+    assert store._backend(aid).get_blob(aid, "blocks", alpha["id"]) == blocks_before
+    assert store._backend(aid).read_chunks(aid) == chunks_before
     assert sync.versions(aid, alpha["id"]) == []
     monkeypatch.undo()
     assert sync.update(aid)["counts"]["updated"] == 1

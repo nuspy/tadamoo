@@ -92,7 +92,7 @@ def test_the_variants_are_built_and_judged_and_the_table_reads(tmp_path):
     questions = [{"passage": f"{c['doc']}:{c['n']}", "question": c["text"][:60]} for c in chunks[:3]]
     evidence = chunk_eval.evidence_of(store, aid, questions)
     assert len(evidence) == 3 and evidence[0]["lang"] in ("en", "other")
-    names, blocks = chunk_eval.load_blocks(tmp_path / "rag" / aid)
+    names, blocks = chunk_eval.load_blocks(store, aid)
     memory = chunk_eval.Memory(rag_eval.FakeEmbedder(), tmp_path / "cache")
     report = {}
     for name in ("flat", "struct-150-250", "struct-350-600", "sem-free", "sem-valleys", "struct-merge", "parent-nbr", "parent-section"):

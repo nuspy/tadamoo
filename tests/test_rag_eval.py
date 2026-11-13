@@ -59,9 +59,15 @@ def test_a_question_names_its_passage_by_position_by_id_or_by_text(tmp_path):
     assert rag_eval.resolve(arch, "") is None and rag_eval.resolve(arch, None) is None
 
 
+def dump(store, aid):
+    """Everything an archive holds, to see that a run left it as it was."""
+    vectors = store._backend(aid).read_vectors(aid)
+    return json.dumps([store.meta(aid), store.load(aid).chunks, store.load(aid).sections], sort_keys=True), b"" if vectors is None else vectors.tobytes()
+
+
 def test_a_run_with_the_stand_in_embedder_reports_each_method_and_leaves_the_archive_alone(tmp_path, capsys):
     s, a = archive_with(tmp_path)
-    before = {p.name: p.read_bytes() for p in (tmp_path / "rag" / a).iterdir() if p.is_file()}
+    before = dump(s, a)
     questions = tmp_path / "q.json"
     questions.write_text(json.dumps({"questions": [
         {"passage": "keel of a sailing boat", "question": "what keeps the sailing boat upright with its keel"},
@@ -78,7 +84,7 @@ def test_a_run_with_the_stand_in_embedder_reports_each_method_and_leaves_the_arc
         assert row["all"]["R@1"] == 1.0 and row["all"]["MRR"] == 1.0, name
         assert "en" in row["by_language"] or "other" in row["by_language"]
     assert "R@10" in shown and "search" in shown
-    assert {p.name: p.read_bytes() for p in (tmp_path / "rag" / a).iterdir() if p.is_file()} == before
+    assert dump(s, a) == before
 
 
 def test_a_real_run_needs_vectors_of_the_model_in_use(tmp_path, monkeypatch):

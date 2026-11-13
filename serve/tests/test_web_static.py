@@ -19,6 +19,7 @@ ESCAPED_MARKUP = ("converter.js", "charts.js")
 # keys the scripts build at run time, as prefix + each value
 DYNAMIC = {
     "pl.type.": ["action", "sensor", "decision", "merge"],
+    "rd.": ["kind.sqlite", "kind.postgres", "kind.mysql", "kind.other", "mode.native", "mode.app", "step.connect", "step.extension", "step.configure"],
     "im.": ["kind.skill", "kind.plugin", "kind.mcp", "kind.plan", "kind1.skill", "kind1.plugin", "kind1.mcp", "kind1.plan", "imp.btn.skill", "imp.btn.plugin", "imp.btn.mcp", "imp.btn.plan",
             "none.skill", "none.plugin", "none.mcp", "none.plan", "imp.title.skill", "imp.title.plugin", "imp.title.mcp", "imp.title.plan", "imp.help.skill", "imp.help.plugin", "imp.help.mcp", "imp.help.plan",
             "path.skill", "path.plugin", "path.mcp", "path.plan", "ph.skill", "ph.plugin", "ph.mcp", "ph.plan", "part.new", "part.own", "part.reused", "part.blocked", "part.changed", "part.same",

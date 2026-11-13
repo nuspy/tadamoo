@@ -1,7 +1,7 @@
 # Which archives apply: the resolver
 
 One place answers "which knowledge archives may this function use now": `resolve(store, context)` in `tadamoo/rag/resolve.py`. The agent harness, the
-search route, plan steps, routines and the voice functions all take its verdict; none keeps a list of its own. It reads only each archive's `meta.json`.
+search route, plan steps, routines and the voice functions all take its verdict; none keeps a list of its own. It reads only each archive's meta.
 
 ## Context
 

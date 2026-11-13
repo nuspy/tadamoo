@@ -6,7 +6,7 @@ questions are part of the text that is searched and embedded (`tadamoo/rag/store
 through words that are in its own language.
 
 The work is a background job (`Enricher.run`): batches of passages go to the model (the technical session when there is one; a route the person set for the
-function `rag_enrich`, which leaves this PC only for an archive marked `cloud_ok`), each answer is checked and written to `enrich.jsonl` before the next call, so
+function `rag_enrich`, which leaves this PC only for an archive marked `cloud_ok`), each answer is checked and written to the archive's database before the next call, so
 a job that stops (cancelled, the model busy or unloaded) goes on where it left off, and an entry is found again by the hash of its text and language when the
 passages are cut again. A model that does not answer is waited for and asked again; if it stays away the job says it is paused and the archive is untouched.
 
@@ -30,7 +30,6 @@ from tadamoo.rag.errors import RagError
 log = logging.getLogger("tadamoo.rag.enrich")
 
 VERSION = 1
-FILE = "enrich.jsonl"
 USE = "rag_enrich"
 PASSAGE_CHARS = 1400               # the part of a passage the model reads
 SECTION_CHARS = 3000
@@ -114,22 +113,12 @@ def parse(answer: str, count: int) -> Optional[List[Optional[Dict[str, Any]]]]:
 
 
 class Cache:
-    """`enrich.jsonl` of an archive's folder: one line `{"k": key, "kind", "language", "summary", "questions"}` for each thing the model described, appended as it is made."""
+    """What the model described, in the archive's database: one row `{"k": key, "kind", "language", "summary", "questions"}` for each thing, added as it is made."""
 
-    def __init__(self, folder: Path) -> None:
-        self.file = Path(folder) / FILE
-        self.entries: Dict[str, Dict[str, Any]] = {}
+    def __init__(self, backend: Any, aid: str) -> None:
+        self.backend, self.aid = backend, aid
+        self.entries: Dict[str, Dict[str, Any]] = backend.enrich_read(aid)
         self._lock = threading.Lock()
-        try:
-            with open(self.file, encoding="utf-8") as f:
-                for line in f:
-                    try:
-                        row = json.loads(line)
-                        self.entries[row["k"]] = row
-                    except (ValueError, KeyError, TypeError):
-                        continue                                         # a half-written last line costs one entry
-        except OSError:
-            pass
 
     def get(self, kind: str, language: str, text: str) -> Optional[Dict[str, Any]]:
         return self.entries.get(key(kind, language, text))
@@ -138,13 +127,11 @@ class Cache:
         if not rows:
             return
         with self._lock:
-            self.file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.file, "a", encoding="utf-8") as f:
-                f.write("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+            self.backend.enrich_add(self.aid, rows)
             self.entries.update({r["k"]: r for r in rows})
 
     def clear(self) -> None:
-        self.file.unlink(missing_ok=True)
+        self.backend.enrich_clear(self.aid)
         self.entries = {}
 
 
@@ -242,11 +229,10 @@ class Enricher:
         if not figs:
             return ""
         from tadamoo.vision_tool import prepare_image
-        folder = self.store._dir(archive.meta["id"])
         described = 0
         for c in figs:
             try:
-                url = prepare_image((folder / c["image"]).read_bytes())
+                url = prepare_image(self.store.figure(archive.meta["id"], c["doc"], c["fig"])["image"])
             except Exception:
                 continue                                                     # an image that cannot be read is left without a description
             try:
@@ -274,7 +260,7 @@ class Enricher:
         self.allowed(archive.meta)
         settings = self.store.settings.read()
         language, size = settings["enrich_language"], int(settings["enrich_batch"])
-        cache = Cache(self.store._dir(aid))
+        cache = self.store.enrich_cache(aid)
         todo: List[Tuple[str, str, str]] = []                            # (kind, text shown, text hashed)
         seen = set()
         for c in archive.chunks:

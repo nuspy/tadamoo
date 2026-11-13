@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 import numpy as np
 
 from tadamoo.rag import query as q
+from tadamoo.rag.backends import RT
 from tadamoo.rag.embed import embed_all, normalize
 from tadamoo.rag.embed_client import VERSION, EmbedService, Unavailable, venv_python
 from tadamoo.rag.errors import RagError
@@ -30,7 +31,6 @@ from tadamoo.rag.store import RagStore, searchable
 MODEL = "Qwen3-Embedding-0.6B"          # the small embedder: its folder name under rag/embedding
 THREADS = 4                              # CPU threads of the question embedder: the engine's own CPU work keeps the rest
 IDLE_S = 900.0                           # the warm worker is given back after this long without a question
-VECTORS, META = "embeddings_rt.npy", "rt.json"
 WORKER = Path(__file__).with_name("rt_worker.py")
 TOP_K = 4
 
@@ -51,34 +51,21 @@ def fingerprint(chunks: Sequence[Dict[str, Any]]) -> str:
     return h.hexdigest()
 
 
-def read_vectors(folder: Path, chunks: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """`{model, vectors}` of an archive folder when the second vectors are there and made from these passages, else None."""
-    try:
-        meta = json.loads((folder / META).read_text(encoding="utf-8"))
-        found = np.load(folder / VECTORS, allow_pickle=False)
-    except (OSError, ValueError):
+def read_vectors(backend: Any, aid: str, chunks: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """`{model, vectors}` of the second vectors in the archive's database when they are there and made from these passages, else None."""
+    note = backend.vector_note(aid, RT)
+    if note is None or note["note"].get("fingerprint") != fingerprint(chunks) or note["version"] != VERSION:
         return None
-    if not isinstance(meta, dict) or meta.get("fingerprint") != fingerprint(chunks) or meta.get("version") != VERSION:
+    found = backend.read_vectors(aid, RT)
+    if found is None or found.ndim != 2 or found.shape[0] != len(chunks):
         return None
-    if found.ndim != 2 or found.shape[0] != len(chunks):
-        return None
-    return {"model": str(meta.get("model") or ""), "vectors": normalize(found)}
+    return {"model": note["model"], "vectors": normalize(found)}
 
-
-def write_vectors(folder: Path, chunks: Sequence[Dict[str, Any]], vectors: np.ndarray, model: str) -> None:
-    """The vectors and the note that names them, each written to a temporary name and renamed; the note goes last."""
-    data = np.asarray(vectors, dtype=np.float16)
-    tmp = folder / (VECTORS + ".tmp")
-    with open(tmp, "wb") as f:
-        np.save(f, data)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, folder / VECTORS)
-    note = {"model": model, "version": VERSION, "dim": int(data.shape[1]), "passages": len(chunks), "fingerprint": fingerprint(chunks), "built": time.time()}
-    tmp = folder / (META + ".tmp")
-    tmp.write_text(json.dumps(note), encoding="utf-8")
-    os.replace(tmp, folder / META)
-
+def write_vectors(backend: Any, aid: str, chunks: Sequence[Dict[str, Any]], vectors: np.ndarray, model: str) -> None:
+    """The second vectors and the note that names them, in the archive's database."""
+    data = np.asarray(vectors, dtype=np.float32)
+    note = {"dim": int(data.shape[1]), "passages": len(chunks), "fingerprint": fingerprint(chunks), "built": time.time()}
+    backend.put_vectors(aid, RT, data, model, VERSION, note)
 
 class View:
     """An archive as the search sees it with the second vectors: the same passages, words and documents, the vectors of the small model."""
@@ -86,6 +73,7 @@ class View:
     def __init__(self, archive: Any, vectors: np.ndarray, model: str) -> None:
         self._archive = archive
         self.chunks, self.vectors = archive.chunks, vectors
+        self.sections, self.backend, self.slot, self.has_vectors = archive.sections, archive.backend, RT, True
         self.meta = {**archive.meta, "embed_model": model, "embed_version": VERSION, "embed_dim": int(vectors.shape[1])}
 
     def index(self):
@@ -139,13 +127,13 @@ def build(store: RagStore, aid: str, embedder: Any, progress: Optional[Callable[
     if not archive.chunks:
         raise RagError("the archive has no passages")
     vectors = embed_all(embedder, [searchable(c) for c in archive.chunks], progress, cancel)
-    write_vectors(store.root / aid, archive.chunks, vectors, embedder.model)
+    write_vectors(store._backend(aid), aid, archive.chunks, vectors, embedder.model)
     return {"passages": len(archive.chunks), "model": embedder.model, "seconds": round(time.monotonic() - started, 1)}
 
 
 def has_vectors(store: RagStore, aid: str) -> bool:
     try:
-        return read_vectors(store.root / aid, store.load(aid).chunks) is not None
+        return read_vectors(store._backend(aid), aid, store.load(aid).chunks) is not None
     except RagError:
         return False
 
@@ -197,14 +185,14 @@ class Searcher:
         return loaded, views, missing
 
     def _read(self, aid: str, archive: Any) -> Optional[Dict[str, Any]]:
-        note = self.store.root / aid / META
-        try:
-            stamp = (id(archive), len(archive.chunks), note.stat().st_mtime_ns)
-        except OSError:
+        backend = self.store._backend(aid)
+        note = backend.vector_note(aid, RT)
+        if note is None:
             return None
+        stamp = (id(archive), len(archive.chunks), note["gen"])
         held = self._vectors.get(aid)
         if held is None or held[0] != stamp:
-            held = self._vectors[aid] = (stamp, read_vectors(self.store.root / aid, archive.chunks))
+            held = self._vectors[aid] = (stamp, read_vectors(backend, aid, archive.chunks))
         return held[1]
 
     def words(self, archives: Sequence[Any], query: str, top_k: int, min_share: float = 0.0) -> Dict[str, Any]:

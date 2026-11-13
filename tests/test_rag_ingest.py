@@ -264,7 +264,7 @@ def test_the_versions_of_the_cleaning_and_the_cutting_are_kept_and_a_change_asks
     before = store.get(aid)["chunks"]
     out = store.reindex(aid)                                                                         # from the saved blocks: no reader is asked
     assert out["chunks"] == before and store.get(aid)["rechunk"] is False
-    (tmp_path / "rag" / aid / "blocks").joinpath(store.get(aid)["document_list"][0]["id"] + ".json.gz").unlink()
+    store._backend(aid).delete_blobs(aid, "blocks", key=store.get(aid)["document_list"][0]["id"])
     with pytest.raises(Exception, match="saved reading"):
         store.reindex(aid)
 
@@ -278,7 +278,7 @@ def test_big_documents_are_allowed_and_a_refused_file_leaves_the_archive_untouch
     empty.write_text("<!-- image -->\n\n~~ ..", encoding="utf-8")
     with pytest.raises(Exception, match="no text"):
         store.add_file(aid, "scan.md", empty)
-    assert store.get(aid) == before and sorted(p.name for p in (tmp_path / "rag" / aid / "blocks").iterdir()) == [store.get(aid)["document_list"][0]["id"] + ".json.gz"]
+    assert store.get(aid) == before and store._backend(aid).list_blobs(aid, "blocks") == [store.get(aid)["document_list"][0]["id"]]
 
 
 def test_the_size_of_a_passage_is_a_setting_and_changing_it_asks_for_a_new_cut(tmp_path):

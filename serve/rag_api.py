@@ -13,6 +13,7 @@ from tadamoo.rag import LIMITS, RagError, RagStore
 from tadamoo.rag.ingest import docling_client, extraction_of
 from tadamoo.rag.project import is_key, project_key
 from tadamoo.rag.resolve import FUNCTIONS, Resolution, resolve, routes_outside
+from serve.rag_db_api import RagDbApi
 from serve.rag_jobs import Jobs
 from serve.rag_sync_api import RagSyncApi
 from tadamoo.rag.sources.engine import Sync
@@ -37,7 +38,7 @@ def _project(value: Any) -> str:
 class RagApi:
     def __init__(self, store: RagStore, folders: Callable[[], List[Dict[str, Any]]] = lambda: [], jobs: Optional[Jobs] = None, service: Any = None,
                  sources: Callable[[], Dict[str, Callable[[Dict[str, Any]], Any]]] = lambda: {}, leaves_pc: Callable[[str], bool] = routes_outside, sync: Any = None,
-                 describer: Optional[Callable[[], Any]] = None) -> None:
+                 describer: Optional[Callable[[], Any]] = None, vault_dir: Any = None) -> None:
         """`folders` lists the projects as `{name, path, chat}`: the folders of the Agent tab and the Chat's own folder (`chat` true). `jobs` is the
         board of the long jobs, kept by the server between requests. `service` is the embedding service (tadamoo/rag/embed_client.py) the store's embedder
         comes from, when there is one: it tells where the embeddings run and can be tried. `sources` gives what the resolver cannot know alone (the session's
@@ -47,6 +48,7 @@ class RagApi:
         self.describer = describer                          # a function that gives the model client for the function `rag_enrich` (None: no model to describe archives)
         self.jobs = jobs if jobs is not None else Jobs()
         self.syncing = RagSyncApi(sync if sync is not None else Sync(store), self.jobs)
+        self.database = RagDbApi(store, self.jobs, vault_dir)               # the Database section of a project's settings (serve/rag_db_api.py)
 
     # -- reading ---------------------------------------------------------------------------------
 
@@ -245,6 +247,8 @@ class RagApi:
                 req["routed_to_cloud"] = q["routed_to_cloud"][0] == "true"
             return self.resolve(req)
         got = self.syncing.route_get(parts)
+        if got is None:
+            got = self.database.route_get(parts, query)
         if got is not None:
             return got
         if parts == ["settings"]:
@@ -269,6 +273,8 @@ class RagApi:
         if not isinstance(req, dict):
             raise RagError("send a JSON object")
         got = self.syncing.route_post(parts, req)
+        if got is None:
+            got = self.database.route_post(parts, req)
         if got is not None:
             return got
         if parts == ["search"]:

@@ -87,7 +87,7 @@ def test_a_second_run_asks_nothing_and_a_new_language_asks_again(tmp_path):
     enrich.Enricher(store, Model()).run(aid)
     again = Model()
     out = enrich.Enricher(store, again).run(aid)
-    assert again.calls == [] and out["calls"] == 0 and store.load(aid).chunks[0]["summary"]         # found in enrich.jsonl by the hash of the text and language
+    assert again.calls == [] and out["calls"] == 0 and store.load(aid).chunks[0]["summary"]         # found in the cache by the hash of the text and language
     store.settings.write({"enrich_language": "French"})
     french = Model()
     enrich.Enricher(store, french).run(aid)
@@ -111,7 +111,7 @@ def test_a_model_that_is_away_is_waited_for_and_one_that_stays_away_pauses_the_j
     gone = Model(answer=answer)
     with pytest.raises(enrich.Paused) as stop:
         enrich.Enricher(store2, gone, sleep=lambda s: None, backoff_s=0.0).run(aid2)
-    assert stop.value.code == "paused" and enrich.Cache(store2._dir(aid2)).entries                 # the first batch is kept
+    assert stop.value.code == "paused" and store2.enrich_cache(aid2).entries                 # the first batch is kept
     assert store2.load(aid2).meta["chunks"] > 0 and store2.search([aid2], "adeno-associated vector")["hits"]    # the archive is untouched and searchable
     back = Model()
     enrich.Enricher(store2, back, sleep=lambda s: None, backoff_s=0.0).run(aid2)                  # started again: only what is left is asked
@@ -149,7 +149,7 @@ def test_an_archive_cut_again_keeps_its_descriptions_by_the_text_of_each_passage
     enrich.Enricher(store, Model()).run(aid)
     store.reindex(aid)
     assert store.load(aid).chunks[0]["summary"] and store.get(aid)["document_list"][0]["summary"]
-    (tmp_path / "rag" / aid / enrich.FILE).unlink()
+    store.enrich_cache(aid).clear()
     store.reindex(aid)
     assert "summary" not in store.load(aid).chunks[0] and "enriched" not in store.load(aid).meta
 

@@ -1,6 +1,6 @@
 """Verifying an archive: is what it holds whole, and does it still match what it was made from. Nothing is changed.
 
-    structure   the passages in the file are the ones `meta.json` counts, each document's count agrees, no passage belongs to an unknown document, the vectors
+    structure   the passages in the database are the ones the archive's meta counts, each document's count agrees, no passage belongs to an unknown document, the vectors
                 have a row for every passage, every document's saved reading can be read back
     coverage    each document's pages against its passages, recomputed (a record that disagrees with the passages is a problem), the pages that came out empty or
                 were skipped, the passages flagged
@@ -50,7 +50,7 @@ def verify(sync: Any, aid: Any, deep: bool = False, sources: bool = True, progre
            cancel: Optional[threading.Event] = None) -> Dict[str, Any]:
     store = sync.store
     tell = progress or (lambda event: None)
-    archive, folder = store.load(aid), store.folder(aid)
+    archive, backend = store.load(aid), store._backend(aid)
     meta = archive.meta
     problems: List[Dict[str, Any]] = []
 
@@ -59,15 +59,11 @@ def verify(sync: Any, aid: Any, deep: bool = False, sources: bool = True, progre
 
     tell({"event": "stage", "stage": "checking"})
     # structure
-    try:
-        lines = sum(1 for line in open(folder / "chunks.jsonl", encoding="utf-8") if line.strip())
-    except OSError:
-        lines = 0
+    lines = backend.counts(aid)["chunks"]
     if lines != meta["chunks"]:
-        add("error", f"the file holds {lines:,} passages and the archive counts {meta['chunks']:,}: an update was cut short; update or index again")
-    known = {d["id"] for d in meta["documents"]}
-    orphans = sum(1 for line in open(folder / "chunks.jsonl", encoding="utf-8") if line.strip() and json.loads(line).get("doc") not in known) if lines else 0
-    if orphans:
+        add("error", f"the database holds {lines:,} passages and the archive counts {meta['chunks']:,}: an update was cut short; update or index again")
+    orphans = lines - len(archive.chunks)
+    if orphans > 0:
         add("error", f"{orphans:,} passages belong to a document that is not in the archive")
     per_doc: Dict[str, List[Dict[str, Any]]] = {}
     for c in archive.chunks:

@@ -110,9 +110,9 @@ def test_with_an_embedder_vectors_are_kept_and_the_search_is_hybrid(tmp_path):
     s = store(tmp_path, fake)
     a = s.create("Boats", project=PROJ)["id"]
     out = add(s, tmp_path, a, "boats.txt", SAILING)
-    assert out["embedded"] is True and (tmp_path / "rag" / a / "embeddings.npy").is_file()
-    vectors = np.load(tmp_path / "rag" / a / "embeddings.npy")
-    assert vectors.dtype == np.float16 and np.allclose(np.linalg.norm(vectors.astype(np.float32), axis=1), 1.0, atol=2e-3)
+    assert out["embedded"] is True and s._backend(a).vector_note(a)["rows"] == s.get(a)["chunks"]
+    vectors = s._backend(a).read_vectors(a)
+    assert vectors.dtype == np.float32 and np.allclose(np.linalg.norm(vectors, axis=1), 1.0, atol=1e-5)
     meta = s.get(a)
     assert meta["mode"] == "hybrid" and meta["embed_model"] == "fake-1" and s.load(a).meta["embed_dim"] == 4 and s.load(a).vectors.dtype == np.float32
     assert np.allclose(np.linalg.norm(s.load(a).vectors, axis=1), 1.0, atol=1e-6)
@@ -154,7 +154,7 @@ def test_an_embedder_that_fails_at_ingest_leaves_the_document_searchable_by_word
     s = store(tmp_path, Broken())
     a = s.create("Boats", project=PROJ)["id"]
     out = add(s, tmp_path, a, "boats.txt", SAILING)
-    assert out["embedded"] is False and "embedder failed" in out["note"] and not (tmp_path / "rag" / a / "embeddings.npy").exists()
+    assert out["embedded"] is False and "embedder failed" in out["note"] and s._backend(a).vector_note(a) is None
     assert s.search([a], "keel")["hits"]
 
 
@@ -164,7 +164,7 @@ def test_a_document_added_without_the_embedder_drops_the_vectors_and_reindex_res
     add(s, tmp_path, a, "boats.txt", SAILING)
     s.holder["e"] = None
     out = add(s, tmp_path, a, "rice.txt", COOKING)
-    assert out["embedded"] is False and s.get(a)["embed_model"] == "" and not (tmp_path / "rag" / a / "embeddings.npy").exists()
+    assert out["embedded"] is False and s.get(a)["embed_model"] == "" and s._backend(a).vector_note(a) is None
     s.holder["e"] = Fake()
     assert s.get(a)["reindex"] is True
     done = s.reindex(a)
@@ -192,8 +192,8 @@ def test_removing_a_document_removes_its_passages_and_vectors(tmp_path):
     add(s, tmp_path, a, "rice.txt", COOKING)
     total = s.get(a)["chunks"]
     done = s.remove_document(a, first["id"])
-    assert done["chunks"] == total - first["chunks"] and len(np.load(tmp_path / "rag" / a / "embeddings.npy")) == done["chunks"]
-    assert [d["name"] for d in s.get(a)["document_list"]] == ["rice.txt"] and not (tmp_path / "rag" / a / "blocks" / (first["id"] + ".json.gz")).exists()
+    assert done["chunks"] == total - first["chunks"] and len(s._backend(a).read_vectors(a)) == done["chunks"]
+    assert [d["name"] for d in s.get(a)["document_list"]] == ["rice.txt"] and s._backend(a).get_blob(a, "blocks", first["id"]) is None
     assert s.search([a], "sloop")["hits"] == [] or s.search([a], "sloop")["hits"][0]["document"] == "rice.txt"
     with pytest.raises(RagError) as e:
         s.remove_document(a, first["id"])
@@ -348,15 +348,15 @@ def test_a_document_name_and_a_path_are_checked(tmp_path):
     assert not list((tmp_path / "rag" / ".incoming").glob("*")) if (tmp_path / "rag" / ".incoming").exists() else True
 
 
-def test_files_are_written_whole_and_survive_a_new_store(tmp_path):
+def test_an_archive_is_kept_whole_in_its_projects_database_and_survives_a_new_store(tmp_path):
     s = store(tmp_path, Fake())
     a = s.create("Boats", "About sailing", project=PROJ)["id"]
     add(s, tmp_path, a, "boats.txt", SAILING)
-    folder = tmp_path / "rag" / a
-    assert not list(folder.rglob("*.tmp"))
-    assert sorted(p.name for p in folder.iterdir()) == ["blocks", "chunks.jsonl", "embeddings.npy", "meta.json", "sections.jsonl"]
-    meta = json.loads((folder / "meta.json").read_text(encoding="utf-8"))
-    assert meta["name"] == "Boats" and meta["chunks"] == len((folder / "chunks.jsonl").read_text().splitlines())
+    assert (tmp_path / "rag" / "db" / f"{PROJ}.sqlite").is_file() and not list((tmp_path / "rag").rglob("*.tmp"))
+    backend = s._backend(a)
+    counts = backend.counts(a)
+    assert counts["documents"] == 1 and counts["vectors"] == counts["chunks"] == s.meta(a)["chunks"] and counts["sections"] > 0 and backend.list_blobs(a, "blocks")
+    assert backend.read_meta(a)["name"] == "Boats"
     again = store(tmp_path, Fake())
     assert again.list()[0]["id"] == a and again.search([a], "keel")["mode"] == "hybrid"
 
@@ -365,12 +365,11 @@ def test_a_damaged_archive_is_left_out_of_the_list_and_chunks_of_unknown_documen
     s = store(tmp_path)
     a = s.create("Good", project=PROJ)["id"]
     add(s, tmp_path, a, "boats.txt", SAILING)
-    (tmp_path / "rag" / "bad-123456").mkdir()
-    (tmp_path / "rag" / "bad-123456" / "meta.json").write_text("{nope")
     (tmp_path / "rag" / "stray").mkdir()
     assert [x["id"] for x in s.list()] == [a]
-    with (tmp_path / "rag" / a / "chunks.jsonl").open("a", encoding="utf-8") as f:
-        f.write(json.dumps({"doc": "dffffffff", "n": 0, "text": "orphan keel keel keel"}) + "\n")
+    backend = s._backend(a)
+    backend.run("INSERT INTO rag_chunks (archive_id, pos, doc, n, text) VALUES (?, ?, ?, ?, ?)", (a, 999, "dffffffff", 0, "orphan keel keel keel")).close()
+    s._cache.clear()
     assert all(h["document"] == "boats.txt" for h in store(tmp_path).search([a], "keel")["hits"])
 
 
@@ -386,7 +385,7 @@ def test_update_rename_and_delete(tmp_path):
         s.update(a, {"cloud_ok": "yes"})
     with pytest.raises(RagError, match="confirmation"):
         s.delete(a, None)
-    assert s.delete(a, True)["deleted"] is True and not (tmp_path / "rag" / a).exists() and [x["id"] for x in s.list()] == [b]
+    assert s.delete(a, True)["deleted"] is True and s.router.find(a) is None and [x["id"] for x in s.list()] == [b]
 
 
 # -- projects ------------------------------------------------------------------------------------------------
@@ -415,7 +414,7 @@ def test_an_archive_needs_a_project_and_carries_it(tmp_path):
     with pytest.raises(RagError, match="project"):
         s.create("Boats")
     made = s.create("Boats", project=PROJ)
-    assert made["project"] == PROJ and json.loads((tmp_path / "rag" / made["id"] / "meta.json").read_text(encoding="utf-8"))["project"] == PROJ
+    assert made["project"] == PROJ and s._backend(made["id"]).read_meta(made["id"])["project"] == PROJ
     assert s.list()[0]["project"] == PROJ and s.get(made["id"])["project"] == PROJ
 
 
@@ -440,10 +439,8 @@ def test_names_and_the_limit_are_per_project(tmp_path, monkeypatch):
 def test_list_filters_by_project_and_an_archive_without_one_belongs_to_none(tmp_path):
     s = store(tmp_path)
     a, b = s.create("Boats", project=PROJ)["id"], s.create("Kitchen", project=OTHER)["id"]
-    folder = tmp_path / "rag" / "old-123456"
-    folder.mkdir()
-    (folder / "meta.json").write_text(json.dumps({"id": "old-123456", "name": "Old", "description": "", "created": 1, "updated": 1, "chunks": 0, "embed_model": "",
-                                                  "documents": []}), encoding="utf-8")
+    s.router.for_project("").write_meta("old-123456", {"id": "old-123456", "name": "Old", "description": "", "created": 1, "updated": 1, "chunks": 0, "embed_model": "",
+                                                       "documents": []})
     assert [x["id"] for x in s.list(PROJ)] == [a] and [x["id"] for x in s.list(OTHER)] == [b]
     assert s.list(project_key("nobody")) == [] and s.ids(PROJ) == [a] and s.ids("not-a-key") == []
     assert {x["id"] for x in s.list()} == {a, b, "old-123456"}

@@ -19,12 +19,34 @@ from tadamoo.rag.store import searchable
 
 POOL = 20                         # passages the reranker judges
 KEEP = 100                        # candidates kept from one archive before the best are taken
+NATIVE_FROM = 1000                # passages from which an archive's database does the word and vector search itself; below, the application does it (the same answer, no round trip)
+NATIVE_K = 300                    # nearest vectors asked of the database (ten times as many when a filter narrows the passages)
+WORDS_K = 1000                    # word hits asked of the database
 RETRIEVAL = {"lexical_weight": 0.05, "min_cosine": 0.3, "min_rerank": 0.2, "rerank": True}
 Candidate = Tuple[int, float, int, int, Optional[float], Optional[float]]            # (tier, -score, archive, passage, bm25, cosine)
 
 
 def _fingerprint(text: str) -> bytes:
     return hashlib.blake2b(" ".join(text.lower().split()).encode("utf-8"), digest_size=12).digest()
+
+
+def _native(archive: Any, what: str) -> bool:
+    """Whether the database that holds `archive` answers its `what` search (`words` or `vectors`) itself."""
+    backend = getattr(archive, "backend", None)
+    return backend is not None and len(archive.chunks) >= NATIVE_FROM and bool(getattr(backend, "native_" + what, False))
+
+
+def _native_cosines(archive: Any, q: np.ndarray, wide: bool) -> Optional[np.ndarray]:
+    """The cosine of the passages the database finds nearest to `q` (-1 for the others), or None when the vectors are not of `q`'s size."""
+    aid, slot = archive.meta["id"], getattr(archive, "slot", "main")
+    note = archive.backend.vector_note(aid, slot)
+    if note is None or note["dims"] != q.shape[0]:
+        return None
+    cos = np.full(len(archive.chunks), -1.0, dtype=np.float32)
+    for i, c in archive.backend.vector_search(aid, q, NATIVE_K * (10 if wide else 1), slot):
+        if 0 <= i < cos.shape[0]:
+            cos[i] = c
+    return cos
 
 
 def _hit(archive: Any, i: int, lexical: Optional[float], semantic: Optional[float], rerank: Optional[float], score: float) -> Dict[str, Any]:
@@ -62,20 +84,28 @@ def run(archives: Sequence[Any], embedder: Optional[Embedder], query: str, top_k
     out: Dict[str, Any] = {"mode": "lexical", "stages": ["lexical"], "note": "", "reranked": False, "hits": []}
     if not query or not archives:
         return out
-    indexes = [a.index() for a in archives]
-    lex = ranking.bm25(indexes, query)
+    if min_share <= 0 and all(_native(a, "words") for a in archives):
+        lex = [dict(a.backend.word_search(a.meta["id"], query, WORDS_K) or []) for a in archives]
+        floor = 0.0
+    else:
+        indexes = [a.index() for a in archives]
+        lex = ranking.bm25(indexes, query)
+        floor = min_share * ranking.information(indexes, query)                 # the least a words-only hit may score
     masks = [_mask(a, filters) if filters else None for a in archives]
     for k, m in enumerate(masks):
         if m is not None:
             lex[k] = {i: v for i, v in lex[k].items() if m[i]}
     top_lex = max((v for per in lex for v in per.values()), default=0.0)
-    floor = min_share * ranking.information(indexes, query)                 # the least a words-only hit may score
-    ready = [k for k, a in enumerate(archives) if a.vectors is not None and compatible(a.meta, embedder)]
+    ready = [k for k, a in enumerate(archives) if a.has_vectors and compatible(a.meta, embedder)]
     scored: Dict[int, np.ndarray] = {}
     if ready:
         try:
             q = embed_query(embedder, query)
-            scored = {k: ranking.cosine(archives[k].vectors, q) for k in ready if archives[k].vectors.shape[1] == q.shape[0]}
+            for k in ready:
+                a = archives[k]
+                got = _native_cosines(a, q, bool(filters)) if _native(a, "vectors") else (ranking.cosine(a.vectors, q) if a.vectors.shape[1] == q.shape[0] else None)
+                if got is not None:
+                    scored[k] = got
             for k, m in enumerate(masks):
                 if m is not None and k in scored:
                     scored[k] = np.where(m, scored[k], -1.0).astype(np.float32)

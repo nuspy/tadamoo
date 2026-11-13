@@ -406,7 +406,7 @@ def test_documents_are_embedded_by_the_worker_and_the_meta_keeps_model_size_and_
         meta = s.load(a).meta
         assert meta["embed_model"] == "Qwen3-Embedding-4B" and meta["embed_dim"] == 4 and meta["embed_version"] == ec.VERSION
         assert any(e.get("event") == "progress" and e["device"] == "cuda" for e in events)
-        assert np.load(tmp_path / "rag" / a / "embeddings.npy").dtype == np.float16
+        assert s._backend(a).read_vectors(a).dtype == np.float32 and s._backend(a).vector_note(a)["dims"] == 4
         found = s.search([a], "yacht keel")
         assert found["mode"] == "hybrid" and found["hits"][0]["stages"][:2] == ["lexical", "dense"] and found["reranked"] is True
     finally:
