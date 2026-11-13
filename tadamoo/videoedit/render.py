@@ -63,17 +63,23 @@ class Source:
 
 
 # ---- the camera on a picture
-def warp(img: np.ndarray, state: camera.State, face: Tuple[float, float], canvas: Frame, sharpen: bool = True) -> Image.Image:
-    """The picture seen through the camera: the face of the picture (`face`, 0 to 1) is put at (`state.fx`, `state.fy`) of the screen, the window zoomed in by `state.zoom`
-    over the picture covering the screen, rolled by `state.roll` degrees. The window is kept inside the picture."""
+def warp(img: np.ndarray, state: camera.State, face: Tuple[float, float], canvas: Frame, sharpen: bool = True, shift: float = 0.0) -> Image.Image:
+    """The picture seen through the camera: the face of the picture (`face`, 0 to 1) is put at (`state.fx` - `shift`, `state.fy`) of the screen, the window zoomed in by
+    `state.zoom` over the picture covering the screen, rolled by `state.roll` degrees. The window is kept inside the picture; a `shift` that would take it out of the picture
+    zooms in just as much as it needs, so that the face lands where it was asked."""
     src = Image.fromarray(img)
     sw, sh = src.size
     W, H = canvas.width, canvas.height
     scale = max(W / sw, H / sh) * state.zoom
     theta = math.radians(state.roll)
     margin = 1 + abs(math.sin(theta)) * 0.35
+    fx = state.fx - shift
+    if shift:
+        right = (0.5 - fx + 0.5 * margin) * W / (sw * max(1 - face[0], 1e-3))
+        left = (fx - 0.5 + 0.5 * margin) * W / (sw * max(face[0], 1e-3))
+        scale = max(scale, right, left)
     hw, hh = W / 2 / scale * margin, H / 2 / scale * margin
-    cx = min(max(face[0] * sw - (state.fx - 0.5) * W / scale, hw), max(hw, sw - hw))
+    cx = min(max(face[0] * sw - (fx - 0.5) * W / scale, hw), max(hw, sw - hw))
     cy = min(max(face[1] * sh - (state.fy - 0.5) * H / scale, hh), max(hh, sh - hh))
     cos, sin = math.cos(theta) / scale, math.sin(theta) / scale
     coeffs = (cos, -sin, cx - cos * W / 2 + sin * H / 2, sin, cos, cy - sin * W / 2 - cos * H / 2)
@@ -114,6 +120,8 @@ class StoryGraphics:
     card: Image.Image
     bar: Image.Image
     cards: Dict[int, Image.Image] = field(default_factory=dict)      # evidence row number -> card
+    card_share: float = 0.0                       # the width the side card and the evidence cards cover on the right, as a share of the picture (0: the picture under them stays where it is)
+    cards_share: float = 0.0
 
 
 @dataclass
@@ -136,9 +144,10 @@ def _slide(layer: Image.Image, frame: Frame, side: str, progress: float) -> Tupl
     return (round((1 - progress) * frame.width), 0) if side == "right" else (round(-(1 - progress) * frame.width), 0)
 
 
-def graphics_state(g: StoryGraphics, t: float, style: Style, evidence_window: Optional[Tuple[float, float, int]]) -> List[Tuple[Image.Image, Tuple[int, int]]]:
-    """The layers to draw at absolute time `t` for a story, each with its position."""
-    out: List[Tuple[Image.Image, Tuple[int, int]]] = []
+def _placed(g: StoryGraphics, t: float, style: Style, evidence_window: Optional[Tuple[float, float, int]]) -> List[Tuple[Image.Image, Tuple[int, int], float, float]]:
+    """The layers to draw at absolute time `t` for a story, each as (layer, position, share, progress): `share` is the width a layer of the right-hand band covers (0 for the bar),
+    `progress` how far in it is, 0 off the picture to 1 in place."""
+    out: List[Tuple[Image.Image, Tuple[int, int], float, float]] = []
     local = t - g.start
     if local < 0 or t > g.end:
         return out
@@ -147,7 +156,7 @@ def graphics_state(g: StoryGraphics, t: float, style: Style, evidence_window: Op
     if local < hold + slide:
         arrive = EASINGS[style.ease_in](local / slide)
         leave = EASINGS[style.ease_out]((local - hold) / slide) if local > hold else 0.0
-        out.append((g.card, _slide(g.card, frame, "right", arrive * (1 - leave))))
+        out.append((g.card, _slide(g.card, frame, "right", arrive * (1 - leave)), g.card_share, arrive * (1 - leave)))
     bar_start = hold + slide
     if local >= bar_start:
         end_local = (g.end - g.start)
@@ -156,14 +165,27 @@ def graphics_state(g: StoryGraphics, t: float, style: Style, evidence_window: Op
         arrive = EASINGS[style.ease_in]((local - bar_start) / style.bar_in_s)
         leave = EASINGS[style.ease_out]((local - (end_local - style.slide_s)) / style.slide_s) if local > end_local - style.slide_s else 0.0
         if local <= end_local:
-            out.append((g.bar, _slide(g.bar, frame, "left", arrive * (1 - leave))))
+            out.append((g.bar, _slide(g.bar, frame, "left", arrive * (1 - leave)), 0.0, 0.0))
     if evidence_window is not None:
         e0, e1, row = evidence_window
         if e0 <= t <= e1 and row in g.cards:
             arrive = EASINGS[style.ease_in]((t - e0) / style.slide_s)
             leave = EASINGS[style.ease_out]((t - (e1 - style.slide_s)) / style.slide_s) if t > e1 - style.slide_s else 0.0
-            out.append((g.cards[row], _slide(g.cards[row], frame, "right", arrive * (1 - leave))))
+            out.append((g.cards[row], _slide(g.cards[row], frame, "right", arrive * (1 - leave)), g.cards_share, arrive * (1 - leave)))
     return out
+
+
+def graphics_state(g: StoryGraphics, t: float, style: Style, evidence_window: Optional[Tuple[float, float, int]]) -> List[Tuple[Image.Image, Tuple[int, int]]]:
+    """The layers to draw at absolute time `t` for a story, each with its position."""
+    return [(layer, pos) for layer, pos, _, _ in _placed(g, t, style, evidence_window)]
+
+
+def presenter_shift(g: StoryGraphics, t: float, style: Style, evidence_window: Optional[Tuple[float, float, int]]) -> float:
+    """How far to the left, as a share of the picture's width, the picture under a story's right-hand band is moved at time `t`: half of what the band shows of itself. The band
+    slides in whole-frame travel, so it shows itself only in the last part of the slide; the picture starts moving when the band comes into view and arrives when the band does,
+    at half its speed all along, and the way back is the same in reverse. Bands that overlap: the wider one counts."""
+    shown = [max(0.0, progress + share - 1.0) for _, _, share, progress in _placed(g, t, style, evidence_window) if share > 0]
+    return 0.5 * max(shown, default=0.0)
 
 
 # ---- the shots
@@ -172,7 +194,8 @@ class Shot:
     t0: float                                      # seconds on the video's clock
     t1: float
     story: int                                     # 0: no story graphics (the welcome and the farewell)
-    main: Callable[[float], Image.Image]           # the picture `t` seconds after the shot's start (may be asked a little before 0 or after the end, for a dissolve)
+    main: Callable[[float, float], Image.Image]    # the picture `t` seconds after the shot's start (may be asked a little before 0 or after the end, for a dissolve), given how far
+                                                   # left the story's bands push the presenter (share of the width, `presenter_shift`)
     pip: Optional[Callable[[float], Image.Image]] = None
     evidence: Optional[int] = None
 
@@ -185,7 +208,9 @@ def compose_frame(shots: Sequence[Shot], f: int, fps: int, canvas: Frame, storie
     parts: List[Tuple[Image.Image, float]] = []
 
     def picture(shot: Shot) -> Image.Image:
-        img = shot.main(t - shot.t0).copy()
+        g = stories.get(shot.story) if shot.story else None
+        shift = presenter_shift(g, t, style, (shot.t0 + 0.2, shot.t1 - 0.2, shot.evidence) if shot.evidence else None) if g is not None else 0.0
+        img = shot.main(t - shot.t0, shift).copy()
         if shot.pip is not None:
             small = shot.pip(t - shot.t0).resize((pip_box.w, pip_box.h), Image.LANCZOS)
             shadow = Image.new("RGBA", (pip_box.w + 24, pip_box.h + 24), (0, 0, 0, 0))

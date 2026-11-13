@@ -109,8 +109,8 @@ def test_frames_are_drawn_and_encoded_with_the_voice(tmp_path):
     canvas = layouts.Frame(794, 530)
     clip = make_clip(tmp_path / "c.mp4", 3.0, "768x512")
     src = render.Source(render.decode(clip, 0.0, 3.0, 24), 24)
-    shots = [render.Shot(0.0, 1.5, 1, lambda t: render.warp(src.frame(t), camera.State(1.0 + 0.1 * t), camera.FACE_WIDE, canvas), None),
-             render.Shot(1.5, 3.0, 1, lambda t: render.warp(src.frame(t), camera.State(1.3, 0.5, 0.4, 2.0), camera.FACE_WIDE, canvas),
+    shots = [render.Shot(0.0, 1.5, 1, lambda t, shift=0.0: render.warp(src.frame(t), camera.State(1.0 + 0.1 * t), camera.FACE_WIDE, canvas), None),
+             render.Shot(1.5, 3.0, 1, lambda t, shift=0.0: render.warp(src.frame(t), camera.State(1.3, 0.5, 0.4, 2.0), camera.FACE_WIDE, canvas),
                          lambda t: render.warp(src.frame(t), camera.State(1.5, 0.5, 0.46), camera.FACE_WIDE, canvas))]
     g = {1: render.StoryGraphics(0.0, 3.0, layouts.side_card(canvas, "Cím", "Hír 1"), layouts.lower_third(canvas, "Cím", "Telex", "Forrás:"), {})}
     style = render.Style(card_hold_s=1.0)
