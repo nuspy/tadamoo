@@ -43,7 +43,8 @@ Still with a reference photograph about 110 s; a 6.4 s clip about 90 to 150 s; t
 
 - A talking head moves like the sound it hears: loud, sharp audio gives wide mouth shapes and gestures. Feed it a **tamed copy** of the voice (quieter, compressed, band-limited) and a still with the
   hands out of the picture; the real soundtrack is mounted over the result. Measure the result against a reference video (mouth opening, head motion) instead of trusting the eye.
-- One long continuous take has no seams; a longer one drifts after about a minute (skin, hands), so a take per story is a good length.
+- Quality falls off after about 20 seconds of one render (skin, hands, the mouth): keep each take under 20 s, one recording for each, and start a new one at a cut of the edit (another angle, the presenter
+  going into or coming out of the window over B-roll). The newscast does this by itself (`shot_max_s`, docs/newscast/shots.md).
 - Generation is stochastic: fix the seed to repeat a result.
 
 ## Scripts

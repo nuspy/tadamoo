@@ -11,16 +11,18 @@ The code is `tadamoo/videoedit/` (docs in `docs/videoedit/`); the graphics of a 
 
 ## When to use it
 
-Several pieces (a continuous take of a presenter, B-roll clips, opening and closing clips) become one video with graphics over them and a camera that moves. Not for generating the pieces
+Several pieces (takes of a presenter, B-roll clips, opening and closing clips) become one video with graphics over them and a camera that moves. Not for generating the pieces
 (`media-generation`) nor the voice (`speech-synthesis`).
 
 ## The grammar
 
-- **One continuous take, graphics only as overlays.** The picture underneath must not change, jump or re-frame at a graphic event (a card sliding in, a bar, a window). A cut between takes may fall
-  only where the plan says, never at a graphic event: the graphics start `graphic_delay_s` after a take starts.
+- **Graphics only as overlays.** The picture underneath must not change, jump or re-frame at a graphic event (a card sliding in, a bar, a window). A cut between takes may fall
+  only where the plan says, never at a graphic event: the graphics start `graphic_delay_s` after a take starts. A right-hand band (a card) pushes the presenter left by half its width,
+  at half its speed, from the moment it shows until it is in place, and back when it leaves (`render.presenter_shift`, `warp(..., shift=)`).
 - **A virtual camera** on the take: a state (zoom, face position, roll) moved along an S-curve (smootherstep, zero speed and acceleration at both ends) by a library of moves (push in, pull out, drift,
-  roll). Limits, which `camera.check` enforces: zoom at most 1.10 times a second, roll at most 4 degrees, drift at most 3% of the width a second, a move at least 3 s. With `continuous=True` a
-  move starts exactly where the one before ended; a cut on motion starts a small step back at the same face position.
+  roll). Limits, which `camera.check` enforces: zoom at most 1.10 times a second, roll at most 4 degrees, drift at most 3% of the width a second, a move at least 3 s. `camera.keyframed` makes a move between two given
+  states and shortens it until it breaks no limit; `sequence` joins moves on motion (a cut starts a small step back at the same face position, or with `continuous=True` exactly where the one
+  before ended).
 - **Untouched clips** (an opening and a closing sigla) are joined by stream copy and the result is verified packet by packet (`compose.verify_untouched`): the video packets are identical.
 - **A uniform format** for every shot (size, frame rate, audio rate) so that joining is a copy and nothing is re-encoded twice.
 
