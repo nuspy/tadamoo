@@ -29,6 +29,14 @@ def test_a_reusable_skill_is_a_standalone_folder_with_its_documents(name):
     assert "Heavy-swap" in text or "heavy-swap" in text.lower() or "heavy" in text.lower()
 
 
+def test_the_modification_skill_is_standalone_and_the_newscast_does_not_depend_on_it():
+    meta = header(SKILLS / "video-modification" / "SKILL.md")
+    assert meta["name"] == "video-modification" and len(meta["description"]) > 60 and meta.get("requires") and "depends" not in meta
+    assert (SKILLS / "video-modification" / "references" / "engines.md").is_file() and (SKILLS / "video-modification" / "scripts" / "modify_video.py").is_file()
+    plugin = json.loads((PLUGIN / "plugin.json").read_text(encoding="utf-8"))
+    assert "video-modification" not in {d["name"] for d in plugin["dependencies"]["skills"]}
+
+
 def test_the_plugin_names_the_skills_it_depends_on_and_says_it_brings_no_mcp_server():
     plugin = json.loads((PLUGIN / "plugin.json").read_text(encoding="utf-8"))
     assert {d["name"] for d in plugin["dependencies"]["skills"]} == set(REUSABLE)

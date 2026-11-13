@@ -11,6 +11,7 @@ E:\AI\skills  image-generation\   SKILL.md, scripts\                  pictures f
   image-editing\      SKILL.md, scripts\                  edits and restyles from reference photographs (code: tadamoo/media)
   video-generation\   SKILL.md, references\, scripts\  clips from words or a picture, smoother and larger copies (code: tadamoo/media)
   talking-head\       SKILL.md, references\, scripts\  a still that speaks a recording                (code: tadamoo/media)
+  video-modification\ SKILL.md, references\, scripts\  changes what a video shows: swap an object, edit by words, restyle (code: tadamoo/media)
   speech-synthesis\   SKILL.md, references\, scripts\  the voice: normaliser, lexicon, takes, joins  (code: tadamoo/speech)
   video-editing\      SKILL.md, references\, scripts\  virtual camera, overlays, joins, seams       (code: tadamoo/videoedit)
   news-research\      SKILL.md, scripts\research.py       the investigative procedure and its guardrails (rules: tadamoo/research)
