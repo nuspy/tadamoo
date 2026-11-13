@@ -28,12 +28,15 @@ EASINGS: Dict[str, Callable[[float], float]] = {
 
 
 # ---- reading sources
-def decode(path: Path, start: float, seconds: float, fps: int, speed: float = 1.0, size: Optional[Tuple[int, int]] = None) -> List[np.ndarray]:
-    """The frames of a video from `start`, `seconds` long as shown (a slowed clip reads less of the source), at `fps`, as RGB arrays; the last frame repeats when the video ends early."""
+def decode(path: Path, start: float, seconds: float, fps: int, speed: float = 1.0, size: Optional[Tuple[int, int]] = None, blur: int = 0, blend: bool = False) -> List[np.ndarray]:
+    """The frames of a video from `start`, `seconds` long as shown (a slowed clip reads less of the source), at `fps`, as RGB arrays; the last frame repeats when the video ends early.
+    `blur` (1 or 2) blends each source frame with its neighbours (weights 1 2 1, or 1 2 3 2 1) before anything else: the smear of a camera's shutter, which hides the strobing of a large step between two sharp pictures.
+    `blend`: the change to `fps` blends the two nearest source frames instead of dropping one, so that 25 to 24 has no frame a second that moves twice as far."""
     info = compose.probe(path)
     w, h = size or (info["width"], info["height"])
     count = max(1, round(seconds * fps))
-    vf = f"setpts=PTS/{speed:.4f},fps={fps}" + (f",scale={w}:{h}:flags=lanczos" if size else "")
+    mix = {1: "tmix=frames=3:weights='1 2 1',", 2: "tmix=frames=5:weights='1 2 3 2 1',"}.get(blur, "")
+    vf = f"{mix}setpts=PTS/{speed:.4f}," + (f"framerate=fps={fps}" if blend else f"fps={fps}") + (f",scale={w}:{h}:flags=lanczos" if size else "")
     done = subprocess.run([compose.tool("ffmpeg"), "-v", "error", "-ss", f"{max(0.0, start):.3f}", "-t", f"{seconds * speed + 0.3:.3f}", "-i", str(path), "-vf", vf,
                            "-frames:v", str(count), "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True)
     if done.returncode != 0 and not done.stdout:
