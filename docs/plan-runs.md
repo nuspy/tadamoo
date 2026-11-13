@@ -33,11 +33,17 @@ A run is **active** from when a start is taken, or a step is marked `in_progress
 - the agent is started for what is ready;
 - a plan taken up again 3 times in a row without one step more done is marked `stalled` and left for the person (`RESUME_LIMIT`).
 
-## A step that fails is recovered
+## A step that fails or runs out of time is recovered
 
-`plan_mark ... failed` takes a `reason`, kept on the step (`failures`, the last 5). A step that has used its tries (`retry_policy`, default 3) is not left to stop the plan: the agent is started
-with the step, the reasons, and the order to find the real cause, **write or change code** if that is what it takes, set what the step needs or force another way that passes, mark the step `pending`, do it
-again and mark it `completed`, or `failed` with the reason. This is *recovery n of 3* (`RECOVER_LIMIT`, `state_variables.recoveries`); each is told what the earlier ones found. A step that fails after the third is left for
-the person, with a line in the journal. A `start_plan` step that fails gets the same.
+Every kind of step is covered: one the agent does, one the plan works out itself (`set_var`, `get_var`, `output`, `log`, `start_plan`...), a wait, a condition.
+
+- **Failed.** `plan_mark ... failed` takes a `reason`, kept on the step (`failures`, the last 5). A step the plan works out itself that cannot be done (an expression that fails, a value that is not there) is looked at
+  again at every turn of the clock, so it is done the moment the cause goes away; the tries of its `retry_policy` (default 3, 30 s, doubling) are counted over time, and when they are used up it has failed (`advance` reports `failed`).
+- **Timed out.** A wait that passes its `timeout_s` with `on_timeout: fail`, and a step reported with `plan:timeout`, stop with `state_variables.timed_out` (`advance` reports `timed_out`).
+- **Recovery.** The steps below are parked and the agent is started with the step, its kind and spec, what is known, and the order to find the real cause, **write or change code** if that is what it takes, change the
+  step, set the values it needs or force another way that passes; then mark the step `pending` (a step marked pending waits afresh and has its tries again) and do it again, or `completed`/`skipped`, or `failed` with the reason.
+  This is *recovery n of 3* (`RECOVER_LIMIT`, `state_variables.recoveries`); a step that is still stuck after the third is left for the person, with a line in the journal.
+- **At start-up** a failed or timed-out step of a run that was active is recovered too, counted with the step's other recoveries.
+- What is for the person (`assignee: user`: a request, a task of theirs) is not recovered by the agent.
 
 Tests: `tests/test_planner_human.py`, `tests/test_planner_resume.py`.
