@@ -28,14 +28,15 @@ from .replan import ReplanProposal, Replanner
 from .triage import TriageResult
 
 PLAN_ID = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
-RESERVED_IDS = ("events", "telemetry")            # paths of the server's own routes under /api/plans
+RESERVED_IDS = ("events", "telemetry", "human")            # paths of the server's own routes under /api/plans
 LOG_SIZE = 500
 HISTORY_SIZE = 200
 HISTORY_SHOWN = 30
 # who made a change: the person at the page, the Chat for the person, the planner's own re-planning, the system
 ACTORS = ("user", "chat", "planner", "system")
 # events that write straight into the plan; they may carry `base_rev`, the revision the sender last read
-DIRECT = ("plan:update_node", "plan:move", "plan:mark", "plan:timeout", "plan:rewind", "plan:update_meta", "plan:fallback_response")
+DIRECT = ("plan:update_node", "plan:move", "plan:mark", "plan:timeout", "plan:rewind", "plan:update_meta", "plan:fallback_response", "plan:start", "plan:answer")
+FAILURES_KEPT = 5                                 # the reasons a step failed, kept on it for whoever looks for the cause
 TARGET_TYPES = ("constant", "occasional")
 TITLE_CHARS = 200
 
@@ -79,6 +80,7 @@ class PlanCanvasBridge:
         self.created_by = created_by                     # the session that made this plan, or "" (an older plan, or made by the person)
         self.paused = False                               # while true, a schedule tied to this plan is recorded skipped_paused, not run
         self.schedule: Dict[str, Any] = {}                # {"routine_id", "session_ref", "mode", "cron"|"at", "ttl_min", "instruction"}, or {}
+        self.run: Dict[str, Any] = {}                     # {"active", "since", "resumes", "progress"}: a run that was started and has not finished, which the program takes up again when it starts
         self.profile = profile or PlanProfile()                # the plan's aims, budget, dates and cost: what it is compared on
         # every plan has a card: one that is not given is drawn from the plan, and those fields follow the plan until the person writes them
         self.card = card if card is not None else derive_card(dag, self.profile)
@@ -123,6 +125,8 @@ class PlanCanvasBridge:
     def _bump(self, kind: str, summary: str) -> None:
         """A change to the plan: a new revision, and a line in the history naming who made it."""
         self.rev += 1
+        if self.run.get("active") and self.dag.run_state() == "finished":
+            self.run = {}                                 # a run that finished is not taken up again
         self._refresh_card()
         self.history.append({"rev": self.rev, "t": time.time(), "actor": self._actor, "type": kind,
                              "summary": " ".join(str(summary).split())[:TITLE_CHARS]})
@@ -179,6 +183,7 @@ class PlanCanvasBridge:
                     "proposals": [p.to_dict() for p in self.proposals.values() if p.status == "pending"],
                     "offers": [o for o in self.offers.values() if o["status"] == "offered"],
                     "ready": self.dag.ready_nodes(), "created_by": self.created_by, "paused": self.paused, "schedule": dict(self.schedule),
+                    "run": {**self.run, "state": self.dag.run_state()},
                     "kinds": node_kinds()}
 
     def set_paused(self, actor: str, value: bool) -> Dict[str, Any]:
@@ -226,6 +231,7 @@ class PlanCanvasBridge:
             "plan:rewind": self._rewind, "plan:rewind_impact": self._rewind_impact, "plan:note_effect": self._note_effect, "plan:propose_diff": self._propose, "plan:approve": self._approve,
             "plan:reject": self._reject, "plan:human_fallback": self._offer_fallback,
             "plan:fallback_response": self._answer_fallback, "plan:update_meta": self._update_meta, "plan:event": self._feed,
+            "plan:start": self._start, "plan:answer": self._answer,
         }
         handler = handlers.get(kind)
         if handler is None:
@@ -282,6 +288,86 @@ class PlanCanvasBridge:
             finally:
                 self._actor = previous
             return True
+
+    def settle_call(self, node_id: str, now: float, text: str) -> bool:
+        """A step that starts another plan has done it: it completes. False when it is not waiting any more."""
+        with self._lock:
+            node = self.dag.nodes.get(node_id)
+            if node is None or node.status != "pending":
+                return False
+            previous, self._actor = self._actor, "system"
+            try:
+                self.dag.mark(node_id, "completed", None, now)
+                self.dag.note(node_id, "auto", f"{node.title}: {text}", now)
+                self._bump("auto", f"worked out by itself: {node.title}")
+                self._emit("plan:auto", {"done": [node_id], "ready": self.dag.ready_nodes()})
+            finally:
+                self._actor = previous
+            return True
+
+    def fail_call(self, node_id: str, now: float, reason: str) -> Optional[Dict[str, Any]]:
+        """A step that starts another plan could not: the reason is kept and the step is tried again after its wait, until its tries are used up, then it fails."""
+        with self._lock:
+            node = self.dag.nodes.get(node_id)
+            if node is None or node.status != "pending":
+                return None
+            previous, self._actor = self._actor, "system"
+            try:
+                self._note_failure(node, reason, now)
+                retry = self.dag.mark(node_id, "failed", None, now)
+                self.dag.note(node_id, "auto", f"{node.title}: could not start the plan: {reason}", now)
+                self._bump("mark", f"{node.title}: {node.status}, {reason}"[:TITLE_CHARS])
+                self._emit("plan:graph", {"seq_graph": True})
+            finally:
+                self._actor = previous
+            return retry
+
+    @staticmethod
+    def _note_failure(node: Any, reason: str, now: Optional[float] = None) -> None:
+        if not reason:
+            return
+        rows = node.state_variables.setdefault("failures", [])
+        rows.append({"at": time.time() if now is None else now, "reason": " ".join(str(reason).split())[:600]})
+        del rows[:-FAILURES_KEPT]
+
+    def begin(self, number: Any, cause: str, actor: str = "system", now: Optional[float] = None, caller: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """Starts the plan at the start with this number (see PlanDAG.begin); the run is marked, to be taken up again if the program stops."""
+        with self._lock:
+            previous, self._actor = self._actor, actor
+            try:
+                node_id = self.dag.begin(number, cause, now, caller)
+                self.run = {"active": True, "since": time.time() if now is None else now, "resumes": 0, "progress": self._done_count()}
+                self._bump("start", f"{self.dag.title}: started at {self.dag.nodes[node_id].title} ({cause})")
+                self._emit("plan:started", {"node_id": node_id, "cause": cause})
+                self._emit("plan:graph", {"seq_graph": True})
+            finally:
+                self._actor = previous
+            return {"started": node_id, "ready": self.dag.ready_nodes()}
+
+    def _done_count(self) -> int:
+        return sum(1 for n in self.dag.nodes.values() if n.status in ("completed", "skipped"))
+
+    def human_requests(self, now: Optional[float] = None) -> List[Dict[str, Any]]:
+        """What the plan asks the person right now, each with the plan it is in."""
+        with self._lock:
+            if self.paused:
+                return []
+            return [{**r, "plan_id": self.dag.plan_id, "plan_title": self.dag.title} for r in self.dag.human_requests(now)]
+
+    def _start(self, e: Dict[str, Any]) -> Dict[str, Any]:
+        number = e.get("number", 1)
+        if isinstance(number, bool) or not isinstance(number, int):
+            raise ValueError("number is the start's number, a whole number")
+        return self.begin(number, {"user": "the person", "chat": "the chat"}.get(self._actor, self._actor), self._actor)
+
+    def _answer(self, e: Dict[str, Any]) -> Dict[str, Any]:
+        """The person's answer to a request (see PlanDAG.answer): the step is done, and what depended on it goes on."""
+        got = self.dag.answer(e["node_id"], e.get("answer"), by=self._actor)
+        node = self.dag.nodes[e["node_id"]]
+        self._bump("answer", f"{node.title}: answered")
+        self._emit("plan:answered", {"node_id": node.id})
+        self._emit("plan:graph", {"seq_graph": True})
+        return {**got, "ready": self.dag.ready_nodes()}
 
     def _stale(self, kind: str, event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """A direct change made on an old reading of the plan is refused, so it cannot overwrite a newer one."""
@@ -344,6 +430,10 @@ class PlanCanvasBridge:
         before = self._parked()
         retry = self.dag.mark(e["node_id"], e["status"], e.get("outputs"))
         node = self.dag.nodes[e["node_id"]]
+        if e["status"] == "failed":
+            self._note_failure(node, str(e.get("reason") or ""))
+        elif e["status"] == "in_progress" and not self.run.get("active"):
+            self.run = {"active": True, "since": time.time(), "resumes": 0, "progress": self._done_count()}
         if retry and "no_route" in retry:                  # a decision with no exit that holds: not taken, the person decides
             self._bump("no_route", f"{node.title}: no exit holds, passed to the user")
             self._emit("plan:graph", {"seq_graph": True, "no_route": {"node_id": node.id, **retry["no_route"]}})
@@ -365,10 +455,13 @@ class PlanCanvasBridge:
         if not isinstance(e.get("text"), str) or not e["text"].strip():
             raise ValueError("an event needs a text")
         resolved = self.dag.feed_event(e)
+        started = [i for i in resolved if self.dag.nodes[i].type.value == "start"]
+        if started:
+            self.run = {"active": True, "since": time.time(), "resumes": 0, "progress": self._done_count()}
         if resolved:
-            self._bump("sensor", ", ".join(self.dag.nodes[i].title for i in resolved))
+            self._bump("start" if started else "sensor", ", ".join(self.dag.nodes[i].title for i in resolved))
             self._emit("plan:graph", {"resolved": resolved})
-        return {"resolved": resolved, "ready": self.dag.ready_nodes()}
+        return {"resolved": resolved, "started": started, "ready": self.dag.ready_nodes()}
 
     def _rewind(self, e: Dict[str, Any]) -> Dict[str, Any]:
         from tadamoo.rewind import plan_impact                 # imported here: the plan does not need the checkpoints
@@ -556,7 +649,8 @@ class PlanCanvasBridge:
     def to_dict(self) -> Dict[str, Any]:
         return {"plan": self.dag.to_dict(), "card": self.card.to_dict(), "card_auto": list(self.card_auto), "profile": self.profile.to_dict(), "alignment": self.alignment,
                 "proposals": {k: {**v.to_dict()} for k, v in self.proposals.items()}, "offers": self.offers, "seq": self.seq,
-                "rev": self.rev, "history": list(self.history), "created_by": self.created_by, "paused": self.paused, "schedule": self.schedule}
+                "rev": self.rev, "history": list(self.history), "created_by": self.created_by, "paused": self.paused, "schedule": self.schedule,
+                **({"run": self.run} if self.run else {})}
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any], replanner: Optional[Replanner] = None) -> "PlanCanvasBridge":
@@ -564,6 +658,7 @@ class PlanCanvasBridge:
                      replanner, PlanProfile.from_dict(data.get("profile")), str(data.get("created_by") or ""))
         bridge.paused = data.get("paused") is True
         bridge.schedule = data["schedule"] if isinstance(data.get("schedule"), dict) else {}
+        bridge.run = data["run"] if isinstance(data.get("run"), dict) else {}
         bridge.alignment = data.get("alignment") if isinstance(data.get("alignment"), dict) else {}
         if data.get("card"):
             bridge.card_auto = [f for f in (data.get("card_auto") or []) if f in CARD_FIELDS]
@@ -605,12 +700,19 @@ class PlanStore:
                 raise ValueError(f"plan '{dag.plan_id}' already exists")
             if self._archived_path(dag.plan_id).exists():
                 raise ValueError(f"plan '{dag.plan_id}' is in the archive; restore it or choose another id")
+            dag.ensure_start()
             dag.validate_acyclic()
             dag.enforce_decisions()
+            dag.validate_starts()
             bridge = PlanCanvasBridge(dag, card, replanner, profile, created_by)
             self._bridges[dag.plan_id] = bridge
             self.save(dag.plan_id)
             return bridge
+
+    def loaded(self) -> List[PlanCanvasBridge]:
+        """The plans that are in memory now."""
+        with self._lock:
+            return list(self._bridges.values())
 
     def exists(self, plan_id: str) -> bool:
         """Whether the id is taken by a plan, an archived one or a route of the server."""
@@ -642,7 +744,7 @@ class PlanStore:
         for p in sorted(folder.glob("*.json")):
             try:
                 plan = json.loads(p.read_text(encoding="utf-8"))["plan"]
-                nodes = plan.get("nodes", {})
+                nodes = {k: v for k, v in plan.get("nodes", {}).items() if v.get("type") != "start"}          # where a plan begins is not one of its steps
                 out.append({"plan_id": plan["plan_id"], "title": plan["title"], "target_type": plan.get("target_type", "occasional"),
                             "updated_at": plan.get("updated_at"),
                             "nodes": len(nodes),

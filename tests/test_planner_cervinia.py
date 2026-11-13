@@ -111,7 +111,7 @@ def test_the_cervinia_weekend_from_the_chat_to_the_approved_replan(chat):
     snap = client.snapshot(pid)
     assert {"meteo", "esiti", "scelta", "lava"} <= set(snap["plan"]["nodes"]) and snap["plan"]["nodes"]["scelta"]["type"] == "decision"
     assert set(snap["plan"]["nodes"]["s2"]["dependencies"]) == {"meteo", "terrazza", "tavolo", "rimanda"}
-    assert "s1" in snap["layers"][0] and "meteo" in snap["layers"][0]                                   # the canvas has its layers
+    assert "start" in snap["layers"][0] and "meteo" in snap["layers"][0] and "s1" in snap["layers"][1]                                   # the canvas has its layers
     mermaid = client._call("GET", f"/api/plans/{pid}/mermaid")["mermaid"]
     assert "scelta" in mermaid and "-->" in mermaid
 

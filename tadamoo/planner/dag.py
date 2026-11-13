@@ -43,6 +43,8 @@ class NodeType(str, enum.Enum):
     OUTPUT = "output"
     LOG = "log"
     RAG = "rag"              # a source of knowledge archives, connected as an input to the steps that may use them
+    START = "start"          # where a plan begins; it has a number and says how it is started (the person, an event, a time schedule, another plan)
+    START_PLAN = "start_plan"    # starts another plan at the start node whose number it names
 
 
 class Assignee(str, enum.Enum):
@@ -493,6 +495,11 @@ class PlanDAG:
         if node.type == NodeType.DECISION and node.spec.get("branches"):
             from tadamoo.planner import nodes
             node.spec = nodes.clean_spec("decision", node.spec, bool(node.state_variables.get("draft")))
+        if node.type == NodeType.START:                                  # a start added with a number that is taken gets the next free one
+            taken = {n.spec.get("number", 1) for n in self.start_nodes() if n.id != node.id}
+            wanted = node.spec.get("number", 1)
+            if wanted in taken:
+                node.spec = {**node.spec, "number": next(i for i in range(1, 100 + len(taken)) if i not in taken)}
         declared_parents, declared_children = list(node.dependencies), list(node.outputs)
         routed = {port: list(kids) for port, kids in node.routes.items()}
         for ref in declared_parents + declared_children + [k for kids in routed.values() for k in kids]:
@@ -803,8 +810,8 @@ class PlanDAG:
         order = self.list_order()
         i = order.index(node_id)
         j = i + direction
-        if not 0 <= j < len(order):
-            raise PlanError("the step is already at the " + ("top" if direction < 0 else "bottom") + " of the list")
+        if self.nodes[node_id].type == NodeType.START or not 0 <= j < len(order) or (direction < 0 and self.nodes[order[j]].type == NodeType.START):
+            raise PlanError("the step is already at the " + ("top" if direction < 0 or self.nodes[node_id].type == NodeType.START else "bottom") + " of the list")
         first, second = self.nodes[order[min(i, j)]], self.nodes[order[max(i, j)]]
         if second.id in first.outputs:
             self._swap_chain(first, second)
@@ -858,6 +865,10 @@ class PlanDAG:
             changes["assignee"] = Assignee(changes["assignee"])
         draft = bool((changes["state_variables"] if isinstance(changes.get("state_variables"), dict) else node.state_variables).get("draft"))
         changes = {k: clean_field(node.type, k, v, draft) for k, v in changes.items()}      # all checked before any is applied
+        if node.type == NodeType.START and "spec" in changes:
+            mine = changes["spec"].get("number", 1)
+            if any(o.spec.get("number", 1) == mine for o in self.start_nodes() if o.id != node.id):
+                raise PlanError(f"another start of this plan is already number {mine}: every start has its own number")
         for key, value in changes.items():
             setattr(node, key, value)
         if "spec" in changes and node.type == NodeType.DECISION:
@@ -1044,7 +1055,7 @@ class PlanDAG:
                             node.state_variables.setdefault("operands", {})[key] = operands.typed(outputs.pop(key), slot)
                         outputs = outputs or None
                     kept_operands = dict(node.state_variables.get("operands") or {})
-                if node.type == NodeType.INPUT and (node.spec["into"] not in (outputs or {}) and node.spec["into"] not in self.shared_state):
+                if node.type == NodeType.INPUT and node.spec.get("ask", "value") == "value" and (node.spec["into"] not in (outputs or {}) and node.spec["into"] not in self.shared_state):
                     raise PlanError(f"this step asks the person for '{node.spec['into']}': complete it with outputs {{{node.spec['into']}: their answer}}")
                 if node.produces:
                     from tadamoo.planner import nodes
@@ -1212,6 +1223,19 @@ class PlanDAG:
         seen = {"text": text.lower(), "source": str(event.get("source", ""))[:100],
                 "at": float(at) if isinstance(at, (int, float)) and not isinstance(at, bool) and math.isfinite(at) else time.time()}
         resolved: List[str] = []
+        if self.run_state() in ("idle", "finished"):             # an event may start a plan that is not running: the first start node whose condition holds
+            for start in self.start_nodes():
+                if start.spec.get("launch") != "event":
+                    continue
+                try:
+                    holds = bool(safe_eval(start.spec["when"], {**self.shared_state, **seen}))
+                except PlanError as exc:
+                    start.state_variables["event_error"] = str(exc)[:200]
+                    continue
+                start.state_variables.pop("event_error", None)
+                if holds:
+                    resolved.append(self.begin(start.spec.get("number", 1), "event", seen["at"], matched={"text": text[:200], "source": seen["source"]}))
+                    break
         for nid in self.topological_order():
             node = self.nodes[nid]
             when = node.conditions.get("when")
@@ -1237,6 +1261,119 @@ class PlanDAG:
                 continue
             resolved.append(nid)
         return resolved
+
+    # starting a plan ----------------------------------------------------------------------------------
+
+    def start_nodes(self) -> List[PlanNode]:
+        """The start nodes, by number."""
+        return sorted((n for n in self.nodes.values() if n.type == NodeType.START), key=lambda n: (n.spec.get("number", 1), n.id))
+
+    def validate_starts(self) -> None:
+        numbers = [n.spec.get("number", 1) for n in self.start_nodes()]
+        if len(set(numbers)) != len(numbers):
+            raise PlanError("two starts of this plan have the same number: every start has its own number")
+
+    def ensure_start(self) -> Optional[str]:
+        """A plan without a start gets one, already taken: it is the start the plan always had, so the steps it leads to are where they were. It leads to every
+        step that waits for nothing. Returns the id it made, or None when the plan had one."""
+        if self.start_nodes() or not self.nodes:
+            return None
+        nid, n = "start", 1
+        while nid in self.nodes:
+            n += 1
+            nid = f"start_{n}"
+        node = PlanNode(id=nid, type=NodeType.START, title="Start", description="", assignee=Assignee.AGENT, spec={"number": 1, "launch": "manual"}, status="completed",
+                        state_variables={"implicit": True, "started": {"at": _now(), "cause": "implicit"}})
+        roots = [r.id for r in self.nodes.values() if not r.dependencies and r.type != NodeType.RAG]
+        self.nodes[nid] = node
+        for r in roots:
+            self._link(nid, r)
+        return nid
+
+    def run_state(self) -> str:
+        """`idle` (nothing has started), `running`, or `finished` (every step is done or skipped, and a start has been taken)."""
+        starts = self.start_nodes()
+        others = [n for n in self.nodes.values() if n.type != NodeType.START]
+        if not any(s.status == "completed" for s in starts) and all(n.status in ("pending", "blocked") for n in others):
+            return "idle"
+        if self.nodes and all(n.status in DONE for n in self.nodes.values()) and (not starts or any(s.status == "completed" for s in starts)):
+            return "finished"
+        return "running"
+
+    def begin(self, number: Any, cause: str, now: Optional[float] = None, caller: Optional[Dict[str, str]] = None, matched: Optional[Dict[str, Any]] = None) -> str:
+        """Starts the plan at the start node with this number: it is taken, the other starts are skipped with what only they lead to. A plan that has finished
+        starts again from the beginning. Raises PlanError for a number the plan has not, or a plan that is running. Returns the id of the start."""
+        starts = self.start_nodes()
+        node = next((s for s in starts if s.spec.get("number", 1) == number), None)
+        if node is None:
+            raise PlanError(f"the plan has no start number {number}" + (f" (it has {', '.join(str(s.spec.get('number', 1)) for s in starts)})" if starts else ""))
+        state = self.run_state()
+        if state == "running":
+            raise PlanError("the plan is already running")
+        moment = time.time() if now is None else now
+        backup = copy.deepcopy((self.nodes, self.shared_state))
+        try:
+            if state == "finished":
+                for s in starts:
+                    self.rewind(s.id, True)
+            for s in starts:
+                if s is not node:
+                    s.status = "skipped"
+            node.state_variables["started"] = {"at": _now(), "cause": cause, **({"caller": caller} if caller else {}), **({"matched": matched} if matched else {})}
+            node.state_variables["runs"] = int(node.state_variables.get("runs", 0)) + 1
+            node.status = "completed"
+            for s in starts:
+                if s is not node:
+                    for c in s.outputs:
+                        self._skip(c, because=s.id)
+        except PlanError:
+            self.nodes, self.shared_state = backup
+            raise
+        self.note(node.id, "auto", f"{node.title}: started by {cause}" + (f" from {caller['plan']}" if caller else ""), moment)
+        self.refresh_blocking()
+        self._touch()
+        return node.id
+
+    # the person's requests ----------------------------------------------------------------------------
+
+    def human_requests(self, now: Optional[float] = None) -> List[Dict[str, Any]]:
+        """The steps that ask the person for something and are asking now (their turn has come), oldest first: what to approve or what value to give."""
+        from tadamoo.cron_templates import render_template
+        from tadamoo.planner import nodes
+        moment = time.time() if now is None else now
+        out = []
+        for nid in self.ready_nodes(moment):
+            n = self.nodes[nid]
+            if n.type != NodeType.INPUT:
+                continue
+            asked = n.state_variables.setdefault("asked_at", moment)
+            context = {**self.shared_state, **self.input_values(n), "plan_title": self.title, "plan_id": self.plan_id}
+            spec = n.spec
+            try:
+                content = render_template(spec["content"], context) if spec.get("content") else ""
+            except PlanError:
+                content = spec.get("content", "")
+            out.append({"node_id": nid, "title": n.title, "ask": spec.get("ask", "value"), "prompt": spec["prompt"], "content": content, "kind": spec.get("kind", "text"),
+                        "choices": list(spec.get("choices") or []), "into": nodes.answer_name(n), "since": asked})
+        return sorted(out, key=lambda r: r["since"])
+
+    def answer(self, node_id: str, value: Any, now: Optional[float] = None, by: str = "user") -> Dict[str, Any]:
+        """The person's answer to a request that is asking now: it is checked against what it asks for, written to the plan's value, and the step is done."""
+        from tadamoo.planner import nodes
+        node = self.nodes.get(node_id)
+        if node is None:
+            raise KeyError(f"Node '{node_id}' not found")
+        if node.type != NodeType.INPUT:
+            raise PlanError(f"'{node_id}' does not ask the person for anything")
+        if node_id not in self.ready_nodes(time.time() if now is None else now):
+            raise PlanError(f"'{node_id}' is not asking now" + (": it was answered already" if node.status == "completed" else ""))
+        cleaned = nodes.clean_answer(node.spec, value)
+        name = nodes.answer_name(node)
+        self.mark(node_id, "completed", {name: cleaned}, now)
+        node = self.nodes[node_id]
+        node.state_variables["answer"] = {"value": cleaned, "at": _now(), "by": by}
+        self.note(node_id, "answer", f"{node.title}: {nodes.shown_answer(node.spec, cleaned)}", now)
+        return {"value": cleaned, "name": name}
 
     def rewind(self, node_id: str, accept_irreversible: bool = False) -> List[str]:
         """Time travel: puts a node and everything after it back to pending, forgetting what they produced.
@@ -1321,6 +1458,7 @@ class PlanDAG:
                 changed.extend([p, c])
             self.validate_acyclic()
             self.enforce_decisions(decisions)
+            self.validate_starts()
         except (PlanError, KeyError, ValueError, TypeError) as exc:
             self.nodes, self.shared_state, self.updated_at = backup
             raise PlanError(f"the change was not applied: {exc}") from None
@@ -1377,6 +1515,7 @@ class PlanDAG:
                 if len(set(titles.values())) == len(titles) and not {t.lower() for t in titles.values()} & {b["label"].lower() for b in n.spec.get("branches") or [] if b["id"] not in titles}:
                     n.spec = {**n.spec, "branches": [{**b, "label": titles[b["id"]][:40]} if b["id"] in titles else b for b in n.spec["branches"]]}
         dag.validate_acyclic()
+        dag.ensure_start()
         return dag
 
 

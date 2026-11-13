@@ -215,7 +215,7 @@ def test_at_auto_a_plan_with_a_step_for_someone_else_is_created_without_it_and_t
     reg, ask = build()
     pid, out = made(client, reg, [{"title": "Prenota"}, {"title": "Chiedi a Gianna", "assignee": "third_party"}, {"title": "Dopo Gianna", "after": [2]}, {"title": "Parti", "after": [1]}])
     snap = client.snapshot(pid)
-    assert ask.asked == [] and set(snap["plan"]["nodes"]) == {"s1", "s4"} and "left as a proposal" in out
+    assert ask.asked == [] and set(snap["plan"]["nodes"]) == {"start", "s1", "s4"} and "left as a proposal" in out
     waiting = snap["proposals"]
     assert len(waiting) == 1 and {n["id"] for n in waiting[0]["diff"]["add_nodes"]} == {"s2", "s3"} and waiting[0]["involves"]
 
@@ -224,7 +224,7 @@ def test_at_auto_a_plan_made_only_of_steps_for_others_still_asks(auto_world):
     client, agent, build = auto_world
     reg, ask = build(True, "confirm")
     pid, out = made(client, reg, [{"title": "Chiedi a Gianna", "assignee": "third_party"}])
-    assert len(ask.asked) == 1 and "Chiedi a Gianna" in ask.asked[0]["question"] and set(client.snapshot(pid)["plan"]["nodes"]) == {"s1"}
+    assert len(ask.asked) == 1 and "Chiedi a Gianna" in ask.asked[0]["question"] and set(client.snapshot(pid)["plan"]["nodes"]) == {"start", "s1"}
 
 
 def test_at_auto_a_plan_with_people_in_its_card_no_longer_stops_the_steps_that_touch_none(auto_world):

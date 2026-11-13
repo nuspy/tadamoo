@@ -14,7 +14,7 @@ from . import distill
 from .values import NAME
 
 MAX_PROPOSED = 6
-AUTO_KINDS = ("wait_duration", "wait_until", "wait_condition", "set_var", "get_var", "output", "log", "loop", "merge", "decision", "sensor")
+AUTO_KINDS = ("wait_duration", "wait_until", "wait_condition", "set_var", "get_var", "output", "log", "loop", "merge", "decision", "sensor", "start", "start_plan")
 
 
 def _args(call: Dict[str, Any]) -> Dict[str, Any]:

@@ -142,6 +142,7 @@ def test_a_sensor_a_variable_and_an_answer_give_their_value_to_the_step_wired_to
 def test_inputs_survive_a_round_trip_and_go_when_the_step_they_come_from_goes():
     dag = deciding([{"label": "x", "left": IN("Total"), "op": V("="), "right": V(1)}])
     dag.add_edge("src", "d", "result")
+    dag.ensure_start()
     again = PlanDAG.from_dict(json.loads(json.dumps(dag.to_dict())))
     assert again.to_dict() == dag.to_dict() and again.nodes["d"].inputs == {"Total": {"node": "src", "port": "result"}}
     dag.remove_edge("src", "d", "result")
