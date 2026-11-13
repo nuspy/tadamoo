@@ -162,6 +162,7 @@ class SessionManager:
         self.projects = projects                                # the folders of the Agent tab, whose own registry lists the conversations held in them
         self.personal_dir, self.personal_keys = personal_dir, personal_keys     # the person's own memories and the key that opens them: each conversation takes in the notes that matter
         self.rag_dir = rag_dir                                  # the knowledge archives (tadamoo/rag): those of the conversation's project are searched
+        self._rag: Any = None
         self.media_file = media_file                            # the settings of the picture and video tools (tadamoo/media): with it a conversation offers generate_image and generate_video
         self.personas_dir = personas_dir                        # the personalities a conversation may speak as (tadamoo/personas.py); the key that opens their memory is personal_keys
         self.learn = learn                                      # told what the person wrote and what was searched for it, when a turn ends, to learn from
@@ -2186,8 +2187,14 @@ class SessionManager:
             return []
         if not isinstance(ids, list) or self.rag_dir is None:
             raise RunError("The knowledge archives of a conversation are a list of archive ids.", "bad_knowledge")
-        from tadamoo.rag import RagStore
-        return known_archives(ids, RagStore(self.rag_dir).list())
+        return known_archives(ids, self._rag_store().list())
+
+    def _rag_store(self) -> Any:
+        """The store of the knowledge archives, opened once (it keeps the databases open)."""
+        if self._rag is None:
+            from tadamoo.rag import RagStore
+            self._rag = RagStore(self.rag_dir)
+        return self._rag
 
     def set_knowledge(self, sid: str, action: Any, text: Any = "") -> Dict[str, Any]:
         """`attach`, `detach` or `clear` an archive of this conversation (by name or id; nothing is changed when a name fits two or none): the
@@ -2196,12 +2203,11 @@ class SessionManager:
             raise RunError("The knowledge action is attach, detach or clear, with the name of an archive.", "bad_knowledge")
         if self.rag_dir is None:
             raise RunError("The knowledge archives are not available here.", "bad_knowledge")
-        from tadamoo.rag import RagStore
         with self._lock:
             rec = self._record(sid)
             if rec["state"] == "closed":
                 raise RunError("That conversation is closed.", "closed")
-            got = decide(RagStore(self.rag_dir).list(), rag_project_key(rec["workspace"]), rec.get("knowledge") or [], action, text[:200])
+            got = decide(self._rag_store().list(), rag_project_key(rec["workspace"]), rec.get("knowledge") or [], action, text[:200])
             if got["ids"] != (rec.get("knowledge") or []):
                 self._set(rec, knowledge=got["ids"])
                 told = self._tell_if_running(sid, {"cmd": "knowledge", "ids": got["ids"]})
@@ -2226,13 +2232,12 @@ class SessionManager:
 
     def _answer_rag(self, sid: str, text: str, action: str, name: str) -> Dict[str, Any]:
         """The `/rag` command as a message: done here, answered by one line that shows where an answer of the model would, and never given to the model."""
-        from tadamoo.rag import RagStore
         with self._lock:
             rec = self._record(sid)
             if rec["state"] == "closed":
                 raise RunError("That conversation is closed.", "closed")
         if action == "list":
-            reply = rag_listing(RagStore(self.rag_dir).list(), rag_project_key(rec["workspace"]), rec.get("knowledge") or [])
+            reply = rag_listing(self._rag_store().list(), rag_project_key(rec["workspace"]), rec.get("knowledge") or [])
         else:
             done = self.set_knowledge(sid, action, name)["result"]
             reply = rag_reply(action, done, name)

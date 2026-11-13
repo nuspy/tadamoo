@@ -79,7 +79,43 @@ def open_backend(cfg: Dict[str, Any], password: str = "") -> Backend:
         return SqlBackend(_mysql_connect(cfg, password), MYSQL, prefix, label=f"{cfg.get('host', 'localhost')}/{cfg.get('dbname', '')}")
     module = __import__(cfg["driver"], fromlist=["connect"])
     dialect = DIALECTS.get(cfg.get("dialect") or "postgres", POSTGRES)
-    return SqlBackend(lambda: module.connect(cfg["dsn"]), dialect, prefix, label=cfg["driver"])
+
+    def connect() -> Any:
+        conn = module.connect(cfg["dsn"])
+        try:
+            conn.isolation_level = None                       # autocommit: a change is wrapped by the backend's own BEGIN and COMMIT
+        except Exception:
+            pass
+        try:
+            conn.autocommit = True
+        except Exception:
+            pass
+        return conn
+    return SqlBackend(connect, dialect, prefix, label=cfg["driver"])
+
+
+def vault_entry(project: str) -> str:
+    """The name of the vault entry that holds the password of a project's database."""
+    return f"rag-db-{project or 'none'}"
+
+
+def vault_password(directory: str | Path) -> Callable[[str], str]:
+    """A function that reads a database password from the vault in `directory` (the entry's `value` field)."""
+    def get(entry: str) -> str:
+        try:
+            from tadamoo.vault import Vault
+            return str(Vault(directory).reveal(entry, "value"))
+        except Exception:
+            raise RagError(f"the database password is not in the vault: put it in the entry {entry} (field value)") from None
+    return get
+
+
+def store_password(directory: str | Path, project: str, password: str) -> str:
+    """Puts the password in the vault (never in a file of the archives) and returns the name of its entry."""
+    from tadamoo.vault import Vault
+    entry = vault_entry(project)
+    Vault(directory).put(entry, kind="secret", label="Database password of the knowledge archives", fields={"value": password})
+    return entry
 
 
 class Router:

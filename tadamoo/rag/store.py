@@ -255,6 +255,21 @@ class RagStore:
         """The archives of `project` (every archive with None)."""
         return [self._summary(m) for m in self._metas(project)]
 
+    def import_archive(self, folder: str | Path, replace: bool = False) -> Dict[str, Any]:
+        """Copies an archive in the old file format (a folder `<id>/` with meta.json and the rest) into the database of its project; the folder is not touched."""
+        from tadamoo.rag.backends import legacy
+        meta = legacy.read_meta(Path(folder))
+        report = legacy.import_archive(folder, self.router.for_project(str(meta.get("project") or "")), replace)
+        self._cache.pop(meta["id"], None)
+        self._metas_cache.pop(meta["id"], None)
+        self.router.forget(meta["id"])
+        return report
+
+    def legacy(self) -> List[Path]:
+        """The archives in the old file format that are in the rag folder and not yet in a database."""
+        from tadamoo.rag.backends import legacy
+        return [p for p in legacy.legacy_folders(self.root) if self.router.find(p.name) is None]
+
     def stamp(self) -> Tuple[Tuple[str, int], ...]:
         """What tells that an archive was made, changed or removed: the id and the revision of each archive (one query for each database)."""
         out: List[Tuple[str, int]] = []
