@@ -109,11 +109,13 @@ def enhance_request(video: Any, scale: Any = None, factor: Any = None, mode: Any
     return out
 
 
-AVATAR ={"resolutions": ("480p", "720p")}
+AVATAR = {"resolutions": ("480p", "720p"), "ref_img_index": (0, 60), "mask_frame_range": (0, 12)}
 
 
-def avatar_request(image: Any, audio: Any, prompt: Any = "", resolution: Any = "480p", seed: Any = None, negative: Any = "") -> Dict[str, Any]:
-    """A talking head: a portrait and a voice recording, made into a video as long as the recording. Both are paths on this PC, read by the model process."""
+def avatar_request(image: Any, audio: Any, prompt: Any = "", resolution: Any = "480p", seed: Any = None, negative: Any = "", ref_img_index: Any = None,
+                   mask_frame_range: Any = None) -> Dict[str, Any]:
+    """A talking head: a portrait and a voice recording, made into a video as long as the recording. Both are paths on this PC, read by the model process.
+    `ref_img_index` and `mask_frame_range` are the two knobs of how the first picture anchors the later segments of a long take; left out, the model's own values are used."""
     for name, value in (("image", image), ("audio", audio)):
         if not isinstance(value, str) or not value.strip() or "\x00" in value:
             raise MediaError(f"{name}: the path of a file on this PC")
@@ -123,4 +125,55 @@ def avatar_request(image: Any, audio: Any, prompt: Any = "", resolution: Any = "
         raise MediaError(f"prompt: text of at most {PROMPT_MAX} characters, or empty")
     if not isinstance(negative, str) or len(negative) > PROMPT_MAX:
         raise MediaError(f"negative: text of at most {PROMPT_MAX} characters, or empty")
-    return {"image": image.strip(), "audio": audio.strip(), "prompt": prompt.strip(), "resolution": resolution, "seed": _seed(seed), "negative": negative.strip(), "notes": []}
+    out = {"image": image.strip(), "audio": audio.strip(), "prompt": prompt.strip(), "resolution": resolution, "seed": _seed(seed), "negative": negative.strip(), "notes": []}
+    for name, value in (("ref_img_index", ref_img_index), ("mask_frame_range", mask_frame_range)):
+        if value is not None:
+            out[name] = _whole(name, value, *AVATAR[name])
+    return out
+
+
+MODIFY = {"modes": ("replace", "edit", "restyle"), "strength": (0.1, 1.0), "guide": (0.1, 1.0), "grow": (0, 64), "seconds_max": 20, "object_max": 200,
+          "defaults": {"replace": 0.8, "edit": 1.0, "restyle": 1.0}, "guide_default": 0.4, "grow_default": 24}
+
+
+def _unit(name: str, value: Any, lo: float, hi: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not lo <= value <= hi:
+        raise MediaError(f"{name}: a number from {lo:g} to {hi:g}")
+    return float(value)
+
+
+def modify_request(video: Any, prompt: Any = "", mode: Any = "replace", obj: Any = "", reference: Any = "", strength: Any = None, guide: Any = None, grow: Any = None,
+                   seed: Any = None) -> Dict[str, Any]:
+    """A change made to the content of a video that exists (not an edit of its cut): `replace` swaps what a word names (`obj`) for what the prompt says or for the picture `reference`,
+    `edit` changes the whole video by words, `restyle` gives it the look of the picture `reference`. A request names the video; the clip's length is checked by the worker, which reads it."""
+    if mode not in MODIFY["modes"]:
+        raise MediaError("mode: " + ", ".join(MODIFY["modes"]))
+    out: Dict[str, Any] = {"mode": mode, "video": _path("video", video), "object": "", "reference": "", "notes": []}
+    if mode == "restyle":
+        if not isinstance(prompt, str) or len(prompt) > PROMPT_MAX or "\x00" in prompt:
+            raise MediaError(f"prompt: text of at most {PROMPT_MAX} characters, or empty")
+        out["prompt"] = prompt.strip()
+    else:
+        out["prompt"] = _prompt(prompt, "change")
+    if mode == "replace":
+        if not isinstance(obj, str) or not obj.strip() or len(obj) > MODIFY["object_max"] or "\x00" in obj:
+            raise MediaError(f"object: what to replace, in a few English words (at most {MODIFY['object_max']} characters)")
+        out["object"] = obj.strip()
+    elif obj not in (None, ""):
+        raise MediaError("object: only for the mode replace")
+    if reference not in (None, ""):
+        if mode == "edit":
+            raise MediaError("reference: only for the modes replace and restyle")
+        out["reference"] = _path("reference", reference)
+    elif mode == "restyle":
+        raise MediaError("reference: the picture whose look the video takes")
+    out["strength"] = _unit("strength", MODIFY["defaults"][mode] if strength is None else strength, *MODIFY["strength"])
+    if guide is not None and mode != "replace":
+        raise MediaError("guide: only for the mode replace")
+    out["guide"] = _unit("guide", MODIFY["guide_default"] if guide is None else guide, *MODIFY["guide"]) if mode == "replace" else 0.0
+    if grow is not None and mode != "replace":
+        raise MediaError("grow: only for the mode replace")
+    out["grow"] = _whole("grow", MODIFY["grow_default"] if grow is None else grow, *MODIFY["grow"]) if mode == "replace" else 0
+    out["seed"] = _seed(seed)
+    out["keep_audio"], out["seconds_max"] = True, MODIFY["seconds_max"]
+    return out

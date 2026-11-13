@@ -13,12 +13,12 @@ from tadamoo.media.errors import MediaError
 
 DEFAULT_LTX_DIRS = tuple(p for p in (os.environ.get("TADAMOO_LTX_STUDIO", ""), "E:/AI/LTXStudio") if p)
 VIDEO_MODEL = "ltx-2.5-22b-distilled-transformer-nvfp4.safetensors"
-DEFAULTS: Dict[str, Any] = {"enabled": True, "ltx_dir": "", "image_python": "", "video_python": "", "video_model": "",
-                            "image_mib": 11000, "video_mib": 25000, "avatar_mib": 25000, "upscale_mib": 22000, "interpolate_mib": 4000, "wait_s": 600, "idle_s": 900}
+DEFAULTS: Dict[str, Any] = {"enabled": True, "ltx_dir": "", "image_python": "", "video_python": "", "modify_python": "", "video_model": "", "edit_model": "",
+                            "image_mib": 11000, "video_mib": 25000, "avatar_mib": 25000, "upscale_mib": 22000, "interpolate_mib": 4000, "modify_mib": 28000, "wait_s": 600, "idle_s": 900}
 FLAGS = ("enabled",)
 FOLDERS = ("ltx_dir",)
-FILES = ("image_python", "video_python")
-RANGES = {"image_mib": (2000, 60000), "video_mib": (2000, 60000), "avatar_mib": (2000, 60000), "upscale_mib": (2000, 60000), "interpolate_mib": (2000, 60000), "wait_s": (0, 3600), "idle_s": (30, 7200)}
+FILES = ("image_python", "video_python", "modify_python")
+RANGES = {"image_mib": (2000, 60000), "video_mib": (2000, 60000), "avatar_mib": (2000, 60000), "upscale_mib": (2000, 60000), "interpolate_mib": (2000, 60000), "modify_mib": (2000, 60000), "wait_s": (0, 3600), "idle_s": (30, 7200)}
 
 
 def _number(value: Any, lo: float, hi: float) -> bool:
@@ -51,7 +51,7 @@ class MediaSettings:
             for key in FLAGS:
                 if isinstance(raw.get(key), bool):
                     out[key] = raw[key]
-            for key in FOLDERS + FILES + ("video_model",):
+            for key in FOLDERS + FILES + ("video_model", "edit_model"):
                 if _text(raw.get(key)):
                     out[key] = raw[key].strip()
             for key, (lo, hi) in RANGES.items():
@@ -87,6 +87,11 @@ class MediaSettings:
                 if not _text(value, 200) or any(c in value for c in "/\\"):
                     raise MediaError("video_model: the file name of an LTX 2.5 checkpoint (no path), or empty")
                 now["video_model"] = value.strip()
+            if "edit_model" in changes:
+                value = changes["edit_model"]
+                if not _text(value, 200) or any(c in value for c in "/\\"):
+                    raise MediaError("edit_model: the file name of an LTX 2.3 checkpoint (no path), or empty")
+                now["edit_model"] = value.strip()
             for key, (lo, hi) in RANGES.items():
                 if key in changes:
                     if not _number(changes[key], lo, hi):

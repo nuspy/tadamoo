@@ -1,7 +1,7 @@
 """Runs one picture or video job of LTX Studio under a VRAM lease and prints what happens as JSON lines on stdout. Run by any Python, never imported.
 
     python worker.py --job JOB.json          the job: {kind, ltx_dir, url, mib, wait_s, python?, video_model?, output, request}
-    python worker.py --check --ltx-dir DIR   {"image": {...}, "video": {...}}: is each kind usable (code, environment, weights)
+    python worker.py --check --ltx-dir DIR   {"image": {...}, "video": {...}, ...}: is each kind usable (code, environment, weights)
 
 Lines:  {"event": "start", "kind"}  {"event": "lease", "ok", "granted_mib", "reason", "message", "message_it"}  {"event": "refused", "reason", "message",
         "message_it"}  {"event": "progress", "step", "steps"}  {"event": "log", "line"}  {"event": "done", "path", "bytes", "seconds", "lease"}  or
@@ -24,9 +24,9 @@ import time
 from pathlib import Path
 
 LEASE_CLIENT = Path(__file__).resolve().parents[1] / "heavy.py"
-OWNER = {"image": "image", "video": "video", "avatar": "avatar", "upscale": "upscale", "interpolate": "interpolate"}
-PURPOSE = {"image": "making a picture", "video": "making a clip", "avatar": "making a talking head", "upscale": "enlarging a video", "interpolate": "adding frames to a video"}
-MINUTES = {"image": 2, "video": 6, "avatar": 20, "upscale": 10, "interpolate": 3}          # what a swap tells the person the job takes
+OWNER = {"image": "image", "video": "video", "avatar": "avatar", "upscale": "upscale", "interpolate": "interpolate", "modify": "modify"}
+PURPOSE = {"image": "making a picture", "video": "making a clip", "avatar": "making a talking head", "upscale": "enlarging a video", "interpolate": "adding frames to a video", "modify": "changing what a video shows"}
+MINUTES = {"image": 2, "video": 6, "avatar": 20, "upscale": 10, "interpolate": 3, "modify": 30}          # what a swap tells the person the job takes
 STEP = re.compile(r"(\d+)/(\d+)\s*\[")                   # a progress bar: "  3/8 [00:12<00:20"
 PROG = re.compile(r"^PROG:(\d+)/(\d+)")                  # the frame counter of the frame-interpolation runner
 HTTP_SLACK_S = 135.0                                      # the call that asks for the lease may last as long as the wait plus the engine's own time
@@ -169,7 +169,7 @@ def avatar_plan(folder: str, spec: dict) -> dict:
     req = spec.get("request") or {}
     params = {"mode": "ai2v", "image_path": req.get("image", ""), "audio_path": req.get("audio", ""), "prompt": req.get("prompt", ""), "resolution": req.get("resolution", "480p"),
               "aspect": "16:9", "resize_mode": "crop", "precision": precision, "seed": req.get("seed"), "vocal_separation": False, "output": spec["output"],
-              **({"negative": req["negative"]} if req.get("negative") else {}),
+              **({"negative": req["negative"]} if req.get("negative") else {}), **{k: req[k] for k in ("ref_img_index", "mask_frame_range") if req.get(k) is not None},
               "need_vram_gb": max(8.0, int(spec.get("mib") or 0) / 1024 - 2.0), "need_commit_gb": 8, "parent_pid": os.getpid()}
     for key in ("image_path", "audio_path"):
         if not missing and params[key] and not Path(params[key]).is_file():
@@ -178,14 +178,20 @@ def avatar_plan(folder: str, spec: dict) -> dict:
             "env": {"LONGCAT_CODE_DIR": str(service.ROOT / "LongCat-Video"), "PYTHONPATH": None, "PYTHONHOME": None}}
 
 
-PLANS = {"image": image_plan, "video": video_plan, "avatar": avatar_plan, "interpolate": interpolate_plan, "upscale": upscale_plan}
+def modify_plan(folder: str, spec: dict) -> dict:
+    """A change made to what a video shows (modify_job.py, the code beside this file)."""
+    import modify_job
+    return modify_job.plan(folder, spec, use_ltx)
 
 
-def check(folder: str, video_model: str) -> dict:
+PLANS = {"image": image_plan, "video": video_plan, "avatar": avatar_plan, "interpolate": interpolate_plan, "upscale": upscale_plan, "modify": modify_plan}
+
+
+def check(folder: str, video_model: str, edit_model: str = "") -> dict:
     out = {}
     for kind, plan in PLANS.items():
         try:
-            got = plan(folder, {"mib": 0, "video_model": video_model, "output": "check", "request": {"prompt": "x", "width": 64, "height": 64, "frames": 9, "fps": 8, "seed": 0}})
+            got = plan(folder, {"mib": 0, "video_model": video_model, "edit_model": edit_model, "output": "check", "request": {"prompt": "x", "width": 64, "height": 64, "frames": 9, "fps": 8, "seed": 0}})
             out[kind] = {"python": got["python"], "python_ok": Path(got["python"]).is_file(), "script_ok": Path(got["script"]).is_file(), "missing": got["missing"]}
             out[kind]["ready"] = out[kind]["python_ok"] and out[kind]["script_ok"] and not got["missing"]
         except Exception as exc:
@@ -212,7 +218,8 @@ def present(folder: str, ids: list) -> dict:
     """Which weights of LTX Studio's catalogue are on disk, by catalogue id."""
     use_ltx(folder)
     model_paths = importlib.import_module("core.model_paths")
-    return {i: bool(model_paths.exists(i)) for i in ids}
+    root = str(model_paths.models_root())
+    return {i: (os.path.isfile(os.path.join(root, i[5:].replace("/", os.sep))) if i.startswith("file:") else bool(model_paths.exists(i))) for i in ids}
 
 
 class Run:
@@ -251,7 +258,8 @@ def main() -> int:
     if "--check" in sys.argv:
         folder = sys.argv[sys.argv.index("--ltx-dir") + 1]
         model = sys.argv[sys.argv.index("--video-model") + 1] if "--video-model" in sys.argv else ""
-        emit(check(folder, model))
+        edit_model = sys.argv[sys.argv.index("--edit-model") + 1] if "--edit-model" in sys.argv else ""
+        emit(check(folder, model, edit_model))
         return 0
     if "--present" in sys.argv:
         folder = sys.argv[sys.argv.index("--ltx-dir") + 1]
@@ -299,6 +307,13 @@ def main() -> int:
             emit({"event": "refused", "reason": heavy.reason or "unavailable", "message": heavy.message, "message_it": heavy.message_it})
             return 4
         work = Path(spec["output"]).parent
+        if plan.get("pre"):
+            import modify_job
+
+            def register(proc) -> None:
+                state["proc"] = proc
+            plan["pre"](lambda line: emit({"event": "log", "line": line[:200]}), modify_job.popen_for(register))
+            state["proc"] = None
         run = Run(plan, work, spec["ltx_dir"])
         state["proc"] = run.proc
         for line in run.lines():
@@ -317,6 +332,8 @@ def main() -> int:
             raise JobError(f"the model process ended with code {code} and made no file: " + " | ".join(run.tail[-4:])[-600:])
         if kind == "upscale":
             keep_audio(spec["request"]["video"], out)
+        if plan.get("post"):
+            plan["post"]()
         emit({"event": "done", "path": str(out), "bytes": out.stat().st_size, "seconds": round(time.monotonic() - began, 1),
               "lease": {"id": lease.id or "", "owner": OWNER[kind], "granted_mib": lease.granted_mib, "swapped": heavy.swapped, "risky": heavy.risky}})
         return 0

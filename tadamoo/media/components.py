@@ -42,6 +42,16 @@ COMPONENTS: Dict[str, Dict[str, Any]] = {
                     "steps": [["{py}", "{ltx}/scripts/download_weights.py", "--ids", "rife-flownet-v4"]]},
     "video-enlarger": {"label": ("FlashVSR+ (larger video with more detail, Apache-2.0)", "FlashVSR+ (video piu' grande e dettagliato, Apache-2.0)"), "check": "ready", "kind": "upscale",
                        "steps": [["{py}", "{ltx}/scripts/install_flashvsrplus.py"], ["{py}", "{ltx}/scripts/download_weights.py", "--ids", "flashvsr-plus-turbo"]]},
+    "modify-model": {"label": ("LTX 2.3 with SAM2 (changes the content of a video: the checkpoint, the distilled LoRA, the object tracker)", "LTX 2.3 con SAM2 (cambia il contenuto di un video: checkpoint, distilled LoRA, tracciatore di oggetti)"),
+                     "check": "ready", "kind": "modify",
+                     "steps": [["{py}", "{ltx}/scripts/download_weights.py", "--ids", "ltx23-dev-fp8,ltx23-distilled-lora-384,ltx23-spatial-upscaler,ltx23-gemma-te,sam2-hiera-large,grounding-dino-base"]],
+                     "how": ("The inpaint LoRA that works from words (ltx23_inpaint_masked_t2v_rank128_v1_10000steps.safetensors) has no download entry in LTX Studio: put it in the LTX-2 folder of its LoRA folder by hand.",
+                             "La LoRA di inpaint che lavora a parole (ltx23_inpaint_masked_t2v_rank128_v1_10000steps.safetensors) non ha una voce di download in LTX Studio: va messa a mano nella cartella LTX-2 delle sue LoRA.")},
+    "modify-extras": {"label": ("the LoRAs of the other changes (a photograph of the new thing, the whole video by words, the look of a picture)", "le LoRA delle altre modifiche (foto della cosa nuova, tutto il video a parole, aspetto di un'immagine)"),
+                      "check": "catalogue", "ids": ["ltx23-inpaint-r2v", "ltx-iclora-restyle", "file:LoRA/LTX-2/ltx23_edit_anything_global_rank128_v1_9000steps_adamw.safetensors"],
+                      "steps": [["{py}", "{ltx}/scripts/download_weights.py", "--ids", "ltx23-inpaint-r2v,ltx-iclora-restyle"]],
+                      "how": ("The Edit-anything LoRA (ltx23_edit_anything_global_rank128_v1_9000steps_adamw.safetensors) has no download entry in LTX Studio: put it in the LTX-2 folder of its LoRA folder by hand.",
+                              "La LoRA Edit-anything (ltx23_edit_anything_global_rank128_v1_9000steps_adamw.safetensors) non ha una voce di download in LTX Studio: va messa a mano nella cartella LTX-2 delle sue LoRA.")},
     "mediapipe": {"label": ("the mediapipe package (measures of faces and bodies for the seam detector)", "il pacchetto mediapipe (misure di volti e corpi per il rilevatore di stacchi)"),
                   "check": "module", "module": "mediapipe", "steps": [[sys.executable, "-m", "pip", "install", "mediapipe"]]},
     "landmarkers": {"label": ("the MediaPipe face and pose models", "i modelli MediaPipe di volto e posa"), "check": "files",
@@ -55,6 +65,7 @@ SKILLS: Dict[str, List[str]] = {
     "video-generation": ["ltx-studio", "video-model", "ffmpeg", "frame-maker", "video-enlarger"],
     "talking-head": ["ltx-studio", "talking-head-model"],
     "video-editing": ["ffmpeg", "mediapipe", "landmarkers"],
+    "video-modification": ["ltx-studio", "ffmpeg", "modify-model", "modify-extras"],
 }
 
 
@@ -84,6 +95,12 @@ def check(skill: str, settings: Optional[Dict[str, Any]] = None, command: Option
         elif how == "files":
             gone = [n for n in spec["files"] if not (LANDMARKERS / n).is_file()]
             row = _row(cid, not gone, str(LANDMARKERS))
+            if gone:
+                row["missing"] = gone
+        elif how == "catalogue":
+            got = client.present(settings, spec["ids"], command) if folder else {}
+            gone = [i for i in spec["ids"] if not got.get(i)]
+            row = _row(cid, bool(folder) and not gone, folder)
             if gone:
                 row["missing"] = gone
         else:

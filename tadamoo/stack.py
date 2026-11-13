@@ -937,6 +937,8 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         kinds = [k for k in ("image", "video") if not media_tools.usable(media_settings.read(), k)]       # each kind only where LTX Studio can make it
         if any(not media_tools.usable(media_settings.read(), k) for k in ("upscale", "interpolate")):
             kinds.append("enhance")
+        if not media_tools.usable(media_settings.read(), "modify"):                 # changing what a clip shows needs LTX 2.3 and its editing LoRAs
+            kinds.append("modify")
         media_ready = bool(kinds)
         if kinds:
             media_tools.register_media_tools(registry, sandbox, media_settings, data / "media", cfg.endpoint, cancelled=stop_pressed, kinds=kinds)

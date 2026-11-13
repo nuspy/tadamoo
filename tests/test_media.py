@@ -227,6 +227,16 @@ def test_a_talking_head_asks_for_its_own_lease_size_and_runs_the_environment_of_
     assert world["broker"].paths()[0] == "/api/heavy/begin"                    # not held: it asks for the swap itself
 
 
+def test_the_anchoring_knobs_reach_the_model_process_only_when_they_are_asked_for(world):
+    got, out = avatar_job(world)
+    assert "ref_img_index" not in json.loads((out.parent / "params.json").read_text(encoding="utf-8"))
+    image, audio = world["tmp"] / "p.jpg", world["tmp"] / "a.wav"
+    out2 = world["tmp"] / "job2" / "out.mp4"
+    client.run("avatar", limits.avatar_request(str(image), str(audio), "an anchor", seed=4, ref_img_index=0, mask_frame_range=5), out2, world["settings"], url=world["broker"].url)
+    params = json.loads((out2.parent / "params.json").read_text(encoding="utf-8"))
+    assert params["ref_img_index"] == 0 and params["mask_frame_range"] == 5
+
+
 def test_a_held_job_asks_for_the_vram_only(world):
     got, out = avatar_job(world, held=True)
     assert "/api/heavy/begin" not in world["broker"].paths() and world["broker"].lease_calls()[0][1]["owner"] == "avatar" and got["lease"]["granted_mib"] == DEFAULTS["avatar_mib"]

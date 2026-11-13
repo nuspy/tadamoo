@@ -83,3 +83,18 @@ def test_the_models_of_the_seam_detector_are_downloaded_to_their_folder_when_abs
     got = []
     components.install("video-editing", settings, run=lambda argv: 0, download=lambda url, to: got.append((url, to)) or 0, say=lambda line: None)
     assert any(to.endswith("pose_landmarker.task") for _, to in got)
+
+
+def test_the_modification_skill_installs_what_the_catalogue_has_and_names_the_loras_to_put_by_hand(settings, tmp_path, monkeypatch):
+    monkeypatch.setattr(components.shutil, "which", lambda name: "/bin/ffmpeg")
+    rows = by_id(components.check("video-modification", settings))
+    assert rows["modify-model"]["present"] and not rows["modify-extras"]["present"]
+    assert rows["modify-extras"]["missing"] == ["file:LoRA/LTX-2/ltx23_edit_anything_global_rank128_v1_9000steps_adamw.safetensors"]
+    todo = components.steps("video-modification", settings)
+    assert [t["component"] for t in todo] == ["modify-extras"] and todo[0]["step"][-1] == "ltx23-inpaint-r2v,ltx-iclora-restyle"
+    other = {**settings, "ltx_dir": str(make_ltx(tmp_path / "ltx2", edit_checkpoint=False))}
+    got = by_id(components.check("video-modification", other))
+    assert not got["modify-model"]["present"] and got["modify-model"]["missing"][0].startswith("checkpoint ltx-2.3-22b-dev-fp8")
+    assert components.steps("video-modification", other)[0]["step"][-1].startswith("ltx23-dev-fp8,")
+    out = components.install("video-modification", settings, run=lambda argv: 0)
+    assert out["by_hand"] and "Edit-anything" in out["by_hand"][0]

@@ -20,7 +20,7 @@ from tadamoo.media.errors import Cancelled, MediaError, Refused
 from tadamoo.media.settings import VIDEO_MODEL, ltx_dir_of
 
 WORKER = Path(__file__).with_name("worker.py")
-TOTAL_S = {"image": 3600.0, "video": 4 * 3600.0, "avatar": 4 * 3600.0, "upscale": 4 * 3600.0, "interpolate": 3600.0}
+TOTAL_S = {"image": 3600.0, "video": 4 * 3600.0, "avatar": 4 * 3600.0, "upscale": 4 * 3600.0, "interpolate": 3600.0, "modify": 6 * 3600.0}
 CHECK_TTL_S = 60.0
 Progress = Callable[[Dict[str, Any]], None]
 _checked: Dict[Any, Any] = {}
@@ -42,11 +42,11 @@ def check(settings: Dict[str, Any], command: Optional[Sequence[str]] = None, for
         why = f"the LTX Studio folder {settings['ltx_dir']} does not exist" if settings["ltx_dir"] else "LTX Studio was not found (set its folder)"
         return {"ltx_dir": "", "image": {"ready": False, "missing": [], "error": why}, "video": {"ready": False, "missing": [], "error": why}}
     model = settings["video_model"] or VIDEO_MODEL
-    key = (folder, model, tuple(settings[k] for k in ("image_python", "video_python")), tuple(command or ()))
+    key = (folder, model, settings.get("edit_model", ""), tuple(settings.get(k, "") for k in ("image_python", "video_python", "modify_python")), tuple(command or ()))
     hit = _checked.get(key)
     if hit and not force and time.monotonic() - hit[0] < CHECK_TTL_S:
         return hit[1]
-    argv = list(command) if command else [sys.executable, "-X", "utf8", str(WORKER), "--check", "--ltx-dir", folder, "--video-model", model]
+    argv = list(command) if command else [sys.executable, "-X", "utf8", str(WORKER), "--check", "--ltx-dir", folder, "--video-model", model, *(["--edit-model", settings["edit_model"]] if settings.get("edit_model") else [])]
     try:
         done = subprocess.run(argv, capture_output=True, timeout=60, creationflags=_flags(), env={**os.environ, "PYTHONIOENCODING": "utf-8"})
         got = json.loads(done.stdout.decode("utf-8", "replace").strip().splitlines()[-1])
@@ -55,13 +55,27 @@ def check(settings: Dict[str, Any], command: Optional[Sequence[str]] = None, for
         heard = heard.decode("utf-8", "replace") if isinstance(heard, bytes) else str(heard)
         why = f"the check of LTX Studio failed ({type(exc).__name__}; {Path(argv[0]).name})" + (f": {heard.strip()[-200:]}" if heard.strip() else "")
         got = {k: {"ready": False, "missing": [], "error": why} for k in ("image", "video")}
-    for kind, setting in (("image", "image_python"), ("video", "video_python")):       # a Python the person named instead of LTX Studio's
-        if settings[setting] and isinstance(got.get(kind), dict):
+    for kind, setting in (("image", "image_python"), ("video", "video_python"), ("modify", "modify_python")):       # a Python the person named instead of LTX Studio's
+        if settings.get(setting) and isinstance(got.get(kind), dict):
             ok = Path(settings[setting]).is_file()
             got[kind].update(python=settings[setting], python_ok=ok, ready=bool(ok and got[kind].get("script_ok") and not got[kind].get("missing")))
     out = {"ltx_dir": folder, **got}
     _checked[key] = (time.monotonic(), out)
     return out
+
+
+def present(settings: Dict[str, Any], ids: Sequence[str], command: Optional[Sequence[str]] = None) -> Dict[str, bool]:
+    """Which weights of LTX Studio's catalogue are on disk (an id of the catalogue, or `file:` and a path under its models folder); empty when the worker cannot say."""
+    folder = ltx_dir_of(settings["ltx_dir"])
+    if not folder:
+        return {}
+    argv = list(command) if command else [sys.executable, "-X", "utf8", str(WORKER), "--ltx-dir", folder, "--present", ",".join(ids)]
+    try:
+        done = subprocess.run(argv, capture_output=True, timeout=60, creationflags=_flags(), env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+        got = json.loads(done.stdout.decode("utf-8", "replace").strip().splitlines()[-1])
+    except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
+        return {}
+    return {k: bool(v) for k, v in got.items()} if isinstance(got, dict) else {}
 
 
 def forget_checks() -> None:
@@ -82,7 +96,7 @@ def run(kind: str, request: Dict[str, Any], output: Path, settings: Dict[str, An
     job_file = output.parent / "job.json"
     mib = settings[f"{kind}_mib"]
     job_file.write_text(json.dumps({"kind": kind, "ltx_dir": folder, "url": url, "mib": mib, "wait_s": settings["wait_s"], "output": str(output), "request": request, "held": held,
-                                    "python": settings.get(f"{kind}_python", ""), "video_model": settings["video_model"] or VIDEO_MODEL}),
+                                    "python": settings.get(f"{kind}_python", ""), "video_model": settings["video_model"] or VIDEO_MODEL, "edit_model": settings.get("edit_model", "")}),
                         encoding="utf-8")
     argv = list(command) + [str(job_file)] if command else [sys.executable, "-X", "utf8", str(WORKER), "--job", str(job_file)]
     return _run(argv, kind, progress, cancel, settings["idle_s"] if idle_s is None else idle_s, TOTAL_S[kind] if total_s is None else total_s)

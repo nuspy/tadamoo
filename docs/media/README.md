@@ -9,6 +9,7 @@ model may be very slow meanwhile, and without the lease nothing starts.
 |---|---|
 | [runner.md](runner.md) | the worker, its JSON lines, the lease, cancel and timeouts |
 | [tools.md](tools.md) | the two tools, their parameters and caps, where the file goes, what the answer holds |
+| [modify.md](modify.md) | `modify_video`: an object swapped, the whole clip changed by words, the look of a picture; what the job does and what it cannot do |
 | [settings.md](settings.md) | the settings block, `/api/media`, the Settings line, how a conversation announces the tools |
 
 ## How a job goes

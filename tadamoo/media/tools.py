@@ -1,4 +1,4 @@
-"""`generate_image`, `generate_video` and `enhance_video`: pictures, clips and better versions of clips made on request, for the Chat and the Agent.
+"""`generate_image`, `generate_video`, `enhance_video` and `modify_video`: pictures, clips, better versions of clips and changes to what a clip shows, made on request, for the Chat and the Agent.
 
 A call runs one job (tadamoo/media/client.py) and returns when the file is made, which for a clip takes minutes: the job runs alone on the GPU, the
 language model is slow meanwhile, and the Stop button ends it. The file is written into the conversation's working folder, under `media/` unless a path is given,
@@ -15,7 +15,7 @@ from tadamoo.media import client, limits
 from tadamoo.media.errors import Cancelled, MediaError, Refused
 from tadamoo.media.settings import MediaSettings
 
-KINDS = {"image": (".png", limits.image_request), "video": (".mp4", limits.video_request), "enhance": (".mp4", limits.enhance_request)}
+KINDS = {"image": (".png", limits.image_request), "video": (".mp4", limits.video_request), "enhance": (".mp4", limits.enhance_request), "modify": (".mp4", limits.modify_request)}
 FOLDER = "media"
 WHY = {"not_enough": "the GPU does not have enough free VRAM even with the model's cache lent in full",
        "busy": "another job holds the VRAM (waited as long as the settings allow)",
@@ -41,10 +41,10 @@ def usable(settings: Dict[str, Any], kind: str, command: Any = None) -> str:
 
 def register_media_tools(registry: Any, sandbox: Any, settings: MediaSettings, work_dir: Path, url: str,
                          cancelled: Optional[Callable[[], bool]] = None, command: Any = None, kinds: Sequence[str] = ("image", "video")) -> None:
-    """Offers `generate_image`, `generate_video` and `enhance_video` (those of `kinds`). `work_dir` holds each job's working files (kept only when a job fails); `command` replaces the worker (tests)."""
+    """Offers `generate_image`, `generate_video`, `enhance_video` and `modify_video` (those of `kinds`). `work_dir` holds each job's working files (kept only when a job fails); `command` replaces the worker (tests)."""
     from tadamoo.tools.registry import EffectClass
 
-    def target(kind: str, path: str, tag: str, tool: str) -> Path:
+    def target_path(kind: str, path: str, tag: str, tool: str) -> Path:
         ext = KINDS[kind][0]
         rel = path.strip() if isinstance(path, str) and path.strip() else f"{FOLDER}/{tag}{ext}"
         safe = sandbox.resolve_safe(rel, tool)
@@ -73,7 +73,7 @@ def register_media_tools(registry: Any, sandbox: Any, settings: MediaSettings, w
         why = usable(config, kind, command)
         if why:
             return {"status": "unavailable", "note": why}
-        safe = target(kind, path, f"{kind}-{time.strftime('%Y%m%d-%H%M%S')}-{request['seed']}", f"generate_{kind}")
+        safe = target_path(kind, path, f"{kind}-{time.strftime('%Y%m%d-%H%M%S')}-{request['seed']}", f"generate_{kind}")
         rel = sandbox._shown(safe)
         blocked = sandbox._owner_block(rel, safe, append=False)
         if blocked:
@@ -121,7 +121,7 @@ def register_media_tools(registry: Any, sandbox: Any, settings: MediaSettings, w
                 why = usable(config, step, command)
                 if why:
                     return {"status": "unavailable", "note": why}
-            safe = target("enhance", output, f"{Path(path).stem}-enhanced-{time.strftime('%Y%m%d-%H%M%S')}", "enhance_video")
+            safe = target_path("enhance", output, f"{Path(path).stem}-enhanced-{time.strftime('%Y%m%d-%H%M%S')}", "enhance_video")
             rel = sandbox._shown(safe)
             blocked = sandbox._owner_block(rel, safe, append=False)
             if blocked:
@@ -140,6 +140,37 @@ def register_media_tools(registry: Any, sandbox: Any, settings: MediaSettings, w
         shutil.rmtree(job, ignore_errors=True)
         result = sandbox._record(rel, "added", "", "", keep_text=False)
         return {"status": "ok", "path": rel, "bytes": safe.stat().st_size, "seconds": seconds, "steps": got["steps"], "scale": request["scale"] or None, "factor": request["factor"] or None,
+                "show": f"show it in the answer with [{safe.name}](tadamoo-path:{rel})", "changes": result["kind"]}
+
+    def modify_video(path: str, prompt: str = "", mode: str = "replace", target: str = "", reference: str = "", strength: Optional[float] = None, guide: Optional[float] = None,
+                     grow: Optional[int] = None, seed: Optional[int] = None, output: str = "") -> Dict[str, Any]:
+        """A copy of the video with its content changed; the original is kept."""
+        try:
+            video = source(path, "modify_video", "path")
+            ref = source(reference, "modify_video", "reference") if reference else ""
+            request = limits.modify_request(video, prompt, mode, target, ref, strength, guide, grow, seed)
+            config = settings.read()
+            why = usable(config, "modify", command)
+            if why:
+                return {"status": "unavailable", "note": why}
+            safe = target_path("modify", output, f"{Path(path).stem}-{request['mode']}-{time.strftime('%Y%m%d-%H%M%S')}-{request['seed']}", "modify_video")
+            rel = sandbox._shown(safe)
+            blocked = sandbox._owner_block(rel, safe, append=False)
+            if blocked:
+                return blocked
+            sandbox._guard_git("modify_video", rel, safe)
+        except MediaError as exc:
+            return {"status": "error", "note": str(exc)}
+        job = Path(work_dir) / f"modify-{int(time.time())}-{request['seed']}"
+        try:
+            got = client.run("modify", {k: v for k, v in request.items() if k != "notes"}, job / safe.name, config, url=url, cancel=cancelled, command=command)
+        except (Refused, Cancelled, MediaError) as exc:
+            return job_failed(exc, job)
+        safe.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(got["path"], str(safe))
+        shutil.rmtree(job, ignore_errors=True)
+        result = sandbox._record(rel, "added", "", "", keep_text=False)
+        return {"status": "ok", "path": rel, "bytes": safe.stat().st_size, "seconds": got["seconds"], "lease": got["lease"], "mode": request["mode"], "seed": request["seed"],
                 "show": f"show it in the answer with [{safe.name}](tadamoo-path:{rel})", "changes": result["kind"]}
 
     i, v = limits.IMAGE, limits.VIDEO
@@ -193,3 +224,25 @@ def register_media_tools(registry: Any, sandbox: Any, settings: MediaSettings, w
                 "output": {"type": "string", "description": f"Where to save it, relative to the working folder; left out: {FOLDER}/ with the name of the video and the date"}},
                 "required": ["path"]},
             effect=EffectClass.REVERSIBLE, handler=enhance_video, timeout=None)
+    if "modify" in kinds:
+        m = limits.MODIFY
+        registry.register(
+            name="modify_video",
+            description=("Changes what a video of the working folder shows, with AI, and saves a copy (the original is kept; the sound is put back). `mode` replace: what `target` names (a few English words, "
+                         "for example 'yellow Fiat 500') is followed through the clip and made again from the `prompt` or from the picture `reference` of the new thing (a red Ferrari). `edit`: the whole video "
+                         "is changed by the `prompt`. `restyle`: the video takes the look of the picture `reference`. Use it for 'cambia la macchina gialla con una Ferrari rossa', not for cutting or joining "
+                         f"clips. It is not exact: the new thing is invented frame by frame, a large or fast-moving subject can drift, and a clip is at most {m['seconds_max']} seconds. It takes many minutes and "
+                         "uses most of the GPU alone; ask for it once, with a prompt that describes the result (what the new thing looks like and what it does). If the answer says `refused`, tell the person."),
+            parameters={"type": "object", "properties": {
+                "path": {"type": "string", "description": "The video to change, relative to the working folder"},
+                "mode": {"type": "string", "enum": list(m["modes"]), "description": "replace (swap an object), edit (change the whole video by words) or restyle (the look of a picture); default replace"},
+                "prompt": {"type": "string", "description": "What the result shows, in English: for replace the new thing and what it does, for edit what to change; optional for restyle"},
+                "target": {"type": "string", "description": "replace only: what to swap, in a few English words ('yellow Fiat 500', 'person in the red coat')"},
+                "reference": {"type": "string", "description": "A picture of the working folder: the new thing (replace), or the look to take (restyle)"},
+                "strength": {"type": "number", "description": f"{m['strength'][0]:g} to {m['strength'][1]:g}: how closely the result follows the reference picture (replace) or the change asked (edit, restyle)"},
+                "guide": {"type": "number", "description": f"replace only, {m['guide'][0]:g} to {m['guide'][1]:g} (default {m['guide_default']}): how closely the result keeps the motion and the shape of the original"},
+                "grow": {"type": "integer", "description": f"replace only, {m['grow'][0]} to {m['grow'][1]} pixels (default {m['grow_default']}): how far the changed area goes beyond the object's outline"},
+                "seed": {"type": "integer", "description": "The same seed with the same request gives the same result; left out, a new one is chosen and returned"},
+                "output": {"type": "string", "description": f"Where to save it, relative to the working folder; left out: {FOLDER}/ with the name of the video, the mode and the date"}},
+                "required": ["path"]},
+            effect=EffectClass.REVERSIBLE, handler=modify_video, timeout=None)

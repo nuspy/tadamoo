@@ -61,7 +61,7 @@ print("[flashvsrplus] OK -> " + out, flush=True)
 '''
 
 
-def make_ltx(root: Path, missing=(), video_checkpoint=True, avatar=True, avatar_missing=(), rife=True, scaler_missing=()) -> Path:
+def make_ltx(root: Path, missing=(), video_checkpoint=True, avatar=True, avatar_missing=(), rife=True, scaler_missing=(), edit_checkpoint=True, edit_loras=("t2v", "r2v", "edit", "restyle")) -> Path:
     """A folder with the parts of LTX Studio the worker reads: `core` (paths, releases, job parameters) and `workers/`."""
     (root / "core").mkdir(parents=True)
     (root / "workers").mkdir()
@@ -104,28 +104,116 @@ def make_ltx(root: Path, missing=(), video_checkpoint=True, avatar=True, avatar_
             return {{"id": i}}
         def models_root():
             return "x"
+        MISSING = {list(missing)!r}
         def exists(i):
-            return not i.startswith("absent")
+            return not i.startswith("absent") and i not in MISSING
         '''), encoding="utf-8")
     (root / "core" / "weights_catalog.py").write_text(f"MISSING = {list(missing)!r}\n\n\ndef is_present(entry, root):\n    return entry['id'] not in MISSING\n", encoding="utf-8")
     (root / "core" / "img_gen_job.py").write_text(f"_ARCH_RUNNER = {{'qwen_image21': ({sys.executable!r}, {str(root / 'workers' / 'qwen_image21_infer.py')!r})}}\n", encoding="utf-8")
     (root / "core" / "ltx_release.py").write_text(textwrap.dedent(f'''
         import os
         def runner(release):
-            assert release == "2.5"
+            assert release in ("2.3", "2.5")
             return {sys.executable!r}, {str(root / "workers" / "ltx2_infer.py")!r}
         def missing_components(release):
             return []
         def checkpoints(release):
-            d = {str(root / "models")!r}
+            d = {str(root / "models23")!r} if release == "2.3" else {str(root / "models")!r}
             return [os.path.join(d, n) for n in sorted(os.listdir(d))]
+        def is_distilled(name):
+            return "distilled" in os.path.basename(name).lower()
         '''), encoding="utf-8")
+    add_edit_engine(root, edit_checkpoint, edit_loras)
     (root / "core" / "ltx_video_job.py").write_text(textwrap.dedent('''
         def build_params(*, output, prompt, width, height, num_frames, fps, seed, model, ltx_release, negative="worst quality", steps=8, guidance=3.0, image_path=""):
             return {"output": output, "prompt": prompt, "width": width, "height": height, "num_frames": num_frames, "fps": fps, "seed": seed,
                     "model": model, "ltx_release": ltx_release, "negative": negative, "steps": steps, "guidance": guidance, "image_path": image_path}
         '''), encoding="utf-8")
     return root
+
+
+PROBE = r'''
+import re, types
+def probe(path, count_frames=False):
+    text = open(path, "rb").read().decode("latin-1")
+    frames = int((re.search(r"frames=(\d+)", text) or [0, 65])[1])
+    return types.SimpleNamespace(width=1920, height=1080, fps=25.0, nb_frames=frames, duration=frames / 25.0, has_audio="audio=1" in text, codec="h264", pix_fmt="yuv420p")
+'''
+
+
+def add_edit_engine(root: Path, checkpoint=True, loras=("t2v", "r2v", "edit", "restyle")) -> None:
+    """The parts of LTX Studio the `modify` kind reads: its LTX 2.3 checkpoint folder, the editing LoRAs, the tracking and the video preparation, with stand-ins that do no work."""
+    (root / "models23").mkdir(exist_ok=True)
+    if checkpoint:
+        (root / "models23" / "ltx-2.3-22b-dev-fp8.safetensors").write_bytes(b"x")
+        (root / "models23" / "PinkCherry_FineTune_fp8scaled_v1_8_LTX23.safetensors").write_bytes(b"x")
+    lora_dir = root / "loras"
+    (lora_dir / "LTX-2").mkdir(parents=True, exist_ok=True)
+    names = {"t2v": "ltx23_inpaint_masked_t2v_rank128_v1_10000steps.safetensors", "r2v": "ltx23_inpaint_masked_r2v_rank32_v1_3000steps.safetensors",
+             "edit": "ltx23_edit_anything_global_rank128_v1_9000steps_adamw.safetensors"}
+    for key, name in names.items():
+        if key in loras:
+            (lora_dir / "LTX-2" / name).write_bytes(b"x")
+    (root / "core" / "video_ic_prep.py").write_text(PROBE, encoding="utf-8")
+    (root / "core" / "video_edit_modes.py").write_text(textwrap.dedent('''
+        import types
+        DEFAULT_OVERLAP = 9
+        def get_spec(key):
+            return types.SimpleNamespace(key=key, max_frames_per_segment=121, max_long_edge=1280)
+        def clamp_resolution(w, h, spec):
+            k = min(1.0, spec.max_long_edge / max(w, h))
+            return max(64, round(w * k / 64) * 64), max(64, round(h * k / 64) * 64), k < 1.0
+        '''), encoding="utf-8")
+    (root / "core" / "video_edit_ic.py").write_text(textwrap.dedent(f'''
+        import os, types
+        class IcJobError(Exception):
+            pass
+        def distilled_lora_ok(release):
+            return True
+        def missing_weight(spec):
+            return "" if {"restyle" in loras!r} else "weight restyle missing"
+        def build_job(cfg, out_dir, stamp, output, log=None):
+            if not cfg.get("style_image"):
+                raise IcJobError("immagine di stile mancante")
+            return types.SimpleNamespace(params={{"prompt": cfg["prompt"], "control_type": "restyle", "control_video": cfg["video"], "ic_frame0_image": cfg["style_image"], "output": output,
+                                                 "model": cfg.get("model"), "ltx_release": cfg.get("ltx_release"), "seed": cfg["seed"]}}, source=cfg["video"])
+        def mux_audio(video, audio_src):
+            out = video[:-4] + "_audio.mp4"
+            open(out, "wb").write(open(video, "rb").read() + b"AUDIO")
+            return out
+        def finalize(job, result, log=None, cleanup=True):
+            return mux_audio(result, job.source)
+        '''), encoding="utf-8")
+    (root / "core" / "video_inpaint.py").write_text(textwrap.dedent(f'''
+        import os, sys
+        INF_PY = {sys.executable!r}
+        LORA_DIR = {str(lora_dir)!r}
+        def lora_abspath(rel):
+            return os.path.join(LORA_DIR, rel.replace("/", os.sep))
+        def _lora(cfg):
+            return "LTX-2/ltx23_inpaint_masked_r2v_rank32_v1_3000steps.safetensors" if cfg.get("ref_image") else "LTX-2/ltx23_inpaint_masked_t2v_rank128_v1_10000steps.safetensors"
+        def missing_weight(cfg):
+            lp = lora_abspath(_lora(cfg))
+            return "" if os.path.exists(lp) else "weight missing: " + lp
+        def inpaint_params(cfg, out):
+            p = {{"prompt": cfg["prompt"], "edit_lora": _lora(cfg), "control_strength": cfg["guide"], "mask_dilate": cfg["mask_dilate"], "width": cfg["width"], "height": cfg["height"],
+                 "num_frames": cfg["num_frames"], "fps": cfg["fps"], "seed": cfg["seed"], "output": out, "model": cfg["model"], "ltx_release": cfg["ltx_release"]}}
+            if cfg.get("ref_image"):
+                p["image_path"], p["ref_strength"] = cfg["ref_image"], cfg["ref_strength"]
+            if p["num_frames"] > 97:
+                p["chunk_frames"] = 97
+            return p
+        def fit_reference(params, out_dir, stamp, mode=None):
+            return ""
+        def attach_tracking(params, src, obj, guide_out, dilate, *, run=None, log=None):
+            r = run([sys.executable, "-c", "import sys; print('GUIDE:' + sys.argv[1])", obj], capture_output=True, text=True, encoding="utf-8", errors="replace")
+            if "GUIDE:" not in r.stdout:
+                raise RuntimeError("tracking failed")
+            open(os.path.splitext(src)[0] + "_tracked.txt", "w").write(obj + " " + str(dilate))
+            params["inpaint_masks_dir"] = os.path.splitext(src)[0] + "_track"
+            params["control_video"] = src
+            return params
+        '''), encoding="utf-8")
 
 
 class Broker:
