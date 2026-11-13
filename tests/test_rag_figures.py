@@ -64,6 +64,11 @@ def test_the_words_read_inside_an_image_are_kept_without_the_page_header_on_a_sh
     assert read == {"a.png": [{"text": "TRE3G", "score": 0.99, "box": [1, 2, 30, 40]}]} and figures.ocr([], "python") == {} and figures.ocr([Path("a.png")], "") == {}
 
 
+def image_of(store, aid, doc_id, name="1.webp"):
+    """The bytes of a document's figure image in the archive's database, or None."""
+    return store._backend(aid).get_blob(aid, "image", f"{doc_id}/{name}")
+
+
 def test_the_images_and_drawings_of_a_pdf_with_a_text_layer_are_found_and_cut_out_with_a_thumbnail(tmp_path):
     pdf = make_pdf(tmp_path)
     found = figures.detect(pdf)
@@ -127,7 +132,7 @@ def test_a_pdf_added_to_an_archive_keeps_its_figure_as_an_image_and_a_passage_th
     rows = [c for c in store.load(aid).chunks if c["kind"] == "figure"]
     assert len(rows) == 1 and rows[0]["figure"] == "FIG. 1A" and rows[0]["page_start"] == 2 and rows[0]["image"] == f"images/{doc['id']}/1.webp" and rows[0]["facts"]["figure"] == "1A"
     assert "Map of the plasmid" in rows[0]["text"] and "The text says: FIG. 1A shows a map" in rows[0]["text"]
-    assert (tmp_path / "rag" / aid / rows[0]["image"]).is_file() and (tmp_path / "rag" / aid / "figures" / f"{doc['id']}.json").is_file()
+    assert image_of(store, aid, doc["id"]) and store._backend(aid).read_figures(aid, doc["id"])
     hits = store.search([aid], "map of the plasmid tetracycline response element", top_k=3, filters={"kind": "figure"})["hits"]
     assert hits and hits[0]["kind"] == "figure" and hits[0]["figure"] == "FIG. 1A" and hits[0]["image"] == rows[0]["image"]
     assert store.search([aid], "plasmid map", top_k=3, filters={"figure": "fig 1a"})["hits"] and store.search([aid], "plasmid map", top_k=3, filters={"figure": "2"})["hits"] == []
@@ -137,7 +142,7 @@ def test_a_pdf_added_to_an_archive_keeps_its_figure_as_an_image_and_a_passage_th
 def test_the_setting_that_turns_figures_off_leaves_a_document_without_them(tmp_path):
     store, aid, pdf = archive(tmp_path)
     store.settings.write({"figures": False})
-    assert store.add_file(aid, "patent.pdf", pdf)["document"]["figures"] == 0 and not (tmp_path / "rag" / aid / "images").exists()
+    assert store.add_file(aid, "patent.pdf", pdf)["document"]["figures"] == 0 and not store._backend(aid).list_blobs(aid, "image")
 
 
 def test_a_figure_is_listed_looked_at_shown_and_given_a_credit_line_and_a_png_copy(tmp_path):
@@ -181,26 +186,24 @@ def test_the_tool_is_offered_described_and_untrusted(tmp_path):
 def test_removing_a_document_removes_its_images_and_cutting_again_keeps_its_figures(tmp_path):
     store, aid, pdf = archive(tmp_path)
     doc = store.add_file(aid, "patent.pdf", pdf)["document"]
-    folder = tmp_path / "rag" / aid
     store.reindex(aid)
-    assert [c["figure"] for c in store.load(aid).chunks if c["kind"] == "figure"] == ["FIG. 1A"] and (folder / "images" / doc["id"] / "1.webp").is_file()
+    assert [c["figure"] for c in store.load(aid).chunks if c["kind"] == "figure"] == ["FIG. 1A"] and image_of(store, aid, doc["id"])
     store.remove_document(aid, doc["id"])
-    assert not (folder / "images" / doc["id"]).exists() and not (folder / "figures" / f"{doc['id']}.json").exists() and not store.load(aid).chunks
+    assert not image_of(store, aid, doc["id"]) and not store._backend(aid).read_figures(aid, doc["id"]) and not store.load(aid).chunks
 
 
 def test_a_refreshed_document_replaces_its_figures_and_one_that_lost_them_leaves_none(tmp_path):
     store, aid, pdf = archive(tmp_path)
     doc = store.add_file(aid, "patent.pdf", pdf)["document"]
-    folder = tmp_path / "rag" / aid
     reading = {"blocks": blocks_of_text(), "extraction": "basic"}
     chunks, sections, stats = store.passages_of(doc["id"], "patent.pdf", reading["blocks"], aid)
     fset = store.figure_set(aid, doc["id"], pdf, "patent.pdf", reading, chunks)
     new = {**doc, "chunks": len(chunks), "figures": len(fset["records"])}
     store.swap_documents(aid, [{"doc": new, "chunks": chunks, "sections": sections, "blocks": reading["blocks"], "rows": None, "model": "", "version": "", "figures": fset}])
-    assert (folder / "images" / doc["id"] / "1.webp").is_file() and sum(c["kind"] == "figure" for c in store.load(aid).chunks) == 1 and fset["staging"] is None
+    assert image_of(store, aid, doc["id"]) and sum(c["kind"] == "figure" for c in store.load(aid).chunks) == 1 and fset["staging"] is None
     plain, secs, _ = store.passages_of(doc["id"], "patent.pdf", [b for b in reading["blocks"] if b["page"] == 1], aid)
     store.swap_documents(aid, [{"doc": {**doc, "figures": 0}, "chunks": plain, "sections": secs, "blocks": reading["blocks"], "rows": None, "model": "", "version": ""}])
-    assert not (folder / "images" / doc["id"]).exists() and not any(c["kind"] == "figure" for c in store.load(aid).chunks)
+    assert not image_of(store, aid, doc["id"]) and not any(c["kind"] == "figure" for c in store.load(aid).chunks)
 
 
 def test_the_coverage_counts_figures_and_a_page_that_is_only_a_figure_is_no_longer_empty():
@@ -278,8 +281,8 @@ def test_an_updated_pdf_of_a_followed_folder_gets_its_figures_again_and_a_remove
     sync.add_source(aid, "folder", {"path": str(src)})
     sync.update(aid)
     doc = next(d for d in store.get(aid)["document_list"] if d["name"] == "patent.pdf")
-    assert doc["figures"] == 1 and (tmp_path / "rag" / aid / "images" / doc["id"] / "1.webp").is_file()
-    first = (tmp_path / "rag" / aid / "images" / doc["id"] / "1.webp").read_bytes()
+    assert doc["figures"] == 1 and image_of(store, aid, doc["id"])
+    first = image_of(store, aid, doc["id"])
     plain = fitz.open()
     plain.new_page().insert_textbox(fitz.Rect(60, 80, 540, 300), "A new version of the patent with text only and no drawing at all, about boats and the wind.", fontsize=11)
     plain.save(str(pdf))
@@ -287,5 +290,5 @@ def test_an_updated_pdf_of_a_followed_folder_gets_its_figures_again_and_a_remove
     done = sync.update(aid)
     assert any(i["state"] == "updated" for i in done["items"])
     doc = next(d for d in store.get(aid)["document_list"] if d["name"] == "patent.pdf")
-    assert doc["figures"] == 0 and not (tmp_path / "rag" / aid / "images" / doc["id"]).exists() and not any(c["kind"] == "figure" for c in store.load(aid).chunks)
+    assert doc["figures"] == 0 and not image_of(store, aid, doc["id"]) and not any(c["kind"] == "figure" for c in store.load(aid).chunks)
     del first

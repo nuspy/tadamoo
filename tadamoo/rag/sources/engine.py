@@ -95,7 +95,7 @@ class Sync:
     # -- the sources of an archive ---------------------------------------------------------------
 
     def state(self, aid: Any) -> State:
-        return State(self.store.folder(aid))
+        return State(self.store._backend(aid), aid)
 
     def sources(self, aid: Any) -> Dict[str, Any]:
         """What the archive remembers about its sources: the sources, the last check, the last update, what needs attention. Links of removed documents are dropped."""
@@ -464,7 +464,7 @@ class Sync:
         def keep(d: Dict[str, Any]) -> None:
             for p in prepared:
                 link = d["links"].get(p["old_doc"]["id"], {})
-                entry = state.keep_version(d, p["old_doc"], self.store.folder(aid) / "blocks" / (p["old_doc"]["id"] + ".json.gz"), link.get("version", ""), now, int(settings["keep_versions"]))
+                entry = state.keep_version(d, p["old_doc"], self.store._backend(aid).get_blob(aid, "blocks", p["old_doc"]["id"]), link.get("version", ""), now, int(settings["keep_versions"]))
                 if entry:
                     kept.append((p["old_doc"], entry))
         state.change(keep)
@@ -475,7 +475,7 @@ class Sync:
             def undo(d: Dict[str, Any]) -> None:
                 for doc, entry in kept:
                     d["versions"].get(doc["id"], []).remove(entry) if entry in d["versions"].get(doc["id"], []) else None
-                    (state.folder / "versions" / doc["id"] / f"{entry['n']}.json.gz").unlink(missing_ok=True)
+                    state.drop_version(doc["id"], entry["n"])
             state.change(undo)
             raise
         finally:

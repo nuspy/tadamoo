@@ -248,6 +248,7 @@ class Routes(unittest.TestCase):
         cls.httpd.server_close()
         for p in cls.patches:
             p.stop()
+        cls.rag.router.close()
         cls.tmp.cleanup()
 
     def call(self, method, path, payload=None, raw=None):

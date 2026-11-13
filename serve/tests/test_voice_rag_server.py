@@ -28,6 +28,7 @@ class VoiceRagServerTest(unittest.TestCase):
         tok = ByteTokenizer()
         cls.svc = Service(MockEngine(tok, "</think>\n\nok", max_context=32768), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
         cls.tmp = tempfile.TemporaryDirectory()
+        cls.stores = []
         base = Path(cls.tmp.name)
         cls.env = mock.patch.dict(os.environ, {"TADAMOO_DATA": str(base / "data"), "TADAMOO_CACHE": str(base / "cache")})
         cls.env.start()
@@ -43,9 +44,13 @@ class VoiceRagServerTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.httpd.shutdown()
         cls.httpd.server_close()
+        held = handler._RAG
         for p in cls.patches:
             p.stop()
         cls.env.stop()
+        for store in (held, *cls.stores):
+            if store is not None:
+                store.router.close()
         cls.tmp.cleanup()
 
     def setUp(self):
@@ -74,6 +79,7 @@ class VoiceRagServerTest(unittest.TestCase):
     def test_a_question_goes_from_the_service_to_the_page_and_the_answer_comes_back(self):
         from tadamoo.rag import RagStore
         store = handler._RAG or RagStore(Path(self.tmp.name) / "data" / "rag")
+        self.stores.append(store)
         aid = store.create("Boats", project="a" * 12)["id"]
         status, out = self.call("POST", "/api/voice/rag/ask", {"session": "m1", "function": "meeting", "archive_id": aid, "preview": "the keel", "how": "spoken"})
         self.assertEqual(status, 200)

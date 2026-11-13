@@ -1,14 +1,15 @@
-"""The knowledge archives: a folder of the user data, `rag/<id>/`, for each.
+"""The knowledge archives. An archive belongs to a project and lives in the project's database (tadamoo/rag/backends): a SQLite file of its own by default, or the
+PostgreSQL, MariaDB or other database the project is set to. The store keeps no file of an archive; it reads and writes through the backend of the project:
 
-    meta.json         name, description, the project it belongs to (a key, tadamoo/rag/project.py, and its name as it was when the archive was made), the documents, how many passages, the embedding model
-                      of the vectors with their size and version (`embed_model` empty: text only)
-    chunks.jsonl      one passage per line: {"doc", "n", "text", "path", "page_start", "page_end", "kind", "section", "flag"?}
-    sections.jsonl    one section per line, to expand a hit to the part of the document it came from: {"doc", "id", "parent", "path", "page_start", "page_end", "text"}
-    embeddings.npy    float16, one L2-normalized row per passage (read back as float32 and normalized again), present only when every passage has one
-    blocks/<doc>.json.gz   the blocks read from each document, before cleaning, so an archive can be cut again without the original or a new reading
+    meta         name, description, the project it belongs to (a key, tadamoo/rag/project.py, and its name as it was when the archive was made), the documents, how many passages, the
+                 embedding model of the vectors with their size and version (`embed_model` empty: text only)
+    passages     {"doc", "n", "text", "path", "page_start", "page_end", "kind", "section", "flag"?, "facts"?, "summary"?, "questions"?}, in order
+    sections     to expand a hit to the part of the document it came from: {"doc", "id", "parent", "path", "page_start", "page_end", "text"}
+    vectors      one L2-normalized row per passage, present only when every passage has one
+    blocks       the blocks read from each document, before cleaning, so an archive can be cut again without the original or a new reading
 
-The files are written to a temporary name and renamed; `meta.json` goes last. Nothing outside `rag/` is reachable: an archive id is a plain
-slug, a document is named by its own id, and a path given to read is refused when it climbs or is inside the data folder."""
+A change is one transaction of the database. Nothing outside the databases is reachable: an archive id is a plain slug, a document is named by its own id, and a path
+given to read is refused when it climbs or is inside the data folder."""
 from __future__ import annotations
 
 import gzip
@@ -28,12 +29,14 @@ import numpy as np
 
 from tadamoo.rag import enrich
 from tadamoo.rag import search as ranking
+from tadamoo.rag.backends import MAIN, Backend, Router
 from tadamoo.rag.embed import Embedder, EmbedderProvider, compatible, embed_all, no_embedder, normalize as unit_rows
 from tadamoo.rag.errors import RagError
 from tadamoo.rag.ingest import chunker, extraction_of, formats, normalize, read_document
 from tadamoo.rag.ingest import docling_client, figures
 from tadamoo.rag.ingest import meta as facts
 from tadamoo.rag.ingest.blocks import blocks_to_markdown, page_count, parse_pages
+from tadamoo.rag.passage import searchable  # noqa: F401  (also imported from here)
 from tadamoo.rag.project import is_key
 from tadamoo.rag.settings import RagSettings
 from tadamoo.rag.sources import coverage
@@ -69,16 +72,6 @@ def _text(value: Any, field: str, limit: int, required: bool = False) -> str:
     return value
 
 
-def searchable(chunk: Dict[str, Any]) -> str:
-    """The text of a passage as it is searched and embedded: where it is in the document, what a model said it is about and the questions it answers (when the
-    archive was enriched, tadamoo/rag/enrich.py), then the passage."""
-    lead = [chunk["path"]] if chunk.get("path") else []
-    if chunk.get("summary"):
-        lead.append(chunk["summary"])
-    lead += list(chunk.get("questions") or [])
-    return ("\n".join(lead) + "\n" + chunk["text"]) if lead else chunk["text"]
-
-
 def _extraction(meta: Dict[str, Any]) -> str:
     """How the documents of an archive were read: `docling`, `basic`, `mixed`, or "" for an archive with no document."""
     kinds = {d.get("extraction", "basic") for d in meta["documents"]}
@@ -95,12 +88,35 @@ def _copy(meta: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class Archive:
-    """One archive as loaded: its meta, its passages and its vectors, with the word index made when first needed."""
+    """One archive as loaded: its meta, its passages and its vectors, with the word index made when first needed. An archive that comes from a database reads its
+    vectors when first asked, and keeps its backend so that a search can ask the database itself."""
 
-    def __init__(self, meta: Dict[str, Any], chunks: List[Dict[str, Any]], vectors: Optional[np.ndarray], sections: Optional[Dict[str, Dict[str, Any]]] = None) -> None:
-        self.meta, self.chunks, self.vectors = meta, chunks, vectors
+    def __init__(self, meta: Dict[str, Any], chunks: List[Dict[str, Any]], vectors: Optional[np.ndarray], sections: Optional[Dict[str, Dict[str, Any]]] = None,
+                 backend: Optional[Backend] = None, vector_loader: Optional[Callable[[], Optional[np.ndarray]]] = None) -> None:
+        self.meta, self.chunks, self._vectors = meta, chunks, vectors
         self.sections: Dict[str, Dict[str, Any]] = sections or {}
+        self.backend, self._loader, self._loaded = backend, vector_loader, vector_loader is None
+        self.slot = MAIN                                    # the slot of the backend's vectors this archive's `vectors` are
         self._index: Optional[ranking.Bm25] = None
+
+    @property
+    def vectors(self) -> Optional[np.ndarray]:
+        if not self._loaded:
+            self._loaded = True
+            self._vectors = self._loader() if self._loader is not None else None
+        return self._vectors
+
+    @vectors.setter
+    def vectors(self, value: Optional[np.ndarray]) -> None:
+        self._vectors, self._loaded = value, True
+
+    @property
+    def has_vectors(self) -> bool:
+        """Whether the archive holds one vector for each passage, without reading them."""
+        if self._loaded or self.backend is None:
+            return self.vectors is not None
+        note = self.backend.vector_note(self.meta["id"], MAIN) if self.backend is not None else None
+        return bool(note) and note["rows"] == len(self.chunks) == self.meta.get("chunks") and bool(self.meta.get("embed_model"))
 
     def index(self) -> ranking.Bm25:
         if self._index is None:
@@ -113,15 +129,16 @@ class Archive:
 
 class RagStore:
     def __init__(self, root: str | Path, embedder: EmbedderProvider = no_embedder, forbidden: Sequence[str | Path] = (),
-                 clock: Callable[[], float] = time.time) -> None:
+                 clock: Callable[[], float] = time.time, router: Optional[Router] = None, password: Callable[[str], str] = lambda entry: "") -> None:
         self.root = Path(root)
         self.settings = RagSettings(self.root)
+        self.router = router if router is not None else Router(self.root, password)       # the database of each project
         self.provider, self.clock = embedder, clock
         self.remote: Optional[Callable[[List[str], str, int, float], Dict[str, Any]]] = None      # a process with no embedder asks the server's store instead
         self.forbidden = [Path(p).resolve() for p in forbidden]
         self._lock = threading.RLock()
-        self._cache: Dict[str, Tuple[int, Archive]] = {}
-        self._metas_cache: Dict[str, Tuple[int, Dict[str, Any]]] = {}
+        self._cache: Dict[str, Tuple[Any, Archive]] = {}
+        self._metas_cache: Dict[str, Tuple[Any, Dict[str, Any]]] = {}
 
     def ingest(self) -> Dict[str, Any]:
         """What cuts the passages of an archive now: the versions of the cleaning, the cutting and the facts, and the sizes (the settings `chunk_target` and `chunk_hard`);
@@ -137,113 +154,77 @@ class RagStore:
 
     # -- where things are ------------------------------------------------------------------------
 
-    def _dir(self, aid: Any) -> Path:
+    @staticmethod
+    def _id(aid: Any) -> str:
         if not isinstance(aid, str) or not ID.match(aid):
             raise RagError("there is no such archive", "not_found")
-        path = (self.root / aid).resolve()
-        if path.parent != self.root.resolve():
+        return aid
+
+    def _backend(self, aid: Any) -> Backend:
+        """The database that holds archive `aid`."""
+        found = self.router.find(self._id(aid))
+        if found is None:
             raise RagError("there is no such archive", "not_found")
-        return path
+        return found
+
+
+
+    def _put_meta(self, aid: str, meta: Dict[str, Any]) -> None:
+        self._backend(aid).write_meta(aid, meta)
+        self._cache.pop(aid, None)
+        self._metas_cache.pop(aid, None)
 
     @staticmethod
-    def _put(path: Path, data: bytes | str) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".tmp")
-        with open(tmp, "wb") as f:
-            f.write(data.encode("utf-8") if isinstance(data, str) else data)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, path)
-
-    def _put_meta(self, folder: Path, meta: Dict[str, Any]) -> None:
-        self._put(folder / "meta.json", json.dumps(meta, indent=1, ensure_ascii=False))
-        self._cache.pop(folder.name, None)
-        self._metas_cache.pop(folder.name, None)
-
-    @staticmethod
-    def _read_meta(folder: Path) -> Dict[str, Any]:
-        try:
-            meta = json.loads((folder / "meta.json").read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            raise RagError("there is no such archive", "not_found") from None
-        except (OSError, ValueError):
-            raise RagError("the archive file could not be read") from None
-        if not isinstance(meta, dict) or not isinstance(meta.get("documents"), list) or meta.get("id") != folder.name:
-            raise RagError("the archive file is damaged")
+    def _read_meta(backend: Backend, aid: str) -> Dict[str, Any]:
+        meta = backend.read_meta(aid)
+        if meta is None:
+            raise RagError("there is no such archive", "not_found")
+        if not isinstance(meta.get("documents"), list) or meta.get("id") != aid:
+            raise RagError("the archive is damaged")
         return meta
 
     def meta(self, aid: Any) -> Dict[str, Any]:
         """The meta of an archive alone (no passages, no vectors): what a process needs to know whether it exists and what it allows."""
-        folder = self._dir(aid)
+        backend = self._backend(aid)
         with self._lock:
-            meta_file = folder / "meta.json"
-            stamp = meta_file.stat().st_mtime_ns if meta_file.is_file() else 0
+            key = (id(backend), backend.revision(aid))
             cached = self._metas_cache.get(aid)
-            if cached and cached[0] == stamp:
+            if cached and cached[0] == key:
                 return cached[1]
-            meta = self._read_meta(folder)
-            self._metas_cache[aid] = (stamp, meta)
+            meta = self._read_meta(backend, aid)
+            self._metas_cache[aid] = (key, meta)
             return meta
 
     def load(self, aid: Any) -> Archive:
-        """The archive with its passages and vectors, kept in memory until it changes."""
-        folder = self._dir(aid)
+        """The archive with its passages, kept in memory until it changes; its vectors are read when a search first needs them."""
+        backend = self._backend(aid)
         with self._lock:
-            meta_file = folder / "meta.json"
-            stamp = meta_file.stat().st_mtime_ns if meta_file.is_file() else 0
+            key = (id(backend), backend.revision(aid))
             cached = self._cache.get(aid)
-            if cached and cached[0] == stamp:
+            if cached and cached[0] == key:
                 return cached[1]
-            meta = self._read_meta(folder)
+            meta = self._read_meta(backend, aid)
             known = {d["id"] for d in meta["documents"]}
-            chunks: List[Dict[str, Any]] = []
-            try:
-                with open(folder / "chunks.jsonl", encoding="utf-8") as f:
-                    chunks = [c for c in (json.loads(line) for line in f if line.strip()) if c.get("doc") in known]
-            except FileNotFoundError:
-                pass
-            except (OSError, ValueError):
-                raise RagError("the passages of the archive could not be read") from None
-            sections: Dict[str, Dict[str, Any]] = {}
-            try:
-                with open(folder / "sections.jsonl", encoding="utf-8") as f:
-                    for line in f:
-                        if line.strip():
-                            row = json.loads(line)
-                            if row.get("doc") in known:
-                                sections[row["id"]] = row
-            except FileNotFoundError:
-                pass
-            except (OSError, ValueError, KeyError):
-                sections = {}
-            vectors = None
-            if meta.get("embed_model") and (folder / "embeddings.npy").is_file():
-                try:
-                    found = np.load(folder / "embeddings.npy", allow_pickle=False)
-                    if found.ndim == 2 and found.shape[0] == len(chunks) == meta.get("chunks"):
-                        vectors = unit_rows(found)
-                except (OSError, ValueError):
-                    vectors = None
-            archive = Archive(meta, chunks, vectors, sections)
-            self._cache[aid] = (stamp, archive)
+            chunks = [c for c in backend.read_chunks(aid) if c.get("doc") in known]
+            sections = {sid: row for sid, row in backend.read_sections(aid).items() if row.get("doc") in known}
+
+            def vectors() -> Optional[np.ndarray]:
+                if not meta.get("embed_model"):
+                    return None
+                found = backend.read_vectors(aid)
+                return unit_rows(found) if found is not None and found.ndim == 2 and found.shape[0] == len(chunks) == meta.get("chunks") else None
+            archive = Archive(meta, chunks, None, sections, backend, vectors)
+            self._cache[aid] = (key, archive)
             return archive
 
-    def _commit(self, folder: Path, meta: Dict[str, Any], chunks: List[Dict[str, Any]], vectors: Optional[np.ndarray], model: str,
+    def _commit(self, aid: str, meta: Dict[str, Any], chunks: List[Dict[str, Any]], vectors: Optional[np.ndarray], model: str,
                 sections: Optional[Dict[str, Dict[str, Any]]] = None, version: str = "") -> None:
         has = vectors is not None
         meta.update(chunks=len(chunks), embed_model=model if has else "", embed_dim=int(vectors.shape[1]) if has else 0, embed_version=version if has else "",
                     updated=self.clock(), ingest=self.ingest())
-        self._put(folder / "chunks.jsonl", "".join(json.dumps(c, ensure_ascii=False) + "\n" for c in chunks))
-        if sections is not None:
-            self._put(folder / "sections.jsonl", "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in sections.values()))
-        if vectors is not None:
-            tmp = folder / "embeddings.npy.tmp"
-            with open(tmp, "wb") as f:
-                np.save(f, np.asarray(vectors, dtype=np.float16), allow_pickle=False)
-            os.replace(tmp, folder / "embeddings.npy")
-        else:
-            (folder / "embeddings.npy").unlink(missing_ok=True)
-        self._put_meta(folder, meta)
+        self._backend(aid).commit(aid, meta, chunks, sections, np.asarray(vectors, dtype=np.float32) if has else None, model if has else "", version if has else "")
+        self._cache.pop(aid, None)
+        self._metas_cache.pop(aid, None)
 
     # -- the archives ----------------------------------------------------------------------------
 
@@ -261,18 +242,13 @@ class RagStore:
                 "flagged": sum(d.get("flagged", 0) for d in meta["documents"]), "extraction": _extraction(meta), **self.status(meta)}
 
     def _metas(self, project: Optional[str] = None) -> List[Dict[str, Any]]:
-        """The meta of every readable archive (of one project, or of all with None), by name; a folder that is not an archive, or is damaged, is left out.
+        """The meta of every readable archive (of one project, or of all with None), by name; one that is damaged is left out.
         An archive whose meta names no project belongs to none."""
         out = []
-        if self.root.is_dir():
-            for folder in sorted(self.root.iterdir()):
-                if folder.is_dir() and ID.match(folder.name):
-                    try:
-                        meta = self._read_meta(folder)
-                    except RagError:
-                        continue
-                    if project is None or meta.get("project") == project:
-                        out.append(meta)
+        for backend in self.router.backends(project):
+            for meta in backend.read_metas(project):
+                if ID.match(str(meta.get("id") or "")) and isinstance(meta.get("documents"), list) and (project is None or meta.get("project") == project):
+                    out.append(meta)
         return sorted(out, key=lambda m: (m["name"].lower(), m["id"]))
 
     def list(self, project: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -280,16 +256,11 @@ class RagStore:
         return [self._summary(m) for m in self._metas(project)]
 
     def stamp(self) -> Tuple[Tuple[str, int], ...]:
-        """What tells that an archive was made, changed or removed: the id and the modification time of each `meta.json` (one stat each)."""
-        out = []
-        if self.root.is_dir():
-            for folder in sorted(self.root.iterdir()):
-                if ID.match(folder.name):
-                    try:
-                        out.append((folder.name, (folder / "meta.json").stat().st_mtime_ns))
-                    except OSError:
-                        continue
-        return tuple(out)
+        """What tells that an archive was made, changed or removed: the id and the revision of each archive (one query for each database)."""
+        out: List[Tuple[str, int]] = []
+        for backend in self.router.backends():
+            out += list(backend.revisions().items())
+        return tuple(sorted(out))
 
     def ids(self, project: Optional[str]) -> List[str]:
         """The ids of the archives of `project` (every archive with None), read without looking at the embedder."""
@@ -314,7 +285,7 @@ class RagStore:
             meta = {"id": aid, "name": name, "description": description, "project": project, "project_name": str(project_name or "").strip()[:LIMITS["name"]],
                     "cloud_ok": False, "others_ok": "ask_dialog", "created": now, "updated": now, "chunks": 0,
                     "embed_model": "", "embed_dim": 0, "embed_version": "", "ingest": self.ingest(), "documents": []}
-            self._put_meta(self._dir(aid), meta)
+            self.router.for_project(project).write_meta(aid, meta)
             return self.get(aid)
 
     def update(self, aid: Any, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -322,7 +293,7 @@ class RagStore:
         if extra:
             raise RagError("unknown field: " + ", ".join(sorted(map(str, extra))[:5]))
         with self._lock:
-            folder, meta = self._dir(aid), _copy(self.load(aid).meta)
+            meta = _copy(self.load(aid).meta)
             if "name" in data:
                 name = _text(data["name"], "name", LIMITS["name"], True)
                 if any(m["name"].lower() == name.lower() and m["id"] != aid for m in self._metas(meta.get("project") or "-")):
@@ -339,15 +310,16 @@ class RagStore:
                     raise RagError("others_ok: ask_dialog, allow, deny or ask_voice")
                 meta["others_ok"] = data["others_ok"]
             meta["updated"] = self.clock()
-            self._put_meta(folder, meta)
+            self._put_meta(aid, meta)
             return self.get(aid)
 
     def delete(self, aid: Any, confirm: Any) -> Dict[str, Any]:
         if confirm is not True:
             raise RagError("deleting an archive deletes its documents' text and index: it needs the confirmation")
         with self._lock:
-            folder, meta = self._dir(aid), self.load(aid).meta
-            shutil.rmtree(folder)
+            meta = self.load(aid).meta
+            self._backend(aid).delete_archive(aid)
+            self.router.forget(aid)
             self._cache.pop(aid, None)
             self._metas_cache.pop(aid, None)
             return {"deleted": True, "documents": len(meta["documents"])}
@@ -385,7 +357,7 @@ class RagStore:
 
     def stage_bytes(self, aid: Any, name: Any, data: bytes) -> Tuple[str, Path]:
         """The checked name and the temporary file that holds an upload until it is added (`add_file` with it; the caller removes it)."""
-        self._dir(aid)
+        self._id(aid)
         name = self._doc_name(name)
         self._check_ext(name)
         if len(data) > LIMITS["document_bytes"]:
@@ -440,14 +412,15 @@ class RagStore:
         sections = {f"{doc_id}.{r['id']}": {**r, "doc": doc_id, "id": f"{doc_id}.{r['id']}", "parent": f"{doc_id}.{r['parent']}" if r["parent"] else ""} for r in built["sections"]}
         return chunks, sections, {"chars": chars, "flagged": flagged, "info": facts.document(name, chunks), **stats}
 
-    @staticmethod
-    def _save_blocks(folder: Path, doc_id: str, blocks: List[Dict[str, Any]]) -> None:
-        RagStore._put(folder / "blocks" / (doc_id + ".json.gz"), gzip.compress(json.dumps(blocks, ensure_ascii=False).encode("utf-8"), 6))
+    def _save_blocks(self, aid: str, doc_id: str, blocks: List[Dict[str, Any]]) -> None:
+        self._backend(aid).put_blob(aid, "blocks", doc_id, gzip.compress(json.dumps(blocks, ensure_ascii=False).encode("utf-8"), 6))
 
-    @staticmethod
-    def _load_blocks(folder: Path, doc: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _load_blocks(self, aid: str, doc: Dict[str, Any]) -> List[Dict[str, Any]]:
+        data = self._backend(aid).get_blob(aid, "blocks", doc["id"])
         try:
-            return json.loads(gzip.decompress((folder / "blocks" / (doc["id"] + ".json.gz")).read_bytes()).decode("utf-8"))
+            if data is None:
+                raise ValueError("missing")
+            return json.loads(gzip.decompress(data).decode("utf-8"))
         except (OSError, ValueError):
             raise RagError(f"the saved reading of {doc['name']} is missing: add the document again") from None
 
@@ -501,15 +474,14 @@ class RagStore:
                    "info": stats["info"], **({"skipped_pages": reading["skipped_pages"]} if reading.get("skipped_pages") else {}),
                    **({"empty_pages": reading["empty_pages"]} if reading.get("empty_pages") else {}), "figures": len(fset["records"])}
             doc["coverage"] = coverage.of_document(doc, chunks)
-            folder = self._dir(aid)
-            self._save_blocks(folder, doc_id, reading["blocks"])
+            self._save_blocks(aid, doc_id, reading["blocks"])
             try:
                 vectors, model, version, note = self._join(archive, made)
                 meta["documents"].append(doc)
-                self._commit(folder, meta, archive.chunks + chunks, vectors, model, {**archive.sections, **sections}, version)
-                self.install_figures(folder, doc_id, fset)
+                self._commit(aid, meta, archive.chunks + chunks, vectors, model, {**archive.sections, **sections}, version)
+                self.install_figures(aid, doc_id, fset)
             except BaseException:
-                (folder / "blocks" / (doc_id + ".json.gz")).unlink(missing_ok=True)
+                self._backend(aid).delete_blobs(aid, "blocks", key=doc_id)
                 raise
             return {"document": doc, "embedded": vectors is not None, "note": "; ".join(x for x in [note] + list(reading.get("notes") or []) if x)}
 
@@ -546,7 +518,7 @@ class RagStore:
         if not isinstance(doc_id, str) or not DOC_ID.match(doc_id):
             raise RagError("there is no such document", "not_found")
         with self._lock:
-            archive, folder = self.load(aid), self._dir(aid)
+            archive = self.load(aid)
             meta = _copy(archive.meta)
             if not any(d["id"] == doc_id for d in meta["documents"]):
                 raise RagError("there is no such document", "not_found")
@@ -554,41 +526,41 @@ class RagStore:
             keep = [i for i, c in enumerate(archive.chunks) if c["doc"] != doc_id]
             vectors = archive.vectors[keep] if archive.vectors is not None and keep else None
             sections = {k: v for k, v in archive.sections.items() if v.get("doc") != doc_id}
-            self._commit(folder, meta, [archive.chunks[i] for i in keep], vectors, archive.meta["embed_model"], sections, archive.meta.get("embed_version", ""))
-            (folder / "blocks" / (doc_id + ".json.gz")).unlink(missing_ok=True)
-            self.install_figures(folder, doc_id, {"records": []})
+            self._commit(aid, meta, [archive.chunks[i] for i in keep], vectors, archive.meta["embed_model"], sections, archive.meta.get("embed_version", ""))
+            self._backend(aid).delete_blobs(aid, "blocks", key=doc_id)
+            self.install_figures(aid, doc_id, {"records": []})
             return {"removed": True, "chunks": len(keep)}
 
     def reindex(self, aid: Any, progress: Optional[Callable[[Dict[str, Any]], None]] = None, cancel: Optional[threading.Event] = None) -> Dict[str, Any]:
         """Cleans and cuts every document's saved reading into passages again (with the versions of the cleaning and the cutting now in use) and
         embeds them with the embedder in use, if there is one. Docling is not asked again. The archive stays searchable while it is embedded."""
         tell = progress or (lambda event: None)
-        archive, folder = self.load(aid), self._dir(aid)
+        archive = self.load(aid)
         meta = _copy(archive.meta)
         chunks: List[Dict[str, Any]] = []
         sections: Dict[str, Dict[str, Any]] = {}
         tell({"event": "stage", "stage": "cutting"})
         for doc in meta["documents"]:
-            made, secs, stats = self._build(doc["id"], doc["name"], self._load_blocks(folder, doc))
-            made += self.figure_rows(doc["id"], doc["name"], self._load_figures(folder, doc["id"]), made)
+            made, secs, stats = self._build(doc["id"], doc["name"], self._load_blocks(aid, doc))
+            made += self.figure_rows(doc["id"], doc["name"], self._load_figures(aid, doc["id"]), made)
             doc.update(chunks=len(made), chars=stats["chars"], flagged=stats["flagged"], info=stats["info"])
             chunks += made
             sections.update(secs)
         if len(chunks) > LIMITS["chunks"]:
             raise RagError(f"the archive would hold more than {LIMITS['chunks']:,} passages")
-        self._describe(folder, meta, chunks, sections)
+        self._describe(aid, meta, chunks, sections)
         tell({"event": "stage", "stage": "indexing"})
         vectors, model, version, note = self._embed_new(Archive(meta, [], None), [searchable(c) for c in chunks], progress, cancel)
         with self._lock:
             if self.load(aid).meta["updated"] != archive.meta["updated"]:
                 raise RagError("the archive changed while it was indexed: index it again")
-            self._commit(folder, meta, chunks, vectors, model, sections, version)
+            self._commit(aid, meta, chunks, vectors, model, sections, version)
         return {"chunks": len(chunks), "embedded": vectors is not None, "note": note}
 
-    def _describe(self, folder: Path, meta: Dict[str, Any], chunks: List[Dict[str, Any]], sections: Dict[str, Dict[str, Any]]) -> None:
-        """Puts the summaries and questions a model wrote (`enrich.jsonl`, tadamoo/rag/enrich.py) on the passages, sections and documents they belong to, in the
+    def _describe(self, aid: str, meta: Dict[str, Any], chunks: List[Dict[str, Any]], sections: Dict[str, Dict[str, Any]]) -> None:
+        """Puts the summaries and questions a model wrote (the enrichment cache, tadamoo/rag/enrich.py) on the passages, sections and documents they belong to, in the
         language now set, and says in `meta["enriched"]` how many were found."""
-        cache = enrich.Cache(folder)
+        cache = self.enrich_cache(aid)
         language = self.settings.read()["enrich_language"]
         got = enrich.attach(cache, language, chunks, sections, meta["documents"]) if cache.entries else {"passages": 0, "sections": 0, "documents": 0}
         if got["passages"] or got["sections"]:
@@ -598,10 +570,9 @@ class RagStore:
 
     def enrichment(self, aid: Any) -> Dict[str, Any]:
         """How much of an archive a model has described (`{}` when none of it): language, passages and sections, and what is cached for the language now set."""
-        folder = self._dir(aid)
-        meta = self._read_meta(folder)
+        meta = self.meta(aid)
         language = self.settings.read()["enrich_language"]
-        cached = sum(1 for e in enrich.Cache(folder).entries.values() if str(e.get("language", "")).lower() == language.lower())
+        cached = sum(1 for e in self.enrich_cache(aid).entries.values() if str(e.get("language", "")).lower() == language.lower())
         return {"language": language, "cached": cached, "applied": meta.get("enriched") or {}, "passages": meta["chunks"]}
 
     def section(self, aid: Any, sid: Any) -> Dict[str, Any]:
@@ -616,47 +587,30 @@ class RagStore:
     # -- looking inside a document without loading the vectors ----------------------------------------
 
     def documents(self, aid: Any) -> List[Dict[str, Any]]:
-        """The documents of an archive as `meta.json` lists them (name, pages, size, chunks), read without the passages or the vectors."""
-        return [dict(d) for d in self._read_meta(self._dir(aid))["documents"]]
+        """The documents of an archive as its meta lists them (name, pages, size, chunks), read without the passages or the vectors."""
+        return [dict(d) for d in self.meta(aid)["documents"]]
 
     def samples(self, aid: Any, per_doc: int = 8, skip: int = 2) -> Dict[str, List[str]]:
-        """A few passages of each document (after its first `skip`, which are the cover), for a guess of its language; the passage file is read line by line."""
-        folder, seen = self._dir(aid), {}
-        out: Dict[str, List[str]] = {d["id"]: [] for d in self._read_meta(folder)["documents"]}
-        try:
-            with open(folder / "chunks.jsonl", encoding="utf-8") as f:
-                for line in f:
-                    m = re.match(r'\{"doc": "([^"]+)"', line)
-                    doc = m.group(1) if m else ""
-                    if doc not in out:
-                        continue
-                    seen[doc] = seen.get(doc, 0) + 1
-                    if seen[doc] > skip and len(out[doc]) < per_doc:
-                        try:
-                            out[doc].append(json.loads(line)["text"])
-                        except (ValueError, KeyError):
-                            continue
-        except OSError:
-            pass
+        """A few passages of each document (after its first `skip`, which are the cover), for a guess of its language."""
+        archive = self.load(aid)
+        out: Dict[str, List[str]] = {d["id"]: [] for d in archive.meta["documents"]}
+        seen: Dict[str, int] = {}
+        for c in archive.chunks:
+            doc = c["doc"]
+            if doc not in out:
+                continue
+            seen[doc] = seen.get(doc, 0) + 1
+            if seen[doc] > skip and len(out[doc]) < per_doc:
+                out[doc].append(c["text"])
         return out
 
     def outline(self, aid: Any, doc_id: str) -> List[Dict[str, Any]]:
         """The sections of one document in page order, `{title, level, page_start, page_end}`; runs of the same title (a heading that repeats on every
-        page) are one entry over their pages. Read from `sections.jsonl` only."""
-        known = {d["id"] for d in self._read_meta(self._dir(aid))["documents"]}
-        rows: List[Dict[str, Any]] = []
-        try:
-            with open(self._dir(aid) / "sections.jsonl", encoding="utf-8") as f:
-                for line in f:
-                    if f'"doc": "{doc_id}"' in line and doc_id in known:
-                        try:
-                            r = json.loads(line)
-                        except ValueError:
-                            continue
-                        if r.get("doc") == doc_id:
-                            rows.append(r)
-        except OSError:
+        page) are one entry over their pages."""
+        archive = self.load(aid)
+        if doc_id not in {d["id"] for d in archive.meta["documents"]}:
             return []
+        rows = [r for r in archive.sections.values() if r.get("doc") == doc_id]
         rows.sort(key=lambda r: (int(r.get("page_start") or 0), len(str(r.get("path") or ""))))
         out: List[Dict[str, Any]] = []
         for r in rows:
@@ -675,12 +629,11 @@ class RagStore:
         """The Markdown of some pages of a document from the reading saved when it was added (no new OCR): `{document, pages_total, pages: [first, last],
         text, flagged}`; passages that read as instructions to an assistant are marked (or left out, as the `flagged` setting says)."""
         from tadamoo.inject_screen import detect
-        folder = self._dir(aid)
-        meta = self._read_meta(folder)
+        meta = self.meta(aid)
         doc = next((d for d in meta["documents"] if d["id"] == doc_id), None)
         if doc is None:
             raise RagError("there is no such document", "not_found")
-        blocks, _ = normalize.normalize_blocks(self._load_blocks(folder, doc))
+        blocks, _ = normalize.normalize_blocks(self._load_blocks(aid, doc))
         total = max(1, int(doc.get("pages") or 0), page_count(blocks))
         try:
             first, last = parse_pages(pages, total)
@@ -733,15 +686,16 @@ class RagStore:
 
     # -- hooks for the refresh of archives (tadamoo/rag/sources) ---------------------------------
 
-    def folder(self, aid: Any) -> Path:
-        return self._dir(aid)
+    def enrich_cache(self, aid: Any) -> "enrich.Cache":
+        """What a model wrote about the passages of archive `aid` (tadamoo/rag/enrich.py)."""
+        return enrich.Cache(self._backend(aid), aid)
 
     def passages_of(self, doc_id: str, name: str, blocks: List[Dict[str, Any]], aid: Any = None) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]], Dict[str, int]]:
         """The passages, sections and stats a document's blocks give (the cleaning and the cutting of `add_file`). With `aid` the summaries and questions a model
-        already wrote for the archive (`enrich.jsonl`) are put on the passages and sections they were made for, so that an unchanged passage keeps them (and its vector)."""
+        already wrote for the archive (the enrichment cache) are put on the passages and sections they were made for, so that an unchanged passage keeps them (and its vector)."""
         chunks, sections, stats = self._build(doc_id, name, blocks)
         if aid is not None:
-            cache = enrich.Cache(self._dir(aid))
+            cache = self.enrich_cache(aid)
             if cache.entries:
                 enrich.attach(cache, self.settings.read()["enrich_language"], chunks, sections, [])
         return chunks, sections, stats
@@ -784,42 +738,44 @@ class RagStore:
                          "image": f"{IMAGES}/{doc_id}/{f['image']}", "thumb": f"{IMAGES}/{doc_id}/{f['thumb']}", "fig": int(f["n"]), "box": f["box"], "image_sha": f.get("sha", ""), "facts": found})
         return rows
 
-    @staticmethod
-    def _load_figures(folder: Path, doc_id: str) -> List[Dict[str, Any]]:
-        try:
-            data = json.loads((folder / FIGURES / (doc_id + ".json")).read_text(encoding="utf-8"))
-            return [d for d in data if isinstance(d, dict)] if isinstance(data, list) else []
-        except (OSError, ValueError):
-            return []
+    def _load_figures(self, aid: str, doc_id: str) -> List[Dict[str, Any]]:
+        return self._backend(aid).read_figures(aid, doc_id)
 
-    def install_figures(self, folder: Path, doc_id: str, fset: Dict[str, Any]) -> None:
-        """Puts the staged images of a document in the archive (`images/<document>/`) and writes the record of its figures, replacing what the document had before; no
+    def install_figures(self, aid: str, doc_id: str, fset: Dict[str, Any]) -> None:
+        """Puts the staged images of a document in the archive's database and writes the record of its figures, replacing what the document had before; no
         records: the document has no figures and its old ones are removed."""
-        shutil.rmtree(folder / IMAGES / doc_id, ignore_errors=True)
-        (folder / FIGURES / (doc_id + ".json")).unlink(missing_ok=True)
-        if not fset.get("records") or not fset.get("staging"):
+        backend = self._backend(aid)
+        backend.delete_blobs(aid, "image", prefix=doc_id + "/")
+        backend.write_figures(aid, doc_id, [])
+        staging = fset.get("staging")
+        if not fset.get("records") or not staging:
             return
-        (folder / IMAGES).mkdir(parents=True, exist_ok=True)
-        shutil.move(str(fset["staging"]), str(folder / IMAGES / doc_id))
+        for p in sorted(Path(staging).iterdir()):
+            if p.is_file():
+                backend.put_blob(aid, "image", f"{doc_id}/{p.name}", p.read_bytes())
+        shutil.rmtree(staging, ignore_errors=True)
         fset["staging"] = None
-        self._put(folder / FIGURES / (doc_id + ".json"), json.dumps(fset["records"], ensure_ascii=False))
+        backend.write_figures(aid, doc_id, fset["records"])
 
     def figure(self, aid: Any, doc_id: Any, n: Any) -> Dict[str, Any]:
-        """The figure `n` of a document: its passage and the file of its image (`path`) and thumbnail (`thumb_path`), inside the archive's folder."""
+        """The figure `n` of a document: its passage and its image and thumbnail (`image`, `thumb`, the bytes of the files)."""
         if not isinstance(doc_id, str) or not DOC_ID.match(doc_id) or isinstance(n, bool) or not isinstance(n, int):
             raise RagError("there is no such figure", "not_found")
-        archive, folder = self.load(aid), self._dir(aid)
+        archive = self.load(aid)
         row = next((c for c in archive.chunks if c["doc"] == doc_id and c.get("kind") == "figure" and c.get("fig") == n), None)
         if row is None:
             raise RagError("there is no such figure", "not_found")
-        path = (folder / row["image"]).resolve()
-        if folder.resolve() not in path.parents or not path.is_file():
+        backend = self._backend(aid)
+        key = lambda path: path[len(IMAGES) + 1:] if str(path).startswith(IMAGES + "/") else str(path)       # noqa: E731
+        image = backend.get_blob(aid, "image", key(row["image"]))
+        if image is None:
             raise RagError("the image of this figure is missing", "not_found")
-        return {"passage": row, "path": path, "thumb_path": folder / row["thumb"], "document": archive.document(doc_id)["name"], "archive": archive.meta["name"]}
+        return {"passage": row, "image": image, "thumb": backend.get_blob(aid, "image", key(row["thumb"])) or image, "document": archive.document(doc_id)["name"],
+                "archive": archive.meta["name"]}
 
     def describe_documents(self, aid: Any, documents: List[Dict[str, Any]]) -> None:
         """Puts the cached description of a document (by the hash of its file) on each of `documents`, and takes off one made for the text it had before."""
-        cache = enrich.Cache(self._dir(aid))
+        cache = self.enrich_cache(aid)
         for d in documents:
             d.pop("summary", None)
             d.pop("questions", None)
@@ -827,7 +783,7 @@ class RagStore:
             enrich.attach(cache, self.settings.read()["enrich_language"], [], {}, documents)
 
     def blocks_of(self, aid: Any, doc: Dict[str, Any]) -> List[Dict[str, Any]]:
-        return self._load_blocks(self._dir(aid), doc)
+        return self._load_blocks(aid, doc)
 
     def embed_pieces(self, aid: Any, pieces: List[str], progress: Optional[Callable[[Dict[str, Any]], None]] = None,
                      cancel: Optional[threading.Event] = None) -> Tuple[Optional[np.ndarray], str, str, str]:
@@ -842,14 +798,14 @@ class RagStore:
             if doc is None:
                 raise RagError("there is no such document", "not_found")
             doc.update(fields)
-            self._put_meta(self._dir(aid), meta)
+            self._put_meta(aid, meta)
 
     def swap_documents(self, aid: Any, changes: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         """Replaces the readings of documents in one commit. A change is `{doc, chunks, sections, blocks, rows, model, version}`: `doc` is the document's new meta (its id
         names the document it replaces), `rows` the vectors of its passages (None: none) of the embedding `model` and `version`. Passages of the other documents and
         their vectors are kept as they are; the vectors are kept only when every passage has one of the same embedding. A failure puts the saved readings back."""
         with self._lock:
-            archive, folder = self.load(aid), self._dir(aid)
+            archive, backend = self.load(aid), self._backend(aid)
             meta = _copy(archive.meta)
             by_id = {c["doc"]["id"]: c for c in changes}
             if any(i not in {d["id"] for d in meta["documents"]} for i in by_id):
@@ -879,22 +835,19 @@ class RagStore:
                 raise RagError(f"the archive would hold more than {LIMITS['chunks']:,} passages")
             if ok and stacks and want is not None:
                 vectors = np.vstack(stacks)
-            before = {}
-            for doc_id in by_id:
-                path = folder / "blocks" / (doc_id + ".json.gz")
-                before[doc_id] = path.read_bytes() if path.is_file() else None
+            before = {doc_id: backend.get_blob(aid, "blocks", doc_id) for doc_id in by_id}
             if meta.get("enriched"):                                    # the count of what a model described follows the passages that carry it now
                 meta["enriched"] = {**meta["enriched"], "passages": sum(1 for c in chunks if c.get("summary")), "sections": sum(1 for r in sections.values() if r.get("summary")),
                                     "documents": sum(1 for d in meta["documents"] if d.get("summary")), "total": len(chunks), "at": self.clock()}
             try:
                 for doc_id, c in by_id.items():
-                    self._save_blocks(folder, doc_id, c["blocks"])
-                self._commit(folder, meta, chunks, vectors, want[0] if vectors is not None else "", sections, want[1] if vectors is not None else "")
+                    self._save_blocks(aid, doc_id, c["blocks"])
+                self._commit(aid, meta, chunks, vectors, want[0] if vectors is not None else "", sections, want[1] if vectors is not None else "")
                 for doc_id, c in by_id.items():                          # the figures of the new reading replace those of the old (a reading with none leaves none)
-                    self.install_figures(folder, doc_id, c.get("figures") or {"records": []})
+                    self.install_figures(aid, doc_id, c.get("figures") or {"records": []})
             except BaseException:
                 for doc_id, data in before.items():
                     if data is not None:
-                        self._put(folder / "blocks" / (doc_id + ".json.gz"), data)
+                        backend.put_blob(aid, "blocks", doc_id, data)
                 raise
             return {"documents": len(changes), "chunks": len(chunks), "embedded": vectors is not None}

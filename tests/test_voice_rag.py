@@ -24,11 +24,10 @@ class Clock:
 
 
 def set_meta(rag, aid, **fields):
-    """Writes fields into an archive's meta.json the way the resolver's own field would be stored (the store has no setter for them yet)."""
-    path = rag.root / aid / "meta.json"
-    meta = json.loads(path.read_text(encoding="utf-8"))
+    """Writes fields into an archive's meta the way the resolver's own field would be stored (the store has no setter for them yet)."""
+    meta = dict(rag.meta(aid))
     meta.update(fields)
-    path.write_text(json.dumps(meta), encoding="utf-8")
+    rag._put_meta(aid, meta)
 
 
 @pytest.fixture
@@ -136,7 +135,7 @@ def test_a_question_is_one_at_a_time_expires_as_a_no_and_always_saves_the_archiv
     assert vr.consents.pending()[0]["id"] == q["id"]
     done = vr.answer(q["id"], "always", "dialog")["question"]
     assert done["state"] == "answered" and done["answer"] == "always" and done["saved"] is True and done["by"] == "dialog"
-    assert voice_resolve.others_of(json.loads((world.rag.root / world.boats / "meta.json").read_text(encoding="utf-8"))) == "allow"
+    assert voice_resolve.others_of(world.rag.meta(world.boats)) == "allow"
     assert vr.answer(q["id"], "no", "voice")["question"]["answer"] == "always"                    # the first answer counts
     set_meta(world.rag, world.rice, others_ok="ask_voice")
     r = vr.ask({"session": "m1", "function": "meeting", "archive_id": world.rice, "voice_ok": True})["question"]

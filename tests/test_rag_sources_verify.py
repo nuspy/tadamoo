@@ -72,9 +72,8 @@ def test_a_healthy_archive_verifies(tmp_path):
 
 def test_a_cut_short_update_is_found(tmp_path):
     store, sync, aid, src = healthy(tmp_path)
-    f = store.folder(aid) / "chunks.jsonl"
-    rows = f.read_text(encoding="utf-8").splitlines()
-    f.write_text("\n".join(rows[:-2]) + "\n", encoding="utf-8")
+    backend = store._backend(aid)
+    backend.run("DELETE FROM rag_chunks WHERE archive_id = ? AND pos >= ?", (aid, backend.counts(aid)["chunks"] - 2)).close()
     store._cache.clear()
     report = verifying.verify(sync, aid)
     assert not report["ok"]
@@ -85,10 +84,10 @@ def test_a_cut_short_update_is_found(tmp_path):
 def test_a_missing_saved_reading_and_a_wrong_coverage_record_are_found(tmp_path):
     store, sync, aid, src = healthy(tmp_path)
     alpha, beta = doc_of(store, aid, "alpha"), doc_of(store, aid, "beta")
-    (store.folder(aid) / "blocks" / (alpha["id"] + ".json.gz")).unlink()
-    meta = json.loads((store.folder(aid) / "meta.json").read_text(encoding="utf-8"))
+    store._backend(aid).delete_blobs(aid, "blocks", key=alpha["id"])
+    meta = store.meta(aid)
     next(d for d in meta["documents"] if d["id"] == beta["id"])["coverage"]["passages"] = 99
-    (store.folder(aid) / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    store._backend(aid).write_meta(aid, meta)
     store._cache.clear()
     report = verifying.verify(sync, aid)
     texts = " | ".join(p["text"] for p in report["problems"])
@@ -97,10 +96,8 @@ def test_a_missing_saved_reading_and_a_wrong_coverage_record_are_found(tmp_path)
 
 def test_a_deep_verify_cuts_the_readings_again_and_compares(tmp_path):
     store, sync, aid, src = healthy(tmp_path)
-    f = store.folder(aid) / "chunks.jsonl"
-    rows = [json.loads(line) for line in f.read_text(encoding="utf-8").splitlines()]
-    rows[0]["text"] = rows[0]["text"] + " tampered"
-    f.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    backend = store._backend(aid)
+    backend.run("UPDATE rag_chunks SET text = text || ' tampered' WHERE archive_id = ? AND pos = 0", (aid,)).close()
     store._cache.clear()
     assert verifying.verify(sync, aid, deep=False)["ok"]
     deep = verifying.verify(sync, aid, deep=True)

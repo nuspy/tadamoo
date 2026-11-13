@@ -3,6 +3,7 @@ around what it found, or the outline of a long document (`read`). The answers ar
 are text written by someone else, so the tools that carry them are marked untrusted and the flagged ones say so."""
 from __future__ import annotations
 
+import io
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -215,7 +216,7 @@ def figure(store: RagStore, recall: ProjectRecall, id: Any, workspace: Optional[
         target = Path(workspace) / ".tadamoo" / "artifacts" / "figures" / f"{aid}-{doc_id}-{n}.png"
         if not target.is_file():
             target.parent.mkdir(parents=True, exist_ok=True)
-            with Image.open(found["path"]) as image:
+            with Image.open(io.BytesIO(found["image"])) as image:
                 image.convert("RGB").save(target, "PNG", optimize=True)
         rel = target.relative_to(Path(workspace)).as_posix()
     except Exception as e:

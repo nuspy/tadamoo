@@ -124,10 +124,10 @@ def test_a_scheduled_check_reports_in_the_words_of_a_run(api):
 
 def test_attention_names_the_latest_news(api, tmp_path):
     api, aid, src, store, sync = api
-    assert attention(store.root)["t"] == 0
+    assert attention(store)["t"] == 0
     sync.add_source(aid, "folder", {"path": str(src)})
     sync.check(aid)
-    got = attention(store.root)
+    got = attention(store)
     assert got["t"] > 0 and got["archive"] == aid and got["counts"] == {"new": 2}
 
 

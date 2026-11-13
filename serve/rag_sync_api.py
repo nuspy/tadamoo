@@ -135,17 +135,17 @@ class RagSyncApi:
         return {"status": status, "outcome": "nothing_new" if quiet else "progress", "summary": text}
 
 
-def attention(root: Any) -> Dict[str, Any]:
-    """The time of the latest news about any archive in the folder `root` (a change found, a document that failed, a source that could not be read), for the tab that flashes.
-    One small file is read for each archive that has sources."""
-    from pathlib import Path
+def attention(store: Any) -> Dict[str, Any]:
+    """The time of the latest news about any archive of `store` (a change found, a document that failed, a source that could not be read), for the tab that flashes.
+    One small record is read for each archive that has sources."""
     from tadamoo.rag.sources.state import State
     latest, name, counts = 0.0, "", {}
-    folder_root = Path(root)
-    if folder_root.is_dir():
-        for folder in folder_root.iterdir():
-            if folder.is_dir() and (folder / "sources.json").is_file():
-                mark = State(folder).read()["attention"]
-                if float(mark.get("t") or 0) > latest:
-                    latest, name, counts = float(mark["t"]), folder.name, mark.get("counts") or {}
+    for backend in store.router.backends():
+        for aid in backend.archive_ids():
+            if backend.read_sources(aid) is None:
+                continue
+            mark = State(backend, aid).read()["attention"]
+            if float(mark.get("t") or 0) > latest:
+                latest, name, counts = float(mark["t"]), aid, mark.get("counts") or {}
     return {"t": latest, "archive": name, "counts": counts}
+

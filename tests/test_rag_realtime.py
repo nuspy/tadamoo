@@ -64,9 +64,9 @@ def test_the_second_vectors_are_kept_beside_the_archive_and_belong_to_its_passag
     assert not realtime.has_vectors(rag, boats)
     done = realtime.build(rag, boats, Small())
     assert done["passages"] == len(rag.load(boats).chunks) and done["model"] == "small-model"
-    got = realtime.read_vectors(rag.root / boats, rag.load(boats).chunks)
+    got = realtime.read_vectors(rag._backend(boats), boats, rag.load(boats).chunks)
     assert got["model"] == "small-model" and got["vectors"].shape[0] == done["passages"] and realtime.has_vectors(rag, boats)
-    assert not (rag.root / boats / "embeddings.npy").exists()                     # the archive's own vectors are not touched
+    assert rag._backend(boats).vector_note(boats) is None                          # the archive's own vectors are not touched
     extra = tmp_path / "src" / "more.txt"
     extra.write_text("The mast carries the sails of the yacht.", encoding="utf-8")
     rag.add_file(boats, "more.txt", extra)                                          # another cutting of the archive: the old vectors are of other passages
@@ -182,7 +182,7 @@ def test_the_second_vectors_are_read_once_until_they_change_and_a_warm_loads_the
     vectors_for(rag, [boats])
     reads = []
     real = realtime.read_vectors
-    monkeypatch.setattr(realtime, "read_vectors", lambda folder, chunks: reads.append(folder.name) or real(folder, chunks))
+    monkeypatch.setattr(realtime, "read_vectors", lambda backend, aid, chunks: reads.append(aid) or real(backend, aid, chunks))
     s = realtime.Searcher(rag, lambda: Small())
     assert s.warm([boats]) is True and reads == [boats]
     for _ in range(3):

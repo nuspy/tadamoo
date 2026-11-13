@@ -163,13 +163,12 @@ class Memory:
 
 # -- the blocks and the variants -----------------------------------------------------------------------------------------------------------
 
-def load_blocks(folder: Path) -> Tuple[Dict[str, str], Dict[str, List[Dict[str, Any]]]]:
-    meta = json.loads((folder / "meta.json").read_text(encoding="utf-8"))
+def load_blocks(store: RagStore, aid: str) -> Tuple[Dict[str, str], Dict[str, List[Dict[str, Any]]]]:
+    meta = store.meta(aid)
     names = {d["id"]: d["name"] for d in meta["documents"]}
     blocks = {}
-    for doc in names:
-        raw = json.loads(gzip.decompress((folder / "blocks" / f"{doc}.json.gz").read_bytes()).decode("utf-8"))
-        blocks[doc], _ = normalize.normalize_blocks(raw)
+    for doc in meta["documents"]:
+        blocks[doc["id"]], _ = normalize.normalize_blocks(store.blocks_of(aid, doc))
     return names, blocks
 
 
@@ -356,7 +355,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     sys.path.insert(0, str(Path(__file__).parent))
     import rag_eval
     memory = Memory(rag_eval.real_embedder(store, args.url), args.cache)
-    names, blocks = load_blocks(Path(rag_dir) / args.archive)
+    names, blocks = load_blocks(store, args.archive)
     q = json.loads(args.questions.read_text(encoding="utf-8"))
     evidence = evidence_of(store, args.archive, q["questions"] if isinstance(q, dict) else q)
     cfg = {k: v for k, v in store.settings.read().items() if k in RETRIEVAL}

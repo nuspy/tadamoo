@@ -112,7 +112,7 @@ document shows its sections' summaries; the state note names each document with 
 The job sends batches of passages (`enrich_batch`, 5; at most 1400 characters of each, 3000 of a section) to the function `rag_enrich`: the technical session when it fits,
 a route the person set for the function, never a provider outside this PC unless the archive is `cloud_ok`. Passages that read as instructions, are shorter than 60
 characters or are mostly digits are not sent. Each answer is read as strict JSON, cut to size, stripped of markup, screened for instructions to an assistant (an entry
-that has any is dropped), and appended to `enrich.jsonl` before the next call; an entry is found again by the hash of its kind, language, version and text, so a stopped
+that has any is dropped), and added to the archive's database before the next call; an entry is found again by the hash of its kind, language, version and text, so a stopped
 job goes on where it was and a new cut of the archive keeps its descriptions. A call that fails is asked again after 20, 40 and 60 seconds (the engine may be unloaded
 for a heavy job or busy); if the model stays away the job ends `paused` with what it did kept. The job shows its progress, `calls` and `tokens`, and can be cancelled. At the
 end the archive is cut and embedded again so that the descriptions are searched.
