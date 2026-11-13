@@ -93,8 +93,8 @@ class PersonalSkills:
         if not name or len(name) > MAX_NAME:
             raise SkillError(f"Give the skill a name of up to {MAX_NAME} characters.")
         params = spec.get("params") or []
-        if not isinstance(params, list) or len(params) > 40:
-            raise SkillError("A skill has up to 40 parameters.")
+        if not isinstance(params, list) or len(params) > 60:
+            raise SkillError("A skill has up to 60 parameters.")
         names = [p.get("name") if isinstance(p, dict) else None for p in params]
         if len(set(names)) != len(names):
             raise SkillError("Two parameters have the same name.")
