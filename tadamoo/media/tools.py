@@ -130,19 +130,16 @@ def register_media_tools(registry: Any, sandbox: Any, settings: MediaSettings, w
         except MediaError as exc:
             return {"status": "error", "note": str(exc)}
         job = Path(work_dir) / f"enhance-{int(time.time())}"
-        current, seconds = request["video"], 0.0
-        for step in steps:
-            try:
-                got = client.run(step, {"video": current, **({"scale": request["scale"], "mode": request["mode"]} if step == "upscale" else {"factor": request["factor"]})},
-                                 job / f"{step}.mp4", config, url=url, cancel=cancelled, command=command)
-            except (Refused, Cancelled, MediaError) as exc:
-                return job_failed(exc, job)
-            current, seconds = got["path"], seconds + got["seconds"]
+        try:
+            got = client.enhance(request, job, config, url=url, cancel=cancelled, command=command)
+        except (Refused, Cancelled, MediaError) as exc:
+            return job_failed(exc, job)
+        current, seconds = got["path"], got["seconds"]
         safe.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(current, str(safe))
         shutil.rmtree(job, ignore_errors=True)
         result = sandbox._record(rel, "added", "", "", keep_text=False)
-        return {"status": "ok", "path": rel, "bytes": safe.stat().st_size, "seconds": round(seconds, 1), "steps": steps, "scale": request["scale"] or None, "factor": request["factor"] or None,
+        return {"status": "ok", "path": rel, "bytes": safe.stat().st_size, "seconds": seconds, "steps": got["steps"], "scale": request["scale"] or None, "factor": request["factor"] or None,
                 "show": f"show it in the answer with [{safe.name}](tadamoo-path:{rel})", "changes": result["kind"]}
 
     i, v = limits.IMAGE, limits.VIDEO

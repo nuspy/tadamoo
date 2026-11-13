@@ -18,8 +18,9 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from tadamoo.media import client
 from tadamoo.media.settings import DEFAULTS, MediaSettings, ltx_dir_of
+from tadamoo.videoedit.qa import MODELS
 
-LANDMARKERS = Path(r"E:\Modelli\basalt\qa")
+LANDMARKERS = MODELS
 MEDIAPIPE_URL = "https://storage.googleapis.com/mediapipe-models/"
 
 # id -> label (en, it), the kind of check, and what to run when it is missing. A step is a command (a list) or {"download": url, "to": path}; "{py}" is the Python

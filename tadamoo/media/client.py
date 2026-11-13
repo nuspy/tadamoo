@@ -88,6 +88,21 @@ def run(kind: str, request: Dict[str, Any], output: Path, settings: Dict[str, An
     return _run(argv, kind, progress, cancel, settings["idle_s"] if idle_s is None else idle_s, TOTAL_S[kind] if total_s is None else total_s)
 
 
+def enhance(request: Dict[str, Any], work: Path, settings: Dict[str, Any], url: str = "", progress: Optional[Progress] = None, cancel: Optional[Callable[[], bool]] = None,
+            command: Optional[Sequence[str]] = None) -> Dict[str, Any]:
+    """Runs what `limits.enhance_request` asked, one job after the other (the picture enlarged first, so that the frames made in between are made at the final size), and returns
+    `{path, seconds, steps}` of the last. The files of each job are in `work`."""
+    current, seconds, steps = request["video"], 0.0, []
+    for step, wanted in (("upscale", request["scale"]), ("interpolate", request["factor"])):
+        if not wanted:
+            continue
+        asked = {"video": current, "scale": request["scale"], "mode": request["mode"]} if step == "upscale" else {"video": current, "factor": request["factor"]}
+        got = run(step, asked, Path(work) / f"{step}.mp4", settings, url=url, progress=progress, cancel=cancel, command=command)
+        current, seconds = got["path"], seconds + got["seconds"]
+        steps.append(step)
+    return {"path": current, "seconds": round(seconds, 1), "steps": steps}
+
+
 def _run(argv: List[str], kind: str, progress: Optional[Progress], cancel: Optional[Callable[[], bool]], idle_s: float, total_s: float) -> Dict[str, Any]:
     env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
     proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, creationflags=_flags())
