@@ -4,8 +4,8 @@ Reusable by any skill that edits video in code; the newscast uses it, so can a d
 
 | Module | What |
 |---|---|
-| `camera` | the virtual camera: a state (zoom, face position, roll), the S-curve, the library of moves (push in, pull out, drift, roll), the limits of speed, `sequence` (moves for a run of shots, joined on motion or continuously) |
-| `render` | overlays composed over a picture frame by frame (a card sliding in and out, a bar, an evidence card, a small window over a clip), frames written to ffmpeg |
+| `camera` | the virtual camera: a state (zoom, face position, roll), the S-curve, the library of moves (push in, pull out, drift, roll), the limits of speed, `keyframed` (a move between two given states, shortened to the limits), `sequence` (moves for a run of shots, joined on motion or continuously) |
+| `render` | overlays composed over a picture frame by frame (a card sliding in and out, a bar, an evidence card, a small window over a clip), the picture pushed aside by a right-hand band at half its speed (`presenter_shift`, `warp(shift=)`), frames written to ffmpeg |
 | `compose` | one file for each shot, shots joined by stream copy, clips joined untouched and checked packet by packet, probing |
 | `frame` | the canvas of an overlay and the box of a picture on it, sizes given for a frame 530 pixels high and scaled |
 | `qa` | the measures of a finished picture: seams (jumps of the face, of its pixels, of the histogram and the colour, each marked designed, at a graphic event or accidental), the mouth opening, the head and shoulder motion |

@@ -41,6 +41,15 @@ def test_every_move_of_the_library_stays_inside_the_limits_whatever_its_length()
     assert camera.check(camera.Move("fast", camera.State(1.0), camera.State(2.0), 2.0))
 
 
+def test_a_move_between_two_given_states_is_shortened_until_it_breaks_no_limit():
+    fast = camera.keyframed("m", camera.State(1.0, 0.5, 0.3, 9.0), camera.State(2.0, 0.9, 0.3, -9.0), 3.0)
+    assert camera.check(fast) == [] and fast.start.roll == camera.LIMITS["roll_max"] and 1.0 < fast.end.zoom < 2.0
+    slow = camera.keyframed("m", camera.State(1.0), camera.State(1.1), 6.0)
+    assert slow.end.zoom == 1.1 and camera.check(slow) == []
+    wide = camera.keyframed("m", camera.State(1.0, 0.6), camera.State(1.0, 0.4), 4.0, {"drift_per_s": 0.1})
+    assert wide.end.fx == 0.4
+
+
 def test_a_move_in_between_is_between_and_keeps_the_zoom_ratio_even():
     move = camera.Move("m", camera.State(1.0, 0.4, 0.3), camera.State(1.5, 0.6, 0.4, 2.0), 10.0)
     mid = move.at(5.0)
@@ -109,8 +118,8 @@ def test_frames_are_drawn_and_encoded_with_the_voice(tmp_path):
     canvas = layouts.Frame(794, 530)
     clip = make_clip(tmp_path / "c.mp4", 3.0, "768x512")
     src = render.Source(render.decode(clip, 0.0, 3.0, 24), 24)
-    shots = [render.Shot(0.0, 1.5, 1, lambda t: render.warp(src.frame(t), camera.State(1.0 + 0.1 * t), camera.FACE_WIDE, canvas), None),
-             render.Shot(1.5, 3.0, 1, lambda t: render.warp(src.frame(t), camera.State(1.3, 0.5, 0.4, 2.0), camera.FACE_WIDE, canvas),
+    shots = [render.Shot(0.0, 1.5, 1, lambda t, shift=0.0: render.warp(src.frame(t), camera.State(1.0 + 0.1 * t), camera.FACE_WIDE, canvas), None),
+             render.Shot(1.5, 3.0, 1, lambda t, shift=0.0: render.warp(src.frame(t), camera.State(1.3, 0.5, 0.4, 2.0), camera.FACE_WIDE, canvas),
                          lambda t: render.warp(src.frame(t), camera.State(1.5, 0.5, 0.46), camera.FACE_WIDE, canvas))]
     g = {1: render.StoryGraphics(0.0, 3.0, layouts.side_card(canvas, "Cím", "Hír 1"), layouts.lower_third(canvas, "Cím", "Telex", "Forrás:"), {})}
     style = render.Style(card_hold_s=1.0)
