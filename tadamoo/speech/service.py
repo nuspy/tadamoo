@@ -134,6 +134,21 @@ def pad(wav: bytes, total_s: float) -> bytes:
     return out.getvalue()
 
 
+def cut(wav: bytes, t0: float, t1: float) -> bytes:
+    """The part of the recording from `t0` to `t1` seconds; where the recording ends before `t1` the rest is silence. Two cuts that meet at the same time meet at the same sample."""
+    with wave.open(io.BytesIO(wav)) as w:
+        params = w.getparams()
+        frames = w.readframes(w.getnframes())
+    step = params.nchannels * params.sampwidth
+    a, b = int(round(t0 * params.framerate)) * step, int(round(t1 * params.framerate)) * step
+    part = frames[a:b] + b"\x00" * max(0, b - max(a, len(frames)))
+    out = io.BytesIO()
+    with wave.open(out, "wb") as w:
+        w.setparams(params)
+        w.writeframes(part)
+    return out.getvalue()
+
+
 @dataclass
 class Spoken:
     wav: bytes

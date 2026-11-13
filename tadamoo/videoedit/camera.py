@@ -104,6 +104,17 @@ def make_move(name: str, start: State, seconds: float, limits: Optional[Dict[str
     return move
 
 
+def keyframed(name: str, start: State, end: State, seconds: float, limits: Optional[Dict[str, float]] = None) -> Move:
+    """A move between two states given by the caller, shortened in amplitude until it breaks no limit (the roll is held within its limit first)."""
+    lim = {**LIMITS, **(limits or {})}
+    start = replace(start, roll=max(-lim["roll_max"], min(lim["roll_max"], start.roll)))
+    end = replace(end, roll=max(-lim["roll_max"], min(lim["roll_max"], end.roll)))
+    move = Move(name, start, end, seconds)
+    while (move.peak_zoom_per_s() > lim["zoom_per_s"] or move.peak_drift_per_s() > lim["drift_per_s"]) and move.end != move.start:
+        move = Move(name, start, blend(move.start, move.end, 0.8), seconds)
+    return move
+
+
 def check(move: Move, limits: Optional[Dict[str, float]] = None) -> List[str]:
     """Why a move breaks the limits, in words; empty when it does not."""
     lim = {**LIMITS, **(limits or {})}
