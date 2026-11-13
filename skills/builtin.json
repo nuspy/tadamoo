@@ -1,0 +1,31 @@
+{
+ "version": 1,
+ "note": "The built-in skills the setup offers. `name` is the folder under skills/ (a plugin: under skills/plugins/); `requires` are built-in skills it cannot work without, installed with it; `default` is whether the setup page starts with it ticked.",
+ "skills": [
+  {"name": "image-generation", "kind": "skill", "group": "media", "default": true, "requires": [],
+   "title": {"en": "Picture generation", "it": "Generazione di immagini"},
+   "summary": {"en": "Pictures and photographs from a description (needs LTX Studio and the Qwen-Image 2.1 model).", "it": "Immagini e foto da una descrizione (richiede LTX Studio e il modello Qwen-Image 2.1)."}},
+  {"name": "image-editing", "kind": "skill", "group": "media", "default": true, "requires": [],
+   "title": {"en": "Photo editing", "it": "Modifica di foto"},
+   "summary": {"en": "Change a photograph or keep a person in a new picture, from reference photographs (same model as picture generation).", "it": "Modifica una foto o mantiene una persona in una nuova immagine, a partire da foto di riferimento (stesso modello della generazione di immagini)."}},
+  {"name": "video-generation", "kind": "skill", "group": "media", "default": true, "requires": [],
+   "title": {"en": "Video generation from text or picture, with smoother and larger copies", "it": "Generazione di video da testo o immagine, con copie piu' fluide e piu' grandi"},
+   "summary": {"en": "Short clips from words or from a starting picture, and more frames a second (RIFE) and more pixels (FlashVSR+) for any video.", "it": "Clip brevi da parole o da un'immagine iniziale, e piu' fotogrammi al secondo (RIFE) e piu' pixel (FlashVSR+) per qualsiasi video."}},
+  {"name": "talking-head", "kind": "skill", "group": "media", "default": true, "requires": [],
+   "title": {"en": "Talking head", "it": "Persona che parla"},
+   "summary": {"en": "A person from a still photograph who speaks a voice recording (LongCat-Video-Avatar).", "it": "Una persona da una foto che pronuncia una registrazione vocale (LongCat-Video-Avatar)."}},
+  {"name": "video-editing", "kind": "skill", "group": "media", "default": true, "requires": [],
+   "title": {"en": "Video editing", "it": "Montaggio video"},
+   "summary": {"en": "Virtual camera, overlays, joins by stream copy and a detector of accidental cuts, in code with ffmpeg.", "it": "Camera virtuale, grafiche sovrapposte, unioni senza ricodifica e un rilevatore di stacchi involontari, in codice con ffmpeg."}},
+  {"name": "speech-synthesis", "kind": "skill", "group": "voice", "default": true, "requires": [],
+   "title": {"en": "Speech synthesis", "it": "Sintesi vocale"},
+   "summary": {"en": "The voice: text normaliser, lexicon, takes chosen on measurements, joins without clicks.", "it": "La voce: normalizzatore del testo, lessico, riprese scelte con misure, unioni senza click."}},
+  {"name": "news-research", "kind": "skill", "group": "news", "default": true, "requires": [],
+   "title": {"en": "News research", "it": "Ricerca di notizie"},
+   "summary": {"en": "The investigative procedure for news: evidence tables and relations checked with suspicion.", "it": "La procedura di indagine sulle notizie: tabelle di prove e relazioni verificate con sospetto."}},
+  {"name": "ai-newscast", "kind": "plugin", "path": "plugins/ai-newscast", "group": "news", "default": true,
+   "requires": ["news-research", "speech-synthesis", "image-generation", "image-editing", "video-generation", "talking-head", "video-editing"],
+   "title": {"en": "AI newscast", "it": "Telegiornale IA"},
+   "summary": {"en": "A newscast video made from the news, with its plan and approval step; uses all the skills above.", "it": "Un telegiornale video fatto dalle notizie, con il suo piano e il passo di approvazione; usa tutte le skill sopra."}}
+ ]
+}
