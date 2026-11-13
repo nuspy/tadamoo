@@ -13,11 +13,12 @@ from tadamoo.media.errors import MediaError
 
 DEFAULT_LTX_DIRS = tuple(p for p in (os.environ.get("TADAMOO_LTX_STUDIO", ""), "E:/AI/LTXStudio") if p)
 VIDEO_MODEL = "ltx-2.5-22b-distilled-transformer-nvfp4.safetensors"
-DEFAULTS: Dict[str, Any] = {"enabled": True, "ltx_dir": "", "image_python": "", "video_python": "", "modify_python": "", "video_model": "", "edit_model": "",
+DEFAULTS: Dict[str, Any] = {"enabled": True, "ltx_dir": "", "image_python": "", "video_python": "", "modify_python": "", "video_model": "", "edit_model": "", "avatar_precision": "int8",
                             "image_mib": 11000, "video_mib": 25000, "avatar_mib": 25000, "upscale_mib": 22000, "interpolate_mib": 4000, "modify_mib": 28000, "wait_s": 600, "idle_s": 900,
                             "time_factor_audio": 3.0, "time_factor_video": 2.0, "time_min_s": 120}
 FLAGS = ("enabled",)
 FOLDERS = ("ltx_dir",)
+CHOICES = {"avatar_precision": ("int8", "fp8")}          # the weights of the talking head: int8 is dequantized in bf16 at every layer, fp8 uses the GPU's own fp8 matmul (needs the fp8 weights)
 FILES = ("image_python", "video_python", "modify_python")
 RANGES = {"image_mib": (2000, 60000), "video_mib": (2000, 60000), "avatar_mib": (2000, 60000), "upscale_mib": (2000, 60000), "interpolate_mib": (2000, 60000), "modify_mib": (2000, 60000), "wait_s": (0, 3600), "idle_s": (30, 7200), "time_min_s": (0, 3600)}
 DECIMALS = {"time_factor_audio": (1.0, 20.0), "time_factor_video": (1.0, 20.0)}          # the longest a job may take, as times what jobs of its kind really took (tadamoo/jobtime.py)
@@ -60,6 +61,9 @@ class MediaSettings:
             for key in FOLDERS + FILES + ("video_model", "edit_model"):
                 if _text(raw.get(key)):
                     out[key] = raw[key].strip()
+            for key, choices in CHOICES.items():
+                if raw.get(key) in choices:
+                    out[key] = raw[key]
             for key, (lo, hi) in RANGES.items():
                 if _number(raw.get(key), lo, hi):
                     out[key] = raw[key]
@@ -105,6 +109,11 @@ class MediaSettings:
                 if key in changes:
                     if not _number(changes[key], lo, hi):
                         raise MediaError(f"{key}: a whole number from {lo} to {hi}")
+                    now[key] = changes[key]
+            for key, choices in CHOICES.items():
+                if key in changes:
+                    if changes[key] not in choices:
+                        raise MediaError(f"{key}: " + " or ".join(choices))
                     now[key] = changes[key]
             for key, (lo, hi) in DECIMALS.items():
                 if key in changes:

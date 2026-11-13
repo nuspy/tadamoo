@@ -163,7 +163,7 @@ def avatar_plan(folder: str, spec: dict) -> dict:
     """A portrait and a recording made into a talking video by LongCat-Video-Avatar, which LTX Studio runs in an environment of its own."""
     use_ltx(folder)
     service = importlib.import_module("core.longcat_service")
-    precision = "int8"
+    precision = spec.get("avatar_precision") or "int8"
     missing = [] if service.is_installed() else ["the LongCat Avatar environment"]
     missing += [f"weights {w}" for w in (service.missing_weights(precision) if not missing else [])]
     req = spec.get("request") or {}
@@ -187,11 +187,11 @@ def modify_plan(folder: str, spec: dict) -> dict:
 PLANS = {"image": image_plan, "video": video_plan, "avatar": avatar_plan, "interpolate": interpolate_plan, "upscale": upscale_plan, "modify": modify_plan}
 
 
-def check(folder: str, video_model: str, edit_model: str = "") -> dict:
+def check(folder: str, video_model: str, edit_model: str = "", avatar_precision: str = "int8") -> dict:
     out = {}
     for kind, plan in PLANS.items():
         try:
-            got = plan(folder, {"mib": 0, "video_model": video_model, "edit_model": edit_model, "output": "check", "request": {"prompt": "x", "width": 64, "height": 64, "frames": 9, "fps": 8, "seed": 0}})
+            got = plan(folder, {"mib": 0, "video_model": video_model, "edit_model": edit_model, "avatar_precision": avatar_precision, "output": "check", "request": {"prompt": "x", "width": 64, "height": 64, "frames": 9, "fps": 8, "seed": 0}})
             out[kind] = {"python": got["python"], "python_ok": Path(got["python"]).is_file(), "script_ok": Path(got["script"]).is_file(), "missing": got["missing"]}
             out[kind]["ready"] = out[kind]["python_ok"] and out[kind]["script_ok"] and not got["missing"]
         except Exception as exc:
@@ -259,7 +259,8 @@ def main() -> int:
         folder = sys.argv[sys.argv.index("--ltx-dir") + 1]
         model = sys.argv[sys.argv.index("--video-model") + 1] if "--video-model" in sys.argv else ""
         edit_model = sys.argv[sys.argv.index("--edit-model") + 1] if "--edit-model" in sys.argv else ""
-        emit(check(folder, model, edit_model))
+        precision = sys.argv[sys.argv.index("--avatar-precision") + 1] if "--avatar-precision" in sys.argv else "int8"
+        emit(check(folder, model, edit_model, precision))
         return 0
     if "--present" in sys.argv:
         folder = sys.argv[sys.argv.index("--ltx-dir") + 1]

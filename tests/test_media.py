@@ -253,3 +253,17 @@ def test_what_a_talking_head_lacks_is_told_before_the_lease(tmp_path, world):
         client.run("avatar", limits.avatar_request(str(tmp_path / "a.jpg"), str(tmp_path / "a.wav")), tmp_path / "j" / "o.mp4", {**world["settings"], "ltx_dir": str(not_installed)}, url=world["broker"].url)
     with pytest.raises(MediaError, match="the file"):
         client.run("avatar", limits.avatar_request(str(tmp_path / "nope.jpg"), str(tmp_path / "nope.wav")), tmp_path / "j2" / "o.mp4", world["settings"], url=world["broker"].url)
+
+
+def test_the_weights_of_the_talking_head_are_a_setting_that_reaches_the_model_process(world, tmp_path):
+    s = MediaSettings(tmp_path / "m.json")
+    assert s.read()["avatar_precision"] == "int8" and s.write({"avatar_precision": "fp8"})["avatar_precision"] == "fp8"
+    for bad in ({"avatar_precision": "bf16"}, {"avatar_precision": 8}):
+        with pytest.raises(MediaError):
+            s.write(bad)
+    got, out = avatar_job(world)
+    assert json.loads((out.parent / "params.json").read_text(encoding="utf-8"))["precision"] == "int8"
+    world["settings"]["avatar_precision"] = "fp8"
+    client.forget_checks()
+    got, out = avatar_job(world)
+    assert json.loads((out.parent / "params.json").read_text(encoding="utf-8"))["precision"] == "fp8"

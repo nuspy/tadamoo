@@ -43,11 +43,11 @@ def check(settings: Dict[str, Any], command: Optional[Sequence[str]] = None, for
         why = f"the LTX Studio folder {settings['ltx_dir']} does not exist" if settings["ltx_dir"] else "LTX Studio was not found (set its folder)"
         return {"ltx_dir": "", "image": {"ready": False, "missing": [], "error": why}, "video": {"ready": False, "missing": [], "error": why}}
     model = settings["video_model"] or VIDEO_MODEL
-    key = (folder, model, settings.get("edit_model", ""), tuple(settings.get(k, "") for k in ("image_python", "video_python", "modify_python")), tuple(command or ()))
+    key = (folder, model, settings.get("edit_model", ""), settings.get("avatar_precision", "int8"), tuple(settings.get(k, "") for k in ("image_python", "video_python", "modify_python")), tuple(command or ()))
     hit = _checked.get(key)
     if hit and not force and time.monotonic() - hit[0] < CHECK_TTL_S:
         return hit[1]
-    argv = list(command) if command else [sys.executable, "-X", "utf8", str(WORKER), "--check", "--ltx-dir", folder, "--video-model", model, *(["--edit-model", settings["edit_model"]] if settings.get("edit_model") else [])]
+    argv = list(command) if command else [sys.executable, "-X", "utf8", str(WORKER), "--check", "--ltx-dir", folder, "--video-model", model, *(["--edit-model", settings["edit_model"]] if settings.get("edit_model") else []), "--avatar-precision", settings.get("avatar_precision", "int8")]
     try:
         done = subprocess.run(argv, capture_output=True, timeout=60, creationflags=_flags(), env={**os.environ, "PYTHONIOENCODING": "utf-8"})
         got = json.loads(done.stdout.decode("utf-8", "replace").strip().splitlines()[-1])
@@ -97,7 +97,7 @@ def run(kind: str, request: Dict[str, Any], output: Path, settings: Dict[str, An
     job_file = output.parent / "job.json"
     mib = settings[f"{kind}_mib"]
     job_file.write_text(json.dumps({"kind": kind, "ltx_dir": folder, "url": url, "mib": mib, "wait_s": settings["wait_s"], "output": str(output), "request": request, "held": held,
-                                    "python": settings.get(f"{kind}_python", ""), "video_model": settings["video_model"] or VIDEO_MODEL, "edit_model": settings.get("edit_model", "")}),
+                                    "python": settings.get(f"{kind}_python", ""), "video_model": settings["video_model"] or VIDEO_MODEL, "edit_model": settings.get("edit_model", ""), "avatar_precision": settings.get("avatar_precision", "int8")}),
                         encoding="utf-8")
     argv = list(command) + [str(job_file)] if command else [sys.executable, "-X", "utf8", str(WORKER), "--job", str(job_file)]
     timing, duration = jobtime.Timing(settings=settings), duration_of(kind, request)

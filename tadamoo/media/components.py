@@ -52,6 +52,12 @@ COMPONENTS: Dict[str, Dict[str, Any]] = {
                       "steps": [["{py}", "{ltx}/scripts/download_weights.py", "--ids", "ltx23-inpaint-r2v,ltx-iclora-restyle"]],
                       "how": ("The Edit-anything LoRA (ltx23_edit_anything_global_rank128_v1_9000steps_adamw.safetensors) has no download entry in LTX Studio: put it in the LTX-2 folder of its LoRA folder by hand.",
                               "La LoRA Edit-anything (ltx23_edit_anything_global_rank128_v1_9000steps_adamw.safetensors) non ha una voce di download in LTX Studio: va messa a mano nella cartella LTX-2 delle sue LoRA.")},
+    "talking-head-fp8": {"label": ("LongCat-Video-Avatar 1.5 fp8 weights (the GPU's own fp8 matmul instead of an int8 weight dequantized at every layer)", "pesi fp8 di LongCat-Video-Avatar 1.5 (il prodotto fp8 della GPU invece di un peso int8 riconvertito a ogni strato)"),
+                         "check": "catalogue", "ids": ["lcav15-fp8"], "steps": [["{py}", "{ltx}/scripts/download_weights.py", "--ids", "lcav15-fp8"]],
+                         "how": ("Then set avatar_precision to fp8 in the media settings.", "Poi imposta avatar_precision su fp8 nelle impostazioni media.")},
+    "modify-nvfp4": {"label": ("LTX 2.3 dev nvfp4 (the checkpoint with the GPU's fp4 matmul, smaller in VRAM)", "LTX 2.3 dev nvfp4 (il checkpoint con il prodotto fp4 della GPU, piu' piccolo in VRAM)"),
+                     "check": "catalogue", "ids": ["ltx23-dev-nvfp4"], "steps": [["{py}", "{ltx}/scripts/download_weights.py", "--ids", "ltx23-dev-nvfp4"]],
+                     "how": ("Then set edit_model to ltx-2.3-22b-dev-nvfp4.safetensors in the media settings.", "Poi imposta edit_model su ltx-2.3-22b-dev-nvfp4.safetensors nelle impostazioni media.")},
     "mediapipe": {"label": ("the mediapipe package (measures of faces and bodies for the seam detector)", "il pacchetto mediapipe (misure di volti e corpi per il rilevatore di stacchi)"),
                   "check": "module", "module": "mediapipe", "steps": [[sys.executable, "-m", "pip", "install", "mediapipe"]]},
     "landmarkers": {"label": ("the MediaPipe face and pose models", "i modelli MediaPipe di volto e posa"), "check": "files",
@@ -66,6 +72,8 @@ SKILLS: Dict[str, List[str]] = {
     "talking-head": ["ltx-studio", "talking-head-model"],
     "video-editing": ["ffmpeg", "mediapipe", "landmarkers"],
     "video-modification": ["ltx-studio", "ffmpeg", "modify-model", "modify-extras"],
+    "talking-head-fp8": ["ltx-studio", "talking-head-model", "talking-head-fp8"],             # the faster weights, asked for by name: they are 16 GB more
+    "video-modification-nvfp4": ["ltx-studio", "modify-model", "modify-nvfp4"],              # the smaller checkpoint, asked for by name: 20 GB more
 }
 
 

@@ -98,3 +98,12 @@ def test_the_modification_skill_installs_what_the_catalogue_has_and_names_the_lo
     assert components.steps("video-modification", other)[0]["step"][-1].startswith("ltx23-dev-fp8,")
     out = components.install("video-modification", settings, run=lambda argv: 0)
     assert out["by_hand"] and "Edit-anything" in out["by_hand"][0]
+
+
+def test_the_faster_weights_are_extras_asked_for_by_name_and_say_what_to_set_after(settings, tmp_path):
+    assert "lcav15-fp8" not in [i for skill in ("talking-head", "video-generation", "video-modification") for c in components.SKILLS[skill] for i in components.COMPONENTS[c].get("ids", [])]
+    other = {**settings, "ltx_dir": str(make_ltx(tmp_path / "ltx2", missing=["lcav15-fp8", "ltx23-dev-nvfp4"]))}
+    todo = components.steps("talking-head-fp8", other)
+    assert [t["component"] for t in todo] == ["talking-head-fp8"] and todo[0]["step"][-1] == "lcav15-fp8"
+    assert components.steps("video-modification-nvfp4", other)[-1]["step"][-1] == "ltx23-dev-nvfp4"
+    assert "avatar_precision" in components.COMPONENTS["talking-head-fp8"]["how"][0] and "edit_model" in components.COMPONENTS["modify-nvfp4"]["how"][0]
