@@ -100,6 +100,16 @@ class Api {
     return AvatarEnsure(false, reason: '${j['reason'] ?? ''}', message: text.isEmpty ? Texts.t('err.http', [r.statusCode]) : text);
   }
 
+  /// What the plans ask the person now (an approval, a value), oldest first.
+  Future<List<Map<String, dynamic>>> humanRequests() async {
+    final r = await get('/api/plans/human');
+    return [for (final m in (r['requests'] as List?) ?? const []) if (m is Map) Map<String, dynamic>.from(m)];
+  }
+
+  /// The person's answer to one of them: `true` or `false` for an approval, the text for a value.
+  Future<void> answerHuman(String planId, String nodeId, Object answer) =>
+      post('/api/plans/${Uri.encodeComponent(planId)}/events', {'type': 'plan:answer', 'node_id': nodeId, 'answer': answer, 'actor': 'user'});
+
   /// Tells the app that its address and key are good, and the name of the key.
   Future<Map<String, dynamic>> hello() => get('/api/remote/hello');
 

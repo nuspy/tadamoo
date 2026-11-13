@@ -239,6 +239,7 @@ def test_a_rag_node_feeds_actions_without_ordering_anything():
     assert dag.ready_nodes() == ["a", "c"]                                         # c is not held by the RAG node
     assert dag.advance(0)["done"] == ["kb"] and kb.status == "completed"           # it resolves itself
     assert dag.ready_nodes() == ["a", "c"] and dag.layers()[0].count("kb") == 1
+    dag.ensure_start()
     assert PlanDAG.from_dict(json.loads(json.dumps(dag.to_dict()))).to_dict() == dag.to_dict()
     dag.remove_edge("kb", "c")
     assert dag.nodes["kb"].routes == {"rag": ["b"]}

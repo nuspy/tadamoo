@@ -1,5 +1,7 @@
 # Plan nodes: connectors, decision branches, the RAG node
 
+Where a plan begins (start nodes, schedules in words, a step that starts another plan) is in [plan-start.md](plan-start.md); the request to the person, taking a run up again and recovering a failed step in [plan-runs.md](plan-runs.md).
+
 The kinds of step are one table, `tadamoo/planner/nodes.py` `NODE_SPECS`; the checks of a plan, the tools of the Chat (`plan_propose_change`) and the Plans
 page (palette, inspector, graph) all read it, so a field added there appears everywhere.
 
@@ -17,7 +19,8 @@ that a step that takes a value does not run before the step it comes from has pr
 | decision | `in`, `data`, `rag` | one `flow` port for each branch, named by the branch `id` |
 | sensor | `in` | `out`, `reading` (value: the text it matched) |
 | get_var, set_var | `in` (set_var also `data`) | `out`, `value` |
-| input (a question) | `in`, `data` | `out`, `answer` |
+| input (a request to the person) | `in`, `data` | `out`, `answer` |
+| start | none | `out` |
 | set_var, output, log, wait_condition, loop | `in`, `data` | `out` |
 | rag | none | `rag` (archives) |
 

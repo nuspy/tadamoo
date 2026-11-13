@@ -66,6 +66,8 @@ def derive_card(dag: Any, profile: Any = None) -> PlanInsightCard:
     participants and what limits them are not in a plan's data: they stay empty until the person says them."""
     steps: Dict[str, str] = {}
     for node in dag.nodes.values():
+        if getattr(node.type, "value", node.type) == "start":
+            continue                                           # where the plan begins is not one of its steps
         base = " ".join(str(node.title).split())[:120] or node.id
         key, n = base, 2
         while key in steps:

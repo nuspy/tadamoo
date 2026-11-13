@@ -134,15 +134,28 @@ def _plans_service(svc: Service, port: int):
     _PLANS.client_factory = lambda: TadamooClient(base_url=f"http://127.0.0.1:{port}", api_key=svc.api_key or None)
     if _LLM is not None:
         _PLANS.registry = _LLM.registry
+    if _PLAN_HOST is not None and _PLANS.launcher is None:
+        handler = _PLAN_HOST.RequestHandlerClass
+        bare = handler.__new__(handler)                        # the conversations and the routines are taken from a handler that has no request
+        bare.server = _PLAN_HOST
+        _PLANS.launcher = bare._launch_plan_run
+        _PLANS.run_active = bare._plan_run_active
     return _PLANS
 
 
+PLAN_RUN_SCHEDULE = "at 2099-01-01 00:00"              # the routine that carries a plan on is run by hand, never by this time
+
+
 def _start_planner(svc: Service, port: int) -> None:
-    """With saved planner settings (or a service already made), the event pump and the sources start now and not at the first request."""
+    """With saved planner settings, or plans on disk (or a service already made), the event pump and the sources start now and not at the first request,
+    and the plans that were running when the program stopped are taken up again."""
     try:
-        if _PLANS is None and not (userdata.path("planner") / "planner.json").is_file():
+        folder = userdata.path("planner")
+        if _PLANS is None and not (folder / "planner.json").is_file() and next((folder / "plans").glob("*.json"), None) is None:
             return
-        _plans_service(svc, port).start()
+        service = _plans_service(svc, port)
+        service.start()
+        service.resume_interrupted()
     except Exception as exc:                                   # the planner never keeps the server from starting
         print(f"planner: not started ({type(exc).__name__}: {exc})", file=sys.stderr, flush=True)
 
@@ -203,6 +216,7 @@ _RAG_SYNC = None                                       # the refresh of the arch
 _RAG_EMBED = None                                      # the embedding service of the knowledge archives (a worker process on a lease of VRAM), made on first use
 _MCP_AUTH = None                                       # the sign-in of the remote MCP servers, made on first use
 _PLANS = None                                          # the planner's service, made on first use
+_PLAN_HOST = None                                      # the running server, from which the planner starts conversations of the agent
 from serve.util.reqtrace import RequestTrace
 from serve.util.text import IM_END, stop_strings
 from serve.api.cache_slot import check_cache_slot
@@ -3330,6 +3344,26 @@ def make_handler(svc: Service, remote: bool = False):
                 _ROUTINES.scheduler.tick_hooks.append(self._watch_plans)
             return _ROUTINES
 
+        def _launch_plan_run(self, plan_id, name, text):
+            """Starts a conversation of the agent (Automatic, in the chat folder) that carries a plan on: one routine for each plan, run by hand."""
+            scheduler = self._routines().scheduler
+            text = text[:3900]                                  # a routine's task is at most 4000 characters
+            key = "planrun:" + plan_id
+            row = next((r for r in scheduler.view()["routines"] if r.get("dedup_key") == key), None)
+            if row:
+                routine = scheduler.update(row["id"], name=name, prompt=text)
+            else:
+                folder = userdata.path("chat-workspace")
+                folder.mkdir(parents=True, exist_ok=True)
+                routine = scheduler.add(name, text, str(folder), PLAN_RUN_SCHEDULE, dedup_key=key, link={"plan": plan_id})
+            scheduler.run_now(routine["id"])
+
+        def _plan_run_active(self, plan_id):
+            """Whether the conversation that carries this plan on is running or waiting to run."""
+            view = self._routines().scheduler.view()
+            row = next((r for r in view["routines"] if r.get("dedup_key") == "planrun:" + plan_id), None)
+            return bool(row) and (row["id"] in view["running"] or row["id"] in view["queued"])
+
         def _watch_plans(self, now):
             """The clock of the routines also lets the plans work out their own waits and values; no plan on disk, nothing is made or opened."""
             if _PLANS is None and next((userdata.path("planner") / "plans").glob("*.json"), None) is None:
@@ -3905,6 +3939,8 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, {"plans": service.list(archived=query.get("archived", ["0"])[0] == "1")})
                 if path == "/api/plans/telemetry":
                     return self._json(200, service.telemetry())
+                if path == "/api/plans/human":
+                    return self._json(200, {"requests": service.human_requests()})
                 parts = path[len("/api/plans/"):].split("/")
                 plan_id, action = parts[0], (parts[1] if len(parts) > 1 else "")
                 after = int(query.get("after", ["0"])[0] or 0)
@@ -4313,6 +4349,8 @@ def _listen(svc: Service, host: str, port: int, remote: bool = False) -> Threadi
 def serve(svc: Service, host="127.0.0.1", port=7232) -> ThreadingHTTPServer:
     svc.start_telemetry()
     httpd = _listen(svc, host, port)
+    global _PLAN_HOST
+    _PLAN_HOST = httpd                                          # the planner starts conversations of the agent through this server's handler
     threading.Thread(target=_start_planner, args=(svc, httpd.server_address[1]), daemon=True, name="planner-start").start()
     threading.Thread(target=netwatch_api.start_if_enabled, daemon=True, name="netwatch-start").start()
     threading.Thread(target=_start_telegram, args=(httpd,), daemon=True, name="telegram-start").start()

@@ -36,7 +36,7 @@ def test_the_order_survives_saving():
     dag = plan("a", "b")
     dag.move_node("b", -1)
     again = PlanDAG.from_dict(dag.to_dict())
-    assert again.list_order() == ["b", "a"]
+    assert again.list_order() == ["start", "b", "a"]
 
 
 def test_moving_past_the_ends_and_with_a_wrong_direction_is_refused():

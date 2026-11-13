@@ -9,7 +9,7 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from tadamoo.planner import operands
+from tadamoo.planner import operands, schedule_words
 from tadamoo.planner.dag import PlanError, _json_value, check_expression
 
 NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
@@ -17,6 +17,10 @@ MIN_WAIT_S, MAX_WAIT_S = 1, 366 * 86400
 MIN_POLL_S, MAX_POLL_S, DEFAULT_POLL_S = 60, 86400, 300
 TEXT_MAX = 600
 MAX_ITER = 10_000
+LAUNCHES = ("manual", "event", "interval", "caller")      # how a start node starts its plan: the person, an event it watches, a time schedule, another plan
+ASKS = ("value", "approve")                               # what a human request wants: a value, or a yes or no on something shown
+PLAN_REF = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
+CONTENT_MAX, ANSWER_MAX = 20000, 4000
 
 # kind of field -> what a page draws for it
 FIELD_KINDS = ("number", "integer", "text", "textarea", "expression", "name", "names", "datetime", "choice", "json", "archives", "branches")
@@ -53,9 +57,17 @@ NODE_SPECS: Dict[str, Dict[str, Any]] = {
     "get_var": {"family": "data", "auto": True, "summary": "Reads a value: a value of the plan, the clock, a value shared by all plans or a value another step wrote", "fields": [
         {"name": "name", "kind": "name", "required": True}, {"name": "into", "kind": "name"},
         {"name": "source", "kind": "choice", "choices": ["variable", "clock", "global", "step"], "default": "variable"}, {"name": "step", "kind": "name"}]},
-    "input": {"family": "io", "auto": False, "summary": "Asks the person for a value", "fields": [
-        {"name": "prompt", "kind": "textarea", "required": True, "max": 300}, {"name": "into", "kind": "name", "required": True},
+    "input": {"family": "io", "auto": False, "summary": "A request for the person: to approve what is shown (yes or no), or to give a value", "fields": [
+        {"name": "ask", "kind": "choice", "choices": list(ASKS), "default": "value"},
+        {"name": "prompt", "kind": "textarea", "required": True, "max": 300}, {"name": "content", "kind": "textarea", "max": CONTENT_MAX},
+        {"name": "into", "kind": "name"},
         {"name": "kind", "kind": "choice", "choices": ["text", "number", "choice"], "default": "text"}, {"name": "choices", "kind": "names", "max": 10}]},
+    "start": {"family": "start", "auto": True, "summary": "Where a plan begins: its number, and how it starts (by the person, by an event, at intervals, from another plan)", "fields": [
+        {"name": "number", "kind": "integer", "min": 1, "max": 99, "default": 1},
+        {"name": "launch", "kind": "choice", "choices": list(LAUNCHES), "default": "manual"},
+        {"name": "when", "kind": "expression", "max": 300}, {"name": "words", "kind": "textarea", "max": 200}, {"name": "schedule", "kind": "text", "hidden": True}]},
+    "start_plan": {"family": "start", "auto": True, "summary": "Starts another plan at the start node whose number it names", "fields": [
+        {"name": "plan", "kind": "text", "required": True, "max": 64}, {"name": "start", "kind": "integer", "min": 1, "max": 99, "default": 1}]},
     "output": {"family": "io", "auto": True, "summary": "Shows a result of the plan", "fields": [
         {"name": "name", "kind": "name", "required": True}, {"name": "value", "kind": "json"}, {"name": "expr", "kind": "expression"},
         {"name": "template", "kind": "textarea", "max": TEXT_MAX}]},
@@ -69,7 +81,7 @@ for _row in NODE_SPECS.values():                    # the numbers that are lengt
         if _field["name"] in ("seconds", "every", "timeout_s", "poll_s"):
             _field["unit"] = "seconds"
 AUTO = tuple(k for k, v in NODE_SPECS.items() if v["auto"])
-FAMILIES = ("action", "wait", "data", "flow", "io")
+FAMILIES = ("action", "wait", "data", "flow", "io", "start")
 
 
 def _name(spec: Dict[str, Any], key: str, required: bool = False) -> Optional[str]:
@@ -141,7 +153,7 @@ def _data_out(port: str, carries: str) -> Dict[str, Any]:
     return {"id": port, "kind": "data", "carries": carries, "label": port}
 
 
-PORT_IN = {"default": [FLOW_IN], "action": [FLOW_IN, DATA_IN, RAG_IN], "decision": [FLOW_IN, DATA_IN, RAG_IN], "rag": [],
+PORT_IN = {"default": [FLOW_IN], "action": [FLOW_IN, DATA_IN, RAG_IN], "decision": [FLOW_IN, DATA_IN, RAG_IN], "rag": [], "start": [],
            **{k: [FLOW_IN, DATA_IN] for k in ("set_var", "output", "log", "wait_condition", "loop", "input")}}
 PORT_OUT = {"default": [FLOW_OUT], "decision": "branches", "rag": [_data_out("rag", "archives")],
             "action": [FLOW_OUT, _data_out("result", "value")], "sensor": [FLOW_OUT, _data_out("reading", "reading")], "get_var": [FLOW_OUT, _data_out("value", "value")],
@@ -314,14 +326,36 @@ def clean_spec(node_type: Any, spec: Any, draft: bool = False) -> Dict[str, Any]
         if source == "step":
             out["step"] = _name(spec, "step", True)
     elif kind == "input":
-        ask = _text(spec, "prompt", 300, True)
-        into, form = _name(spec, "into", True), spec.get("kind", "text")
+        ask = spec.get("ask", "value")
+        if ask not in ASKS:
+            raise PlanError("'ask' is value or approve")
+        prompt, content = _text(spec, "prompt", 300, True), _text(spec, "content", CONTENT_MAX)
+        into, form = _name(spec, "into", ask == "value"), spec.get("kind", "text")
         if form not in ("text", "number", "choice"):
             raise PlanError("'kind' is text, number or choice")
         choices = _names(spec, "choices", 10)
-        if form == "choice" and (not choices or len(choices) < 2):
+        if ask == "value" and form == "choice" and (not choices or len(choices) < 2):
             raise PlanError("a question with choices needs at least two")
-        out.update({"prompt": ask, "into": into, "kind": form, **({"choices": choices} if choices and form == "choice" else {})})
+        out.update({"ask": ask, "prompt": prompt, **({"content": content} if content else {}), **({"into": into} if into else {})})
+        if ask == "value":
+            out.update({"kind": form, **({"choices": choices} if choices and form == "choice" else {})})
+    elif kind == "start":
+        number = _number(spec, "number", 1, 99, default=1)
+        launch = spec.get("launch", "manual")
+        if launch not in LAUNCHES:
+            raise PlanError(f"'launch' is one of {', '.join(LAUNCHES)}")
+        out.update({"number": int(number), "launch": launch})
+        if launch == "event":
+            check_expression(spec.get("when"))
+            out["when"] = spec["when"].strip()
+        elif launch == "interval":
+            words = _text(spec, "words", 200, True)
+            out.update({"words": words, "schedule": schedule_words.to_schedule(words)[0]})
+    elif kind == "start_plan":
+        plan = _text(spec, "plan", 64, True)
+        if not PLAN_REF.match(plan):
+            raise PlanError("'plan' is the id of another plan: letters, digits, - and _")
+        out.update({"plan": plan, "start": int(_number(spec, "start", 1, 99, default=1))})
     elif kind == "output":
         out["name"] = _name(spec, "name", True)
         _one_of(spec, ("value", "expr", "template"))
@@ -344,18 +378,63 @@ PORTS_HELP = ("A decision has an ordered list of branches in spec.branches, each
               "Each branch is an output connector named by its id: connect it with [decision, child, branch_id]. A step's `result`, a sensor's `reading`, a get_var/set_var `value` "
               "and an input step's `answer` are data outputs: [source, target, port] gives the target that value as a named input, and the target does not run before it has it. "
               "A rag node ({archives: [knowledge archive ids]}) is an input to the actions and decisions it is connected to ([rag_node, action]): it neither waits nor is waited for. "
-              "An action's own archives are spec.rag_archives; the whole plan's are profile.rag_archives (plan_set_profile). Use the ids knowledge_list shows.")
+              "An action's own archives are spec.rag_archives; the whole plan's are profile.rag_archives (plan_set_profile). Use the ids knowledge_list shows. "
+              "A plan begins at a start node ({number, launch: manual | event | interval | caller}; event needs `when`, an expression over the event's text, source and the plan's values; "
+              "interval needs `words`, the time written as people say it, e.g. 'every first Monday at 9', which becomes a schedule by itself); a plan may have several, each with its own number, "
+              "and a plan with none gets one already taken. A start_plan step starts another plan at the start node whose number it names (spec {plan, start}). "
+              "An input step asks the person: ask approve (they say yes or no to what `content` shows; the answer is true or false in `into`) or ask value (a text, a number or one of the choices, in `into`); "
+              "it is answered on the person's screen, not by you.")
 
 
 def kinds_line() -> str:
     """The kinds beyond the four basic ones, each with the fields of its spec, in a line a tool description can carry."""
-    return "; ".join(f"{k} {{{', '.join(f['name'] + ('' if f.get('required') else '?') for f in v['fields'])}}}" for k, v in NODE_SPECS.items() if v["fields"])
+    return "; ".join(f"{k} {{{', '.join(f['name'] + ('' if f.get('required') else '?') for f in v['fields'] if not f.get('hidden'))}}}" for k, v in NODE_SPECS.items() if v["fields"])
 
 
 def catalogue() -> List[Dict[str, Any]]:
     """The kinds in the order a page lists them, with their family, summary and fields."""
     return [{"type": k, **{f: v[f] for f in ("family", "auto", "summary", "fields")}, "ports": {"in": in_ports(k), "out": out_ports(k) if k != "decision" else "branches"}}
             for k, v in NODE_SPECS.items()]
+
+
+# -- the person's answer to a request ------------------------------------------------------------------------------
+
+YES = ("yes", "y", "true", "si", "sì", "ok", "approve", "approved", "1")
+NO = ("no", "n", "false", "0", "reject", "rejected", "deny")
+
+
+def answer_name(node: Any) -> str:
+    """The plan value an answer is written to: the step's `into`, or one made from its id for an approval that names none."""
+    return node.spec.get("into") or (re.sub(r"[^A-Za-z0-9_]+", "_", node.id).strip("_") or "step") + "_approved"
+
+
+def clean_answer(spec: Dict[str, Any], value: Any) -> Any:
+    """The person's answer made into what the request asks for: true or false for an approval; text, a number or one of the choices for a value."""
+    if spec.get("ask", "value") == "approve":
+        word = str(value).strip().lower() if not isinstance(value, bool) else ("yes" if value else "no")
+        if word in YES:
+            return True
+        if word in NO:
+            return False
+        raise PlanError("the answer is yes or no")
+    form = spec.get("kind", "text")
+    if form == "number":
+        if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+            raise PlanError("the answer is a number")
+        try:
+            return float(value) if isinstance(value, float) or "." in str(value) else int(str(value).strip())
+        except ValueError:
+            raise PlanError("the answer is a number") from None
+    text = str(value).strip() if isinstance(value, (str, int, float)) and not isinstance(value, bool) else ""
+    if not text or len(text) > ANSWER_MAX:
+        raise PlanError(f"the answer is a text of 1 to {ANSWER_MAX} characters")
+    if form == "choice" and text not in (spec.get("choices") or []):
+        raise PlanError("the answer is one of: " + ", ".join(spec.get("choices") or []))
+    return text
+
+
+def shown_answer(spec: Dict[str, Any], value: Any) -> str:
+    return ("approved" if value else "not approved") if spec.get("ask", "value") == "approve" else _brief(value)
 
 
 # -- the steps the plan works out itself ------------------------------------------------------------------------
@@ -517,7 +596,7 @@ def _value_of(dag: Any, node: Any) -> Any:
     return safe_eval(spec["expr"], dag.shared_state) if spec.get("expr") is not None else spec.get("value")
 
 
-def _resolve(dag: Any, node: Any, now: float, due: List[float], judge: List[str]) -> bool:
+def _resolve(dag: Any, node: Any, now: float, due: List[float], judge: List[str], calls: List[Dict[str, Any]]) -> bool:
     """One step the plan resolves by itself, if its time or its condition has come. True when it completed."""
     from tadamoo.cron_templates import render_template
     from tadamoo.planner.dag import safe_eval
@@ -588,6 +667,11 @@ def _resolve(dag: Any, node: Any, now: float, due: List[float], judge: List[str]
         return _complete(dag, node, now, None, render_template(spec["message"], _template_context(dag, now)), "log")
     elif kind == "rag":
         return _complete(dag, node, now, None, f"{node.title}: {len(spec['archives'])} knowledge archive(s) for {len(node.routes.get('rag') or [])} step(s)")
+    elif kind == "start_plan":
+        if sv.get("retry_at", 0) > now:
+            due.append(sv["retry_at"])
+        else:
+            calls.append({"node": node.id, "plan": spec["plan"], "start": spec["start"]})      # the service starts the other plan, then settles this step
     return False
 
 
@@ -599,9 +683,10 @@ def advance(dag: Any, now: float) -> Dict[str, Any]:
     done: List[str] = []
     due: List[float] = []
     judge: List[str] = []
+    calls: List[Dict[str, Any]] = []
     moved = True
     while moved:
-        moved, due, judge = False, [], []
+        moved, due, judge, calls = False, [], [], []
         for nid in dag.topological_order():
             node = dag.nodes[nid]
             kind = node.type.value
@@ -617,7 +702,7 @@ def advance(dag: Any, now: float) -> Dict[str, Any]:
                     done.append(nid)
                     moved = True
                 continue
-            if kind in AUTO and _resolve(dag, node, now, due, judge):
+            if kind in AUTO and _resolve(dag, node, now, due, judge, calls):
                 done.append(nid)
                 moved = True
-    return {"done": list(dict.fromkeys(done)), "judge": judge, "next_due": min(due) if due else None}
+    return {"done": list(dict.fromkeys(done)), "judge": judge, "next_due": min(due) if due else None, "calls": calls}

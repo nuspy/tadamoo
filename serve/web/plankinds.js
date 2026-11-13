@@ -18,6 +18,8 @@
     output: "M4 19h16 M12 4v11 M7 10l5 5 5-5",
     log: "M5 4h14v16H5z M8 9h8 M8 13h8 M8 17h5",
     rag: "M4 5h6a2 2 0 012 2v12a2 2 0 00-2-2H4z M20 5h-6a2 2 0 00-2 2v12a2 2 0 012-2h6z",
+    start: "M7 4l13 8-13 8z",
+    start_plan: "M4 5h9v6H4z M11 13h9v6h-9z M13 8h4v3 M11 16H7v-3",
   };
   const OP_WORD = { "<": "lt", "<=": "le", "=": "eq", "!=": "ne", ">=": "ge", ">": "gt", between: "between", in: "in", contains: "contains", else: "else", "": "custom" };
   const UNITS = [["d", 86400], ["h", 3600], ["min", 60], ["s", 1]];
@@ -73,7 +75,9 @@
     if (type === "loop") return `while ${spec.while || ""}`;
     if (type === "set_var") return `${spec.name} = ${spec.expr || JSON.stringify(spec.value)}`;
     if (type === "get_var") return `${spec.name}${spec.into ? " > " + spec.into : ""}`;
-    if (type === "input") return String(spec.prompt || "");
+    if (type === "input") return `${spec.ask === "approve" ? "✓ " : ""}${String(spec.prompt || "")}`;
+    if (type === "start") return `#${spec.number || 1} ${spec.launch || "manual"}${spec.words ? " " + spec.words : ""}`;
+    if (type === "start_plan") return `${spec.plan || ""} #${spec.start || 1}`;
     if (type === "output") return String(spec.name || "");
     if (type === "log") return String(spec.message || "");
     if (type === "rag") return `RAG \u00D7${(spec.archives || []).length}`;

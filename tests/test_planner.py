@@ -105,6 +105,7 @@ def test_a_plan_with_one_sided_or_unknown_edges_is_rejected_on_load():
 
 def test_json_round_trip_keeps_everything():
     dag = cervinia()
+    dag.ensure_start()
     dag.mark("invita_gianna", "completed", {"invitati_confermati": ["Gianna"]})
     again = PlanDAG.from_dict(json.loads(json.dumps(dag.to_dict())))
     assert again.to_dict() == dag.to_dict() and again.nodes["scelta"].type == NodeType.DECISION
