@@ -290,7 +290,7 @@ def build_repo_map(root: str | Path, max_tokens: int = 1500, focus: str = "", no
 
 
 def register_repo_map(registry: Any, resolve: Callable[[str], Path]) -> None:
-    """Adds `repo_map`; `resolve` turns a path the model gave into one inside the workspace."""
+    """Adds `repo_map`; `resolve` turns a path the model gave into one the permission level allows."""
     from tadamoo.tools.registry import EffectClass
 
     def repo_map(path: str = ".", focus: str = "", max_tokens: int = 1500) -> str:

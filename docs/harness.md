@@ -582,7 +582,7 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
 - `repo_diagram` (`tadamoo/repodiagram.py`) draws a folder as Mermaid text worked out from the files, with no model, the same on every run: `kind` `imports`
   (which module imports which: Python, JavaScript/TypeScript and C/C++ imports that resolve to a file in the folder, one node per file or, when there are too
   many, per folder with the number of imports on each arrow; the least-connected nodes go first past `max_nodes`) or `folders` (the folder tree with the count of
-  source files in each). It reads files only (pure effect), stays inside the workspace and the result carries a `mermaid` block the model puts in its answer.
+  source files in each). It reads files only (pure effect), reaches a folder outside the workspace as the level allows, and the result carries a `mermaid` block the model puts in its answer.
 - `docx_outline`, `docx_read`, `docx_edit` and `docx_create` change Word files (`.docx`) on the CPU: numbered addresses (`p12`, `t2`, `t2.r3.c1`), several edits in one atomic call, optional tracked changes, a checkpoint and rewind like `edit_file`; described in [docx-tools.md](docx-tools.md). Reading a document to understand it is `read_document`, not these.
 - The file tools are described in [harness-file-tools.md](harness-file-tools.md): `edit_file` takes several edits per call and finds its target through exact, trailing-whitespace, indentation and Unicode passes (a tolerant pass only when exactly one place matches), errors show the closest text with line numbers; `write_file` refuses to replace a file that was not read in full or changed since, or a summary of it, unless `overwrite`; a syntax check (`--edit-guard` off, warn, block) follows each write; `read_file` can number lines and return the block around a line; `search_code` (a regular expression over the text files, `.gitignore` aware, no ripgrep needed) and `tree` (line counts per file and folder) are pure tools.
 - `AGENTS.md` (else `CLAUDE.md`, else `GEMINI.md`), searched from the workspace up to the repository root, is part of the prompt. Only its first 32 KiB are
@@ -1242,8 +1242,8 @@ wide, not for phones.
   TaDaMoo can write in it. Adding it makes `<folder>/.tadamoo/project.json`, the folder's own registry
   (its name and the conversations held in it, kept up to date as they are made, renamed and deleted), and `<folder>/.tadamoo/.gitignore`
   (the agent's `artifacts/`). The list of folders is in `journal/projects.json` of the user data folder; `GET/POST /api/agent/projects` and
-  `/api/agent/projects/remove` serve it. A conversation of a folder is created with that folder as its `workspace`: its file tools stay inside it
-  and the commands it runs are not limited to it. There is no model-only or question-only kind here, only conversations with tools, and the four
+  `/api/agent/projects/remove` serve it. A conversation of a folder is created with that folder as its `workspace`: outside it its file tools
+  follow the permission level (harness-file-tools.md), and the commands it runs are not limited to it. There is no model-only or question-only kind here, only conversations with tools, and the four
   modes (*Plan only*, *Read only*, *Ask first*, *Automatic*) change at any time with Shift+Tab as in the Chat. Questions, steps, branches, skills
   and the copy of a git folder are the Chat's. The Chat tab lists only the conversations with no folder (the server's `chat-workspace`), the
   Agent tab only those of the folders. Each tab goes back to its own last conversation. A conversation sends each file edit to the Changes

@@ -100,9 +100,13 @@ def usable(review: Any, kind: str) -> Optional[Dict[str, str]]:
 
 
 def safe_path(root: str, file: str) -> Path:
+    """The file an edit names. Below the working folder it is taken relative to it; a whole path is one the file tools wrote outside that
+    folder as the permission level allowed. A relative path climbing out of it is refused."""
     base = Path(root)
     if not base.is_dir():
         raise ReviewError("The folder the agent worked in is not there any more.")
+    if os.path.isabs(file):
+        return Path(file).resolve()
     target = (base / file).resolve()
     try:
         target.relative_to(base.resolve())

@@ -624,7 +624,8 @@ class Session:
         two = arguments.get("rule_of_two")                            # set when the Rule of Two is what asks: the question says which facts made it ask
         hooked = arguments.get("hook_asks")                           # set when a hook of the person's asks before the call
         heard = arguments.get("instructions_from")                    # set when text from outside gave orders to the AI: the person authorizes them or not
-        arguments = {k: v for k, v in arguments.items() if k not in ("rule_of_two", "instructions_from", "hook_asks")}
+        outside = arguments.get("outside_workspace")                  # set when a file tool reaches a path outside the working folder
+        arguments = {k: v for k, v in arguments.items() if k not in ("rule_of_two", "instructions_from", "hook_asks", "outside_workspace")}
         shown = json.dumps(arguments, ensure_ascii=False)[:300]
         if hooked:
             answer = self._ask({"mode": "confirm", "kind": "permission", "tool": tool, "arguments": arguments, "hook": hooked,
@@ -652,8 +653,9 @@ class Session:
         if key in self._granted:                                      # the person approved this very call after it was left pending
             self._granted.remove(key)
             return True
+        why = two or outside
         answer = self._ask({"mode": "confirm", "kind": "permission", "tool": tool, "arguments": arguments, **({"rule_of_two": True} if two else {}),
-                            "question": f"{two}" + "\n\n" + f"Allow {tool} {shown}?" if two else f"Allow {tool} {shown}?", "options": options})
+                            "question": f"{why}\n\nAllow {tool} {shown}?" if why else f"Allow {tool} {shown}?", "options": options})
         self._remember_rules(answer, rules)
         if answer == "two_off":
             self._stop_rule_of_two()
@@ -1554,7 +1556,7 @@ class Session:
         source = ""
         if mode != "write":
             try:
-                source = self.built.sandbox.resolve_safe(source_path or ".").read_text(encoding="utf-8")
+                source = self.built.sandbox.resolve_safe(source_path or ".", "write_long").read_text(encoding="utf-8")
             except (OSError, ValueError) as exc:
                 return f"write_long cannot read the source '{source_path}': {exc}"
         stated = max(0, min(lf.TARGET_WORDS_RANGE[1], int(words or 0)))

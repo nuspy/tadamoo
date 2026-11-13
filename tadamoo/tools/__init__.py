@@ -31,6 +31,7 @@ def create_standard_tool_registry(
             """A write inside .git follows the rules of any workspace write (the checkpoint keeps the file, so a rewind restores it)."""
             return permissions.evaluate(f"{tool}:{arguments['path']}", EffectClass.REVERSIBLE, arguments)
         sandbox.confirm_git_write = confirm_git_write
+        sandbox.outside_workspace = permissions.outside_path    # a path outside the working folder follows the level: auto goes, the others ask
 
     def run_to_the_end(command: str, shell: str, timeout: Optional[float] = None):
         with sandbox.watching():                       # a command that edits files is reviewed like the file tools
@@ -182,10 +183,10 @@ def create_standard_tool_registry(
     if find_spec("docx") is not None:                         # the Word tools exist only where python-docx is installed
         from .docx_edit import register_docx_tools
         register_docx_tools(registry, sandbox)
-    register_search_code(registry, sandbox.resolve_safe, sandbox.root)
-    register_tree(registry, sandbox.resolve_safe, sandbox.root)
-    register_repo_map(registry, sandbox.resolve_safe)
-    register_repo_diagram(registry, sandbox.resolve_safe)
+    register_search_code(registry, lambda p: sandbox.resolve_safe(p, "search_code"), sandbox.root)
+    register_tree(registry, lambda p: sandbox.resolve_safe(p, "tree"), sandbox.root)
+    register_repo_map(registry, lambda p: sandbox.resolve_safe(p, "repo_map"))
+    register_repo_diagram(registry, lambda p: sandbox.resolve_safe(p, "repo_diagram"))
     from tadamoo.todo import register_todo_tool
     register_todo_tool(registry)
     registry.mark_stable()

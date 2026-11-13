@@ -219,7 +219,7 @@ def folders_diagram(root: str | Path, depth: int = DEFAULT_DEPTH, max_nodes: int
 
 
 def register_repo_diagram(registry: Any, resolve: Callable[[str], Path]) -> None:
-    """Adds `repo_diagram`; `resolve` turns a path the model gave into one inside the workspace."""
+    """Adds `repo_diagram`; `resolve` turns a path the model gave into one the permission level allows."""
     from tadamoo.tools.registry import EffectClass
 
     def repo_diagram(path: str = ".", kind: str = "imports", level: str = "auto", depth: int = DEFAULT_DEPTH, max_nodes: int = MAX_NODES) -> str:

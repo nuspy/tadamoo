@@ -74,7 +74,7 @@ scelta viene ricordata. La colonna non c'è in *Solo il modello*, la cui unica c
 *Impostazioni*.
 
 **In quale cartella lavora?** La scheda Chat non manda nessuna cartella, quindi una conversazione della Chat lavora in `chat-workspace`
-dentro la cartella dati dell'utente. I suoi strumenti per i file restano dentro quella cartella. Per lavorare su un tuo progetto usa la
+dentro la cartella dati dell'utente. Per lavorare su un tuo progetto usa la
 scheda **Agente** o la riga di comando (sezioni 13 e 14), oppure allega i file alla conversazione: trascinali sul campo o usa il
 pulsante degli allegati. Si accettano testo, codice, CSV, JSON, Word, Excel, PowerPoint, PDF, immagini, audio e video; un file lungo ne
 mostra l'inizio e l'agente legge il resto a pezzi.
@@ -116,6 +116,11 @@ esterni (una pagina web, uno strumento MCP, una telefonata, un appunto richiamat
 Si controlla a ogni azione. Un indirizzo web, una ricerca o un modulo chiede quando la conversazione ha letto contenuti esterni (anche file,
 output di comandi, allegati e note del pianificatore), ha toccato dati privati e l'azione arriva all'esterno; Impostazioni > Portafoglio
 regola quanto è rigida, e un segreto salvato non entra mai in un indirizzo, con nessuna impostazione.
+
+**I percorsi fuori dalla cartella di lavoro.** Dentro la cartella ogni percorso passa. Fuori, gli strumenti per i file seguono la modalità:
+*Automatico* li lascia andare, *Chiedi prima* e *Solo lettura* chiedono, *Solo piano* li trattiene, e una regola di divieto li rifiuta. La domanda
+nomina il percorso; un sì vale per esso e, per gli strumenti che scorrono una cartella, anche per ciò che le sta sotto. I tuoi segreti sono
+rifiutati a ogni livello.
 
 **Cosa le modalità non sono.** Non sono una sandbox del sistema operativo. Un comando gira con i tuoi diritti sui tuoi file e sulla tua
 rete. I comandi dell'agente hanno un ambiente ripulito, nessun input da tastiera, un limite di tempo, output limitato e, su Windows, un
@@ -401,7 +406,7 @@ sul PC, poi i dischi, e *Rete*: altri dispositivi, via SMB); il microfono scrive
 
 La scheda Agente è la pagina delle conversazioni che lavora in una **cartella tua**. A sinistra la colonna elenca le cartelle che hai
 aggiunto, ciascuna con le sue conversazioni. Premi **Aggiungi cartella**, scrivi il percorso completo (o *Sfoglia...* dentro l'app) e la
-cartella è aggiunta: l'agente lavora lì, i suoi strumenti per i file restano dentro, e la cartella riceve una cartella `.basalt` con il
+cartella è aggiunta: l'agente lavora lì, fuori da essa gli strumenti per i file seguono la modalità (sezione 4), e la cartella riceve una cartella `.basalt` con il
 registro delle sue conversazioni. Una croce accanto a una cartella la toglie dall'elenco senza toccarne i file né le conversazioni; un **+**
 avvia una nuova conversazione al suo interno.
 

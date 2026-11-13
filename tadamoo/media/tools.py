@@ -47,7 +47,7 @@ def register_media_tools(registry: Any, sandbox: Any, settings: MediaSettings, w
     def target(kind: str, path: str, seed: int) -> Path:
         ext = KINDS[kind][0]
         rel = path.strip() if isinstance(path, str) and path.strip() else f"{FOLDER}/{kind}-{time.strftime('%Y%m%d-%H%M%S')}-{seed}{ext}"
-        safe = sandbox.resolve_safe(rel)
+        safe = sandbox.resolve_safe(rel, f"generate_{kind}")
         if safe.suffix.lower() != ext:
             raise MediaError(f"path: a {kind} is a {ext} file, '{rel}' must end in {ext}")
         if safe.exists():
@@ -60,7 +60,7 @@ def register_media_tools(registry: Any, sandbox: Any, settings: MediaSettings, w
         if why:
             return {"status": "unavailable", "note": why}
         safe = target(kind, path, request["seed"])
-        rel = safe.relative_to(sandbox.root).as_posix()
+        rel = sandbox._shown(safe)
         blocked = sandbox._owner_block(rel, safe, append=False)
         if blocked:
             return blocked

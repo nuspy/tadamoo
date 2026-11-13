@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from tadamoo.tools.registry import EffectClass
-from tadamoo.tools.walk import MAX_FILES, Walker, count_lines
+from tadamoo.tools.walk import MAX_FILES, Walker, count_lines, shown_path
 
 DEFAULT_DEPTH = 2
 MAX_DEPTH = 8
@@ -57,7 +57,7 @@ def build_tree(root: Path, resolve: Callable[[Path], Path], folder: Path, depth:
     totals = _Totals()
     rows: List[str] = []
     files, lines = _walk(walker, folder, depth, 1, totals, rows)
-    shown = folder.relative_to(root).as_posix() if folder != root else "."
+    shown = shown_path(root, folder) if folder != root else "."
     out = [f"{shown}/ - {files} file{'s' if files != 1 else ''}, {lines} lines"]
     out.extend(rows if len(rows) <= MAX_ENTRIES else rows[:MAX_ENTRIES])
     if len(rows) > MAX_ENTRIES:

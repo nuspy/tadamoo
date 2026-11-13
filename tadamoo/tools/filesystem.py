@@ -63,6 +63,8 @@ class WorkspaceSandbox:
         self.watch_off = False                       # set when the workspace is too large to compare around a command
         # (tool, {"path"}) -> (allowed, reason): asked before a write inside .git, where a hook or the config can make git run code
         self.confirm_git_write: Optional[Callable[[str, Dict[str, Any]], Tuple[bool, str]]] = None
+        # (tool, resolved path) -> (allowed, reason): decides a path outside the working folder; without it those paths are refused
+        self.outside_workspace: Optional[Callable[[str, Path], Tuple[bool, str]]] = None
         # an editor that holds the files: it gives a file's text (None: not known to it) and takes the text to write
         self.read_through: Optional[Callable[[Path], Optional[str]]] = None
         self.write_through: Optional[Callable[[Path, str], None]] = None
@@ -78,19 +80,29 @@ class WorkspaceSandbox:
         self._last_read: Dict[str, Tuple[Any, Any, int]] = {}
         self._edit_failures: Dict[str, int] = {}
 
-    def resolve_safe(self, rel_path: str | Path) -> Path:
-        """Resolves path and enforces that it remains strictly inside self.root."""
+    def resolve_safe(self, rel_path: str | Path, tool: str = "file_tool") -> Path:
+        """Resolves path. Inside self.root it always passes; outside it the permission level decides (`outside_workspace`), and without
+        that hook it is refused. The person's secrets are refused at every level."""
         path = (self.root / rel_path).resolve()
-        try:
-            path.relative_to(self.root)
-        except ValueError:
-            raise PermissionError(f"Access denied: Path '{rel_path}' escapes workspace boundary. The working folder is {self.root}; "
-                                  "file tools reach only paths inside it, relative to it.")
         hit = self.protected_hit(path) if self.protected_hit else ""
         if hit:
             raise PermissionError(f"Access denied: '{rel_path}' is one of the person's secrets ({Path(hit).name}): the vault, the payment files, "
                                   "the browser's sign-ins, the control token and the phone keys are read only in the Wallet.")
+        try:
+            path.relative_to(self.root)
+        except ValueError:
+            allowed, reason = self.outside_workspace(tool, path) if self.outside_workspace else (False, "")
+            if not allowed:
+                raise PermissionError(reason or f"Access denied: Path '{rel_path}' escapes workspace boundary. The working folder is {self.root}; "
+                                                "file tools reach only paths inside it, relative to it.")
         return path
+
+    def _shown(self, path: Path) -> str:
+        """The path as the tools name it: below the working folder when it is there, else the whole path."""
+        try:
+            return path.relative_to(self.root).as_posix()
+        except ValueError:
+            return path.as_posix()
 
     def _where(self, path: str, resolved: Path, want_dir: bool = False) -> str:
         """What is known about a path that is not there: the working folder and the names that exist and look like it."""
@@ -100,11 +112,11 @@ class WorkspaceSandbox:
         folder = next((p for p in resolved.parents if p.is_dir()), self.root)
         missing = resolved.relative_to(folder).parts[0]
         if folder != resolved.parent:
-            text += f" The folder '{folder.joinpath(missing).relative_to(self.root).as_posix()}' does not exist."
+            text += f" The folder '{self._shown(folder.joinpath(missing))}' does not exist."
         found = similar_names(folder, missing)
         if not want_dir and not found:
             found = self._same_name_below(resolved.name)
-        where = "" if folder == self.root else f" in {folder.relative_to(self.root).as_posix()}"
+        where = "" if folder == self.root else f" in {self._shown(folder)}"
         return text + (f" Similar names{where}: {', '.join(found)}." if found else f" No similar name{where}.")
 
     def _same_name_below(self, name: str, limit: int = 3) -> List[str]:
@@ -122,7 +134,11 @@ class WorkspaceSandbox:
         return out[:limit]
 
     def _guard_git(self, tool: str, path: str, resolved: Path) -> None:
-        if self.confirm_git_write is None or not touches_git(resolved.relative_to(self.root).parts):
+        try:
+            parts = resolved.relative_to(self.root).parts
+        except ValueError:
+            parts = resolved.parts
+        if self.confirm_git_write is None or not touches_git(parts):
             return
         allowed, reason = self.confirm_git_write(tool, {"path": path})
         if not allowed:
@@ -191,7 +207,7 @@ class WorkspaceSandbox:
     # -- what has been read of a file ---------------------------------------------------------------
 
     def _rel(self, safe_path: Path) -> str:
-        rel = safe_path.relative_to(self.root).as_posix()
+        rel = self._shown(safe_path)
         return rel.lower() if sys.platform == "win32" else rel
 
     def _editor_text(self, safe_path: Path) -> Optional[str]:
@@ -252,7 +268,7 @@ class WorkspaceSandbox:
         except (TypeError, ValueError):
             raise ValueError("offset, limit, anchor_line and max_levels must be whole numbers: offset is the first line to read (from 1), "
                              "limit how many lines (0 for all)")
-        safe_path = self.resolve_safe(path)
+        safe_path = self.resolve_safe(path, "read_file")
         if not safe_path.is_file():
             raise FileNotFoundError(f"File not found: {path}.{self._where(path, safe_path)}")
         edited = self._editor_text(safe_path)
@@ -409,7 +425,7 @@ class WorkspaceSandbox:
             raise OSError(f"{path} was written but reading it back gives different text; another program may be changing it. Read it again before the next edit.")
 
     def write_file(self, path: str, content: str, overwrite: bool = False, append: bool = False) -> Dict[str, Any]:
-        safe_path = self.resolve_safe(path)
+        safe_path = self.resolve_safe(path, "write_file")
         if safe_path.is_dir():
             raise IsADirectoryError(f"'{path}' is a folder, not a file.{self._where(path, safe_path)}")
         blocked = self._owner_block(path, safe_path, append)
@@ -462,7 +478,7 @@ class WorkspaceSandbox:
 
     def edit_file(self, path: str, target: Optional[str] = None, replacement: Optional[str] = None, edits: Optional[List[Dict[str, Any]]] = None,
                   replace_all: bool = False, expected_count: Optional[int] = None) -> Dict[str, Any]:
-        safe_path = self.resolve_safe(path)
+        safe_path = self.resolve_safe(path, "edit_file")
         if not safe_path.is_file():
             raise FileNotFoundError(f"File not found: {path}.{self._where(path, safe_path)}")
         blocked = self._owner_block(path, safe_path, append=False)
@@ -575,7 +591,7 @@ class WorkspaceSandbox:
             recorded += 1
 
     def list_directory(self, path: str = ".") -> List[Dict[str, Any]]:
-        safe_path = self.resolve_safe(path)
+        safe_path = self.resolve_safe(path, "list_directory")
         if not safe_path.is_dir():
             raise NotADirectoryError(f"Directory not found: {path}.{self._where(path, safe_path, want_dir=True)}")
 

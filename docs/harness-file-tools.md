@@ -1,8 +1,18 @@
 # File tools of the agent
 
-`read_file`, `write_file`, `edit_file`, `search_code` and `tree` work inside the workspace folder only. The code is in
+`read_file`, `write_file`, `edit_file`, `search_code` and `tree` work in the workspace folder; a path outside it follows the permission
+level (below). The code is in
 `tadamoo/tools/filesystem.py` (the sandbox and the guards), `tadamoo/editing.py` (finding and replacing text),
 `tadamoo/syntax_check.py`, `tadamoo/gitignore.py` and `tadamoo/tools/search_code.py`, `tree.py`, `walk.py`.
+
+## Paths outside the workspace
+
+Inside the workspace every path passes. Outside it `WorkspaceSandbox.resolve_safe` asks `PermissionManager.outside_path`, which puts the
+call to the level as one that is not a workspace edit: *Automatic* lets it go, *Ask first* and *Read only* ask, *Plan only* asks for a read and holds back a change,
+and a deny rule refuses it. The question names the path; one answer covers it, and for `list_directory`, `search_code`, `tree`, `repo_map`
+and `repo_diagram` also what is below it, so a walk asks once. What was allowed at one level is asked again at another. The person's
+secrets are refused at every level, and a sandbox with no permission manager keeps the folder boundary. Paths outside the workspace are
+named whole in answers, in the search hits and in the Changes entries.
 
 ## edit_file
 

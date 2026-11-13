@@ -1,4 +1,4 @@
-"""Walking a workspace folder for the read-only tools `search_code` and `tree`: .gitignore aware, never leaving the workspace."""
+"""Walking a folder for the read-only tools `search_code` and `tree`: .gitignore aware, reaching outside the workspace only as the level allows."""
 from __future__ import annotations
 
 import os
@@ -14,6 +14,14 @@ MAX_FILE_BYTES = 1_000_000         # a larger file is skipped by the search and 
 
 def is_binary(head: bytes) -> bool:
     return b"\x00" in head[:8000]
+
+
+def shown_path(root: Path, path: Path) -> str:
+    """The path as the tools name it: below `root` when it is there, else the whole path."""
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 
 class Walker:

@@ -621,7 +621,7 @@ def _offer_capabilities(cfg: AgentConfig, workspace: Path, registry: Any, builde
                 return OutputStore(Path(cfg.outputs_dir)).get(cfg.run_id, path.split(":", 1)[1])[1]
             except KeyError:
                 raise FileNotFoundError("that output file is not there") from None
-        return sandbox.resolve_safe(path)
+        return sandbox.resolve_safe(path, "analyze_image")
     register_vision_tool(registry, index, reader, cfg.endpoint, cfg.api_key, client)
     builder.pin("capabilities", index.top_of_tree())
     return index
@@ -822,7 +822,8 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         from tadamoo.attachment_tools import register_attachment_tools
         from tadamoo.attachments import AttachmentStore, OutputStore
         from tadamoo.integrations.call_api_client import CallAPICallClient
-        register_attachment_tools(registry, AttachmentStore(Path(cfg.attachments_dir)), OutputStore(Path(cfg.outputs_dir)), cfg.run_id, sandbox.resolve_safe,
+        register_attachment_tools(registry, AttachmentStore(Path(cfg.attachments_dir)), OutputStore(Path(cfg.outputs_dir)), cfg.run_id,
+                                  lambda p: sandbox.resolve_safe(p, "publish_output_file"),
                                   call_client=CallAPICallClient.from_environment(), read_chars=max(2000, int(budget * 3.5 * 0.15)))
         if cfg.images:
             from tadamoo.visuals import register_visual_tools
@@ -856,7 +857,7 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
     if cfg.lsp:
         from tadamoo.lsp import LspHub, register_lsp_tools
         lsp_hub = LspHub(workspace)
-        if not register_lsp_tools(registry, lsp_hub, sandbox.resolve_safe):
+        if not register_lsp_tools(registry, lsp_hub, lambda p, tool: sandbox.resolve_safe(p, tool)):
             lsp_hub = None
     browser = None
     if cfg.browser:

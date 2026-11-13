@@ -17,6 +17,7 @@ import enum
 import fnmatch
 import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, FrozenSet, List, Optional, Set, Tuple
@@ -33,6 +34,10 @@ class PermissionLevel(str, enum.Enum):
 
 
 DEFAULT_ALWAYS_ASK = frozenset({"phone_call"})
+# tools that walk a folder: one answer about a folder outside the workspace covers the files the walk finds below it
+OUTSIDE_FOLDER_TOOLS = frozenset({"list_directory", "search_code", "tree", "repo_map", "repo_diagram"})
+# tools that only read: in plan mode a path outside the workspace is asked about for them, like at the other levels
+OUTSIDE_READ_TOOLS = OUTSIDE_FOLDER_TOOLS | {"read_file"}
 # commands that only read, matched as a whole statement; they are safe in a coding role (`PermissionManager.read_only_class`)
 READ_ONLY_COMMANDS = ("git status", "git status --short", "git diff", "git diff --stat", "git log", "git log --oneline", "ls", "dir")
 _BARE_VERB = re.compile(r"^([^\s*?\[\]]+)(?: \*)?$")      # "rm" or "rm *": the verb alone, whatever its arguments
@@ -203,6 +208,8 @@ class PermissionManager:
         self.read_only_class = False               # the short list of read-only commands (READ_ONLY_COMMANDS) runs without a question too
         self.denied = 0                            # calls refused in this session, whatever the reason
         self.denied_by_tool: Dict[str, int] = {}
+        self._outside_granted: Dict[str, Set[str]] = {}   # tool -> paths outside the working folder already allowed at this level
+        self._outside_level = level
 
     @property
     def sensitive_data(self) -> bool:
@@ -342,6 +349,28 @@ class PermissionManager:
         self.denied += 1
         self.denied_by_tool[tool_name] = self.denied_by_tool.get(tool_name, 0) + 1
         return False, self._refusal(question)
+
+    def outside_path(self, tool: str, path: Any) -> Tuple[bool, str]:
+        """A file tool reaching outside the working folder is not a workspace edit: the level decides it. Auto lets it go, the other levels
+        ask, plan mode holds it back and a deny rule refuses it. One answer covers that path, and for a tool that walks a folder also what
+        is below it, so a walk asks once. What was allowed at one level is asked again at another."""
+        if self._outside_level != self.level:
+            self._outside_level, self._outside_granted = self.level, {}
+        key = os.path.normcase(str(path))
+        granted = self._outside_granted.get(tool, ())
+        if key in granted or (tool in OUTSIDE_FOLDER_TOOLS and any(key.startswith(g + os.sep) for g in granted)):
+            return True, "Outside path already allowed"
+        outside = f"'{path}' is outside the working folder"
+        plan, self.plan_mode = self.plan_mode, self.plan_mode and tool not in OUTSIDE_READ_TOOLS     # plan mode holds back a change, not a read
+        try:
+            allowed, reason = self.evaluate(tool, EffectClass.IRREVERSIBLE,   # nothing passes on its own: the level's own question decides
+                                            {"path": str(path), "outside_workspace": outside})
+        finally:
+            self.plan_mode = plan
+        if allowed:
+            self._outside_granted.setdefault(tool, set()).add(key)
+            return True, reason
+        return False, f"{outside}: {reason}"
 
     def _refusal(self, reason: str) -> str:
         """The reason a call was not run, with what the model can still do: no one can answer a question in an unattended

@@ -34,7 +34,7 @@ def tools(ws, tmp_path, pull=False):
     reg = ToolRegistry()
     hub = hub_for(ws, tmp_path, pull)
 
-    def resolve(path):
+    def resolve(path, tool="diagnostics"):
         p = (ws / path).resolve()
         p.relative_to(ws.resolve())                         # PermissionError-like for the tests: ValueError is turned below
         return p
@@ -89,7 +89,7 @@ def test_what_cannot_be_asked_is_said_not_raised(ws, tmp_path):
 
 def test_a_server_that_is_not_installed_offers_no_tools(ws, tmp_path):
     hub = LspHub(ws, config_path=tmp_path / "none.json", which=lambda name: None)
-    assert hub.available() == [] and register_lsp_tools(ToolRegistry(), hub, lambda p: ws / p) is False
+    assert hub.available() == [] and register_lsp_tools(ToolRegistry(), hub, lambda p, tool="diagnostics": ws / p) is False
     hub2 = LspHub(ws, config_path=tmp_path / "none.json", which=lambda name: "C:/x/pyright-langserver.exe" if name == "pyright-langserver" else None)
     assert hub2.available() == ["python"] and hub2.command_for("python") == ["pyright-langserver", "--stdio"]
     assert hub2.command_for("rust") is None

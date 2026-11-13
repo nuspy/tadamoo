@@ -12,7 +12,7 @@ from typing import Any, Callable, List, Optional
 
 from tadamoo.gitignore import glob_regex
 from tadamoo.tools.registry import EffectClass
-from tadamoo.tools.walk import MAX_FILE_BYTES, MAX_FILES, Walker, is_binary
+from tadamoo.tools.walk import MAX_FILE_BYTES, MAX_FILES, Walker, is_binary, shown_path
 
 MAX_HITS = 60
 MAX_CONTEXT = 10
@@ -89,7 +89,7 @@ def search(root: Path, resolve: Callable[[Path], Path], pattern: str, start: Pat
             continue
         matched_files += 1
         hits += len(found)
-        name = path.relative_to(root).as_posix()
+        name = shown_path(root, path)
         wanted = set(found)
         shown = sorted({n for hit in found for n in range(max(1, hit - context), min(len(lines), hit + context) + 1)})
         previous = 0
@@ -125,7 +125,7 @@ def search(root: Path, resolve: Callable[[Path], Path], pattern: str, start: Pat
 
 
 def register_search_code(registry: Any, resolve_safe: Callable[[str], Path], root: Path) -> None:
-    """Adds `search_code`; `resolve_safe` turns a path the model gave into one inside the workspace."""
+    """Adds `search_code`; `resolve_safe` turns a path the model gave into one the level allows."""
 
     def search_code(pattern: str, path: str = ".", glob: str = "", context: int = 0, max_results: int = MAX_HITS) -> str:
         start = resolve_safe(path or ".")

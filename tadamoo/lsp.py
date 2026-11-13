@@ -331,14 +331,14 @@ def _shown(workspace: Path, path: str) -> str:
 
 
 def register_lsp_tools(registry: ToolRegistry, hub: LspHub, resolve: Callable[[str], Path]) -> bool:
-    """`diagnostics`, `go_to_definition` and `find_references`, when at least one server can be found. `resolve` keeps a path inside the
-    workspace (the sandbox's own check). False when there is nothing to offer."""
+    """`diagnostics`, `go_to_definition` and `find_references`, when at least one server can be found. `resolve(path, tool)` is the sandbox's
+    own check of a path. False when there is nothing to offer."""
     languages = hub.available()
     if not languages:
         return False
 
-    def prepare(path: str) -> Tuple[LspClient, str, Path]:
-        file = resolve(path)
+    def prepare(path: str, tool: str) -> Tuple[LspClient, str, Path]:
+        file = resolve(path, tool)
         if not file.is_file():
             raise LspError(f"{path} is not a file")
         client, language = hub.client_for(file)
@@ -363,7 +363,7 @@ def register_lsp_tools(registry: ToolRegistry, hub: LspHub, resolve: Callable[[s
 
     def diagnostics(path: str) -> str:
         try:
-            client, uri, file = prepare(path)
+            client, uri, file = prepare(path, "diagnostics")
             found = client.diagnostics(uri)
         except (LspError, PermissionError) as e:
             return str(e)
@@ -380,7 +380,7 @@ def register_lsp_tools(registry: ToolRegistry, hub: LspHub, resolve: Callable[[s
     def go_to_definition(path: str, line: int, column: int) -> str:
         try:
             ln, col = position(line, column)
-            client, uri, _ = prepare(path)
+            client, uri, _ = prepare(path, "go_to_definition")
             return where(client.locations("textDocument/definition", uri, ln, col))
         except (LspError, PermissionError) as e:
             return str(e)
@@ -388,7 +388,7 @@ def register_lsp_tools(registry: ToolRegistry, hub: LspHub, resolve: Callable[[s
     def find_references(path: str, line: int, column: int) -> str:
         try:
             ln, col = position(line, column)
-            client, uri, _ = prepare(path)
+            client, uri, _ = prepare(path, "find_references")
             return where(client.locations("textDocument/references", uri, ln, col, {"context": {"includeDeclaration": True}}))
         except (LspError, PermissionError) as e:
             return str(e)

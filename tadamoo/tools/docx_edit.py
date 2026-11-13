@@ -242,8 +242,8 @@ class DocxTools:
 
     # -- files ---------------------------------------------------------------------------------------------------------
 
-    def _existing(self, path: str) -> Path:
-        safe = self.sandbox.resolve_safe(path)
+    def _existing(self, path: str, tool: str = "docx_read") -> Path:
+        safe = self.sandbox.resolve_safe(path, tool)
         if safe.suffix.lower() != ".docx":
             raise EditError(f"'{path}' is not a .docx file. These tools open Word documents saved as .docx (not .doc, .docm or .odt).")
         if not safe.is_file():
@@ -282,7 +282,7 @@ class DocxTools:
     # -- docx_outline -----------------------------------------------------------------------------------------------------
 
     def outline(self, path: str, detail: bool = False) -> str:
-        safe = self._existing(path)
+        safe = self._existing(path, "docx_outline")
         doc = self._open(safe, path)
         body = Body(doc)
         n_img = len(doc.element.body.xpath(".//w:drawing")) + len(doc.element.body.xpath(".//w:pict[not(ancestor::mc:Fallback)]"))
@@ -356,7 +356,7 @@ class DocxTools:
     # -- docx_edit ------------------------------------------------------------------------------------------------------------
 
     def edit(self, path: str, edits: List[Dict[str, Any]], track_changes: bool = False) -> Dict[str, Any]:
-        safe = self._existing(path)
+        safe = self._existing(path, "docx_edit")
         blocked = self.sandbox._owner_block(path, safe, append=False)
         if blocked:
             return blocked
@@ -391,7 +391,7 @@ class DocxTools:
 
     def create(self, path: str, blocks: List[Dict[str, Any]], overwrite: bool = False) -> Dict[str, Any]:
         from docx import Document
-        safe = self.sandbox.resolve_safe(path)
+        safe = self.sandbox.resolve_safe(path, "docx_create")
         if safe.suffix.lower() != ".docx":
             raise EditError(f"'{path}' must end in .docx.")
         if safe.is_dir():

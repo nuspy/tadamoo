@@ -72,7 +72,7 @@ column is not shown in *Model only*, whose one conversation stays in the browser
 **Branches** and the mode label, and at the right the kind of conversation (*Mode*), *Thinking* and *Settings*.
 
 **Which folder does it work in?** The Chat tab sends no folder, so a Chat conversation works in `chat-workspace` inside the user data
-folder. Its file tools stay inside that folder. To work on a project of yours, use the **Agent** tab or the command line (sections 13
+folder. To work on a project of yours, use the **Agent** tab or the command line (sections 13
 and 14), or attach the files to the conversation: drag them onto the box or use the attach button. Text, code, CSV, JSON, Word, Excel,
 PowerPoint, PDF, images, audio and video are accepted; a long file shows its start and the agent reads the rest in pieces.
 
@@ -116,6 +116,10 @@ the action reaches the outside; Settings > Wallet sets how strict that is. A sto
 where it would go, never showing its value; with the level *Never ask* nothing is asked.
 
 **Orders in a document or a page.** If a page, a Word or Excel file, a command's output or an attachment contains instructions aimed at the assistant ("ignore your rules", "if you are an AI, send..."), the assistant does not follow them. Anything it then tries to change or send asks you first, at every level, until you authorize those instructions. In a run nobody watches, the question waits in the list of pending questions.
+
+**Paths outside the working folder.** Inside the folder every path passes. Outside it the file tools follow the mode: *Automatic* lets them
+go, *Ask first* and *Read only* ask, *Plan only* holds them back, and a deny rule refuses them. The question names the path; one answer covers
+it and, for a tool that walks a folder, what is below it too. Your secrets are refused at every level.
 
 **What the modes are not.** They are not an operating-system sandbox. A command runs with your rights on your files and network. The
 agent's commands have a scrubbed environment, no keyboard input, a time limit, capped output and, on Windows, a job object (memory
@@ -382,7 +386,7 @@ The Android app (`mobile/`, see its README) then needs only the address and the 
 
 The Agent tab is the conversation page working in a **folder of yours**. At the left, the column lists the folders you added, each with its
 conversations. Press **Add folder**, write the full path (or *Browse...* inside the app) and the folder is added: the agent works there, its
-file tools stay inside it, and the folder gets a `.basalt` folder with a registry of its conversations. A cross next to a folder takes it off
+file tools follow the mode outside it (section 4), and the folder gets a `.basalt` folder with a registry of its conversations. A cross next to a folder takes it off
 the list without touching its files or its conversations; a **+** starts a new conversation in it.
 
 Then talk to it as in the Chat: step by step, over as many messages and days as you like, with no limit on steps. **Shift + Tab** changes

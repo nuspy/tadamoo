@@ -153,6 +153,12 @@ class JournalTest(unittest.TestCase):
             self.journal.review_action(edit["id"], "reject_all")
         self.assertEqual(outside.read_text(encoding="utf-8"), NEW)
 
+    def test_a_whole_path_outside_the_folder_is_reviewed_like_any_edit(self):
+        outside = Path(self.tmp.name) / "outside.txt"
+        edit = self.record(file=str(outside))
+        self.assertEqual(self.journal.review_action(edit["id"], "reject_all")["review"], "reverted")
+        self.assertEqual(outside.read_bytes().decode("utf-8"), OLD)
+
     def test_bad_requests(self):
         edit = self.record()
         for bad in (("explode", None), ("reject", None), ("reject", -1), ("keep", True), ("reject", "0")):
