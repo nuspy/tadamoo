@@ -15,6 +15,8 @@ Schedules are written as text:
   every 30s | every 30m | every 2h | every 1d       an interval
   daily 08:30 | weekdays 08:30 | weekends 10:00 | mon,wed,fri 18:15       fixed local times
   cron 50 14 * * 1-5                                                        a cron expression: minute hour day-of-month month day-of-week
+  cron 0 15 * * 1#1 | cron 0 15 * * 0L                                      the first Monday / the last Sunday of the month (a day-of-week field may name
+                                                                            the n-th weekday of a month as `d#n`, or its last as `dL`)
   at 2026-12-24 18:00                                                       one moment, once
 
 A routine is created enabled; a disabled one never runs on its own. Overdue interval routines run once when the program
@@ -27,6 +29,7 @@ than that (the log says `skipped_late`). Routines that share a `dedup_key` never
 """
 from __future__ import annotations
 
+import calendar
 import datetime as dt
 import hashlib
 import json
@@ -69,6 +72,8 @@ _KEY = re.compile(r"^[A-Za-z0-9_.:-]*$")
 _ARCHIVE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 _CRON_RANGES = ((0, 59), (0, 23), (1, 31), (1, 12), (0, 7))
 _CRON_HELP = "A cron schedule is five fields: minute hour day-of-month month day-of-week, for example 'cron 50 14 * * 1-5'."
+_NTH = re.compile(r"^([0-7])#([1-5])$")
+_LAST = re.compile(r"^([0-7])l$")
 SEARCH_DAYS = 366 * 8                # how far a cron expression is searched before it is called a schedule that never comes
 
 
@@ -171,19 +176,33 @@ class Schedule:
         fields = norm.split()[1:]
         if len(fields) != 5:
             raise RoutineError(_CRON_HELP, "bad_schedule")
+        nth, last, plain = set(), set(), []
+        for part in fields[4].split(","):                       # `d#n` and `dL` name weekdays of the month; the rest is an ordinary day-of-week list
+            m_nth, m_last = _NTH.match(part), _LAST.match(part)
+            if m_nth:
+                nth.add((int(m_nth[1]) % 7, int(m_nth[2])))
+            elif m_last:
+                last.add(int(m_last[1]) % 7)
+            else:
+                plain.append(part)
+        fields[4] = ",".join(plain)
         try:
-            (minutes, _), (hours, _), (dom, dom_star), (months, _), (dow, dow_star) = [_cron_field(f, lo, hi) for f, (lo, hi) in zip(fields, _CRON_RANGES)]
+            (minutes, _), (hours, _), (dom, dom_star), (months, _) = [_cron_field(f, lo, hi) for f, (lo, hi) in zip(fields[:4], _CRON_RANGES[:4])]
+            dow, dow_star = _cron_field(fields[4], *_CRON_RANGES[4]) if plain else (set(), False)
         except ValueError:
             raise RoutineError(_CRON_HELP, "bad_schedule") from None
         return cls(norm, cron={"times": sorted((h, m) for h in hours for m in minutes), "dom": dom, "months": months, "dow": {d % 7 for d in dow},
-                               "dom_star": dom_star, "dow_star": dow_star})
+                               "dow_nth": nth, "dow_last": last, "dom_star": dom_star, "dow_star": dow_star})
 
     def _cron_day(self, day: dt.date) -> bool:
         """Whether a day passes the date fields; when both day-of-month and day-of-week are restricted, either one is enough."""
         c = self.cron
         if day.month not in c["months"]:
             return False
-        dom_ok, dow_ok = day.day in c["dom"], (day.weekday() + 1) % 7 in c["dow"]
+        weekday = (day.weekday() + 1) % 7
+        dom_ok = day.day in c["dom"]
+        dow_ok = (weekday in c["dow"] or (weekday, (day.day - 1) // 7 + 1) in c["dow_nth"]
+                  or (weekday in c["dow_last"] and day.day + 7 > calendar.monthrange(day.year, day.month)[1]))
         return dom_ok and dow_ok if c["dom_star"] or c["dow_star"] else dom_ok or dow_ok
 
     def occurrences(self, since: float, now: float, cap: int = 1000) -> int:
