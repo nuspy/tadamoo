@@ -334,6 +334,7 @@ class RagStore:
         with self._lock:
             meta = self.load(aid).meta
             self._backend(aid).delete_archive(aid)
+            shutil.rmtree(self.root / "downloads" / aid, ignore_errors=True)          # the files downloaded for it
             self.router.forget(aid)
             self._cache.pop(aid, None)
             self._metas_cache.pop(aid, None)

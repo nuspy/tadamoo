@@ -921,7 +921,10 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         project_recall = ProjectRecall(rag_store, cfg.rag_project, local=lambda: getattr(client, "stays_local", lambda: True)(), attached=cfg.rag_attached)
         register_knowledge_tools(registry, rag_store, project_recall, workspace)
         from tadamoo.rag.sync_tools import register_sync_tools, server_call
-        register_sync_tools(registry, rag_store, project_recall, server_call(cfg.endpoint, cfg.api_key))       # the server runs the refresh: it holds the model and the guards
+        server = server_call(cfg.endpoint, cfg.api_key)
+        register_sync_tools(registry, rag_store, project_recall, server)       # the server runs the refresh: it holds the model and the guards
+        from tadamoo.rag.manage_tools import register_manage_tools
+        register_manage_tools(registry, rag_store, project_recall, server)      # and the adding of documents, the indexing and the state of an archive
     from tadamoo.rag.ingest.reading import register_document_tools
     register_document_tools(registry, sandbox.root, Path(cfg.rag_dir) if cfg.rag_dir else None,
                             (Path(cfg.rag_dir) / ".reading") if cfg.rag_dir else data / "reading", protected=lambda p: sandbox.protected_hit(p) if sandbox.protected_hit else "")

@@ -13,6 +13,7 @@ from tadamoo.rag import LIMITS, RagError, RagStore
 from tadamoo.rag.ingest import docling_client, extraction_of
 from tadamoo.rag.project import is_key, project_key
 from tadamoo.rag.resolve import FUNCTIONS, Resolution, resolve, routes_outside
+from serve.rag_add_api import RagAddApi
 from serve.rag_db_api import RagDbApi
 from serve.rag_jobs import Jobs
 from serve.rag_sync_api import RagSyncApi
@@ -48,6 +49,7 @@ class RagApi:
         self.describer = describer                          # a function that gives the model client for the function `rag_enrich` (None: no model to describe archives)
         self.jobs = jobs if jobs is not None else Jobs()
         self.syncing = RagSyncApi(sync if sync is not None else Sync(store), self.jobs)
+        self.adding = RagAddApi(self.syncing, self.jobs)                      # adding documents in a batch and the state of an archive (serve/rag_add_api.py)
         self.database = RagDbApi(store, self.jobs, vault_dir)               # the Database section of a project's settings (serve/rag_db_api.py)
 
     # -- reading ---------------------------------------------------------------------------------
@@ -248,6 +250,8 @@ class RagApi:
             return self.resolve(req)
         got = self.syncing.route_get(parts)
         if got is None:
+            got = self.adding.route_get(parts)
+        if got is None:
             got = self.database.route_get(parts, query)
         if got is not None:
             return got
@@ -273,6 +277,8 @@ class RagApi:
         if not isinstance(req, dict):
             raise RagError("send a JSON object")
         got = self.syncing.route_post(parts, req)
+        if got is None:
+            got = self.adding.route_post(parts, req)
         if got is None:
             got = self.database.route_post(parts, req)
         if got is not None:

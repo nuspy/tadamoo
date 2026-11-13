@@ -62,7 +62,11 @@ def self_model(*, model: str, window: int, mask_at: float, compaction_at: float,
                      "person asks for a diagram, map, chart or 'the figure of ...', or the answer would be clearer with one, search with `filters: {kind: \"figure\"}`, get it with "
                      "`knowledge_figure` (look at it with `analyze_image`, show it in the answer, or put it in a Word document with `docx_edit` insert_picture) and always cite its "
                      "document and page. "
-                     "`knowledge_check` says whether an archive is up to date with its sources and `knowledge_update` reads again what changed, when the person asks.")
+                     "`knowledge_check` says whether an archive is up to date with its sources and `knowledge_update` reads again what changed, when the person asks. "
+                     "You can also build an archive: `knowledge_create` makes (or finds) the archive of this project, `knowledge_add` puts documents in it, one or in a batch (files and folders on this PC, "
+                     "web addresses; the server reads, cuts and indexes them, and downloads the addresses into the archive's download folder), `knowledge_index` indexes again (or describes the passages) "
+                     "and `knowledge_status` says how it stands and what still runs. For a request like 'find all the patents on X and add them to the RAG', search the web, collect the addresses of "
+                     "the documents themselves, add them in one `knowledge_add` call (up to 200), then report with `knowledge_status`: what was added, what was already there, what failed and why.")
     if council:
         lines.append(council)
     if lessons:

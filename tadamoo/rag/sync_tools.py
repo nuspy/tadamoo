@@ -54,6 +54,7 @@ def server_call(endpoint: str, api_key: str = "", wait_s: float = WAIT_S, sleep:
         if job["state"] != "done":
             raise RuntimeError(job.get("error") or f"the job {job['state']}")
         return job["result"]
+    call.ask = ask                                                         # type: ignore[attr-defined]  the plain request, for what is not a job
     return call
 
 
