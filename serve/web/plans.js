@@ -35,7 +35,7 @@
   const ICON = { pending: "○", in_progress: "▶", completed: "✓", failed: "✕", blocked: "⏸", skipped: "↷" };
   const TYPES = ["action", "sensor", "decision", "merge"];
   /* events that write into the plan carry the revision the page last read, so a late one cannot overwrite a newer one */
-  const DIRECT = ["plan:update_node", "plan:move", "plan:mark", "plan:rewind", "plan:update_meta", "plan:fallback_response"];
+  const DIRECT = ["plan:update_node", "plan:move", "plan:mark", "plan:rewind", "plan:update_meta", "plan:fallback_response", "plan:start", "plan:answer"];
   const S = {
     plans: [], id: "", snap: null, selected: "", proposal: "", mode: "", seq: 0, running: false, ready: false,
     settings: null, refreshTimer: null, abort: null, flash: {}, align: null, rewindAsk: null, rewindFocus: false,
@@ -845,6 +845,10 @@
     if (sv.judged) facts.push(T("pl.fact.judged", T("pl.judged." + sv.judged.answer), new Date(sv.judged.at * 1000).toLocaleTimeString()));
     if (sv.auto_error) facts.push(T("pl.fact.autoerr", sv.auto_error));
     if (sv.runs) facts.push(T("pl.fact.runs", sv.runs));
+    if (n.type === "start") {
+      if (n.spec.schedule) facts.push(T("pl.start.sched", n.spec.schedule));
+      if (S.snap.run) facts.push(T("pl.run.state", T("pl.run." + S.snap.run.state)) + (S.snap.run.stalled ? " (" + T("pl.run.stalled") + ")" : ""));
+    }
     const kindFields = PlanKinds.fieldsOf(kindList(), n.type);
     const specForm = kindFields.length ? PlanKinds.specForm(kindFields, n.spec, "pl-d-sp", T, done, { inputs: Object.keys(n.inputs || {}), variables: Object.keys(S.snap.plan.shared_state || {}) }) : null;
     const isReady = S.snap.ready.includes(n.id);
@@ -871,6 +875,8 @@
         el("button", { type: "button", class: "btn pl-btn", title: T("pl.tip.done"), text: T("pl.done"), onclick: () => mark(n.id, "completed", out) }),
         el("button", { type: "button", class: "btn pl-btn", title: T("pl.tip.fail"), text: T("pl.fail"), onclick: () => mark(n.id, "failed") }),
         el("button", { type: "button", class: "btn pl-btn", title: T("pl.tip.rewind"), text: T("pl.rewind"), onclick: () => rewind(n.id) }),
+        n.type === "start" ? el("button", { type: "button", class: "btn primary pl-btn", text: T("pl.start.now"), disabled: !!(S.snap.run && S.snap.run.state === "running"),
+          title: S.snap.run && S.snap.run.state === "running" ? T("pl.start.running") : "", onclick: () => event({ type: "plan:start", number: n.spec.number || 1 }, T("pl.start.done")) }) : [],
         removeButton(n))));
   }
 
