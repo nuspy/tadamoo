@@ -932,6 +932,8 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         from tadamoo.sandbox import cancelled as stop_pressed
         media_settings = MediaSettings(cfg.media_file)
         kinds = [k for k in ("image", "video") if not media_tools.usable(media_settings.read(), k)]       # each kind only where LTX Studio can make it
+        if any(not media_tools.usable(media_settings.read(), k) for k in ("upscale", "interpolate")):
+            kinds.append("enhance")
         media_ready = bool(kinds)
         if kinds:
             media_tools.register_media_tools(registry, sandbox, media_settings, data / "media", cfg.endpoint, cancelled=stop_pressed, kinds=kinds)

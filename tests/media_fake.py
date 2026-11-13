@@ -38,7 +38,30 @@ print("OK:" + out, flush=True)
 '''
 
 
-def make_ltx(root: Path, missing=(), video_checkpoint=True, avatar=True, avatar_missing=()) -> Path:
+RIFE_RUNNER = r'''
+import sys
+src, out, factor = sys.argv[1], sys.argv[2], sys.argv[3]
+open(out + ".args", "w").write(" ".join(sys.argv[1:]))
+if "fail" in src:
+    print("ERRORE: rife failed", flush=True)
+    sys.exit(1)
+for i in (20, 40):
+    print("PROG:%d/40" % i, flush=True)
+open(out, "wb").write(open(src, "rb").read() + b"x" * int(factor))
+print("OK:" + out, flush=True)
+'''
+
+SCALER_RUNNER = r'''
+import sys
+src, out = sys.argv[1], sys.argv[2]
+open(out + ".args", "w").write(" ".join(sys.argv[1:]))
+print("[flashvsrplus] working", flush=True)
+open(out, "wb").write(open(src, "rb").read() + b"y")
+print("[flashvsrplus] OK -> " + out, flush=True)
+'''
+
+
+def make_ltx(root: Path, missing=(), video_checkpoint=True, avatar=True, avatar_missing=(), rife=True, scaler_missing=()) -> Path:
     """A folder with the parts of LTX Studio the worker reads: `core` (paths, releases, job parameters) and `workers/`."""
     (root / "core").mkdir(parents=True)
     (root / "workers").mkdir()
@@ -57,6 +80,20 @@ def make_ltx(root: Path, missing=(), video_checkpoint=True, avatar=True, avatar_
         def missing_weights(precision):
             return {list(avatar_missing)!r}
         '''), encoding="utf-8")
+    (root / "scripts").mkdir()
+    (root / "scripts" / "rife_run.py").write_text(RIFE_RUNNER, encoding="utf-8")
+    (root / "core" / "rife.py").write_text(f"_INF_PY = {sys.executable!r}\n\n\ndef available():\n    return {rife!r}\n", encoding="utf-8")
+    (root / "workers" / "flashvsrplus_run.py").write_text(SCALER_RUNNER, encoding="utf-8")
+    (root / "core" / "flashvsrplus_service.py").write_text(textwrap.dedent(f'''
+        from pathlib import Path
+        CODE_DIR = Path({str(root / "code")!r})
+        VENV_PY = Path({sys.executable!r})
+        RUNNER = Path({str(root / "workers" / "flashvsrplus_run.py")!r})
+        def ckpt_root():
+            return Path({str(root / "ckpt")!r})
+        def preflight(mode="turbo"):
+            return {list(scaler_missing)!r}
+        '''), encoding="utf-8")
     (root / "models").mkdir()
     for name in ("ltx-2.5-22b-distilled-transformer-nvfp4.safetensors",):
         if video_checkpoint:
@@ -67,6 +104,8 @@ def make_ltx(root: Path, missing=(), video_checkpoint=True, avatar=True, avatar_
             return {{"id": i}}
         def models_root():
             return "x"
+        def exists(i):
+            return not i.startswith("absent")
         '''), encoding="utf-8")
     (root / "core" / "weights_catalog.py").write_text(f"MISSING = {list(missing)!r}\n\n\ndef is_present(entry, root):\n    return entry['id'] not in MISSING\n", encoding="utf-8")
     (root / "core" / "img_gen_job.py").write_text(f"_ARCH_RUNNER = {{'qwen_image21': ({sys.executable!r}, {str(root / 'workers' / 'qwen_image21_infer.py')!r})}}\n", encoding="utf-8")
@@ -82,9 +121,9 @@ def make_ltx(root: Path, missing=(), video_checkpoint=True, avatar=True, avatar_
             return [os.path.join(d, n) for n in sorted(os.listdir(d))]
         '''), encoding="utf-8")
     (root / "core" / "ltx_video_job.py").write_text(textwrap.dedent('''
-        def build_params(*, output, prompt, width, height, num_frames, fps, seed, model, ltx_release, negative="worst quality", steps=8, guidance=3.0):
+        def build_params(*, output, prompt, width, height, num_frames, fps, seed, model, ltx_release, negative="worst quality", steps=8, guidance=3.0, image_path=""):
             return {"output": output, "prompt": prompt, "width": width, "height": height, "num_frames": num_frames, "fps": fps, "seed": seed,
-                    "model": model, "ltx_release": ltx_release, "negative": negative, "steps": steps, "guidance": guidance}
+                    "model": model, "ltx_release": ltx_release, "negative": negative, "steps": steps, "guidance": guidance, "image_path": image_path}
         '''), encoding="utf-8")
     return root
 

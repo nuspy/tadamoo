@@ -24,10 +24,11 @@ import time
 from pathlib import Path
 
 LEASE_CLIENT = Path(__file__).resolve().parents[1] / "heavy.py"
-OWNER = {"image": "image", "video": "video", "avatar": "avatar"}
-PURPOSE = {"image": "making a picture", "video": "making a clip", "avatar": "making a talking head"}
-MINUTES = {"image": 2, "video": 6, "avatar": 20}          # what a swap tells the person the job takes
+OWNER = {"image": "image", "video": "video", "avatar": "avatar", "upscale": "upscale", "interpolate": "interpolate"}
+PURPOSE = {"image": "making a picture", "video": "making a clip", "avatar": "making a talking head", "upscale": "enlarging a video", "interpolate": "adding frames to a video"}
+MINUTES = {"image": 2, "video": 6, "avatar": 20, "upscale": 10, "interpolate": 3}          # what a swap tells the person the job takes
 STEP = re.compile(r"(\d+)/(\d+)\s*\[")                   # a progress bar: "  3/8 [00:12<00:20"
+PROG = re.compile(r"^PROG:(\d+)/(\d+)")                  # the frame counter of the frame-interpolation runner
 HTTP_SLACK_S = 135.0                                      # the call that asks for the lease may last as long as the wait plus the engine's own time
 
 
@@ -116,12 +117,46 @@ def video_plan(folder: str, spec: dict) -> dict:
     if not model:
         missing.append(f"checkpoint {name}")
     req = spec.get("request") or {}
+    if req.get("image") and not Path(req["image"]).is_file():
+        missing.append(f"the picture {req['image']}")
     params = {}
     if not missing:
         params = ltx_video_job.build_params(output=spec["output"], prompt=req.get("prompt", ""), width=req.get("width"), height=req.get("height"),
                                             num_frames=req.get("frames"), fps=req.get("fps"), seed=req.get("seed"), model=model, ltx_release="2.5",
-                                            **({"negative": req["negative"]} if req.get("negative") else {}))
+                                            **({"negative": req["negative"]} if req.get("negative") else {}), **({"image_path": req["image"]} if req.get("image") else {}))
     return {"python": spec.get("python") or py, "script": script, "params": params, "missing": missing, "env": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}}
+
+
+def _video_input(req: dict, missing: list) -> str:
+    video = req.get("video", "")
+    if video and not Path(video).is_file():
+        missing.append(f"the video {video}")
+    return video
+
+
+def interpolate_plan(folder: str, spec: dict) -> dict:
+    """Frames made between the real ones of a video (RIFE), run by LTX Studio's own runner in its inference environment."""
+    use_ltx(folder)
+    rife = importlib.import_module("core.rife")
+    req = spec.get("request") or {}
+    missing = [] if rife.available() else ["RIFE (the code in workers/rife_pr and its flownet.pkl weights)"]
+    video = _video_input(req, missing)
+    return {"python": spec.get("python") or rife._INF_PY, "script": str(Path(folder) / "scripts" / "rife_run.py"), "args": [video, spec["output"], str(int(req.get("factor") or 2))],
+            "params": {}, "missing": missing, "cwd": str(folder), "env": {}}
+
+
+def upscale_plan(folder: str, spec: dict) -> dict:
+    """A video made larger (FlashVSR+), run by LTX Studio's own runner in its inference environment."""
+    use_ltx(folder)
+    service = importlib.import_module("core.flashvsrplus_service")
+    req = spec.get("request") or {}
+    mode = req.get("mode") or "turbo"
+    missing = list(service.preflight(mode))
+    video = _video_input(req, missing)
+    args = [video, spec["output"], "--mode", mode, "--scale", f"{float(req.get('scale') or 2.0):g}", "--seed", "1", "--temporal-compression", "4", "--decode-every", "profile",
+            "--code-dir", str(service.CODE_DIR), "--ckpt-root", str(service.ckpt_root())]
+    return {"python": spec.get("python") or str(service.VENV_PY), "python_flags": ["-I"], "script": str(service.RUNNER), "args": args, "params": {}, "missing": missing,
+            "cwd": str(service.RUNNER.parent), "env": {"PYTHONIOENCODING": "utf-8"}}
 
 
 def avatar_plan(folder: str, spec: dict) -> dict:
@@ -143,7 +178,7 @@ def avatar_plan(folder: str, spec: dict) -> dict:
             "env": {"LONGCAT_CODE_DIR": str(service.ROOT / "LongCat-Video"), "PYTHONPATH": None, "PYTHONHOME": None}}
 
 
-PLANS = {"image": image_plan, "video": video_plan, "avatar": avatar_plan}
+PLANS = {"image": image_plan, "video": video_plan, "avatar": avatar_plan, "interpolate": interpolate_plan, "upscale": upscale_plan}
 
 
 def check(folder: str, video_model: str) -> dict:
@@ -158,6 +193,28 @@ def check(folder: str, video_model: str) -> dict:
     return out
 
 
+def keep_audio(source: str, out: Path) -> None:
+    """Puts the sound of `source`, if it has any, back under the enlarged picture of `out` (the enlarger writes picture only); without ffmpeg or sound the file is left as it is."""
+    import shutil
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return
+    joined = out.with_name("joined-" + out.name)
+    done = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", str(out), "-i", source, "-map", "0:v:0", "-map", "1:a:0?", "-c", "copy", "-shortest", str(joined)],
+                          capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0)
+    if done.returncode == 0 and joined.is_file():
+        os.replace(joined, out)
+    elif joined.exists():
+        joined.unlink()
+
+
+def present(folder: str, ids: list) -> dict:
+    """Which weights of LTX Studio's catalogue are on disk, by catalogue id."""
+    use_ltx(folder)
+    model_paths = importlib.import_module("core.model_paths")
+    return {i: bool(model_paths.exists(i)) for i in ids}
+
+
 class Run:
     """The model process of one job: its output read line by line (a progress bar ends its lines with a carriage return), its end told."""
 
@@ -167,7 +224,8 @@ class Run:
         env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1", "HF_HUB_OFFLINE": "1", **plan["env"]}
         env = {k: v for k, v in env.items() if v is not None}          # a value of None takes the variable out of the model process's environment
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
-        self.proc = subprocess.Popen([plan["python"], "-u", plan["script"], str(params_file)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, cwd=plan.get("cwd") or cwd,
+        argv = [plan["python"], *plan.get("python_flags", []), "-u", plan["script"], *(plan["args"] if "args" in plan else [str(params_file)])]
+        self.proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, cwd=plan.get("cwd") or cwd,
                                      creationflags=flags, start_new_session=os.name != "nt")
         self.tail: list = []
         self.result = ""
@@ -194,6 +252,10 @@ def main() -> int:
         folder = sys.argv[sys.argv.index("--ltx-dir") + 1]
         model = sys.argv[sys.argv.index("--video-model") + 1] if "--video-model" in sys.argv else ""
         emit(check(folder, model))
+        return 0
+    if "--present" in sys.argv:
+        folder = sys.argv[sys.argv.index("--ltx-dir") + 1]
+        emit(present(folder, sys.argv[sys.argv.index("--present") + 1].split(",")))
         return 0
     spec = json.loads(Path(sys.argv[sys.argv.index("--job") + 1]).read_text(encoding="utf-8"))
     kind = spec["kind"]
@@ -244,7 +306,7 @@ def main() -> int:
             if line.startswith("OK:"):
                 run.result = line[3:].strip()
                 continue
-            match = STEP.search(line)
+            match = PROG.match(line) or STEP.search(line)
             if match:
                 emit({"event": "progress", "step": int(match.group(1)), "steps": int(match.group(2))})
             elif line.startswith("["):
@@ -253,6 +315,8 @@ def main() -> int:
         out = Path(spec["output"])
         if code != 0 or not out.is_file():
             raise JobError(f"the model process ended with code {code} and made no file: " + " | ".join(run.tail[-4:])[-600:])
+        if kind == "upscale":
+            keep_audio(spec["request"]["video"], out)
         emit({"event": "done", "path": str(out), "bytes": out.stat().st_size, "seconds": round(time.monotonic() - began, 1),
               "lease": {"id": lease.id or "", "owner": OWNER[kind], "granted_mib": lease.granted_mib, "swapped": heavy.swapped, "risky": heavy.risky}})
         return 0

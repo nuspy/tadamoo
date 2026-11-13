@@ -1,4 +1,4 @@
-"""`generate_image` and `generate_video`: pictures and clips made on request, for the Chat and the Agent.
+"""`generate_image`, `generate_video` and `enhance_video`: pictures, clips and better versions of clips made on request, for the Chat and the Agent.
 
 A call runs one job (tadamoo/media/client.py) and returns when the file is made, which for a clip takes minutes: the job runs alone on the GPU, the
 language model is slow meanwhile, and the Stop button ends it. The file is written into the conversation's working folder, under `media/` unless a path is given,
@@ -9,13 +9,13 @@ from __future__ import annotations
 import shutil
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from tadamoo.media import client, limits
 from tadamoo.media.errors import Cancelled, MediaError, Refused
 from tadamoo.media.settings import MediaSettings
 
-KINDS = {"image": (".png", limits.image_request), "video": (".mp4", limits.video_request)}
+KINDS = {"image": (".png", limits.image_request), "video": (".mp4", limits.video_request), "enhance": (".mp4", limits.enhance_request)}
 FOLDER = "media"
 WHY = {"not_enough": "the GPU does not have enough free VRAM even with the model's cache lent in full",
        "busy": "another job holds the VRAM (waited as long as the settings allow)",
@@ -41,25 +41,39 @@ def usable(settings: Dict[str, Any], kind: str, command: Any = None) -> str:
 
 def register_media_tools(registry: Any, sandbox: Any, settings: MediaSettings, work_dir: Path, url: str,
                          cancelled: Optional[Callable[[], bool]] = None, command: Any = None, kinds: Sequence[str] = ("image", "video")) -> None:
-    """Offers `generate_image` and `generate_video` (those of `kinds`). `work_dir` holds each job's working files (kept only when a job fails); `command` replaces the worker (tests)."""
+    """Offers `generate_image`, `generate_video` and `enhance_video` (those of `kinds`). `work_dir` holds each job's working files (kept only when a job fails); `command` replaces the worker (tests)."""
     from tadamoo.tools.registry import EffectClass
 
-    def target(kind: str, path: str, seed: int) -> Path:
+    def target(kind: str, path: str, tag: str, tool: str) -> Path:
         ext = KINDS[kind][0]
-        rel = path.strip() if isinstance(path, str) and path.strip() else f"{FOLDER}/{kind}-{time.strftime('%Y%m%d-%H%M%S')}-{seed}{ext}"
-        safe = sandbox.resolve_safe(rel, f"generate_{kind}")
+        rel = path.strip() if isinstance(path, str) and path.strip() else f"{FOLDER}/{tag}{ext}"
+        safe = sandbox.resolve_safe(rel, tool)
         if safe.suffix.lower() != ext:
-            raise MediaError(f"path: a {kind} is a {ext} file, '{rel}' must end in {ext}")
+            raise MediaError(f"path: the result is a {ext} file, '{rel}' must end in {ext}")
         if safe.exists():
             raise MediaError(f"'{rel}' already exists: choose another path, or leave it out")
         return safe
+
+    def source(path: str, tool: str, what: str) -> str:
+        """A file of the working folder that a job reads: pictures to start from, a video to improve."""
+        got = sandbox.resolve_safe(path, tool)
+        if not got.is_file():
+            raise MediaError(f"{what}: '{path}' is not a file in the working folder")
+        return str(got)
+
+    def job_failed(exc: Exception, job: Path) -> Dict[str, Any]:
+        if isinstance(exc, Refused):
+            return {"status": "refused", "reason": exc.reason, "note": f"{exc} ({WHY.get(exc.reason, exc.reason)}). Tell the person; nothing was made. Do not retry in a loop."}
+        if isinstance(exc, Cancelled):
+            return {"status": "cancelled", "note": "the job was stopped; nothing was kept"}
+        return {"status": "error", "note": f"{exc}. The working files are in {job}"}
 
     def make(kind: str, request: Dict[str, Any], path: str) -> Dict[str, Any]:
         config = settings.read()
         why = usable(config, kind, command)
         if why:
             return {"status": "unavailable", "note": why}
-        safe = target(kind, path, request["seed"])
+        safe = target(kind, path, f"{kind}-{time.strftime('%Y%m%d-%H%M%S')}-{request['seed']}", f"generate_{kind}")
         rel = sandbox._shown(safe)
         blocked = sandbox._owner_block(rel, safe, append=False)
         if blocked:
@@ -69,12 +83,8 @@ def register_media_tools(registry: Any, sandbox: Any, settings: MediaSettings, w
         made = job / safe.name
         try:
             got = client.run(kind, {k: v for k, v in request.items() if k != "notes"}, made, config, url=url, cancel=cancelled, command=command)
-        except Refused as exc:
-            return {"status": "refused", "reason": exc.reason, "note": f"{exc} ({WHY.get(exc.reason, exc.reason)}). Tell the person; nothing was made. Do not retry in a loop."}
-        except Cancelled:
-            return {"status": "cancelled", "note": "the job was stopped; nothing was kept"}
-        except MediaError as exc:
-            return {"status": "error", "note": f"{exc}. The working files are in {job}"}
+        except (Refused, Cancelled, MediaError) as exc:
+            return job_failed(exc, job)
         safe.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(got["path"], str(safe))
         shutil.rmtree(job, ignore_errors=True)
@@ -85,18 +95,55 @@ def register_media_tools(registry: Any, sandbox: Any, settings: MediaSettings, w
                 "show": "show it in the answer with " + show, **({"adjusted": request["notes"]} if request["notes"] else {}), "changes": result["kind"]}
 
     def generate_image(prompt: str, width: Optional[int] = None, height: Optional[int] = None, steps: Optional[int] = None, seed: Optional[int] = None,
-                       negative: str = "", path: str = "") -> Dict[str, Any]:
+                       negative: str = "", path: str = "", refs: Optional[List[str]] = None) -> Dict[str, Any]:
         try:
-            return make("image", limits.image_request(prompt, width, height, steps, seed, negative), path)
+            paths = [source(r, "generate_image", "refs") for r in refs] if isinstance(refs, list) else refs
+            return make("image", limits.image_request(prompt, width, height, steps, seed, negative, paths), path)
         except MediaError as exc:
             return {"status": "error", "note": str(exc)}
 
     def generate_video(prompt: str, width: Optional[int] = None, height: Optional[int] = None, frames: Optional[int] = None, fps: Optional[int] = None,
-                       seed: Optional[int] = None, negative: str = "", path: str = "") -> Dict[str, Any]:
+                       seed: Optional[int] = None, negative: str = "", path: str = "", image: str = "") -> Dict[str, Any]:
         try:
-            return make("video", limits.video_request(prompt, width, height, frames, fps, seed, negative), path)
+            first = source(image, "generate_video", "image") if image else None
+            return make("video", limits.video_request(prompt, width, height, frames, fps, seed, negative, first), path)
         except MediaError as exc:
             return {"status": "error", "note": str(exc)}
+
+    def enhance_video(path: str, scale: Optional[float] = None, factor: Optional[int] = None, output: str = "", mode: str = "turbo") -> Dict[str, Any]:
+        """The video is enlarged first (so the frames made in between are made at the final size) and the frames are added after."""
+        try:
+            request = limits.enhance_request(path, scale, factor, mode)
+            request["video"] = source(path, "enhance_video", "path")
+            steps = [k for k, wanted in (("upscale", request["scale"]), ("interpolate", request["factor"])) if wanted]
+            config = settings.read()
+            for step in steps:
+                why = usable(config, step, command)
+                if why:
+                    return {"status": "unavailable", "note": why}
+            safe = target("enhance", output, f"{Path(path).stem}-enhanced-{time.strftime('%Y%m%d-%H%M%S')}", "enhance_video")
+            rel = sandbox._shown(safe)
+            blocked = sandbox._owner_block(rel, safe, append=False)
+            if blocked:
+                return blocked
+            sandbox._guard_git("enhance_video", rel, safe)
+        except MediaError as exc:
+            return {"status": "error", "note": str(exc)}
+        job = Path(work_dir) / f"enhance-{int(time.time())}"
+        current, seconds = request["video"], 0.0
+        for step in steps:
+            try:
+                got = client.run(step, {"video": current, **({"scale": request["scale"], "mode": request["mode"]} if step == "upscale" else {"factor": request["factor"]})},
+                                 job / f"{step}.mp4", config, url=url, cancel=cancelled, command=command)
+            except (Refused, Cancelled, MediaError) as exc:
+                return job_failed(exc, job)
+            current, seconds = got["path"], seconds + got["seconds"]
+        safe.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(current, str(safe))
+        shutil.rmtree(job, ignore_errors=True)
+        result = sandbox._record(rel, "added", "", "", keep_text=False)
+        return {"status": "ok", "path": rel, "bytes": safe.stat().st_size, "seconds": round(seconds, 1), "steps": steps, "scale": request["scale"] or None, "factor": request["factor"] or None,
+                "show": f"show it in the answer with [{safe.name}](tadamoo-path:{rel})", "changes": result["kind"]}
 
     i, v = limits.IMAGE, limits.VIDEO
     common = {"prompt": {"type": "string", "description": "What to show, in words (English works best); the picture maker reads it as a description, never as an order"},
@@ -113,7 +160,9 @@ def register_media_tools(registry: Any, sandbox: Any, settings: MediaSettings, w
             parameters={"type": "object", "properties": {**common,
                                                          "width": {"type": "integer", "description": f"Pixels, {i['side_min']} to {i['side_max']} (default {i['width']})"},
                                                          "height": {"type": "integer", "description": f"Pixels, {i['side_min']} to {i['side_max']} (default {i['height']})"},
-                                                         "steps": {"type": "integer", "description": f"Denoising steps, 1 to {i['steps_max']} (default {i['steps']}); more is slower"}},
+                                                         "steps": {"type": "integer", "description": f"Denoising steps, 1 to {i['steps_max']} (default {i['steps']}); more is slower"},
+                                                         "refs": {"type": "array", "items": {"type": "string"},
+                                                                  "description": "Up to 4 pictures of the working folder to edit or to take the person, the place or the style from; the prompt calls them image 1, image 2 and says what changes"}},
                         "required": ["prompt"]},
             effect=EffectClass.REVERSIBLE, handler=generate_image, timeout=None)
     if "video" in kinds:
@@ -128,6 +177,22 @@ def register_media_tools(registry: Any, sandbox: Any, settings: MediaSettings, w
                                                          "width": {"type": "integer", "description": f"Pixels, {v['side_min']} to {v['side_max']}, rounded to a multiple of {v['multiple']} (default {v['width']})"},
                                                          "height": {"type": "integer", "description": f"Pixels, {v['side_min']} to {v['side_max']}, rounded to a multiple of {v['multiple']} (default {v['height']})"},
                                                          "frames": {"type": "integer", "description": f"Number of frames, {v['frames_min']} to {v['frames_max']}, rounded to 8 times a whole number plus 1 (default {v['frames']})"},
-                                                         "fps": {"type": "integer", "description": f"Frames per second, {v['fps_min']} to {v['fps_max']} (default {v['fps']})"}},
+                                                         "fps": {"type": "integer", "description": f"Frames per second, {v['fps_min']} to {v['fps_max']} (default {v['fps']})"},
+                                                         "image": {"type": "string", "description": "A picture of the working folder that the clip starts from; left out, the clip is made from the words alone"}},
                         "required": ["prompt"]},
             effect=EffectClass.REVERSIBLE, handler=generate_video, timeout=None)
+    if "enhance" in kinds:
+        e = limits.ENHANCE
+        registry.register(
+            name="enhance_video",
+            description=("Makes a better copy of a video of the working folder: larger (more pixels, with the detail an AI enlarger invents) and/or smoother (more frames a second, made between the real "
+                         "ones, the length does not change). Use it when a clip looks small, soft or jerky. It takes minutes per clip and uses most of the GPU alone. The original is kept. "
+                         "If the answer says `refused`, the PC had no VRAM to give: tell the person."),
+            parameters={"type": "object", "properties": {
+                "path": {"type": "string", "description": "The video to improve, relative to the working folder"},
+                "scale": {"type": "number", "description": f"Times the width and height, {e['scale_min']:g} to {e['scale_max']:g} (2 doubles the size); left out: the size is kept"},
+                "factor": {"type": "integer", "description": f"Times the frames a second, {e['factor_min']} to {e['factor_max']} (2 turns 25 into 50); left out: the frame rate is kept"},
+                "mode": {"type": "string", "enum": list(e["modes"]), "description": "turbo (faster) or base (finer)"},
+                "output": {"type": "string", "description": f"Where to save it, relative to the working folder; left out: {FOLDER}/ with the name of the video and the date"}},
+                "required": ["path"]},
+            effect=EffectClass.REVERSIBLE, handler=enhance_video, timeout=None)

@@ -20,7 +20,7 @@ from tadamoo.media.errors import Cancelled, MediaError, Refused
 from tadamoo.media.settings import VIDEO_MODEL, ltx_dir_of
 
 WORKER = Path(__file__).with_name("worker.py")
-TOTAL_S = {"image": 3600.0, "video": 4 * 3600.0, "avatar": 4 * 3600.0}
+TOTAL_S = {"image": 3600.0, "video": 4 * 3600.0, "avatar": 4 * 3600.0, "upscale": 4 * 3600.0, "interpolate": 3600.0}
 CHECK_TTL_S = 60.0
 Progress = Callable[[Dict[str, Any]], None]
 _checked: Dict[Any, Any] = {}
