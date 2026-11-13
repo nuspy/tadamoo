@@ -18,7 +18,7 @@
 
   const KINDS = ["sqlite", "postgres", "mysql", "other"];
   let st = null, host = null, repaint = () => {}, changed = () => {};
-  const fresh = project => ({ project, view: null, cfg: { kind: "sqlite" }, password: "", steps: [], stage: "", running: false, planB: "blob", vecFile: "", open: false, note: "", bad: false,
+  const fresh = project => ({ project, view: null, cfg: { kind: "sqlite" }, password: "", superuser: "", superpassword: "", steps: [], stage: "", running: false, planB: "blob", vecFile: "", open: false, note: "", bad: false,
     comps: [], log: [], compBusy: "", importing: false, importResult: null, loaded: false });
 
   const say = (text, bad) => { st.note = text; st.bad = !!bad; repaint(); };
@@ -48,11 +48,12 @@
   async function prepare(extra) {
     if (st.running) return;
     st.running = true; st.steps = []; st.note = ""; repaint();
-    const body = { project: st.project, config: cleanConfig(), ...(st.password ? { password: st.password } : {}), ...(extra || {}) };
+    const body = { project: st.project, config: cleanConfig(), ...(st.password ? { password: st.password } : {}),
+      ...(st.cfg.kind === "postgres" && st.superuser.trim() ? { superuser: st.superuser.trim(), superpassword: st.superpassword } : {}), ...(extra || {}) };
     const r = await api("POST", "api/rag/db/prepare", body);
     if (!r.ok) { st.running = false; say(why(r), true); return; }
     const done = await follow(r.data.job, j => { st.stage = j.stage; if (j.data && j.data.steps) st.steps = j.data.steps; });
-    st.running = false;
+    st.running = false; st.superpassword = "";
     if (done.state === "done" && done.result) {
       st.steps = done.result.steps;
       if (done.result.ok) { st.password = ""; st.note = T("rd.prepare.ok"); st.bad = false; await load(); changed(); }
@@ -121,7 +122,12 @@
       box.append(field("rd-host", T("rd.f.host"), "", Object.assign(input("host"), { placeholder: "localhost" })), field("rd-port", T("rd.f.port"), "", port),
         field("rd-db", T("rd.f.dbname"), T("rd.f.dbname.help"), input("dbname", "text", 63)), field("rd-user", T("rd.f.user"), "", input("user", "text", 63)),
         field("rd-pw", T("rd.f.password"), st.view && st.view.has_password ? T("rd.f.password.kept") : T("rd.f.password.help"), pw));
-      if (k === "postgres") box.append(field("rd-ssl", T("rd.f.ssl"), "", ssl));
+      if (k === "postgres") {
+        const su = el("input"); su.type = "text"; su.autocomplete = "off"; su.spellcheck = false; su.maxLength = 63; su.value = st.superuser; su.oninput = () => { st.superuser = su.value; };
+        const sp = el("input"); sp.type = "password"; sp.autocomplete = "off"; sp.value = st.superpassword; sp.oninput = () => { st.superpassword = sp.value; };
+        box.append(field("rd-ssl", T("rd.f.ssl"), "", ssl), el("p", "rg-help", T("rd.super.help")),
+          field("rd-su", T("rd.f.superuser"), "", su), field("rd-sp", T("rd.f.superpassword"), T("rd.f.superpassword.help"), sp));
+      }
     } else {
       const dia = el("select"); ["postgres", "mysql", "sqlite"].forEach(d => { const o = el("option", "", d); o.value = d; dia.append(o); });
       dia.value = st.cfg.dialect || "postgres"; dia.onchange = () => { st.cfg.dialect = dia.value; };
@@ -153,6 +159,7 @@
       li.append(head, " ", mark);
       if (s) {
         li.append(el("p", "rg-help", s.message));
+        if (s.needs_superuser && !st.superuser.trim()) li.append(el("p", "rg-note", T("rd.super.ask")));
         if (s.sql) li.append(el("pre", "rd-code", s.sql));
         if (s.steps) { const ul = el("ul", "rd-howto"); s.steps.forEach(x => ul.append(el("li", "", x))); li.append(ul); }
         if (s.component) li.append(btn(T("rd.comp.go", s.component), "", () => { const c = st.comps.find(x => x.id === s.component); if (c) installComponent(c); }));

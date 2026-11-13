@@ -4,17 +4,20 @@
     python -m tadamoo.rag db config --project KEY --kind sqlite|postgres|mysql [--path FILE] [--host H --port N --dbname D --user U --sslmode M] [--password-from-stdin]
                                     [--prefix rag_] [--vectors auto|blob|file --vec-file FILE]
     python -m tadamoo.rag db prepare --project KEY [--plan-b blob|file] [--vec-file FILE] [--install-local] [--create-db]
+                                    [--superuser U [--superpassword-from-stdin]]
     python -m tadamoo.rag db import [ARCHIVE ...] [--all] [--source DIR] [--replace]
     python -m tadamoo.rag db components [install ID]
 
 Every project has a database (a SQLite file of its own unless it is set to another). `status` says which and what is in it, and which archives in the old file format are
 waiting to be imported; `config` sets a project's database (the password is read from standard input and goes in the vault, never in a file); `prepare` runs the three
 steps (connect, vector extension, tables and a test) and saves the configuration when they work; `import` copies archives in the old file format into their project's
-database and reports what it copied. The old folders are never changed or deleted. `--rag-dir` names another rag folder (default: the user data folder's)."""
+database and reports what it copied. `--superuser` gives `prepare` a PostgreSQL administrator for this run only, to make the user, the database, the rights and the
+extension the project's user cannot; its password is read from standard input or the environment variable TADAMOO_SUPERPASSWORD, and is kept nowhere. The old folders are never changed or deleted. `--rag-dir` names another rag folder (default: the user data folder's)."""
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -48,6 +51,8 @@ def main(argv=None) -> int:
     pp.add_argument("--vec-file")
     pp.add_argument("--install-local", action="store_true")
     pp.add_argument("--create-db", action="store_true")
+    pp.add_argument("--superuser")
+    pp.add_argument("--superpassword-from-stdin", action="store_true")
     co = db.add_parser("components")
     co.add_argument("action", nargs="?", choices=("install",))
     co.add_argument("id", nargs="?")
@@ -87,9 +92,13 @@ def main(argv=None) -> int:
                 out = {"components": components.listing()}
         elif a.cmd == "prepare":
             cfg = router.config(a.project)
+            options = {"plan_b": a.plan_b, "vec_file": a.vec_file, "install_local": a.install_local, "create_db": a.create_db}
+            if a.superuser:
+                options["superuser"] = a.superuser
+                options["superpassword"] = sys.stdin.readline().rstrip("\r\n") if a.superpassword_from_stdin else os.environ.get("TADAMOO_SUPERPASSWORD", "")
             done = prepare_mod.prepare(cfg, vault_password(vault_dir)(cfg["vault"]) if cfg.get("vault") else "",
                                        lambda s: print(f"{s['step']}: {s['state']} - {s['message']}", file=sys.stderr),
-                                       {"plan_b": a.plan_b, "vec_file": a.vec_file, "install_local": a.install_local, "create_db": a.create_db})
+                                       options)
             if done["ok"]:
                 router.set_config(a.project, done.get("config") or cfg)
             out = done

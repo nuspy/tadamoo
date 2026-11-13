@@ -159,3 +159,125 @@ def test_a_local_database_that_does_not_exist_is_created_only_when_asked(monkeyp
 def test_other_databases_have_no_extension_and_the_flow_says_so(tmp_path):
     out = prep.prepare({"kind": "other", "driver": "sqlite3", "dsn": str(tmp_path / "o.db"), "dialect": "sqlite"})
     assert out["ok"] and out["steps"][1]["state"] == "none" and out["vectors"] == "app"
+
+
+# -- an administrator for one run -----------------------------------------------------------------------------
+
+ADMIN_WORD = "an-admin-word-for-tests"
+
+
+class Down(Exception):
+    pass
+
+
+def admin_conn(target=None, **answers):
+    """A stand-in administrator connection; its CREATE EXTENSION / GRANT makes the project user's connection able to do what it could not."""
+    def opened(c):
+        if target is not None:
+            target.created, target.fail = True, {}
+        return []
+    return FakePg({"CREATE EXTENSION": opened, **answers})
+
+
+def test_an_administrator_enables_the_extension_a_user_cannot_and_the_word_is_kept_nowhere():
+    user = conn_with(extension="0.8.0", available=("0.8.0", None), late=True)
+    user.fail = {"CREATE EXTENSION": RuntimeError("permission denied to create extension")}
+    admin = admin_conn(user)
+    asked = []
+    out, seen = run(user, superuser="postgres", superpassword=ADMIN_WORD, admin_connect=lambda db: (asked.append(db), admin)[1])
+    assert out["ok"] and out["steps"][1]["state"] == "enabled" and out["steps"][1]["used_superuser"] is True and asked == ["kb"]
+    assert any(s == "CREATE EXTENSION IF NOT EXISTS vector" for s, _ in admin.sql)
+    assert ADMIN_WORD not in str(out) and ADMIN_WORD not in str(seen) and "superpassword" not in str(out["config"])
+
+
+def test_nothing_is_asked_of_an_administrator_when_the_extension_and_the_user_are_there():
+    conn = conn_with(extension="0.8.0", available=("0.8.0", "0.8.0"))
+
+    def never(db):
+        raise AssertionError("the administrator was used although nothing needed it")
+    out, _ = run(conn, superuser="postgres", superpassword=ADMIN_WORD, admin_connect=never)
+    assert out["ok"] and out["steps"][1]["state"] == "present"
+
+
+def test_without_an_administrator_the_step_says_one_would_do_it():
+    conn = conn_with(extension=None, available=("0.8.0", None))
+    conn.fail = {"CREATE EXTENSION": RuntimeError("permission denied to create extension")}
+    out, _ = run(conn)
+    assert out["steps"][1]["state"] == "needs_admin" and out["steps"][1]["needs_superuser"] is True
+
+
+def test_an_administrator_who_cannot_either_leaves_the_step_asking_for_one_who_can():
+    user = conn_with(extension=None, available=("0.8.0", None))
+    user.fail = {"CREATE EXTENSION": RuntimeError("permission denied to create extension")}
+    admin = FakePg({}, fail={"CREATE EXTENSION": RuntimeError("must be superuser")})
+    out, _ = run(user, superuser="someone", superpassword=ADMIN_WORD, admin_connect=lambda db: admin)
+    assert not out["ok"] and out["stopped_at"] == "extension" and out["steps"][1]["state"] == "needs_admin" and ADMIN_WORD not in str(out)
+
+
+def test_an_administrator_makes_the_missing_user_and_database_then_the_flow_goes_on():
+    state = {"made": False}
+    ready = conn_with(extension="0.8.0", available=("0.8.0", "0.8.0"))
+
+    def connect():
+        if not state["made"]:
+            raise Down('FATAL: password authentication failed for user "kb_user"')
+        return ready
+    admin = FakePg({"FROM pg_roles": [], "FROM pg_database": []})
+    original = admin.cursor
+
+    def cursor():
+        c = original()
+        run_ = c.execute
+
+        def execute(sql, params=()):
+            if sql.startswith("CREATE DATABASE"):
+                state["made"] = True
+            return run_(sql, params)
+        c.execute = execute
+        return c
+    admin.cursor = cursor
+    cfg = {**PG, "user": "kb_user"}
+    out = prep.prepare(cfg, "project-word", None, {"superuser": "postgres", "superpassword": ADMIN_WORD, "admin_connect": lambda db: admin}, connect=connect)
+    sql = [s for s, _ in admin.sql]
+    assert out["ok"] and out["steps"][0]["created"] == ["role", "database"]
+    assert 'CREATE ROLE "kb_user" LOGIN PASSWORD \'project-word\'' in sql and 'CREATE DATABASE "kb" OWNER "kb_user"' in sql
+    assert ADMIN_WORD not in str(out) and ADMIN_WORD not in str(sql)
+
+
+def test_a_user_and_database_that_exist_are_not_made_again():
+    state = {"n": 0}
+    ready = conn_with(extension="0.8.0", available=("0.8.0", "0.8.0"))
+
+    def connect():
+        state["n"] += 1
+        if state["n"] == 1:
+            raise Down("server closed the connection")
+        return ready
+    admin = FakePg({"FROM pg_roles": [(1,)], "FROM pg_database": [(1,)]})
+    out = prep.prepare(PG, "pw", None, {"superuser": "postgres", "superpassword": ADMIN_WORD, "admin_connect": lambda db: admin}, connect=connect)
+    assert out["ok"] and not any(s.startswith(("CREATE ROLE", "CREATE DATABASE")) for s, _ in admin.sql) and "created" not in out["steps"][0]
+
+
+def test_names_that_are_not_plain_identifiers_are_not_made():
+    def connect():
+        raise Down("down")
+    admin = FakePg({})
+    out = prep.prepare({**PG, "dbname": 'kb"; DROP'}, "pw", None, {"superuser": "postgres", "superpassword": ADMIN_WORD, "admin_connect": lambda db: admin}, connect=connect)
+    assert not out["ok"] and not admin.sql
+
+
+def test_an_administrator_gives_a_user_without_rights_the_right_to_create_tables():
+    rights = {"granted": False}
+    conn = conn_with(extension="0.8.0", available=("0.8.0", "0.8.0"),
+                     **{"current_setting('server_version')": lambda c: [("me", "17.2", "kb", False, rights["granted"])]})
+    admin = admin_conn()
+    original = admin.cursor
+
+    def cursor():
+        c = original()
+        run_ = c.execute
+        c.execute = lambda sql, params=(): (rights.update(granted=True) if sql.startswith("GRANT") else None, run_(sql, params))[1]
+        return c
+    admin.cursor = cursor
+    out, _ = run(conn, superuser="postgres", superpassword=ADMIN_WORD, admin_connect=lambda db: admin)
+    assert out["ok"] and out["steps"][0]["created"] == ["rights"] and any(s.startswith("GRANT CREATE ON SCHEMA public TO") for s, _ in admin.sql)

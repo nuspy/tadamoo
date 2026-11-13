@@ -28,6 +28,7 @@ from tadamoo.rag.backends.sqlite_vec import SqliteVecBackend
 from tadamoo.rag.errors import RagError
 
 STEPS = ("connect", "extension", "configure")
+IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 LOCAL_HOSTS = ("", "localhost", "127.0.0.1", "::1")
 Progress = Callable[[Dict[str, Any]], None]
 
@@ -136,6 +137,51 @@ def _sqlite(cfg: Dict[str, Any], tell: Progress) -> Dict[str, Any]:
 
 # -- PostgreSQL --------------------------------------------------------------------------------------------
 
+def quote_literal(text: str) -> str:
+    """A PostgreSQL string literal (CREATE ROLE takes its password as a literal, not as a parameter)."""
+    return "'" + str(text).replace("'", "''") + "'"
+
+
+class _Admin:
+    """The credentials of a PostgreSQL administrator (superuser) given for this run only: used to create the user, the database or the extension the project's own user may not,
+    never kept: not in the settings, not in the vault, not in a file, not in a result. Nothing is asked of it when the user, the database and the extension are already there."""
+
+    def __init__(self, params: Dict[str, Any], options: Dict[str, Any]) -> None:
+        self.params, self.user, self._password = params, str(options.get("superuser") or ""), str(options.get("superpassword") or "")
+        self._factory = options.get("admin_connect")                 # a test hands in connections of its own
+        self.used = False
+
+    def __bool__(self) -> bool:
+        return bool(self.user)
+
+    def open(self, dbname: str) -> PostgresBackend:
+        self.used = True
+        if self._factory is not None:
+            return PostgresBackend({**self.params, "dbname": dbname}, "", "rag_", "blob", lambda: self._factory(dbname))
+        return PostgresBackend({**{k: v for k, v in self.params.items() if k != "dsn"}, "user": self.user, "dbname": dbname}, self._password, "rag_", "blob")
+
+
+def _provision(admin: _Admin, params: Dict[str, Any], password: str) -> List[str]:
+    """Creates the project's user and database where they are missing, as the administrator; returns what it made (`role`, `database`)."""
+    user, db = str(params.get("user") or ""), str(params.get("dbname") or "")
+    if not IDENT.match(user) or not IDENT.match(db):
+        raise BackendError("a user and a database to create are named with letters, digits and underscores")
+    a = admin.open("postgres")
+    made: List[str] = []
+    try:
+        if not a.one("SELECT 1 FROM pg_roles WHERE rolname = ?", (user,)):
+            if not password:
+                raise BackendError("a new user needs a password")
+            a.run(f'CREATE ROLE "{user}" LOGIN PASSWORD {quote_literal(password)}').close()
+            made.append("role")
+        if not a.one("SELECT 1 FROM pg_database WHERE datname = ?", (db,)):
+            a.run(f'CREATE DATABASE "{db}" OWNER "{user}"').close()
+            made.append("database")
+    finally:
+        a.close()
+    return made
+
+
 def _server_facts(backend: PostgresBackend) -> Dict[str, Any]:
     row = backend.one("SELECT current_user, current_setting('server_version'), current_database(), "
                       "(SELECT rolsuper FROM pg_roles WHERE rolname = current_user), has_database_privilege(current_database(), 'CREATE')")
@@ -158,10 +204,20 @@ def _postgres(cfg: Dict[str, Any], password: str, tell: Progress, options: Dict[
         done(_step("connect", "no_driver", False, "no PostgreSQL driver is installed: install psycopg from the Components section", component="psycopg"))
         return stop("connect")
     backend = PostgresBackend(params, password, prefix, "auto", connect)
+    admin = _Admin(params, options)
+    made: List[str] = []
     try:
         backend._open()
     except BackendError as e:
-        if options.get("create_db") and "does not exist" in str(e) and params.get("host", "") in LOCAL_HOSTS and not params.get("dsn"):
+        if admin and not params.get("dsn"):
+            try:
+                made = _provision(admin, params, password)
+                backend = PostgresBackend(params, password, prefix, "auto", connect)
+                backend._open()
+            except Exception as e2:
+                done(_step("connect", "failed", False, f"the user or the database could not be made or reached: {type(e2).__name__}: {str(e2)[:200]}"))
+                return stop("connect")
+        elif options.get("create_db") and "does not exist" in str(e) and params.get("host", "") in LOCAL_HOSTS and not params.get("dsn"):
             try:
                 _create_database(params, password, connect)
                 backend = PostgresBackend(params, password, prefix, "auto", connect)
@@ -170,16 +226,32 @@ def _postgres(cfg: Dict[str, Any], password: str, tell: Progress, options: Dict[
                 done(_step("connect", "failed", False, f"the database could not be created: {type(e2).__name__}: {str(e2)[:200]}"))
                 return stop("connect")
         else:
-            done(_step("connect", "failed", False, str(e), can_create_database=("does not exist" in str(e) and params.get("host", "") in LOCAL_HOSTS)))
+            done(_step("connect", "failed", False, str(e) + ". If the user or the database is missing, give an administrator (superuser) here and it is made; the administrator's password is used for this step only",
+                       can_create_database=("does not exist" in str(e) and params.get("host", "") in LOCAL_HOSTS), needs_superuser=not params.get("dsn")))
             return stop("connect")
     try:
         facts = _server_facts(backend)
     except Exception as e:
         done(_step("connect", "failed", False, f"connected, but the server did not answer a simple question: {type(e).__name__}: {str(e)[:160]}"))
         return stop("connect")
-    done(_step("connect", "ok", True, f"PostgreSQL {facts['version']}, database {facts['database']}, user {facts['user']}", **facts))
+    if not facts["can_create"] and not facts["superuser"] and admin:
+        try:
+            a = admin.open(facts["database"])
+            try:
+                a.run(f'GRANT CREATE ON SCHEMA public TO "{facts["user"]}"').close()
+                a.run(f'GRANT ALL ON DATABASE "{facts["database"]}" TO "{facts["user"]}"').close()
+            finally:
+                a.close()
+            facts = _server_facts(backend)
+            made.append("rights")
+        except Exception as e:
+            done(_step("connect", "no_rights", False, f"this user may not create tables and the administrator could not give it the right: {type(e).__name__}: {str(e)[:160]}"))
+            return stop("connect")
+    done(_step("connect", "ok", True, f"PostgreSQL {facts['version']}, database {facts['database']}, user {facts['user']}" + (f" (made as administrator: {', '.join(made)})" if made else ""),
+               **({"created": made} if made else {}), **facts))
     if not facts["can_create"] and not facts["superuser"]:
-        steps[-1].update(ok=False, state="no_rights", message=steps[-1]["message"] + ": this user may not create tables in the database")
+        steps[-1].update(ok=False, state="no_rights", needs_superuser=True,
+                         message=steps[-1]["message"] + ": this user may not create tables in the database. Give an administrator (superuser) here to give it the right")
         return stop("connect")
     major = parse_version(facts["version"])[0]
     local = params.get("host", "") in LOCAL_HOSTS
@@ -206,9 +278,24 @@ def _postgres(cfg: Dict[str, Any], password: str, tell: Progress, options: Dict[
             done(_step("extension", "enabled", bool(backend.pgvector), f"pgvector {available[0]} is available on the server and was enabled in this database"
                        if backend.pgvector else "pgvector was enabled but is older than halfvec needs: update it"))
         except Exception as e:
-            done(_step("extension", "needs_admin", False, f"pgvector is on the server but this user cannot enable it ({type(e).__name__}: {str(e)[:120]}): "
-                                                         "ask a PostgreSQL administrator to run  CREATE EXTENSION vector;  in this database, then connect again",
-                       sql="CREATE EXTENSION vector;"))
+            enabled = False
+            if admin:
+                try:
+                    a = admin.open(facts["database"])
+                    try:
+                        a.run("CREATE EXTENSION IF NOT EXISTS vector").close()
+                    finally:
+                        a.close()
+                    backend.pgvector = backend._detect_vector(backend._open())
+                    enabled = bool(backend.pgvector)
+                except Exception as e2:
+                    e = e2
+            if enabled:
+                done(_step("extension", "enabled", True, f"pgvector {available[0]} is available on the server and was enabled in this database by the administrator", used_superuser=True))
+            else:
+                done(_step("extension", "needs_admin", False, f"pgvector is on the server but {'the administrator' if admin else 'this user'} cannot enable it ({type(e).__name__}: {str(e)[:120]}): "
+                                                             "ask a PostgreSQL administrator to run  CREATE EXTENSION vector;  in this database, then connect again, or give an administrator (superuser) here",
+                           sql="CREATE EXTENSION vector;", needs_superuser=not admin))
     else:
         info: Dict[str, Any] = {"steps": install_steps(major), "local": local, "admin": is_admin(), "plan_b": ["blob", "file"]}
         command = install_command(major)
@@ -266,7 +353,8 @@ def _create_database(params: Dict[str, Any], password: str, connect: Optional[Ca
 
 def prepare(cfg: Dict[str, Any], password: str = "", progress: Optional[Progress] = None, options: Optional[Dict[str, Any]] = None,
             connect: Optional[Callable[[], Any]] = None) -> Dict[str, Any]:
-    """Runs the steps for the configuration `cfg` (see backends.clean_config). `options`: `plan_b` (`blob` or `file`), `vec_file`, `install_local`, `create_db`."""
+    """Runs the steps for the configuration `cfg` (see backends.clean_config). `options`: `plan_b` (`blob` or `file`), `vec_file`, `install_local`, `create_db`, and `superuser` with
+    `superpassword`, an administrator who may make the user, the database, the rights and the extension the project's user cannot; they are used for this run only and kept nowhere."""
     cfg = clean_config(cfg)
     tell = progress or (lambda event: None)
     options = options or {}
