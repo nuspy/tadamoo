@@ -42,7 +42,7 @@ The search itself was good: asked the fact in its own words, it returns the righ
   (8, or 5 with several queries). A passage is `{cite, archive, document, page, section, score, text}` plus `flagged: true` when it reads as
   instructions to an assistant (its text then starts with the usual warning). The answer carries `mode` (`hybrid` or `lexical`) and, when the search
   was degraded (no reranker, the embedder failed), the note. At most 12000 characters.
-- `knowledge_read(document, pages?, archive?)`: the Markdown of the pages from the reading saved when the document was added (`blocks/<doc>.json.gz`),
+- `knowledge_read(document, pages?, archive?)`: the Markdown of the pages from the reading saved when the document was added (the `blocks` of the archive's database),
   with `<!-- page N -->` markers, at most 20000 characters; no OCR and no wait, whether or not the original file still exists. Without `pages` it gives
   the **outline**: the sections of the document with their pages (repeated headings merged into one entry), at most 80. The same cloud rule as search
   applies: for a request that leaves this PC only archives with `cloud_ok` are read.

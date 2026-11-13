@@ -36,7 +36,7 @@ Reading: from 250 to 1200 tokens the numbers are on a plateau (differences of 1 
 points at 150 with the reranker, -6 to -13 at 1200 to 3000), and at 150 nine questions in ten have their evidence cut across passages. The old flat cut is as good as
 the structural one without the reranker and 2 to 4 points behind with it: the structural cut earns its keep by what it keeps (page, section, tables whole, citations), not
 by these numbers. **The current 350/600 stays the default**; the size is now a setting (`chunk_target`, `chunk_hard`, tokens, `hard` at least 1.2 times `target`) that is part of the
-`ingest` of `meta.json`, so changing it marks the archives "index again". Nothing here says a larger size would be better.
+`ingest` of the archive's meta, so changing it marks the archives "index again". Nothing here says a larger size would be better.
 
 ## Semantic splitting and other ways, no reranker (the GPU could not lend it)
 

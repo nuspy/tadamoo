@@ -27,7 +27,7 @@ fallback, and an answer that is not hybrid always says why in `marker`.
 
 The question must be embedded by the model that made the archive's vectors. The 4B model of the usual search needs a VRAM lease, which the voice functions
 hold while they are loaded, and a cold start takes many seconds. So real-time functions use a **second set of vectors** made by a small model
-(`Qwen3-Embedding-0.6B`) that is kept beside the archive (`embeddings_rt.npy`, `rt.json`: model, version, fingerprint of the passages) and a **warm CPU worker** that
+(`Qwen3-Embedding-0.6B`) that is kept in the archive's database (the second vector slot: model, version, fingerprint of the passages) and a **warm CPU worker** that
 embeds only the question. Nothing of the usual search is changed: the second vectors are handed to `query.run` as the vectors of a view of the archive
 (`tadamoo/rag/realtime.py`).
 

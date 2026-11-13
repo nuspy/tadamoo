@@ -83,7 +83,7 @@ store asks the server's `/api/rag/search` (loopback only) and falls back to word
 
 ## Storage
 
-`embeddings.npy` is float16 on disk and read back as normalized float32. `meta.json` keeps `embed_model`, `embed_dim` and `embed_version` (how a passage
+The vectors are float32 in the project's database (`docs/rag-database.md`), read back normalized. The archive's meta keeps `embed_model`, `embed_dim` and `embed_version` (how a passage
 becomes text and a vector, `q3e-1`): another model or version means "index again". The text embedded is the passage with its `path` in front (the chunker's
 `searchable`). Adding a document embeds only its passages, out of the store's lock, with progress and cancel as the reading has them; "Index again" is a job
 too and leaves the archive searchable meanwhile.

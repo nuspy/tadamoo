@@ -169,7 +169,7 @@ class Router:
         names = set()
         if self.dir.is_dir():
             for p in self.dir.iterdir():
-                if p.suffix in (".sqlite", ".json"):
+                if p.suffix in (".sqlite", ".json") and (p.stem == "none" or re.match(r"^[0-9a-f]{12}$", p.stem)):
                     names.add(p.stem)
         return sorted(names | set(self._open))
 

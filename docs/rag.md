@@ -7,24 +7,26 @@ does not see them.
 
 ## Storage
 
-One folder per archive in the user data folder, `rag/<id>/`. The id is the lower-case form of the name plus six hex digits and never changes
-on rename.
+An archive lives in the database of its project (`docs/rag-database.md`): by default a SQLite file of its own, `rag/db/<project>.sqlite`, or the PostgreSQL, MariaDB or
+other database the project is set to. The id is the lower-case form of the name plus six hex digits and never changes on rename.
 
-| File | Holds |
+| Table (prefix `rag_`) | Holds |
 |---|---|
-| `meta.json` | name, description, `project` (the key below) and `project_name`, `cloud_ok`, `others_ok`, `ingest` (the versions of the cleaning and the cutting), the documents (each with `extraction`, `pages`, `flagged`), the passage count, the embedding model of the vectors (empty: text only) |
-| `chunks.jsonl` | one passage per line: `{doc, n, text, path, page_start, page_end, kind, section, flag?}` |
-| `sections.jsonl` | one section per line, for a hit to be expanded to the part of the document it came from |
-| `blocks/<doc>.json.gz` | the blocks read from each document, so an archive can be cut again without the original and without reading it again |
-| `embeddings.npy` | float16, one L2-normalized row per passage (read as float32); present only when every passage has a row; `meta.json` names its model, size and version |
+| `archives`, `documents` | name, description, `project` (the key below) and `project_name`, `cloud_ok`, `others_ok`, `ingest` (the versions of the cleaning and the cutting), the documents (each with `extraction`, `pages`, `flagged`), the passage count, the embedding model of the vectors (empty: text only) |
+| `chunks` | the passages in order: `{doc, n, text, path, page_start, page_end, kind, section, flag?, facts?, summary?, questions?}`; the words index (FTS5, or `tsvector` in PostgreSQL) is made from them |
+| `sections` | for a hit to be expanded to the part of the document it came from |
+| `blobs`, `figures` | the blocks read from each document (so an archive can be cut again without the original), the figures' records and their images, the kept readings of replaced documents |
+| `vectors`, `vec_blob` | one L2-normalized float32 row per passage (the vectors of the real-time model in a second slot); present only when every passage has a row; `vectors` names the model, size and version |
+| `sources`, `enrich` | what the archive remembers of where its documents come from, and what a model wrote about its passages |
 
 A project is named by its key, `project_key(path)` (`tadamoo/rag/project.py`): 12 lower-case hex characters of the SHA-1 of the folder's
 real path (links resolved, case folded where the file system ignores it, no trailing separator), so every spelling of a folder gives the same
 key. An archive needs a valid key to be made. Names are unique inside a project and the 50-archive limit counts inside a project. An archive
-whose `meta.json` names no project belongs to none and is listed for none.
+whose meta names no project belongs to none and is listed for none.
 
-Every file is written to a temporary name, flushed and renamed; `meta.json` goes last. A passage whose document is not in `meta.json`, or
-vectors that do not match the passages, are ignored. The original files are not kept. How a document becomes passages is in `docs/rag-ingest.md`.
+A change of an archive is one transaction of its database. A passage whose document is not in the meta, or vectors that do not match the passages, are ignored. The
+original files are not kept. How a document becomes passages is in `docs/rag-ingest.md`. Archives made before the database (a folder `rag/<id>/` with `meta.json`,
+`chunks.jsonl` and the rest) are copied into it by the import (`docs/rag-database.md`); the folder is never changed.
 
 ## Documents
 

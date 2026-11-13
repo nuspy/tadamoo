@@ -7,8 +7,8 @@ asked, and the page shows what each reading missed. Code: `tadamoo/rag/sources/`
 
 ## Sources
 
-`sources.json` in the archive's folder holds the sources, which document is which item of which source with the stamp it had when it was read (`links`), the
-last check and update, the versions kept, and `attention`. `meta.json` is touched only when a document's content changes, so a check never makes the
+The `sources` table of the archive's database holds one record: the sources, which document is which item of which source with the stamp it had when it was read (`links`), the
+last check and update, the versions kept, and `attention`. the archive's meta is touched only when a document's content changes, so a check never makes the
 archive reload. Reading a source adds nothing until an update; a document the archive already holds with the same text (SHA-256) is *linked* instead of
 added twice, so a file added by hand can be followed afterwards.
 
@@ -47,8 +47,7 @@ would be added and removed with a few examples; the page calls it "What changed?
 How a changed document is replaced: it is fetched into a temporary file, read with `read_document`, cleaned and cut with the store's own cutting
 (`RagStore.passages_of`), and its coverage is worked out. The passages that did not change are found by the hash of their text and keep their vectors; only the
 rest is embedded. Then `RagStore.swap_documents` replaces all the documents of the run in **one commit** under the store's lock, against the archive as it is
-then (a document added meanwhile is kept): the saved readings go first, `chunks.jsonl`, `sections.jsonl` and `embeddings.npy` next and `meta.json` last, each by
-a temporary name and a rename; if anything fails the saved readings are put back and the archive is as it was. Vectors are kept only when every passage has
+then (a document added meanwhile is kept): the saved readings go first, then the passages, sections, vectors and meta in one transaction of the database; if anything fails the saved readings are put back and the archive is as it was. Vectors are kept only when every passage has
 one of the same embedding; otherwise the archive is searched by words until "Index again", and the note says so. The document keeps its id; its meta gains
 `updated`, `revision` and `origin` (`kind`, `ref`, `version`), shown under the document on the page.
 
@@ -56,7 +55,7 @@ A cancel or a failure in the run changes nothing that was not already committed 
 
 ## Versions
 
-Before a document is replaced its saved reading is copied to `versions/<doc>/<n>.json.gz`. `keep_versions` (3) and `keep_days` (90) bound them. **Put back**
+Before a document is replaced its saved reading is kept as a blob of the database (`version`, named `<doc>/<n>`). `keep_versions` (3) and `keep_days` (90) bound them. **Put back**
 cuts an older reading again and replaces the current one, which becomes a version in its turn; the document is then **pinned**: a check shows it as `pinned`
 and an update leaves it until "Update to the latest" (`force`) is pressed.
 
@@ -85,7 +84,7 @@ next time. A check needs no GPU and is never held.
 1 s; a site on this PC or network is not made to wait); robots.txt for addresses (`respect_robots`; not for MediaWiki, whose API etiquette is the User-Agent,
 `maxlag`, one request at a time and the retry-after wait); conditional requests; gzip; at most 5 redirects, http and https only; a size cap (`max_download_mb`, 50) and a
 time cap per request (`request_timeout_s`, 30) and per run (`max_run_minutes`, 30); one retry after the wait a site asks for with 429 or 503 (at most 30 s).
-Settings: `sources.json` in the folder of archives, `GET/POST /api/rag/sync/settings`.
+Settings: in the folder of archives, `GET/POST /api/rag/sync/settings`.
 
 ## Coverage and verify
 
@@ -93,7 +92,7 @@ Every reading gets `coverage` in its document's meta (`tadamoo/rag/sources/cover
 empty (`empty_pages`) or could not be read (`skipped_pages`), pages no passage covers and nobody explains, passages flagged, a status (`ok`, `check`, `incomplete`)
 and the problems in words. The page shows the sum for the archive and the problems per document.
 
-`verify` (a job) changes nothing and lists problems by level (`error`, `warn`, `info`): the passages in the file against the count in `meta.json` and per document,
+`verify` (a job) changes nothing and lists problems by level (`error`, `warn`, `info`): the passages in the database against the count in the meta and per document,
 orphan passages, the vectors against the passages, every saved reading readable, each coverage record recomputed from the passages, the sources (changed, new, gone,
 unreachable) and the documents that came from no source. `deep` also cuts the saved readings again and compares them with the stored passages (when the cutting
 versions agree), hashes the files of local sources and counts the pages of local PDFs again.

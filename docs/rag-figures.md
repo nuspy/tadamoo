@@ -18,7 +18,7 @@ Where a figure is comes from the reader, in order:
 
 Pieces smaller than 2% of the page or thinner than 7% of its side are logos and rules, and are dropped; two boxes that overlap by 70% are one. The picture is cut from the
 page drawn by PyMuPDF (170 dpi, the long side at most 1600 px) at that box with a small margin, so a caption just outside it is read, and saved as
-`images/<document id>/<n>.webp` with a thumbnail `<n>_t.webp` (256 px). Only PDFs have figures for now; the setting `figures` (on by default) turns the step off.
+an image blob `<document id>/<n>.webp` of the archive's database with a thumbnail `<n>_t.webp` (256 px). Only PDFs have figures for now; the setting `figures` (on by default) turns the step off.
 Cutting a composite sheet into its sub-figures is not done: a sheet with several figures is one image with all its labels listed.
 
 ## What is kept with each figure
