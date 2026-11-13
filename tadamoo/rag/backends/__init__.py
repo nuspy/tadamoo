@@ -81,7 +81,7 @@ def open_backend(cfg: Dict[str, Any], password: str = "") -> Backend:
     dialect = DIALECTS.get(cfg.get("dialect") or "postgres", POSTGRES)
 
     def connect() -> Any:
-        conn = module.connect(cfg["dsn"])
+        conn = module.connect(cfg["dsn"].replace("{password}", password))
         try:
             conn.isolation_level = None                       # autocommit: a change is wrapped by the backend's own BEGIN and COMMIT
         except Exception:
