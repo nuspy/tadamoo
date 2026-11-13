@@ -91,7 +91,7 @@ def test_the_command_line_does_the_same(world, capsys):
     assert Path(root / "personal" / "daily-note" / "skill.py").is_file()
 
 
-def test_update_brings_in_what_changed_and_reports_a_copy_edited_here(world):
+def test_update_brings_in_what_changed_and_replaces_a_copy_edited_here(world):
     root, data, imp = world
     migrate(imp, root)
     write(root / "shared-research" / "SKILL.md", "---\nname: shared-research\ndescription: Reads a thing.\n---\n\nNew body.\n")
@@ -101,9 +101,9 @@ def test_update_brings_in_what_changed_and_reports_a_copy_edited_here(world):
     assert migrate(imp, root, dry_run=True, update=True)["would_update"] == ["skill:shared-research", "plugin:news"]
     write(imp.spaces.root / "skills" / "news-skill" / "SKILL.md", "---\nname: news-skill\ndescription: mine\n---\n\nedited here\n")
     report = migrate(imp, root, update=True)
-    assert report["updated"] == ["skill:shared-research"] and [c["item"] for c in report["conflicts"]] == ["plugin:news"]
+    assert report["updated"] == ["skill:shared-research", "plugin:news"] and report["conflicts"] == []
     assert "New body." in (imp.spaces.root / "skills" / "shared-research" / "SKILL.md").read_text(encoding="utf-8")
-    assert "edited here" in (imp.spaces.root / "skills" / "news-skill" / "SKILL.md").read_text(encoding="utf-8")        # not replaced without saying so
+    assert "New plugin body." in (imp.spaces.root / "skills" / "news-skill" / "SKILL.md").read_text(encoding="utf-8")
 
 
 def test_a_manifest_with_a_name_that_climbs_out_cannot_make_a_delete_leave_the_space(world, tmp_path):

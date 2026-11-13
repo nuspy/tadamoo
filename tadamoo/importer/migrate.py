@@ -33,7 +33,7 @@ def _try(imp: Importer, report: Dict[str, Any], kind: str, path: Path, dry: bool
             elif dry:
                 report["would_update"].append(label)
             else:
-                imp.reimport(kind, snap["name"], confirm=True)
+                imp.reimport(kind, snap["name"], confirm=True, overwrite_local=True)
                 report["updated"].append(label)
             return
         if not check["can_import"]:

@@ -140,5 +140,5 @@ from serve import userdata
 from tadamoo.importer import Importer, Spaces
 from tadamoo.importer.migrate import migrate
 imp = Importer(Spaces.from_data(userdata.user_data_dir()))
-report = migrate(imp, source_folder, update=True)      # skills, plugins (with parts), personal skills; re-imports what changed
+report = migrate(imp, source_folder, update=True)      # skills, plugins (with parts), personal skills; re-imports what changed, replacing copies edited here
 ```
