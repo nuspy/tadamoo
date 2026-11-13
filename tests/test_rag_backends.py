@@ -483,3 +483,25 @@ def test_the_command_line_shows_the_state_and_imports(tmp_path, capsys, monkeypa
     assert out["waiting"] == [] and out["projects"][0]["archives"] == 1 and out["projects"][0]["kind"] == "sqlite"
     assert cli.main(base + ["db", "import", "nothing-here"]) == 1
     assert "meta.json" in capsys.readouterr().err
+
+
+def test_an_archive_is_copied_from_one_backend_to_another_with_all_that_hangs_on_it(tmp_path):
+    from tadamoo.rag.backends.transfer import copy_archive
+    src, dst = SqliteVecBackend(tmp_path / "a.sqlite"), SqliteVecBackend(tmp_path / "b.sqlite")
+    src.prepare(), dst.prepare()
+    src.commit("a-1", meta_of(), CHUNKS, SECTIONS, VECTORS, "m", "v")
+    src.put_blob("a-1", "blocks", "d1", b"blocks")
+    src.put_blob("a-1", "image", "d1/x.png", b"png")
+    src.write_figures("a-1", "d1", [{"n": 1}])
+    src.enrich_add("a-1", [{"k": "c1", "summary": "s"}])
+    src.write_sources("a-1", {"urls": ["u"]})
+    report = copy_archive(src, dst, "a-1")
+    assert report["chunks"] == len(CHUNKS) and report["vectors"] == len(CHUNKS) and report["blobs"] == 2 and report["figures"] == 1 and report["enrichment"] == 1
+    assert dst.read_chunks("a-1") == src.read_chunks("a-1") and dst.get_blob("a-1", "image", "d1/x.png") == b"png" and dst.read_sources("a-1") == {"urls": ["u"]}
+    assert np.allclose(dst.read_vectors("a-1"), src.read_vectors("a-1")) and dst.read_figures("a-1", "d1") == [{"n": 1}]
+    with pytest.raises(RagError):
+        copy_archive(src, dst, "a-1")
+    assert copy_archive(src, dst, "a-1", replace=True)["chunks"] == len(CHUNKS)
+    with pytest.raises(RagError):
+        copy_archive(src, dst, "missing")
+    src.close(), dst.close()

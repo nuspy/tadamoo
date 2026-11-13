@@ -6,12 +6,13 @@
     python -m tadamoo.rag db prepare --project KEY [--plan-b blob|file] [--vec-file FILE] [--install-local] [--create-db]
                                     [--superuser U [--superpassword-from-stdin]]
     python -m tadamoo.rag db import [ARCHIVE ...] [--all] [--source DIR] [--replace]
+    python -m tadamoo.rag db copy --project KEY --from-sqlite FILE [ARCHIVE ...] [--replace]
     python -m tadamoo.rag db components [install ID]
 
 Every project has a database (a SQLite file of its own unless it is set to another). `status` says which and what is in it, and which archives in the old file format are
 waiting to be imported; `config` sets a project's database (the password is read from standard input and goes in the vault, never in a file); `prepare` runs the three
 steps (connect, vector extension, tables and a test) and saves the configuration when they work; `import` copies archives in the old file format into their project's
-database and reports what it copied. `--superuser` gives `prepare` a PostgreSQL administrator for this run only, to make the user, the database, the rights and the
+database and reports what it copied. `copy` copies archives from another SQLite file into the project's database (the file is only read). `--superuser` gives `prepare` a PostgreSQL administrator for this run only, to make the user, the database, the rights and the
 extension the project's user cannot; its password is read from standard input or the environment variable TADAMOO_SUPERPASSWORD, and is kept nowhere. The old folders are never changed or deleted. `--rag-dir` names another rag folder (default: the user data folder's)."""
 from __future__ import annotations
 
@@ -53,6 +54,11 @@ def main(argv=None) -> int:
     pp.add_argument("--create-db", action="store_true")
     pp.add_argument("--superuser")
     pp.add_argument("--superpassword-from-stdin", action="store_true")
+    cp = db.add_parser("copy")
+    cp.add_argument("--project", required=True)
+    cp.add_argument("--from-sqlite", required=True)
+    cp.add_argument("archives", nargs="*")
+    cp.add_argument("--replace", action="store_true")
     co = db.add_parser("components")
     co.add_argument("action", nargs="?", choices=("install",))
     co.add_argument("id", nargs="?")
@@ -90,6 +96,16 @@ def main(argv=None) -> int:
                 out = components.install(a.id or "", lambda line: print(line, file=sys.stderr))
             else:
                 out = {"components": components.listing()}
+        elif a.cmd == "copy":
+            from tadamoo.rag.backends.sqlite_vec import SqliteVecBackend
+            from tadamoo.rag.backends.transfer import copy_archive
+            if not Path(a.from_sqlite).is_file():
+                raise RagError(f"{a.from_sqlite} is not a file")
+            source, target = SqliteVecBackend(a.from_sqlite), router.for_project(a.project)
+            try:
+                out = {"copied": [copy_archive(source, target, aid, a.replace) for aid in (a.archives or source.archive_ids())]}
+            finally:
+                source.close()
         elif a.cmd == "prepare":
             cfg = router.config(a.project)
             options = {"plan_b": a.plan_b, "vec_file": a.vec_file, "install_local": a.install_local, "create_db": a.create_db}

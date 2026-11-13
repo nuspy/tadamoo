@@ -64,6 +64,12 @@ password stay the ones saved.
 
 The result of each step stays in the job (`data.steps`) and on the page. A step that needs a choice or a fix stops the job; connect again after doing it.
 
+## Copying between databases
+
+`python -m tadamoo.rag db copy --project KEY --from-sqlite FILE [ARCHIVE ...] [--replace]` copies archives (passages, sections, vectors of both slots, blocks, images, figures,
+sources, enrichment) from a SQLite file into the project's configured database, checks the counts and leaves nothing of a copy that stopped half way. The file is only read.
+An archive already in the destination is refused unless `--replace`. The code is `backends/transfer.py`.
+
 ## Importing the old file format
 
 Archives made before the database are folders `rag/<id>/` (`meta.json`, `chunks.jsonl`, `sections.jsonl`, `embeddings.npy`, `blocks/`, `images/`, `figures/`, `enrich.jsonl`,
