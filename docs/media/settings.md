@@ -13,6 +13,7 @@
 | `image_mib`, `video_mib`, `avatar_mib` | 11000, 25000, 25000 | the VRAM each kind asks the server for |
 | `upscale_mib`, `interpolate_mib` | 22000, 4000 | the same for the enlarger (FlashVSR+) and the frame maker (RIFE) |
 | `modify_python`, `edit_model`, `modify_mib` | "", "", 28000 | the Python for the LTX 2.3 environment, the LTX 2.3 checkpoint file name (empty: the official distilled, else the official dev one), and the VRAM `modify_video` asks for ([modify.md](modify.md)) |
+| `time_factor_audio`, `time_factor_video`, `time_min_s` | 3, 2, 120 | the longest a job may take is the factor times the median of what jobs of its kind took for each second of audio or video, times its length; at least `time_min_s` seconds ([runner.md](runner.md)) |
 | `wait_s` | 600 | how long a job may wait in the broker's queue |
 | `idle_s` | 900 | how long the worker may print nothing |
 
