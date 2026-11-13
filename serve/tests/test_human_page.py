@@ -27,7 +27,7 @@ class HumanLogicTest(unittest.TestCase):
         out = subprocess.run([shutil.which("node"), str(HERE / "human_check.js")], capture_output=True, text=True, timeout=60)
         self.assertEqual(out.returncode, 0, out.stderr)
         results = json.loads(out.stdout)
-        self.assertGreaterEqual(len(results), 4)
+        self.assertGreaterEqual(len(results), 8)
         self.assertEqual([f"{r['name']}: {r['error']}" for r in results if not r["ok"]], [])
 
 
@@ -35,7 +35,7 @@ class HumanWiringTest(unittest.TestCase):
     def test_the_page_loads_the_window_and_every_string_is_in_both_languages(self):
         self.assertIn('<script defer src="web/human.js"></script>', HTML)
         self.assertIn('<link rel="stylesheet" href="web/human.css">', HTML)
-        keys = set(re.findall(r'T\("(hr\.[a-z.]+)"', (WEB / "human.js").read_text(encoding="utf-8"))) | {"hr.need", "hr.need.number"}
+        keys = set(re.findall(r'T\("(hr\.[a-z.]+)"', (WEB / "human.js").read_text(encoding="utf-8"))) | {"hr.need", "hr.need.number", "hr.need.choice", "hr.need.yesno"}
         en, it = I18N.split("\n  it: {", 1)
         for key in keys:
             self.assertIn(f'"{key}"', en, key)
@@ -87,7 +87,7 @@ class HumanRequestInARealBrowserTest(unittest.TestCase):
     def test_the_window_over_another_tab_on_a_phone_and_on_a_desktop(self):
         out = subprocess.run([self.node, str(Path(__file__).resolve().parent / "human_dom_check.js"), self.url, self.browser], capture_output=True, text=True, timeout=600)
         results = json.loads(out.stdout.strip().splitlines()[-1])
-        self.assertEqual(len(results), 18, results)
+        self.assertEqual(len(results), 22, results)
         self.assertEqual([r for r in results if not r["ok"]], [])
 
 

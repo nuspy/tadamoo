@@ -1,23 +1,36 @@
-/* The window of a plan's request to the person: over every tab, on a phone as on a desktop. Colours are the app's own variables. */
+/* The window of a plan's questions to the person: over every tab, on a phone as on a desktop. Colours are the app's own variables. */
 .hr-dialog { width: min(640px, 96vw); max-height: calc(94dvh / var(--z, 1)); padding: 0; border: 1px solid var(--accent); border-radius: 8px; background: var(--panel); color: var(--fg); overflow: auto; }
 .hr-dialog::backdrop { background: rgba(0, 0, 0, .7); }
 .hr-dialog :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .hr-form { display: flex; flex-direction: column; gap: 10px; padding: 16px 20px max(20px, env(safe-area-inset-bottom)); padding-left: max(20px, env(safe-area-inset-left)); padding-right: max(20px, env(safe-area-inset-right)); }
-.hr-form h2 { margin: 0; font: 600 18px/1.3 var(--font-sans); }
 .hr-form p { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
-.hr-meta { color: var(--fg-2); font: 13px/1.2 var(--font-mono); }
-.hr-meta:empty { display: none; }
-.hr-plan { font-weight: 600; }
-.hr-step { color: var(--fg-2); }
-.hr-prompt { white-space: pre-wrap; font-size: 16px; }
+.hr-plan { color: var(--fg-2); font-size: 14px; }
+.hr-progress { display: flex; align-items: center; gap: 12px; }
+.hr-count { color: var(--fg-2); font: 13px/1.2 var(--font-mono); white-space: nowrap; }
+.hr-bar { flex: 1; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.hr-fill { display: block; height: 100%; background: var(--accent); }
+.hr-q { margin: 0; font: 600 20px/1.35 var(--font-sans); overflow-wrap: anywhere; }
+.hr-helpline { color: var(--fg-2); font-size: 14px; }
 .hr-lab { color: var(--fg-2); font-size: 14px; }
-.hr-content { margin: 0; padding: 10px 12px; max-height: 40dvh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.5 var(--font-mono); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+.hr-content { margin: 0; padding: 10px 12px; max-height: 32dvh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.5 var(--font-mono); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
 .hr-field { width: 100%; min-height: 48px; padding: 8px 10px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
-.hr-you { font-weight: 600; }
+.hr-yesno { display: flex; gap: 8px; }
+.hr-yesno .hr-choice { flex: 1; }
+.hr-choice.on { background: var(--accent); color: #14181c; border-color: var(--accent); font-weight: 600; }
 .hr-err { color: var(--warn); }
-.hr-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
-.hr-btn { flex: 1 1 140px; min-height: 48px; min-width: 48px; }
-.hr-btn[disabled] { opacity: .6; }
-.hr-help { color: var(--fg-2); font-size: 13px; }
-@media (max-width: 480px) { .hr-actions { flex-direction: column; } .hr-btn { flex: none; width: 100%; } }
+.hr-nav { display: flex; gap: 8px; margin-top: 6px; }
+.hr-nav .hr-btn { flex: 1; }
+.hr-btn { min-height: 48px; min-width: 48px; }
+.hr-btn[disabled] { opacity: .5; }
+.hr-keys { color: var(--fg-2); font-size: 13px; }
+.hr-later { align-self: flex-start; }
+.hr-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 46dvh; overflow: auto; }
+.hr-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; }
+.hr-row.bad { border-color: var(--warn); }
+.hr-rowtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.hr-rowq { color: var(--fg-2); font-size: 13px; overflow-wrap: anywhere; }
+.hr-rowa { overflow-wrap: anywhere; }
+.hr-edit { flex: none; }
+.hr-send { flex: 2; }
+@media (max-width: 480px) { .hr-q { font-size: 18px; } .hr-later { align-self: stretch; } }
 @media (prefers-reduced-motion: reduce) { .hr-dialog, .hr-dialog * { animation: none !important; transition: none !important; } }
