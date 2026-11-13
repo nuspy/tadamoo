@@ -360,8 +360,8 @@ def clean_field(node_type: Any, key: str, value: Any, draft: bool = False) -> An
     if key == "inputs":
         if value is None:
             return {}
-        if not isinstance(value, dict) or len(value) > 20:
-            raise PlanError("inputs is an object: name -> {node, port} (at most 20)")
+        if not isinstance(value, dict) or len(value) > MAX_INPUTS:
+            raise PlanError(f"inputs is an object: name -> {{node, port}} (at most {MAX_INPUTS})")
         out = {}
         for name, ref in value.items():
             if not isinstance(name, str) or not re.match(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$", name) or keyword.iskeyword(name):
@@ -380,6 +380,7 @@ def clean_field(node_type: Any, key: str, value: Any, draft: bool = False) -> An
 
 
 MAX_OUTPUTS, MAX_VALUE_BYTES, MAX_STATE_BYTES, MAX_NAME = 30, 4000, 50_000, 64
+MAX_INPUTS = 60
 OPERAND_KEY = re.compile(r"^[A-Za-z0-9_.-]+\.(left|op|right|right2)$")
 
 
@@ -1356,6 +1357,7 @@ class PlanDAG:
         from tadamoo.planner import nodes
         moment = time.time() if now is None else now
         out = []
+        order = {nid: i for i, nid in enumerate(self.list_order())}
         for nid in self.ready_nodes(moment):
             n = self.nodes[nid]
             if n.type != NodeType.INPUT:
@@ -1367,9 +1369,12 @@ class PlanDAG:
                 content = render_template(spec["content"], context) if spec.get("content") else ""
             except PlanError:
                 content = spec.get("content", "")
-            out.append({"node_id": nid, "title": n.title, "ask": spec.get("ask", "value"), "prompt": spec["prompt"], "content": content, "kind": spec.get("kind", "text"),
-                        "choices": list(spec.get("choices") or []), "into": nodes.answer_name(n), "since": asked})
-        return sorted(out, key=lambda r: r["since"])
+            last = (n.state_variables.get("answer") or {}).get("value")             # what was answered the last time is what is proposed now
+            out.append({"node_id": nid, "title": n.title, "ask": spec.get("ask", "value"), "prompt": spec["prompt"], "prompt_en": spec.get("prompt_en", ""),
+                        "help": spec.get("help", ""), "help_en": spec.get("help_en", ""), "content": content, "kind": spec.get("kind", "text"),
+                        "choices": nodes.shown_choices(spec), "into": nodes.answer_name(n), "since": asked, "index": order.get(nid, 0),
+                        "proposed": last if last is not None else spec.get("default")})
+        return sorted(out, key=lambda r: (r["since"], r["index"]))
 
     def answer(self, node_id: str, value: Any, now: Optional[float] = None, by: str = "user") -> Dict[str, Any]:
         """The person's answer to a request that is asking now: it is checked against what it asks for, written to the plan's value, and the step is done."""
@@ -1388,6 +1393,34 @@ class PlanDAG:
         node.state_variables["answer"] = {"value": cleaned, "at": _now(), "by": by}
         self.note(node_id, "answer", f"{node.title}: {nodes.shown_answer(node.spec, cleaned)}", now)
         return {"value": cleaned, "name": name}
+
+    def answer_many(self, answers: Dict[str, Any], now: Optional[float] = None, by: str = "user") -> Dict[str, Any]:
+        """The answers to several requests that are asking now, all at once: every one is checked before any is taken, so one that is wrong or no longer asked
+        leaves them all as they were. Each request is then done as `answer` does it. Returns {node id: its value}."""
+        from tadamoo.planner import nodes
+        if not isinstance(answers, dict) or not answers:
+            raise PlanError("send the answers as an object: step id -> answer")
+        moment = time.time() if now is None else now
+        asking = set(self.ready_nodes(moment))
+        cleaned: Dict[str, Any] = {}
+        for node_id, value in answers.items():
+            node = self.nodes.get(node_id)
+            if node is None or node.type != NodeType.INPUT:
+                raise PlanError(f"'{node_id}' does not ask the person for anything")
+            if node_id not in asking:
+                raise PlanError(f"'{node.title}' is not asking now" + (": it was answered already" if node.status == "completed" else ""))
+            try:
+                cleaned[node_id] = nodes.clean_answer(node.spec, value)
+            except PlanError as exc:
+                raise PlanError(f"'{node.title}': {exc}") from None
+        backup = copy.deepcopy((self.nodes, self.shared_state))
+        try:
+            for node_id in sorted(cleaned, key=lambda i: self.list_order().index(i)):
+                self.answer(node_id, cleaned[node_id], now, by)
+        except PlanError:
+            self.nodes, self.shared_state = backup
+            raise
+        return cleaned
 
     def rewind(self, node_id: str, accept_irreversible: bool = False) -> List[str]:
         """Time travel: puts a node and everything after it back to pending, forgetting what they produced.

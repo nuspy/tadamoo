@@ -21,9 +21,10 @@ LAUNCHES = ("manual", "event", "interval", "caller")      # how a start node sta
 ASKS = ("value", "approve")                               # what a human request wants: a value, or a yes or no on something shown
 PLAN_REF = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 CONTENT_MAX, ANSWER_MAX = 20000, 4000
+MAX_CHOICES, CHOICE_TEXT, HELP_MAX = 40, 120, 1000
 
 # kind of field -> what a page draws for it
-FIELD_KINDS = ("number", "integer", "text", "textarea", "expression", "name", "names", "datetime", "choice", "json", "archives", "branches")
+FIELD_KINDS = ("number", "integer", "text", "textarea", "expression", "name", "names", "options", "datetime", "choice", "json", "archives", "branches")
 ARCHIVE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 MAX_ARCHIVES, MAX_BRANCHES, LABEL_MAX = 50, 12, 40
 OPS = ("<", "<=", "=", "!=", ">=", ">", "between", "in", "contains", "else")      # what the helper of a branch can build; `else` takes what no other branch took
@@ -59,9 +60,12 @@ NODE_SPECS: Dict[str, Dict[str, Any]] = {
         {"name": "source", "kind": "choice", "choices": ["variable", "clock", "global", "step"], "default": "variable"}, {"name": "step", "kind": "name"}]},
     "input": {"family": "io", "auto": False, "summary": "A request for the person: to approve what is shown (yes or no), or to give a value", "fields": [
         {"name": "ask", "kind": "choice", "choices": list(ASKS), "default": "value"},
-        {"name": "prompt", "kind": "textarea", "required": True, "max": 300}, {"name": "content", "kind": "textarea", "max": CONTENT_MAX},
+        {"name": "prompt", "kind": "textarea", "required": True, "max": 300}, {"name": "help", "kind": "textarea", "max": HELP_MAX},
+        {"name": "prompt_en", "kind": "textarea", "max": 300}, {"name": "help_en", "kind": "textarea", "max": HELP_MAX},
+        {"name": "content", "kind": "textarea", "max": CONTENT_MAX},
         {"name": "into", "kind": "name"},
-        {"name": "kind", "kind": "choice", "choices": ["text", "number", "choice"], "default": "text"}, {"name": "choices", "kind": "names", "max": 10}]},
+        {"name": "kind", "kind": "choice", "choices": ["text", "number", "choice"], "default": "text"}, {"name": "choices", "kind": "options", "max": MAX_CHOICES},
+        {"name": "default", "kind": "json"}]},
     "start": {"family": "start", "auto": True, "summary": "Where a plan begins: its number, and how it starts (by the person, by an event, at intervals, from another plan)", "fields": [
         {"name": "number", "kind": "integer", "min": 1, "max": 99, "default": 1},
         {"name": "launch", "kind": "choice", "choices": list(LAUNCHES), "default": "manual"},
@@ -124,6 +128,51 @@ def _names(spec: Dict[str, Any], key: str, limit: int) -> Optional[List[str]]:
     if not isinstance(value, list) or len(value) > limit or any(not isinstance(v, str) or not v.strip() for v in value):
         raise PlanError(f"'{key}' is a list of at most {limit} texts")
     return [v.strip() for v in value]
+
+
+def _options(spec: Dict[str, Any], key: str, limit: int) -> Optional[List[Any]]:
+    """The choices of a question: texts, or {value, label, label_en}. The value is what the plan gets and is never shown; the label is what the person reads
+    (label_en for English). A choice that is only a text is shown as it is."""
+    value = spec.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, list) or len(value) > limit:
+        raise PlanError(f"'{key}' is a list of at most {limit} choices")
+    out: List[Any] = []
+    for item in value:
+        if isinstance(item, str) and item.strip():
+            out.append(item.strip())
+            continue
+        if not isinstance(item, dict) or set(item) - {"value", "label", "label_en"}:
+            raise PlanError("a choice is a text, or {value, label, label_en}")
+        v = item.get("value")
+        if isinstance(v, bool) or not isinstance(v, (str, int, float)) or not str(v).strip():
+            raise PlanError("a choice has a value: a text")
+        row = {"value": str(v).strip()}
+        for k in ("label", "label_en"):
+            t = item.get(k)
+            if t is not None and t != "":
+                if not isinstance(t, str) or len(t) > CHOICE_TEXT:
+                    raise PlanError(f"the {k} of a choice is a text of at most {CHOICE_TEXT} characters")
+                row[k] = t.strip()
+        out.append(row)
+    if len({choice_value(c) for c in out}) != len(out):
+        raise PlanError("two choices have the same value")
+    return out
+
+
+def choice_value(choice: Any) -> str:
+    return choice["value"] if isinstance(choice, dict) else str(choice)
+
+
+def shown_choices(spec: Dict[str, Any]) -> List[Dict[str, str]]:
+    """The choices as the page needs them, each {value, label, label_en}: a choice that is a text is its own label in both languages."""
+    out = []
+    for c in spec.get("choices") or []:
+        v = choice_value(c)
+        label = (c.get("label") if isinstance(c, dict) else None) or v
+        out.append({"value": v, "label": label, "label_en": (c.get("label_en") if isinstance(c, dict) else None) or label})
+    return out
 
 
 def _archives(spec: Dict[str, Any], key: str, required: bool = False) -> Optional[List[str]]:
@@ -333,12 +382,18 @@ def clean_spec(node_type: Any, spec: Any, draft: bool = False) -> Dict[str, Any]
         into, form = _name(spec, "into", ask == "value"), spec.get("kind", "text")
         if form not in ("text", "number", "choice"):
             raise PlanError("'kind' is text, number or choice")
-        choices = _names(spec, "choices", 10)
+        choices = _options(spec, "choices", MAX_CHOICES)
         if ask == "value" and form == "choice" and (not choices or len(choices) < 2):
             raise PlanError("a question with choices needs at least two")
         out.update({"ask": ask, "prompt": prompt, **({"content": content} if content else {}), **({"into": into} if into else {})})
+        for key, limit in (("help", HELP_MAX), ("prompt_en", 300), ("help_en", HELP_MAX)):
+            text = _text(spec, key, limit)
+            if text:
+                out[key] = text
         if ask == "value":
             out.update({"kind": form, **({"choices": choices} if choices and form == "choice" else {})})
+        if spec.get("default") is not None and spec.get("default") != "":
+            out["default"] = clean_answer(out, spec["default"])             # the value proposed is one the question would take
     elif kind == "start":
         number = _number(spec, "number", 1, 99, default=1)
         launch = spec.get("launch", "manual")
@@ -428,8 +483,8 @@ def clean_answer(spec: Dict[str, Any], value: Any) -> Any:
     text = str(value).strip() if isinstance(value, (str, int, float)) and not isinstance(value, bool) else ""
     if not text or len(text) > ANSWER_MAX:
         raise PlanError(f"the answer is a text of 1 to {ANSWER_MAX} characters")
-    if form == "choice" and text not in (spec.get("choices") or []):
-        raise PlanError("the answer is one of: " + ", ".join(spec.get("choices") or []))
+    if form == "choice" and text not in [choice_value(c) for c in spec.get("choices") or []]:
+        raise PlanError("the answer is one of: " + ", ".join(choice_value(c) for c in spec.get("choices") or []))
     return text
 
 

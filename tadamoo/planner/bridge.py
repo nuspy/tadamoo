@@ -35,7 +35,7 @@ HISTORY_SHOWN = 30
 # who made a change: the person at the page, the Chat for the person, the planner's own re-planning, the system
 ACTORS = ("user", "chat", "planner", "system")
 # events that write straight into the plan; they may carry `base_rev`, the revision the sender last read
-DIRECT = ("plan:update_node", "plan:move", "plan:mark", "plan:timeout", "plan:rewind", "plan:update_meta", "plan:fallback_response", "plan:start", "plan:answer")
+DIRECT = ("plan:update_node", "plan:move", "plan:mark", "plan:timeout", "plan:rewind", "plan:update_meta", "plan:fallback_response", "plan:start", "plan:answer", "plan:answers")
 TARGET_TYPES = ("constant", "occasional")
 TITLE_CHARS = 200
 
@@ -230,7 +230,7 @@ class PlanCanvasBridge:
             "plan:rewind": self._rewind, "plan:rewind_impact": self._rewind_impact, "plan:note_effect": self._note_effect, "plan:propose_diff": self._propose, "plan:approve": self._approve,
             "plan:reject": self._reject, "plan:human_fallback": self._offer_fallback,
             "plan:fallback_response": self._answer_fallback, "plan:update_meta": self._update_meta, "plan:event": self._feed,
-            "plan:start": self._start, "plan:answer": self._answer,
+            "plan:start": self._start, "plan:answer": self._answer, "plan:answers": self._answers,
         }
         handler = handlers.get(kind)
         if handler is None:
@@ -367,6 +367,15 @@ class PlanCanvasBridge:
         self._emit("plan:answered", {"node_id": node.id})
         self._emit("plan:graph", {"seq_graph": True})
         return {**got, "ready": self.dag.ready_nodes()}
+
+    def _answers(self, e: Dict[str, Any]) -> Dict[str, Any]:
+        """The answers to all the requests that are asking, sent together (see PlanDAG.answer_many)."""
+        got = self.dag.answer_many(e.get("answers"), by=self._actor)
+        titles = ", ".join(self.dag.nodes[i].title for i in got)
+        self._bump("answer", f"{len(got)} answers: {titles}")
+        self._emit("plan:answered", {"node_ids": list(got)})
+        self._emit("plan:graph", {"seq_graph": True})
+        return {"values": got, "ready": self.dag.ready_nodes()}
 
     def _stale(self, kind: str, event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """A direct change made on an old reading of the plan is refused, so it cannot overwrite a newer one."""

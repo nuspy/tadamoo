@@ -788,7 +788,7 @@ class PlanService:
         if (kind == "plan:start" and not mine) or (kind == "plan:event" and result.get("started")):
             self._offered.pop(plan_id, None)
             self._offer(plan_id, "it was started" if kind == "plan:start" else "an event started it")
-        elif kind == "plan:answer" and not mine:
+        elif kind in ("plan:answer", "plan:answers") and not mine:
             self._offer(plan_id, "the person answered what it asked")
         elif (kind == "plan:mark" and event.get("status") == "failed" and not result.get("retry")) or kind == "plan:timeout":
             self._recover(plan_id, event.get("node_id", ""))
