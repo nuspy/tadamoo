@@ -70,7 +70,7 @@ def test_the_persons_own_words_confirm_a_creation_without_a_question(world):
     assert "Plan created (quoted)" in out and ask.asked == []
     plan = next(p for p in client.list() if p["title"] == t)
     snap = client.snapshot(plan["plan_id"])
-    assert set(snap["plan"]["nodes"]) == {"s1", "s2"} and snap["plan"]["nodes"]["s2"]["dependencies"] == ["s1"]
+    assert set(snap["plan"]["nodes"]) == {"start", "s1", "s2"} and snap["plan"]["nodes"]["s2"]["dependencies"] == ["s1"]
     assert snap["history"][-1]["actor"] == "chat"                                       # the plan's history says who
 
 
@@ -396,7 +396,7 @@ def test_the_model_is_told_the_kinds_of_step_it_may_add(world):
     reg, ask = build()
     description = reg.schemas()
     text = next(s["function"]["description"] + json.dumps(s["function"]["parameters"]) for s in description if s["function"]["name"] == "plan_propose_change")
-    for kind in ("wait_duration {seconds}", "wait_condition {", "set_var {name", "input {prompt, into"):
+    for kind in ("wait_duration {seconds}", "wait_condition {", "set_var {name", "input {ask?, prompt", "start {number?, launch?, when?, words?}", "start_plan {plan, start?}"):
         assert kind in text
 
 
@@ -482,3 +482,26 @@ def test_a_plan_set_to_run_without_asking_is_not_asked_about_and_its_text_is_tru
     outside = ToolDefinition("plan_get", "", {}, EffectClass.PURE, lambda **k: "", untrusted=True)
     free = ToolDefinition("plan_get", "", {}, EffectClass.PURE, lambda **k: "", untrusted=True, trusted_if=lambda a: a.get("plan_id") == "p1")
     assert AgentLoop._from_outside(outside, {"plan_id": "p1"}) and not AgentLoop._from_outside(free, {"plan_id": "p1"}) and AgentLoop._from_outside(free, {"plan_id": "p2"})
+
+
+def test_plan_start_starts_a_plan_at_one_of_its_starts_and_a_failed_step_carries_its_reason(world):
+    from test_planner_starts import n, plan, start
+    client, agent, build = world
+    reg, ask = build()
+    pid = "start-" + uuid.uuid4().hex[:6]
+    client.create(plan(pid, start("a", 1), start("b", 2), n("x", deps=["a"], retry_policy={"max_attempts": 1, "wait_seconds": 0, "backoff": 1}), n("y", deps=["b"])))
+    reg.execute("plan_get", {"plan_id": pid})
+    agent.last_user_text = "Avvia il piano adesso dal secondo avvio"
+    out = reg.execute("plan_start", {"plan_id": pid, "number": 2, "quote": "Avvia il piano adesso dal secondo avvio"})
+    assert "Plan started at b" in out and "Ready now: y" in out and ask.asked == []
+    snap = client.snapshot(pid)
+    assert snap["plan"]["nodes"]["a"]["status"] == "skipped" and snap["run"]["state"] == "running" and snap["run"]["active"]
+    again = reg.execute("plan_start", {"plan_id": pid, "number": 1, "quote": "Avvia il piano adesso dal secondo avvio"})
+    assert "already running" in again
+    reg.execute("plan_get", {"plan_id": pid})
+    agent.last_user_text = "Segna il passo y come fallito"
+    reg.execute("plan_mark", {"plan_id": pid, "node_id": "y", "status": "in_progress", "quote": "Segna il passo y come fallito"})
+    reg.execute("plan_mark", {"plan_id": pid, "node_id": "y", "status": "failed", "reason": "the disk is full", "quote": "Segna il passo y come fallito"})
+    assert client.snapshot(pid)["plan"]["nodes"]["y"]["state_variables"]["failures"][0]["reason"] == "the disk is full"
+    registered = {s["function"]["name"] for s in reg.schemas()}
+    assert "plan_start" in registered

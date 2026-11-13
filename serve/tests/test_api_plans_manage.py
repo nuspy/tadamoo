@@ -30,7 +30,7 @@ class PlansManageTest(base.PlansApiBase):
         self.assertNotEqual(copy["plan"]["plan_id"], "dup_a1b2")
         self.assertTrue(copy["plan"]["plan_id"].startswith("dup_"))
         self.assertEqual(copy["plan"]["title"], "Copia di Weekend")
-        self.assertEqual(sorted(copy["plan"]["nodes"]), ["hotel", "partenza"])
+        self.assertEqual(sorted(copy["plan"]["nodes"]), ["hotel", "partenza", "start"])
         self.assertEqual(copy["card"]["titolo"], "Copia di Weekend")
         self.assertEqual([h["type"] for h in copy["history"]], ["create"])                    # its own history
         self.assertEqual(self.call("GET", "/api/plans/dup_a1b2")[1]["plan"]["title"], "Weekend a Cervinia")   # the original is untouched
@@ -67,11 +67,11 @@ class PlansManageTest(base.PlansApiBase):
 
     def test_steps_side_by_side_change_places_and_the_order_is_kept(self):
         self.call("POST", "/api/plans", {"plan": side_by_side("sbs")})
-        self.assertEqual(self.call("GET", "/api/plans/sbs")[1]["order"], ["a", "b", "c"])
+        self.assertEqual(self.call("GET", "/api/plans/sbs")[1]["order"], ["start", "a", "b", "c"])
         code, res = self.move("sbs", "c", -1)
-        self.assertEqual((code, res["order"]), (200, ["a", "c", "b"]))
-        self.assertEqual(self.move("sbs", "a", 1)[1]["order"], ["c", "a", "b"])
-        self.assertEqual(self.call("GET", "/api/plans/sbs")[1]["order"], ["c", "a", "b"])
+        self.assertEqual((code, res["order"]), (200, ["start", "a", "c", "b"]))
+        self.assertEqual(self.move("sbs", "a", 1)[1]["order"], ["start", "c", "a", "b"])
+        self.assertEqual(self.call("GET", "/api/plans/sbs")[1]["order"], ["start", "c", "a", "b"])
         code, res = self.move("sbs", "c", -1)                                                 # already at the top
         self.assertEqual(code, 400)
         self.assertIn("top", res["error"])
@@ -85,12 +85,12 @@ class PlansManageTest(base.PlansApiBase):
     def test_a_plain_chain_is_redrawn_when_two_steps_change_places(self):
         self.call("POST", "/api/plans", {"plan": chain("chain3")})
         code, res = self.move("chain3", "s2", -1)
-        self.assertEqual((code, res["order"]), (200, ["s0", "s2", "s1"]))
+        self.assertEqual((code, res["order"]), (200, ["start", "s0", "s2", "s1"]))
         nodes = self.call("GET", "/api/plans/chain3")[1]["plan"]["nodes"]
         self.assertEqual((nodes["s0"]["outputs"], nodes["s2"]["dependencies"], nodes["s2"]["outputs"], nodes["s1"]["dependencies"]),
                          (["s2"], ["s0"], ["s1"], ["s2"]))
-        self.assertEqual(self.call("GET", "/api/plans/chain3")[1]["layers"], [["s0"], ["s2"], ["s1"]])
-        self.assertEqual(self.move("chain3", "s0", 1)[1]["order"], ["s2", "s0", "s1"])         # the first step goes down: s2 -> s0 -> s1
+        self.assertEqual(self.call("GET", "/api/plans/chain3")[1]["layers"], [["start"], ["s0"], ["s2"], ["s1"]])
+        self.assertEqual(self.move("chain3", "s0", 1)[1]["order"], ["start", "s2", "s0", "s1"])         # the first step goes down: s2 -> s0 -> s1
 
     def test_a_step_that_branches_or_has_started_does_not_change_places_and_nothing_changes(self):
         branching = chain("branch3")

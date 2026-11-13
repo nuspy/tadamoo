@@ -100,7 +100,7 @@ class PlansApiTest(PlansApiBase):
         self.assertEqual(code, 201)
         self.assertEqual(snap["plan"]["plan_id"], "cervinia")
         self.assertEqual(snap["ready"], ["hotel"])
-        self.assertEqual(snap["layers"], [["hotel"], ["partenza"]])
+        self.assertEqual(snap["layers"], [["start"], ["hotel"], ["partenza"]])
         self.assertEqual(self.call("POST", "/api/plans", {"plan": PLAN})[0], 400)           # already exists
         self.assertIn("cervinia", [p["plan_id"] for p in self.call("GET", "/api/plans")[1]["plans"]])
         self.assertEqual(self.call("GET", "/api/plans/cervinia")[1]["plan"]["title"], "Weekend a Cervinia")
@@ -219,6 +219,38 @@ class PlansApiTest(PlansApiBase):
         self.assertEqual(snap["card_missing"], ["date", "destinazione", "partecipanti"])
         code, res = self.call("POST", "/api/plans/nocard/triage", {"events": ["Sciopero"]})
         self.assertEqual((code, res["source"], res["sent_to_cloud"]), (200, "offline", False))
+
+    def test_what_the_plans_ask_the_person_is_listed_answered_and_gone(self):
+        plan = {"plan_id": "asks", "title": "Asks", "target_type": "occasional", "nodes": {
+            "ok": {"id": "ok", "type": "input", "title": "Approve", "assignee": "user", "dependencies": [], "outputs": ["go"],
+                   "spec": {"ask": "approve", "prompt": "Is it good?", "content": "The text", "into": "good"}},
+            "go": {"id": "go", "type": "action", "title": "Go", "assignee": "agent", "dependencies": ["ok"], "outputs": []}}}
+        self.assertEqual(self.call("POST", "/api/plans", {"plan": plan})[0], 201)
+        code, body = self.call("GET", "/api/plans/human")
+        mine = [r for r in body["requests"] if r["plan_id"] == "asks"]
+        self.assertEqual(code, 200)
+        self.assertEqual([(r["node_id"], r["ask"], r["prompt"], r["content"], r["plan_title"]) for r in mine], [("ok", "approve", "Is it good?", "The text", "Asks")])
+        code, res = self.call("POST", "/api/plans/asks/events", {"type": "plan:answer", "node_id": "ok", "answer": "perhaps", "actor": "user"})
+        self.assertEqual(code, 400)
+        self.assertIn("yes or no", res["error"])
+        code, res = self.call("POST", "/api/plans/asks/events", {"type": "plan:answer", "node_id": "ok", "answer": True, "actor": "user"})
+        self.assertEqual((code, res["ok"], res["ready"]), (200, True, ["go"]))
+        self.assertEqual([r for r in self.call("GET", "/api/plans/human")[1]["requests"] if r["plan_id"] == "asks"], [])
+        self.assertEqual(self.call("GET", "/api/plans/asks")[1]["plan"]["shared_state"], {"good": True})
+        self.assertEqual(self.call("POST", "/api/plans/asks/events", {"type": "plan:answer", "node_id": "ok", "answer": True, "actor": "user"})[0], 400)
+
+    def test_a_plan_is_started_at_a_start_through_the_api(self):
+        plan = {"plan_id": "starts", "title": "Starts", "target_type": "occasional", "nodes": {
+            "a": {"id": "a", "type": "start", "title": "Start 1", "assignee": "agent", "dependencies": [], "outputs": ["x"], "spec": {"number": 1, "launch": "manual"}},
+            "x": {"id": "x", "type": "action", "title": "X", "assignee": "agent", "dependencies": ["a"], "outputs": []}}}
+        snap = self.call("POST", "/api/plans", {"plan": plan})[1]
+        self.assertEqual((snap["ready"], snap["run"]["state"]), ([], "idle"))
+        code, res = self.call("POST", "/api/plans/starts/events", {"type": "plan:start", "number": 3, "actor": "chat"})
+        self.assertEqual(code, 400)
+        self.assertIn("no start number 3", res["error"])
+        code, res = self.call("POST", "/api/plans/starts/events", {"type": "plan:start", "number": 1, "actor": "chat"})
+        self.assertEqual((code, res["started"], res["ready"]), (200, "a", ["x"]))
+        self.assertEqual(self.call("GET", "/api/plans/starts")[1]["run"]["state"], "running")
 
     def test_settings_never_reveal_the_key(self):
         _, s = self.call("GET", "/api/planner/settings")

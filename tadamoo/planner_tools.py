@@ -207,8 +207,13 @@ def render_proposals(snap: Dict[str, Any]) -> str:
 
 def render_plan(snap: Dict[str, Any]) -> str:
     plan, nodes = snap["plan"], snap["plan"].get("nodes", {})
-    done = sum(1 for n in nodes.values() if n.get("status") == "completed")
-    lines = [f'Plan {plan["plan_id"]}: "{plan["title"]}" [{plan.get("target_type")}], revision {snap.get("rev")}, {len(nodes)} steps, {done} done']
+    steps = [n for n in nodes.values() if n.get("type") != "start"]               # where a plan begins is not one of its steps
+    done = sum(1 for n in steps if n.get("status") == "completed")
+    lines = [f'Plan {plan["plan_id"]}: "{plan["title"]}" [{plan.get("target_type")}], revision {snap.get("rev")}, {len(steps)} steps, {done} done']
+    starts = [n for n in nodes.values() if n.get("type") == "start" and not (n.get("state_variables") or {}).get("implicit")]
+    if starts:
+        lines.append("Run: " + str((snap.get("run") or {}).get("state", "")) + ". Starts: " + "; ".join(
+            f'{(n.get("spec") or {}).get("number", 1)} {(n.get("spec") or {}).get("launch", "manual")}' + (f' ({(n.get("spec") or {}).get("words")})' if (n.get("spec") or {}).get("words") else "") for n in starts) + ".")
     lines += profile_lines(snap.get("profile") or {})
     for nid, n in nodes.items():
         after = f", after {', '.join(n['dependencies'])}" if n.get("dependencies") else ""
@@ -261,7 +266,8 @@ def render_plan_compact(snap: Dict[str, Any]) -> str:
     nodes = plan.get("nodes", {})
     by_status: Dict[str, int] = {}
     for n in nodes.values():
-        by_status[n.get("status", "pending")] = by_status.get(n.get("status", "pending"), 0) + 1
+        if n.get("type") != "start":
+            by_status[n.get("status", "pending")] = by_status.get(n.get("status", "pending"), 0) + 1
     counts = ", ".join(f"{v} {k}" for k, v in by_status.items())
     lines = [f'{plan["plan_id"]}: "{plan["title"]}" [{plan.get("target_type")}], rev {snap.get("rev")}' + (f" (paused)" if snap.get("paused") else "")]
     if counts:
@@ -525,7 +531,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         except Exception as exc:
             return failure(exc)
 
-    def plan_mark(plan_id: str, node_id: str, status: str, quote: str = "", outputs: Optional[Dict[str, Any]] = None) -> str:
+    def plan_mark(plan_id: str, node_id: str, status: str, quote: str = "", outputs: Optional[Dict[str, Any]] = None, reason: str = "") -> str:
         if status not in STATUSES:
             return f"status must be one of: {', '.join(STATUSES)}."
         if outputs is not None:
@@ -553,7 +559,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
             return how
         try:
             res = client.event(plan_id, {"type": "plan:timeout" if status == "timed_out" else "plan:mark", "node_id": node_id, "status": status, "base_rev": seen[plan_id],
-                                         **({"outputs": outputs} if outputs else {})})
+                                         **({"outputs": outputs} if outputs else {}), **({"reason": str(reason)[:600]} if status == "failed" and reason else {})})
         except Exception as exc:
             return failure(exc)
         try:
@@ -629,6 +635,25 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
             lines.append(found)
         lines.append("Do it with your tools, read the result, then mark the step completed or failed with plan_mark.")
         return "\n".join(lines)
+
+    def plan_start(plan_id: str, number: int = 1, quote: str = "") -> str:
+        """Starts a plan at one of its start nodes: the plan must not be running, and the person says yes. A plan that has finished starts again from the beginning."""
+        if (msg := need_read(plan_id)):
+            return msg
+        try:
+            snap = client.snapshot(plan_id)
+        except Exception as exc:
+            return failure(exc)
+        ok, how = confirmer.check({"kind": "plan_start", "plan": snap["plan"]["title"], "start": number},
+                                  f'Start the plan "{snap["plan"]["title"]}" at start {number}?', quote, snap, [])
+        if not ok:
+            return how
+        try:
+            res = client.event(plan_id, {"type": "plan:start", "number": number, "base_rev": seen[plan_id]})
+            seen[plan_id] = int(client.snapshot(plan_id).get("rev") or seen[plan_id])
+        except Exception as exc:
+            return failure(exc)
+        return f"Plan started at {res.get('started')} ({how}). Ready now: {', '.join(res.get('ready', [])) or 'nothing'}."
 
     def plan_propose_change(plan_id: str, title: str, diff: Dict[str, Any], rationale: str = "", quote: str = "") -> str:
         if (msg := need_read(plan_id)):
@@ -886,8 +911,11 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
                                    "is not completed; it passes to the user. Needs the user's yes.",
                       obj({"plan_id": {"type": "string"}, "node_id": {"type": "string"}, "status": {"type": "string", "enum": list(STATUSES)}, "quote": quote_param,
                            "outputs": {"type": "object", "description": "plan values to write when completing: name (letters, digits, _) -> text, number, true/false or a list; "
-                                                                      "a name written again is replaced, so send the whole list"}},
+                                                                      "a name written again is replaced, so send the whole list"},
+                           "reason": {"type": "string", "description": "with status failed: why it failed, the real cause as far as you know it; kept on the step for whoever recovers it"}},
                           ["plan_id", "node_id", "status"]), EffectClass.REVERSIBLE, plan_mark)
+    registry.register("plan_start", "Starts a plan at one of its start nodes (number, 1 when it has one); not while it is running. A plan that has finished starts again. Needs the user's yes.",
+                      obj({"plan_id": {"type": "string"}, "number": {"type": "integer"}, "quote": quote_param}, ["plan_id"]), EffectClass.REVERSIBLE, plan_start)
     registry.register("plan_step_start", "Starts a step that is ready and is for the agent; the user must say yes. Then do the step with your tools and mark it.",
                       obj({"plan_id": {"type": "string"}, "node_id": {"type": "string"}, "quote": quote_param}, ["plan_id", "node_id"]), EffectClass.REVERSIBLE, plan_step_start)
     registry.register("plan_propose_change", "Changes the structure of a plan (add, remove or change steps and links) with a diff. Needs the user's yes. At the Auto level what touches no step for other people, a prepared call or a booking is applied at once; the rest waits in the plan as a proposal for the user.",
