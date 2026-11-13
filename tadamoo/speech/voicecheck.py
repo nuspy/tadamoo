@@ -103,6 +103,8 @@ def compare(text: str, words: List[Dict[str, Any]], lang: str = "") -> Check:
 
 WAIT_FOR_SERVICE_S = 0.0                           # a production sets it: how long the read-back waits for a speech-to-text that does not answer (a restart of the server) before it fails
 RETRY_EVERY_S = 30.0
+RELOAD_STT = None                                  # a production sets it: a function that makes the voice service reload its speech-to-text worker, returns a line saying what happened
+CUDA_ERROR = re.compile(r"CUDA error|cudaError|unspecified launch failure", re.I)
 
 
 def transcribe(url: str, wav: bytes, lang: str, key: str = "") -> List[Dict[str, Any]]:
@@ -110,11 +112,17 @@ def transcribe(url: str, wav: bytes, lang: str, key: str = "") -> List[Dict[str,
     then, and said once on stderr; after that (or without it) the error is the caller's."""
     import sys
     import time
-    deadline, said = time.monotonic() + WAIT_FOR_SERVICE_S, False
+    deadline, said, reloaded = time.monotonic() + WAIT_FOR_SERVICE_S, False, False
     while True:
         try:
             return _service_words(url, wav, lang, key)
         except OSError as exc:
+            if CUDA_ERROR.search(str(exc)):                    # a dead CUDA context in the worker does not mend by waiting: the worker is reloaded once, and a second failure is the caller's
+                if reloaded or RELOAD_STT is None:
+                    raise
+                reloaded = True
+                print(f"speech-to-text: {exc}; reloading its worker: {RELOAD_STT()}", file=sys.stderr, flush=True)
+                continue
             if time.monotonic() >= deadline:
                 raise
             if not said:
@@ -141,7 +149,11 @@ def _service_words(url: str, wav: bytes, lang: str, key: str = "") -> List[Dict[
     finally:
         conn.close()
     if r.status != 200:
-        raise OSError(f"the speech-to-text refused (HTTP {r.status})")
+        try:
+            note = str(json.loads(raw).get("message") or json.loads(raw).get("error") or "")[:160]
+        except (ValueError, AttributeError):
+            note = ""
+        raise OSError(f"the speech-to-text refused (HTTP {r.status})" + (f": {note}" if note else ""))
     out: List[Dict[str, Any]] = []
     for seg in json.loads(raw).get("segments", []):
         out += [w for w in seg.get("words", []) if isinstance(w, dict)]

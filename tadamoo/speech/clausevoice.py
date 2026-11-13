@@ -47,8 +47,8 @@ class Params:
     repetition_penalty: float = 5.0
     length_penalty: float = 1.0
     speed: float = 1.14                            # the engine's own speed setting (it shortens the latents, the pitch stays): at the low temperature the engine reads about 15% slower than at its default
-    seeds: int = 12                                # takes of each clause in a round
-    rounds: int = 3                                # rounds before a clause is given up
+    seeds: int = 4                                 # takes of each clause in a round: a clause with a right take is done, only the others are read again in the next round
+    rounds: int = 9                                # rounds before a clause is given up (the most takes of a clause is seeds x rounds)
     base_seed: int = 1000
     comma_ms: float = 250.0
     comma_target_ms: float = 250.0                 # the pause the engine makes itself at a comma inside a piece is brought to this (0: left as it is)
@@ -110,11 +110,52 @@ def split_clauses(text: str, max_len: int = 0) -> List[Tuple[str, str, int]]:
 
 
 class LocalXtts:
-    """XTTS in its own Python (the voice service's environment is not touched): a batch of items in, WAV bytes out."""
+    """XTTS in its own Python (the voice service's environment is not touched): a batch of items in, WAV bytes out. The process is started with the first batch and keeps the model
+    loaded for the next ones (loading the model takes longer than reading a short sentence); `close` ends it and frees its VRAM."""
 
     def __init__(self, p: Params, work: Optional[Path] = None) -> None:
         self.p = p
         self.work = Path(work) if work else Path(tempfile.mkdtemp(prefix="xtts_"))
+        self.proc: Optional[subprocess.Popen] = None
+        self.log_file: Any = None
+        self.batches = 0
+
+    def _start(self) -> None:
+        self.work.mkdir(parents=True, exist_ok=True)
+        self.log_file = open(self.work / "xtts.log", "ab")
+        self.proc = subprocess.Popen([self.p.xtts_python, str(RUNNER), "--serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.log_file, text=True, encoding="utf-8",
+                                     errors="replace", bufsize=1)
+
+    def _batch(self, job_file: Path) -> None:
+        """One job file through the running process: its output lines are read up to the line that says the batch is done."""
+        if self.proc is None or self.proc.poll() is not None:
+            self._start()
+        try:
+            self.proc.stdin.write(str(job_file) + "\n")
+            self.proc.stdin.flush()
+        except OSError:
+            self.proc = None
+            raise RuntimeError("the XTTS run failed: its process is gone") from None
+        for line in self.proc.stdout:
+            if '"batch"' in line:
+                self.batches += 1
+                return
+        self.proc = None
+        log = self.work / "xtts.log"
+        tail = log.read_text(encoding="utf-8", errors="replace").strip().splitlines()[-1:] if log.is_file() else []
+        raise RuntimeError("the XTTS run failed: " + (tail[0][:300] if tail else "no message"))
+
+    def close(self) -> None:
+        if self.proc is not None:
+            try:
+                self.proc.stdin.close()
+                self.proc.wait(timeout=60)
+            except (OSError, subprocess.TimeoutExpired):
+                self.proc.kill()
+            self.proc = None
+        if self.log_file is not None:
+            self.log_file.close()
+            self.log_file = None
 
     def run(self, items: Sequence[Dict[str, Any]]) -> Dict[str, bytes]:
         self.work.mkdir(parents=True, exist_ok=True)
@@ -130,12 +171,30 @@ class LocalXtts:
             job = {"model_dir": self.p.xtts_model, "speaker": self.p.speaker, "out_dir": str(out), "items": todo}
             job_file = self.work / "job.json"
             job_file.write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
-            done = subprocess.run([self.p.xtts_python, str(RUNNER), str(job_file)], capture_output=True, text=True, encoding="utf-8", errors="replace")
-            if done.returncode != 0:
-                raise RuntimeError("the XTTS run failed: " + (done.stderr.strip().splitlines() or ["no message"])[-1][:300])
+            self._batch(job_file)
             for it in todo:
                 (out / f"{it['id']}.json").write_text(json.dumps({**it, "speaker": self.p.speaker}, ensure_ascii=False), encoding="utf-8")
         return {it["id"]: (out / f"{it['id']}.wav").read_bytes() for it in items}
+
+
+NUMBER_ROOTS = ("egy", "kettő", "két", "három", "négy", "öt", "hat", "hét", "nyolc", "kilenc", "tíz", "tizen", "húsz", "huszon", "harminc", "negyven", "ötven", "hatvan", "hetven", "nyolcvan",
+                "kilencven", "száz", "ezer", "millió", "milliárd", "billió")
+SURE_ROOTS = ("tizen", "huszon", "harminc", "negyven", "ötven", "hatvan", "hetven", "nyolcvan", "kilencven", "ezer", "millió", "milliárd", "billió")
+NUMBER_WORD = re.compile(r"(?:" + "|".join(sorted(NUMBER_ROOTS, key=len, reverse=True)) + r")+\w{0,6}", re.I)
+
+
+def has_number_words(text: str, lang: str) -> bool:
+    """The text holds a number the normaliser spelled out (Hungarian: a word made of number roots, such as kétezer-huszonnyolc): the CTC read-back writes such a number in English, so its letters cannot judge the clause."""
+    if lang != "hu":
+        return False
+    for word in re.split(r"[\s-]+", text.casefold()):
+        m = NUMBER_WORD.fullmatch(word)
+        if not m:
+            continue
+        roots = re.findall("|".join(sorted(NUMBER_ROOTS, key=len, reverse=True)), word)
+        if len(roots) >= 2 or any(word.startswith(r) for r in SURE_ROOTS):
+            return True
+    return False
 
 
 def letters_similarity(want: str, heard: str) -> float:
@@ -176,7 +235,9 @@ class Rater:
         heard_letters = self.ctc.transcribe(wav, p.lang) if self.ctc is not None else ""
         audit = J.pause_audit(x, rate, text + ending, words, 0.0, 0.10, p.lang)
         v = self.judge.score(wav, text, chk.similarity, p.lang)
-        m = {"similarity": chk.similarity, "heard": chk.heard, "extra_tail": chk.extra_tail, "letters": letters_similarity(text, heard_letters) if self.ctc is not None else 1.0,
+        numbers = has_number_words(text, p.lang)
+        m = {"similarity": chk.similarity, "heard": chk.heard, "extra_tail": chk.extra_tail, "numbers": numbers,
+             "letters": (chk.similarity if numbers else letters_similarity(text, heard_letters)) if self.ctc is not None else 1.0,
              "heard_letters": heard_letters, "silences": [{"len_s": s.length_s, "after": s.after, "punct": s.punct} for s in audit], **v.numbers}
         self.cache[key] = m
         if self.cache_path:
