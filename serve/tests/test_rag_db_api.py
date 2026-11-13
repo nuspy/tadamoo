@@ -103,6 +103,30 @@ def test_a_postgres_that_lacks_the_extension_stops_at_that_step_and_goes_on_with
     store.router.close()
 
 
+def test_the_administrator_of_a_run_is_used_for_it_and_kept_in_no_file_and_not_in_the_vault(tmp_path, monkeypatch):
+    api, store = api_for(tmp_path)
+    word = "an-admin-word-for-tests"
+    seen = {}
+    real = prep.prepare
+
+    def fake(cfg, pw, tell, options, connect=None):
+        seen.update(options, project_word=pw)
+        return real(cfg, pw, tell, {k: v for k, v in options.items() if k not in ("superuser", "superpassword")}, connect=lambda: FakePg({"current_setting('server_version')": [("me", "17.2", "kb", False, True)]}))
+    monkeypatch.setattr(prep, "prepare", fake)
+    monkeypatch.setattr(prep, "selftest", lambda b: {"vectors": "app", "words": "native", "ms": 1})
+    cfg = {"kind": "postgres", "host": "localhost", "dbname": "kb", "user": "me"}
+    done = finish(api, started(api, ["db", "prepare"], {"project": PROJ, "config": cfg, "password": "project-word", "plan_b": "blob", "superuser": "postgres", "superpassword": word}))
+    assert done["state"] == "done" and seen["superuser"] == "postgres" and seen["superpassword"] == word and seen["project_word"] == "project-word"
+    assert word not in json.dumps(done)
+    for f in (tmp_path).rglob("*"):
+        if f.is_file() and f.suffix != ".sqlite":
+            assert word not in f.read_text(errors="ignore"), f
+    assert api.route_get(["db"], {"project": [PROJ]})["config"]["user"] == "me"
+    with pytest.raises(RagError):
+        api.route_post(["db", "prepare"], {}, json.dumps({"project": PROJ, "config": cfg, "superuser": 5}).encode())
+    store.router.close()
+
+
 def test_the_import_is_a_job_that_copies_what_waits_reports_each_archive_and_leaves_the_folders_alone(tmp_path):
     api, store = api_for(tmp_path)
     folder = make_legacy(tmp_path / "rag")

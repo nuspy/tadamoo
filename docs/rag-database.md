@@ -55,7 +55,20 @@ revision that moves with every change: it is what lets a reader keep what it loa
 3. **Tables and test.** The tables and indexes (GIN for words; HNSW is made with each archive's vectors), a test archive written, searched by words and by vector and removed, and
    the settings saved. Only a database that passed all three is saved.
 
+**An administrator for one run.** When the extension is missing from the database, or the user, the database or the right to create tables must be made, the flow can use a
+PostgreSQL superuser: the *Administrator* fields of the Database section (`superuser`, `superpassword` in the request), or `--superuser U` with the password on standard input
+(`--superpassword-from-stdin`) or in the environment variable `TADAMOO_SUPERPASSWORD` on the command line. The administrator makes only what is missing (`CREATE ROLE ... LOGIN`
+with the project's own password, `CREATE DATABASE ... OWNER`, `GRANT CREATE`, `CREATE EXTENSION vector`); when the extension, the user and the database are there it is not
+used and nothing is asked. Its password lives in the job's memory for that run: it is not in the settings, the vault, any file or any result. The project's own user and
+password stay the ones saved.
+
 The result of each step stays in the job (`data.steps`) and on the page. A step that needs a choice or a fix stops the job; connect again after doing it.
+
+## Copying between databases
+
+`python -m tadamoo.rag db copy --project KEY --from-sqlite FILE [ARCHIVE ...] [--replace]` copies archives (passages, sections, vectors of both slots, blocks, images, figures,
+sources, enrichment) from a SQLite file into the project's configured database, checks the counts and leaves nothing of a copy that stopped half way. The file is only read.
+An archive already in the destination is refused unless `--replace`. The code is `backends/transfer.py`.
 
 ## Importing the old file format
 

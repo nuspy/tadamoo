@@ -3,7 +3,8 @@ old file format.
 
     GET  /api/rag/db?project=<key>     the project's database: its kind and settings (never a password), what it is now, the archives waiting to be imported, what drivers are there
     POST /api/rag/db/config            {project, config, password?}   keeps the settings; the password goes to the vault, the settings name its entry; {project, reset: true} goes back to the default
-    POST /api/rag/db/prepare           {project, config?, password?, plan_b?, vec_file?, install_local?, create_db?}   a job: connect, vector extension, tables and a test
+    POST /api/rag/db/prepare           {project, config?, password?, plan_b?, vec_file?, install_local?, create_db?, superuser?, superpassword?}   a job: connect, vector extension, tables and a test;
+                                       a superuser is used for this run only to make the user, database, rights and extension, and is kept nowhere
     POST /api/rag/db/import            {archives?: [ids], all?, replace?}   a job: copies archives in the old file format into their project's database
     GET  /api/rag/db/components        the packages the databases need (sqlite-vec, the PostgreSQL and MariaDB drivers): pinned requirement, size, installed here or not
     POST /api/rag/db/components/install {id}   a job: pip install of that pinned requirement into the Python the app runs in, only when this is asked
@@ -117,6 +118,11 @@ class RagDbApi:
         cfg = clean_config(req["config"]) if isinstance(req.get("config"), dict) else router.config(project)
         cfg = self._with_password(project, cfg, req.get("password"))
         options = {k: req[k] for k in ("plan_b", "vec_file", "install_local", "create_db") if k in req}
+        for k in ("superuser", "superpassword"):
+            if req.get(k) not in (None, ""):
+                if not isinstance(req[k], str):
+                    raise RagError(f"{k}: text")
+                options[k] = req[k]
         pw = vault_password(self.vault_dir)(cfg["vault"]) if cfg.get("vault") and self.vault_dir is not None else ""
 
         def work(progress: Any, cancel: Any) -> Dict[str, Any]:
