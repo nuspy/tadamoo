@@ -49,8 +49,7 @@ revision that moves with every change: it is what lets a reader keep what it loa
 1. **Connect.** Reach the database (a SQLite file is created; a missing local PostgreSQL database is created when asked and the user may), and show the server version, the
    user and whether the user may create tables. A user who may not stops here, with that said. A missing driver is named as a component to install.
 2. **Vector extension.** PostgreSQL: present, or *available on the server but not enabled* (then `CREATE EXTENSION vector` is run; a user who may not is given the exact
-   statement to ask an administrator for), or *not available* (then the steps for the system are shown, `apt` or `dnf` for Linux, `brew` for macOS, a build or a package that
-   includes it for Windows, and TaDaMoo runs the package command itself only on this PC, with administrator rights, when the person asks for it). An older pgvector is updated or refused.
+   statement to ask an administrator for), or *not available* (then the steps for the system are shown, `apt` or `dnf` for Linux, `brew` for macOS, the build with `nmake` for Windows (it needs the Visual Studio C++ build tools; the steps shown are the exact commands), and TaDaMoo runs the package command itself only on this PC, with administrator rights, when the person asks for it). An older pgvector is updated or refused.
    If it cannot be had, **Plan B**, the person's choice: the vectors in a binary column of the same PostgreSQL searched by the application, or in a local sqlite-vec file (the
    rest stays in PostgreSQL; the two are written one after the other, not in one transaction). SQLite: the extension is loaded, installed but not loadable, or not installed.
 3. **Tables and test.** The tables and indexes (GIN for words; HNSW is made with each archive's vectors), a test archive written, searched by words and by vector and removed, and

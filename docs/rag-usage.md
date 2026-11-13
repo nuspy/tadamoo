@@ -51,6 +51,27 @@ The search itself was good: asked the fact in its own words, it returns the righ
 Both are untrusted tools: their results are fenced as data. A flagged passage in a read page is marked in place (or left out, as the `flagged`
 setting says).
 
+## Building an archive from a conversation
+
+Four more tools (`tadamoo/rag/manage_tools.py`) let the agent make an archive and fill it, one document or a batch. They ask the server (`/api/rag`, `serve/rag_add_api.py`), which holds the
+readers, the embedding model, the one-run-per-archive guard and the politeness towards websites, and follow its job; the awareness text (`tadamoo/awareness.py`) tells the model when to use them.
+
+- `knowledge_create(name, description?)`: makes an archive in the conversation's project, or says that one with that name is already there (`exists`). Reversible (it asks below Auto).
+- `knowledge_add(items, archive?)`: `items` is up to 200 files on this PC, folders on this PC and http(s) addresses; `archive` empty means the project's only archive (with several, the
+  answer lists them: `ask`). A **file** is read and added. A **folder** (subfolders included) becomes a source of the archive, so `knowledge_update` reads again what changes in it. An
+  **address** is downloaded into `<rag folder>/downloads/<archive>/` (robots.txt, the pause between requests, 50 MB each: the settings of the sources) and the file is read and added;
+  the document says where it came from (`origin`), a file that cannot be read is not kept, and the folder goes with the archive when it is deleted. Each item answers `added`,
+  `duplicate` (the same file was already there) or `failed` with the reason; the counts are exact and the first 40 results are listed. It is a job: an adding that outlives the wait
+  (15 minutes) goes on in the server. Reversible, in the build role only, and its results are untrusted data.
+- `knowledge_index(archive?, describe?)`: cuts the saved texts again and indexes them (what *Index again* does); with `describe` it also has a model write the summaries and questions
+  (the function `rag_enrich`, with its cloud rule).
+- `knowledge_status(archive?)`: pure and in every role. Documents and passages, how the archive is searched, the embedding model, whether it should be indexed again, whether its
+  passages are described, the database (`docs/rag-database.md`), the sources and the last update, and what runs or just ended (an adding, an indexing). Without a name it tells every archive of the project.
+
+The same two routes are open to the page and to scripts: `POST /api/rag/archives/<id>/add {items}` (a job) and `GET /api/rag/archives/<id>/status`. A request such as "find all the patents on X
+and add them to the RAG" is the model's own work: it searches the web (`search_web`, `browse_url`), collects the addresses of the documents themselves, calls `knowledge_add` once with all of
+them and reports with `knowledge_status`. Tests: `tests/test_rag_manage.py`.
+
 ## The passages put in front of a long request
 
 `ProjectRecall.message` (`tadamoo/rag/recall.py`) asks one query for a request shorter than `request_chars` (200), as before. A longer one is asked as
