@@ -769,6 +769,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/llm":
                 if self._authorized():
                     self._json(200, self._llm().overview())
+            elif path == "/api/llm/answering":
+                if self._authorized():
+                    self._json(200, self._llm().answering())
             elif path == "/api/planner/settings" or path == "/api/plans" or path.startswith("/api/plans/"):
                 if self._authorized():
                     self._plans_get(path)
@@ -3261,6 +3264,8 @@ def make_handler(svc: Service, remote: bool = False):
                 plans_mod_registry = _LLM.registry
                 if _PLANS is not None:
                     _PLANS.registry = plans_mod_registry
+            if _LLM.local_status is None:
+                _LLM.local_status = lambda: {"loaded": None if svc.loading else svc.loaded(), "model": svc.model if svc.loaded() else ""}      # None: still loading
             return _LLM
 
         def _llm_post(self, path):
@@ -3285,6 +3290,12 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, api.remove_provider(parts[1]))
                 if len(parts) == 3 and parts[0] == "providers" and parts[2] == "test":
                     return self._json(200, api.test(parts[1]))
+                if parts == ["primary"]:
+                    return self._json(200, api.set_primary(req))
+                if parts == ["models"]:
+                    return self._json(200, api.models(req))
+                if parts == ["try"]:
+                    return self._json(200, api.try_form(req))
                 if parts == ["technical"]:
                     return self._json(200, api.setup_technical(req))
                 if parts == ["assign"]:

@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import os
@@ -33,6 +34,8 @@ TYPES.setdefault("jev", {
     "key_env": "TYPESAFE_API_KEY", "console": "https://console.typesafe.ai/home",
     "note": "Answers typed questions (a choice, a score). It does not chat. Only short excerpts go to it, never whole documents.",
 })
+PRIMARY = "@primary"                               # an assignment that follows the Primary model, whatever it is at the moment of the call
+LOCAL_EXPLICIT = "@local"                          # "From Local Engine" chosen by hand while new functions default to the Primary model
 SECRET_FIELDS = ("api_key",)
 OAUTH_FIELDS = ("access_token", "refresh_token", "id_token")
 CHAT_APIS = {"openai", "lmstudio", "vllm", "gemini", "anthropic"}
@@ -77,20 +80,26 @@ def runs_here(prov: Optional[Dict[str, Any]], local_hosts: tuple = LOOPBACK) -> 
 
 
 class _Assignments(dict):
-    """The assignments of the functions to their providers as a call reads them while a swap is on (`SecureRegistry.begin_swap`): a function that has no
-    provider, or the model loaded in this server, reads as the swap's provider. What is saved is the dict's own content, so the swap is never written."""
+    """The assignments of the functions to their providers as a call reads them: a function that follows the Primary model reads as it (and, with new
+    functions defaulting to the Primary model, so does one with no choice made), and while a swap is on (`SecureRegistry.begin_swap`) a function that has no
+    provider, or the model loaded in this server, reads as the swap's provider. What is saved is the dict's own content, so none of this is ever written."""
 
-    def __init__(self, data: Dict[str, Any], swap: Dict[str, Any]) -> None:
+    def __init__(self, data: Dict[str, Any], swap: Optional[Dict[str, Any]] = None, primary: str = "", default_primary: bool = False) -> None:
         super().__init__(data)
-        self.swap = swap
+        self.swap, self.primary, self.default_primary = swap, primary, default_primary
 
     def __bool__(self) -> bool:
         return True                                  # callers write `data.get("assignments") or {}`: an empty one must not drop the swap
 
     def get(self, key: Any, default: Any = None) -> Any:
         value = super().get(key)
-        if functions.known(key) and (not value or value in self.swap["replace"]):
-            return self.swap["pid"]
+        if functions.known(key):
+            if value == PRIMARY or (not value and self.default_primary):
+                value = self.primary or None
+            elif value == LOCAL_EXPLICIT:
+                value = None
+            if self.swap is not None and (not value or value in self.swap["replace"]):
+                return self.swap["pid"]
         return default if value is None else value
 
 
@@ -111,6 +120,7 @@ class SecureRegistry(Registry):
         self.credentials = credentials or default_store(self.path.parent)
         self.consumers = _Consumers(self.consumers)
         self._io = threading.RLock()
+        self._routed = threading.local()
         self.clock = time.time
         self.local_hosts = LOOPBACK                   # the addresses that are this PC (tests can say there are none)
 
@@ -135,9 +145,25 @@ class SecureRegistry(Registry):
                         if oauth.get(field) == "@cred":
                             oauth[field] = self.credentials.read(self._ref(pid, "oauth." + field))
             swap = self._read_swap()
-            if swap is not None:
-                data["assignments"] = _Assignments(data.get("assignments") or {}, {"pid": swap["pid"], "replace": set(swap.get("replace") or [])})
+            data["assignments"] = _Assignments(data.get("assignments") or {}, None if swap is None else {"pid": swap["pid"], "replace": set(swap.get("replace") or [])},
+                                               str(data.get("primary") or ""), bool(data.get("default_primary")))
             return data
+
+    @contextlib.contextmanager
+    def routed(self, function: str, pid: str):
+        """For the calls of this thread inside the block, `function` is on provider `pid` (a fall-back: the function itself stays as the person set it)."""
+        before = getattr(self._routed, "to", None)
+        self._routed.to = (function, pid)
+        try:
+            yield
+        finally:
+            self._routed.to = before
+
+    def provider_for(self, consumer: str) -> Optional[Dict[str, Any]]:
+        forced = getattr(self._routed, "to", None)
+        if forced and forced[0] == consumer:
+            return self._find(self.load(), forced[1])
+        return super().provider_for(consumer)
 
     # -- a swap: every function that runs on the loaded model uses one provider for a while ---------------------
 
@@ -215,14 +241,6 @@ class SecureRegistry(Registry):
                             oauth[field] = "@cred"
             super().save(clean)
 
-    def remove(self, pid: str) -> None:
-        prov = self._find(self.load(), pid)
-        super().remove(pid)
-        if prov:
-            for ref in (prov.get("key_ref"), *(self._ref(pid, "oauth." + f) for f in OAUTH_FIELDS)):
-                if ref:
-                    self.credentials.delete(ref)
-
     def set_profile(self, pid: str, profile: str) -> Dict[str, Any]:
         """The Loader's load profile a route to this server uses when the model has to be loaded (empty: the default one)."""
         with self._lock:
@@ -292,13 +310,106 @@ class SecureRegistry(Registry):
     def imported(self) -> List[str]:
         return list(self._extra("imported", []) or [])
 
+    # -- the Primary model: one provider (or the local engine) that every function pointed at it follows ----------------------
+
+    def primary(self) -> str:
+        """The provider id of the Primary model, or "" when it is the local engine (whatever is loaded there now)."""
+        pid = str(self._extra("primary", "") or "")
+        return pid if pid and self._find(self.load(), pid) is not None else ""
+
+    def default_primary(self) -> bool:
+        """Whether a function with no choice of its own follows the Primary model."""
+        return bool(self._extra("default_primary", False))
+
+    def set_primary(self, pid: Optional[str], default_for_new: Optional[bool] = None) -> None:
+        """Changes the Primary model at once (the next call of every function that points at it reads it). Raises KeyError for a provider that is not there."""
+        with self._io:
+            data = self.load()
+            if pid and self._find(data, pid) is None:
+                raise KeyError(pid)
+            data["primary"] = pid or ""
+            if default_for_new is not None:
+                data["default_primary"] = bool(default_for_new)
+            self.save(data)
+
+    def assign(self, consumer: str, pid: Optional[str]) -> Dict[str, Any]:
+        """A provider, `PRIMARY` (follow the Primary model), or none: the local engine (kept as a choice of its own while new functions follow the Primary model)."""
+        if pid != PRIMARY and not (not pid and self.default_primary()):
+            return super().assign(consumer, pid)
+        if consumer not in self.consumers:
+            raise ValueError(f"consumatore sconosciuto: {consumer}")
+        with self._lock:
+            data = self.load()
+            data.setdefault("assignments", {})[consumer] = pid or LOCAL_EXPLICIT
+            self.save(data)
+            return data["assignments"]
+
+    def remove(self, pid: str) -> None:
+        was_primary = self.primary() == pid
+        prov = self._find(self.load(), pid)
+        super().remove(pid)
+        if prov:
+            for ref in (prov.get("key_ref"), *(self._ref(pid, "oauth." + f) for f in OAUTH_FIELDS)):
+                if ref:
+                    self.credentials.delete(ref)
+        if was_primary:
+            self.set_primary("")                                    # the Primary model goes back to the local engine
+
+    def chosen(self, function: str) -> str:
+        """What the person chose for the function, as saved: a provider id, `PRIMARY`, or "" for the local engine."""
+        value = dict.get(self.load().get("assignments") or {}, function) or ""
+        return "" if value == LOCAL_EXPLICIT else value
+
+    def fallback_target(self, function: str, skip: tuple = ()) -> Optional[str]:
+        """The provider a function that wants the local engine takes when nothing is loaded there: the Primary model if it is a provider, else the first
+        configured provider. Only one the function's routing rules allow (`check`); None when there is none."""
+        data = self.load()
+        order = [self.primary()] + [p.get("id") for p in data.get("providers", [])]
+        for pid in order:
+            prov = self._find(data, pid) if pid else None
+            if prov is None or pid in skip or TYPES.get(prov.get("type") or "", {}).get("this_server"):
+                continue
+            if self.check(function, pid)[0]:
+                return pid
+        return None
+
+    def why_no_fallback(self, function: str) -> str:
+        """In plain words why `fallback_target` found nothing: no provider at all, or what the rules say about the first one."""
+        data = self.load()
+        usable = [p for p in data.get("providers", []) if not TYPES.get(p.get("type") or "", {}).get("this_server")]
+        if not usable:
+            return "no provider is configured"
+        return "no configured provider may be used for it: " + self.check(function, usable[0]["id"])[1]
+
+    def resolve_route(self, function: str, local_loaded: Optional[bool] = True) -> Tuple[Optional[str], str]:
+        """Where a call of the function goes right now: (provider id, or None for the local engine, and how it got there: "direct", "primary", "swap",
+        "fallback", "refused" or "local"). `local_loaded` False means no model is loaded in the local engine."""
+        data = self.load()
+        assignments = data.get("assignments") or {}
+        raw = dict.get(assignments, function) or ""
+        pid = assignments.get(function) or None
+        if pid and TYPES.get((self._find(data, pid) or {}).get("type") or "", {}).get("this_server"):
+            return None, "here"                                     # the provider "this server" is the loaded model, loaded for the function when needed
+        follows = raw == PRIMARY or (not raw and self.default_primary())
+        base = (self.primary() if follows else "" if raw == LOCAL_EXPLICIT else raw) or None
+        via = "local" if not pid else "swap" if pid != base else "primary" if follows else "direct"
+        if pid and not self.check(function, pid)[0]:
+            pid, via = None, "refused"                              # not allowed: the call goes on to the local engine, as `fallback_chain` says
+        if pid is None and local_loaded is False:
+            target = self.fallback_target(function)
+            if target:
+                return target, "fallback"
+        return pid, via
+
     # -- what a route may be ----------------------------------------------------------------------------
 
     def check(self, function: str, pid: Optional[str], consent: Optional[Dict[str, bool]] = None) -> Tuple[bool, str]:
         """Whether the function may use this provider, and if not, why. No provider is always fine: it is the loaded model. `consent` is the
         consent to judge by when it is not the saved one (a change being checked before it is saved)."""
         spec = functions.spec(function)
-        if not pid:
+        if pid == PRIMARY:
+            pid = self.primary()                                    # a function that follows the Primary model is judged by what it is now
+        if not pid or pid == LOCAL_EXPLICIT:
             return True, ""
         swap = self._read_swap()
         if swap is not None and pid == swap["pid"]:
