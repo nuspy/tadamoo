@@ -7,10 +7,13 @@
     python -m tadamoo.importer delete KIND NAME
     python -m tadamoo.importer enable|disable NAME
     python -m tadamoo.importer migrate SKILLS_ROOT [--dry-run] [--update]
+    python -m tadamoo.importer builtin list [--source DIR]
+    python -m tadamoo.importer builtin install [NAME ...] [--all] [--none] [--source DIR] [--dry-run]
 
 The copies live in the user data folder (TADAMOO_DATA, else the app's folder; `--data-dir` names another). `reimport` without `--yes` only says what
 would change. `migrate` imports a folder of skills that the harness used to read directly (for example D:/skills) and takes it out of the
-settings; the folder is not changed. A running app sees the change at its next scan; restart it only for a new version of the app itself."""
+settings; the folder is not changed. `builtin` lists the built-in skills of the program folder and imports the ones named (with what they require); with no name
+the ones the catalogue ticks by default, `--all` every one, `--none` nothing. A running app sees the change at its next scan; restart it only for a new version of the app itself."""
 from __future__ import annotations
 
 import argparse
@@ -19,6 +22,7 @@ import sys
 from pathlib import Path
 
 from .common import Problem
+from . import builtin
 from .migrate import migrate
 from .service import KINDS, Importer, Spaces
 
@@ -51,6 +55,13 @@ def main(argv=None) -> int:
     mg.add_argument("skills_root")
     mg.add_argument("--dry-run", action="store_true")
     mg.add_argument("--update", action="store_true", help="re-import what is already imported and whose source changed")
+    bi = sub.add_parser("builtin")
+    bi.add_argument("action", choices=("list", "install"))
+    bi.add_argument("names", nargs="*")
+    bi.add_argument("--source", default="", help="the skills folder of the program (default: the one beside the code)")
+    bi.add_argument("--all", action="store_true")
+    bi.add_argument("--none", action="store_true")
+    bi.add_argument("--dry-run", action="store_true")
     a = ap.parse_args(argv)
     if a.data_dir:
         data = Path(a.data_dir)
@@ -70,6 +81,16 @@ def main(argv=None) -> int:
             out = imp.delete(a.kind, a.name)
         elif a.cmd in ("enable", "disable"):
             out = imp.set_enabled(a.name, a.cmd == "enable")
+        elif a.cmd == "builtin":
+            if a.action == "list":
+                have = {r["name"] for r in imp.list("skill")} | {r["name"] for r in imp.list("plugin")}
+                out = {"builtin": [{**{k: e[k] for k in ("name", "kind", "group", "default", "requires", "title", "summary")}, "imported": e["name"] in have}
+                                   for e in builtin.load(a.source or None)]}
+            elif a.none:
+                out = {"chosen": [], "imported": [], "skipped": [], "conflicts": []}
+            else:
+                every = [e["name"] for e in builtin.load(a.source or None)]
+                out = builtin.install(imp, every if a.all else (a.names or None), a.source or None, dry_run=a.dry_run)
         else:
             out = migrate(imp, a.skills_root, dry_run=a.dry_run, update=a.update)
     except Problem as exc:

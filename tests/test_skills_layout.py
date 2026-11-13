@@ -11,7 +11,7 @@ from tadamoo.planner.dag import PlanDAG
 
 SKILLS = Path(__file__).resolve().parents[1] / "skills"
 PLUGIN = SKILLS / "plugins" / "ai-newscast"
-REUSABLE = ("media-generation", "speech-synthesis", "video-editing", "news-research")
+REUSABLE = ("image-generation", "image-editing", "video-generation", "talking-head", "speech-synthesis", "video-editing", "news-research")
 
 
 def header(path: Path) -> dict:
@@ -29,7 +29,7 @@ def test_a_reusable_skill_is_a_standalone_folder_with_its_documents(name):
     assert "Heavy-swap" in text or "heavy-swap" in text.lower() or "heavy" in text.lower()
 
 
-def test_the_plugin_names_the_four_skills_it_depends_on_and_says_it_brings_no_mcp_server():
+def test_the_plugin_names_the_skills_it_depends_on_and_says_it_brings_no_mcp_server():
     plugin = json.loads((PLUGIN / "plugin.json").read_text(encoding="utf-8"))
     assert {d["name"] for d in plugin["dependencies"]["skills"]} == set(REUSABLE)
     for d in plugin["dependencies"]["skills"]:

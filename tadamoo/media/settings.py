@@ -14,11 +14,11 @@ from tadamoo.media.errors import MediaError
 DEFAULT_LTX_DIRS = tuple(p for p in (os.environ.get("TADAMOO_LTX_STUDIO", ""), "E:/AI/LTXStudio") if p)
 VIDEO_MODEL = "ltx-2.5-22b-distilled-transformer-nvfp4.safetensors"
 DEFAULTS: Dict[str, Any] = {"enabled": True, "ltx_dir": "", "image_python": "", "video_python": "", "video_model": "",
-                            "image_mib": 11000, "video_mib": 25000, "avatar_mib": 25000, "wait_s": 600, "idle_s": 900}
+                            "image_mib": 11000, "video_mib": 25000, "avatar_mib": 25000, "upscale_mib": 22000, "interpolate_mib": 4000, "wait_s": 600, "idle_s": 900}
 FLAGS = ("enabled",)
 FOLDERS = ("ltx_dir",)
 FILES = ("image_python", "video_python")
-RANGES = {"image_mib": (2000, 60000), "video_mib": (2000, 60000), "avatar_mib": (2000, 60000), "wait_s": (0, 3600), "idle_s": (30, 7200)}
+RANGES = {"image_mib": (2000, 60000), "video_mib": (2000, 60000), "avatar_mib": (2000, 60000), "upscale_mib": (2000, 60000), "interpolate_mib": (2000, 60000), "wait_s": (0, 3600), "idle_s": (30, 7200)}
 
 
 def _number(value: Any, lo: float, hi: float) -> bool:

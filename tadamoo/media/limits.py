@@ -69,7 +69,15 @@ def image_request(prompt: Any, width: Any = None, height: Any = None, steps: Any
             "seed": _seed(seed), "negative": (negative or "").strip()[:PROMPT_MAX], "notes": notes}
 
 
-def video_request(prompt: Any, width: Any = None, height: Any = None, frames: Any = None, fps: Any = None, seed: Any = None, negative: Any = "") -> Dict[str, Any]:
+def _path(name: str, value: Any) -> str:
+    if not isinstance(value, str) or not value.strip() or "\x00" in value:
+        raise MediaError(f"{name}: the path of a file on this PC")
+    return value.strip()
+
+
+def video_request(prompt: Any, width: Any = None, height: Any = None, frames: Any = None, fps: Any = None, seed: Any = None, negative: Any = "",
+                  image: Any = None) -> Dict[str, Any]:
+    """A clip from words, or from a picture (`image`, the path of its first picture) and words."""
     w, h, notes = _size(VIDEO, width, height)
     n = _whole("frames", VIDEO["frames"] if frames is None else frames, VIDEO["frames_min"], VIDEO["frames_max"])
     rounded = (n - 1) // 8 * 8 + 1                    # the model takes a whole number of 8-frame steps plus the first frame
@@ -79,10 +87,29 @@ def video_request(prompt: Any, width: Any = None, height: Any = None, frames: An
     if negative is not None and not isinstance(negative, str):
         raise MediaError("negative: text, or empty")
     return {"prompt": _prompt(prompt, "clip"), "width": w, "height": h, "frames": rounded, "fps": f, "seed": _seed(seed),
-            "negative": (negative or "").strip()[:PROMPT_MAX], "notes": notes}
+            "negative": (negative or "").strip()[:PROMPT_MAX], "image": "" if image in (None, "") else _path("image", image), "notes": notes}
 
 
-AVATAR = {"resolutions": ("480p", "720p")}
+ENHANCE = {"scale_min": 1.0, "scale_max": 4.0, "factor_min": 2, "factor_max": 4, "modes": ("turbo", "base")}
+
+
+def enhance_request(video: Any, scale: Any = None, factor: Any = None, mode: Any = "turbo") -> Dict[str, Any]:
+    """A better video from an existing one: `scale` times the size (1 to 4), `factor` times the frames a second (2 to 4, frames made between the real ones). At least one of them."""
+    if scale in (None, "") and factor in (None, ""):
+        raise MediaError("say what to improve: scale (the size, 1 to 4 times) or factor (the frames a second, 2 to 4 times), or both")
+    if mode not in ENHANCE["modes"]:
+        raise MediaError("mode: " + " or ".join(ENHANCE["modes"]))
+    out: Dict[str, Any] = {"video": _path("video", video), "scale": 0.0, "factor": 0, "mode": mode, "notes": []}
+    if scale not in (None, ""):
+        if isinstance(scale, bool) or not isinstance(scale, (int, float)) or not ENHANCE["scale_min"] <= scale <= ENHANCE["scale_max"]:
+            raise MediaError(f"scale: a number from {ENHANCE['scale_min']:g} to {ENHANCE['scale_max']:g}")
+        out["scale"] = float(scale)
+    if factor not in (None, ""):
+        out["factor"] = _whole("factor", factor, ENHANCE["factor_min"], ENHANCE["factor_max"])
+    return out
+
+
+AVATAR ={"resolutions": ("480p", "720p")}
 
 
 def avatar_request(image: Any, audio: Any, prompt: Any = "", resolution: Any = "480p", seed: Any = None, negative: Any = "") -> Dict[str, Any]:

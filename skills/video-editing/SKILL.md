@@ -12,7 +12,7 @@ The code is `tadamoo/videoedit/` (docs in `docs/videoedit/`); the graphics of a 
 ## When to use it
 
 Several pieces (a continuous take of a presenter, B-roll clips, opening and closing clips) become one video with graphics over them and a camera that moves. Not for generating the pieces
-(`media-generation`) nor the voice (`speech-synthesis`).
+(`video-generation`, `talking-head`, `image-generation`) nor the voice (`speech-synthesis`).
 
 ## The grammar
 
@@ -38,3 +38,12 @@ None: editing is CPU work (ffmpeg and PIL) and runs while the local model is loa
 ## Scripts
 
 `scripts/seams.py VIDEO [--cuts ...] [--graphics ...]` runs the detector and prints a table of the seams.
+
+## Installation
+
+Check first, install only what is missing, only when the person asks:
+
+1. `python -m tadamoo.media.components check video-editing` prints what is present and the command for what is missing; it changes nothing.
+2. `python -m tadamoo.media.components install video-editing` runs those commands and checks again.
+
+Components: **ffmpeg** on the PATH (`winget install Gyan.FFmpeg`); for the seam and movement detector only, the **mediapipe** package and the two MediaPipe landmarker models (face and pose, in `E:\Modelli\basalt\qa`).

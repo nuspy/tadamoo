@@ -118,6 +118,13 @@ imported copies: its skills, its plugins with their parts and dependencies, its 
 `skill_dirs` and sets aside `personal-skills-dir.json` if it pointed there. A plan the planner already has under the same id is adopted.
 Run it with `--dry-run` first. The folder is not changed. Running it again imports nothing twice.
 
+## The built-in skills
+
+`skills/builtin.json` lists the skills that ship with the program: name, kind (skill or plugin), group, whether the setup ticks it, what it requires, a title and a summary in English and Italian.
+`python -m tadamoo.importer builtin list` shows them with whether each is imported; `builtin install NAME ...` imports the named ones and what they require (a choice of nothing imports nothing,
+`--all` every one, no name the ones ticked by default). It uses the same checks and copies as any import and can be run again. The setup asks the person with a page of tick boxes and runs it
+(`docs/INSTALLER.md`). Code: `tadamoo/importer/builtin.py`; tests: `tests/test_builtin_skills.py`.
+
 ## Code
 
 `tadamoo/importer/`: `common.py` (the scan, the hash, the transaction, the manifest), `skills.py`, `plugins.py`, `mcp.py`, `plans.py`,
