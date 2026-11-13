@@ -91,14 +91,19 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     return [for (final j in await Api(widget.settings).humanRequests()) HumanRequest.fromJson(j)];
   }
 
-  Future<HumanOutcome> _showHuman(HumanRequest r, int index, int total) async {
+  Future<HumanOutcome> _showHuman(HumanGroup group, HumanPath? draft) async {
     if (!mounted) return HumanOutcome.later;
     final api = Api(widget.settings);
     final out = await showDialog<HumanOutcome>(
       context: context,
       barrierDismissible: false,
       useRootNavigator: true,
-      builder: (_) => HumanRequestDialog(request: r, index: index, total: total, send: (answer) => api.answerHuman(r.planId, r.nodeId, answer)),
+      builder: (_) => HumanWizardDialog(
+        group: group,
+        draft: draft,
+        onPath: (p) => humans.drafts[group.planId] = p,
+        send: (answers) => api.answerHumanAll(group.planId, answers),
+      ),
     );
     return out ?? HumanOutcome.later;
   }
