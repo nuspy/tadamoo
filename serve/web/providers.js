@@ -19,6 +19,7 @@
   };
   const btn = (text, cls, onclick) => { const b = h("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; return b; };
 
+  const PRIMARY = "@primary";                                                    // a function that follows the Primary model
   let state = null, busy = false, editing = "", note = "", noteBad = false, loadProfiles = [];
 
   async function call(method, path, body) {
@@ -87,15 +88,45 @@
     const box = h("section", "sec pv-strip");
     let st = null;
     try { const r = await fetch("v1/status", { cache: "no-store", headers: authHeaders() }); if (r.ok) st = await r.json(); } catch (e) { /* offline */ }
-    const users = state.functions.filter(f => !f.provider).map(f => f.label);
+    const users = state.functions.filter(f => !f.now.provider).map(f => f.label);
     box.append(h("b", "", T("pv.loaded")), " ", st && st.loaded ? st.model : T("pv.noneLoaded"),
       h("span", "dim", " · " + T("pv.usedBy", users.length ? users.join(", ") : "—")));
     return box;
   }
 
+  /* ---- the Primary model: one choice that every function set to it follows, at once ---- */
+  function primarySection() {
+    const pr = state.primary, sec = h("section", "sec pv-primary");
+    const sel = h("select", "", [Object.assign(h("option", "", T("pv.primary.local")), { value: "" }), ...pr.options.map(o => Object.assign(h("option", "", o.label), { value: o.id }))]);
+    sel.value = pr.id; sel.id = "pv-primary-sel";
+    sel.onchange = async () => {
+      const r = await call("POST", "api/llm/primary", { primary: sel.value });
+      if (r.ok) { state = r.data; say(T("pv.saved")); document.dispatchEvent(new CustomEvent("basalt:llm-changed")); } else { say(explain(r), true); sel.value = pr.id; }
+      draw();
+    };
+    const fresh = h("input"); fresh.type = "checkbox"; fresh.checked = !!pr.default_for_new;
+    fresh.onchange = async () => {
+      const r = await call("POST", "api/llm/primary", { default_for_new: fresh.checked });
+      if (r.ok) state = r.data; else say(explain(r), true);
+      draw();
+    };
+    sec.append(h("div", "sh", h("b", "", T("pv.primary"))), h("p", "setnote", T("pv.primary.help")),
+      h("div", "pv-primary-row", field("pv-primary", T("pv.primary"), sel), h("label", "pv-consent", fresh, h("span", "", T("pv.primary.new")))),
+      h("p", "setnote pv-primary-now", T("pv.primary.now", pr.label)));
+    return sec;
+  }
+  function fallbackNotice() {
+    if (!state.fallbacks.length) return null;
+    const by = new Map();
+    state.fallbacks.forEach(n => by.set(n.to, [...(by.get(n.to) || []), n.label]));
+    const p = h("p", "setnote warnnote pv-fallback", [...by].map(([to, labels]) => T("pv.fallback.notice", labels.join(", "), to)).join(" "));
+    p.setAttribute("role", "status");
+    return p;
+  }
+
   /* ---- the table of functions ---- */
   function providerOptions(f) {
-    const opts = [Object.assign(h("option", "", T("pv.local")), { value: "" })];
+    const opts = [Object.assign(h("option", "", T("pv.local")), { value: "" }), Object.assign(h("option", "", T("pv.primary.option")), { value: PRIMARY })];
     state.providers.forEach(p => {
       if (f.kind === "chat" && p.judge_only) return;
       if (f.kind === "chat" && f.tools && p.agent_only) return;
@@ -105,7 +136,7 @@
   }
   function functionsTable() {
     const sec = h("section", "sec pv-functions");
-    sec.append(h("div", "sh", h("b", "", T("pv.functions"))), h("p", "setnote", T("pv.functions.help")));
+    sec.append(h("div", "sh", h("b", "", T("pv.functions"))), h("p", "setnote", T("pv.functions.help")), h("p", "setnote", T("pv.local.help")));
     const table = h("table", "pv-table");
     table.append(h("thead", "", h("tr", "", ["pv.fn", "pv.data", "pv.provider", "pv.consent", "pv.status"].map(k => h("th", "", T(k))))));
     const body = h("tbody");
@@ -114,19 +145,21 @@
       sel.value = f.provider; sel.setAttribute("aria-label", f.label);
       sel.onchange = async () => {
         const r = await call("POST", "api/llm/assign", { function: f.id, provider: sel.value });
-        if (r.ok) { state = r.data; say(T("pv.saved")); } else { say(explain(r), true); sel.value = f.provider; }
+        if (r.ok) { state = r.data; say(T("pv.saved")); document.dispatchEvent(new CustomEvent("basalt:llm-changed")); } else { say(explain(r), true); sel.value = f.provider; }
         draw();
       };
-      const outside = f.provider && !(state.providers.find(p => p.id === f.provider) || {}).is_local;
+      const target = f.provider === PRIMARY ? state.primary.id : f.provider;
+      const outside = target && !(state.providers.find(p => p.id === target) || {}).is_local;
       const consent = h("input"); consent.type = "checkbox"; consent.checked = f.consent; consent.disabled = !f.needs_consent;
       consent.setAttribute("aria-label", T("pv.consent.for", f.label));
       consent.onchange = async () => {
         if (consent.checked && !(await riskConfirm([T("pv.risk.consent", f.label)]))) { draw(); return; }
         const r = await call("POST", "api/llm/consent", { function: f.id, allowed: consent.checked }); if (r.ok) state = r.data; else say(explain(r), true); draw();
       };
-      body.append(h("tr", "", h("td", "", f.label), h("td", "", T("pv.data." + f.data)), h("td", "", sel),
-        h("td", "", f.needs_consent ? consent : h("span", "dim", "—"), outside && !f.consent ? h("span", "dim", " " + T("pv.consent.need")) : null),
-        h("td", f.ok ? "" : "pv-bad", f.provider ? (f.ok ? T("pv.ok") : f.why) : T("pv.local.short"))));
+      const cell = (key, cls, ...kids) => { const td = h("td", cls, ...kids); td.dataset.label = T(key); return td; };          // the label shows on a narrow screen, where a row is a card
+      body.append(h("tr", "", cell("pv.fn", "", f.label), cell("pv.data", "", T("pv.data." + f.data)), cell("pv.provider", "", sel),
+        cell("pv.consent", "", f.needs_consent ? consent : h("span", "dim", "—"), outside && !f.consent ? h("span", "dim", " " + T("pv.consent.need")) : null),
+        cell("pv.status", f.ok ? "" : "pv-bad", f.ok ? T("pv.ok") : f.why, h("div", "dim pv-now", f.now.via === "fallback" ? T("pv.via.fallback", f.now.label) : f.now.via === "refused" ? T("pv.via.refused") : T("pv.f.now", f.now.label)))));
     });
     table.append(body);
     sec.append(h("div", "pv-scroll", table));
@@ -137,12 +170,12 @@
   let draft = null, dirty = false, personas = [];
   const touch = () => { dirty = true; };
   const clone = o => JSON.parse(JSON.stringify(o));
-  const outsideRoute = pid => !!pid && !((state.providers.find(p => p.id === pid) || {}).is_local);
+  const outsideRoute = pid => { const to = pid === PRIMARY ? state.primary.id : pid; return !!to && !((state.providers.find(p => p.id === to) || {}).is_local); };
   const option = (value, text) => Object.assign(h("option", "", text), { value });
-  const routeOptions = () => [option("", T("pv.local")), ...state.providers.filter(p => !p.judge_only).map(p => option(p.id, `${p.name} (${p.is_local ? T("pv.onpc") : T("pv.outside")})`))];
+  const routeOptions = () => [option("", T("pv.local")), option(PRIMARY, T("pv.primary.option")), ...state.providers.filter(p => !p.judge_only).map(p => option(p.id, `${p.name} (${p.is_local ? T("pv.onpc") : T("pv.outside")})`))];
   const personaOptions = role => [option("", T("pv.council.persona.none")), ...personas.map(x => option(x.slug, x.name)),
     ...(role.persona && !personas.some(x => x.slug === role.persona) ? [option(role.persona, T("pe.gone", role.persona))] : [])];
-  const nameOfRoute = pid => (state.providers.find(p => p.id === pid) || {}).name || T("pv.local.short");
+  const nameOfRoute = pid => pid === PRIMARY ? T("pv.primary.option") : (state.providers.find(p => p.id === pid) || {}).name || T("pv.local.short");
 
   /* one role, closed to a line (enabled box, name, route) and opened to its fields */
   function roleBox(role, moderator, lim) {
@@ -194,7 +227,7 @@
       list.append(box);
     });
     sec.append(h("div", "pv-chead", h("b", "", T("pv.council.advisers", cur.roles.filter(r => r.enabled !== false).length, cur.roles.length))), list);
-    sec.append(btn(T("pv.council.add"), "", () => { if (cur.roles.length < lim.roles) { cur.roles.push({ id: "", name: "", job: "", enabled: true, persona: "", route: "", consent: false }); touch(); draw(); } }));
+    sec.append(btn(T("pv.council.add"), "", () => { if (cur.roles.length < lim.roles) { cur.roles.push({ id: "", name: "", job: "", enabled: true, persona: "", route: state.primary.default_for_new ? PRIMARY : "", consent: false }); touch(); draw(); } }));
     sec.append(h("div", "pv-chead", h("b", "", T("pv.council.moderator"))), roleBox(cur.moderator, true, lim).box);
     const e = c.estimate;
     const cost = h("p", "pv-cost", e.ready ? T("pv.council.cost", e.calls_min, e.calls_max, e.read_tokens_min, e.read_tokens_max, e.written_tokens_max) : T("pv.council.few"));
@@ -260,14 +293,49 @@
     const here = () => type.value === "basalt";
     const limitFields = [field("pv-ctx", T("pv.f.ctx"), ctx, T("pv.f.ctx.help")), field("pv-out", T("pv.f.out"), out, T("pv.f.out.help"))];
     type.onchange = () => { hint(); profileField.hidden = !here(); limitFields.forEach(x => { x.hidden = here(); }); }; hint(); profileField.hidden = !here(); limitFields.forEach(x => { x.hidden = here(); });
+    /* the models of the provider: loaded with the address and key as they are in the form (or the saved key), picked from a list, or typed */
+    const pick = h("select", "pv-pick"); pick.hidden = true; pick.setAttribute("aria-label", T("pv.f.model"));
+    pick.onchange = () => { if (pick.value) model.value = pick.value; };
+    const loadNote = h("small", "dim pv-loadnote"); loadNote.setAttribute("role", "status"); loadNote.setAttribute("aria-live", "polite");
+    const loadBtn = btn(T("pv.f.load"), "ghost pv-load", async () => {
+      if (!canLoad()) { loadNote.textContent = T("pv.f.load.hint"); return; }              // greyed, but still reachable: tap or focus says why
+      loadBtn.setAttribute("aria-busy", "true"); loadNote.textContent = T("pv.f.load.busy");
+      const r = await call("POST", "api/llm/models", { type: type.value, base_url: url.value, api_key: key.value, id: existing ? existing.id : "" });
+      loadBtn.removeAttribute("aria-busy");
+      if (!r.ok) { loadNote.textContent = T("pv.f.load.bad", (r.data.error && r.data.error.message) || explain(r)); return; }
+      const list = r.data.models || [];
+      pick.replaceChildren(Object.assign(h("option", "", "—"), { value: "" }), ...list.map(m => Object.assign(h("option", "", m.label && m.label !== m.id ? `${m.label} (${m.id})` : m.id), { value: m.id })));
+      pick.value = list.some(m => m.id === model.value) ? model.value : ""; pick.hidden = !list.length;
+      loadNote.textContent = T("pv.f.load.ok", list.length);
+    });
+    loadBtn.id = "pv-load-btn"; loadBtn.setAttribute("aria-describedby", "pv-load-hint-" + (existing ? existing.id : "new")); loadNote.id = "pv-load-hint-" + (existing ? existing.id : "new");
+    const canLoad = () => {                                                              // the address (typed, or the kind's own) and the key (typed, saved, or none needed)
+      const t = state.types.find(x => x.type === type.value) || {};
+      if (/_cli$/.test(type.value)) return true;
+      return !!((url.value.trim() || t.base_url) && (key.value.trim() || (existing && existing.has_key) || t.auth === "none"));
+    };
+    const syncLoad = () => { const off = !canLoad(); loadBtn.setAttribute("aria-disabled", String(off)); loadBtn.classList.toggle("is-off", off); loadBtn.title = off ? T("pv.f.load.hint") : ""; if (!off && loadNote.textContent === T("pv.f.load.hint")) loadNote.textContent = ""; };
+    [url, key].forEach(i => i.addEventListener("input", syncLoad)); type.addEventListener("change", syncLoad);
+    loadBtn.addEventListener("focus", () => { if (!canLoad()) loadNote.textContent = T("pv.f.load.hint"); });
+    const modelRow = h("div", "pv-modelrow", model, loadBtn);
     f.append(field("pv-type", T("pv.f.type"), type), field("pv-name", T("pv.f.name"), name), field("pv-url", T("pv.f.url"), url, T("pv.f.url.help")),
-      field("pv-model", T("pv.f.model"), model), field("pv-key", T("pv.f.key"), key, T("pv.f.key.help")),
+      field("pv-model", T("pv.f.model"), modelRow, loadNote), h("div", "pv-pickrow", pick), field("pv-key", T("pv.f.key"), key, T("pv.f.key.help")),
       profileField, field("pv-level", T("pv.f.level"), level), field("pv-cap", T("pv.f.cap"), cap, T("pv.f.cap.help")), ...limitFields);
+    syncLoad();
+    const testNote = h("p", "setnote pv-testnote"); testNote.setAttribute("role", "status"); testNote.setAttribute("aria-live", "polite");
+    const testBtn = btn(T("pv.f.test"), "", async () => {                                // one small request with the form's values; nothing is saved
+      testBtn.disabled = true; testNote.dataset.bad = ""; testNote.textContent = T("pv.f.test.busy");
+      const r = await call("POST", "api/llm/try", { type: type.value, base_url: url.value, api_key: key.value, model: model.value, id: existing ? existing.id : "" });
+      testBtn.disabled = false;
+      const ok = r.ok && r.data.ok;
+      testNote.dataset.bad = ok ? "" : "1";
+      testNote.textContent = ok ? T("pv.f.test.ok", r.data.ms) : T("pv.f.test.bad", (r.data && r.data.error && r.data.error.message) || (r.data && r.data.error) || explain(r));
+    });
     f.append(h("div", "pv-actions", btn(existing ? T("pv.save") : T("pv.add"), "primary", async () => {
       const body = { type: type.value, name: name.value, base_url: url.value, model: model.value, api_key: key.value, reasoning_level: level.value, daily_token_cap: cap.value === "" ? 0 : cap.value, profile: here() ? profile.value : "", context_window: here() ? 0 : ctx.value, max_output: here() ? 0 : out.value };
       const r = existing ? await call("POST", `api/llm/providers/${existing.id}`, body) : await call("POST", "api/llm/providers", body);
       if (r.ok) { editing = ""; key.value = ""; say(T("pv.saved")); await refresh(); } else say(explain(r), true);
-    }), existing ? btn(T("pv.cancel"), "ghost", () => { editing = ""; draw(); }) : null));
+    }), testBtn, existing ? btn(T("pv.cancel"), "ghost", () => { editing = ""; draw(); }) : null), testNote);
     return f;
   }
   function providersSection() {
@@ -295,7 +363,7 @@
     if (!state) return;
     const top = await strip();
     const noteEl = h("p", "setnote pv-note", note); noteEl.setAttribute("role", "status"); noteEl.hidden = !note; noteEl.dataset.bad = noteBad ? "1" : "";
-    panel.replaceChildren(noteEl, top, functionsTable(), councilSection(), providersSection());
+    panel.replaceChildren(noteEl, top, ...[fallbackNotice()].filter(Boolean), primarySection(), functionsTable(), councilSection(), providersSection());
   }
 
   document.addEventListener("tadamoo:view", e => { if (e.detail === "loader" && !panel.hidden) refresh(); });

@@ -1040,7 +1040,18 @@ Models page, sub-tab Providers; other programs that use this server still see on
   take their provider from here.
 
 Routes: `GET /api/llm`; `POST /api/llm/providers`, `/providers/<id>`, `/providers/<id>/remove`, `/providers/<id>/test`,
-`/assign`, `/consent`, `/import`. Changes are accepted only from this PC.
+`/assign`, `/consent`, `/import`, `/primary`, `/models`, `/try`. Changes are accepted only from this PC.
+
+**Primary model and fall-back.** The per-function choice *From Local Engine* means whatever the local engine (Basalt, Strata,
+llama.cpp, LM Studio, vLLM) has loaded. *Primary model* makes a function follow the one setting *Main model* (a provider, or the
+local engine), read again at every call, so changing it applies at once and no function has to be edited; the saved choice stays
+`@primary`. A function on the local engine with nothing loaded there does not fail: it goes to the Primary model if that is a
+provider, else to the first configured provider, each only if the function's usual rules allow it (consent, chat or tools, cap).
+The page shows a notice, the log has one line (`llm: <function> fell back to <provider>`), and with no usable provider the error
+says so. `GET /api/llm` gives each function's `now` (what it resolves to), `GET /api/llm/answering` feeds the top bar (the
+Chat's model as `Provider: model`). In the provider form, *Load* lists the models with the address and key typed in the form (or
+the saved key, never shown) through `POST /api/llm/models`, and *Test* sends one small request through `POST /api/llm/try`,
+without saving.
 
 **Reasoning levels.** A function or provider can say how much to reason with one of seven levels (or inherit). Each kind of provider
 gets them in its own words (`reasoning_effort` for OpenAI-like servers, a budget for NIM and Claude), never two spellings at once. This

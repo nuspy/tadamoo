@@ -1,7 +1,15 @@
 # Diario dei task
 
-Ultimo aggiornamento: 12 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
+Ultimo aggiornamento: 13 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «9 novembre» e da «Decisioni tue in attesa». Le sezioni dell'8, 7, 5 e 4 novembre sono in `docs/task_diary_archive.md`.
+
+## 13 novembre
+
+- Fatto (ramo feature/providers-ui, non ancora unito al master): nei Provider la barra in alto dice quale modello risponde adesso («Provider: modello»), e ogni funzione mostra a cosa porta in questo momento. «Il modello caricato» ora si chiama «Dal motore locale» (con la spiegazione: Basalt, Strata, llama.cpp, LM Studio, vLLM) e la riga «Caricato» dice «Caricato nel motore locale».
+- Fatto (providers-ui): nuovo «Modello primario»: un solo menu con tutti i modelli dei provider e «Motore locale». Le funzioni messe su «Modello primario» lo seguono subito, senza altre modifiche. C'è anche la scelta «le nuove funzioni partono dal Modello primario».
+- Fatto (providers-ui): se una funzione è su «Dal motore locale» e non c'è nessun modello caricato, passa da sola al Modello primario (se è un provider) o al primo provider, con le regole di sempre. Lo dice un avviso nella pagina e una riga nel log. Senza provider l'errore lo dice a parole semplici.
+- Fatto (providers-ui): nel modulo del provider il tasto «Carica» scarica l'elenco dei modelli con indirizzo e chiave scritti nel modulo (grigio finché non ci sono), e il tasto «Prova» manda una richiesta minima senza salvare e dice OK con i millisecondi o l'errore del provider. Provato nel browser vero a 360, 390 e 1280 su un server di prova.
+- Da fare con l'utente (providers-ui): provare con un provider vero (chiave vera) e con il motore davvero scaricato; decidere quando unire al master.
 
 ## 11 novembre
 

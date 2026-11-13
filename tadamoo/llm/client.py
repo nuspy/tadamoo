@@ -9,6 +9,7 @@ do not allow. Errors are the same `TadamooError`s the loop already knows how to 
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any, Callable, Dict, List, Optional
 
@@ -21,6 +22,9 @@ from tadamoo.llm.profile import RouteProfile, route_profile
 from tadamoo.llm.store import Ledger, SecureRegistry, is_local, runs_here
 from tadamoo.llmswitch import reasoning
 from tadamoo.llmswitch.providers import TYPES
+
+log = logging.getLogger("tadamoo.llm")
+_told: Dict[str, str] = {}                   # the fallback last logged for each function, so a line is written when it changes and not at every call
 
 ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_MAX_TOKENS = 4096
@@ -254,9 +258,24 @@ class RoutedClient:
             on_delta(kind, text)
         stream = tell if on_delta is not None else None
         failure: Optional[TadamooError] = None
+        tried: List[str] = []
         for n, pid in enumerate(chain):
             if pid and TYPES.get((self.registry._find(self.registry.load(), pid) or {}).get("type") or "", {}).get("this_server"):
                 pid = None                                   # "TaDaMoo (this server)" is the loaded model, whatever the way it is named
+            nothing_loaded = False
+            if pid is None and self._wants_local_engine():
+                if not self._nothing_loaded():
+                    _told.pop(self.function, None)
+                else:
+                    target = self.registry.fallback_target(self.function, skip=tuple(tried))
+                    if target:
+                        pid = target
+                        self._tell_fallback(target)
+                    else:
+                        nothing_loaded = True
+                        self.fallback_reason = self.registry.why_no_fallback(self.function)
+            if pid:
+                tried.append(pid)
             ok, why = self.registry.check(self.function, pid)
             if not ok:
                 failure = NotAllowed(why)
@@ -264,18 +283,42 @@ class RoutedClient:
             try:
                 if pid is None:
                     self.last_provider = None
-                    if self.loader is not None:
-                        self.loader.ensure(self._route_here())
-                    return self.local.chat_completion(messages=messages, tools=tools, tool_choice=tool_choice, temperature=temperature,
-                                                      max_tokens=max_tokens, timeout=timeout, response_format=response_format,
-                                                      extra=extra, **({"on_delta": stream} if stream else {}))
+                    try:
+                        if self.loader is not None:
+                            self.loader.ensure(self._route_here())
+                        return self.local.chat_completion(messages=messages, tools=tools, tool_choice=tool_choice, temperature=temperature,
+                                                          max_tokens=max_tokens, timeout=timeout, response_format=response_format,
+                                                          extra=extra, **({"on_delta": stream} if stream else {}))
+                    except TadamooError as exc:
+                        if nothing_loaded and not spoken[0]:
+                            raise TadamooError(exc.status, f"No model is loaded in the local engine and {self.fallback_reason}: {exc}") from None
+                        raise
                 self.last_provider = pid
-                return self._call_provider(pid, messages, tools, tool_choice, temperature, max_tokens, timeout, response_format, extra, stream)
+                with self.registry.routed(self.function, pid):
+                    return self._call_provider(pid, messages, tools, tool_choice, temperature, max_tokens, timeout, response_format, extra, stream)
             except TadamooError as exc:
                 failure = exc
                 if spoken[0] or n == len(chain) - 1:        # what was written cannot be taken back; and the last route has no other
                     raise
         raise failure or NotAllowed(f"{self.function} has no route")
+
+    fallback_reason = ""
+
+    def _wants_local_engine(self) -> bool:
+        """Whether the function is on the local engine by the person's choice (not on the provider "this server", which is loaded for it when needed)."""
+        return self._route_here() is None
+
+    def _nothing_loaded(self) -> bool:
+        """Whether the local engine reports that no model is loaded (and none is loading). False when it cannot be asked."""
+        status = self.loader.status() if self.loader is not None else None
+        return status is not None and not status.get("loaded") and not status.get("loading")
+
+    def _tell_fallback(self, pid: str) -> None:
+        """One terse line in the log when a function starts to fall back to a provider, or to another one."""
+        name = (self.registry._find(self.registry.load(), pid) or {}).get("name") or pid
+        if _told.get(self.function) != pid:
+            _told[self.function] = pid
+            log.info("llm: %s fell back to %s (no model loaded in the local engine)", self.function, name)
 
     def _route_here(self) -> Optional[Dict[str, Any]]:
         """The provider record this function is pointed at when it is this server (it may carry a load profile)."""

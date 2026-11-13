@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from tadamoo import council, side_uses
 from tadamoo.llm import functions
-from tadamoo.llm.store import Ledger, SecureRegistry, is_local, runs_here
+from tadamoo.llm import probe
+from tadamoo.llm.store import LOCAL_EXPLICIT, PRIMARY, Ledger, SecureRegistry, is_local, runs_here
 from tadamoo.llmswitch import reasoning
 from tadamoo.llmswitch.providers import TYPES
 
@@ -36,6 +37,7 @@ class LlmApi:
     def __init__(self, registry: SecureRegistry, ledger: Optional[Ledger] = None) -> None:
         self.registry = registry
         self.ledger = ledger or Ledger()
+        self.local_status: Optional[Callable[[], Dict[str, Any]]] = None       # the server says whether a model is loaded in the local engine
 
     # -- what the page shows -----------------------------------------------------------------------------
 
@@ -48,26 +50,59 @@ class LlmApi:
                 "agent_only": TYPES.get(prov.get("type") or "", {}).get("api") == "cli",
                 "judge_only": TYPES.get(prov.get("type") or "", {}).get("api") == "judge"}
 
+    def _local(self) -> Dict[str, Any]:
+        return self.local_status() if self.local_status else {"loaded": None, "model": ""}
+
+    def _label(self, pid: Optional[str], local: Dict[str, Any]) -> str:
+        """What answers, as the person reads it: "Provider: model", or the local engine's model."""
+        if not pid:
+            return str(local.get("model") or "") or "—"
+        prov = self.registry._find(self.registry.load(), pid) or {}
+        return f"{prov.get('name') or pid}: {prov['model']}" if prov.get("model") else str(prov.get("name") or pid)
+
+    def now(self, function: str, local: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """What the function resolves to at this moment: the provider (empty for the local engine), how it got there (`via`), and the label."""
+        local = local if local is not None else self._local()
+        pid, via = self.registry.resolve_route(function, local.get("loaded"))
+        return {"provider": pid or "", "via": via, "label": self._label(pid, local), "local_loaded": local.get("loaded")}
+
+    def primary_view(self, local: Dict[str, Any]) -> Dict[str, Any]:
+        data = self.registry.load()
+        options = [{"id": p["id"], "label": self._label(p["id"], local), "type": p.get("type")} for p in data["providers"]
+                   if TYPES.get(p.get("type") or "", {}).get("api") != "judge" and not TYPES.get(p.get("type") or "", {}).get("this_server")]
+        return {"id": self.registry.primary(), "options": options, "default_for_new": self.registry.default_primary(), "label": self._label(self.registry.primary() or None, local)}
+
     def overview(self) -> Dict[str, Any]:
         data = self.registry.load()
         pub = self.registry.public()
         by_id = {p["id"]: p for p in data["providers"]}
         consent = self.registry.consent()
+        local = self._local()
         rows: List[Dict[str, Any]] = []
         for fid, spec in functions.FUNCTIONS.items():
-            pid = data["assignments"].get(fid) or ""
+            pid = self.registry.chosen(fid)
             ok, why = self.registry.check(fid, pid or None)
             rows.append({"id": fid, "label": spec["label"], "kind": spec["kind"], "data": spec["data"], "tools": bool(spec.get("tools")),
-                         "provider": pid, "ok": ok, "why": why, "consent": bool(consent.get(fid)), "needs_consent": spec["data"] == "personal"})
-        return {"functions": rows, "council": self.council_view(),
+                         "provider": pid, "ok": ok, "why": why, "consent": bool(consent.get(fid)), "needs_consent": spec["data"] == "personal",
+                         "now": self.now(fid, local)})
+        notices = [{"function": r["id"], "label": r["label"], "to": r["now"]["label"]} for r in rows if r["now"]["via"] == "fallback"]
+        return {"functions": rows, "council": self.council_view(), "primary": self.primary_view(local), "local": local, "fallbacks": notices,
                 "providers": [self._provider_view(by_id[p["id"]], p) for p in pub["providers"]],
                 "types": [t for t in pub["types"] if t["type"] in SHOWN_TYPES],
                 "reasoning_levels": reasoning.choices("en"), "imported": self.registry.imported(),
                 "shared": [{"path": str(p), "providers": n} for p, n in self.shared_candidates()]}
 
+    def answering(self) -> Dict[str, Any]:
+        """For the status line of the page: what the Chat resolves to now, and the functions that fell back because no model is loaded."""
+        local = self._local()
+        chat = self.now("chat", local)
+        return {"chat": chat, "local": local, "fallbacks": [{"function": f, "label": functions.FUNCTIONS[f]["label"], "to": n["label"]}
+                                                           for f in functions.FUNCTIONS for n in [self.now(f, local)] if n["via"] == "fallback"]}
+
     def _role_view(self, role: Dict[str, Any], assigned: Dict[str, Any], consent: Dict[str, bool]) -> Dict[str, Any]:
         fid = functions.council_function(role["id"])
         pid = assigned.get(fid) or ""
+        pid = "" if pid == LOCAL_EXPLICIT else pid
         ok, why = self.registry.check(fid, pid or None)
         return {**role, "route": pid, "consent": bool(consent.get(fid)), "ok": ok, "why": why}
 
@@ -76,7 +111,7 @@ class LlmApi:
         at most and at least after the cap on calls."""
         settings = council.load_settings(self.registry)
         away = council.outside(self.registry, settings)
-        assigned, consent = self.registry.load().get("assignments") or {}, self.registry.consent()
+        assigned, consent = dict(self.registry.load().get("assignments") or {}), self.registry.consent()        # as chosen, not as resolved
         shown = {**settings, "roles": [self._role_view(r, assigned, consent) for r in settings["roles"]], "moderator": self._role_view(settings["moderator"], assigned, consent)}
         defaults = council.clean_settings(None)
         return {"settings": shown, "defaults": {**defaults, "roles": [{**r, "route": "", "consent": False} for r in defaults["roles"]],
@@ -105,6 +140,12 @@ class LlmApi:
                 assigned.pop(fid, None)                                   # a role that was removed takes its route and its yes with it
                 consent.pop(fid, None)
             moved = set()
+
+            def off_it(fid: str) -> None:
+                if data.get("default_primary"):
+                    assigned[fid] = LOCAL_EXPLICIT
+                else:
+                    assigned.pop(fid, None)
             for raw, role in entries:
                 fid = functions.council_function(role["id"])
                 if not isinstance(raw, dict):
@@ -115,18 +156,18 @@ class LlmApi:
                     consent[fid] = raw["consent"]
                 if "route" in raw:
                     pid = raw["route"] or ""
-                    if pid and self.registry._find(data, pid) is None:
+                    if pid and pid != PRIMARY and self.registry._find(data, pid) is None:
                         raise LlmError("That provider is not there any more.", "gone")
                     moved.add(fid)
                     if pid:
                         assigned[fid] = pid
                     else:
-                        assigned.pop(fid, None)
+                        off_it(fid)
             for _, role in entries:
                 fid = functions.council_function(role["id"])
                 ok, why = self.registry.check(fid, assigned.get(fid) or None, consent=consent)
                 if not ok and (fid not in moved or (before.get(fid) and not consent.get(fid))):
-                    assigned.pop(fid, None)                               # taking the yes back takes the role off the outside provider
+                    off_it(fid)                                           # taking the yes back takes the role off the outside provider
                     ok = True
                 if not ok:
                     raise LlmError(f"{role['name']}: {why}", "not_allowed")
@@ -265,11 +306,53 @@ class LlmApi:
             raise LlmError("That provider is not there any more.", "gone") from None
         return self.overview()
 
+    def set_primary(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        """The Primary model: a provider id, or empty for the local engine; it applies to the next call of every function that follows it.
+        `default_for_new` (a yes or no) says whether a function with no choice of its own follows it."""
+        pid, new = body.get("primary", self.registry.primary()) or "", body.get("default_for_new")
+        if new is not None and not isinstance(new, bool):
+            raise LlmError("Say yes or no.", "bad_request")
+        if not isinstance(pid, str):
+            raise LlmError("Choose a provider from the list.", "bad_request")
+        try:
+            self.registry.set_primary(pid, new)
+        except KeyError:
+            raise LlmError("That provider is not there any more.", "gone") from None
+        return self.overview()
+
+    def _form_provider(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        """The provider as the form has it: its kind, address, model and key, the key from the saved provider `id` when the form leaves it empty."""
+        kind = body.get("type")
+        saved = self.registry._find(self.registry.load(), str(body.get("id") or "")) if body.get("id") else None
+        if saved is not None and not kind:
+            kind = saved.get("type")
+        if kind not in TYPES or kind not in SHOWN_TYPES:
+            raise LlmError("Choose one of the kinds of provider in the list.", "bad_type")
+        prov = {"type": kind, "base_url": str(body.get("base_url") or "").strip(), "model": str(body.get("model") or "").strip(),
+                "api_key": str(body.get("api_key") or "").strip()}
+        if saved is not None and saved.get("type") == kind:
+            prov["api_key"] = prov["api_key"] or str(saved.get("api_key") or "").strip()
+            prov["base_url"] = prov["base_url"] or str(saved.get("base_url") or "").strip()
+            prov["oauth"] = saved.get("oauth") or {}
+        return prov
+
+    def models(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        """The models the provider lists, asked with the address and key of the form (or the saved key): nothing is saved."""
+        prov = self._form_provider(body)
+        try:
+            return {"models": probe.list_models(prov)}
+        except RuntimeError as exc:
+            raise LlmError(str(exc), "models_failed") from None
+
+    def try_form(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        """One minimal request to the provider with the values of the form, without saving: {ok, ms} or {ok: false, error}."""
+        return probe.try_request(self._form_provider(body))
+
     def consent(self, function: Any, allowed: Any) -> Dict[str, Any]:
         if function not in functions.FUNCTIONS or not isinstance(allowed, bool):
             raise LlmError("Say which function, and yes or no.", "bad_request")
         if not allowed:                                               # taking the yes back also takes the function off an outside provider
-            pid = self.registry.load()["assignments"].get(function)
+            pid = self.registry.chosen(function)
             self.registry.set_consent(function, False)
             ok, _ = self.registry.check(function, pid or None)
             if pid and not ok:
