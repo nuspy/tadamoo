@@ -37,5 +37,5 @@ should run on the CPU while someone else's job holds the loaded model.
 
 ## Scripts
 
-`scripts/speak.py TEXTFILE OUT.wav [--speaker "Gitta Nikolina"] [--speed 1.14] [--seeds 12]` makes one recording through the pipeline; `scripts/audit.py WAV [--text TEXTFILE]` prints the pauses,
+`scripts/speak.py TEXTFILE OUT.wav [--speaker "Gitta Nikolina"] [--speed 1.14] [--seeds 4]` makes one recording through the pipeline; `scripts/audit.py WAV [--text TEXTFILE]` prints the pauses,
 clicks, splices, loudness and pace of any recording.

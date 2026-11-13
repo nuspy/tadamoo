@@ -28,10 +28,11 @@ What it takes for a synthesised voice to be good enough to put on a news video, 
 
 ## Choosing a take
 
-Each piece is read with several seeds (`seeds`, 8) at a low temperature (0.35; the engine's own 0.75 samples wider intonation and pauses). The measures of every take are kept by
+Each piece is read in rounds of a few seeds (`seeds`, 4; up to `rounds`, 9) at a low temperature (0.35; the engine's own 0.75 samples wider intonation and pauses). The measures of every take are kept by
 the hash of its audio, so a take is measured once and judged again whenever a limit changes. A take is *right* when all of these hold:
 
-- the Whisper read-back matches at least 0.70 and the CTC letters at least 0.84, and the two together at least 0.87; no words after the last written word;
+- the Whisper read-back matches at least 0.70 and the CTC letters at least 0.84, and the two together at least 0.87; no words after the last written word. A piece that holds a
+  number the normaliser spelled out (kétezer-huszonnyolc) has no CTC judgement: that model writes such a number in English, so the letters are taken as the Whisper's score;
 - no silence longer than 150 ms where the text has no punctuation (the speech-to-text's word times say where a silence falls), and none longer than 450 ms at a comma;
 - the speaker embedding is within the voice's own spread of its profile (`voiceprint.build`, the mean of the voice's readings);
 - the pace of the piece is 4.8 to 5.8 syllables a second, the engine's natural pace being about 5.2; no time-stretch is used;
@@ -39,6 +40,19 @@ the hash of its audio, so a take is measured once and judged again whenever a li
 
 Among the right takes the best combined score is kept. When a piece has no right take after `rounds` rounds the whole text **fails loudly** (`VoiceFailed`, with every take's reasons):
 nothing is shipped that did not pass.
+
+## Time
+
+Measured on one newscast (RTX 5090, power limit not recorded): XTTS makes a take in 2.3 s for 6 s of speech, 0.36 s for each second, faster than real time; 60 takes took 136 s.
+The newscast took far longer than real time for these reasons, and the code changed as follows:
+
+- Twelve takes of every piece were made and rated before any was kept, three rounds when none was right: 3 to 4 seconds of speech time for each second of speech before any rating.
+  Now a round is 4 takes and only the pieces with no right take go on to the next round (the most takes of a piece is the same, 36).
+- The XTTS process was started for every block and every round, and loaded the model each time (about 20 s). Now one process is started for the whole voice phase and ended at its
+  end, before any heavy job takes the GPU.
+- A dead CUDA context in the speech-to-text worker answers HTTP 500 for ever, and the production waited for it for hours (80 minutes, then 30 more). Now the worker is reloaded once
+  (`POST /components/stt/reload` of the voice service) and a second failure stops the production with the service's own message.
+- A piece with a spelled number could never pass: the CTC model's letters match 0.70 to 0.76 for it, the limit is 0.88 (36 takes spent, then the production stopped).
 
 ## Joining
 

@@ -43,6 +43,28 @@ def _call(url: str, method: str, path: str, body: Dict[str, Any] | None = None, 
         conn.close()
 
 
+def reload_stt(data_dir: Any) -> str:
+    """Asks the voice service to reload its speech-to-text worker (`POST /components/stt/reload`, blocking until the model is ready); the service's address and token are the files it writes in
+    the user data folder. Returns a line for the log."""
+    from pathlib import Path
+    folder = Path(data_dir)
+    try:
+        info = json.loads((folder / "voice-service.json").read_text(encoding="utf-8"))
+        token = (folder / "voice-service.token").read_text(encoding="utf-8").strip()
+    except (OSError, ValueError):
+        return "the voice service's address or token is not in the data folder"
+    conn = http.client.HTTPConnection(info.get("host") or "127.0.0.1", int(info.get("port") or 0), timeout=300)
+    try:
+        conn.request("POST", "/components/stt/reload", headers={"Authorization": "Bearer " + token})
+        r = conn.getresponse()
+        r.read(1 << 20)
+        return f"HTTP {r.status}"
+    except (OSError, http.client.HTTPException) as exc:
+        return f"the voice service does not answer ({exc.__class__.__name__})"
+    finally:
+        conn.close()
+
+
 def persona(url: str, slug: str, key: str = "") -> Dict[str, Any]:
     """`{name, voice: {engine, voice}, avatar}` of the personality with this slug."""
     status, raw = _call(url, "GET", "/api/personas", key=key)
