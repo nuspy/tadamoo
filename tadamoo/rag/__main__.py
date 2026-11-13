@@ -5,6 +5,7 @@
                                     [--prefix rag_] [--vectors auto|blob|file --vec-file FILE]
     python -m tadamoo.rag db prepare --project KEY [--plan-b blob|file] [--vec-file FILE] [--install-local] [--create-db]
     python -m tadamoo.rag db import [ARCHIVE ...] [--all] [--source DIR] [--replace]
+    python -m tadamoo.rag db components [install ID]
 
 Every project has a database (a SQLite file of its own unless it is set to another). `status` says which and what is in it, and which archives in the old file format are
 waiting to be imported; `config` sets a project's database (the password is read from standard input and goes in the vault, never in a file); `prepare` runs the three
@@ -18,7 +19,7 @@ import sys
 from pathlib import Path
 
 from tadamoo.rag import RagStore
-from tadamoo.rag.backends import clean_config, legacy, prepare as prepare_mod, store_password, vault_password
+from tadamoo.rag.backends import clean_config, components, legacy, prepare as prepare_mod, store_password, vault_password
 from tadamoo.rag.errors import RagError
 
 
@@ -47,6 +48,9 @@ def main(argv=None) -> int:
     pp.add_argument("--vec-file")
     pp.add_argument("--install-local", action="store_true")
     pp.add_argument("--create-db", action="store_true")
+    co = db.add_parser("components")
+    co.add_argument("action", nargs="?", choices=("install",))
+    co.add_argument("id", nargs="?")
     im = db.add_parser("import")
     im.add_argument("archives", nargs="*")
     im.add_argument("--all", action="store_true")
@@ -76,6 +80,11 @@ def main(argv=None) -> int:
             if a.password_from_stdin:
                 cfg["vault"] = store_password(vault_dir, a.project, sys.stdin.readline().rstrip("\r\n"))
             out = {"saved": router.set_config(a.project, clean_config(cfg))}
+        elif a.cmd == "components":
+            if a.action == "install":
+                out = components.install(a.id or "", lambda line: print(line, file=sys.stderr))
+            else:
+                out = {"components": components.listing()}
         elif a.cmd == "prepare":
             cfg = router.config(a.project)
             done = prepare_mod.prepare(cfg, vault_password(vault_dir)(cfg["vault"]) if cfg.get("vault") else "",

@@ -5,6 +5,8 @@ old file format.
     POST /api/rag/db/config            {project, config, password?}   keeps the settings; the password goes to the vault, the settings name its entry; {project, reset: true} goes back to the default
     POST /api/rag/db/prepare           {project, config?, password?, plan_b?, vec_file?, install_local?, create_db?}   a job: connect, vector extension, tables and a test
     POST /api/rag/db/import            {archives?: [ids], all?, replace?}   a job: copies archives in the old file format into their project's database
+    GET  /api/rag/db/components        the packages the databases need (sqlite-vec, the PostgreSQL and MariaDB drivers): pinned requirement, size, installed here or not
+    POST /api/rag/db/components/install {id}   a job: pip install of that pinned requirement into the Python the app runs in, only when this is asked
 
 A job is read at /api/rag/jobs/<id>: `stage` is the step it is in, `data.steps` the result of each step so far, `result` the whole at the end."""
 from __future__ import annotations
@@ -14,7 +16,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from tadamoo.rag import RagError, RagStore
-from tadamoo.rag.backends import KINDS, clean_config, legacy, prepare as prepare_mod, store_password, vault_password
+from tadamoo.rag.backends import KINDS, clean_config, components, legacy, prepare as prepare_mod, store_password, vault_password
 from tadamoo.rag.backends.postgres_pgvector import driver_name
 from tadamoo.rag.project import is_key
 from serve.rag_jobs import Jobs
@@ -31,6 +33,7 @@ def _project(value: Any) -> str:
 class RagDbApi:
     def __init__(self, store: RagStore, jobs: Jobs, vault_dir: Optional[Path] = None) -> None:
         self.store, self.jobs, self.vault_dir = store, jobs, vault_dir
+        self.installer: Callable[..., Dict[str, Any]] = components.install                   # a test puts its own here: nothing is installed by a test
 
     def components(self) -> Dict[str, Any]:
         """The Python packages the databases need, and whether each is installed here (the Components section installs the ones that are not)."""
@@ -76,6 +79,8 @@ class RagDbApi:
     def route_get(self, parts: Sequence[str], query: Optional[Dict[str, List[str]]] = None) -> Optional[Dict[str, Any]]:
         if parts == ["db"]:
             return self.overview(((query or {}).get("project") or [""])[0])
+        if parts == ["db", "components"]:
+            return {"components": components.listing()}
         return None
 
     def route_post(self, parts: Sequence[str], req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -85,6 +90,8 @@ class RagDbApi:
             return self.prepare(req)
         if parts == ["db", "import"]:
             return self.import_archives(req)
+        if parts == ["db", "components", "install"]:
+            return self.install_component(req)
         return None
 
     def _with_password(self, project: str, cfg: Dict[str, Any], password: Any) -> Dict[str, Any]:
@@ -157,3 +164,19 @@ class RagDbApi:
             progress({"page": len(folders), "pages": len(folders)})
             return {"imported": done, "failed": failed, "source_untouched": True}
         return {"job": self.jobs.start("import", work)}
+
+    def install_component(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        component = components.find(req.get("id"))
+        runner = self.installer
+
+        def work(progress: Any, cancel: Any) -> Dict[str, Any]:
+            lines: List[str] = []
+
+            def tell(line: str) -> None:
+                lines.append(line[:300])
+                progress({"event": "stage", "stage": line[:120]})
+                progress({"event": "data", "data": {"log": lines[-12:], "requirement": component["requirement"]}})
+            done = runner(component["id"], tell, cancel)
+            self.store.router.close()                                    # the databases are opened again, now with what was installed
+            return done
+        return {"job": self.jobs.start("install " + component["id"], work)}

@@ -167,3 +167,57 @@ class RoutesTest(unittest.TestCase):
         self.assertEqual((job["state"], job["result"]["ok"]), ("done", True))
         self.assertEqual(self.call("GET", f"/api/rag/db?project={PROJ}")[1]["exists"], True)
         self.assertEqual(self.call("POST", "/api/rag/db/config", {"project": PROJ, "config": {"kind": "oracle"}})[0], 400)
+
+
+# -- the packages the databases need ------------------------------------------------------------------------------------
+
+class FakePip:
+    def __init__(self, lines, code=0):
+        self.lines, self.code, self.stopped = lines, code, False
+        self.stdout = iter(l + "\n" for l in lines)
+
+    def wait(self):
+        return self.code
+
+    def terminate(self):
+        self.stopped = True
+
+
+def test_the_components_list_says_what_pip_would_install_how_big_and_whether_it_is_there():
+    from tadamoo.rag.backends import components
+    rows = {r["id"]: r for r in components.listing()}
+    assert set(rows) == {"sqlite-vec", "psycopg", "pymysql"} and rows["sqlite-vec"]["requirement"] == "sqlite-vec==0.1.6" and rows["psycopg"]["requirement"] == "psycopg[binary]==3.3.4"
+    assert all(r["size_mb"] > 0 and r["what"]["en"] and r["what"]["it"] and r["python"] for r in rows.values())
+    with pytest.raises(RagError):
+        components.find("numpy")
+
+
+def test_installing_a_component_runs_one_pinned_pip_command_and_reports_a_failure_with_the_end_of_its_output():
+    from tadamoo.rag.backends import components
+    told, cmds = [], []
+    done = components.install("psycopg", told.append, popen=lambda cmd, **k: cmds.append(cmd) or FakePip(["Collecting psycopg", "Installed"]))
+    assert done["ok"] is True and cmds[0][1:4] == ["-m", "pip", "install"] and cmds[0][-1] == "psycopg[binary]==3.3.4" and "--no-input" in cmds[0] and "Installed" in told
+    with pytest.raises(RagError, match="could not install sqlite-vec==0.1.6.*no matching distribution"):
+        components.install("sqlite-vec", popen=lambda cmd, **k: FakePip(["ERROR: no matching distribution"], 1))
+    stop = type("E", (), {"is_set": lambda self: True})()
+    with pytest.raises(RagError, match="cancelled"):
+        components.install("pymysql", cancel=stop, popen=lambda cmd, **k: FakePip(["one", "two"]))
+
+
+def test_a_component_is_installed_only_by_a_job_the_person_starts_and_the_databases_are_opened_again_after(tmp_path):
+    api, store = api_for(tmp_path)
+    store.router.for_project(PROJ)
+    calls = []
+
+    def fake(component_id, tell, cancel):
+        calls.append(component_id)
+        tell("Collecting sqlite-vec")
+        return {"ok": True, "version": "0.1.6"}
+    api.database.installer = fake
+    assert api.route_get(["db", "components"], {})["components"][0]["id"] == "sqlite-vec" and calls == []              # looking installs nothing
+    done = finish(api, started(api, ["db", "components", "install"], {"id": "sqlite-vec"}))
+    assert calls == ["sqlite-vec"] and done["state"] == "done" and done["result"]["version"] == "0.1.6" and done["data"]["requirement"] == "sqlite-vec==0.1.6"
+    assert store.router._open == {}
+    with pytest.raises(RagError):
+        api.route_post(["db", "components", "install"], {}, json.dumps({"id": "something-else"}).encode())
+    store.router.close()
