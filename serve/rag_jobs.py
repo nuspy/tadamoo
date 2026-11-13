@@ -24,13 +24,15 @@ class Jobs:
         """Runs `work(progress, cancel)` in the background; `work` returns the result of the job (a dict) or raises RagError."""
         jid = secrets.token_hex(5)
         cancel = threading.Event()
-        job = {"id": jid, "label": label, "archive": archive, "state": "running", "stage": "", "page": 0, "pages": 0, "calls": 0, "tokens": 0, "device": "", "result": None, "error": "",
+        job = {"id": jid, "label": label, "archive": archive, "state": "running", "stage": "", "page": 0, "pages": 0, "calls": 0, "tokens": 0, "device": "", "data": {}, "result": None, "error": "",
                "started": time.time(), "ended": 0.0}
 
         def progress(event: Dict[str, Any]) -> None:
             with self._lock:
                 if event.get("event") == "stage":
                     job["stage"] = str(event.get("stage") or "")
+                elif event.get("event") == "data":
+                    job["data"] = event.get("data") or {}
                 else:
                     for key in ("page", "pages", "calls", "tokens"):
                         if event.get(key) is not None:                                  # a count of 0 starts a new count

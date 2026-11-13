@@ -150,6 +150,11 @@ class Router:
         tmp.replace(target)
         return cfg
 
+    def reset(self, project: str) -> None:
+        """Takes a project back to its default database (the SQLite file of its own); what the old one holds is not touched."""
+        self.close(project)
+        (self.dir / f"{self._name(project)}.json").unlink(missing_ok=True)
+
     def for_project(self, project: str) -> Backend:
         name = self._name(project)
         if name not in self._open:
