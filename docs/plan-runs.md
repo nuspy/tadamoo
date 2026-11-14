@@ -51,6 +51,23 @@ A run is **active** from when a start is taken, or a step is marked `in_progress
 - the agent is started for what is ready;
 - a plan taken up again 3 times in a row without one step more done is marked `stalled` and left for the person (`RESUME_LIMIT`).
 
+## A step with several inner steps goes on from the one it reached
+
+A step that does several things in a row (the Video step: voice, stills, takes, B-roll, edit) keeps in the plan which of them it has finished, so that after an interruption (a crash, a restart of the app or of the PC)
+it goes on from there and does not do them again.
+
+- **What is kept.** `state_variables.inner_done`: `[{name, result, at}]`, saved with the plan, so it survives a restart of the PC. The result is the essential (the files made, the values: plain data up to 2000
+  characters), not the content. An `action` may name its inner steps, in order, in `spec.steps`; then only those can be recorded and the plan knows which is next and which are left. Without `steps` any name is taken.
+  Recording a step again replaces it; `undo` takes it off the list so that it is done again. A rewind forgets them (the history keeps them).
+- **How the agent says it.** The tool `plan_step_done(plan_id, node_id, step, result, undo)` after each stage, for a step it started with `plan_step_start`. `plan_step_start` and `plan_get` tell what is
+  already finished.
+- **How the program's commands say it.** `tadamoo/planner/inner.py` `record(step, result)`: the command finds the step by the conversation that runs it (`TADAMOO_SESSION_ID`; the step it is doing:
+  `plan:mark in_progress` carries the session) and the server by `TADAMOO_URL` and `TADAMOO_API_KEY`, which the conversation passes to its commands; or it names `plan_id` and `node_id`. It is `POST /api/plans/inner`.
+  A server that does not answer is a stage not recorded, never a stopped command. `phase_recorder` turns the `phase` events of a production into stages: `python -m tadamoo.newscast make` reports each phase it ends
+  (voice, stills, takes, broll, edit) with its folder and what it made.
+- **When it is taken up again** (a restart, or a recovery): the step goes back to waiting with its inner steps kept and the conversation that was doing it forgotten; the words the new conversation is told say
+  *Already done inside this step (do not do them again): voice (...); stills (...). Continue from: takes. Still to do: takes, broll, edit.* The same words are in what the recovery of a failed step is told.
+
 ## A step that fails or runs out of time is recovered
 
 Every kind of step is covered: one the agent does, one the plan works out itself (`set_var`, `get_var`, `output`, `log`, `start_plan`...), a wait, a condition.
