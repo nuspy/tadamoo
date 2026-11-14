@@ -1,0 +1,47 @@
+/* MCP Apps (serve/web/mcpapp.js, docs/mcp-apps.md): the placeholder in a tool's bubble, the pinned panel beside the conversation, the separate dialog window. */
+
+/* the placeholder: name, state, a button */
+.mcpph { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 6px 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.mcpph-ico { color: var(--accent); }
+.mcpph-name { overflow-wrap: anywhere; }
+.mcpph-sub { color: var(--fg-2); font-size: 13px; overflow-wrap: anywhere; }
+.mcpph-go { margin-left: auto; min-width: 44px; min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--raised); color: var(--fg); }
+.mcpph-go:hover { border-color: var(--accent); }
+.mcpph-calls { flex: 1 0 100%; font-size: 12px; color: var(--fg-3); }
+
+/* the dock holds every app's window; the aside itself has no box, so a panel is a flex item of the conversation's row and a dialog is simply fixed */
+.appdock { display: contents; }
+.mcpwin { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; color: var(--fg); }
+.mcpwin[data-border="0"] { border-color: transparent; }
+.mcpwin[data-display="panel"] { flex: 0 0 clamp(320px, 38%, 560px); }
+.mcpwin[data-display="dialog"] { position: fixed; z-index: 70; right: 24px; bottom: 24px; width: min(480px, calc(100vw - 32px)); height: min(560px, calc(100vh - 64px)); min-width: 260px; min-height: 200px;
+  resize: both; box-shadow: 0 12px 40px rgba(0, 0, 0, .5); }
+.mcpwin[data-display="dialog"][data-max="1"] { inset: 12px; width: auto; height: auto; resize: none; }
+.mcpwin-head { display: flex; align-items: center; gap: 4px 8px; padding: 4px 4px 4px 10px; border-bottom: 1px solid var(--line); background: var(--surface); touch-action: none; }
+.mcpwin[data-display="dialog"]:not([data-max="1"]) .mcpwin-head { cursor: move; }
+.mcpwin-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mcpwin-sub { color: var(--fg-2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mcpwin-grow { flex: 1; }
+.mcpwin-b { min-width: 44px; min-height: 44px; border-radius: 8px; color: var(--fg); font-size: 18px; line-height: 1; }
+.mcpwin-b:hover { background: var(--raised); }
+.mcpwin-body { position: relative; flex: 1; min-height: 0; background: var(--panel); }
+.mcpwin-frame { display: block; width: 100%; height: 100%; border: 0; background: transparent; }
+.mcpwin-state { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; text-align: center; color: var(--fg-2); pointer-events: none; }
+.mcpwin-state[data-bad="1"] { color: var(--err); }
+.mcpwin-calls { padding: 4px 10px; border-top: 1px solid var(--line); font-size: 12px; color: var(--fg-3); }
+
+/* a phone: the panel is a full-screen panel and the dialog a full-screen sheet, clear of the notch and the gesture bar */
+@media (max-width: 720px) {
+  .mcpwin[data-display="panel"], .mcpwin[data-display="dialog"], .mcpwin[data-display="dialog"][data-max="1"] {
+    position: fixed; inset: 0; z-index: 70; width: auto; height: auto; min-width: 0; min-height: 0; border-radius: 0; border: 0; resize: none; box-shadow: none;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); background: var(--panel);
+  }
+  .mcpwin[data-display="dialog"] .mcpwin-head { cursor: auto; }
+  .mcpwin-max { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) { .mcpwin { transition: box-shadow .15s; } }
+
+/* the settings of apps (serve/web/capabilities.js) */
+.cp-applist { list-style: none; margin: 4px 0; padding: 0; }
+.cp-app label { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 44px; }
+.cp-app input[type="checkbox"] { width: 22px; height: 22px; flex: 0 0 auto; }
