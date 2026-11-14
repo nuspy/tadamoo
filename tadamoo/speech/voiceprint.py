@@ -91,7 +91,7 @@ def f0(wav: bytes, fmin: float = 70.0, fmax: float = 400.0) -> Dict[str, float]:
     import librosa
     import numpy as np
     y = mono16k(wav)
-    track, voiced, _ = librosa.pyin(y, fmin=fmin, fmax=fmax, sr=RATE, frame_length=1024, hop_length=320)
+    track, voiced, _ = librosa.pyin(y, fmin=fmin, fmax=fmax, sr=RATE, frame_length=1024, hop_length=640)
     hz = track[voiced & ~np.isnan(track)]
     if len(hz) < 10:
         return {"median_hz": 0.0, "std_semitones": 0.0, "voiced": 0.0}
@@ -191,12 +191,18 @@ class Judge:
     def __init__(self, profile: Profile, embedder: Optional[Embedder] = None, targets: Optional[Targets] = None) -> None:
         self.profile, self.embedder, self.targets = profile, embedder or Embedder(), targets or Targets()
 
-    def score(self, wav: bytes, text: str, similarity: float, lang: Optional[str] = None) -> Verdict:
+    def identity(self, wav: bytes) -> float:
+        """The cosine of a reading's speaker embedding to the profile's centre."""
+        return cosine(self.embedder.embed(wav), self.profile.centre)
+
+    def score(self, wav: bytes, text: str, similarity: float, lang: Optional[str] = None, known: Optional[Dict[str, Any]] = None) -> Verdict:
+        """`known` holds what was measured already (`identity`, `pace`, `pitch`), so it is not measured again."""
         t, p = self.targets, self.profile
         lang = lang or p.lang
-        ident = cosine(self.embedder.embed(wav), p.centre)
-        pc = pace(wav, text, lang)
-        pitch = f0(wav)
+        known = known or {}
+        ident = known["identity"] if "identity" in known else self.identity(wav)
+        pc = known["pace"] if "pace" in known else pace(wav, text, lang)
+        pitch = known["pitch"] if "pitch" in known else f0(wav)
         why: List[str] = []
         if similarity < t.similarity_min:
             why.append(f"the read-back matches {similarity:.2f}, at least {t.similarity_min} is needed")

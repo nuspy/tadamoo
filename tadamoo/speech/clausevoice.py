@@ -76,6 +76,7 @@ class Params:
     xtts_batch: int = 12                           # takes of one sentence made in one autoregressive pass (the seeds of a round); a pass that runs out of memory is made again in halves
     xtts_precision: str = "fp32"                   # "fp32", "tf32" (fp32 with TensorFloat-32 matrix products), "fp16" or "bf16" (autocast over the autoregressive pass only; the vocoder stays fp32)
     xtts_compile: str = "off"                      # "on": the transformer of the autoregressive pass is compiled with torch.compile when Triton is installed; a compile that fails is given up
+    rate_threads: int = 4                          # takes measured at the same time (the speech-to-text on the GPU or the server, the pitch and the rest on the CPU)
     xtts_cache: str = ""                           # a folder where the takes of a sentence are kept by their text, seeds and settings and found again by any production (empty: only the work folder)
 
 
@@ -236,6 +237,8 @@ class LocalXtts:
                 made = self._batch(job_file, timeout)
             except RuntimeError:
                 if clock is not None:
+                    if self.proc is None and time.monotonic() - began >= (timeout or 0) - 0.05:
+                        clock.began -= 0.1                       # the process was ended at the limit: the clock counts it as over
                     clock.check()                                # the limit is reached: the error of the step, with its numbers
                 raise
             if self.timing is not None and made > 0:
@@ -275,6 +278,23 @@ def has_number_words(text: str, lang: str) -> bool:
     return False
 
 
+def local_synth(runner: "LocalXtts", p: Params) -> Callable[[str], bytes]:
+    """A function that gives one reading of a text from the local XTTS (for the profile of a voice when the TaDaMoo server is not there to make them): the two readings of a text are made
+    in one pass."""
+    pending: Dict[str, List[bytes]] = {}
+
+    def synth(text: str) -> bytes:
+        if not pending.get(text):
+            tag = zlib.crc32(text.encode("utf-8"))
+            items = [{"id": f"profile_{tag}_s{p.base_seed + 7000 + k}", "text": text, "lang": p.lang, "seed": p.base_seed + 7000 + k, "temperature": p.temperature, "top_p": p.top_p, "top_k": p.top_k,
+                      "repetition_penalty": p.repetition_penalty, "length_penalty": p.length_penalty, "speed": p.speed} for k in range(2)]
+            made = runner.run(items)
+            pending[text] = [made[it["id"]] for it in items]
+        return pending[text].pop()
+
+    return synth
+
+
 def letters_similarity(want: str, heard: str) -> float:
     """The share of letters read back right, ignoring spaces, case, accents and punctuation (what a model that has no language model wrote against what was meant)."""
     a = "".join(c for c in voicecheck.fold(want) if c.isalpha())
@@ -301,25 +321,61 @@ class Rater:
         self.cache_path = cache
         self.cache: Dict[str, Any] = json.loads(cache.read_text(encoding="utf-8")) if cache and cache.is_file() else {}
 
-    def measure(self, wav: bytes, text: str, ending: str) -> Dict[str, Any]:
+    def _lock(self) -> threading.Lock:
+        if not hasattr(self, "lock"):
+            self.lock = threading.Lock()
+        return self.lock
+
+    def _cheap(self, wav: bytes, text: str) -> Dict[str, Any]:
+        """What is measured before the speech-to-text is asked: the letters the CTC model heard, the speaker, the pace. A take that fails one of these is rejected whatever the Whisper says."""
+        p = self.p
+        numbers = has_number_words(text, p.lang)
+        heard_letters = self.ctc.transcribe(wav, p.lang) if self.ctc is not None else ""
+        return {"numbers": numbers, "heard_letters": heard_letters, "letters": (letters_similarity(text, heard_letters) if not numbers else None) if self.ctc is not None else 1.0,
+                "identity": self.judge.identity(wav), "pace": voiceprint.pace(wav, text, p.lang)}
+
+    def cheap_rejects(self, m: Dict[str, Any]) -> List[str]:
+        """The reasons the cheap measures alone give to reject a take (those that no read-back can change); empty when it goes on to the read-back."""
+        p, why = self.p, []
+        if m.get("letters") is not None and m["letters"] < p.letters_min:
+            why.append(f"the letters read back match {m['letters']:.2f}, at least {p.letters_min}")
+        if m["identity"] < self.judge.profile.identity_floor:
+            why.append(f"not the same speaker ({m['identity']:.3f} under {self.judge.profile.identity_floor:.3f})")
+        if not (p.clause_pace_min <= m["pace"] <= p.clause_pace_max):
+            why.append(f"the pace is {m['pace']:.2f} syllables a second, wanted {p.clause_pace_min:g} to {p.clause_pace_max:g}")
+        return why
+
+    def measure(self, wav: bytes, text: str, ending: str, partial_ok: bool = False) -> Dict[str, Any]:
+        """Everything measured about a take. With `partial_ok` a take that the cheap measures reject is not read back (the speech-to-text and the pitch are the slow part): what comes back
+        has `partial` and only the cheap numbers, and a later call without `partial_ok` completes it."""
         import hashlib
         key = hashlib.sha1(wav + text.encode("utf-8")).hexdigest()
-        if key in self.cache:
-            return self.cache[key]
+        have = self.cache.get(key)
+        if have is not None and (partial_ok or not have.get("partial")):
+            return have
         p = self.p
-        x, rate = J.read(wav)
-        words = voicecheck.transcribe(self.url, wav, p.lang)
-        chk = voicecheck.compare(text, words, p.lang)
-        heard_letters = self.ctc.transcribe(wav, p.lang) if self.ctc is not None else ""
-        audit = J.pause_audit(x, rate, text + ending, words, 0.0, 0.10, p.lang)
-        v = self.judge.score(wav, text, chk.similarity, p.lang)
-        numbers = has_number_words(text, p.lang)
-        m = {"similarity": chk.similarity, "heard": chk.heard, "extra_tail": chk.extra_tail, "numbers": numbers,
-             "letters": (chk.similarity if numbers else letters_similarity(text, heard_letters)) if self.ctc is not None else 1.0,
-             "heard_letters": heard_letters, "silences": [{"len_s": s.length_s, "after": s.after, "punct": s.punct} for s in audit], **v.numbers}
-        self.cache[key] = m
-        if self.cache_path:
-            self.cache_path.write_text(json.dumps(self.cache, ensure_ascii=False), encoding="utf-8")
+        m = have or self.__dict__.setdefault("stage1", {}).pop(key, None) or self._cheap(wav, text)
+        if partial_ok and self.cheap_rejects(m):
+            m["partial"] = True
+        else:
+            m.pop("partial", None)
+            from concurrent.futures import ThreadPoolExecutor
+            x, rate = J.read(wav)
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                pitch = pool.submit(voiceprint.f0, wav)                                      # the pitch is measured while the speech-to-text works
+                words = self.__dict__.setdefault("words_cache", {}).pop(hashlib.sha1(wav).hexdigest(), None) or voicecheck.transcribe(self.url, wav, p.lang)
+                pitch = pitch.result()
+            chk = voicecheck.compare(text, words, p.lang)
+            audit = J.pause_audit(x, rate, text + ending, words, 0.0, 0.10, p.lang)
+            v = self.judge.score(wav, text, chk.similarity, p.lang, known={"identity": m["identity"], "pace": m["pace"], "pitch": pitch})
+            m.update({"similarity": chk.similarity, "heard": chk.heard, "extra_tail": chk.extra_tail,
+                      "letters": (chk.similarity if m["numbers"] else m["letters"]) if self.ctc is not None else 1.0,
+                      "silences": [{"len_s": s.length_s, "after": s.after, "punct": s.punct} for s in audit], **v.numbers,
+                      "words": [{k: w[k] for k in ("text", "start", "end") if k in w} for w in words]})
+        with self._lock():
+            self.cache[key] = m
+            if self.cache_path:
+                self.cache_path.write_text(json.dumps(self.cache, ensure_ascii=False), encoding="utf-8")
         return m
 
     @staticmethod
@@ -336,6 +392,9 @@ class Rater:
         return bool((heard and heard[-1] == last) or letters.endswith("".join(c for c in last if c.isalpha())))
 
     def judge_take(self, m: Dict[str, Any], seed: int, wav: bytes, text: str = "") -> Take:
+        if m.get("partial"):                                      # rejected by the cheap measures: the read-back was not asked
+            return Take(seed, wav, 0.0, False, self.cheap_rejects(m), {"letters": round(m["letters"], 3) if m.get("letters") is not None else 0.0, "identity": round(m["identity"], 4),
+                                                                  "pace": round(m["pace"], 2), "read_back": "not asked"})
         p = self.p
         why: List[str] = []
         if text and not self.tail_ok(text, m):
@@ -368,8 +427,26 @@ class Rater:
                    "f0_std_semitones": m["f0_std_semitones"], "pauses_over_100ms": len(m["silences"]), "pause_defects": len(bad)}
         return Take(seed, wav, round(score, 4), not why, why, numbers)
 
-    def rate(self, wav: bytes, text: str, ending: str, seed: int) -> Take:
-        return self.judge_take(self.measure(wav, text, ending), seed, wav, text)
+    def rate(self, wav: bytes, text: str, ending: str, seed: int, partial_ok: bool = False) -> Take:
+        return self.judge_take(self.measure(wav, text, ending, partial_ok), seed, wav, text)
+
+    def rate_many(self, jobs: Sequence[Tuple[bytes, str, str, int]], threads: int = 4) -> List[Take]:
+        """`rate` for several takes at the same time, in the order given: while one waits for the speech-to-text the pitch and the speaker of another are measured."""
+        if threads <= 1 or len(jobs) <= 1:
+            return [self.rate(*job, partial_ok=True) for job in jobs]
+        import hashlib
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(threads, len(jobs))) as pool:
+            keys = [hashlib.sha1(job[0] + job[1].encode("utf-8")).hexdigest() for job in jobs]
+            todo = [(k, job) for k, job in zip(keys, jobs) if k not in self.cache]
+            cheap = list(pool.map(lambda kj: self._cheap(kj[1][0], kj[1][1]), todo))                  # the cheap measures of every take first
+            self.__dict__.setdefault("stage1", {}).update({k: m for (k, _), m in zip(todo, cheap)})
+            survivors = [job[0] for (_, job), m in zip(todo, cheap) if not self.cheap_rejects(m)]
+            many = getattr(voicecheck.LOCAL_STT, "words_many", None)
+            if many is not None and len(survivors) > 1:                                              # the speech-to-text of all the takes that go on, at the same time
+                for wav, words in zip(survivors, many(survivors, self.p.lang)):
+                    self.__dict__.setdefault("words_cache", {})[hashlib.sha1(wav).hexdigest()] = words
+            return list(pool.map(lambda job: self.rate(*job, partial_ok=True), jobs))
 
 
 @dataclass
@@ -406,10 +483,10 @@ def speak(text: str, runner: LocalXtts, rater: Rater, p: Params, log: Callable[[
                               "repetition_penalty": p.repetition_penalty, "length_penalty": p.length_penalty, "speed": p.speed})
         wavs = runner.run(items)
         log(f"round {rnd + 1}: {len(items)} takes made for {len(todo)} clauses in {round(time.time() - began)} s")
-        for it in items:
-            i = int(it["id"][1:].split("_")[0])
-            body, ending, _ = clauses[i]
-            take = rater.rate(wavs[it["id"]], body, ending, it["seed"])
+        spans = [(int(it["id"][1:].split("_")[0]), it) for it in items]
+        jobs = [(wavs[it["id"]], clauses[i][0], clauses[i][1], it["seed"]) for i, it in spans]
+        rated = rater.rate_many(jobs, p.rate_threads) if hasattr(rater, "rate_many") else [rater.rate(*job) for job in jobs]
+        for (i, _), take in zip(spans, rated):
             tried[i].append(take)
         for i in todo:
             good = [t for t in tried[i] if t.ok]
@@ -431,7 +508,8 @@ def speak(text: str, runner: LocalXtts, rater: Rater, p: Params, log: Callable[[
     for i, (body, ending, _) in enumerate(clauses):
         x, rate = J.read(chosen[i].wav)
         if p.comma_target_ms:
-            x, notes = J.comma_pauses(x, rate, body + ending, voicecheck.transcribe(rater.url, chosen[i].wav, p.lang), p.comma_target_ms / 1000, p.lang)
+            heard = rater.measure(chosen[i].wav, body, ending).get("words") or voicecheck.transcribe(rater.url, chosen[i].wav, p.lang)         # the words of the read-back, not asked for again
+            x, notes = J.comma_pauses(x, rate, body + ending, heard, p.comma_target_ms / 1000, p.lang)
             comma_notes += [{"clause": i, **n} for n in notes]
         pieces.append((x, rate, ending))
     samples, rate, joins, spans = J.assemble(pieces, p.comma_ms, p.sentence_ms, seed=p.base_seed)
