@@ -111,6 +111,29 @@ def enhance_request(video: Any, scale: Any = None, factor: Any = None, mode: Any
     return out
 
 
+TAKE = {"width": 896, "height": 512, "fps": 25, "steps": 12, "crf": 4, "crf_preset": "medium", "frames_min": 9, "frames_max": 513}          # a presenter's take by LTX 2.5: up to 20 seconds in one pass
+
+
+def take_request(image: Any, audio: Any, prompt: Any, seconds: Any, seed: Any = None, negative: Any = "") -> Dict[str, Any]:
+    """A talking presenter by LTX 2.5 audio-to-video: a still and a recording of `seconds` (the model's own copy of the voice, as long as the picture), 896x512 at 25 frames a second, 12 steps, saved at crf 4.
+    The frames are the whole 8-frame steps plus one that cover the recording, so the picture is never shorter than the voice (the recording is padded with silence to the picture's length by the caller)."""
+    for name, value in (("image", image), ("audio", audio)):
+        if not isinstance(value, str) or not value.strip() or "\x00" in value:
+            raise MediaError(f"{name}: the path of a file on this PC")
+    if not isinstance(seconds, (int, float)) or isinstance(seconds, bool) or seconds <= 0:
+        raise MediaError("seconds: the length of the recording")
+    frames = -(-int(round(seconds * TAKE["fps"] * 1000)) // 1000)
+    frames = max(TAKE["frames_min"], -(-(frames - 1) // 8) * 8 + 1)
+    if frames > TAKE["frames_max"]:
+        raise MediaError(f"seconds: {seconds:g} is more than a take can be ({(TAKE['frames_max'] - 1) // TAKE['fps']} s)")
+    if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > PROMPT_MAX:
+        raise MediaError(f"prompt: text of at most {PROMPT_MAX} characters")
+    if not isinstance(negative, str) or len(negative) > PROMPT_MAX:
+        raise MediaError(f"negative: text of at most {PROMPT_MAX} characters, or empty")
+    return {"prompt": prompt.strip(), "width": TAKE["width"], "height": TAKE["height"], "frames": frames, "fps": TAKE["fps"], "seed": _seed(seed), "negative": negative.strip(), "image": image.strip(),
+            "audio": audio.strip(), "steps": TAKE["steps"], "crf": TAKE["crf"], "crf_preset": TAKE["crf_preset"], "notes": []}
+
+
 AVATAR = {"resolutions": ("480p", "720p"), "ref_img_index": (0, 60), "mask_frame_range": (0, 12)}
 
 
