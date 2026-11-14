@@ -90,7 +90,6 @@ from serve.coding_prefs import CodingError, CodingPrefs
 from serve import sessions_move, tab_editor
 from serve.file_owners import FileOwners, OwnersError
 from tadamoo.file_owners import FILE as FILE_OWNERS_FILE
-from serve.compaction_prefs import CompactionError, CompactionPrefs
 from serve.gate_prefs import GateError, GatePrefs
 from serve.knowledge_prefs import KnowledgeError, KnowledgePrefs, check_wiki, clean_url
 from serve.llm_api import LlmApi, LlmError
@@ -684,9 +683,6 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/coding":
                 if self._authorized():
                     self._coding_get()
-            elif path == "/api/compaction":
-                if self._authorized():
-                    self._json(200, CompactionPrefs(userdata.path("compaction.json")).view())
             elif path == "/api/memories":
                 if self._authorized():
                     if not settings.is_loopback(self.client_address[0]):
@@ -988,9 +984,6 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path == "/api/coding":
                 self._coding_post()
-                return
-            if path == "/api/compaction":
-                self._compaction_post()
                 return
             if path in ("/api/mcp/auth/start", "/api/mcp/auth/signout"):
                 self._mcp_auth_post(path)
@@ -2465,27 +2458,6 @@ def make_handler(svc: Service, remote: bool = False):
             except (ValueError, TypeError) as e:
                 return self._json(400, {"error": {"message": str(e)}})
 
-        def _compaction_post(self):
-            """The settings of the summary of older steps: only from this PC and the page itself."""
-            if not settings.is_loopback(self.client_address[0]):
-                self._discard_body()
-                return self._json(403, {"error": {"type": "forbidden", "message": "these settings can be changed only from the PC the server runs on"}})
-            try:
-                raw = self._body(1 << 12)
-            except BadBody as e:
-                return self._json(e.status, {"error": {"message": str(e)}})
-            prefs = CompactionPrefs(userdata.path("compaction.json"))
-            try:
-                req = json.loads(raw or b"{}")
-                if not isinstance(req, dict):
-                    raise ValueError("send a JSON object")
-                prefs.write(req)
-                return self._json(200, prefs.view())
-            except CompactionError as e:
-                return self._json(400, {"error": {"type": "compaction", "message": str(e), "field": e.field}})
-            except (ValueError, TypeError) as e:
-                return self._json(400, {"error": {"message": str(e)}})
-
         def _gate_post(self):
             """The settings of the verify gate and the turn's end: only from this PC and the page itself, since the commands run on this PC."""
             if not settings.is_loopback(self.client_address[0]):
@@ -3340,6 +3312,7 @@ def make_handler(svc: Service, remote: bool = False):
                                         power_source=(lambda: tel.snapshot()["now"].get("gpus") or []) if tel else None,
                                         plan_paused=lambda plan_id: self._plan_service().is_paused(plan_id),
                                         plan_context=lambda plan_id: self._plan_service().template_context(plan_id),
+                                        plan_inference=lambda plan_id: self._plan_service().inference_of(plan_id),
                                         knowledge=lambda ref, action, cancel: self._rag().syncing.scheduled(ref, action, cancel))
                 _ROUTINES.scheduler.tick_hooks.append(self._watch_plans)
             return _ROUTINES
@@ -3611,7 +3584,7 @@ def make_handler(svc: Service, remote: bool = False):
                                            browser_prefs=BrowserPrefs(userdata.path("browser.json")).read, knowledge_flags=KnowledgePrefs(userdata.path("knowledge.json")).flags,
                                            intake_flags=IntakePrefs(userdata.path("intake.json")).flags,
                                            gate_flags=GatePrefs(userdata.path("gate.json")).flags, coding=CodingPrefs(userdata.path("coding.json")),
-                                           compaction_flags=CompactionPrefs(userdata.path("compaction.json")).flags,
+                                           plan_effort=lambda plan_id, node_id: self._plan_service().node_effort(plan_id, node_id),
                                            rule_of_two=RuleOfTwoPrefs(userdata.path("rule_of_two.json")).read, allow_rules=AllowRules(userdata.path("allow_rules.json")),
                                            rule_of_two_prefs=RuleOfTwoPrefs(userdata.path("rule_of_two.json")),
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
@@ -3768,15 +3741,15 @@ def make_handler(svc: Service, remote: bool = False):
                     if parts == ["sessions"]:
                         return self._json(200, {"session": mgr.create(req.get("workspace"), req.get("mode", "default"), req.get("allow"),
                                                                       req.get("ask_only") is True, req.get("title", ""),
-                                                                      req.get("max_turns", -1),
-                                                                      req.get("context_patterns"), req.get("context_policy", "stop"),
-                                                                      req.get("context_threshold", 0.8), req.get("end_turn_bias"),
-                                                                      req.get("worktree", "auto"), req.get("effort", ""),
+                                                                      req.get("max_turns"),
+                                                                      req.get("context_patterns"), req.get("context_policy"),
+                                                                      req.get("context_threshold"), req.get("end_turn_bias"),
+                                                                      req.get("worktree", "auto"), req.get("effort"),
                                                                       req.get("images", ""), req.get("charts", ""),
                                                                       req.get("unattended") is True, req.get("role", "general"), req.get("private") is True,
                                                                       req.get("alias", ""), req.get("cross_commands"), req.get("parent", ""), req.get("rules"),
                                                                       req.get("budget_day_tokens"), req.get("persona", ""), channel or "chat", req.get("knowledge"),
-                                                                      req.get("council") is True)})
+                                                                      req.get("council") is True, req.get("inference"))})
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "apply":
                         return self._json(200, mgr.copy_apply(parts[1], req.get("paths")))
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "discard":
@@ -3820,6 +3793,8 @@ def make_handler(svc: Service, remote: bool = False):
                         return self._json(200, checkpoints_api.delete(mgr.get(parts[1]), req.get("checkpoint"), req.get("all") is True))
                     if len(parts) == 3 and parts[2] == "effort":
                         return self._json(200, {"session": mgr.set_effort(parts[1], req.get("level", ""))})
+                    if len(parts) == 3 and parts[2] == "inference":
+                        return self._json(200, {"session": mgr.set_inference(parts[1], req.get("settings"))})
                     if len(parts) == 3 and parts[2] == "settings":
                         return self._json(200, {"session": mgr.set_settings(parts[1], req.get("max_turns"), req.get("end_turn_bias"),
                                                                            **{k: req[k] for k in ("temperature", "max_tokens") if k in req})})

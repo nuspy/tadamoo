@@ -1,10 +1,8 @@
-"""The settings of the summary of older steps: kept and checked, handed to the conversation's process and the agent, reachable over HTTP,
-worded in English and Italian; the summary call and /context and /compact in a real stack."""
+"""Where the older steps are summarised, as each conversation's own inference settings: handed to its process and the agent, worded in English and
+Italian; the summary call and /context and /compact in a real stack."""
 import json
 import re
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 import pytest
@@ -12,86 +10,54 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from tadamoo import commands
-from tadamoo.compaction import DEFAULT_THRESHOLD
 from tadamoo.session import Session, SessionStore, parse_args as session_args
-from tadamoo.stack import AgentConfig, build_agent, _summarizer
-from serve.compaction_prefs import CompactionError, CompactionPrefs
-from test_e2e_mock_server import answer, start_server  # noqa: F401  (fixture)
+from tadamoo.stack import AgentConfig, agent_settings, build_agent, _summarizer
+from serve import inference
+from serve.agent_sessions import SessionManager
 from test_session import Events, Scripted, say
 
 
-def test_defaults_are_on_at_eighty_five_percent(tmp_path):
-    prefs = CompactionPrefs(tmp_path / "c.json")
-    assert prefs.read() == {"compaction": True, "compaction_threshold": DEFAULT_THRESHOLD}
-    view = prefs.view()
-    assert view["defaults"] == {"compaction": True, "compaction_threshold": 0.85} and view["limits"]["compaction_threshold"] == [0.5, 0.98]
+def test_the_panel_settings_say_where_the_older_steps_are_folded():
+    plain = inference.fields({})
+    assert plain["compaction"] is True and plain["compaction_threshold"] == 0.8 and plain["context_threshold"] == 0.8 and plain["context_policy"] == "compact"
+    custom = inference.fields({"policy": "compact", "threshold": "70"})
+    assert custom["compaction"] is True and custom["compaction_threshold"] == 0.7 and custom["context_threshold"] == 0.7
+    assert inference.fields({"policy": "rolling"})["compaction"] is False and inference.fields({"policy": "stop"})["compaction"] is False
+    assert inference.fields({"policy": "compact", "threshold": "99"})["compaction_threshold"] == 0.98          # the harness never folds later than 98 per cent
+    assert inference.fields({"policy": "compact", "threshold": "35"})["compaction_threshold"] == 0.5           # nor earlier than 50
+    for bad in ({"policy": "never"}, {"threshold": "10"}, {"effort": "extreme"}, {"temperature": "9"}):
+        with pytest.raises(ValueError):
+            inference.normalize(bad)
 
 
-def test_values_are_saved_checked_and_a_refused_value_changes_nothing(tmp_path):
-    prefs = CompactionPrefs(tmp_path / "c.json")
-    saved = prefs.write({"compaction": False, "compaction_threshold": 0.7})
-    assert saved == {"compaction": False, "compaction_threshold": 0.7} and CompactionPrefs(tmp_path / "c.json").read() == saved
-    for bad, field in (({"compaction": "yes"}, "compaction"), ({"compaction_threshold": 0.2}, "compaction_threshold"), ({"compaction_threshold": 1.0}, "compaction_threshold"),
-                       ({"compaction_threshold": True}, "compaction_threshold"), ({"compaction_threshold": "high"}, "compaction_threshold")):
-        with pytest.raises(CompactionError) as raised:
-            prefs.write(bad)
-        assert raised.value.field == field and str(raised.value)
-    assert prefs.read() == saved
-    (tmp_path / "c.json").write_text("{broken", encoding="utf-8")
-    assert prefs.read() == {"compaction": True, "compaction_threshold": 0.85}
+def test_the_flags_of_a_conversation_reach_the_session_process_arguments(tmp_path):
+    manager = SessionManager(tmp_path / "j", "http://127.0.0.1:1", command=None)
+    rec = {"mode": "default", "workspace": str(tmp_path)}
+    plain = manager._command("s1", rec, tmp_path / "h")
+    assert plain[plain.index("--compaction-threshold") + 1] == "0.8" and "--no-compaction" not in plain      # a record with nothing says: on, at the default
+    own = {**rec, **inference.fields({"policy": "compact", "threshold": "65", "top_p": "0.9", "stop": "END"}), "inference": {}}
+    command = manager._command("s2", own, tmp_path / "h")
+    assert command[command.index("--compaction-threshold") + 1] == "0.65" and "--no-compaction" not in command
+    assert json.loads(command[command.index("--sampling") + 1]) == {"top_p": 0.9, "stop": ["END"]}
+    off = manager._command("s3", {**rec, **inference.fields({"policy": "stop"})}, tmp_path / "h")
+    assert "--no-compaction" in off and "--sampling" not in off
+    assert "--no-compaction" in manager._command("s4", {**rec, "ask_only": True, **inference.fields({"policy": "rolling"})}, tmp_path / "h")     # a chat without tools too
+    ns = session_args(["--no-compaction", "--compaction-threshold", "0.6", "--sampling", '{"top_k": 5}'])
+    settings = agent_settings(ns)
+    assert settings["compaction"] is False and settings["compaction_threshold"] == 0.6 and settings["sampling"] == {"top_k": 5}
 
 
-def test_the_flags_reach_the_session_process_arguments_and_the_agent_settings(tmp_path):
-    prefs = CompactionPrefs(tmp_path / "c.json")
-    args = session_args(prefs.flags())
-    assert (args.no_compaction, args.compaction_threshold) == (False, 0.85)
-    prefs.write({"compaction": False, "compaction_threshold": 0.6})
-    args = session_args(prefs.flags())
-    assert (args.no_compaction, args.compaction_threshold) == (True, 0.6)
-    assert session_args([]).no_compaction is False
-
-
-@pytest.fixture
-def api(tmp_path, monkeypatch, start_server):  # noqa: F811
-    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
-    url = start_server([answer("x")])
-
-    def call(method, path, body=None):
-        data = None if body is None else json.dumps(body).encode()
-        req = urllib.request.Request(url + path, data=data, method=method, headers={"Content-Type": "application/json"})
-        try:
-            with urllib.request.urlopen(req, timeout=15) as r:
-                return r.status, json.loads(r.read().decode())
-        except urllib.error.HTTPError as e:
-            return e.code, json.loads(e.read().decode() or "{}")
-    return call
-
-
-def test_the_settings_page_reads_and_saves(api):
-    code, view = api("GET", "/api/compaction")
-    assert code == 200 and view["compaction"] is True and view["compaction_threshold"] == 0.85
-    code, view = api("POST", "/api/compaction", {"compaction": False, "compaction_threshold": 0.9})
-    assert code == 200 and view["compaction"] is False and view["compaction_threshold"] == 0.9
-    assert api("GET", "/api/compaction")[1]["compaction_threshold"] == 0.9
-    code, body = api("POST", "/api/compaction", {"compaction_threshold": 0.1})
-    assert code == 400 and body["error"]["field"] == "compaction_threshold"
-    assert api("GET", "/api/compaction")[1]["compaction_threshold"] == 0.9
-
-
-def test_every_string_of_the_page_exists_in_english_and_italian_and_the_page_is_wired():
+def test_every_string_of_the_page_exists_in_english_and_italian():
     web = Path(__file__).resolve().parents[1] / "serve" / "web"
     i18n = (web / "i18n.js").read_text(encoding="utf-8")
-    source = (web / "compaction.js").read_text(encoding="utf-8")
     chat = (web / "agentchat.js").read_text(encoding="utf-8")
     slash = (web / "slash.js").read_text(encoding="utf-8")
-    used = set(re.findall(r'T\("(cx\.[a-z.]+)"', source)) | set(re.findall(r'T\("(ch\.ev\.compaction[a-z_]*)"', chat)) | set(re.findall(r'T\("(sl\.r\.cx[a-z.]*)"', slash))
+    used = set(re.findall(r'T\("(ch\.ev\.compaction[a-z_]*)"', chat)) | set(re.findall(r'T\("(sl\.r\.cx[a-z.]*)"', slash))
     used = {k for k in used if not k.endswith(".")} | {"sl.r.cx.by.model", "sl.r.cx.by.extract"}
-    assert len(used) >= 14
+    assert len(used) >= 4
     for key in used:
         assert i18n.count(f'"{key}":') == 2, key                                      # once in English and once in Italian
-    html = (web / "index.html").read_text(encoding="utf-8")
-    assert 'src="web/compaction.js"' in html and 'id="cx-root"' in html and 'data-t="cx.title"' in html
-    assert "innerHTML" not in source                                                       # what the server says is put in as text
+    assert not (web / "compaction.js").exists() and 'id="cx-root"' not in (web / "index.html").read_text(encoding="utf-8")      # one place for it: the conversation's settings
 
 
 # -- in a real stack ----------------------------------------------------------------------------------------------------
@@ -155,52 +121,6 @@ def test_context_shows_the_compaction_and_compact_works_on_one_long_turn(tmp_pat
     assert agent.messages[0]["role"] == "system" and any(m.get("summary") for m in agent.messages)
     after = commands.run("context", "", session)["data"]["compaction"]
     assert after["count"] == 1 and after["reports"][0]["n"] == 1 and commands.run("context", "", session)["data"]["summarised"]
-
-
-def test_the_process_of_a_conversation_is_started_with_the_settings_and_they_reach_the_agent(tmp_path):
-    from tadamoo.stack import agent_settings
-    from serve.agent_sessions import SessionManager
-    prefs = CompactionPrefs(tmp_path / "c.json")
-    manager = SessionManager(tmp_path / "j", "http://127.0.0.1:1", compaction_flags=prefs.flags, command=None)
-    rec = {"mode": "default", "workspace": str(tmp_path)}
-    plain = manager._command("s1", rec, tmp_path / "h")
-    assert plain[plain.index("--compaction-threshold") + 1] == "0.85" and "--no-compaction" not in plain
-    prefs.write({"compaction": False, "compaction_threshold": 0.6})
-    flags = prefs.flags()
-    command = manager._command("s1", rec, tmp_path / "h")
-    start = command.index(flags[0])
-    assert command[start:start + len(flags)] == flags
-    assert "--no-compaction" in manager._command("s2", {**rec, "ask_only": True}, tmp_path / "h")          # a chat without tools too
-    settings = agent_settings(session_args(flags))
-    assert settings["compaction"] is False and settings["compaction_threshold"] == 0.6
-
-
-# -- the choice survives a restart, and the summary never leaves this PC unless the person pointed the function elsewhere --------------
-
-
-def test_the_choice_is_kept_in_compaction_json_and_survives_a_restart_of_the_manager(tmp_path):
-    from serve.agent_sessions import SessionManager
-    path = tmp_path / "data" / "compaction.json"
-    rec = {"mode": "default", "workspace": str(tmp_path)}
-
-    def manager():                                                  # what the server builds at its start: the settings are read from the file each time
-        return SessionManager(tmp_path / "j", "http://127.0.0.1:1", compaction_flags=CompactionPrefs(path).flags, command=None)
-    assert "--no-compaction" not in manager()._command("s1", rec, tmp_path / "h")                       # nothing saved yet: on
-    CompactionPrefs(path).write({"compaction": False, "compaction_threshold": 0.7})
-    assert json.loads(path.read_text(encoding="utf-8")) == {"compaction": False, "compaction_threshold": 0.7}
-    restarted = manager()._command("s2", rec, tmp_path / "h")                                         # a new manager, as after a restart
-    assert "--no-compaction" in restarted and restarted[restarted.index("--compaction-threshold") + 1] == "0.7"
-    CompactionPrefs(path).write({"compaction": True})
-    again = manager()._command("s3", rec, tmp_path / "h")
-    assert "--no-compaction" not in again and again[again.index("--compaction-threshold") + 1] == "0.7"
-    assert CompactionPrefs(path).read()["compaction"] is True and CompactionPrefs(tmp_path / "none.json").read()["compaction"] is True
-
-
-def test_the_settings_page_writes_compaction_json_in_the_data_folder(api, tmp_path):
-    assert api("POST", "/api/compaction", {"compaction": False})[0] == 200
-    saved = json.loads((tmp_path / "data" / "compaction.json").read_text(encoding="utf-8"))
-    assert saved["compaction"] is False
-    assert api("GET", "/api/compaction")[1]["compaction"] is False
 
 
 class Route:
