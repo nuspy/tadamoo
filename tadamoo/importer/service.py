@@ -139,9 +139,9 @@ class Importer:
             self._run(work)
             return {"imported": self._row(self.manifest.load()[key]), "snapshot": snap.public()}
 
-    def reimport(self, kind: str, name: str, confirm: bool = False, overwrite_local: bool = False, **opts: Any) -> Dict[str, Any]:
-        """Reads the recorded source again. Without `confirm` it only says what would change; with it, the copy is replaced. A copy that was
-        changed here is replaced only with `overwrite_local`."""
+    def reimport(self, kind: str, name: str, confirm: bool = False, overwrite_local: bool = False, source: Any = None, **opts: Any) -> Dict[str, Any]:
+        """Reads the recorded source again (or `source`, which is then recorded in its place). Without `confirm` it only says what would change; with it, the copy
+        is replaced. A copy that was changed here is replaced only with `overwrite_local`."""
         with Lock():
             k = self._kind(kind)
             items = self.manifest.load()
@@ -151,7 +151,7 @@ class Importer:
                 raise Problem("not_imported", f"'{str(name)[:60]}' is not imported.")
             if entry.get("parent"):
                 raise Problem("part", f"This {kind} belongs to {entry['parent']}: re-import that.", parent=entry["parent"])
-            source = str(entry["source"])
+            source = str(source or entry["source"])
             read = {"server": name} if kind == "mcp" else {}
             if not Path(source.split("#", 1)[0]).exists():
                 raise Problem("source_missing", f"The source is not there any more: {source}", source=source)
