@@ -37,9 +37,13 @@ class OrchestrationClient:
             raise ValueError("name the conversation")
         return urllib.parse.quote(ref.strip())
 
-    def deliver(self, ref: str, message: str) -> Dict[str, Any]:
-        """Sends `message` to the conversation `ref` names; `{"delivery": {...}}` with its state (pending, delivered or dead)."""
-        return self._call("POST", f"/api/agent/sessions/{self._ref(ref)}/deliver", {"message": message})
+    def deliver(self, ref: str, text: str, kind: str = "info", task_ref: str = "") -> Dict[str, Any]:
+        """Sends `text` to the conversation `ref` names; `{"delivery": {...}}` with its state (pending, delivered or dead). The server frames it for the receiver."""
+        return self._call("POST", f"/api/agent/sessions/{self._ref(ref)}/deliver", {"text": text, "kind": kind, **({"task_ref": task_ref} if task_ref else {})})
+
+    def peers(self, own: str, query: str = "", offset: int = 0) -> Dict[str, Any]:
+        """The other conversations, newest use first, ten at a time: the same list the "@" picker shows."""
+        return self._call("GET", f"/api/agent/sessions/mentions?exclude={urllib.parse.quote(own)}&q={urllib.parse.quote(query)}&offset={max(0, int(offset))}&limit=10")
 
     def status(self, ref: str) -> Dict[str, Any]:
         return self._call("GET", f"/api/agent/sessions/{self._ref(ref)}/status")

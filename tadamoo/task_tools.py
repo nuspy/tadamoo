@@ -20,10 +20,17 @@ SUB = {"type": "object", "description": "A subtask; it may hold subtasks of its 
        "required": ["title"]}
 
 
+def closing_text(row: Dict[str, Any], result: str, by: str) -> str:
+    """The message that tells whoever assigned a task that it is closed, with what came of it."""
+    said = " ".join(str(result or row.get("done") or "").split())
+    return f'The task you assigned to me is closed ({by}): "{row["title"]}".' + (f" Result: {said}" if said else " No result was written.")
+
+
 class TaskTools:
     def __init__(self, board: TaskBoard, session_id: Callable[[], str]) -> None:
         self.board, self.session_id = board, session_id
         self.on_write: Optional[Callable[[], None]] = None            # the conversation learns that the change is its own, so it is not told of it as news
+        self.on_assigned_close: Optional[Callable[[str, str, str], None]] = None     # (who assigned it, the task, the words): the result of a task another session assigned goes back
 
     def _wrote(self) -> None:
         if self.on_write is not None:
@@ -59,10 +66,19 @@ def register_task_tools(registry: ToolRegistry, board: TaskBoard, session_id: Ca
         tt._wrote()
         return f"Task {id} moved."
 
-    def close(id: str) -> str:
+    def close(id: str, result: str = "") -> str:
+        row = next((r for r in board.view() if r["id"] == id), None)
         gone = board.close(id)
         tt._wrote()
-        return f"Closed and deleted: {', '.join(gone)}."
+        said = f"Closed and deleted: {', '.join(gone)}."
+        giver = ((row or {}).get("meta") or {}).get("assigned_by")
+        if giver and tt.on_assigned_close is not None:                         # a task another session assigned: what came of it goes back to them by itself
+            try:
+                tt.on_assigned_close(giver["id"], id, closing_text(row, result, "closed by me"))
+                said += f' The result was sent to "{giver["name"]}".'
+            except Exception as exc:
+                said += f' The result could not be sent to "{giver["name"]}": {exc}'
+        return said
 
     def lst(scope: str = "mine", state: str = "") -> str:
         if scope not in ("mine", "project"):
@@ -107,8 +123,9 @@ def register_task_tools(registry: ToolRegistry, board: TaskBoard, session_id: Ca
         {"type": "object", "properties": {"id": {"type": "string"}, "subtasks": {"type": "array", "items": SUB}}, "required": ["id", "subtasks"]}, subtasks)
     reg("task_move", "Reorders: puts a task before another one (`before`), or under a parent (`parent`, an id; empty for the top level).",
         {"type": "object", "properties": {"id": {"type": "string"}, "before": {"type": "string"}, "parent": {"type": "string"}}, "required": ["id"]}, move)
-    reg("task_close", "Closes a task that is finished (or no longer wanted): it is deleted with its subtasks. Check the result against what was asked first.",
-        {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}, close)
+    reg("task_close", "Closes a task that is finished (or no longer wanted): it is deleted with its subtasks. Check the result against what was asked first. A task another session "
+        "assigned to you (it says who in task_list): give the `result`, and it goes back to them by itself.",
+        {"type": "object", "properties": {"id": {"type": "string"}, "result": {"type": "string", "description": "what came of it, for whoever assigned the task"}}, "required": ["id"]}, close)
     reg("task_list", "Lists the open tasks with their notes: this conversation's own (`mine`) or all of the project's (`project`, to find a task to take over), optionally by state.",
         {"type": "object", "properties": {"scope": {"type": "string", "enum": ["mine", "project"]}, "state": {"type": "string", "enum": list(STATES)}}}, lst)
     reg("task_next", "The next queued task or subtask of this conversation, in order.", P, next_)

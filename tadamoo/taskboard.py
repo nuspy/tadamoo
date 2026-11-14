@@ -365,7 +365,7 @@ class TaskBoard:
             return self._change(end)
         if status not in REPORTED:
             raise TaskError(f"status must be one of {', '.join(sorted(set(REPORTED) | set(ENDS)))}.")
-        meta = {k: v for k, v in (metadata or {}).items() if k not in ("title", "goal") and isinstance(k, str) and len(json.dumps(v, default=str)) <= 1500}
+        meta = {k: v for k, v in (metadata or {}).items() if k not in ("title", "goal", "description") and isinstance(k, str) and len(json.dumps(v, default=str)) <= 1500}
 
         def work(tasks: List[Dict[str, Any]]) -> Dict[str, Any]:
             now, state = time.time(), REPORTED[status]
@@ -374,6 +374,8 @@ class TaskBoard:
             if t is None:
                 t = self._new(tasks, {"title": title}, "", session, by, 0, now, task_id)
             t["title"], t["state"], t["updated"], t["by"] = title, state, now, by if by in WHO else "agent"
+            if (metadata or {}).get("description"):
+                t["description"] = _clip(metadata["description"], TEXT)
             if status == "failed" or state == "blocked":
                 t["missing"] = _clip(result, NOTE) or t["missing"]
             elif result:

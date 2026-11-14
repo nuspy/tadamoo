@@ -695,6 +695,16 @@ class Session:
         register_cron_tools(self.agent.tools, RoutinesClient(self.endpoint, self.api_key))
         self.agent.tools._orchestration_on = True
 
+    def enable_peers(self) -> None:
+        """Gives the conversation the tools to list and write to the other conversations, and tells it when a task assigned to it is closed (tadamoo/session_tools.py)."""
+        from tadamoo.integrations.orchestration_client import OrchestrationClient
+        from tadamoo.session_tools import register_session_tools
+        client = OrchestrationClient(self.endpoint, self.api_key, session_id=self.session_id)
+        register_session_tools(self.agent.tools, client, lambda: self.session_id)
+        tools = getattr(self.agent.tools, "task_tools", None)
+        if tools is not None:                                  # a task another conversation assigned: its result goes back to them when it is closed
+            tools.on_assigned_close = lambda giver, task_id, text: client.deliver(giver, text, "info", task_id)
+
     def enable_planner(self, client: Any) -> None:
         """Gives the conversation the planner's tools and the question tool; every change to a plan asks."""
         from tadamoo.planner_tools import Confirmer, register_ask_tool, register_planner_tools
@@ -742,7 +752,8 @@ class Session:
 
     # -- commands --------------------------------------------------------------------------------------
 
-    def _begin_main(self, turn: str, text: str, origin: str = "user", attachments: Optional[List[str]] = None, optimize: bool = True, once: bool = False) -> Task:
+    def _begin_main(self, turn: str, text: str, origin: str = "user", attachments: Optional[List[str]] = None, optimize: bool = True, once: bool = False,
+                    peer: Optional[Dict[str, Any]] = None, mentions: Optional[List[Dict[str, str]]] = None) -> Task:
         """Starts a turn of the person's own conversation: what the agent should know first, then their message."""
         agent = self.agent
         agent.cancel.clear()
@@ -756,6 +767,7 @@ class Session:
         if note:
             agent.append({"role": "user", "content": note})
         self._add_message(agent, text, origin, attachments)
+        self._mark(agent, peer, mentions)
         retrieved = self.built.retrieved_message(text) if origin == "user" else None
         if retrieved:
             if retrieved.get("untrusted"):
@@ -767,6 +779,15 @@ class Session:
         self._adopt(task)
         self.tasks[turn] = task
         return task
+
+    @staticmethod
+    def _mark(agent: Any, peer: Optional[Dict[str, Any]], mentions: Optional[List[Dict[str, str]]]) -> None:
+        """What the page needs to draw a message as the bubble it is: from which conversation it came (`peer`), or which conversations the person's words name."""
+        if agent.messages and agent.messages[-1].get("role") == "user":
+            if peer:
+                agent.messages[-1]["peer"] = peer
+            if mentions:
+                agent.messages[-1]["mentions"] = mentions
 
     def _begin_side(self, turn: str, text: str, attachments: Optional[List[str]] = None) -> Task:
         """A request with nothing to do with the main conversation: a fork with a conversation of its own."""
@@ -783,7 +804,10 @@ class Session:
             self.busy = True
         threading.Thread(target=self._work, args=(task,), name=f"session-task-{task.turn}", daemon=True).start()
 
-    def send(self, turn_id: str, text: str, origin: str = "user", attachments: Optional[List[str]] = None, optimize: bool = True) -> bool:
+    def send(self, turn_id: str, text: str, origin: str = "user", attachments: Optional[List[str]] = None, optimize: bool = True, peer: Optional[Dict[str, Any]] = None,
+             mentions: Optional[List[Dict[str, str]]] = None) -> bool:
+        """A message for this conversation: the person's, or one from another conversation (`peer`: who, which kind) or the harness, which a task under way reads between two tool calls
+        instead of waiting for it to end. `mentions`: the conversations the person's words name, kept with the message."""
         once = False
         if origin == "user":
             asked = council.parse_command(text)
@@ -796,16 +820,22 @@ class Session:
             self._suggest_cancel.set()                 # a suggestion call in flight stops: the person's message is next
             if self.suggester is not None:
                 self.suggester.sent(text)
+        outside = origin.startswith("agent:") or origin == "harness"
         with self._lock:
             busy = self._workers > 0
-            if busy and origin != "user":
+            if busy and origin != "user" and not outside:
                 return False                           # a note from the planner never interrupts a task: it waits for the next quiet moment
             if not busy:
                 self.blocked = None
                 self._workers += 1
                 self.busy, self.turn_id = True, turn_id
+        if busy and outside:                           # another conversation wrote while a task is under way: it is read before the next model call, framed as theirs, not routed
+            with self._lock:
+                self.inbox.append({"turn": turn_id, "text": text, "origin": origin, "peer": peer})
+            self._save()
+            return True
         if busy:                                       # a task is under way: the message is looked at before its next model call
-            msg: Dict[str, Any] = {"turn": turn_id, "text": text, **({"attachments": attachments} if attachments else {}), **({} if optimize else {"optimize": False})}
+            msg: Dict[str, Any] = {"turn": turn_id, "text": text, **({"attachments": attachments} if attachments else {}), **({} if optimize else {"optimize": False}), **({"mentions": mentions} if mentions else {})}
             self.emit({"event": "queued", "turn": turn_id, "text": text})
             if self.parallel_slots() > self._workers:  # the model can take another request now: no need to wait for the task's safe point
                 threading.Thread(target=self._route_now, args=(msg,), name="session-route", daemon=True).start()
@@ -816,7 +846,7 @@ class Session:
                 self._interrupt_for_urgent()
             self._save()
             return True
-        task = self._begin_main(turn_id, text, origin, attachments, optimize, once)
+        task = self._begin_main(turn_id, text, origin, attachments, optimize, once, peer, mentions)
         self.emit({"event": "accepted", "turn": turn_id} if origin == "user" else {"event": "woke", "turn": turn_id, "text": text[:300]})
         threading.Thread(target=self._work, args=(task,), name="session-task", daemon=True).start()
         return True
@@ -1136,8 +1166,8 @@ class Session:
         or cancels the work (it is read at the next safe point), else ''. A message that would wait or is a different request does not stop it."""
         with self._lock:
             msg = self.inbox[0] if self.inbox else None
-        if msg is None:
-            return ""
+        if msg is None or msg.get("origin", "user") != "user":
+            return ""                                  # another conversation's message never cancels the rest of a batch: it is only read at the next safe point
         if "peek" not in msg:
             msg["peek"], msg["peek_why"] = self.router.route(msg["text"], self._context_of(task))            # asked once; the same answer is used when the message is routed
         if msg["peek"] != STEER:
@@ -1153,6 +1183,13 @@ class Session:
                 msg = self.inbox.pop(0) if self.inbox else None
             if msg is None:
                 break
+            if msg.get("origin", "user") != "user":     # from another conversation: read here, between two tool calls, as an event of its own
+                self._add_message(task.agent, msg["text"], msg["origin"], None, steer=True)
+                self._mark(task.agent, msg.get("peer"), None)
+                self.emit({"event": "routed", "turn": msg["turn"], "how": STEER, "why": "peer"})
+                if not task.side:
+                    self._save()
+                continue
             how, why = (msg["peek"], msg.get("peek_why", "judge")) if msg.get("peek") else self.router.route(msg["text"], self._context_of(task))
             msg.pop("peek", None)
             msg.pop("peek_why", None)
@@ -1166,6 +1203,7 @@ class Session:
         turn, text = msg["turn"], msg["text"]
         if how == STEER:
             self._add_message(task.agent, text, "user", msg.get("attachments"), steer=True)
+            self._mark(task.agent, None, msg.get("mentions"))
             if not task.side:
                 self._save()
             self.emit({"event": "routed", "turn": turn, "how": STEER, "why": why})
@@ -2106,6 +2144,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     if not args.ask_only and not args.no_planner:
         from tadamoo.integrations.planner_client import PlannerClient
         session.enable_planner(PlannerClient(cfg.endpoint, cfg.api_key))
+    if not args.ask_only:
+        session.enable_peers()
     if not args.ask_only and args.orchestration:
         session.enable_orchestration()
     if not args.ask_only and built.capabilities is not None:
@@ -2159,7 +2199,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                     emit({"event": "delivery", "id": delivery, "state": "accepted"})        # written twice: it was taken the first time
                     continue
                 took = session.send(str(cmd.get("id") or uuid.uuid4().hex[:8]), cmd["text"], origin=prov.clean(cmd.get("provenance")) if delivery else "user",
-                                    attachments=ids or None, optimize=cmd.get("optimize") is not False)
+                                    attachments=ids or None, optimize=cmd.get("optimize") is not False, peer=cmd["peer"] if isinstance(cmd.get("peer"), dict) else None,
+                                    mentions=[m for m in cmd["mentions"] if isinstance(m, dict) and m.get("id")] if isinstance(cmd.get("mentions"), list) else None)
                 if delivery:
                     if took:
                         seen.add(delivery)

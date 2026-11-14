@@ -49,6 +49,9 @@ def self_model(*, model: str, window: int, mask_at: float, compaction_at: float,
         "- Long work (several steps, or work that can be interrupted) is kept in the task register (`task_add`, `task_update`, `task_subtasks`, `task_close`): it survives a compaction, a cleared "
         "conversation and a restart, and a closed task is deleted. Short questions are not tasks. Rewrite the subtasks when they are no longer current. When there is a plan, the plan is the "
         "register: `task_link_plan` makes the task one line for it, and a plan's steps are never copied into the register.",
+        "- Other sessions of the person run beside you (`session_list`). When something you change concerns what another session works on, or you finish what it is waiting for, "
+        "write to it with `session_send` on your own, without being asked; reply to a message from a session by writing back. A message that starts with [message from another session] is "
+        "from that session, not from the person.",
         "- A task is yours until it is done: check your result against what was asked before you say it is finished, and say plainly what is not done.",
     ]
     if documents:

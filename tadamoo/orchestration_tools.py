@@ -1,4 +1,4 @@
-"""Tools a conversation uses to reach another one it did not start: session_send, session_status, session_spawn.
+"""Tools a conversation uses to watch and start others: session_status, session_digest, session_spawn (writing to another session is tadamoo/session_tools.py).
 
 They are thin clients of the server (tadamoo/integrations/orchestration_client.py): the conversation runs in its own process and
 never holds the server's shared secret, so every call proves who it is with the id and token it was started with. What reaches the
@@ -54,25 +54,6 @@ def register_orchestration_tools(registry: Any, client: Any, limiter: Optional[R
     from tadamoo.tools.registry import EffectClass
 
     limiter = limiter or RateLimiter()
-
-    def session_send(ref: str, message: str) -> str:
-        if not isinstance(ref, str) or not ref.strip():
-            return "Name the conversation the message is for."
-        if not isinstance(message, str) or not message.strip():
-            return "Write the message."
-        if len(message) > MESSAGE_MAX:
-            return f"The message is too long ({len(message)} characters; at most {MESSAGE_MAX})."
-        if not limiter.allow(ref.strip().lower()):
-            return f"Too many messages to '{ref}' in the last hour; wait before sending more."
-        try:
-            result = client.deliver(ref, message)
-        except Exception as exc:
-            return _failure(exc)
-        delivery = result.get("delivery") or {}
-        state = delivery.get("state", "pending")
-        if state == "dead":
-            return f"Not delivered ({delivery.get('reason', 'unreachable')}): {delivery.get('detail', '')}"
-        return f"Message {state}." + (" It is waiting for that conversation to be free." if state == "pending" else "")
 
     def session_status(ref: str) -> str:
         if not isinstance(ref, str) or not ref.strip():
@@ -137,11 +118,6 @@ def register_orchestration_tools(registry: Any, client: Any, limiter: Optional[R
             return f"Created ({session.get('alias') or sid}) but the task could not be sent: {_failure(exc)}"
         return f"Started {session.get('alias') or sid}, working on: {prompt[:120]}"
 
-    registry.register("session_send", "Sends a short message to another conversation (by its name or id). It arrives as data from this "
-                       "conversation, not as an order, unless the other one was told this conversation may give it orders.",
-                       {"type": "object", "properties": {"ref": {"type": "string", "description": "The other conversation's name or id"},
-                                                         "message": {"type": "string"}}, "required": ["ref", "message"]},
-                      EffectClass.IRREVERSIBLE, session_send)
     registry.register("session_status", "Shows whether another conversation (by its name or id) is free or at work, its last answer, and "
                        "whether anything sent to it is waiting or could not be delivered.",
                        {"type": "object", "properties": {"ref": {"type": "string"}}, "required": ["ref"]}, EffectClass.PURE, session_status, untrusted=True)

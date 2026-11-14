@@ -55,7 +55,7 @@ def read(agent: Any, *, window: int, unattended: bool) -> Dict[str, Any]:
         "unattended": bool(unattended),
         "steps": steps if steps > 0 else "unlimited",
         "max_tokens": getattr(agent, "max_tokens", None) or "the server's own",
-        "orchestration": bool(tools is not None and tools.get("session_send") is not None),
+        "orchestration": bool(tools is not None and tools.get("session_spawn") is not None),
         "long_answer": long_answer(getattr(agent, "incoming", "")),
         "compaction": folding,
         "reader": getattr(agent, "reader", "") or "this PC",
