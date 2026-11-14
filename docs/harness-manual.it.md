@@ -148,6 +148,7 @@ una nota.
 | `/compact` | trasforma la metà più vecchia della conversazione in un riassunto; solo quando nulla è in corso |
 | `/tools`, `/hooks`, `/mcp` | cosa può chiamare la conversazione, quali hook sono attivi, quali server MCP sono partiti |
 | `/reload-mcp`, `/reload-skills`, `/reload-plugins` | ferma i server MCP già avviati e rilegge i server; rilegge le skill da ogni cartella; cerca di nuovo i plugin (le loro skill e i loro server MCP, senza toccare quelli in funzione). Quello che viene installato dopo l'inizio della conversazione si usa da subito, senza riavviare. Solo quando non sta girando nulla |
+| `/install-skill [indirizzo o nome]` | il pannello delle skill di Impostazioni > Skill dentro la conversazione: installa (una cartella, un indirizzo GitHub, una pagina web o una inclusa nel programma), attiva o disattiva, aggiorna, rimuovi; `/install-skill on\|off\|remove\|update nome` fa una sola di queste cose. Senza conversazione apre la scheda delle Impostazioni |
 | `/audit` | controlla che il registro di ciò che l'agente ha fatto (catena di hash e file di testa) sia integro, leggendo il file com'è ora |
 | `/memory [parole]` | gli ultimi dieci appunti, oppure una ricerca |
 | `/copy [n]` | copia l'ultima risposta (o l'ennesima dalla fine) |
