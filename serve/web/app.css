@@ -1337,3 +1337,33 @@ dialog.afolder .brd-b { display: grid; gap: 8px; padding: 12px 16px 16px; }
 .plinf-l select { min-height: 44px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; max-width: 100%; }
 .pl-bar .plinf-l, .pl-bar .pl-btn { min-height: 44px; }
 .chatset .btn, .chatset select { min-height: 44px; }
+
+
+/* the settings panels (Chat settings, the plan's inference settings, the fieldsets of the Settings tab) use a readable column, left-aligned, not the whole central column: a label stays
+   next to its control. A narrow screen gets the full width. */
+.infhost > .chatset, .plinfhost > .chatset, .chat.withset .chatset { max-width: 720px; margin-inline-end: auto; }
+.chatset .csform, .csgroup { max-width: 720px; }
+.chatset .csrow > select, .chatset .csrow > input, .chatset .pfrow select, .plinf-l select { flex: 0 1 420px; max-width: 100%; }
+.plinf-l { justify-content: flex-start; }
+@media (max-width: 720px) {
+  .infhost > .chatset, .plinfhost > .chatset, .chat.withset .chatset, .chatset .csform, .csgroup { max-width: none; }
+  .chatset .csrow > select, .chatset .csrow > input, .chatset .pfrow select, .plinf-l select { flex: 1 1 100%; }
+}
+
+
+/* ---- the top bar is compact and stays at the top: brand, tabs and state on as few rows as fit ---- */
+.bar { min-height: 0; padding: 4px 12px; gap: 2px 14px; }
+.brand img { width: 24px; height: 24px; }
+.wordmark { font-size: 20px; }
+.tabs { gap: 2px; margin-left: 0; }
+.tab { padding: 5px 10px; font-size: 13.5px; }
+.model { font-size: 12.5px; }
+@media (pointer: coarse) { .tab { padding: 10px 12px; min-height: 44px; } }
+@media (max-width: 720px) { .bar { padding: 4px 8px; } .tab { padding-inline: 8px; } }
+
+@media (max-width: 800px) {
+  .bar { flex-wrap: wrap; }
+  .bar .tabs { display: flex; flex: 1 1 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; order: 5; gap: 2px; }
+  .bar .tabs .tab { flex: none; white-space: nowrap; padding: 8px 12px; min-height: 40px; }
+  .bar .pal-open { padding: 4px 8px; }
+}
