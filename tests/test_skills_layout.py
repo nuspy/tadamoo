@@ -60,7 +60,7 @@ def test_the_plan_template_is_a_valid_plan_and_nothing_heavy_runs_before_an_appr
     assert dag.nodes["gate1"].routes["go"] == ["video"] and dag.nodes["gate2"].routes["go"] == ["done"]
     assert {"approval1", "auto1"} <= set(dag.nodes["gate1"].dependencies) and {"approval2", "auto2"} <= set(dag.nodes["gate2"].dependencies)      # the approval, or the answer given in its place
     assert dag.nodes["approval2"].dependencies == ["need2"] and dag.nodes["need2"].dependencies == ["video"] and dag.nodes["approval1"].dependencies == ["need1"]
-    positions = [(n.position["x"], n.position["y"]) for n in dag.nodes.values()]
+    positions = [(n.position["x"], n.position["y"]) for n in dag.nodes.values() if n.type.value != "parameter"]      # parameters are not drawn
     assert len(set(positions)) == len(positions)                                     # no two steps on the same spot
 
 
