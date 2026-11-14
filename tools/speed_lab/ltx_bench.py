@@ -133,8 +133,8 @@ def install_timers() -> None:
         log(f"stage {len(times)} (denoise incl. load) {times[-1]} s")
         return out
     DiffusionStage.__call__ = timed
-    from ltx_core.model.transformer.model import X0Model
-    forward = X0Model.forward
+    from ltx_core.model.transformer.model import LTXModel
+    forward = LTXModel.forward
     acc = {"n": 0, "s": 0.0}
 
     def timed_forward(self, *a, **kw):
@@ -145,7 +145,7 @@ def install_timers() -> None:
         acc["n"] += 1
         acc["s"] += time.time() - t
         return out
-    X0Model.forward = timed_forward
+    LTXModel.forward = timed_forward
     build = DiffusionStage._build_transformer
     built = {"n": 0, "s": 0.0}
 
