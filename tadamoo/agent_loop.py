@@ -711,6 +711,14 @@ class AgentLoop:
         self.append({"role": "tool", "tool_call_id": call.call_id, "name": name, "content": text})
         return worked, text
 
+    def run_for_app(self, name: str, arguments: Dict[str, Any], origin: str) -> "tuple[bool, str]":
+        """A tool call an MCP app made, not the model: it goes through the same gate (arguments checked, hooks, permissions, a checkpoint, the audit record) and is
+        counted as outside content, but nothing is added to the model's messages: what it learns it learns from what the app says (docs/mcp-apps.md)."""
+        call = ParsedCall("app_" + uuid.uuid4().hex[:10], name, arguments)
+        self._audit("app_tool_call", {"tool": name, "arguments": json.dumps(arguments, ensure_ascii=False, default=str)[:300], "origin": origin})
+        result = self._execute(call, [False], loop_check=False)
+        return result.decision == "executed" and not result.is_error, self._stringify(name, result.output)
+
     @staticmethod
     def _from_outside(tool: Any, arguments: Dict[str, Any]) -> bool:
         """Whether what a call of this tool returns is content from outside: a tool marked so, unless it says this call reads something the person trusts."""

@@ -14,6 +14,7 @@ Evaluation order, first match wins:
 from __future__ import annotations
 
 import enum
+import contextvars
 import fnmatch
 import hashlib
 import json
@@ -25,6 +26,10 @@ from typing import Any, Callable, Dict, FrozenSet, List, Optional, Set, Tuple
 from tadamoo.rule_of_two import RuleOfTwo
 from tadamoo.sandbox import command_words
 from tadamoo.tools.registry import EffectClass
+
+
+# Set while an app's own tool call runs and the person has chosen that nobody is asked (docs/mcp-apps.md): every question of the call is answered yes.
+UNASKED: contextvars.ContextVar[bool] = contextvars.ContextVar("permission_unasked", default=False)
 
 
 class PermissionLevel(str, enum.Enum):
@@ -333,6 +338,10 @@ class PermissionManager:
 
     def _ask(self, tool_name: str, arguments: Dict[str, Any], key: Optional[str]) -> bool:
         if key is not None and key in self._remembered:
+            return True
+        if UNASKED.get():
+            if self.on_auto_approved is not None:
+                self.on_auto_approved(tool_name, arguments)             # said in the conversation and in the log, as for the technical session's yes
             return True
         approved = bool(self.confirm_callback and self.confirm_callback(tool_name, arguments))
         if approved and key is not None:

@@ -587,6 +587,7 @@ def _offer_capabilities(cfg: AgentConfig, workspace: Path, registry: Any, builde
             self.hub = MCPHub()
             client = MCPHttpClient(target, auth=_oauth_for(target)) if isinstance(target, str) else MCPClient(target, cwd=str(workspace), env=env)
             client.elicit = asker.handler(name)                 # a server that stops to ask for something asks the person, in the conversation
+            client.app_extension = True                         # the servers in use here may bring an app (MCP Apps, docs/mcp-apps.md)
             self.hub.add("s", client)
             self.hub.connect_all()
             if self.hub.errors:
@@ -613,6 +614,8 @@ def _offer_capabilities(cfg: AgentConfig, workspace: Path, registry: Any, builde
     index.vault_dir = Path(cfg.vault_dir) if cfg.vault_dir else None
     register_capability_tools(registry, index, hub_factory=hub_for)
     registry.mcp_asker = asker                                # the session points it at the conversation's confirmations
+    from tadamoo.mcp_apps import AppHost
+    registry.mcp_apps = AppHost(lambda: index.settings()["apps"], index.server_for, lambda entry_id: str((index.get(entry_id) or {}).get("name") or entry_id))
     def reader(path: str) -> Path:
         if path.startswith("attachment:") and cfg.attachments_dir and cfg.run_id:
             from tadamoo.attachments import AttachmentStore
