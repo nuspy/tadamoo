@@ -70,24 +70,24 @@ JS = r"""
 const D = JSON.parse(document.getElementById('data').textContent);
 const bytes = {};
 for (const [k, v] of Object.entries(D.spectra)) { const s = atob(v.b64); const a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); bytes[k] = a; }
-const NB = D.bands.length, FPS = 25, lx = f => Math.log(f / D.bands[0]) / Math.log(D.bands[NB - 1] / D.bands[0]);
+const NB = D.bands.length, SPEC = 25, lx = f => Math.log(f / D.bands[0]) / Math.log(D.bands[NB - 1] / D.bands[0]);
 const cards = [];
-function fmt(n) { return (n / FPS).toFixed(2).replace('.', ','); }
 function setup(card, v) {
   const vid = card.querySelector('video'), spec = card.querySelector('.spec'), mouth = card.querySelector('.mouth'), cnt = card.querySelector('.counter');
+  const FPS = v.fps || 25, fmt = n => (n / FPS).toFixed(2).replace('.', ',');
   const st = { vid, v, real: false, frames: Math.round((v.frames || 0)) };
   function frameNow(t) { return Math.max(0, Math.min(st.frames - 1, Math.floor(t * FPS + 1e-3))); }
   function draw(n) {
     cnt.textContent = fmt(n) + ' s · secondo ' + Math.floor(n / FPS) + ', fotogramma ' + (n % FPS) + ' di ' + FPS + '  (' + (n + 1) + '/' + st.frames + ')';
-    const key = st.real ? 'real' : v.given, a = bytes[key];
+    const key = st.real ? 'real' : v.given, a = bytes[key], n25 = a ? Math.min(a.length / NB - 1, Math.floor(n / FPS * SPEC)) : 0;
     let ctx = spec.getContext('2d'), W = spec.width, H = spec.height;
     ctx.clearRect(0, 0, W, H);
     for (const m of D.marks) { ctx.fillStyle = 'rgba(244,208,63,.22)'; ctx.fillRect(lx(m.lo) * W, 0, (lx(m.hi) - lx(m.lo)) * W, H); ctx.fillStyle = '#f4d03f'; ctx.font = (H * .09) + 'px sans-serif'; ctx.fillText(m.label, lx(m.lo) * W + 3, H * .09 + 2); }
     ctx.strokeStyle = '#333'; ctx.fillStyle = '#9aa'; ctx.font = (H * .085) + 'px sans-serif';
     for (const f of [100, 300, 1000, 3000, 10000]) { const x = lx(f) * W; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); ctx.fillText(f >= 1000 ? (f / 1000) + ' kHz' : f + ' Hz', x + 2, H - 3); }
-    if (a) { const w = W / NB; ctx.fillStyle = st.real ? '#6ec1ff' : '#ff8a65'; for (let b = 0; b < NB; b++) { const h = a[n * NB + b] / 255 * (H * .86); ctx.fillRect(b * w + 1, H * .9 - h, Math.max(1, w - 2), h); } }
+    if (a) { const w = W / NB; ctx.fillStyle = st.real ? '#6ec1ff' : '#ff8a65'; for (let b = 0; b < NB; b++) { const h = a[n25 * NB + b] / 255 * (H * .86); ctx.fillRect(b * w + 1, H * .9 - h, Math.max(1, w - 2), h); } }
     ctx = mouth.getContext('2d'); W = mouth.width; H = mouth.height; ctx.clearRect(0, 0, W, H);
-    for (const br of D.breaths) { ctx.fillStyle = 'rgba(244,208,63,.3)'; ctx.fillRect(br[0] / st.frames * W, 0, (br[1] - br[0]) / st.frames * W, H); }
+    for (const br of D.breaths) { ctx.fillStyle = 'rgba(244,208,63,.3)'; ctx.fillRect(br[0] / SPEC * FPS / st.frames * W, 0, (br[1] - br[0]) / SPEC * FPS / st.frames * W, H); }
     const ap = v.aperture, mx = Math.max(0.25, ...ap);
     ctx.strokeStyle = '#4da3ff'; ctx.lineWidth = 2; ctx.beginPath(); ap.forEach((y, i) => { const X = i / (st.frames - 1) * W, Y = H - 4 - y / mx * (H - 10); i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); }); ctx.stroke();
     ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; const px = n / (st.frames - 1) * W; ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, H); ctx.stroke();
@@ -136,14 +136,14 @@ def build(rows: List[Dict[str, Any]], ctx: Dict[str, Any], spectra: Dict[str, Di
             continue
         m = r["measures"]
         nums = [f"movimento medio {m['mean']} px a fotogramma, 90° percentile {m['p90']} px",
-                f"{m['frames']} fotogrammi a {m['fps']} al secondo, {m['repeated_frames']} uguali al precedente"]
+                f"{m.get('size', '')} {m['frames']} fotogrammi a {m['fps']} al secondo, {m['repeated_frames']} uguali al precedente".strip()]
         if m.get("mouth_speed_p90") is not None:
             nums.append(f"velocità della bocca (90° perc.) {m['mouth_speed_p90']} altezze di viso al secondo, testa (rms) {m['head_rms_speed']}")
         if m.get("face_sharpness") is not None:
             nums.append(f"nitidezza del volto (varianza del Laplaciano, a 832 di larghezza) {m['face_sharpness']}; video {m['video_mbit_s']} Mbit/s")
         nums.append(f"tempo di GPU {r['gpu_seconds']:.0f} s" if r["gpu_seconds"] else "nessun lavoro di GPU (si applica a una ripresa già fatta)")
         sent = f"<details><summary>cosa è stato davvero mandato al modello</summary><pre>{html.escape(json.dumps(r['params'], indent=1, ensure_ascii=False))}</pre></details>" if r.get("params") else ""
-        variants.append({"id": r["id"], "title": r["title"], "changed": r["changed"], "given": r.get("given_key", "real"), "frames": m["frames"], "aperture": [round(a, 3) for a in m["aperture"]]})
+        variants.append({"id": r["id"], "title": r["title"], "changed": r["changed"], "given": r.get("given_key", "real"), "frames": m["frames"], "fps": m["fps"], "aperture": [round(a, 3) for a in m["aperture"]]})
         secs.append(sec)
         cards.append(f"""<section class="card" data-id="{r['id']}"><h3>{html.escape(r['title'])}</h3>
 <div class="counter" aria-live="off">0,00 s</div>
