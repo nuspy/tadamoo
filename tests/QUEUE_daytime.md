@@ -248,3 +248,14 @@ Sull'app vera (`TaDaMoo.exe`, dati veri), a 360×640, 390×844 e oltre 1280, in 
 6. Una pagina web vera che descrive soltanto una skill, con un modello caricato: il testo scritto dal modello è mostrato intero, e non è installato finché non si preme «Installa»; con nessun modello l'errore dice di caricarne uno.
 7. Un'installazione con scaricamento vero di una skill piccola (la scheda dice quanto pesa prima): il passo e le ultime righe dell'installatore avanzano, «Ferma» interrompe il programma che sta scaricando e le skill già copiate restano. Da fare solo con l'utente e dopo il suo sì (parte `pip install` o `winget`).
 8. Il setup (`TaDaMooSetup.exe --skills news-research,talking-head --no-ui`) esegue `python -m tadamoo.skillmanager install ... --no-models`: copia e basta, nessun modello scaricato; senza `--skills` installa quelle spuntate nel catalogo.
+
+## Registro dei compiti aperti (14 novembre; provato con processi, server e browser senza testa e modello finto, NON con il modello vero e NON sull'app vera)
+
+Sull'app vera, a 360×640, 390×844 e oltre 1280, in italiano e in inglese, senza scroll orizzontale e con tutti i comandi da almeno 44 px:
+
+1. Chat in modalità agente su un lavoro lungo vero («riorganizza questa cartella in cinque passi»): l'agente apre un compito con sotto-compiti da solo (`task_add`), e non per una domanda breve. `<cartella>\.tadamoo\tasks.json` lo contiene.
+2. Con il modello vero, a metà lavoro premere `/compact` (o riempire il contesto): al messaggio dopo la compattazione la conversazione riceve di nuovo l'elenco dei suoi compiti (`[harness] Your open tasks`), e continua da «ancora da fare». Prima della compattazione non ripete l'elenco a ogni messaggio (guardare il registro delle richieste: l'inizio in cache non cambia).
+3. Chiudere la conversazione e riavviare il server (o il PC): scheda Compiti, il compito è ancora lì con le sue note; «Riprendi in chat» apre una conversazione nuova nella cartella giusta e l'agente chiama `task_resume` e prosegue da dove era.
+4. Cambiare un titolo e le note dalla scheda mentre una conversazione è aperta: al messaggio successivo l'agente riceve una sola riga («Your open tasks were changed outside you») e rilegge con `task_list`.
+5. Un piano vero (per esempio il telegiornale): `task_link_plan` fa del compito una riga sola «Piano …» con stato e avanzamento del piano; con un passo che aspetta te la riga è in evidenza e il banner lo conta; a piano finito la riga sparisce da sola. I passi del piano non compaiono come sotto-compiti.
+6. `/tasks`, `/tasks add <titolo>` e `/tasks resume <id>` nella Chat e nell'agente di codice; senza conversazione aperta `/tasks` apre la scheda.
