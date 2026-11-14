@@ -336,6 +336,9 @@
     return current;
   }
   function noteItem(it) { items.push({ kind: "note", ts: stampOf(), ...it }); }
+  /* Messages between conversations (docs/session-messaging.md): what this conversation sent to another (`out`), what came from another (`in`), and what stopped one (`stop`),
+     each a bubble of its own that says whom it is with, which kind it is and when; they are in the saved history too (a message's `peer`, the session_send calls). */
+  function peerItem(p) { const it = { ts: p.at || stampOf(), ...p, sort: p.kind, kind: "peer" }; items.push(it); return it; }
   /* Optimize prompt (tadamoo/optimize.py): under the person's message, what the model read in its place, or why the rewrite was not used */
   const OPT_WHY = ["lost", "ratio", "answer", "leak", "cut", "empty"];
   function optimizedNote(state, reason, detail, text, original, turn) {
@@ -375,6 +378,10 @@
   function applyEvent(e) {
     switch (e.event) {
       case "user": closeQuestions(); clearChips(); userItem(e.text, e.attachments, e.mentions); break;
+      case "peer_in": peerItem({ dir: "in", who: e.from, kind: e.kind, text: e.text, at: e.at }); break;
+      case "peer_out": peerItem({ dir: "out", who: e.to, kind: e.kind, text: e.text }); break;
+      case "peer_brake": peerItem({ dir: "stop", who: e.to, reason: e.reason, kind: e.kind }); break;
+      case "peer_expired": peerItem({ dir: "stop", who: e.to, reason: "expired", text: e.text }); break;
       case "accepted": clearChips(); assistant(e.turn); started(e.turn); break;
       case "intake": {                                                         // what the harness assumed or split before the agent began (tadamoo/intake.py)
         const lines = [];
@@ -463,7 +470,7 @@
             if (d.content) textBlock("text", d.content, e.turn);
           }
         } else if (d.type === "tool_start") {
-          if (d.name === "ask_user") break;                                    // its question is shown by the question itself
+          if (d.name === "ask_user" || d.name === "session_send") break;      // its question is shown by the question itself; a message to another session by its own bubble
           addBlock({ t: "tool", id: d.call_id, name: d.name, args: d.arguments || {}, status: "running", output: "", description: explainOf(d.description) }, e.turn);
         } else if (d.type === "server_unreachable") {                              // the model server cannot be reached: the agent waits and asks again, and says so
           addBlock({ t: "note", s: T("ch.retrying", d.attempt, Math.round(d.wait_s || 0)) }, e.turn);
@@ -493,6 +500,7 @@
         } else if (d.type === "long_answer") {                                    // the long answer the harness writes: one line that follows it (serve/longflow.py)
           longNote(e.turn, d);
         } else if (d.type === "tool_end") {
+          if (d.name === "session_send") { if (/^(Not sent|Not delivered|Error)/.test(String(d.output || ""))) peerItem({ dir: "stop", reason: "failed", text: String(d.output).slice(0, 400) }); break; }
           if (d.name === "ask_user") break;
           const b = toolBlock(d.call_id) || addBlock({ t: "tool", id: d.call_id, name: d.name, args: {}, status: "running", output: "" }, e.turn);
           b.status = d.status === "completed" ? "ok" : "failed"; b.decision = d.decision; b.output = String(d.output || "").slice(0, SHOWN_OUTPUT); b.dirty = true;
@@ -593,7 +601,8 @@
       if (m.role === "user") {
         const text = typeof m.content === "string" ? m.content : "";
         if (text.startsWith("[harness]")) { assistant(); addBlock({ t: "note", s: text.replace(/^\[harness\]\s*/, "") }); } else {
-          userItem(typeof m.raw === "string" ? m.raw : text, (m.attachments || []).map(n => ({ name: n })));
+          if (m.peer && m.peer.from) { peerItem({ dir: "in", who: m.peer.from, kind: m.peer.kind, text: m.peer.body, at: m.peer.at }); continue; }
+          userItem(typeof m.raw === "string" ? m.raw : text, (m.attachments || []).map(n => ({ name: n })), m.mentions);
           if (m.opt && typeof m.opt === "object") { assistant(); optimizedNote(m.opt.state, m.opt.reason, m.opt.detail, text, m.raw); }
         }
       } else if (m.role === "assistant") {
@@ -601,10 +610,13 @@
         (m.tool_calls || []).forEach(tc => {
           let args = {}; try { args = JSON.parse((tc.function || {}).arguments || "{}"); } catch (e) { /* shown as is */ }
           if ((tc.function || {}).name === "ask_user") return;
+          if ((tc.function || {}).name === "session_send") { peerItem({ dir: "out", who: { name: String(args.to || "") }, kind: args.kind || "info", text: String(args.text || ""), callId: tc.id, at: typeof m.ts === "number" ? m.ts : undefined }); return; }
           addBlock({ t: "tool", id: tc.id, name: (tc.function || {}).name, args, status: "ok", output: "" });
         });
         if (current) current.done = true;
       } else if (m.role === "tool") {
+        const sent = items.find(i => i.kind === "peer" && i.callId === m.tool_call_id);
+        if (sent) { if (/^(Not sent|Not delivered|Error)/.test(String(m.content || ""))) peerItem({ dir: "stop", reason: "failed", text: String(m.content).slice(0, 400) }); continue; }
         const b = toolBlock(m.tool_call_id) || (items.length ? items.flatMap(i => i.blocks || []).find(x => x.t === "tool" && x.id === m.tool_call_id) : null);
         if (b && m.skipped) {                                                   // a call that was not run: not a card of its own, but counted in one note
           items.forEach(it => { const at = (it.blocks || []).indexOf(b); if (at >= 0) { it.blocks.splice(at, 1); it.skipped = (it.skipped || 0) + 1; } });
@@ -927,9 +939,27 @@
     const r = await api("POST", `/${sid}/${what}`, { turn });
     if (!r.ok) status(errText(r));
   }
+  function paintPeer(it) {
+    const name = (it.who && it.who.name) || "", folder = (it.who && it.who.folder) || "";
+    const label = it.dir === "in" ? T("pr.from", name) : it.dir === "out" ? T("pr.to", name) : T("pr.stop");
+    const el = mk("article", `cmsg peer peer-${it.dir}`), head = mk("div", "peer-head"), when = it.ts ? new Date(it.ts * 1000).toLocaleString(LANG, { dateStyle: "short", timeStyle: "short" }) : "";
+    el.setAttribute("role", "group"); el.setAttribute("aria-label", label);
+    head.append(mk("b", "peer-who", label));
+    if (it.dir !== "stop" && it.sort) head.append(mk("span", "peer-kind", T("pr.kind." + it.sort)));
+    if (folder) head.append(mk("span", "peer-folder", folder));
+    if (when) head.append(mk("span", "peer-when", when));
+    el.append(head);
+    const body = it.dir === "stop" ? (it.reason === "expired" ? T("pr.expired", name, String(it.text || "").slice(0, 120)) : it.reason === "failed" ? it.text : T("pr.brake." + it.reason, name)) : it.text;
+    el.append(mk("div", "peer-body", body));
+    return el;
+  }
   function render() {
     empty.hidden = items.length > 0;
     items.forEach(it => {
+      if (it.kind === "peer") {
+        if (!it.el) { it.el = paintPeer(it); box.insertBefore(it.el, null); }
+        return;
+      }
       if (it.kind === "note") {
         if (!it.el) { it.el = mk("div", "anote cmsg"); box.insertBefore(it.el, null); it.dirty = true; }
         if (it.dirty) { paintNote(it); it.dirty = false; }
@@ -1577,7 +1607,7 @@
     await send(text);
     return true;
   }
-  window.agentChat = { startWith, record: () => rec, folder: curPath, busy: () => busyNow, skills, snapshot, refresh: () => poll(true), active, send, stop, newChat, current: () => sid, ensure, note, runOnServer, knowledge: setKnowledge, knowledgeIds: () => (rec && rec.knowledge) || [], rename, transcript, saveBlob, answers: answersOf,
+  window.agentChat = { apply: e => { apply(e); render(); }, startWith, record: () => rec, folder: curPath, busy: () => busyNow, skills, snapshot, refresh: () => poll(true), active, send, stop, newChat, current: () => sid, ensure, note, runOnServer, knowledge: setKnowledge, knowledgeIds: () => (rec && rec.knowledge) || [], rename, transcript, saveBlob, answers: answersOf,
     perm: { now: permNow, set: setPerm, cycle: cyclePerm, available: () => active() && mode !== "ask", modes: PERM_CYCLE },
     sessions: () => known.filter(s => s.state !== "closed" && inContext(s)).map(s => ({ id: s.id, label: `${s.title || s.id} \u00B7 ${T("ch.state." + s.state)}` })), open: openSession, branch, hasCopy: () => !!(rec && rec.worktree),
     toggleCopy: () => copyOpen.click() };

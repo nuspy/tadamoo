@@ -97,6 +97,7 @@
     li.append(h("div", "tk-head", h("b", "tk-name", name), h("span", "tk-badge tk-s-" + t.state, icon(t.state), h("span", "", T("tk.state." + t.state))),
       t.plan ? h("span", "tk-badge", T("tk.plan")) : null));
     if (t.state === "waiting") li.append(h("p", "tk-wait", T("tk.waits")));
+    if (t.meta && t.meta.assigned_by) li.append(h("p", "setnote tk-meta", T("tk.assigned", t.meta.assigned_by.name)));
     if (t.description && !t.plan) li.append(h("p", "tk-text", t.description));
     if (t.done) li.append(h("p", "tk-note", h("b", "", T("tk.f.done") + ": "), t.done));
     if (t.missing) li.append(h("p", "tk-note", h("b", "", T("tk.f.missing") + ": "), t.missing));

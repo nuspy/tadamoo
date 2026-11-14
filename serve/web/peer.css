@@ -1,0 +1,12 @@
+/* Messages between conversations (serve/web/agentchat.js, docs/session-messaging.md): a bubble of its own, in the conversation that sent it and in the one that got it. */
+.cmsg.peer { display: grid; gap: 4px; max-width: min(46em, 100%); margin: 8px 0; padding: 10px 12px; border: 1px solid var(--line); border-left-width: 4px; border-radius: 10px; background: var(--surface); }
+.peer-in { border-left-color: var(--accent); }
+.peer-out { border-left-color: var(--fg-2); margin-left: auto; }
+.peer-stop { border-left-color: var(--warn); background: var(--bg); }
+.peer-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
+.peer-who { overflow-wrap: anywhere; }
+.peer-kind, .peer-folder { padding: 0 8px; border: 1px solid var(--line); border-radius: 10px; font-size: 12px; line-height: 1.6; color: var(--fg-2); }
+.peer-when { font-size: 12px; color: var(--fg-3); }
+.peer-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; font-size: 15px; }
+.peer-stop .peer-body { color: var(--warn); }
+@media (max-width: 520px) { .cmsg.peer { padding: 10px; } .peer-out { margin-left: 0; } }
