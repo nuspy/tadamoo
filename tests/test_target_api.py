@@ -13,7 +13,8 @@ from tadamoo import target as tg
 from serve import handler
 from serve.agent_sessions import SessionManager
 from serve.approvals import ApprovalBoard
-from serve.tasks import ChangeJournal, TaskJournal
+from serve.changes import ChangeJournal
+from tadamoo.taskboard import TaskBoard
 from serve.target_api import SessionConversation, TargetManager
 from test_agent_gui_api import Api, wait_for
 from test_e2e_mock_server import ROOT, ByteTokenizer, ChatTemplate, MockEngine, Service, _NoTelemetry, answer, serve
@@ -141,7 +142,7 @@ def world(tmp_path):
     def build(llm, conv_factory=None, journal=None):
         sessions = SessionManager(tmp_path / "j", "http://127.0.0.1:1", command=stub_command, tick_s=0.2)
         made.append(sessions)
-        manager = TargetManager(sessions, journal or TaskJournal(tmp_path / "j"), llm_factory=lambda: llm, conversation=conv_factory or (lambda sid: FakeConversation()), waits=(0.01,))
+        manager = TargetManager(sessions, journal or (lambda workspace: TaskBoard(tmp_path / "project")), llm_factory=lambda: llm, conversation=conv_factory or (lambda sid: FakeConversation()), waits=(0.01,))
         made.append(manager)
         folder = tmp_path / "ws"
         folder.mkdir(exist_ok=True)
@@ -166,7 +167,7 @@ def test_a_target_runs_and_every_one_of_the_conversation_is_kept_for_the_dialog(
     assert [t["text"] for t in listing["targets"]] == ["Another one.", "Make A and B."] and listing["active"] is None
     assert listing["targets"][1]["counts"]["achieved"] == 2 and listing["targets"][1]["iterations"][0]["n"] == 1
     # a second manager over the same folder (a restart of the server) finds them again
-    again = TargetManager(sessions, TaskJournal(tmp_path / "j"), llm_factory=lambda: FakeLLM(**ONE))
+    again = TargetManager(sessions, lambda workspace: TaskBoard(tmp_path / "project"), llm_factory=lambda: FakeLLM(**ONE))
     assert [t["text"] for t in again.listing(sid)["targets"]] == ["Another one.", "Make A and B."]
     assert (sessions.history_dir(sid) / "targets.json").is_file()
 
@@ -280,11 +281,11 @@ def test_routes_create_read_annotate_stop_rerun_and_forget(tmp_path, monkeypatch
     svc.telemetry = _NoTelemetry()
     httpd = serve(svc, port=0)
     url = f"http://127.0.0.1:{httpd.server_address[1]}"
-    board, tasks = ApprovalBoard(), TaskJournal(tmp_path / "j")
+    board, tasks = ApprovalBoard(), (lambda workspace: TaskBoard(tmp_path / "project"))
     sessions = SessionManager(tmp_path / "j", url, "", board=board, command=stub_command, tick_s=0.2)
     llm = FakeLLM(**ONE)
     targets = TargetManager(sessions, tasks, llm_factory=lambda: llm, conversation=lambda sid: FakeConversation(), waits=(0.01,))
-    for name, value in (("_TASKS", tasks), ("_APPROVALS", board), ("_SESSIONS", sessions), ("_TARGETS", targets), ("_CHANGES", ChangeJournal(tmp_path / "j"))):
+    for name, value in (("_APPROVALS", board), ("_SESSIONS", sessions), ("_TARGETS", targets), ("_CHANGES", ChangeJournal(tmp_path / "j"))):
         monkeypatch.setattr(handler, name, value)
     api = Api(url)
     try:
@@ -300,7 +301,7 @@ def test_routes_create_read_annotate_stop_rerun_and_forget(tmp_path, monkeypatch
         view = api("GET", f"{base}/{tid}")[1]["target"]
         assert view["counts"]["achieved"] == 2 and [t["id"] for t in view["tasks"]] == ["t1", "t2"]
         registry = api("GET", "/api/tasks")[1]["tasks"]
-        assert sorted(t["id"] for t in registry) == [f"tg-{tid}-t1", f"tg-{tid}-t2"]
+        assert registry == []                                                                    # everything done: the target left nothing open in the register
         assert api("POST", f"{base}/{tid}/notes", {"criterion": "c1", "note": "checked by hand"})[1]["target"]["criteria"][0]["note"] == "checked by hand"
         assert api("POST", f"{base}/{tid}/notes", {"criterion": "c1", "status": "partial"})[0] == 400
         assert api("POST", f"{base}/{tid}/stop", {})[0] == 409                                  # it is not running

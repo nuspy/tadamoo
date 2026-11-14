@@ -13,7 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from serve import handler
 from serve.agent_runs import AgentRunner
 from serve.approvals import ApprovalBoard, ApprovalError
-from serve.tasks import ChangeJournal, TaskJournal
+from serve.changes import ChangeJournal
+from tadamoo.taskboard import TaskBoard
 from test_e2e_mock_server import answer, start_server, tool_call, ws  # noqa: F401  (fixtures)
 
 PY = f'"{sys.executable}"'
@@ -42,9 +43,10 @@ def setup(tmp_path, monkeypatch, start_server):  # noqa: F811
 
     def make(scripts, api_key=""):
         url = start_server(scripts, api_key=api_key)
-        tasks, changes, board = TaskJournal(tmp_path / "j"), ChangeJournal(tmp_path / "j"), ApprovalBoard()
-        runner = AgentRunner(tmp_path / "j", url, api_key, tasks=tasks, board=board)
-        for name, value in (("_TASKS", tasks), ("_CHANGES", changes), ("_APPROVALS", board), ("_RUNNER", runner)):
+        monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
+        tasks, changes, board = TaskBoard(tmp_path / "data" / "journal"), ChangeJournal(tmp_path / "j"), ApprovalBoard()      # runs in a folder nobody added are registered in the data folder
+        runner = AgentRunner(tmp_path / "j", url, api_key, boards=lambda workspace: tasks, board=board)
+        for name, value in (("_CHANGES", changes), ("_APPROVALS", board), ("_RUNNER", runner)):
             monkeypatch.setattr(handler, name, value)
         state.update(runner=runner, tasks=tasks, changes=changes, board=board, api=Api(url, api_key))
         return state
@@ -84,8 +86,7 @@ def test_a_run_started_from_the_page_works_in_the_folder_and_shows_up_everywhere
     run = wait_for(lambda: finished(s["api"], body["run"]["id"]))
     assert (run["status"], run["exit_code"], run["summary"]) == ("done", 0, "Wrote hello.txt.")
     assert (ws / "hello.txt").read_text(encoding="utf-8") == "hi\n"
-    (task,) = s["tasks"].load()["tasks"]
-    assert task["id"] == f"agent-{run['id']}" and task["status"] == "done"
+    assert s["tasks"].view() == []                                                          # the run's task was deleted when it finished well
     (edit,) = s["changes"].view()["edits"]
     assert (edit["file"], edit["review"]) == ("hello.txt", "pending")
     log = s["api"]("GET", f"/api/agent/runs/{run['id']}/log")[1]["text"]
@@ -121,7 +122,7 @@ def test_stopping_a_run_that_waits_ends_it_and_leaves_nothing_open(setup, ws):  
     run = wait_for(lambda: finished(s["api"], run_id))
     assert run["status"] == "stopped"
     assert s["api"]("GET", "/api/agent/approvals")[1]["pending"] == []
-    wait_for(lambda: not [t for t in s["tasks"].load()["tasks"] if t["id"] == f"agent-{run_id}"])   # closed tasks leave the panel
+    wait_for(lambda: not [t for t in s["tasks"].view() if t["id"] == f"agent-{run_id}"])   # closed tasks leave the panel
     assert s["api"]("POST", f"/api/agent/runs/{run_id}/stop", {})[0] == 409                 # nothing left to stop
 
 

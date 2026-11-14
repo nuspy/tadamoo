@@ -19,7 +19,7 @@ from serve.projects import ProjectStore
 from serve.plans import PlanService
 from serve.rag_api import RagApi, upload_limit
 from serve.service import Service
-from serve.tasks import ChangeJournal, TaskJournal
+from serve.changes import ChangeJournal
 from serve.util.text import ByteTokenizer
 from tadamoo.rag import RagError, RagStore, project_key
 
@@ -234,7 +234,7 @@ class Routes(unittest.TestCase):
         (base / "work").mkdir()
         cls.projects = ProjectStore(base / "journal")
         cls.work = cls.projects.add(str(base / "work"))["path"]
-        cls.patches = [mock.patch.object(handler, "_TASKS", TaskJournal(base / "j")), mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j")),
+        cls.patches = [mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j")),
                        mock.patch.object(handler, "_PLANS", PlanService(base / "planner")), mock.patch.object(handler, "_PROJECTS", cls.projects),
                        mock.patch.object(handler, "_RAG", cls.rag)]
         for p in cls.patches:

@@ -12,7 +12,8 @@ from serve.agent_runs import RunError
 from serve.agent_sessions import SessionManager
 from serve.approvals import ApprovalBoard
 from serve.projects import ProjectStore
-from serve.tasks import ChangeJournal, TaskJournal
+from serve.changes import ChangeJournal
+from tadamoo.taskboard import TaskBoard
 from test_e2e_mock_server import answer, start_server, tool_call, ws  # noqa: F401  (fixtures)
 from test_agent_gui_api import Api, wait_for  # noqa: E402
 
@@ -114,8 +115,8 @@ def test_the_routes_add_list_and_remove_and_a_conversation_is_listed_in_the_fold
 
 
 def test_a_conversation_in_a_folder_shows_its_file_edits_in_the_changes_panel_and_no_task(server, tmp_path, monkeypatch):
-    tasks, changes = TaskJournal(tmp_path / "jj"), ChangeJournal(tmp_path / "jj")
-    monkeypatch.setattr(handler, "_TASKS", tasks)
+    monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
+    changes = ChangeJournal(tmp_path / "jj")
     monkeypatch.setattr(handler, "_CHANGES", changes)
     s = server([tool_call("write_file", path="hello.txt", content="one two"), answer("Done.")])
     api, folder = s["api"], tmp_path / "site"
@@ -125,4 +126,4 @@ def test_a_conversation_in_a_folder_shows_its_file_edits_in_the_changes_panel_an
     wait_for(lambda: any(e["event"] == "done" for e in api("GET", f"/api/agent/sessions/{sid}/events?after=0")[1]["events"]), seconds=60)
     assert (folder / "hello.txt").read_text(encoding="utf-8") == "one two"
     assert [(e["file"], e["kind"]) for e in changes.load()["edits"]] == [("hello.txt", "added")]
-    assert tasks.load()["tasks"] == []                                                                  # a conversation is not one task with an end
+    assert TaskBoard(tmp_path / "data" / "journal").view() == []                                        # a conversation is not one task with an end

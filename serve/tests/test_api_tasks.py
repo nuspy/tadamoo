@@ -1,5 +1,6 @@
-"""Tests for /api/tasks and /api/changes HTTP endpoints."""
+"""Tests for /api/tasks (the programs' way into the register of open work) and /api/changes HTTP endpoints."""
 import json
+import os
 import tempfile
 import unittest
 import urllib.error
@@ -12,7 +13,7 @@ from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate
 from serve.handler import serve
 from serve.service import Service
-from serve.tasks import ChangeJournal, TaskJournal
+from serve.changes import ChangeJournal
 from serve.util.text import ByteTokenizer
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,7 +34,7 @@ class _Server(unittest.TestCase):
         cls.svc.telemetry = NoTelemetry()
         cls.svc.api_key = cls.api_key
         cls.tmp = tempfile.TemporaryDirectory()
-        cls.patch = mock.patch.object(handler, "_TASKS", TaskJournal(Path(cls.tmp.name)))
+        cls.patch = mock.patch.dict(os.environ, {"TADAMOO_DATA": cls.tmp.name})                     # the register of work reported from outside lives in the data folder
         cls.patch.start()
         cls.patch_changes = mock.patch.object(handler, "_CHANGES", ChangeJournal(Path(cls.tmp.name)))
         cls.patch_changes.start()
@@ -62,27 +63,49 @@ class _Server(unittest.TestCase):
 
 class ApiTasksTest(_Server):
     def test_tasks_lifecycle_api(self):
-        # 1. GET /api/tasks
+        # 1. GET /api/tasks: every open task of every folder, flat
         code, data = self.call("GET", "/api/tasks")
         self.assertEqual(code, 200)
         self.assertIn("tasks", data)
 
-        # 2. POST /api/tasks (record)
-        code, res = self.call("POST", "/api/tasks", {"id": "http_test_task", "status": "running", "metadata": {"origin": "test"}})
+        # 2. POST /api/tasks (a report): the task is opened, running, with what is done so far
+        code, res = self.call("POST", "/api/tasks", {"id": "http_test_task", "status": "running", "result": "step 1", "metadata": {"goal": "Rebuild the site", "origin": "test"}})
         self.assertEqual(code, 200)
         self.assertEqual(res["status"], "ok")
-        self.assertEqual(res["task"]["id"], "http_test_task")
-        self.assertEqual(res["task"]["status"], "running")
+        self.assertEqual((res["task"]["id"], res["task"]["state"], res["task"]["title"], res["task"]["done"]), ("http_test_task", "running", "Rebuild the site", "step 1"))
+        self.assertEqual(res["task"]["meta"]["origin"], "test")
 
-        # 3. GET verifies task exists
+        # 3. GET verifies it, with the fields a reader needs
         code, data2 = self.call("GET", "/api/tasks")
-        ids = [t["id"] for t in data2["tasks"]]
-        self.assertIn("http_test_task", ids)
+        row = next(t for t in data2["tasks"] if t["id"] == "http_test_task")
+        self.assertEqual((row["status"], row["state"], row["result"], row["metadata"]["origin"]), ("running", "running", "step 1", "test"))
 
-        # 4. POST /api/tasks (close)
-        code, res_close = self.call("POST", "/api/tasks", {"id": "http_test_task", "action": "close"})
-        self.assertEqual(code, 200)
-        self.assertEqual(res_close["status"], "closed")
+        # 4. a failed one stays, blocked, with the reason; a finished one is deleted
+        self.call("POST", "/api/tasks", {"id": "http_test_task", "status": "failed", "result": "the model was not reachable"})
+        row = next(t for t in self.call("GET", "/api/tasks")[1]["tasks"] if t["id"] == "http_test_task")
+        self.assertEqual((row["state"], row["missing"], row["result"]), ("blocked", "the model was not reachable", "the model was not reachable"))
+        code, ended = self.call("POST", "/api/tasks", {"id": "http_test_task", "status": "done"})
+        self.assertEqual((code, ended["status"]), (200, "ended"))
+        self.assertNotIn("http_test_task", [t["id"] for t in self.call("GET", "/api/tasks")[1]["tasks"]])
+
+    def test_a_parent_names_its_subtasks_whichever_is_reported_first_and_closing_deletes(self):
+        self.call("POST", "/api/tasks", {"id": "kid.1", "status": "pending", "metadata": {"title": "Part one", "depends_on": []}})
+        self.call("POST", "/api/tasks", {"id": "parent", "status": "running", "children": ["kid.1", "kid.2"], "metadata": {"title": "The request"}})
+        self.call("POST", "/api/tasks", {"id": "kid.2", "status": "pending", "metadata": {"title": "Part two"}})
+        rows = {t["id"]: t for t in self.call("GET", "/api/tasks")[1]["tasks"]}
+        self.assertEqual((rows["kid.1"]["parent"], rows["kid.2"]["parent"], rows["parent"]["children"]), ("parent", "parent", ["kid.1", "kid.2"]))
+        self.assertEqual(rows["kid.1"]["state"], "queued")
+        self.call("POST", "/api/tasks", {"id": "parent", "action": "close"})
+        self.assertEqual([t["id"] for t in self.call("GET", "/api/tasks")[1]["tasks"] if t["id"] in ("parent", "kid.1", "kid.2")], [])
+
+    def test_the_folder_a_report_names_decides_the_register(self):
+        folder = Path(self.tmp.name) / "unknown-folder"
+        folder.mkdir()
+        self.call("POST", "/api/tasks", {"id": "elsewhere", "status": "running", "project": str(folder), "metadata": {"title": "Run elsewhere"}})
+        row = next(t for t in self.call("GET", "/api/tasks")[1]["tasks"] if t["id"] == "elsewhere")
+        self.assertEqual(Path(row["project"]), Path(self.tmp.name) / "journal")                 # a folder nobody added has no register of its own: the data folder's
+        self.assertFalse((folder / ".tadamoo").exists())
+        self.call("POST", "/api/tasks", {"id": "elsewhere", "action": "close"})
 
     def test_changes_api(self):
         code, data = self.call("GET", "/api/changes")
@@ -93,6 +116,10 @@ class ApiTasksTest(_Server):
         code, _ = self.call("POST", "/api/tasks", raw=b"[1, 2]")
         self.assertEqual(code, 400)
         code, _ = self.call("POST", "/api/tasks", {"status": "running"})
+        self.assertEqual(code, 400)
+        code, _ = self.call("POST", "/api/tasks", {"id": "x", "status": "nonsense"})
+        self.assertEqual(code, 400)
+        code, _ = self.call("POST", "/api/tasks", {"id": "bad id!", "status": "running"})
         self.assertEqual(code, 400)
         code, data = self.call("GET", "/api/tasks")
         self.assertNotIn("x", [t["id"] for t in data["tasks"]])

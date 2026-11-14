@@ -21,7 +21,7 @@ from serve.handler import serve
 from serve.plans import PlanService
 from serve.rag_api import RagApi
 from serve.service import Service
-from serve.tasks import ChangeJournal, TaskJournal
+from serve.changes import ChangeJournal
 from serve.util.text import ByteTokenizer
 from tadamoo.rag import RagError, RagStore, project_key
 from tadamoo.rag.backends import open_backend, prepare as prep
@@ -152,7 +152,7 @@ class RoutesTest(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         base = Path(cls.tmp.name)
         cls.rag = RagStore(base / "rag")
-        cls.patches = [mock.patch.object(handler, "_TASKS", TaskJournal(base / "j")), mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j")),
+        cls.patches = [mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j")),
                        mock.patch.object(handler, "_PLANS", PlanService(base / "planner")), mock.patch.object(handler, "_RAG", cls.rag)]
         for p in cls.patches:
             p.start()
