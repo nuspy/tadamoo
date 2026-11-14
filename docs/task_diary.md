@@ -5,6 +5,8 @@ Ultimo aggiornamento: 14 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e
 
 ## 14 novembre
 
+- Fatto (14 novembre, sulla GPU): prova di LTX 2.5 per la presentatrice al posto di LongCat, con la stessa foto, la stessa descrizione e la stessa voce di 6,9 secondi, nel modo audio-verso-video di LTX Studio, con il checkpoint 2.5 distilled nvfp4 che c'era già (nessun download). Due riprese (voce vera e voce smorzata), 133 e 74 secondi di GPU contro 323-450 di LongCat. Aggiunte alla pagina `E:/AI/Output/motion_matrix/20261114-run1/review.html` accanto alla base. Non è collegato al telegiornale; il giudizio è tuo.
+
 - Deciso dall'utente (14 novembre): tutto a 25 fotogrammi al secondo, anche il montaggio del telegiornale (`fps` di base 25). L'opzione `frame_resample` è stata tolta. Una sigla che non è a 25 viene riconvertita una volta nella cartella di lavoro (un fotogramma ripetuto o tolto, suono copiato) e quel file è quello unito e controllato come intatto; il manifest lo dice.
 - Deciso dall'utente (14 novembre): `video-modification` resta tra le voci del setup, non spuntata, ma NON va installata su questo PC (spazio finito): nessuna installazione dei suoi componenti, nessun download. Wan VACE: lasciato stare.
 - Tempi massimi (14 novembre): ogni lavoro ha un tempo massimo proporzionale alla durata dell'audio o del video, da fattore x mediana dei rapporti misurati x durata (`tadamoo/jobtime.py`); sforare è un errore del passo.
