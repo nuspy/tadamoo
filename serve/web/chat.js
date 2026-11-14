@@ -45,6 +45,7 @@
   function inline(s) {
     const codes = [];
     s = s.replace(/`([^`\n]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
+    if (window.NetAddr) s = window.NetAddr.fix(s);                       // for a person on another device: an address of this machine in the text becomes the address they reach it at
     s = esc(s)
       .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
       .replace(/(^|[^*\w])\*([^*\n]+)\*(?![*\w])/g, "$1<em>$2</em>")

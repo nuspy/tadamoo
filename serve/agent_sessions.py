@@ -52,6 +52,7 @@ from serve.agent_runs import MODES, RunBusy, RunError
 from serve.approvals import ApprovalBoard
 from serve.conv_nodes import NodeStore
 from serve.deliveries import DeliveryError, DeliveryQueue
+from tadamoo.netaddr import valid_base
 from serve.messaging import ASKS, QUESTION_TTL_S, Messenger, Refused
 from serve.session_budget import SessionBudget
 from serve.util.files import write_json
@@ -1727,7 +1728,8 @@ class SessionManager:
             by_id = {r["id"]: r for r in self.records}
             return [{"id": m, "name": self._mention_name(by_id[m])} for m in dict.fromkeys(mentions) if m in by_id and m != own][:MENTIONS_MAX]
 
-    def send(self, sid: str, text: Any, attachments: Any = None, place: Any = None, optimize: Any = None, reader: Any = None, mentions: Any = None) -> Dict[str, Any]:
+    def send(self, sid: str, text: Any, attachments: Any = None, place: Any = None, optimize: Any = None, reader: Any = None, mentions: Any = None,
+             address: Any = None) -> Dict[str, Any]:
         if not isinstance(text, str) or not text.strip():
             raise RunError("Write a message.", "text_missing")
         mentioned = self._check_mentions(mentions, sid)
@@ -1741,11 +1743,13 @@ class SessionManager:
                 raise RunError("That conversation is closed.", "closed")
             turn = secrets.token_hex(3)              # a message that comes while the agent works is looked at by the agent itself
             rec["human_at"] = time.time()            # the person is talking: the chain of automatic replies that woke it starts again
+            if isinstance(address, str):
+                rec["address"] = valid_base(address)  # where the person reaches this server from where they are: "" at this machine (docs/remote-devices.md)
             live = self._ensure(sid)
             held = self._place_for(sid, place)
             cmd = {"cmd": "send", "id": turn, "text": text, **({"attachments": [c["id"] for c in cards]} if cards else {}), **({"place": held} if held else {}),
                    **({"optimize": False} if optimize is False else {}), **({"reader": reader} if reader in READERS else {}),
-                   **({"mentions": mentioned} if mentioned else {})}      # "Send my original instead": this message is not rewritten; the conversations it names ride along for a later routing
+                   **({"address": rec["address"]} if isinstance(address, str) else {}), **({"mentions": mentioned} if mentioned else {})}      # "Send my original instead": this message is not rewritten; the conversations it names ride along for a later routing
             self._unconfirmed[sid] = cmd
             if not rec.get("title"):
                 rec["title"] = " ".join(text.split())[:TITLE_CHARS]

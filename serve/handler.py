@@ -86,8 +86,8 @@ from tadamoo.rag import RagError, RagStore
 from tadamoo.personas import PersonaError, PersonaStore
 from tadamoo.context_patterns import catalog as context_patterns_catalog
 from serve.capabilities_api import CapabilityApi, CapabilityError
+from serve import netaddr
 from serve.mcp_apps_api import AppsApi, AppsApiError
-from serve.mcp_sandbox import SandboxOrigin
 from serve.intake_prefs import IntakeError, IntakePrefs
 from tadamoo.roles import CODING_ROLE, ROLE_IDS
 from serve.coding_prefs import CodingError, CodingPrefs
@@ -123,6 +123,7 @@ BENCH_GET = ("/api/bench", "/api/bench/preflight", "/api/bench/run", "/api/bench
 _MEM_WORKER = None                                    # learns from what the person wrote when the GPU is free
 _CARDS = None                                         # writes the card of each conversation when it has been quiet, and of the old ones when nothing else works
 _EXPORT = export_api.ExportApi()                      # turns a conversation into a file; holds a PDF page for the desktop app's print
+_TELEGRAM_PORT = [0]                                  # the port of the server, for the address a chat is given (serve/netaddr.py)
 _APPS = None                                          # MCP Apps' side of the page, made on first use
 _CAPS = None                                          # the Settings page's side of capabilities, made on first use
 _IMPORT = None                                        # the import service's side (a test puts its own here), made on first use
@@ -220,6 +221,8 @@ def telegram_service(sessions) -> TelegramService:
     if _TELEGRAM is None:
         _TELEGRAM = TelegramService(tg.Settings(userdata.path("telegram.json")), tg.Token(folder=userdata.user_data_dir()), sessions,
                                     levels=permission_levels(), attachments_dir=userdata.path("attachments"), state_dir=userdata.path("telegram"))
+        port = _TELEGRAM_PORT[0]
+        _TELEGRAM.network_base = lambda: netaddr.server_base(port) if port else ""
     return _TELEGRAM
 
 
@@ -228,6 +231,7 @@ def _start_telegram(httpd) -> None:
     handler = httpd.RequestHandlerClass
     bare = handler.__new__(handler)
     bare.server = httpd
+    _TELEGRAM_PORT[0] = httpd.server_address[1]
     telegram_service(bare._agent_sessions).start_if_enabled()
 
 
@@ -439,6 +443,10 @@ def make_handler(svc: Service, remote: bool = False):
         def _outside(self) -> bool:
             """A request that came through the listener for phones."""
             return self.remote_listener
+
+        def _address(self) -> str:
+            """The address this client reaches the server at, or "" when it is at this machine (serve/netaddr.py)."""
+            return netaddr.client_base(self.client_address[0], self.headers.get("Host", ""), self.server.server_address[1])
 
         def _reader(self) -> str:
             """Where the person reads the answers: a paired phone, a browser on another device, or this PC."""
@@ -2189,13 +2197,13 @@ def make_handler(svc: Service, remote: bool = False):
         def _mcp_apps(self) -> AppsApi:
             global _APPS
             if _APPS is None:
-                _APPS = AppsApi(SandboxOrigin(self.server.server_address[0]), lambda: self._caps().index.settings()["apps"])
+                _APPS = AppsApi(lambda: self._caps().index.settings()["apps"])
             return _APPS
 
         def _mcp_apps_get(self, path):
             try:
                 if path == "/api/mcp-apps/config":
-                    return self._json(200, self._mcp_apps().config())
+                    return self._json(200, self._mcp_apps().config(self.server.server_address[0]))
                 return self._json(200, self._mcp_apps().template(path[len("/api/mcp-apps/template/"):]))
             except AppsApiError as e:
                 return self._json(404, {"error": {"type": "mcp_apps", "message": str(e)}})
@@ -3908,7 +3916,7 @@ def make_handler(svc: Service, remote: bool = False):
                     if len(parts) == 3 and parts[2] == "budget":
                         return self._json(200, {"session": mgr.set_budget(parts[1], req.get("budget_day_tokens"))})
                     if len(parts) == 3 and parts[2] == "send":
-                        return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments"), req.get("place"), req.get("optimize"), self._reader(), req.get("mentions")))
+                        return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments"), req.get("place"), req.get("optimize"), self._reader(), req.get("mentions"), self._address()))
                     if len(parts) == 3 and parts[2] in ("promote", "drop"):
                         return self._json(200, {"session": getattr(mgr, parts[2])(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "answer":

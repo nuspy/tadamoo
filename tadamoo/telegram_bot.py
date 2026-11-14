@@ -117,7 +117,7 @@ class _Send:
         self.chat, self.text, self.markup, self.after, self.sent, self.tries, self.last = chat, text, markup, after, 0, 0, None
 
     def run(self, bot: "TelegramBot", now: float) -> bool:
-        pieces = split_message(self.text) or ["."]
+        pieces = split_message(bot.rewrite(self.text)) or ["."]
         while self.sent < len(pieces):
             params: Dict[str, Any] = {"chat_id": self.chat, "text": pieces[self.sent], "disable_web_page_preview": True}
             if self.markup and self.sent == len(pieces) - 1:
@@ -138,7 +138,7 @@ class _Stream:
     def run(self, bot: "TelegramBot", now: float) -> bool:
         if not self.closed and self.touched and now - self.touched > STREAM_IDLE_S:
             self.closed = True
-        wanted = split_message(self.buf)
+        wanted = split_message(bot.rewrite(self.buf))
         if not wanted:
             return self.closed
         if not self.closed and self.parts and now - self.edited < EDIT_S:
@@ -174,6 +174,7 @@ class TelegramBot:
         self.api, self.settings, self.sessions, self.attachments, self.levels = api, settings, sessions, attachments, levels
         self.tmp_dir, self.clock, self.wall, self.log = Path(tmp_dir), clock, wall, log
         self.speech = speech                       # the voice service's speech to text: `check()` and `transcribe(path, lang)`, raising SpeechError
+        self.rewrite: Callable[[str], str] = lambda text: text      # what is said in a chat: a person on Telegram is never at this machine, so an address of this machine in it is made the one they can reach (docs/remote-devices.md)
         self._lock = threading.RLock()
         self._cursor: Dict[str, int] = {}
         self._queues: Dict[int, Deque[Any]] = collections.defaultdict(collections.deque)
