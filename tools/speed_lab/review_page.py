@@ -60,6 +60,8 @@ def build(out: Path, title: str, intro: str, rows: list, md_name: str = "segnala
         nums = r.get("numbers") or {}
         table = "<table class='num'>" + "".join(f"<tr><td>{html.escape(str(k))}</td><td>{html.escape(str(v))}</td></tr>" for k, v in nums.items()) + "</table>" if nums else ""
         figs = "".join(f"<figure><video src='{html.escape(v['src'])}' controls preload='metadata' playsinline muted loop></video><figcaption>{html.escape(v['label'])}</figcaption></figure>" for v in r.get("videos", []))
+        figs += "".join(f"<figure><img src='{html.escape(v['src'])}' alt='{html.escape(v['label'])}' style='width:100%;border-radius:8px'><figcaption>{html.escape(v['label'])}</figcaption></figure>" for v in r.get("images", []))
+        figs += "".join(f"<figure><audio src='{html.escape(v['src'])}' controls preload='metadata' style='width:100%'></audio><figcaption>{html.escape(v['label'])}</figcaption></figure>" for v in r.get("audios", []))
         flat = "; ".join(f"{k} {v}" for k, v in nums.items())
         cards.append(f"<section class='row' id='{html.escape(r['id'])}' data-title='{html.escape(r['title'], quote=True)}' data-what='{html.escape(r.get('what', ''), quote=True)}' data-numbers='{html.escape(flat, quote=True)}'>"
                      f"<h2>{html.escape(r['title'])}</h2><p class='what'>{html.escape(r.get('what', ''))}</p><p class='look'>{html.escape(r.get('look', ''))}</p>"
