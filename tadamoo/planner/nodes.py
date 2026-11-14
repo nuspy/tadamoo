@@ -5,6 +5,7 @@ loops, questions to the person, results and log lines. The kinds marked `auto` a
 the agent or the person: waiting out a time, setting a value, writing a line."""
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -21,9 +22,11 @@ LAUNCHES = ("manual", "event", "interval", "caller")      # how a start node sta
 ASKS = ("value", "approve")                               # what a human request wants: a value, or a yes or no on something shown
 PLAN_REF = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 CONTENT_MAX, ANSWER_MAX = 20000, 4000
+MAX_CHOICES, CHOICE_TEXT, HELP_MAX = 40, 120, 1000
+MAX_INNER, INNER_NAME, INNER_RESULT = 30, 60, 2000
 
 # kind of field -> what a page draws for it
-FIELD_KINDS = ("number", "integer", "text", "textarea", "expression", "name", "names", "datetime", "choice", "json", "archives", "branches")
+FIELD_KINDS = ("number", "integer", "text", "textarea", "expression", "name", "names", "options", "datetime", "choice", "json", "archives", "branches")
 ARCHIVE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 MAX_ARCHIVES, MAX_BRANCHES, LABEL_MAX = 50, 12, 40
 OPS = ("<", "<=", "=", "!=", ">=", ">", "between", "in", "contains", "else")      # what the helper of a branch can build; `else` takes what no other branch took
@@ -31,8 +34,8 @@ ON_NO_MATCH = ("stop", "ask")                                                   
 MODES = ("first", "all")                                                         # a decision: the first branch that holds wins, or every branch that holds fires
 
 NODE_SPECS: Dict[str, Dict[str, Any]] = {
-    "action": {"family": "action", "auto": False, "summary": "A task for the agent or the person", "fields": [
-        {"name": "rag_archives", "kind": "archives", "max": MAX_ARCHIVES}]},
+    "action": {"family": "action", "auto": False, "summary": "A task for the agent or the person; it may name the inner steps it is made of, in order", "fields": [
+        {"name": "rag_archives", "kind": "archives", "max": MAX_ARCHIVES}, {"name": "steps", "kind": "names", "max": MAX_INNER}]},
     "sensor": {"family": "action", "auto": False, "summary": "Listens for an event and resolves when its condition holds", "fields": []},
     "decision": {"family": "flow", "auto": False, "summary": "Has several outcomes, each its own connector: the branches whose condition holds are taken", "fields": [
         {"name": "input", "kind": "expression", "max": 300, "hidden": True}, {"name": "mode", "kind": "choice", "choices": list(MODES), "default": "first"},
@@ -59,9 +62,12 @@ NODE_SPECS: Dict[str, Dict[str, Any]] = {
         {"name": "source", "kind": "choice", "choices": ["variable", "clock", "global", "step"], "default": "variable"}, {"name": "step", "kind": "name"}]},
     "input": {"family": "io", "auto": False, "summary": "A request for the person: to approve what is shown (yes or no), or to give a value", "fields": [
         {"name": "ask", "kind": "choice", "choices": list(ASKS), "default": "value"},
-        {"name": "prompt", "kind": "textarea", "required": True, "max": 300}, {"name": "content", "kind": "textarea", "max": CONTENT_MAX},
+        {"name": "prompt", "kind": "textarea", "required": True, "max": 300}, {"name": "help", "kind": "textarea", "max": HELP_MAX},
+        {"name": "prompt_en", "kind": "textarea", "max": 300}, {"name": "help_en", "kind": "textarea", "max": HELP_MAX},
+        {"name": "content", "kind": "textarea", "max": CONTENT_MAX},
         {"name": "into", "kind": "name"},
-        {"name": "kind", "kind": "choice", "choices": ["text", "number", "choice"], "default": "text"}, {"name": "choices", "kind": "names", "max": 10}]},
+        {"name": "kind", "kind": "choice", "choices": ["text", "number", "choice"], "default": "text"}, {"name": "choices", "kind": "options", "max": MAX_CHOICES},
+        {"name": "default", "kind": "json"}, {"name": "other", "kind": "json"}]},
     "start": {"family": "start", "auto": True, "summary": "Where a plan begins: its number, and how it starts (by the person, by an event, at intervals, from another plan)", "fields": [
         {"name": "number", "kind": "integer", "min": 1, "max": 99, "default": 1},
         {"name": "launch", "kind": "choice", "choices": list(LAUNCHES), "default": "manual"},
@@ -124,6 +130,51 @@ def _names(spec: Dict[str, Any], key: str, limit: int) -> Optional[List[str]]:
     if not isinstance(value, list) or len(value) > limit or any(not isinstance(v, str) or not v.strip() for v in value):
         raise PlanError(f"'{key}' is a list of at most {limit} texts")
     return [v.strip() for v in value]
+
+
+def _options(spec: Dict[str, Any], key: str, limit: int) -> Optional[List[Any]]:
+    """The choices of a question: texts, or {value, label, label_en}. The value is what the plan gets and is never shown; the label is what the person reads
+    (label_en for English). A choice that is only a text is shown as it is."""
+    value = spec.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, list) or len(value) > limit:
+        raise PlanError(f"'{key}' is a list of at most {limit} choices")
+    out: List[Any] = []
+    for item in value:
+        if isinstance(item, str) and item.strip():
+            out.append(item.strip())
+            continue
+        if not isinstance(item, dict) or set(item) - {"value", "label", "label_en"}:
+            raise PlanError("a choice is a text, or {value, label, label_en}")
+        v = item.get("value")
+        if isinstance(v, bool) or not isinstance(v, (str, int, float)) or not str(v).strip():
+            raise PlanError("a choice has a value: a text")
+        row = {"value": str(v).strip()}
+        for k in ("label", "label_en"):
+            t = item.get(k)
+            if t is not None and t != "":
+                if not isinstance(t, str) or len(t) > CHOICE_TEXT:
+                    raise PlanError(f"the {k} of a choice is a text of at most {CHOICE_TEXT} characters")
+                row[k] = t.strip()
+        out.append(row)
+    if len({choice_value(c) for c in out}) != len(out):
+        raise PlanError("two choices have the same value")
+    return out
+
+
+def choice_value(choice: Any) -> str:
+    return choice["value"] if isinstance(choice, dict) else str(choice)
+
+
+def shown_choices(spec: Dict[str, Any]) -> List[Dict[str, str]]:
+    """The choices as the page needs them, each {value, label, label_en}: a choice that is a text is its own label in both languages."""
+    out = []
+    for c in spec.get("choices") or []:
+        v = choice_value(c)
+        label = (c.get("label") if isinstance(c, dict) else None) or v
+        out.append({"value": v, "label": label, "label_en": (c.get("label_en") if isinstance(c, dict) else None) or label})
+    return out
 
 
 def _archives(spec: Dict[str, Any], key: str, required: bool = False) -> Optional[List[str]]:
@@ -265,6 +316,11 @@ def clean_spec(node_type: Any, spec: Any, draft: bool = False) -> Dict[str, Any]
     if kind == "action":
         if _archives(spec, "rag_archives"):
             out["rag_archives"] = _archives(spec, "rag_archives")
+        steps = _names(spec, "steps", MAX_INNER)
+        if steps:
+            if any(len(x) > INNER_NAME for x in steps) or len(set(steps)) != len(steps):
+                raise PlanError(f"'steps' is a list of different names of at most {INNER_NAME} characters, in the order the step does them")
+            out["steps"] = steps
     elif kind == "rag":
         out["archives"] = _archives(spec, "archives", True)
     elif kind == "decision":
@@ -333,12 +389,22 @@ def clean_spec(node_type: Any, spec: Any, draft: bool = False) -> Dict[str, Any]
         into, form = _name(spec, "into", ask == "value"), spec.get("kind", "text")
         if form not in ("text", "number", "choice"):
             raise PlanError("'kind' is text, number or choice")
-        choices = _names(spec, "choices", 10)
+        choices = _options(spec, "choices", MAX_CHOICES)
         if ask == "value" and form == "choice" and (not choices or len(choices) < 2):
             raise PlanError("a question with choices needs at least two")
         out.update({"ask": ask, "prompt": prompt, **({"content": content} if content else {}), **({"into": into} if into else {})})
+        for key, limit in (("help", HELP_MAX), ("prompt_en", 300), ("help_en", HELP_MAX)):
+            text = _text(spec, key, limit)
+            if text:
+                out[key] = text
         if ask == "value":
             out.update({"kind": form, **({"choices": choices} if choices and form == "choice" else {})})
+        if spec.get("other") is not None:
+            if not isinstance(spec["other"], bool):
+                raise PlanError("'other' is true or false: whether a menu of more than two choices also offers 'Other, I write'")
+            out["other"] = spec["other"]
+        if spec.get("default") is not None and spec.get("default") != "":
+            out["default"] = clean_answer(out, spec["default"])             # the value proposed is one the question would take
     elif kind == "start":
         number = _number(spec, "number", 1, 99, default=1)
         launch = spec.get("launch", "manual")
@@ -397,6 +463,41 @@ def catalogue() -> List[Dict[str, Any]]:
             for k, v in NODE_SPECS.items()]
 
 
+# -- the inner steps of a step: what a step that does several things in a row has finished, kept in the plan so that after an interruption it goes on from there -----------
+
+def clean_inner(step: Any, result: Any) -> Dict[str, Any]:
+    """{name, result}: the name of an inner step and its essential result (files made, values), plain data of bounded size."""
+    if not isinstance(step, str) or not step.strip() or len(step.strip()) > INNER_NAME:
+        raise PlanError(f"the name of an inner step is a text of 1 to {INNER_NAME} characters")
+    if result is None:
+        result = {}
+    if not isinstance(result, dict) or not _json_value(result):
+        raise PlanError("the result of an inner step is an object of plain data: for example {files: [...], made: 3}")
+    import json
+    if len(json.dumps(result, ensure_ascii=False)) > INNER_RESULT:
+        raise PlanError(f"the result of an inner step is at most {INNER_RESULT} characters: give the essential (the files made, the values), not the content")
+    return {"name": step.strip(), "result": result}
+
+
+def inner_state(spec: Dict[str, Any], variables: Dict[str, Any]) -> Dict[str, Any]:
+    """From a step's spec and state: the inner steps it has done (name, result), those it declared, the next to do, and the ones left."""
+    done = [d for d in variables.get("inner_done") or [] if isinstance(d, dict) and d.get("name")]
+    finished = {d["name"] for d in done}
+    declared = [x for x in spec.get("steps") or [] if isinstance(x, str)]
+    left = [x for x in declared if x not in finished]
+    return {"done": done, "declared": declared, "next": left[0] if left else None, "left": left}
+
+
+def inner_text(spec: Dict[str, Any], variables: Dict[str, Any]) -> str:
+    """What a step that was cut short is told when it is taken up again: which inner steps are finished, with their results, and where to go on. Empty when nothing is."""
+    info = inner_state(spec, variables)
+    if not info["done"]:
+        return ("Its inner steps, in order: " + ", ".join(info["declared"]) + ". When one is finished, declare it with plan_step_done, so that a step cut short goes on from there." if info["declared"] else "")
+    shown = "; ".join(d["name"] + (f" ({_brief(json.dumps(d['result'], ensure_ascii=False))})" if d.get("result") else "") for d in info["done"])
+    tail = (f" Continue from: {info['next']}. Still to do: {', '.join(info['left'])}." if info["next"] else (" All its declared steps are done: check the result and finish the step." if info["declared"] else " Continue with what comes after them."))
+    return f"Already done inside this step (do not do them again): {shown}.{tail}"
+
+
 # -- the person's answer to a request ------------------------------------------------------------------------------
 
 YES = ("yes", "y", "true", "si", "sì", "ok", "approve", "approved", "1")
@@ -428,12 +529,47 @@ def clean_answer(spec: Dict[str, Any], value: Any) -> Any:
     text = str(value).strip() if isinstance(value, (str, int, float)) and not isinstance(value, bool) else ""
     if not text or len(text) > ANSWER_MAX:
         raise PlanError(f"the answer is a text of 1 to {ANSWER_MAX} characters")
-    if form == "choice" and text not in (spec.get("choices") or []):
-        raise PlanError("the answer is one of: " + ", ".join(spec.get("choices") or []))
+    if form == "choice" and text not in [choice_value(c) for c in spec.get("choices") or []] and not allows_other(spec):
+        raise PlanError("the answer is one of: " + ", ".join(choice_value(c) for c in spec.get("choices") or []))
     return text
 
 
+def allows_other(spec: Dict[str, Any]) -> bool:
+    """A menu of more than two choices also takes what the person writes ("Other, I write"), unless the question is closed (`other: false`); two choices are two buttons."""
+    return spec.get("ask", "value") == "value" and spec.get("kind") == "choice" and len(spec.get("choices") or []) > 2 and spec.get("other", True) is not False
+
+
+def is_task(node: Any) -> bool:
+    """A step for the person that a window can ask about: an action assigned to them whose outputs are at most one text (their note)."""
+    if getattr(node.type, "value", node.type) != "action" or node.assignee.value != "user" or node.state_variables.get("draft"):
+        return False
+    return not node.produces or (len(node.produces) == 1 and node.produces[0]["type"] in ("text", "any"))
+
+
+def task_name(node: Any) -> str:
+    """The plan value the note of a task is written to: the one text the step says it produces, or one made from its id."""
+    if node.produces:
+        return node.produces[0]["name"]
+    return (re.sub(r"[^A-Za-z0-9_]+", "_", node.id).strip("_") or "task") + "_note"
+
+
+def clean_task_answer(value: Any) -> Dict[str, Any]:
+    """The answer to a task for the person: {done: true, note}. The note is optional and becomes the step's output."""
+    if not isinstance(value, dict):
+        raise PlanError("a task is answered with {done: true, note}")
+    done = value.get("done")
+    if not (done is True or str(done).strip().lower() in YES):
+        raise PlanError("a task is answered by saying it is done")
+    note = value.get("note")
+    note = "" if note is None else str(note).strip()
+    if len(note) > ANSWER_MAX:
+        raise PlanError(f"the note is a text of at most {ANSWER_MAX} characters")
+    return {"done": True, "note": note}
+
+
 def shown_answer(spec: Dict[str, Any], value: Any) -> str:
+    if isinstance(value, dict):
+        return "done" + (f": {_brief(value.get('note'))}" if value.get("note") else "")
     return ("approved" if value else "not approved") if spec.get("ask", "value") == "approve" else _brief(value)
 
 
@@ -579,13 +715,43 @@ def _startable(dag: Any, node: Any) -> bool:
     return all(s in ("completed", "skipped") for s in parents) and (not parents or "completed" in parents)
 
 
+AUTO_ERROR_KEYS = ("auto_error", "auto_error_at", "next_attempt")
+
+
+def _auto_failed(dag: Any, node: Any, now: float, message: str) -> bool:
+    """A step the plan works out itself cannot do it now (an expression that fails, a value that is not there, a text that cannot be made). It is looked at again at
+    every turn of the clock, so the moment the cause goes away it is done; but the tries of its retry policy are counted over time, and when they are used up it
+    has failed, like any step: what is below it is parked and the plan has it recovered. True when it has failed."""
+    from tadamoo.planner.dag import DEFAULT_RETRY
+    sv = node.state_variables
+    sv["auto_error"] = str(message)[:200]
+    if now < sv.get("next_attempt", 0):
+        return False
+    policy = node.retry_policy or DEFAULT_RETRY
+    attempts = int(sv.get("attempts", 0)) + 1
+    sv["attempts"] = attempts
+    sv.setdefault("auto_error_at", now)
+    dag.note_failure(node, message, now)
+    if attempts >= policy["max_attempts"]:
+        sv.pop("next_attempt", None)
+        node.status = "failed"
+        dag.note(node.id, "auto", f"{node.title}: failed: {str(message)[:200]}", now)
+        dag.advance_failed.append(node.id)
+        dag.refresh_blocking()                                      # what is below it is parked
+        return True
+    sv["next_attempt"] = now + policy["wait_seconds"] * policy["backoff"] ** (attempts - 1)
+    dag.advance_retried.append(node.id)
+    return False
+
+
 def _complete(dag: Any, node: Any, now: float, outputs: Optional[Dict[str, Any]], line: str, kind: str = "auto") -> bool:
     try:
         dag.mark(node.id, "completed", outputs or None, now)
     except PlanError as exc:                       # it cannot finish now (a value too large, a name refused): it stays and says why
-        node.state_variables["auto_error"] = str(exc)[:200]
+        _auto_failed(dag, node, now, str(exc))
         return False
-    node.state_variables.pop("auto_error", None)
+    for key in AUTO_ERROR_KEYS:
+        node.state_variables.pop(key, None)
     dag.note(node.id, kind, line, now)
     return True
 
@@ -631,6 +797,7 @@ def _resolve(dag: Any, node: Any, now: float, due: List[float], judge: List[str]
             else:
                 dag.timed_out(node.id, now)
                 dag.note(node.id, "auto", f"{node.title}: timed out", now)
+                dag.advance_timed_out.append(node.id)
             return True
         if spec.get("timeout_s"):
             due.append(started + spec["timeout_s"])
@@ -641,7 +808,7 @@ def _resolve(dag: Any, node: Any, now: float, due: List[float], judge: List[str]
         try:
             value = _value_of(dag, node)
         except PlanError as exc:
-            sv["auto_error"] = str(exc)[:200]
+            _auto_failed(dag, node, now, str(exc))
             return False
         if spec.get("target") == "global":
             GLOBALS.set(spec["name"], value)
@@ -651,7 +818,7 @@ def _resolve(dag: Any, node: Any, now: float, due: List[float], judge: List[str]
     elif kind == "get_var":
         found, value = read_value(dag, spec, now)
         if not found:
-            sv["auto_error"] = f"'{spec['name']}' has no value yet"
+            _auto_failed(dag, node, now, f"'{spec['name']}' has no value yet")
             return False
         sv["value"] = value
         return _complete(dag, node, now, {spec.get("into") or spec["name"]: value} if spec.get("into") or spec.get("source", "variable") != "variable" else None,
@@ -660,7 +827,7 @@ def _resolve(dag: Any, node: Any, now: float, due: List[float], judge: List[str]
         try:
             value = render_template(spec["template"], _template_context(dag, now)) if spec.get("template") else _value_of(dag, node)
         except PlanError as exc:
-            sv["auto_error"] = str(exc)[:200]
+            _auto_failed(dag, node, now, str(exc))
             return False
         return _complete(dag, node, now, {spec["name"]: value}, f"{spec['name']}: {_brief(value)}", "output")
     elif kind == "log":
@@ -678,12 +845,14 @@ def _resolve(dag: Any, node: Any, now: float, due: List[float], judge: List[str]
 def advance(dag: Any, now: float) -> Dict[str, Any]:
     """Resolves every step the plan can work out by itself at `now`, over and over until nothing more moves (a wait that ends lets what is after it
     start). Returns {"done": ids, "judge": ids of waits that only a reading of their description can settle, "next_due": the next moment
-    something here comes due, or None}."""
+    something here comes due, or None, "calls": the steps that start another plan (which only the service can do), "failed": the steps that used up their tries, "retried":
+    the ones that could not be done and count a try, "timed_out": the waits that ran out of time}."""
     from tadamoo.planner.dag import safe_eval
     done: List[str] = []
     due: List[float] = []
     judge: List[str] = []
     calls: List[Dict[str, Any]] = []
+    dag.advance_failed, dag.advance_retried, dag.advance_timed_out = [], [], []
     moved = True
     while moved:
         moved, due, judge, calls = False, [], [], []
@@ -705,4 +874,7 @@ def advance(dag: Any, now: float) -> Dict[str, Any]:
             if kind in AUTO and _resolve(dag, node, now, due, judge, calls):
                 done.append(nid)
                 moved = True
-    return {"done": list(dict.fromkeys(done)), "judge": judge, "next_due": min(due) if due else None, "calls": calls}
+            elif node.status == "pending" and node.state_variables.get("next_attempt"):
+                due.append(node.state_variables["next_attempt"])              # a step that cannot be done yet counts its next try
+    return {"done": list(dict.fromkeys(done)), "judge": judge, "next_due": min(due) if due else None, "calls": calls,
+            "failed": list(dict.fromkeys(dag.advance_failed)), "retried": list(dict.fromkeys(dag.advance_retried)), "timed_out": list(dict.fromkeys(dag.advance_timed_out))}

@@ -38,6 +38,12 @@
   }
   const joinDuration = (value, unit) => Number(value) * ((UNITS.find(([u]) => u === unit) || ["s", 1])[1]);
 
+  /* a choice as a line of the form, "value | what is shown | what is shown in English"; a choice that is only a text is that text */
+  const optionLine = c => (c && typeof c === "object" ? [c.value, c.label || "", c.label_en || ""].join(" | ").replace(/( \| )+$/, "") : String(c));
+  function parseOption(line) {
+    const [value, label, label_en] = line.split("|").map(x => x.trim());
+    return label || label_en ? { value, ...(label ? { label } : {}), ...(label_en ? { label_en } : {}) } : value;
+  }
   /* the form's raw values -> the spec the server takes; empty optional fields are left out; `errors` lists the fields that are needed or not understood */
   function readSpec(fields, raw) {
     const spec = {}, errors = [];
@@ -53,6 +59,9 @@
         if (!v.length) { if (f.required) errors.push(f.name); continue; }
       } else if (f.kind === "names") {
         v = (Array.isArray(v) ? v : String(v).split(/[,\n]/)).map(x => String(x).trim()).filter(Boolean);
+        if (!v.length) { if (f.required) errors.push(f.name); continue; }
+      } else if (f.kind === "options") {
+        v = (Array.isArray(v) ? v.map(optionLine) : String(v).split(/\n/)).map(x => String(x).trim()).filter(Boolean).map(parseOption);
         if (!v.length) { if (f.required) errors.push(f.name); continue; }
       } else if (f.kind === "json") {
         const text = String(v).trim();
@@ -112,7 +121,7 @@
     }
     return out;
   }
-  const api = { ICONS, fieldsOf, defaultsOf, splitDuration, joinDuration, readSpec, brief, UNITS, TIME_FIELDS, arrange, LAYOUTS };
+  const api = { ICONS, optionLine, parseOption, fieldsOf, defaultsOf, splitDuration, joinDuration, readSpec, brief, UNITS, TIME_FIELDS, arrange, LAYOUTS };
   root.PlanKinds = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (typeof document === "undefined" || !document.createElement) return;
@@ -327,9 +336,9 @@
       }
       if (f.kind === "choice") {
         input = h("select", "", ...f.choices.map(c => { const o = h("option", "", T("pl.spec.opt." + c)); o.value = c; o.selected = c === v; return o; }));
-      } else if (f.kind === "textarea" || f.kind === "names" || f.kind === "json") {
-        input = h("textarea"); input.rows = f.kind === "textarea" ? 3 : 2;
-        input.value = f.kind === "names" ? (Array.isArray(v) ? v.join(", ") : "") : f.kind === "json" ? (v === undefined ? "" : typeof v === "string" ? JSON.stringify(v) : JSON.stringify(v)) : (v || "");
+      } else if (f.kind === "textarea" || f.kind === "names" || f.kind === "json" || f.kind === "options") {
+        input = h("textarea"); input.rows = f.kind === "textarea" ? 3 : f.kind === "options" ? 4 : 2;
+        input.value = f.kind === "options" ? (Array.isArray(v) ? v.map(optionLine).join("\n") : "") : f.kind === "names" ? (Array.isArray(v) ? v.join(", ") : "") : f.kind === "json" ? (v === undefined ? "" : typeof v === "string" ? JSON.stringify(v) : JSON.stringify(v)) : (v || "");
       } else if (f.kind === "datetime") {
         input = h("input"); input.type = "datetime-local"; input.value = String(v || "").replace(" ", "T").slice(0, 16);
       } else if (TIME_FIELDS.has(f.name)) {

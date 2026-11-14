@@ -360,8 +360,8 @@ def clean_field(node_type: Any, key: str, value: Any, draft: bool = False) -> An
     if key == "inputs":
         if value is None:
             return {}
-        if not isinstance(value, dict) or len(value) > 20:
-            raise PlanError("inputs is an object: name -> {node, port} (at most 20)")
+        if not isinstance(value, dict) or len(value) > MAX_INPUTS:
+            raise PlanError(f"inputs is an object: name -> {{node, port}} (at most {MAX_INPUTS})")
         out = {}
         for name, ref in value.items():
             if not isinstance(name, str) or not re.match(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$", name) or keyword.iskeyword(name):
@@ -380,6 +380,7 @@ def clean_field(node_type: Any, key: str, value: Any, draft: bool = False) -> An
 
 
 MAX_OUTPUTS, MAX_VALUE_BYTES, MAX_STATE_BYTES, MAX_NAME = 30, 4000, 50_000, 64
+MAX_INPUTS = 60
 OPERAND_KEY = re.compile(r"^[A-Za-z0-9_.-]+\.(left|op|right|right2)$")
 
 
@@ -464,10 +465,21 @@ class PlanDAG:
     order: List[str] = field(default_factory=list)       # the list the person arranged; list_order() keeps it valid
     confirmations: bool = True          # false: the person chose that nothing about this plan is asked (except what involves other people), and its text is trusted
     journal: List[Dict[str, Any]] = field(default_factory=list)      # what the plan did by itself and what its log and result steps wrote, newest last
+    advance_failed: List[str] = field(default_factory=list, repr=False, compare=False)       # what the latest look at the plan's own steps found: failed for good, a try used, timed out
+    advance_retried: List[str] = field(default_factory=list, repr=False, compare=False)
+    advance_timed_out: List[str] = field(default_factory=list, repr=False, compare=False)
     note_count: int = field(default=0, repr=False, compare=False)    # lines ever written in this run of the program: how many are new since a look
 
     def _touch(self) -> None:
         self.updated_at = _now()
+
+    def note_failure(self, node: PlanNode, reason: str, now: Optional[float] = None) -> None:
+        """The reason a step failed, kept on it (the last few), for whoever looks for the cause."""
+        if not reason:
+            return
+        rows = node.state_variables.setdefault("failures", [])
+        rows.append({"at": time.time() if now is None else now, "reason": " ".join(str(reason).split())[:600]})
+        del rows[:-5]
 
     def note(self, node_id: str, kind: str, text: str, now: Optional[float] = None) -> None:
         """A line in the plan's journal: {"t", "node", "kind" (auto, log or output), "text"}; only the latest few hundred are kept."""
@@ -1068,7 +1080,7 @@ class PlanDAG:
                     self.shared_state.update(outputs)
                     node.state_variables["outputs"] = dict(outputs)
                 node.status = "completed"
-                for key in ("attempts", "retry_at", "sensor_error", "timed_out"):
+                for key in ("attempts", "retry_at", "sensor_error", "timed_out", "auto_error", "auto_error_at", "next_attempt"):
                     node.state_variables.pop(key, None)
                 if node.type == NodeType.DECISION:
                     node.state_variables.pop("no_route", None)
@@ -1106,6 +1118,9 @@ class PlanDAG:
             node.status = status
             node.state_variables.pop("retry_at", None)
             node.state_variables.pop("timed_out", None)
+            if status == "pending":                                  # put back to wait, it waits afresh and has its tries again
+                for key in ("wait_started", "wake_at", "auto_error", "auto_error_at", "next_attempt", "attempts"):
+                    node.state_variables.pop(key, None)
             if status == "skipped":
                 node.state_variables.pop("attempts", None)
         self.refresh_blocking()
@@ -1262,6 +1277,43 @@ class PlanDAG:
             resolved.append(nid)
         return resolved
 
+    # the inner steps of a step ------------------------------------------------------------------------
+
+    def record_inner(self, node_id: str, step: str, result: Any = None, now: Optional[float] = None) -> Dict[str, Any]:
+        """A step that does several things in a row has finished one of them: it is kept on the step, with its essential result, in the plan, so that after an
+        interruption (even a restart of the PC) the step goes on from there. A step that names its inner steps takes only those. Recording one again replaces it."""
+        from tadamoo.planner import nodes
+        node = self.nodes.get(node_id)
+        if node is None:
+            raise KeyError(f"Node '{node_id}' not found")
+        if node.status in DONE or node.type != NodeType.ACTION:
+            raise PlanError(f"'{node_id}' is not a step that is being done")
+        entry = nodes.clean_inner(step, result)
+        declared = node.spec.get("steps") or []
+        if declared and entry["name"] not in declared:
+            raise PlanError(f"this step has these inner steps: {', '.join(declared)}")
+        rows = [d for d in node.state_variables.get("inner_done") or [] if d.get("name") != entry["name"]]
+        rows.append({**entry, "at": _now()})
+        if declared:
+            rows.sort(key=lambda d: declared.index(d["name"]) if d["name"] in declared else len(declared))
+        node.state_variables["inner_done"] = rows
+        self.note(node_id, "auto", f"{node.title}: {entry['name']} done", now)
+        self._touch()
+        return nodes.inner_state(node.spec, node.state_variables)
+
+    def forget_inner(self, node_id: str, step: str) -> Dict[str, Any]:
+        """An inner step is to be done again: it is taken off the list of the finished ones."""
+        from tadamoo.planner import nodes
+        node = self.nodes.get(node_id)
+        if node is None:
+            raise KeyError(f"Node '{node_id}' not found")
+        rows = [d for d in node.state_variables.get("inner_done") or [] if d.get("name") != step]
+        if len(rows) == len(node.state_variables.get("inner_done") or []):
+            raise PlanError(f"'{step}' is not among the inner steps that are done")
+        node.state_variables["inner_done"] = rows
+        self._touch()
+        return nodes.inner_state(node.spec, node.state_variables)
+
     # starting a plan ----------------------------------------------------------------------------------
 
     def start_nodes(self) -> List[PlanNode]:
@@ -1342,8 +1394,19 @@ class PlanDAG:
         from tadamoo.planner import nodes
         moment = time.time() if now is None else now
         out = []
+        order = {nid: i for i, nid in enumerate(self.list_order())}
         for nid in self.ready_nodes(moment):
             n = self.nodes[nid]
+            if nodes.is_task(n):                                     # a step for the person: what to do, a note, and whether it is done
+                asked = n.state_variables.setdefault("asked_at", moment)
+                context = {**self.shared_state, **self.input_values(n), "plan_title": self.title, "plan_id": self.plan_id}
+                try:
+                    what = render_template(n.description, context) if n.description else ""
+                except PlanError:
+                    what = n.description
+                out.append({"node_id": nid, "title": n.title, "ask": "task", "prompt": n.title, "prompt_en": "", "help": n.state_variables.get("fallback_reason", ""), "help_en": "",
+                            "content": what, "kind": "text", "choices": [], "other": False, "into": nodes.task_name(n), "since": asked, "index": order.get(nid, 0), "proposed": None})
+                continue
             if n.type != NodeType.INPUT:
                 continue
             asked = n.state_variables.setdefault("asked_at", moment)
@@ -1353,9 +1416,12 @@ class PlanDAG:
                 content = render_template(spec["content"], context) if spec.get("content") else ""
             except PlanError:
                 content = spec.get("content", "")
-            out.append({"node_id": nid, "title": n.title, "ask": spec.get("ask", "value"), "prompt": spec["prompt"], "content": content, "kind": spec.get("kind", "text"),
-                        "choices": list(spec.get("choices") or []), "into": nodes.answer_name(n), "since": asked})
-        return sorted(out, key=lambda r: r["since"])
+            last = (n.state_variables.get("answer") or {}).get("value")             # what was answered the last time is what is proposed now
+            out.append({"node_id": nid, "title": n.title, "ask": spec.get("ask", "value"), "prompt": spec["prompt"], "prompt_en": spec.get("prompt_en", ""),
+                        "help": spec.get("help", ""), "help_en": spec.get("help_en", ""), "content": content, "kind": spec.get("kind", "text"),
+                        "choices": nodes.shown_choices(spec), "other": nodes.allows_other(spec), "into": nodes.answer_name(n), "since": asked, "index": order.get(nid, 0),
+                        "proposed": last if last is not None else spec.get("default")})
+        return sorted(out, key=lambda r: (r["since"], r["index"]))
 
     def answer(self, node_id: str, value: Any, now: Optional[float] = None, by: str = "user") -> Dict[str, Any]:
         """The person's answer to a request that is asking now: it is checked against what it asks for, written to the plan's value, and the step is done."""
@@ -1363,17 +1429,51 @@ class PlanDAG:
         node = self.nodes.get(node_id)
         if node is None:
             raise KeyError(f"Node '{node_id}' not found")
-        if node.type != NodeType.INPUT:
+        task = nodes.is_task(node)
+        if node.type != NodeType.INPUT and not task:
             raise PlanError(f"'{node_id}' does not ask the person for anything")
         if node_id not in self.ready_nodes(time.time() if now is None else now):
             raise PlanError(f"'{node_id}' is not asking now" + (": it was answered already" if node.status == "completed" else ""))
-        cleaned = nodes.clean_answer(node.spec, value)
-        name = nodes.answer_name(node)
-        self.mark(node_id, "completed", {name: cleaned}, now)
+        if task:                                                      # done: the step is closed and the note is its output
+            cleaned = nodes.clean_task_answer(value)
+            name = nodes.task_name(node)
+            self.mark(node_id, "completed", {name: cleaned["note"]} if cleaned["note"] else ({name: ""} if node.produces else None), now)
+        else:
+            cleaned = nodes.clean_answer(node.spec, value)
+            name = nodes.answer_name(node)
+            self.mark(node_id, "completed", {name: cleaned}, now)
         node = self.nodes[node_id]
         node.state_variables["answer"] = {"value": cleaned, "at": _now(), "by": by}
         self.note(node_id, "answer", f"{node.title}: {nodes.shown_answer(node.spec, cleaned)}", now)
         return {"value": cleaned, "name": name}
+
+    def answer_many(self, answers: Dict[str, Any], now: Optional[float] = None, by: str = "user") -> Dict[str, Any]:
+        """The answers to several requests that are asking now, all at once: every one is checked before any is taken, so one that is wrong or no longer asked
+        leaves them all as they were. Each request is then done as `answer` does it. Returns {node id: its value}."""
+        from tadamoo.planner import nodes
+        if not isinstance(answers, dict) or not answers:
+            raise PlanError("send the answers as an object: step id -> answer")
+        moment = time.time() if now is None else now
+        asking = set(self.ready_nodes(moment))
+        cleaned: Dict[str, Any] = {}
+        for node_id, value in answers.items():
+            node = self.nodes.get(node_id)
+            if node is None or (node.type != NodeType.INPUT and not nodes.is_task(node)):
+                raise PlanError(f"'{node_id}' does not ask the person for anything")
+            if node_id not in asking:
+                raise PlanError(f"'{node.title}' is not asking now" + (": it was answered already" if node.status == "completed" else ""))
+            try:
+                cleaned[node_id] = nodes.clean_task_answer(value) if nodes.is_task(node) else nodes.clean_answer(node.spec, value)
+            except PlanError as exc:
+                raise PlanError(f"'{node.title}': {exc}") from None
+        backup = copy.deepcopy((self.nodes, self.shared_state))
+        try:
+            for node_id in sorted(cleaned, key=lambda i: self.list_order().index(i)):
+                self.answer(node_id, cleaned[node_id], now, by)
+        except PlanError:
+            self.nodes, self.shared_state = backup
+            raise
+        return cleaned
 
     def rewind(self, node_id: str, accept_irreversible: bool = False) -> List[str]:
         """Time travel: puts a node and everything after it back to pending, forgetting what they produced.
@@ -1398,8 +1498,10 @@ class PlanDAG:
             n = self.nodes[nid]
             produced = n.state_variables.pop("outputs", None)
             effects = n.state_variables.pop("effects", None)
-            if n.status != "pending" or produced or effects:
-                n.state_variables.setdefault("history", []).append({"status": n.status, "outputs": produced, "at": _now(), **({"effects": effects} if effects else {}),
+            inner = n.state_variables.pop("inner_done", None)
+            n.state_variables.pop("session", None)
+            if n.status != "pending" or produced or effects or inner:
+                n.state_variables.setdefault("history", []).append({"status": n.status, "outputs": produced, "at": _now(), **({"effects": effects} if effects else {}), **({"inner_done": inner} if inner else {}),
                                                                     **({"still_done": stays[nid]} if stays[nid] else {})})
             for var in (produced or {}):
                 self.shared_state.pop(var, None)

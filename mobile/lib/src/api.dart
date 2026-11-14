@@ -106,9 +106,9 @@ class Api {
     return [for (final m in (r['requests'] as List?) ?? const []) if (m is Map) Map<String, dynamic>.from(m)];
   }
 
-  /// The person's answer to one of them: `true` or `false` for an approval, the text for a value.
-  Future<void> answerHuman(String planId, String nodeId, Object answer) =>
-      post('/api/plans/${Uri.encodeComponent(planId)}/events', {'type': 'plan:answer', 'node_id': nodeId, 'answer': answer, 'actor': 'user'});
+  /// The person's answers to all the questions of a plan, sent together: step id -> `true` or `false` for an approval, the text for a value.
+  Future<void> answerHumanAll(String planId, Map<String, Object> answers) =>
+      post('/api/plans/${Uri.encodeComponent(planId)}/events', {'type': 'plan:answers', 'answers': answers, 'actor': 'user'});
 
   /// Tells the app that its address and key are good, and the name of the key.
   Future<Map<String, dynamic>> hello() => get('/api/remote/hello');

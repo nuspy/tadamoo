@@ -28,15 +28,14 @@ from .replan import ReplanProposal, Replanner
 from .triage import TriageResult
 
 PLAN_ID = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
-RESERVED_IDS = ("events", "telemetry", "human")            # paths of the server's own routes under /api/plans
+RESERVED_IDS = ("events", "telemetry", "human", "inner")            # paths of the server's own routes under /api/plans
 LOG_SIZE = 500
 HISTORY_SIZE = 200
 HISTORY_SHOWN = 30
 # who made a change: the person at the page, the Chat for the person, the planner's own re-planning, the system
 ACTORS = ("user", "chat", "planner", "system")
 # events that write straight into the plan; they may carry `base_rev`, the revision the sender last read
-DIRECT = ("plan:update_node", "plan:move", "plan:mark", "plan:timeout", "plan:rewind", "plan:update_meta", "plan:fallback_response", "plan:start", "plan:answer")
-FAILURES_KEPT = 5                                 # the reasons a step failed, kept on it for whoever looks for the cause
+DIRECT = ("plan:update_node", "plan:move", "plan:mark", "plan:timeout", "plan:rewind", "plan:update_meta", "plan:fallback_response", "plan:start", "plan:answer", "plan:answers")
 TARGET_TYPES = ("constant", "occasional")
 TITLE_CHARS = 200
 
@@ -231,7 +230,7 @@ class PlanCanvasBridge:
             "plan:rewind": self._rewind, "plan:rewind_impact": self._rewind_impact, "plan:note_effect": self._note_effect, "plan:propose_diff": self._propose, "plan:approve": self._approve,
             "plan:reject": self._reject, "plan:human_fallback": self._offer_fallback,
             "plan:fallback_response": self._answer_fallback, "plan:update_meta": self._update_meta, "plan:event": self._feed,
-            "plan:start": self._start, "plan:answer": self._answer,
+            "plan:start": self._start, "plan:answer": self._answer, "plan:answers": self._answers, "plan:inner": self._inner,
         }
         handler = handlers.get(kind)
         if handler is None:
@@ -264,14 +263,19 @@ class PlanCanvasBridge:
             previous, self._actor = self._actor, "system"
             try:
                 report = self.dag.advance(now)
+                trouble = report["failed"] or report["timed_out"] or report["retried"]
                 if report["done"]:
                     names = ", ".join(self.dag.nodes[i].title for i in report["done"] if i in self.dag.nodes)
                     self._bump("auto", f"worked out by itself: {names}")
                     self._emit("plan:auto", {"done": report["done"], "ready": self.dag.ready_nodes()})
+                if trouble:
+                    names = ", ".join(self.dag.nodes[i].title for i in trouble if i in self.dag.nodes)
+                    self._bump("auto", f"could not be worked out: {names}")
+                    self._emit("plan:graph", {"seq_graph": True})
             finally:
                 self._actor = previous
             fresh = self.dag.note_count - before
-            return {**report, "changed": bool(report["done"]), "lines": [dict(j) for j in self.dag.journal[-fresh:]] if fresh > 0 else []}
+            return {**report, "changed": bool(report["done"] or report["failed"] or report["timed_out"] or report["retried"]), "lines": [dict(j) for j in self.dag.journal[-fresh:]] if fresh > 0 else []}
 
     def settle_wait(self, node_id: str, now: float, text: str) -> bool:
         """A wait written in words was judged to hold: the step completes, as if its time had come. False when it is not waiting any more."""
@@ -322,13 +326,8 @@ class PlanCanvasBridge:
                 self._actor = previous
             return retry
 
-    @staticmethod
-    def _note_failure(node: Any, reason: str, now: Optional[float] = None) -> None:
-        if not reason:
-            return
-        rows = node.state_variables.setdefault("failures", [])
-        rows.append({"at": time.time() if now is None else now, "reason": " ".join(str(reason).split())[:600]})
-        del rows[:-FAILURES_KEPT]
+    def _note_failure(self, node: Any, reason: str, now: Optional[float] = None) -> None:
+        self.dag.note_failure(node, reason, now)
 
     def begin(self, number: Any, cause: str, actor: str = "system", now: Optional[float] = None, caller: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """Starts the plan at the start with this number (see PlanDAG.begin); the run is marked, to be taken up again if the program stops."""
@@ -368,6 +367,33 @@ class PlanCanvasBridge:
         self._emit("plan:answered", {"node_id": node.id})
         self._emit("plan:graph", {"seq_graph": True})
         return {**got, "ready": self.dag.ready_nodes()}
+
+    def _inner(self, e: Dict[str, Any]) -> Dict[str, Any]:
+        """An inner step of a step is finished (or, with `undo`, to be done again): kept on the step so that the plan can go on from there after an interruption."""
+        if e.get("undo") is True:
+            info = self.dag.forget_inner(e["node_id"], str(e.get("step") or ""))
+        else:
+            info = self.dag.record_inner(e["node_id"], e.get("step"), e.get("result"))
+            if not self.run.get("active"):
+                self.run = {"active": True, "since": time.time(), "resumes": 0, "progress": self._done_count()}
+        node = self.dag.nodes[e["node_id"]]
+        self._bump("inner", f"{node.title}: {e.get('step')}{' to be done again' if e.get('undo') is True else ' done'}")
+        self._emit("plan:node_updated", {"node": node_to_dict(node)})
+        return {"inner": info}
+
+    def in_progress_of(self, session: str) -> List[str]:
+        """The steps being done by this conversation."""
+        with self._lock:
+            return [n.id for n in self.dag.nodes.values() if n.status == "in_progress" and n.state_variables.get("session") == session]
+
+    def _answers(self, e: Dict[str, Any]) -> Dict[str, Any]:
+        """The answers to all the requests that are asking, sent together (see PlanDAG.answer_many)."""
+        got = self.dag.answer_many(e.get("answers"), by=self._actor)
+        titles = ", ".join(self.dag.nodes[i].title for i in got)
+        self._bump("answer", f"{len(got)} answers: {titles}")
+        self._emit("plan:answered", {"node_ids": list(got)})
+        self._emit("plan:graph", {"seq_graph": True})
+        return {"values": got, "ready": self.dag.ready_nodes()}
 
     def _stale(self, kind: str, event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """A direct change made on an old reading of the plan is refused, so it cannot overwrite a newer one."""
@@ -432,8 +458,11 @@ class PlanCanvasBridge:
         node = self.dag.nodes[e["node_id"]]
         if e["status"] == "failed":
             self._note_failure(node, str(e.get("reason") or ""))
-        elif e["status"] == "in_progress" and not self.run.get("active"):
-            self.run = {"active": True, "since": time.time(), "resumes": 0, "progress": self._done_count()}
+        elif e["status"] == "in_progress":
+            if e.get("session"):                                  # the conversation doing the step: what its commands say about the step is found by it
+                node.state_variables["session"] = str(e["session"])[:80]
+            if not self.run.get("active"):
+                self.run = {"active": True, "since": time.time(), "resumes": 0, "progress": self._done_count()}
         if retry and "no_route" in retry:                  # a decision with no exit that holds: not taken, the person decides
             self._bump("no_route", f"{node.title}: no exit holds, passed to the user")
             self._emit("plan:graph", {"seq_graph": True, "no_route": {"node_id": node.id, **retry["no_route"]}})

@@ -239,6 +239,44 @@ class PlansApiTest(PlansApiBase):
         self.assertEqual(self.call("GET", "/api/plans/asks")[1]["plan"]["shared_state"], {"good": True})
         self.assertEqual(self.call("POST", "/api/plans/asks/events", {"type": "plan:answer", "node_id": "ok", "answer": True, "actor": "user"})[0], 400)
 
+    def test_the_questions_of_a_plan_come_with_their_languages_and_labels_and_are_answered_together(self):
+        def q(nid, **spec):
+            return {"id": nid, "type": "input", "title": nid, "assignee": "user", "dependencies": [], "outputs": [], "spec": {"into": nid, **spec}}
+        plan = {"plan_id": "wiz", "title": "Wiz", "target_type": "occasional", "nodes": {
+            "a": q("a", prompt="Quante?", prompt_en="How many?", help="Da 3 a 9.", help_en="From 3 to 9.", kind="choice", default="n6",
+                   choices=[{"value": "n3", "label": "Tre", "label_en": "Three"}, {"value": "n6", "label": "Sei", "label_en": "Six"}]),
+            "b": q("b", prompt="Tema?", kind="text")}}
+        self.assertEqual(self.call("POST", "/api/plans", {"plan": plan})[0], 201)
+        mine = [r for r in self.call("GET", "/api/plans/human")[1]["requests"] if r["plan_id"] == "wiz"]
+        first = next(r for r in mine if r["node_id"] == "a")
+        self.assertEqual((first["prompt_en"], first["help_en"], first["proposed"]), ("How many?", "From 3 to 9.", "n6"))
+        self.assertEqual(first["choices"], [{"value": "n3", "label": "Tre", "label_en": "Three"}, {"value": "n6", "label": "Sei", "label_en": "Six"}])
+        self.assertEqual([r["node_id"] for r in sorted(mine, key=lambda r: r["index"])], ["a", "b"])
+        code, res = self.call("POST", "/api/plans/wiz/events", {"type": "plan:answers", "answers": {"a": "Tre", "b": "politica"}, "actor": "user"})
+        self.assertEqual(code, 400)
+        self.assertIn("one of: n3, n6", res["error"])
+        self.assertEqual(len([r for r in self.call("GET", "/api/plans/human")[1]["requests"] if r["plan_id"] == "wiz"]), 2)       # none was taken
+        code, res = self.call("POST", "/api/plans/wiz/events", {"type": "plan:answers", "answers": {"a": "n3", "b": "politica"}, "actor": "user"})
+        self.assertEqual((code, res["values"]), (200, {"a": "n3", "b": "politica"}))
+        self.assertEqual(self.call("GET", "/api/plans/wiz")[1]["plan"]["shared_state"], {"a": "n3", "b": "politica"})
+
+    def test_a_command_tells_the_plan_which_inner_step_of_its_step_is_finished(self):
+        plan = {"plan_id": "stages", "title": "Stages", "target_type": "occasional", "nodes": {
+            "go": {"id": "go", "type": "start", "title": "Start", "assignee": "agent", "dependencies": [], "outputs": ["video"], "spec": {"number": 1, "launch": "manual"}},
+            "video": {"id": "video", "type": "action", "title": "Video", "assignee": "agent", "dependencies": ["go"], "outputs": [], "spec": {"steps": ["voice", "stills", "edit"]}}}}
+        self.assertEqual(self.call("POST", "/api/plans", {"plan": plan})[0], 201)
+        self.call("POST", "/api/plans/stages/events", {"type": "plan:start", "number": 1, "actor": "chat"})
+        code, res = self.call("POST", "/api/plans/inner", {"step": "voice", "result": {"files": ["a.wav"]}, "session": "conv-1"})
+        self.assertEqual(code, 400)
+        self.assertIn("no step is being done", res["error"]["message"])
+        self.call("POST", "/api/plans/stages/events", {"type": "plan:mark", "node_id": "video", "status": "in_progress", "session": "conv-1", "actor": "chat"})
+        code, res = self.call("POST", "/api/plans/inner", {"step": "voice", "result": {"files": ["a.wav"]}, "session": "conv-1"})
+        self.assertEqual((code, res["node_id"], res["inner"]["next"]), (200, "video", "stills"))
+        self.assertEqual(self.call("POST", "/api/plans/inner", {"step": "dubbing", "session": "conv-1"})[0], 400)
+        saved = self.call("GET", "/api/plans/stages")[1]["plan"]["nodes"]["video"]["state_variables"]["inner_done"]
+        self.assertEqual([(d["name"], d["result"]) for d in saved], [("voice", {"files": ["a.wav"]})])
+        self.assertEqual(self.call("GET", "/api/plans/inner")[0], 404)                       # a plan cannot be called "inner": the route is the program's own
+
     def test_a_plan_is_started_at_a_start_through_the_api(self):
         plan = {"plan_id": "starts", "title": "Starts", "target_type": "occasional", "nodes": {
             "a": {"id": "a", "type": "start", "title": "Start 1", "assignee": "agent", "dependencies": [], "outputs": ["x"], "spec": {"number": 1, "launch": "manual"}},

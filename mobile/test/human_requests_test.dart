@@ -2,17 +2,49 @@ import 'package:basalt_mobile/src/api.dart';
 import 'package:basalt_mobile/src/human_requests.dart';
 import 'package:basalt_mobile/src/i18n.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-HumanRequest approval() => HumanRequest.fromJson({
-      'plan_id': 'news', 'plan_title': 'Newscast', 'node_id': 'ok_script', 'title': 'Approve the script', 'ask': 'approve',
-      'prompt': 'Is the script good?', 'content': 'Line one\nLine two', 'kind': 'text', 'choices': [],
-    });
+Map<String, dynamic> choice() => {
+      'plan_id': 'news', 'plan_title': 'Newscast', 'node_id': 'i1', 'title': 'i1', 'ask': 'value', 'kind': 'choice', 'index': 1,
+      'prompt': 'Quante notizie vuoi?', 'prompt_en': 'How many stories do you want?', 'help': 'Da tre a nove.', 'help_en': 'From three to nine.',
+      'choices': [
+        {'value': 'n3', 'label': 'Tre notizie', 'label_en': 'Three stories'},
+        {'value': 'n6', 'label': 'Sei notizie', 'label_en': 'Six stories'},
+        {'value': 'n9', 'label': 'Nove notizie', 'label_en': 'Nine stories'},
+      ],
+      'other': true, 'proposed': 'n6', 'content': '',
+    };
+Map<String, dynamic> two() => {
+      'plan_id': 'news', 'plan_title': 'Newscast', 'node_id': 'i5', 'title': 'i5', 'ask': 'value', 'kind': 'choice', 'index': 5, 'other': false,
+      'prompt': 'Il microfono è attivo?', 'prompt_en': 'Is the microphone on?', 'content': '',
+      'choices': [
+        {'value': 'on', 'label': 'Attivo', 'label_en': 'On'},
+        {'value': 'off', 'label': 'Non attivo', 'label_en': 'Off'},
+      ],
+    };
+Map<String, dynamic> task() => {
+      'plan_id': 'news', 'plan_title': 'Newscast', 'node_id': 't', 'title': 'Check the cable', 'ask': 'task', 'kind': 'text', 'index': 6, 'other': false, 'choices': [],
+      'prompt': 'Controlla il cavo', 'prompt_en': 'Check the cable', 'content': 'Look at the microphone cable.', 'proposed': null,
+    };
+Map<String, dynamic> topic() => {
+      'plan_id': 'news', 'plan_title': 'Newscast', 'node_id': 'i2', 'title': 'i2', 'ask': 'value', 'kind': 'text', 'index': 2,
+      'prompt': 'Di che cosa parla?', 'prompt_en': 'What is it about?', 'help': '', 'help_en': '', 'choices': [], 'proposed': 'politica', 'content': '',
+    };
+Map<String, dynamic> hours() => {
+      'plan_id': 'news', 'plan_title': 'Newscast', 'node_id': 'i3', 'title': 'i3', 'ask': 'value', 'kind': 'number', 'index': 3,
+      'prompt': 'Quante ore?', 'prompt_en': 'How many hours?', 'choices': [], 'proposed': null, 'content': '',
+    };
+Map<String, dynamic> approval() => {
+      'plan_id': 'news', 'plan_title': 'Newscast', 'node_id': 'i4', 'title': 'i4', 'ask': 'approve', 'kind': 'text', 'index': 4,
+      'prompt': 'Il copione va bene?', 'prompt_en': 'Is the script good?', 'choices': [], 'proposed': null, 'content': 'Buonasera.\nPrima notizia.',
+    };
+Map<String, dynamic> other() => {
+      'plan_id': 'other', 'plan_title': 'Other', 'node_id': 'q', 'title': 'q', 'ask': 'value', 'kind': 'text', 'index': 1, 'prompt': 'Altro?', 'choices': [], 'content': '',
+    };
 
-HumanRequest valueAsk({String kind = 'text', List<String> choices = const []}) => HumanRequest.fromJson({
-      'plan_id': 'news', 'plan_title': 'Newscast', 'node_id': 'how_many', 'title': 'How many stories', 'ask': 'value',
-      'prompt': 'How many stories?', 'content': '', 'kind': kind, 'choices': choices,
-    });
+List<HumanRequest> all([List<Map<String, dynamic>>? rows]) => [for (final j in rows ?? [approval(), topic(), choice(), hours()]) HumanRequest.fromJson(j)];
+HumanGroup grouped([List<HumanRequest>? rows]) => HumanGroup.first(rows ?? all(), (_) => false)!;
 
 Widget host(Widget Function(BuildContext) open, List<Object?> results) => MaterialApp(
       home: Builder(
@@ -27,117 +59,325 @@ Widget host(Widget Function(BuildContext) open, List<Object?> results) => Materi
       ),
     );
 
+Future<void> opened(WidgetTester tester, Widget Function(BuildContext) open, List<Object?> results) async {
+  await tester.pumpWidget(host(open, results));
+  await tester.tap(find.text('open'));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   setUp(() => Texts.use('en'));
 
-  testWidgets('an approval asks, then confirms, then sends true', (tester) async {
-    final sent = <Object>[];
-    final results = <Object?>[];
-    await tester.pumpWidget(host((_) => HumanRequestDialog(request: approval(), send: (a) async => sent.add(a)), results));
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
-    expect(find.text('Newscast'), findsOneWidget);
-    expect(find.text('Is the script good?'), findsOneWidget);
-    expect(find.text('Line one\nLine two'), findsOneWidget);
-    await tester.tap(find.text('Yes, approve'));
-    await tester.pumpAndSettle();
-    expect(sent, isEmpty);                                     // nothing is sent before the confirmation
-    expect(find.text('Your answer: yes, approved'), findsOneWidget);
-    await tester.tap(find.text('Confirm and send'));
-    await tester.pumpAndSettle();
-    expect(sent, [true]);
-    expect(results, [HumanOutcome.answered]);
+  group('the path through the questions', () {
+    test('the questions of a plan are in the order of the plan, and what is proposed is in the fields', () {
+      final g = grouped();
+      expect(g.items.map((r) => r.nodeId), ['i1', 'i2', 'i3', 'i4']);
+      final p = HumanPath(g.items);
+      expect(p.answers, {'i1': 'n6', 'i2': 'politica'});
+    });
+
+    test('Next goes on only with a good answer; after the last it is the summary; Edit from the summary comes straight back', () {
+      final p = HumanPath(grouped().items);
+      expect(p.next(), isNull);
+      expect(p.step, 1);
+      expect(p.next(), isNull);
+      expect(p.next(), 'hr.need');                              // the number has no answer
+      p.answers['i3'] = 'many';
+      expect(p.next(), 'hr.need.number');
+      p.answers['i3'] = '12';
+      expect(p.next(), isNull);
+      expect(p.next(), 'hr.need.yesno');
+      p.answers['i4'] = true;
+      expect(p.next(), isNull);
+      expect(p.inSummary, isTrue);
+      expect(p.firstMissing, -1);
+      p.edit(0);
+      p.answers['i1'] = 'n3';
+      expect(p.next(), isNull);
+      expect(p.inSummary, isTrue);
+      p.prev();
+      p.prev();
+      p.prev();
+      p.prev();
+      p.prev();
+      expect(p.step, 0);                                        // it does not go below the first
+    });
+
+    test('a choice is shown by its label in the language of the app, never by its value; everything is sent together', () {
+      final p = HumanPath(grouped().items)..answers['i3'] = '5'..answers['i4'] = false;
+      expect(p.shown(p.items[0]), 'Six stories');
+      Texts.use('it');
+      expect(p.shown(p.items[0]), 'Sei notizie');
+      expect(p.items[0].question, 'Quante notizie vuoi?');
+      expect(p.shown(p.items[3]), 'No');
+      expect(p.payload, {'i1': 'n6', 'i2': 'politica', 'i3': '5', 'i4': false});
+    });
+
+    test('when the questions that are asking change, the answers stay and the step stays where it can', () {
+      final p = HumanPath(grouped().items)..answers['i2'] = 'mine'..step = 3;
+      final r = p.reconcile(all([topic(), choice()]));
+      expect(r.answers['i2'], 'mine');
+      expect(r.step, 2);
+    });
   });
 
-  testWidgets('No is confirmed too, and Back from the confirmation returns to the choice', (tester) async {
-    final sent = <Object>[];
-    final results = <Object?>[];
-    await tester.pumpWidget(host((_) => HumanRequestDialog(request: approval(), send: (a) async => sent.add(a)), results));
-    await tester.tap(find.text('open'));
+  testWidgets('one question at a time in the language of the app, a menu that shows labels, the proposed one chosen', (tester) async {
+    await opened(tester, (_) => HumanWizardDialog(group: grouped(all([choice(), topic()])), send: (a) async {}), []);
+    expect(find.text('Question 1 of 2'), findsOneWidget);
+    expect(find.text('How many stories do you want?'), findsOneWidget);
+    expect(find.text('From three to nine.'), findsOneWidget);
+    expect(find.text('Six stories'), findsOneWidget);
+    expect(find.text('n6'), findsNothing);
+    await tester.tap(find.text('Six stories'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('No'));
+    expect(find.text('Three stories'), findsOneWidget);
+    expect(find.text('n3'), findsNothing);
+    await tester.tap(find.text('Three stories').last);
     await tester.pumpAndSettle();
-    expect(find.text('Your answer: no, not approved'), findsOneWidget);
-    await tester.tap(find.text('Back'));
+    await tester.tap(find.text('Next'));
     await tester.pumpAndSettle();
-    expect(find.text('Yes, approve'), findsOneWidget);
-    expect(sent, isEmpty);
-    await tester.tap(find.text('No'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Confirm and send'));
-    await tester.pumpAndSettle();
-    expect(sent, [false]);
+    expect(find.text('Question 2 of 2'), findsOneWidget);
+    expect(find.text('What is it about?'), findsOneWidget);
   });
 
-  testWidgets('Back on the first screen leaves the request for later', (tester) async {
-    final results = <Object?>[];
-    await tester.pumpWidget(host((_) => HumanRequestDialog(request: approval(), send: (a) async {}), results));
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Back'));
-    await tester.pumpAndSettle();
-    expect(results, [HumanOutcome.later]);
+  testWidgets('in Italian the same questions are in Italian', (tester) async {
+    Texts.use('it');
+    await opened(tester, (_) => HumanWizardDialog(group: grouped(all([choice(), topic()])), send: (a) async {}), []);
+    expect(find.text('Domanda 1 di 2'), findsOneWidget);
+    expect(find.text('Quante notizie vuoi?'), findsOneWidget);
+    expect(find.text('Da tre a nove.'), findsOneWidget);
+    expect(find.text('Sei notizie'), findsOneWidget);
+    expect(find.text('Avanti'), findsOneWidget);
+    expect(find.text('Più tardi'), findsOneWidget);
   });
 
-  testWidgets('a value: OK, then the confirmation, then it is sent; an empty one is refused', (tester) async {
-    final sent = <Object>[];
+  testWidgets('through to the summary, Edit one answer, and one Send gives all the answers together', (tester) async {
+    final sent = <Map<String, Object>>[];
     final results = <Object?>[];
-    await tester.pumpWidget(host((_) => HumanRequestDialog(request: valueAsk(kind: 'number'), send: (a) async => sent.add(a)), results));
-    await tester.tap(find.text('open'));
+    await opened(tester, (_) => HumanWizardDialog(group: grouped(), send: (a) async => sent.add(a)), results);
+    // the order of the plan is i1 (menu), i2 (text), i3 (number), i4 (yes or no)
+    await tester.tap(find.text('Next'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('OK'));
+    await tester.tap(find.text('Next'));                        // the text is proposed
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Next'));                        // the number is empty: refused
     await tester.pumpAndSettle();
     expect(find.text('Write an answer first.'), findsOneWidget);
-    await tester.enterText(find.byType(TextField), 'abc');
-    await tester.tap(find.text('OK'));
+    expect(find.text('Question 3 of 4'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'many');
+    await tester.tap(find.text('Next'));
     await tester.pumpAndSettle();
     expect(find.text('The answer is a number.'), findsOneWidget);
-    await tester.enterText(find.byType(TextField), '7');
-    await tester.tap(find.text('OK'));
+    await tester.enterText(find.byType(TextField), '12');
+    await tester.tap(find.text('Next'));
     await tester.pumpAndSettle();
+    expect(find.text('Is the script good?'), findsOneWidget);
+    expect(find.text('Buonasera.\nPrima notizia.'), findsOneWidget);
+    await tester.tap(find.text('Yes, approve'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(find.text('Check your answers'), findsOneWidget);
+    expect(find.text('Six stories'), findsOneWidget);
+    expect(find.text('politica'), findsOneWidget);
+    expect(find.text('12'), findsOneWidget);
+    expect(find.text('Yes'), findsOneWidget);
+    expect(find.text('Edit'), findsNWidgets(4));
     expect(sent, isEmpty);
-    expect(find.text('Your answer: 7'), findsOneWidget);
-    await tester.tap(find.text('Confirm and send'));
+    await tester.tap(find.text('Edit').first);                  // change the menu: it comes straight back to the summary
     await tester.pumpAndSettle();
-    expect(sent, ['7']);
+    expect(find.text('Question 1 of 4'), findsOneWidget);
+    await tester.tap(find.text('Six stories'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Three stories').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(find.text('Check your answers'), findsOneWidget);
+    expect(find.text('Three stories'), findsOneWidget);
+    expect(sent, isEmpty);
+    await tester.tap(find.text('Send all answers'));
+    await tester.pumpAndSettle();
+    expect(sent, [
+      {'i1': 'n3', 'i2': 'politica', 'i3': '12', 'i4': true}
+    ]);
     expect(results, [HumanOutcome.answered]);
   });
 
-  testWidgets('a refusal of the PC is shown and the window stays', (tester) async {
+  testWidgets('the arrow keys of a keyboard move along the path where a text is not being typed', (tester) async {
+    await opened(tester, (_) => HumanWizardDialog(group: grouped(all([choice(), topic()])), send: (a) async {}), []);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    expect(find.text('Question 2 of 2'), findsOneWidget);
+  });
+
+  testWidgets('a refusal of the PC is shown and the summary stays; Later leaves with the answers kept', (tester) async {
     final results = <Object?>[];
-    await tester.pumpWidget(host((_) => HumanRequestDialog(request: valueAsk(), send: (a) async => throw ApiError(400, 'not asking now')), results));
-    await tester.tap(find.text('open'));
+    HumanPath? kept;
+    await opened(tester, (_) => HumanWizardDialog(group: grouped(all([topic()])), send: (a) async => throw ApiError(400, 'not asking now'), onPath: (p) => kept = p), results);
+    await tester.tap(find.text('Next'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'x');
-    await tester.tap(find.text('OK'));
+    await tester.tap(find.text('Send all answers'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Confirm and send'));
-    await tester.pumpAndSettle();
-    expect(find.text('It could not be sent: not asking now'), findsOneWidget);
+    expect(find.text('They could not be sent: not asking now'), findsOneWidget);
     expect(results, isEmpty);
-  });
-
-  testWidgets('the buttons are at least 48 logical pixels high', (tester) async {
-    await tester.pumpWidget(host((_) => HumanRequestDialog(request: approval(), send: (a) async {}), <Object?>[]));
-    await tester.tap(find.text('open'));
+    await tester.tap(find.text('Later'));
     await tester.pumpAndSettle();
-    for (final label in ['Yes, approve', 'No', 'Back']) {
-      final box = tester.getSize(find.ancestor(of: find.text(label), matching: find.byWidgetPredicate((w) => w is ButtonStyleButton)).first);
-      expect(box.height, greaterThanOrEqualTo(48));
-    }
+    expect(results, [HumanOutcome.later]);
+    expect(kept!.answers['i2'], 'politica');
   });
 
-  test('the poller shows the oldest request, leaves a Back for later, and looks again after an answer', () async {
+  for (final size in const [Size(360, 640), Size(390, 844), Size(1280, 800)]) {
+    testWidgets('at ${size.width.toInt()}x${size.height.toInt()} the buttons are at least 48 logical pixels and nothing overflows', (tester) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await opened(tester, (_) => HumanWizardDialog(group: grouped(all([approval()])), send: (a) async {}), []);
+      for (final label in ['Yes, approve', 'No', 'Next', 'Later']) {
+        final box = tester.getSize(find.ancestor(of: find.text(label), matching: find.byWidgetPredicate((w) => w is ButtonStyleButton)).first);
+        expect(box.height, greaterThanOrEqualTo(48), reason: label);
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('two possible answers are two buttons, and choosing one sends nothing', (tester) async {
+    final sent = <Map<String, Object>>[];
+    await opened(tester, (_) => HumanWizardDialog(group: grouped(all([two()])), send: (a) async => sent.add(a)), []);
+    expect(find.byType(DropdownButtonFormField<String>), findsNothing);
+    expect(find.text('On'), findsOneWidget);
+    expect(find.text('Off'), findsOneWidget);
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(find.text('Choose one of the two answers.'), findsOneWidget);
+    await tester.tap(find.text('Off'));
+    await tester.pumpAndSettle();
+    expect(sent, isEmpty);
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(find.text('Off'), findsOneWidget);
+    await tester.tap(find.text('Send all answers'));
+    await tester.pumpAndSettle();
+    expect(sent, [
+      {'i5': 'off'}
+    ]);
+  });
+
+  testWidgets('a menu of more than two answers offers "Other, I write", which opens a text field', (tester) async {
+    final sent = <Map<String, Object>>[];
+    await opened(tester, (_) => HumanWizardDialog(group: grouped(all([choice()])), send: (a) async => sent.add(a)), []);
+    await tester.tap(find.text('Six stories'));
+    await tester.pumpAndSettle();
+    expect(find.text('Other, I write'), findsOneWidget);
+    await tester.tap(find.text('Other, I write').last);
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsOneWidget);
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(find.text('Write an answer first.'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'Nine and a half');
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(find.text('Nine and a half'), findsOneWidget);
+    expect(sent, isEmpty);
+    await tester.tap(find.text('Send all answers'));
+    await tester.pumpAndSettle();
+    expect(sent, [
+      {'i1': 'Nine and a half'}
+    ]);
+  });
+
+  testWidgets('a step for the person: what to do, a note, "I did it" closes it with the note', (tester) async {
+    final sent = <Map<String, Object>>[];
+    await opened(tester, (_) => HumanWizardDialog(group: grouped(all([task()])), send: (a) async => sent.add(a)), []);
+    expect(find.text('Check the cable'), findsOneWidget);
+    expect(find.text('What to do'), findsOneWidget);
+    expect(find.text('Look at the microphone cable.'), findsOneWidget);
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Choose'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'cable is fine');
+    await tester.tap(find.text('I did it'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(find.text('Done: cable is fine'), findsOneWidget);
+    expect(sent, isEmpty);
+    await tester.tap(find.text('Send all answers'));
+    await tester.pumpAndSettle();
+    expect(sent, [
+      {'t': {'done': true, 'note': 'cable is fine'}}
+    ]);
+  });
+
+  testWidgets('"I can\'t now" sends nothing and the window closes', (tester) async {
+    final sent = <Map<String, Object>>[];
+    final results = <Object?>[];
+    HumanPath? kept;
+    await opened(tester, (_) => HumanWizardDialog(group: grouped(all([task()])), send: (a) async => sent.add(a), onPath: (p) => kept = p), results);
+    await tester.tap(find.text("I can't now"));
+    await tester.pumpAndSettle();
+    expect(find.text('It comes back in 10 minutes.'), findsOneWidget);
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(find.text('Not now: it comes back in 10 minutes'), findsOneWidget);
+    await tester.tap(find.text('Send all answers'));
+    await tester.pumpAndSettle();
+    expect(sent, isEmpty);
+    expect(results, [HumanOutcome.answered]);
+    expect(kept!.notNow, ['t']);
+    expect(kept!.payload, isEmpty);
+  });
+
+  test('the path leaves out a task that cannot be done now, and the poller holds only that task back for ten minutes', () async {
+    final p = HumanPath(grouped(all([choice(), task()])).items);
+    expect(p.problem(p.items[1]), 'hr.need.task');
+    p.setTask(p.items[1], state: 'later');
+    expect(p.problem(p.items[1]), isNull);
+    expect(p.payload, {'i1': 'n6'});
+    expect(p.notNow, ['t']);
+    p.setTask(p.items[1], state: 'done', note: ' ok ');
+    expect(p.payload, {'i1': 'n6', 't': {'done': true, 'note': 'ok'}});
+
+    var now = DateTime(2026, 11, 14, 10);
+    final shown = <List<String>>[];
+    var rows = all([choice(), task()]);
+    late HumanPoller poller;
+    poller = HumanPoller(
+      fetch: () async => rows,
+      show: (g, d) async {
+        shown.add([for (final r in g.items) r.nodeId]);
+        if (shown.length == 1) {
+          poller.drafts['news'] = HumanPath(g.items)..setTask(g.items[1], state: 'later');   // what the window leaves when "I can't now" was chosen
+        } else {
+          rows = shown.length == 2 ? [for (final r in rows) if (r.nodeId != 'i1') r] : <HumanRequest>[];       // what was answered is gone from the list
+        }
+        return HumanOutcome.answered;
+      },
+      every: const Duration(hours: 1),
+      clock: () => now,
+    );
+    poller.start();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(shown, [['i1', 't'], ['i1']]);                       // the task is held back while the rest of the plan is asked
+    now = now.add(const Duration(minutes: 11));
+    rows = all([task()]);
+    await poller.refresh();
+    expect(shown.last, ['t']);                                  // and it comes back after ten minutes
+    poller.stop();
+  });
+
+  test('the poller shows the first plan, leaves one for later with its answers, and looks again after an answer', () async {
     var now = DateTime(2026, 11, 13, 10);
     final shown = <String>[];
-    var list = [approval(), valueAsk()];
+    var rows = all([choice(), topic(), other()]);
     final outcomes = [HumanOutcome.later, HumanOutcome.answered];
     final poller = HumanPoller(
-      fetch: () async => list,
-      show: (r, i, n) async {
-        shown.add('${r.nodeId} $i/$n');
+      fetch: () async => rows,
+      show: (g, d) async {
+        shown.add('${g.planId} ${g.items.length}');
         final out = outcomes.isEmpty ? HumanOutcome.later : outcomes.removeAt(0);
-        if (out == HumanOutcome.answered) list = [for (final x in list) if (x.key != r.key) x];
+        if (out == HumanOutcome.answered) rows = [for (final r in rows) if (r.planId != g.planId) r];
         return out;
       },
       every: const Duration(hours: 1),
@@ -145,12 +385,11 @@ void main() {
     );
     poller.start();
     await Future<void>.delayed(const Duration(milliseconds: 50));
-    // the first was left for later, so the second is shown; it is answered; the first is still snoozed
-    expect(shown, ['ok_script 1/2', 'how_many 1/1']);
+    expect(shown, ['news 2', 'other 1']);                       // news was left for later, so the next plan is shown, and answered
     now = now.add(const Duration(minutes: 11));
-    list = [approval()];
+    rows = all([choice(), topic()]);
     await poller.refresh();
-    expect(shown.last, 'ok_script 1/1');                       // after the pause it comes back
+    expect(shown.last, 'news 2');                               // after the pause it comes back
     poller.stop();
   });
 }

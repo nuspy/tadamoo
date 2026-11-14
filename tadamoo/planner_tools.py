@@ -220,6 +220,9 @@ def render_plan(snap: Dict[str, Any]) -> str:
         lines.append(f'  {nid} [{n.get("status")}] {n.get("title")} (by {n.get("assignee")}{after})')
         if n.get("description"):
             lines.append(f'      {n["description"][:200]}')
+        inner = nodes_mod.inner_text(n.get("spec") or {}, n.get("state_variables") or {}) if n.get("type") == "action" and (n.get("state_variables") or {}).get("inner_done") else ""
+        if inner:
+            lines.append(f'      {inner}')
         if n.get("call_request"):
             lines.append(f'      call prepared (not placed): {n["call_request"]["number"]} - {n["call_request"]["reason"][:100]}')
         if n.get("wiki_query"):
@@ -633,6 +636,9 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         found = bring(step_archive_ids(snap["plan"], node_id, snap.get("profile")))
         if found:
             lines.append(found)
+        steps = nodes_mod.inner_text(node.get("spec") or {}, node.get("state_variables") or {})
+        if steps:
+            lines.append(steps)
         lines.append("Do it with your tools, read the result, then mark the step completed or failed with plan_mark.")
         return "\n".join(lines)
 
@@ -654,6 +660,19 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         except Exception as exc:
             return failure(exc)
         return f"Plan started at {res.get('started')} ({how}). Ready now: {', '.join(res.get('ready', [])) or 'nothing'}."
+
+    def plan_step_done(plan_id: str, node_id: str, step: str, result: Optional[Dict[str, Any]] = None, undo: bool = False) -> str:
+        """An inner step of a step you are doing is finished: it is kept in the plan, with its essential result, so that after an interruption (even a restart of the PC) the
+        step goes on from there and does not do it again. Only for a step that was started with plan_step_start."""
+        try:
+            res = client.event(plan_id, {"type": "plan:inner", "node_id": node_id, "step": step, "result": result or {}, **({"undo": True} if undo else {})})
+        except Exception as exc:
+            return failure(exc)
+        info = res.get("inner") or {}
+        if undo:
+            return f"'{step}' is to be done again: it is no longer among the finished inner steps."
+        left = info.get("left") or []
+        return f"Inner step '{step}' of {node_id} recorded in the plan." + (f" Next: {info.get('next')}. Still to do: {', '.join(left)}." if left else "")
 
     def plan_propose_change(plan_id: str, title: str, diff: Dict[str, Any], rationale: str = "", quote: str = "") -> str:
         if (msg := need_read(plan_id)):
@@ -916,6 +935,12 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
                           ["plan_id", "node_id", "status"]), EffectClass.REVERSIBLE, plan_mark)
     registry.register("plan_start", "Starts a plan at one of its start nodes (number, 1 when it has one); not while it is running. A plan that has finished starts again. Needs the user's yes.",
                       obj({"plan_id": {"type": "string"}, "number": {"type": "integer"}, "quote": quote_param}, ["plan_id"]), EffectClass.REVERSIBLE, plan_start)
+    registry.register("plan_step_done", "Records that an inner step of a step you are doing is finished, with its essential result (the files made, the values), in the plan. After an "
+                      "interruption (even a restart of the PC) the step goes on from there and the inner steps recorded are not done again. Use it after each stage of a step that does "
+                      "several things in a row. With undo the inner step is to be done again. No confirmation is asked: the step was started with plan_step_start.",
+                      obj({"plan_id": {"type": "string"}, "node_id": {"type": "string"}, "step": {"type": "string", "description": "the name of the inner step (one of the step's declared steps, if it has any)"},
+                           "result": {"type": "object", "description": "the essential result: for example {files: [...], made: 3}; at most 2000 characters"}, "undo": {"type": "boolean"}},
+                          ["plan_id", "node_id", "step"]), EffectClass.REVERSIBLE, plan_step_done)
     registry.register("plan_step_start", "Starts a step that is ready and is for the agent; the user must say yes. Then do the step with your tools and mark it.",
                       obj({"plan_id": {"type": "string"}, "node_id": {"type": "string"}, "quote": quote_param}, ["plan_id", "node_id"]), EffectClass.REVERSIBLE, plan_step_start)
     registry.register("plan_propose_change", "Changes the structure of a plan (add, remove or change steps and links) with a diff. Needs the user's yes. At the Auto level what touches no step for other people, a prepared call or a booking is applied at once; the rest waits in the plan as a proposal for the user.",
