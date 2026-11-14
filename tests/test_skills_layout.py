@@ -50,11 +50,12 @@ def test_the_plan_template_is_a_valid_plan_and_nothing_heavy_runs_before_an_appr
     dag = PlanDAG.from_dict(data)
     assert dag.target_type == "occasional" and not [n for n in dag.nodes.values() if n.type.value.startswith("wait")]
     questions = [n for n in dag.nodes.values() if n.id.startswith("i_")]
-    assert questions and all(n.type.value == "input" and n.assignee.value == "user" for n in questions)
+    assert questions and all(n.type.value == "parameter" for n in questions)                  # values of the plan with defaults, set in the Parameters tab, never asked at start
     starts = dag.start_nodes()
     assert [s.id for s in starts] == ["start"] and starts[0].type.value == "start" and starts[0].spec == {"number": 1, "launch": "manual"}      # an explicit start node, not a step
-    assert starts[0].dependencies == [] and starts[0].status == "pending" and set(starts[0].outputs) == {n.id for n in questions}
-    assert all(n.dependencies == ["start"] and "clean" in n.outputs for n in questions)                    # asked when the plan starts; nothing runs before every one is answered
+    assert starts[0].dependencies == [] and starts[0].status == "pending" and starts[0].outputs == ["clean"]
+    assert all(n.dependencies == [] and n.outputs == [] for n in questions) and dag.nodes["clean"].dependencies == ["start"]      # the run starts at the start node and reads the parameters
+    assert dag.nodes["end"].type.value == "end" and set(dag.nodes["end"].dependencies) == {"done", "stopped1", "stopped2"}
     assert dag.nodes["approval1"].assignee.value == "user" and dag.nodes["approval2"].assignee.value == "user"
     assert dag.nodes["gate1"].routes["go"] == ["video"] and dag.nodes["gate2"].routes["go"] == ["done"]
     assert {"approval1", "auto1"} <= set(dag.nodes["gate1"].dependencies) and {"approval2", "auto2"} <= set(dag.nodes["gate2"].dependencies)      # the approval, or the answer given in its place
