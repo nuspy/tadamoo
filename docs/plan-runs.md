@@ -13,10 +13,11 @@ The `input` node is the plan's request for human intervention, for every plan. O
   is shown as it is, so plans saved before keep working.
 - `other`: a menu of more than two choices also takes what the person writes ("Other, I write"); `other: false` closes it to the choices. Two choices are two buttons and never take another answer.
 - `default`: the answer proposed; it must be one the question would take. What was answered the last time the plan ran is proposed instead, when there is one.
+- `group` / `group_en` (up to 80): the heading the question is listed under; an `action` for the person has them too.
 - A start node is never a question: it is set in the plan's editor only.
 
 A request is **asking** when its turn has come (its parents are done, it is not a draft). `GET /api/plans/human` lists all of them:
-`{requests: [{plan_id, plan_title, node_id, title, ask (value, approve or task), prompt, prompt_en, help, help_en, content, kind, choices: [{value, label, label_en}], other, into, since, index, proposed}]}`,
+`{requests: [{plan_id, plan_title, node_id, title, ask (value, approve or task), prompt, prompt_en, help, help_en, group, group_en, content, kind, choices: [{value, label, label_en}], other, into, since, index, proposed}]}`,
 by when they began asking and then in the order of the plan (`index`); a paused plan asks nothing.
 
 **A step for the person** (an `action` assigned to `user`, whose outputs are at most one text) is asked too: `ask: "task"`, the title as the question, its description (with `{values}`) as what to do. It is answered with
@@ -29,18 +30,22 @@ A decision can branch on the values. When the person answered (not the Chat for 
 
 ### Where it shows
 
-The questions of one plan are one path: *Question 3 of 22*, the question large, its explanation under it, the field (a menu of labels, a text, a number, Yes or No), *Back* and *Next*;
-then a summary of every answer with *Edit* beside each and one *Send all answers*. The field follows the answer, the same everywhere:
+The questions of one plan are **one scrolling list** with all of them at once (a plan with 43 questions shows 43): full screen on a phone, a wide panel on a desktop, the same window over any tab.
+Each question is the question in large type, its explanation under it, and its field; a plan may group them with `group` / `group_en` on the node (a short text such as *Who presents*): the heading is shown
+before the first question of each group, in the person's language, and nothing is shown when a plan has none. The field follows the answer, the same everywhere:
 two possible answers (an approval, or two choices) are **two buttons** with the answers in words; more than two are a **menu** with "Other, I write", which opens a text field; a free text or a number is the **field**;
-a step for the person is its description, an optional **note** and two buttons, "I did it" and "I can't now". Choosing an answer never sends anything: only *Send all answers* does, once.
-"I can't now" leaves that step out of what is sent and it comes back after 10 minutes (the rest of the plan's questions are asked as usual). Next refuses an empty or wrong answer; Edit from the summary returns straight to it after the change.
+a step for the person is in the same list: its description, an optional **note** and two buttons, "I did it" and "I can't now". Choosing an answer never sends anything.
+At the bottom, always in sight, are *Later* and one *Send all answers*, with how many questions are not answered yet. Sending with some missing sends nothing: it shows which, and brings the first into view.
+"I can't now" leaves that step out of what is sent and it comes back after 10 minutes (the rest of the plan's questions are asked as usual).
 *Later* leaves the plan's questions for 10 minutes with the answers kept. What the plan proposes (or was answered last time) is already in each field.
 
-- **Web**: `serve/web/human.js` polls every 4 s and opens a modal window over whatever tab is open (`#hr-card`). The left and right arrow keys move along the path (not inside a text field) and Enter goes on from a field;
-  the summary opens on its title, so a second Enter cannot send. Esc is Later. Targets are 48 px, the window is inside the screen from 360 px wide; strings in Italian and English.
-- **App** (`mobile/lib/src/human_requests.dart`): the same, over any tab while the app is open; looked for every 4 s, not while it is in the background. A swipe left or right moves along the path, and so do the arrow keys of a keyboard.
+- **Web**: `serve/web/human.js` polls every 4 s and opens a modal window over whatever tab is open (`#hr-card`). Enter in a text field goes to the next field. Esc is Later.
+  Targets are 48 px, the window is full screen from 600 px wide down; strings in Italian and English.
+- **App** (`mobile/lib/src/human_requests.dart`): the same, over any tab while the app is open; looked for every 4 s, not while it is in the background.
 
-`serve/tests/test_human_page.py` drives the web window in a real headless browser at 360x640, 390x844 and 1280x800 (and in Italian): the questions, the keys, the summary, Edit, one Send with every answer, Later.
+`serve/tests/test_human_page.py` drives the web window in a real headless browser at 360x640, 390x844 and 1280x800 (and in Italian): the whole list with its headings, the bottom line, Send with some missing, Other, one Send with every answer, Later, a step for the person.
+
+The texts of a plan are written in Italian and English **on two lines**, Italian first: a title as `Italian\nEnglish`, a description as the Italian summary and then the English; the plan page keeps the line break.
 
 ## A run that was cut short takes up again
 
