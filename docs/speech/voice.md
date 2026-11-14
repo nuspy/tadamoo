@@ -60,10 +60,20 @@ The newscast took far longer than real time for these reasons, and the code chan
   is bound by the launch of its small kernels, so a step for four takes costs about what a step for one does. The batch is seeded once, with the seed of its first take; each take is then cut at
   its own stop token and turned into audio by itself, as a single take is. A batch that runs out of memory is made again in two halves. A piece with a take missing from the cache is made again whole.
   A take made in a batch is not the take its seed made alone (the draws are shared); a right take is judged by measurement, so this changes nothing in what is right.
-- **Precision.** `xtts_precision` `fp16` or `bf16` runs the autoregressive pass under autocast (the latents and the vocoder stay fp32). The default stays `fp32` until takes made in half precision
-  have been heard and their share of right takes is the same.
-- **No graph compiler.** `torch.compile` and CUDA graphs need Triton, which the XTTS environment does not have on Windows, so they are not used. The inference mode and the cached conditioning
-  latents already were.
+- **Precision.** `xtts_precision` `tf32` (fp32 with TensorFloat-32 matrix products), `fp16` or `bf16` (autocast over the autoregressive pass; the latents and the vocoder stay fp32). The default
+  stays `fp32` until takes made in lower precision have been heard and their share of right takes is the same.
+- **Compile, as LTX Studio does it.** `xtts_compile` `on` compiles the transformer of the autoregressive pass with `torch.compile` in mode `default` (no CUDA graphs: their output buffers are
+  reused between runs), `fullgraph` off, `dynamic` on (the cache grows each step) and `torch._dynamo.config.suppress_errors` (a graph that cannot be compiled runs eagerly). That is how LTX Studio compiles
+  its transformers, where it is opt-in too. It needs Triton, which on Windows is the `triton-windows` package: the XTTS environment has the same torch (2.11, cu128) as LTX Studio's inference
+  environment, which runs `triton-windows` 3.7 on it. `python -m tadamoo.media.components install speech-synthesis` installs it into the XTTS Python, only when it is missing. A compile that
+  fails is reported once and the pass goes on without it.
+- **Attention and cache.** The attention is PyTorch's SDPA (the default of transformers for this model) and the decoding keeps the model's own key-value cache (`kv_cache`); the line the worker prints when
+  it loads the model says so. SageAttention (which LTX Studio uses for its large transformers) is not used: a decoding step has one query, and the saving is in long sequences.
+- **Kept loaded and kept made.** The model is read once for a model folder, the conditioning latents of each speaker once for each speaker (a change of voice costs nothing), the seeds of a sentence
+  follow its text, not its place, so a sentence said twice is made as the same takes, and `xtts_cache` keeps the takes of a sentence by its text, seeds and settings in a folder that any later production finds.
+- **The rating on the GPU.** The CTC read-back (a 1B model) and the speaker embedder run on the CPU by default, to leave the GPU to the loaded language model; `rating_device` `cuda` moves both to the GPU.
+- **Longest time.** The wait on the voice is the longest the audio allows (`tadamoo/jobtime.py`: the factor times the median of the recorded ratios times the seconds of audio): the XTTS run
+  (`LocalXtts` with a `Timing`), a recording of the voice service and the wait for its speech-to-text. A job that ends well records its ratio; one over its limit is ended with an `Overrun` that says the numbers.
 
 ## Joining
 
