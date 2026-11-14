@@ -53,7 +53,7 @@ def plan_state(plans_dir: Optional[Path], plan_id: str) -> Optional[Dict[str, An
         plan = json.loads((Path(plans_dir) / f"{plan_id}.json").read_text(encoding="utf-8"))["plan"]
     except (OSError, ValueError, KeyError, TypeError):
         return None
-    nodes = [n for n in (plan.get("nodes") or {}).values() if isinstance(n, dict) and n.get("type") != "start"]
+    nodes = [n for n in (plan.get("nodes") or {}).values() if isinstance(n, dict) and n.get("type") not in ("start", "end", "parameter")]
     open_nodes = [n for n in nodes if n.get("status") not in ("completed", "skipped")]
     if nodes and not open_nodes:
         return None

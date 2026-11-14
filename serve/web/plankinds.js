@@ -20,6 +20,8 @@
     rag: "M4 5h6a2 2 0 012 2v12a2 2 0 00-2-2H4z M20 5h-6a2 2 0 00-2 2v12a2 2 0 012-2h6z",
     start: "M7 4l13 8-13 8z",
     start_plan: "M4 5h9v6H4z M11 13h9v6h-9z M13 8h4v3 M11 16H7v-3",
+    end: "M6 6h12v12H6z",
+    parameter: "M4 7h10 M18 7h2 M4 12h4 M12 12h8 M4 17h12 M20 17h0 M16 5v4 M10 10v4 M18 15v4",
   };
   const OP_WORD = { "<": "lt", "<=": "le", "=": "eq", "!=": "ne", ">=": "ge", ">": "gt", between: "between", in: "in", contains: "contains", else: "else", "": "custom" };
   const UNITS = [["d", 86400], ["h", 3600], ["min", 60], ["s", 1]];

@@ -1,4 +1,22 @@
-# Starting a plan: start nodes, schedules in words, a plan that starts another
+# Starting a plan: on and off, start nodes, schedules in words, a plan that starts another
+
+## The plan is what is started
+
+A plan is **on** or **off**. Nothing is started from a step: the plan's header has **Start plan** (IT *Avvia piano*) and **Stop plan** (*Ferma piano*), with the state shown beside them; the
+node has no Start button.
+
+- **Start plan** (`plan:start_plan`, `POST /api/plans/<id>/start` `{number?}`) switches the plan on: every start that watches events or counts time is **armed**, and, when the plan is not
+  running, it begins at the manual start named by `number`, or at the first manual start it has. A plan with no manual start is only armed.
+- **Stop plan** (`plan:stop_plan`, `POST /api/plans/<id>/stop`) switches it off and skips what had not finished, so nothing waits and nothing is asked; the next Start plan begins from the top.
+  A plan that had not begun is only switched off.
+- An **End** step (`end`: one input, no output) switches the plan off when it is reached. A plan without one stays on, armed, when a run finishes, and the next trigger begins it again.
+- Beginning at a start (`PlanDAG.begin`, for any cause) switches the plan on. Interval and event starts fire **only while the plan is on**. A `caller` start answers a `start_plan` step of another plan
+  and switches the plan on.
+- A plan saved before this existed has no state kept (`active` absent): it counts as on when it has an `interval` or `event` start or is running, so it behaves as it did.
+- `GET /api/plans/<id>` carries `active`; the plan's `active` is saved with it.
+
+**Several Start nodes** may be armed together, each with its own number and its own trigger (a manual one, an event, a schedule, a caller). The first trigger that fires begins the run at its start and
+the other starts, with the steps only they lead to, are skipped for that run; when the run finishes the plan is rewound and all starts are armed again (if it is still on).
 
 Every plan has at least one **start node** (`start`), where it begins. The steps a start leads to wait for it. A start has a number and says how it begins.
 
@@ -8,7 +26,7 @@ Every plan has at least one **start node** (`start`), where it begins. The steps
 
 | `launch` | Starts when | Needs |
 |---|---|---|
-| `manual` | the person presses Start on the node, or the Chat calls `plan_start` | nothing |
+| `manual` | the person presses Start plan (it begins at the first manual start, or the one a request names), or the Chat calls `plan_start` | nothing |
 | `event` | an event arrives (the planner's mailbox, `POST /api/plans/events`) and the condition holds | `when`: an expression over `text` (lower case), `source`, `at` and the plan's values, as a sensor's |
 | `interval` | the schedule comes due | `words`: the time as people say it; `schedule` is made from it |
 | `caller` | another plan's `start_plan` step names this start | nothing |
@@ -62,4 +80,4 @@ sets it to one routine for each plan (`dedup_key: planrun:<id>`, run by hand, in
 steps that are ready, for the agent, and that no conversation was started for yet, and not while one is at work on the plan. What the agent does itself in a conversation (its own start, its own marks)
 starts nothing more. Human requests and the steps for the person are not the agent's. See [plan-runs.md](plan-runs.md).
 
-Tests: `tests/test_schedule_words.py`, `tests/test_planner_starts.py`.
+Tests: `tests/test_schedule_words.py`, `tests/test_planner_starts.py`, `tests/test_planner_parameters_onoff.py`, `serve/tests/test_plan_params_page.py` (Start plan and Stop plan in a real browser).

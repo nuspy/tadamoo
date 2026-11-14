@@ -4066,6 +4066,8 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, {"mermaid": to_mermaid(service.snapshot(plan_id)["plan"])})
                 if action == "alignment":
                     return self._json(200, service.alignment(plan_id))
+                if action == "parameters":
+                    return self._json(200, service.parameters(plan_id))
                 if action == "events":
                     events = service.events_since(plan_id, after)
                     return self._json(200, {"events": events, "seq": events[-1]["seq"] if events else after})
@@ -4129,6 +4131,10 @@ def make_handler(svc: Service, remote: bool = False):
                 plan_id, action = parts[0], (parts[1] if len(parts) > 1 else "")
                 if action == "events":
                     result = service.handle_event(plan_id, req)
+                    return self._json(200 if result.get("ok") else 400, result)
+                if action in ("parameters", "start", "stop"):
+                    kind = {"parameters": "plan:parameters", "start": "plan:start_plan", "stop": "plan:stop_plan"}[action]
+                    result = service.handle_event(plan_id, {**req, "type": kind})
                     return self._json(200 if result.get("ok") else 400, result)
                 if action == "alignment":
                     return self._json(200, service.alignment(plan_id, model=req.get("model") is True))
