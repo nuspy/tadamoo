@@ -200,3 +200,14 @@ Con Qwen vero: un piano di tre-quattro passi eseguito dall'agente (con strumenti
 5. Un valore passato davvero tra passi: A conta, C conta, B «dividi {uova} per {presenti}» riceve i numeri nel testo e tra i «valori dati».
 
 6. Scheda di un parametro: i tre pulsanti «Da chi avvia / Con un'espressione Python / Dal modello»; «Controlla l'espressione» con `now()` e con un errore; «Trasforma la descrizione in Python» (descrizione «data e ora di quando parte lo script») deve dare `now()` o simile e passare al pulsante Python. Avviare la skill: i parametri del modello partono in UNA sola chiamata (controllare il registro delle richieste); un parametro «più avanti» non compare tra i valori dell'avvio e lo script lo imposta da sé.
+
+## Impostazioni di inferenza per conversazione e per piano (14 novembre; provate con processi e server finti e con le stringhe della pagina, NON su una finestra vera)
+
+Sull'app vera avviata, a 360×640, 390×844 e oltre 1280, senza scroll orizzontale, tutti i comandi da almeno 44 px, in italiano e in inglese:
+
+1. Impostazioni > Generale > «Impostazioni di inferenza»: «Modifica il predefinito della macchina» apre lo stesso pannello della Chat sotto il bottone, senza i gruppi che servono solo a una conversazione (permessi, checkpoint, immagini, Billion context). Cambiare la temperatura e «Compatta a» (70): dopo mezzo secondo compare «Salvato», e `presets.json` ha il preset «Machine Default» con i valori.
+2. Chat > Nuova conversazione: il pannello (bottone «Impostazioni») mostra i valori del Machine Default («Nuova conversazione: parte dal Machine Default»). Scrivere un messaggio: la conversazione nasce con quei valori (`/api/agent/sessions` > `inference`). Cambiare poi il ragionamento da «Alto» a «Basso» nel pannello e dall'elenco in alto: restano uguali tra loro.
+3. Aprire un'altra conversazione e tornare: ciascuna mostra i propri valori (temperatura, soglia, ragionamento), non quelli dell'altra. Cambiare il Machine Default dopo: le conversazioni esistenti non cambiano, una nuova sì.
+4. Piani > un piano > «Impostazioni di inferenza» in cima all'editor: stesso pannello, titolo «Impostazioni del piano…». Dopo una modifica, avviare il piano: la conversazione che lo esegue (`agent_sessions.json`, campo `inference`) ha i valori del piano. Con il piano mai modificato ha quelli del Machine Default.
+5. Elenco «Imposta tutti i passi a…» in cima all'editor: scegliere «Basso» mette «Basso» su ogni passo azione non fatto (dettaglio del passo > «Ragionamento su questo passo»); «Come dice il piano» li toglie. Un passo con «Alto» proprio: quando l'agente lo avvia (`plan_step_start`) il processo riceve `effort` alto, e a passo finito torna quello del piano (log del processo della conversazione).
+6. Il riassunto di compattazione con il modello vero sul percorso nuvola (Qwen): `compaction` nel registro di controllo della conversazione deve dire `summary_by: model` (prima diceva `extract`), senza `summary_error`.

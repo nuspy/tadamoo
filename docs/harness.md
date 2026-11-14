@@ -95,7 +95,7 @@ skills, connections) and the history is kept between messages. The server starts
 | route | what it does |
 |---|---|
 | `GET /api/agent/sessions` | the conversations, newest first, with their state: `dormant`, `starting`, `idle`, `busy`, `blocked`, `closed` |
-| `POST /api/agent/sessions` | creates one: `workspace`, `mode`, `allow`, `ask_only` (answers without tools), `title`, `max_turns` (the steps one answer may take: `-1`, the default, for no limit, or 1 and more) |
+| `POST /api/agent/sessions` | creates one: `workspace`, `mode`, `allow`, `ask_only` (answers without tools), `title`, `inference` (the settings panel's values; without it the machine default, see [inference-settings.md](inference-settings.md)), `max_turns` (the steps one answer may take: `-1`, the default, for no limit, or 1 and more) |
 | `POST .../<id>/send` | `{"text"}`; a dormant conversation wakes from its saved history; 409 while it is still answering |
 | `GET .../<id>/events?after=N` | what happened since event N: `user`, `ready`, `accepted`, `agent` (assistant text, tool start and end), `retrying`, `restarting`, `stalled`, `ask`, `answered`, `auto_answered`, `pending`, `pending_done`, `done`, `blocked` |
 | `GET .../<id>/history` | the saved messages |
@@ -104,6 +104,7 @@ skills, connections) and the history is kept between messages. The server starts
 | `POST .../<id>/mode` | `{"mode"}`: what the conversation may do without asking, from its next action on; `auto` asks for nothing |
 | `POST .../<id>/effort` | `{"level"}`: `none`, `low`, `medium`, `high` or empty (the model's own); also a field of the create call |
 | `POST .../<id>/settings` | `{"max_turns"?, "end_turn_bias"?}`: changes them for the conversation from its next run |
+| `POST .../<id>/inference` | `{"settings": {...}}`: the whole settings panel of the conversation, saved with it; the process hears what changed ([inference-settings.md](inference-settings.md)) |
 | `POST .../<id>/favorite`, `/delete` | `{"favorite": true\|false}`: the page lists favorites apart, above the rest (the conversation's place in time does not change); `delete` takes the conversation away for good: its process, saved messages, attached and made files and its own copy of the folder (branches made from it stay) |
 | `GET .../nodes`, `GET .../<id>/switch-cost?current=<id>`, `POST .../merge` | the messages of every conversation as shared immutable nodes (`serve/conv_nodes.py`, one `nodes.jsonl` beside the conversations; a branch is a pointer to a node and writes no history file until it runs): runs between forks; the tokens to read again on switching (`if_cache_cold`, `if_cache_warm`, system prompt and tool list not counted); `{"a","b","instruction"?}`: the model writes one synthesis of two idle conversations into a new one that continues `a` |
 | `POST .../<id>/rename`, `/command` | `{"title"}`; `{"name", "args"}`: a slash command the process answers (below), whose answer comes as a `command` event |
@@ -568,7 +569,7 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   full text saved and named at the end); JSON is trimmed and HTML reduced to text. The
   system block is byte-stable so the engine's prefix checkpoint is reused; retrieved memories go after the goal as untrusted data.
 - When masking is not enough, the older steps of a long turn become a structured summary and the newest stay as written, with an
-  identifier audit and a report of what the server reads again; Settings > General > Long work: [compaction.md](compaction.md).
+  identifier audit and a report of what the server reads again; the settings of a conversation: [compaction.md](compaction.md), [inference-settings.md](inference-settings.md).
 - **Code is never masked or summarised in a session with file or shell tools** (the Agent): code the person sent, code the model wrote, source it
   read or searched, and shell output that is source stay whole, up to 60% of the prompt budget; past that the oldest code results are masked
   again with a note, an event `code_masked` and an audit record, and the model is told once. In the Chat (no such tools) code in a message

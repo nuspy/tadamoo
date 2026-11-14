@@ -5,8 +5,8 @@ An autonomous request can run for hundreds of tool calls without a new message f
 of the context patterns works on whole turns, so a single long turn was never summarised. This page is the summary that works inside one
 turn. Code: `tadamoo/compaction.py` (cuts, the summary call, the report), `tadamoo/identifiers.py` (the identifier audit), the hook in
 `PatternContext.prepare` (`tadamoo/context_patterns.py`) and in `AgentLoop._prepare_context` (`tadamoo/agent_loop.py`). The design comes
-from [harness-study](harness-study/README.md) (OpenClaw, Hermes). The settings page is Settings > General > Long work
-(`serve/web/compaction.js`, `serve/compaction_prefs.py`, kept in `compaction.json` in the user data folder).
+from [harness-study](harness-study/README.md) (OpenClaw, Hermes). Where it starts is a setting of each conversation, kept with it and taken
+from the machine default: see [inference-settings.md](inference-settings.md).
 
 ## When it runs
 
@@ -146,9 +146,11 @@ system message and the tool list of every request are byte-identical before and 
 | on or off | `--no-compaction` (off) | on |
 | start at | `--compaction-threshold SHARE` (0.5 to 0.98) | 0.85 |
 
-Settings > General > Long work has both, each with its explanation in English and Italian, and takes effect for conversations started
-afterwards. The choice is kept in `compaction.json` in the user data folder, read afresh each time a conversation's process is started, so
-it survives a restart of the server and of the app; with no file it is on. Off leaves masking only; a request that outgrows the window can then fail at the server. The mobile app has no card for it.
+The options belong to one conversation: its process is started with the "When the context is full" choice of the settings panel. **Compact**
+is on, and the panel's percentage is where masking and the fold start (default 80, never below 50 or above 98 for the fold); **Sliding window**
+and **Stop at the limit** leave only masking. A change in the panel reaches the running process from its next model call. A new conversation
+and the conversations a plan opens take the machine default (the plan's own settings when it has them); see
+[inference-settings.md](inference-settings.md). Off leaves masking only; a request that outgrows the window can then fail at the server.
 
 ## Costs and limits
 
