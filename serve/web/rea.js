@@ -1,5 +1,5 @@
 "use strict";
-/* Reverse engineering with REA, in the Agent tab. One switch registers REA's MCP server and skill with TaDaMoo; the list below it
+/* Reverse engineering with REA, in the Agentic coding tab. One switch registers REA's MCP server and skill with TaDaMoo; the list below it
    shows the programs REA can use. A press of Install, or of Install all, runs the steps shown, in the order of what each program needs,
    in the background; this page follows it. Everything the server sends goes in as text. See docs/rea.md. */
 (function () {

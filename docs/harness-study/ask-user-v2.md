@@ -165,7 +165,7 @@ How shown
 Cost control
 - Skip when the cache is cold (a long idle gap), when the engine is busy, on very short chats of the first turn if the owner wants that, after the answer was an error.
 - Back-off like Claude Code: after 3 suggestion sets in a row where none was used, generate every second turn, and reset when one is used.
-- Per-session and global toggle in Settings, default ON in GUI Chat and Agent tab; OFF for unattended runs, headless, and ACP.
+- Per-session and global toggle in Settings, default ON in GUI Chat and Agentic coding tab; OFF for unattended runs, headless, and ACP.
 - Count tokens used by suggestions separately in the usage stats so the owner can see the cost.
 
 Privacy and safety
@@ -176,7 +176,7 @@ Privacy and safety
 - Do not generate from conversations marked incognito or whose content the user excluded.
 
 6. (e) UI DESIGN
-6.1 GUI chat (WebView2, 1024 to ~3600 px; shared by Chat and Agent tabs through agentchat.js)
+6.1 GUI chat (WebView2, 1024 to ~3600 px; shared by Chat and Agentic coding tabs through agentchat.js)
 One new ask block kind, `b.kind === "questions"`, drawn like the MCP elicitation form (same class family `.aask*`, same pattern: build once and do not redraw while the person types).
 - Card: `.aask`, max-width about 720 px so it stays readable on 3600 px screens, full width below that. Optional intro line.
 - For each question a `<fieldset>`: a `<legend>` with a small header chip (the first words of the question or its id as fallback) and the question text. Show "n of m" only when m > 1.
@@ -195,7 +195,7 @@ One new ask block kind, `b.kind === "questions"`, drawn like the MCP elicitation
 - Suggestion chips: `.asuggest` row under the last assistant block, class `.btn`, group `aria-label` = `ch.suggest.label`.
 - i18n keys, each in EN and IT in `serve/web/i18n.js` (the static test checks placeholders and that EN differs from IT): `ch.ask.send`, `ch.ask.skip`, `ch.ask.chat`, `ch.ask.other`, `ch.ask.other.ph`, `ch.ask.recommended`, `ch.ask.required`, `ch.ask.missing`, `ch.ask.auto`, `ch.ask.default`, `ch.ask.answered`, `ch.ask.skipped`, `ch.ask.yes`, `ch.ask.no`, `ch.ask.n_of_m`, `ch.suggest.label`, `ch.suggest.title`, `ch.suggest.off`, plus settings labels and an `h.` help line for the toggle. The `ch.q.` list at `test_web_static.py:40` is for the harness's own question kinds, so it needs the new kind added only if it uses `askQuestion()`.
 
-6.2 Agent tab
+6.2 Agentic coding tab
 - Same widget (shared file). Extras: plan mode asks, then presents the plan (`present_plan` is unchanged). Worktree and permission cards stay distinct from question cards by their kind and by an icon in the legend.
 - Terminal and ACP (optional, phase 3): print numbered options and read a number, comma list, or text; in ACP, send an `elicitation/create` form when the client advertises `elicitation.form`, otherwise a permission card with the choices plus Skip (Hermes' `acp_adapter/elicitation.py` is a model; no code copied).
 

@@ -1,4 +1,4 @@
-"""The REA box in the Agent tab: wired into the page, every text in English and Italian, server strings only as text."""
+"""The REA box in the Agentic coding tab: wired into the page, every text in English and Italian, server strings only as text."""
 from __future__ import annotations
 
 import re

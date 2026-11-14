@@ -1,6 +1,6 @@
 # Coding mode
 
-What the Agent tab adds for working on code in a folder: a **role** for each conversation, the **project checks** a folder seems to have,
+What the Agentic coding tab adds for working on code in a folder: a **role** for each conversation, the **project checks** a folder seems to have,
 and a **safe verification** class of permissions. Code: `tadamoo/roles.py`, `tadamoo/project_profile.py`, `tadamoo/permissions.py`
 (`safe_verification`), `serve/coding_prefs.py`, the wiring in `tadamoo/stack.py`, `tadamoo/agent_loop.py`, `tadamoo/session.py` and
 `serve/agent_sessions.py`, and the page in `serve/web/coding.js` and `coding.css`. The design comes from
@@ -10,7 +10,7 @@ described in [harness-file-tools.md](harness-file-tools.md) and [harness-gates.m
 ## Roles
 
 A role says what the agent is for. It is a short block of instructions, a set of tools it may use, and what it may write. It is chosen for a
-conversation (the selector in the Agent tab, `--role`, the `role` field when a conversation is created) and can change at any time.
+conversation (the selector in the Agentic coding tab, `--role`, the `role` field when a conversation is created) and can change at any time.
 
 | role | tools | writes | instructions in short |
 |---|---|---|---|
@@ -25,7 +25,7 @@ The read tools are `read_file`, `list_directory`, `tree`, `search_code`, `repo_m
 `find_references`, `recall`, `load_skill`, `docx_outline` and `docx_read`. `docx_edit` and `docx_create` (see [docx-tools.md](docx-tools.md)) count as file writers beside `edit_file` and `write_file`. `ask_user`, `todo_write` and `present_plan` are allowed in every role, so the checklist and
 the way out of the Plan only permission mode always work. The browser, the web tools, the planner, the phone, the vault and MCP tools are
 not in a coding role; `general` has them. The coding role has one name, the constant `CODING_ROLE` in `tadamoo/roles.py` (its id is `build`; the page shows it as
-"Developer" in both languages, the string `cd.role.build`, and it is the Agent tab's default role).
+"Developer" in both languages, the string `cd.role.build`, and it is the Agentic coding tab's default role).
 
 ### How a role is applied, and the cache
 
@@ -63,7 +63,7 @@ card shows it. Each suggestion has a digest of the command and that text.
 
 ### Accepting
 
-The card "Project checks" in the Agent tab lists them and the person accepts them one by one, with two choices for each: **run without
+The card "Project checks" in the Agentic coding tab lists them and the person accepts them one by one, with two choices for each: **run without
 asking** and **run before an answer ends** (the verify gate). Nothing is accepted by default and nothing from a project file approves
 anything: the acceptance is saved in `coding.json` in the user data folder, keyed by the folder, with the command and its digest
 (`serve/coding_prefs.py`); a file `.tadamoo/project.json` or anything else in the project is never read for it. Only a command the folder
@@ -97,7 +97,7 @@ the gate off the ticked checks only wait; the card says so.
 
 ## The page
 
-In the Agent tab (not in the Chat) the head of the page has a **Role** selector, and under it the **Project checks** card.
+In the Agentic coding tab (not in the Chat) the head of the page has a **Role** selector, and under it the **Project checks** card.
 
 - The selector lists the roles from the server (`GET /api/coding`), shows each role's description as its tooltip, and for a new conversation
   remembers the last choice in this browser (the first time: the coding role). Changing it in an open conversation calls

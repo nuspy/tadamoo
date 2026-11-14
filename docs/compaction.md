@@ -40,7 +40,7 @@ folded into the new one, so there is always one. What leaves the model's view is
 
 ## Code stays whole (agent sessions)
 
-A session with a file or shell tool (`read_file`, `write_file`, `edit_file`, `shell_command`: the Agent tab and any headless run) never masks or
+A session with a file or shell tool (`read_file`, `write_file`, `edit_file`, `shell_command`: the Agentic coding tab and any headless run) never masks or
 summarises code (`tadamoo/codeblocks.py`, `AgentConfig.keep_code`, on by default). A message is marked `code` once, from the message and the call
 it answers: a fenced block or pasted source in the person's message, a fenced block in the model's reply, a write or edit call to a source file (by
 extension, or text that reads as source), a `read_file` result of a source file, `search_code`, `find_references` and `go_to_definition` hits in

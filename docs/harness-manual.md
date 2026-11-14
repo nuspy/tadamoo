@@ -17,7 +17,7 @@ done. The engine needs no manual and has none here.
 - [10. Skills, plugins and MCP servers](#10-skills-plugins-and-mcp-servers)
 - [11. The web, the browser, the Wallet and the phone](#11-the-web-the-browser-the-wallet-and-the-phone)
 - [12. Plans](#12-plans)
-- [13. The Agent tab](#13-the-agent-tab)
+- [13. The Agentic coding tab](#13-the-agent-tab)
 - [14. The command line and the editor](#14-the-command-line-and-the-editor)
 - [15. Hooks](#15-hooks)
 - [16. Routines, evaluation and replay](#16-routines-evaluation-and-replay)
@@ -147,6 +147,7 @@ argument, **Escape** closes. A message that starts with a space is sent as writt
 | `/reload-mcp`, `/reload-skills`, `/reload-plugins` | stop the MCP servers started so far and read the servers again; read the skills again from every folder; look for plugins again (their skills and MCP servers, leaving the running servers alone). Anything installed after the conversation began is used from then on, with no restart. Only when nothing is under way |
 | `/install-skill [address or name]` | the skills panel of Settings > Skills in the conversation: install (a folder, a GitHub address, a web page, or one that comes with the program), turn on or off, update, remove; `/install-skill on\|off\|remove\|update name` does one of them. With no conversation it opens the Settings tab |
 | `/tasks [add title \| resume id]` | the open tasks of the project's register (this conversation's marked), adds your own, or asks the agent to take one over (`docs/task-register.md`); with no conversation it opens the Tasks tab |
+| `/` then letters, `@` then letters | the message box's two lists: commands, and the other conversations to mention; Up/Down, Tab/Enter/Right, Escape (`docs/message-box.md`) |
 | `/audit` | checks that the record of what the agent did (the hash chain and its head file) is whole, reading the file as it is now |
 | `/memory [words]` | the last ten notes, or a search |
 | `/copy [n]` | copies the last answer (or the nth from the end) |
@@ -219,7 +220,7 @@ The agent can keep short notes about a project and read them in later conversati
 - **Remove one.** Ask the agent to forget it (it uses the note's id), or, with no conversation open, delete the file `memory\<16 hex digits>.db` in the user data
   folder (and the `-wal` and `-shm` files beside it, if any) to forget the whole project.
 - **Which notes belong together.** One file per project folder (case ignored). All **Chat** conversations work in the same folder, so they
-  share one memory; each folder of the Agent tab or the command line has its own. A conversation working in a git copy of its own
+  share one memory; each folder of the Agentic coding tab or the command line has its own. A conversation working in a git copy of its own
   (a work tree) uses the memory of the repository it was made from. There is no export and nothing is shared between PCs.
 - **What it is not.** The search is by words, not by meaning: "build" finds "builds" and "building" but "built" does not, and a note that shares
   specific words with your message can come back although it is not about it. Notes are kept as written, in plain text, unencrypted; do not ask it to remember
@@ -235,7 +236,7 @@ Besides the notes about a project, the assistant can keep two memories about **y
 
 - **Long-term memory:** what changes slowly. Sections: who you are, where you live, people, companies, business partners, character, tastes, interests,
   values, how you think, the foundations of your thinking, emotions, and one short card that sums you up. A note does not expire.
-- **Short-term memory:** what happened lately. Sections: facts, searches, topics, projects (the state of what you build in the Agent tab). Notes are kept until you
+- **Short-term memory:** what happened lately. Sections: facts, searches, topics, projects (the state of what you build in the Agentic coding tab). Notes are kept until you
   delete them, but only those seen in the last 14 days (you can change the number) go into answers. To use older ones, ask the assistant to look further back:
   it then searches all of them (`recall_about_user`).
 - **Learning** (a switch for each memory). What you write is kept in an encrypted queue and, when the GPU has had nothing to do for a few seconds, a separate
@@ -384,9 +385,9 @@ conversations, any file or folder of this PC, the routines and the plans, and th
 The Android app (`mobile/`, see its README) then needs only the address and the key: scan the QR code in its Settings. Its **+** button offers *Image*, *Photo* and *Documents/Files* (*Local*, *Server*: the folders added on the PC first, then the drives, and
 *Network*: other devices, over SMB); the microphone writes what you say and answers can be read aloud, with the phone's own speech.
 
-## 13. The Agent tab
+## 13. The Agentic coding tab
 
-The Agent tab is the conversation page working in a **folder of yours**. At the left, the column lists the folders you added, each with its
+The Agentic coding tab is the conversation page working in a **folder of yours**. At the left, the column lists the folders you added, each with its
 conversations. Press **Add folder**, write the full path (or *Browse...* inside the app) and the folder is added: the agent works there, its
 file tools follow the mode outside it (section 4), and the folder gets a `.basalt` folder with a registry of its conversations. A cross next to a folder takes it off
 the list without touching its files or its conversations; a **+** starts a new conversation in it.

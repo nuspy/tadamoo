@@ -149,7 +149,7 @@ Oggi il ciclo sa continuare una conversazione, ma nessun processo lo fa vivere t
   - **un tetto ai tentativi e alle ripartenze** in una finestra di tempo, per non girare a vuoto;
   - **mai un nuovo tentativo automatico di un'azione `IRREVERSIBLE`** (una telefonata, un pagamento, una cancellazione): prima si guarda che cosa è successo davvero, come già prescrive la coda delle chiamate reali;
   - ogni tentativo e il suo motivo restano nell'audit e nel pannello.
-- **Incapacità verificata di procedere.** Dopo i tentativi, il supervisore **verifica** (controlli di salute: modello, server, spazio, permessi, strumento che fallisce sempre allo stesso modo). Se non si può procedere, **avvisa** nella Chat con una domanda a pulsanti ("Riprovo", "Salto questo passo", "Ferma", "Apri il registro") e con un segno nella scheda Agente, che sopravvive alla chiusura della pagina; per un passo di piano riusa la richiesta di intervento umano già presente (`plan:human_fallback`). Non si decide mai al posto dell'utente: la sessione aspetta la risposta.
+- **Incapacità verificata di procedere.** Dopo i tentativi, il supervisore **verifica** (controlli di salute: modello, server, spazio, permessi, strumento che fallisce sempre allo stesso modo). Se non si può procedere, **avvisa** nella Chat con una domanda a pulsanti ("Riprovo", "Salto questo passo", "Ferma", "Apri il registro") e con un segno nella scheda Agentic coding, che sopravvive alla chiusura della pagina; per un passo di piano riusa la richiesta di intervento umano già presente (`plan:human_fallback`). Non si decide mai al posto dell'utente: la sessione aspetta la risposta.
 - **Storia salvata** nella cartella dei dati utente, con la stessa disciplina di byte-stabilità del prefisso (la ripartenza non deve invalidare la cache del motore).
 - **Risposta a pezzi** (streaming): `chat_completion` con flusso e un evento di testo parziale, mostrato dalla pagina.
 - **Un'unica politica di contesto**: la compattazione dell'agente (TokenJuice, blocchi fissi, errori mai troncati) sostituisce quella della Chat; `chatctx.py` resta per le app esterne.
@@ -261,7 +261,7 @@ Dalla lista dei cinque livelli (P). Oggi un turno è **una sola inferenza** che 
 
 ### Fase 4 — La Chat come ingresso principale (L)
 
-- **Pagina Chat** su sessioni: scelta "con strumenti" / "solo domanda", risposta a pezzi, **elenco di ciò che è stato fatto** (strumenti usati, esito, piani toccati con collegamento alla scheda Agente e alla vista Piani), **domande e conferme con pulsanti in linea** insieme alla risposta libera (decisioni G e H), pulsante di arresto.
+- **Pagina Chat** su sessioni: scelta "con strumenti" / "solo domanda", risposta a pezzi, **elenco di ciò che è stato fatto** (strumenti usati, esito, piani toccati con collegamento alla scheda Agentic coding e alla vista Piani), **domande e conferme con pulsanti in linea** insieme alla risposta libera (decisioni G e H), pulsante di arresto.
 - **Scheda Agente (decisione I): non si riduce.** Resta subito dopo la Chat, con ordine e scorciatoie invariati. Diventa il **cruscotto più completo del planner**: piani attivi con passi e stato, corse, approvazioni e domande in sospeso, punti di ripristino ("Torna indietro"), avvisi del planner, e la possibilità di avviare e correggere. La Chat è la via più automatica allo stesso insieme di dati.
 - **Vista Piani**: resta la gestione manuale di dettaglio (grafo, modifica dei passi), sullo stesso archivio (Fase 1).
 - Tavolozza Ctrl+K con i nuovi comandi; stringhe in italiano e inglese.

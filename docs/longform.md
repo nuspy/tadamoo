@@ -227,7 +227,7 @@ puts a correction in, the `revised` event holds the whole corrected text: the pa
 in as few parts as it needs. The text is the answer of the turn and the page keeps it whole in the history. A translation or rewrite goes part
 by part from its source, with no plan call and no check.
 
-In the Agent tab the harness drives the same engine with the conversation's own client, so it works the same on the loaded model and on a
+In the Agentic coding tab the harness drives the same engine with the conversation's own client, so it works the same on the loaded model and on a
 cloud route. Its events arrive as `long_answer` agent events: `estimate` (words, `source` model, rule or asked, `long`), then those above,
 then `review` (round) and `fix` (round, `n` of `of`, `op`, `chunk`, `status` applied, unlocated or rejected, `reason`), `revised` (the whole
 text, when a fix was put in) and `done` with `applied`, `rounds` and `unapplied`. The page shows one line that follows the phase ("writing

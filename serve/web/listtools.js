@@ -274,7 +274,7 @@
     };
   }
 
-  /* the normal prompt box of the Chat and the Agent tab */
+  /* the normal prompt box of the Chat and the Agentic coding tab */
   function boot() {
     const prompt = document.getElementById("prompt"), crow = prompt && prompt.parentElement.querySelector(".crow");
     if (!prompt || !crow) return;

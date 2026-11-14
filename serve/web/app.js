@@ -43,7 +43,7 @@ applyT($(".tabs"));                                   // the tab names in the pa
 $(".tabs").setAttribute("aria-label", T("tab.nav"));
 // pages that live under another tab: Hardware and LOGS under Monitor, Wallet under Settings
 const TAB_OF = { hardware: "stats", logs: "stats", security: "stats", wallet: "settings" };
-// the Agent tab shows the conversation page, working in a folder
+// the Agentic coding tab shows the conversation page, working in a folder
 const SHOWN_AS = { agent: "chat" };
 let viewOn = "";
 function view(v, focus) {

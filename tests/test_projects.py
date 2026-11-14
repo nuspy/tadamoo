@@ -1,4 +1,4 @@
-"""The folders of the Agent tab: adding one gives it a registry, the registry follows its conversations, and a conversation is limited to its folder."""
+"""The folders of the Agentic coding tab: adding one gives it a registry, the registry follows its conversations, and a conversation is limited to its folder."""
 import json
 import sys
 from pathlib import Path

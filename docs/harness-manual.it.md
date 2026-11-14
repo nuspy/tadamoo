@@ -17,7 +17,7 @@ cosa non è fatto. Il motore non ha bisogno di un manuale e qui non ne ha.
 - [10. Skill, plugin e server MCP](#10-skill-plugin-e-server-mcp)
 - [11. Il web, il browser, il Portafoglio e il telefono](#11-il-web-il-browser-il-portafoglio-e-il-telefono)
 - [12. I piani](#12-i-piani)
-- [13. La scheda Agente](#13-la-scheda-agente)
+- [13. La scheda Agentic coding](#13-la-scheda-agente)
 - [14. La riga di comando e l'editor](#14-la-riga-di-comando-e-leditor)
 - [15. Gli hook](#15-gli-hook)
 - [16. Routine, valutazione e riesecuzione](#16-routine-valutazione-e-riesecuzione)
@@ -150,6 +150,7 @@ una nota.
 | `/reload-mcp`, `/reload-skills`, `/reload-plugins` | ferma i server MCP già avviati e rilegge i server; rilegge le skill da ogni cartella; cerca di nuovo i plugin (le loro skill e i loro server MCP, senza toccare quelli in funzione). Quello che viene installato dopo l'inizio della conversazione si usa da subito, senza riavviare. Solo quando non sta girando nulla |
 | `/install-skill [indirizzo o nome]` | il pannello delle skill di Impostazioni > Skill dentro la conversazione: installa (una cartella, un indirizzo GitHub, una pagina web o una inclusa nel programma), attiva o disattiva, aggiorna, rimuovi; `/install-skill on\|off\|remove\|update nome` fa una sola di queste cose. Senza conversazione apre la scheda delle Impostazioni |
 | `/tasks [add titolo \| resume id]` | i compiti aperti del registro del progetto (quelli di questa conversazione segnati), aggiunge i tuoi, o chiede all'agente di riprenderne uno (`docs/task-register.md`); senza conversazione apre la scheda Compiti |
+| `/` poi lettere, `@` poi lettere | le due liste della casella dei messaggi: i comandi e le altre conversazioni da citare; Su/Giù, Tab/Invio/Destra, Esc (`docs/message-box.md`) |
 | `/audit` | controlla che il registro di ciò che l'agente ha fatto (catena di hash e file di testa) sia integro, leggendo il file com'è ora |
 | `/memory [parole]` | gli ultimi dieci appunti, oppure una ricerca |
 | `/copy [n]` | copia l'ultima risposta (o l'ennesima dalla fine) |
@@ -229,7 +230,7 @@ L'agente può tenere appunti brevi su un progetto e rileggerli nelle conversazio
   `memory\<16 cifre esadecimali>.db` nella cartella dati dell'utente (e i file `-wal` e `-shm` accanto, se ci sono) per dimenticare
   tutto il progetto.
 - **Quali appunti stanno insieme.** Un file per cartella di progetto (maiuscole ignorate). Tutte le conversazioni della **Chat**
-  lavorano nella stessa cartella, quindi condividono una sola memoria; ogni cartella della scheda Agente o della riga di comando ha la
+  lavorano nella stessa cartella, quindi condividono una sola memoria; ogni cartella della scheda Agentic coding o della riga di comando ha la
   sua. Una conversazione che lavora in una copia git tutta sua (un work tree) usa la memoria del repository da cui è nata. Non c'è
   esportazione e nulla è condiviso tra PC.
 - **Cosa non è.** La ricerca è per parole, non per significato: «costruire» trova «costruiremo» ma «costruito» no, e un appunto che condivide
@@ -246,7 +247,7 @@ Oltre alle note su un progetto, l'assistente può tenere due memorie su **di te*
 
 - **Memoria a lungo termine:** ciò che cambia lentamente. Sezioni: chi sei, dove vivi, persone, aziende, partner economici, carattere, gusti, interessi, valori,
   come pensi, i fondamenti del tuo pensiero, emozioni, e una breve scheda che ti riassume. Una nota non scade.
-- **Memoria a breve termine:** ciò che è successo da poco. Sezioni: fatti, ricerche, argomenti, progetti (lo stato di ciò che costruisci nella scheda Agente). Le
+- **Memoria a breve termine:** ciò che è successo da poco. Sezioni: fatti, ricerche, argomenti, progetti (lo stato di ciò che costruisci nella scheda Agentic coding). Le
   note restano finché non le cancelli, ma nelle risposte entrano solo quelle viste negli ultimi 14 giorni (il numero si cambia). Per usare le più vecchie chiedi
   all'assistente di guardare più indietro: allora cerca in tutte (`recall_about_user`).
 - **Imparare** (un interruttore per ogni memoria). Ciò che scrivi resta in una coda cifrata e, quando la GPU non ha avuto nulla da fare per qualche secondo, una
@@ -404,9 +405,9 @@ usare il modello, le conversazioni, qualunque file o cartella di questo PC, le r
 L'app Android (`mobile/`, vedi il suo README) richiede poi solo l'indirizzo e la chiave: inquadra il codice QR nelle sue Impostazioni. Il suo pulsante **+** offre *Immagine*, *Foto* e *Documenti/File* (*Locale*, *Server*: prima le cartelle aggiunte
 sul PC, poi i dischi, e *Rete*: altri dispositivi, via SMB); il microfono scrive ciò che dici e le risposte si possono far leggere ad alta voce, con la voce e il riconoscimento del telefono.
 
-## 13. La scheda Agente
+## 13. La scheda Agentic coding
 
-La scheda Agente è la pagina delle conversazioni che lavora in una **cartella tua**. A sinistra la colonna elenca le cartelle che hai
+La scheda Agentic coding è la pagina delle conversazioni che lavora in una **cartella tua**. A sinistra la colonna elenca le cartelle che hai
 aggiunto, ciascuna con le sue conversazioni. Premi **Aggiungi cartella**, scrivi il percorso completo (o *Sfoglia...* dentro l'app) e la
 cartella è aggiunta: l'agente lavora lì, fuori da essa gli strumenti per i file seguono la modalità (sezione 4), e la cartella riceve una cartella `.basalt` con il
 registro delle sue conversazioni. Una croce accanto a una cartella la toglie dall'elenco senza toccarne i file né le conversazioni; un **+**

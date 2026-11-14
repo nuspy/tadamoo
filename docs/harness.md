@@ -70,7 +70,7 @@ the Chat can reach, the others can reach:
 A headless run has nobody to type a second-factor code; a login that needs one fails there. Payments and plans go through the same question as
 a risky action (`--interactive`, `--ask-server`); with neither, a payment above the person's waiver is refused and a plan stays a plan.
 
-The run and its file edits appear in the Agent tab (the edits under Changes) while it works, unless `--no-report`; the reporting
+The run and its file edits appear in the Agentic coding tab (the edits under Changes) while it works, unless `--no-report`; the reporting
 never changes the run, and stops after two failed attempts. An edit made by a shell command (`sed -i`, a script that rewrites
 a file) is recorded too: the workspace's text files are compared before and after each command, so it can be reviewed block
 by block like the file tools' edits. Binary files, files over 200 000 characters, `.git`, `node_modules` and similar folders
@@ -379,7 +379,7 @@ The loop reads `finish_reason` of every reply (`tadamoo/agent_loop.py`, `_comple
 - **Cut by the output limit, with text and no tool call.** The text is kept as an assistant message and a `[harness]` note (`note: true`, at the
   tail, so the cached start is untouched) asks the model to go on exactly where it stopped, at most 2 times per request. After that the answer
   is delivered as it is, flagged cut (`AgentLoop.cut`, `cut` in the `done` event, `turn.cut`). The pieces are joined by `answer_text(turns)`.
-  Every cut gives an `answer_truncated` event (`final`, `continuation`, `of`, `degenerate`) and audit record; the Agent tab shows "the model is
+  Every cut gives an `answer_truncated` event (`final`, `continuation`, `of`, `degenerate`) and audit record; the Agentic coding tab shows "the model is
   asked to go on (1 of 2)" under the answer while it goes on. A text that is a repetition loop is never continued.
   The cut text goes back to the model only up to its last whitespace (`tadamoo/continuation.py`, `cut_point`): the model starts its new reply
   with the unfinished word, which a new reply could not otherwise do without a space. `join_continuation` puts the pieces together with no
@@ -399,7 +399,7 @@ The loop reads `finish_reason` of every reply (`tadamoo/agent_loop.py`, `_comple
   at most 1.5; only this server receives it). A reply that the limit ended and that is a loop gets the same treatment. A second loop in the request ends
   the run as `degenerate`. Records: `output_degenerate`. A run without streaming only judges a reply the limit ended.
 - `length_stops` (replies the limit ended, per run) is in every trial of `python -m tadamoo.eval` and in its report; so is the number of calls that were mended.
-- **A reply still cut after the continuations** shows "The output limit ended this answer" and a Continue button in the Agent tab (the Chat has its own). A text too long for one turn is written in parts by the harness itself (it estimates the length, plans the parts, writes them and checks the whole), after a card offers it when a request asks for over 3000 tokens (about 2000 words); there is no tool for it, so a conversation saved before `plan_long_answer` was removed has a different tool list in its cached prefix once; see [longform.md](longform.md).
+- **A reply still cut after the continuations** shows "The output limit ended this answer" and a Continue button in the Agentic coding tab (the Chat has its own). A text too long for one turn is written in parts by the harness itself (it estimates the length, plans the parts, writes them and checks the whole), after a card offers it when a request asks for over 3000 tokens (about 2000 words); there is no tool for it, so a conversation saved before `plan_long_answer` was removed has a different tool list in its cached prefix once; see [longform.md](longform.md).
 
 The loop passes no temperature and no `max_tokens` unless the session sets them (`--temperature`, `--max-tokens`, the `settings` command of the
 conversation's process, `/status`): without a temperature the model file's own sampling applies. **A temperature above 0 makes tool calls less
@@ -1220,8 +1220,8 @@ wide, not for phones.
   Monitor itself, open by default), *Hardware* and *LOGS*. Under Settings: *General*, *Models and capabilities*, *Cloud and privacy* (the
   cloud-filter consent) and *Wallet*. **Ctrl+K** opens a palette that reaches every page and the common actions and settings.
 - A notice under the top bar says when no model is loaded and opens Models. The Monitor lists the last 100 requests; the agent's tasks
-  and edits are not there (the edits are reviewed in the Agent tab).
-- **Reviewing the agent's edits**: the agent applies an edit when it makes it. In the Agent tab, under *Changes*, each edit lists its blocks
+  and edits are not there (the edits are reviewed in the Agentic coding tab).
+- **Reviewing the agent's edits**: the agent applies an edit when it makes it. In the Agentic coding tab, under *Changes*, each edit lists its blocks
   with *Keep* and *Undo* (and *Keep all*, *Undo all*); undoing asks to be pressed twice. A block is undone only while the
   file on disk is exactly what the agent wrote, so nothing you did since is overwritten; if you changed the file, or
   a later edit touched it, the panel says so and does nothing. Only the latest 30 edits can be undone, only for text
@@ -1258,10 +1258,10 @@ wide, not for phones.
   follow the permission level (harness-file-tools.md), and the commands it runs are not limited to it. There is no model-only or question-only kind here, only conversations with tools, and the four
   modes (*Plan only*, *Read only*, *Ask first*, *Automatic*) change at any time with Shift+Tab as in the Chat. Questions, steps, branches, skills
   and the copy of a git folder are the Chat's. The Chat tab lists only the conversations with no folder (the server's `chat-workspace`), the
-  Agent tab only those of the folders. Each tab goes back to its own last conversation. A conversation sends each file edit to the Changes
+  Agentic coding tab only those of the folders. Each tab goes back to its own last conversation. A conversation sends each file edit to the Changes
   panel (`--report-changes`), which opens beside the conversation with the *Changes* button.
 - **Questions and suggestions**: `ask_user` v2 (a card with choices, a row of your own and a recommended option), a look at each request before the agent works (cleaning, a note of assumptions, at most one structured question card, large requests recorded as tasks) and next-message chips that only fill the box, and an Optimize prompt checkbox that has the technical session rewrite each message before the model reads it (the chat keeps the person's words, and a note under the message shows the rewrite). Settings > Inference (the Prompt analysis switch and the checkbox are also in the Chat toolbar). See [intake.md](intake.md).
-- **Target Loop**: a button next to Send in the Chat and in the Agent tab opens a dialog with a large text box (and list tools that every prompt box now has: numbered and bulleted lists, Enter for the next item, Tab to indent, Ctrl+Enter to send). The target is split into items to check and tasks, which are done one by one in the conversation and judged against the evidence until all are met, it stalls, or you stop it; achieved parts are struck through in red, with notes and the history of the session's targets. See [target-loop.md](target-loop.md).
+- **Target Loop**: a button next to Send in the Chat and in the Agentic coding tab opens a dialog with a large text box (and list tools that every prompt box now has: numbered and bulleted lists, Enter for the next item, Tab to indent, Ctrl+Enter to send). The target is split into items to check and tasks, which are done one by one in the conversation and judged against the evidence until all are met, it stalls, or you stop it; achieved parts are struck through in red, with notes and the history of the session's targets. See [target-loop.md](target-loop.md).
 - **Plans**: the graph (drawn with status as icon and word as well as colour), an ordered list that works by keyboard,
   proposed changes shown on the graph before they are applied, approve and reject, tasks handed to you, a box to judge events.
 
@@ -1309,7 +1309,7 @@ holds the library, `serve/personal_skills_api.py` the page's routes, `serve/web/
 - **On a schedule:** a routine can run a skill instead of a prompt (`skill` and `values` of `POST /api/routines`, chosen in the Cron Jobs tab). The values are kept as the person
   wrote them and read at each run, so a date in words (`today`, `tomorrow`, `in 3 days`) is the day of that run. Its values are tried when the routine is
   saved, so a wrong one is refused then and not at night. The skill's tool calls run in Automatic, like any routine. The run is a conversation of its own, closed when it ends.
-- **Not done:** a test run that compares with the recording, going on with the agent from the step that failed, and a skill for the Agent tab or the command line.
+- **Not done:** a test run that compares with the recording, going on with the agent from the step that failed, and a skill for the Agentic coding tab or the command line.
 
 ## Evaluation
 
@@ -1432,7 +1432,7 @@ questions of the conversations it starts, so the limit keeps a phone from starti
 
 A phone comes through a second listener, which binds to the address the person chose in *Settings > Phones > Listen on* (`remote.json`: `listen`): **this PC's Tailscale address** (the default, followed as Tailscale moves it), every interface (`0.0.0.0`) or one IPv4 address typed by hand. `remote.json` also keeps whether it is on; it starts
 with the server. It is off until the person turns it on. Every request to it needs the master key or a device key, the page itself included. With a valid key a phone reaches every route that a client on this PC reaches with the same credentials: the model (`/v1/`), the
-conversations, attached files and the files the agent made, the routines, the plans, the personal skills, the capabilities' on/off list and install requests (`/api/capabilities/settings`, `requests/approve`, `requests/reject`; the other capability changes stay on this PC), `GET /api/remote/hello` (which tells the app that its address and key are good, and the name of the key), `GET /api/remote/peers` and `GET /api/files/roots|list|read`, which let the app browse and read any folder or file of this PC (the roots offered first are the folders added in the Agent tab and the Chat's own folder, then the drives; nothing is hidden or cut; `serve/files_api.py`). A phone also works in any folder. The routes that answer only to a client on this PC (`settings.is_loopback`: the vault, the wallet, the settings, the loading of models, phone setup) refuse a phone, whose address is never this PC's. The control secret is not asked
+conversations, attached files and the files the agent made, the routines, the plans, the personal skills, the capabilities' on/off list and install requests (`/api/capabilities/settings`, `requests/approve`, `requests/reject`; the other capability changes stay on this PC), `GET /api/remote/hello` (which tells the app that its address and key are good, and the name of the key), `GET /api/remote/peers` and `GET /api/files/roots|list|read`, which let the app browse and read any folder or file of this PC (the roots offered first are the folders added in the Agentic coding tab and the Chat's own folder, then the drives; nothing is hidden or cut; `serve/files_api.py`). A phone also works in any folder. The routes that answer only to a client on this PC (`settings.is_loopback`: the vault, the wallet, the settings, the loading of models, phone setup) refuse a phone, whose address is never this PC's. The control secret is not asked
 of a phone, whose own key is the proof. The client's address is not checked, so a key works from anywhere the listener can be reached.
 
 **The control secret on this PC (off unless `--control-secret` is given, or the Loader's switch saves it in the config file, with a text of the person's own choosing or a random one).** Without it the writes through `/api/*` and `/api/control/*` check only that the request comes from this PC.
@@ -1534,7 +1534,7 @@ conversation manager is first made (when the Chat first asks for its conversatio
 when the server starts, so routines do not run in a server that nobody has opened a page on.
 
 The **Cron Jobs** tab is their page: a list (each job with its schedule, the next time, the last result, and *Turn on/off*, *Run now* and *Delete*, the delete
-asking twice), an editor (name, task, folder with the folders of the Agent tab suggested, the schedule with a few quick choices, the optional most steps and longest time, the optional time to give way to a conversation) and, under it, the job's latest results. A new job starts on.
+asking twice), an editor (name, task, folder with the folders of the Agentic coding tab suggested, the schedule with a few quick choices, the optional most steps and longest time, the optional time to give way to a conversation) and, under it, the job's latest results. A new job starts on.
 Above the list, *Waiting for you* shows the pending requests, each with *Dismiss*. At the right a small chat talks a job over with the
 loaded model (a plain request to `/v1/chat/completions`, no tools): it is given the schedule syntax, the folders and the current jobs, and it may answer with a
 ```` ```job ```` block of JSON; the page turns that into a card with *Use in the editor*, which only fills the editor. Nothing is saved by the chat.

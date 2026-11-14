@@ -8,9 +8,9 @@ routes), `serve/web/target.js` and `target.css` (the dialog), `serve/web/listtoo
 
 ## What the person sees
 
-- A **Target Loop** button next to Send, in the Chat and in the Agent tab (one page serves both; the conversation is the one open in the
+- A **Target Loop** button next to Send, in the Chat and in the Agentic coding tab (one page serves both; the conversation is the one open in the
   tab). It needs a conversation with the agent: in the *Direct* kind of Chat (the model alone, no tools) the button is disabled and
-  its tooltip says why. With no conversation open one is made, and in the Agent tab a folder is asked for first.
+  its tooltip says why. With no conversation open one is made, and in the Agentic coding tab a folder is asked for first.
 - The dialog has a large text box (60% of the window height, resizable, proportional font), two list buttons above it, a help line under
   it and an *Options* section. **Start** (or Ctrl+Enter) posts the text to the conversation as the person's own message and starts. The
   unsent text is kept in this browser if the window is closed.

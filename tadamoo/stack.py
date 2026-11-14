@@ -336,7 +336,7 @@ class AgentConfig:
     memory_notes: int = DEFAULT_MEMORY_NOTES               # most project notes added to a request
     memory_budget_tokens: int = DEFAULT_MEMORY_BUDGET      # most tokens those notes may take
     wiki_project: str = ""
-    report: bool = False               # tell the server's Agent tab about the run and its edits
+    report: bool = False               # tell the server's Agentic coding tab about the run and its edits
     run_id: str = ""                    # names the run in the Monitor; the server gives one when it starts the agent
     progress: bool = False              # print a line for each tool call as the run goes
     phone: bool = False                 # offer the phone tools (callAPIcall from the environment)

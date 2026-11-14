@@ -1,5 +1,5 @@
 "use strict";
-/* The Agent tab's role selector and the card of project checks. The roles come from the server; the card lists the checks a folder's files
+/* The Agentic coding tab's role selector and the card of project checks. The roles come from the server; the card lists the checks a folder's files
    suggest and what the person accepted. Nothing here runs a command: accepting is a choice saved on the server, and everything the server
    or a project file says enters the page as text. */
 (() => {

@@ -248,7 +248,7 @@
       o.id = "slash-o" + i; o.setAttribute("role", "option"); o.setAttribute("aria-selected", String(i === at));
       o.append(mk("b", "", "/" + c.name), mk("span", "slashargs", c.args), mk("span", "slashd", c.text));
       if (c.kind) o.append(mk("span", "slashkind", T("sl.skill")));
-      o.onmousedown = e => { e.preventDefault(); at = i; choose(true); };
+      o.onpointerdown = e => { e.preventDefault(); at = i; choose(true); };          // a touch or a click, without the box losing the keyboard
       return o;
     }));
     const on = menu.children[at];
@@ -282,7 +282,7 @@
     if (menu.hidden || e.isComposing) return;
     const key = e.key;
     if (key === "ArrowDown" || key === "ArrowUp") { e.preventDefault(); e.stopImmediatePropagation(); at = (at + (key === "ArrowDown" ? 1 : shown.length - 1)) % shown.length; paintMenu(); }
-    else if (key === "Tab" && !e.shiftKey) { e.preventDefault(); e.stopImmediatePropagation(); choose(false); }
+    else if ((key === "Tab" && !e.shiftKey) || (key === "ArrowRight" && !e.shiftKey && prompt.selectionStart === prompt.value.length)) { e.preventDefault(); e.stopImmediatePropagation(); choose(false); }
     else if (key === "Enter" && !e.shiftKey) {
       if (prompt.value.slice(1).toLowerCase() === shown[at].name.toLowerCase() && !shown[at].args) { close(); return; }      // typed in full: sent as it is
       e.preventDefault(); e.stopImmediatePropagation(); choose(true);

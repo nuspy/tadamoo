@@ -1,4 +1,4 @@
-"""The Agent tab's role selector and project-checks card: the script is run in node against a small stand-in for the page, and the markup,
+"""The Agentic coding tab's role selector and project-checks card: the script is run in node against a small stand-in for the page, and the markup,
 styles and strings are checked as text. No browser, no server, no model."""
 import json
 import os
@@ -146,7 +146,7 @@ def test_the_page_wires_the_script_the_styles_the_selector_and_the_card():
     assert HTML.index("web/agentchat.js") < HTML.index("web/coding.js")           # it uses window.agentChat
     for ident in ("coderole", "coderole-label", "coding-card", "coding-sum", "coding-toggle", "coding-body", "coding-go", "coding-bug", "coding-next"):
         assert f'id="{ident}"' in HTML, ident
-    assert re.search(r'<label class="effort coderole" for="coderole"[^>]*hidden', HTML)                  # only the Agent tab shows it
+    assert re.search(r'<label class="effort coderole" for="coderole"[^>]*hidden', HTML)                  # only the Agentic coding tab shows it
     assert 'aria-controls="coding-body"' in HTML and 'role="status"' in HTML
 
 
