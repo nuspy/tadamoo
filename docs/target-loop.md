@@ -17,7 +17,7 @@ routes), `serve/web/target.js` and `target.css` (the dialog), `serve/web/listtoo
 - After starting, the same pane shows the target: a state badge and a progress bar, **Stop** (or Resume, Run again as a copy, Edit the text
   for a new target, Remove from the list), a report line when it ended, the target text with the parts that are achieved **struck through
   in red** (each part is the exact words a criterion came from; the state is also written, never colour alone), the items to check, the
-  tasks and sub-tasks with their state and their id in the task registry, and the passes with what the reviewer found and what was changed.
+  tasks and sub-tasks with their state and their id in the register of open work, and the passes with what the reviewer found and what was changed.
 - Each item has a notes box (exceptions, problems, modifications; saved when the box loses focus; given to the reviewer and to the planner)
   and three buttons: *Mark achieved* (the person judges it met, the loop never checks it again), *Park it* (it needs a person or something
   outside the computer) and *Check again*.
@@ -97,10 +97,10 @@ tasks    {id, title, prompt, serves[], depends_on[], parent, status: pending|run
 iterations {n, started, ended, tasks[], verdict {counts}, checks[{kind, value, ok, output}], next {mode: fix|approach, analysis[{id, why, change}], tasks[]}}
 ```
 
-`tasks` holds records whose `id` is the task's id in the target; its id in the existing registry (`serve/tasks.py`, `/api/tasks`) is
-`tg-<target id>-<task id>`. Every task is recorded there with `kind: target`, its sub-tasks as `children`, its dependencies and the
-criteria it serves in `metadata`; the status follows (`pending`, `running`, `done`, `failed`, `blocked`). When a target ends, tasks never
-done are `closed` (they leave the registry; the target keeps them for a resume); finished ones stay, as every other agent task does.
+`tasks` holds records whose `id` is the task's id in the target; its id in the register of open work (`tadamoo/taskboard.py`; the Tasks tab and `/api/tasks`) is
+`tg-<target id>-<task id>`. Every task is recorded there in the register of the folder the conversation works in, with `kind: target` and its dependencies and the
+criteria it serves in `meta`, its sub-tasks under it; the state follows (`pending` is queued, `running`, `blocked`). A task that is `done` is deleted at once (the target keeps its result); one that
+`failed` stays, blocked, with the reason, and the judge decides what to do. When a target ends, tasks never done are deleted too (the target keeps them for a resume).
 
 ## Routes
 

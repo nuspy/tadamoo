@@ -7,8 +7,8 @@ can be compacted, cleared or lost). It is **not a history**: a finished task is 
 
 One register for each project folder: `<project>/.tadamoo/tasks.json`. The Chat's own folder has one too. The Tasks tab reads every folder the person added, so all projects
 are seen together. The agent (its tools, from the conversation's own process), the person (the tab, `/tasks`) and the server write the same file, one at a time (a lock in the
-process and a lock file across processes), the whole file replaced atomically. `tadamoo/taskboard.py` is the one store; `serve/tasks.py` (`TaskJournal`) is something else, the
-progress of an agent *run* that the Monitor shows, and is not the register.
+process and a lock file across processes), the whole file replaced atomically. `tadamoo/taskboard.py` is the one store of tasks: there is no other journal. The agent runs,
+the target loop and the parts of a large request report to it too (below).
 
 A task has: `id`, `title`, `description`, `state` (`queued`, `running`, `waiting` for the person, `blocked`), `parent` (subtasks to any depth, at most 10 levels), `order` among its
 siblings, `done` (what is done so far), `missing` (what is still missing), `links` (`session`: the conversation that carries it; `plan`; `files`), who changed it last (`by`:
@@ -22,6 +22,26 @@ A task belongs to the conversation that carries it (`links.session`): that conve
 Where a plan exists, **the plan is the register**. `task_link_plan` makes a task one line for a plan: its subtasks are dropped, and from then on its state (running, waiting for
 the person, blocked), its progress ("3/10 steps") and what is next are read from the plan's file each time, never stored. A plan's nodes are never copied into the register,
 and a plan that has finished (or is gone) takes its line with it. A task that a plan commands takes no subtasks and no state of its own.
+
+## What reports to it
+
+Programs that carry out work say how it goes with `TaskBoard.report(id, status, result, children, metadata)` (over HTTP: `POST /api/tasks`, which names the folder in `project`; a folder that
+is not one the person added has no register of its own, and its work goes in the one kept in the data folder, listed as "Other" while it holds something). The reporter chooses the id.
+
+| Reported | In the register |
+|---|---|
+| `running`, `in_progress` | the task is `running`; `result` is "done so far" |
+| `pending`, `queued` | `queued` |
+| `waiting`, `blocked` | `waiting` (for the person) or `blocked` |
+| `failed` | `blocked`, and `result` is what is missing (the reason) |
+| `done`, `closed`, `completed`, `skipped` | the task is **deleted** with its subtasks; ending one that is not there is not an error |
+| `metadata.title` or `goal` | the title; the other keys are kept in `meta` |
+| `children` | ids of its subtasks, which are put under it whenever they exist, whichever was reported first |
+
+An **agent run** is one task (`agent-<run>`) in the register of its folder: its progress is what is done so far, a run that ends well deletes its task, one that fails or is killed stays
+blocked with the reason until someone deletes it, and one stopped from the page is deleted. A **target** reports each of its tasks and sub-tasks (`tg-<target>-<task>`, `kind: target`); the
+**parts of a large request** (`req-<turn>`) are the conversation's own subtasks. The steps of a **plan** are never reported: the plan is its own register. `GET /api/tasks` lists every open task of every
+folder, flat, with `state` (also as `status`), `children`, `metadata` and the project.
 
 ## What the agent is told, and when
 
