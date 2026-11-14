@@ -83,3 +83,15 @@ def test_the_models_of_the_seam_detector_are_downloaded_to_their_folder_when_abs
     got = []
     components.install("video-editing", settings, run=lambda argv: 0, download=lambda url, to: got.append((url, to)) or 0, say=lambda line: None)
     assert any(to.endswith("pose_landmarker.task") for _, to in got)
+
+
+def test_triton_for_the_xtts_environment_is_checked_in_that_python_and_installed_with_the_package_ltx_studio_uses(settings):
+    import sys
+    settings["xtts_python"] = sys.executable
+    rows = by_id(components.check("speech-synthesis", settings))
+    assert rows["xtts-triton"]["where"] == sys.executable
+    if not rows["xtts-triton"]["present"]:
+        assert components.steps("speech-synthesis", settings) == [{"component": "xtts-triton", "step": [sys.executable, "-m", "pip", "install", "-U", "triton-windows"]}]
+    ran = []
+    components.install("speech-synthesis", settings, run=lambda argv: ran.append(list(argv)) or 0, say=lambda line: None)
+    assert all(argv[-1] == "triton-windows" for argv in ran)

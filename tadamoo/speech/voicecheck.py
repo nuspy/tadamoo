@@ -102,6 +102,7 @@ def compare(text: str, words: List[Dict[str, Any]], lang: str = "") -> Check:
 
 
 WAIT_FOR_SERVICE_S = 0.0                           # a production sets it: how long the read-back waits for a speech-to-text that does not answer (a restart of the server) before it fails
+TIMING = None                                      # a production sets it: a jobtime.Timing. The wait is then the longest a job of that audio may take (jobtime.Deadline), and its end is an Overrun with the numbers
 RETRY_EVERY_S = 30.0
 RELOAD_STT = None                                  # a production sets it: a function that makes the voice service reload its speech-to-text worker, returns a line saying what happened
 CUDA_ERROR = re.compile(r"CUDA error|cudaError|unspecified launch failure", re.I)
@@ -113,6 +114,11 @@ def transcribe(url: str, wav: bytes, lang: str, key: str = "") -> List[Dict[str,
     import sys
     import time
     deadline, said, reloaded = time.monotonic() + WAIT_FOR_SERVICE_S, False, False
+    clock = None
+    if TIMING is not None:
+        from tadamoo import jobtime
+        clock = jobtime.Deadline(TIMING, "voice", wav_seconds(wav))
+        deadline = clock.began + clock.limit_s + 0.01
     while True:
         try:
             return _service_words(url, wav, lang, key)
@@ -124,11 +130,24 @@ def transcribe(url: str, wav: bytes, lang: str, key: str = "") -> List[Dict[str,
                 print(f"speech-to-text: {exc}; reloading its worker: {RELOAD_STT()}", file=sys.stderr, flush=True)
                 continue
             if time.monotonic() >= deadline:
+                if clock is not None:
+                    clock.check()                                   # the limit of the audio is reached: the error of the step, with its numbers
                 raise
             if not said:
                 said = True
-                print(f"speech-to-text: {exc}; waiting for the voice service (up to {int(WAIT_FOR_SERVICE_S // 60)} min)", file=sys.stderr, flush=True)
+                print(f"speech-to-text: {exc}; waiting for the voice service (up to {int((deadline - time.monotonic()) // 60) + 1} min)", file=sys.stderr, flush=True)
             time.sleep(RETRY_EVERY_S)
+
+
+def wav_seconds(wav: bytes) -> float:
+    """The length of a WAV in seconds (0.0 when it cannot be read)."""
+    import io
+    import wave
+    try:
+        with wave.open(io.BytesIO(wav)) as w:
+            return w.getnframes() / float(w.getframerate())
+    except (wave.Error, EOFError, ZeroDivisionError):
+        return 0.0
 
 
 def _service_words(url: str, wav: bytes, lang: str, key: str = "") -> List[Dict[str, Any]]:

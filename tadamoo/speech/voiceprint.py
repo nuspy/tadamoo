@@ -100,21 +100,21 @@ def f0(wav: bytes, fmin: float = 70.0, fmax: float = 400.0) -> Dict[str, float]:
 
 
 class Embedder:
-    """WavLM x-vector speaker embeddings on the CPU."""
+    """WavLM x-vector speaker embeddings, on the CPU unless a device is named (the model is small: a few hundred MB)."""
 
-    def __init__(self, folder: Path = MODEL) -> None:
+    def __init__(self, folder: Path = MODEL, device: str = "cpu") -> None:
         import torch
         from transformers import AutoFeatureExtractor, WavLMForXVector
-        self._torch = torch
+        self._torch, self.device = torch, device
         self.extractor = AutoFeatureExtractor.from_pretrained(str(folder))
-        self.model = WavLMForXVector.from_pretrained(str(folder)).eval()
+        self.model = WavLMForXVector.from_pretrained(str(folder)).eval().to(device)
 
     def embed(self, wav: bytes) -> List[float]:
         torch = self._torch
         y = mono16k(wav)
         inputs = self.extractor(y, sampling_rate=RATE, return_tensors="pt", padding=True)
         with torch.no_grad():
-            v = self.model(**inputs).embeddings[0]
+            v = self.model(**{k: t.to(self.device) for k, t in inputs.items()}).embeddings[0]
         return torch.nn.functional.normalize(v, dim=-1).tolist()
 
 

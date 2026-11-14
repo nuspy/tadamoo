@@ -19,11 +19,16 @@ def main() -> int:
     ap.add_argument("--lang", default="hu")
     ap.add_argument("--speed", type=float, default=1.14)
     ap.add_argument("--seeds", type=int, default=4)
+    ap.add_argument("--batch", type=int, default=12)
+    ap.add_argument("--precision", default="fp32", choices=("fp32", "tf32", "fp16", "bf16"))
+    ap.add_argument("--compile", default="off", choices=("off", "on"), help="torch.compile of the autoregressive pass (needs Triton: python -m tadamoo.media.components install speech-synthesis)")
+    ap.add_argument("--cache", default="", help="a folder where takes are kept by text, seeds and settings and found again by any run")
+    ap.add_argument("--rating-device", default="cpu", choices=("cpu", "cuda"), help="where the CTC read-back and the speaker embedder run")
     ap.add_argument("--url", default=service.DEFAULT_URL)
     ap.add_argument("--work", default="")
     args = ap.parse_args()
-    p = clausevoice.Params(speaker=args.speaker, lang=args.lang, speed=args.speed, seeds=args.seeds)
-    emb = voiceprint.Embedder()
+    p = clausevoice.Params(speaker=args.speaker, lang=args.lang, speed=args.speed, seeds=args.seeds, xtts_batch=args.batch, xtts_precision=args.precision, xtts_compile=args.compile, xtts_cache=args.cache)
+    emb = voiceprint.Embedder(device=args.rating_device)
     path = voiceprint.profile_path("xtts", args.speaker, args.lang)
     if path.is_file():
         profile = voiceprint.Profile.load(path)
@@ -31,7 +36,7 @@ def main() -> int:
         profile = voiceprint.build(lambda t: service.synthesize(args.url, t, "xtts", args.speaker, args.lang), emb, args.speaker, args.lang)
         profile.save(path)
     folder = asr.MODELS / "mms-1b-hungarian"
-    ctc = asr.Ctc(folder, "mms-1b-hungarian (CTC)", "cpu") if args.lang == "hu" and (folder / "config.json").is_file() else None
+    ctc = asr.Ctc(folder, "mms-1b-hungarian (CTC)", args.rating_device) if args.lang == "hu" and (folder / "config.json").is_file() else None
     rater = clausevoice.Rater(args.url, ctc, voiceprint.Judge(profile, emb, voiceprint.Targets(p.clause_pace_min, p.clause_pace_max)), p)
     runner = clausevoice.LocalXtts(p, Path(args.work) if args.work else None)
     try:

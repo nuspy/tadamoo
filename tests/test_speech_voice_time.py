@@ -149,3 +149,149 @@ def test_the_refusal_carries_the_services_own_words(monkeypatch):
         voicecheck._service_words("http://127.0.0.1:1", b"", "hu")
     except OSError as exc:
         assert "HTTP 500" in str(exc) and "CUDA error" in str(exc)
+
+
+def test_the_seeds_of_a_sentence_are_one_group_and_a_group_is_cut_at_the_batch_size():
+    from tadamoo.speech import xtts_run
+    items = [{"id": f"a{k}", "text": "egy", "seed": k} for k in range(5)] + [{"id": f"b{k}", "text": "kettő", "seed": k} for k in range(2)] + [{"id": "c0", "text": "egy", "seed": 9, "speed": 1.2}]
+    groups = xtts_run.group_items(items, 3)
+    assert [[i["id"] for i in g] for g in groups] == [["a0", "a1", "a2"], ["a3", "a4"], ["b0", "b1"], ["c0"]]
+
+
+def test_a_take_of_a_batch_ends_at_its_first_stop_token():
+    from tadamoo.speech import xtts_run
+    assert xtts_run.take_end([5, 6, 8193, 8193, 8193], 8193) == 3
+    assert xtts_run.take_end([5, 6, 7], 8193) == 3
+
+
+def test_a_sentence_with_one_take_missing_is_made_again_whole_and_the_job_carries_the_batch_and_the_precision(tmp_path, monkeypatch):
+    fake = tmp_path / "fake_xtts.py"
+    fake.write_text(FAKE, encoding="utf-8")
+    monkeypatch.setattr(clausevoice, "RUNNER", fake)
+    p = clausevoice.Params(xtts_python=sys.executable, xtts_model="m", xtts_batch=4, xtts_precision="bf16")
+    runner = clausevoice.LocalXtts(p, tmp_path / "work")
+    item = lambda text, n: {"id": f"{text}_s{n}", "text": text, "lang": "hu", "seed": n}
+    try:
+        runner.run([item("egy", 1), item("egy", 2), item("ketto", 3)])
+        job = json.loads((tmp_path / "work" / "job.json").read_text(encoding="utf-8"))
+        assert job["batch"] == 4 and job["precision"] == "bf16" and len(job["items"]) == 3
+        (tmp_path / "work" / "out" / "egy_s2.wav").unlink()                        # one take of "egy" is gone: both are made again, "ketto" is kept
+        runner.run([item("egy", 1), item("egy", 2), item("ketto", 3)])
+        assert [i["id"] for i in json.loads((tmp_path / "work" / "job.json").read_text(encoding="utf-8"))["items"]] == ["egy_s1", "egy_s2"]
+    finally:
+        runner.close()
+
+
+def test_a_group_of_takes_made_by_one_production_is_found_again_by_another_in_the_shared_folder(tmp_path, monkeypatch):
+    fake = tmp_path / "fake_xtts.py"
+    fake.write_text(FAKE, encoding="utf-8")
+    monkeypatch.setattr(clausevoice, "RUNNER", fake)
+    p = clausevoice.Params(xtts_python=sys.executable, xtts_model="m", xtts_cache=str(tmp_path / "shared"))
+    item = lambda text, n: {"id": f"{text}_s{n}", "text": text, "lang": "hu", "seed": n}
+    first = clausevoice.LocalXtts(p, tmp_path / "work1")
+    try:
+        made = first.run([item("egy", 1), item("egy", 2)])
+    finally:
+        first.close()
+    assert first.batches == 1
+    second = clausevoice.LocalXtts(p, tmp_path / "work2")
+    try:
+        found = second.run([{**item("egy", 1), "id": "c9_s1"}, {**item("egy", 2), "id": "c9_s2"}])        # another production: other ids, same text and seeds
+        other = second.run([item("egy", 7)])                                                              # other seeds are made
+    finally:
+        second.close()
+    assert second.batches == 1 and found["c9_s1"] == made["egy_s1"] and found["c9_s2"] == made["egy_s2"] and set(other) == {"egy_s7"}
+
+
+def test_a_run_that_takes_longer_than_its_time_is_stopped_with_a_message(tmp_path, monkeypatch):
+    slow = tmp_path / "slow.py"
+    slow.write_text("import sys, time\nfor line in sys.stdin:\n    time.sleep(60)\n", encoding="utf-8")
+    monkeypatch.setattr(clausevoice, "RUNNER", slow)
+    runner = clausevoice.LocalXtts(clausevoice.Params(xtts_python=sys.executable, xtts_model="m"), tmp_path / "work")
+    try:
+        runner.run([{"id": "c0_s1", "text": "x", "lang": "hu", "seed": 1}], timeout=1.5)
+        raised = None
+    except RuntimeError as exc:
+        raised = str(exc)
+    finally:
+        runner.close()
+    assert raised and "took longer than 2 s and was stopped" in raised
+
+
+def test_the_seeds_of_a_sentence_follow_its_text_and_not_its_place():
+    p = clausevoice.Params()
+    runs = []
+
+    class Runner:
+        def run(self, items, timeout=None):
+            runs.append(items)
+            raise clausevoice.VoiceFailed("stop here", [])
+
+    for text in ("Egy két. Jó napot kívánok.", "Jó napot kívánok. Egy két."):
+        try:
+            clausevoice.speak(text, Runner(), None, p, lambda m: None)
+        except clausevoice.VoiceFailed:
+            pass
+    seeds = lambda items, word: sorted(i["seed"] for i in items if i["text"].startswith(word))
+    assert seeds(runs[0], "Jó napot") == seeds(runs[1], "Jó napot") and seeds(runs[0], "Egy") == seeds(runs[1], "Egy")
+
+
+def test_with_a_timing_a_run_is_limited_by_the_audio_it_makes_and_a_good_run_is_recorded(tmp_path, monkeypatch):
+    from tadamoo import jobtime
+    timing = jobtime.Timing(tmp_path / "times.json", {"time_min_s": 1})
+    said = textwrap.dedent('''
+        import json, os, sys
+        for line in sys.stdin:
+            job = json.load(open(line.strip(), encoding="utf-8"))
+            os.makedirs(job["out_dir"], exist_ok=True)
+            for it in job["items"]:
+                open(os.path.join(job["out_dir"], it["id"] + ".wav"), "wb").write(b"x")
+                print(json.dumps({"id": it["id"], "seconds": 6.0}), flush=True)
+            print(json.dumps({"batch": "done"}), flush=True)
+    ''')
+    fake = tmp_path / "fake.py"
+    fake.write_text(said, encoding="utf-8")
+    monkeypatch.setattr(clausevoice, "RUNNER", fake)
+    runner = clausevoice.LocalXtts(clausevoice.Params(xtts_python=sys.executable, xtts_model="m"), tmp_path / "work", timing)
+    try:
+        runner.run([{"id": "c0_s1", "text": "Jó napot", "lang": "hu", "seed": 1}, {"id": "c0_s2", "text": "Jó napot", "lang": "hu", "seed": 2}])
+    finally:
+        runner.close()
+    assert timing.ratio("voice")[1] == 1 and timing.ratio("voice")[0] > 0                    # twelve seconds of audio made: one ratio kept
+    slow = tmp_path / "slow2.py"
+    slow.write_text("import sys, time\nfor line in sys.stdin:\n    time.sleep(60)\n", encoding="utf-8")
+    monkeypatch.setattr(clausevoice, "RUNNER", slow)
+    stuck = clausevoice.LocalXtts(clausevoice.Params(xtts_python=sys.executable, xtts_model="m"), tmp_path / "work2", jobtime.Timing(tmp_path / "t2.json", {"time_min_s": 1}))
+    try:
+        stuck.run([{"id": "c0_s1", "text": "x", "lang": "hu", "seed": 1}])
+        raised = None
+    except jobtime.Overrun as exc:
+        raised = str(exc)
+    finally:
+        stuck.close()
+    assert raised and "took longer than 1 seconds" in raised and "was ended" in raised
+
+
+def test_the_wait_for_the_speech_to_text_is_the_limit_of_the_audio_and_its_end_is_an_overrun(monkeypatch, tmp_path):
+    import io
+    import wave
+    from tadamoo import jobtime
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(b"\0\0" * 16000)
+    monkeypatch.setattr(voicecheck, "TIMING", jobtime.Timing(tmp_path / "t.json", {"time_min_s": 0.3}))
+    monkeypatch.setattr(voicecheck, "RETRY_EVERY_S", 0.1)
+
+    def refuse(*a, **k):
+        raise OSError("the speech-to-text does not answer")
+
+    monkeypatch.setattr(voicecheck, "_service_words", refuse)
+    try:
+        voicecheck.transcribe("http://x", buf.getvalue(), "hu")
+        raised = None
+    except jobtime.Overrun as exc:
+        raised = str(exc)
+    assert raised and "was ended" in raised

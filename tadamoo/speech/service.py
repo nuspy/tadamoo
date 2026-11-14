@@ -21,18 +21,19 @@ GAP_S = 0.22                                       # silence between two pieces
 TRIES = 3                                          # readings of a piece that does not match its text
 END_MARK = {"hu": ","}                             # what is added to a piece for the engine, by language: without it XTTS cuts the last syllable of a Hungarian sentence
 TIMEOUT_S = 180.0
+TIMING = None                                      # a production sets it: a jobtime.Timing. A piece of voice may then take the time its length allows (jobtime), and a recording that took longer is an Overrun
 
 
 class SpeechError(RuntimeError):
     pass
 
 
-def _call(url: str, method: str, path: str, body: Dict[str, Any] | None = None, key: str = "") -> Tuple[int, bytes]:
+def _call(url: str, method: str, path: str, body: Dict[str, Any] | None = None, key: str = "", timeout: float = 0.0) -> Tuple[int, bytes]:
     parts = urlsplit(url or DEFAULT_URL)
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = "Bearer " + key
-    conn = http.client.HTTPConnection(parts.hostname or "127.0.0.1", parts.port or 80, timeout=TIMEOUT_S)
+    conn = http.client.HTTPConnection(parts.hostname or "127.0.0.1", parts.port or 80, timeout=timeout or TIMEOUT_S)
     try:
         conn.request(method, path, body=None if body is None else json.dumps(body), headers=headers)
         r = conn.getresponse()
@@ -105,14 +106,27 @@ def pieces(text: str, limit: int = PIECE_MAX) -> List[str]:
 
 def synthesize(url: str, text: str, engine: str, voice: str, lang: str, key: str = "") -> bytes:
     """One WAV of `text` (a single piece) in this voice."""
-    status, raw = _call(url, "POST", "/tts/test", {"text": text, "voice": voice, "lang": lang, "engine": engine}, key)
+    clock = None
+    if TIMING is not None:
+        from tadamoo import jobtime
+        clock = jobtime.Deadline(TIMING, "voice", len(text) / 12.0)       # the length of the piece, as the XTTS runner estimates it
+    try:
+        status, raw = _call(url, "POST", "/tts/test", {"text": text, "voice": voice, "lang": lang, "engine": engine}, key, clock.limit_s if clock else 0.0)
+    except SpeechError:
+        if clock is not None:
+            clock.check()                                                 # the limit is reached: the error of the step, with its numbers
+        raise
     try:
         out = json.loads(raw)
     except ValueError:
         out = {}
     if status != 200 or out.get("status") != "ok" or not out.get("audio_b64"):
         raise SpeechError(f"the voice service refused ({status}): {str(out.get('message') or out.get('error') or raw[:120])[:200]}")
-    return base64.b64decode(out["audio_b64"])
+    wav = base64.b64decode(out["audio_b64"])
+    if clock is not None:
+        from tadamoo.speech import voicecheck
+        TIMING.record("voice", clock.elapsed(), voicecheck.wav_seconds(wav))
+    return wav
 
 
 def join(wavs: List[bytes], gap_s: float = GAP_S) -> bytes:
