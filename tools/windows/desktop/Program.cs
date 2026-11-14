@@ -288,7 +288,7 @@ static class Native
             try { name = Process.GetProcessById(pid).ProcessName.ToLowerInvariant(); } catch { continue; }
             if (!name.StartsWith("python") && name != "basalt") continue;
             var h = GetJson($"http://127.0.0.1:{port}/health");
-            if (h is JsonElement e && e.TryGetProperty("service", out var s) && s.GetString() == "basalt")
+            if (h is JsonElement e && e.TryGetProperty("service", out var s) && s.GetString() == "tadamoo")
             {
                 if (!mocks && e.TryGetProperty("mock", out var m) && m.ValueKind == JsonValueKind.True) continue;
                 found.Add((port, e));
