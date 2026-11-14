@@ -658,6 +658,25 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
             return failure(exc)
         return f"Plan started at {res.get('started')} ({how}). Ready now: {', '.join(res.get('ready', [])) or 'nothing'}."
 
+    def plan_set_parameters(plan_id: str, values: Dict[str, Any], quote: str = "") -> str:
+        """Sets parameters of a plan (the values it starts with, shown in its Parameters tab): name -> value. Every value is checked before any is kept."""
+        if (msg := need_read(plan_id)):
+            return msg
+        try:
+            snap = client.snapshot(plan_id)
+        except Exception as exc:
+            return failure(exc)
+        ok, how = confirmer.check({"kind": "plan_set_parameters", "plan": snap["plan"]["title"], "values": sorted(values or {})},
+                                  f'Set the parameters {", ".join(sorted(values or {}))} of the plan "{snap["plan"]["title"]}"?', quote, snap, [])
+        if not ok:
+            return how
+        try:
+            res = client.event(plan_id, {"type": "plan:parameters", "values": values, "base_rev": seen[plan_id]})
+            seen[plan_id] = int(client.snapshot(plan_id).get("rev") or seen[plan_id])
+        except Exception as exc:
+            return failure(exc)
+        return "Parameters set: " + ", ".join(f"{k}={str(v)[:60]}" for k, v in (res.get("values") or {}).items()) + f" ({how})."
+
     def plan_step_done(plan_id: str, node_id: str, step: str, result: Optional[Dict[str, Any]] = None, undo: bool = False) -> str:
         """An inner step of a step you are doing is finished: it is kept in the plan, with its essential result, so that after an interruption (even a restart of the PC) the
         step goes on from there and does not do it again. Only for a step that was started with plan_step_start."""
@@ -932,6 +951,9 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
                           ["plan_id", "node_id", "status"]), EffectClass.REVERSIBLE, plan_mark)
     registry.register("plan_start", "Starts a plan at one of its start nodes (number, 1 when it has one); not while it is running. A plan that has finished starts again. Needs the user's yes.",
                       obj({"plan_id": {"type": "string"}, "number": {"type": "integer"}, "quote": quote_param}, ["plan_id"]), EffectClass.REVERSIBLE, plan_start)
+    registry.register("plan_set_parameters", "Sets parameters of a plan: the values it starts with, listed in plan_get as Parameters and shown in the plan's Parameters tab (name -> value; a choice takes one of its values; "
+                      "a number a number; empty is allowed). Needs the user's yes.",
+                      obj({"plan_id": {"type": "string"}, "values": {"type": "object"}, "quote": quote_param}, ["plan_id", "values"]), EffectClass.REVERSIBLE, plan_set_parameters)
     registry.register("plan_step_done", "Records that an inner step of a step you are doing is finished, with its essential result (the files made, the values), in the plan. After an "
                       "interruption (even a restart of the PC) the step goes on from there and the inner steps recorded are not done again. Use it after each stage of a step that does "
                       "several things in a row. With undo the inner step is to be done again. No confirmation is asked: the step was started with plan_step_start.",

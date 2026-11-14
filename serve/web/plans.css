@@ -429,3 +429,29 @@ body[data-view="plans"] .plrow { height: 100%; gap: 8px; }
 .pl-lower .rl-row { flex-wrap: nowrap; justify-content: flex-start; text-align: left; margin: 0; padding: 1px 8px; gap: 8px; font: 400 12px/1.4 var(--font-mono); white-space: nowrap; overflow: hidden; border-left-width: 2px; }
 .pl-lower .rl-row > * { flex: none; min-width: 0; margin: 0; text-align: left; }
 .pl-lower .rl-row .rl-unit, .pl-lower .rl-row .rl-text { flex: 1 1 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* on and off, and Start plan / Stop plan, at the right of the plan's title */
+.plmain > .sh { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.pl-runctl { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.pl-runctl[hidden] { display: none; }
+.pl-onoff { font: 600 12px/1 var(--font-mono); padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--fg-2); }
+.pl-onoff[data-on="1"] { color: var(--pl-done); border-color: var(--pl-done); }
+
+/* the Parameters tab: a readable column, the groups under their headings, each parameter a label, its explanation, its field and its default */
+.pl-params { max-width: 760px; padding-bottom: 8px; }
+.pl-par-list { padding: 0 16px; }
+.pl-par-group { margin: 14px 0 4px; font: 600 14px/1.3 var(--font-sans); color: var(--fg); border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+.pl-par { padding: 8px 0 6px; border-bottom: 1px solid var(--line); }
+.pl-par-q { display: block; font: 500 15px/1.4 var(--font-sans); color: var(--fg); }
+.pl-par-help { margin: 2px 0 6px; font-size: 13px; line-height: 1.45; color: var(--fg-2); overflow-wrap: anywhere; }
+.pl-par input[type="text"], .pl-par input[type="number"], .pl-par textarea, .pl-par select { width: 100%; max-width: 100%; box-sizing: border-box; }
+.pl-par textarea { min-height: 44px; resize: vertical; }
+.pl-par-two { display: flex; flex-wrap: wrap; gap: 8px; }
+.pl-par-two .btn[aria-pressed="true"] { border-color: var(--pl-run); color: var(--fg); background: var(--raised); box-shadow: inset 0 0 0 1px var(--pl-run); }
+.pl-par-choice { display: grid; gap: 6px; }
+.pl-par-def { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 4px 0 0; font-size: 12.5px; color: var(--fg-3); overflow-wrap: anywhere; }
+.pl-par-foot { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px 16px; background: var(--surface); border-top: 1px solid var(--line); }
+.pl-par-count { color: var(--fg-2); font-size: 13px; }
+.pl-par-msg { margin: 0; font-size: 13px; color: var(--pl-done); }
+.pl-par-msg.bad { color: var(--pl-fail); }
+@media (pointer: fine) { .pl-par-def .btn { min-height: 28px; padding: 2px 10px; } .pl-par-two .btn { min-height: 32px; } }

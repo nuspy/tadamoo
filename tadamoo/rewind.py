@@ -78,7 +78,7 @@ KNOWN_EFFECTS: Dict[str, str] = {
                      "session_status", "session_list", "session_digest", "cron_list", "plan_digest"), "pure"),
     **dict.fromkeys(("write_file", "edit_file", "docx_edit", "docx_create", "transcribe_attachment", "write_output_file", "publish_output_file", "plan_create", "plan_set_profile",
                      "plan_check", "plan_mark", "plan_step_start", "plan_propose_change", "plan_archive", "remember", "forget",
-                     "plan_start", "plan_step_done", "plan_pause", "plan_resume", "plan_set_schedule", "plan_remove_schedule",
+                     "plan_start", "plan_set_parameters", "plan_step_done", "plan_pause", "plan_resume", "plan_set_schedule", "plan_remove_schedule",
                      "cron_create", "cron_update", "cron_pause", "cron_resume", "cron_delete", "cron_fire_now"), "reversible"),
     **dict.fromkeys(("shell_command", "browser_click", "browser_type", "browser_sign_in", "browser_select", "browser_press", "browser_back",
                      "call_capability", "mcp_call", "request_payment", "phone_call", "phone_say", "phone_listen", "phone_hangup", "run_code", "spawn_subagent",

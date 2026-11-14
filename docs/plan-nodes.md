@@ -5,6 +5,10 @@ Where a plan begins (start nodes, schedules in words, a step that starts another
 The kinds of step are one table, `tadamoo/planner/nodes.py` `NODE_SPECS`; the checks of a plan, the tools of the Chat (`plan_propose_change`) and the Plans
 page (palette, inspector, graph) all read it, so a field added there appears everywhere.
 
+**Rule: what a plan starts with is a parameter, not a question.** A value the person gives before a run (the edition, the folder, the choices of a production) is a `parameter` node with a default,
+set in the Parameters tab; an `input` node is only for what a run needs from the person while it goes on (an approval, a task, a value a later step asks for). A plan must be able to start with
+nothing asked: every parameter has its default.
+
 ## Connectors (ports)
 
 A port has an `id`, a `kind` and a label. `flow`: the step below waits for this one. `data`: something given to a step. A data port says what it `carries`
@@ -21,6 +25,8 @@ that a step that takes a value does not run before the step it comes from has pr
 | get_var, set_var | `in` (set_var also `data`) | `out`, `value` |
 | input (a request to the person) | `in`, `data` | `out`, `answer` |
 | start | none | `out` |
+| end | `in` | none (reaching it switches the plan off, see [plan-start.md](plan-start.md)) |
+| parameter | none | none (a value of the plan, set in the Parameters tab, see [plan-runs.md](plan-runs.md)) |
 | set_var, output, log, wait_condition, loop | `in`, `data` | `out` |
 | rag | none | `rag` (archives) |
 

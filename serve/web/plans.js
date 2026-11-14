@@ -35,7 +35,7 @@
   const ICON = { pending: "○", in_progress: "▶", completed: "✓", failed: "✕", blocked: "⏸", skipped: "↷" };
   const TYPES = ["action", "sensor", "decision", "merge"];
   /* events that write into the plan carry the revision the page last read, so a late one cannot overwrite a newer one */
-  const DIRECT = ["plan:update_node", "plan:move", "plan:mark", "plan:rewind", "plan:update_meta", "plan:fallback_response", "plan:start", "plan:answer"];
+  const DIRECT = ["plan:update_node", "plan:move", "plan:mark", "plan:rewind", "plan:update_meta", "plan:fallback_response", "plan:start", "plan:answer", "plan:start_plan", "plan:stop_plan", "plan:parameters"];
   const S = {
     plans: [], id: "", snap: null, selected: "", proposal: "", mode: "", seq: 0, running: false, ready: false,
     settings: null, refreshTimer: null, abort: null, flash: {}, align: null, rewindAsk: null, rewindFocus: false,
@@ -43,7 +43,7 @@
     tab: "define", edge: "", delArmed: "", rowFocus: "", auto: null,
     kindsKey: "",
   };
-  const TABS = ["aims", "details", "events", "define"];
+  const TABS = ["aims", "details", "events", "params", "define"];
   const COL_KEY = "tadamoo.plans.col";
   const keep = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* not kept */ } };
   const recall = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } };
@@ -148,6 +148,13 @@
     ui.archived = el("section", { class: "sec pl-archived" });
     ui.triage = el("section", { class: "sec pl-triage" });
     ui.title = el("b", { id: "pl-h", text: T("pl.title") });
+    ui.onoff = el("span", { class: "pl-onoff", role: "status" });
+    ui.startPlan = el("button", { type: "button", class: "btn primary pl-btn", id: "pl-start-plan", title: T("pl.plan.start.tip"), text: T("pl.start.now"),
+      onclick: () => event({ type: "plan:start_plan" }, T("pl.start.done")) });
+    ui.stopPlan = el("button", { type: "button", class: "btn pl-btn", id: "pl-stop-plan", title: T("pl.plan.stop.tip"), text: T("pl.plan.stop"),
+      onclick: () => event({ type: "plan:stop_plan" }, T("pl.plan.stopped")) });
+    ui.runCtl = el("span", { class: "pl-runctl", hidden: true }, ui.onoff, ui.startPlan, ui.stopPlan);
+    ui.parHost = el("div", { class: "pl-params", id: "pl-par-host" });
     ui.pick = el("p", { class: "pl-empty dim", text: T("pl.pick") });
     ui.tabs = el("div", { class: "pl-tabs", role: "tablist", "aria-label": T("pl.tabs.label") },
       TABS.map(k => el("button", { type: "button", class: "btn subtab", role: "tab", id: "pl-tab-" + k, "aria-controls": "pl-panel-" + k, title: T("pl.tab." + k + ".tip"),
@@ -174,11 +181,12 @@
       el("div", { class: "sh", title: T("sc.help.plan") }, el("b", { id: "pl-instr-h", text: T("sc.title.plan") })), el("div", { id: "pl-instr-root" }));
     ui.split = buildSplitter();
     ui.main = el("section", { class: "sec plmain", "aria-labelledby": "pl-h" },
-      el("div", { class: "sh" }, ui.title, connEl),
+      el("div", { class: "sh" }, ui.title, connEl, el("span", { class: "grow" }), ui.runCtl),
       ui.pick, ui.tabs, statusEl,
       panel("aims", ui.horizon, ui.align),
       panel("details", ui.manage, ui.archived),
       panel("events", ui.triage),
+      panel("params", ui.parHost),
       panel("define", ui.defineBar, ui.infHost, ui.summary,
         el("div", { class: "pl-main" },
           el("div", { class: "pl-canvas" }, el("div", { class: "pl-stage" }, ui.graph, ui.zoom.bar, ui.list, ui.autoBtn, ui.autoBox), ui.detail),
@@ -352,13 +360,23 @@
     if (!S.id) return;
     const r = await api(planPath());
     if (!r.ok) { say(errText(r.data) || T("pl.loadfail"), true); return; }
-    S.snap = r.data;
+    S.snap = withoutParameters(r.data);
     const al = await api(planPath("/alignment"));
     S.align = al.ok ? al.data : null;
     if (S.selected && !r.data.plan.nodes[S.selected]) S.selected = "";
     if (S.proposal && !r.data.proposals.some(p => p.proposal_id === S.proposal)) S.proposal = "";
     if (!S.proposal && r.data.proposals.length) S.proposal = r.data.proposals[0].proposal_id;
     render();
+  }
+  /* the parameters are the Parameters tab's: they are not steps, so they are not drawn in the diagram, the list or the counts */
+  function withoutParameters(snap) {
+    S.params = snap.parameters || [];
+    const gone = Object.values(snap.plan.nodes).filter(n => n.type === "parameter").map(n => n.id);
+    if (!gone.length) return snap;
+    const nodes = {};
+    Object.entries(snap.plan.nodes).forEach(([id, n]) => { if (!gone.includes(id)) nodes[id] = n; });
+    return { ...snap, plan: { ...snap.plan, nodes }, layers: (snap.layers || []).map(ids => ids.filter(i => !gone.includes(i))).filter(ids => ids.length),
+      order: (snap.order || []).filter(i => !gone.includes(i)) };
   }
   function refreshSoon() {
     clearTimeout(S.refreshTimer);
@@ -989,8 +1007,6 @@
         el("button", { type: "button", class: "btn pl-btn", title: T("pl.tip.done"), text: T("pl.done"), onclick: () => mark(n.id, "completed", out) }),
         el("button", { type: "button", class: "btn pl-btn", title: T("pl.tip.fail"), text: T("pl.fail"), onclick: () => mark(n.id, "failed") }),
         el("button", { type: "button", class: "btn pl-btn", title: T("pl.tip.rewind"), text: T("pl.rewind"), onclick: () => rewind(n.id) }),
-        n.type === "start" ? el("button", { type: "button", class: "btn primary pl-btn", text: T("pl.start.now"), disabled: !!(S.snap.run && S.snap.run.state === "running"),
-          title: S.snap.run && S.snap.run.state === "running" ? T("pl.start.running") : "", onclick: () => event({ type: "plan:start", number: n.spec.number || 1 }, T("pl.start.done")) }) : [],
         removeButton(n))));
   }
 
@@ -1235,7 +1251,7 @@
   }
   /* the palette: a kind dragged onto the plan, or tapped, is put on the plan at once, with the place it was let go; it needs no links and no properties yet */
   function drawPalette() {
-    const kinds = kindList(), key = kinds.map(k => k.type).join(",") + document.documentElement.lang;
+    const kinds = kindList().filter(k => k.type !== "parameter"), key = kinds.map(k => k.type).join(",") + document.documentElement.lang;
     if (key === S.kindsKey) return;
     S.kindsKey = key;
     if (ui.palBox && ui.palBox.dispose) ui.palBox.dispose();
@@ -1672,7 +1688,10 @@
     TABS.forEach(k => { ui["panel_" + k].hidden = !has || S.tab !== k; });
     ui.instr.hidden = !has;
     ui.palette.hidden = !has;
+    ui.runCtl.hidden = !has;
     if (!has) return;
+    paintRun();
+    drawParams();
     drawPalette();
     const nodes = Object.values(S.snap.plan.nodes);
     ui.summary.textContent = T("pl.summary", nodes.length, nodes.filter(n => n.status === "completed").length, S.snap.ready.length,
@@ -1695,6 +1714,31 @@
     drawAlign();
     drawHorizon();
     drawManage();
+  }
+
+  /* on or off, and what Start plan and Stop plan can do now */
+  function paintRun() {
+    const on = !!S.snap.active, running = !!(S.snap.run && S.snap.run.state === "running");
+    ui.onoff.dataset.on = on ? "1" : "0";
+    ui.onoff.textContent = T(on ? "pl.plan.on" : "pl.plan.off");
+    ui.onoff.title = T("pl.plan.state", T(on ? "pl.plan.on" : "pl.plan.off"));
+    ui.startPlan.disabled = running;
+    ui.startPlan.title = running ? T("pl.start.running") : T("pl.plan.start.tip");
+    ui.stopPlan.disabled = !on && !running;
+  }
+  /* the Parameters tab: redrawn when the values changed and not while a field of it has the focus */
+  function drawParams() {
+    const sig = S.id + JSON.stringify(S.params) + document.documentElement.lang;
+    if (sig === S.parSig || (ui.parHost.contains(document.activeElement) && document.activeElement.matches("input, textarea, select"))) return;
+    S.parSig = sig;
+    PlanParams.draw(ui.parHost, S.params, { T, save: async values => {
+      const r = await api(planPath("/events"), { type: "plan:parameters", values, base_rev: S.snap && S.snap.rev });
+      if (!r.ok && r.data && r.data.stale) { await refresh(); return { ok: false, error: T("pl.stale") }; }
+      if (!r.ok) return { ok: false, error: errText(r.data) || (r.data && r.data.error) || T("pl.failed") };
+      await refresh();
+      say(T("pl.par.saved"));
+      return { ok: true };
+    } });
   }
 
   /* ---- start when the view is shown; stop the stream when it is left ---- */

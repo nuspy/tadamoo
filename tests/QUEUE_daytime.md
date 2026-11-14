@@ -317,3 +317,12 @@ Serve la conversazione vera con il modello vero e un server MCP con un'app. Per 
 3. Il piano del telegiornale (44 domande, tanti passi): si apre con il nodo Start visibile; «adatta tutto» mostra tutto.
 4. Eliminare un passo con Canc, poi Annulla: torna con i suoi collegamenti.
 5. Riquadro fisso: il divisore si trascina col mouse e col dito, l'altezza si ricorda dopo aver chiuso e riaperto l'app; barra in alto ferma; la parte bassa scorre; con una storia lunga le righe sono una per voce, a sinistra.
+
+## Parametri e piano acceso/spento (14 novembre; provati con test del motore e browser senza testa, NON con il telegiornale vero)
+
+1. Apri il piano del telegiornale (importato di nuovo dal modello): nella scheda Parametri ci sono le 44 voci sotto i loro sei titoli, con i predefiniti; cambia due valori, salva, chiudi e riapri la pagina: i valori restano.
+2. «Avvia piano» sul telegiornale: parte senza chiedere niente, i passi leggono i valori dei parametri (controlla un valore cambiato nel comando del passo «Indagine»); a fine corsa il nodo «Fine» spegne il piano (si vede «Spento»).
+3. «Ferma piano» durante una corsa: i passi non finiti sono saltati, nessuna richiesta resta aperta; «Avvia piano» riparte da capo.
+4. Un piano tuo già esistente con domande all'avvio: dopo il riavvio del server le domande sono parametri e i passi dopo di loro partono dall'avvio.
+5. Un piano con un avvio a intervallo: da spento non parte, da acceso parte all'ora.
+

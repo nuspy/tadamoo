@@ -1,8 +1,24 @@
-# Plan runs: requests to the person, taking up again, recovery
+# Plan runs: parameters, requests to the person, taking up again, recovery
+
+## Parameters: the values a plan starts with
+
+A plan's **initial values** are never asked when it starts. Each is a **parameter** (`parameter` node): a plan value with a default, set by the person in the plan's **Parameters** tab at any time and
+read by the steps as `{name}`. A parameter is settled from the start (`completed`), has no connectors, is not drawn in the diagram or the list and is not counted among the steps. Its `spec` is
+`prompt`/`prompt_en` (the label), `help`/`help_en`, `into` (the plan value), `kind` (`text`, `number`, `choice`), `choices`, `other`, `default`, `group`/`group_en`; unlike an answer it may be
+empty (the plan says what an empty value means). The value is `shared_state[into]`: the default until it is set.
+
+- **Web** (`serve/web/planparams.js`, the tab *Parameters*): the groups under their headings, each parameter a label, its explanation, a field by kind (a text is one line when empty and grows; a number;
+  a choice of two is two buttons; a longer choice is a menu with "Other, I write" when `other` allows it), its default with a button to use it; Save sends only what changed.
+- **API**: `GET /api/plans/<id>/parameters` -> `{parameters: [{node_id, name, prompt, prompt_en, help, help_en, group, group_en, kind, choices, other, default, value}], active}`;
+  `POST /api/plans/<id>/parameters` `{values: {name: value}}` (event `plan:parameters`): every value is checked before any is kept. The snapshot carries `parameters` too.
+- **The rule for a plan's first values**: a value the person gives before a run is a parameter, not an `input` node with its parents only starts. `PlanStore.get` migrates a plan saved the old way when it is
+  loaded (`PlanDAG.migrate_initial_questions`): such an `input` (a value request whose parents are only starts) becomes a parameter, its answer or default is the plan value, and what waited for it waits for the start.
+  Approvals, tasks and questions that come later in a run stay requests, below.
+- The Chat's view of a plan (`plan_get`) lists the parameters as `name=value` in one line.
 
 ## A request to the person (the `input` node)
 
-The `input` node is the plan's request for human intervention, for every plan. One node is one question. `spec`:
+The `input` node is the plan's request for human intervention during a run: an approval, a value that only a later step can ask for, a task. One node is one question. `spec`:
 
 - `ask`: `value` (default: what older plans have) or `approve`.
 - `prompt` (up to 300 characters): the question, in the person's language (Italian); `prompt_en`: the same in English. `help` and `help_en` (up to 1000): one sentence of explanation shown under it.
@@ -30,7 +46,7 @@ A decision can branch on the values. When the person answered (not the Chat for 
 
 ### Where it shows
 
-The questions of one plan are **one scrolling list** with all of them at once (a plan with 43 questions shows 43): full screen on a phone, a wide panel on a desktop, the same window over any tab.
+The questions of one plan are **one scrolling list** with all of them at once: full screen on a phone, a wide panel on a desktop, the same window over any tab.
 Each question is the question in large type, its explanation under it, and its field; a plan may group them with `group` / `group_en` on the node (a short text such as *Who presents*): the heading is shown
 before the first question of each group, in the person's language, and nothing is shown when a plan has none. The field follows the answer, the same everywhere:
 two possible answers (an approval, or two choices) are **two buttons** with the answers in words; more than two are a **menu** with "Other, I write", which opens a text field; a free text or a number is the **field**;
