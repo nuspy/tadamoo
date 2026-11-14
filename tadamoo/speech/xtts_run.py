@@ -95,26 +95,50 @@ def autocast(precision):
     return contextlib.nullcontext()
 
 
-def takes(m, gpt, emb, items, precision):
+def stopper(prompt_len, stop, factor):
+    """`generate` arguments that end the takes of a batch that are still running when `factor` times the length of the first one to finish has passed: a take that runs on like that has not found
+    its end (it babbles to the cap), and a batch lasts as long as its longest take. No arguments when `factor` is 0."""
+    if not factor or factor <= 1:
+        return {}
+    import torch
+    from transformers import StoppingCriteria, StoppingCriteriaList
+
+    class RunawayStop(StoppingCriteria):
+        def __init__(self):
+            self.first = None
+
+        def __call__(self, input_ids, scores, **kwargs):
+            made = input_ids[:, prompt_len:]
+            done = (made == stop).any(dim=1)
+            if self.first is None and bool(done.any()):
+                self.first = made.shape[1]
+            if self.first is not None and made.shape[1] > self.first * factor:
+                return ~done
+            return torch.zeros_like(done)
+
+    return {"stopping_criteria": StoppingCriteriaList([RunawayStop()])}
+
+
+def takes(m, gpt, emb, items, precision, runaway=1.5):
     """The audio of each item of a group (one text, one set of sampling settings), made together; a group that does not fit in memory is made in two halves."""
     import torch
     try:
-        return batch_takes(m, gpt, emb, items, precision)
+        return batch_takes(m, gpt, emb, items, precision, runaway)
     except torch.cuda.OutOfMemoryError:
         if len(items) == 1:
             raise
         torch.cuda.empty_cache()
         half = len(items) // 2
-        return takes(m, gpt, emb, items[:half], precision) + takes(m, gpt, emb, items[half:], precision)
+        return takes(m, gpt, emb, items[:half], precision, runaway) + takes(m, gpt, emb, items[half:], precision, runaway)
 
 
-def batch_takes(m, gpt, emb, items, precision):
+def batch_takes(m, gpt, emb, items, precision, runaway=1.5):
     import torch
     first = items[0]
     opt = {k: first.get(k, DEFAULTS[k]) for k in SAMPLING}
     torch.manual_seed(int(first["seed"]))
     np.random.seed(int(first["seed"]) % (2 ** 32))
-    secs = len(first["text"]) / 12.0
+    secs = len(first["text"]) / 15.0                  # characters a second of this engine's speech before the speed setting: the cap on the tokens is twice this
     tokens = torch.IntTensor(m.tokenizer.encode(first["text"].strip().lower(), lang=str(opt["lang"]).split("-")[0])).unsqueeze(0).to("cuda")
     stop = m.gpt.stop_audio_token
     out = []
@@ -122,7 +146,8 @@ def batch_takes(m, gpt, emb, items, precision):
         with autocast(precision):
             codes = m.gpt.generate(cond_latents=gpt, text_inputs=tokens, do_sample=True, top_p=float(opt["top_p"]), top_k=int(opt["top_k"]), temperature=float(opt["temperature"]),
                                    num_return_sequences=len(items), num_beams=1, length_penalty=float(opt["length_penalty"]), repetition_penalty=float(opt["repetition_penalty"]),
-                                   output_attentions=False, max_new_tokens=max(40, int((secs * 2.0 + 1.0) * 21.5)))
+                                   output_attentions=False, max_new_tokens=max(40, int((secs * 2.0 + 1.0) * 21.5)),
+                                   **stopper(gpt.shape[1] + tokens.shape[-1] + 3, stop, runaway if len(items) > 1 else 0))
         rows = codes.tolist()
         scale = 1.0 / max(float(opt["speed"]), 0.05)
         for j in range(len(items)):
@@ -144,7 +169,7 @@ def run(path):
     for group in group_items(job["items"], job.get("batch", 12)):
         t0 = time.time()
         try:
-            wavs = takes(m, gpt, emb, group, job.get("precision", "fp32"))
+            wavs = takes(m, gpt, emb, group, job.get("precision", "fp32"), float(job.get("runaway", 1.5)))
         except Exception as exc:                                       # a compile that fails is given up, the pass is made again without it
             if not compiled:
                 raise

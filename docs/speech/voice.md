@@ -54,6 +54,37 @@ The newscast took far longer than real time for these reasons, and the code chan
   (`POST /components/stt/reload` of the voice service) and a second failure stops the production with the service's own message.
 - A piece with a spelled number could never pass: the CTC model's letters match 0.70 to 0.76 for it, the limit is 0.88 (36 takes spent, then the production stopped).
 
+### Where the time went, on one sentence of 8.5 s (Hungarian, one clause, 4 takes in a round, RTX 5090 at 600 W, warm process)
+
+| Phase | Before | After | What changed |
+|---|---|---|---|
+| XTTS process start and model load (once) | about 15 s | about 15 s | unchanged: import 5 s, build 4 s, checkpoint 5 s, to the GPU 0.4 s; the mmap load of callAPIcall (build on the GPU) is no faster here |
+| Making 4 takes | 3.0 s | 3.3 s | one batched pass (already); a take that runs on to 1.5 times the first one to finish is ended |
+| Whisper read-back, 4 takes + 1 for the comma pauses | 6.5 s (5 calls, 1.3 s each) | 1.9 s (one pass for the 4 takes, the words kept for the comma pauses) | `localstt.LocalWhisper.words_many`: the takes decoded together, aligned one by one |
+| CTC read-back (letters), 4 takes | 4.7 s on the CPU | 0.6 s on the GPU | `rating_device` auto |
+| Pitch (pyin), 4 takes | 1.9 s | 0.5 s to 2.9 s while the Whisper runs | hop of 40 ms instead of 20 ms, run at the same time as the Whisper |
+| Speaker embedding, 4 takes | 0.9 s on the CPU | 0.4 s on the GPU | `rating_device` auto |
+| Pause audit, loudness, joins | 0.3 s | 0.5 s | unchanged |
+| **The sentence, process warm** | **17.2 s (2.0 times real time)** | **6.8 s (0.8 times real time)** | |
+
+The first sentence of a process also pays the loading and the first use of the GPU by each model (56 s before, 63 s after). Not measured here: the voice server's own Whisper, which a production
+used until now (it answers one request at a time), so the "before" read-back was timed with the same Whisper medium in this process.
+
+What callAPIcall does for XTTS (`call-bridge/callbridge/engines/xtts_tts_helper.py`): the same environment (torch 2.11 cu128, transformers 4.57, coqui-tts 0.27), one helper process kept loaded, the model built
+straight on the GPU from a memory-mapped checkpoint, the reference latents kept for each voice, the 58 built-in speakers, `inference_stream` in blocks of 20 tokens (the first sound after 0.9 s), a cap
+on the tokens in proportion to the text, the engine's own `speed`. Its half precision is off (it failed), and it has no DeepSpeed, no compile and no CUDA graphs; the speed it measured is 1.5 times real time, slower
+than the 0.36 here. Its fast engines are another model (Qwen3-TTS with CUDA graphs, 3.7 times real time) and a quantised one (16 times). So the speed of XTTS was never the delay: the delay was the rating.
+
+### The rating of the takes (what turned 8.5 s of voice into 17 s)
+
+- **Cheap measures first.** The CTC letters, the speaker and the pace of every take are measured first (on the GPU); a take that one of them rejects is not read back (`Rater.measure(partial_ok)`), because no read-back
+  can change that verdict. The takes that go on are read back together.
+- **One Whisper pass for the round** (`LocalWhisper.words_many`), kept loaded, with the words kept for the comma pauses so they are not asked for again. Several processes do not help: the GPU time-slices
+  between processes, a batch in one process does.
+- **Takes measured at the same time** (`rate_threads`), the pitch while the Whisper works.
+- **The read-back in this process** (`read_back` `auto`: when the GPU has 8 GB free, else the server's Whisper) and **without the server at all** (`speak.py --stt local`): the profile of a new voice is read from the local XTTS
+  (16 readings, about 80 s with the model load, once per voice) and the read-back is the local Whisper.
+
 ### Making the takes of a round faster
 
 - **Batched seeds.** The takes of a piece in a round share a text and settings, so one autoregressive pass makes them all (`num_return_sequences`, `xtts_batch`, 12 at most): a decoding step

@@ -77,7 +77,10 @@ def test_the_letters_of_a_clause_with_a_number_are_not_held_against_the_voice():
         profile = type("P", (), {"identity_floor": 0.0, "f0_std_semitones": 0.0})()
         targets = type("T", (), {"f0_std_over": 9.0})()
 
-        def score(self, wav, text, similarity, lang):
+        def identity(self, wav):
+            return 0.99
+
+        def score(self, wav, text, similarity, lang, known=None):
             return type("V", (), {"numbers": {"identity": 0.99, "pace": 5.2, "f0_hz": 200.0, "f0_std_semitones": 1.0}})()
 
     rater = clausevoice.Rater("http://x", Ctc(), Judge(), clausevoice.Params())
@@ -238,7 +241,7 @@ def test_the_seeds_of_a_sentence_follow_its_text_and_not_its_place():
 
 def test_with_a_timing_a_run_is_limited_by_the_audio_it_makes_and_a_good_run_is_recorded(tmp_path, monkeypatch):
     from tadamoo import jobtime
-    timing = jobtime.Timing(tmp_path / "times.json", {"time_min_s": 1})
+    timing = jobtime.Timing(tmp_path / "times.json", {"time_min_s": 60})
     said = textwrap.dedent('''
         import json, os, sys
         for line in sys.stdin:
@@ -295,3 +298,125 @@ def test_the_wait_for_the_speech_to_text_is_the_limit_of_the_audio_and_its_end_i
     except jobtime.Overrun as exc:
         raised = str(exc)
     assert raised and "was ended" in raised
+
+
+def test_the_takes_of_a_round_are_rated_at_the_same_time_and_come_back_in_their_order():
+    import threading
+    import time
+    seen, peak, now = [], [0], [0]
+    lock = threading.Lock()
+    rater = clausevoice.Rater.__new__(clausevoice.Rater)
+
+    def rate(wav, text, ending, seed, partial_ok=False):
+        with lock:
+            now[0] += 1
+            peak[0] = max(peak[0], now[0])
+        time.sleep(0.05)
+        with lock:
+            now[0] -= 1
+        return seed
+
+    rater.rate = rate
+    rater.cache, rater.p = {}, clausevoice.Params()
+    rater._cheap = lambda wav, text: {}
+    rater.cheap_rejects = lambda m: []
+    jobs = [(b"", "x", ".", n) for n in range(6)]
+    assert rater.rate_many(jobs, 4) == list(range(6)) and peak[0] > 1
+    peak[0] = 0
+    assert rater.rate_many(jobs, 1) == list(range(6)) and peak[0] == 1
+
+
+def test_a_local_speech_to_text_stands_in_for_the_server_and_the_words_are_kept_with_the_rating(monkeypatch):
+    class Local:
+        def words(self, wav, lang):
+            return [{"text": "Jó", "start": 0.0, "end": 0.2}, {"text": "napot", "start": 0.25, "end": 0.6}]
+
+    monkeypatch.setattr(voicecheck, "LOCAL_STT", Local())
+    monkeypatch.setattr(voicecheck, "_service_words", lambda *a, **k: (_ for _ in ()).throw(AssertionError("the server is not asked")))
+    assert [w["text"] for w in voicecheck.transcribe("http://x", b"", "hu")] == ["Jó", "napot"]
+
+
+def test_the_server_is_up_when_it_answers_and_not_when_nothing_listens():
+    import http.server
+    import threading
+    from tadamoo.speech import service
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(401)
+            self.end_headers()
+
+        def log_message(self, *a):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        assert service.server_up(f"http://127.0.0.1:{server.server_address[1]}")
+    finally:
+        server.shutdown()
+        port = server.server_address[1]
+        server.server_close()
+    assert not service.server_up(f"http://127.0.0.1:{port}", timeout=0.5)
+
+
+def test_the_profile_of_a_voice_can_be_read_from_the_local_xtts_two_readings_to_a_text(tmp_path):
+    made = []
+
+    class Runner:
+        def run(self, items):
+            made.append([it["seed"] for it in items])
+            return {it["id"]: f"wav{it['seed']}".encode() for it in items}
+
+    synth = clausevoice.local_synth(Runner(), clausevoice.Params())
+    assert synth("Egy,") != synth("Egy,") and len(made) == 1                    # the second reading of a text comes from the same pass
+    synth("Kettő,")
+    assert len(made) == 2 and len(set(made[0])) == 2
+
+
+def test_the_rating_goes_to_the_gpu_only_when_it_has_room():
+    from tadamoo.speech import localstt
+    assert localstt.pick_device("cpu") == "cpu" and localstt.pick_device("cuda") == "cuda"
+    assert localstt.pick_device("auto", need_gib=10000.0) == "cpu"
+
+
+def test_a_take_the_cheap_measures_reject_is_not_read_back_and_a_later_call_completes_it(monkeypatch):
+    import io
+    import wave
+    asked = []
+
+    class Ctc:
+        def __init__(self, heard):
+            self.heard = heard
+
+        def transcribe(self, wav, lang):
+            return self.heard
+
+    class Judge:
+        profile = type("P", (), {"identity_floor": 0.5, "f0_std_semitones": 0.0})()
+        targets = type("T", (), {"f0_std_over": 9.0})()
+
+        def identity(self, wav):
+            return 0.9
+
+        def score(self, wav, text, similarity, lang, known=None):
+            return type("V", (), {"numbers": {"identity": 0.9, "pace": 5.2, "f0_hz": 200.0, "f0_std_semitones": 1.0}})()
+
+    buf = io.BytesIO()
+    w = wave.open(buf, "wb")
+    w.setnchannels(1)
+    w.setsampwidth(2)
+    w.setframerate(24000)
+    w.writeframes(b"\x00\x00" * 24000)
+    w.close()
+    wav = buf.getvalue()
+    monkeypatch.setattr(voicecheck, "transcribe", lambda url, wav, lang, key="": asked.append(1) or [{"text": "jó", "start": 0.0, "end": 0.3}, {"text": "napot", "start": 0.3, "end": 0.6}])
+    monkeypatch.setattr(clausevoice.voiceprint, "pace", lambda wav, text, lang: 5.2)
+    monkeypatch.setattr(clausevoice.voiceprint, "f0", lambda wav: {"median_hz": 200.0, "std_semitones": 1.0, "voiced": 1.0})
+    wrong = clausevoice.Rater("http://x", Ctc("zzzzzz"), Judge(), clausevoice.Params())
+    m = wrong.measure(wav, "jó napot", ",", partial_ok=True)
+    assert m["partial"] and not asked and not wrong.judge_take(m, 1, wav, "jó napot").ok and "letters" in wrong.judge_take(m, 1, wav, "jó napot").why[0]
+    full = wrong.measure(wav, "jó napot", ",")                                       # asked for in full: the read-back is made now
+    assert not full.get("partial") and asked == [1] and "similarity" in full
+    right = clausevoice.Rater("http://x", Ctc("jonapot"), Judge(), clausevoice.Params())
+    assert not right.measure(wav, "jó napot", ",", partial_ok=True).get("partial") and asked == [1, 1]

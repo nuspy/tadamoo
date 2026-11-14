@@ -44,6 +44,20 @@ def _call(url: str, method: str, path: str, body: Dict[str, Any] | None = None, 
         conn.close()
 
 
+def server_up(url: str = "", timeout: float = 1.5) -> bool:
+    """Whether the TaDaMoo server answers at `url` (it need not be signed in to: any HTTP answer says it is there)."""
+    parts = urlsplit(url or DEFAULT_URL)
+    conn = http.client.HTTPConnection(parts.hostname or "127.0.0.1", parts.port or 80, timeout=timeout)
+    try:
+        conn.request("GET", "/")
+        conn.getresponse().read(1024)
+        return True
+    except (OSError, http.client.HTTPException):
+        return False
+    finally:
+        conn.close()
+
+
 def reload_stt(data_dir: Any) -> str:
     """Asks the voice service to reload its speech-to-text worker (`POST /components/stt/reload`, blocking until the model is ready); the service's address and token are the files it writes in
     the user data folder. Returns a line for the log."""

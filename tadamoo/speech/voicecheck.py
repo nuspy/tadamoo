@@ -102,6 +102,7 @@ def compare(text: str, words: List[Dict[str, Any]], lang: str = "") -> Check:
 
 
 WAIT_FOR_SERVICE_S = 0.0                           # a production sets it: how long the read-back waits for a speech-to-text that does not answer (a restart of the server) before it fails
+LOCAL_STT = None                                   # a localstt.LocalWhisper: the words come from it, in this process, and the voice server is not asked
 TIMING = None                                      # a production sets it: a jobtime.Timing. The wait is then the longest a job of that audio may take (jobtime.Deadline), and its end is an Overrun with the numbers
 RETRY_EVERY_S = 30.0
 RELOAD_STT = None                                  # a production sets it: a function that makes the voice service reload its speech-to-text worker, returns a line saying what happened
@@ -113,6 +114,8 @@ def transcribe(url: str, wav: bytes, lang: str, key: str = "") -> List[Dict[str,
     then, and said once on stderr; after that (or without it) the error is the caller's."""
     import sys
     import time
+    if LOCAL_STT is not None:
+        return LOCAL_STT.words(wav, lang)
     deadline, said, reloaded = time.monotonic() + WAIT_FOR_SERVICE_S, False, False
     clock = None
     if TIMING is not None:
