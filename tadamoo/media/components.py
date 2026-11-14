@@ -62,7 +62,7 @@ COMPONENTS: Dict[str, Dict[str, Any]] = {
                      "check": "catalogue", "ids": ["ltx23-dev-nvfp4"], "steps": [["{py}", "{ltx}/scripts/download_weights.py", "--ids", "ltx23-dev-nvfp4"]],
                      "how": ("Then set edit_model to ltx-2.3-22b-dev-nvfp4.safetensors in the media settings.", "Poi imposta edit_model su ltx-2.3-22b-dev-nvfp4.safetensors nelle impostazioni media.")},
     "mediapipe": {"label": ("the mediapipe package (measures of faces and bodies for the seam detector)", "il pacchetto mediapipe (misure di volti e corpi per il rilevatore di stacchi)"),
-                  "check": "module", "module": "mediapipe", "steps": [[sys.executable, "-m", "pip", "install", "mediapipe"]]},
+                  "check": "module", "module": "mediapipe", "steps": [[sys.executable, "-m", "pip", "install", "mediapipe", "opencv-contrib-python<5"]]},   # OpenCV 5 ships no face-detector files
     "xtts-triton": {"label": ("Triton for the XTTS environment (torch.compile of the voice; the triton-windows package, the one LTX Studio's inference environment uses)",
                               "Triton per l'ambiente di XTTS (torch.compile della voce; il pacchetto triton-windows, quello dell'ambiente di inferenza di LTX Studio)"),
                     "check": "venv_module", "module": "triton", "steps": [["{xtts_py}", "-m", "pip", "install", "-U", "triton-windows"]]},
