@@ -11,12 +11,16 @@ The `input` node is the plan's request for human intervention, for every plan. O
 - `into`: the plan value the answer is written to. Needed for `value`; for `approve` it may be left out (the answer goes to `<node id>_approved`).
 - `kind` (`text`, `number`, `choice`) and `choices` (up to 40): a choice is `{value, label, label_en}`: the value is what the plan gets and is never shown; a choice that is only a text
   is shown as it is, so plans saved before keep working.
+- `other`: a menu of more than two choices also takes what the person writes ("Other, I write"); `other: false` closes it to the choices. Two choices are two buttons and never take another answer.
 - `default`: the answer proposed; it must be one the question would take. What was answered the last time the plan ran is proposed instead, when there is one.
 - A start node is never a question: it is set in the plan's editor only.
 
 A request is **asking** when its turn has come (its parents are done, it is not a draft). `GET /api/plans/human` lists all of them:
-`{requests: [{plan_id, plan_title, node_id, title, ask, prompt, prompt_en, help, help_en, content, kind, choices: [{value, label, label_en}], into, since, index, proposed}]}`,
+`{requests: [{plan_id, plan_title, node_id, title, ask (value, approve or task), prompt, prompt_en, help, help_en, content, kind, choices: [{value, label, label_en}], other, into, since, index, proposed}]}`,
 by when they began asking and then in the order of the plan (`index`); a paused plan asks nothing.
+
+**A step for the person** (an `action` assigned to `user`, whose outputs are at most one text) is asked too: `ask: "task"`, the title as the question, its description (with `{values}`) as what to do. It is answered with
+`{done: true, note}`: the step is completed and the note, if there is one, is its output (the one text it declares in `produces`, or `<id>_note`). A task with other outputs stays for the Plans page.
 
 The answers are sent **together**: the event `plan:answers` (`POST /api/plans/<id>/events`, `{type, answers: {step id: answer}, actor}`). Each is `true`/`false` (or yes/no, sì) for an approval, text,
 a number or the value of one of the choices for a value. Every answer is checked before any is taken: one that is wrong, or for a step that is not asking now, leaves all of them as they were
@@ -26,7 +30,10 @@ A decision can branch on the values. When the person answered (not the Chat for 
 ### Where it shows
 
 The questions of one plan are one path: *Question 3 of 22*, the question large, its explanation under it, the field (a menu of labels, a text, a number, Yes or No), *Back* and *Next*;
-then a summary of every answer with *Edit* beside each and one *Send all answers*. Next refuses an empty or wrong answer; Edit from the summary returns straight to it after the change.
+then a summary of every answer with *Edit* beside each and one *Send all answers*. The field follows the answer, the same everywhere:
+two possible answers (an approval, or two choices) are **two buttons** with the answers in words; more than two are a **menu** with "Other, I write", which opens a text field; a free text or a number is the **field**;
+a step for the person is its description, an optional **note** and two buttons, "I did it" and "I can't now". Choosing an answer never sends anything: only *Send all answers* does, once.
+"I can't now" leaves that step out of what is sent and it comes back after 10 minutes (the rest of the plan's questions are asked as usual). Next refuses an empty or wrong answer; Edit from the summary returns straight to it after the change.
 *Later* leaves the plan's questions for 10 minutes with the answers kept. What the plan proposes (or was answered last time) is already in each field.
 
 - **Web**: `serve/web/human.js` polls every 4 s and opens a modal window over whatever tab is open (`#hr-card`). The left and right arrow keys move along the path (not inside a text field) and Enter goes on from a field;
