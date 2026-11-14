@@ -115,8 +115,19 @@ def window(canvas: Frame, share: float, margin: int, corner: int, border: int) -
 
 
 @dataclass
+class Moves:
+    """When the graphics of one story move, in seconds of the edit: the vertical bar (the side card) enters from the right at `v_in`, stays, and goes back out to the right from `v_out`; the horizontal bar
+    (the lower third) enters from the left at `h_in` and goes back out to the left from `h_out`. None: that bar is not shown in this story. The durations are the style's."""
+    v_in: Optional[float] = None
+    v_out: Optional[float] = None
+    h_in: Optional[float] = None
+    h_out: Optional[float] = None
+
+
+@dataclass
 class StoryGraphics:
-    """The pictures that slide over one story: its side card (at the start), then its bar (until the end), and the evidence cards of its facts."""
+    """The pictures that slide over one story: its side card, its bar, and the evidence cards of its facts. `moves` says when each moves (`choreography`); without it the story's own sequence is made
+    from `start` and `end`."""
     start: float
     end: float
     card: Image.Image
@@ -124,6 +135,7 @@ class StoryGraphics:
     cards: Dict[int, Image.Image] = field(default_factory=dict)      # evidence row number -> card
     card_share: float = 0.0                       # the width the side card and the evidence cards cover on the right, as a share of the picture (0: the picture under them stays where it is)
     cards_share: float = 0.0
+    moves: Optional[Moves] = None
 
 
 @dataclass
@@ -131,7 +143,6 @@ class Style:
     card_hold_s: float = 7.0
     slide_s: float = 0.6
     bar_in_s: float = 0.6
-    bar_hold_s: float = 0.0                       # 0: until the story ends
     ease_in: str = "ease_out"                     # a graphic arriving slows down as it arrives
     ease_out: str = "ease_in"                     # a graphic leaving speeds up as it leaves
     pip_share: float = 0.30
@@ -139,6 +150,60 @@ class Style:
     pip_corner: int = 9
     pip_border: int = 2
     dissolve_frames: int = 6
+
+
+MIN_HOLD_S = 1.0                                  # the least a bar stays on the screen between its entrance and its exit
+
+
+def story_moves(start: float, end: float, style: Style, delay: float, expect: str = "V") -> Tuple[Moves, str]:
+    """The moves of one story that runs from `start` to `end`, and what it ends on. `expect` is the bar that must come next in the edition's strict alternation (V, H, V, H): with V the story shows
+    the vertical bar (enters, stays `card_hold_s`, goes out), and only when that has finished the horizontal bar (enters, stays, goes back out to end with the story); with H the story shows the
+    horizontal bar only. Nothing moves before `start + delay` and nothing at the same time as anything else. A bar that does not fit whole is not shown (the later one first): the answer is the
+    moves and the bar the next story must show ("" when nothing was shown, and the alternation is where it was)."""
+    t0 = start + delay
+    slide, bar_in = style.slide_s, style.bar_in_s
+    if expect == "H":
+        if end - slide >= t0 + bar_in + MIN_HOLD_S:
+            return Moves(h_in=t0, h_out=end - slide), "V"
+        return Moves(), "H"
+    room = end - t0
+    if room < 2 * slide + MIN_HOLD_S:
+        return Moves(), "V"
+    hold = min(style.card_hold_s, room - 2 * slide)
+    v_out = t0 + slide + hold
+    h_in = v_out + slide
+    if end - slide >= h_in + bar_in + MIN_HOLD_S:
+        return Moves(v_in=t0, v_out=v_out, h_in=h_in, h_out=end - slide), "V"
+    return Moves(v_in=t0, v_out=v_out), "H"
+
+
+def choreography(spans: Sequence[Tuple[int, float, float]], style: Style, delay: float) -> Tuple[Dict[int, Moves], List[str]]:
+    """The moves of every story of an edition, given (story, start, end) in order: the vertical and the horizontal bar alternate over the whole edition (a story that follows a horizontal bar starts with
+    the vertical one), no two movements overlap, and the notes say what was dropped and what the alternation did then."""
+    out: Dict[int, Moves] = {}
+    notes: List[str] = []
+    expect = "V"
+    for story, start, end in sorted(spans, key=lambda s: s[1]):
+        moves, after = story_moves(start, end, style, delay, expect)
+        out[story] = moves
+        if moves.v_in is None and moves.h_in is None:
+            notes.append(f"story {story}: too short for the {'vertical' if expect == 'V' else 'horizontal'} bar and its movements ({end - start:.1f} s), no graphics")
+        elif expect == "V" and moves.h_in is None:
+            notes.append(f"story {story}: too short for the horizontal bar after the vertical one, it is not shown; the next story shows its horizontal bar only, to keep the alternation")
+        elif expect == "H":
+            notes.append(f"story {story}: follows a story that ended on the vertical bar, so it shows its horizontal bar only, to keep the alternation")
+        expect = after
+    return out, notes
+
+
+def intervals(moves: Moves, style: Style) -> List[Tuple[str, str, float, float]]:
+    """Every movement of a story as (bar, "in" or "out", from, to), in time order: what must never overlap."""
+    out: List[Tuple[str, str, float, float]] = []
+    if moves.v_in is not None and moves.v_out is not None:
+        out += [("V", "in", moves.v_in, moves.v_in + style.slide_s), ("V", "out", moves.v_out, moves.v_out + style.slide_s)]
+    if moves.h_in is not None and moves.h_out is not None:
+        out += [("H", "in", moves.h_in, moves.h_in + style.bar_in_s), ("H", "out", moves.h_out, moves.h_out + style.slide_s)]
+    return sorted(out, key=lambda m: m[2])
 
 
 def _slide(layer: Image.Image, frame: Frame, side: str, progress: float) -> Tuple[int, int]:
@@ -150,29 +215,22 @@ def _placed(g: StoryGraphics, t: float, style: Style, evidence_window: Optional[
     """The layers to draw at absolute time `t` for a story, each as (layer, position, share, progress): `share` is the width a layer of the right-hand band covers (0 for the bar),
     `progress` how far in it is, 0 off the picture to 1 in place."""
     out: List[Tuple[Image.Image, Tuple[int, int], float, float]] = []
-    local = t - g.start
-    if local < 0 or t > g.end:
-        return out
+    moves = g.moves if g.moves is not None else story_moves(g.start, g.end, style, 0.0)[0]
     frame = Frame(*g.card.size)
-    hold, slide = style.card_hold_s, style.slide_s
-    if local < hold + slide:
-        arrive = EASINGS[style.ease_in](local / slide)
-        leave = EASINGS[style.ease_out]((local - hold) / slide) if local > hold else 0.0
+    slide = style.slide_s
+    if moves.v_in is not None and moves.v_in <= t <= moves.v_out + slide:
+        arrive = EASINGS[style.ease_in]((t - moves.v_in) / slide)
+        leave = EASINGS[style.ease_out]((t - moves.v_out) / slide) if t > moves.v_out else 0.0
         out.append((g.card, _slide(g.card, frame, "right", arrive * (1 - leave)), g.card_share, arrive * (1 - leave)))
-    bar_start = hold + slide
-    if local >= bar_start:
-        end_local = (g.end - g.start)
-        if style.bar_hold_s > 0:
-            end_local = min(end_local, bar_start + style.bar_in_s + style.bar_hold_s)
-        arrive = EASINGS[style.ease_in]((local - bar_start) / style.bar_in_s)
-        leave = EASINGS[style.ease_out]((local - (end_local - style.slide_s)) / style.slide_s) if local > end_local - style.slide_s else 0.0
-        if local <= end_local:
-            out.append((g.bar, _slide(g.bar, frame, "left", arrive * (1 - leave)), 0.0, 0.0))
-    if evidence_window is not None:
-        e0, e1, row = evidence_window
-        if e0 <= t <= e1 and row in g.cards:
-            arrive = EASINGS[style.ease_in]((t - e0) / style.slide_s)
-            leave = EASINGS[style.ease_out]((t - (e1 - style.slide_s)) / style.slide_s) if t > e1 - style.slide_s else 0.0
+    if moves.h_in is not None and moves.h_in <= t <= moves.h_out + slide:
+        arrive = EASINGS[style.ease_in]((t - moves.h_in) / style.bar_in_s)
+        leave = EASINGS[style.ease_out]((t - moves.h_out) / slide) if t > moves.h_out else 0.0
+        out.append((g.bar, _slide(g.bar, frame, "left", arrive * (1 - leave)), 0.0, 0.0))
+    if evidence_window is not None and moves.h_in is not None:
+        e0, e1, row = evidence_window                           # an evidence card moves only while the horizontal bar rests, never at the same time as another movement
+        if e0 <= t <= e1 and row in g.cards and e0 >= moves.h_in + style.bar_in_s and e1 <= moves.h_out:
+            arrive = EASINGS[style.ease_in]((t - e0) / slide)
+            leave = EASINGS[style.ease_out]((t - (e1 - slide)) / slide) if t > e1 - slide else 0.0
             out.append((g.cards[row], _slide(g.cards[row], frame, "right", arrive * (1 - leave)), g.cards_share, arrive * (1 - leave)))
     return out
 
