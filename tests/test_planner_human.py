@@ -275,3 +275,23 @@ def test_a_task_answers_with_the_questions_of_the_plan_together_or_none():
     assert dag.shared_state == {"a": 3, "t_note": "ok"}
     third = PlanDAG.from_dict(plan("p", n("x", assignee="third_party"), n("y")))
     assert third.human_requests() == []                                              # what is for someone else, or for the agent, is not asked of the person
+
+
+def test_a_question_and_a_step_for_the_person_carry_a_group_that_is_listed_with_them_in_both_languages():
+    from tadamoo.planner.nodes import clean_spec
+    spec = clean_spec("input", {"prompt": "Tema?", "into": "topic", "group": "Cosa e quando", "group_en": "What and when"})
+    assert (spec["group"], spec["group_en"]) == ("Cosa e quando", "What and when")
+    assert clean_spec("action", {"group": "Approvazioni", "group_en": "Approvals"})["group_en"] == "Approvals"
+    dag = PlanDAG.from_dict(plan("p", start("go"), ask("q", deps=["go"], into="topic", group="Cosa e quando", group_en="What and when"), n("t", "action", deps=["go"], assignee="user", spec={"group": "Approvazioni"})))
+    dag.begin(1, "the person")
+    rows = {r["node_id"]: r for r in dag.human_requests()}
+    assert (rows["q"]["group"], rows["q"]["group_en"]) == ("Cosa e quando", "What and when")
+    assert rows["t"]["group"] == "Approvazioni" and rows["t"]["group_en"] == ""
+
+
+def test_the_plan_lists_every_question_once_it_has_started_and_none_before():
+    nodes = [start("go")] + [ask(f"q{i}", deps=["go"], into=f"v{i}", kind="text") for i in range(43)]
+    dag = PlanDAG.from_dict(plan("p", *nodes))
+    assert dag.human_requests() == []
+    dag.begin(1, "the person")
+    assert [r["node_id"] for r in dag.human_requests()] == [f"q{i}" for i in range(43)]

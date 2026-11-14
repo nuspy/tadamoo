@@ -1420,7 +1420,7 @@ class PlanDAG:
                 except PlanError:
                     what = n.description
                 out.append({"node_id": nid, "title": n.title, "ask": "task", "prompt": n.title, "prompt_en": "", "help": n.state_variables.get("fallback_reason", ""), "help_en": "",
-                            "content": what, "kind": "text", "choices": [], "other": False, "into": nodes.task_name(n), "since": asked, "index": order.get(nid, 0), "proposed": None})
+                            "content": what, "kind": "text", "choices": [], "other": False, "group": n.spec.get("group", ""), "group_en": n.spec.get("group_en", ""), "into": nodes.task_name(n), "since": asked, "index": order.get(nid, 0), "proposed": None})
                 continue
             if n.type != NodeType.INPUT:
                 continue
@@ -1433,7 +1433,7 @@ class PlanDAG:
                 content = spec.get("content", "")
             last = (n.state_variables.get("answer") or {}).get("value")             # what was answered the last time is what is proposed now
             out.append({"node_id": nid, "title": n.title, "ask": spec.get("ask", "value"), "prompt": spec["prompt"], "prompt_en": spec.get("prompt_en", ""),
-                        "help": spec.get("help", ""), "help_en": spec.get("help_en", ""), "content": content, "kind": spec.get("kind", "text"),
+                        "help": spec.get("help", ""), "help_en": spec.get("help_en", ""), "group": spec.get("group", ""), "group_en": spec.get("group_en", ""), "content": content, "kind": spec.get("kind", "text"),
                         "choices": nodes.shown_choices(spec), "other": nodes.allows_other(spec), "into": nodes.answer_name(n), "since": asked, "index": order.get(nid, 0),
                         "proposed": last if last is not None else spec.get("default")})
         return sorted(out, key=lambda r: (r["since"], r["index"]))

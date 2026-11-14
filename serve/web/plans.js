@@ -852,7 +852,7 @@
     }
     if (!n) { ui.detail.append(el("p", { class: "pad dim", text: T("pl.detail.none") })); return; }
     const done = n.status === "completed" && n.type !== "rag";            // a RAG node completes by itself at once and stays editable
-    const title = el("input", { id: "pl-d-title", value: n.title, maxlength: "200", disabled: done });
+    const title = el("textarea", { id: "pl-d-title", rows: "2", maxlength: "200", disabled: done, text: n.title });
     const desc = el("textarea", { id: "pl-d-desc", rows: "3", disabled: done, text: n.description });
     const assignee = el("select", { id: "pl-d-assignee", disabled: done },
       ["agent", "user", "third_party"].map(a => el("option", { value: a, text: T("pl.assignee." + a), selected: a === n.assignee })));
