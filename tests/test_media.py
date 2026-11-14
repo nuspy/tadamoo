@@ -248,6 +248,21 @@ def test_a_clip_can_be_driven_by_a_recording_and_the_model_process_gets_it(world
         client.run("video", {**request, "audio": str(world["tmp"] / "none.wav")}, world["tmp"] / "clip2" / "o.mp4", world["settings"], url=world["broker"].url)
 
 
+def test_the_quality_of_the_saved_clip_and_the_steps_are_set_from_outside_through_the_launcher(world, tmp_path):
+    request = {"prompt": "a presenter speaks", "width": 896, "height": 512, "frames": 169, "fps": 25, "seed": 5, "negative": "", "crf": 4, "crf_preset": "slow", "steps": 12}
+    out = world["tmp"] / "clip" / "o.mp4"
+    client.run("video", request, out, world["settings"], url=world["broker"].url)
+    assert (out.parent / "env.txt").read_text() == "4 slow" and json.loads((out.parent / "params.json").read_text(encoding="utf-8"))["steps"] == 12
+    out2 = world["tmp"] / "clip2" / "o.mp4"
+    client.run("video", {k: v for k, v in request.items() if k not in ("crf", "crf_preset", "steps")}, out2, world["settings"], url=world["broker"].url)
+    assert (out2.parent / "env.txt").read_text() == " " and json.loads((out2.parent / "params.json").read_text(encoding="utf-8"))["steps"] == 8
+    from tadamoo.media import ltx_launch
+    old = tmp_path / "worker.py"
+    old.write_text("print('no save setting here')\n", encoding="utf-8")
+    done = subprocess.run([sys.executable, ltx_launch.__file__, str(old), "p.json"], capture_output=True, text=True, env={**os.environ, "LTX_X264_CRF": "4", "LTX_X264_PRESET": "slow"})
+    assert done.returncode == 2 and "worker changed" in done.stdout
+
+
 def test_a_held_job_asks_for_the_vram_only(world):
     got, out = avatar_job(world, held=True)
     assert "/api/heavy/begin" not in world["broker"].paths() and world["broker"].lease_calls()[0][1]["owner"] == "avatar" and got["lease"]["granted_mib"] == DEFAULTS["avatar_mib"]

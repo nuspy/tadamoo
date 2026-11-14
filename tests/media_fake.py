@@ -17,6 +17,8 @@ params_file = sys.argv[1]
 p = json.load(open(params_file))
 out = p["output"]
 open(os.path.join(os.path.dirname(params_file), "started.pid"), "w").write(str(os.getpid()))
+# the save setting the launcher looks for: stream.options = {"crf": "19", "preset": "veryfast"}
+open(os.path.join(os.path.dirname(params_file), "env.txt"), "w").write(os.environ.get("LTX_X264_CRF", "") + " " + os.environ.get("LTX_X264_PRESET", ""))
 print("[fake] loading", flush=True)
 prompt = p["prompt"]
 if "fail" in prompt:
