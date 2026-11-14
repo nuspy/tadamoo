@@ -254,7 +254,7 @@ int cache_size(Context& context) {
                                       [](int n) { return n > 0; }) ? "the helper caches on other GPUs"
                         : o.vram_segment_mib < 64 ? "--vram-segment-mib is below 64" : nullptr;
         if (why != nullptr) {
-            basalt::log::warn("basalt generate", "--vram-elastic is off: %s", why);
+            if (o.vram_elastic_asked) basalt::log::warn("basalt generate", "--vram-elastic is off: %s", why);
             o.vram_elastic = false;
         } else {
             xcache.set_segment_bytes(o.vram_segment_mib << 20);

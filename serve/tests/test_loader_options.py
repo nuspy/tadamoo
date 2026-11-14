@@ -147,7 +147,7 @@ class ConfigFile(unittest.TestCase):
         self.assertNotIn("adapt-swaps", json.loads(Path(self.path).read_text(encoding="utf-8"))["engine"])
 
     def test_a_flag_the_binary_lacks_is_named_before_the_engine_starts(self):
-        known = {"--kv", "--kv-resident"}
+        known = {"--kv", "--kv-resident", "--no-vram-elastic"}
         self.assertEqual(loader_api.unsupported({"engine.kv-resident": 40960, "engine.mmap-experts": True,
                                                  "engine.adapt-swaps": None, "engine.vram-elastic": False,
                                                  "server.grammar": True}, known), ["engine.mmap-experts"])

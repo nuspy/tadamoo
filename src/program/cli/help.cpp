@@ -81,7 +81,7 @@ void usage() {
                  "                       when a prompt starts with one, also after a restart (default 0 = off)\n"
                  "  --conversation-cache-dir DIR  --serve: the disk tier's folder (required with a budget unless the\n"
                  "                       server starts the engine, which uses the model cache folder)\n"
-                 "  --vram-elastic       --serve (opt-in): the expert cache in segments (--vram-segment-mib,\n"
+                 "  --vram-elastic       --serve (default on; --no-vram-elastic turns it off): the expert cache in segments (--vram-segment-mib,\n"
                  "                       default 512), so the command `VRAM <reserve_mib>` (the server's POST /v1/vram) can\n"
                  "                       give VRAM back to other programs between requests and take it back later;\n"
                  "                       with the elastic KV it lends only what the KV leaves at --max-context\n"

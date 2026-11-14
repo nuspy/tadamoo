@@ -104,7 +104,8 @@ std::optional<int> parse_options(int argc, char** argv, Options& o, std::string&
             o.prefill_auto_max = o.prefill_auto_fit || want_max >= 32768 ? 32768 : want_max >= 16384 ? 16384 : 8192;
             o.prefill_chunk = o.prefill_auto ? o.prefill_auto_max : std::atoll(v.c_str());
         }
-        else if (a == "--vram-elastic") o.vram_elastic = true;
+        else if (a == "--vram-elastic") { o.vram_elastic = true; o.vram_elastic_asked = true; }
+        else if (a == "--no-vram-elastic") { o.vram_elastic = false; o.vram_elastic_asked = true; }
         else if (a == "--keep-vram-commit") o.release_vram_commit = false;
         else if (a == "--vram-segment-mib") o.vram_segment_mib = std::atoll(next("--vram-segment-mib"));
         else if (a == "--prefill-until") o.prefill_until = std::atoll(next("--prefill-until"));

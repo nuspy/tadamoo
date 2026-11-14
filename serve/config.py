@@ -72,7 +72,7 @@ def engine_words(key: str, value) -> list[str]:
     one value, and a list gives one word per item (a flag that takes several values). ValueError otherwise."""
     flag = "--" + str(key).strip().lower().replace("_", "-").removeprefix("--")
     if isinstance(value, bool):
-        return [flag] if value else []
+        return [flag] if value else (["--no-vram-elastic"] if flag == "--vram-elastic" else [])
     items = value if isinstance(value, list) else [value]
     for item in items:
         if isinstance(item, bool) or not isinstance(item, (str, int, float)) or str(item).strip() == "":

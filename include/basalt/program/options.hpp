@@ -118,9 +118,11 @@ struct Options {
     /// this reserve for the graphs, the hit scratch and the head.
     int vram_reserve_mib = 700;
     bool vram_reserve_given = false;   // --vram-reserve-mib on the command line (no smaller automatic reserve)
-    /// Opt-in: the expert cache in physical segments (CUDA virtual memory management), so the serve loop's
-    /// `VRAM <reserve_mib>` command can give part of it back to other programs and take it again.  Off: one cudaMalloc.
-    bool vram_elastic = false;
+    /// The expert cache in physical segments (CUDA virtual memory management), so the serve loop's
+    /// `VRAM <reserve_mib>` command can give part of it back to other programs and take it again.  On by default
+    /// (`--no-vram-elastic`: one cudaMalloc); a setup it does not fit leaves it off, said only when it was asked for.
+    bool vram_elastic = true;
+    bool vram_elastic_asked = false;   // --vram-elastic or --no-vram-elastic on the command line
     /// Windows: decommit the eviction backing WDDM charges to the commit for every GPU allocation, once loaded and
     /// after each command (platform/vram_backing.hpp says what it risks).  `--keep-vram-commit` turns it off.
     bool release_vram_commit = true;

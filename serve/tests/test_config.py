@@ -152,6 +152,12 @@ class Precedence(unittest.TestCase):
         a, *_ = parse(["--script", "y"], {"server": {"script": ["x"]}})
         self.assertEqual(a.script, ["y"])
 
+    def test_vram_elastic_false_is_the_off_flag_because_the_engine_has_it_on_by_default(self):
+        from serve.config import engine_words
+        self.assertEqual(engine_words("vram-elastic", True), ["--vram-elastic"])
+        self.assertEqual(engine_words("vram-elastic", False), ["--no-vram-elastic"])
+        self.assertEqual(engine_words("keep-vram-commit", False), [])
+
     def test_switch_true_and_false(self):
         self.assertTrue(parse([], {"server": {"lazy": True}})[0].lazy)
         self.assertFalse(parse([], {"server": {"lazy": False}})[0].lazy)

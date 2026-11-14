@@ -47,7 +47,8 @@ def unsupported(values: dict, known: set[str] | None) -> list[str]:
     out = []
     for name, value in values.items():
         section, key = name.split(".", 1)
-        if section == "engine" and value is not None and engine_words(key, value) and f"--{key}" not in known:
+        words = engine_words(key, value) if section == "engine" and value is not None else []
+        if words and words[0] not in known:
             out.append(name)
     return out
 
