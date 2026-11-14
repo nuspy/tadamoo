@@ -237,6 +237,17 @@ def test_the_anchoring_knobs_reach_the_model_process_only_when_they_are_asked_fo
     assert params["ref_img_index"] == 0 and params["mask_frame_range"] == 5
 
 
+def test_a_clip_can_be_driven_by_a_recording_and_the_model_process_gets_it(world):
+    audio = world["tmp"] / "voice.wav"
+    audio.write_bytes(wav_bytes(1))
+    request = {"prompt": "a presenter speaks", "width": 896, "height": 512, "frames": 169, "fps": 25, "seed": 5, "negative": "", "audio": str(audio)}
+    out = world["tmp"] / "clip" / "o.mp4"
+    got = client.run("video", request, out, world["settings"], url=world["broker"].url)
+    assert json.loads((out.parent / "params.json").read_text(encoding="utf-8"))["audio_path"] == str(audio) and got["lease"]["owner"] == "video"
+    with pytest.raises(MediaError, match="the recording"):
+        client.run("video", {**request, "audio": str(world["tmp"] / "none.wav")}, world["tmp"] / "clip2" / "o.mp4", world["settings"], url=world["broker"].url)
+
+
 def test_a_held_job_asks_for_the_vram_only(world):
     got, out = avatar_job(world, held=True)
     assert "/api/heavy/begin" not in world["broker"].paths() and world["broker"].lease_calls()[0][1]["owner"] == "avatar" and got["lease"]["granted_mib"] == DEFAULTS["avatar_mib"]

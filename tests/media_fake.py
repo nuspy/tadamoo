@@ -125,8 +125,8 @@ def make_ltx(root: Path, missing=(), video_checkpoint=True, avatar=True, avatar_
         '''), encoding="utf-8")
     add_edit_engine(root, edit_checkpoint, edit_loras)
     (root / "core" / "ltx_video_job.py").write_text(textwrap.dedent('''
-        def build_params(*, output, prompt, width, height, num_frames, fps, seed, model, ltx_release, negative="worst quality", steps=8, guidance=3.0, image_path=""):
-            return {"output": output, "prompt": prompt, "width": width, "height": height, "num_frames": num_frames, "fps": fps, "seed": seed,
+        def build_params(*, output, prompt, width, height, num_frames, fps, seed, model, ltx_release, negative="worst quality", steps=8, guidance=3.0, image_path="", extra=None):
+            return {**(extra or {}), "output": output, "prompt": prompt, "width": width, "height": height, "num_frames": num_frames, "fps": fps, "seed": seed,
                     "model": model, "ltx_release": ltx_release, "negative": negative, "steps": steps, "guidance": guidance, "image_path": image_path}
         '''), encoding="utf-8")
     return root

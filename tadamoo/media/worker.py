@@ -119,9 +119,11 @@ def video_plan(folder: str, spec: dict) -> dict:
     req = spec.get("request") or {}
     if req.get("image") and not Path(req["image"]).is_file():
         missing.append(f"the picture {req['image']}")
+    if req.get("audio") and not Path(req["audio"]).is_file():
+        missing.append(f"the recording {req['audio']}")
     params = {}
     if not missing:
-        params = ltx_video_job.build_params(output=spec["output"], prompt=req.get("prompt", ""), width=req.get("width"), height=req.get("height"),
+        params = ltx_video_job.build_params(extra={"audio_path": req["audio"]} if req.get("audio") else None, output=spec["output"], prompt=req.get("prompt", ""), width=req.get("width"), height=req.get("height"),
                                             num_frames=req.get("frames"), fps=req.get("fps"), seed=req.get("seed"), model=model, ltx_release="2.5",
                                             **({"negative": req["negative"]} if req.get("negative") else {}), **({"image_path": req["image"]} if req.get("image") else {}))
     return {"python": spec.get("python") or py, "script": script, "params": params, "missing": missing, "env": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}}
