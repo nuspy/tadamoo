@@ -99,6 +99,20 @@ class SlashCommandsTest(unittest.TestCase):
     def test_what_the_panel_changed_reaches_the_conversation_that_asked_for_it(self):
         self.assertEqual(self.r["skillReload"], [["reload-skills", ""]])                  # from the chat; the Settings tab's change does not touch the conversation
 
+    def test_tasks_lists_and_adds_through_the_process_resumes_by_asking_the_agent_and_without_a_conversation_opens_the_tab(self):
+        listed, added, server, resumed, bare, sent, notes = self.r["tasks"]
+        self.assertEqual((listed, added, resumed, bare), (True, True, True, True))
+        self.assertEqual(server, [["tasks", ""], ["tasks", "add Write the report"]])
+        self.assertEqual(len(sent), 1)
+        self.assertTrue(sent[0].startswith("Resume the task t-ab12") and "task_resume" in sent[0])
+        self.assertEqual(notes[-1], "Write the id of the task: /tasks resume <id>.")
+        self.assertEqual(self.r["tasksNoChat"], [True, "tasks"])
+
+    def test_the_task_list_the_process_answers_is_drawn_as_text(self):
+        shown, added, empty, off = self.r["tasksShown"]
+        self.assertEqual(shown[0], "Open taskst-1: [Running] Move the site -- DNS  t-2: [Waiting for you] DNS (other conversations)")
+        self.assertEqual((added, empty, off), (["Task t-9 added."], ["Open tasksThere are no open tasks in this project."], ["There are no open tasks in this project."]))
+
     def test_the_help_lists_install_skill(self):
         self.assertIn("/install-skill", self.r["help"])
 

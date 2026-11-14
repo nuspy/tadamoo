@@ -65,6 +65,7 @@
     { name: "reload-skills", run: async rest => { skillsAt = 0; await loadSkills(); server("reload-skills", rest); } },
     { name: "reload-plugins", run: async rest => { skillsAt = 0; await loadSkills(); server("reload-plugins", rest); } },
     { name: "install-skill", args: "[address | name | list | on|off|remove|update name]", run: rest => installSkill(rest) },
+    { name: "tasks", args: "[add <title> | resume <id>]", run: rest => tasksCommand(rest) },
     { name: "memory", args: "[search]", run: rest => server("memory", rest) },
     { name: "rag", alias: ["knowledge"], args: "[name | off [name]]", run: rest => ragCommand(rest) },
     { name: "copy", args: "[n]", run: async rest => {
@@ -159,6 +160,15 @@
       case "not_attached": note(T("sl.rag.notattached", name)); break;
       default: note(T("sl.rag.none", name));
     }
+  }
+
+  /* ---- /tasks: the open tasks of the project (the register, Tasks tab); resume asks the agent to take one over ---- */
+  function tasksCommand(rest) {
+    const m = /^resume\s+(\S+)$/i.exec(rest.trim());
+    if (/^resume\b/i.test(rest.trim()) && !m) { note(T("sl.tasks.resume")); return; }
+    if (!(A() && A().active())) { goTo("tasks"); return; }                                  // with no conversation the tab is the place to look
+    if (m) { A().send("Resume the task " + m[1] + ": call task_resume with that id, read what is done and what is missing, and carry on from there. Keep the register true as you go, and close the task when it is finished."); return; }
+    server("tasks", rest);
   }
 
   /* ---- /install-skill: the panel of Settings > Skills (serve/web/skills.js), in the conversation; with no conversation, the Settings tab itself ---- */
@@ -338,6 +348,7 @@
     "reload-skills": d => !d.done ? T("sl.r.reload." + d.reason) : list(T("sl.r.skillsreload.title", d.skills.length), [
       [T("sl.r.reload.now"), d.skills.length ? d.skills.join(", ") : T("sl.r.reload.none")], [T("sl.r.reload.added"), d.added.length ? d.added.join(", ") : "-"],
       [T("sl.r.reload.removed"), d.removed.length ? d.removed.join(", ") : "-"], ...d.warnings.map(w => [T("sl.r.reload.warning"), w])]),
+    tasks: d => !d.available ? T("sl.r.tasks.none") : d.added ? T("sl.r.tasks.added", d.added) : list(T("sl.r.tasks"), d.tasks.length ? d.tasks.map(t => ["  ".repeat(t.depth) + t.id, `[${T("tk.state." + t.state)}] ${t.title}` + (t.mine ? "" : " (" + T("sl.r.tasks.other") + ")") + (t.missing ? " -- " + t.missing : "")]) : [T("sl.r.tasks.none")]),
     "reload-plugins": d => !d.done ? T("sl.r.reload." + d.reason) : list(T("sl.r.pluginsreload.title", d.plugins.length), [
       [T("sl.r.reload.now"), d.plugins.length ? d.plugins.join(", ") : T("sl.r.reload.none")], [T("sl.r.reload.added"), d.added.length ? d.added.join(", ") : "-"],
       [T("sl.r.reload.removed"), d.removed.length ? d.removed.join(", ") : "-"]]),

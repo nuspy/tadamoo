@@ -1561,7 +1561,20 @@
     const listed = known.find(s => s.id === sid) || {};
     return { title: (rec && rec.title) || listed.title || "", session: sid, items: out };
   }
-  window.agentChat = { record: () => rec, folder: curPath, busy: () => busyNow, skills, snapshot, refresh: () => poll(true), active, send, stop, newChat, current: () => sid, ensure, note, runOnServer, knowledge: setKnowledge, knowledgeIds: () => (rec && rec.knowledge) || [], rename, transcript, saveBlob, answers: answersOf,
+  /* a new conversation in a folder, started with this message (the Tasks tab's "Resume in chat"): the Agent tab for a project's folder, the Chat tab for the Chat's own */
+  async function startWith(workspace, text) {
+    const known = projects.some(x => sameDir(x.path, workspace)), here = defaultWs && sameDir(workspace, defaultWs);
+    if (!known && !here) return false;
+    keep(LAST_KEYS[known ? "agent" : "chat"], "");                              // the page then opens no earlier conversation of its own
+    if (mode !== "agent") { mode = "agent"; keep(MODE_KEY, mode); modeSel.value = "agent"; }
+    view(known ? "agent" : "chat");
+    await new Promise(r => setTimeout(r, 350));
+    if (known) setProject(workspace);
+    forget(); status(T("ch.new")); setControls(); paintList();
+    await send(text);
+    return true;
+  }
+  window.agentChat = { startWith, record: () => rec, folder: curPath, busy: () => busyNow, skills, snapshot, refresh: () => poll(true), active, send, stop, newChat, current: () => sid, ensure, note, runOnServer, knowledge: setKnowledge, knowledgeIds: () => (rec && rec.knowledge) || [], rename, transcript, saveBlob, answers: answersOf,
     perm: { now: permNow, set: setPerm, cycle: cyclePerm, available: () => active() && mode !== "ask", modes: PERM_CYCLE },
     sessions: () => known.filter(s => s.state !== "closed" && inContext(s)).map(s => ({ id: s.id, label: `${s.title || s.id} \u00B7 ${T("ch.state." + s.state)}` })), open: openSession, branch, hasCopy: () => !!(rec && rec.worktree),
     toggleCopy: () => copyOpen.click() };
