@@ -53,5 +53,36 @@ class PlannerBootTest(unittest.TestCase):
             self.boot()                                          # must not raise
 
 
+class RoutinesBootTest(unittest.TestCase):
+    """The clock of the routines starts with the server when routines or plans are saved, not at the first request."""
+
+    def boot(self, files):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        for name in files:
+            path = Path(tmp.name) / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("{}", encoding="utf-8")
+        made = []
+
+        class Handler:
+            def _routines(self):
+                made.append(1)
+
+        host = mock.Mock(RequestHandlerClass=Handler)
+        with mock.patch.object(handler, "_PLAN_HOST", host), mock.patch.object(handler.userdata, "path", lambda name: Path(tmp.name) / name):
+            handler._start_routines()
+        return made
+
+    def test_saved_routines_start_the_clock(self):
+        self.assertTrue(self.boot(["journal/routines.json"]))
+
+    def test_saved_plans_start_the_clock(self):
+        self.assertTrue(self.boot(["planner/plans/one.json"]))
+
+    def test_nothing_saved_makes_nothing(self):
+        self.assertFalse(self.boot([]))
+
+
 if __name__ == "__main__":
     unittest.main()

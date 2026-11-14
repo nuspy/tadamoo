@@ -142,6 +142,20 @@ def _plans_service(svc: Service, port: int):
     return _PLANS
 
 
+def _start_routines() -> None:
+    """With saved routines or plans on disk, the clock of the routines (it also works out the plans' waits) starts now and not at the first
+    request, so they run with nobody at the page."""
+    try:
+        if not (userdata.path("journal") / "routines.json").is_file() and next((userdata.path("planner") / "plans").glob("*.json"), None) is None:
+            return
+        handler = _PLAN_HOST.RequestHandlerClass
+        bare = handler.__new__(handler)                        # the routines are made by a handler that has no request
+        bare.server = _PLAN_HOST
+        bare._routines()
+    except Exception as exc:                                   # the routines never keep the server from starting
+        print(f"routines: not started ({type(exc).__name__}: {exc})", file=sys.stderr, flush=True)
+
+
 PLAN_RUN_SCHEDULE = "at 2099-01-01 00:00"              # the routine that carries a plan on is run by hand, never by this time
 
 
@@ -4329,6 +4343,7 @@ def serve(svc: Service, host="127.0.0.1", port=7232) -> ThreadingHTTPServer:
     global _PLAN_HOST
     _PLAN_HOST = httpd                                          # the planner starts conversations of the agent through this server's handler
     threading.Thread(target=_start_planner, args=(svc, httpd.server_address[1]), daemon=True, name="planner-start").start()
+    threading.Thread(target=_start_routines, daemon=True, name="routines-start").start()
     threading.Thread(target=netwatch_api.start_if_enabled, daemon=True, name="netwatch-start").start()
     threading.Thread(target=_start_telegram, args=(httpd,), daemon=True, name="telegram-start").start()
     threading.Thread(target=rea_api.start_if_enabled, args=(lambda: _CAPS.rescan() if _CAPS is not None else None,), daemon=True, name="rea-start").start()

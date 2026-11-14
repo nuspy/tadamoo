@@ -69,6 +69,9 @@ param(
     [switch]$PerApp,
     # il server parte senza caricare il modello (il Loader o l'app lo caricano dopo)
     [switch]$Standby,
+    # -gui: l'app si collega al server già acceso senza chiedere; -Sorveglia: lo script resta e rilancia l'app se si chiude con un errore
+    [switch]$Attach,
+    [switch]$Sorveglia,
     # nomi vecchi, ancora accettati: -Sfondo e -SoloServer ora sono -server
     [switch]$Sfondo,
     [Alias('solo-server')][switch]$SoloServer,
@@ -366,6 +369,7 @@ if ($Gui) {
     if ($Config) { $argApp += @('--config', $Config) }
     if ($Model) { $argApp += @('--model', $Model) }
     if ($Load) { $argApp += '--load' }
+    if ($Attach) { $argApp += '--attach' }
     if ($Port) { $argApp += @('--port', "$Port") }
     if ($RiservaMib -ge 0) { $argApp += @('--vram-libera', ([double]$RiservaMib / 1024).ToString([Globalization.CultureInfo]::InvariantCulture)) }
     if ($langArg) { $argApp += @('--lang', $Lingua) }
@@ -384,6 +388,15 @@ if ($Gui) {
     Scrivi "  $(T 'indirizzo: ' 'address:   ') http://127.0.0.1:$porta/  $(T '(il browser non si apre: l''indirizzo resta disponibile)' '(the browser does not open: the address stays available)')"
     Scrivi "  $(T 'L''app avvia il server senza caricare il modello e mostra il Loader; si chiude dall''icona vicino all''orologio (Spegni).' 'The app starts the server without loading the model and shows the Loader; it closes from the icon near the clock (Spegni).')"
     if ($Prova) { Scrivi (T 'PROVA completata: nessun processo avviato.' 'DRY RUN done: no process started.') Green; Esci 0 }
+    if ($Sorveglia) {
+        while ($true) {
+            $pa = if ($argApp.Count) { Start-Process -FilePath $exeApp -ArgumentList $mostra -WorkingDirectory $Radice -PassThru } else { Start-Process -FilePath $exeApp -WorkingDirectory $Radice -PassThru }
+            $pa.WaitForExit()
+            if ($pa.ExitCode -eq 0) { Scrivi (T 'L''app è stata chiusa: non la rilancio.' 'The app was closed: not starting it again.') Cyan; Esci 0 }
+            Scrivi (T "L'app si è fermata (codice $($pa.ExitCode)): la rilancio tra 10 secondi." "The app stopped (code $($pa.ExitCode)): starting it again in 10 seconds.") Yellow
+            Start-Sleep -Seconds 10
+        }
+    }
     if ($argApp.Count) { Start-Process -FilePath $exeApp -ArgumentList $mostra -WorkingDirectory $Radice }
     else { Start-Process -FilePath $exeApp -WorkingDirectory $Radice }
     Esci 0
@@ -657,6 +670,7 @@ try {
             Mostra-Log
             Scrivi (T 'Il Loader ha scelto un altro modello: riavvio TaDaMoo Win+GUI con quello (la pagina si ricollega da sola).' 'The Loader chose another model: TaDaMoo Win+GUI starts again with it (the page reconnects by itself).') Cyan
             $lettore.Dispose()
+            $cmdLine = $cmdLine -replace ' --standby$', ' --listen-first'      # il modello scelto nel Loader si carica
             $idServer = Avvia-Server
             $lettore = Apri-Log
             $t0 = Get-Date
