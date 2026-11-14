@@ -38,6 +38,7 @@ def main() -> int:
     ap.add_argument("--python", default="E:/AI/speedlab/ltx25/Scripts/python.exe")
     ap.add_argument("--out", required=True)
     ap.add_argument("--env", nargs="*", default=[])
+    ap.add_argument("--prompt-suffix", default="", help="added to the prompt: a prompt the embedding cache has not seen")
     ap.add_argument("--teacache", type=float, default=0.0)
     ap.add_argument("--timeout", type=int, default=1500)
     args = ap.parse_args()
@@ -45,6 +46,8 @@ def main() -> int:
     run.mkdir(parents=True, exist_ok=True)
     params = json.loads(SOURCE.read_text(encoding="utf-8"))
     params["output"] = str(run / "take.mp4")
+    if args.prompt_suffix:
+        params["prompt"] += args.prompt_suffix
     if args.teacache:
         params["teacache_thresh"] = args.teacache
     (run / "params.json").write_text(json.dumps(params), encoding="utf-8")

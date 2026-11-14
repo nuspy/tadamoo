@@ -23,9 +23,10 @@ def install(spec: str, log) -> None:
     thr = float(value)
     import os
     steps = int(os.environ.get("SL_STEPS", "12"))
+    passes = int(os.environ.get("SL_PASSES", "4"))
     from ltx_core.model.transformer.model import LTXModel
     original = LTXModel._process_transformer_blocks
-    state = {"tokens": None, "sigma": None, "slot": 0, "step": 0, "slots": {}, "hits": 0, "calls": 0, "metrics": []}
+    state = {"tokens": None, "sigma": None, "slot": 0, "step": 0, "slots": {}, "hits": 0, "calls": 0, "metrics": [], "trace": []}
 
     def sigma_of(video) -> float:
         return round(float(video.timesteps.max()), 6)
@@ -38,12 +39,11 @@ def install(spec: str, log) -> None:
             state["tokens"] = tokens                                  # stage 1 is the first stage seen
         if tokens != state["tokens"]:
             return original(self, video, audio, perturbations)       # stage 2: always in full
-        sig = sigma_of(video)
-        if sig != state["sigma"]:
-            state.update(sigma=sig, slot=0, step=state["step"] + 1)
-        else:
-            state["slot"] += 1
+        k = state["calls"]                                           # stage 1 calls come in steps of `passes` guided passes each
+        state.update(step=k // passes + 1, slot=k % passes)
+        sig = 0.0
         state["calls"] += 1
+        state["trace"].append((state["step"], state["slot"], sig))
         slot = state["slots"].setdefault(state["slot"], {"first": None, "resid_v": None, "resid_a": None, "acc": 0.0, "prev_in": None})
         blocks = self.transformer_blocks
         # first block, exactly as the loop does it
@@ -84,5 +84,5 @@ def install(spec: str, log) -> None:
     LTXModel._process_transformer_blocks = patched
 
     import atexit
-    atexit.register(lambda: log(f"cache {spec}: {state['hits']} of {state['calls']} stage-1 passes skipped; metrics (step, slot, value) {state['metrics']}"))
+    atexit.register(lambda: log(f"cache {spec}: {state['hits']} of {state['calls']} stage-1 passes skipped; trace {state['trace'][:20]} metrics (step, slot, value) {state['metrics']}"))
     log(f"cache {spec} installed")

@@ -12,7 +12,10 @@ TaDaMoo does not carry its own accelerators. Every job runs LTX Studio's own wor
 | Enlarge (`upscale`, FlashVSR+) | consolidated FlashVSR environment | 2.11+cu128 | PyTorch SDPA ("generic"): neither Block-Sparse nor the Triton backend exist on Windows | one-step diffusion | decode and cache offload chosen from the VRAM |
 | Frames (`interpolate`, RIFE), tracking (SAM2) | `inference_server_venv` | 2.11+cu128 | triton-windows 3.7.1, sageattention, xformers installed | | |
 
-## What LTX Studio measured and decided, and we keep
+## What LTX Studio measured and decided (checked by our own study: see [speed-study.md](speed-study.md))
+
+Our measures on this PC, 14 November: the "PyTorch flash kernel" is in fact cuDNN (the Windows torch has no flash SDPA); Sage is not slower end to end (Sage 2: 4 % faster transformer, Sage 1 the same), it just gains little because attention is 4 % of the time;
+TeaCache and a first-block cache do speed up stage 1 (about 1.2 times on the transformer at a threshold that keeps the picture within the noise of the backends); torch.compile of the blocks loses (about 1.6 times slower). The old statements follow as LTX Studio wrote them.
 
 - **Attention on Blackwell: the plain PyTorch kernel.** `core/attention_backend.py`: 49 frames, 8 steps on an RTX 5090, flash/SDPA 127 s against SageAttention 178 s; the default is `flash`, Sage only by choice. So no Sage is added to the LTX jobs, and the check does not ask for it.
 - **TeaCache** exists in the LTX worker (`teacache_thresh`, off) and is meant for the modes with many steps; the clips here are an 8-step distillation, so it stays off.
@@ -31,7 +34,7 @@ TaDaMoo does not carry its own accelerators. Every job runs LTX Studio's own wor
 ## What is not added, and why
 
 - Sage, FlashAttention or Triton in the LTX 2.5 environment: LTX Studio measured the plain kernel faster and left them out.
-- Block-sparse attention, the Triton backend of FlashVSR+: no Windows kernel (LTX Studio's own note in `flashvsrplus_run.py`).
+- Block-sparse attention of FlashVSR+: the Triton kernel of the FlashVSR+ repository (`operators/flashvsr_attn`) does run on Windows with triton-windows, and with it 2x from 896x512 works (speed-study.md); LTX Studio's runner does not use it.
 - A model kept loaded between jobs: LTX Studio does keep persistent servers for its own app, but a TaDaMoo job is one process under one lease that frees everything when it ends, so the language model can come back; inside a job the pipeline is already kept between segments.
   A reload costs seconds to a minute against minutes of work.
 - `torch.compile` of the DiTs: see above.

@@ -5,6 +5,7 @@
 Environment (all optional; unset = what LTX Studio runs today):
     SL_ATTN      sdpa (LTX default order) | cudnn | sdpa_flash | efficient | fa4 | fa2 | sage1 | sage2 | sage3 | xformers | flashinfer
     SL_COMPILE   none | default | reduce-overhead | max-autotune | capture   (ltx_core CompilationConfig)
+    SL_GUIDER    '' (the worker's: cfg 3, stg 1, modality 3 = 4 passes) | cfg (2 passes) | one (1 pass)
     SL_CACHE     none | fb:<thresh> | mag:<thresh>                            (own first-block / residual caches, see caches.py)
     LTX_X264_CRF, LTX_X264_PRESET   the saved quality (as tadamoo/media/ltx_launch.py)
 It runs the worker in this process, so the patches below are the only difference from a normal job. Stage times and the peak VRAM of the process are printed as `[SL] ...` lines."""
@@ -58,7 +59,7 @@ def make_attention(name: str):
         from sageattn3 import sageattn3_blackwell
         def fn(q, k, v, heads):
             b, d, q, k, v = qkv(q, k, v, heads)
-            return sageattn3_blackwell(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)).transpose(1, 2).reshape(b, -1, heads * d)
+            return sageattn3_blackwell(q.transpose(1, 2).contiguous(), k.transpose(1, 2).contiguous(), v.transpose(1, 2).contiguous()).transpose(1, 2).reshape(b, -1, heads * d)
     elif name == "flashinfer":
         import flashinfer
         def fn(q, k, v, heads):
@@ -200,6 +201,12 @@ def main() -> int:
         install_compile(comp)
     if cache != "none":
         install_cache(cache)
+    guider = os.environ.get("SL_GUIDER", "")
+    if guider:
+        over = {"one": dict(cfg_scale=1.0, stg_scale=0.0, modality_scale=1.0), "cfg": dict(stg_scale=0.0, modality_scale=1.0)}[guider]
+        params_cls = glb["MultiModalGuiderParams"]
+        glb["MultiModalGuiderParams"] = lambda **kw: params_cls(**{**kw, **over})
+        log(f"guider {guider}: {over} (video guider only; the audio one is built the same way)")
     glb["main"]()
     return 0
 
