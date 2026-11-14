@@ -50,14 +50,14 @@ def test_the_digest_lines_up_what_the_conversation_said_and_received_in_order(ma
     log = mgr.create(ws, alias="log")["id"]
     mgr.send(log, "primo")
     until(lambda: "done" in kinds(mgr, log))
-    item = mgr.deliver("log", "append: sold", sender=boss)["delivery"]
+    item = mgr.send_peer(boss, "log", "info", "append: sold")["delivery"]
     until(lambda: mgr.deliveries.get(item["id"])["state"] == "delivered")
     until(lambda: kinds(mgr, log).count("done") == 2)
     digest = mgr.digest("log")
     assert digest["alias"] == "log"
     assert any("you: primo" in line for line in digest["lines"])
     assert any("done: echo: primo" in line for line in digest["lines"])
-    assert any("from agent:boss: append: sold" in line for line in digest["lines"])
+    assert any("from agent:boss (info): append: sold" in line for line in digest["lines"])
     assert digest["pending_messages"] == 0 and digest["dead_letters"] == 0
 
 
@@ -65,7 +65,7 @@ def test_the_digest_shows_a_message_this_conversation_sent_and_its_outcome(make,
     mgr = make()
     boss = mgr.create(ws, alias="boss")["id"]
     mgr.create(ws, alias="log")
-    mgr.deliver("log", "x", sender=boss)
+    mgr.send_peer(boss, "log", "info", "x")
     digest = mgr.digest("boss")
     assert any("sent to log" in line for line in digest["lines"])
 

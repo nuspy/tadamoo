@@ -1,5 +1,5 @@
 """The conversations a message can mention ("@" in the message box): the other conversations, ten at a time, newest use first, filtered by the letters typed over the name and the card,
-and the `mentions` field of a send, which rides along with the message and is shown back in the user event. Nothing is delivered to the mentioned conversation."""
+and the `mentions` field of a send, which rides along with the message and is shown back in the user event. Their delivery to the mentioned conversations is in tests/test_session_messaging.py."""
 import json
 import sys
 import time

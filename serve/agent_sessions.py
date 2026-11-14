@@ -1609,12 +1609,14 @@ class SessionManager:
                 rows.append((when, f"done: {str(e['final'])[:160]}"))
             elif e.get("event") == "incoming":
                 rows.append((when, f"from {e.get('provenance', '')}: {str(e.get('text', ''))[:160]}"))
+            elif e.get("event") == "peer_in":
+                rows.append((when, f"from agent:{(e.get('from') or {}).get('name', '')} ({e.get('kind', '')}): {str(e.get('text', ''))[:160]}"))
             elif e.get("event") == "user":
                 rows.append((when, f"you: {str(e.get('text', ''))[:160]}"))
         for d in self.deliveries.entries():
             when = float(d.get("created") or 0)
             if d.get("sender") == sid:                                   # a message this conversation sent: only it has this record
-                rows.append((when, f"sent to {d.get('target', '')}: {d.get('state')}" + (f" — {d.get('reason')}" if d.get("state") == "dead" else "")))
+                rows.append((when, f"sent to {self.label_of(str(d.get('session') or d.get('target', '')))}: {d.get('state')}" + (f" — {d.get('reason')}" if d.get("state") == "dead" else "")))
             elif d.get("session") == sid and d.get("state") in ("pending", "dead"):
                 # delivered ones are already an "incoming" event above; a pending or dead one never reaches it, so it is shown here instead
                 rows.append((when, f"from {d.get('provenance', '')}: {'waiting to be delivered' if d['state'] == 'pending' else 'not delivered — ' + d.get('reason', '')}"))

@@ -19,7 +19,7 @@ message as it is.
 
 A chosen conversation becomes the text `@name` in the message and a **chip** above the box (with a cross that takes it out). The chip is the stable reference: it holds the
 conversation's id. When the message is sent, the ids of the chips whose `@name` is still in the text go with it as `mentions`; the user event comes back with `mentions: [{id, name}]`
-and the message shows them under its text. **Nothing is delivered to the mentioned conversation yet**: without the feature that routes it, a mention is simply kept in the message.
+and the message shows them under its text. Each mentioned conversation also gets the text as a message from this one, and wakes if it is idle (`session-messaging.md`).
 
 ## HTTP
 
