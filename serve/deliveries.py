@@ -7,7 +7,11 @@ reason and the whole original message. Nothing is dropped silently.
   pending     waiting for the target to be free (or for its answer, once the message was written to it)
   delivered   the target's process took it as a turn
   dead        it could not be delivered: `unreachable` (no such conversation, closed, would not start), `busy_timeout` (at work for too
-              long), `loop` (the message already went through the target more than twice), `budget` (the target spent its day)
+              long), `budget` (the target spent its day)
+
+A message from another conversation (`agent:<name>`) or from the harness is not held back by the target being at work: it is written to the target's process, which
+reads it between two tool calls of the turn in hand, or starts a turn with it when it is idle or asleep (docs/session-messaging.md). Messages carry a `kind`
+(`info`, `question`, `task`, `collaborate`), the `hops` of automatic replies they follow, and `meta` for the sender's name, folder and task; the rules about them are serve/messaging.py's.
   dismissed   the person looked at a dead letter and put it away
 
 The target's process answers each message with the id of the delivery, and drops an id it has already taken, so a message written
@@ -24,17 +28,22 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence
+from typing import Any, Callable, Dict, List, Optional, Protocol
 
 FILE = "deliveries.json"
 MESSAGE_MAX = 8000
 BUSY_TIMEOUT_S = 30 * 60.0          # at work for longer than this, a message for it is dead
 ACK_TIMEOUT_S = 90.0                # written to the target and not answered: written again
 KEEP = 500
-LOOP_LIMIT = 2                      # times a message may already have passed through its target before it is stopped
 FREE_STATES = ("idle", "dormant")
-PROVENANCE = re.compile(r"^(?:cron(?::[A-Za-z0-9_.-]{1,40})?|plan:[A-Za-z0-9_-]{1,64}|agent:[A-Za-z0-9_-]{1,40})$")
-REASONS = ("unreachable", "busy_timeout", "loop", "budget")
+PROVENANCE = re.compile(r"^(?:cron(?::[A-Za-z0-9_.-]{1,40})?|plan:[A-Za-z0-9_-]{1,64}|agent:[A-Za-z0-9_-]{1,40}|harness)$")
+REASONS = ("unreachable", "busy_timeout", "budget")
+KINDS = ("info", "question", "task", "collaborate")
+
+
+def reaches_busy(provenance: str) -> bool:
+    """Whether a message may be written to a conversation that is at work: another conversation's and the harness's (a schedule's or a plan's waits for a quiet moment)."""
+    return provenance.startswith("agent:") or provenance == "harness"
 
 
 class DeliveryError(ValueError):
@@ -101,7 +110,7 @@ class DeliveryQueue:
 
     # -- sending ---------------------------------------------------------------------------------
 
-    def submit(self, target: Any, message: Any, provenance: Any, chain: Sequence[str] = (), run_id: str = "", sender: str = "") -> Dict[str, Any]:
+    def submit(self, target: Any, message: Any, provenance: Any, run_id: str = "", sender: str = "", kind: str = "info", hops: int = 0, meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Takes a message for the conversation `target` names and tries to deliver it at once. With a `run_id` the same message is taken
         once: a second call for the same fire and target returns the first."""
         if not isinstance(message, str) or not message.strip():
@@ -109,7 +118,9 @@ class DeliveryQueue:
         if len(message) > MESSAGE_MAX:
             raise DeliveryError(f"The message is too long ({len(message)} characters; at most {MESSAGE_MAX}).", "too_long")
         if not isinstance(provenance, str) or not PROVENANCE.match(provenance):
-            raise DeliveryError("Say where the message comes from: cron, cron:<id>, plan:<id> or agent:<ref>.", "bad_provenance")
+            raise DeliveryError("Say where the message comes from: cron, cron:<id>, plan:<id>, agent:<ref> or harness.", "bad_provenance")
+        if kind not in KINDS:
+            raise DeliveryError(f"The kind of a message is one of {', '.join(KINDS)}.", "bad_kind")
         target = str(target or "").strip()
         if not target:
             raise DeliveryError("Name the conversation the message is for.", "no_target")
@@ -119,9 +130,9 @@ class DeliveryQueue:
                 if known is not None:
                     return dict(known)
             now = self.clock()
-            item = {"id": secrets.token_hex(4), "run_id": run_id, "target": target, "session": "", "provenance": provenance, "chain": [str(c) for c in chain][-12:],
+            item = {"id": secrets.token_hex(4), "run_id": run_id, "target": target, "session": "", "provenance": provenance, "kind": kind, "hops": int(hops), "meta": meta or {},
                     "sender": sender, "message": message, "state": "pending", "reason": "", "detail": "", "created": now, "first_try": 0.0, "last_try": 0.0,
-                    "attempts": 0, "sent": 0.0, "delivered": 0.0}
+                    "attempts": 0, "sent": 0.0, "delivered": 0.0, "answered": 0.0, "expired": 0.0}
             self.items.append(item)
             self._save()
             self._attempt(item, now)
@@ -135,14 +146,12 @@ class DeliveryQueue:
         sid = self.port.resolve(item["target"])
         if sid is None:
             self._die(item, "unreachable", f"No conversation is called '{item['target']}'.")
-        elif item["chain"].count(sid) > LOOP_LIMIT:
-            self._die(item, "loop", "The message already went through this conversation more than twice.")
         else:
             state = self.port.state_of(sid)
             item["session"] = sid
             if state in (None, "closed"):
                 self._die(item, "unreachable", "That conversation is closed.")
-            elif state in FREE_STATES and not item["sent"]:
+            elif (state in FREE_STATES or reaches_busy(item["provenance"])) and not item["sent"]:
                 if self.port.over_budget(sid):
                     self._die(item, "budget", "That conversation has spent what it may spend today.")
                 else:
@@ -186,6 +195,28 @@ class DeliveryQueue:
                 item["sent"] = 0.0                               # at work: it stays in the queue
             self._save()
             return dict(item)
+
+    def mark_answered(self, asker: str, replier: str) -> int:
+        """`replier` wrote to `asker`: the questions `asker` had put to it are answered. Returns how many."""
+        with self._lock:
+            now, n = self.clock(), 0
+            for i in self.items:
+                if i.get("kind") == "question" and i["sender"] == asker and i["session"] == replier and not i.get("answered") and not i.get("expired"):
+                    i["answered"], n = now, n + 1
+            if n:
+                self._save()
+            return n
+
+    def expire_questions(self, ttl_s: float) -> List[Dict[str, Any]]:
+        """The questions that were delivered, got no reply in `ttl_s` and are still open: each is marked expired once. Returns them."""
+        with self._lock:
+            now = self.clock()
+            out = [i for i in self.items if i.get("kind") == "question" and i["state"] == "delivered" and not i.get("answered") and not i.get("expired") and now - i["created"] > ttl_s]
+            for i in out:
+                i["expired"] = now
+            if out:
+                self._save()
+            return [dict(i) for i in out]
 
     # -- what the person and the status see ---------------------------------------------------------
 

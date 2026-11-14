@@ -121,10 +121,27 @@ def test_a_conversation_over_its_budget_gets_nothing(queue):
     assert q.submit("boss", "x", "cron")["reason"] == "budget" and port.written == []
 
 
-def test_a_message_that_went_through_its_target_too_often_is_stopped(queue):
+def test_a_message_from_a_conversation_reaches_a_busy_target_at_once_and_one_from_a_schedule_waits(queue):
     q, port, _ = queue
-    assert q.submit("boss", "x", "agent:bb22", chain=["aa11", "bb22", "aa11"])["state"] == "pending"
-    assert q.submit("boss", "x", "agent:bb22", chain=["aa11", "bb22", "aa11", "aa11"])["reason"] == "loop"
+    port.sessions["aa11"]["state"] = "busy"
+    q.submit("boss", "x", "cron")
+    assert port.written == []                                                      # a schedule's message waits for the target to be free
+    sent = q.submit("boss", "from a peer", "agent:bb22", sender="bb22", kind="question", hops=2, meta={"body": "b"})
+    assert port.written == [("aa11", sent["id"], "agent:bb22", "from a peer")]
+    assert (sent["kind"], sent["hops"], sent["answered"], sent["expired"]) == ("question", 2, False, False)
+
+
+def test_a_question_is_answered_by_any_message_back_and_expires_after_its_time_when_not(queue):
+    q, port, clock = queue
+    asked = q.submit("boss", "which port?", "agent:bb22", sender="bb22", kind="question")
+    q.acked(asked["id"], "accepted")
+    assert q.expire_questions(100) == []
+    clock.now += 101
+    assert [i["id"] for i in q.expire_questions(100)] == [asked["id"]] and q.get(asked["id"])["expired"] and q.expire_questions(100) == []
+    again = q.submit("boss", "other question", "agent:bb22", sender="bb22", kind="question")
+    q.acked(again["id"], "accepted")
+    q.mark_answered("bb22", "aa11")
+    assert q.get(again["id"])["answered"] and q.expire_questions(0) == []
 
 
 def test_a_late_answer_turns_a_dead_letter_into_a_delivered_message(queue):

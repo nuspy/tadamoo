@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Iterable, List
 
 ORDERS = ("cron", "plan")
-VALID = re.compile(r"^(?:cron(?::[A-Za-z0-9_.-]{1,40})?|plan:[A-Za-z0-9_-]{1,64}|agent:[A-Za-z0-9_-]{1,40})$")
+VALID = re.compile(r"^(?:cron(?::[A-Za-z0-9_.-]{1,40})?|plan:[A-Za-z0-9_-]{1,64}|agent:[A-Za-z0-9_-]{1,40}|harness)$")
 SEEN_FILE = "deliveries_seen.json"
 SEEN_KEEP = 200
 

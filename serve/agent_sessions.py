@@ -52,6 +52,7 @@ from serve.agent_runs import MODES, RunBusy, RunError
 from serve.approvals import ApprovalBoard
 from serve.conv_nodes import NodeStore
 from serve.deliveries import DeliveryError, DeliveryQueue
+from serve.messaging import ASKS, QUESTION_TTL_S, Messenger, Refused
 from serve.session_budget import SessionBudget
 from serve.util.files import write_json
 from serve.util import peer
@@ -154,7 +155,8 @@ class SessionManager:
                  intake_flags: Optional[Callable[[], List[str]]] = None,
                  gate_flags: Optional[Callable[[], List[str]]] = None, coding: Any = None,
                  plan_effort: Optional[Callable[[str, str], str]] = None, past: Any = None, exec_level_file: Optional[Path] = None, persistence_file: Optional[Path] = None, lessons_dir: Optional[Path] = None, next_steps_file: Optional[Path] = None, file_owners_path: Optional[Path] = None,
-                 forgetter: Any = None, cards: Any = None, personas_dir: Optional[Path] = None, rag_dir: Optional[Path] = None, persona_learning: Any = None, media_file: Optional[Path] = None) -> None:
+                 forgetter: Any = None, cards: Any = None, personas_dir: Optional[Path] = None, rag_dir: Optional[Path] = None, persona_learning: Any = None, media_file: Optional[Path] = None,
+                 boards: Optional[Callable[[Any], Any]] = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
@@ -220,8 +222,8 @@ class SessionManager:
         self._migrate_nodes()
         self._token_key = secrets.token_bytes(32)               # signs the name a conversation's process presents when it calls the server
         self.budget = SessionBudget()                           # tokens spent today, per conversation (serve/session_budget.py)
-        self._chains: Dict[str, List[str]] = {}                 # per conversation: the conversations the message that woke it came through
         self.deliveries = DeliveryQueue(Path(directory), self)  # messages from schedules, plans and other conversations, until they are taken
+        self.messenger = Messenger(self, boards)                # the messages conversations send each other (serve/messaging.py)
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._supervise, name="session-supervisor", daemon=True)
         self._thread.start()
@@ -340,7 +342,7 @@ class SessionManager:
             return {"messages": [], "turns": 0, "session": dict(rec)}
         shown = []
         for m in self._transcript(sid, data):
-            shown.append({k: v for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id", "attachments", "ts", "raw", "opt", "explain", "skipped")})
+            shown.append({k: v for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id", "attachments", "ts", "raw", "opt", "explain", "skipped", "peer", "mentions")})
         return {"messages": shown, "turns": data.get("turns", 0), "session": dict(rec)}
 
     def _read_history(self, sid: str) -> Optional[Dict[str, Any]]:
@@ -1238,9 +1240,6 @@ class SessionManager:
         kind = event.get("event")
         if kind == "delivery":                                   # the queue's lock is never taken inside this manager's
             item = self.deliveries.acked(str(event.get("id") or ""), str(event.get("state") or ""), sid)
-            if item is not None and item["state"] == "delivered":
-                with self._lock:
-                    self._chains[sid] = list(item["chain"])
             self._push(sid, {"event": "delivery", "id": event.get("id"), "state": event.get("state")})
             return
         with self._lock:
@@ -1496,27 +1495,72 @@ class SessionManager:
                 return False
             live = self._ensure(sid)
             turn = secrets.token_hex(3)
-            cmd = {"cmd": "send", "id": turn, "text": delivery["message"], "provenance": delivery["provenance"], "delivery": delivery["id"]}
+            meta = delivery.get("meta") or {}
+            cmd = {"cmd": "send", "id": turn, "text": delivery["message"], "provenance": delivery["provenance"], "delivery": delivery["id"],
+                   **({"peer": {"from": meta["from"], "kind": delivery.get("kind", "info"), "body": meta.get("body", ""), "at": meta.get("sent_at", 0), "delivery": delivery["id"]}} if meta.get("from") else {})}
             if not live.ready.is_set():
                 live.after_ready.append(cmd)
             elif not self._write(sid, live, cmd):
                 return False
-        self._push(sid, {"event": "incoming", "turn": turn, "text": delivery["message"], "provenance": delivery["provenance"], "delivery": delivery["id"]})
+        if delivery.get("meta", {}).get("from"):
+            self._push(sid, {"event": "peer_in", "turn": turn, "from": delivery["meta"]["from"], "kind": delivery.get("kind", "info"), "text": delivery["meta"].get("body", ""),
+                             "delivery": delivery["id"], "at": delivery["meta"].get("sent_at", 0)})
+        else:
+            self._push(sid, {"event": "incoming", "turn": turn, "text": delivery["message"], "provenance": delivery["provenance"], "delivery": delivery["id"]})
         return True
 
-    def deliver(self, ref: Any, message: Any, sender: str = "", provenance: str = "", run_id: str = "") -> Dict[str, Any]:
-        """A message for another conversation. From a conversation (`sender`) it is `agent:<its name>` and carries the line of conversations
-        it came through; from a schedule or a plan the caller says which (`provenance`)."""
-        if sender:
-            with self._lock:
-                chain = list(self._chains.get(sender, [])) + [sender]
-            provenance = f"agent:{self.label_of(sender)}"
-        else:
-            chain = []
+    def deliver(self, ref: Any, message: Any, provenance: str, run_id: str = "") -> Dict[str, Any]:
+        """A message from a schedule or a plan (`provenance` says which) for a conversation. A conversation's own messages are `send_peer`."""
         try:
-            return {"delivery": self.deliveries.submit(ref, message, provenance, chain, run_id, sender)}
+            return {"delivery": self.deliveries.submit(ref, message, provenance, run_id)}
         except DeliveryError as exc:
             raise RunError(str(exc), exc.code) from None
+
+    # -- conversations writing to each other (serve/messaging.py) --------------------------------------------
+
+    def send_peer(self, sender: str, ref: Any, kind: str, text: Any, task_ref: str = "") -> Dict[str, Any]:
+        """A message from the conversation `sender` (a process that proved who it is, or the person's mention) for the one `ref` names."""
+        try:
+            return self.messenger.send(sender, ref, kind, text, task_ref)
+        except Refused as exc:
+            raise RunError(str(exc), exc.code) from None
+
+    def resolve_peer(self, ref: Any) -> str:
+        """The conversation a name or id means, for a message: an id, its alias, or the title when only one conversation that is not closed has it."""
+        text = " ".join(str(ref or "").split())
+        if not text:
+            raise Refused("no_target", "Name the session the message is for (session_list shows them).")
+        found = self.resolve(text)
+        if found is not None and self.state_of(found) != "closed":
+            return found
+        with self._lock:
+            same = [r["id"] for r in self.records if r["state"] != "closed" and str(r.get("title") or "").strip().lower() == text.lower()]
+        if len(same) == 1:
+            return same[0]
+        if same:
+            raise Refused("ambiguous", f"More than one session is called '{text[:60]}': use the id from session_list.")
+        raise Refused("unreachable", f"No session is called '{text[:60]}' (session_list shows the ones that can be written to).")
+
+    def hops_of(self, sid: str) -> int:
+        """How many automatic hops deep the conversation is: the hops of the last message from another conversation that reached it since the person last wrote to it."""
+        with self._lock:
+            since = float(next((r for r in self.records if r["id"] == sid), {}).get("human_at") or 0)
+        last = [i for i in self.deliveries.entries(session=sid) if i["provenance"].startswith("agent:") and i["state"] != "dead" and i["created"] > since]
+        return int(last[0].get("hops", 0)) if last else 0
+
+    def push_event(self, sid: str, event: Dict[str, Any]) -> None:
+        self._push(sid, event)
+
+    def messenger_sweep(self) -> None:
+        """Questions that waited 12 hours for a reply end, and their senders are told."""
+        for item in self.deliveries.expire_questions(QUESTION_TTL_S):
+            try:
+                to = self.messenger.who(item["session"])
+                self._push(item["sender"], {"event": "peer_expired", "to": to, "text": item["meta"].get("body", ""), "delivery": item["id"]})
+                self.deliveries.submit(item["sender"], f'[harness] Your question to "{to["name"]}" ({item["meta"].get("body", "")[:200]!r}) was not answered in 12 hours, so it no longer expects an answer. '
+                                       f"Ask again, ask someone else or tell the person.", "harness")
+            except Exception:
+                pass                                                 # a conversation that is gone is not told
 
     def retry_delivery(self, delivery_id: str) -> Dict[str, Any]:
         try:
@@ -1674,12 +1718,12 @@ class SessionManager:
             if rec["state"] == "closed":
                 raise RunError("That conversation is closed.", "closed")
             turn = secrets.token_hex(3)              # a message that comes while the agent works is looked at by the agent itself
-            self._chains.pop(sid, None)              # the person is talking: whatever woke it before is no longer the line it works in
+            rec["human_at"] = time.time()            # the person is talking: the chain of automatic replies that woke it starts again
             live = self._ensure(sid)
             held = self._place_for(sid, place)
             cmd = {"cmd": "send", "id": turn, "text": text, **({"attachments": [c["id"] for c in cards]} if cards else {}), **({"place": held} if held else {}),
                    **({"optimize": False} if optimize is False else {}), **({"reader": reader} if reader in READERS else {}),
-                   **({"mentions": [m["id"] for m in mentioned]} if mentioned else {})}      # "Send my original instead": this message is not rewritten; the conversations it names ride along for a later routing
+                   **({"mentions": mentioned} if mentioned else {})}      # "Send my original instead": this message is not rewritten; the conversations it names ride along for a later routing
             self._unconfirmed[sid] = cmd
             if not rec.get("title"):
                 rec["title"] = " ".join(text.split())[:TITLE_CHARS]
@@ -1692,6 +1736,11 @@ class SessionManager:
         self._push(sid, {"event": "user", "turn": turn, "text": text, **({"attachments": [{k: c[k] for k in ("id", "name", "family", "size")} for c in cards]} if cards else {}),
                          **({"mentions": mentioned} if mentioned else {})})
         self._hear(sid, rec, text)
+        for m in mentioned:                                                  # the conversations the person named get the message: a question when the words ask something
+            try:
+                self.messenger.send(sid, m["id"], "question" if ASKS.search(text) else "info", text, human=True)
+            except Refused:
+                pass                                                         # one that is gone or closed is left out; the message is kept in this conversation anyway
         return {"turn": turn, "session": self.get(sid)}
 
     # -- what the person wrote, for their memories -------------------------------------------------------
@@ -2660,6 +2709,7 @@ class SessionManager:
         """One round of looking at every process (public so the tests can drive it)."""
         now = now if now is not None else time.monotonic()
         self.deliveries.pump()
+        self.messenger_sweep()
         with self._lock:
             live_items = list(self._live.items())
             records = {r["id"]: r for r in self.records}

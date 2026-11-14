@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from tadamoo.taskboard import STATES, TaskBoard, TaskError
 
@@ -24,9 +24,10 @@ RESUME_PLAN = "Resume the plan \"{plan}\" ({plan_id}) that commands the task {id
 
 
 class RegisterApi:
-    def __init__(self, projects: Callable[[], List[Dict[str, str]]], plans_dir: Any) -> None:
-        """`projects()` gives `[{path, name}]`: the folders the person added and the Chat's."""
-        self.projects, self.plans_dir = projects, plans_dir
+    def __init__(self, projects: Callable[[], List[Dict[str, str]]], plans_dir: Any, on_close: Optional[Callable[[Dict[str, Any]], Any]] = None) -> None:
+        """`projects()` gives `[{path, name}]`: the folders the person added and the Chat's. `on_close(row)` is told of a task the person deleted (one another session
+        assigned sends its result back)."""
+        self.projects, self.plans_dir, self.on_close = projects, plans_dir, on_close
 
     def _known(self) -> List[Dict[str, str]]:
         seen, out = set(), []
@@ -81,7 +82,11 @@ class RegisterApi:
             board.update(task_id, "user", **fields)
             return {"task": board.get(task_id)}
         if action == "delete":
-            return {"deleted": board.close(task_id)}
+            row = board.get(task_id)
+            gone = board.close(task_id)
+            if self.on_close is not None:
+                self.on_close(row)
+            return {"deleted": gone}
         if action == "move":
             board.move(task_id, text("before", ""), req.get("parent") if isinstance(req.get("parent"), str) else None, "user")
             return {"ok": True}

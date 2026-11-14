@@ -52,7 +52,7 @@ def test_only_a_conversation_with_its_token_may_send_a_message(setup, ws):
     code, data = api("POST", "/api/agent/sessions/log/deliver", {"message": "hi"}, headers={TOKEN_HEADER: f"{boss}.wrong"})
     assert code == 403
     code, data = api("POST", "/api/agent/sessions/log/deliver", {"message": "append this"}, headers={TOKEN_HEADER: f"{boss}.{mgr.session_token(boss)}"})
-    assert code == 200 and data["delivery"]["provenance"] == "agent:boss" and data["delivery"]["chain"] == [boss]
+    assert code == 200 and data["delivery"]["provenance"] == "agent:boss" and data["delivery"]["hops"] == 1 and data["delivery"]["kind"] == "info"
     until(lambda: mgr.deliveries.get(data["delivery"]["id"])["state"] == "delivered")
 
 
@@ -70,8 +70,10 @@ def test_a_dead_letter_is_listed_sent_again_or_put_away(setup, ws):
     mgr.close(sid)
     boss = mgr.create(ws, alias="boss")["id"]
     header = {TOKEN_HEADER: f"{boss}.{mgr.session_token(boss)}"}
-    code, made = api("POST", f"/api/agent/sessions/{sid}/deliver", {"message": "too late"}, headers=header)
-    assert code == 200 and made["delivery"]["state"] == "dead"
+    code, refused = api("POST", f"/api/agent/sessions/{sid}/deliver", {"text": "too late"}, headers=header)           # a conversation is told at once that the target is gone
+    assert code == 400 and refused["error"]["code"] == "unreachable"
+    made = mgr.deliver(sid, "too late", provenance="cron")                                                             # a schedule's message is kept as a dead letter
+    assert made["delivery"]["state"] == "dead"
     code, listed = api("GET", "/api/agent/deliveries?state=dead")
     assert code == 200 and [d["id"] for d in listed["deliveries"]] == [made["delivery"]["id"]] and listed["deliveries"][0]["message"] == "too late"
     code, again = api("POST", f"/api/agent/deliveries/{made['delivery']['id']}/retry", {})

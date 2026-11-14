@@ -61,13 +61,14 @@ def test_a_message_sent_to_a_sleeping_conversation_wakes_it_and_arrives_with_its
     mgr = make()
     boss = mgr.create(ws, alias="boss")["id"]
     log = mgr.create(ws, alias="log")["id"]
-    item = mgr.deliver("log", "append: 12:00 sold", sender=boss)["delivery"]
+    item = mgr.send_peer(boss, "log", "info", "append: 12:00 sold")["delivery"]
     assert item["provenance"] == "agent:boss" and item["session"] == log
     until(lambda: mgr.deliveries.get(item["id"])["state"] == "delivered")
-    assert taken(mgr, log) == [{"id": item["id"], "provenance": "agent:boss", "text": "append: 12:00 sold"}]
+    (got,) = taken(mgr, log)
+    assert got["id"] == item["id"] and got["provenance"] == "agent:boss" and got["text"].endswith("append: 12:00 sold") and "this is not from the user" in got["text"]
     until(lambda: "done" in kinds(mgr, log))
-    incoming = next(e for e in mgr.events(log)["events"] if e["event"] == "incoming")
-    assert incoming["provenance"] == "agent:boss" and incoming["text"] == "append: 12:00 sold"
+    incoming = next(e for e in mgr.events(log)["events"] if e["event"] == "peer_in")
+    assert incoming["from"]["name"] == "boss" and incoming["text"] == "append: 12:00 sold" and incoming["kind"] == "info"
     assert mgr.status("log")["dead_letters"] == 0 and mgr.status("log")["pending_messages"] == 0
 
 
@@ -113,14 +114,14 @@ def test_what_a_conversation_was_woken_by_is_the_line_its_own_messages_continue(
     a = mgr.create(ws, alias="aa-one")["id"]
     b = mgr.create(ws, alias="bb-two")["id"]
     mgr.create(ws, alias="cc-three")
-    first = mgr.deliver("bb-two", "from a", sender=a)["delivery"]
+    first = mgr.send_peer(a, "bb-two", "info", "from a")["delivery"]
     until(lambda: mgr.deliveries.get(first["id"])["state"] == "delivered")
     until(lambda: mgr.get(b)["state"] == "idle")
-    second = mgr.deliver("cc-three", "from b", sender=b)["delivery"]
-    assert second["chain"] == [a, b]                                             # the message went a -> b -> c
+    second = mgr.send_peer(b, "cc-three", "info", "from b")["delivery"]
+    assert (first["hops"], second["hops"]) == (1, 2)                             # the message went a -> b -> c
     mgr.send(b, "hello")                                                         # the person speaks to b: its line starts again
     until(lambda: kinds(mgr, b).count("done") >= 2)
-    assert mgr.deliver("cc-three", "again", sender=b)["delivery"]["chain"] == [b]
+    assert mgr.send_peer(b, "cc-three", "info", "again")["delivery"]["hops"] == 1
 
 
 def test_what_is_wrong_with_a_message_is_said_by_the_manager(make, ws):

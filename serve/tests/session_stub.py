@@ -3,7 +3,9 @@
 What the text of a message makes it do: "die" ends the process abruptly (the first --die-times starts only), "hang" stops its
 heartbeat and sleeps, "block" says the turn is blocked, "irreversible" leaves a note of an action in flight and ends
 abruptly, "tool NAME EFFECT [JSON]" runs a tool call of that name and effect and answers, "write FILE TEXT" writes a file in the folder it works in
-(--workdir), anything else is answered with an echo."""
+(--workdir), anything else is answered with an echo. A message from another conversation (`peer`) is taken even while a turn is under way (the real process
+reads it between two tool calls), kept in the history with its `peer` marker; when its body holds "!reply TEXT" the stub answers the sender through the server with the id and token it
+was given (as the model's session_send does), and "!ask TEXT" sends the sender a question."""
 import argparse
 import json
 import os
@@ -18,6 +20,7 @@ ap.add_argument("--history-dir", required=True)
 ap.add_argument("--die-times", type=int, default=1)
 ap.add_argument("--heartbeat", type=float, default=0.1)
 ap.add_argument("--workdir", default="")
+ap.add_argument("--endpoint", default="")
 args, _ = ap.parse_known_args()
 H = Path(args.history_dir)
 H.mkdir(parents=True, exist_ok=True)
@@ -62,6 +65,21 @@ def next_tokens():
     return _tokens["n"]
 
 
+def answer_peer(peer):
+    """What a model would do with session_send: write back to the sender when the body says so."""
+    body = str(peer.get("body") or "")
+    for prefix, kind in (("!reply ", "info"), ("!ask ", "question")):
+        if prefix in body and args.endpoint:
+            import urllib.request
+            request = urllib.request.Request(args.endpoint + "/api/agent/sessions/%s/deliver" % peer["from"]["id"], method="POST",
+                                             data=json.dumps({"text": body.split(prefix, 1)[1], "kind": kind}).encode("utf-8"),
+                                             headers={"Content-Type": "application/json", "X-Tadamoo-Session": "%s.%s" % (os.environ.get("TADAMOO_SESSION_ID"), os.environ.get("TADAMOO_SESSION_TOKEN"))})
+            try:
+                urllib.request.urlopen(request, timeout=10).read()
+            except Exception as exc:                                        # a refusal (a brake) is the server's answer, not the stub's problem
+                (H / "refused.txt").write_text(str(exc), encoding="utf-8")
+
+
 beating = threading.Event()
 beating.set()
 busy = {"v": False}
@@ -82,6 +100,16 @@ for line in sys.stdin:
     if name == "send":
         text = cmd["text"]
         delivery = cmd.get("delivery")                                      # a message from a schedule, a plan or another conversation
+        peer = cmd.get("peer") if isinstance(cmd.get("peer"), dict) else None
+        if delivery and peer and busy["v"]:                                 # read between two tool calls of the turn in hand
+            with (H / "deliveries.jsonl").open("a", encoding="utf-8") as f:
+                f.write(json.dumps({"id": delivery, "provenance": cmd.get("provenance"), "text": text}) + "\n")
+            data["messages"].append({"role": "user", "content": text, "peer": peer})
+            save(data)
+            emit({"event": "routed", "turn": cmd.get("id"), "how": "steer", "why": "peer"})
+            emit({"event": "delivery", "id": delivery, "state": "accepted"})
+            answer_peer(peer)
+            continue
         if delivery:
             if busy["v"]:
                 emit({"event": "delivery", "id": delivery, "state": "busy"})
@@ -91,9 +119,11 @@ for line in sys.stdin:
             emit({"event": "delivery", "id": delivery, "state": "accepted"})
         if "place" in cmd:                                                  # the position the manager handed over with this message
             (H / "place.json").write_text(json.dumps(cmd["place"]), encoding="utf-8")
-        data["messages"].append({"role": "user", "content": text})
+        data["messages"].append({"role": "user", "content": text, **({"peer": peer} if peer else {}), **({"mentions": cmd["mentions"]} if cmd.get("mentions") else {})})
         save(data)
         emit({"event": "accepted", "turn": cmd.get("id")})
+        if peer:
+            answer_peer(peer)
         if "optimize" in cmd:                                               # "Send my original instead"
             emit({"event": "optimize_prompt", "on": cmd["optimize"], "turn": cmd.get("id")})
         busy["v"] = True

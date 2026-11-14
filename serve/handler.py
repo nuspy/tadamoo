@@ -2351,7 +2351,7 @@ def make_handler(svc: Service, remote: bool = False):
         def _register_api(self):
             if _REGISTER is not None:
                 return _REGISTER
-            return register_api.RegisterApi(_task_folders, userdata.path("planner") / "plans")
+            return register_api.RegisterApi(_task_folders, userdata.path("planner") / "plans", lambda row: self._agent_sessions().messenger.task_closed(row, "", "closed by the person"))
 
         def _register(self, path, post):
             """The register of open work (serve/register_api.py): it writes only the folders the person added, so any device with a key may use it."""
@@ -3697,7 +3697,7 @@ def make_handler(svc: Service, remote: bool = False):
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
                                            skills_dir=userdata.path("personal-skills"), projects=self._projects(),
                                            personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), personas_dir=userdata.path("personas"), rag_dir=userdata.path("rag"), media_file=userdata.path("media.json"), learn=self._memory_worker().offer, past=self._past(),
-                                           exec_level_file=userdata.path(exec_level.FILE), persistence_file=userdata.path(persistence.FILE), next_steps_file=userdata.path(nextsteps.FILE), lessons_dir=userdata.path("lessons"), forgetter=self._forgetter(), cards=self._card_worker(), persona_learning=self._persona_learning())
+                                           exec_level_file=userdata.path(exec_level.FILE), persistence_file=userdata.path(persistence.FILE), next_steps_file=userdata.path(nextsteps.FILE), lessons_dir=userdata.path("lessons"), forgetter=self._forgetter(), cards=self._card_worker(), persona_learning=self._persona_learning(), boards=_board_for)
                 _PERSONA_LEARNING.source = _SESSIONS.learning_source
                 threading.Thread(target=_SESSIONS.index_all_past, name="past-backfill", daemon=True).start()      # the conversations saved before the index
                 self._routines()                          # the clock of the routines starts with the conversations
@@ -3880,7 +3880,7 @@ def make_handler(svc: Service, remote: bool = False):
                         sender = mgr.sender_of(self.headers.get(TOKEN_HEADER))
                         if sender is None:                                  # only a conversation's own process presents the token the manager gave it
                             return self._json(403, {"error": {"type": "forbidden", "code": "not_a_conversation", "message": "only a conversation can send a message to another"}})
-                        return self._json(200, mgr.deliver(parts[1], req.get("message"), sender=sender))
+                        return self._json(200, mgr.send_peer(sender, parts[1], str(req.get("kind") or "info"), req.get("text") if req.get("text") is not None else req.get("message"), str(req.get("task_ref") or "")))
                     if len(parts) == 3 and parts[2] == "alias":
                         return self._json(200, {"session": mgr.set_alias(parts[1], req.get("alias"))})
                     if len(parts) == 3 and parts[2] == "cross-commands":
