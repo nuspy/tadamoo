@@ -645,7 +645,8 @@ kept and reported, never raised. **What a hook prints is untrusted**: the model 
   count for the Rule of Two); a tool the server declares read-only (`annotations.readOnlyHint: true`) is registered as a pure operation, every other
   tool as irreversible, which only the manual level asks about. `MCPHub` holds servers of both eras and puts their tools in the registry the way Claude Code does: one by one
   (`server__tool`) while there are at most 24, and behind three tools, `mcp_search` (their definitions, searched by words, each marked `read_only` or not), `mcp_read` (a pure
-  operation that calls only a tool declared read-only) and `mcp_call` (irreversible, any tool), when there are more, so the prompt stays short. OAuth for remote servers is implemented (see "Signing in to remote MCP servers").
+  operation that calls only a tool declared read-only) and `mcp_call` (irreversible, any tool), when there are more, so the prompt stays short. OAuth for remote servers is implemented (see "Signing in to remote MCP servers"). A tool that an MCP server ties to a page (MCP Apps) shows
+  that page next to the conversation, and a tool only the page may call is hidden from the model: `docs/mcp-apps.md`.
   **Not implemented**: `subscriptions/listen`. Two details were inferred, not read: that `requestState` sits in
   the retried request's `params`, and the shape of the `notifications/cancelled` sent on a stdio timeout.
 - The ACP agent follows protocol version 1 over stdio: `initialize`, `session/new`, `session/prompt`, `session/cancel`,
