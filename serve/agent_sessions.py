@@ -29,6 +29,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 from pathlib import Path
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
@@ -77,6 +78,7 @@ SNIPPET_CHARS = 80
 READERS = ("this PC", "phone", "another device")        # where the person reads the answers, told to the agent with each message
 LEVELS = ("", "very_low", "low", "normal", "high", "very_high", "highest")     # how much of pictures or diagrams the person wants; empty is none
 EFFORTS = ("", "none", "low", "medium", "high")                             # how long the model thinks; empty is its own default
+MENTION_PAGE, MENTION_SUMMARY, MENTIONS_MAX = 10, 240, 20                  # the "@" picker: a page, how much of a card is shown, how many a message may name
 SLASH_COMMANDS = ("status", "tools", "hooks", "mcp", "memory", "permissions", "context", "compact", "audit", "reload-mcp", "reload-skills", "reload-plugins", "tasks")     # tadamoo/commands.py
 FILE_DIFF_BYTES = 200_000
 ALIAS = re.compile(r"^[a-z0-9][a-z0-9-]{1,31}$")
@@ -159,7 +161,7 @@ class SessionManager:
         self.router = router                                    # how a message that comes during a task is judged: "model" or "rules"
         self.attachments_dir, self.outputs_dir = attachments_dir, outputs_dir      # the conversation's attached files and the files the agent made
         self.skills = PersonalSkills(skills_dir) if skills_dir else None            # the person's skills, which a conversation can run
-        self.projects = projects                                # the folders of the Agent tab, whose own registry lists the conversations held in them
+        self.projects = projects                                # the folders of the Agentic coding tab, whose own registry lists the conversations held in them
         self.personal_dir, self.personal_keys = personal_dir, personal_keys     # the person's own memories and the key that opens them: each conversation takes in the notes that matter
         self.rag_dir = rag_dir                                  # the knowledge archives (tadamoo/rag): those of the conversation's project are searched
         self._rag: Any = None
@@ -1613,9 +1615,56 @@ class SessionManager:
             self._place_sent[sid] = held["got"]
             return held
 
-    def send(self, sid: str, text: Any, attachments: Any = None, place: Any = None, optimize: Any = None, reader: Any = None) -> Dict[str, Any]:
+    # -- the other conversations, for the "@" picker --------------------------------------------------------
+
+    @staticmethod
+    def _plain(text: Any) -> str:
+        return "".join(c for c in unicodedata.normalize("NFD", str(text or "").lower()) if not unicodedata.combining(c))
+
+    def _mention_name(self, rec: Dict[str, Any]) -> str:
+        return str(rec.get("alias") or rec.get("title") or "").strip() or f"Conversation {rec['id'][:4]}"
+
+    def mention_list(self, exclude: Any = "", query: Any = "", offset: Any = 0, limit: Any = MENTION_PAGE) -> Dict[str, Any]:
+        """The conversations a message can mention, newest use first, one page at a time: every one but `exclude` that is not closed, whose name or card (what it is about)
+        holds the letters of `query` (accents and capitals ignored). Each: `{id, name, summary, updated, folder, state}`. `next` is the offset of the following page, None at the end."""
+        try:
+            offset, limit = max(0, int(offset)), max(1, min(int(limit), 50))
+        except (TypeError, ValueError):
+            raise RunError("offset and limit are numbers.", "bad_page") from None
+        needle = self._plain(" ".join(str(query or "").split()))
+        with self._lock:
+            records = [dict(r) for r in sorted(self.records, key=lambda r: r.get("updated", 0), reverse=True) if r["id"] != exclude and r.get("state") != "closed"]
+        rows = []
+        for rec in records:
+            card = None
+            if self.past is not None:
+                try:
+                    card = (self.past.card_of(rec["id"]) or {}).get("text")
+                except Exception:
+                    card = None                                       # a card that cannot be read is no summary
+            name, summary = self._mention_name(rec), " ".join(str(card or "").split())[:MENTION_SUMMARY]
+            if needle and needle not in self._plain(name + " " + summary):
+                continue
+            workspace = str(rec.get("workspace") or "")
+            chat = not workspace or (self.default_workspace is not None and Path(workspace) == self.default_workspace)
+            rows.append({"id": rec["id"], "name": name, "summary": summary, "updated": rec.get("updated", 0), "folder": "" if chat else Path(workspace).name, "state": rec.get("state", "")})
+        page = rows[offset:offset + limit]
+        return {"sessions": page, "offset": offset, "next": offset + limit if offset + limit < len(rows) else None, "total": len(rows)}
+
+    def _check_mentions(self, mentions: Any, own: str) -> List[Dict[str, str]]:
+        """The conversations a message names, as `{id, name}`: only ids that exist, not this one, each once, at most MENTIONS_MAX. A mention of one that is gone is dropped."""
+        if mentions is None:
+            return []
+        if not isinstance(mentions, list) or not all(isinstance(m, str) for m in mentions):
+            raise RunError("mentions is a list of conversation ids.", "bad_mentions")
+        with self._lock:
+            by_id = {r["id"]: r for r in self.records}
+            return [{"id": m, "name": self._mention_name(by_id[m])} for m in dict.fromkeys(mentions) if m in by_id and m != own][:MENTIONS_MAX]
+
+    def send(self, sid: str, text: Any, attachments: Any = None, place: Any = None, optimize: Any = None, reader: Any = None, mentions: Any = None) -> Dict[str, Any]:
         if not isinstance(text, str) or not text.strip():
             raise RunError("Write a message.", "text_missing")
+        mentioned = self._check_mentions(mentions, sid)
         asked = rag_command(text)
         if asked is not None and self.rag_dir is not None:                   # `/rag` typed in a client that has no commands of its own (the phone)
             return self._answer_rag(sid, text, *asked)
@@ -1629,7 +1678,8 @@ class SessionManager:
             live = self._ensure(sid)
             held = self._place_for(sid, place)
             cmd = {"cmd": "send", "id": turn, "text": text, **({"attachments": [c["id"] for c in cards]} if cards else {}), **({"place": held} if held else {}),
-                   **({"optimize": False} if optimize is False else {}), **({"reader": reader} if reader in READERS else {})}      # "Send my original instead": this message is not rewritten
+                   **({"optimize": False} if optimize is False else {}), **({"reader": reader} if reader in READERS else {}),
+                   **({"mentions": [m["id"] for m in mentioned]} if mentioned else {})}      # "Send my original instead": this message is not rewritten; the conversations it names ride along for a later routing
             self._unconfirmed[sid] = cmd
             if not rec.get("title"):
                 rec["title"] = " ".join(text.split())[:TITLE_CHARS]
@@ -1639,7 +1689,8 @@ class SessionManager:
                 live.after_ready.append(cmd)
             elif not self._write(sid, live, cmd):
                 raise RunError("The agent process did not take the message; try again.", "write_failed")
-        self._push(sid, {"event": "user", "turn": turn, "text": text, **({"attachments": [{k: c[k] for k in ("id", "name", "family", "size")} for c in cards]} if cards else {})})
+        self._push(sid, {"event": "user", "turn": turn, "text": text, **({"attachments": [{k: c[k] for k in ("id", "name", "family", "size")} for c in cards]} if cards else {}),
+                         **({"mentions": mentioned} if mentioned else {})})
         self._hear(sid, rec, text)
         return {"turn": turn, "session": self.get(sid)}
 

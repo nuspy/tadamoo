@@ -105,7 +105,7 @@ _RUNNER = None                                        # made on first use: it ne
 PICTURE_TYPES = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp", "svg": "image/svg+xml"}      # what a file of the folder may be shown as
 _SESSIONS = None                                      # the Chat's conversations with the agent, made on first use
 _TARGETS = None                                       # the Target Loop of those conversations, made on first use
-_PROJECTS = None                                      # the folders of the Agent tab, made on first use
+_PROJECTS = None                                      # the folders of the Agentic coding tab, made on first use
 _INSTALLER = Installer()                              # installs Tailscale when the person asks
 _ROUTINES = None                                      # the agent's recurring routines, made with the conversations or on first use
 _PSKILLS = None                                       # the person's personal skills, made on first use
@@ -3704,6 +3704,9 @@ def make_handler(svc: Service, remote: bool = False):
                         return self._json(200, mgr.view())
                     if parts == ["sessions", "tree"]:
                         return self._json(200, mgr.tree())
+                    if parts == ["sessions", "mentions"]:                      # the "@" picker: the other conversations, newest use first, a page at a time
+                        q = parse_qs(urlsplit(self.path).query)
+                        return self._json(200, mgr.mention_list((q.get("exclude") or [""])[0], (q.get("q") or [""])[0], (q.get("offset") or ["0"])[0], (q.get("limit") or ["10"])[0]))
                     if len(parts) == 3 and parts[2] == "status":
                         return self._json(200, mgr.status(parts[1]))
                     if len(parts) == 3 and parts[2] == "digest":
@@ -3857,7 +3860,7 @@ def make_handler(svc: Service, remote: bool = False):
                     if len(parts) == 3 and parts[2] == "budget":
                         return self._json(200, {"session": mgr.set_budget(parts[1], req.get("budget_day_tokens"))})
                     if len(parts) == 3 and parts[2] == "send":
-                        return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments"), req.get("place"), req.get("optimize"), self._reader()))
+                        return self._json(200, mgr.send(parts[1], req.get("text"), req.get("attachments"), req.get("place"), req.get("optimize"), self._reader(), req.get("mentions")))
                     if len(parts) == 3 and parts[2] in ("promote", "drop"):
                         return self._json(200, {"session": getattr(mgr, parts[2])(parts[1], req.get("turn"))})
                     if len(parts) == 3 and parts[2] == "answer":
