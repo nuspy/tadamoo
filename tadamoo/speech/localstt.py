@@ -62,6 +62,8 @@ class LocalWhisper:
         from whisper.audio import HOP_LENGTH, N_FRAMES, N_SAMPLES, SAMPLE_RATE, log_mel_spectrogram, pad_or_trim
         from whisper.timing import add_word_timestamps
         dtype = torch.float16 if self.device != "cpu" else torch.float32
+        if any(p.dtype != torch.float32 for p in model.parameters()):       # Whisper's LayerNorm takes a float input and needs float weights: a model with some weights made half fails the decoding with "expected Float but found Half"
+            model.float()
         tokenizer = whisper.tokenizer.get_tokenizer(model.is_multilingual, num_languages=model.num_languages, language=lang, task="transcribe")
         mels, frames = [], []
         for pcm in pcms:
