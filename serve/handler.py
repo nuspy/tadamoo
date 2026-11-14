@@ -4008,6 +4008,8 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(201, service.create(req))
                 if path == "/api/plans/events":
                     return self._json(200, service.ingest(req))
+                if path == "/api/plans/inner":
+                    return self._json(200, service.record_inner(req.get("step"), req.get("result"), str(req.get("session") or ""), str(req.get("plan_id") or ""), str(req.get("node_id") or ""), req.get("undo") is True))
                 parts = path[len("/api/plans/"):].split("/")
                 plan_id, action = parts[0], (parts[1] if len(parts) > 1 else "")
                 if action == "events":

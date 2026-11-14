@@ -1277,6 +1277,43 @@ class PlanDAG:
             resolved.append(nid)
         return resolved
 
+    # the inner steps of a step ------------------------------------------------------------------------
+
+    def record_inner(self, node_id: str, step: str, result: Any = None, now: Optional[float] = None) -> Dict[str, Any]:
+        """A step that does several things in a row has finished one of them: it is kept on the step, with its essential result, in the plan, so that after an
+        interruption (even a restart of the PC) the step goes on from there. A step that names its inner steps takes only those. Recording one again replaces it."""
+        from tadamoo.planner import nodes
+        node = self.nodes.get(node_id)
+        if node is None:
+            raise KeyError(f"Node '{node_id}' not found")
+        if node.status in DONE or node.type != NodeType.ACTION:
+            raise PlanError(f"'{node_id}' is not a step that is being done")
+        entry = nodes.clean_inner(step, result)
+        declared = node.spec.get("steps") or []
+        if declared and entry["name"] not in declared:
+            raise PlanError(f"this step has these inner steps: {', '.join(declared)}")
+        rows = [d for d in node.state_variables.get("inner_done") or [] if d.get("name") != entry["name"]]
+        rows.append({**entry, "at": _now()})
+        if declared:
+            rows.sort(key=lambda d: declared.index(d["name"]) if d["name"] in declared else len(declared))
+        node.state_variables["inner_done"] = rows
+        self.note(node_id, "auto", f"{node.title}: {entry['name']} done", now)
+        self._touch()
+        return nodes.inner_state(node.spec, node.state_variables)
+
+    def forget_inner(self, node_id: str, step: str) -> Dict[str, Any]:
+        """An inner step is to be done again: it is taken off the list of the finished ones."""
+        from tadamoo.planner import nodes
+        node = self.nodes.get(node_id)
+        if node is None:
+            raise KeyError(f"Node '{node_id}' not found")
+        rows = [d for d in node.state_variables.get("inner_done") or [] if d.get("name") != step]
+        if len(rows) == len(node.state_variables.get("inner_done") or []):
+            raise PlanError(f"'{step}' is not among the inner steps that are done")
+        node.state_variables["inner_done"] = rows
+        self._touch()
+        return nodes.inner_state(node.spec, node.state_variables)
+
     # starting a plan ----------------------------------------------------------------------------------
 
     def start_nodes(self) -> List[PlanNode]:
@@ -1461,8 +1498,10 @@ class PlanDAG:
             n = self.nodes[nid]
             produced = n.state_variables.pop("outputs", None)
             effects = n.state_variables.pop("effects", None)
-            if n.status != "pending" or produced or effects:
-                n.state_variables.setdefault("history", []).append({"status": n.status, "outputs": produced, "at": _now(), **({"effects": effects} if effects else {}),
+            inner = n.state_variables.pop("inner_done", None)
+            n.state_variables.pop("session", None)
+            if n.status != "pending" or produced or effects or inner:
+                n.state_variables.setdefault("history", []).append({"status": n.status, "outputs": produced, "at": _now(), **({"effects": effects} if effects else {}), **({"inner_done": inner} if inner else {}),
                                                                     **({"still_done": stays[nid]} if stays[nid] else {})})
             for var in (produced or {}):
                 self.shared_state.pop(var, None)

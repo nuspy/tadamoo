@@ -260,6 +260,23 @@ class PlansApiTest(PlansApiBase):
         self.assertEqual((code, res["values"]), (200, {"a": "n3", "b": "politica"}))
         self.assertEqual(self.call("GET", "/api/plans/wiz")[1]["plan"]["shared_state"], {"a": "n3", "b": "politica"})
 
+    def test_a_command_tells_the_plan_which_inner_step_of_its_step_is_finished(self):
+        plan = {"plan_id": "stages", "title": "Stages", "target_type": "occasional", "nodes": {
+            "go": {"id": "go", "type": "start", "title": "Start", "assignee": "agent", "dependencies": [], "outputs": ["video"], "spec": {"number": 1, "launch": "manual"}},
+            "video": {"id": "video", "type": "action", "title": "Video", "assignee": "agent", "dependencies": ["go"], "outputs": [], "spec": {"steps": ["voice", "stills", "edit"]}}}}
+        self.assertEqual(self.call("POST", "/api/plans", {"plan": plan})[0], 201)
+        self.call("POST", "/api/plans/stages/events", {"type": "plan:start", "number": 1, "actor": "chat"})
+        code, res = self.call("POST", "/api/plans/inner", {"step": "voice", "result": {"files": ["a.wav"]}, "session": "conv-1"})
+        self.assertEqual(code, 400)
+        self.assertIn("no step is being done", res["error"]["message"])
+        self.call("POST", "/api/plans/stages/events", {"type": "plan:mark", "node_id": "video", "status": "in_progress", "session": "conv-1", "actor": "chat"})
+        code, res = self.call("POST", "/api/plans/inner", {"step": "voice", "result": {"files": ["a.wav"]}, "session": "conv-1"})
+        self.assertEqual((code, res["node_id"], res["inner"]["next"]), (200, "video", "stills"))
+        self.assertEqual(self.call("POST", "/api/plans/inner", {"step": "dubbing", "session": "conv-1"})[0], 400)
+        saved = self.call("GET", "/api/plans/stages")[1]["plan"]["nodes"]["video"]["state_variables"]["inner_done"]
+        self.assertEqual([(d["name"], d["result"]) for d in saved], [("voice", {"files": ["a.wav"]})])
+        self.assertEqual(self.call("GET", "/api/plans/inner")[0], 404)                       # a plan cannot be called "inner": the route is the program's own
+
     def test_a_plan_is_started_at_a_start_through_the_api(self):
         plan = {"plan_id": "starts", "title": "Starts", "target_type": "occasional", "nodes": {
             "a": {"id": "a", "type": "start", "title": "Start 1", "assignee": "agent", "dependencies": [], "outputs": ["x"], "spec": {"number": 1, "launch": "manual"}},

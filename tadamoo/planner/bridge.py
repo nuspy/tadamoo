@@ -28,7 +28,7 @@ from .replan import ReplanProposal, Replanner
 from .triage import TriageResult
 
 PLAN_ID = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
-RESERVED_IDS = ("events", "telemetry", "human")            # paths of the server's own routes under /api/plans
+RESERVED_IDS = ("events", "telemetry", "human", "inner")            # paths of the server's own routes under /api/plans
 LOG_SIZE = 500
 HISTORY_SIZE = 200
 HISTORY_SHOWN = 30
@@ -230,7 +230,7 @@ class PlanCanvasBridge:
             "plan:rewind": self._rewind, "plan:rewind_impact": self._rewind_impact, "plan:note_effect": self._note_effect, "plan:propose_diff": self._propose, "plan:approve": self._approve,
             "plan:reject": self._reject, "plan:human_fallback": self._offer_fallback,
             "plan:fallback_response": self._answer_fallback, "plan:update_meta": self._update_meta, "plan:event": self._feed,
-            "plan:start": self._start, "plan:answer": self._answer, "plan:answers": self._answers,
+            "plan:start": self._start, "plan:answer": self._answer, "plan:answers": self._answers, "plan:inner": self._inner,
         }
         handler = handlers.get(kind)
         if handler is None:
@@ -368,6 +368,24 @@ class PlanCanvasBridge:
         self._emit("plan:graph", {"seq_graph": True})
         return {**got, "ready": self.dag.ready_nodes()}
 
+    def _inner(self, e: Dict[str, Any]) -> Dict[str, Any]:
+        """An inner step of a step is finished (or, with `undo`, to be done again): kept on the step so that the plan can go on from there after an interruption."""
+        if e.get("undo") is True:
+            info = self.dag.forget_inner(e["node_id"], str(e.get("step") or ""))
+        else:
+            info = self.dag.record_inner(e["node_id"], e.get("step"), e.get("result"))
+            if not self.run.get("active"):
+                self.run = {"active": True, "since": time.time(), "resumes": 0, "progress": self._done_count()}
+        node = self.dag.nodes[e["node_id"]]
+        self._bump("inner", f"{node.title}: {e.get('step')}{' to be done again' if e.get('undo') is True else ' done'}")
+        self._emit("plan:node_updated", {"node": node_to_dict(node)})
+        return {"inner": info}
+
+    def in_progress_of(self, session: str) -> List[str]:
+        """The steps being done by this conversation."""
+        with self._lock:
+            return [n.id for n in self.dag.nodes.values() if n.status == "in_progress" and n.state_variables.get("session") == session]
+
     def _answers(self, e: Dict[str, Any]) -> Dict[str, Any]:
         """The answers to all the requests that are asking, sent together (see PlanDAG.answer_many)."""
         got = self.dag.answer_many(e.get("answers"), by=self._actor)
@@ -440,8 +458,11 @@ class PlanCanvasBridge:
         node = self.dag.nodes[e["node_id"]]
         if e["status"] == "failed":
             self._note_failure(node, str(e.get("reason") or ""))
-        elif e["status"] == "in_progress" and not self.run.get("active"):
-            self.run = {"active": True, "since": time.time(), "resumes": 0, "progress": self._done_count()}
+        elif e["status"] == "in_progress":
+            if e.get("session"):                                  # the conversation doing the step: what its commands say about the step is found by it
+                node.state_variables["session"] = str(e["session"])[:80]
+            if not self.run.get("active"):
+                self.run = {"active": True, "since": time.time(), "resumes": 0, "progress": self._done_count()}
         if retry and "no_route" in retry:                  # a decision with no exit that holds: not taken, the person decides
             self._bump("no_route", f"{node.title}: no exit holds, passed to the user")
             self._emit("plan:graph", {"seq_graph": True, "no_route": {"node_id": node.id, **retry["no_route"]}})

@@ -1156,6 +1156,7 @@ class SessionManager:
         env.update({"PYTHONUTF8": "1", "PYTHONPATH": str(self.root), "TADAMOO_COMPRESS": "1"})
         if self.api_key:
             env["TADAMOO_API_KEY"] = self.api_key
+        env.setdefault("TADAMOO_URL", self.endpoint)               # the commands the conversation runs (a production that reports its stages to the plan) find this server
         env["TADAMOO_SESSION_ID"], env["TADAMOO_SESSION_TOKEN"] = sid, self.session_token(sid)
         flags = (subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW) if os.name == "nt" else 0
         log = open(history / "process.log", "ab")

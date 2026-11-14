@@ -5,6 +5,7 @@ loops, questions to the person, results and log lines. The kinds marked `auto` a
 the agent or the person: waiting out a time, setting a value, writing a line."""
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -22,6 +23,7 @@ ASKS = ("value", "approve")                               # what a human request
 PLAN_REF = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 CONTENT_MAX, ANSWER_MAX = 20000, 4000
 MAX_CHOICES, CHOICE_TEXT, HELP_MAX = 40, 120, 1000
+MAX_INNER, INNER_NAME, INNER_RESULT = 30, 60, 2000
 
 # kind of field -> what a page draws for it
 FIELD_KINDS = ("number", "integer", "text", "textarea", "expression", "name", "names", "options", "datetime", "choice", "json", "archives", "branches")
@@ -32,8 +34,8 @@ ON_NO_MATCH = ("stop", "ask")                                                   
 MODES = ("first", "all")                                                         # a decision: the first branch that holds wins, or every branch that holds fires
 
 NODE_SPECS: Dict[str, Dict[str, Any]] = {
-    "action": {"family": "action", "auto": False, "summary": "A task for the agent or the person", "fields": [
-        {"name": "rag_archives", "kind": "archives", "max": MAX_ARCHIVES}]},
+    "action": {"family": "action", "auto": False, "summary": "A task for the agent or the person; it may name the inner steps it is made of, in order", "fields": [
+        {"name": "rag_archives", "kind": "archives", "max": MAX_ARCHIVES}, {"name": "steps", "kind": "names", "max": MAX_INNER}]},
     "sensor": {"family": "action", "auto": False, "summary": "Listens for an event and resolves when its condition holds", "fields": []},
     "decision": {"family": "flow", "auto": False, "summary": "Has several outcomes, each its own connector: the branches whose condition holds are taken", "fields": [
         {"name": "input", "kind": "expression", "max": 300, "hidden": True}, {"name": "mode", "kind": "choice", "choices": list(MODES), "default": "first"},
@@ -314,6 +316,11 @@ def clean_spec(node_type: Any, spec: Any, draft: bool = False) -> Dict[str, Any]
     if kind == "action":
         if _archives(spec, "rag_archives"):
             out["rag_archives"] = _archives(spec, "rag_archives")
+        steps = _names(spec, "steps", MAX_INNER)
+        if steps:
+            if any(len(x) > INNER_NAME for x in steps) or len(set(steps)) != len(steps):
+                raise PlanError(f"'steps' is a list of different names of at most {INNER_NAME} characters, in the order the step does them")
+            out["steps"] = steps
     elif kind == "rag":
         out["archives"] = _archives(spec, "archives", True)
     elif kind == "decision":
@@ -454,6 +461,41 @@ def catalogue() -> List[Dict[str, Any]]:
     """The kinds in the order a page lists them, with their family, summary and fields."""
     return [{"type": k, **{f: v[f] for f in ("family", "auto", "summary", "fields")}, "ports": {"in": in_ports(k), "out": out_ports(k) if k != "decision" else "branches"}}
             for k, v in NODE_SPECS.items()]
+
+
+# -- the inner steps of a step: what a step that does several things in a row has finished, kept in the plan so that after an interruption it goes on from there -----------
+
+def clean_inner(step: Any, result: Any) -> Dict[str, Any]:
+    """{name, result}: the name of an inner step and its essential result (files made, values), plain data of bounded size."""
+    if not isinstance(step, str) or not step.strip() or len(step.strip()) > INNER_NAME:
+        raise PlanError(f"the name of an inner step is a text of 1 to {INNER_NAME} characters")
+    if result is None:
+        result = {}
+    if not isinstance(result, dict) or not _json_value(result):
+        raise PlanError("the result of an inner step is an object of plain data: for example {files: [...], made: 3}")
+    import json
+    if len(json.dumps(result, ensure_ascii=False)) > INNER_RESULT:
+        raise PlanError(f"the result of an inner step is at most {INNER_RESULT} characters: give the essential (the files made, the values), not the content")
+    return {"name": step.strip(), "result": result}
+
+
+def inner_state(spec: Dict[str, Any], variables: Dict[str, Any]) -> Dict[str, Any]:
+    """From a step's spec and state: the inner steps it has done (name, result), those it declared, the next to do, and the ones left."""
+    done = [d for d in variables.get("inner_done") or [] if isinstance(d, dict) and d.get("name")]
+    finished = {d["name"] for d in done}
+    declared = [x for x in spec.get("steps") or [] if isinstance(x, str)]
+    left = [x for x in declared if x not in finished]
+    return {"done": done, "declared": declared, "next": left[0] if left else None, "left": left}
+
+
+def inner_text(spec: Dict[str, Any], variables: Dict[str, Any]) -> str:
+    """What a step that was cut short is told when it is taken up again: which inner steps are finished, with their results, and where to go on. Empty when nothing is."""
+    info = inner_state(spec, variables)
+    if not info["done"]:
+        return ("Its inner steps, in order: " + ", ".join(info["declared"]) + ". When one is finished, declare it with plan_step_done, so that a step cut short goes on from there." if info["declared"] else "")
+    shown = "; ".join(d["name"] + (f" ({_brief(json.dumps(d['result'], ensure_ascii=False))})" if d.get("result") else "") for d in info["done"])
+    tail = (f" Continue from: {info['next']}. Still to do: {', '.join(info['left'])}." if info["next"] else (" All its declared steps are done: check the result and finish the step." if info["declared"] else " Continue with what comes after them."))
+    return f"Already done inside this step (do not do them again): {shown}.{tail}"
 
 
 # -- the person's answer to a request ------------------------------------------------------------------------------
