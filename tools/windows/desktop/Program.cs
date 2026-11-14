@@ -71,7 +71,7 @@ sealed class Options
     public string Profile, Repo, Error, Screenshot, Model, TestModelsDir, ConfigFile, Lang;
     public int Port;
     public double VramLibera = -1;
-    public bool Load, TestAdmin, TestMock, TestExit, TestFolderPrompt, TestNoWebView, TestNoWizard, TestFallback, TestWindow;
+    public bool Load, Attach, TestAdmin, TestMock, TestExit, TestFolderPrompt, TestNoWebView, TestNoWizard, TestFallback, TestWindow;
 
     public static Options Parse(string[] args)
     {
@@ -100,6 +100,7 @@ sealed class Options
                     break;
                 case "--repo": o.Repo = Next(); break;
                 case "--load": o.Load = true; break;
+                case "--attach": o.Attach = true; break;
                 case "--model": o.Model = Next(); break;
                 case "--test-folder-prompt": o.TestFolderPrompt = o.TestFallback = o.TestMock = true; break;
                 case "--test-models-dir": o.TestModelsDir = Next(); break;

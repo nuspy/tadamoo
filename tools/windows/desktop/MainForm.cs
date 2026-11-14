@@ -435,6 +435,7 @@ sealed class MainForm : Form
         if (running.Count > 0)
         {
             var (p, h) = running[0];
+            if (opt.Attach) { pageView = "chat"; ShowServer(p, false); return; }
             string model = h.TryGetProperty("model", out var m) ? m.GetString() : "?";
             string last = opt.Model ?? ReadState("last_model");
             string want = last != null ? Path.GetFileNameWithoutExtension(last) : Tr.T("un altro modello", "another model");

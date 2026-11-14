@@ -67,6 +67,8 @@ param(
     [string]$File = 'tadamoo_config.json',
     # interno: il server legato al chiamante, senza interfaccia (per un programma che lo avvia e lo ferma)
     [switch]$PerApp,
+    # il server parte senza caricare il modello (il Loader o l'app lo caricano dopo)
+    [switch]$Standby,
     # nomi vecchi, ancora accettati: -Sfondo e -SoloServer ora sono -server
     [switch]$Sfondo,
     [Alias('solo-server')][switch]$SoloServer,
@@ -583,7 +585,7 @@ if (-not $memOk -and -not $Prova) {
 $legato = -not $Server
 # legato a questa finestra: se dal Loader si sceglie un altro modello il server esce con 75 e qui riparte con quello
 $cmdLine = '"' + $exe + '" serve --config "' + $cfgPath + '"' + $(if ($Port) { " --port $Port" } else { '' }) +
-    $(if ($legato) { ' --relaunch-on-model-change' } else { '' })
+    $(if ($legato) { ' --relaunch-on-model-change' } else { '' }) + $(if ($Standby) { ' --standby' } else { '' })
 $cache = if ($env:TADAMOO_CACHE) { $env:TADAMOO_CACHE } else { Join-Path $HOME '.cache\tadamoo' }
 $modoTesto = if ($Server) { T 'solo server, staccato e senza browser: lo script ritorna quando il modello è carico (fermare con Ferma-TaDaMoo.ps1)' 'server alone, detached, no browser: the script returns once the model is loaded (stop it with Ferma-TaDaMoo.ps1)' }
              elseif ($PerApp) { T 'legato al programma che l''ha avviato, senza interfaccia' 'tied to the program that started it, no interface' }
