@@ -975,6 +975,10 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         from tadamoo.personal_skills.authoring import register_authoring_tool
         from tadamoo.personal_skills.store import PersonalSkills
         register_authoring_tool(registry, PersonalSkills(cfg.personal_skills_dir))
+    from serve.userdata import user_data_dir
+    from tadamoo.task_tools import register_task_tools
+    from tadamoo.taskboard import TaskBoard
+    register_task_tools(registry, TaskBoard(workspace, user_data_dir() / "planner" / "plans"), lambda: cfg.run_id or "")      # the open work of this project, kept in its folder
     if cfg.past_index:
         from tadamoo.past import PastIndex, register_past_tools
         register_past_tools(registry, PastIndex(cfg.past_index), local=lambda: getattr(client, "stays_local", lambda: True)())

@@ -298,6 +298,14 @@ class Session:
         self.planner: Any = None
         self.reporter: Any = None                               # sends the file edits to the server's Changes panel, when asked to
         self._summary = ""                                      # the plans summary the conversation last got
+        self._tasks_seen = ""                                   # the register of open tasks as this conversation last knew it (what changed outside it is told)
+        self._tasks_full = True                                 # the list of open tasks is due in full: at the start, and again after a compaction
+        prior = built.agent.on_compaction
+        built.agent.on_compaction = lambda: (prior() if prior is not None else None, setattr(self, "_tasks_full", True))[0]
+        tools = getattr(built.agent.tools, "task_tools", None)
+        if tools is not None:
+            tools.on_write = lambda: setattr(self, "_tasks_seen", tools.board.signature(self.session_id))       # its own change is not news to it
+            tools.session_id = lambda: self.session_id                                                           # the tasks it opens are this conversation's
         self.attachment_store: Any = None                       # AttachmentStore of this conversation's files, when it has one
         self.intake: Optional[it.Intake] = None                 # what runs between the person's text and the model's first step (tadamoo/intake.py)
         self.optimizer: Optional[opt.Optimizer] = None          # the person's message rewritten by the technical session before the model reads it (tadamoo/optimize.py)
@@ -713,6 +721,25 @@ class Session:
         self._summary = summary
         return "[harness] The user's plans now:\n" + summary if summary else "[harness] The user has no active plans now."
 
+    def _tasks_note(self) -> Optional[str]:
+        """The open tasks of this conversation, never the whole register: a short list at the start and after a compaction, then a single line only when the register
+        was changed by someone else (the person in the Tasks tab, another conversation). Nothing is added while it is as the conversation knows it."""
+        tools = getattr(self.agent.tools, "task_tools", None)
+        if tools is None:
+            return None
+        try:
+            sig = tools.board.signature(self.session_id)
+            if self._tasks_full:
+                self._tasks_full, self._tasks_seen = False, sig
+                text = tools.board.summary(self.session_id)
+                return ("[harness] Your open tasks (the register of this project; task_list, task_resume, task_update):\n" + text) if text else None
+            if sig == self._tasks_seen:
+                return None
+            self._tasks_seen = sig
+            return "[harness] Your open tasks were changed outside you: task_list shows them now." if sig else "[harness] You have no open tasks now."
+        except Exception:
+            return None
+
     # -- commands --------------------------------------------------------------------------------------
 
     def _begin_main(self, turn: str, text: str, origin: str = "user", attachments: Optional[List[str]] = None, optimize: bool = True, once: bool = False) -> Task:
@@ -723,6 +750,9 @@ class Session:
             agent.append({"role": "user", "content": self._pending_note})
             self._pending_note = None
         note = self._plans_note()
+        if note:
+            agent.append({"role": "user", "content": note})
+        note = self._tasks_note()
         if note:
             agent.append({"role": "user", "content": note})
         self._add_message(agent, text, origin, attachments)

@@ -46,6 +46,9 @@ def self_model(*, model: str, window: int, mask_at: float, compaction_at: float,
         "note that starts with [state], only when they change; `self_status` gives the current values. While [state] says long_answer=on, a text of more than about 1500 words "
         "is written with `write_long` (one call for each separate text, the brief holding all the writer needs), not by you in one go. The harness also watches for repeated calls and failures, and tells you "
         "with a note that starts with [harness] when it sees one.",
+        "- Long work (several steps, or work that can be interrupted) is kept in the task register (`task_add`, `task_update`, `task_subtasks`, `task_close`): it survives a compaction, a cleared "
+        "conversation and a restart, and a closed task is deleted. Short questions are not tasks. Rewrite the subtasks when they are no longer current. When there is a plan, the plan is the "
+        "register: `task_link_plan` makes the task one line for it, and a plan's steps are never copied into the register.",
         "- A task is yours until it is done: check your result against what was asked before you say it is finished, and say plainly what is not done.",
     ]
     if documents:
