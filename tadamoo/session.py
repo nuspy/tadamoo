@@ -907,6 +907,26 @@ class Session:
         """The most one reply may write, from the next request on; None leaves it to the server."""
         self.agent.max_tokens = value
 
+    SAMPLING_SET = ("top_p", "top_k", "min_p", "repetition_penalty", "presence_penalty", "frequency_penalty", "penalty_last_n", "seed", "reasoning_budget_tokens", "stop")
+
+    def set_sampling(self, fields: Dict[str, Any]) -> None:
+        """The other sampling fields of every model call from the next on: exactly those given (what was set before and is not given is the model file's own again)."""
+        for key in self.SAMPLING_SET:
+            self.agent.sampling.pop(key, None)
+        self.agent.sampling.update({k: v for k, v in fields.items() if k in self.SAMPLING_SET})
+
+    def set_folding(self, on: bool, threshold: float, mask: float) -> None:
+        """Where the context is dealt with, from the next model call on: old results are masked from `mask` of the window, the older steps folded from `threshold` when `on`."""
+        context = self.agent.context
+        if context is None:
+            return
+        context.mask_at = min(0.95, max(0.3, mask))
+        comp = getattr(context, "compaction", None)
+        if comp is not None:
+            comp.enabled = on
+            comp.threshold = min(0.98, max(0.5, threshold))
+            comp.forget_last()
+
     def run_command(self, cid: str, name: str, args: str) -> None:
         """A slash command that asks this process something; the answer is an event, so the person's page shows it where it was asked."""
         from tadamoo.commands import run
@@ -1893,7 +1913,12 @@ def _valid_settings(cmd: Dict[str, Any]) -> bool:
     """A "settings" command: any of the steps one answer may take (-1 for no limit, or 1 and more), the end-of-turn bias (-20 to 0), the
     temperature (0 to 5, or null) and the most a reply may write (1 and more, or null)."""
     steps, bias, temp, room = cmd.get("max_turns"), cmd.get("end_turn_bias"), cmd.get("temperature"), cmd.get("max_tokens")
-    if not any(k in cmd for k in ("max_turns", "end_turn_bias", "temperature", "max_tokens")):
+    if not any(k in cmd for k in ("max_turns", "end_turn_bias", "temperature", "max_tokens", "sampling", "fold")):
+        return False
+    if "sampling" in cmd and not isinstance(cmd["sampling"], dict):
+        return False
+    fold = cmd.get("fold")
+    if "fold" in cmd and not (isinstance(fold, dict) and isinstance(fold.get("on"), bool) and _number(fold.get("threshold")) and _number(fold.get("mask"))):
         return False
     if "max_turns" in cmd and (not isinstance(steps, int) or isinstance(steps, bool) or not (steps == -1 or steps >= 1)):
         return False
@@ -1990,7 +2015,7 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     from tadamoo.llm.judge import router_judge
     here = TadamooClient(base_url=cfg.endpoint, api_key=cfg.api_key)          # the model loaded in this TaDaMoo
     try:
-        built = build_agent(cfg, client=client_for("executor", here), summarizer=client_for("compaction", here), technical=client_for("technical", here))
+        built = build_agent(cfg, client=client_for("executor", here), summarizer=client_for("compaction", here, level="none"), technical=client_for("technical", here))
     except Exception as exc:
         emit({"event": "error", "code": "start", "message": f"{type(exc).__name__}: {exc}"})
         return 1
@@ -2169,6 +2194,12 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                 if "max_tokens" in cmd:
                     session.set_max_tokens(cmd["max_tokens"])
                     changed["max_tokens"] = cmd["max_tokens"]
+                if "sampling" in cmd:
+                    session.set_sampling(cmd["sampling"])
+                    changed["sampling"] = cmd["sampling"]
+                if "fold" in cmd:
+                    session.set_folding(cmd["fold"]["on"], float(cmd["fold"]["threshold"]), float(cmd["fold"]["mask"]))
+                    changed["fold"] = cmd["fold"]
                 emit({"event": "settings", **changed})
             elif name == "command" and isinstance(cmd.get("name"), str):
                 threading.Thread(target=session.run_command, args=(str(cmd.get("id") or ""), cmd["name"], str(cmd.get("args") or "")[:2000]),

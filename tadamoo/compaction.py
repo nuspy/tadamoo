@@ -420,6 +420,10 @@ class Compaction:
         waiting["observed"] = {"prompt_tokens": int(prompt_tokens), "cached_tokens": int(cached_tokens), "read_again": max(0, int(prompt_tokens) - int(cached_tokens))}
         return waiting
 
+    def forget_last(self) -> None:
+        """The size the last compaction left is no measure once the budget or the threshold changed: the next check starts from the threshold alone."""
+        self._last_after = 0
+
     def take_report(self) -> Optional[Dict[str, Any]]:
         fresh, self._fresh = self._fresh, None
         return fresh

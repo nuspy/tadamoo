@@ -1423,7 +1423,7 @@ class AgentLoop:
         if report:
             report["prefix"]["tools_sha"] = hashlib.sha256(json.dumps(self.tools.schemas(), sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:12]
             self._emit({"type": "compaction", **report})
-            self._audit("compaction", {k: report[k] for k in ("n", "reason", "tokens_before", "tokens_after", "replaced", "summary_by")})
+            self._audit("compaction", {k: report[k] for k in ("n", "reason", "tokens_before", "tokens_after", "replaced", "summary_by", "summary_error", "summary_cuts") if k in report})
         if due:
             after = ctx.estimate_tokens(self.messages)
             if after < before:
