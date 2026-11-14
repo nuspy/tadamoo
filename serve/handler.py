@@ -58,9 +58,11 @@ from serve.files_api import FilesApi, FilesError
 from serve.projects import ProjectStore
 from serve.remote import KEY_TTL_DAYS, MODE_ORDER, ApiKeys, Installer, RemoteAccess, tailscale_peers, tailscale_status, tailscale_up
 from serve.personal_skills_api import PersonalSkillsApi
-from serve import import_api
+from serve import import_api, skills_api
 from tadamoo.rag.backends import vault_password
 from tadamoo.importer import Importer, Spaces
+from tadamoo.skillmanager import SkillManager
+from tadamoo.skillmanager.jobs import Jobs
 from tadamoo.forget import Forgetter
 from tadamoo.personal_memory import PersonalMemory, PersonalMemoryError
 from serve.lessons_api import LessonsApi, LessonsError
@@ -121,6 +123,8 @@ _CARDS = None                                         # writes the card of each 
 _EXPORT = export_api.ExportApi()                      # turns a conversation into a file; holds a PDF page for the desktop app's print
 _CAPS = None                                          # the Settings page's side of capabilities, made on first use
 _IMPORT = None                                        # the import service's side (a test puts its own here), made on first use
+_SKILLS = None                                        # the skill manager's side (a test puts its own here), made on first use
+_SKILLS_JOBS = Jobs()                                 # the one installation that runs at a time, whichever request asks
 _LLM = None                                           # the Providers page's side of llmswitch, made on first use
 
 
@@ -662,6 +666,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/import" or path.startswith("/api/import/"):
                 if self._authorized():
                     self._import(path, False)
+            elif path == "/api/skills" or path.startswith("/api/skills/"):
+                if self._authorized():
+                    self._skills(path, False)
             elif path in ("/api/capabilities", "/api/capabilities/review", "/api/capabilities/online", "/api/capabilities/requests"):
                 if self._authorized():
                     self._capabilities_get(path)
@@ -956,6 +963,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path.startswith("/api/import/"):
                 self._import(path, True)
+                return
+            if path.startswith("/api/skills/"):
+                self._skills(path, True)
                 return
             if path.startswith("/api/llm/"):
                 self._llm_post(path)
@@ -2308,6 +2318,32 @@ def make_handler(svc: Service, remote: bool = False):
                 if not isinstance(req, dict):
                     return self._json(400, {"error": {"message": "send a JSON object"}})
             code, obj = self._import_api().route("POST" if post else "GET", path, req)
+            self._json(code, obj)
+
+        def _skills_api(self):
+            if _SKILLS is not None:
+                return _SKILLS
+            imp = self._import_api().imp                                  # the importer the Imported tab uses, so a plan a plugin brings reaches the running planner
+            return skills_api.SkillsApi(SkillManager(imp.spaces.cap_dir.parent, importer=imp, model=lambda: self._agent_sessions().model_client(), jobs=_SKILLS_JOBS,
+                                                     on_change=lambda: _CAPS.rescan() if _CAPS is not None else None))
+
+        def _skills(self, path, post):
+            """Install, remove, turn on and off, update of skills (serve/skills_api.py). An address may be a folder of this PC and an installation runs programs on it, so only this PC may use it."""
+            if not settings.is_loopback(self.client_address[0]):
+                if post:
+                    self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "skills are installed only on the PC the server runs on"}})
+            req: dict = {}
+            if post:
+                try:
+                    req = json.loads(self._body(1 << 16) or b"{}")
+                except BadBody as e:
+                    return self._json(e.status, {"error": {"message": str(e)}})
+                except ValueError:
+                    return self._json(400, {"error": {"message": "send a JSON object"}})
+                if not isinstance(req, dict):
+                    return self._json(400, {"error": {"message": "send a JSON object"}})
+            code, obj = self._skills_api().route("POST" if post else "GET", path, req)
             self._json(code, obj)
 
         def _rea(self, path, post):

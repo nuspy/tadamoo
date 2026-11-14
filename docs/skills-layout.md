@@ -2,12 +2,14 @@
 
 ## Where
 
-All skills are written in **one source folder**, `E:\AI\skills` by default (`TADAMOO_SKILLS` or `--skills-dir` change it). Never in a temporary folder. The harness does not read that folder: the importer
-(`docs/import.md`) makes copies of what it holds in `%APPDATA%\TaDaMoo\` (the skills in the capabilities space, the personal skills in `personal-skills\`, the plans in the planner), and the harness runs from
-the copies. `E:\AI\skill` (singular) is a third-party repository and is not touched.
+The skills that ship with the program are written in the repository's `skills/` folder, with the list `skills/builtin.json`. The harness does not read that folder: the skill manager
+(`docs/skills-manager.md`) installs what the person chooses by making copies of it with the importer (`docs/import.md`) in `%APPDATA%\TaDaMoo\` (the skills in the capabilities space, the
+personal skills in `personal-skills\`, the plans in the planner), and the harness runs from the copies. A skill is installed, turned off or removed in Settings > Skills, with
+`/install-skill`, or with `python -m tadamoo.skillmanager`; nothing is installed that was not asked for. Skills from elsewhere (a folder, a GitHub address, a web page) are installed the
+same way. Never in a temporary folder. `E:\AI\skill` (singular) is a third-party repository and is not touched.
 
 ```
-E:\AI\skills  image-generation\   SKILL.md, scripts\                  pictures from words                          (code: tadamoo/media)
+skills\  image-generation\   SKILL.md, scripts\                  pictures from words                          (code: tadamoo/media)
   image-editing\      SKILL.md, scripts\                  edits and restyles from reference photographs (code: tadamoo/media)
   video-generation\   SKILL.md, references\, scripts\  clips from words or a picture, smoother and larger copies (code: tadamoo/media)
   talking-head\       SKILL.md, references\, scripts\  a still that speaks a recording                (code: tadamoo/media)
@@ -16,12 +18,11 @@ E:\AI\skills  image-generation\   SKILL.md, scripts\                  pictures f
   video-editing\      SKILL.md, references\, scripts\  virtual camera, overlays, joins, seams       (code: tadamoo/videoedit)
   news-research\      SKILL.md, scripts\research.py       the investigative procedure and its guardrails (rules: tadamoo/research)
   plugins\ai-newscast\  plugin.json, README.md, skills\ai-newscast\ (SKILL.md, skill.json, skill.py), plans\, parameters\
-  builtin.json           the catalogue of the built-in skills the setup offers (docs/import.md)
+  builtin.json           what ships: the data of the list the manager offers (docs/skills-manager.md)
 ```
 
-The sources are in the repository, `skills/`; `python -m tadamoo.newscast install-skill` copies them into the source folder and hands the folder to the importer
-(`migrate(Importer(Spaces.from_data(data)), skills_dir, update=True)`): skills and the plugin with its parts and dependencies become copies, a changed source is re-imported, the folder is taken out of
-`skill_dirs`. It can be run again: it replaces what it copied and imports nothing twice.
+Installing the newscast brings the skills it requires (a plugin names them in `dependencies`, and the catalogue says the same in `requires`); each is a separate skill that can also be installed
+alone, and its models are downloaded with it.
 
 ## The format of a skill
 

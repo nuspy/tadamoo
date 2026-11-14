@@ -482,13 +482,14 @@ sealed class Installer
     {
         // The chosen skills become copies in the user's data folder; a failure is told and does not stop the setup (they can be installed later with the same command).
         string choice = o.Skills ?? "";
-        string what = choice == "none" ? "--none" : choice == "all" ? "--all" : choice.Replace(',', ' ');
+        string what = choice == "all" ? "--all-builtin" : choice.Length == 0 ? "--defaults" : choice.Replace(',', ' ');
         if (choice.Length > 0 && choice != "none" && !choice.Replace(",", "").All(c => char.IsLetterOrDigit(c) || c == '-')) throw new Exception("--skills: all | none | NAME,NAME");
         if (choice == "none") { log.Line(Tr.T("Nessuna skill inclusa richiesta.", "No built-in skills asked for.")); return; }
-        if (o.DryRun) { log.Line($"would run: {VenvPy} -m tadamoo.importer builtin install {(choice.Length == 0 ? "(the ones the catalogue ticks)" : what)}"); return; }
-        int code = Run(VenvPy, "-m tadamoo.importer builtin install " + what, o.Root, 600000);
-        if (code != 0) log.Line(Tr.T($"Avviso: le skill incluse non sono state installate (codice {code}): si possono installare dopo con 'python -m tadamoo.importer builtin install'.",
-                                     $"Warning: the built-in skills were not installed (code {code}): they can be installed later with 'python -m tadamoo.importer builtin install'."));
+        // Only the copies are made here; the models of a skill are downloaded later from Settings > Skills (or `models NAME`), where the size is shown first.
+        if (o.DryRun) { log.Line($"would run: {VenvPy} -m tadamoo.skillmanager install {what} --no-models"); return; }
+        int code = Run(VenvPy, "-m tadamoo.skillmanager install " + what + " --no-models", o.Root, 600000);
+        if (code != 0) log.Line(Tr.T($"Avviso: le skill incluse non sono state installate (codice {code}): si possono installare dopo da Impostazioni > Skill o con 'python -m tadamoo.skillmanager install'.",
+                                     $"Warning: the built-in skills were not installed (code {code}): they can be installed later from Settings > Skills or with 'python -m tadamoo.skillmanager install'."));
     }
 
     void Compile()

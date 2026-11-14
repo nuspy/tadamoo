@@ -1,12 +1,11 @@
-"""The layout of the skills and the newscast plugin: every skill has its SKILL.md, the plugin's dependencies exist, the plan template is a valid plan with its approval before the rendering,
-and the install puts everything where the person's skills live and can be run again."""
+"""The layout of the skills and the newscast plugin: every skill has its SKILL.md, the plugin's dependencies exist, the plan template is a valid plan with its approval before the rendering
+(what is installed, and how, is tests/test_skillmanager.py)."""
 import json
 from pathlib import Path
 
 import pytest
 
 from tadamoo import capabilities
-from tadamoo.newscast import __main__ as cli
 from tadamoo.planner.dag import PlanDAG
 
 SKILLS = Path(__file__).resolve().parents[1] / "skills"
@@ -76,54 +75,3 @@ def test_no_skill_refers_to_a_temporary_folder():
         if f.is_file() and f.suffix in (".md", ".py", ".json"):
             text = f.read_text(encoding="utf-8")
             assert "c:\temp" not in text.lower() and "scratchpad" not in text and "appdata" not in text.lower().replace("%appdata%", ""), f
-
-
-def ready(skill, settings):
-    return {"skill": skill, "ready": True, "ran": 0}
-
-
-def test_a_skill_not_ticked_is_not_installed_and_a_named_one_is_imported_and_its_models_downloaded(tmp_path, capsys):
-    data, skills, asked = tmp_path / "data", tmp_path / "skills", []
-    assert cli.install_skill(data, skills, installer=lambda skill, settings: asked.append(skill) or ready(skill, settings)) == 0
-    first = json.loads(capsys.readouterr().out)
-    assert not (skills / "video-modification").exists() and "video-modification" not in asked
-    assert "skill:video-modification" not in {r["item"] for r in first["import"]["imported"]}
-    assert cli.install_skill(data, skills, ["video-modification"], installer=lambda skill, settings: asked.append(skill) or ready(skill, settings)) == 0
-    second = json.loads(capsys.readouterr().out)
-    assert (skills / "video-modification" / "SKILL.md").is_file() and "video-modification" in asked
-    assert "skill:video-modification" in {r["item"] for r in second["import"]["imported"]}
-
-
-def test_the_install_copies_to_the_source_folder_and_the_importer_makes_the_copies_the_harness_runs_from(tmp_path, capsys):
-    data, skills = tmp_path / "data", tmp_path / "skills"
-    assert cli.install_skill(data, skills, installer=ready) == 0
-    first = json.loads(capsys.readouterr().out)
-    for name in REUSABLE:
-        assert (skills / name / "SKILL.md").is_file()
-    assert (skills / "plugins" / "ai-newscast" / "plugin.json").is_file() and not (skills / "personal").exists()
-    imported = {r["item"] for r in first["import"]["imported"]}
-    assert "plugin:ai-newscast" in imported and {f"skill:{n}" for n in REUSABLE} <= imported and not first["import"]["conflicts"]
-    assert (data / "personal-skills" / "ai-newscast" / "skill.py").is_file()                 # the runnable copy lives in the user data folder, not in the source folder
-    assert not (data / "personal-skills-dir.json").exists()
-    assert cli.install_skill(data, skills, installer=ready) == 0
-    again = json.loads(capsys.readouterr().out)
-    assert not again["import"]["imported"] and not again["import"]["updated"]              # nothing changed: nothing imported twice
-
-
-def test_the_imported_copy_of_the_skill_finds_the_skills_it_uses(tmp_path, capsys, monkeypatch):
-    import importlib.util
-    import sys
-    import types
-    data, skills = tmp_path / "data", tmp_path / "skills"
-    assert cli.install_skill(data, skills, installer=ready) == 0
-    capsys.readouterr()
-    stub = types.ModuleType("tadamoo_skill")
-    stub.tool = stub.ai = stub.say = lambda *a, **k: None
-    monkeypatch.setitem(sys.modules, "tadamoo_skill", stub)
-    monkeypatch.delitem(sys.modules, "research", raising=False)
-    copy = data / "personal-skills" / "ai-newscast" / "skill.py"
-    monkeypatch.setattr(sys, "argv", ["entry.py", str(copy), "context.json"])
-    spec = importlib.util.spec_from_file_location("imported_newscast_skill", copy)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    assert module.find_skill("news-research") == data / "capabilities" / "imported" / "skills" / "news-research"

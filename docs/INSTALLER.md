@@ -50,10 +50,10 @@ and the internet the first time (Python installer from python.org, wheels from P
   5. asks which **built-in skills** to install (a page that lists `skills/builtin.json`, with their summaries; a skill
      ticks what it requires; picture generation, photo editing, video generation with its smoother and larger
      copies, talking head, video editing, speech, news research and the newscast are separate entries) and imports
-     the chosen ones with `python -m tadamoo.importer builtin install` (copies in the user data folder; a failure is
+     the chosen ones with `python -m tadamoo.skillmanager install ... --no-models` (copies in the user data folder; a failure is
      only logged). `--skills all|none|NAME,NAME` answers instead of the page; with `--no-ui` and no `--skills` the
-     ticked-by-default ones are installed. The models of a skill are not downloaded here: the skill checks for them
-     and says how to install only the missing ones (`python -m tadamoo.media.components check SKILL`);
+     ticked-by-default ones are installed. The models of a skill are not downloaded here: Settings > Skills says what each one
+     weighs and downloads the missing ones when the person presses the button (`docs/skills-manager.md`);
   6. creates `logs\` writable for users and lets users **create** files in the folder root (`tadamoo.pid`,
      `tadamoo_config.json`); programs, scripts and libraries stay read-only for users;
   7. precompiles `serve\` (the folder is not writable afterwards), then removes `setup\`.

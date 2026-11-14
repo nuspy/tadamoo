@@ -120,20 +120,19 @@ Run it with `--dry-run` first. The folder is not changed. Running it again impor
 
 ## The built-in skills
 
-`skills/builtin.json` lists the skills that ship with the program: name, kind (skill or plugin), group, whether the setup ticks it, what it requires, a title and a summary in English and Italian.
-`python -m tadamoo.importer builtin list` shows them with whether each is imported; `builtin install NAME ...` imports the named ones and what they require (a choice of nothing imports nothing,
-`--all` every one, no name the ones ticked by default). It uses the same checks and copies as any import and can be run again. The setup asks the person with a page of tick boxes and runs it
-(`docs/INSTALLER.md`). Code: `tadamoo/importer/builtin.py`; tests: `tests/test_builtin_skills.py`.
+What ships with the program (`skills/builtin.json`) and what is installed, turned on or off and removed from it, from a folder, a GitHub address or a web page, is the skill
+manager's: `docs/skills-manager.md` (Settings > Skills, `/install-skill`, `python -m tadamoo.skillmanager`). It makes its copies with this service; `reimport` takes a `source` to read in
+place of the recorded one (and records it), which is how a copy is brought up to the program's folder or to a re-read address.
 
 ## Code
 
 `tadamoo/importer/`: `common.py` (the scan, the hash, the transaction, the manifest), `skills.py`, `plugins.py`, `mcp.py`, `plans.py`,
-`service.py` (the four operations), `migrate.py`, `__main__.py`. The routes are in `serve/import_api.py`, the page in
+`service.py` (the four operations), `migrate.py`, `__main__.py`. The manager's code is in `tadamoo/skillmanager/`. The routes are in `serve/import_api.py`, the page in
 `serve/web/imported.js`. Tests: `tests/test_importer.py`, `tests/test_importer_migrate.py`, `tests/test_import_api.py`.
 
 ## From other code
 
-A command that installs something (for example the newscast skills) does not copy into the settings itself; it hands a folder to the service:
+A command that installs a folder of skills does not copy into the settings itself; it hands the folder to the service (what ships with the program and what the person installs go through the skill manager, which does the same):
 
 ```python
 from serve import userdata
