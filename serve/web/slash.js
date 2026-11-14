@@ -64,6 +64,7 @@
     { name: "reload-mcp", run: rest => server("reload-mcp", rest) },
     { name: "reload-skills", run: async rest => { skillsAt = 0; await loadSkills(); server("reload-skills", rest); } },
     { name: "reload-plugins", run: async rest => { skillsAt = 0; await loadSkills(); server("reload-plugins", rest); } },
+    { name: "install-skill", args: "[address | name | list | on|off|remove|update name]", run: rest => installSkill(rest) },
     { name: "memory", args: "[search]", run: rest => server("memory", rest) },
     { name: "rag", alias: ["knowledge"], args: "[name | off [name]]", run: rest => ragCommand(rest) },
     { name: "copy", args: "[n]", run: async rest => {
@@ -159,6 +160,24 @@
       default: note(T("sl.rag.none", name));
     }
   }
+
+  /* ---- /install-skill: the panel of Settings > Skills (serve/web/skills.js), in the conversation; with no conversation, the Settings tab itself ---- */
+  function installSkill(rest) {
+    const S = window.skillsUi;
+    if (!S) return;
+    if (!(A() && A().active())) {
+      goTo("settings");
+      setTimeout(() => { const b = $("#sub-skills"); if (b) b.click(); S.openTab(rest); }, 0);
+      return;
+    }
+    const host = mk("div", "sk-chat"), panel = S.mount(host, { origin: "chat", compact: true });
+    note(T("sl.skills.title"), () => host);
+    panel.command(rest);
+  }
+  document.addEventListener("tadamoo:skills", e => {                       // what is installed or turned on changed: the menu below learns it, and so does the conversation that asked
+    skillsAt = 0; loadSkills();
+    if (e.detail && e.detail.origin === "chat" && A() && A().active() && A().current()) A().runOnServer("reload-skills", "");
+  });
 
   /* ---- skills found on this PC: /name asks for one ---- */
   let skills = [], skillsAt = 0;

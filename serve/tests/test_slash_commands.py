@@ -81,6 +81,28 @@ class SlashCommandsTest(unittest.TestCase):
         self.assertIn("/clear /new /reset", r["help"])
         self.assertIn("/research /search <question>", r["help"])
 
+    def test_install_skill_draws_the_skills_panel_in_the_conversation_and_hands_it_the_words(self):
+        r = self.r
+        self.assertEqual(r["menu"][0], "install-skill")                                       # typed "install", it comes first
+        done, off, bare, mounts, words, notes = r["skillCmd"]
+        self.assertEqual((done, off, bare), (True, True, True))
+        self.assertEqual(words, ["https://github.com/o/r", "off news-research", ""])
+        self.assertEqual([m["cls"] for m in mounts], ["sk-chat"] * 3)
+        self.assertEqual({m["origin"] for m in mounts}, {"chat"})
+        self.assertTrue(all(m["compact"] for m in mounts))
+        self.assertEqual(len(notes), 3)                                                       # one note each, holding the panel
+
+    def test_without_a_conversation_install_skill_opens_the_settings_tab_with_the_same_words(self):
+        done, hash_, clicks, told, mounted = self.r["skillNoChat"]
+        self.assertEqual((done, hash_, clicks, told, mounted), (True, "settings", 1, ["video-modification"], 0))
+
+    def test_what_the_panel_changed_reaches_the_conversation_that_asked_for_it(self):
+        self.assertEqual(self.r["skillReload"], [["reload-skills", ""]])                  # from the chat; the Settings tab's change does not touch the conversation
+
+    def test_the_help_lists_install_skill(self):
+        self.assertIn("/install-skill", self.r["help"])
+
+
 
 class ModeLabelWiringTest(unittest.TestCase):
     html = (WEB / "index.html").read_text(encoding="utf-8")

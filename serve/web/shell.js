@@ -79,6 +79,7 @@
       { label: T("pal.set.lang"), group: T("pal.g.settings"), run: settingsAt("st-lang-h", "general") },
       { label: T("pal.set.ui"), group: T("pal.g.settings"), run: settingsAt("st-ui-h", "general") },
       { label: T("pal.set.folders"), group: T("pal.g.settings"), run: settingsAt("st-models", "models") },
+      { label: T("pal.set.skills"), group: T("pal.g.settings"), run: settingsAt("sk-h", "skills") },
       { label: T("pal.set.cloud"), group: T("pal.g.settings"), run: settingsAt("st-planner-h", "privacy") },
       { label: T("pal.set.mobile"), group: T("pal.g.settings"), run: settingsAt("mb-h", "mobile") },
       { label: T("pal.set.memories"), group: T("pal.g.settings"), run: settingsAt("me-h", "memories") },

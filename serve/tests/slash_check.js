@@ -28,7 +28,7 @@ $("#chatset").hidden = true;
 $("#chat-model").textContent = "Qwen3.8-Flash";
 
 const docListeners = {};
-const log = { sent: [], notes: [], server: [], perm: [], navigated: [], stopped: 0, fetches: [] };
+const log = { sent: [], notes: [], server: [], perm: [], navigated: [], stopped: 0, fetches: [], mounts: [], skillCmds: [], tab: [] };
 const agentChat = {
   active: () => agentChat._active, _active: true, current: () => agentChat._sid, _sid: "s1",
   note: (plain, build) => log.notes.push({ plain, text: build ? build().textContent : plain }),
@@ -42,7 +42,8 @@ const ctx = {
   console, Event: class { constructor(t) { this.type = t; } }, CustomEvent: class { constructor(t, o) { this.type = t; this.detail = (o || {}).detail; } },
   document: { createElement: tag => new El(tag), addEventListener: (t, f) => { (docListeners[t] = docListeners[t] || []).push(f); }, dispatchEvent: e => { (docListeners[e.type] || []).forEach(f => f(e)); }, querySelectorAll: () => [] },
   location: { hash: "", search: "?lang=en" }, URLSearchParams, localStorage: { getItem() { return null; }, setItem() {} }, setTimeout, navigator: { clipboard: { writeText: async t => { log.copied = t; } } }, Date,
-  $, authHeaders: () => ({}), window: { agentChat, chatUi: { setPrompt: t => { $("#prompt").value = t; }, autosize() {} } },
+  $, authHeaders: () => ({}), window: { skillsUi: { mount: (host, opts) => { log.mounts.push({ cls: host.className, ...opts }); return { command: w => log.skillCmds.push(w) }; }, openTab: w => log.tab.push(w) },
+    agentChat, chatUi: { setPrompt: t => { $("#prompt").value = t; }, autosize() {} } },
   fetch: async url => { log.fetches.push(url); return { ok: true, json: async () => ({ entries: [
     { kind: "skill", id: "skill:deploy", name: "deploy", state: "approved", description: "Ship it" },
     { kind: "skill", id: "skill:draft", name: "draft", state: "approved", description: "Write drafts" },
@@ -94,5 +95,18 @@ const notes = () => log.notes.splice(0).map(n => n.text);
   out.failed = answer("status", null, false);
   out.help = (() => { slash.run("/help"); return log.notes.splice(0)[0].text; })();
   out.lang = ctx.LANG;
+  // /install-skill: with a conversation the panel of Settings > Skills is drawn in it and told the words; without one the Settings tab opens and is told
+  out.menu = slash.candidates("install").map(c => c.name);
+  out.skillCmd = [slash.run("/install-skill https://github.com/o/r"), slash.run("/install-skill off news-research"), slash.run("/install-skill"), log.mounts.splice(0), log.skillCmds.splice(0), notes()];
+  agentChat._active = false;
+  out.skillNoChat = [slash.run("/install-skill video-modification")];
+  await new Promise(r => setTimeout(r, 10));
+  out.skillNoChat.push(ctx.location.hash, $("#sub-skills").clicks, log.tab.splice(0), log.mounts.length);
+  agentChat._active = true;
+  // what changed in the panel reaches the conversation that asked, and not one that did not
+  log.server.splice(0);
+  ctx.document.dispatchEvent({ type: "tadamoo:skills", detail: { origin: "chat" } });
+  ctx.document.dispatchEvent({ type: "tadamoo:skills", detail: { origin: "tab" } });
+  out.skillReload = log.server.splice(0);
   console.log(JSON.stringify(out));
 })();
