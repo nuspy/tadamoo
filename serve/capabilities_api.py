@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from tadamoo import capabilities as cap
+from tadamoo import mcp_apps
 from tadamoo.discovery.candidates import CandidateStore
 from tadamoo.discovery.installed import InstalledStore
 from tadamoo.discovery import sources as src
@@ -43,7 +44,8 @@ class CapabilityApi:
             return {"entries": [{k: v for k, v in e.items() if k != "path"} for e in idx.entries],
                     "roots": {r: {"en": v["en"], "it": v["it"], "count": c} for (r, v), c in zip(cap.ROOTS.items(), (idx.counts()[r] for r in cap.ROOTS))},
                     "nodes": cap.node_names(), "visual_options": idx.visual_options(), "settings": idx.settings(),
-                    "tree_top": idx.top_of_tree(), "readable": str(idx.dir / "skills.md")}
+                    "tree_top": idx.top_of_tree(), "readable": str(idx.dir / "skills.md"),
+                    "apps_known": mcp_apps.default_cache().known(), "apps_defaults": mcp_apps.DEFAULTS}
 
     def rescan(self) -> Dict[str, Any]:
         with self._lock:
@@ -77,6 +79,11 @@ class CapabilityApi:
             if visual not in options:
                 raise CapabilityError("Choose one of the options in the list.", "bad_choice")
             changes["visual"] = visual
+        if "apps" in body:
+            given = body["apps"]
+            if not isinstance(given, dict):
+                raise CapabilityError("apps is an object with the choices.", "bad_apps")
+            changes["apps"] = mcp_apps.normalize_settings({**self.index.settings()["apps"], **given})
         if "off" in body:
             ids = body["off"]
             if not isinstance(ids, list) or any(not isinstance(i, str) for i in ids) or len(ids) > 2000:

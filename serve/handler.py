@@ -86,6 +86,8 @@ from tadamoo.rag import RagError, RagStore
 from tadamoo.personas import PersonaError, PersonaStore
 from tadamoo.context_patterns import catalog as context_patterns_catalog
 from serve.capabilities_api import CapabilityApi, CapabilityError
+from serve.mcp_apps_api import AppsApi, AppsApiError
+from serve.mcp_sandbox import SandboxOrigin
 from serve.intake_prefs import IntakeError, IntakePrefs
 from tadamoo.roles import CODING_ROLE, ROLE_IDS
 from serve.coding_prefs import CodingError, CodingPrefs
@@ -121,6 +123,7 @@ BENCH_GET = ("/api/bench", "/api/bench/preflight", "/api/bench/run", "/api/bench
 _MEM_WORKER = None                                    # learns from what the person wrote when the GPU is free
 _CARDS = None                                         # writes the card of each conversation when it has been quiet, and of the old ones when nothing else works
 _EXPORT = export_api.ExportApi()                      # turns a conversation into a file; holds a PDF page for the desktop app's print
+_APPS = None                                          # MCP Apps' side of the page, made on first use
 _CAPS = None                                          # the Settings page's side of capabilities, made on first use
 _IMPORT = None                                        # the import service's side (a test puts its own here), made on first use
 _REGISTER = None                                      # the register of open work (a test puts its own here), made on first use
@@ -696,6 +699,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/register":
                 if self._authorized():
                     self._register(path, False)
+            elif path == "/api/mcp-apps/config" or path.startswith("/api/mcp-apps/template/"):
+                if self._authorized():
+                    self._mcp_apps_get(path)
             elif path in ("/api/capabilities", "/api/capabilities/review", "/api/capabilities/online", "/api/capabilities/requests"):
                 if self._authorized():
                     self._capabilities_get(path)
@@ -2179,6 +2185,20 @@ def make_handler(svc: Service, remote: bool = False):
             if _CAPS is None:
                 _CAPS = CapabilityApi(userdata.path("capabilities"), userdata.path("chat-workspace"))
             return _CAPS
+
+        def _mcp_apps(self) -> AppsApi:
+            global _APPS
+            if _APPS is None:
+                _APPS = AppsApi(SandboxOrigin(self.server.server_address[0]), lambda: self._caps().index.settings()["apps"])
+            return _APPS
+
+        def _mcp_apps_get(self, path):
+            try:
+                if path == "/api/mcp-apps/config":
+                    return self._json(200, self._mcp_apps().config())
+                return self._json(200, self._mcp_apps().template(path[len("/api/mcp-apps/template/"):]))
+            except AppsApiError as e:
+                return self._json(404, {"error": {"type": "mcp_apps", "message": str(e)}})
 
         def _capabilities_get(self, path):
             try:
@@ -3944,6 +3964,8 @@ def make_handler(svc: Service, remote: bool = False):
                         return self._json(200, mgr.delete(parts[1]))
                     if len(parts) == 3 and parts[2] == "command":
                         return self._json(200, mgr.slash(parts[1], req.get("name"), req.get("args", "")))
+                    if len(parts) == 3 and parts[2] == "app":
+                        return self._json(200, mgr.app_call(parts[1], req.get("op"), req.get("params")))
                     if len(parts) == 3 and parts[2] == "cancel":
                         return self._json(200, {"session": mgr.cancel(parts[1])})
                     if len(parts) == 3 and parts[2] == "resume":

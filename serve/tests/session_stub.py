@@ -222,6 +222,14 @@ for line in sys.stdin:
         save(data)
         busy["v"] = False
         emit({"event": "done", "tokens": next_tokens(), "turn": cmd.get("id"), "stop_reason": "final", "final": "echo: " + text})
+    elif name == "app":                                                     # a request of an MCP app's view: answered the way the real process would
+        op, params = cmd.get("op"), cmd.get("params") or {}
+        if op == "tools/call" and params.get("name") == "hang":
+            continue                                                       # never answered
+        if op == "tools/call" and params.get("name") == "refused":
+            emit({"event": "app_result", "id": cmd.get("id"), "ok": False, "code": -32000, "message": "Permission denied"})
+        else:
+            emit({"event": "app_result", "id": cmd.get("id"), "ok": True, "result": {"op": op, "params": params}})
     elif name == "skill":
         data["messages"].append({"role": "user", "content": cmd.get("display", "")})
         emit({"event": "accepted", "turn": cmd.get("id")})
