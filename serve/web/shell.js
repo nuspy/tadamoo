@@ -184,7 +184,12 @@
       const r = await fetch("api/loader/status", { cache: "no-store", headers: authHeaders() });
       if (r.ok) st = await r.json();
     } catch (e) { /* offline: the state pill says so */ }
-    const empty = st && !st.loaded && document.body.dataset.view !== "loader";
+    let remote = false;                                                          // a primary model that is not this server's: the chat and the plans answer through it
+    try {
+      const r = await fetch("api/llm", { cache: "no-store", headers: authHeaders() });
+      if (r.ok) { const s = await r.json(); remote = !!(s.primary && s.primary.id); }
+    } catch (e) { /* the notice then follows the local model alone */ }
+    const empty = st && !st.loaded && !remote && document.body.dataset.view !== "loader";
     notice.hidden = !empty;
     if (empty) {
       notice.querySelector("span").textContent = st.loading ? T("nm.loading") : T("nm.none");

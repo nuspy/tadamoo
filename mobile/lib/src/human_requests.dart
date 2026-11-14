@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import 'api.dart';
 import 'i18n.dart';
@@ -26,6 +25,8 @@ class HumanRequest {
     this.promptEn = '',
     this.help = '',
     this.helpEn = '',
+    this.group = '',
+    this.groupEn = '',
     this.content = '',
     this.kind = 'text',
     this.choices = const [],
@@ -44,6 +45,8 @@ class HumanRequest {
         promptEn: '${j['prompt_en'] ?? ''}',
         help: '${j['help'] ?? ''}',
         helpEn: '${j['help_en'] ?? ''}',
+        group: '${j['group'] ?? ''}',
+        groupEn: '${j['group_en'] ?? ''}',
         content: '${j['content'] ?? ''}',
         kind: '${j['kind'] ?? 'text'}',
         other: j['other'] == true,
@@ -55,7 +58,7 @@ class HumanRequest {
         ],
       );
 
-  final String planId, planTitle, nodeId, title, ask, prompt, promptEn, help, helpEn, content, kind;
+  final String planId, planTitle, nodeId, title, ask, prompt, promptEn, help, helpEn, group, groupEn, content, kind;
   final List<HumanChoice> choices;
   final bool other;
   final int index;
@@ -70,9 +73,10 @@ class HumanRequest {
 
   String get question => Texts.language == 'en' ? (promptEn.isEmpty ? prompt : promptEn) : (prompt.isEmpty ? promptEn : prompt);
   String get explanation => Texts.language == 'en' ? (helpEn.isEmpty ? help : helpEn) : (help.isEmpty ? helpEn : help);
+  String get heading => Texts.language == 'en' ? (groupEn.isEmpty ? group : groupEn) : (group.isEmpty ? groupEn : group);
 }
 
-/// The requests of one plan that are asking now, in the order of the plan: one path of questions.
+/// The requests of one plan that are asking now, ALL of them, in the order of the plan: one list.
 class HumanGroup {
   HumanGroup(this.planId, this.planTitle, this.items);
   final String planId, planTitle;
@@ -89,10 +93,10 @@ class HumanGroup {
   }
 }
 
-/// The path through the questions: step i of n is a question, step n is the summary. `answers` start with what the plan proposes. The answer to a task is
+/// The answers of a list of questions. They start with what the plan proposes (or what was answered the last time). The answer to a task is
 /// `{'state': 'done' | 'later', 'note': text}`.
-class HumanPath {
-  HumanPath(this.items, [Map<String, Object?>? before])
+class HumanForm {
+  HumanForm(this.items, [Map<String, Object?>? before])
       : answers = {
           for (final r in items)
             if (before != null && before.containsKey(r.nodeId)) r.nodeId: before[r.nodeId] else if (r.proposed != null) r.nodeId: r.proposed,
@@ -106,10 +110,6 @@ class HumanPath {
 
   /// The questions of more than two choices whose answer is being written (the menu's "Other, I write").
   final Set<String> other = {};
-  int step = 0;
-  bool fromSummary = false;
-
-  bool get inSummary => step >= items.length;
 
   /// A menu of more than two choices that offers Other, with an answer that is not one of the choices.
   static bool writing(HumanRequest r, Object? v) => r.other && v != null && '$v'.isNotEmpty && !r.choices.any((c) => c.value == '$v');
@@ -138,29 +138,8 @@ class HumanPath {
     return null;
   }
 
-  /// Goes on if the answer is good (after a change made from the summary, straight back to it); else says what is wrong.
-  String? next() {
-    if (inSummary) return null;
-    final bad = problem(items[step]);
-    if (bad != null) return bad;
-    final r = items[step];
-    if (!r.approve && !r.task) answers[r.nodeId] = '${answers[r.nodeId]}'.trim();
-    step = fromSummary ? items.length : step + 1;
-    fromSummary = false;
-    return null;
-  }
-
-  void prev() {
-    if (step > 0) step -= 1;
-    fromSummary = false;
-  }
-
-  void edit(int i) {
-    step = i;
-    fromSummary = true;
-  }
-
-  int get firstMissing => items.indexWhere((r) => problem(r) != null);
+  /// The questions that have no good answer yet.
+  List<HumanRequest> get unanswered => [for (final r in items) if (problem(r) != null) r];
 
   /// Sets the answer of a task: whether it is done or cannot be now, and its note.
   void setTask(HumanRequest r, {String? state, String? note}) {
@@ -168,7 +147,7 @@ class HumanPath {
     answers[r.nodeId] = {'state': state ?? v['state'], 'note': note ?? v['note'] ?? ''};
   }
 
-  /// The answers as the PC takes them: step id -> `true`/`false`, the text, or for a task `{done: true, note}`. A task that cannot be done now is left out.
+  /// The answers as the PC takes them, all together: step id -> `true`/`false`, the text, or for a task `{done: true, note}`. A task that cannot be done now is left out.
   Map<String, Object> get payload {
     final out = <String, Object>{};
     for (final r in items) {
@@ -176,7 +155,8 @@ class HumanPath {
         final v = _task(r);
         if (v['state'] == 'done') out[r.nodeId] = {'done': true, 'note': '${v['note'] ?? ''}'.trim()};
       } else {
-        out[r.nodeId] = answers[r.nodeId] as Object;
+        final v = answers[r.nodeId] as Object;
+        out[r.nodeId] = v is String ? v.trim() : v;
       }
     }
     return out;
@@ -185,28 +165,20 @@ class HumanPath {
   /// The tasks that cannot be done now: they come back in ten minutes.
   List<String> get notNow => [for (final r in items) if (r.task && _task(r)['state'] == 'later') r.nodeId];
 
-  String shown(HumanRequest r) {
-    final v = answers[r.nodeId];
-    if (r.task) {
-      final t = _task(r);
-      final note = '${t['note'] ?? ''}'.trim();
-      return t['state'] == 'later' ? Texts.t('hr.task.later') : t['state'] == 'done' ? Texts.t('hr.task.done') + (note.isEmpty ? '' : ': $note') : '';
-    }
-    if (r.approve) return v == true ? Texts.t('hr.answer.yes') : v == false ? Texts.t('hr.answer.no') : '';
-    if (r.kind == 'choice') {
-      for (final c in r.choices) {
-        if (c.value == v) return c.shown;
-      }
-    }
-    return '${v ?? ''}';
-  }
+  /// The list again, when the questions that are asking changed: the answers given stay.
+  HumanForm reconcile(List<HumanRequest> now) => HumanForm(now, answers);
+}
 
-  /// The path when the questions that are asking changed under it: the answers given stay, the step stays where it can.
-  HumanPath reconcile(List<HumanRequest> now) {
-    final fresh = HumanPath(now, answers);
-    fresh.step = step < now.length ? step : now.length;
-    return fresh;
+/// The items of the list with the heading to put before each, when the plan groups them and the group changes.
+List<(HumanRequest, String)> humanSections(List<HumanRequest> items) {
+  String? before;
+  final out = <(HumanRequest, String)>[];
+  for (final r in items) {
+    final head = r.heading;
+    out.add((r, head.isNotEmpty && head != before ? head : ''));
+    if (head.isNotEmpty) before = head;
   }
+  return out;
 }
 
 enum HumanOutcome { answered, later }
@@ -223,11 +195,11 @@ class HumanPoller {
   }) : clock = clock ?? DateTime.now;
 
   final Future<List<HumanRequest>> Function() fetch;
-  final Future<HumanOutcome> Function(HumanGroup group, HumanPath? draft) show;
+  final Future<HumanOutcome> Function(HumanGroup group, HumanForm? draft) show;
   final Duration every, snooze;
   final DateTime Function() clock;
   final Map<String, DateTime> _snoozed = {};
-  final Map<String, HumanPath> drafts = {};
+  final Map<String, HumanForm> drafts = {};
   Timer? _timer;
   bool _busy = false;
 
@@ -273,29 +245,31 @@ class HumanPoller {
   }
 }
 
-/// The window: one question at a time ("Question 3 of 22"), Back and Next (and a swipe, and the arrow keys of a keyboard), then the summary of all the answers
-/// with Edit for each and one Send for all of them. Two possible answers are two buttons; more are a menu with "Other, I write"; a step for the person is its
-/// description, a note and "I did it" / "I can't now". Later leaves it with the answers kept in `path`.
-class HumanWizardDialog extends StatefulWidget {
-  const HumanWizardDialog({super.key, required this.group, required this.send, this.draft, this.onPath});
+/// The window: all the questions of a plan in one scrolling list (full screen on a phone, a wide panel on a larger screen), under headings when the plan groups them, each with its
+/// explanation and its field; at the bottom, always in sight, one Send for all the answers with how many are not answered yet. Two possible answers are two buttons; more are a
+/// menu with "Other, I write"; a step for the person is its description, a note and "I did it" / "I can't now". Later leaves it with the answers kept in `form`.
+class HumanListDialog extends StatefulWidget {
+  const HumanListDialog({super.key, required this.group, required this.send, this.draft, this.onForm});
   final HumanGroup group;
-  final HumanPath? draft;
+  final HumanForm? draft;
 
   /// Sends all the answers together to the PC.
   final Future<void> Function(Map<String, Object> answers) send;
 
-  /// Called with the path as it is, so that Later can keep it.
-  final void Function(HumanPath path)? onPath;
+  /// Called with the form as it is, so that Later can keep it.
+  final void Function(HumanForm form)? onForm;
 
   @override
-  State<HumanWizardDialog> createState() => _HumanWizardDialogState();
+  State<HumanListDialog> createState() => _HumanListDialogState();
 }
 
 const _otherValue = '__other__';
 
-class _HumanWizardDialogState extends State<HumanWizardDialog> {
-  late HumanPath path;
-  final text = TextEditingController();
+class _HumanListDialogState extends State<HumanListDialog> {
+  late HumanForm form;
+  final controllers = <String, TextEditingController>{};
+  final keys = <String, GlobalKey>{};
+  final errors = <String, String>{};
   String? error;
   bool sending = false;
 
@@ -303,64 +277,43 @@ class _HumanWizardDialogState extends State<HumanWizardDialog> {
   void initState() {
     super.initState();
     final kept = widget.draft;
-    path = kept != null && kept.items.map((r) => r.nodeId).join('|') == widget.group.ids ? kept : HumanPath(widget.group.items, kept?.answers);
-    widget.onPath?.call(path);
-    _syncText();
+    form = kept != null && kept.items.map((r) => r.nodeId).join('|') == widget.group.ids ? kept : HumanForm(widget.group.items, kept?.answers);
+    widget.onForm?.call(form);
   }
 
   @override
   void dispose() {
-    text.dispose();
+    for (final c in controllers.values) {
+      c.dispose();
+    }
     super.dispose();
   }
 
-  HumanRequest? get current => path.inSummary ? null : path.items[path.step];
+  TextEditingController _controller(String id, String initial) => controllers.putIfAbsent(id, () => TextEditingController(text: initial));
 
-  bool _typing(HumanRequest? r) => r != null && !r.twoWays && !r.task && (r.kind != 'choice' || path.other.contains(r.nodeId));
-
-  void _syncText() {
-    final r = current;
-    if (r == null) {
-      text.text = '';
-    } else if (r.task) {
-      text.text = '${(path.answers[r.nodeId] as Map?)?['note'] ?? ''}';
-    } else {
-      text.text = _typing(r) ? '${path.answers[r.nodeId] ?? ''}' : '';
-    }
-  }
-
-  void _go(void Function() move) {
+  void _changed(HumanRequest r, VoidCallback change) {
     setState(() {
+      change();
+      errors.remove(r.nodeId);
       error = null;
-      move();
-      _syncText();
     });
-    widget.onPath?.call(path);
-  }
-
-  void _next() {
-    final r = current;
-    if (r != null && r.task) {
-      path.setTask(r, note: text.text);
-    } else if (_typing(r)) {
-      path.answers[r!.nodeId] = text.text;
-    }
-    final bad = path.next();
-    setState(() {
-      error = bad == null ? null : Texts.t(bad);
-      if (bad == null) _syncText();
-    });
-    widget.onPath?.call(path);
+    widget.onForm?.call(form);
   }
 
   Future<void> _send() async {
-    final bad = path.firstMissing;
-    if (bad >= 0) {
-      _go(() => path.edit(bad));
-      setState(() => error = Texts.t(path.problem(path.items[bad])!));
+    final open = form.unanswered;
+    if (open.isNotEmpty) {
+      setState(() {
+        for (final r in open) {
+          errors[r.nodeId] = Texts.t(form.problem(r)!);
+        }
+        error = Texts.t('hr.left', [open.length]);
+      });
+      final context = keys[open.first.nodeId]?.currentContext;
+      if (context != null) await Scrollable.ensureVisible(context, alignment: 0.2, duration: const Duration(milliseconds: 200));
       return;
     }
-    final body = path.payload;
+    final body = form.payload;
     if (body.isEmpty) {                                          // every step was "I can't now": nothing to send, they come back later
       Navigator.of(context).pop(HumanOutcome.answered);
       return;
@@ -384,53 +337,50 @@ class _HumanWizardDialogState extends State<HumanWizardDialog> {
 
   void _later() => Navigator.of(context).pop(HumanOutcome.later);
 
-  Widget _big(String label, VoidCallback? onPressed, {bool primary = false}) {
-    final style = ButtonStyle(minimumSize: WidgetStateProperty.all(const Size(48, 48)));
-    return primary ? FilledButton(onPressed: onPressed, style: style, child: Text(label)) : OutlinedButton(onPressed: onPressed, style: style, child: Text(label));
-  }
+  ButtonStyle get _big => ButtonStyle(minimumSize: WidgetStateProperty.all(const Size(48, 48)));
 
   /// Two buttons with the two answers in words; choosing one sends nothing.
-  Widget _twoButtons(List<(String, Object)> pairs, Object? on, void Function(Object) set) {
-    final style = ButtonStyle(minimumSize: WidgetStateProperty.all(const Size(48, 48)));
+  Widget _twoButtons(HumanRequest r, List<(String, Object)> pairs, Object? on, void Function(Object) set) {
     final buttons = <Widget>[];
     for (final (label, value) in pairs) {
       final chosen = on == value;
-      void pick() => setState(() {
-            set(value);
-            error = null;
-          });
+      void pick() => _changed(r, () => set(value));
       if (buttons.isNotEmpty) buttons.add(const SizedBox(width: 8));
-      buttons.add(Expanded(child: Semantics(selected: chosen, child: chosen ? FilledButton(onPressed: pick, style: style, child: Text(label)) : OutlinedButton(onPressed: pick, style: style, child: Text(label)))));
+      buttons.add(Expanded(child: Semantics(selected: chosen, child: chosen ? FilledButton(onPressed: pick, style: _big, child: Text(label)) : OutlinedButton(onPressed: pick, style: _big, child: Text(label)))));
     }
     return Row(children: buttons);
   }
 
   Widget _field(HumanRequest r) {
+    final id = r.nodeId;
     if (r.task) {
-      final state = (path.answers[r.nodeId] as Map?)?['state'];
+      final v = form.answers[id] as Map?;
+      final state = v?['state'];
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         TextField(
-          key: ValueKey('note-${r.nodeId}'),
-          controller: text,
+          controller: _controller('note-$id', '${v?['note'] ?? ''}'),
           minLines: 2,
           maxLines: 4,
           decoration: InputDecoration(border: const OutlineInputBorder(), labelText: Texts.t('hr.note')),
-          onChanged: (x) => path.setTask(r, note: x),
+          onChanged: (x) {
+            form.setTask(r, note: x);
+            widget.onForm?.call(form);
+          },
         ),
         const SizedBox(height: 10),
-        _twoButtons([(Texts.t('hr.done'), 'done'), (Texts.t('hr.cant'), 'later')], state, (v) => path.setTask(r, state: '$v', note: text.text)),
+        _twoButtons(r, [(Texts.t('hr.done'), 'done'), (Texts.t('hr.cant'), 'later')], state, (x) => form.setTask(r, state: '$x', note: controllers['note-$id']?.text)),
         if (state == 'later') Padding(padding: const EdgeInsets.only(top: 6), child: Text(Texts.t('hr.task.later.help'), style: Theme.of(context).textTheme.bodySmall)),
       ]);
     }
-    if (r.approve) return _twoButtons([(Texts.t('hr.yes'), true), (Texts.t('hr.no'), false)], path.answers[r.nodeId], (v) => path.answers[r.nodeId] = v);
+    if (r.approve) return _twoButtons(r, [(Texts.t('hr.yes'), true), (Texts.t('hr.no'), false)], form.answers[id], (x) => form.answers[id] = x);
     if (r.kind == 'choice' && r.choices.length == 2) {
-      return _twoButtons([for (final c in r.choices) (c.shown, c.value)], path.answers[r.nodeId], (v) => path.answers[r.nodeId] = v);
+      return _twoButtons(r, [for (final c in r.choices) (c.shown, c.value)], form.answers[id], (x) => form.answers[id] = x);
     }
     if (r.kind == 'choice') {
-      final v = '${path.answers[r.nodeId] ?? ''}';
-      final writing = path.other.contains(r.nodeId);
+      final v = '${form.answers[id] ?? ''}';
+      final writing = form.other.contains(id);
       final menu = DropdownButtonFormField<String>(
-        key: ValueKey('choice-${r.nodeId}-$writing'),
+        key: ValueKey('choice-$id-$writing'),
         initialValue: writing ? _otherValue : (r.choices.any((c) => c.value == v) ? v : null),
         hint: Text(Texts.t('hr.choice')),
         isExpanded: true,
@@ -438,15 +388,14 @@ class _HumanWizardDialogState extends State<HumanWizardDialog> {
           for (final c in r.choices) DropdownMenuItem(value: c.value, child: Text(c.shown)),
           if (r.other) DropdownMenuItem(value: _otherValue, child: Text(Texts.t('hr.other'))),
         ],
-        onChanged: (x) => setState(() {
-          error = null;
+        onChanged: (x) => _changed(r, () {
           if (x == _otherValue) {
-            path.other.add(r.nodeId);
-            path.answers[r.nodeId] = '';
-            text.text = '';
+            form.other.add(id);
+            form.answers[id] = '';
+            controllers['other-$id']?.text = '';
           } else {
-            path.other.remove(r.nodeId);
-            path.answers[r.nodeId] = x;
+            form.other.remove(id);
+            form.answers[id] = x;
           }
         }),
       );
@@ -455,141 +404,108 @@ class _HumanWizardDialogState extends State<HumanWizardDialog> {
         menu,
         const SizedBox(height: 10),
         TextField(
-          key: ValueKey('other-${r.nodeId}'),
-          controller: text,
+          controller: _controller('other-$id', v),
           autofocus: true,
           decoration: InputDecoration(border: const OutlineInputBorder(), labelText: Texts.t('hr.other.write')),
-          onChanged: (x) => path.answers[r.nodeId] = x,
-          onSubmitted: (_) => _next(),
+          onChanged: (x) => _changed(r, () => form.answers[id] = x),
         ),
       ]);
     }
     return TextField(
-      key: ValueKey('text-${r.nodeId}'),
-      controller: text,
-      autofocus: true,
+      controller: _controller('text-$id', '${form.answers[id] ?? ''}'),
       keyboardType: r.kind == 'number' ? const TextInputType.numberWithOptions(decimal: true) : TextInputType.text,
+      textInputAction: TextInputAction.next,
       decoration: InputDecoration(border: const OutlineInputBorder(), labelText: Texts.t('hr.value')),
-      onChanged: (x) => path.answers[r.nodeId] = x,
-      onSubmitted: (_) => _next(),
+      onChanged: (x) => _changed(r, () => form.answers[id] = x),
+    );
+  }
+
+  Widget _item(HumanRequest r, int number) {
+    final theme = Theme.of(context);
+    final key = keys.putIfAbsent(r.nodeId, GlobalKey.new);
+    final bad = errors[r.nodeId];
+    return Padding(
+      key: key,
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          SizedBox(width: 30, child: Text('$number', style: theme.textTheme.bodySmall)),
+          Expanded(child: Text(r.question, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600))),
+        ]),
+        if (r.explanation.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text(r.explanation, style: theme.textTheme.bodyMedium?.copyWith(color: theme.hintColor))),
+        if (r.content.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          if (r.task) Text(Texts.t('hr.task.what'), style: theme.textTheme.bodySmall),
+          Container(
+            constraints: const BoxConstraints(maxHeight: 160),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(border: Border.all(color: theme.dividerColor), borderRadius: BorderRadius.circular(6)),
+            child: SingleChildScrollView(child: SelectableText(r.content)),
+          ),
+        ],
+        const SizedBox(height: 8),
+        _field(r),
+        if (bad != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text(bad, style: TextStyle(color: theme.colorScheme.error))),
+        const Divider(height: 24),
+      ]),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    const gap = SizedBox(height: 10);
-    final r = current;
-    final n = path.items.length;
-    final children = <Widget>[Text(widget.group.planTitle, style: theme.textTheme.bodySmall)];
-    if (r != null) {
-      children.addAll([
-        Row(children: [
-          Text(Texts.t('hr.q', [path.step + 1, n]), style: theme.textTheme.bodySmall),
-          const SizedBox(width: 12),
-          Expanded(child: LinearProgressIndicator(value: (path.step + 1) / n)),
-        ]),
-        gap,
-        Text(r.question, style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600)),
-        if (r.explanation.isNotEmpty) ...[const SizedBox(height: 6), Text(r.explanation, style: theme.textTheme.bodyMedium?.copyWith(color: theme.hintColor))],
-        if (r.content.isNotEmpty) ...[
-          gap,
-          if (r.task) Text(Texts.t('hr.task.what'), style: theme.textTheme.bodySmall),
-          Container(
-            constraints: const BoxConstraints(maxHeight: 180),
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(border: Border.all(color: theme.dividerColor), borderRadius: BorderRadius.circular(6)),
-            child: SingleChildScrollView(child: SelectableText(r.content)),
-          ),
-        ],
-        gap,
-        _field(r),
-        if (error != null) ...[gap, Text(error!, style: TextStyle(color: theme.colorScheme.error))],
-        gap,
-        Row(children: [
-          Expanded(child: _big(Texts.t('hr.prev'), path.step == 0 ? null : () => _go(path.prev))),
-          const SizedBox(width: 8),
-          Expanded(child: _big(Texts.t('hr.next'), _next, primary: true)),
-        ]),
-      ]);
-    } else {
-      children.addAll([
-        gap,
-        Text(Texts.t('hr.review'), style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600)),
-        const SizedBox(height: 6),
-        Text(Texts.t('hr.review.help'), style: theme.textTheme.bodyMedium?.copyWith(color: theme.hintColor)),
-        gap,
-        for (var i = 0; i < n; i++)
-          Card(
-            margin: const EdgeInsets.symmetric(vertical: 3),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 6, 4, 6),
-              child: Row(children: [
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(path.items[i].question, style: theme.textTheme.bodySmall),
-                    Text(path.problem(path.items[i]) != null ? Texts.t(path.problem(path.items[i])!) : path.shown(path.items[i]), style: const TextStyle(fontWeight: FontWeight.w600)),
-                  ]),
-                ),
-                TextButton(
-                  style: ButtonStyle(minimumSize: WidgetStateProperty.all(const Size(48, 48))),
-                  onPressed: sending ? null : () => _go(() => path.edit(i)),
-                  child: Text(Texts.t('hr.edit')),
-                ),
-              ]),
-            ),
-          ),
-        if (error != null) ...[gap, Text(error!, style: TextStyle(color: theme.colorScheme.error))],
-        gap,
-        Row(children: [
-          Expanded(child: _big(Texts.t('hr.prev'), sending ? null : () => _go(path.prev))),
-          const SizedBox(width: 8),
-          Expanded(flex: 2, child: _big(Texts.t('hr.send'), sending ? null : _send, primary: true)),
-        ]),
-      ]);
+    final n = form.items.length;
+    final left = form.unanswered.length;
+    final wide = MediaQuery.of(context).size.width >= 600;
+    final children = <Widget>[];
+    var number = 0;
+    for (final (r, heading) in humanSections(form.items)) {
+      number += 1;
+      if (heading.isNotEmpty) {
+        children.add(Padding(padding: const EdgeInsets.only(top: 14), child: Text(heading, style: theme.textTheme.titleSmall?.copyWith(color: theme.colorScheme.primary, fontWeight: FontWeight.w700))));
+        children.add(const Divider(height: 10));
+      }
+      children.add(_item(r, number));
     }
-    children.addAll([
-      const SizedBox(height: 6),
-      TextButton(style: ButtonStyle(minimumSize: WidgetStateProperty.all(const Size(48, 48))), onPressed: sending ? null : _later, child: Text(Texts.t('hr.later'))),
-      Text(Texts.t('hr.later.help'), style: theme.textTheme.bodySmall),
-    ]);
-    final typing = _typing(r) || (r?.task ?? false);
+    final body = SafeArea(
+      child: Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(Texts.t('hr.title'), style: theme.textTheme.titleLarge),
+              Text(widget.group.planTitle, style: theme.textTheme.titleSmall),
+              Text(n == 1 ? Texts.t('hr.count.one') : Texts.t('hr.count', [n]), style: theme.textTheme.bodySmall),
+            ]),
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(child: ListView(padding: const EdgeInsets.symmetric(horizontal: 16), children: children)),
+        const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(left > 0 ? Texts.t('hr.left', [left]) : Texts.t('hr.left.none'), style: TextStyle(fontWeight: left > 0 ? FontWeight.w600 : FontWeight.w400)),
+            if (error != null) Text(error!, style: TextStyle(color: theme.colorScheme.error)),
+            const SizedBox(height: 8),
+            Row(children: [
+              Expanded(child: OutlinedButton(style: _big, onPressed: sending ? null : _later, child: Text(Texts.t('hr.later')))),
+              const SizedBox(width: 8),
+              Expanded(flex: 2, child: FilledButton(style: _big, onPressed: sending ? null : _send, child: Text(Texts.t('hr.send')))),
+            ]),
+          ]),
+        ),
+      ]),
+    );
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop && !sending) _later();
       },
-      child: CallbackShortcuts(
-        bindings: typing
-            ? const {}
-            : {
-                const SingleActivator(LogicalKeyboardKey.arrowRight): () {
-                  if (!path.inSummary && !sending) _next();
-                },
-                const SingleActivator(LogicalKeyboardKey.arrowLeft): () {
-                  if (path.step > 0 && !sending) _go(path.prev);
-                },
-              },
-        child: Focus(
-          autofocus: !typing,
-          child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onHorizontalDragEnd: (d) {
-              final v = d.primaryVelocity ?? 0;
-              if (sending) return;
-              if (v < -300 && !path.inSummary) _next();
-              if (v > 300 && path.step > 0) _go(path.prev);
-            },
-            child: Dialog(
-              insetPadding: const EdgeInsets.all(16),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 560),
-                child: SingleChildScrollView(padding: const EdgeInsets.all(16), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: children)),
-              ),
-            ),
-          ),
-        ),
-      ),
+      child: wide
+          ? Dialog(insetPadding: const EdgeInsets.all(16), child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 900), child: body))
+          : Dialog.fullscreen(child: body),
     );
   }
 }

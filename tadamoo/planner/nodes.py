@@ -24,6 +24,7 @@ PLAN_REF = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 CONTENT_MAX, ANSWER_MAX = 20000, 4000
 MAX_CHOICES, CHOICE_TEXT, HELP_MAX = 40, 120, 1000
 MAX_INNER, INNER_NAME, INNER_RESULT = 30, 60, 2000
+GROUP_MAX = 80                                            # the short heading a question or a task is listed under
 
 # kind of field -> what a page draws for it
 FIELD_KINDS = ("number", "integer", "text", "textarea", "expression", "name", "names", "options", "datetime", "choice", "json", "archives", "branches")
@@ -35,7 +36,8 @@ MODES = ("first", "all")                                                        
 
 NODE_SPECS: Dict[str, Dict[str, Any]] = {
     "action": {"family": "action", "auto": False, "summary": "A task for the agent or the person; it may name the inner steps it is made of, in order", "fields": [
-        {"name": "rag_archives", "kind": "archives", "max": MAX_ARCHIVES}, {"name": "steps", "kind": "names", "max": MAX_INNER}]},
+        {"name": "rag_archives", "kind": "archives", "max": MAX_ARCHIVES}, {"name": "steps", "kind": "names", "max": MAX_INNER},
+        {"name": "group", "kind": "text", "max": GROUP_MAX}, {"name": "group_en", "kind": "text", "max": GROUP_MAX}]},
     "sensor": {"family": "action", "auto": False, "summary": "Listens for an event and resolves when its condition holds", "fields": []},
     "decision": {"family": "flow", "auto": False, "summary": "Has several outcomes, each its own connector: the branches whose condition holds are taken", "fields": [
         {"name": "input", "kind": "expression", "max": 300, "hidden": True}, {"name": "mode", "kind": "choice", "choices": list(MODES), "default": "first"},
@@ -67,7 +69,8 @@ NODE_SPECS: Dict[str, Dict[str, Any]] = {
         {"name": "content", "kind": "textarea", "max": CONTENT_MAX},
         {"name": "into", "kind": "name"},
         {"name": "kind", "kind": "choice", "choices": ["text", "number", "choice"], "default": "text"}, {"name": "choices", "kind": "options", "max": MAX_CHOICES},
-        {"name": "default", "kind": "json"}, {"name": "other", "kind": "json"}]},
+        {"name": "default", "kind": "json"}, {"name": "other", "kind": "json"},
+        {"name": "group", "kind": "text", "max": GROUP_MAX}, {"name": "group_en", "kind": "text", "max": GROUP_MAX}]},
     "start": {"family": "start", "auto": True, "summary": "Where a plan begins: its number, and how it starts (by the person, by an event, at intervals, from another plan)", "fields": [
         {"name": "number", "kind": "integer", "min": 1, "max": 99, "default": 1},
         {"name": "launch", "kind": "choice", "choices": list(LAUNCHES), "default": "manual"},
@@ -316,6 +319,10 @@ def clean_spec(node_type: Any, spec: Any, draft: bool = False) -> Dict[str, Any]
     if kind == "action":
         if _archives(spec, "rag_archives"):
             out["rag_archives"] = _archives(spec, "rag_archives")
+        for key in ("group", "group_en"):
+            text = _text(spec, key, GROUP_MAX)
+            if text:
+                out[key] = text
         steps = _names(spec, "steps", MAX_INNER)
         if steps:
             if any(len(x) > INNER_NAME for x in steps) or len(set(steps)) != len(steps):
@@ -393,7 +400,7 @@ def clean_spec(node_type: Any, spec: Any, draft: bool = False) -> Dict[str, Any]
         if ask == "value" and form == "choice" and (not choices or len(choices) < 2):
             raise PlanError("a question with choices needs at least two")
         out.update({"ask": ask, "prompt": prompt, **({"content": content} if content else {}), **({"into": into} if into else {})})
-        for key, limit in (("help", HELP_MAX), ("prompt_en", 300), ("help_en", HELP_MAX)):
+        for key, limit in (("help", HELP_MAX), ("prompt_en", 300), ("help_en", HELP_MAX), ("group", GROUP_MAX), ("group_en", GROUP_MAX)):
             text = _text(spec, key, limit)
             if text:
                 out[key] = text

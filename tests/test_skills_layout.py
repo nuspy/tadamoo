@@ -50,12 +50,16 @@ def test_the_plan_template_is_a_valid_plan_and_nothing_heavy_runs_before_an_appr
     data = json.loads((PLUGIN / "plans" / "ai-newscast.plan.json").read_text(encoding="utf-8"))
     dag = PlanDAG.from_dict(data)
     assert dag.target_type == "occasional" and not [n for n in dag.nodes.values() if n.type.value.startswith("wait")]
-    assert len([n for n in dag.nodes.values() if n.id.startswith("i_")]) == 22 and all(n.type.value == "input" and n.assignee.value == "user" for n in dag.nodes.values() if n.id.startswith("i_"))
+    questions = [n for n in dag.nodes.values() if n.id.startswith("i_")]
+    assert questions and all(n.type.value == "input" and n.assignee.value == "user" for n in questions)
+    starts = dag.start_nodes()
+    assert [s.id for s in starts] == ["start"] and starts[0].type.value == "start" and starts[0].spec == {"number": 1, "launch": "manual"}      # an explicit start node, not a step
+    assert starts[0].dependencies == [] and starts[0].status == "pending" and set(starts[0].outputs) == {n.id for n in questions}
+    assert all(n.dependencies == ["start"] and "clean" in n.outputs for n in questions)                    # asked when the plan starts; nothing runs before every one is answered
     assert dag.nodes["approval1"].assignee.value == "user" and dag.nodes["approval2"].assignee.value == "user"
-    assert dag.nodes["gate1"].routes["go"] == ["render1"] and dag.nodes["gate2"].routes["go"] == ["render_rest"]
+    assert dag.nodes["gate1"].routes["go"] == ["video"] and dag.nodes["gate2"].routes["go"] == ["done"]
     assert {"approval1", "auto1"} <= set(dag.nodes["gate1"].dependencies) and {"approval2", "auto2"} <= set(dag.nodes["gate2"].dependencies)      # the approval, or the answer given in its place
-    assert dag.nodes["approval2"].dependencies == ["need2"] and dag.nodes["need2"].dependencies == ["render1"] and dag.nodes["approval1"].dependencies == ["need1"]
-    assert len(dag.nodes["research"].inputs) == 22                                      # every question feeds the research step
+    assert dag.nodes["approval2"].dependencies == ["need2"] and dag.nodes["need2"].dependencies == ["video"] and dag.nodes["approval1"].dependencies == ["need1"]
     positions = [(n.position["x"], n.position["y"]) for n in dag.nodes.values()]
     assert len(set(positions)) == len(positions)                                     # no two steps on the same spot
 

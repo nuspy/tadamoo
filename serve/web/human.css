@@ -1,39 +1,44 @@
-/* The window of a plan's questions to the person: over every tab, on a phone as on a desktop. Colours are the app's own variables. */
-.hr-dialog { width: min(640px, 96vw); max-height: calc(94dvh / var(--z, 1)); padding: 0; border: 1px solid var(--accent); border-radius: 8px; background: var(--panel); color: var(--fg); overflow: auto; }
+/* The window of a plan's questions to the person: one list over every tab. Full screen on a phone, a wide panel on a desktop; the list scrolls, the bottom line stays.
+   Colours are the app's own variables. */
+.hr-dialog { width: min(900px, 96vw); height: min(92dvh, 1100px); max-height: calc(96dvh / var(--z, 1)); padding: 0; border: 1px solid var(--accent); border-radius: 8px; background: var(--panel); color: var(--fg); overflow: hidden; }
+.hr-dialog[open] { display: flex; }
 .hr-dialog::backdrop { background: rgba(0, 0, 0, .7); }
 .hr-dialog :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.hr-form { display: flex; flex-direction: column; gap: 10px; padding: 16px 20px max(20px, env(safe-area-inset-bottom)); padding-left: max(20px, env(safe-area-inset-left)); padding-right: max(20px, env(safe-area-inset-right)); }
+.hr-form { display: flex; flex-direction: column; width: 100%; min-height: 0; }
 .hr-form p { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
-.hr-plan { color: var(--fg-2); font-size: 14px; }
-.hr-progress { display: flex; align-items: center; gap: 12px; }
-.hr-count { color: var(--fg-2); font: 13px/1.2 var(--font-mono); white-space: nowrap; }
-.hr-bar { flex: 1; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
-.hr-fill { display: block; height: 100%; background: var(--accent); }
-.hr-q { margin: 0; font: 600 20px/1.35 var(--font-sans); overflow-wrap: anywhere; }
-.hr-helpline { color: var(--fg-2); font-size: 14px; }
+.hr-head { flex: none; padding: 14px 20px 10px; padding-top: max(14px, env(safe-area-inset-top)); padding-left: max(20px, env(safe-area-inset-left)); padding-right: max(20px, env(safe-area-inset-right)); border-bottom: 1px solid var(--line); }
+.hr-head h2 { margin: 0; font: 600 18px/1.3 var(--font-sans); }
+.hr-plan { font-weight: 600; }
+.hr-count { color: var(--fg-2); font-size: 14px; }
+.hr-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 20px 12px; padding-left: max(20px, env(safe-area-inset-left)); padding-right: max(20px, env(safe-area-inset-right)); }
+.hr-group { margin: 18px 0 2px; padding: 6px 0; font: 600 15px/1.3 var(--font-sans); color: var(--accent); border-bottom: 1px solid var(--line); text-transform: none; white-space: pre-line; position: sticky; top: 0; background: var(--panel); z-index: 1; }
+.hr-item { display: flex; flex-direction: column; gap: 8px; padding: 16px 0; border-bottom: 1px solid var(--line-soft, var(--line)); }
+.hr-qrow { display: flex; gap: 10px; align-items: flex-start; }
+.hr-n { flex: none; min-width: 28px; padding-top: 2px; color: var(--fg-2); font: 13px/1.5 var(--font-mono); }
+.hr-q { margin: 0; font: 600 19px/1.35 var(--font-sans); overflow-wrap: anywhere; white-space: pre-line; }
+.hr-helpline { color: var(--fg-2); font-size: 14px; white-space: pre-line; }
 .hr-lab { color: var(--fg-2); font-size: 14px; }
 .hr-content { margin: 0; padding: 10px 12px; max-height: 32dvh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.5 var(--font-mono); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
-.hr-field { width: 100%; min-height: 48px; padding: 8px 10px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+.hr-field { width: 100%; min-height: 48px; padding: 8px 10px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-sizing: border-box; }
 .hr-yesno { display: flex; gap: 8px; }
 .hr-yesno .hr-choice { flex: 1; }
 .hr-choice.on { background: var(--accent); color: #14181c; border-color: var(--accent); font-weight: 600; }
 .hr-task, .hr-menu { display: flex; flex-direction: column; gap: 10px; }
-.hr-task label { display: flex; flex-direction: column; gap: 6px; }
-.hr-note { resize: vertical; min-height: 84px; font: 400 16px/1.5 var(--font-sans); }
+.hr-note { resize: vertical; min-height: 64px; font: 400 16px/1.5 var(--font-sans); }
 .hr-err { color: var(--warn); }
-.hr-nav { display: flex; gap: 8px; margin-top: 6px; }
-.hr-nav .hr-btn { flex: 1; }
 .hr-btn { min-height: 48px; min-width: 48px; }
 .hr-btn[disabled] { opacity: .5; }
-.hr-keys { color: var(--fg-2); font-size: 13px; }
-.hr-later { align-self: flex-start; }
-.hr-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 46dvh; overflow: auto; }
-.hr-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; }
-.hr-row.bad { border-color: var(--warn); }
-.hr-rowtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.hr-rowq { color: var(--fg-2); font-size: 13px; overflow-wrap: anywhere; }
-.hr-rowa { overflow-wrap: anywhere; }
-.hr-edit { flex: none; }
-.hr-send { flex: 2; }
-@media (max-width: 480px) { .hr-q { font-size: 18px; } .hr-later { align-self: stretch; } }
+.hr-foot { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 20px max(14px, env(safe-area-inset-bottom)); padding-left: max(20px, env(safe-area-inset-left)); padding-right: max(20px, env(safe-area-inset-right)); border-top: 1px solid var(--accent); background: var(--panel); }
+.hr-left { font-weight: 600; }
+.hr-left[data-n="0"] { color: var(--fg-2); font-weight: 400; }
+.hr-nav { display: flex; gap: 8px; }
+.hr-nav .hr-later { flex: 1; }
+.hr-nav .hr-send { flex: 2; }
+@media (max-width: 600px) {
+  .hr-dialog { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; border: 0; margin: 0; }
+  .hr-q { font-size: 18px; }
+  .hr-list { padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }
+  .hr-head, .hr-foot { padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }
+}
+@media (max-height: 720px) { .hr-foot .hr-helpline { display: none; } }
 @media (prefers-reduced-motion: reduce) { .hr-dialog, .hr-dialog * { animation: none !important; transition: none !important; } }

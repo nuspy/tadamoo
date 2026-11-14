@@ -202,6 +202,13 @@ class MarkupTest(unittest.TestCase):
         self.assertIn("calc(100vh / var(--z, 1))", css)                    # the zoomed body still fills the window exactly
         self.assertIn("prefers-reduced-motion", css)
 
+    def test_the_no_model_notice_is_not_shown_when_the_primary_model_is_a_remote_one(self):
+        shell = (WEB / "shell.js").read_text(encoding="utf-8")
+        body = shell.split("async function checkModel()", 1)[1].split("document.addEventListener", 1)[0]
+        self.assertIn('fetch("api/llm"', body)
+        self.assertIn("s.primary && s.primary.id", body)
+        self.assertIn("!st.loaded && !remote", body)
+
     def test_plan_text_is_never_inserted_as_markup(self):
         for name in NEW_SCRIPTS:
             text = (WEB / name).read_text(encoding="utf-8")
