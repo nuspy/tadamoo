@@ -27,6 +27,7 @@ from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from tadamoo.integrations._http import _OPENER
+from tadamoo.mcp_apps import APP_CALL, EXTENSION_ID, MIME, visible_to
 from tadamoo.mcp_oauth import AuthRequired
 from tadamoo.sandbox import safe_environment
 from tadamoo.tools.registry import EXTERNAL, EffectClass, ToolArgumentError, ToolRegistry, validate_arguments
@@ -190,6 +191,8 @@ class _Client:
         self.elicit: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None     # answers a server's request for input from the person: params -> {"action", "content"}
         self._asking = 0                                  # requests for input being answered, whose waiting is not the server's time
         self.task_tools: set = set()                      # tools the server runs only as a task
+        self.app_extension = False                        # this connection offers MCP Apps (docs/mcp-apps.md): set before the handshake
+        self._raw = threading.local()                     # the whole result of the last tool call of each thread
 
     def send_request(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None) -> Dict[str, Any]:
         raise NotImplementedError
@@ -198,7 +201,16 @@ class _Client:
         raise NotImplementedError
 
     def client_capabilities(self) -> Dict[str, Any]:
-        return {"elicitation": {"form": {}}} if self.elicit is not None else {}
+        caps: Dict[str, Any] = {"elicitation": {"form": {}}} if self.elicit is not None else {}
+        if self.app_extension:
+            caps["extensions"] = {EXTENSION_ID: {"mimeTypes": [MIME]}}
+        return caps
+
+    @property
+    def server_apps(self) -> Optional[Dict[str, Any]]:
+        """What the server says of MCP Apps in its own capabilities (`extensions`), None when it does not."""
+        found = (self.capabilities.get("extensions") or {}).get(EXTENSION_ID) if isinstance(self.capabilities.get("extensions"), dict) else None
+        return found if isinstance(found, dict) else None
 
     def modern_meta(self) -> Dict[str, Any]:
         return {META_VERSION: MODERN_VERSION, META_INFO: CLIENT_INFO, META_CAPS: self.client_capabilities()}
@@ -333,10 +345,32 @@ class _Client:
             res = self._call_as_task(name, arguments, limit)
         else:
             res = self.request("tools/call", {"name": name, "arguments": arguments}, limit)
+        self._raw.value = res                              # kept for an app that shows it (take_raw)
         text = flatten_result(res)
         if res.get("isError"):
             raise MCPToolError(text or f"The tool '{name}' reported an error")
         return text
+
+    def take_raw(self) -> Optional[Dict[str, Any]]:
+        """The whole result (content, structuredContent, isError, _meta) of the last tool call this thread made, once."""
+        res, self._raw.value = getattr(self._raw, "value", None), None
+        return res
+
+    def read_resource(self, uri: str) -> Dict[str, Any]:
+        return self.request("resources/read", {"uri": uri})
+
+    def list_resources(self) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        cursor: Optional[str] = None
+        seen: set = set()
+        for _ in range(MAX_PAGES):
+            res = self.request("resources/list", {"cursor": cursor} if cursor else {})
+            out.extend(r for r in res.get("resources", []) if isinstance(r, dict))
+            cursor = res.get("nextCursor")
+            if not isinstance(cursor, str) or not cursor or cursor in seen:
+                break
+            seen.add(cursor)
+        return out
 
     def _offers_tasks(self) -> bool:
         tools = ((self.capabilities.get("tasks") or {}).get("requests") or {}).get("tools") or {}
@@ -371,6 +405,8 @@ class _Client:
         declares read-only is a pure operation, the others are irreversible; all are untrusted. Returns the registered names."""
         names: List[str] = []
         for t in tools if tools is not None else self.list_tools():
+            if not visible_to(t, "model"):
+                continue
             name = f"{prefix}{_TOOL_NAME.sub('_', t['name'])}"[:64]
             if registry.get(name) is not None:
                 continue
@@ -727,6 +763,8 @@ class MCPHub:
         scored: List[Tuple[int, str, str, Dict[str, Any]]] = []
         for server, tools in self.catalog.items():
             for t in tools:
+                if not visible_to(t, "model"):
+                    continue
                 hay_name = t["name"].lower()
                 hay = hay_name + " " + clean_description(t.get("description")).lower()
                 score = sum(3 if w in hay_name else 1 for w in words if w in hay)
@@ -741,7 +779,8 @@ class MCPHub:
         """`read_only`: call the tool only if its server declares it read-only."""
         if server not in self.servers or server not in self.catalog:
             raise KeyError(f"Unknown or unavailable MCP server '{server}'. Servers: {', '.join(sorted(self.catalog)) or 'none'}")
-        definition = next((t for t in self.catalog[server] if t["name"] == tool), None)
+        who = "app" if APP_CALL.get() else "model"
+        definition = next((t for t in self.catalog[server] if t["name"] == tool and visible_to(t, who)), None)
         if definition is None:
             raise KeyError(f"Server '{server}' has no tool '{tool}'; use mcp_search to find tools")
         if read_only and not declares_read_only(definition):

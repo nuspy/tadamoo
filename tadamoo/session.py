@@ -62,6 +62,7 @@ from tadamoo import optimize as opt
 from tadamoo import progress as prog
 from tadamoo import provenance as prov
 from tadamoo import side_uses
+from tadamoo.mcp_apps import APP_CALL, AppError, tool_ui, visible_to
 from serve import longflow as lfw
 from serve import longform as lf
 from tadamoo import questions as qs
@@ -306,6 +307,10 @@ class Session:
         if tools is not None:
             tools.on_write = lambda: setattr(self, "_tasks_seen", tools.board.signature(self.session_id))       # its own change is not news to it
             tools.session_id = lambda: self.session_id                                                           # the tasks it opens are this conversation's
+        self.apps = getattr(built.agent.tools, "mcp_apps", None)  # the MCP apps of this conversation (tadamoo/mcp_apps.py)
+        if self.apps is not None:
+            self.apps.emit = lambda event: self.emit({**event, "turn": self._cur_turn()})
+            self.apps.run_call = self.run_app_call
         self.attachment_store: Any = None                       # AttachmentStore of this conversation's files, when it has one
         self.intake: Optional[it.Intake] = None                 # what runs between the person's text and the model's first step (tadamoo/intake.py)
         self.optimizer: Optional[opt.Optimizer] = None          # the person's message rewritten by the technical session before the model reads it (tadamoo/optimize.py)
@@ -408,6 +413,8 @@ class Session:
             self._flush_delta()                         # the pieces come before the whole message they belong to
         self.last_progress = time.monotonic()
         kind = event.get("type")
+        if self.apps is not None and kind in ("tool_start", "tool_end"):
+            self.apps.current_call = event.get("call_id", "") if kind == "tool_start" else ""        # a page the call returns is shown in the call's place
         if kind == "tool_start" and event.get("effect") == "irreversible":
             self.store.mark_inflight({"turn": task.turn, "tool": event.get("name"), "arguments": event.get("arguments")})
         elif kind == "tool_end":
@@ -635,6 +642,9 @@ class Session:
         outside = arguments.get("outside_workspace")                  # set when a file tool reaches a path outside the working folder
         arguments = {k: v for k, v in arguments.items() if k not in ("rule_of_two", "instructions_from", "hook_asks", "outside_workspace")}
         shown = json.dumps(arguments, ensure_ascii=False)[:300]
+        app = APP_CALL.get()
+        if app:                                                       # an app's own call, when the person chose that it is asked about: the question says whose
+            tool = f"{tool} (asked by an app of {app.get('server')})"
         if hooked:
             answer = self._ask({"mode": "confirm", "kind": "permission", "tool": tool, "arguments": arguments, "hook": hooked,
                                 "question": f"A hook of yours asks before this call ({hooked}). Allow {tool} {shown}?",
@@ -750,6 +760,36 @@ class Session:
         except Exception:
             return None
 
+    # -- what an MCP app asks of its server (tadamoo/mcp_apps.py) -------------------------------------------------
+
+    def run_app_op(self, cid: str, op: str, params: Dict[str, Any]) -> None:
+        """A request of an app's view that needs the conversation's process; the answer comes as an `app_result` event."""
+        try:
+            if self.apps is None:
+                raise AppError("This conversation has no apps.")
+            self.emit({"event": "app_result", "id": cid, "ok": True, "result": self.apps.handle(op, params)})
+        except AppError as exc:
+            self.emit({"event": "app_result", "id": cid, "ok": False, "code": exc.code, "message": str(exc)})
+        except Exception as exc:
+            self.emit({"event": "app_result", "id": cid, "ok": False, "code": -32000, "message": f"{type(exc).__name__}: {exc}"})
+
+    def run_app_call(self, server_id: str, tool: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """A tool call of an app, under the conversation's permissions as the model's own call of the tool would be: `read_capability` for a tool its server
+        declares read-only, `call_capability` for the others. With the person's choice (Settings) that nobody is asked, a question of the call is answered yes."""
+        from tadamoo.mcp_client import declares_read_only
+        from tadamoo.permissions import UNASKED
+        app = APP_CALL.get() or {}
+        definition = next((t for t in self.apps.server(server_id).tools if isinstance(t, dict) and t.get("name") == tool and visible_to(t, "app")), None)
+        if definition is None:
+            return {"ok": False, "text": f"The server has no tool '{tool}' that an app may call."}
+        name = "read_capability" if declares_read_only(definition) else "call_capability"
+        token = UNASKED.set(bool(app.get("unasked")))
+        try:
+            ok, text = self.agent.run_for_app(name, {"id": server_id, "tool": tool, "arguments": arguments}, f"app:{server_id}")
+        finally:
+            UNASKED.reset(token)
+        return {"ok": ok, "text": text}
+
     # -- commands --------------------------------------------------------------------------------------
 
     def _begin_main(self, turn: str, text: str, origin: str = "user", attachments: Optional[List[str]] = None, optimize: bool = True, once: bool = False,
@@ -766,6 +806,10 @@ class Session:
         note = self._tasks_note()
         if note:
             agent.append({"role": "user", "content": note})
+        note = self.apps.context_note() if self.apps is not None else None
+        if note:
+            agent.append({"role": "user", "content": note})
+            agent.taint("mcp_app")                              # words from a program, not the person's
         self._add_message(agent, text, origin, attachments)
         self._mark(agent, peer, mentions)
         retrieved = self.built.retrieved_message(text) if origin == "user" else None
@@ -2106,6 +2150,9 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         from tadamoo.attachments import AttachmentStore
         session.attachment_store = AttachmentStore(Path(args.attachments_dir))
     session.endpoint, session.api_key = cfg.endpoint, cfg.api_key
+    if session.apps is not None:
+        session.apps.sidecar = history / "apps.json"            # the apps of this conversation, shown again when it is opened later
+        session.apps.load()
     built.agent.cross_commands = tuple(args.cross_commands)
     seen = prov.SeenDeliveries(history)
     session.ask_only = args.ask_only
@@ -2273,6 +2320,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                     session.set_folding(cmd["fold"]["on"], float(cmd["fold"]["threshold"]), float(cmd["fold"]["mask"]))
                     changed["fold"] = cmd["fold"]
                 emit({"event": "settings", **changed})
+            elif name == "app" and isinstance(cmd.get("op"), str) and isinstance(cmd.get("params"), dict):
+                threading.Thread(target=session.run_app_op, args=(str(cmd.get("id") or ""), cmd["op"], cmd["params"]), name="session-app", daemon=True).start()
             elif name == "command" and isinstance(cmd.get("name"), str):
                 threading.Thread(target=session.run_command, args=(str(cmd.get("id") or ""), cmd["name"], str(cmd.get("args") or "")[:2000]),
                                  name="session-command", daemon=True).start()           # a command may take a model call; the others go on meanwhile

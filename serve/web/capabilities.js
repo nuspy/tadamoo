@@ -98,6 +98,26 @@
     return h("div", "cp-visual", h("label", "", h("b", "", T("cp.dirs")), area), h("p", "setnote", T("cp.dirs.help")), save);
   }
 
+  /* MCP Apps (docs/mcp-apps.md): which apps stay running, where an app opens, what happens when an app calls a tool of its server */
+  function appsBox() {
+    const s = state.settings.apps || {}, known = state.apps_known || [], running = window.mcpApps ? window.mcpApps.running() : [];
+    const save = async changes => { if (await act("api/capabilities/settings", { apps: changes })) { say(T("ma.set.saved")); if (window.mcpApps) window.mcpApps.reloadConfig(); } draw(); };
+    const choose = (label, name, options, current) => {
+      const sel = h("select", "", options.map(([v, t]) => Object.assign(h("option", "", t), { value: v }))); sel.value = current; sel.id = "ma-" + name; sel.setAttribute("aria-label", label);
+      sel.onchange = () => save({ [name]: sel.value });
+      return h("label", "cp-num", h("span", "", label), sel);
+    };
+    const rows = known.map(a => {
+      const on = (s.on || []).includes(a.key), cb = h("input"); cb.type = "checkbox"; cb.checked = on; cb.setAttribute("aria-label", T("ma.set.on") + ": " + a.name);
+      cb.onchange = () => save({ on: cb.checked ? [...(s.on || []), a.key] : (s.on || []).filter(k => k !== a.key) });
+      return h("li", "cp-app", h("label", "", cb, " ", h("b", "", a.name), " ", h("span", "setnote", `${a.server} · ${T("ma.set.on")}`)), running.includes(a.key) ? h("span", "setnote", " · " + T("ma.set.running")) : null);
+    });
+    return h("div", "cp-visual cp-apps", h("b", "", T("ma.set.title")), h("p", "setnote", T("ma.set.hint")),
+      choose(T("ma.set.display"), "display", [["panel", T("ma.set.display.panel")], ["dialog", T("ma.set.display.dialog")]], s.display || "panel"),
+      choose(T("ma.set.calls"), "tool_calls", [["run", T("ma.set.calls.run")], ["ask", T("ma.set.calls.ask")], ["refuse", T("ma.set.calls.refuse")]], s.tool_calls || "run"),
+      h("b", "", T("ma.set.known")), rows.length ? h("ul", "cp-applist", rows) : h("p", "setnote", T("ma.set.none")));
+  }
+
   async function saveOnline(changes) {
     const r = await call("POST", "api/capabilities/online", changes);
     if (r.ok) { online = r.data; say(T("cp.saved")); } else say(why(r), true);
@@ -239,7 +259,7 @@
     const search = h("input"); search.type = "search"; search.value = filter; search.placeholder = T("cp.search"); search.setAttribute("aria-label", T("cp.search"));
     search.oninput = () => { filter = search.value; const pos = search.selectionStart; draw(); const s = body.querySelector("input[type=search]"); if (s) { s.focus(); s.setSelectionRange(pos, pos); } };
     const n = h("p", "setnote cp-note", note); n.setAttribute("role", "status"); n.hidden = !note; n.dataset.bad = noteBad ? "1" : "";
-    body.replaceChildren(h("p", "setnote", T("cp.help")), n, visualBox(), foldersBox(), requestsBox(), online ? onlineBox() : null,
+    body.replaceChildren(h("p", "setnote", T("cp.help")), n, visualBox(), foldersBox(), appsBox(), requestsBox(), online ? onlineBox() : null,
       h("div", "cp-bar", search, btn(T("cp.rescan"), "", async () => { const r = await call("POST", "api/capabilities/rescan", {}); if (r.ok) { state = r.data; say(T("cp.rescanned", state.entries.length)); } else say(why(r), true); draw(); }, T("cp.rescan.tip"))),
       h("p", "setnote", T("cp.top", state.tree_top)), h("p", "setnote", T("cp.actions.help")), tree());
   }

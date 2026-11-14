@@ -59,6 +59,7 @@ from serve.util import peer
 from serve.util.winjob import contain
 
 EVENTS_KEPT = 3000
+APP_WAIT_S = 3600.0                                                  # an MCP app's request may wait as long as a tool call of the model
 SESSIONS_FILE = "agent_sessions.json"
 TITLE_CHARS = 80
 PLACE_KEEP_S = 86_400           # a position older than this is no longer handed to a conversation
@@ -215,6 +216,7 @@ class SessionManager:
         self._effort_now: Dict[str, str] = {}                  # the thinking level a conversation's process was last told because of a plan step
         self._calls: Dict[str, Dict[str, Tuple[str, Dict[str, Any], Any]]] = {}      # tool calls started and not yet ended
         self._learned: Dict[str, Dict[str, str]] = {}
+        self._app_waiters: Dict[str, Tuple[threading.Event, List[Dict[str, Any]]]] = {}     # requests of apps' views waiting for the conversation's process
         self._compare_lock = threading.Lock()                   # the two sides of a comparison, and two comparisons, run one after the other
         self.compares: List[Dict[str, Any]] = self._load_compares()
         self.records: List[Dict[str, Any]] = self._load()
@@ -342,8 +344,19 @@ class SessionManager:
             return {"messages": [], "turns": 0, "session": dict(rec)}
         shown = []
         for m in self._transcript(sid, data):
-            shown.append({k: v for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id", "attachments", "ts", "raw", "opt", "explain", "skipped", "peer", "mentions")})
+            shown.append({k: v for k, v in m.items() if k in ("role", "content", "tool_calls", "name", "tool_call_id", "attachments", "ts", "raw", "opt", "explain", "skipped", "peer", "mentions", "app")})
+        shown = self._with_apps(sid, shown)
         return {"messages": shown, "turns": data.get("turns", 0), "session": dict(rec)}
+
+    def _with_apps(self, sid: str, shown: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """The MCP apps of this conversation (tadamoo/mcp_apps.py), each on the result of the tool call it was shown in, for the page to show them again."""
+        try:
+            kept = json.loads((self.history_dir(sid) / "apps.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return shown
+        if not isinstance(kept, dict):
+            return shown
+        return [{**m, "app": kept[m["tool_call_id"]]} if m.get("role") == "tool" and isinstance(kept.get(m.get("tool_call_id")), dict) else m for m in shown]
 
     def _read_history(self, sid: str) -> Optional[Dict[str, Any]]:
         try:
@@ -1238,6 +1251,13 @@ class SessionManager:
     def _on_event(self, sid: str, live: Live, event: Dict[str, Any]) -> None:
         live.last_seen = time.monotonic()
         kind = event.get("event")
+        if kind == "app_result":                                 # the answer to a request of an app's view: not an event the page sees
+            with self._lock:
+                waiter = self._app_waiters.get(str(event.get("id") or ""))
+            if waiter is not None:
+                waiter[1].append(event)
+                waiter[0].set()
+            return
         if kind == "delivery":                                   # the queue's lock is never taken inside this manager's
             item = self.deliveries.acked(str(event.get("id") or ""), str(event.get("state") or ""), sid)
             self._push(sid, {"event": "delivery", "id": event.get("id"), "state": event.get("state")})
@@ -2598,6 +2618,42 @@ class SessionManager:
             if not self._write(sid, live, {"cmd": "command", "id": cid, "name": name, "args": text}):
                 raise RunError("The agent process did not take the command; try again.", "write_failed")
         return {"id": cid}
+
+    APP_OPS = ("tools/list", "tools/call", "resources/read", "context", "log")
+
+    def app_call(self, sid: str, op: Any, params: Any) -> Dict[str, Any]:
+        """A request of an MCP app's view that only the conversation's process can answer (its server, its permissions): the answer is `{result}` or
+        `{error: {code, message}}`. A conversation that is not running is started for it; an app may call tools for as long as the model may."""
+        if op not in self.APP_OPS or not isinstance(params, dict):
+            raise RunError("That is not a request an app may make.", "bad_app_request")
+        with self._lock:
+            rec = self._record(sid)
+            if rec["state"] == "closed":
+                raise RunError("That conversation is closed.", "closed")
+            live = self._ensure(sid)
+        if not live.ready.wait(60):
+            raise RunError("The conversation did not start in time; try again.", "start_failed")
+        cid = secrets.token_hex(4)
+        waiter = (threading.Event(), [])
+        with self._lock:
+            self._app_waiters[cid] = waiter
+            wrote = self._write(sid, live, {"cmd": "app", "id": cid, "op": op, "params": params})
+        if not wrote:
+            with self._lock:
+                self._app_waiters.pop(cid, None)
+            raise RunError("The conversation's process did not take the request; try again.", "write_failed")
+        end = time.monotonic() + APP_WAIT_S
+        try:
+            while not waiter[0].wait(1.0):
+                if live.proc.poll() is not None or time.monotonic() > end:
+                    return {"error": {"code": -32000, "message": "The conversation stopped before the request was answered."}}
+        finally:
+            with self._lock:
+                self._app_waiters.pop(cid, None)
+        event = waiter[1][0]
+        if event.get("ok"):
+            return {"result": event.get("result")}
+        return {"error": {"code": int(event.get("code") or -32000), "message": str(event.get("message") or "The request failed.")}}
 
     def resume(self, sid: str) -> Dict[str, Any]:
         """The person's answer to a block: go on from where the conversation stands."""

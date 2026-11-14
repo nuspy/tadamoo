@@ -378,6 +378,15 @@
   function applyEvent(e) {
     switch (e.event) {
       case "user": closeQuestions(); clearChips(); userItem(e.text, e.attachments, e.mentions); break;
+      case "mcp_app": {                                                  // a tool returned an app: the placeholder in its bubble, and the app itself, shown at once while the tool runs
+        const b = toolBlock(e.call_id);
+        if (b) { b.app = e; b.dirty = true; if (window.mcpApps) window.mcpApps.attach(sid, e, !replaying); }
+        break;
+      }
+      case "mcp_app_result": { const b = toolBlock(e.call_id); if (b && b.app) { b.app.state = "done"; b.app.result = e.result; } if (window.mcpApps) window.mcpApps.result(e.app, e.result); break; }
+      case "mcp_app_cancelled": { const b = toolBlock(e.call_id); if (b && b.app) { b.app.state = "cancelled"; b.app.reason = e.reason; } if (window.mcpApps) window.mcpApps.cancelled(e.app, e.reason); break; }
+      case "mcp_app_call": if (window.mcpApps) window.mcpApps.called(e); break;                // a tool call the app itself made, shown under the app
+      case "mcp_app_stop": if (window.mcpApps) window.mcpApps.serverStopped(e.server); break;
       case "peer_in": peerItem({ dir: "in", who: e.from, kind: e.kind, text: e.text, at: e.at }); break;
       case "peer_out": peerItem({ dir: "out", who: e.to, kind: e.kind, text: e.text }); break;
       case "peer_brake": peerItem({ dir: "stop", who: e.to, reason: e.reason, kind: e.kind }); break;
@@ -622,6 +631,7 @@
           items.forEach(it => { const at = (it.blocks || []).indexOf(b); if (at >= 0) { it.blocks.splice(at, 1); it.skipped = (it.skipped || 0) + 1; } });
         } else if (b) {
           b.output = String(m.content || "").slice(0, SHOWN_OUTPUT); b.description = explainOf(m.explain); b.dirty = true;
+          if (m.app && typeof m.app === "object") b.app = m.app.state === "running" ? { ...m.app, state: "cancelled", reason: "interrupted" } : m.app;      // an app of the saved history: its placeholder, opened by its button
           if (b.description && b.args) ["description", "explain"].forEach(k => { if (b.args[k] === m.explain) delete b.args[k]; });   // shown above, not as an argument
         }
       }
@@ -771,6 +781,7 @@
       let row = el.querySelector(".asrc");
       if (sources.length && !row) { row = mk("div", "asrc"); el.querySelector("summary").after(row); }
       if (row) row.replaceChildren(...sources.map(s => window.chatUi.sourceLink(s.url, s.host)));
+      if (b.app && window.mcpApps) window.mcpApps.paint(el, b, sid);
       return;
     }
     if (b.t === "ask" && b.kind === "questions") {                            // the card of questions: choices, a row of their own, free text, yes/no
@@ -1448,6 +1459,16 @@
     state = "busy"; busyNow = true; status(T("ch.working")); setControls(); poll(true);
   }
   /* "Send my original instead": the person's own text goes as a new message that is not rewritten */
+  /* a message an MCP app asks the page to add to the conversation (ui/message): it is the person's own conversation, so it is sent as theirs, to the conversation the app belongs to */
+  async function sendFromApp(text, owner) {
+    if (!text || !sid || owner !== sid) return false;
+    const r = await api("POST", `/${sid}/send`, { text });
+    if (!r.ok) { status(errText(r)); return false; }
+    document.dispatchEvent(new CustomEvent("tadamoo:sent", { detail: { text } }));
+    clearChips();
+    state = "busy"; busyNow = true; status(T("ch.working")); setControls(); poll(true);
+    return true;
+  }
   async function sendOriginal(text, button) {
     if (!text || !sid || busyNow || state === "busy" || state === "asking") { status(T("ch.back.busy")); return; }
     const r = await api("POST", `/${sid}/send`, { text, optimize: false });
@@ -1607,7 +1628,7 @@
     await send(text);
     return true;
   }
-  window.agentChat = { apply: e => { apply(e); render(); }, startWith, record: () => rec, folder: curPath, busy: () => busyNow, skills, snapshot, refresh: () => poll(true), active, send, stop, newChat, current: () => sid, ensure, note, runOnServer, knowledge: setKnowledge, knowledgeIds: () => (rec && rec.knowledge) || [], rename, transcript, saveBlob, answers: answersOf,
+  window.agentChat = { apply: e => { apply(e); render(); }, sendFromApp, startWith, record: () => rec, folder: curPath, busy: () => busyNow, skills, snapshot, refresh: () => poll(true), active, send, stop, newChat, current: () => sid, ensure, note, runOnServer, knowledge: setKnowledge, knowledgeIds: () => (rec && rec.knowledge) || [], rename, transcript, saveBlob, answers: answersOf,
     perm: { now: permNow, set: setPerm, cycle: cyclePerm, available: () => active() && mode !== "ask", modes: PERM_CYCLE },
     sessions: () => known.filter(s => s.state !== "closed" && inContext(s)).map(s => ({ id: s.id, label: `${s.title || s.id} \u00B7 ${T("ch.state." + s.state)}` })), open: openSession, branch, hasCopy: () => !!(rec && rec.worktree),
     toggleCopy: () => copyOpen.click() };

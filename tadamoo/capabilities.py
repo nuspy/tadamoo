@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from tadamoo.mcp_apps import APP_CALL, AppError, normalize_settings, tool_ui, visible_to
 from tadamoo.mcp_client import MCPToolError, clean_description, declares_read_only
 from tadamoo.skills import parse_frontmatter
 from tadamoo.tools.registry import ToolArgumentError
@@ -340,7 +341,8 @@ class CapabilityIndex:
         data = data if isinstance(data, dict) else {}
         return {"visual": data.get("visual") if isinstance(data.get("visual"), str) else "builtin",
                 "off": [str(x) for x in data.get("off", []) if isinstance(x, str)],
-                "skill_dirs": [str(x) for x in data.get("skill_dirs", []) if isinstance(x, str)][:MAX_SKILL_DIRS]}
+                "skill_dirs": [str(x) for x in data.get("skill_dirs", []) if isinstance(x, str)][:MAX_SKILL_DIRS],
+                "apps": normalize_settings(data.get("apps"))}
 
     def folders_changed(self) -> bool:
         """Whether the folders named in the settings are not the ones the last scan looked in."""
@@ -601,6 +603,15 @@ def _matching(tools: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
     return [t for _, _, t in sorted(scored, key=lambda x: x[:2])[:SEARCH_TOOLS_MAX]]
 
 
+def _handed(hub: Any, app: Optional[Dict[str, Any]], host: Any, shown: Optional[str]) -> None:
+    """The whole result of a call that has just ended goes to the app that asked for it, or to the page that shows the app the model's call returned."""
+    raw = getattr(getattr(hub, "client", None), "take_raw", lambda: None)()
+    if app is not None:
+        app["raw"] = raw
+    elif host is not None:
+        host.finish(shown, raw)
+
+
 def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory: Optional[Callable[[str, List[str]], Any]] = None) -> None:
     """`hub_factory(id, command)` starts a server and returns an object with `tools` (the server's tool definitions) and `call(tool, arguments)`.
 
@@ -612,6 +623,10 @@ def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory
     def drop_servers() -> int:
         """Stops the servers started so far; the next call to one starts it again with the command and the keys the index has by then."""
         count = len(hubs)
+        host = getattr(registry, "mcp_apps", None)
+        for server_id in list(hubs):
+            if host is not None:
+                host.forget_server(server_id)
         for hub in list(hubs.values()):
             try:
                 getattr(hub, "close", lambda: None)()
@@ -621,6 +636,14 @@ def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory
         return count
 
     index.drop_servers = drop_servers
+
+    def server_for(id: str) -> Any:
+        """The started server of an entry (started now if it is not), for what is not a call of the model: an app's own requests."""
+        if hub_factory is None:
+            raise AppError("Calling servers is not available in this conversation.")
+        return hubs.get(id) or hubs.setdefault(id, hub_factory(id, index.target(id)))
+
+    index.server_for = server_for
 
     def find_capability(query: str, node: str = "", kind: str = "") -> str:
         hits = index.search(query, node, kind)
@@ -645,7 +668,9 @@ def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory
             return "Calling servers is not available in this conversation."
         try:
             hub = hubs.get(id) or hubs.setdefault(id, hub_factory(id, cmd))
-            tools = [t for t in hub.tools if isinstance(t, dict) and t.get("name")]
+            app = APP_CALL.get()
+            who = "app" if app else "model"                       # a tool whose visibility leaves the model out is not the model's to see or call (MCP Apps)
+            tools = [t for t in hub.tools if isinstance(t, dict) and t.get("name") and visible_to(t, who)]
             if not tool and query:
                 found = _matching(tools, query)
                 return "\n\n".join(_definition(t) for t in found) or "No tool of this server matches those words. Leave `query` empty to list its tools."
@@ -663,10 +688,23 @@ def register_capability_tools(registry: Any, index: CapabilityIndex, hub_factory
                 return _definition(definition)
             if read_only and not declares_read_only(definition):
                 return f"The server does not declare '{tool}' read-only, so read_capability does not call it: use call_capability."
+            host = None if app else getattr(registry, "mcp_apps", None)
+            shown = host.begin(id, definition, arguments or {}) if host is not None else None      # a tool tied to a page: the person sees the app while the tool runs
             try:
-                return hub.call(tool, arguments or {})
+                text = hub.call(tool, arguments or {})
             except ToolArgumentError as exc:
+                if host is not None:
+                    host.fail(shown, str(exc))
                 return f"{exc} The tool's definition:\n{_definition(definition)}"
+            except MCPToolError:
+                _handed(hub, app, host, shown)
+                raise
+            except Exception as exc:
+                if host is not None:
+                    host.fail(shown, f"{type(exc).__name__}: {exc}")
+                raise
+            _handed(hub, app, host, shown)
+            return text
         except MCPToolError as exc:
             return f"The tool '{tool}' ran and reported an error: {exc}"
         except Exception as exc:
