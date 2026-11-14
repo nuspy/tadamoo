@@ -46,7 +46,8 @@ Two things follow that the matrix showed: the number of steps is honoured (the l
 | `loras` | none | [] | `[{name, strength}]` LoRAs applied to the transformer | no |
 | `decode_lowmem` | off | off | Smaller VAE tiles; in 2.5 the package decides (auto tiling) and this does nothing | no |
 | `emb_cache` | on | on | Keeps the encoded prompt for the next job | no |
-| `teacache_thresh` | 0 (off) | 0 | TeaCache: skips steps that change little; meant for many-step modes | no |
+| `teacache_thresh` | 0.03 (setting `ltx_teacache`) | 0 (off) | TeaCache: skips steps that change little; with 12 steps and the threshold 0.03 it is the product's cache ([speed-study.md](speed-study.md)) | yes, from the media settings |
+| attention | `sage2` (setting `ltx_attention`) | cuDNN SDPA | not a parameter of the worker: `tadamoo/media/ltx_launch.py` replaces the attention function of every Attention module the stages build, in the Python of the copy that holds SageAttention 2.2.0 ([sage-wheel.md](sage-wheel.md)); if it is not there the clip is made with cuDNN and the result carries a `warning` | yes, from the media settings |
 | `chunk_frames`, `overlap_frames` | none | 0 | A long clip is made in pieces (the recording is sliced by `audio_start_time`); the audio-to-video pieces are joined without a cross-fade | no |
 | `native_audio` | off | off | Keep the sound the model makes; with an `audio_path` the given recording is the sound anyway | no |
 | `ltx_te`, `ltx_te_lora` | none | none | Another text encoder (e.g. an uncensored Gemma 4) or a LoRA on it | no |

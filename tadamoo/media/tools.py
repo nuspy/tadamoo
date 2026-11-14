@@ -92,7 +92,8 @@ def register_media_tools(registry: Any, sandbox: Any, settings: MediaSettings, w
         show = (f"![caption](tadamoo-path:{rel})" if kind == "image" else f"[{safe.name}](tadamoo-path:{rel})")
         return {"status": "ok", "path": rel, "bytes": safe.stat().st_size, "seconds": got["seconds"], "lease": got["lease"], "seed": request["seed"],
                 "width": request["width"], "height": request["height"], **({"frames": request["frames"], "fps": request["fps"]} if kind == "video" else {"steps": request["steps"]}),
-                "show": "show it in the answer with " + show, **({"adjusted": request["notes"]} if request["notes"] else {}), "changes": result["kind"]}
+                "show": "show it in the answer with " + show, **({"adjusted": request["notes"]} if request["notes"] else {}), "changes": result["kind"],
+                **({"warning": " ".join(got["warnings"])} if got.get("warnings") else {})}
 
     def generate_image(prompt: str, width: Optional[int] = None, height: Optional[int] = None, steps: Optional[int] = None, seed: Optional[int] = None,
                        negative: str = "", path: str = "", refs: Optional[List[str]] = None) -> Dict[str, Any]:

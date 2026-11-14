@@ -10,6 +10,10 @@
 | `ltx_dir` | "" | the folder of LTX Studio; empty: `TADAMOO_LTX_STUDIO`, then `E:/AI/LTXStudio` |
 | `image_python`, `video_python` | "" | a Python to use instead of the one LTX Studio names for the model |
 | `video_model` | "" | file name of the LTX 2.5 checkpoint; empty: `ltx-2.5-22b-distilled-transformer-nvfp4.safetensors` |
+| `ltx_attention` | sage2 | the attention of the LTX 2.5 transformer: `sage2` (SageAttention 2.2.0, the default), `cudnn` (PyTorch's own, nothing to install), `sage1`, `efficient`, `fa4`, `fa2`, `xformers` (each needs its package in the copy below; [speed-study.md](speed-study.md)) |
+| `ltx_teacache` | 0.03 | the TeaCache threshold of the clips (the worker's `teacache_thresh`): 0 is off, up to 0.2; higher skips more steps and costs more detail |
+| `ltx_attention_env` | "" | the folder of the environment with the attention package: a copy of LTX Studio's LTX 2.5 one, never LTX Studio's own; empty: `TADAMOO_LTX_ATTENTION_ENV`, then `E:/AI/Tools/ltx25_sage2` |
+| `ltx_wheels` | "" | where the wheels the component installs are kept; empty: `TADAMOO_LTX_WHEELS`, then `E:/AI/Tools/tadamoo_wheels` ([sage-wheel.md](sage-wheel.md)) |
 | `image_mib`, `video_mib`, `avatar_mib` | 11000, 25000, 25000 | the VRAM each kind asks the server for |
 | `upscale_mib`, `interpolate_mib` | 22000, 4000 | the same for the enlarger (FlashVSR+) and the frame maker (RIFE) |
 | `modify_python`, `edit_model`, `modify_mib` | "", "", 28000 | the Python for the LTX 2.3 environment, the LTX 2.3 checkpoint file name (empty: the official distilled, else the official dev one), and the VRAM `modify_video` asks for ([modify.md](modify.md)) |

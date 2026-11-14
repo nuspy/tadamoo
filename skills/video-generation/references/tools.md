@@ -11,11 +11,11 @@ rounded down to 8k+1), `fps` (25; 8 to 30), `seed`, `negative`, `path`. The dist
 The jobs run one after the other, each under its own lease (`upscale` 22000 MiB, `interpolate` 4000 MiB asked of the broker); the answer lists the `steps` that ran.
 
 ## The answer
-`status`: `ok` (`path`, `bytes`, `seconds`, `lease`, `seed`, the size, `adjusted`, `show`), `refused` (the server could not lend the VRAM; tell the person, do not retry in a loop), `unavailable` (off in the settings,
+`status`: `ok` (`path`, `bytes`, `seconds`, `lease`, `seed`, the size, `adjusted`, `warning` when the clip was made with cuDNN attention because SageAttention 2 is not installed: tell the person, `show`), `refused` (the server could not lend the VRAM; tell the person, do not retry in a loop), `unavailable` (off in the settings,
 or LTX Studio lacks something: the note names it), `cancelled`, or `error` with the last lines of the model process.
 
 ## Where files go
 `path` is relative to the working folder; an existing file is never replaced; the job's own files are in `<data>/media/<kind>-<time>-<seed>/` and deleted when the job succeeds.
 
 ## Settings (`media.json`)
-`enabled`, `ltx_dir` (empty: `TADAMOO_LTX_STUDIO`, then `E:/AI/LTXStudio`), `video_model`, `video_mib`, `upscale_mib`, `interpolate_mib`, `wait_s` (600), `idle_s` (900).
+`enabled`, `ltx_dir` (empty: `TADAMOO_LTX_STUDIO`, then `E:/AI/LTXStudio`), `video_model`, `ltx_attention` (`sage2`), `ltx_teacache` (0.03), `ltx_attention_env`, `ltx_wheels`, `video_mib`, `upscale_mib`, `interpolate_mib`, `wait_s` (600), `idle_s` (900).

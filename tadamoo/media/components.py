@@ -8,6 +8,7 @@ The models and their programs belong to LTX Studio, so its own downloader and in
 """
 from __future__ import annotations
 
+import glob
 import importlib.util
 import shutil
 import subprocess
@@ -16,8 +17,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
-from tadamoo.media import client
-from tadamoo.media.settings import DEFAULTS, MediaSettings, ltx_dir_of
+from tadamoo.media import attention_env, client
+from tadamoo.media.settings import DEFAULTS, MediaSettings, attention_env_of, ltx_dir_of, wheels_of
 from tadamoo.videoedit.qa import MODELS
 
 LANDMARKERS = MODELS
@@ -52,6 +53,13 @@ COMPONENTS: Dict[str, Dict[str, Any]] = {
                       "steps": [["{py}", "{ltx}/scripts/download_weights.py", "--ids", "ltx23-inpaint-r2v,ltx-iclora-restyle"]],
                       "how": ("The Edit-anything LoRA (ltx23_edit_anything_global_rank128_v1_9000steps_adamw.safetensors) has no download entry in LTX Studio: put it in the LTX-2 folder of its LoRA folder by hand.",
                               "La LoRA Edit-anything (ltx23_edit_anything_global_rank128_v1_9000steps_adamw.safetensors) non ha una voce di download in LTX Studio: va messa a mano nella cartella LTX-2 delle sue LoRA.")},
+    "video-attention": {"label": ("SageAttention 2.2.0 for the LTX 2.5 clips (the default attention; a copy of LTX Studio's LTX 2.5 environment with the wheel built for this Python and torch)",
+                                  "SageAttention 2.2.0 per i clip LTX 2.5 (l'attenzione di default; una copia dell'ambiente LTX 2.5 di LTX Studio con il wheel costruito per questo Python e questo torch)"),
+                        "check": "attention", "steps": [[sys.executable, str(Path(attention_env.__file__)), "install", "--ltx-dir", "{ltx}", "--env", "{attention_env}", "--wheels", "{wheels}"]],
+                        "how": ("Without it the clips are made with cuDNN attention and say so. The wheels (sageattention-2.2.0-cp312-cp312-win_amd64.whl and triton_windows-3.9.0.post30-cp312-abi3-win_amd64.whl) go in the folder ltx_wheels of the media settings "
+                                "(default E:/AI/Tools/tadamoo_wheels); docs/media/sage-wheel.md says how the first was built and how to build it again. The environment is made as a copy of LTX Studio's LTX 2.5 one in ltx_attention_env.",
+                                "Senza di esso i clip usano l'attenzione cuDNN e lo dicono. I wheel (sageattention-2.2.0-cp312-cp312-win_amd64.whl e triton_windows-3.9.0.post30-cp312-abi3-win_amd64.whl) vanno nella cartella ltx_wheels delle impostazioni media "
+                                "(di default E:/AI/Tools/tadamoo_wheels); docs/media/sage-wheel.md dice come e' stato costruito il primo e come ricostruirlo. L'ambiente si crea come copia di quello LTX 2.5 di LTX Studio in ltx_attention_env.")},
     "talking-head-accel": {"label": ("FlashAttention and Triton in the talking head's environment (its weights are set to use them; LTX Studio's installer for accelerators, which takes the wheel it keeps for this torch)", "FlashAttention e Triton nell'ambiente della persona che parla (i suoi pesi sono impostati per usarli; l'installatore di acceleratori di LTX Studio, con il wheel che tiene per questo torch)"),
                            "check": "modules", "items": ["avatar:flash_attn", "avatar:triton"], "accel": "flash_attn,triton",
                            "how": ("FlashAttention has no wheel on PyPI for Windows: LTX Studio's installer takes it from its precompiled wheels folder (E:/AI/Tools/precompiled_wheels).", "FlashAttention non ha un wheel su PyPI per Windows: l'installatore di LTX Studio lo prende dalla sua cartella di wheel precompilati (E:/AI/Tools/precompiled_wheels).")},
@@ -76,7 +84,7 @@ COMPONENTS: Dict[str, Dict[str, Any]] = {
 SKILLS: Dict[str, List[str]] = {
     "image-generation": ["ltx-studio", "image-model"],
     "image-editing": ["ltx-studio", "image-model"],
-    "video-generation": ["ltx-studio", "video-model", "ffmpeg", "frame-maker", "video-enlarger"],
+    "video-generation": ["ltx-studio", "video-model", "ffmpeg", "frame-maker", "video-enlarger", "video-attention"],
     "talking-head": ["ltx-studio", "talking-head-model", "talking-head-accel"],
     "video-editing": ["ffmpeg", "opencv", "mediapipe", "landmarkers"],
     "speech-synthesis": ["xtts-triton"],
@@ -120,6 +128,11 @@ def check(skill: str, settings: Optional[Dict[str, Any]] = None, command: Option
             row = _row(cid, importlib.util.find_spec(spec["module"]) is not None)
         elif how == "opencv":
             row = _row(cid, _opencv_has_face_files())
+        elif how == "attention":
+            env = attention_env_of(settings)
+            row = _row(cid, attention_env.imports(env, "sageattention", "2.2.0"), env)
+            if not row["present"]:
+                row["missing"] = [f"sageattention 2.2.0 in {env}"] + [f"the wheel {p} in {wheels_of(settings)}" for p in attention_env.WHEELS if not glob.glob(str(Path(wheels_of(settings)) / p))]
         elif how == "venv_module":
             py = _xtts_python(settings)
             found = bool(py) and subprocess.run([py, "-I", "-c", f"import importlib.util,sys;sys.exit(0 if importlib.util.find_spec('{spec['module']}') else 1)"], capture_output=True).returncode == 0
@@ -170,7 +183,8 @@ def steps(skill: str, settings: Optional[Dict[str, Any]] = None, rows: Optional[
                 continue
             if "{xtts_py}" in step and not _xtts_python(settings):
                 continue
-            out.append({"component": row["id"], "step": [str(a).replace("{py}", py).replace("{ltx}", folder).replace("{xtts_py}", _xtts_python(settings)) for a in step]})
+            out.append({"component": row["id"], "step": [str(a).replace("{py}", py).replace("{ltx}", folder).replace("{xtts_py}", _xtts_python(settings))
+                                                          .replace("{attention_env}", attention_env_of(settings)).replace("{wheels}", wheels_of(settings)) for a in step]})
         if spec.get("accel") and folder and row.get("venv"):
             only = ",".join(m.partition(":")[2] for m in row.get("missing", []))
             out.append({"component": row["id"], "step": [py, f"{folder}/scripts/install_accelerators.py", "--venv", row["venv"], "--only", only]})

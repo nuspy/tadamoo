@@ -108,6 +108,10 @@ def image_plan(folder: str, spec: dict) -> dict:
 
 
 def video_plan(folder: str, spec: dict) -> dict:
+    try:
+        from tadamoo.media import attention_env
+    except ImportError:                                  # run by file, beside this one
+        import attention_env
     use_ltx(folder)
     ltx_release, ltx_video_job = (importlib.import_module("core." + n) for n in ("ltx_release", "ltx_video_job"))
     py, script = ltx_release.runner("2.5")
@@ -121,15 +125,24 @@ def video_plan(folder: str, spec: dict) -> dict:
         missing.append(f"the picture {req['image']}")
     if req.get("audio") and not Path(req["audio"]).is_file():
         missing.append(f"the recording {req['audio']}")
+    attention, warnings = spec.get("attention") or "cudnn", []
+    python, attention, warning = attention_env.resolve(attention, spec.get("python") or py, spec.get("attention_env") or "")
+    if warning:
+        warnings.append(warning)
+    teacache = float(spec.get("teacache") or 0)
+    extra = {**({"audio_path": req["audio"]} if req.get("audio") else {}), **({"teacache_thresh": teacache} if teacache > 0 else {})}
     params = {}
     if not missing:
-        params = ltx_video_job.build_params(extra={"audio_path": req["audio"]} if req.get("audio") else None, **({"steps": int(req["steps"])} if req.get("steps") else {}), output=spec["output"], prompt=req.get("prompt", ""), width=req.get("width"), height=req.get("height"),
+        params = ltx_video_job.build_params(extra=extra or None, **({"steps": int(req["steps"])} if req.get("steps") else {}), output=spec["output"], prompt=req.get("prompt", ""), width=req.get("width"), height=req.get("height"),
                                             num_frames=req.get("frames"), fps=req.get("fps"), seed=req.get("seed"), model=model, ltx_release="2.5",
                                             **({"negative": req["negative"]} if req.get("negative") else {}), **({"image_path": req["image"]} if req.get("image") else {}))
-    plan = {"python": spec.get("python") or py, "script": script, "params": params, "missing": missing, "env": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}}
-    if req.get("crf") is not None:                       # the saved video's quality: the worker has no setting for it, the launcher sets it from outside (ltx_launch.py)
+    plan = {"python": python, "script": script, "params": params, "missing": missing, "env": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}, "warnings": warnings}
+    if req.get("crf") is not None or attention != "cudnn":      # the saved video's quality and the attention: the worker has no setting for them, the launcher sets them from outside (ltx_launch.py)
         plan.update(script=str(Path(__file__).with_name("ltx_launch.py")), args=[script, "{params}"])
-        plan["env"].update(LTX_X264_CRF=str(int(req["crf"])), LTX_X264_PRESET=str(req.get("crf_preset") or "medium"))
+        if req.get("crf") is not None:
+            plan["env"].update(LTX_X264_CRF=str(int(req["crf"])), LTX_X264_PRESET=str(req.get("crf_preset") or "medium"))
+        if attention != "cudnn":
+            plan["env"]["LTX_ATTENTION"] = attention
     return plan
 
 
@@ -341,10 +354,15 @@ def main() -> int:
                 state["proc"] = proc
             plan["pre"](lambda line: emit({"event": "log", "line": line[:200]}), modify_job.popen_for(register))
             state["proc"] = None
+        warnings = list(plan.get("warnings") or [])
+        for text in warnings:
+            emit({"event": "log", "line": "[warning] " + text[:180]})
         run = Run(plan, work, spec["ltx_dir"])
         state["proc"] = run.proc
         for line in run.lines():
             run.tail = (run.tail + [line])[-30:]
+            if line.startswith("[attention] WARNING"):
+                warnings.append(line[len("[attention] "):])
             if line.startswith("OK:"):
                 run.result = line[3:].strip()
                 continue
@@ -361,7 +379,7 @@ def main() -> int:
             keep_audio(spec["request"]["video"], out)
         if plan.get("post"):
             plan["post"]()
-        emit({"event": "done", "path": str(out), "bytes": out.stat().st_size, "seconds": round(time.monotonic() - began, 1),
+        emit({"event": "done", "path": str(out), "bytes": out.stat().st_size, "seconds": round(time.monotonic() - began, 1), "warnings": warnings,
               "lease": {"id": lease.id or "", "owner": OWNER[kind], "granted_mib": lease.granted_mib, "swapped": heavy.swapped, "risky": heavy.risky}})
         return 0
     except JobError as exc:

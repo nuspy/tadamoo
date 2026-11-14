@@ -58,10 +58,11 @@ Check first, install only what is missing, only when the person asks:
 
 Components: **LTX Studio** (a separate program, installed by hand; `ltx_dir` in the media settings or `TADAMOO_LTX_STUDIO`); **LTX 2.5 distilled NVFP4** with its text encoder and VAEs (about 17 GB of weights, fetched by LTX
 Studio's downloader, `--ids ltx25-transformer-nvfp4`); **ffmpeg** on the PATH (`winget install Gyan.FFmpeg`); **RIFE** (the code ships with LTX Studio; the 24 MB `flownet.pkl`, `--ids rife-flownet-v4`; MIT);
-**FlashVSR+** (its code, `scripts/install_flashvsrplus.py`, and about 7 GB of weights, `--ids flashvsr-plus-turbo`; Apache-2.0). The frame maker and the enlarger are optional: without them only `generate_video` is offered.
+**FlashVSR+** (its code, `scripts/install_flashvsrplus.py`, and about 7 GB of weights, `--ids flashvsr-plus-turbo`; Apache-2.0); **SageAttention 2.2.0** (`video-attention`: a copy of LTX Studio's LTX 2.5 environment in `ltx_attention_env` with the wheel of `ltx_wheels`;
+`docs/media/sage-wheel.md` says where the wheel is and how to build it; without it the clips use cuDNN attention and say so in `warning`). The frame maker and the enlarger are optional: without them only `generate_video` is offered.
 
 ## Speed
 
-Clips run LTX 2.5 distilled in nvfp4 (the GPU's fp4 matmul) with PyTorch's own attention kernel, which LTX Studio measured faster than SageAttention on Blackwell; the prompt embeddings are cached and the decode is streamed in tiles. Nothing to load or install for speed: the environments are LTX
+Clips run LTX 2.5 distilled in nvfp4 (the GPU's fp4 matmul) with SageAttention 2 and TeaCache 0.03 (settings `ltx_attention`, `ltx_teacache`; chosen by our own measures, `docs/media/speed-study.md`); the prompt embeddings are cached and the decode is streamed in tiles. Nothing to load or install for speed: the environments are LTX
 Studio's own (`docs/media/speed.md` says what each holds). `enhance_video` runs FlashVSR+ with the Triton block-sparse kernel of its own repository (through `tadamoo/media/flashvsr_launch.py`; LTX Studio's runner alone falls back to an SDPA mask that is refused at 2x), saved at crf 4, and RIFE in the inference environment, which has triton-windows, sageattention and xformers. A job that takes longer than the limit of its kind
 (`docs/media/runner.md`) is ended with an error of the step.

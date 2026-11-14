@@ -18,7 +18,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from tadamoo import jobtime
 from tadamoo.media.errors import Cancelled, MediaError, Refused
-from tadamoo.media.settings import VIDEO_MODEL, ltx_dir_of
+from tadamoo.media.settings import VIDEO_MODEL, attention_env_of, ltx_dir_of
 
 WORKER = Path(__file__).with_name("worker.py")
 TOTAL_S = {"image": 3600.0, "video": 4 * 3600.0, "avatar": 4 * 3600.0, "upscale": 4 * 3600.0, "interpolate": 3600.0, "modify": 6 * 3600.0}
@@ -111,7 +111,8 @@ def run(kind: str, request: Dict[str, Any], output: Path, settings: Dict[str, An
     job_file = output.parent / "job.json"
     mib = settings[f"{kind}_mib"]
     job_file.write_text(json.dumps({"kind": kind, "ltx_dir": folder, "url": url, "mib": mib, "wait_s": settings["wait_s"], "output": str(output), "request": request, "held": held,
-                                    "python": settings.get(f"{kind}_python", ""), "video_model": settings["video_model"] or VIDEO_MODEL, "edit_model": settings.get("edit_model", ""), "avatar_precision": settings.get("avatar_precision", "int8")}),
+                                    "python": settings.get(f"{kind}_python", ""), "video_model": settings["video_model"] or VIDEO_MODEL, "edit_model": settings.get("edit_model", ""), "attention": settings.get("ltx_attention", ""), "teacache": settings.get("ltx_teacache", 0),
+                                    "attention_env": attention_env_of(settings), "avatar_precision": settings.get("avatar_precision", "int8")}),
                         encoding="utf-8")
     argv = list(command) + [str(job_file)] if command else [sys.executable, "-X", "utf8", str(WORKER), "--job", str(job_file)]
     timing, duration = jobtime.Timing(settings=settings), duration_of(kind, request)
@@ -233,7 +234,7 @@ def _run(argv: List[str], kind: str, progress: Optional[Progress], cancel: Optio
     if refused is not None:
         raise refused
     if done:
-        return {"path": str(done.get("path") or ""), "bytes": int(done.get("bytes") or 0), "seconds": float(done.get("seconds") or round(time.monotonic() - began, 1)), "work_seconds": round(worked, 2),
+        return {"path": str(done.get("path") or ""), "bytes": int(done.get("bytes") or 0), "seconds": float(done.get("seconds") or round(time.monotonic() - began, 1)), "work_seconds": round(worked, 2), "warnings": [str(w) for w in done.get("warnings") or []],
                 "lease": {**(done.get("lease") or {}), **{k: v for k, v in lease.items() if k not in ("ok",)}}}
     if error:
         raise MediaError(error)

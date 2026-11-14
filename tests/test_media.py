@@ -19,7 +19,7 @@ from tadamoo.media.settings import DEFAULTS, MediaSettings
 def world(tmp_path):
     ltx = make_ltx(tmp_path / "ltx")
     broker = Broker()
-    settings = {**DEFAULTS, "ltx_dir": str(ltx), "wait_s": 5, "idle_s": 30}
+    settings = {**DEFAULTS, "ltx_dir": str(ltx), "wait_s": 5, "idle_s": 30, "ltx_attention_env": str(tmp_path / "no-sage-env")}
     client.forget_checks()
     yield {"ltx": ltx, "broker": broker, "settings": settings, "tmp": tmp_path}
     broker.stop()

@@ -7,8 +7,9 @@ from tadamoo.media.settings import DEFAULTS
 
 
 @pytest.fixture
-def settings(tmp_path):
+def settings(tmp_path, monkeypatch):
     client.forget_checks()
+    monkeypatch.setattr(components.attention_env, "imports", lambda env, package, version="": True)          # the Sage 2 environment is the test of its own (test_media_attention.py)
     return {**DEFAULTS, "ltx_dir": str(make_ltx(tmp_path / "ltx")), "image_python": ""}
 
 
