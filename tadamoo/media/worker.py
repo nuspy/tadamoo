@@ -119,12 +119,18 @@ def video_plan(folder: str, spec: dict) -> dict:
     req = spec.get("request") or {}
     if req.get("image") and not Path(req["image"]).is_file():
         missing.append(f"the picture {req['image']}")
+    if req.get("audio") and not Path(req["audio"]).is_file():
+        missing.append(f"the recording {req['audio']}")
     params = {}
     if not missing:
-        params = ltx_video_job.build_params(output=spec["output"], prompt=req.get("prompt", ""), width=req.get("width"), height=req.get("height"),
+        params = ltx_video_job.build_params(extra={"audio_path": req["audio"]} if req.get("audio") else None, **({"steps": int(req["steps"])} if req.get("steps") else {}), output=spec["output"], prompt=req.get("prompt", ""), width=req.get("width"), height=req.get("height"),
                                             num_frames=req.get("frames"), fps=req.get("fps"), seed=req.get("seed"), model=model, ltx_release="2.5",
                                             **({"negative": req["negative"]} if req.get("negative") else {}), **({"image_path": req["image"]} if req.get("image") else {}))
-    return {"python": spec.get("python") or py, "script": script, "params": params, "missing": missing, "env": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}}
+    plan = {"python": spec.get("python") or py, "script": script, "params": params, "missing": missing, "env": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}}
+    if req.get("crf") is not None:                       # the saved video's quality: the worker has no setting for it, the launcher sets it from outside (ltx_launch.py)
+        plan.update(script=str(Path(__file__).with_name("ltx_launch.py")), args=[script, "{params}"])
+        plan["env"].update(LTX_X264_CRF=str(int(req["crf"])), LTX_X264_PRESET=str(req.get("crf_preset") or "medium"))
+    return plan
 
 
 def _video_input(req: dict, missing: list) -> str:
@@ -247,7 +253,7 @@ class Run:
         env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1", "HF_HUB_OFFLINE": "1", **plan["env"]}
         env = {k: v for k, v in env.items() if v is not None}          # a value of None takes the variable out of the model process's environment
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
-        argv = [plan["python"], *plan.get("python_flags", []), "-u", plan["script"], *(plan["args"] if "args" in plan else [str(params_file)])]
+        argv = [plan["python"], *plan.get("python_flags", []), "-u", plan["script"], *([a.replace("{params}", str(params_file)) for a in plan["args"]] if "args" in plan else [str(params_file)])]
         self.proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, cwd=plan.get("cwd") or cwd,
                                      creationflags=flags, start_new_session=os.name != "nt")
         self.tail: list = []

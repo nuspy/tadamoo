@@ -17,6 +17,8 @@ params_file = sys.argv[1]
 p = json.load(open(params_file))
 out = p["output"]
 open(os.path.join(os.path.dirname(params_file), "started.pid"), "w").write(str(os.getpid()))
+# the save setting the launcher looks for: stream.options = {"crf": "19", "preset": "veryfast"}
+open(os.path.join(os.path.dirname(params_file), "env.txt"), "w").write(os.environ.get("LTX_X264_CRF", "") + " " + os.environ.get("LTX_X264_PRESET", ""))
 print("[fake] loading", flush=True)
 prompt = p["prompt"]
 if "fail" in prompt:
@@ -125,8 +127,8 @@ def make_ltx(root: Path, missing=(), video_checkpoint=True, avatar=True, avatar_
         '''), encoding="utf-8")
     add_edit_engine(root, edit_checkpoint, edit_loras)
     (root / "core" / "ltx_video_job.py").write_text(textwrap.dedent('''
-        def build_params(*, output, prompt, width, height, num_frames, fps, seed, model, ltx_release, negative="worst quality", steps=8, guidance=3.0, image_path=""):
-            return {"output": output, "prompt": prompt, "width": width, "height": height, "num_frames": num_frames, "fps": fps, "seed": seed,
+        def build_params(*, output, prompt, width, height, num_frames, fps, seed, model, ltx_release, negative="worst quality", steps=8, guidance=3.0, image_path="", extra=None):
+            return {**(extra or {}), "output": output, "prompt": prompt, "width": width, "height": height, "num_frames": num_frames, "fps": fps, "seed": seed,
                     "model": model, "ltx_release": ltx_release, "negative": negative, "steps": steps, "guidance": guidance, "image_path": image_path}
         '''), encoding="utf-8")
     return root
