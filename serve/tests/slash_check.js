@@ -95,6 +95,14 @@ const notes = () => log.notes.splice(0).map(n => n.text);
   out.failed = answer("status", null, false);
   out.help = (() => { slash.run("/help"); return log.notes.splice(0)[0].text; })();
   out.lang = ctx.LANG;
+  // /tasks: the process lists (and adds); resume is a request to the agent; with no conversation the Tasks tab opens
+  out.tasks = [slash.run("/tasks"), slash.run("/tasks add Write the report"), log.server.splice(0), slash.run("/tasks resume t-ab12"), slash.run("/tasks resume"), log.sent.splice(0), notes()];
+  agentChat._active = false;
+  out.tasksNoChat = [slash.run("/tasks"), ctx.location.hash];
+  agentChat._active = true;
+  const shown = (data) => { ctx.document.dispatchEvent({ type: "tadamoo:command", detail: { name: "tasks", ok: true, data } }); return notes(); };
+  out.tasksShown = [shown({ available: true, added: "", count: 2, tasks: [{ id: "t-1", title: "Move the site", state: "running", depth: 0, mine: true, done: "", missing: "DNS" }, { id: "t-2", title: "DNS", state: "waiting", depth: 1, mine: false, done: "", missing: "" }] }),
+    shown({ available: true, added: "t-9", tasks: [], count: 0 }), shown({ available: true, added: "", tasks: [], count: 0 }), shown({ available: false })];
   // /install-skill: with a conversation the panel of Settings > Skills is drawn in it and told the words; without one the Settings tab opens and is told
   out.menu = slash.candidates("install").map(c => c.name);
   out.skillCmd = [slash.run("/install-skill https://github.com/o/r"), slash.run("/install-skill off news-research"), slash.run("/install-skill"), log.mounts.splice(0), log.skillCmds.splice(0), notes()];

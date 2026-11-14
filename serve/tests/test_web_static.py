@@ -78,7 +78,8 @@ DYNAMIC = {
     "ch.state.": ["pending", "partial", "kept", "reverted", "superseded"],
     "br.cmp.state.": ["running", "done", "interrupted"],
     "br.side.state.": ["waiting", "running", "done", "needs_you", "ended", "timeout", "failed", "interrupted"],
-    "sl.d.": ['help', 'clear', 'model', 'effort', 'mode', 'plan', 'permissions', 'settings', 'status', 'context', 'compact', 'tools', 'hooks', 'mcp', 'memory', 'copy', 'export', 'rename', 'branch', 'branches', 'resume', 'rewind', 'checkpoints', 'stop', 'diff', 'plans', 'wallet', 'init', 'review', 'security-review', 'research', 'install-skill'],
+    "sl.d.": ['help', 'clear', 'model', 'effort', 'mode', 'plan', 'permissions', 'settings', 'status', 'context', 'compact', 'tools', 'hooks', 'mcp', 'memory', 'copy', 'export', 'rename', 'branch', 'branches', 'resume', 'rewind', 'checkpoints', 'stop', 'diff', 'plans', 'wallet', 'init', 'review', 'security-review', 'research', 'install-skill', 'tasks'],
+    "tk.state.": ["queued", "running", "waiting", "blocked"],
     "sk.": ["state.on", "state.off", "state.none", "models.ready", "models.missing", "models.unknown", "from.folder", "from.github", "from.web"],
     "sl.r.compact.": ["busy", "short", "moved", "unsupported"],
     "tab.": ["chat", "agent", "plans", "cron", "stats", "loader", "hardware", "logs", "security", "wallet", "settings"],
@@ -195,7 +196,7 @@ class MarkupTest(unittest.TestCase):
 
     def test_navigation_order_and_the_palette_and_the_notice_exist(self):
         tabs = re.findall(r'<button class="tab" role="tab" id="tab-(\w+)" data-view=', self.html)
-        self.assertEqual(tabs, ["chat", "agent", "plans", "cron", "stats", "loader", "rag", "voice", "canary", "settings"])     # Hardware and LOGS sit under Monitor, Wallet under Settings
+        self.assertEqual(tabs, ["chat", "agent", "plans", "cron", "stats", "loader", "rag", "voice", "canary", "tasks", "settings"])     # Hardware and LOGS sit under Monitor, Wallet under Settings
         for needle in ('id="palette"', 'id="pal-input"', 'id="pal-list"', 'id="pal-open"', 'id="nomodel"', 'id="viewsub"',
                        'id="st-ui-scale"', 'id="st-planner-body"', 'aria-keyshortcuts="Control+K"'):
             self.assertIn(needle, self.html, needle)

@@ -197,9 +197,27 @@ def plugins_reload(session: Any, args: str) -> Dict[str, Any]:
             "added": sorted(v for i, v in now.items() if i not in before), "removed": sorted(v for i, v in before.items() if i not in now)}
 
 
+def tasks(session: Any, args: str) -> Dict[str, Any]:
+    """The open tasks of this project's register (tadamoo/taskboard.py), this conversation's first: `/tasks`, and `/tasks add <title>` (the person's own task, carried by this
+    conversation). Resuming is the page's: it asks the agent to call task_resume."""
+    tools = getattr(session.agent.tools, "task_tools", None)
+    if tools is None:
+        return {"available": False}
+    board, sid = tools.board, session.session_id
+    word, _, rest = args.strip().partition(" ")
+    added = ""
+    if word.lower() == "add":
+        if not rest.strip():
+            return {"available": True, "error": "usage"}
+        added = board.add(rest.strip(), session=sid, by="user")
+    rows = board.view()
+    return {"available": True, "added": added, "tasks": [{"id": r["id"], "title": r["title"] if not r.get("plan") else f'Plan "{r["plan"]["title"]}"', "state": r["state"], "depth": r["depth"],
+                                                          "mine": r["links"]["session"] == sid, "done": r["done"], "missing": r["missing"]} for r in rows[:60]], "count": len(rows)}
+
+
 COMMANDS: Dict[str, Callable[[Any, str], Dict[str, Any]]] = {
     "status": status, "tools": tools, "hooks": hooks, "mcp": mcp, "memory": memory, "permissions": permissions, "context": context, "compact": compact, "audit": audit,
-    "reload-mcp": mcp_reload, "reload-skills": skills_reload, "reload-plugins": plugins_reload,
+    "reload-mcp": mcp_reload, "reload-skills": skills_reload, "reload-plugins": plugins_reload, "tasks": tasks,
 }
 
 
