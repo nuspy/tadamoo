@@ -94,9 +94,11 @@ ENHANCE = {"scale_min": 1.0, "scale_max": 4.0, "factor_min": 2, "factor_max": 4,
 
 
 def enhance_request(video: Any, scale: Any = None, factor: Any = None, mode: Any = "turbo") -> Dict[str, Any]:
-    """A better video from an existing one: `scale` times the size (1 to 4), `factor` times the frames a second (2 to 4, frames made between the real ones). At least one of them."""
+    """A better video from an existing one, with the size, the frames and the duration it had: `scale` is the size FlashVSR+ works at, 1 to 4 times (2: it works at twice the size and the result is brought back
+    to the video's own size; 1: it restores at the video's size), `factor` times the frames a second (2 to 4, frames made between the real ones). Neither given: the one enhancer of the product,
+    FlashVSR+ in its Turbo mode working at 2x."""
     if scale in (None, "") and factor in (None, ""):
-        raise MediaError("say what to improve: scale (the size, 1 to 4 times) or factor (the frames a second, 2 to 4 times), or both")
+        scale = 2.0
     if mode not in ENHANCE["modes"]:
         raise MediaError("mode: " + " or ".join(ENHANCE["modes"]))
     out: Dict[str, Any] = {"video": _path("video", video), "scale": 0.0, "factor": 0, "mode": mode, "notes": []}

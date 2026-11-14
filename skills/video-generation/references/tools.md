@@ -7,7 +7,7 @@ Registered for every conversation whose agent was started with `--media-file`, f
 rounded down to 8k+1), `fps` (25; 8 to 30), `seed`, `negative`, `path`. The distilled model has a fixed schedule: no steps. A value above a cap is an error naming the cap; a rounding is applied and told in `adjusted`.
 
 ## enhance_video
-`path` (required, a video of the working folder), `scale` (1 to 4 times the width and height), `factor` (2 to 4 times the frames a second), `mode` (`turbo` or `base`), `output`. At least one of `scale` and `factor`.
+`path` (required, a video of the working folder), `scale` (1 to 4: the size FlashVSR+ works at; the result always has the size of the video), `factor` (2 to 4 times the frames a second), `mode` (`turbo` or `base`), `output`. With neither, `scale` 2 in `turbo` mode (the product's one enhancer; the copy has the size, the frames and the duration of the original).
 The jobs run one after the other, each under its own lease (`upscale` 22000 MiB, `interpolate` 4000 MiB asked of the broker); the answer lists the `steps` that ran.
 
 ## The answer

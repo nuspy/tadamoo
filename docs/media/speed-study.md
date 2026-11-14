@@ -108,3 +108,54 @@ FlashVSR+ gives 166 frames of 169 (the last 3 are not produced; the first 166 ma
 `tools/speed_lab/`: `ltx_bench.py` (the launcher), `run_cell.py` and `sweep.py` (one timed run, a list of cells), `caches.py` (first-block and per-pass TeaCache), `attn_micro.py` (kernel micro-benchmark), `metrics.py` (face sharpness, three regions, PSNR/SSIM),
 `summarize.py`, `build_speed_review.py`, `flashvsr_run.py`, `enhance_compare.py`, `build_enhance_review.py`, `timed_run.py`, `review_page.py`. Environments (copies, E:\AI\speedlab): `ltx25` (as LTX Studio's, torch 2.14), `ltx25x` (+ triton 3.9, FlashAttention 4, Sage 1),
 `ltx25_s2` (+ the cu128 Sage 2 of LTX Studio's inference environment), `ltx25_s2b` (+ Sage 2 built here), `ltx25_s3` (+ Sage 3 built here, not usable), `ltx25_t215` (torch 2.15 nightly), `ltx25_t211` (torch 2.11, Python 3.11, FlashAttention 2, xformers), `ltx25_fi` (FlashInfer).
+
+## Update of the evening of 14 November (corrections, the user's decisions, new measures)
+
+**Corrections to what is written above.** (1) I called "winner" the pair that keeps the picture within the noise of the backends; that was a filter of mine, not a speed ranking. By pure speed the picture-changing options are faster:
+guider_one (one guided pass) and LTX Studio's TeaCache 0.03 (`teacache_thresh`). (2) My table showed TeaCache 0.03 with "transformer 0 s": its patch bypassed my timer (the timer is now on the transformer's own forward). (3) Speed-ups
+were computed on a baseline median (73 s) made of cold first runs and runs on a busy PC (63 to 86 s); on quiet warm runs the baseline is 63 to 66 s. The user's reading (guider_one 1.38, TeaCache 1.46, "Sage runs up to 80 s") came from that
+table: the 80 s were first runs of an environment (embedding cache miss, +38 s) or runs made while the PC was in use; TeaCache 0.03 had ONE run; and guider_one and TeaCache change the picture (PSNR 26 dB against the baseline, face sharpness 106 against 96) where
+the attention backends do not (PSNR 29 to 31 dB, the noise of exact kernels). **Decided by the user: LTX Studio's TeaCache 0.03, guidance unchanged, is the cache.**
+
+**All the combinations, one run each (the first round of a sweep of four rounds that was stopped when the user decided; some of its runs overlapped my own CPU work, so read it as an order of magnitude; `quiet/ranking.md`).** Job seconds: sage2 + guider_one 46.7, sage2 + TeaCache 0.03 46.8,
+guider_one 48.2, TeaCache 0.03 + guider_one 48.3, all three 49.8, TeaCache 0.03 alone 52.7, TeaCache 0.02 56.1, TeaCache 0.05 56.3, sage2 + first-block 0.10 (the approved of the clip) 67.6 (a disturbed run), sage2 alone 66.1 to 81.9, base 66.9 to 87.8.
+
+**TeaCache 0.03 with each attention (4 runs per cell, run in turns, the PC's CPU idle before each run; `tea/ranking.md`).** Generation seconds are the whole job; the enhancement is FlashVSR+ at the clip's own size (a, below; one run per clip). Run 1 of every cell was 8 to 10 s faster than runs 2 to 4
+(the GPU is cool at the start of a round), so all four are inside min / max.
+
+| Test | Generation s min / median / max | Transformer s | Enhancement s | PSNR / SSIM unenhanced vs TeaCache alone | Face sharpness enhanced (unenhanced) |
+|---|---|---|---|---|---|
+| t3_efficient (SDPA memory-efficient) | 54.4 / 57.1 / 58.9 | 13.6 | 53.1 | 39.3 dB / 0.986 | 222.2 (107.3) |
+| t3_sage2 (SageAttention 2.2.0) | 51.1 / 58.2 / 59.9 | 11.1 | 49.2 | 39.3 dB / 0.986 | 224.5 (108.4) |
+| t3_cudnn (TeaCache alone, the baseline attention) | 49.6 / 59.5 / 60.1 | 13.7 | 53.0 | reference | 225.8 (106.4) |
+| t3_xformers (0.0.35, torch 2.11) | 59.1 / 60.0 / 60.5 | 16.5 | 52.6 | 38.2 dB / 0.983 | 221.7 (107.4) |
+| t3_fa2 (FlashAttention 2.8.4, torch 2.11) | 65.7 / 66.8 / 68.9 | 19.1 | 52.4 | 38.2 dB / 0.983 | 221.7 (107.4) |
+| t3_sage1 (SageAttention 1.0.6) | 56.6 / 68.4 / 69.3 | 11.9 | 51.7 | 36.0 dB / 0.972 | 227.7 (109.1) |
+| t3_t211_cudnn (cuDNN on torch 2.11) | 68.9 / 69.2 / 88.5 | 13.2 | 52.1 | 39.9 dB / 0.988 | 222.9 (106.6) |
+| t3_fa4 (FlashAttention 4) | 56.3 / 71.2 / 72.7 | 21.2 | 50.8 | 39.5 dB / 0.986 | 221.0 (107.5) |
+
+Against the baseline without TeaCache every cell is at 25 to 26 dB / 0.86 to 0.89 (the picture TeaCache makes). By pure speed: SDPA memory-efficient, SageAttention 2 and cuDNN are within 2.5 s of each other (the differences are noise: the
+enhancement in the "total" column of `tea/ranking.md` ran once per clip and varied 49 to 53 s for reasons that have nothing to do with attention); xformers is next, then SageAttention 1, FlashAttention 4 and 2 and the torch 2.11 environment (+9 to +12 s). The slower cells
+are slower outside the transformer (SageAttention 1 and FlashAttention 4 pay their Triton and CuTe start-up in every process: transformer 11.9 s, job 68 s). SageAttention 3: built, does not run (misaligned address). Not repeated here: the other combinations.
+
+**Audio.** The male clip is -15.9 LUFS (the original recording); the female clips of the matrix were -45.4: their sound was a tamed copy of a file that was itself a tamed copy (`takes/intro_warm/take.wav`, -36.2; the original is `voice/00.wav`, -16.0).
+The production already puts only the originals under the picture (`voice_all.wav`) and gives the model `model.wav`; `loudness_lufs` normalises each block when it is read. `tools/audio_remux.py` puts the original under `ltx25t_12`, `ltx25t` and the male clip, the picture stream copied: loudness -16.0 / -16.0 / -15.9,
+the tamed copy against the original -0.5 ms, the audio read back from the new file against the original 0.0 ms, audio and picture start at 0, the audio cut at the end of the picture (0.16 s at -86 dBFS in the female clips, 0.23 s at -88 dBFS in the male: silence), the same rate (24 kHz).
+The lag of the mouth against the voice by envelope correlation (-70 to -250 ms) belongs to the generated picture, the remux does not change it, and the method is too coarse to be proof: the proof is the offsets above. Page: `E:\AI\Output\audio_remux\20261114\review.html`.
+
+**The enhancer: FlashVSR+ Turbo, same size.** "Increase resolution" means removing the blockiness and restoring detail, not larger dimensions: the result has the size, the frames and the duration of the input. The streaming decoder gives three frames fewer than it is given (169 in, 166 out): the launcher
+adds four copies of the last frame and writes exactly the input's count (169 and 297 frames in and out, 6.76 s and 11.88 s, the sound kept, checked on the real clips). (a) is the default until the user chooses.
+
+| Clip | Variant | Job s | Face sharpness | Eyes / centre / hair | PSNR / SSIM vs the input |
+|---|---|---|---|---|---|
+| Endre (approved) | none | - | 222.5 | 18.5 / 3.3 / 12.4 | - |
+| | a_x2_fit: FlashVSR+ at 2x, Lanczos back to 896x512, crf 4 | 82.3 | 387.9 | 34.5 / 5.0 / 31.3 | 30.3 dB / 0.953 |
+| | b_native_1x: FlashVSR+ at scale 1 (its native same-size mode) | 43.1 | 325.3 | 27.5 / 4.3 / 23.4 | 27.7 dB / 0.889 |
+| ltx25t_12 | none | - | 96.1 | 9.2 / 2.4 / 7.9 | - |
+| | a_x2_fit | 53.0 | 216.4 | 23.0 / 3.3 / 26.1 | 30.0 dB / 0.936 |
+| | b_native_1x | 21.1 | 153.3 | 16.3 / 2.7 / 18.0 | 26.2 dB / 0.842 |
+
+FlashVSR+ does have a same-size mode (`--scale 1`; the runner clamps to 1 to 4): (b) takes about half the time of (a), gains less detail and departs more from the input. The ways of scaling the lossless 2x working file back (kept for the comparison): Lanczos 388 / 216 face sharpness,
+spline 372 / 208, bicubic 347 / 195, area 347 / 194 (area cannot ring); Lanczos is the sharpest and the furthest from the area version (44.0 dB against 44.7 for bicubic), so it carries the most overshoot: the filter (`FLASHVSR_DOWN`) is for the eye of the person. Page: `E:\AI\Output\speed_study\20261114\same_size\review\review.html`.
+The sharpness of enhanced clips is what the restoration adds, right or wrong: compare it with the unenhanced ones as a ratio, not as a quality.
+

@@ -56,6 +56,9 @@ def main() -> int:
     for k in ("PYTHONPATH", "PYTHONHOME"):
         env.pop(k, None)
     argv = [args.python, "-u", str(HERE / "ltx_bench.py"), str(LTX / "workers" / "ltx2_infer.py"), str(run / "params.json")]
+    import psutil
+    cpu_before = psutil.cpu_percent(interval=2.0)                          # how busy the PC is before the run starts (the job itself is not running yet)
+    gpu_before = subprocess.run(["nvidia-smi", "--query-gpu=utilization.gpu,memory.used", "--format=csv,noheader,nounits"], capture_output=True, text=True).stdout.strip()
     stop, peak = threading.Event(), [0]
     threading.Thread(target=sample_vram, args=(stop, peak), daemon=True).start()
     t0 = time.time()
@@ -73,7 +76,7 @@ def main() -> int:
     mem = re.search(r"peak_allocated_gib ([\d.]+) peak_reserved_gib ([\d.]+)", text)
     fw = re.search(r"transformer_forwards (\d+) total ([\d.]+) s", text)
     bd = re.search(r"transformer_builds (\d+) total ([\d.]+) s", text)
-    result = {"build_s": float(bd.group(2)) if bd else None, "forwards": int(fw.group(1)) if fw else None, "forward_s": float(fw.group(2)) if fw else None, "cell": args.cell, "run": args.run, "env": args.env, "teacache": args.teacache, "returncode": code, "wall_s": round(wall, 1), "stage_s": stages,
+    result = {"cpu_busy_before_pct": cpu_before, "gpu_before": gpu_before, "build_s": float(bd.group(2)) if bd else None, "forwards": int(fw.group(1)) if fw else None, "forward_s": float(fw.group(2)) if fw else None, "cell": args.cell, "run": args.run, "env": args.env, "teacache": args.teacache, "returncode": code, "wall_s": round(wall, 1), "stage_s": stages,
               "peak_alloc_gib": float(mem.group(1)) if mem else None, "peak_reserved_gib": float(mem.group(2)) if mem else None,
               "nvsmi_peak_mib": peak[0], "ok": code == 0 and (run / "take.mp4").is_file(), "attn_line": next((l for l in text.splitlines() if l.startswith("[SL] attention")), ""), "versions": next((l for l in text.splitlines() if l.startswith("[SL] torch")), ""),
               "error_tail": "" if code == 0 else "\n".join(text.splitlines()[-12:])}
