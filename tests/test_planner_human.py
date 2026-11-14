@@ -139,7 +139,7 @@ def q(nid, deps=(), **spec):
 def test_a_question_has_its_help_and_its_english_and_choices_that_show_a_label_never_the_value():
     from tadamoo.planner.nodes import clean_spec, shown_choices
     spec = clean_spec("input", {"prompt": "Quante notizie?", "help": "Da 1 a 9.", "prompt_en": "How many stories?", "help_en": "From 1 to 9.", "into": "count", "kind": "choice",
-                                "choices": [{"value": "n3", "label": "Tre notizie", "label_en": "Three stories"}, {"value": "n6", "label": "Sei notizie"}, "n9"], "default": "n6"})
+                                "choices": [{"value": "n3", "label": "Tre notizie", "label_en": "Three stories"}, {"value": "n6", "label": "Sei notizie"}, "n9"], "default": "n6", "other": False})
     assert spec["help_en"] == "From 1 to 9." and spec["default"] == "n6"
     assert shown_choices(spec) == [{"value": "n3", "label": "Tre notizie", "label_en": "Three stories"}, {"value": "n6", "label": "Sei notizie", "label_en": "Sei notizie"},
                                    {"value": "n9", "label": "n9", "label_en": "n9"}]
@@ -219,3 +219,59 @@ def test_the_service_takes_the_answers_sent_together_and_sets_the_agent_going(tm
     done = svc.handle_event("p", {"type": "plan:answers", "answers": {"a": "x", "b": "4"}, "actor": "user"})
     assert done["ok"] and done["values"] == {"a": "x", "b": 4} and done["ready"] == ["go"]
     assert svc.human_requests() == [] and [r[0] for r in svc.launcher.runs] == ["p"]
+
+
+# -- "Other, I write", and the steps for the person ----------------------------------------------------------------------------------
+
+def test_a_menu_of_more_than_two_choices_also_takes_what_the_person_writes_two_choices_and_a_closed_question_do_not():
+    from tadamoo.planner.nodes import allows_other, clean_spec
+    three = clean_spec("input", {"prompt": "x", "into": "v", "kind": "choice", "choices": ["a", "b", "c"]})
+    assert allows_other(three) and clean_answer(three, "something of mine") == "something of mine"
+    closed = clean_spec("input", {"prompt": "x", "into": "v", "kind": "choice", "choices": ["a", "b", "c"], "other": False})
+    assert not allows_other(closed)
+    with pytest.raises(PlanError, match="one of"):
+        clean_answer(closed, "something of mine")
+    two = clean_spec("input", {"prompt": "x", "into": "v", "kind": "choice", "choices": ["a", "b"]})
+    assert not allows_other(two)
+    with pytest.raises(PlanError, match="one of"):
+        clean_answer(two, "c")
+    with pytest.raises(PlanError, match="true or false"):
+        clean_spec("input", {"prompt": "x", "into": "v", "kind": "choice", "choices": ["a", "b", "c"], "other": "yes"})
+    dag = PlanDAG.from_dict(plan("p", q("k", kind="choice", choices=["a", "b", "c"]), q("t", kind="choice", choices=["a", "b"])))
+    assert {r["node_id"]: r["other"] for r in dag.human_requests()} == {"k": True, "t": False}
+
+
+def task(nid, deps=(), **kw):
+    return n(nid, "action", deps=deps, assignee="user", description=kw.pop("description", "Call the notary and ask for {doc}."), **kw)
+
+
+def test_a_step_for_the_person_is_asked_with_its_description_and_done_with_a_note_that_becomes_its_output():
+    dag = PlanDAG.from_dict(plan("p", n("find", "set_var", spec={"name": "doc", "value": "the deed"}), task("call", deps=["find"]), n("after", deps=["call"])))
+    dag.advance(0)
+    [r] = dag.human_requests()
+    assert (r["ask"], r["prompt"], r["content"], r["into"], r["other"]) == ("task", "call", "Call the notary and ask for the deed.", "call_note", False)
+    with pytest.raises(PlanError, match="done"):
+        dag.answer("call", {"done": False})
+    assert dag.nodes["call"].status == "pending"
+    dag.answer("call", {"done": True, "note": "  Appointment on Monday  "})
+    assert dag.nodes["call"].status == "completed" and dag.shared_state["call_note"] == "Appointment on Monday"
+    assert dag.nodes["call"].state_variables["outputs"] == {"call_note": "Appointment on Monday"} and dag.ready_nodes() == ["after"] and dag.human_requests() == []
+
+
+def test_a_task_done_without_a_note_has_no_output_and_one_with_a_declared_output_gives_the_note_to_it():
+    dag = PlanDAG.from_dict(plan("p", task("one"), task("two", produces=[{"name": "when", "type": "text"}]), task("three", produces=[{"name": "n", "type": "number"}])))
+    assert sorted(r["node_id"] for r in dag.human_requests()) == ["one", "two"]          # a task with outputs the window cannot ask for stays for the Plans page
+    got = dag.answer_many({"one": {"done": True}, "two": {"done": True, "note": "Monday"}})
+    assert got == {"one": {"done": True, "note": ""}, "two": {"done": True, "note": "Monday"}}
+    assert dag.shared_state == {"when": "Monday"} and "outputs" not in dag.nodes["one"].state_variables
+
+
+def test_a_task_answers_with_the_questions_of_the_plan_together_or_none():
+    dag = PlanDAG.from_dict(plan("p", q("a", kind="number"), task("t")))
+    with pytest.raises(PlanError, match="'a': the answer is a number"):
+        dag.answer_many({"a": "many", "t": {"done": True}})
+    assert dag.nodes["t"].status == "pending"
+    dag.answer_many({"a": "3", "t": {"done": True, "note": "ok"}})
+    assert dag.shared_state == {"a": 3, "t_note": "ok"}
+    third = PlanDAG.from_dict(plan("p", n("x", assignee="third_party"), n("y")))
+    assert third.human_requests() == []                                              # what is for someone else, or for the agent, is not asked of the person

@@ -65,7 +65,7 @@ NODE_SPECS: Dict[str, Dict[str, Any]] = {
         {"name": "content", "kind": "textarea", "max": CONTENT_MAX},
         {"name": "into", "kind": "name"},
         {"name": "kind", "kind": "choice", "choices": ["text", "number", "choice"], "default": "text"}, {"name": "choices", "kind": "options", "max": MAX_CHOICES},
-        {"name": "default", "kind": "json"}]},
+        {"name": "default", "kind": "json"}, {"name": "other", "kind": "json"}]},
     "start": {"family": "start", "auto": True, "summary": "Where a plan begins: its number, and how it starts (by the person, by an event, at intervals, from another plan)", "fields": [
         {"name": "number", "kind": "integer", "min": 1, "max": 99, "default": 1},
         {"name": "launch", "kind": "choice", "choices": list(LAUNCHES), "default": "manual"},
@@ -392,6 +392,10 @@ def clean_spec(node_type: Any, spec: Any, draft: bool = False) -> Dict[str, Any]
                 out[key] = text
         if ask == "value":
             out.update({"kind": form, **({"choices": choices} if choices and form == "choice" else {})})
+        if spec.get("other") is not None:
+            if not isinstance(spec["other"], bool):
+                raise PlanError("'other' is true or false: whether a menu of more than two choices also offers 'Other, I write'")
+            out["other"] = spec["other"]
         if spec.get("default") is not None and spec.get("default") != "":
             out["default"] = clean_answer(out, spec["default"])             # the value proposed is one the question would take
     elif kind == "start":
@@ -483,12 +487,47 @@ def clean_answer(spec: Dict[str, Any], value: Any) -> Any:
     text = str(value).strip() if isinstance(value, (str, int, float)) and not isinstance(value, bool) else ""
     if not text or len(text) > ANSWER_MAX:
         raise PlanError(f"the answer is a text of 1 to {ANSWER_MAX} characters")
-    if form == "choice" and text not in [choice_value(c) for c in spec.get("choices") or []]:
+    if form == "choice" and text not in [choice_value(c) for c in spec.get("choices") or []] and not allows_other(spec):
         raise PlanError("the answer is one of: " + ", ".join(choice_value(c) for c in spec.get("choices") or []))
     return text
 
 
+def allows_other(spec: Dict[str, Any]) -> bool:
+    """A menu of more than two choices also takes what the person writes ("Other, I write"), unless the question is closed (`other: false`); two choices are two buttons."""
+    return spec.get("ask", "value") == "value" and spec.get("kind") == "choice" and len(spec.get("choices") or []) > 2 and spec.get("other", True) is not False
+
+
+def is_task(node: Any) -> bool:
+    """A step for the person that a window can ask about: an action assigned to them whose outputs are at most one text (their note)."""
+    if getattr(node.type, "value", node.type) != "action" or node.assignee.value != "user" or node.state_variables.get("draft"):
+        return False
+    return not node.produces or (len(node.produces) == 1 and node.produces[0]["type"] in ("text", "any"))
+
+
+def task_name(node: Any) -> str:
+    """The plan value the note of a task is written to: the one text the step says it produces, or one made from its id."""
+    if node.produces:
+        return node.produces[0]["name"]
+    return (re.sub(r"[^A-Za-z0-9_]+", "_", node.id).strip("_") or "task") + "_note"
+
+
+def clean_task_answer(value: Any) -> Dict[str, Any]:
+    """The answer to a task for the person: {done: true, note}. The note is optional and becomes the step's output."""
+    if not isinstance(value, dict):
+        raise PlanError("a task is answered with {done: true, note}")
+    done = value.get("done")
+    if not (done is True or str(done).strip().lower() in YES):
+        raise PlanError("a task is answered by saying it is done")
+    note = value.get("note")
+    note = "" if note is None else str(note).strip()
+    if len(note) > ANSWER_MAX:
+        raise PlanError(f"the note is a text of at most {ANSWER_MAX} characters")
+    return {"done": True, "note": note}
+
+
 def shown_answer(spec: Dict[str, Any], value: Any) -> str:
+    if isinstance(value, dict):
+        return "done" + (f": {_brief(value.get('note'))}" if value.get("note") else "")
     return ("approved" if value else "not approved") if spec.get("ask", "value") == "approve" else _brief(value)
 
 

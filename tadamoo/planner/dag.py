@@ -1360,6 +1360,16 @@ class PlanDAG:
         order = {nid: i for i, nid in enumerate(self.list_order())}
         for nid in self.ready_nodes(moment):
             n = self.nodes[nid]
+            if nodes.is_task(n):                                     # a step for the person: what to do, a note, and whether it is done
+                asked = n.state_variables.setdefault("asked_at", moment)
+                context = {**self.shared_state, **self.input_values(n), "plan_title": self.title, "plan_id": self.plan_id}
+                try:
+                    what = render_template(n.description, context) if n.description else ""
+                except PlanError:
+                    what = n.description
+                out.append({"node_id": nid, "title": n.title, "ask": "task", "prompt": n.title, "prompt_en": "", "help": n.state_variables.get("fallback_reason", ""), "help_en": "",
+                            "content": what, "kind": "text", "choices": [], "other": False, "into": nodes.task_name(n), "since": asked, "index": order.get(nid, 0), "proposed": None})
+                continue
             if n.type != NodeType.INPUT:
                 continue
             asked = n.state_variables.setdefault("asked_at", moment)
@@ -1372,7 +1382,7 @@ class PlanDAG:
             last = (n.state_variables.get("answer") or {}).get("value")             # what was answered the last time is what is proposed now
             out.append({"node_id": nid, "title": n.title, "ask": spec.get("ask", "value"), "prompt": spec["prompt"], "prompt_en": spec.get("prompt_en", ""),
                         "help": spec.get("help", ""), "help_en": spec.get("help_en", ""), "content": content, "kind": spec.get("kind", "text"),
-                        "choices": nodes.shown_choices(spec), "into": nodes.answer_name(n), "since": asked, "index": order.get(nid, 0),
+                        "choices": nodes.shown_choices(spec), "other": nodes.allows_other(spec), "into": nodes.answer_name(n), "since": asked, "index": order.get(nid, 0),
                         "proposed": last if last is not None else spec.get("default")})
         return sorted(out, key=lambda r: (r["since"], r["index"]))
 
@@ -1382,13 +1392,19 @@ class PlanDAG:
         node = self.nodes.get(node_id)
         if node is None:
             raise KeyError(f"Node '{node_id}' not found")
-        if node.type != NodeType.INPUT:
+        task = nodes.is_task(node)
+        if node.type != NodeType.INPUT and not task:
             raise PlanError(f"'{node_id}' does not ask the person for anything")
         if node_id not in self.ready_nodes(time.time() if now is None else now):
             raise PlanError(f"'{node_id}' is not asking now" + (": it was answered already" if node.status == "completed" else ""))
-        cleaned = nodes.clean_answer(node.spec, value)
-        name = nodes.answer_name(node)
-        self.mark(node_id, "completed", {name: cleaned}, now)
+        if task:                                                      # done: the step is closed and the note is its output
+            cleaned = nodes.clean_task_answer(value)
+            name = nodes.task_name(node)
+            self.mark(node_id, "completed", {name: cleaned["note"]} if cleaned["note"] else ({name: ""} if node.produces else None), now)
+        else:
+            cleaned = nodes.clean_answer(node.spec, value)
+            name = nodes.answer_name(node)
+            self.mark(node_id, "completed", {name: cleaned}, now)
         node = self.nodes[node_id]
         node.state_variables["answer"] = {"value": cleaned, "at": _now(), "by": by}
         self.note(node_id, "answer", f"{node.title}: {nodes.shown_answer(node.spec, cleaned)}", now)
@@ -1405,12 +1421,12 @@ class PlanDAG:
         cleaned: Dict[str, Any] = {}
         for node_id, value in answers.items():
             node = self.nodes.get(node_id)
-            if node is None or node.type != NodeType.INPUT:
+            if node is None or (node.type != NodeType.INPUT and not nodes.is_task(node)):
                 raise PlanError(f"'{node_id}' does not ask the person for anything")
             if node_id not in asking:
                 raise PlanError(f"'{node.title}' is not asking now" + (": it was answered already" if node.status == "completed" else ""))
             try:
-                cleaned[node_id] = nodes.clean_answer(node.spec, value)
+                cleaned[node_id] = nodes.clean_task_answer(value) if nodes.is_task(node) else nodes.clean_answer(node.spec, value)
             except PlanError as exc:
                 raise PlanError(f"'{node.title}': {exc}") from None
         backup = copy.deepcopy((self.nodes, self.shared_state))
