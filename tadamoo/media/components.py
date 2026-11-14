@@ -42,6 +42,25 @@ COMPONENTS: Dict[str, Dict[str, Any]] = {
                     "steps": [["{py}", "{ltx}/scripts/download_weights.py", "--ids", "rife-flownet-v4"]]},
     "video-enlarger": {"label": ("FlashVSR+ (larger video with more detail, Apache-2.0)", "FlashVSR+ (video piu' grande e dettagliato, Apache-2.0)"), "check": "ready", "kind": "upscale",
                        "steps": [["{py}", "{ltx}/scripts/install_flashvsrplus.py"], ["{py}", "{ltx}/scripts/download_weights.py", "--ids", "flashvsr-plus-turbo"]]},
+    "modify-model": {"label": ("LTX 2.3 with SAM2 (changes the content of a video: the checkpoint, the distilled LoRA, the object tracker)", "LTX 2.3 con SAM2 (cambia il contenuto di un video: checkpoint, distilled LoRA, tracciatore di oggetti)"),
+                     "check": "ready", "kind": "modify",
+                     "steps": [["{py}", "{ltx}/scripts/download_weights.py", "--ids", "ltx23-dev-fp8,ltx23-distilled-lora-384,ltx23-spatial-upscaler,ltx23-gemma-te,sam2-hiera-large,grounding-dino-base"]],
+                     "how": ("The inpaint LoRA that works from words (ltx23_inpaint_masked_t2v_rank128_v1_10000steps.safetensors) has no download entry in LTX Studio: put it in the LTX-2 folder of its LoRA folder by hand.",
+                             "La LoRA di inpaint che lavora a parole (ltx23_inpaint_masked_t2v_rank128_v1_10000steps.safetensors) non ha una voce di download in LTX Studio: va messa a mano nella cartella LTX-2 delle sue LoRA.")},
+    "modify-extras": {"label": ("the LoRAs of the other changes (a photograph of the new thing, the whole video by words, the look of a picture)", "le LoRA delle altre modifiche (foto della cosa nuova, tutto il video a parole, aspetto di un'immagine)"),
+                      "check": "catalogue", "ids": ["ltx23-inpaint-r2v", "ltx-iclora-restyle", "file:LoRA/LTX-2/ltx23_edit_anything_global_rank128_v1_9000steps_adamw.safetensors"],
+                      "steps": [["{py}", "{ltx}/scripts/download_weights.py", "--ids", "ltx23-inpaint-r2v,ltx-iclora-restyle"]],
+                      "how": ("The Edit-anything LoRA (ltx23_edit_anything_global_rank128_v1_9000steps_adamw.safetensors) has no download entry in LTX Studio: put it in the LTX-2 folder of its LoRA folder by hand.",
+                              "La LoRA Edit-anything (ltx23_edit_anything_global_rank128_v1_9000steps_adamw.safetensors) non ha una voce di download in LTX Studio: va messa a mano nella cartella LTX-2 delle sue LoRA.")},
+    "talking-head-accel": {"label": ("FlashAttention and Triton in the talking head's environment (its weights are set to use them; LTX Studio's installer for accelerators, which takes the wheel it keeps for this torch)", "FlashAttention e Triton nell'ambiente della persona che parla (i suoi pesi sono impostati per usarli; l'installatore di acceleratori di LTX Studio, con il wheel che tiene per questo torch)"),
+                           "check": "modules", "items": ["avatar:flash_attn", "avatar:triton"], "accel": "flash_attn,triton",
+                           "how": ("FlashAttention has no wheel on PyPI for Windows: LTX Studio's installer takes it from its precompiled wheels folder (E:/AI/Tools/precompiled_wheels).", "FlashAttention non ha un wheel su PyPI per Windows: l'installatore di LTX Studio lo prende dalla sua cartella di wheel precompilati (E:/AI/Tools/precompiled_wheels).")},
+    "talking-head-fp8": {"label": ("LongCat-Video-Avatar 1.5 fp8 weights (the GPU's own fp8 matmul instead of an int8 weight dequantized at every layer)", "pesi fp8 di LongCat-Video-Avatar 1.5 (il prodotto fp8 della GPU invece di un peso int8 riconvertito a ogni strato)"),
+                         "check": "catalogue", "ids": ["lcav15-fp8"], "steps": [["{py}", "{ltx}/scripts/download_weights.py", "--ids", "lcav15-fp8"]],
+                         "how": ("Then set avatar_precision to fp8 in the media settings.", "Poi imposta avatar_precision su fp8 nelle impostazioni media.")},
+    "modify-nvfp4": {"label": ("LTX 2.3 dev nvfp4 (the checkpoint with the GPU's fp4 matmul, smaller in VRAM)", "LTX 2.3 dev nvfp4 (il checkpoint con il prodotto fp4 della GPU, piu' piccolo in VRAM)"),
+                     "check": "catalogue", "ids": ["ltx23-dev-nvfp4"], "steps": [["{py}", "{ltx}/scripts/download_weights.py", "--ids", "ltx23-dev-nvfp4"]],
+                     "how": ("Then set edit_model to ltx-2.3-22b-dev-nvfp4.safetensors in the media settings.", "Poi imposta edit_model su ltx-2.3-22b-dev-nvfp4.safetensors nelle impostazioni media.")},
     "mediapipe": {"label": ("the mediapipe package (measures of faces and bodies for the seam detector)", "il pacchetto mediapipe (misure di volti e corpi per il rilevatore di stacchi)"),
                   "check": "module", "module": "mediapipe", "steps": [[sys.executable, "-m", "pip", "install", "mediapipe"]]},
     "xtts-triton": {"label": ("Triton for the XTTS environment (torch.compile of the voice; the triton-windows package, the one LTX Studio's inference environment uses)",
@@ -56,9 +75,12 @@ SKILLS: Dict[str, List[str]] = {
     "image-generation": ["ltx-studio", "image-model"],
     "image-editing": ["ltx-studio", "image-model"],
     "video-generation": ["ltx-studio", "video-model", "ffmpeg", "frame-maker", "video-enlarger"],
-    "talking-head": ["ltx-studio", "talking-head-model"],
+    "talking-head": ["ltx-studio", "talking-head-model", "talking-head-accel"],
     "video-editing": ["ffmpeg", "mediapipe", "landmarkers"],
     "speech-synthesis": ["xtts-triton"],
+    "video-modification": ["ltx-studio", "ffmpeg", "modify-model", "modify-extras"],
+    "talking-head-fp8": ["ltx-studio", "talking-head-model", "talking-head-fp8"],             # the faster weights, asked for by name: they are 16 GB more
+    "video-modification-nvfp4": ["ltx-studio", "modify-model", "modify-nvfp4"],              # the smaller checkpoint, asked for by name: 20 GB more
 }
 
 
@@ -94,6 +116,19 @@ def check(skill: str, settings: Optional[Dict[str, Any]] = None, command: Option
             row = _row(cid, not gone, str(LANDMARKERS))
             if gone:
                 row["missing"] = gone
+        elif how == "modules":
+            got = client.modules(settings, spec["items"], command) if folder else {"present": {}, "venvs": {}}
+            gone = [i for i in spec["items"] if not got["present"].get(i)]
+            row = _row(cid, bool(folder) and not gone, folder)
+            row["venv"] = next(iter(got["venvs"].values()), "")
+            if gone:
+                row["missing"] = gone
+        elif how == "catalogue":
+            got = client.present(settings, spec["ids"], command) if folder else {}
+            gone = [i for i in spec["ids"] if not got.get(i)]
+            row = _row(cid, bool(folder) and not gone, folder)
+            if gone:
+                row["missing"] = gone
         else:
             if not asked:
                 asked.update(client.check(settings, command, force=True) if folder else {})
@@ -123,6 +158,9 @@ def steps(skill: str, settings: Optional[Dict[str, Any]] = None, rows: Optional[
             if "{xtts_py}" in step and not _xtts_python(settings):
                 continue
             out.append({"component": row["id"], "step": [str(a).replace("{py}", py).replace("{ltx}", folder).replace("{xtts_py}", _xtts_python(settings)) for a in step]})
+        if spec.get("accel") and folder and row.get("venv"):
+            only = ",".join(m.partition(":")[2] for m in row.get("missing", []))
+            out.append({"component": row["id"], "step": [py, f"{folder}/scripts/install_accelerators.py", "--venv", row["venv"], "--only", only]})
         for name, url in (spec.get("files") or {}).items():
             if name in row.get("missing", []):
                 out.append({"component": row["id"], "step": {"download": url, "to": str(LANDMARKERS / name)}})

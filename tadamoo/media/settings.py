@@ -13,16 +13,23 @@ from tadamoo.media.errors import MediaError
 
 DEFAULT_LTX_DIRS = tuple(p for p in (os.environ.get("TADAMOO_LTX_STUDIO", ""), "E:/AI/LTXStudio") if p)
 VIDEO_MODEL = "ltx-2.5-22b-distilled-transformer-nvfp4.safetensors"
-DEFAULTS: Dict[str, Any] = {"enabled": True, "ltx_dir": "", "image_python": "", "video_python": "", "video_model": "",
-                            "image_mib": 11000, "video_mib": 25000, "avatar_mib": 25000, "upscale_mib": 22000, "interpolate_mib": 4000, "wait_s": 600, "idle_s": 900}
+DEFAULTS: Dict[str, Any] = {"enabled": True, "ltx_dir": "", "image_python": "", "video_python": "", "modify_python": "", "video_model": "", "edit_model": "", "avatar_precision": "int8",
+                            "image_mib": 11000, "video_mib": 25000, "avatar_mib": 25000, "upscale_mib": 22000, "interpolate_mib": 4000, "modify_mib": 28000, "wait_s": 600, "idle_s": 900,
+                            "time_factor_audio": 3.0, "time_factor_video": 2.0, "time_min_s": 120}
 FLAGS = ("enabled",)
 FOLDERS = ("ltx_dir",)
-FILES = ("image_python", "video_python")
-RANGES = {"image_mib": (2000, 60000), "video_mib": (2000, 60000), "avatar_mib": (2000, 60000), "upscale_mib": (2000, 60000), "interpolate_mib": (2000, 60000), "wait_s": (0, 3600), "idle_s": (30, 7200)}
+CHOICES = {"avatar_precision": ("int8", "fp8")}          # the weights of the talking head: int8 is dequantized in bf16 at every layer, fp8 uses the GPU's own fp8 matmul (needs the fp8 weights)
+FILES = ("image_python", "video_python", "modify_python")
+RANGES = {"image_mib": (2000, 60000), "video_mib": (2000, 60000), "avatar_mib": (2000, 60000), "upscale_mib": (2000, 60000), "interpolate_mib": (2000, 60000), "modify_mib": (2000, 60000), "wait_s": (0, 3600), "idle_s": (30, 7200), "time_min_s": (0, 3600)}
+DECIMALS = {"time_factor_audio": (1.0, 20.0), "time_factor_video": (1.0, 20.0)}          # the longest a job may take, as times what jobs of its kind really took (tadamoo/jobtime.py)
 
 
 def _number(value: Any, lo: float, hi: float) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and lo <= value <= hi
+
+
+def _decimal(value: Any, lo: float, hi: float) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and lo <= value <= hi
 
 
 def _text(value: Any, limit: int = 500) -> bool:
@@ -51,12 +58,18 @@ class MediaSettings:
             for key in FLAGS:
                 if isinstance(raw.get(key), bool):
                     out[key] = raw[key]
-            for key in FOLDERS + FILES + ("video_model",):
+            for key in FOLDERS + FILES + ("video_model", "edit_model"):
                 if _text(raw.get(key)):
                     out[key] = raw[key].strip()
+            for key, choices in CHOICES.items():
+                if raw.get(key) in choices:
+                    out[key] = raw[key]
             for key, (lo, hi) in RANGES.items():
                 if _number(raw.get(key), lo, hi):
                     out[key] = raw[key]
+            for key, (lo, hi) in DECIMALS.items():
+                if _decimal(raw.get(key), lo, hi):
+                    out[key] = float(raw[key])
         return out
 
     def write(self, changes: Dict[str, Any]) -> Dict[str, Any]:
@@ -87,11 +100,26 @@ class MediaSettings:
                 if not _text(value, 200) or any(c in value for c in "/\\"):
                     raise MediaError("video_model: the file name of an LTX 2.5 checkpoint (no path), or empty")
                 now["video_model"] = value.strip()
+            if "edit_model" in changes:
+                value = changes["edit_model"]
+                if not _text(value, 200) or any(c in value for c in "/\\"):
+                    raise MediaError("edit_model: the file name of an LTX 2.3 checkpoint (no path), or empty")
+                now["edit_model"] = value.strip()
             for key, (lo, hi) in RANGES.items():
                 if key in changes:
                     if not _number(changes[key], lo, hi):
                         raise MediaError(f"{key}: a whole number from {lo} to {hi}")
                     now[key] = changes[key]
+            for key, choices in CHOICES.items():
+                if key in changes:
+                    if changes[key] not in choices:
+                        raise MediaError(f"{key}: " + " or ".join(choices))
+                    now[key] = changes[key]
+            for key, (lo, hi) in DECIMALS.items():
+                if key in changes:
+                    if not _decimal(changes[key], lo, hi):
+                        raise MediaError(f"{key}: a number from {lo:g} to {hi:g}")
+                    now[key] = float(changes[key])
             self.file.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.file.with_name(self.file.name + ".tmp")
             tmp.write_text(json.dumps(now, indent=1), encoding="utf-8")

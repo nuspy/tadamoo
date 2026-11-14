@@ -44,7 +44,7 @@ with the recording as its sound.
 - A cancel closes the worker's stdin. The worker looks at the pipe twice a second, kills the model process and what it started
   (`taskkill /T` on Windows), gives the lease back and exits with code 3. If it has not gone in 5 seconds the client kills its tree.
 - `idle_s` (900): a worker that prints nothing for that long is ended. Model loads print lines, so this is a hang, not a slow load.
-- `total_s`: 1 hour for a picture, 4 hours for a clip, the wait for the lease included.
+- **The longest a job may take** follows the length of what it works on (`tadamoo/jobtime.py`): factor x median of the recorded ratios x duration, counted from the moment the lease is given (the wait for it has its own cap, `wait_s` + 15 minutes). The ratio is seconds of work for each second of audio or video; every job that ends well records its own in `job_times.json` of the user data folder, per kind (voice, avatar, video, modify, upscale, interpolate). Until a kind has a record the provisional ratio stands in: 1.0 for audio, 42 for video. The factors are `time_factor_audio` (3) and `time_factor_video` (2) of the media settings, and `time_min_s` (120) is the least a job is given, because a model that loads takes that long. Going over is `MediaError` with code `timeout` (the step fails, so a plan recovers it) and the worker, the model process and the tracker are ended. A picture has no duration and keeps its fixed hour.
 - A cancel while the worker still waits in the broker's queue ends the process, but the server may still grant the lease to the dead
   caller; it runs out by itself after `hold_s` (60 s) because nobody touches it.
 

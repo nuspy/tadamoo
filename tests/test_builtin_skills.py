@@ -10,7 +10,7 @@ from tadamoo.importer.__main__ import main
 from tadamoo.importer.common import Problem
 
 SKILLS = Path(__file__).resolve().parents[1] / "skills"
-MEDIA = ("image-generation", "image-editing", "video-generation", "talking-head", "video-editing")
+MEDIA = ("image-generation", "image-editing", "video-generation", "talking-head", "video-editing", "video-modification")
 
 
 @pytest.fixture
@@ -67,7 +67,8 @@ def test_only_the_chosen_skills_are_imported_and_a_second_run_imports_nothing_tw
 def test_the_plugin_brings_the_skills_it_requires(imp):
     got = builtin.install(imp, ["ai-newscast"])
     assert not got["conflicts"] and "plugin:ai-newscast" in {r["item"] for r in got["imported"]}
-    assert {e["name"] for e in builtin.load() if e["kind"] == "skill"} <= names(imp, "skill")
+    required = set(next(e for e in builtin.load() if e["name"] == "ai-newscast")["requires"])
+    assert required <= names(imp, "skill") and "video-modification" not in names(imp, "skill")
 
 
 def test_a_dry_run_changes_nothing_and_nothing_chosen_imports_nothing(imp):

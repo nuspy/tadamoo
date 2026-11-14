@@ -16,11 +16,12 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
+from tadamoo import jobtime
 from tadamoo.media.errors import Cancelled, MediaError, Refused
 from tadamoo.media.settings import VIDEO_MODEL, ltx_dir_of
 
 WORKER = Path(__file__).with_name("worker.py")
-TOTAL_S = {"image": 3600.0, "video": 4 * 3600.0, "avatar": 4 * 3600.0, "upscale": 4 * 3600.0, "interpolate": 3600.0}
+TOTAL_S = {"image": 3600.0, "video": 4 * 3600.0, "avatar": 4 * 3600.0, "upscale": 4 * 3600.0, "interpolate": 3600.0, "modify": 6 * 3600.0}
 CHECK_TTL_S = 60.0
 Progress = Callable[[Dict[str, Any]], None]
 _checked: Dict[Any, Any] = {}
@@ -42,11 +43,11 @@ def check(settings: Dict[str, Any], command: Optional[Sequence[str]] = None, for
         why = f"the LTX Studio folder {settings['ltx_dir']} does not exist" if settings["ltx_dir"] else "LTX Studio was not found (set its folder)"
         return {"ltx_dir": "", "image": {"ready": False, "missing": [], "error": why}, "video": {"ready": False, "missing": [], "error": why}}
     model = settings["video_model"] or VIDEO_MODEL
-    key = (folder, model, tuple(settings[k] for k in ("image_python", "video_python")), tuple(command or ()))
+    key = (folder, model, settings.get("edit_model", ""), settings.get("avatar_precision", "int8"), tuple(settings.get(k, "") for k in ("image_python", "video_python", "modify_python")), tuple(command or ()))
     hit = _checked.get(key)
     if hit and not force and time.monotonic() - hit[0] < CHECK_TTL_S:
         return hit[1]
-    argv = list(command) if command else [sys.executable, "-X", "utf8", str(WORKER), "--check", "--ltx-dir", folder, "--video-model", model]
+    argv = list(command) if command else [sys.executable, "-X", "utf8", str(WORKER), "--check", "--ltx-dir", folder, "--video-model", model, *(["--edit-model", settings["edit_model"]] if settings.get("edit_model") else []), "--avatar-precision", settings.get("avatar_precision", "int8")]
     try:
         done = subprocess.run(argv, capture_output=True, timeout=60, creationflags=_flags(), env={**os.environ, "PYTHONIOENCODING": "utf-8"})
         got = json.loads(done.stdout.decode("utf-8", "replace").strip().splitlines()[-1])
@@ -55,13 +56,41 @@ def check(settings: Dict[str, Any], command: Optional[Sequence[str]] = None, for
         heard = heard.decode("utf-8", "replace") if isinstance(heard, bytes) else str(heard)
         why = f"the check of LTX Studio failed ({type(exc).__name__}; {Path(argv[0]).name})" + (f": {heard.strip()[-200:]}" if heard.strip() else "")
         got = {k: {"ready": False, "missing": [], "error": why} for k in ("image", "video")}
-    for kind, setting in (("image", "image_python"), ("video", "video_python")):       # a Python the person named instead of LTX Studio's
-        if settings[setting] and isinstance(got.get(kind), dict):
+    for kind, setting in (("image", "image_python"), ("video", "video_python"), ("modify", "modify_python")):       # a Python the person named instead of LTX Studio's
+        if settings.get(setting) and isinstance(got.get(kind), dict):
             ok = Path(settings[setting]).is_file()
             got[kind].update(python=settings[setting], python_ok=ok, ready=bool(ok and got[kind].get("script_ok") and not got[kind].get("missing")))
     out = {"ltx_dir": folder, **got}
     _checked[key] = (time.monotonic(), out)
     return out
+
+
+def present(settings: Dict[str, Any], ids: Sequence[str], command: Optional[Sequence[str]] = None) -> Dict[str, bool]:
+    """Which weights of LTX Studio's catalogue are on disk (an id of the catalogue, or `file:` and a path under its models folder); empty when the worker cannot say."""
+    folder = ltx_dir_of(settings["ltx_dir"])
+    if not folder:
+        return {}
+    argv = list(command) if command else [sys.executable, "-X", "utf8", str(WORKER), "--ltx-dir", folder, "--present", ",".join(ids)]
+    try:
+        done = subprocess.run(argv, capture_output=True, timeout=60, creationflags=_flags(), env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+        got = json.loads(done.stdout.decode("utf-8", "replace").strip().splitlines()[-1])
+    except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
+        return {}
+    return {k: bool(v) for k, v in got.items()} if isinstance(got, dict) else {}
+
+
+def modules(settings: Dict[str, Any], items: Sequence[str], command: Optional[Sequence[str]] = None) -> Dict[str, Any]:
+    """Which Python packages import in the environments of the kinds (`kind:module` items): `{present: {item: bool}, venvs: {kind: python}}`; empty when the worker cannot say."""
+    folder = ltx_dir_of(settings["ltx_dir"])
+    if not folder:
+        return {"present": {}, "venvs": {}}
+    argv = list(command) if command else [sys.executable, "-X", "utf8", str(WORKER), "--ltx-dir", folder, "--modules", ",".join(items)]
+    try:
+        done = subprocess.run(argv, capture_output=True, timeout=180, creationflags=_flags(), env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+        got = json.loads(done.stdout.decode("utf-8", "replace").strip().splitlines()[-1])
+    except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
+        return {"present": {}, "venvs": {}}
+    return got if isinstance(got, dict) else {"present": {}, "venvs": {}}
 
 
 def forget_checks() -> None:
@@ -82,10 +111,29 @@ def run(kind: str, request: Dict[str, Any], output: Path, settings: Dict[str, An
     job_file = output.parent / "job.json"
     mib = settings[f"{kind}_mib"]
     job_file.write_text(json.dumps({"kind": kind, "ltx_dir": folder, "url": url, "mib": mib, "wait_s": settings["wait_s"], "output": str(output), "request": request, "held": held,
-                                    "python": settings.get(f"{kind}_python", ""), "video_model": settings["video_model"] or VIDEO_MODEL}),
+                                    "python": settings.get(f"{kind}_python", ""), "video_model": settings["video_model"] or VIDEO_MODEL, "edit_model": settings.get("edit_model", ""), "avatar_precision": settings.get("avatar_precision", "int8")}),
                         encoding="utf-8")
     argv = list(command) + [str(job_file)] if command else [sys.executable, "-X", "utf8", str(WORKER), "--job", str(job_file)]
+    timing, duration = jobtime.Timing(settings=settings), duration_of(kind, request)
+    if total_s is None and duration > 0 and kind in jobtime.CLASS:         # the longest a job may take follows the length of what it works on (tadamoo/jobtime.py)
+        got = _run(argv, kind, progress, cancel, settings["idle_s"] if idle_s is None else idle_s, settings["wait_s"] + 900 + timing.limit(kind, duration), lambda: jobtime.Deadline(timing, kind, duration))
+        timing.record(kind, got["work_seconds"], duration)
+        return got
     return _run(argv, kind, progress, cancel, settings["idle_s"] if idle_s is None else idle_s, TOTAL_S[kind] if total_s is None else total_s)
+
+
+def duration_of(kind: str, request: Dict[str, Any]) -> float:
+    """The length in seconds of what a job works on: the clip it makes (frames and rate), the recording it is given, the video it changes; 0 for a picture."""
+    try:
+        if kind == "video":
+            return float(request["frames"]) / float(request["fps"])
+        if kind == "avatar":
+            return jobtime.duration_of(request["audio"])
+        if kind in ("modify", "upscale", "interpolate"):
+            return jobtime.duration_of(request["video"])
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        pass
+    return 0.0
 
 
 def enhance(request: Dict[str, Any], work: Path, settings: Dict[str, Any], url: str = "", progress: Optional[Progress] = None, cancel: Optional[Callable[[], bool]] = None,
@@ -103,7 +151,8 @@ def enhance(request: Dict[str, Any], work: Path, settings: Dict[str, Any], url: 
     return {"path": current, "seconds": round(seconds, 1), "steps": steps}
 
 
-def _run(argv: List[str], kind: str, progress: Optional[Progress], cancel: Optional[Callable[[], bool]], idle_s: float, total_s: float) -> Dict[str, Any]:
+def _run(argv: List[str], kind: str, progress: Optional[Progress], cancel: Optional[Callable[[], bool]], idle_s: float, total_s: float, make_deadline: Optional[Callable[[], Any]] = None) -> Dict[str, Any]:
+    """`make_deadline` makes the clock of the work (jobtime.Deadline) at the moment the lease is given: from then on a job that runs past it is ended with an error of the step."""
     env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
     proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, creationflags=_flags())
     lines: "queue.Queue[Optional[bytes]]" = queue.Queue()
@@ -124,6 +173,7 @@ def _run(argv: List[str], kind: str, progress: Optional[Progress], cancel: Optio
     began = last = time.monotonic()
     lease: Dict[str, Any] = {}
     done: Dict[str, Any] = {}
+    deadline, worked_from = None, None
     refused: Optional[Refused] = None
     error = ""
     try:
@@ -133,6 +183,11 @@ def _run(argv: List[str], kind: str, progress: Optional[Progress], cancel: Optio
             now = time.monotonic()
             if now - began > total_s:
                 raise MediaError(f"the {kind} took longer than {int(total_s // 60)} minutes and was ended", "timeout")
+            if deadline is not None:
+                try:
+                    deadline.check()
+                except jobtime.Overrun as exc:
+                    raise MediaError(str(exc), "timeout") from None
             if now - last > idle_s:
                 raise MediaError(f"the {kind} maker said nothing for {int(idle_s // 60)} minutes and was ended", "timeout")
             try:
@@ -151,10 +206,14 @@ def _run(argv: List[str], kind: str, progress: Optional[Progress], cancel: Optio
             kind_of = event.get("event")
             if kind_of == "lease":
                 lease = {"granted_mib": int(event.get("granted_mib") or 0), "ok": bool(event.get("ok"))}
+                if lease["ok"] and worked_from is None:
+                    worked_from = time.monotonic()
+                    deadline = make_deadline() if make_deadline is not None else None
             elif kind_of == "refused":
                 refused = Refused(str(event.get("reason") or "unavailable"), str(event.get("message") or ""), str(event.get("message_it") or ""))
             elif kind_of == "done":
                 done = event
+                worked = time.monotonic() - (worked_from if worked_from is not None else began)
             elif kind_of == "error":
                 error = str(event.get("message") or "unknown error")
             if progress is not None and kind_of in ("start", "lease", "progress", "log"):
@@ -174,7 +233,7 @@ def _run(argv: List[str], kind: str, progress: Optional[Progress], cancel: Optio
     if refused is not None:
         raise refused
     if done:
-        return {"path": str(done.get("path") or ""), "bytes": int(done.get("bytes") or 0), "seconds": float(done.get("seconds") or round(time.monotonic() - began, 1)),
+        return {"path": str(done.get("path") or ""), "bytes": int(done.get("bytes") or 0), "seconds": float(done.get("seconds") or round(time.monotonic() - began, 1)), "work_seconds": round(worked, 2),
                 "lease": {**(done.get("lease") or {}), **{k: v for k, v in lease.items() if k not in ("ok",)}}}
     if error:
         raise MediaError(error)

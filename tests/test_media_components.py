@@ -95,3 +95,43 @@ def test_triton_for_the_xtts_environment_is_checked_in_that_python_and_installed
     ran = []
     components.install("speech-synthesis", settings, run=lambda argv: ran.append(list(argv)) or 0, say=lambda line: None)
     assert all(argv[-1] == "triton-windows" for argv in ran)
+
+
+def test_the_modification_skill_installs_what_the_catalogue_has_and_names_the_loras_to_put_by_hand(settings, tmp_path, monkeypatch):
+    monkeypatch.setattr(components.shutil, "which", lambda name: "/bin/ffmpeg")
+    rows = by_id(components.check("video-modification", settings))
+    assert rows["modify-model"]["present"] and not rows["modify-extras"]["present"]
+    assert rows["modify-extras"]["missing"] == ["file:LoRA/LTX-2/ltx23_edit_anything_global_rank128_v1_9000steps_adamw.safetensors"]
+    todo = components.steps("video-modification", settings)
+    assert [t["component"] for t in todo] == ["modify-extras"] and todo[0]["step"][-1] == "ltx23-inpaint-r2v,ltx-iclora-restyle"
+    other = {**settings, "ltx_dir": str(make_ltx(tmp_path / "ltx2", edit_checkpoint=False))}
+    got = by_id(components.check("video-modification", other))
+    assert not got["modify-model"]["present"] and got["modify-model"]["missing"][0].startswith("checkpoint ltx-2.3-22b-dev-fp8")
+    assert components.steps("video-modification", other)[0]["step"][-1].startswith("ltx23-dev-fp8,")
+    out = components.install("video-modification", settings, run=lambda argv: 0)
+    assert out["by_hand"] and "Edit-anything" in out["by_hand"][0]
+
+
+def test_the_faster_weights_are_extras_asked_for_by_name_and_say_what_to_set_after(settings, tmp_path):
+    assert "lcav15-fp8" not in [i for skill in ("talking-head", "video-generation", "video-modification") for c in components.SKILLS[skill] for i in components.COMPONENTS[c].get("ids", [])]
+    other = {**settings, "ltx_dir": str(make_ltx(tmp_path / "ltx2", missing=["lcav15-fp8", "ltx23-dev-nvfp4"]))}
+    todo = components.steps("talking-head-fp8", other)
+    assert [t["component"] for t in todo] == ["talking-head-fp8"] and todo[0]["step"][-1] == "lcav15-fp8"
+    assert components.steps("video-modification-nvfp4", other)[-1]["step"][-1] == "ltx23-dev-nvfp4"
+    assert "avatar_precision" in components.COMPONENTS["talking-head-fp8"]["how"][0] and "edit_model" in components.COMPONENTS["modify-nvfp4"]["how"][0]
+
+
+def test_the_accelerators_of_the_talking_head_are_installed_by_ltx_studios_own_installer_and_only_when_missing(settings, monkeypatch):
+    seen = {}
+
+    def fake(settings_, items, command=None):
+        seen["items"] = list(items)
+        return {"present": {"avatar:flash_attn": False, "avatar:triton": True}, "venvs": {"avatar": "C:/venv/python.exe"}}
+    monkeypatch.setattr(client, "modules", fake)
+    rows = by_id(components.check("talking-head", settings))
+    assert seen["items"] == ["avatar:flash_attn", "avatar:triton"] and not rows["talking-head-accel"]["present"] and rows["talking-head-accel"]["missing"] == ["avatar:flash_attn"]
+    todo = components.steps("talking-head", settings, list(rows.values()))
+    step = [t for t in todo if t["component"] == "talking-head-accel"][0]["step"]
+    assert step[1].endswith("/scripts/install_accelerators.py") and step[2:] == ["--venv", "C:/venv/python.exe", "--only", "flash_attn"]
+    monkeypatch.setattr(client, "modules", lambda s, i, command=None: {"present": {x: True for x in i}, "venvs": {"avatar": "C:/venv/python.exe"}})
+    assert not [t for t in components.steps("talking-head", settings) if t["component"] == "talking-head-accel"]

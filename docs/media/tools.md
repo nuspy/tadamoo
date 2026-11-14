@@ -44,6 +44,11 @@ LTX Studio is ready; asking for the one that is not ready answers `unavailable`.
 The picture is enlarged first, then the frames are made at the final size (`client.enhance`); each is a job with its own lease. The enlarged video keeps the sound of the source; the frame maker
 keeps it too. The original is never changed; the copy is `media/<name>-enhanced-<date>.mp4` unless `output` says otherwise.
 
+## modify_video
+
+`path` (required, a video of the working folder), `mode` (replace, edit, restyle), `prompt`, `target`, `reference`, `strength`, `guide`, `grow`, `seed`, `output`. Offered when the LTX 2.3 environment, its checkpoint and the editing LoRAs are ready
+(`usable("modify")`). A clip of at most 20 seconds; the copy keeps the sound of the original. The parameters, the caps and what the job does are in [modify.md](modify.md).
+
 ## Where the file goes
 
 `path` is relative to the working folder; left out, it is `media/<kind>-<date>-<seed>.png` or `.mp4`. The extension is fixed by the kind,

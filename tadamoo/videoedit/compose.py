@@ -146,6 +146,12 @@ def join_copy(parts: Sequence[Path], out: Path, plain_packets: bool = False) -> 
     return out
 
 
+def convert_fps(src: Path, fps: int, out: Path) -> Path:
+    """The video at another frame rate (a frame repeated or dropped where the rates do not match), encoded as the body is, its sound copied."""
+    run(["-i", src, "-vf", f"fps={fps}", "-r", str(fps), *X264, "-c:a", "copy", out])
+    return out
+
+
 # ---- the sigla, untouched
 def parameter_sets(path: Path) -> Dict[int, bytes]:
     """The SPS (type 7) and PPS (type 8) of a file's H.264 stream, as the first IDR carries them."""
