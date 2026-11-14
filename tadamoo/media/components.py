@@ -44,6 +44,9 @@ COMPONENTS: Dict[str, Dict[str, Any]] = {
                        "steps": [["{py}", "{ltx}/scripts/install_flashvsrplus.py"], ["{py}", "{ltx}/scripts/download_weights.py", "--ids", "flashvsr-plus-turbo"]]},
     "mediapipe": {"label": ("the mediapipe package (measures of faces and bodies for the seam detector)", "il pacchetto mediapipe (misure di volti e corpi per il rilevatore di stacchi)"),
                   "check": "module", "module": "mediapipe", "steps": [[sys.executable, "-m", "pip", "install", "mediapipe"]]},
+    "xtts-triton": {"label": ("Triton for the XTTS environment (torch.compile of the voice; the triton-windows package, the one LTX Studio's inference environment uses)",
+                              "Triton per l'ambiente di XTTS (torch.compile della voce; il pacchetto triton-windows, quello dell'ambiente di inferenza di LTX Studio)"),
+                    "check": "venv_module", "module": "triton", "steps": [["{xtts_py}", "-m", "pip", "install", "-U", "triton-windows"]]},
     "landmarkers": {"label": ("the MediaPipe face and pose models", "i modelli MediaPipe di volto e posa"), "check": "files",
                     "files": {"face_landmarker.task": MEDIAPIPE_URL + "face_landmarker/face_landmarker/float16/1/face_landmarker.task",
                               "pose_landmarker.task": MEDIAPIPE_URL + "pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task"}},
@@ -55,6 +58,7 @@ SKILLS: Dict[str, List[str]] = {
     "video-generation": ["ltx-studio", "video-model", "ffmpeg", "frame-maker", "video-enlarger"],
     "talking-head": ["ltx-studio", "talking-head-model"],
     "video-editing": ["ffmpeg", "mediapipe", "landmarkers"],
+    "speech-synthesis": ["xtts-triton"],
 }
 
 
@@ -81,6 +85,10 @@ def check(skill: str, settings: Optional[Dict[str, Any]] = None, command: Option
             row = _row(cid, bool(found), found)
         elif how == "module":
             row = _row(cid, importlib.util.find_spec(spec["module"]) is not None)
+        elif how == "venv_module":
+            py = _xtts_python(settings)
+            found = bool(py) and subprocess.run([py, "-I", "-c", f"import importlib.util,sys;sys.exit(0 if importlib.util.find_spec('{spec['module']}') else 1)"], capture_output=True).returncode == 0
+            row = _row(cid, found, py)
         elif how == "files":
             gone = [n for n in spec["files"] if not (LANDMARKERS / n).is_file()]
             row = _row(cid, not gone, str(LANDMARKERS))
@@ -112,11 +120,22 @@ def steps(skill: str, settings: Optional[Dict[str, Any]] = None, rows: Optional[
         for step in spec.get("steps", []):
             if "{ltx}" in " ".join(step) and not folder:
                 continue
-            out.append({"component": row["id"], "step": [str(a).replace("{py}", py).replace("{ltx}", folder) for a in step]})
+            if "{xtts_py}" in step and not _xtts_python(settings):
+                continue
+            out.append({"component": row["id"], "step": [str(a).replace("{py}", py).replace("{ltx}", folder).replace("{xtts_py}", _xtts_python(settings)) for a in step]})
         for name, url in (spec.get("files") or {}).items():
             if name in row.get("missing", []):
                 out.append({"component": row["id"], "step": {"download": url, "to": str(LANDMARKERS / name)}})
     return out
+
+
+def _xtts_python(settings: Dict[str, Any]) -> str:
+    """The Python of the XTTS environment: the one the settings name (`xtts_python`), else the one the voice uses; empty when there is none on this PC."""
+    from tadamoo.speech import clausevoice
+    for candidate in (settings.get("xtts_python"), clausevoice.XTTS_PYTHON):
+        if candidate and Path(candidate).is_file():
+            return str(candidate)
+    return ""
 
 
 def _python(settings: Dict[str, Any], folder: str) -> str:
