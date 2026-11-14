@@ -207,15 +207,22 @@ def render_proposals(snap: Dict[str, Any]) -> str:
 
 def render_plan(snap: Dict[str, Any]) -> str:
     plan, nodes = snap["plan"], snap["plan"].get("nodes", {})
-    steps = [n for n in nodes.values() if n.get("type") != "start"]               # where a plan begins is not one of its steps
+    steps = [n for n in nodes.values() if n.get("type") not in ("start", "end", "parameter")]               # where a plan begins is not one of its steps
     done = sum(1 for n in steps if n.get("status") == "completed")
     lines = [f'Plan {plan["plan_id"]}: "{plan["title"]}" [{plan.get("target_type")}], revision {snap.get("rev")}, {len(steps)} steps, {done} done']
     starts = [n for n in nodes.values() if n.get("type") == "start" and not (n.get("state_variables") or {}).get("implicit")]
     if starts:
         lines.append("Run: " + str((snap.get("run") or {}).get("state", "")) + ". Starts: " + "; ".join(
             f'{(n.get("spec") or {}).get("number", 1)} {(n.get("spec") or {}).get("launch", "manual")}' + (f' ({(n.get("spec") or {}).get("words")})' if (n.get("spec") or {}).get("words") else "") for n in starts) + ".")
+    params = snap.get("parameters") or []
+    if params:
+        lines.append("Parameters (set in the plan's Parameters tab; the steps read them as values): " + "; ".join(f'{p["name"]}={str(p["value"])[:40]}' for p in params[:60]) + ".")
+    if "active" in snap:
+        lines.append("The plan is " + ("on" if snap["active"] else "off") + " (Start plan switches it on, Stop plan or an End step switches it off).")
     lines += profile_lines(snap.get("profile") or {})
     for nid, n in nodes.items():
+        if n.get("type") == "parameter":
+            continue
         after = f", after {', '.join(n['dependencies'])}" if n.get("dependencies") else ""
         lines.append(f'  {nid} [{n.get("status")}] {n.get("title")} (by {n.get("assignee")}{after})')
         if n.get("description"):
@@ -269,7 +276,7 @@ def render_plan_compact(snap: Dict[str, Any]) -> str:
     nodes = plan.get("nodes", {})
     by_status: Dict[str, int] = {}
     for n in nodes.values():
-        if n.get("type") != "start":
+        if n.get("type") not in ("start", "end", "parameter"):
             by_status[n.get("status", "pending")] = by_status.get(n.get("status", "pending"), 0) + 1
     counts = ", ".join(f"{v} {k}" for k, v in by_status.items())
     lines = [f'{plan["plan_id"]}: "{plan["title"]}" [{plan.get("target_type")}], rev {snap.get("rev")}' + (f" (paused)" if snap.get("paused") else "")]

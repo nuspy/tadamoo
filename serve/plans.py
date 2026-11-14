@@ -372,6 +372,10 @@ class PlanService:
     def delete(self, plan_id: str) -> bool:
         return self.store.delete(plan_id)
 
+    def parameters(self, plan_id: str) -> Dict[str, Any]:
+        bridge = self.store.get(plan_id)
+        return {"parameters": bridge.dag.parameters(), "active": bridge.dag.is_on()}
+
     def set_paused(self, plan_id: str, actor: str, value: bool) -> Dict[str, Any]:
         bridge = self.store.get(plan_id)
         out = bridge.set_paused(actor, value)
@@ -461,7 +465,7 @@ class PlanService:
             self._starts.pop(plan_id, None)
             return
         rows, armed_now = [], False
-        for n in bridge.dag.start_nodes():
+        for n in (bridge.dag.start_nodes() if bridge.dag.is_on() else []):         # a plan that is off arms nothing
             spec = n.spec
             if spec.get("launch") != "interval" or not spec.get("schedule") or n.state_variables.get("draft"):
                 continue
@@ -487,7 +491,7 @@ class PlanService:
         try:
             bridge = self.store.get(plan_id, self._replanner())
             node = bridge.dag.nodes.get(row["node"])
-            if node is None or node.spec.get("schedule") != row["schedule"]:
+            if node is None or node.spec.get("schedule") != row["schedule"] or not bridge.dag.is_on():
                 self._index(plan_id, now)
                 return
             node.state_variables["last_fire"] = now
@@ -828,9 +832,9 @@ class PlanService:
         """What an event sets going: a plan the person started or an event started, a request the person answered, and a step that failed for good. What the
         agent itself does in a conversation (its own marks, its own start) starts nothing: it carries on by itself."""
         kind, mine = event.get("type"), event.get("actor", "user") == "chat"
-        if (kind == "plan:start" and not mine) or (kind == "plan:event" and result.get("started")):
+        if (kind in ("plan:start", "plan:start_plan") and not mine and result.get("started")) or (kind == "plan:event" and result.get("started")):
             self._offered.pop(plan_id, None)
-            self._offer(plan_id, "it was started" if kind == "plan:start" else "an event started it")
+            self._offer(plan_id, "an event started it" if kind == "plan:event" else "it was started")
         elif kind in ("plan:answer", "plan:answers") and not mine:
             self._offer(plan_id, "the person answered what it asked")
         elif (kind == "plan:mark" and event.get("status") == "failed" and not result.get("retry")) or kind == "plan:timeout":

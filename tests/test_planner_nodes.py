@@ -11,9 +11,9 @@ def node(kind, spec=None, **extra):
 
 def test_every_kind_is_in_the_table_with_a_family_and_a_summary():
     kinds = {row["type"] for row in nodes.catalogue()}
-    assert kinds == {"action", "sensor", "decision", "merge", "wait_duration", "wait_until", "wait_condition", "loop", "set_var", "get_var", "input", "output", "log", "rag", "start", "start_plan"}
+    assert kinds == {"action", "sensor", "decision", "merge", "wait_duration", "wait_until", "wait_condition", "loop", "set_var", "get_var", "input", "output", "log", "rag", "start", "start_plan", "parameter", "end"}
     assert all(row["family"] in nodes.FAMILIES and row["summary"] for row in nodes.catalogue())
-    assert set(nodes.AUTO) == {"wait_duration", "wait_until", "wait_condition", "set_var", "get_var", "output", "log", "rag", "start", "start_plan"}
+    assert set(nodes.AUTO) == {"wait_duration", "wait_until", "wait_condition", "set_var", "get_var", "output", "log", "rag", "start", "start_plan", "parameter", "end"}
 
 
 @pytest.mark.parametrize("kind, spec", [

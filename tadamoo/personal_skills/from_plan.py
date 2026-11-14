@@ -14,7 +14,7 @@ from . import distill
 from .values import NAME
 
 MAX_PROPOSED = 6
-AUTO_KINDS = ("wait_duration", "wait_until", "wait_condition", "set_var", "get_var", "output", "log", "loop", "merge", "decision", "sensor", "start", "start_plan")
+AUTO_KINDS = ("wait_duration", "wait_until", "wait_condition", "set_var", "get_var", "output", "log", "loop", "merge", "decision", "sensor", "start", "start_plan", "end", "parameter")
 
 
 def _args(call: Dict[str, Any]) -> Dict[str, Any]:
@@ -138,7 +138,7 @@ def input_params(plan: Dict[str, Any]) -> List[Dict[str, Any]]:
     shared = plan.get("shared_state") or {}
     for n in (plan.get("nodes") or {}).values():
         spec = n.get("spec") or {}
-        if n.get("type") != "input" or not NAME.match(str(spec.get("into", ""))):
+        if n.get("type") not in ("input", "parameter") or not NAME.match(str(spec.get("into", ""))):
             continue
         seen = shared.get(spec["into"])
         out.append({"name": spec["into"], "label": str(spec.get("prompt", spec["into"]))[:60], "explanation": str(spec.get("prompt", ""))[:300],
