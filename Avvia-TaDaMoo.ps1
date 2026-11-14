@@ -570,7 +570,7 @@ if ((Test-Path $pidFile) -and -not $env:TADAMOO_SCAN_PORTS) {               # co
 
 # ------------------------------------------------------------------ file necessari
 $mancano = @()
-foreach ($f in @($exe, $modello, (Join-Path $Radice 'tools\windows\TaDaMooLauncher.cs'))) {
+foreach ($f in @($exe, (Join-Path $Radice '.venv\Scripts\python.exe'), $modello, (Join-Path $Radice 'tools\windows\TaDaMooLauncher.cs'))) {
     if (-not (Test-Path $f)) { $mancano += $f }
 }
 if ($mancano) { Scrivi (T 'Mancano questi file:' 'These files are missing:') Red; $mancano | ForEach-Object { Scrivi "  $_" Red }; Esci 1 }
@@ -597,7 +597,15 @@ if (-not $memOk -and -not $Prova) {
 # ------------------------------------------------------------------ ambiente e comando
 $legato = -not $Server
 # legato a questa finestra: se dal Loader si sceglie un altro modello il server esce con 75 e qui riparte con quello
-$cmdLine = '"' + $exe + '" serve --config "' + $cfgPath + '"' + $(if ($Port) { " --port $Port" } else { '' }) +
+# -Standby: il server parte senza modello, salvo che il fornitore principale sia il motore Basalt di questo server (nessun fornitore principale scelto)
+if ($Standby) {
+    $dati = if ($env:TADAMOO_DATA) { $env:TADAMOO_DATA } else { Join-Path $env:APPDATA 'TaDaMoo' }
+    try { $princ = (Get-Content -Raw -Encoding UTF8 (Join-Path $dati 'llm_providers.json') | ConvertFrom-Json).primary } catch { $princ = 'altro' }
+    if (-not $princ) { $Standby = $false; Scrivi (T '  il motore principale è Basalt: il modello si carica all''avvio' '  Basalt is the main engine: the model loads at start') Cyan }
+}
+# il server Python da solo: basalt.exe (il motore) parte solo quando un modello si carica con Basalt
+$exeServer = Join-Path $Radice '.venv\Scripts\python.exe'
+$cmdLine = '"' + $exeServer + '" -m serve.server --engine-bin "' + $exe + '" --config "' + $cfgPath + '"' + $(if ($Port) { " --port $Port" } else { '' }) +
     $(if ($legato) { ' --relaunch-on-model-change' } else { '' }) + $(if ($Standby) { ' --standby' } else { '' })
 $cache = if ($env:TADAMOO_CACHE) { $env:TADAMOO_CACHE } else { Join-Path $HOME '.cache\tadamoo' }
 $modoTesto = if ($Server) { T 'solo server, staccato e senza browser: lo script ritorna quando il modello è carico (fermare con Ferma-TaDaMoo.ps1)' 'server alone, detached, no browser: the script returns once the model is loaded (stop it with Ferma-TaDaMoo.ps1)' }
@@ -630,7 +638,7 @@ $env:PATH = (Join-Path $venv 'Scripts') + ';' + $env:PATH
 New-Item -ItemType Directory -Force $logDir | Out-Null
 function Avvia-Server {
     if (Test-Path $log) { Move-Item -Force $log "$log.1" }                            # il log dell'avvio precedente
-    $id = [TaDaMooLauncher]::Start($exe, $cmdLine, $Radice, $log, $legato)
+    $id = [TaDaMooLauncher]::Start($exeServer, $cmdLine, $Radice, $log, $legato)
     $proc = Get-Process -Id $id
     @{ pid = $id; start = $proc.StartTime.ToString('o'); mode = $modo; port = $porta; profile = $Config; log = $log } |
         ConvertTo-Json | Set-Content -Encoding UTF8 $pidFile
