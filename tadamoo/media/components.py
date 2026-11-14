@@ -61,6 +61,8 @@ COMPONENTS: Dict[str, Dict[str, Any]] = {
     "modify-nvfp4": {"label": ("LTX 2.3 dev nvfp4 (the checkpoint with the GPU's fp4 matmul, smaller in VRAM)", "LTX 2.3 dev nvfp4 (il checkpoint con il prodotto fp4 della GPU, piu' piccolo in VRAM)"),
                      "check": "catalogue", "ids": ["ltx23-dev-nvfp4"], "steps": [["{py}", "{ltx}/scripts/download_weights.py", "--ids", "ltx23-dev-nvfp4"]],
                      "how": ("Then set edit_model to ltx-2.3-22b-dev-nvfp4.safetensors in the media settings.", "Poi imposta edit_model su ltx-2.3-22b-dev-nvfp4.safetensors nelle impostazioni media.")},
+    "opencv": {"label": ("OpenCV below version 5 (finds faces in pictures; version 5 ships no face-detector files)", "OpenCV sotto la versione 5 (trova i volti nelle immagini; la versione 5 non ha piu' i file del riconoscitore di volti)"),
+               "check": "opencv", "steps": [[sys.executable, "-m", "pip", "install", "opencv-contrib-python<5"]]},
     "mediapipe": {"label": ("the mediapipe package (measures of faces and bodies for the seam detector)", "il pacchetto mediapipe (misure di volti e corpi per il rilevatore di stacchi)"),
                   "check": "module", "module": "mediapipe", "steps": [[sys.executable, "-m", "pip", "install", "mediapipe", "opencv-contrib-python<5"]]},   # OpenCV 5 ships no face-detector files
     "xtts-triton": {"label": ("Triton for the XTTS environment (torch.compile of the voice; the triton-windows package, the one LTX Studio's inference environment uses)",
@@ -76,12 +78,21 @@ SKILLS: Dict[str, List[str]] = {
     "image-editing": ["ltx-studio", "image-model"],
     "video-generation": ["ltx-studio", "video-model", "ffmpeg", "frame-maker", "video-enlarger"],
     "talking-head": ["ltx-studio", "talking-head-model", "talking-head-accel"],
-    "video-editing": ["ffmpeg", "mediapipe", "landmarkers"],
+    "video-editing": ["ffmpeg", "opencv", "mediapipe", "landmarkers"],
     "speech-synthesis": ["xtts-triton"],
     "video-modification": ["ltx-studio", "ffmpeg", "modify-model", "modify-extras"],
     "talking-head-fp8": ["ltx-studio", "talking-head-model", "talking-head-fp8"],             # the faster weights, asked for by name: they are 16 GB more
     "video-modification-nvfp4": ["ltx-studio", "modify-model", "modify-nvfp4"],              # the smaller checkpoint, asked for by name: 20 GB more
 }
+
+
+def _opencv_has_face_files() -> bool:
+    """OpenCV is importable, is below version 5, and ships the face detector's file."""
+    try:
+        import cv2
+        return int(cv2.__version__.split(".")[0]) < 5 and Path(cv2.data.haarcascades, "haarcascade_frontalface_default.xml").is_file()
+    except Exception:
+        return False
 
 
 def _row(cid: str, present: bool, where: str = "") -> Dict[str, Any]:
@@ -107,6 +118,8 @@ def check(skill: str, settings: Optional[Dict[str, Any]] = None, command: Option
             row = _row(cid, bool(found), found)
         elif how == "module":
             row = _row(cid, importlib.util.find_spec(spec["module"]) is not None)
+        elif how == "opencv":
+            row = _row(cid, _opencv_has_face_files())
         elif how == "venv_module":
             py = _xtts_python(settings)
             found = bool(py) and subprocess.run([py, "-I", "-c", f"import importlib.util,sys;sys.exit(0 if importlib.util.find_spec('{spec['module']}') else 1)"], capture_output=True).returncode == 0

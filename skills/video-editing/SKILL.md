@@ -48,4 +48,4 @@ Check first, install only what is missing, only when the person asks:
 1. `python -m tadamoo.media.components check video-editing` prints what is present and the command for what is missing; it changes nothing.
 2. `python -m tadamoo.media.components install video-editing` runs those commands and checks again.
 
-Components: **ffmpeg** on the PATH (`winget install Gyan.FFmpeg`); for the seam and movement detector only, the **mediapipe** package and the two MediaPipe landmarker models (face and pose, in `E:\Modelli\basalt\qa`).
+Components: **ffmpeg** on the PATH (`winget install Gyan.FFmpeg`); for the seam and movement detector only, **OpenCV below version 5** (version 5 ships no face-detector files) and the **mediapipe** package and the two MediaPipe landmarker models (face and pose, in `E:\Modelli\basalt\qa`).

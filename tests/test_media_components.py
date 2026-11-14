@@ -21,6 +21,15 @@ def test_every_skill_of_the_catalogue_names_only_known_components():
         assert ids and all(i in components.COMPONENTS for i in ids), skill
 
 
+def test_opencv_is_asked_below_5_before_mediapipe_and_a_version_5_counts_as_missing(settings, monkeypatch):
+    assert components.SKILLS["video-editing"].index("opencv") < components.SKILLS["video-editing"].index("mediapipe")
+    assert components.COMPONENTS["opencv"]["steps"][0][-1] == "opencv-contrib-python<5" and "opencv-contrib-python<5" in components.COMPONENTS["mediapipe"]["steps"][0]
+    monkeypatch.setattr(components, "_opencv_has_face_files", lambda: False)
+    monkeypatch.setattr(components.shutil, "which", lambda name: "/bin/ffmpeg")
+    assert not by_id(components.check("video-editing", settings))["opencv"]["present"]
+    assert components.steps("video-editing", settings)[0]["component"] == "opencv"
+
+
 def test_what_is_there_is_present_and_nothing_is_asked_to_install(settings, monkeypatch):
     monkeypatch.setattr(components.shutil, "which", lambda name: "/bin/ffmpeg")
     rows = components.check("video-generation", settings)
