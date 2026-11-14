@@ -45,6 +45,8 @@ class NodeType(str, enum.Enum):
     RAG = "rag"              # a source of knowledge archives, connected as an input to the steps that may use them
     START = "start"          # where a plan begins; it has a number and says how it is started (the person, an event, a time schedule, another plan)
     START_PLAN = "start_plan"    # starts another plan at the start node whose number it names
+    PARAMETER = "parameter"  # a value of the plan the person sets in the Parameters tab: always settled, never asked when the plan starts
+    END = "end"              # where a plan ends: reaching it switches the plan off
 
 
 class Assignee(str, enum.Enum):
@@ -484,6 +486,7 @@ class PlanDAG:
     advance_retried: List[str] = field(default_factory=list, repr=False, compare=False)
     advance_timed_out: List[str] = field(default_factory=list, repr=False, compare=False)
     note_count: int = field(default=0, repr=False, compare=False)    # lines ever written in this run of the program: how many are new since a look
+    active: Optional[bool] = None       # the plan is on (its starts are armed) or off; None: a plan saved before this existed, on when it has a start that watches or counts time
 
     def _touch(self) -> None:
         self.updated_at = _now()
@@ -522,6 +525,11 @@ class PlanDAG:
         if node.type == NodeType.DECISION and node.spec.get("branches"):
             from tadamoo.planner import nodes
             node.spec = nodes.clean_spec("decision", node.spec, bool(node.state_variables.get("draft")))
+        if node.type == NodeType.PARAMETER:                              # a parameter is always settled; its value is the plan's value, set to the default until the person sets it
+            node.status = "completed"
+            node.assignee = Assignee.AGENT
+            if node.spec.get("into") and node.spec["into"] not in self.shared_state:
+                self.shared_state[node.spec["into"]] = node.spec.get("default", "")
         if node.type == NodeType.START:                                  # a start added with a number that is taken gets the next free one
             taken = {n.spec.get("number", 1) for n in self.start_nodes() if n.id != node.id}
             wanted = node.spec.get("number", 1)
@@ -886,7 +894,7 @@ class PlanDAG:
         unknown = [k for k in changes if k not in EDITABLE]
         if unknown:
             raise PlanError(f"cannot edit {', '.join(unknown)}; editable: {', '.join(EDITABLE)}")
-        if node.status == "completed" and node.type != NodeType.RAG and any(k != "position" for k in changes):      # a RAG node completes by itself at once and stays editable
+        if node.status == "completed" and node.type not in (NodeType.RAG, NodeType.PARAMETER) and any(k != "position" for k in changes):      # a RAG node completes by itself at once and stays editable
             raise PlanError(f"'{node_id}' is already completed; rewind it to change it")
         if "assignee" in changes:
             changes["assignee"] = Assignee(changes["assignee"])
@@ -898,6 +906,8 @@ class PlanDAG:
                 raise PlanError(f"another start of this plan is already number {mine}: every start has its own number")
         for key, value in changes.items():
             setattr(node, key, value)
+        if node.type == NodeType.PARAMETER and "spec" in changes and node.spec.get("into") and node.spec["into"] not in self.shared_state:
+            self.shared_state[node.spec["into"]] = node.spec.get("default", "")
         if "spec" in changes and node.type == NodeType.DECISION:
             self._follow_branches(node)
         self.refresh_blocking()
@@ -1253,7 +1263,7 @@ class PlanDAG:
         seen = {"text": text.lower(), "source": str(event.get("source", ""))[:100],
                 "at": float(at) if isinstance(at, (int, float)) and not isinstance(at, bool) and math.isfinite(at) else time.time()}
         resolved: List[str] = []
-        if self.run_state() in ("idle", "finished"):             # an event may start a plan that is not running: the first start node whose condition holds
+        if self.run_state() in ("idle", "finished") and self.is_on():       # an event may start a plan that is on and not running: the first start node whose condition holds
             for start in self.start_nodes():
                 if start.spec.get("launch") != "event":
                     continue
@@ -1360,7 +1370,7 @@ class PlanDAG:
     def run_state(self) -> str:
         """`idle` (nothing has started), `running`, or `finished` (every step is done or skipped, and a start has been taken)."""
         starts = self.start_nodes()
-        others = [n for n in self.nodes.values() if n.type != NodeType.START]
+        others = [n for n in self.nodes.values() if n.type not in (NodeType.START, NodeType.PARAMETER)]
         if not any(s.status == "completed" for s in starts) and all(n.status in ("pending", "blocked") for n in others):
             return "idle"
         if self.nodes and all(n.status in DONE for n in self.nodes.values()) and (not starts or any(s.status == "completed" for s in starts)):
@@ -1389,6 +1399,7 @@ class PlanDAG:
             node.state_variables["started"] = {"at": _now(), "cause": cause, **({"caller": caller} if caller else {}), **({"matched": matched} if matched else {})}
             node.state_variables["runs"] = int(node.state_variables.get("runs", 0)) + 1
             node.status = "completed"
+            self.active = True
             for s in starts:
                 if s is not node:
                     for c in s.outputs:
@@ -1400,6 +1411,104 @@ class PlanDAG:
         self.refresh_blocking()
         self._touch()
         return node.id
+
+    # on and off, stopping -------------------------------------------------------------------------------
+
+    def is_on(self) -> bool:
+        """Whether the plan is on: its starts that watch events or count time are armed. A plan saved before this was kept was on when it had such a start or was running."""
+        if self.active is not None:
+            return self.active
+        return self.run_state() == "running" or any(s.spec.get("launch") in ("interval", "event") and not s.state_variables.get("draft") for s in self.start_nodes())
+
+    def switch(self, on: bool, why: str = "") -> None:
+        self.active = bool(on)
+        self.note("", "auto", "the plan is " + ("on" if on else "off") + (f": {why}" if why else ""))
+        self._touch()
+
+    def stop(self, why: str = "stopped by the person") -> List[str]:
+        """Stops the plan: it is switched off and what had not finished is skipped, so nothing waits and nothing is asked; the next start begins from the top again."""
+        idle = self.run_state() == "idle"                          # nothing has begun: there is nothing to skip, the plan is only switched off
+        left = [] if idle else [n.id for n in self.nodes.values() if n.type != NodeType.PARAMETER and n.status not in DONE]
+        for nid in left:
+            n = self.nodes[nid]
+            n.status = "skipped"
+            n.state_variables["stopped"] = why
+        self.active = False
+        self.note("", "auto", f"the plan is off: {why}")
+        self.refresh_blocking()
+        self._touch()
+        return left
+
+    # parameters -------------------------------------------------------------------------------------------
+
+    def parameter_nodes(self) -> List[PlanNode]:
+        return [self.nodes[i] for i in self.list_order() if self.nodes[i].type == NodeType.PARAMETER]
+
+    def parameters(self) -> List[Dict[str, Any]]:
+        """The plan's parameters in the order shown, each with the label, the explanation, the kind, the choices, the default and the value now."""
+        from tadamoo.planner import nodes
+        out = []
+        for n in self.parameter_nodes():
+            spec = n.spec
+            name = spec.get("into", n.id)
+            out.append({"node_id": n.id, "title": n.title, "name": name, "prompt": spec.get("prompt", n.title), "prompt_en": spec.get("prompt_en", ""), "help": spec.get("help", ""),
+                        "help_en": spec.get("help_en", ""), "group": spec.get("group", ""), "group_en": spec.get("group_en", ""), "kind": spec.get("kind", "text"),
+                        "choices": nodes.shown_choices(spec), "other": nodes.allows_other({**spec, "ask": "value"}), "default": spec.get("default", ""),
+                        "value": self.shared_state.get(name, spec.get("default", ""))})
+        return out
+
+    def set_parameters(self, values: Dict[str, Any]) -> Dict[str, Any]:
+        """Sets parameters by their value name (or node id). Every value is checked before any is kept. Returns {name: the value kept}."""
+        from tadamoo.planner import nodes
+        if not isinstance(values, dict) or not values:
+            raise PlanError("send the values as an object: parameter name -> value")
+        by_name = {n.spec.get("into", n.id): n for n in self.parameter_nodes()}
+        by_name.update({n.id: n for n in self.parameter_nodes()})
+        cleaned: Dict[str, Any] = {}
+        for key, value in values.items():
+            node = by_name.get(key)
+            if node is None:
+                raise PlanError(f"the plan has no parameter '{key}'")
+            try:
+                cleaned[node.spec.get("into", node.id)] = nodes.clean_parameter_value(node.spec, value)
+            except PlanError as exc:
+                raise PlanError(f"'{node.title}': {exc}") from None
+        self.shared_state.update(cleaned)
+        self._touch()
+        return cleaned
+
+    def migrate_initial_questions(self) -> List[str]:
+        """A question that was asked when the plan started (a value request whose parents are only starts) becomes a parameter: its answer, or its default, is the plan's value,
+        and what waited for the question now waits for the start. Returns the ids changed."""
+        from tadamoo.planner import nodes
+        starts = {s.id for s in self.start_nodes()}
+        changed = []
+        for n in list(self.nodes.values()):
+            if n.type != NodeType.INPUT or n.spec.get("ask", "value") != "value" or not n.spec.get("into") or not set(n.dependencies) <= starts or n.state_variables.get("draft"):
+                continue
+            parents, children = list(n.dependencies), list(n.outputs)
+            for c in children:
+                self.nodes[c].dependencies = [d for d in self.nodes[c].dependencies if d != n.id]
+                for pid in parents:
+                    if not self.nodes[c].dependencies and pid not in self.nodes[c].dependencies:
+                        self.nodes[c].dependencies.append(pid)
+                        if c not in self.nodes[pid].outputs:
+                            self.nodes[pid].outputs.append(c)
+            for pid in parents:
+                self.nodes[pid].outputs = [o for o in self.nodes[pid].outputs if o != n.id]
+            n.dependencies, n.outputs, n.routes = [], [], {}
+            answered = (n.state_variables.get("answer") or {}).get("value")
+            spec = {k: v for k, v in n.spec.items() if k not in ("ask", "content")}
+            n.type, n.spec, n.status, n.assignee = NodeType.PARAMETER, nodes.clean_spec("parameter", spec), "completed", Assignee.AGENT
+            n.state_variables = {k: v for k, v in n.state_variables.items() if k in ("history", "answer")}
+            name = n.spec["into"]
+            if name not in self.shared_state:
+                self.shared_state[name] = answered if answered is not None else n.spec.get("default", "")
+            changed.append(n.id)
+        if changed:
+            self.refresh_blocking()
+            self._touch()
+        return changed
 
     # the person's requests ----------------------------------------------------------------------------
 
@@ -1601,6 +1710,7 @@ class PlanDAG:
             "nodes": {nid: node_to_dict(n) for nid, n in self.nodes.items()},
             **({"confirmations": False} if not self.confirmations else {}),
             **({"journal": self.journal} if self.journal else {}),
+            **({"active": self.active} if self.active is not None else {}),
         }
 
     @classmethod
@@ -1621,6 +1731,7 @@ class PlanDAG:
                 order=[str(i) for i in (data.get("order") or [])],
                 confirmations=data.get("confirmations") is not False,
                 journal=[dict(j) for j in (data.get("journal") or []) if isinstance(j, dict)],
+                active=data["active"] if isinstance(data.get("active"), bool) else None,
             )
         except (KeyError, TypeError, ValueError, AttributeError) as exc:
             raise PlanError(f"the plan is not valid: {type(exc).__name__}: {exc}") from None
@@ -1632,6 +1743,9 @@ class PlanDAG:
                 if len(set(titles.values())) == len(titles) and not {t.lower() for t in titles.values()} & {b["label"].lower() for b in n.spec.get("branches") or [] if b["id"] not in titles}:
                     n.spec = {**n.spec, "branches": [{**b, "label": titles[b["id"]][:40]} if b["id"] in titles else b for b in n.spec["branches"]]}
         dag.validate_acyclic()
+        for node in dag.nodes.values():                                   # a parameter has its default as the plan's value until the person sets it
+            if node.type == NodeType.PARAMETER and node.spec.get("into") and node.spec["into"] not in dag.shared_state:
+                dag.shared_state[node.spec["into"]] = node.spec.get("default", "")
         dag.ensure_start()
         return dag
 

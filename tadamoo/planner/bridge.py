@@ -35,7 +35,7 @@ HISTORY_SHOWN = 30
 # who made a change: the person at the page, the Chat for the person, the planner's own re-planning, the system
 ACTORS = ("user", "chat", "planner", "system")
 # events that write straight into the plan; they may carry `base_rev`, the revision the sender last read
-DIRECT = ("plan:update_node", "plan:move", "plan:mark", "plan:timeout", "plan:rewind", "plan:update_meta", "plan:fallback_response", "plan:start", "plan:answer", "plan:answers")
+DIRECT = ("plan:update_node", "plan:move", "plan:mark", "plan:timeout", "plan:rewind", "plan:update_meta", "plan:fallback_response", "plan:start", "plan:answer", "plan:answers", "plan:start_plan", "plan:stop_plan", "plan:parameters")
 TARGET_TYPES = ("constant", "occasional")
 TITLE_CHARS = 200
 
@@ -182,7 +182,7 @@ class PlanCanvasBridge:
                     "proposals": [p.to_dict() for p in self.proposals.values() if p.status == "pending"],
                     "offers": [o for o in self.offers.values() if o["status"] == "offered"],
                     "ready": self.dag.ready_nodes(), "created_by": self.created_by, "paused": self.paused, "schedule": dict(self.schedule),
-                    "run": {**self.run, "state": self.dag.run_state()},
+                    "run": {**self.run, "state": self.dag.run_state()}, "active": self.dag.is_on(), "parameters": self.dag.parameters(),
                     "kinds": node_kinds()}
 
     def set_paused(self, actor: str, value: bool) -> Dict[str, Any]:
@@ -230,7 +230,7 @@ class PlanCanvasBridge:
             "plan:rewind": self._rewind, "plan:rewind_impact": self._rewind_impact, "plan:note_effect": self._note_effect, "plan:propose_diff": self._propose, "plan:approve": self._approve,
             "plan:reject": self._reject, "plan:human_fallback": self._offer_fallback,
             "plan:fallback_response": self._answer_fallback, "plan:update_meta": self._update_meta, "plan:event": self._feed,
-            "plan:start": self._start, "plan:answer": self._answer, "plan:answers": self._answers, "plan:inner": self._inner, "plan:set_reasoning": self._set_reasoning,
+            "plan:start": self._start, "plan:start_plan": self._start_plan, "plan:stop_plan": self._stop_plan, "plan:parameters": self._parameters, "plan:answer": self._answer, "plan:answers": self._answers, "plan:inner": self._inner, "plan:set_reasoning": self._set_reasoning,
         }
         handler = handlers.get(kind)
         if handler is None:
@@ -358,6 +358,42 @@ class PlanCanvasBridge:
         if isinstance(number, bool) or not isinstance(number, int):
             raise ValueError("number is the start's number, a whole number")
         return self.begin(number, {"user": "the person", "chat": "the chat"}.get(self._actor, self._actor), self._actor)
+
+    def _start_plan(self, e: Dict[str, Any]) -> Dict[str, Any]:
+        """Starts the plan: it is switched on (its starts that watch events or count time are armed), and when it is not running it begins at the manual start the event
+        names (`number`) or at the first manual start it has. A plan with no manual start is just armed."""
+        who = {"user": "the person", "chat": "the chat"}.get(self._actor, self._actor)
+        number = e.get("number")
+        if number is not None and (isinstance(number, bool) or not isinstance(number, int)):
+            raise ValueError("number is the start's number, a whole number")
+        with self._lock:
+            if number is None:
+                manual = [s for s in self.dag.start_nodes() if s.spec.get("launch", "manual") == "manual"]
+                number = manual[0].spec.get("number", 1) if manual else None
+            if number is not None and self.dag.run_state() != "running":
+                return {**self.begin(number, who, self._actor), "active": True}
+            if self.dag.active is not True:
+                self.dag.switch(True, f"started by {who}")
+                self._bump("start", f"{self.dag.title}: switched on")
+                self._emit("plan:graph", {"seq_graph": True})
+            return {"started": None, "active": True, "ready": self.dag.ready_nodes()}
+
+    def _stop_plan(self, e: Dict[str, Any]) -> Dict[str, Any]:
+        """Stops the plan: it is switched off, and what had not finished is skipped (see PlanDAG.stop)."""
+        with self._lock:
+            left = self.dag.stop({"user": "stopped by the person", "chat": "stopped by the chat"}.get(self._actor, "stopped"))
+            self.run = {}
+            self._bump("stop", f"{self.dag.title}: stopped")
+            self._emit("plan:graph", {"seq_graph": True})
+            return {"active": False, "skipped": left}
+
+    def _parameters(self, e: Dict[str, Any]) -> Dict[str, Any]:
+        """Sets the plan's parameters (see PlanDAG.set_parameters)."""
+        with self._lock:
+            got = self.dag.set_parameters(e.get("values"))
+            self._bump("parameters", f"{len(got)} parameter(s): " + ", ".join(got))
+            self._emit("plan:graph", {"seq_graph": True})
+            return {"values": got, "parameters": self.dag.parameters()}
 
     def _answer(self, e: Dict[str, Any]) -> Dict[str, Any]:
         """The person's answer to a request (see PlanDAG.answer): the step is done, and what depended on it goes on."""
@@ -766,6 +802,8 @@ class PlanStore:
                 if not path.is_file():
                     raise KeyError(plan_id)
                 self._bridges[plan_id] = PlanCanvasBridge.from_dict(json.loads(path.read_text(encoding="utf-8")), replanner)
+                if self._bridges[plan_id].dag.migrate_initial_questions():        # a plan saved with its questions asked at the start gets parameters instead
+                    self.save(plan_id)
             bridge = self._bridges[plan_id]
             if replanner is not None:
                 bridge.replanner = replanner
@@ -784,7 +822,7 @@ class PlanStore:
         for p in sorted(folder.glob("*.json")):
             try:
                 plan = json.loads(p.read_text(encoding="utf-8"))["plan"]
-                nodes = {k: v for k, v in plan.get("nodes", {}).items() if v.get("type") != "start"}          # where a plan begins is not one of its steps
+                nodes = {k: v for k, v in plan.get("nodes", {}).items() if v.get("type") not in ("start", "end", "parameter")}          # where a plan begins is not one of its steps
                 out.append({"plan_id": plan["plan_id"], "title": plan["title"], "target_type": plan.get("target_type", "occasional"),
                             "updated_at": plan.get("updated_at"),
                             "nodes": len(nodes),

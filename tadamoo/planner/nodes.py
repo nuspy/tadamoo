@@ -71,10 +71,18 @@ NODE_SPECS: Dict[str, Dict[str, Any]] = {
         {"name": "kind", "kind": "choice", "choices": ["text", "number", "choice"], "default": "text"}, {"name": "choices", "kind": "options", "max": MAX_CHOICES},
         {"name": "default", "kind": "json"}, {"name": "other", "kind": "json"},
         {"name": "group", "kind": "text", "max": GROUP_MAX}, {"name": "group_en", "kind": "text", "max": GROUP_MAX}]},
+    "parameter": {"family": "io", "auto": True, "summary": "A value of the plan the person sets in the Parameters tab: it has a default and is never asked when the plan starts", "fields": [
+        {"name": "prompt", "kind": "textarea", "required": True, "max": 300}, {"name": "help", "kind": "textarea", "max": HELP_MAX},
+        {"name": "prompt_en", "kind": "textarea", "max": 300}, {"name": "help_en", "kind": "textarea", "max": HELP_MAX},
+        {"name": "into", "kind": "name", "required": True},
+        {"name": "kind", "kind": "choice", "choices": ["text", "number", "choice"], "default": "text"}, {"name": "choices", "kind": "options", "max": MAX_CHOICES},
+        {"name": "default", "kind": "json"}, {"name": "other", "kind": "json"},
+        {"name": "group", "kind": "text", "max": GROUP_MAX}, {"name": "group_en", "kind": "text", "max": GROUP_MAX}]},
     "start": {"family": "start", "auto": True, "summary": "Where a plan begins: its number, and how it starts (by the person, by an event, at intervals, from another plan)", "fields": [
         {"name": "number", "kind": "integer", "min": 1, "max": 99, "default": 1},
         {"name": "launch", "kind": "choice", "choices": list(LAUNCHES), "default": "manual"},
         {"name": "when", "kind": "expression", "max": 300}, {"name": "words", "kind": "textarea", "max": 200}, {"name": "schedule", "kind": "text", "hidden": True}]},
+    "end": {"family": "start", "auto": True, "summary": "Where a plan ends: when it is reached the plan is switched off (its starts stop being armed) until it is started again", "fields": []},
     "start_plan": {"family": "start", "auto": True, "summary": "Starts another plan at the start node whose number it names", "fields": [
         {"name": "plan", "kind": "text", "required": True, "max": 64}, {"name": "start", "kind": "integer", "min": 1, "max": 99, "default": 1}]},
     "output": {"family": "io", "auto": True, "summary": "Shows a result of the plan", "fields": [
@@ -207,9 +215,9 @@ def _data_out(port: str, carries: str) -> Dict[str, Any]:
     return {"id": port, "kind": "data", "carries": carries, "label": port}
 
 
-PORT_IN = {"default": [FLOW_IN], "action": [FLOW_IN, DATA_IN, RAG_IN], "decision": [FLOW_IN, DATA_IN, RAG_IN], "rag": [], "start": [],
+PORT_IN = {"default": [FLOW_IN], "action": [FLOW_IN, DATA_IN, RAG_IN], "decision": [FLOW_IN, DATA_IN, RAG_IN], "rag": [], "start": [], "parameter": [],
            **{k: [FLOW_IN, DATA_IN] for k in ("set_var", "output", "log", "wait_condition", "loop", "input")}}
-PORT_OUT = {"default": [FLOW_OUT], "decision": "branches", "rag": [_data_out("rag", "archives")],
+PORT_OUT = {"default": [FLOW_OUT], "decision": "branches", "rag": [_data_out("rag", "archives")], "end": [], "parameter": [],
             "action": [FLOW_OUT, _data_out("result", "value")], "sensor": [FLOW_OUT, _data_out("reading", "reading")], "get_var": [FLOW_OUT, _data_out("value", "value")],
             "set_var": [FLOW_OUT, _data_out("value", "value")], "input": [FLOW_OUT, _data_out("answer", "value")]}
 BRANCH_ID = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
@@ -412,6 +420,26 @@ def clean_spec(node_type: Any, spec: Any, draft: bool = False) -> Dict[str, Any]
             out["other"] = spec["other"]
         if spec.get("default") is not None and spec.get("default") != "":
             out["default"] = clean_answer(out, spec["default"])             # the value proposed is one the question would take
+    elif kind == "parameter":
+        into, form = _name(spec, "into", True), spec.get("kind", "text")
+        if form not in ("text", "number", "choice"):
+            raise PlanError("'kind' is text, number or choice")
+        choices = _options(spec, "choices", MAX_CHOICES)
+        if form == "choice" and (not choices or len(choices) < 2):
+            raise PlanError("a parameter with choices needs at least two")
+        out.update({"prompt": _text(spec, "prompt", 300, True), "into": into, "kind": form, **({"choices": choices} if choices and form == "choice" else {})})
+        for key, limit in (("help", HELP_MAX), ("prompt_en", 300), ("help_en", HELP_MAX), ("group", GROUP_MAX), ("group_en", GROUP_MAX)):
+            text = _text(spec, key, limit)
+            if text:
+                out[key] = text
+        if spec.get("other") is not None:
+            if not isinstance(spec["other"], bool):
+                raise PlanError("'other' is true or false: whether a menu of more than two choices also offers 'Other, I write'")
+            out["other"] = spec["other"]
+        if spec.get("default") is not None and spec.get("default") != "":
+            out["default"] = clean_parameter_value(out, spec["default"])
+    elif kind == "end":
+        pass
     elif kind == "start":
         number = _number(spec, "number", 1, 99, default=1)
         launch = spec.get("launch", "manual")
@@ -539,6 +567,23 @@ def clean_answer(spec: Dict[str, Any], value: Any) -> Any:
     if form == "choice" and text not in [choice_value(c) for c in spec.get("choices") or []] and not allows_other(spec):
         raise PlanError("the answer is one of: " + ", ".join(choice_value(c) for c in spec.get("choices") or []))
     return text
+
+
+def clean_parameter_value(spec: Dict[str, Any], value: Any) -> Any:
+    """The value of a parameter made into what its kind takes. Unlike an answer it may be empty (the plan says what an empty value means)."""
+    form = spec.get("kind", "text")
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return ""
+    if form == "number":
+        return clean_answer({"kind": "number"}, value)
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        raise PlanError("the value is a text")
+    text = str(value)
+    if len(text) > ANSWER_MAX:
+        raise PlanError(f"the value is a text of at most {ANSWER_MAX} characters")
+    if form == "choice" and text.strip() not in [choice_value(c) for c in spec.get("choices") or []] and not allows_other({**spec, "ask": "value"}):
+        raise PlanError("the value is one of: " + ", ".join(choice_value(c) for c in spec.get("choices") or []))
+    return text if form == "text" else text.strip()
 
 
 def allows_other(spec: Dict[str, Any]) -> bool:
@@ -839,6 +884,11 @@ def _resolve(dag: Any, node: Any, now: float, due: List[float], judge: List[str]
         return _complete(dag, node, now, {spec["name"]: value}, f"{spec['name']}: {_brief(value)}", "output")
     elif kind == "log":
         return _complete(dag, node, now, None, render_template(spec["message"], _template_context(dag, now)), "log")
+    elif kind == "end":
+        if _complete(dag, node, now, None, f"{node.title}: the plan is switched off", "auto"):
+            dag.active = False
+            return True
+        return False
     elif kind == "rag":
         return _complete(dag, node, now, None, f"{node.title}: {len(spec['archives'])} knowledge archive(s) for {len(node.routes.get('rag') or [])} step(s)")
     elif kind == "start_plan":

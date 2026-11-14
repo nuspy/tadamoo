@@ -207,15 +207,22 @@ def render_proposals(snap: Dict[str, Any]) -> str:
 
 def render_plan(snap: Dict[str, Any]) -> str:
     plan, nodes = snap["plan"], snap["plan"].get("nodes", {})
-    steps = [n for n in nodes.values() if n.get("type") != "start"]               # where a plan begins is not one of its steps
+    steps = [n for n in nodes.values() if n.get("type") not in ("start", "end", "parameter")]               # where a plan begins is not one of its steps
     done = sum(1 for n in steps if n.get("status") == "completed")
     lines = [f'Plan {plan["plan_id"]}: "{plan["title"]}" [{plan.get("target_type")}], revision {snap.get("rev")}, {len(steps)} steps, {done} done']
     starts = [n for n in nodes.values() if n.get("type") == "start" and not (n.get("state_variables") or {}).get("implicit")]
     if starts:
         lines.append("Run: " + str((snap.get("run") or {}).get("state", "")) + ". Starts: " + "; ".join(
             f'{(n.get("spec") or {}).get("number", 1)} {(n.get("spec") or {}).get("launch", "manual")}' + (f' ({(n.get("spec") or {}).get("words")})' if (n.get("spec") or {}).get("words") else "") for n in starts) + ".")
+    params = snap.get("parameters") or []
+    if params:
+        lines.append("Parameters (set in the plan's Parameters tab; the steps read them as values): " + "; ".join(f'{p["name"]}={str(p["value"])[:40]}' for p in params[:60]) + ".")
+    if "active" in snap:
+        lines.append("The plan is " + ("on" if snap["active"] else "off") + " (Start plan switches it on, Stop plan or an End step switches it off).")
     lines += profile_lines(snap.get("profile") or {})
     for nid, n in nodes.items():
+        if n.get("type") == "parameter":
+            continue
         after = f", after {', '.join(n['dependencies'])}" if n.get("dependencies") else ""
         lines.append(f'  {nid} [{n.get("status")}] {n.get("title")} (by {n.get("assignee")}{after})')
         if n.get("description"):
@@ -269,7 +276,7 @@ def render_plan_compact(snap: Dict[str, Any]) -> str:
     nodes = plan.get("nodes", {})
     by_status: Dict[str, int] = {}
     for n in nodes.values():
-        if n.get("type") != "start":
+        if n.get("type") not in ("start", "end", "parameter"):
             by_status[n.get("status", "pending")] = by_status.get(n.get("status", "pending"), 0) + 1
     counts = ", ".join(f"{v} {k}" for k, v in by_status.items())
     lines = [f'{plan["plan_id"]}: "{plan["title"]}" [{plan.get("target_type")}], rev {snap.get("rev")}' + (f" (paused)" if snap.get("paused") else "")]
@@ -651,6 +658,25 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
             return failure(exc)
         return f"Plan started at {res.get('started')} ({how}). Ready now: {', '.join(res.get('ready', [])) or 'nothing'}."
 
+    def plan_set_parameters(plan_id: str, values: Dict[str, Any], quote: str = "") -> str:
+        """Sets parameters of a plan (the values it starts with, shown in its Parameters tab): name -> value. Every value is checked before any is kept."""
+        if (msg := need_read(plan_id)):
+            return msg
+        try:
+            snap = client.snapshot(plan_id)
+        except Exception as exc:
+            return failure(exc)
+        ok, how = confirmer.check({"kind": "plan_set_parameters", "plan": snap["plan"]["title"], "values": sorted(values or {})},
+                                  f'Set the parameters {", ".join(sorted(values or {}))} of the plan "{snap["plan"]["title"]}"?', quote, snap, [])
+        if not ok:
+            return how
+        try:
+            res = client.event(plan_id, {"type": "plan:parameters", "values": values, "base_rev": seen[plan_id]})
+            seen[plan_id] = int(client.snapshot(plan_id).get("rev") or seen[plan_id])
+        except Exception as exc:
+            return failure(exc)
+        return "Parameters set: " + ", ".join(f"{k}={str(v)[:60]}" for k, v in (res.get("values") or {}).items()) + f" ({how})."
+
     def plan_step_done(plan_id: str, node_id: str, step: str, result: Optional[Dict[str, Any]] = None, undo: bool = False) -> str:
         """An inner step of a step you are doing is finished: it is kept in the plan, with its essential result, so that after an interruption (even a restart of the PC) the
         step goes on from there and does not do it again. Only for a step that was started with plan_step_start."""
@@ -925,6 +951,9 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
                           ["plan_id", "node_id", "status"]), EffectClass.REVERSIBLE, plan_mark)
     registry.register("plan_start", "Starts a plan at one of its start nodes (number, 1 when it has one); not while it is running. A plan that has finished starts again. Needs the user's yes.",
                       obj({"plan_id": {"type": "string"}, "number": {"type": "integer"}, "quote": quote_param}, ["plan_id"]), EffectClass.REVERSIBLE, plan_start)
+    registry.register("plan_set_parameters", "Sets parameters of a plan: the values it starts with, listed in plan_get as Parameters and shown in the plan's Parameters tab (name -> value; a choice takes one of its values; "
+                      "a number a number; empty is allowed). Needs the user's yes.",
+                      obj({"plan_id": {"type": "string"}, "values": {"type": "object"}, "quote": quote_param}, ["plan_id", "values"]), EffectClass.REVERSIBLE, plan_set_parameters)
     registry.register("plan_step_done", "Records that an inner step of a step you are doing is finished, with its essential result (the files made, the values), in the plan. After an "
                       "interruption (even a restart of the PC) the step goes on from there and the inner steps recorded are not done again. Use it after each stage of a step that does "
                       "several things in a row. With undo the inner step is to be done again. No confirmation is asked: the step was started with plan_step_start.",

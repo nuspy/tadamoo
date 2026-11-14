@@ -24,9 +24,9 @@ class PlansPageTest(unittest.TestCase):
         self.assertIn('keep(COL_KEY, open ? "1" : "0")', JS)                           # the column opens and shuts like the Chat's
         self.assertRegex(HTML, r'id="view-plans"[^>]*>\s*<div class="chatrow plrow" id="plans-root">')
 
-    def test_the_four_parts_are_tabs_in_the_order_asked_and_none_is_a_folding_box(self):
-        self.assertIn('const TABS = ["aims", "details", "events", "define"];', JS)
-        for key in ("aims", "details", "events", "define"):
+    def test_the_four_parts_and_the_parameters_are_tabs_in_the_order_asked_and_none_is_a_folding_box(self):
+        self.assertIn('const TABS = ["aims", "details", "events", "params", "define"];', JS)
+        for key in ("aims", "details", "events", "params", "define"):
             self.assertEqual(I18N.count(f'"pl.tab.{key}":'), 2, key)
             self.assertEqual(I18N.count(f'"pl.tab.{key}.tip":'), 2, key)
         self.assertNotIn('el("summary", { text: T("pl.hz.title")', JS)
