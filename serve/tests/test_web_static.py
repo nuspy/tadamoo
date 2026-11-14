@@ -609,11 +609,9 @@ class LiveVisualsTest(unittest.TestCase):
 
 
 class LiveSamplingAndDiagramRepairTest(unittest.TestCase):
-    def test_the_temperature_and_the_reply_limit_reach_the_open_conversation(self):
+    def test_the_temperature_and_the_reply_limit_are_saved_with_the_open_conversation(self):
         chatset = (WEB / "chatset.js").read_text(encoding="utf-8")
-        live = chatset[chatset.index("function live()"):chatset.index("/* presets: the server's")]
-        self.assertIn("out.temperature", live)
-        self.assertIn("out.max_tokens", live)
+        self.assertIn("scope.save(read())", chatset)                                     # the whole panel, to the open conversation's record
         agent = (WEB / "agentchat.js").read_text(encoding="utf-8")
         self.assertIn('"temperature" in e', agent)
         text = (WEB / "i18n.js").read_text(encoding="utf-8")

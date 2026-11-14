@@ -130,7 +130,6 @@
   function setControls() {
     paintFolder();
     paintChip();
-    paintLive();
     document.dispatchEvent(new Event("tadamoo:chat-state"));                    // the privacy buttons follow the open conversation
     if (window.codingUi) window.codingUi.refresh();
     const on = active();
@@ -276,31 +275,23 @@
   }
   $("#branch-chat").onclick = () => branch();
   document.addEventListener("tadamoo:chatset", () => setControls());
-  /* the steps one answer may take and the end-of-turn bias are read from the panel when a conversation starts; a change made in the panel
-     afterwards is sent to the open conversation (it is compared with the panel's own earlier value, not with the conversation's) */
-  let panelWas = JSON.stringify(chatSettings.live()), panelTimer = 0;
-  document.addEventListener("tadamoo:chatset-settled", () => { panelWas = JSON.stringify(chatSettings.live()); });
-  function paintLive() {
-    const el = $("#cs-live"), on = active() && !!sid && !!rec && rec.max_turns !== undefined;
-    if (!el) return;
-    el.hidden = !on;
-    if (on) el.textContent = T("cs.live", rec.max_turns > 0 ? rec.max_turns : T("cs.live.none"), rec.end_turn_bias || 0);
+  /* the panel holds the settings of the open conversation: it shows them when one is opened, saves them with it when they are changed, and a new
+     conversation takes what the panel holds when it is made (the machine default, or what was changed for it) */
+  const saveInference = id => async settings => {
+    const r = await api("POST", `/${id}/inference`, { settings });
+    if (!r.ok) return errText(r);
+    if (id === sid) rec = r.json.session;
+    return true;
+  };
+  function syncPanel() {
+    if (chatSettings.editing()) return;                                          // the panel is shown for a plan or the machine default
+    if (active() && sid && rec) chatSettings.useSession({ id: sid, settings: rec.inference || null, save: saveInference(sid) });
+    else chatSettings.fresh(!sid);
   }
-  document.addEventListener("tadamoo:chatset", () => {
-    clearTimeout(panelTimer);
-    panelTimer = setTimeout(async () => {
-      const now = chatSettings.live(), before = JSON.parse(panelWas);
-      panelWas = JSON.stringify(now);
-      if (!active() || !sid) return;
-      const changed = Object.fromEntries(Object.entries(now).filter(([k, v]) => before[k] !== v));
-      if (!Object.keys(changed).length) return;
-      const r = await api("POST", `/${sid}/settings`, changed);
-      if (r.ok) { rec = r.json.session; paintLive(); } else status(errText(r));
-    }, 600);
-  });
+  document.addEventListener("tadamoo:chatset-released", () => syncPanel());
 
   function forget() { pick = null; learn = null; paintPick(); paintLearn(); pend = []; sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked, .asuggest").forEach(e => e.remove()); chipsEl = null; chipTexts = []; empty.hidden = false; keep(lastKey(), ""); copyShown = false; conversationChanged(); }
-  function conversationChanged(created) { document.dispatchEvent(new CustomEvent("tadamoo:conversation", { detail: { created: !!created } })); }
+  function conversationChanged(created) { syncPanel(); document.dispatchEvent(new CustomEvent("tadamoo:conversation", { detail: { created: !!created } })); }
   function newChat() {
     if (inAgent() && !curPath()) { addFolder(); return; }                      // a conversation in the Agent tab needs a folder to work in
     forget(); status(T("ch.new")); setControls(); paintList();
@@ -445,7 +436,6 @@
         if ("end_turn_bias" in e) noteItem({ s: T("ch.settings.bias", e.end_turn_bias || 0) });
         if ("temperature" in e) noteItem({ s: T("ch.settings.temp", e.temperature == null ? T("ch.settings.model") : e.temperature) });
         if ("max_tokens" in e) noteItem({ s: T("ch.settings.room", e.max_tokens == null ? T("ch.settings.model") : e.max_tokens) });
-        paintLive();
         break;
       case "command": document.dispatchEvent(new CustomEvent("tadamoo:command", { detail: e })); break;
       case "target": {                                                         // the Target Loop (target.js) tells how it goes
@@ -1406,12 +1396,9 @@
   async function ensure() {
     if (sid) return true;
     if (inAgent() && !curPath() && !(await addFolder())) { status(T("ag.noproject")); return false; }
-    const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath(), ...(window.codingUi ? { role: window.codingUi.role() } : {}) } : {}), mode: permMode(), allow: allowRules(), ask_only: mode === "ask", effort: effortSel.value, context_patterns: chatSettings.patterns(), context_policy: chatSettings.policy(), context_threshold: chatSettings.threshold(), ...chatSettings.live(), worktree: copyMode(), ...visuals(), ...(window.personaUi && window.personaUi.pending() ? { persona: window.personaUi.pending() } : {}), ...(window.councilUi && window.councilUi.pending() ? { council: true } : {}), ...(window.privacy && window.privacy.pending() ? { private: true } : {}) });
+    const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath(), ...(window.codingUi ? { role: window.codingUi.role() } : {}) } : {}), mode: permMode(), allow: allowRules(), ask_only: mode === "ask", inference: chatSettings.read(), worktree: copyMode(), ...visuals(), ...(window.personaUi && window.personaUi.pending() ? { persona: window.personaUi.pending() } : {}), ...(window.councilUi && window.councilUi.pending() ? { council: true } : {}), ...(window.privacy && window.privacy.pending() ? { private: true } : {}) });
     if (!r.ok) { status(errText(r)); if (r.json.error && r.json.error.code === "level_above_channel") loadLevel(); return false; }
     sid = r.json.session.id; rec = r.json.session; keep(lastKey(), sid); after = 0; conversationChanged(true);
-    const sampling = chatSettings.live();                                      // what the create call does not carry
-    const first = {}; ["temperature", "max_tokens"].forEach(k => { if (sampling[k] != null) first[k] = sampling[k]; });
-    if (Object.keys(first).length) { const t = await api("POST", `/${sid}/settings`, first); if (t.ok) rec = t.json.session; }
     await refreshList();
     return true;
   }

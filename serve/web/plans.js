@@ -158,8 +158,14 @@
     const panel = (k, ...kids) => (ui["panel_" + k] = el("div", { class: "pl-panel", role: "tabpanel", id: "pl-panel-" + k, "aria-labelledby": "pl-tab-" + k }, ...kids));
     ui.skillBtn = el("button", { type: "button", class: "btn pl-btn", id: "pl-skill", hidden: true, title: T("pl.skill.tip"), text: T("pl.skill"),
       onclick: () => { if (S.id && window.pskills) window.pskills.makePlan(S.id); } });
+    ui.infBtn = el("button", { type: "button", class: "btn pl-btn", id: "pl-inf-open", "aria-expanded": "false", "aria-controls": "pl-inf-host", title: T("pl.inf.tip"),
+      text: T("pl.inf.open"), onclick: toggleInference });
+    ui.effortAll = el("select", { id: "pl-effort-all", title: T("pl.effort.all.tip"), onchange: setAllReasoning },
+      el("option", { value: "-", text: T("pl.effort.all") }), effortOptions());
+    ui.infHost = el("div", { class: "plinfhost", id: "pl-inf-host" });
     ui.defineBar = el("div", { class: "pl-bar" },
-      el("div", { class: "pl-modes", role: "group", "aria-label": T("pl.view.label") }, ui.modeGraph, ui.modeList), el("span", { class: "grow" }), ui.skillBtn);
+      el("div", { class: "pl-modes", role: "group", "aria-label": T("pl.view.label") }, ui.modeGraph, ui.modeList), el("span", { class: "grow" }),
+      el("label", { for: "pl-effort-all", class: "plinf-l" }, el("span", { text: T("pl.effort.all.label") }), ui.effortAll), ui.infBtn, ui.skillBtn);
     ui.instr = el("section", { class: "sec pl-instr", "aria-labelledby": "pl-instr-h", hidden: true },
       el("div", { class: "sh", title: T("sc.help.plan") }, el("b", { id: "pl-instr-h", text: T("sc.title.plan") })), el("div", { id: "pl-instr-root" }));
     ui.main = el("section", { class: "sec plmain", "aria-labelledby": "pl-h" },
@@ -168,7 +174,7 @@
       panel("aims", ui.horizon, ui.align),
       panel("details", ui.manage, ui.archived),
       panel("events", ui.triage),
-      panel("define", ui.defineBar, ui.summary,
+      panel("define", ui.defineBar, ui.infHost, ui.summary,
         el("div", { class: "pl-main" },
           el("div", { class: "pl-canvas" }, el("div", { class: "pl-stage" }, ui.graph, ui.list, ui.autoBtn, ui.autoBox), ui.detail),
           el("div", { class: "pl-side" }, ui.proposals, ui.offers, ui.chatlog, ui.history)),
@@ -802,6 +808,38 @@
     if (h && narrow()) h.scrollIntoView({ block: "nearest" });
   }
 
+  /* ---- how long the model thinks: the plan's settings, one level for all the steps, and one for a step ---- */
+  const EFFORTS = ["none", "low", "medium", "high"];
+  const effortOptions = () => [el("option", { value: "", text: T("pl.effort.inherit") }), ...EFFORTS.map(l => el("option", { value: l, text: T("pl.effort." + l) }))];
+  async function setAllReasoning() {
+    const level = ui.effortAll.value;
+    ui.effortAll.value = "-";
+    if (level === "-" || !S.snap) return;
+    const r = await event({ type: "plan:set_reasoning", level }, null);
+    if (r && r.ok) say(T("pl.effort.all.done", (r.data.changed || []).length, T("pl.effort." + (level || "inherit"))));
+  }
+  let infSave = Promise.resolve();
+  const saveInference = settings => {
+    infSave = infSave.then(async () => {
+      const r = await api(planPath("/events"), { type: "plan:update_meta", base_rev: S.snap.rev, changes: { profile: { ...S.snap.profile, inference: settings } } });
+      if (!r.ok) { if (r.data && r.data.stale) await refresh(); return errText(r.data) || T("pl.failed"); }
+      await refresh();
+      return true;
+    });
+    return infSave;
+  };
+  function paintInference(on) {
+    ui.infBtn.setAttribute("aria-expanded", String(on));
+    ui.infBtn.textContent = T(on ? "pl.inf.close" : "pl.inf.open");
+  }
+  function toggleInference() {
+    if (chatSettings.editing() === "plan") { chatSettings.endEdit(); return; }
+    S.infFor = S.id;
+    chatSettings.edit(ui.infHost, { kind: "plan", label: plan().title, settings: (S.snap.profile || {}).inference && Object.keys(S.snap.profile.inference).length ? S.snap.profile.inference : null,
+      save: saveInference, end: () => paintInference(false) });
+    paintInference(true);
+  }
+
   /* ---- detail of one node ---- */
   function drawDetail() {
     const n = S.selected && S.snap.plan.nodes[S.selected];
@@ -822,6 +860,8 @@
       ? el("textarea", { id: "pl-d-cond", rows: "4", disabled: done, spellcheck: "false", text: JSON.stringify(n.conditions, null, 2) })
       : null;
     const produces = el("input", { id: "pl-d-produces", value: (n.produces || []).map(p => p.type === "any" ? p.name : `${p.name}:${p.type}`).join(", "), disabled: done, autocomplete: "off", spellcheck: "false", placeholder: "uova:number, presenti:number" });
+    const effort = n.type === "action" ? el("select", { id: "pl-d-effort", disabled: done, "aria-describedby": "pl-d-effort-h" }, effortOptions()) : null;
+    if (effort) effort.value = n.effort || "";
     const policy = n.retry_policy || {};
     const tries = el("input", { id: "pl-d-tries", type: "number", min: "1", max: "10", inputmode: "numeric", disabled: done, value: String(policy.max_attempts || 3) });
     const wait = el("input", { id: "pl-d-wait", type: "number", min: "0", max: "604800", inputmode: "numeric", disabled: done, value: String(policy.wait_seconds ?? 30) });
@@ -862,6 +902,7 @@
       el("label", { for: "pl-d-desc", text: T("pl.f.desc") }), desc,
       el("label", { for: "pl-d-assignee", text: T("pl.f.assignee") }), assignee,
       n.type === "action" ? [el("label", { for: "pl-d-produces", text: T("pl.f.produces") }), produces, el("p", { class: "help", text: T("pl.f.produces.help") })] : [],
+      effort ? [el("label", { for: "pl-d-effort", text: T("pl.f.effort") }), effort, el("p", { class: "help", id: "pl-d-effort-h", text: T("pl.f.effort.help") })] : [],
       specForm ? el("fieldset", { class: "pl-parents pl-spec" }, el("legend", { text: T("pl.type." + n.type) }), el("p", { class: "help", text: T("pl.kind." + n.type + ".d") }), specForm.el) : [],
       cond ? [el("label", { for: "pl-d-cond", text: T("pl.f.cond") }), cond, el("p", { class: "help", text: T("pl.f.cond.sensor.help") })] : [],
       connectionsBox(n), valuesBox(n),
@@ -972,14 +1013,16 @@
       if (parts.some(p => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(p[0]) || p.length > 2)) { say(T("pl.produces.bad"), true); return; }
       changes.produces = parts.map(p => ({ name: p[0], type: p[1] || "any" }));
     }
+    const effortField = document.getElementById("pl-d-effort");
+    if (effortField && effortField.value !== ((S.snap.plan.nodes[id] || {}).effort || "")) changes.effort = effortField.value;
     const tries = Number(document.getElementById("pl-d-tries").value) || 1, wait = Number(document.getElementById("pl-d-wait").value) || 0;
     const old = (S.snap.plan.nodes[id] || {}).retry_policy || {};
     changes.retry_policy = { max_attempts: tries, wait_seconds: wait, backoff: old.backoff || 2 };
     if (isDraft && !missing.length) { const sv = { ...was.state_variables }; delete sv.draft; changes.state_variables = sv; }
     const r = await event({ type: "plan:update_node", node_id: id, changes }, missing.length ? null : T("pl.saved"));
     if (isDraft && r && !r.ok && !missing.length) {                                         // not complete yet: what was typed is kept, the step stays a draft
-      const { title, description, assignee, retry_policy } = changes;
-      await event({ type: "plan:update_node", node_id: id, changes: { title, description, assignee, retry_policy } }, null);
+      const { title, description, assignee, retry_policy, effort } = changes;
+      await event({ type: "plan:update_node", node_id: id, changes: { title, description, assignee, retry_policy, ...(effort !== undefined ? { effort } : {}) } }, null);
     } else if (r && r.ok && missing.length) say(T("pl.draft.saved", missing.map(n => T("pl.spec." + n)).join(", ")));
   }
   function noRouteText(f) {
@@ -1510,6 +1553,7 @@
   function render() {
     paintPlans();
     const has = !!S.snap;
+    if (chatSettings.editing() === "plan" && (!has || S.infFor !== S.id)) chatSettings.endEdit();
     ui.title.textContent = has ? plan().title : T("pl.title");
     ui.pick.hidden = has;
     ui.tabs.hidden = !has;
@@ -1556,7 +1600,7 @@
   document.addEventListener("tadamoo:view", e => {
     if (e.detail === "settings") loadSettings();
     if (e.detail === "plans") enter();
-    else if (S.ready) stopStream();
+    else { if (S.ready) stopStream(); if (chatSettings.editing() === "plan") chatSettings.endEdit(); }
   });
   document.addEventListener("DOMContentLoaded", loadSettings);
   document.addEventListener("visibilitychange", () => {

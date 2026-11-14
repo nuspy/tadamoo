@@ -309,3 +309,4 @@ details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; f
 
 .pl-port.value { fill: var(--surface); stroke: var(--fg-2); }
 .pl-edge.feed.dead { opacity: .5; }
+.pl-detail .pl-dform select { min-height: 44px; }
