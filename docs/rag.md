@@ -1,6 +1,6 @@
 # Knowledge archives
 
-The Knowledge tab holds archives of documents that belong to a **project**: a workspace folder of the Agent tab, or the Chat's own folder.
+The Knowledge tab holds archives of documents that belong to a **project**: a workspace folder of the Agentic coding tab, or the Chat's own folder.
 An archive is not tied to any personality. Every conversation held in the project draws on the project's archives, whatever personality (or
 none) speaks: the passages that match the request are put in front of the model as reference text. Archives are not global: another project
 does not see them.
@@ -143,7 +143,7 @@ All under `/api/rag`, from this PC only (403 otherwise).
 | Route | |
 |---|---|
 | `GET /api/rag?project=<key>` | the archives of that project, limits, formats, whether PDF can be read, the embedding state; the key is required |
-| `GET /api/rag/projects` | `{projects: [{key, name, path, chat, archives}]}`: the Chat's own folder first, then the Agent tab's folders that exist, with how many archives each holds |
+| `GET /api/rag/projects` | `{projects: [{key, name, path, chat, archives}]}`: the Chat's own folder first, then the Agentic coding tab's folders that exist, with how many archives each holds |
 | `GET /api/rag/catalog` | `{archives}`: every archive of every project, with its project's name |
 | `GET /api/rag/archives/<id>` | the archive with its documents |
 | `POST /api/rag/archives` | `{name, description, project}` creates |

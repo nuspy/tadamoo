@@ -1,6 +1,6 @@
 # Reverse engineering with REA
 
-The Agent tab has a switch, **Reverse engineering (REA)**, off by default. REA is the `rea-agents` add-on shipped with the setup (MIT, github.com/morluto/rea): a local toolkit with 229 MCP tools and one skill for taking apart native programs, Android apps, web pages, JavaScript/Electron bundles, WebAssembly, firmware and network captures. It runs on this PC with the add-on's own Node.js. Support for its components on Windows is experimental; what it does with the files you give it is your choice and your risk.
+The Agentic coding tab has a switch, **Reverse engineering (REA)**, off by default. REA is the `rea-agents` add-on shipped with the setup (MIT, github.com/morluto/rea): a local toolkit with 229 MCP tools and one skill for taking apart native programs, Android apps, web pages, JavaScript/Electron bundles, WebAssembly, firmware and network captures. It runs on this PC with the add-on's own Node.js. Support for its components on Windows is experimental; what it does with the files you give it is your choice and your risk.
 
 ## What the switch does
 

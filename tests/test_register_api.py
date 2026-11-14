@@ -1,4 +1,4 @@
-"""The /api/register routes against the real server: a tree for each folder of the Agent tab, edits marked as the person's, delete means gone, plan lines, and nothing outside the
+"""The /api/register routes against the real server: a tree for each folder of the Agentic coding tab, edits marked as the person's, delete means gone, plan lines, and nothing outside the
 folders the person added."""
 import json
 import sys

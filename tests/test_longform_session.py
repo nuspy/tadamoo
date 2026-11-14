@@ -1,5 +1,5 @@
 """The long answer from the harness's side: the deterministic check of a request, the card (or the offer taken where nobody watches), the
-control line of the Agent tab, and the harness writing the text itself (estimate, plan, parts, check). The model-called tool `plan_long_answer`
+control line of the Agentic coding tab, and the harness writing the text itself (estimate, plan, parts, check). The model-called tool `plan_long_answer`
 is gone. Scripted model, no engine."""
 import copy
 import re
@@ -280,7 +280,7 @@ def test_stopping_during_the_text_keeps_what_was_written(tmp_path):
     assert done["error"] == "" and done["stop_reason"] == al.CANCELLED and len(model.of("part")) == 1 and "review" not in [p["event"] for p in ev.progress()]
 
 
-# -- the control line of the Agent tab ----------------------------------------------------------------------------------
+# -- the control line of the Agentic coding tab ----------------------------------------------------------------------------------
 
 def test_a_length_chosen_by_hand_skips_the_estimate_and_the_card(tmp_path):
     model = Model()

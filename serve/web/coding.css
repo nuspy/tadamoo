@@ -1,4 +1,4 @@
-/* The Agent tab's role selector and the card of project checks. Colours are the app's own variables; a state is told by a word, never by colour alone. */
+/* The Agentic coding tab's role selector and the card of project checks. Colours are the app's own variables; a state is told by a word, never by colour alone. */
 .coderole select { min-height: var(--btn-h); max-width: 14rem; }
 .codingcard { margin: 0 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
 .cc-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 6px 10px; }

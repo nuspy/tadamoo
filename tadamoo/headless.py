@@ -32,8 +32,8 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--result-file", default=None, metavar="PATH", help="write the result as JSON here, without the edited texts")
     parser.add_argument("--pid-file", default=None, metavar="PATH", help="write this process's id here, so the server knows which process is the agent")
     parser.add_argument("--ask-server", action="store_true", help="ask for approvals on the server's pages instead of the terminal")
-    parser.add_argument("--run-id", default="", help="the name of this run in the server's Agent tab")
-    parser.add_argument("--no-report", action="store_true", help="do not show the run and its edits in the server's Agent tab")
+    parser.add_argument("--run-id", default="", help="the name of this run in the server's Agentic coding tab")
+    parser.add_argument("--no-report", action="store_true", help="do not show the run and its edits in the server's Agentic coding tab")
     parser.add_argument("--json", action="store_true", help="print the result as JSON")
     parsed = parser.parse_args(args)
     if not parsed.permission_mode:                        # nobody is there to confirm unless the person asked to be asked

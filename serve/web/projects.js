@@ -1,5 +1,5 @@
 "use strict";
-/* The folders of the Agent tab: the list the server keeps, and the window that adds one. A folder is typed as a full path,
+/* The folders of the Agentic coding tab: the list the server keeps, and the window that adds one. A folder is typed as a full path,
    or picked with the Windows dialog inside the desktop app. Adding it limits what the agent does there to that folder and
    gives the folder a `.basalt` registry of its own. Everything shown enters the page as text. */
 (function () {

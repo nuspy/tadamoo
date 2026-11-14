@@ -23,7 +23,7 @@ the values are saved on this PC (`intake.json` in the data folder, read again af
 
 Three buttons in a row (`role="radiogroup"`, arrow keys, Home and End move and choose; 30 px high, visible focus, the chosen one has a tick
 as well as a colour). It is drawn in two places that always show the same value: Settings > Inference, and the Chat toolbar, which the
-Chat and the Agent tab share (hidden in the model-only chat, which has no look at a request). A change in one is shown in the other at
+Chat and the Agentic coding tab share (hidden in the model-only chat, which has no look at a request). A change in one is shown in the other at
 once and saved after a short pause through `POST /api/intake` (so arrowing across the three saves where it stops); a refused save puts the
 old value back with the reason. Saving also tells the running conversations (`update_intake`, the process command `intake`), so the next
 message of an open conversation is looked at the new way.
@@ -166,7 +166,7 @@ is kept for a reload and dropped at the next message.
 
 ## Pages
 
-The card is `serve/web/askcard.js` (the Chat and the Agent tab share it): real radio buttons and checkboxes in `fieldset`s, rows of at
+The card is `serve/web/askcard.js` (the Chat and the Agentic coding tab share it): real radio buttons and checkboxes in `fieldset`s, rows of at
 least 40 px (44 px on touch screens), a "Recommended" tag in words and a star, a row of the person's own with a text box, a text area for
 free questions, Send (disabled until every required question is answered, with a live note naming the first missing), Skip and
 "Answer in the chat instead". One question of single or confirm kind is answered by one click, never by an arrow key. Digits 1 to 9

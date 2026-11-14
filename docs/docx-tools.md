@@ -90,7 +90,7 @@ With `track_changes: true` the changes are written as Word revisions by author `
   the rewind and reporting lists of file tools, so the Changes view and the mission card know them.
 - **Changes view.** The change is recorded like `edit_file`'s, with a text diff (one line per paragraph and per table row, comments
   last; tracked insertions as `{+ +}` and deletions as `[- -]`). The old and new text are not kept (`old_text` and `new_text` are
-  `None`), because the Agent tab's block review writes text back and a `.docx` is not text.
+  `None`), because the Agentic coding tab's block review writes text back and a `.docx` is not text.
 - **Permissions.** Reversible effect: workspace edits pass at the default level and ask where `edit_file` asks; they are in the
   `write` group, and the readers in the `read` group.
 - **Roles.** The readers are in the read tools; the writers are in `EDIT_TOOLS`, so `ask` and `orchestrate` do not have them and

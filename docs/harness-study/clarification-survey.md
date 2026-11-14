@@ -42,7 +42,7 @@ Not verified, and treated as hints only:
   - A confirm-mode ask sets `rec["ask"]` (state "asking"). A question-mode ask sets `rec["question"]` and is not waiting in the process.
   - `answer()` (line 1383) validates against `ask.options` and the 500-character prefix rule, then writes `{"cmd":"answer"}` to the process.
   - Parked questions (`pending`) are answered whenever, via `_answer_pending`.
-- GUI: `serve/web/agentchat.js` is shared by the Chat tab and the Agent tab (`inAgent()`).
+- GUI: `serve/web/agentchat.js` is shared by the Chat tab and the Agentic coding tab (`inAgent()`).
   - `ask` events become a block `{t:"ask", mode, kind, options}`.
   - Question mode (line 620-636) draws the question plus one `.btn` per option. A click calls `answer()` which, for mode "question", does `send(value)`.
   - There is already a form widget for MCP elicitation (lines 541-601): fields, a Send button, Decline/Cancel, answer as `elicit:` + JSON of at most 500 characters, validated by `tadamoo/mcp_elicit.py`.

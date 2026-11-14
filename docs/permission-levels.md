@@ -72,7 +72,7 @@ nor the mode route of a conversation (`serve/voice_service.py` `SERVICE_ROUTES`)
 ## Outside these three channels
 
 - **Phones** (the listener for phones, the Android app) keep their own limit in Settings > Phones (`serve/remote.py` `max_mode`).
-- **The Agent tab's runs** (`POST /api/agent/runs`, Automatic unless asked otherwise), a trace replay (nothing runs) and the conversations the
+- **The Agentic coding tab's runs** (`POST /api/agent/runs`, Automatic unless asked otherwise), a trace replay (nothing runs) and the conversations the
   server starts by itself (plans, routines, the tab editor) are not a channel here: they run at the level they were given.
 - A program on this PC that calls the agent routes without the voice token is taken as the Chat.
 

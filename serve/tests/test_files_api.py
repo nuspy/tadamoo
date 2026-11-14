@@ -1,4 +1,4 @@
-"""The files a phone may browse: the folders added in the Agent tab and the Chat's come first, then the drives; any path can be listed or read."""
+"""The files a phone may browse: the folders added in the Agentic coding tab and the Chat's come first, then the drives; any path can be listed or read."""
 import json
 import os
 import tempfile

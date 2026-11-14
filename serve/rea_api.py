@@ -1,4 +1,4 @@
-"""Reverse engineering with REA (the rea-agents add-on): the switch in the Agent tab, the programs REA can use and their installers.
+"""Reverse engineering with REA (the rea-agents add-on): the switch in the Agentic coding tab, the programs REA can use and their installers.
 
 Turning it on registers REA's MCP server (the add-on's Node.js running `rea.mjs mcp`) and copies REA's skill into TaDaMoo's own
 capability store, where both are born approved. Turning it off removes exactly those two things. `rea setup` is never run: it

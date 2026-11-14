@@ -1,4 +1,4 @@
-"""The Agent tab: the conversation page working in a folder the person added, with the folders in its column and the changes beside it."""
+"""The Agentic coding tab: the conversation page working in a folder the person added, with the folders in its column and the changes beside it."""
 import re
 import unittest
 from pathlib import Path

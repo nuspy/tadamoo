@@ -1,4 +1,4 @@
-# A vibe-coding mode for the Agent tab
+# A vibe-coding mode for the Agentic coding tab
 
 Proposal from the study of Goose and Roo Code. The roles, the project profile, the safe-verification class and the Agent-tab selector are built (see [../coding-mode.md](../coding-mode.md)); the rest of this page is still the study. The user describes what they want in a folder; the agent plans, edits
 files, runs the project's checks and iterates. Our models are local open-weight models, so tool-call reliability and prompt

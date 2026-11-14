@@ -41,7 +41,7 @@ class RegisterApi:
         for p in self._known():
             if os.path.normcase(p["path"]) == os.path.normcase(str(project or "")):
                 return TaskBoard(p["path"], self.plans_dir)
-        raise TaskError("That is not one of the folders of the Agent tab.")
+        raise TaskError("That is not one of the folders of the Agentic coding tab.")
 
     def overview(self, project: str = "all", state: str = "") -> Dict[str, Any]:
         if state and state not in STATES:
@@ -49,7 +49,7 @@ class RegisterApi:
         known = self._known()
         chosen = known if project in ("", "all") else [p for p in known if os.path.normcase(p["path"]) == os.path.normcase(project)]
         if project not in ("", "all") and not chosen:
-            raise TaskError("That is not one of the folders of the Agent tab.")
+            raise TaskError("That is not one of the folders of the Agentic coding tab.")
         rows = [{**p, "tasks": TaskBoard(p["path"], self.plans_dir).view(state=state)} for p in chosen]
         every = [t for r in rows for t in r["tasks"]]
         return {"projects": rows, "states": list(STATES), "counts": {s: sum(1 for t in every if t["state"] == s) for s in STATES}, "waiting": sum(1 for t in every if t["state"] == "waiting")}

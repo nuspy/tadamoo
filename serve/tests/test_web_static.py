@@ -190,7 +190,7 @@ class MarkupTest(unittest.TestCase):
         views = re.search(r"const VIEWS = \[([^\]]*)\]", (WEB / "app.js").read_text(encoding="utf-8")).group(1)
         for tab in re.findall(r'data-view="(\w+)"', self.html):
             self.assertIn(f'"{tab}"', views, tab)
-            if tab != "agent":                                                    # the Agent tab shows the conversation page, in a folder
+            if tab != "agent":                                                    # the Agentic coding tab shows the conversation page, in a folder
                 self.assertIn(f'id="view-{tab}"', self.html, tab)
         self.assertNotIn('id="view-agent"', self.html)
 

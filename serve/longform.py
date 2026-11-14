@@ -245,7 +245,7 @@ HINT_RE = re.compile(r"\n*\[long answer:([^\]\n]*)\][ \t]*$")
 
 
 def parse_hint(text: str) -> Optional[Dict[str, Any]]:
-    """The line the Agent tab's Long answer control puts at the end of a message ("[long answer: mode=translate; words=5000; language=it]"):
+    """The line the Agentic coding tab's Long answer control puts at the end of a message ("[long answer: mode=translate; words=5000; language=it]"):
     the request without it, the mode, the words and the other fields, or None when the message has no such line."""
     m = HINT_RE.search(text) if isinstance(text, str) else None
     if m is None:

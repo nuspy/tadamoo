@@ -1,4 +1,4 @@
-/* Reverse engineering (REA) box in the Agent tab. Narrow first; shown only in the Agent tab. */
+/* Reverse engineering (REA) box in the Agentic coding tab. Narrow first; shown only in the Agentic coding tab. */
 .rea { display: none; margin: 0 28px 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); min-width: 0; max-height: 45vh; overflow: auto; }
 body[data-view="agent"] .rea { display: block; }
 .rea-head { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
