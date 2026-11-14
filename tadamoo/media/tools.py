@@ -213,14 +213,14 @@ def register_media_tools(registry: Any, sandbox: Any, settings: MediaSettings, w
         e = limits.ENHANCE
         registry.register(
             name="enhance_video",
-            description=("Makes a better copy of a video of the working folder: larger (more pixels, with the detail an AI enlarger invents) and/or smoother (more frames a second, made between the real "
-                         "ones, the length does not change). Use it when a clip looks small, soft or jerky. It takes minutes per clip and uses most of the GPU alone. The original is kept. "
+            description=("Makes a better copy of a video of the working folder: cleaner (the pixelation removed and detail restored by an AI restorer, at the same size) and/or smoother (more frames a second, made between the real "
+                         "ones, the length does not change). With no scale and no factor it enhances the picture with FlashVSR+ Turbo (blockiness removed, detail restored; the size, the frames and the duration stay what they were). Use it when a clip looks blocky, soft or jerky. It takes minutes per clip and uses most of the GPU alone. The original is kept. "
                          "If the answer says `refused`, the PC had no VRAM to give: tell the person."),
             parameters={"type": "object", "properties": {
                 "path": {"type": "string", "description": "The video to improve, relative to the working folder"},
-                "scale": {"type": "number", "description": f"Times the width and height, {e['scale_min']:g} to {e['scale_max']:g} (2 doubles the size); left out: the size is kept"},
+                "scale": {"type": "number", "description": f"Times the width and height, {e['scale_min']:g} to {e['scale_max']:g} (2 doubles the size); the size it works at (the result always has the size of the video); left out and no factor: 2; with a factor only, no enhancement of the picture"},
                 "factor": {"type": "integer", "description": f"Times the frames a second, {e['factor_min']} to {e['factor_max']} (2 turns 25 into 50); left out: the frame rate is kept"},
-                "mode": {"type": "string", "enum": list(e["modes"]), "description": "turbo (faster) or base (finer)"},
+                "mode": {"type": "string", "enum": list(e["modes"]), "description": "turbo (the default, and the one the newscast uses) or base (finer, slower)"},
                 "output": {"type": "string", "description": f"Where to save it, relative to the working folder; left out: {FOLDER}/ with the name of the video and the date"}},
                 "required": ["path"]},
             effect=EffectClass.REVERSIBLE, handler=enhance_video, timeout=None)

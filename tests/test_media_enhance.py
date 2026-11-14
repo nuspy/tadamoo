@@ -17,6 +17,11 @@ from tadamoo.tools.filesystem import WorkspaceSandbox
 from tadamoo.tools.registry import EffectClass, ToolRegistry
 
 
+@pytest.fixture(autouse=True)
+def plain_launcher(monkeypatch):
+    monkeypatch.setenv("FLASHVSR_LAUNCH", "plain")                      # tadamoo/media/flashvsr_launch.py runs the stand-in runner as it is (its own steps need the FlashVSR+ environment and a GPU)
+
+
 @pytest.fixture
 def world(tmp_path):
     ltx = make_ltx(tmp_path / "ltx")
@@ -42,7 +47,8 @@ def test_the_enhance_request_wants_a_size_or_a_frame_rate_and_keeps_to_its_caps(
     r = limits.enhance_request("a.mp4", scale=2, factor=2)
     assert (r["video"], r["scale"], r["factor"], r["mode"]) == ("a.mp4", 2.0, 2, "turbo")
     assert limits.enhance_request("a.mp4", factor=4)["scale"] == 0.0 and limits.enhance_request("a.mp4", scale=1.5)["factor"] == 0
-    for bad in (lambda: limits.enhance_request("a.mp4"), lambda: limits.enhance_request("a.mp4", scale=5), lambda: limits.enhance_request("a.mp4", scale=0.5),
+    assert limits.enhance_request("a.mp4")["scale"] == 2.0 and limits.enhance_request("a.mp4")["mode"] == "turbo"          # neither asked: the one enhancer, FlashVSR+ at 2x Turbo
+    for bad in (lambda: limits.enhance_request("a.mp4", scale=5), lambda: limits.enhance_request("a.mp4", scale=0.5),
                 lambda: limits.enhance_request("a.mp4", factor=1), lambda: limits.enhance_request("a.mp4", factor=5), lambda: limits.enhance_request("a.mp4", factor=True),
                 lambda: limits.enhance_request("", scale=2), lambda: limits.enhance_request("a.mp4", scale=2, mode="fast")):
         with pytest.raises(MediaError):
@@ -104,7 +110,6 @@ def test_only_what_was_asked_runs(world):
 
 
 def test_enhancing_says_why_it_cannot(world, tmp_path):
-    assert call(world, "enhance_video", path="in/clip.mp4")["status"] == "error"
     assert call(world, "enhance_video", path="in/none.mp4", scale=2)["status"] == "error"
     other = make_ltx(tmp_path / "ltx2", rife=False)
     world["settings"].write({"ltx_dir": str(other)})

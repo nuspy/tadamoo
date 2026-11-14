@@ -80,6 +80,14 @@ def probe(path: Path) -> dict:
             "timescale": int(str(video.get("time_base") or "1/1").partition("/")[2] or 1)}
 
 
+def frame_count(path: Path) -> int:
+    """The number of video frames that decode (counted, not read from the container)."""
+    done = subprocess.run([tool("ffprobe"), "-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", str(path)], capture_output=True, text=True)
+    if done.returncode != 0 or not done.stdout.strip().isdigit():
+        raise ComposeError(f"{Path(path).name}: the frames could not be counted: {done.stderr.strip()[-200:]}")
+    return int(done.stdout.strip())
+
+
 def frame(video: Path, at: float, out: Path) -> Path:
     run(["-ss", f"{at:.3f}", "-i", video, "-frames:v", "1", "-q:v", "2", out])
     return out

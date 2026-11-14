@@ -28,10 +28,10 @@ Clips from words or from a picture, and the means to improve them. The code is `
 
 ## enhance_video
 
-`enhance_video(path, scale, factor, mode, output)`: a better copy of a video of the working folder; the original is kept. At least one of `scale` and `factor`.
+`enhance_video(path, scale, factor, mode, output)`: a better copy of a video of the working folder; the original is kept. With neither `scale` nor `factor` it enhances the picture with FlashVSR+ in its Turbo mode: the one enhancer of the product (the newscast enhances every take with it). The copy has exactly the size, the frames and so the duration of the original: "better" means the blockiness removed and the detail restored, not more pixels.
 
 - `factor` 2 to 4: the frames a second are multiplied by RIFE (25 becomes 50 at 2): new frames are made between the real ones, the length does not change, nothing is slowed down.
-- `scale` 1 to 4: the width and height are multiplied by FlashVSR+ (`mode` turbo, faster, or base, finer): more pixels and the detail an AI enlarger infers, with the sound kept when the clip has any.
+- `scale` 1 to 4: the size FlashVSR+ works at (2, the default: it works at twice the size and the result is brought back to the original size with a Lanczos downscale; 1: it restores at the original size). Before, `scale` multiplied the width and height by FlashVSR+ (`mode` turbo, faster, or base, finer): more pixels and the detail an AI enlarger infers, with the sound kept when the clip has any.
 - Both: the picture is enlarged first and the frames are made after, at the final size, because the enlarger is the slow step and sees fewer frames that way.
 - Choosing: smoothness first (`factor` 2), then size (`scale` 2). A video that goes into an edit at a lower size gains nothing from `scale`; the frame rate of the edit must be a multiple of the clip's (25 to 25 or 50), because
   dropping to 24 removes a frame a second and brings the hitch back.
@@ -63,5 +63,5 @@ Studio's downloader, `--ids ltx25-transformer-nvfp4`); **ffmpeg** on the PATH (`
 ## Speed
 
 Clips run LTX 2.5 distilled in nvfp4 (the GPU's fp4 matmul) with PyTorch's own attention kernel, which LTX Studio measured faster than SageAttention on Blackwell; the prompt embeddings are cached and the decode is streamed in tiles. Nothing to load or install for speed: the environments are LTX
-Studio's own (`docs/media/speed.md` says what each holds). `enhance_video` runs FlashVSR+ on PyTorch's attention (the Block-Sparse and Triton backends do not exist on Windows) and RIFE in the inference environment, which has triton-windows, sageattention and xformers. A job that takes longer than the limit of its kind
+Studio's own (`docs/media/speed.md` says what each holds). `enhance_video` runs FlashVSR+ with the Triton block-sparse kernel of its own repository (through `tadamoo/media/flashvsr_launch.py`; LTX Studio's runner alone falls back to an SDPA mask that is refused at 2x), saved at crf 4, and RIFE in the inference environment, which has triton-windows, sageattention and xformers. A job that takes longer than the limit of its kind
 (`docs/media/runner.md`) is ended with an error of the step.

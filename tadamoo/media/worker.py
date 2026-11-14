@@ -159,10 +159,11 @@ def upscale_plan(folder: str, spec: dict) -> dict:
     mode = req.get("mode") or "turbo"
     missing = list(service.preflight(mode))
     video = _video_input(req, missing)
-    args = [video, spec["output"], "--mode", mode, "--scale", f"{float(req.get('scale') or 2.0):g}", "--seed", "1", "--temporal-compression", "4", "--decode-every", "profile",
+    args = [str(service.RUNNER), video, spec["output"], "--mode", mode, "--scale", f"{float(req.get('scale') or 2.0):g}", "--seed", "1", "--temporal-compression", "4", "--decode-every", "profile",
             "--code-dir", str(service.CODE_DIR), "--ckpt-root", str(service.ckpt_root())]
-    return {"python": spec.get("python") or str(service.VENV_PY), "python_flags": ["-I"], "script": str(service.RUNNER), "args": args, "params": {}, "missing": missing,
-            "cwd": str(service.RUNNER.parent), "env": {"PYTHONIOENCODING": "utf-8"}}
+    # LTX Studio's runner, run through flashvsr_launch.py: the Triton block-sparse kernel (the runner's SDPA mask is refused at 2x), the picture saved at crf 4, and as many frames out as in
+    return {"python": spec.get("python") or str(service.VENV_PY), "python_flags": ["-I"], "script": str(Path(__file__).with_name("flashvsr_launch.py")), "args": args, "params": {}, "missing": missing,
+            "cwd": str(service.RUNNER.parent), "env": {"PYTHONIOENCODING": "utf-8", "FLASHVSR_CRF": "4"}}
 
 
 def avatar_plan(folder: str, spec: dict) -> dict:
@@ -212,7 +213,7 @@ def keep_audio(source: str, out: Path) -> None:
     if not ffmpeg:
         return
     joined = out.with_name("joined-" + out.name)
-    done = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", str(out), "-i", source, "-map", "0:v:0", "-map", "1:a:0?", "-c", "copy", "-shortest", str(joined)],
+    done = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", str(out), "-i", source, "-map", "0:v:0", "-map", "1:a:0?", "-c", "copy", str(joined)],
                           capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0)
     if done.returncode == 0 and joined.is_file():
         os.replace(joined, out)
