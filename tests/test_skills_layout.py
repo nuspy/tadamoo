@@ -78,9 +78,25 @@ def test_no_skill_refers_to_a_temporary_folder():
             assert "c:\temp" not in text.lower() and "scratchpad" not in text and "appdata" not in text.lower().replace("%appdata%", ""), f
 
 
+def ready(skill, settings):
+    return {"skill": skill, "ready": True, "ran": 0}
+
+
+def test_a_skill_not_ticked_is_not_installed_and_a_named_one_is_imported_and_its_models_downloaded(tmp_path, capsys):
+    data, skills, asked = tmp_path / "data", tmp_path / "skills", []
+    assert cli.install_skill(data, skills, installer=lambda skill, settings: asked.append(skill) or ready(skill, settings)) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert not (skills / "video-modification").exists() and "video-modification" not in asked
+    assert "skill:video-modification" not in {r["item"] for r in first["import"]["imported"]}
+    assert cli.install_skill(data, skills, ["video-modification"], installer=lambda skill, settings: asked.append(skill) or ready(skill, settings)) == 0
+    second = json.loads(capsys.readouterr().out)
+    assert (skills / "video-modification" / "SKILL.md").is_file() and "video-modification" in asked
+    assert "skill:video-modification" in {r["item"] for r in second["import"]["imported"]}
+
+
 def test_the_install_copies_to_the_source_folder_and_the_importer_makes_the_copies_the_harness_runs_from(tmp_path, capsys):
     data, skills = tmp_path / "data", tmp_path / "skills"
-    assert cli.install_skill(data, skills) == 0
+    assert cli.install_skill(data, skills, installer=ready) == 0
     first = json.loads(capsys.readouterr().out)
     for name in REUSABLE:
         assert (skills / name / "SKILL.md").is_file()
@@ -89,7 +105,7 @@ def test_the_install_copies_to_the_source_folder_and_the_importer_makes_the_copi
     assert "plugin:ai-newscast" in imported and {f"skill:{n}" for n in REUSABLE} <= imported and not first["import"]["conflicts"]
     assert (data / "personal-skills" / "ai-newscast" / "skill.py").is_file()                 # the runnable copy lives in the user data folder, not in the source folder
     assert not (data / "personal-skills-dir.json").exists()
-    assert cli.install_skill(data, skills) == 0
+    assert cli.install_skill(data, skills, installer=ready) == 0
     again = json.loads(capsys.readouterr().out)
     assert not again["import"]["imported"] and not again["import"]["updated"]              # nothing changed: nothing imported twice
 
@@ -99,7 +115,7 @@ def test_the_imported_copy_of_the_skill_finds_the_skills_it_uses(tmp_path, capsy
     import sys
     import types
     data, skills = tmp_path / "data", tmp_path / "skills"
-    assert cli.install_skill(data, skills) == 0
+    assert cli.install_skill(data, skills, installer=ready) == 0
     capsys.readouterr()
     stub = types.ModuleType("tadamoo_skill")
     stub.tool = stub.ai = stub.say = lambda *a, **k: None
