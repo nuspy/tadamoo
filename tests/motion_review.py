@@ -62,7 +62,7 @@ button{font:inherit;min-height:44px;min-width:44px;padding:0 14px;background:var
 button.alt{background:transparent;color:var(--acc);border:2px solid var(--acc)}button.on{background:var(--warn);color:#000}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin:14px 0}
 .counter{font-size:1.5rem;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2;margin:4px 0}
-video{width:100%;border-radius:6px;background:#000;display:block}canvas{width:100%;display:block;border-radius:6px;background:#0c0c0c;touch-action:none}
+video{width:auto;height:auto;max-width:none;max-height:none;border-radius:6px;background:#000;display:block}img{max-width:none}canvas{width:100%;display:block;border-radius:6px;background:#0c0c0c;touch-action:none}
 .row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}label.note{display:block;margin-top:8px}textarea{width:100%;font:inherit;min-height:64px;padding:8px}
 ul{padding-left:18px;margin:6px 0}details{margin:6px 0}pre{white-space:pre-wrap;font-size:.8rem}.chart{width:100%;border-radius:6px}.small{font-size:.85rem;opacity:.85}"""
 
@@ -149,7 +149,7 @@ def build(rows: List[Dict[str, Any]], ctx: Dict[str, Any], spectra: Dict[str, Di
 <div class="counter" aria-live="off">0,00 s</div>
 <canvas class="spec" width="720" height="300"></canvas>
 <canvas class="mouth" width="720" height="144"></canvas>
-<video src="videos/{r['id']}.mp4" controls playsinline preload="auto"></video>
+<video src="videos/{r['id']}.mp4" controls controlslist="nofullscreen noremoteplayback" disablepictureinpicture playsinline preload="auto"></video>
 <div class="row"><button class="play">Avvia / ferma</button><button class="alt back" aria-label="Un fotogramma indietro">◀ 1</button><button class="alt fwd" aria-label="Un fotogramma avanti">1 ▶</button>
 <button class="alt speed" data-r="1">1×</button><button class="alt speed" data-r="0.5">0,5×</button><button class="alt speed" data-r="0.25">0,25×</button></div>
 <div class="row"><button class="alt tog">Spettro: audio dato al modello (tocca per la voce vera)</button></div>

@@ -21,7 +21,7 @@ button.alt{background:transparent;color:var(--acc)}
 .row{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin:16px 0}
 .row h2{font-size:1.1rem;margin:0 0 4px}.what,.look{color:var(--mut);margin:2px 0}
 .vids{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:10px;margin:10px 0}
-figure{margin:0}figcaption{font-size:.9rem;color:var(--mut);padding:4px 0}video{width:100%;border-radius:8px;background:#000}
+figure{margin:0}figcaption{font-size:.9rem;color:var(--mut);padding:4px 0}video{width:auto;height:auto;max-width:none;max-height:none;border-radius:8px;background:#000;display:block}img{max-width:none}
 table.num{border-collapse:collapse;font-size:.9rem;margin:8px 0;width:100%}table.num td{padding:3px 8px;border-bottom:1px solid var(--line)}table.num td:first-child{color:var(--mut)}
 textarea{width:100%;min-height:72px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:inherit;padding:8px}
 .rowbar{display:flex;gap:8px;margin:6px 0}#msg{color:var(--ok)}
@@ -59,7 +59,7 @@ def build(out: Path, title: str, intro: str, rows: list, md_name: str = "segnala
     for r in rows:
         nums = r.get("numbers") or {}
         table = "<table class='num'>" + "".join(f"<tr><td>{html.escape(str(k))}</td><td>{html.escape(str(v))}</td></tr>" for k, v in nums.items()) + "</table>" if nums else ""
-        figs = "".join(f"<figure><video src='{html.escape(v['src'])}' controls preload='metadata' playsinline muted loop></video><figcaption>{html.escape(v['label'])}</figcaption></figure>" for v in r.get("videos", []))
+        figs = "".join(f"<figure><video src='{html.escape(v['src'])}' controls controlslist='nofullscreen noremoteplayback' disablepictureinpicture preload='metadata' playsinline muted loop></video><figcaption>{html.escape(v['label'])}</figcaption></figure>" for v in r.get("videos", []))
         figs += "".join(f"<figure><img src='{html.escape(v['src'])}' alt='{html.escape(v['label'])}' style='width:100%;border-radius:8px'><figcaption>{html.escape(v['label'])}</figcaption></figure>" for v in r.get("images", []))
         figs += "".join(f"<figure><audio src='{html.escape(v['src'])}' controls preload='metadata' style='width:100%'></audio><figcaption>{html.escape(v['label'])}</figcaption></figure>" for v in r.get("audios", []))
         flat = "; ".join(f"{k} {v}" for k, v in nums.items())
