@@ -14,12 +14,16 @@ result, so the same text and parameters can be made again identically."""
 from __future__ import annotations
 
 import difflib
+import hashlib
 import json
 import re
+import shutil
 import statistics
 import subprocess
 import tempfile
+import threading
 import time
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -70,7 +74,9 @@ class Params:
     xtts_python: str = XTTS_PYTHON
     xtts_model: str = XTTS_MODEL
     xtts_batch: int = 12                           # takes of one sentence made in one autoregressive pass (the seeds of a round); a pass that runs out of memory is made again in halves
-    xtts_precision: str = "fp32"                   # "fp32", "fp16" or "bf16": autocast over the autoregressive pass only (the vocoder stays fp32)
+    xtts_precision: str = "fp32"                   # "fp32", "tf32" (fp32 with TensorFloat-32 matrix products), "fp16" or "bf16" (autocast over the autoregressive pass only; the vocoder stays fp32)
+    xtts_compile: str = "off"                      # "on": the transformer of the autoregressive pass is compiled with torch.compile when Triton is installed; a compile that fails is given up
+    xtts_cache: str = ""                           # a folder where the takes of a sentence are kept by their text, seeds and settings and found again by any production (empty: only the work folder)
 
 
 def split_clauses(text: str, max_len: int = 0) -> List[Tuple[str, str, int]]:
@@ -115,8 +121,9 @@ class LocalXtts:
     """XTTS in its own Python (the voice service's environment is not touched): a batch of items in, WAV bytes out. The process is started with the first batch and keeps the model
     loaded for the next ones (loading the model takes longer than reading a short sentence); `close` ends it and frees its VRAM."""
 
-    def __init__(self, p: Params, work: Optional[Path] = None) -> None:
+    def __init__(self, p: Params, work: Optional[Path] = None, timing: Any = None) -> None:
         self.p = p
+        self.timing = timing                                     # a jobtime.Timing: the longest a run may take follows the audio it makes; without one a run has no limit
         self.work = Path(work) if work else Path(tempfile.mkdtemp(prefix="xtts_"))
         self.proc: Optional[subprocess.Popen] = None
         self.log_file: Any = None
@@ -128,20 +135,41 @@ class LocalXtts:
         self.proc = subprocess.Popen([self.p.xtts_python, str(RUNNER), "--serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.log_file, text=True, encoding="utf-8",
                                      errors="replace", bufsize=1)
 
-    def _batch(self, job_file: Path) -> None:
-        """One job file through the running process: its output lines are read up to the line that says the batch is done."""
+    def _batch(self, job_file: Path, timeout: Optional[float] = None) -> float:
+        """One job file through the running process: its output lines are read up to the line that says the batch is done. With a `timeout` (seconds) a process that is still at it then is killed."""
         if self.proc is None or self.proc.poll() is not None:
             self._start()
+        timer = threading.Timer(timeout, self.proc.kill) if timeout else None
+        if timer:
+            timer.start()
+        try:
+            return self._read(job_file)
+        except RuntimeError as exc:
+            if timer and not timer.is_alive():
+                raise RuntimeError(f"the XTTS run took longer than {timeout:.0f} s and was stopped") from None
+            raise exc
+        finally:
+            if timer:
+                timer.cancel()
+
+    def _read(self, job_file: Path) -> float:
+        """The seconds of audio the batch made."""
         try:
             self.proc.stdin.write(str(job_file) + "\n")
             self.proc.stdin.flush()
         except OSError:
             self.proc = None
             raise RuntimeError("the XTTS run failed: its process is gone") from None
+        made = 0.0
         for line in self.proc.stdout:
-            if '"batch"' in line:
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue                                         # what a library prints is not the protocol
+            if msg.get("batch") == "done":
                 self.batches += 1
-                return
+                return made
+            made += float(msg.get("seconds") or 0.0)
         self.proc = None
         log = self.work / "xtts.log"
         tail = log.read_text(encoding="utf-8", errors="replace").strip().splitlines()[-1:] if log.is_file() else []
@@ -159,7 +187,7 @@ class LocalXtts:
             self.log_file.close()
             self.log_file = None
 
-    def run(self, items: Sequence[Dict[str, Any]]) -> Dict[str, bytes]:
+    def run(self, items: Sequence[Dict[str, Any]], timeout: Optional[float] = None) -> Dict[str, bytes]:
         self.work.mkdir(parents=True, exist_ok=True)
         out = self.work / "out"
         out.mkdir(parents=True, exist_ok=True)
@@ -176,14 +204,55 @@ class LocalXtts:
 
         missing = {key(it) for it in items if not have(it)}
         todo = [it for it in items if key(it) in missing]        # the takes of a sentence are made in one pass, so a sentence with a take missing is made again whole
+        shared = Path(self.p.xtts_cache) if self.p.xtts_cache else None
+        keep: List[Tuple[Path, List[Dict[str, Any]]]] = []
+        if shared and todo:                                      # a group made by any earlier production is taken from the shared folder
+            rest: List[Dict[str, Any]] = []
+            for group in xtts_run.group_items(todo, self.p.xtts_batch):
+                folder = shared / self.group_key(group)
+                if all((folder / f"{j}.wav").is_file() for j in range(len(group))):
+                    for j, it in enumerate(group):
+                        shutil.copyfile(folder / f"{j}.wav", out / f"{it['id']}.wav")
+                else:
+                    rest += group
+                    keep.append((folder, group))
+            made, todo = [it for it in todo if it not in rest], rest
+            for it in made:
+                (out / f"{it['id']}.json").write_text(json.dumps(side(it), ensure_ascii=False), encoding="utf-8")
         if todo:
-            job = {"model_dir": self.p.xtts_model, "speaker": self.p.speaker, "out_dir": str(out), "precision": self.p.xtts_precision, "batch": self.p.xtts_batch, "items": todo}
+            job = {"model_dir": self.p.xtts_model, "speaker": self.p.speaker, "out_dir": str(out), "precision": self.p.xtts_precision, "batch": self.p.xtts_batch,
+                   "compile": self.p.xtts_compile, "items": todo}
             job_file = self.work / "job.json"
             job_file.write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
-            self._batch(job_file)
+            audio_s = sum(len(it["text"]) / 12.0 for it in todo)   # the runner's own estimate of a take's length
+            if timeout is None and self.timing is not None:
+                from tadamoo import jobtime
+                clock = jobtime.Deadline(self.timing, "voice", audio_s)
+                timeout = clock.limit_s
+            else:
+                clock = None
+            began = time.monotonic()
+            try:
+                made = self._batch(job_file, timeout)
+            except RuntimeError:
+                if clock is not None:
+                    clock.check()                                # the limit is reached: the error of the step, with its numbers
+                raise
+            if self.timing is not None and made > 0:
+                self.timing.record("voice", time.monotonic() - began, made)
             for it in todo:
                 (out / f"{it['id']}.json").write_text(json.dumps(side(it), ensure_ascii=False), encoding="utf-8")
+            for folder, group in keep:
+                folder.mkdir(parents=True, exist_ok=True)
+                for j, it in enumerate(group):
+                    shutil.copyfile(out / f"{it['id']}.wav", folder / f"{j}.wav")
         return {it["id"]: (out / f"{it['id']}.wav").read_bytes() for it in items}
+
+    def group_key(self, group: Sequence[Dict[str, Any]]) -> str:
+        """What a group of takes is, for the shared folder: the text, the settings of the engine and the seeds of its takes, with the voice, the precision and the model."""
+        spec = {"speaker": self.p.speaker, "precision": self.p.xtts_precision, "model": self.p.xtts_model, "text": group[0]["text"],
+                "settings": [group[0].get(k) for k in xtts_run.SAMPLING], "seeds": [it["seed"] for it in group]}
+        return hashlib.sha1(json.dumps(spec, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
 NUMBER_ROOTS = ("egy", "kettő", "két", "három", "négy", "öt", "hat", "hét", "nyolc", "kilenc", "tíz", "tizen", "húsz", "huszon", "harminc", "negyven", "ötven", "hatvan", "hetven", "nyolcvan",
@@ -332,7 +401,7 @@ def speak(text: str, runner: LocalXtts, rater: Rater, p: Params, log: Callable[[
         for i in todo:
             body, ending, _ = clauses[i]
             for k in range(p.seeds):
-                seed = p.base_seed + i * 1000 + rnd * 100 + k
+                seed = p.base_seed + (zlib.crc32(body.encode("utf-8")) % 100000) * 1000 + rnd * 100 + k          # by the text, so a sentence said twice is made as the same takes
                 items.append({"id": f"c{i}_s{seed}", "text": (say(body) if say else body) + ",", "lang": p.lang, "seed": seed, "temperature": p.temperature, "top_p": p.top_p, "top_k": p.top_k,
                               "repetition_penalty": p.repetition_penalty, "length_penalty": p.length_penalty, "speed": p.speed})
         wavs = runner.run(items)
