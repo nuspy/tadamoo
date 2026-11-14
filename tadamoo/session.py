@@ -193,7 +193,7 @@ class Task:
     interrupt: bool = False                       # asked to stop its model call now, to be put aside
     state_running: bool = False                   # a model call or a tool is in progress
     intake: Optional[Dict[str, Any]] = None       # the facts of a request of the person that intake has not looked at yet
-    registered: Optional[Tuple[str, List[str]]] = None   # the parent and the parts this request has in the task registry
+    registered: Optional[Tuple[str, List[str]]] = None   # the parent and the parts this request has in the register of open work
     progress: Optional[Any] = None                # tadamoo/progress.py: the newest steps, for the line that says how far a task got
     since: int = 0                                # how many turns the agent had when this request began
     council: str = ""                             # "each": the conversation's box is on, so a real question is debated first; "once": the person wrote /council
@@ -309,7 +309,7 @@ class Session:
         self.attachment_store: Any = None                       # AttachmentStore of this conversation's files, when it has one
         self.intake: Optional[it.Intake] = None                 # what runs between the person's text and the model's first step (tadamoo/intake.py)
         self.optimizer: Optional[opt.Optimizer] = None          # the person's message rewritten by the technical session before the model reads it (tadamoo/optimize.py)
-        self.task_sink: Optional[it.TaskSink] = None            # the server's task registry, where a large request's parts are recorded
+        self.task_sink: Optional[it.TaskSink] = None            # the project's register of open work, where a large request's parts are recorded
         self.suggester: Optional[sg.Suggester] = None           # the next-prompt chips (tadamoo/suggestions.py)
         self.ask_only = False                                   # a conversation without tools
         self.council_each = False                               # the conversation's box: every real question goes to the council first (tadamoo/council.py)
@@ -1235,7 +1235,7 @@ class Session:
 
     def _intake_step(self, task: Task) -> bool:
         """Intake for a request of the person, once, before the model's first step: the note is put after their message, a large request is
-        recorded in the task registry, and a card is shown when the facts it lacks are worth a question (True: the turn ends on the card).
+        recorded in the register of open work, and a card is shown when the facts it lacks are worth a question (True: the turn ends on the card).
         Never raises and never waits for a model that is down."""
         facts, task.intake = task.intake, None
         agent = task.agent
@@ -1505,7 +1505,7 @@ class Session:
 
     def _long_pieces(self, task: Task, pieces: Dict[str, Any]) -> bool:
         """A request for several separate texts is not written as one: the model is told to write them one after the other, each with its own
-        `write_long` call, and the parts are recorded in the task registry. False: the model goes on."""
+        `write_long` call, and the parts are recorded in the register of open work. False: the model goes on."""
         titles = pieces["titles"]
         note = (f"[harness] Long answer: the request is for {pieces['count']} separate texts. Write each with its own write_long call, one after the other, "
                 f"saving each in its own file (for example {pieces['kind']}s/01.md in the working folder); the brief of each holds the outline, the tone and a "
@@ -1673,7 +1673,7 @@ class Session:
         return True
 
     def _register_subtasks(self, task: Task, subtasks: List[Dict[str, Any]]) -> None:
-        """A large request as a parent and its parts in the server's task registry (`req-<turn>`, `req-<turn>.1`, ...)."""
+        """A large request as a parent and its parts in the project's register of open work (`req-<turn>`, `req-<turn>.1`, ...)."""
         if self.task_sink is None:
             return
         parent, title = it.TASK_PREFIX + task.turn, " ".join(task.agent.last_user_text.split())
@@ -2079,7 +2079,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
     built.agent.watch_options = {"enabled": args.loop_watch == "on", "period_first": args.loop_first, "step": args.loop_step, "unit": args.loop_unit,
                                  "repeats": {"reasoning": args.loop_repeats, "content": args.loop_repeats + 1}}
     session.optimizer = opt.Optimizer(built.technical, args.optimize_prompt == "on" and not args.unattended)
-    session.task_sink = it.TaskSink(cfg.endpoint, cfg.api_key) if args.report_changes else None
+    tools = getattr(built.agent.tools, "task_tools", None)
+    session.task_sink = it.TaskSink(tools.board, lambda: sid, lambda: tools.on_write() if tools.on_write is not None else None) if args.report_changes and tools is not None else None
     session.suggester = sg.Suggester(built.technical, args.suggestions == "on" and not args.unattended, args.side_call_tokens)
     session.set_effort(args.effort)
     if built.agent.secrets is not None:

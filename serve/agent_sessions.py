@@ -53,7 +53,7 @@ from serve.approvals import ApprovalBoard
 from serve.conv_nodes import NodeStore
 from serve.deliveries import DeliveryError, DeliveryQueue
 from serve.session_budget import SessionBudget
-from serve.tasks import _write_json
+from serve.util.files import write_json
 from serve.util import peer
 from serve.util.winjob import contain
 
@@ -277,7 +277,7 @@ class SessionManager:
     def _save(self) -> None:
         for attempt in range(5):
             try:
-                _write_json(self.directory / SESSIONS_FILE, {"schema": "1.0", "sessions": self.records})
+                write_json(self.directory / SESSIONS_FILE, {"schema": "1.0", "sessions": self.records})
                 return
             except PermissionError:                      # a reader or a scanner holds the file for a moment
                 if attempt == 4:
@@ -464,7 +464,7 @@ class SessionManager:
             self._learned[sid][name] = effect
             try:
                 self.history_dir(sid).mkdir(parents=True, exist_ok=True)
-                _write_json(self.history_dir(sid) / EFFECTS_FILE, self._learned[sid])
+                write_json(self.history_dir(sid) / EFFECTS_FILE, self._learned[sid])
             except OSError:
                 pass                                        # the class is then read from the known tools next time
 
@@ -513,7 +513,7 @@ class SessionManager:
                 (folder / name).replace(folder / f"{name}.{stamp}") if name == "archive.jsonl" else (folder / name).unlink()
             except OSError:
                 pass
-        _write_json(folder / "history.json", {**{k: v for k, v in data.items() if k not in ("messages", "pending", "announced")},
+        write_json(folder / "history.json", {**{k: v for k, v in data.items() if k not in ("messages", "pending", "announced")},
                                               "turns": turn, "saved": time.time(), "messages": kept, "pending": []})
         with self._lock:
             now = self._record(sid)
@@ -744,7 +744,7 @@ class SessionManager:
         return out
 
     def _save_compares(self) -> None:
-        _write_json(self.directory / COMPARES_FILE, {"schema": "1.0", "compares": self.compares})
+        write_json(self.directory / COMPARES_FILE, {"schema": "1.0", "compares": self.compares})
 
     def _compare(self, cid: str) -> Dict[str, Any]:
         found = next((c for c in self.compares if c["id"] == cid), None)
@@ -1181,7 +1181,7 @@ class SessionManager:
         if not (history / "history.json").exists():
             made = self._history_from_nodes(sid)                  # a fork gets its file when it first runs
             if made is not None:
-                _write_json(history / "history.json", made)
+                write_json(history / "history.json", made)
         env = dict(os.environ)
         env.update({"PYTHONUTF8": "1", "PYTHONPATH": str(self.root), "TADAMOO_COMPRESS": "1"})
         if self.api_key:

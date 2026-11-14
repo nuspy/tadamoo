@@ -1,110 +1,24 @@
-"""Task-state journal and change journal: what the agent is doing and what it has edited.
+"""The change journal: the file edits the agent made, as the changes panel shows them, and the review of their blocks (keep or undo).
 
-Both are small JSON files in one folder, updated atomically and under a lock, so concurrent requests
-of the threading server never lose each other's updates. A task that is closed while an open task
-still depends on it is kept, marked closed, and purged as soon as nothing open depends on it.
-"""
+One small JSON file in one folder, updated atomically and under a lock, so concurrent requests of the threading server never lose each other's updates."""
 from __future__ import annotations
 
 import json
-import os
 import secrets
-import tempfile
 import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from . import review as rv
+from .util.files import write_json
 
-STATE_FILE = "tasks.json"
 CHANGES_FILE = "changes.json"
 MAX_EDITS = 200
 MAX_REVIEWABLE = 30                 # edits whose before/after text is kept so that blocks can be undone
 REVIEW_FILE = "changes_review.json"
 ACTIONS = ("keep", "reject", "keep_all", "reject_all")
 MAX_DIFF_CHARS = 100_000
-OPEN_STATES = ("pending", "running", "in_progress", "blocked")
-
-
-def _write_json(path: Path, data: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.stem}.")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, str(path))
-    finally:
-        if Path(tmp).exists():
-            try:
-                Path(tmp).unlink(missing_ok=True)
-            except OSError:
-                pass
-
-
-class TaskJournal:
-    """Manages persistent task state with atomic file updates."""
-
-    def __init__(self, directory: str | Path) -> None:
-        self.directory = Path(directory)
-        self.path = self.directory / STATE_FILE
-        self._lock = threading.RLock()
-
-    def load(self) -> Dict[str, Any]:
-        """The current journal, or an empty one when the file is missing or unreadable."""
-        if not self.path.is_file():
-            return {"schema": "1.0", "tasks": []}
-        try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-            return data if isinstance(data, dict) and isinstance(data.get("tasks"), list) else {"schema": "1.0", "tasks": []}
-        except (json.JSONDecodeError, OSError):
-            return {"schema": "1.0", "tasks": []}
-
-    def record(
-        self,
-        task_id: str,
-        status: str,
-        result: str = "",
-        children: Optional[List[str]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """Records or updates a task status, returning the updated task object."""
-        with self._lock:
-            data = self.load()
-            tasks = data.setdefault("tasks", [])
-            task = next((t for t in tasks if t.get("id") == task_id), None)
-            now = time.time()
-            if task is None:
-                task = {"id": task_id, "created": now, "children": list(children or []), "metadata": metadata or {}}
-                tasks.append(task)
-            else:
-                if children is not None:
-                    task["children"] = list(children)
-                if metadata is not None:
-                    task.setdefault("metadata", {}).update(metadata)
-            task["status"] = status
-            task["result"] = result
-            task["updated"] = now
-            self._purge(data)
-            _write_json(self.path, data)
-            return task
-
-    @staticmethod
-    def _purge(data: Dict[str, Any]) -> None:
-        """Drops closed tasks that no open task lists as a child."""
-        tasks = data.get("tasks", [])
-        needed = {c for t in tasks if t.get("status") in OPEN_STATES for c in t.get("children", [])}
-        data["tasks"] = [t for t in tasks if t.get("status") != "closed" or t.get("id") in needed]
-
-    def close(self, task_id: str) -> None:
-        """Closes a task; it disappears unless an open task still depends on it."""
-        with self._lock:
-            data = self.load()
-            for t in data.get("tasks", []):
-                if t.get("id") == task_id:
-                    t["status"], t["updated"] = "closed", time.time()
-            self._purge(data)
-            _write_json(self.path, data)
 
 
 class ChangeJournal:
@@ -173,14 +87,14 @@ class ChangeJournal:
             for e in data["edits"]:
                 if e.get("review") in ("pending", "partial") and e.get("id") not in review:
                     e["review"] = "unavailable"                      # its text was dropped to bound the file's size
-            _write_json(self.review_path, review)
-            _write_json(self.path, data)
+            write_json(self.review_path, review)
+            write_json(self.path, data)
             return self._view(data, review)
 
     def clear(self) -> None:
         with self._lock:
-            _write_json(self.path, {"schema": "1.0", "edits": []})
-            _write_json(self.review_path, {})
+            write_json(self.path, {"schema": "1.0", "edits": []})
+            write_json(self.review_path, {})
 
     # -- review ----------------------------------------------------------------------------------
 
@@ -269,6 +183,6 @@ class ChangeJournal:
                 review.pop(edit_id, None)                            # nothing is left to decide: drop the stored text
             else:
                 review[edit_id] = entry
-            _write_json(self.review_path, review)
-            _write_json(self.path, data)
+            write_json(self.review_path, review)
+            write_json(self.path, data)
             return next(e for e in self._view(data, review)["edits"] if e["id"] == edit_id)

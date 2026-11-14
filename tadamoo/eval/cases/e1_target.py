@@ -61,9 +61,9 @@ def score(goal: Dict[str, Any], workspace: Path) -> Tuple[bool, float, List[str]
 
 
 class _Registry:
-    """Stands in for the server's task registry."""
+    """Stands in for the register of open work."""
 
-    def record(self, *args: Any, **kwargs: Any) -> None:
+    def report(self, *args: Any, **kwargs: Any) -> None:
         return None
 
 

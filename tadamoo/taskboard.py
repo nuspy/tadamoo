@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import sys
 import tempfile
@@ -27,6 +28,9 @@ FOLDER = ".tadamoo"
 FILE = "tasks.json"
 STATES = ("queued", "running", "waiting", "blocked")
 WHO = ("agent", "user")
+ID = re.compile(r"^[A-Za-z0-9._:-]{1,80}$")
+REPORTED = {"running": "running", "in_progress": "running", "pending": "queued", "queued": "queued", "waiting": "waiting", "blocked": "blocked", "failed": "blocked"}
+ENDS = frozenset({"done", "closed", "completed", "skipped"})
 MAX_TASKS = 300
 MAX_DEPTH = 10
 TITLE, TEXT, NOTE = 200, 4000, 2000
@@ -82,6 +86,7 @@ class TaskBoard:
                             "parent": str(t.get("parent") or ""), "order": int(t.get("order") or 0), "done": str(t.get("done") or ""), "missing": str(t.get("missing") or ""),
                             "links": {"session": str((t.get("links") or {}).get("session") or ""), "plan": str((t.get("links") or {}).get("plan") or ""),
                                       "files": [str(f) for f in ((t.get("links") or {}).get("files") or []) if isinstance(f, str)][:30]},
+                            "meta": t["meta"] if isinstance(t.get("meta"), dict) else {},
                             "by": t.get("by") if t.get("by") in WHO else "agent", "created": float(t.get("created") or 0), "updated": float(t.get("updated") or 0)})
         ids = {t["id"] for t in out}
         for t in out:
@@ -182,7 +187,7 @@ class TaskBoard:
 
     # -- changing ---------------------------------------------------------------------------------------------
 
-    def _new(self, tasks: List[Dict[str, Any]], spec: Dict[str, Any], parent: str, session: str, by: str, depth: int, now: float) -> Dict[str, Any]:
+    def _new(self, tasks: List[Dict[str, Any]], spec: Dict[str, Any], parent: str, session: str, by: str, depth: int, now: float, task_id: str = "") -> Dict[str, Any]:
         title = _clip(spec.get("title"), TITLE)
         if not title:
             raise TaskError("A task needs a title.")
@@ -193,10 +198,11 @@ class TaskBoard:
         state = spec.get("state") or "queued"
         if state not in STATES:
             raise TaskError(f"state must be one of {', '.join(STATES)}.")
-        task_id = "t-" + secrets.token_hex(3)
-        while any(t["id"] == task_id for t in tasks):
+        if not task_id:
             task_id = "t-" + secrets.token_hex(3)
-        task = {"id": task_id, "title": title, "description": _clip(spec.get("description"), TEXT), "state": state, "parent": parent, "order": 10 ** 6 + len(tasks),
+            while any(t["id"] == task_id for t in tasks):
+                task_id = "t-" + secrets.token_hex(3)
+        task = {"id": task_id, "meta": {}, "title": title, "description": _clip(spec.get("description"), TEXT), "state": state, "parent": parent, "order": 10 ** 6 + len(tasks),
                 "done": _clip(spec.get("done"), NOTE), "missing": _clip(spec.get("missing"), NOTE),
                 "links": {"session": session, "plan": "", "files": [str(f) for f in (spec.get("files") or []) if isinstance(f, str)][:30]}, "by": by, "created": now, "updated": now}
         tasks.append(task)
@@ -340,6 +346,56 @@ class TaskBoard:
                 t["state"] = "running"
             return dict(t)
         return self._change(work)
+
+    # -- what the programs report ----------------------------------------------------------------------------
+
+    def report(self, task_id: str, status: str, result: str = "", children: Optional[Sequence[str]] = None, metadata: Optional[Dict[str, Any]] = None,
+               session: str = "", by: str = "agent") -> Optional[Dict[str, Any]]:
+        """The progress of a piece of work that something else carries out (an agent run, a target and its tasks, a large request and its parts), under the id the reporter chose.
+        `running` and `pending` are states of the task; `blocked` and `failed` are blocked, with `result` as what is missing; `waiting` waits for the person; `done`, `closed` and
+        `skipped` end it: the task is deleted with its subtasks (nothing is kept, and ending one that is not there is no error). For the others `result` is what is done so far.
+        `metadata` gives the title (`title` or `goal`) and is kept under `meta`; `children` are the ids of its subtasks, which are put under it whenever they exist."""
+        if not isinstance(task_id, str) or not ID.match(task_id):
+            raise TaskError("A task id is 1-80 letters, digits, dot, dash, underscore or colon.")
+        if status in ENDS:
+            def end(tasks: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+                if any(x["id"] == task_id for x in tasks):
+                    self._remove(tasks, task_id)
+                return None
+            return self._change(end)
+        if status not in REPORTED:
+            raise TaskError(f"status must be one of {', '.join(sorted(set(REPORTED) | set(ENDS)))}.")
+        meta = {k: v for k, v in (metadata or {}).items() if k not in ("title", "goal") and isinstance(k, str) and len(json.dumps(v, default=str)) <= 1500}
+
+        def work(tasks: List[Dict[str, Any]]) -> Dict[str, Any]:
+            now, state = time.time(), REPORTED[status]
+            t = next((x for x in tasks if x["id"] == task_id), None)
+            title = _clip((metadata or {}).get("title") or (metadata or {}).get("goal") or (t or {}).get("title") or result or task_id, TITLE)
+            if t is None:
+                t = self._new(tasks, {"title": title}, "", session, by, 0, now, task_id)
+            t["title"], t["state"], t["updated"], t["by"] = title, state, now, by if by in WHO else "agent"
+            if status == "failed" or state == "blocked":
+                t["missing"] = _clip(result, NOTE) or t["missing"]
+            elif result:
+                t["done"] = _clip(result, NOTE)
+            t["meta"] = {**t.get("meta", {}), **meta}
+            if children is not None:
+                t["meta"]["children"] = [str(c) for c in children][:MAX_TASKS]
+            if session and not t["links"]["session"]:
+                t["links"]["session"] = session
+            self._relink(tasks)
+            return dict(t)
+        return self._change(work)
+
+    @staticmethod
+    def _relink(tasks: List[Dict[str, Any]]) -> None:
+        """A task that names its subtasks (`meta.children`) is their parent as soon as they exist, whichever was reported first."""
+        by_id = {t["id"]: t for t in tasks}
+        for t in tasks:
+            for c in t.get("meta", {}).get("children", []):
+                kid = by_id.get(c)
+                if kid is not None and kid is not t and kid["parent"] != t["id"] and t["parent"] != kid["id"]:
+                    kid["parent"] = t["id"]
 
     # -- what the agent is shown -----------------------------------------------------------------------------
 

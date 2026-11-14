@@ -13,11 +13,12 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Callable, Any, Dict, List, Optional
 
 from serve import ROOT
 from serve.approvals import ApprovalBoard
-from serve.tasks import OPEN_STATES, TaskJournal, _write_json
+from serve.util.files import write_json
+from tadamoo.taskboard import TaskBoard
 from serve.util import peer
 from serve.util.winjob import contain
 
@@ -56,12 +57,12 @@ def _kill_tree(proc: "subprocess.Popen[bytes]") -> None:
 
 
 class AgentRunner:
-    def __init__(self, directory: str | Path, endpoint: str, api_key: str = "", tasks: Optional[TaskJournal] = None,
+    def __init__(self, directory: str | Path, endpoint: str, api_key: str = "", boards: Optional[Callable[[Any], TaskBoard]] = None,
                  board: Optional[ApprovalBoard] = None, python: Optional[str] = None, root: Path = ROOT) -> None:
         self.directory = Path(directory)
         self.endpoint = endpoint
         self.api_key = api_key
-        self.tasks = tasks
+        self.boards = boards                                    # the register of the folder a run works in
         self.board = board
         self.python = python or sys.executable
         self.root = Path(root)
@@ -85,7 +86,7 @@ class AgentRunner:
         return runs[-KEEP_RUNS:]
 
     def _save(self) -> None:
-        _write_json(self.directory / RUNS_FILE, {"schema": "1.0", "runs": self.runs[-KEEP_RUNS:]})
+        write_json(self.directory / RUNS_FILE, {"schema": "1.0", "runs": self.runs[-KEEP_RUNS:]})
 
     def _log_path(self, run_id: str) -> Path:
         return self.directory / "runs" / f"{run_id}.log"
@@ -251,7 +252,7 @@ class AgentRunner:
             self._procs.pop(run_id, None)
             if run is None:
                 return
-            stopped = bool(run.pop("stop_requested", False))
+            stopped, workspace = bool(run.pop("stop_requested", False)), run["workspace"]
             run["ended"], run["exit_code"] = time.time(), code
             run["stop_reason"] = str(result.get("stop_reason") or "")
             run["summary"] = str(result.get("final_output") or result.get("error") or "")[:SHOWN_CHARS]
@@ -265,17 +266,16 @@ class AgentRunner:
             self._save()
         if self.board:
             self.board.refuse_all(run_id)
-        self._close_task(run_id, stopped)
+        self._close_task(run_id, stopped, workspace)
 
-    def _close_task(self, run_id: str, stopped: bool) -> None:
-        """The agent reports its own end; when it could not (it was killed or crashed) the task is closed here."""
-        if self.tasks is None:
+    def _close_task(self, run_id: str, stopped: bool, workspace: str) -> None:
+        """The agent reports its own end (a finished run's task is deleted, a failed one stays blocked, with the reason); when it could not (it was killed or crashed) it is ended here:
+        a stopped run's task is deleted, any other is blocked."""
+        if self.boards is None:
             return
-        task_id = f"agent-{run_id}"
-        task = next((t for t in self.tasks.load().get("tasks", []) if t.get("id") == task_id), None)
-        if task is not None and task.get("status") in OPEN_STATES:
-            self.tasks.record(task_id, "closed" if stopped else "failed",
-                              "Stopped from the page." if stopped else "The agent ended without saying how.")
+        board, task_id = self.boards(workspace), f"agent-{run_id}"
+        if any(t["id"] == task_id for t in board.view()):
+            board.report(task_id, "closed" if stopped else "failed", "" if stopped else "The agent ended without saying how.")
 
 
 def _last_line(text: str) -> str:

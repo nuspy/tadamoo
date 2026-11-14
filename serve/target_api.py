@@ -3,7 +3,7 @@
 A target belongs to a conversation and is kept with it (`targets.json` in the conversation's own folder), so the dialog can list every earlier
 one. The loop itself is tadamoo/target.py; this connects it to a conversation of the Chat or the Agentic coding tab (the tasks are sent to it as ordinary
 messages, so queue, steering, questions, the Stop button and the permission gate are the conversation's own), to the model for the structured
-calls, and to the task registry of serve/tasks.py.
+calls, and to the register of open work (tadamoo/taskboard.py) of the folder the conversation works in.
 """
 from __future__ import annotations
 
@@ -17,7 +17,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from tadamoo import target as tg
 from tadamoo.client import TadamooClient
 from serve.agent_runs import RunError
-from serve.tasks import TaskJournal, _write_json
+from serve.util.files import write_json
+from tadamoo.taskboard import TaskBoard
 
 TARGETS_FILE = "targets.json"
 POLL_S = 0.4
@@ -114,10 +115,10 @@ class SessionConversation:
 
 
 class TargetManager:
-    def __init__(self, sessions: Any, tasks: TaskJournal, changes: Optional[Callable[[], List[Dict[str, Any]]]] = None,
+    def __init__(self, sessions: Any, boards: Callable[[Any], TaskBoard], changes: Optional[Callable[[], List[Dict[str, Any]]]] = None,
                  llm_factory: Optional[Callable[[], tg.StructuredLLM]] = None, conversation: Optional[Callable[[str], Any]] = None,
                  waits: Tuple[float, ...] = tg.MODEL_WAITS) -> None:
-        self.sessions, self.tasks, self.changes, self.waits = sessions, tasks, changes, waits
+        self.sessions, self.boards, self.changes, self.waits = sessions, boards, changes, waits
         self.llm_factory = llm_factory or (lambda: tg.StructuredLLM(TadamooClient(base_url=sessions.endpoint, api_key=sessions.api_key or None)))
         self.conversation = conversation or (lambda sid: SessionConversation(sessions, sid, changes))
         self._lock = threading.RLock()
@@ -148,7 +149,7 @@ class TargetManager:
             items = self._items(sid)[-tg.KEEP_TARGETS:]
             self._targets[sid] = items
             self.sessions.history_dir(sid).mkdir(parents=True, exist_ok=True)
-            _write_json(self._path(sid), {"schema": "1.0", "targets": items})
+            write_json(self._path(sid), {"schema": "1.0", "targets": items})
 
     def _find(self, sid: str, tid: str) -> Dict[str, Any]:
         self.sessions.get(sid)                                    # raises RunError (gone) for a conversation that is not there
@@ -193,7 +194,7 @@ class TargetManager:
     def _start(self, target: Dict[str, Any]) -> None:
         sid, cancel = target["session"], threading.Event()
         conv = self.conversation(sid)
-        loop = tg.TargetLoop(target, conv, self.llm_factory(), self.tasks, lambda t: self._save(t["session"]), cancel, self._lock, self.waits)
+        loop = tg.TargetLoop(target, conv, self.llm_factory(), self.boards(self.sessions.get(sid).get("workspace")), lambda t: self._save(t["session"]), cancel, self._lock, self.waits)
 
         def body() -> None:
             try:

@@ -34,7 +34,7 @@ class RegisterApi:
             key = os.path.normcase(str(p["path"]))
             if key not in seen and Path(p["path"]).is_dir():
                 seen.add(key)
-                out.append({"path": str(p["path"]), "name": p.get("name") or Path(p["path"]).name})
+                out.append({"path": str(p["path"]), "name": p.get("name") or Path(p["path"]).name, **({"optional": True} if p.get("optional") else {})})
         return out
 
     def _board(self, project: Any) -> TaskBoard:
@@ -50,7 +50,8 @@ class RegisterApi:
         chosen = known if project in ("", "all") else [p for p in known if os.path.normcase(p["path"]) == os.path.normcase(project)]
         if project not in ("", "all") and not chosen:
             raise TaskError("That is not one of the folders of the Agentic coding tab.")
-        rows = [{**p, "tasks": TaskBoard(p["path"], self.plans_dir).view(state=state)} for p in chosen]
+        rows = [{**{k: v for k, v in p.items() if k != "optional"}, "tasks": TaskBoard(p["path"], self.plans_dir).view(state=state)} for p in chosen]
+        rows = [r for r, p in zip(rows, chosen) if r["tasks"] or not p.get("optional")]                     # the data folder's register is shown only when it holds something
         every = [t for r in rows for t in r["tasks"]]
         return {"projects": rows, "states": list(STATES), "counts": {s: sum(1 for t in every if t["state"] == s) for s in STATES}, "waiting": sum(1 for t in every if t["state"] == "waiting")}
 
