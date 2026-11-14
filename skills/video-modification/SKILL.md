@@ -47,3 +47,8 @@ Components: **LTX Studio** (a separate program, installed by hand); **ffmpeg** o
 `--ids ltx23-dev-fp8,ltx23-distilled-lora-384,ltx23-spatial-upscaler,ltx23-gemma-te,sam2-hiera-large,grounding-dino-base`); **the other LoRAs** (the photograph one and the look one by the downloader, `--ids ltx23-inpaint-r2v,ltx-iclora-restyle`). The two community LoRAs
 that have no entry in LTX Studio, `ltx23_inpaint_masked_t2v_rank128_v1_10000steps.safetensors` (replace from words) and `ltx23_edit_anything_global_rank128_v1_9000steps_adamw.safetensors` (edit), are put by hand in the `LTX-2` folder of LTX Studio's LoRA folder; the check names them.
 `edit_model` in the media settings names another LTX 2.3 checkpoint; a fine-tune is never taken by itself.
+
+## Speed
+
+LTX 2.3 runs in LTX Studio's `ltx2_venv` (torch 2.8.0+cu128, triton-windows 3.4.0, sageattention 2.2.0 installed but off: plain attention is the faster on Blackwell) with the fp8 checkpoint. The nvfp4 checkpoint of the same model (20 GB, smaller in VRAM) is the one to try for speed:
+`python -m tadamoo.media.components install video-modification-nvfp4`, then `edit_model` is `ltx-2.3-22b-dev-nvfp4.safetensors`; it is not measured with these LoRAs. Do not install anything of this skill on a PC that has no room (60 GB). `docs/media/speed.md`, queue entry 91.

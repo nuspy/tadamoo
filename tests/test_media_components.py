@@ -107,3 +107,19 @@ def test_the_faster_weights_are_extras_asked_for_by_name_and_say_what_to_set_aft
     assert [t["component"] for t in todo] == ["talking-head-fp8"] and todo[0]["step"][-1] == "lcav15-fp8"
     assert components.steps("video-modification-nvfp4", other)[-1]["step"][-1] == "ltx23-dev-nvfp4"
     assert "avatar_precision" in components.COMPONENTS["talking-head-fp8"]["how"][0] and "edit_model" in components.COMPONENTS["modify-nvfp4"]["how"][0]
+
+
+def test_the_accelerators_of_the_talking_head_are_installed_by_ltx_studios_own_installer_and_only_when_missing(settings, monkeypatch):
+    seen = {}
+
+    def fake(settings_, items, command=None):
+        seen["items"] = list(items)
+        return {"present": {"avatar:flash_attn": False, "avatar:triton": True}, "venvs": {"avatar": "C:/venv/python.exe"}}
+    monkeypatch.setattr(client, "modules", fake)
+    rows = by_id(components.check("talking-head", settings))
+    assert seen["items"] == ["avatar:flash_attn", "avatar:triton"] and not rows["talking-head-accel"]["present"] and rows["talking-head-accel"]["missing"] == ["avatar:flash_attn"]
+    todo = components.steps("talking-head", settings, list(rows.values()))
+    step = [t for t in todo if t["component"] == "talking-head-accel"][0]["step"]
+    assert step[1].endswith("/scripts/install_accelerators.py") and step[2:] == ["--venv", "C:/venv/python.exe", "--only", "flash_attn"]
+    monkeypatch.setattr(client, "modules", lambda s, i, command=None: {"present": {x: True for x in i}, "venvs": {"avatar": "C:/venv/python.exe"}})
+    assert not [t for t in components.steps("talking-head", settings) if t["component"] == "talking-head-accel"]

@@ -49,3 +49,9 @@ Check first, install only what is missing, only when the person asks:
 
 Components: **LTX Studio** (a separate program, installed by hand) and the **LongCat Avatar environment** (its own Python environment, built by LTX Studio's `scripts/install_longcat_avatar.py`). Its int8 weights then come
 from the Weights tab of LTX Studio, which verifies them; the check names what is still lacking.
+
+## Speed
+
+The job runs in LTX Studio's LongCat environment (torch 2.9.1+cu130, FlashAttention 2.8.3, triton-windows), as LTX Studio installs it. `python -m tadamoo.media.components check talking-head` also checks that `flash_attn` and `triton` import there and, only if one is missing, runs LTX Studio's own
+accelerator installer for it (`scripts/install_accelerators.py`, which takes its precompiled wheel). The weights are int8 by default; the fp8 ones multiply on the GPU's own fp8 units instead of converting every layer to bf16: `python -m tadamoo.media.components install talking-head-fp8` (16 GB, only when
+asked), then `avatar_precision` is `fp8` in the media settings. Numbers before and after: `docs/media/speed.md`, queue entry 91. A job that takes longer than the limit of its kind (`docs/media/runner.md`) is ended with an error of the step.

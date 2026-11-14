@@ -79,6 +79,20 @@ def present(settings: Dict[str, Any], ids: Sequence[str], command: Optional[Sequ
     return {k: bool(v) for k, v in got.items()} if isinstance(got, dict) else {}
 
 
+def modules(settings: Dict[str, Any], items: Sequence[str], command: Optional[Sequence[str]] = None) -> Dict[str, Any]:
+    """Which Python packages import in the environments of the kinds (`kind:module` items): `{present: {item: bool}, venvs: {kind: python}}`; empty when the worker cannot say."""
+    folder = ltx_dir_of(settings["ltx_dir"])
+    if not folder:
+        return {"present": {}, "venvs": {}}
+    argv = list(command) if command else [sys.executable, "-X", "utf8", str(WORKER), "--ltx-dir", folder, "--modules", ",".join(items)]
+    try:
+        done = subprocess.run(argv, capture_output=True, timeout=180, creationflags=_flags(), env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+        got = json.loads(done.stdout.decode("utf-8", "replace").strip().splitlines()[-1])
+    except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
+        return {"present": {}, "venvs": {}}
+    return got if isinstance(got, dict) else {"present": {}, "venvs": {}}
+
+
 def forget_checks() -> None:
     _checked.clear()
 

@@ -59,3 +59,4 @@ own runners (`scripts/rife_run.py`, `workers/flashvsrplus_run.py`) in the enviro
 - RIFE writes its intermediate file with OpenCV's `mp4v` encoder and then re-encodes with ffmpeg (x264, default quality): one more lossy generation than necessary. The newscast encodes again at the end.
 - LTX Studio's own services add a signature and a visible watermark to what they deliver; the media worker, like for the clips, runs the runners directly and adds neither.
 - The newscast's old 24 fps setting dropped a frame a second from 25 fps sources; it is now 25. Either the edit works at 25 fps (or 50 with `factor` 2), or the clips are asked at 24 fps; that setting belongs to the edit, not to this page. The newscast now works at 25 fps (its `fps` setting), so this no longer happens there; a sigla at another rate is converted once.
+- Speed: RIFE runs in the inference environment (triton-windows, sageattention, xformers), FlashVSR+ on PyTorch's attention; see [speed.md](speed.md).

@@ -222,6 +222,22 @@ def present(folder: str, ids: list) -> dict:
     return {i: (os.path.isfile(os.path.join(root, i[5:].replace("/", os.sep))) if i.startswith("file:") else bool(model_paths.exists(i))) for i in ids}
 
 
+def modules(folder: str, items: list) -> dict:
+    """Whether Python packages import in the environment of a kind: `items` are `kind:module` (avatar:flash_attn); the answer is `{"present": {item: bool}, "venvs": {kind: python}}`.
+    The environments are the ones LTX Studio names for the kinds; nothing is imported into this process."""
+    venvs, present = {}, {}
+    for item in items:
+        kind, _, module = item.partition(":")
+        try:
+            if kind not in venvs:
+                venvs[kind] = PLANS[kind](folder, {"mib": 0, "output": "check", "request": {"prompt": "x", "width": 64, "height": 64, "frames": 9, "fps": 8, "seed": 0}})["python"]
+            done = subprocess.run([venvs[kind], "-I", "-c", f"import importlib.util as u,sys; sys.exit(0 if u.find_spec({module!r}) else 1)"], capture_output=True, timeout=60)
+            present[item] = done.returncode == 0
+        except Exception:
+            present[item] = False
+    return {"present": present, "venvs": venvs}
+
+
 class Run:
     """The model process of one job: its output read line by line (a progress bar ends its lines with a carriage return), its end told."""
 
@@ -261,6 +277,9 @@ def main() -> int:
         edit_model = sys.argv[sys.argv.index("--edit-model") + 1] if "--edit-model" in sys.argv else ""
         precision = sys.argv[sys.argv.index("--avatar-precision") + 1] if "--avatar-precision" in sys.argv else "int8"
         emit(check(folder, model, edit_model, precision))
+        return 0
+    if "--modules" in sys.argv:
+        emit(modules(sys.argv[sys.argv.index("--ltx-dir") + 1], sys.argv[sys.argv.index("--modules") + 1].split(",")))
         return 0
     if "--present" in sys.argv:
         folder = sys.argv[sys.argv.index("--ltx-dir") + 1]
