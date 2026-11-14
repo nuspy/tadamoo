@@ -12,14 +12,21 @@ class AppsApiError(Exception):
 
 
 class AppsApi:
-    def __init__(self, sandbox: SandboxOrigin, choices: Any) -> None:
-        """`choices()` gives the person's choices about apps (the capabilities' settings)."""
-        self.sandbox, self.choices = sandbox, choices
+    def __init__(self, choices: Any) -> None:
+        """`choices()` gives the person's choices about apps (the capabilities' settings). The sandbox is listened for on the address the page's own request came to: a phone that
+        reaches the server at its Tailscale address needs the sandbox there, not only on the PC's loopback."""
+        self.choices = choices
+        self.boxes: Dict[str, SandboxOrigin] = {}
 
-    def config(self) -> Dict[str, Any]:
-        """The sandbox's port (started now; 0 when it could not be), the choices, the protocol revision. The page builds the sandbox's origin from its own address."""
-        return {"sandbox_port": self.sandbox.ensure(), "protocol": mcp_apps.PROTOCOL_VERSION, "settings": self.choices(), "defaults": mcp_apps.DEFAULTS,
+    def config(self, bind: str) -> Dict[str, Any]:
+        """The sandbox's port on `bind` (started now; 0 when it could not be), the choices, the protocol revision. The page builds the sandbox's origin from the address it reached the server at."""
+        box = self.boxes.setdefault(bind, SandboxOrigin(bind))
+        return {"sandbox_port": box.ensure(), "protocol": mcp_apps.PROTOCOL_VERSION, "settings": self.choices(), "defaults": mcp_apps.DEFAULTS,
                 "known": mcp_apps.default_cache().known()}
+
+    def close(self) -> None:
+        for box in self.boxes.values():
+            box.close()
 
     def template(self, digest: str) -> Dict[str, Any]:
         page = mcp_apps.default_cache().get(digest)

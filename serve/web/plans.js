@@ -119,12 +119,16 @@
     ui.col = el("aside", { class: "convs plcol", id: "pl-col", "aria-label": T("pl.col.title") },
       el("div", { class: "cv-head" }, el("b", { text: T("pl.col.title") }), ui.toggle),
       el("div", { class: "cv-body", id: "pl-col-body" }, ui.newForm, ui.importBtn, ui.plist, ui.empty));
-    setColumn(recall(COL_KEY, "1") !== "0");
+    setColumn(recall(COL_KEY, narrow() ? "0" : "1") !== "0");
 
     ui.modeGraph = el("button", { type: "button", class: "btn pl-btn", "aria-pressed": "false", title: T("pl.tip.graph"), text: T("pl.view.graph"), onclick: () => setMode("graph") });
     ui.modeList = el("button", { type: "button", class: "btn pl-btn", "aria-pressed": "false", title: T("pl.tip.list"), text: T("pl.view.list"), onclick: () => setMode("list") });
     ui.summary = el("p", { class: "pl-summary" });
     ui.graph = el("div", { class: "pl-graph", role: "group", "aria-label": T("pl.graph.label") });
+    ui.zoom = PlanZoom.attach(ui.graph, { svg: () => S.svg, size: () => S.lastLayout, busy: () => !!S.drag });        // zoom and pan of the diagram (planzoom.js)
+    ui.selbar = el("span", { class: "pl-selbar", hidden: true });                                                     // Delete for the selected step and Undo, big enough for a finger
+    ui.zoom.bar.prepend(ui.selbar);
+    ui.graph.addEventListener("keydown", e => { if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z") && S.undo) { e.preventDefault(); undoRemove(); } });
     ui.list = el("ol", { class: "pl-list", "aria-label": T("pl.list.label") });
     ui.detail = el("section", { class: "sec pl-detail", "aria-labelledby": "pl-detail-h" });
     ui.proposals = el("section", { class: "sec pl-props", "aria-labelledby": "pl-props-h" });
@@ -168,6 +172,7 @@
       el("label", { for: "pl-effort-all", class: "plinf-l" }, el("span", { text: T("pl.effort.all.label") }), ui.effortAll), ui.infBtn, ui.skillBtn);
     ui.instr = el("section", { class: "sec pl-instr", "aria-labelledby": "pl-instr-h", hidden: true },
       el("div", { class: "sh", title: T("sc.help.plan") }, el("b", { id: "pl-instr-h", text: T("sc.title.plan") })), el("div", { id: "pl-instr-root" }));
+    ui.split = buildSplitter();
     ui.main = el("section", { class: "sec plmain", "aria-labelledby": "pl-h" },
       el("div", { class: "sh" }, ui.title, connEl),
       ui.pick, ui.tabs, statusEl,
@@ -176,10 +181,16 @@
       panel("events", ui.triage),
       panel("define", ui.defineBar, ui.infHost, ui.summary,
         el("div", { class: "pl-main" },
-          el("div", { class: "pl-canvas" }, el("div", { class: "pl-stage" }, ui.graph, ui.list, ui.autoBtn, ui.autoBox), ui.detail),
-          el("div", { class: "pl-side" }, ui.proposals, ui.offers, ui.chatlog, ui.history)),
-        el("div", { class: "pl-dock" }, ui.palette, ui.instr)));
+          el("div", { class: "pl-canvas" }, el("div", { class: "pl-stage" }, ui.graph, ui.zoom.bar, ui.list, ui.autoBtn, ui.autoBox), ui.detail),
+          ui.split,
+          el("div", { class: "pl-lower" },
+            el("div", { class: "pl-side" }, ui.proposals, ui.offers, ui.chatlog, ui.history),
+            el("div", { class: "pl-dock" }, ui.palette, ui.instr)))));
     root.replaceChildren(ui.col, ui.main);
+    paneHeight(null);
+    placeInspector();
+    window.matchMedia("(max-width: 800px)").addEventListener("change", placeInspector);
+    watchTextareas(ui.main);
     ui.runlog = RunLog.mount(ui.logHost, { id: "pl-log", emptyKey: "rl.empty.plan", labelKey: "rl.title.plan", placeholderKey: "rl.ph.plan", noReplyKey: "rl.noreply.plan", send: null, after: refreshSoon });
     SessChat.mount(document.getElementById("pl-instr-root"), {
       id: "pl-instr", kind: "plan", emptyKey: "sc.empty.plan", placeholderKey: "sc.ph.plan", labelKey: "sc.title.plan",
@@ -190,6 +201,60 @@
     buildArchived();
     setMode(narrow() ? "list" : "graph", true);
     setTab(S.tab, true);
+  }
+
+  /* ---- the fixed pane: the diagram and the inspector beside it are one third of the window high until the person drags the divider; the rest of the page is the lower part, which scrolls ---- */
+  const PANE_KEY = "tadamoo.plans.pane", PANE_MIN = 0.15, PANE_MAX = 0.75, PANE_STEP = 0.02;
+  let paneF = 1 / 3;
+  function paneHeight(f, save) {
+    if (f === null) { const v = Number(recall(PANE_KEY, "")); f = v >= PANE_MIN && v <= PANE_MAX ? v : 1 / 3; }
+    paneF = Math.min(PANE_MAX, Math.max(PANE_MIN, f));
+    ui.main.style.setProperty("--pl-f", String(paneF));
+    const pct = Math.round(paneF * 100);
+    ui.split.setAttribute("aria-valuenow", String(pct)); ui.split.setAttribute("aria-valuetext", T("pl.split.value", pct));
+    if (save) keep(PANE_KEY, String(paneF));
+  }
+  function buildSplitter() {
+    const s = el("div", { class: "pl-split", role: "separator", "aria-orientation": "horizontal", tabindex: "0", "aria-label": T("pl.split.label"), title: T("pl.split.tip"),
+      "aria-valuemin": String(Math.round(PANE_MIN * 100)), "aria-valuemax": String(Math.round(PANE_MAX * 100)) }, el("span", { class: "pl-grip" }));
+    let drag = null;
+    s.addEventListener("pointerdown", e => {
+      if (e.button !== undefined && e.button !== 0) return;
+      const box = ui.main.querySelector(".pl-canvas").getBoundingClientRect();
+      drag = { id: e.pointerId, top: box.top, off: e.clientY - box.bottom };          // the pointer keeps the place it took on the divider
+      try { s.setPointerCapture(e.pointerId); } catch (err) { /* the pointer is gone */ }
+      s.classList.add("dragging"); e.preventDefault();
+    });
+    s.addEventListener("pointermove", e => { if (drag && e.pointerId === drag.id) paneHeight((e.clientY - drag.off - drag.top) / window.innerHeight, false); });
+    const end = e => { if (!drag || (e && e.pointerId !== drag.id)) return; drag = null; s.classList.remove("dragging"); paneHeight(paneF, true); };
+    s.addEventListener("pointerup", end); s.addEventListener("pointercancel", end);
+    s.addEventListener("keydown", e => {
+      const big = e.shiftKey ? 5 : 1;
+      const to = { ArrowUp: paneF - PANE_STEP * big, ArrowDown: paneF + PANE_STEP * big, Home: PANE_MIN, End: PANE_MAX, Enter: 1 / 3 }[e.key];
+      if (to === undefined) return;
+      e.preventDefault();
+      paneHeight(to, true);
+    });
+    return s;
+  }
+  /* on a narrow screen the inspector has no room beside the diagram: it opens at the top of the lower part */
+  function placeInspector() {
+    const lower = ui.main.querySelector(".pl-lower"), canvas = ui.main.querySelector(".pl-canvas");
+    if (!lower || !canvas) return;
+    if (window.matchMedia("(max-width: 800px)").matches) lower.prepend(ui.detail); else canvas.append(ui.detail);
+  }
+  /* an empty note field is one line and grows as it is typed in; a field that holds text shows it */
+  function grow(t) {
+    if (t.readOnly || t.dataset.grown) return;
+    t.dataset.grown = "1"; t.rows = 1;
+    const fit = () => { t.style.height = "auto"; t.style.height = t.scrollHeight + "px"; };
+    t.addEventListener("input", fit); t.addEventListener("focus", fit);
+    fit();
+  }
+  function watchTextareas(root) {
+    const all = () => root.querySelectorAll("textarea:not([data-grown])").forEach(grow);
+    all();
+    new MutationObserver(all).observe(root, { childList: true, subtree: true });
   }
 
   /* the column of plans at the left: open, duplicate and delete each, shut with the arrow like the Chat's */
@@ -254,6 +319,7 @@
     ui.modeGraph.setAttribute("aria-pressed", String(mode === "graph"));
     ui.modeList.setAttribute("aria-pressed", String(mode === "list"));
     ui.graph.hidden = mode !== "graph";
+    ui.zoom.bar.hidden = mode !== "graph";
     ui.list.hidden = mode !== "list";
     if (!quiet && S.snap) render();
   }
@@ -413,7 +479,9 @@
       width = Math.max(width, p.x + W + PAD);
       height = Math.max(height, p.y + hOf(all[id] || ghosts.find(g => g.id === id)) + PAD);
     });
-    return { pos, ghosts, width, height };
+    let x0 = 0, y0 = 0;                                                  // a step placed left of or above the origin (a start at x = -230) is inside the drawing, not outside its edge
+    Object.values(pos).forEach(p => { x0 = Math.min(x0, p.x - PAD); y0 = Math.min(y0, p.y - PAD); });
+    return { pos, ghosts, width: width - x0, height: height - y0, x0, y0 };
   }
 
   /* where a step is drawn when it has a place of its own: being dragged, moved and not yet saved, or saved in the step */
@@ -445,7 +513,7 @@
     const lay = layoutOf(S.snap);
     S.lastLayout = lay;
     const nodes = S.snap.plan.nodes;
-    const root_ = svg("svg", { class: "pl-svg", viewBox: `0 0 ${lay.width} ${lay.height}`, width: String(lay.width), height: String(lay.height), role: "img", "aria-label": T("pl.graph.label") },
+    const root_ = svg("svg", { class: "pl-svg", viewBox: `${lay.x0} ${lay.y0} ${lay.width} ${lay.height}`, width: String(lay.width), height: String(lay.height), role: "img", "aria-label": T("pl.graph.label") },
       svg("defs", {}, svg("marker", { id: "pl-arrow", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" },
         svg("path", { d: "M0,0 L10,5 L0,10 z", class: "pl-arrowhead" })),
       svg("marker", { id: "pl-dot", viewBox: "0 0 10 10", refX: "5", refY: "5", markerWidth: "6", markerHeight: "6" }, svg("circle", { cx: "5", cy: "5", r: "4", class: "pl-arrowhead feed" }))));
@@ -520,7 +588,8 @@
       g.append(label, sub, PlanKinds.iconGroup(n.type, p.x + 6, p.y + 3, 0.45));
       g.addEventListener("click", () => { if (S.justDragged) { S.justDragged = false; return; } select(n.id); });
       g.addEventListener("keydown", e => {
-        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); S.refocus = n.id; select(n.id); }
+        if (!ghost && (e.key === "Delete" || e.key === "Backspace")) { e.preventDefault(); removeNode(n.id); }
+        else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); S.refocus = n.id; select(n.id); }
         else if (!ghost && S.selected === n.id && ARROWS[e.key]) {
           e.preventDefault();
           const [dx, dy] = ARROWS[e.key], step = e.shiftKey ? STEP * 4 : STEP;
@@ -572,8 +641,12 @@
     };
     Object.values(nodes).forEach(n => drawNode(n, false));
     lay.ghosts.forEach(n => drawNode({ ...n, status: "pending", description: n.description || "" }, true));
+    ui.zoom.size(root_);                                               // drawn at the zoom the person chose
     ui.graph.replaceChildren(root_);
     S.svg = root_;
+    const planId = S.snap.plan.plan_id;
+    if (S.fitFor !== planId && ui.graph.clientWidth > 40 && !S.drag) { S.fitFor = planId; ui.zoom.fit(0.5); }     // a plan opens with all its steps in view
+    paintSelbar();
     if (S.refocus) {
       const g = root_.querySelector(`[data-id="${S.refocus}"]`);
       if (g) g.focus();
@@ -666,7 +739,7 @@
   /* ---- moving a step: with the pointer, with the arrow keys of a selected step, or with the buttons of its panel ---- */
   const STEP = 16, LIMIT = 4000;
   const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
-  const clamp = v => Math.max(0, Math.min(LIMIT, Math.round(v)));
+  const clamp = v => Math.max(-LIMIT, Math.min(LIMIT, Math.round(v)));
   let saveTimers = {};
 
   function shownAt(id) {
@@ -969,6 +1042,42 @@
         onclick: () => { if (pick.value) { const [src, port] = pick.value.split("|"); addLink(src, n.id, port); } } })));
   }
 
+  /* a step taken off the plan by the Delete key or the button under the diagram is kept for Undo (the step as it was and the links it had) */
+  function edgesOf(id) {
+    const nodes = S.snap.plan.nodes, n = nodes[id], ported = new Set(), edges = [];
+    Object.values(nodes).forEach(o => Object.entries(o.routes || {}).forEach(([port, kids]) => { if ((o.id === id || kids.includes(id)) && port) kids.forEach(k => { if (o.id === id || k === id) { ported.add(o.id + ">" + k); edges.push([o.id, k, port]); } }); }));
+    (n.dependencies || []).forEach(d => { if (!ported.has(d + ">" + id)) edges.push([d, id]); });
+    Object.values(nodes).forEach(o => { if (o.id !== id && (o.dependencies || []).includes(id) && !ported.has(id + ">" + o.id)) edges.push([id, o.id]); });
+    return edges;
+  }
+  async function removeNode(id) {
+    const n = S.snap && S.snap.plan.nodes[id];
+    if (!n) return;
+    const kept = { node: JSON.parse(JSON.stringify(n)), edges: edgesOf(id), title: n.title };
+    delete kept.node.status;
+    if (S.selected === id) S.selected = "";
+    if (await userDiff({ remove_nodes: [id] }, T("pl.remove"))) {
+      S.undo = kept;
+      clearTimeout(S.undoTimer); S.undoTimer = setTimeout(() => { S.undo = null; paintSelbar(); }, 20000);
+      say(T("pl.removed.undo", kept.title));
+      paintSelbar();
+    }
+  }
+  async function undoRemove() {
+    const k = S.undo;
+    if (!k) return;
+    S.undo = null; clearTimeout(S.undoTimer); paintSelbar();
+    if (await userDiff({ add_nodes: [k.node], add_edges: k.edges }, T("pl.undo"))) { S.selected = k.node.id; say(T("pl.undone", k.title)); render(); }
+  }
+  function paintSelbar() {
+    if (!ui.selbar) return;
+    const n = S.selected && S.snap && S.snap.plan.nodes[S.selected];
+    const kids = [];
+    if (n) kids.push(el("button", { type: "button", class: "pl-zb pl-zdel", title: T("pl.delstep.tip"), "aria-label": `${T("pl.delstep")}: ${n.title}`, text: T("pl.delstep"), onclick: () => removeNode(n.id) }));
+    if (S.undo) kids.push(el("button", { type: "button", class: "pl-zb pl-zundo", title: T("pl.undo.tip", S.undo.title), "aria-label": `${T("pl.undo")}: ${S.undo.title}`, text: T("pl.undo"), onclick: undoRemove }));
+    ui.selbar.replaceChildren(...kids);
+    ui.selbar.hidden = !kids.length;
+  }
   function removeButton(n) {
     const b = el("button", { type: "button", class: "btn pl-btn pl-danger", title: T("pl.tip.remove"), text: T("pl.remove") });
     let armed = false, t = 0;
@@ -1076,7 +1185,8 @@
   function drawProposals() {
     ui.proposals.replaceChildren(el("div", { class: "sh" }, el("b", { id: "pl-props-h", text: T("pl.props") })));
     const list = S.snap.proposals;
-    if (!list.length) { ui.proposals.append(el("p", { class: "pad dim", text: T("pl.props.none") })); return; }
+    ui.proposals.classList.toggle("pl-nothing", !list.length);
+    if (!list.length) { ui.proposals.querySelector(".sh").append(el("span", { class: "pl-none", text: T("pl.props.none") })); return; }
     ui.proposals.append(el("ul", { class: "pad pl-plist" }, list.map(p => {
       const ch = p.changes;
       const chips = [["added", ch.added], ["updated", ch.updated], ["removed", ch.removed]].filter(c => c[1].length)
@@ -1098,7 +1208,8 @@
   function drawOffers() {
     ui.offers.replaceChildren(el("div", { class: "sh" }, el("b", { id: "pl-offers-h", text: T("pl.offers") })));
     const list = S.snap.offers;
-    if (!list.length) { ui.offers.append(el("p", { class: "pad dim", text: T("pl.offers.none") })); return; }
+    ui.offers.classList.toggle("pl-nothing", !list.length);
+    if (!list.length) { ui.offers.querySelector(".sh").append(el("span", { class: "pl-none", text: T("pl.offers.none") })); return; }
     ui.offers.append(el("ul", { class: "pad pl-plist" }, list.map(o => {
       const node = S.snap.plan.nodes[o.node_id];
       return el("li", { class: "pl-prop" },
@@ -1397,13 +1508,14 @@
   function drawHistory() {
     ui.history.replaceChildren(el("div", { class: "sh" }, el("b", { id: "pl-hist-h", text: T("pl.hist") })));
     const items = (S.snap.history || []).slice().reverse();
-    if (!items.length) { ui.history.append(el("p", { class: "pad dim", text: T("pl.hist.none") })); return; }
+    ui.history.classList.toggle("pl-nothing", !items.length);
+    if (!items.length) { ui.history.querySelector(".sh").append(el("span", { class: "pl-none", text: T("pl.hist.none") })); return; }
     ui.history.append(el("ul", { class: "pl-hist" }, items.map(x => {
       const when = new Date(x.t * 1000);
       return el("li", {},
         el("time", { datetime: when.toISOString(), text: when.toLocaleString() }),
         el("span", { class: `pl-actor a-${x.actor}`, text: T("pl.actor." + x.actor) }),
-        el("span", { text: `${T("pl.h." + x.type)}: ${x.summary}` }));
+        el("span", { title: `${T("pl.h." + x.type)}: ${x.summary}`, text: `${T("pl.h." + x.type)}: ${x.summary}` }));
     })));
   }
 

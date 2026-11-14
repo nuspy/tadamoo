@@ -8,11 +8,15 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-FIELDS = ("window", "effort", "level", "plan_mode", "unattended", "steps", "max_tokens", "orchestration", "long_answer", "compaction", "reader", "sampling", "knowledge")
+from tadamoo import netaddr
+
+FIELDS = ("window", "effort", "level", "plan_mode", "unattended", "steps", "max_tokens", "orchestration", "long_answer", "compaction", "reader", "address", "sampling", "knowledge")
 PROMPT_TOLD = ("window",)         # the fixed block already states these when the session is built
 
 
-def _word(value: Any) -> str:
+def _word(value: Any, key: str = "") -> str:
+    if key == "address":
+        return netaddr.note_words(str(value))
     if isinstance(value, bool):
         return "on" if value else "off"
     return str(value)
@@ -61,6 +65,8 @@ def read(agent: Any, *, window: int, unattended: bool) -> Dict[str, Any]:
         "reader": getattr(agent, "reader", "") or "this PC",
         "sampling": sampling,
     }
+    if hasattr(agent, "reader_address"):                        # set once a message told where the person is: "" at this machine, else the address they reach this server at
+        state["address"] = agent.reader_address
     if index is not None:                                       # the knowledge archives this conversation can use now, named (tadamoo/rag/tools.py)
         state["knowledge"] = index()
     return state
@@ -76,7 +82,8 @@ class Teller:
     def note(self, state: Dict[str, Any], folds: int = 0) -> str:
         if folds != self.folds:                 # the record that replaced the old conversation may have swallowed the last note
             self.folds, self.shown = folds, {}
-        changed = [f"{key}={_word(state[key])}" for key in FIELDS if key in state and self.shown.get(key) != state[key]]
+        changed = [f"{key}={_word(state[key], key)}" for key in FIELDS if key in state and self.shown.get(key) != state[key]
+                   and not (key == "address" and not state[key] and key not in self.shown)]        # a person at this machine is the usual case: nothing to say until they are elsewhere
         if not changed:
             return ""
         self.shown.update({key: state[key] for key in FIELDS if key in state})

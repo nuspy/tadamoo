@@ -53,7 +53,7 @@ details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; f
 .pl-svg { display: block; max-width: none; }   /* drawn 1:1: the type is its real size, a wide plan scrolls inside its frame */
 
 /* graph */
-.pl-node { cursor: grab; outline: none; touch-action: none; }
+.pl-node { cursor: move; outline: none; touch-action: none; }
 .pl-node.dragging { cursor: grabbing; opacity: .85; }
 .pl-node.ghost { cursor: default; }
 .pl-node rect, .pl-node polygon { fill: var(--surface); stroke: var(--fg-2); stroke-width: 1.5; }
@@ -310,3 +310,122 @@ details.sec > summary { cursor: pointer; padding: 12px 16px; min-height: 44px; f
 .pl-port.value { fill: var(--surface); stroke: var(--fg-2); }
 .pl-edge.feed.dead { opacity: .5; }
 .pl-detail .pl-dform select { min-height: 44px; }
+
+/* zoom and pan of the diagram (serve/web/planzoom.js): an open hand over the empty background, a closed one while the middle button (or two fingers) moves it; a finger on the
+   frame pans or pinches by itself, so the browser does not scroll the page from there */
+.pl-graph { cursor: grab; touch-action: none; overscroll-behavior: contain; }
+.pl-graph.pl-panning, .pl-graph.pl-panning * { cursor: grabbing !important; }
+.pl-edgehit, .pl-x { cursor: pointer; }
+.pl-zoom { display: flex; justify-content: flex-end; gap: 4px; margin-top: 4px; }
+.pl-zoom[hidden] { display: none; }
+.pl-zb { min-width: 44px; min-height: 44px; padding: 0 10px; color: var(--fg); background: var(--raised); border: 1px solid var(--line); border-radius: 8px; font-size: 16px; font-variant-numeric: tabular-nums; }
+.pl-zb:hover:not(:disabled) { border-color: var(--accent); }
+.pl-zb:disabled { color: var(--fg-3); cursor: default; }
+.pl-zreset { min-width: 64px; }
+
+.pl-selbar { display: contents; }
+.pl-zdel { color: var(--err); }
+.pl-zoom { flex-wrap: wrap; }
+
+/* ---- the Plans page as a fixed layout: the bar and the tabs at the top never scroll away; the diagram and the inspector are a fixed pane, a third of the window high by default and set with
+   the divider under it; everything else is one lower part that scrolls. Space is tight on purpose: a mouse needs less room than a finger (the 44 px targets stay on touch screens). ---- */
+body[data-view="plans"] { height: 100vh; height: 100dvh; overflow: hidden; }
+body[data-view="plans"] main { padding: 0 8px 6px; }
+body[data-view="plans"] .plrow { height: 100%; gap: 8px; }
+.plrow > .convs { overflow-y: auto; align-self: stretch; }
+.plmain { display: flex; flex-direction: column; overflow: hidden; }
+.plmain > .sh { min-height: 34px; padding: 0 12px; }
+.pl-tabs { gap: 4px; padding: 6px 10px 0; flex: none; }
+.plmain > .pl-status, .plmain > .pl-empty { margin: 4px 12px 0; flex: none; }
+.plmain > .pl-status:empty { display: none; }
+.pl-panel { flex: 1; min-height: 0; overflow-y: auto; gap: 6px; padding: 6px 10px 8px; }
+#pl-panel-define { overflow: hidden; }
+#pl-panel-define > .pl-bar { flex: none; gap: 6px 10px; }
+#pl-panel-define > .pl-summary { flex: none; margin: 0; font-size: 12px; line-height: 1.3; }
+#pl-panel-define > .plinfhost { flex: none; max-height: 40vh; overflow-y: auto; margin: 0; }
+.pl-main { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 0; }
+.pl-canvas { flex: none; height: calc(var(--pl-f, 0.3333) * 100vh); height: calc(var(--pl-f, 0.3333) * 100dvh); min-height: 120px; align-items: stretch; }
+.pl-stage { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.pl-stage > .pl-graph { flex: 1 1 0; min-height: 0; max-height: none; }
+.pl-stage > .pl-list { flex: 1 1 0; min-height: 0; overflow-y: auto; margin: 0; }
+.pl-stage > .pl-zoom { flex: none; margin-top: 2px; }
+.pl-detail { flex: 0 0 270px; position: static; align-self: stretch; height: 100%; max-height: none; overflow-y: auto; overscroll-behavior: contain; }
+.pl-split { flex: none; position: relative; height: 12px; margin: 2px 0; cursor: row-resize; touch-action: none; display: grid; place-items: center; border-radius: 6px; }
+.pl-split:hover, .pl-split.dragging, .pl-split:focus-visible { background: var(--raised); }
+.pl-grip { width: 56px; height: 4px; border-radius: 2px; background: var(--fg-3); }
+.pl-lower { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 6px; }
+.pl-lower > .pl-dock { margin: auto -10px -8px; position: sticky; bottom: 0; }
+.pl-side { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 6px; align-items: start; }
+.pl-side > .sec { margin: 0; min-width: 0; }
+.pl-side > .sec .sh { min-height: 28px; padding: 0 10px; }
+.pl-side > .pl-nothing { grid-column: auto; }
+.pl-nothing .sh { min-height: 26px; }
+.pl-none { margin-inline-start: 8px; font: 400 12px/1.3 var(--font-sans); color: var(--fg-3); }
+.pl-side .pad, .pl-lower .pad { padding: 4px 10px; }
+.pl-lower p, .pl-lower ul { margin-block: 2px; }
+.pl-panel textarea, .pl-lower textarea { min-height: 0; max-height: 40vh; resize: vertical; line-height: 1.35; padding-block: 4px; }
+/* the log lines: left aligned, one line each, close together */
+.pl-lower .rl-log, .pl-lower .pl-hist { text-align: left; padding: 2px 8px; min-height: 0; max-height: 220px; }
+.pl-lower .rl-card, .pl-lower .rl-entry, .pl-lower .chg-row { margin: 0; padding: 1px 0; border: 0; border-radius: 0; background: transparent; text-align: left; justify-content: flex-start; font: 400 12px/1.35 var(--font-mono); }
+.pl-lower .rl-card *, .pl-lower .rl-entry *, .pl-lower .chg-row * { text-align: left; margin-block: 0; }
+.pl-lower .rl-card > *, .pl-lower .rl-entry > * { display: inline; margin-inline: 0 8px; }
+.pl-lower .rl-tools, .pl-lower .rl-status { padding: 2px 8px; gap: 4px 8px; }
+@media (min-width: 801px) and (pointer: coarse) { .pl-split { height: 24px; } }
+@media (max-width: 800px) {
+  .pl-canvas { flex-direction: column; }
+  .pl-detail { flex: none; height: auto; max-height: none; overflow-y: visible; width: 100%; }
+  .pl-split { height: 44px; }
+  .pl-grip { width: 72px; height: 5px; }
+  .pl-side { grid-template-columns: minmax(0, 1fr); }
+}
+@media (pointer: coarse) { .pl-split { min-height: 44px; } }
+
+/* tighter still where there is a mouse; a phone keeps its tabs on one row that scrolls */
+.plcol .cv-body > * { flex: none; }
+.plcol .pl-btn { min-height: var(--btn-h); }
+.pl-bar .plinf-l { flex-direction: row; align-items: center; margin: 0; }
+.pl-bar .plinf-l select { min-width: 0; flex: 0 1 220px; }
+@media (pointer: fine) {
+  .pl-zb { min-width: 32px; min-height: 28px; padding: 0 8px; font-size: 14px; }
+  .pl-zreset { min-width: 52px; }
+  .pl-bar .btn, .pl-modes .btn, .pl-bar .plinf-l, .pl-bar select { min-height: 28px; }
+  .pl-bar .plinf-l select { min-height: 28px; padding-block: 2px; }
+  .plmain .subtab { min-height: 28px; padding: 3px 10px; }
+  .pl-lower .btn, .pl-side .btn { min-height: 26px; padding: 2px 10px; }
+}
+@media (max-width: 800px) {
+  .pl-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+  .pl-tabs .subtab { font-size: 13px; padding-inline: 8px; white-space: normal; line-height: 1.2; text-align: center; }
+  .pl-bar .plinf-l { display: flex; align-items: center; gap: 8px; flex: 1 1 100%; margin: 0; }
+  .pl-bar .plinf-l > span { flex: none; font-size: 12.5px; max-width: 42%; }
+  .pl-bar .plinf-l select { flex: 1 1 0; min-width: 0; }
+  body[data-view="plans"] .plrow { flex-direction: column; }
+  body[data-view="plans"] .plrow > .plcol { flex: none; max-height: 40vh; }
+  body[data-view="plans"] .plrow > .plcol.shut { max-height: none; }
+  #pl-panel-define > .pl-bar { flex-wrap: wrap; gap: 4px 8px; }
+  #pl-panel-define > .pl-bar > .grow { display: none; }
+}
+
+/* the kinds of step, close above the instruction line */
+.pl-dock { padding: 3px 10px 4px; gap: 2px; }
+.pl-dock .pk { flex-wrap: wrap; padding-bottom: 2px; }
+.pl-dock .pk-fam { flex: none; padding-bottom: 2px; }
+@media (pointer: fine) { .pl-dock .pk-item { width: 46px; height: 42px; min-height: 0; } .pl-dock .pk-name { font-size: 8.5px; } }
+
+.plcol .cv-body { display: flex; flex-direction: column; gap: 6px; padding: 4px 8px 8px; align-content: flex-start; }
+.plcol .cv-head { min-height: 32px; }
+@media (max-width: 800px) {
+  body[data-view="plans"] .bar .pal-open, body[data-view="plans"] .bar .model, body[data-view="plans"] .bar .answers { display: none; }
+  #pl-panel-define > .pl-summary { display: none; }
+}
+
+.pl-lower, .pl-canvas { position: relative; }
+
+/* the history and the run log: one line for each entry, left aligned, close together, the text cut with an ellipsis (the whole line is its tooltip) */
+.pl-lower .pl-hist { padding: 2px 8px; gap: 0; text-align: left; max-height: 240px; overflow-y: auto; }
+.pl-lower .pl-hist li { display: flex; flex-wrap: nowrap; align-items: baseline; gap: 8px; justify-content: flex-start; text-align: left; font: 400 12px/1.4 var(--font-mono); white-space: nowrap; overflow: hidden; }
+.pl-lower .pl-hist li > * { flex: none; min-width: 0; margin: 0; }
+.pl-lower .pl-hist li > :last-child { flex: 1 1 0; overflow: hidden; text-overflow: ellipsis; }
+.pl-lower .rl-row { flex-wrap: nowrap; justify-content: flex-start; text-align: left; margin: 0; padding: 1px 8px; gap: 8px; font: 400 12px/1.4 var(--font-mono); white-space: nowrap; overflow: hidden; border-left-width: 2px; }
+.pl-lower .rl-row > * { flex: none; min-width: 0; margin: 0; text-align: left; }
+.pl-lower .rl-row .rl-unit, .pl-lower .rl-row .rl-text { flex: 1 1 0; overflow: hidden; text-overflow: ellipsis; }

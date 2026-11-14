@@ -300,3 +300,20 @@ Serve la conversazione vera con il modello vero e un server MCP con un'app. Per 
 6. Fermare il lavoro mentre lo strumento con l'app gira: l'app riceve «cancellato» e lo dice.
 7. Raggiungibilità: dal telefono (Tailscale) e dalla finestra nativa del PC: l'app si avvia? Se la seconda porta del server (quella del sandbox) non è raggiungibile l'app dice «non si è avviata in tempo» e resta il testo: dirmelo, è la parte che dipende dalla rete.
 8. Una conversazione con server MCP che NON offre app: tutto come prima (nessun segnaposto, nessuna porta aperta). Uno strumento «solo app» non compare tra quelli che il modello può usare (`call_capability` senza strumento lo elenca senza `compute_series`).
+
+## Dispositivi lontani (14 novembre; provati con richieste finte e browser senza testa, NON con un telefono vero e NON con l'app Android)
+
+1. Dal telefono (browser o app) su Tailscale: scrivere in una conversazione «avvia un piccolo server web nella cartella e dammi il link»: il modello deve dare un indirizzo con l'indirizzo Tailscale del PC, non localhost; il link si apre dal telefono. La nota `[state]` con `address=` compare una volta sola (controllare con `/status` o nel registro).
+2. Chiedere un'immagine generata o uno screenshot e un file da scaricare: si vedono e si scaricano dal telefono. Un'immagine scritta come `http://127.0.0.1:<porta>/api/outputs/...` nel testo di una risposta si carica lo stesso.
+3. Tornare dal PC nella stessa conversazione: il modello riceve una sola nota «at this machine» e dà di nuovo link locali.
+4. Telegram: una risposta che nomina `http://localhost:8000` arriva con l'indirizzo Tailscale del PC.
+5. App Android: compilare con `flutter test test/net_address_test.dart` (il codice di `net_address.dart` non è stato eseguito qui) e provare un'immagine e un link con `localhost` in una risposta.
+6. App MCP dal telefono: la finestra dell'app si avvia (la porta del sandbox risponde sull'indirizzo Tailscale).
+
+## Diagramma e pagina dei piani (14 novembre; provati con browser senza testa, NON sul computer vero con mouse vero)
+
+1. Rotella sul diagramma: zoom attorno al cursore, la pagina non scorre; tasto centrale premuto: il diagramma segue il cursore, mano aperta sullo sfondo e chiusa mentre si trascina; i passi si trascinano e i collegamenti si scelgono come prima. Con un trackpad: il pizzico zooma.
+2. Su un telefono vero: due dita zoomano, un dito sullo sfondo sposta, un dito su un passo lo trascina; i bottoni della barra e «Elimina passo» sono comodi da toccare.
+3. Il piano del telegiornale (44 domande, tanti passi): si apre con il nodo Start visibile; «adatta tutto» mostra tutto.
+4. Eliminare un passo con Canc, poi Annulla: torna con i suoi collegamenti.
+5. Riquadro fisso: il divisore si trascina col mouse e col dito, l'altezza si ricorda dopo aver chiuso e riaperto l'app; barra in alto ferma; la parte bassa scorre; con una storia lunga le righe sono una per voce, a sinistra.

@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'api.dart';
 import 'i18n.dart';
+import 'net_address.dart';
 
 typedef FileTap = void Function(String kind, String ref, String name);
 
@@ -26,6 +27,7 @@ class AnswerView extends StatelessWidget {
   Widget build(BuildContext context) {
     final parts = <Widget>[];
     var at = 0;
+    final text = fixAddresses(this.text, api.settings.base);          // an address of the PC's own machine in the answer becomes the one this app reaches it at
     for (final m in _mermaid.allMatches(text)) {
       if (m.start > at) parts.add(_markdown(context, text.substring(at, m.start)));
       parts.add(_Diagram(source: m.group(1) ?? ''));

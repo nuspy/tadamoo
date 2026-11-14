@@ -76,7 +76,7 @@ class PlansPageTest(unittest.TestCase):
         self.assertIn(".pl-node.draft", CSS)
 
     def test_the_properties_live_inside_the_graphs_container_and_the_kinds_and_the_instruction_box_are_fixed_at_the_bottom(self):
-        self.assertIn('el("div", { class: "pl-canvas" }, el("div", { class: "pl-stage" }, ui.graph, ui.list, ui.autoBtn, ui.autoBox), ui.detail)', JS)
+        self.assertIn('el("div", { class: "pl-canvas" }, el("div", { class: "pl-stage" }, ui.graph, ui.zoom.bar, ui.list, ui.autoBtn, ui.autoBox), ui.detail)', JS)
         self.assertIn('el("div", { class: "pl-dock" }, ui.palette, ui.instr)', JS)                    # the kinds just above the instruction box
         self.assertRegex(CSS, r"\.pl-dock \{[^}]*position: sticky; bottom: 0")
         self.assertRegex(CSS, r"\.pl-detail \{[^}]*flex: 0 0 270px")

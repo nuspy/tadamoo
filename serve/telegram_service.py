@@ -17,6 +17,7 @@ from serve.voice_stt import VoiceSpeech
 from tadamoo import telegram as tg
 from tadamoo.permission_level import LEVELS, PermissionLevels
 from tadamoo.telegram import BotApi, TelegramError
+from tadamoo.netaddr import rewrite_urls
 from tadamoo.telegram_bot import TelegramBot
 
 POLL_S = 25.0
@@ -50,6 +51,7 @@ class TelegramService:
         self._bot: Optional[TelegramBot] = None
         self._threads: List[threading.Thread] = []
         self._state, self._message, self._username = "off", "", ""
+        self.network_base: Callable[[], str] = lambda: ""         # the address of this server for someone elsewhere (serve/netaddr.py), set by the handler
 
     # -- logging and status
 
@@ -103,6 +105,7 @@ class TelegramService:
                 return self._set("no_token")
             api = BotApi(token, self.api_base)
             self._bot = bot = TelegramBot(api, self.settings, self._sessions(), self._attachments(), levels=self.levels, tmp_dir=self.state_dir / "telegram-incoming", speech=self.speech, log=self.log)
+            bot.rewrite = lambda text: rewrite_urls(text, self.network_base())
             self._stop = stop = threading.Event()
             self._set("starting")
             self._threads = [threading.Thread(target=self._poll, args=(stop, api, bot), name="telegram-poll", daemon=True),

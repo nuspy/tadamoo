@@ -62,6 +62,7 @@ from tadamoo import optimize as opt
 from tadamoo import progress as prog
 from tadamoo import provenance as prov
 from tadamoo import side_uses
+from tadamoo.netaddr import valid_base
 from tadamoo.mcp_apps import APP_CALL, AppError, tool_ui, visible_to
 from serve import longflow as lfw
 from serve import longform as lf
@@ -2241,6 +2242,8 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
                     built.take_place(cmd["place"])                  # before the message, so the tool is there from this turn on
                 if isinstance(cmd.get("reader"), str):
                     built.agent.reader = cmd["reader"][:20]          # where the person reads, for the [state] note
+                if isinstance(cmd.get("address"), str):
+                    built.agent.reader_address = valid_base(cmd["address"])        # the address they reach this server at when they are not at this machine
                 delivery = cmd["delivery"] if isinstance(cmd.get("delivery"), str) else ""
                 if delivery and delivery in seen:
                     emit({"event": "delivery", "id": delivery, "state": "accepted"})        # written twice: it was taken the first time

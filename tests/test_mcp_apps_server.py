@@ -182,4 +182,4 @@ def test_the_page_gets_the_sandbox_port_the_pages_kept_and_the_choices_and_chang
         assert api("GET", "/api/mcp-apps/config")[1]["settings"]["display"] == "panel"
     finally:
         if handler._APPS is not None:
-            handler._APPS.sandbox.close()
+            handler._APPS.close()

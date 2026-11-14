@@ -37,6 +37,7 @@ for (let i = 0; i < 20; i++) {                                           // the 
   await wait(500);
   const first = q("#plans-root .pl-node .pl-br"); if (first && first.getBoundingClientRect().width > 0) break;
 }
+{ const z = q("#plans-root .pl-zreset"); if (z) { z.click(); await wait(300); } }               // the diagram opens fitted to the pane; these checks are about its real size
 const sel = '#plans-root .pl-node[data-id="choose"]';
 const node = q(sel), labels = qa(sel + " .pl-br");
 const rows = labels.map(t => { const b = t.getBoundingClientRect(); return { text: t.textContent.trim(), w: b.width, h: b.height }; });
