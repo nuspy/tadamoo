@@ -36,6 +36,10 @@ XTTS runs in its own Python (`tts-venvs/xtts`): PyTorch 2.11 with CUDA 12.8, tra
 key-value cache, the model and the speakers' conditioning latents kept loaded, the seeds of a sentence in one batched pass, takes kept by text and seeds (`--cache FOLDER`), and the longest time of a run
 from the length of its audio (`tadamoo/jobtime.py`).
 
+The rating of the takes is the slow part of a voice, so it is made fast by default: the cheap measures first, the Whisper once for all the takes of a round and kept loaded, the small models on the GPU when it has room.
+`speak.py` uses the TaDaMoo server's Whisper when the server answers at `--url` and a Whisper in its own process otherwise (`--stt auto|local|service`), so a new voice (its profile is read from the local XTTS) and a
+recording need no server. Measured: a sentence of 8.5 s takes 6.8 s with the process warm (17.2 s before).
+
 Optional, off until measured: `--precision tf32|fp16|bf16`, `--compile on`, `--rating-device cuda`. For `--compile on` Triton must be in the XTTS Python; on Windows that is the `triton-windows` package, the
 one LTX Studio installs. Check and install it only when it is missing: `python -m tadamoo.media.components check speech-synthesis`, then `... install speech-synthesis`. Without Triton `--compile on` does
 nothing and says so. The time and the quality of each option are in `tests/QUEUE_daytime.md` until they are measured; do not turn one on as a default before that.
@@ -47,5 +51,5 @@ should run on the CPU while someone else's job holds the loaded model.
 
 ## Scripts
 
-`scripts/speak.py TEXTFILE OUT.wav [--speaker "Gitta Nikolina"] [--speed 1.14] [--seeds 4] [--batch 12] [--precision fp32|tf32|fp16|bf16] [--compile on] [--cache FOLDER] [--rating-device cpu|cuda]` makes one recording through the pipeline; `scripts/audit.py WAV [--text TEXTFILE]` prints the pauses,
+`scripts/speak.py TEXTFILE OUT.wav [--speaker "Gitta Nikolina"] [--speed 1.14] [--seeds 4] [--batch 12] [--precision fp32|tf32|fp16|bf16] [--compile on] [--cache FOLDER] [--rating-device auto|cpu|cuda] [--stt auto|local|service]` makes one recording through the pipeline; `scripts/audit.py WAV [--text TEXTFILE]` prints the pauses,
 clicks, splices, loudness and pace of any recording.
