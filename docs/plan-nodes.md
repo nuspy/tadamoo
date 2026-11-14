@@ -76,5 +76,8 @@ source: a value, a python expression, an input, or a description for the agent. 
 is `serve/web/ragpick.js`. `serve/tests/plan_connect_check.js` drives a real headless browser with mouse and touch pointers and asks the server whether the edge
 landed, for a plain step, a branch, a RAG node and a value.
 
+An action step may also carry `effort` (`none`, `low`, `medium`, `high`; empty follows the plan): how long the model thinks while it does that step. The plan's own
+inference settings and the list that sets one level on all steps are in [inference-settings.md](inference-settings.md). Test: `tests/test_inference_scope.py`.
+
 Tests: `tests/test_planner_ports.py`, `tests/test_planner_operands.py`, `tests/test_planner_decisions.py`, `tests/test_planner_rag.py`, `serve/tests/test_plans_page.py`,
 `serve/tests/plankinds_check.js`, `serve/tests/plankinds_dom_check.js`.

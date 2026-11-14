@@ -201,9 +201,11 @@ class PlanNode:
     produces: List[Dict[str, str]] = field(default_factory=list)   # the values this step must write when it completes: [{"name", "type"}]
     routes: Dict[str, List[str]] = field(default_factory=dict)     # output port id -> the steps it is connected to; kept for the nodes with named ports (a decision's branches, a RAG node)
     inputs: Dict[str, Dict[str, str]] = field(default_factory=dict)  # the values wired to this step, by the name it refers to them with: {"node", "port"} of the step they come from
+    effort: Optional[str] = None                         # how long the conversation thinks while it does this action step (none, low, medium, high); None: as the plan says
 
 
-EDITABLE = ("title", "description", "assignee", "conditions", "state_variables", "retry_policy", "position", "call_request", "wiki_query", "repeat", "spec", "produces", "inputs")
+EDITABLE = ("title", "description", "assignee", "conditions", "state_variables", "retry_policy", "position", "call_request", "wiki_query", "repeat", "spec", "produces", "inputs", "effort")
+EFFORT_LEVELS = ("none", "low", "medium", "high")
 
 # -- what a node may carry ---------------------------------------------------------------------------------
 
@@ -340,8 +342,21 @@ def clean_conditions(node_type: Any, conditions: Any) -> Dict[str, Any]:
     return dict(conditions)
 
 
+def clean_effort(node_type: Any, value: Any) -> Optional[str]:
+    """How long the model thinks on an action step: one of EFFORT_LEVELS, or None (empty) for what the plan says."""
+    if value in (None, "", "inherit"):
+        return None
+    if value not in EFFORT_LEVELS:
+        raise PlanError("the thinking level of a step is none, low, medium or high; empty follows the plan")
+    if NodeType(node_type) != NodeType.ACTION:
+        raise PlanError("only an action step has a thinking level")
+    return value
+
+
 def clean_field(node_type: Any, key: str, value: Any, draft: bool = False) -> Any:
     """A field of a step, checked. `draft`: the step is not set up yet (state_variables.draft), so its spec may be incomplete."""
+    if key == "effort":
+        return clean_effort(node_type, value)
     if key == "retry_policy":
         return clean_retry_policy(value)
     if key == "position":
@@ -1642,6 +1657,7 @@ def node_to_dict(n: PlanNode) -> Dict[str, Any]:
         **({"produces": n.produces} if n.produces else {}),
         **({"routes": {port: list(kids) for port, kids in n.routes.items()}} if n.routes else {}),
         **({"inputs": {name: dict(ref) for name, ref in n.inputs.items()}} if n.inputs else {}),
+        **({"effort": n.effort} if n.effort else {}),
     }
 
 
@@ -1666,6 +1682,7 @@ def node_from_dict(nd: Dict[str, Any]) -> PlanNode:
         spec=({} if node_type == NodeType.DECISION and not (nd.get("spec") or {}).get("branches") else clean_field(node_type, "spec", nd.get("spec"), bool((nd.get("state_variables") or {}).get("draft")))),
         produces=clean_field(node_type, "produces", nd.get("produces")),
     )
+    node.effort = clean_effort(node_type, nd.get("effort")) if node_type == NodeType.ACTION else None
     node.routes = {str(port): [str(k) for k in kids] for port, kids in (nd.get("routes") or {}).items() if isinstance(kids, list)}
     node.inputs = {str(name): {"node": str(ref["node"]), "port": str(ref.get("port") or "result")} for name, ref in (nd.get("inputs") or {}).items() if isinstance(ref, dict) and ref.get("node")}
     if node_type == NodeType.INPUT:

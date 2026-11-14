@@ -1326,3 +1326,14 @@ dialog.afolder .brd-b { display: grid; gap: 8px; padding: 12px 16px 16px; }
 .psk-source { margin: 0; padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; }
 .psk-source legend { padding: 0 4px; font-size: 12px; color: var(--fg-2); }
 .psk-param textarea { width: 100%; min-height: 56px; }
+
+/* the inference panel shown for a plan or the machine default: only what is inference, in the page's own flow */
+.chatset[data-scope="plan"] .csconv, .chatset[data-scope="machine"] .csconv { display: none; }
+.infhost, .plinfhost { margin-top: 12px; }
+.infhost:empty, .plinfhost:empty { margin: 0; }
+.infhost > .chatset, .plinfhost > .chatset { overflow: visible; max-height: none; }
+.infhost .csform, .plinfhost .csform { overflow: visible; }
+.plinf-l { font: 500 15px/1.4 var(--font-sans); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.plinf-l select { min-height: 44px; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; max-width: 100%; }
+.pl-bar .plinf-l, .pl-bar .pl-btn { min-height: 44px; }
+.chatset .btn, .chatset select { min-height: 44px; }

@@ -513,6 +513,21 @@ class PlanService:
         self._offer(plan_id, f"it was started at start {number} by {cause}", now)
         return out
 
+    def node_effort(self, plan_id: str, node_id: str) -> str:
+        """How long the model thinks on one step, as the step says; empty when it follows the plan (or the plan or step is not there)."""
+        try:
+            node = self.store.get(plan_id, self._replanner()).dag.nodes.get(node_id)
+        except (KeyError, ValueError):
+            return ""
+        return (node.effort or "") if node is not None else ""
+
+    def inference_of(self, plan_id: str) -> Optional[Dict[str, Any]]:
+        """The inference settings of a plan, or None when it has none of its own (its conversations start from the machine default)."""
+        try:
+            return dict(self.store.get(plan_id, self._replanner()).profile.inference) or None
+        except (KeyError, ValueError):
+            return None
+
     def _call(self, plan_id: str, bridge: Any, call: Dict[str, Any], now: float) -> Optional[float]:
         """A step that starts another plan: the other plan is started and the step is done; when it cannot be, the reason is kept and the step tries again
         after its wait. Returns when it tries again, if it does."""

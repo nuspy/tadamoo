@@ -183,6 +183,7 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
     parser.add_argument("--temperature", type=float, default=None,
                         help="sampling temperature of every model call; unset: the model file's own sampling applies. A temperature above 0 makes tool calls less repeatable")
     parser.add_argument("--max-tokens", type=int, default=None, help="most tokens one model reply may write; unset: the server's own limit")
+    parser.add_argument("--sampling", default="", metavar="JSON", help="the other sampling fields of every model call (top_p, top_k, min_p, penalties, seed, stop...); unset: the model file's own")
     parser.add_argument("--instruction-blocks", action="store_true",
                         help="add short working rules to the system prompt: act on a request, vary a search that found nothing, check what can change, back a claim with evidence, never invent a result")
     parser.add_argument("--verify-command", action="append", default=[], metavar="COMMAND",
@@ -245,7 +246,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         memory_min_score=args.memory_min_score, memory_notes=args.memory_notes, memory_budget_tokens=args.memory_budget, phone_on_behalf_of=args.on_behalf_of,
         context_patterns=json.loads(args.context_patterns) if args.context_patterns else {}, context_threshold=args.context_threshold,
         compaction=not args.no_compaction, compaction_threshold=args.compaction_threshold,
-        end_turn_bias=args.end_turn_bias, temperature=args.temperature, max_tokens=args.max_tokens, instruction_blocks=args.instruction_blocks,
+        end_turn_bias=args.end_turn_bias, temperature=args.temperature, max_tokens=args.max_tokens, sampling=json.loads(args.sampling) if args.sampling else {}, instruction_blocks=args.instruction_blocks,
         role=args.role, safe_commands=args.safe_command, project_checks=args.project_check,
         verify_commands=args.verify_command, verify_gate=args.verify_gate, verify_rounds=args.verify_rounds, budget_grace=not args.no_budget_grace,
         error_classifier=not args.no_error_classifier,
@@ -350,6 +351,7 @@ class AgentConfig:
     end_turn_bias: float = 0.0          # 0 or less: how much less ready the model is to end its turn (0 is off)
     temperature: Optional[float] = None  # sampling temperature of every model call; None: the model file's own sampling applies
     max_tokens: Optional[int] = None    # most tokens one reply may write; None: the server's own limit
+    sampling: Dict[str, Any] = field(default_factory=dict)      # the other sampling fields of every model call; what is not there is the model file's own
     instruction_blocks: bool = False    # short working rules in the system prompt (tadamoo/prompt_blocks.py)
     role: str = GENERAL_ROLE            # what the agent is for: the tools it may use and the rules it is told (tadamoo/roles.py)
     safe_commands: List[str] = field(default_factory=list)     # commands that run without a question, written exactly (PermissionManager.safe_verification)
@@ -768,6 +770,8 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         new = context_budget(seen, reserve_for(seen))
         if source == "fallback" or new != context.budget_tokens:
             print(f"[harness] the context budget follows the server: {seen} tokens", file=sys.stderr, flush=True)
+            if getattr(context, "compaction", None) is not None:
+                context.compaction.forget_last()
         context.budget_tokens, source = new, "server"
 
     builder = ContextBuilder(f"{SYSTEM_CORE} {TOOL_CALL_NOTE}")
@@ -1030,7 +1034,7 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         max_total_tokens=cfg.max_total_tokens,
         max_seconds=cfg.max_seconds,
         cancel=cancel,
-        sampling={**({"end_turn_bias": cfg.end_turn_bias} if cfg.end_turn_bias else {}), **({"temperature": cfg.temperature} if cfg.temperature is not None else {}),
+        sampling={**cfg.sampling, **({"end_turn_bias": cfg.end_turn_bias} if cfg.end_turn_bias else {}), **({"temperature": cfg.temperature} if cfg.temperature is not None else {}),
                   **({"reasoning_effort": cfg.reasoning_effort} if cfg.reasoning_effort else {})} or None,
         clock=local_now,
         max_tokens=cfg.max_tokens,

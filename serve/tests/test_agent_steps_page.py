@@ -12,7 +12,7 @@ NODE = shutil.which("node")
 HTML = (WEB / "index.html").read_text(encoding="utf-8")
 CHAT = (WEB / "agentchat.js").read_text(encoding="utf-8")
 SET = (WEB / "chatset.js").read_text(encoding="utf-8")
-KEYS = ("cs.max_turns", "cs.max_turns.help", "cs.max_turns.bad", "cs.live", "cs.live.none", "ch.settings.steps", "ch.settings.bias", "ch.stop.max_turns",
+KEYS = ("cs.max_turns", "cs.max_turns.help", "cs.max_turns.bad", "cs.live.none", "ch.settings.steps", "ch.settings.bias", "ch.stop.max_turns",
         "ch.stop.max_turns.h", "ch.continue", "ch.continue.text", "ch.stop.budget", "ch.stop.loop", "ch.stop.error", "ch.calls.skipped", "ch.explain.said",
         "ch.act.generic", "ch.act.shell_command", "ch.act.write_file", "ch.act.read_file", "ch.act.search_web", "ch.act.browse_url", "ch.act.plan",
         "ch.act.browser", "sl.r.steps", "sl.r.steps.none", "sl.r.bias")
@@ -36,13 +36,14 @@ class StepsPageTest(unittest.TestCase):
         self.assertIn('id="cs-max_turns-h" data-t="cs.max_turns.help"', HTML)
         self.assertRegex(SET, r'key: "max_turns", id: "cs-max_turns", min: -1')
         self.assertIn('f.key === "retries" || f.key === "max_turns"', SET)              # the model's request body does not carry it
-        self.assertIn("patterns, live }", SET)                           # and the Agent page can read it
+        self.assertIn("patterns, read, useSession", SET)                 # and the Agent page can read it
 
-    def test_a_new_conversation_takes_the_values_and_a_change_reaches_the_open_one(self):
-        self.assertIn("...chatSettings.live()", CHAT)
+    def test_a_new_conversation_takes_the_values_and_a_change_is_saved_with_the_open_one(self):
+        self.assertIn("inference: chatSettings.read()", CHAT)                            # the conversation is made with what the panel holds
         self.assertNotIn("chatSettings.body().end_turn_bias", CHAT)
-        self.assertIn("`/${sid}/settings`", CHAT)
-        self.assertIn('document.addEventListener("tadamoo:chatset-settled"', CHAT)       # the panel's own starting values are not a change by the person
+        self.assertIn("`/${id}/inference`", CHAT)                                        # and a change goes to that conversation's own record
+        self.assertIn("chatSettings.useSession(", CHAT)
+        self.assertNotIn("chatSettings.live()", CHAT)
 
     def test_the_limit_is_said_with_a_button_to_go_on_and_the_other_stops_have_a_line(self):
         self.assertIn('["max_turns", "budget", "loop", "length"].includes(kind)', CHAT)

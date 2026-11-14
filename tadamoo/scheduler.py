@@ -803,8 +803,9 @@ class SessionRoutineRunner:
     knowledge: Optional[Callable[[str, str, threading.Event], Dict[str, Any]]] = None     # (archive, "check" | "update", cancel) -> an outcome; set by the server
 
     def __init__(self, manager: Any, poll_s: float = 0.5, cancel_grace_s: float = 30.0, plan_paused: Optional[Callable[[str], bool]] = None,
-                 plan_context: Optional[Callable[[str], Dict[str, Any]]] = None) -> None:
+                 plan_context: Optional[Callable[[str], Dict[str, Any]]] = None, plan_inference: Optional[Callable[[str], Optional[Dict[str, Any]]]] = None) -> None:
         self.manager, self.poll_s, self.cancel_grace_s = manager, poll_s, cancel_grace_s      # how long a stopped conversation has to wind down
+        self.plan_inference = plan_inference            # plan_id -> the plan's own inference settings, or None: the machine default
         self.plan_paused = plan_paused                  # plan_id -> paused, for a "plan" delivery whose plan has its schedule stopped
         self.plan_context = plan_context                # plan_id -> {"plan_title", "ready_step", ...its shared values}, for the message template
         self._own: set = set()
@@ -867,8 +868,11 @@ class SessionRoutineRunner:
         mgr = self.manager
         started = time.monotonic()
         limit_s = routine["max_minutes"] * 60 if routine.get("max_minutes") else None
+        planned = (routine.get("link") or {}).get("plan")
+        settings = self.plan_inference(planned) if planned and self.plan_inference is not None else None      # a conversation that carries a plan on starts from the plan's settings
         sid = mgr.create(routine["workspace"], "auto", None, False, f"Routine: {routine['name']}"[:80],
-                         routine.get("max_turns") or NO_STEP_LIMIT, worktree="off", unattended=True, **({"knowledge": routine["rag_archives"]} if routine.get("rag_archives") else {}))["id"]
+                         routine.get("max_turns") or (None if planned else NO_STEP_LIMIT), worktree="off", unattended=True, inference_settings=settings,
+                         **({"knowledge": routine["rag_archives"]} if routine.get("rag_archives") else {}))["id"]
         self._own.add(sid)
         getattr(mgr, "keep_out_of_memory", lambda _sid: None)(sid)          # a routine is not the person talking: nothing in it is learned
         getattr(mgr, "routine_run", lambda *_a: None)(sid, routine["name"], bool(routine.get("index_past")))      # indexed for later search only when the routine says so
