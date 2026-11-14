@@ -69,7 +69,7 @@
 
   let mode = load(MODE_KEY, "agent");
   if (!MODES.includes(mode)) mode = "agent";
-  const inAgent = () => document.body.dataset.view === "agent";           // the Agent tab is this page, working in a folder
+  const inAgent = () => document.body.dataset.view === "agent";           // the Agentic coding tab is this page, working in a folder
   const lastKey = () => LAST_KEYS[inAgent() ? "agent" : "chat"];
   let projects = [], curProject = load(PROJECT_KEY, ""), defaultWs = "", lastCtx = null;
   const sameDir = (a, b) => String(a || "").replace(/[\\/]+$/, "").toLowerCase() === String(b || "").replace(/[\\/]+$/, "").toLowerCase();
@@ -208,7 +208,7 @@
     li.append(open, star, del);
     return li;
   }
-  /* the Agent tab's column: the folders added, each with the conversations held in it */
+  /* the Agentic coding tab's column: the folders added, each with the conversations held in it */
   function setProject(path) { curProject = path; keep(PROJECT_KEY, path); }
   async function addFolder() {
     const p = await window.agentProjects.open();
@@ -293,7 +293,7 @@
   function forget() { pick = null; learn = null; paintPick(); paintLearn(); pend = []; sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked, .asuggest").forEach(e => e.remove()); chipsEl = null; chipTexts = []; empty.hidden = false; keep(lastKey(), ""); copyShown = false; conversationChanged(); }
   function conversationChanged(created) { syncPanel(); document.dispatchEvent(new CustomEvent("tadamoo:conversation", { detail: { created: !!created } })); }
   function newChat() {
-    if (inAgent() && !curPath()) { addFolder(); return; }                      // a conversation in the Agent tab needs a folder to work in
+    if (inAgent() && !curPath()) { addFolder(); return; }                      // a conversation in the Agentic coding tab needs a folder to work in
     forget(); status(T("ch.new")); setControls(); paintList();
   }
   async function openSession(id) {
@@ -326,7 +326,7 @@
   /* the time of what is being added, in seconds: the event's or the saved message's while those are applied (null when not known), else now */
   let stampAt;
   const stampOf = () => (stampAt === undefined ? Date.now() / 1000 : stampAt);
-  function userItem(text, files) { const it = { kind: "user", text, files: files || [], ts: stampOf() }; items.push(it); return it; }
+  function userItem(text, files, mentions) { const it = { kind: "user", text, files: files || [], mentions: mentions || [], ts: stampOf() }; items.push(it); return it; }
   function assistant(turn) {
     if (turn && byTurn[turn]) { current = byTurn[turn]; return current; }
     if (!turn && current && !current.done) return current;
@@ -374,7 +374,7 @@
   }
   function applyEvent(e) {
     switch (e.event) {
-      case "user": closeQuestions(); clearChips(); userItem(e.text, e.attachments); break;
+      case "user": closeQuestions(); clearChips(); userItem(e.text, e.attachments, e.mentions); break;
       case "accepted": clearChips(); assistant(e.turn); started(e.turn); break;
       case "intake": {                                                         // what the harness assumed or split before the agent began (tadamoo/intake.py)
         const lines = [];
@@ -941,6 +941,7 @@
           const bubble = mk("div", "bubble"), row = mk("div", "arow");
           if (it.files && it.files.length) bubble.append(mk("div", "achips", it.files.map(f => f.name).join(" · ")));
           bubble.append(mk("div", "", it.text));
+          if (it.mentions && it.mentions.length) bubble.append(mk("div", "achips", it.mentions.map(m => "@" + m.name).join(" · ")));          // the conversations it names
           row.append(window.chatUi.stamp(it.ts), bubble);
           it.el.append(row);
           it.row = row;
@@ -1407,8 +1408,10 @@
     if (!(await ensure())) { window.chatUi.setPrompt(text); return; }
     if (pend.some(f => f.uploading)) { status(T("ch.att.wait")); window.chatUi.setPrompt(text); return; }
     const files = pend.filter(f => f.id);
-    const r = await api("POST", `/${sid}/send`, { text, ...(files.length ? { attachments: files.map(f => f.id) } : {}) });
+    const mentions = window.mentionUi ? window.mentionUi.collect(text) : [];                 // the conversations the message names (the "@" picker); only carried along
+    const r = await api("POST", `/${sid}/send`, { text, ...(files.length ? { attachments: files.map(f => f.id) } : {}), ...(mentions.length ? { mentions } : {}) });
     if (!r.ok) { status(errText(r)); window.chatUi.setPrompt(text); return; }
+    if (window.mentionUi) window.mentionUi.clear();
     document.dispatchEvent(new CustomEvent("tadamoo:sent", { detail: { text } }));
     clearChips();
     pend = []; drawPend();
@@ -1561,7 +1564,7 @@
     const listed = known.find(s => s.id === sid) || {};
     return { title: (rec && rec.title) || listed.title || "", session: sid, items: out };
   }
-  /* a new conversation in a folder, started with this message (the Tasks tab's "Resume in chat"): the Agent tab for a project's folder, the Chat tab for the Chat's own */
+  /* a new conversation in a folder, started with this message (the Tasks tab's "Resume in chat"): the Agentic coding tab for a project's folder, the Chat tab for the Chat's own */
   async function startWith(workspace, text) {
     const known = projects.some(x => sameDir(x.path, workspace)), here = defaultWs && sameDir(workspace, defaultWs);
     if (!known && !here) return false;

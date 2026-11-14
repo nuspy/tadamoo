@@ -46,6 +46,7 @@
 <link rel="stylesheet" href="web/imported.css">
 <link rel="stylesheet" href="web/skills.css">
 <link rel="stylesheet" href="web/tasks.css">
+<link rel="stylesheet" href="web/mention.css">
 <link rel="stylesheet" href="web/branches.css">
 <link rel="stylesheet" href="web/export.css">
 <link rel="stylesheet" href="web/checkpoints.css">
@@ -93,6 +94,7 @@
 <script defer src="web/imported.js"></script>
 <script defer src="web/skills.js"></script>
 <script defer src="web/tasks.js"></script>
+<script defer src="web/mention.js"></script>
 <script defer src="web/knowledge.js"></script>
 <script defer src="web/promptswitch.js"></script>
 <script defer src="web/optimize.js"></script>
@@ -167,7 +169,7 @@
   <div id="attn-live" class="sr" role="status" aria-live="polite"></div>
   <nav class="tabs" role="tablist" aria-label="Views">
     <button class="tab" role="tab" id="tab-chat" data-view="chat" aria-controls="view-chat" aria-selected="false" tabindex="-1" data-t="tab.chat" aria-keyshortcuts="Alt+1">Chat</button>
-    <button class="tab" role="tab" id="tab-agent" data-view="agent" aria-controls="view-agent" aria-selected="false" tabindex="-1" data-t="tab.agent">Agent</button>
+    <button class="tab" role="tab" id="tab-agent" data-view="agent" aria-controls="view-agent" aria-selected="false" tabindex="-1" data-t="tab.agent">Agentic coding</button>
     <button class="tab" role="tab" id="tab-plans" data-view="plans" aria-controls="view-plans" aria-selected="false" tabindex="-1" data-t="tab.plans">Plans</button>
     <button class="tab" role="tab" id="tab-cron" data-view="cron" aria-controls="view-cron" aria-selected="false" tabindex="-1" data-t="tab.cron">Cron Jobs</button>
     <button class="tab" role="tab" id="tab-stats" data-view="stats" aria-controls="view-stats" aria-selected="true" data-t="tab.stats">Monitor</button>
@@ -534,7 +536,8 @@
         <button type="button" class="btn ghost" id="pskill-cancel" data-t="psk.sel.cancel">Cancel</button>
       </div>
       <form class="composer" id="composer">
-        <div class="slashhost"><div class="slashmenu" id="slash-menu" role="listbox" aria-label="Commands" data-t-aria="sl.menu" hidden></div></div>
+        <div class="slashhost"><div class="slashmenu" id="slash-menu" role="listbox" aria-label="Commands" data-t-aria="sl.menu" hidden></div><div class="slashmenu mnmenu" id="mention-menu" role="listbox" aria-label="Conversations" data-t-aria="mn.menu" hidden></div></div>
+        <div class="mn-chips" id="mention-chips" role="list" aria-label="Mentioned conversations" data-t-aria="mn.chips" hidden></div>
         <div class="attachments" id="attachments" aria-label="Attached images" hidden></div>
         <div class="aatt" id="aatt" aria-label="Attached files" role="list" hidden></div>
         <label class="sr" for="prompt">Message</label>
