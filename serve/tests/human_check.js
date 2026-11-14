@@ -35,7 +35,7 @@ t("the question is in the person's language, the other one when it is missing; a
 t("an answer is checked for its question", () => {
   eq(H.check(A, "  hi "), { value: "hi" }); eq(H.check(A, "  "), { error: "hr.need" });
   eq(H.check(D, "12.5"), { value: "12.5" }); eq(H.check(D, "many"), { error: "hr.need.number" });
-  eq(H.check(B, "n3"), { value: "n3" }); eq(H.check(B, "Tre notizie"), { error: "hr.need.choice" }); eq(H.check(B, ""), { error: "hr.need.choice" });
+  eq(H.check(B, "n3"), { value: "n3" }); eq(H.check(B, "Tre notizie"), { error: "hr.need.pick2" }); eq(H.check(B, ""), { error: "hr.need.pick2" });
   eq(H.check(C, true), { value: true }); eq(H.check(C, undefined), { error: "hr.need.yesno" });
 });
 t("Next goes on only with a good answer, to the summary after the last; Back goes back; Edit from the summary returns there", () => {
@@ -59,6 +59,42 @@ t("when the questions that are asking change, the answers given stay and the ste
   const r = H.reconcile(w, [B, A]);
   eq([r.items.length, r.answers.a, r.step], [2, "mine", 2]);
   eq(H.reconcile(w, [A]).step, 1);
+});
+const ch3 = ch.concat([{ value: "n9", label: "Nove notizie", label_en: "Nine stories" }]);
+const M = { plan_id: "p", plan_title: "P", node_id: "m", index: 5, ask: "value", kind: "choice", choices: ch3, other: true, prompt: "Quante?", proposed: "n6" };
+const Mclosed = { ...M, node_id: "mc", other: false };
+const Two = { plan_id: "p", plan_title: "P", node_id: "w", index: 6, ask: "value", kind: "choice", choices: [{ value: "on", label: "Attivo", label_en: "On" }, { value: "off", label: "Non attivo", label_en: "Off" }], other: false, prompt: "Attivo?" };
+const Task = { plan_id: "p", plan_title: "P", node_id: "t", index: 7, ask: "task", kind: "text", choices: [], other: false, prompt: "Controlla il cavo", content: "Guarda il cavo." };
+
+t("two possible answers are two buttons; more than two are a menu; a free text is the field; a task is its own thing", () => {
+  eq([H.twoWays(C), H.twoWays(Two), H.twoWays(B), H.twoWays(M), H.twoWays(A), H.twoWays(Task)], [true, true, true, false, false, false]);
+});
+t("a menu of more than two choices takes what is written when it offers Other; a closed one and two choices do not", () => {
+  eq(H.check(M, "n9"), { value: "n9" }); eq(H.check(M, "Nove e mezzo"), { value: "Nove e mezzo" });
+  eq(H.check(M, "", true), { error: "hr.need" }); eq(H.check(M, ""), { error: "hr.need.pick" });
+  eq(H.check(Mclosed, "Nove e mezzo"), { error: "hr.need.choice" });
+  eq(H.check(Two, "on"), { value: "on" }); eq(H.check(Two, "other"), { error: "hr.need.pick2" }); eq(H.check(Two, undefined), { error: "hr.need.pick2" });
+  eq([H.writing(M, "Nove e mezzo"), H.writing(M, "n9"), H.writing(Mclosed, "x"), H.writing(M, "")], [true, false, false, false]);
+  const w = H.newPath([M], null); eq(w.other, {});
+  eq(H.newPath([M], { m: "Nove e mezzo" }).other, { m: true });                  // what was written the last time opens the field of Other
+});
+t("a task is done or cannot be done now; the note is optional; what cannot be done now is not sent", () => {
+  eq(H.check(Task, undefined), { error: "hr.need.task" }); eq(H.check(Task, { note: "x" }), { error: "hr.need.task" });
+  eq(H.check(Task, { state: "done", note: "" }), { value: { state: "done", note: "" } });
+  const w = H.newPath([B, Task], null);
+  w.answers.t = { state: "later", note: "" };
+  eq(H.payload(w), { b: "n6" }); eq(H.notNow(w), ["t"]);
+  w.answers.t = { state: "done", note: "  cable fine " };
+  eq(H.payload(w), { b: "n6", t: { done: true, note: "cable fine" } }); eq(H.notNow(w), []);
+  const words = { yes: "Sì", no: "No", done: "Fatto", later: "Non adesso" };
+  eq([H.shown(Task, { state: "done", note: "ok" }, "it", words), H.shown(Task, { state: "done", note: "" }, "it", words), H.shown(Task, { state: "later" }, "it", words)], ["Fatto: ok", "Fatto", "Non adesso"]);
+});
+t("a task left for later is out of the path for 10 minutes while the rest of the plan goes on", () => {
+  const rows = [B, Task];
+  const g = H.pickGroup(rows, { "p/t": 5000 }, 1000);
+  eq(g.items.map(r => r.node_id), ["b"]);
+  eq(H.pickGroup([Task], { "p/t": 5000 }, 1000), null);
+  eq(H.pickGroup([Task], { "p/t": 5000 }, 6000).items.map(r => r.node_id), ["t"]);
 });
 const out = [];
 for (const [name, fn] of cases) { try { fn(); out.push({ name, ok: true, error: "" }); } catch (e) { out.push({ name, ok: false, error: e.message }); } }

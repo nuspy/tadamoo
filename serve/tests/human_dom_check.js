@@ -10,18 +10,21 @@ const post = async (p, body) => (await fetch(URL + p, { method: "POST", headers:
 const VIEWPORTS = [["phone 360x640", 360, 640, true], ["phone 390x844", 390, 844, true], ["desktop 1280x800", 1280, 800, false]];
 
 const input = (id, deps, spec) => ({ id, type: "input", title: id, assignee: "user", dependencies: deps, outputs: [], spec });
-/* a plan with a start that is not taken yet, and four questions behind it: a menu with labels, a text with an explanation, a number, a yes or no with a text to look at */
+/* a plan with a start that is not taken yet, and six steps behind it: a menu of three labelled choices ("Other, I write" is the fourth), a text with an explanation, a number,
+   a yes or no with a text to look at, a question of two answers, and a task for the person */
 const wizardPlan = (id, title) => {
   const nodes = {
-    go: { id: "go", type: "start", title: "Start", assignee: "agent", dependencies: [], outputs: ["i1", "i2", "i3", "i4"], spec: { number: 1, launch: "manual" } },
+    go: { id: "go", type: "start", title: "Start", assignee: "agent", dependencies: [], outputs: ["i1", "i2", "i3", "i4", "i5", "t1"], spec: { number: 1, launch: "manual" } },
     i1: input("i1", ["go"], { prompt: "Quante notizie vuoi?", prompt_en: "How many stories do you want?", help: "Da tre a nove, di solito sei.", help_en: "From three to nine, usually six.", into: "stories", kind: "choice",
       choices: [{ value: "n3", label: "Tre notizie", label_en: "Three stories" }, { value: "n6", label: "Sei notizie", label_en: "Six stories" }, { value: "n9", label: "Nove notizie", label_en: "Nine stories" }], default: "n6" }),
     i2: input("i2", ["go"], { prompt: "Di che cosa parla il telegiornale?", prompt_en: "What is the newscast about?", help: "Una frase, per esempio: politica ungherese.", help_en: "One sentence, for example: Hungarian politics.", into: "topic", kind: "text", default: "politica" }),
     i3: input("i3", ["go"], { prompt: "Quante ore indietro cercare?", prompt_en: "How many hours back to look?", into: "hours", kind: "number", default: 24 }),
     i4: input("i4", ["go"], { ask: "approve", prompt: "Il copione va bene?", prompt_en: "Is the script good?", content: "Buonasera, ecco le notizie.\nPrima notizia: il porto riapre.", into: "script_ok" }),
+    i5: input("i5", ["go"], { prompt: "Il microfono è attivo?", prompt_en: "Is the microphone on?", into: "mic", kind: "choice", choices: [{ value: "on", label: "Attivo", label_en: "On" }, { value: "off", label: "Non attivo", label_en: "Off" }] }),
+    t1: { id: "t1", type: "action", title: "Controlla il cavo del microfono", description: "Guarda il cavo del microfono e di' com'è.", assignee: "user", dependencies: ["go"], outputs: [] },
   };
-  nodes.after = { id: "after", type: "action", title: "After", assignee: "user", dependencies: ["i1", "i2", "i3", "i4"], outputs: [] };
-  ["i1", "i2", "i3", "i4"].forEach(i => { nodes[i].outputs = ["after"]; });
+  nodes.after = { id: "after", type: "action", title: "After", assignee: "third_party", dependencies: ["i1", "i2", "i3", "i4", "i5", "t1"], outputs: [] };
+  ["i1", "i2", "i3", "i4", "i5", "t1"].forEach(i => { nodes[i].outputs = ["after"]; });
   return { plan_id: id, title, target_type: "occasional", nodes };
 };
 
@@ -77,7 +80,7 @@ async function main() {
         const started = await post(`api/plans/${W}/events`, { type: "plan:start", number: 1, actor: "chat" });
         if (!started.ok) throw new Error("the plan did not start: " + JSON.stringify(started));
         await waitFor(`!!q("#hr-card[open]")`, "the window once the plan started", 40);
-        const t = await need("the first question", ["Question 1 of 4"]);
+        const t = await need("the first question", ["Question 1 of 6"]);
         if (/Start/.test(t.replace("Newscast", "")) ) throw new Error("the start is among the questions: " + t);
       });
       await check(`${vname}: one question, large, with its explanation, in the person's language; a menu shows labels, never values, with the proposed one chosen`, async () => {
@@ -89,46 +92,65 @@ async function main() {
       });
       await check(`${vname}: it fits the screen and its targets are big enough`, async () => { await fits(); await shot(tag + "-question"); });
       await check(`${vname}: the arrow keys and Enter move along the path; Next refuses an empty answer; Back goes back`, async () => {
+        if ((await ev(`return qa("#hr-value option").map(o => o.textContent).includes("Other, I write");`)) !== true) throw new Error("the menu of more than two choices has no 'Other, I write'");
         await key("ArrowRight");
-        await need("question 2", ["Question 2 of 4", "What is the newscast about?", "One sentence, for example: Hungarian politics."]);
+        await need("question 2", ["Question 2 of 6", "What is the newscast about?", "One sentence, for example: Hungarian politics."]);
         await key("ArrowLeft", "#hr-card");
-        await need("question 1", ["Question 1 of 4"]);
+        await need("question 1", ["Question 1 of 6"]);
         await press("Next");
         await setField("");
         await press("Next");
-        await need("the refusal", ["Question 2 of 4", "Write an answer first."]);
+        await need("the refusal", ["Question 2 of 6", "Write an answer first."]);
         await setField("Hungarian politics");
         await key("Enter");
-        await need("question 3", ["Question 3 of 4", "How many hours back to look?"]);
+        await need("question 3", ["Question 3 of 6", "How many hours back to look?"]);
         await press("Back");
-        await need("question 2 again", ["Question 2 of 4"]);
+        await need("question 2 again", ["Question 2 of 6"]);
         if ((await ev(`return q("#hr-value").value;`)) !== "Hungarian politics") throw new Error("the answer was not kept when going back");
         await press("Next");
         await setField("many"); await press("Next");
         await need("the number refused", ["The answer is a number."]);
         await setField("12"); await press("Next");
-        await need("question 4", ["Question 4 of 4", "Is the script good?", "Prima notizia: il porto riapre."]);
+        await need("question 4", ["Question 4 of 6", "Is the script good?", "Prima notizia: il porto riapre."]);
       });
       await check(`${vname}: the summary lists every answer as read, Edit changes one and comes straight back, and nothing is sent yet`, async () => {
         await press("Yes, approve");
+        if ((await nodeOf(W, "i4")).status !== "pending") throw new Error("choosing Yes sent it");
         await press("Next");
-        const t = await need("the summary", ["Check your answers", "Six stories", "Hungarian politics", "12", "Yes", "Send all answers"]);
-        if (/\bn6\b/.test(t)) throw new Error("a value is shown: " + t);
-        if ((await ev(`return qa("#hr-card .hr-edit").length;`)) !== 4) throw new Error("not an Edit for each answer");
+        await need("question 5", ["Question 5 of 6", "Is the microphone on?", "On", "Off"]);
+        if (await ev(`return !!q("#hr-card select");`)) throw new Error("two answers are not two buttons");
+        await press("Next");
+        await need("the refusal", ["Choose one of the two answers."]);
+        await press("Off"); await press("Next");
+        await need("the task", ["Question 6 of 6", "Controlla il cavo del microfono", "Guarda il cavo del microfono e di' com'è.", "I did it", "I can't now"]);
+        await press("Next");
+        await need("the refusal", ["Choose"]);
+        await press("I did it");
+        await ev(`const f = q("#hr-value"); f.value = "cable is fine"; f.dispatchEvent(new Event("input", { bubbles: true })); return 1;`);
+        await press("Next");
+        const t = await need("the summary", ["Check your answers", "Six stories", "Hungarian politics", "12", "Yes", "Off", "Done: cable is fine", "Send all answers"]);
+        if (/\bn6\b/.test(t) || /\boff\b/.test(t)) throw new Error("a value is shown: " + t);
+        if ((await ev(`return qa("#hr-card .hr-edit").length;`)) !== 6) throw new Error("not an Edit for each answer");
         await fits(); await shot(tag + "-summary");
         await ev(`qa("#hr-card .hr-edit")[0].click(); return 1;`); await sleep(200);
-        await need("question 1 again", ["Question 1 of 4"]);
-        await setField("n3"); await press("Next");
-        await need("the summary again", ["Check your answers", "Three stories"]);
-        for (const n of ["i1", "i2", "i3", "i4"]) if ((await nodeOf(W, n)).status !== "pending") throw new Error(`${n} was sent before Send`);
+        await need("question 1 again", ["Question 1 of 6"]);
+        await ev(`const f = q("#hr-value"); f.value = "__other__"; f.dispatchEvent(new Event("change", { bubbles: true })); return 1;`); await sleep(200);
+        await waitFor(`!!q("#hr-other")`, "the field of Other");
+        await press("Next");
+        await need("the refusal", ["Write an answer first."]);
+        await ev(`const f = q("#hr-other"); f.value = "Nine and a half"; f.dispatchEvent(new Event("input", { bubbles: true })); return 1;`);
+        await press("Next");
+        await need("the summary again", ["Check your answers", "Nine and a half"]);
+        for (const n of ["i1", "i2", "i3", "i4", "i5", "t1"]) if ((await nodeOf(W, n)).status !== "pending") throw new Error(`${n} was sent before Send`);
       });
       await check(`${vname}: one Send gives the plan all the answers, with the values and not the labels`, async () => {
         await press("Send all answers");
         let plan = null;
         for (let i = 0; i < 30; i++) { plan = (await get(`api/plans/${W}`)).plan; if (plan.nodes.i4.status === "completed") break; await sleep(300); }
         const s = plan.shared_state;
-        if (!["i1", "i2", "i3", "i4"].every(n => plan.nodes[n].status === "completed") || s.stories !== "n3" || s.topic !== "Hungarian politics" || s.hours !== 12 || s.script_ok !== true) throw new Error("not answered together: " + JSON.stringify(s));
-        await waitFor(`!q("#hr-card[open]")`, "the window to close once answered");
+        if (!["i1", "i2", "i3", "i4", "i5", "t1"].every(n => plan.nodes[n].status === "completed") || s.stories !== "Nine and a half" || s.topic !== "Hungarian politics" || s.hours !== 12 || s.script_ok !== true
+          || s.mic !== "off" || s.t1_note !== "cable is fine") throw new Error("not answered together: " + JSON.stringify(s));
+        await waitFor(`!q("#hr-card[open]")`, "the window to close once answered").catch(async e => { throw new Error(e.message + " | " + (await text()).slice(0, 600)); });
       });
       const L = `hr-${tag}-later`;
       await post("api/plans", { plan: wizardPlan(L, "Later " + vname) });
@@ -141,7 +163,22 @@ async function main() {
         if (await ev(`return !!q("#hr-card[open]");`)) throw new Error("it came back at once");
         if ((await nodeOf(L, "i1")).status !== "pending") throw new Error("Later answered it");
       });
-      for (const p of [W, L]) await post(`api/plans/${p}/delete`, {});
+      const T1 = `hr-${tag}-task`;
+      await post("api/plans", { plan: { plan_id: T1, title: "Task " + vname, target_type: "occasional", nodes: { t: { id: "t", type: "action", title: "Pay the invoice", description: "Pay it and note the number.", assignee: "user", dependencies: [], outputs: [] } } } });
+      await check(`${vname}: a step for the person: "I can't now" with Send leaves it open and it does not come straight back; "I did it" closes it with the note`, async () => {
+        await waitFor(`!!q("#hr-card[open]")`, "the window", 40);
+        await need("the task", ["Question 1 of 1", "Pay the invoice", "Pay it and note the number."]);
+        await press("I can't now"); await press("Next");
+        await need("the summary", ["Not now: it comes back in 10 minutes"]);
+        await press("Send all answers");
+        await waitFor(`!q("#hr-card[open]")`, "the window to close");
+        await sleep(6000);
+        if (await ev(`return !!q("#hr-card[open]");`)) throw new Error("it came back at once");
+        if ((await nodeOf(T1, "t")).status !== "pending") throw new Error("Not now closed it");
+        const done = await post(`api/plans/${T1}/events`, { type: "plan:answers", answers: { t: { done: true, note: "number 77" } }, actor: "user" });
+        if (!done.ok || (await nodeOf(T1, "t")).status !== "completed") throw new Error("done did not close it: " + JSON.stringify(done));
+      });
+      for (const p of [W, L, T1]) await post(`api/plans/${p}/delete`, {});
     }
 
     // the same questions in Italian
@@ -153,7 +190,7 @@ async function main() {
     await sleep(1800);
     await check("in Italian: the question, its explanation, the labels and the buttons are in Italian", async () => {
       await waitFor(`!!q("#hr-card[open]")`, "the window", 40);
-      await need("the Italian question", ["Domanda 1 di 4", "Quante notizie vuoi?", "Da tre a nove, di solito sei.", "Avanti", "Indietro", "Più tardi"]);
+      await need("the Italian question", ["Domanda 1 di 6", "Quante notizie vuoi?", "Da tre a nove, di solito sei.", "Avanti", "Indietro", "Più tardi"]);
       const chosen = await ev(`return q("#hr-value").selectedOptions[0].textContent;`);
       if (chosen !== "Sei notizie") throw new Error("the label: " + chosen);
     });

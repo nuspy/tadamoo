@@ -17,6 +17,9 @@
 .hr-yesno { display: flex; gap: 8px; }
 .hr-yesno .hr-choice { flex: 1; }
 .hr-choice.on { background: var(--accent); color: #14181c; border-color: var(--accent); font-weight: 600; }
+.hr-task, .hr-menu { display: flex; flex-direction: column; gap: 10px; }
+.hr-task label { display: flex; flex-direction: column; gap: 6px; }
+.hr-note { resize: vertical; min-height: 84px; font: 400 16px/1.5 var(--font-sans); }
 .hr-err { color: var(--warn); }
 .hr-nav { display: flex; gap: 8px; margin-top: 6px; }
 .hr-nav .hr-btn { flex: 1; }
