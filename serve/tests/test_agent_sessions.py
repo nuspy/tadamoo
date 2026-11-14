@@ -420,8 +420,10 @@ def test_the_choice_of_patterns_is_checked_kept_and_given_to_the_process(make, w
     assert rec["context_patterns"]["summary"] == {"on": True, "strategy": "incremental"} and rec["context_patterns"]["pruning"]["on"] is True
     cmd = mgr._command(rec["id"], rec, mgr.history_dir(rec["id"]))
     assert json.loads(cmd[cmd.index("--context-patterns") + 1])["summary"]["strategy"] == "incremental"
-    plain = mgr.create(ws)
+    plain = mgr.create(ws, context_policy="stop")
     assert "--context-patterns" not in mgr._command(plain["id"], plain, mgr.history_dir(plain["id"]))
+    default = mgr.create(ws)                                                       # nothing said: the machine default, which compacts
+    assert default["context_policy"] == "compact" and default["context_patterns"]["summary"]["on"] is True
 
 
 def test_a_request_the_model_saw_reframed_shows_as_the_person_wrote_it_and_pruned_turns_come_back(make, ws):
@@ -1080,7 +1082,7 @@ def test_the_steps_of_an_answer_default_to_no_limit_and_are_checked(make, ws):
     old.pop("max_turns")
     old_cmd = mgr._command(rec["id"], old, mgr.history_dir(rec["id"]))
     assert old_cmd[old_cmd.index("--max-turns") + 1] == "-1"                     # a record without the field has no limit either
-    for bad in (0, -2, "5", 1.5, True, None):
+    for bad in (0, -2, "5", 1.5, True):
         with pytest.raises(RunError) as e:
             mgr.create(ws, max_turns=bad)
         assert e.value.code == "bad_steps"

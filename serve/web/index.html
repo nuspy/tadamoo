@@ -65,6 +65,7 @@
 <script defer src="web/subtabs.js"></script>
 <script defer src="web/patterns.js"></script>
 <script defer src="web/chatset.js"></script>
+<script defer src="web/infdefault.js"></script>
 <script defer src="web/diagramfix.js"></script>
 <script defer src="web/chat.js"></script>
 <script defer src="web/chatsize.js"></script>
@@ -94,7 +95,6 @@
 <script defer src="web/intake.js"></script>
 <script defer src="web/sideuses.js"></script>
 <script defer src="web/gate.js"></script>
-<script defer src="web/compaction.js"></script>
 <script defer src="web/vrambroker.js"></script>
 <script defer src="web/heavyjobs.js"></script>
 <script defer src="web/media.js"></script>
@@ -578,6 +578,16 @@
             <button type="button" class="btn ghost" id="cs-preset-rename" data-t="cs.preset.rename">Rename</button>
           </div>
         </div>
+        <div class="csgroup csnum" id="cs-effort-box">
+          <label for="cs-effort" data-t="cs.effort">Thinking</label>
+          <select id="cs-effort" aria-describedby="cs-effort-h">
+            <option value="" data-t="cs.effort.high">High (default)</option>
+            <option value="medium" data-t="cs.effort.medium">Medium</option>
+            <option value="low" data-t="cs.effort.low">Low</option>
+            <option value="none" data-t="cs.effort.none">Off</option>
+          </select>
+          <p class="help" id="cs-effort-h" data-t="cs.effort.help"></p>
+        </div>
         <div class="csgroup">
           <label for="cs-system" data-t="cs.system">System prompt</label>
           <textarea id="cs-system" rows="4" aria-describedby="cs-system-h"></textarea>
@@ -608,7 +618,7 @@
           </div>
           <p class="help" id="cs-code-h" data-t="abs.codehelp"></p>
         </fieldset>
-        <fieldset class="csgroup" id="cs-bc">
+        <fieldset class="csgroup csconv" id="cs-bc">
           <legend data-t="bc.title">Billion Context</legend>
           <p class="help" data-t="bc.help"></p>
           <label class="check"><input type="checkbox" id="cs-bc-on" aria-describedby="cs-bc-state"><span data-t="bc.on">Compress long conversations before they reach the model</span></label>
@@ -625,7 +635,7 @@
             <button type="button" class="btn ghost" id="cs-bc-restart" data-t="bc.restart">Restart</button>
           </div>
         </fieldset>
-        <fieldset class="csgroup" id="cs-visuals">
+        <fieldset class="csgroup csconv" id="cs-visuals">
           <legend data-t="vis.title">Pictures and charts</legend>
           <p class="help" data-t="vis.help"></p>
           <p class="help" id="cs-vis-now" role="status" hidden></p>
@@ -636,7 +646,7 @@
           <label for="cs-chart-level" data-t="vis.level">How present</label>
           <select id="cs-chart-level"><option value="very_low" data-t="vis.level.very_low">very_low</option><option value="low" data-t="vis.level.low">low</option><option value="normal" selected data-t="vis.level.normal">normal</option><option value="high" data-t="vis.level.high">high</option><option value="very_high" data-t="vis.level.very_high">very_high</option><option value="highest" data-t="vis.level.highest">highest</option></select>
         </fieldset>
-        <fieldset class="csgroup" id="cs-perm">
+        <fieldset class="csgroup csconv" id="cs-perm">
           <legend data-t="cs.perm">What the agent may do without asking</legend>
           <p class="help" data-t="cs.perm.help"></p>
           <label class="radio"><input type="radio" name="cs-perm" value="plan"><span><b data-t="ag.mode.plan">Plan only</b><small data-t="ag.mode.plan.d"></small></span></label>
@@ -651,7 +661,7 @@
             <textarea id="cs-allow" rows="4" spellcheck="false" autocomplete="off" aria-describedby="cs-allow-h" data-t-ph="ag.allow.ph"></textarea>
             <p class="help" id="cs-allow-h" data-t="ag.allow.help"></p></div>
         </fieldset>
-        <fieldset class="csgroup" id="cs-cp">
+        <fieldset class="csgroup csconv" id="cs-cp">
           <legend data-t="ck.title">Checkpoints (files put back)</legend>
           <p class="help" data-t="ck.help"></p>
           <p class="help" data-t="ck.scope"></p>
@@ -673,7 +683,7 @@
         </fieldset>
         <fieldset class="csgroup">
           <legend data-t="cs.reasoning">Reasoning</legend>
-          <label class="radio"><input type="checkbox" id="cs-show-reasoning" checked><span><b data-t="cs.showreasoning">Show reasoning</b><small data-t="cs.showreasoning.help"></small></span></label>
+          <label class="radio csconv"><input type="checkbox" id="cs-show-reasoning" checked><span><b data-t="cs.showreasoning">Show reasoning</b><small data-t="cs.showreasoning.help"></small></span></label>
           <div class="csgrid">
             <div class="csnum"><label for="cs-budget" data-t="cs.budget">Reasoning budget (tokens)</label>
               <input id="cs-budget" type="number" inputmode="numeric" min="-1" step="256" aria-describedby="cs-budget-h">
@@ -689,8 +699,7 @@
               <p class="help" id="cs-auto_continue-h" data-t="cs.auto_continue.help"></p></div>
             <div class="csnum"><label for="cs-max_turns" data-t="cs.max_turns">Max steps per answer</label>
               <input id="cs-max_turns" type="number" inputmode="numeric" min="-1" step="1" placeholder="-1" aria-describedby="cs-max_turns-h">
-              <p class="help" id="cs-max_turns-h" data-t="cs.max_turns.help"></p>
-              <p class="help" id="cs-live" role="status" aria-live="polite" hidden></p></div>
+              <p class="help" id="cs-max_turns-h" data-t="cs.max_turns.help"></p></div>
           </div>
         </fieldset>
         <fieldset class="csgroup">
@@ -1069,9 +1078,13 @@
       <div class="sh"><b id="gt-h" data-t="gt.title">Checks before an answer ends</b></div>
       <div class="pad" id="gt-root"></div>
     </section>
-    <section class="sec stcompaction" data-sub="general" id="cx-section" aria-labelledby="cx-h">
-      <div class="sh"><b id="cx-h" data-t="cx.title">Long work: summarising older steps</b></div>
-      <div class="pad" id="cx-root"></div>
+    <section class="sec stinference" data-sub="general" id="inf-section" aria-labelledby="inf-h">
+      <div class="sh"><b id="inf-h" data-t="inf.title">Inference settings: the machine default</b></div>
+      <div class="pad">
+        <p class="setnote kn-help" data-t="inf.help"></p>
+        <div class="kn-actions"><button type="button" class="btn primary" id="inf-open" aria-expanded="false" aria-controls="inf-host" data-t="inf.open">Edit the machine default</button></div>
+        <div id="inf-host" class="infhost"></div>
+      </div>
     </section>
     <section class="sec stvrambroker" data-sub="general" id="vq-section" aria-labelledby="vq-h">
       <div class="sh"><b id="vq-h" data-t="vq.title">VRAM lent to other functions</b></div>

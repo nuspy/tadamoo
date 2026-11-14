@@ -1,17 +1,17 @@
 "use strict";
-/* Chat settings: sampling, reasoning, output length, stop strings, system prompt, structured output, the context policy
-   and named presets. The current settings stay in this client (localStorage when it allows it): the app and each
-   browser keep their own. Presets are kept by the server in presets.json in the data folder (GET/POST /api/profiles,
-   shared with the desktop app); moving them to another PC is copying that file. A request carries only the fields that are set, so the model file's defaults
-   apply to the rest.
-   On opening, a client takes the preset it used last when it still exists; otherwise, and when it used the default,
-   it follows the current default ("Machine Default" from the configuration wizard, else the model's own defaults).
-   Settings changed by hand after that are kept as they are. */
+/* Inference settings: sampling, reasoning, output length, stop strings, system prompt, structured output, the context policy and named presets.
+   One panel, bound to one thing at a time: a conversation that is open (its settings are saved with it, POST /api/agent/sessions/<id>/inference), a plan
+   (saved in the plan's profile), the machine default (the inference preset "Machine Default"), or no conversation yet (the changes wait in this browser until
+   the conversation is made, which takes them). Every new conversation and every plan starts from the machine default. Presets are kept by the server in
+   presets.json in the data folder (GET/POST /api/profiles, shared with the desktop app); moving them to another PC is copying that file. A request carries
+   only the fields that are set, so the model file's defaults apply to the rest. */
 const chatSettings = (() => {
-  const STORE = "tadamoo.chatset", LAST = "tadamoo.chatset.last";
-  const MODEL = "@model";                     // LAST.name of the model's own defaults chosen by hand
+  const PENDING = "tadamoo.chatset";           // the changes made while no conversation was open, until one is made
+  const MACHINE = "Machine Default";
+  const SAVE_AFTER_MS = 500;
   const load = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
   const keep = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } };
+  const forget = k => { try { localStorage.removeItem(k); } catch (e) { /* kept as it is */ } };
   // the request fields the engine samples with (serve/engine/process.py sampling_keys)
   const SAMPLING = [
     { key: "temperature", min: 0, max: 2, step: 0.05, kind: "float", help: true },
@@ -38,15 +38,9 @@ const chatSettings = (() => {
   // what the engine does with a key that neither the request nor the model file sets (the GEN line's defaults)
   const ENGINE_SAMPLING = { temperature: 0, top_p: 1, top_k: 20, min_p: 0, repetition_penalty: 1,
     presence_penalty: 0, frequency_penalty: 0, penalty_last_n: 64, end_turn_bias: 0 };
-  let modelDefaults = {}, serverPresets = null, inferenceDefault = null, started = false;
-  // the preset this client used last: a name, "" (follow the default) or MODEL; edited: changed by hand since
-  let last = load(LAST, null);
-  if (!last || typeof last !== "object" || typeof last.name !== "string") {
-    // the first opening with this version: settings a user typed before are kept, as changed by hand
-    const before = load(STORE, {}) || {}, plain = { policy: "compact", effort: "", format: "" };
-    last = { name: "", edited: Object.entries(before).some(([k, v]) => v !== "" && v != null && plain[k] !== v) };
-    keep(LAST, last);
-  }
+  let modelDefaults = {}, serverPresets = null;
+  // what the panel is bound to: {kind: "new"} or {kind: "session" | "plan" | "machine", label, save(settings)}; edited: changed by hand since it was bound
+  let scope = { kind: "new" }, edited = false, saveTimer = 0, hosted = null;
 
   const grid = $("#cs-sampling");
   for (const f of SAMPLING) {
@@ -57,6 +51,7 @@ const chatSettings = (() => {
       (f.help ? ` aria-describedby="cs-${f.key}-h">` + `<p class="help" id="cs-${f.key}-h" data-t="cs.${f.key}.help"></p>` : ">");
     grid.append(d);
   }
+  const effortBox = $("#cs-effort");
   applyT($("#chatset"));
   applyT($(".chathead"));
 
@@ -64,7 +59,7 @@ const chatSettings = (() => {
   function read() {
     const s = { system: $("#cs-system").value, stop: $("#cs-stop").value,
       policy: (document.querySelector('input[name="cs-policy"]:checked') || {}).value || "compact",
-      threshold: $("#cs-threshold").value, effort: $("#effort").value,
+      threshold: $("#cs-threshold").value, effort: effortBox.value,
       format: $("#cs-format").value, schema: $("#cs-schema").value, schema_name: $("#cs-schema_name").value,
       context_patterns: window.ctxPatterns ? window.ctxPatterns.read() : {} };
     for (const f of fieldsOf()) s[f.key] = $("#" + f.id).value.trim();
@@ -73,7 +68,7 @@ const chatSettings = (() => {
   function write(s) {
     s = s || {};
     $("#cs-system").value = s.system || "";
-    $("#cs-stop").value = s.stop || "";
+    $("#cs-stop").value = Array.isArray(s.stop) ? s.stop.join("\n") : (s.stop || "");
     const p = document.querySelector(`input[name="cs-policy"][value="${s.policy || "compact"}"]`);
     if (p) p.checked = true;
     $("#cs-threshold").value = s.threshold || "";
@@ -81,11 +76,11 @@ const chatSettings = (() => {
     $("#cs-schema").value = s.schema || "";
     $("#cs-schema_name").value = s.schema_name || "";
     if (window.ctxPatterns) window.ctxPatterns.write(s.context_patterns);
-    if (s.effort != null) { $("#effort").value = s.effort; $("#effort").dispatchEvent(new Event("change")); }
+    effortBox.value = s.effort || "";
+    if (scope.kind === "new" || scope.kind === "session") $("#effort").value = s.effort || "";      // the header of the conversation shows its own level
     for (const f of fieldsOf()) $("#" + f.id).value = s[f.key] ?? "";
     show();
   }
-  const save = () => keep(STORE, read());
   function say(text, kind) { const e = $("#cs-status"); e.textContent = text; e.dataset.kind = kind || ""; }
 
   /* structured output: the schema is checked as the server checks it (an object schema at the root) */
@@ -151,22 +146,6 @@ const chatSettings = (() => {
   const threshold = () => { const v = Number(read().threshold); return Number.isFinite(v) && v >= 30 && v <= 100 ? v / 100 : 0.8; };
   const autoContinue = () => { const v = read().auto_continue, n = v === "" ? AUTO_CONTINUE : Number(v); return Number.isInteger(n) && n >= 0 && n <= 20 ? n : AUTO_CONTINUE; };
   const structured = () => { const f = read().format; return f === "json_object" || f === "json_schema"; };
-  /* what the Agent takes from the panel: the steps one answer may take (-1 or empty: no limit), the end-of-turn bias (empty: off), the temperature
-     and the most a reply may write (empty, 0 or -1: the model's own, no limit); a field that is not valid is left out, so the server's own value stays */
-  function live() {
-    const s = read(), out = {};
-    const steps = OTHER.find(f => f.key === "max_turns"), bias = SAMPLING.find(f => f.key === "end_turn_bias");
-    if (s.max_turns === "") out.max_turns = -1;
-    else if (!problem(steps, s.max_turns)) out.max_turns = Number(s.max_turns);
-    if (s.end_turn_bias === "") out.end_turn_bias = 0;
-    else if (!problem(bias, s.end_turn_bias)) out.end_turn_bias = Number(s.end_turn_bias);
-    const temp = SAMPLING.find(f => f.key === "temperature"), room = OTHER.find(f => f.key === "max_tokens");
-    if (s.temperature === "") out.temperature = null;
-    else if (!problem(temp, s.temperature)) out.temperature = Number(s.temperature);
-    if (s.max_tokens === "") out.max_tokens = null;
-    else if (!problem(room, s.max_tokens)) out.max_tokens = Number(s.max_tokens) >= 1 ? Number(s.max_tokens) : null;
-    return out;
-  }
 
   /* presets: the server's (presets.json) */
   function presets() { return Object.fromEntries((serverPresets || []).map(p => [p.name, p])); }
@@ -174,47 +153,33 @@ const chatSettings = (() => {
     try {
       const r = await fetch("api/profiles", { cache: "no-store", headers: authHeaders() });
       if (!r.ok) throw new Error();
-      const all = await r.json();
-      serverPresets = all.inference || [];
-      inferenceDefault = all.inference_default || null;
+      serverPresets = (await r.json()).inference || [];
     } catch (e) { serverPresets = null; }
     drawPresets($("#cs-preset").value);
-    if (!started) { started = true; startWith(); }
     showActive();
   }
+  const machineSettings = () => { const p = presets()[MACHINE]; return p ? p.settings : null; };
 
-  /* the settings a client opens with (see the top); the Active line says which */
-  function modelOnly() {
-    const s = read();
-    return { system: s.system, policy: s.policy, threshold: s.threshold, effort: s.effort, format: s.format,
-      schema: s.schema, schema_name: s.schema_name };
+  /* what the panel starts with when nothing is open: the changes made while no conversation was open, else the machine default */
+  function startNew(clear) {
+    if (clear) { forget(PENDING); edited = false; }
+    const pending = clear ? null : load(PENDING, null);
+    edited = !!pending;
+    write(pending || machineSettings() || {});
+    drawPresets(edited ? $("#cs-preset").value : (machineSettings() ? MACHINE : ""));
+    showActive();
   }
-  function startWith() {
-    if (last.edited) return;
-    const all = presets();
-    if (last.name && last.name !== MODEL && all[last.name]) { write(all[last.name].settings); save(); drawPresets(last.name); settled(); return; }
-    if (last.name === MODEL) { write(modelOnly()); save(); settled(); return; }
-    if (last.name) { last = { name: "", edited: false }; keep(LAST, last); }   // the preset was deleted: the default
-    followDefault();
-  }
-  function followDefault() {
-    const p = inferenceDefault && presets()[inferenceDefault];
-    write(p ? p.settings : modelOnly()); save();
-    drawPresets(p ? inferenceDefault : "");
-    settled();
-  }
-  const settled = () => document.dispatchEvent(new CustomEvent("tadamoo:chatset-settled"));      // the panel took its starting values: not a change by the person
-  function remember(name, edited) { last = { name, edited }; keep(LAST, last); showActive(); }
   function showActive() {
     const box = $("#cs-active");
     if (!box) return;
-    const def = inferenceDefault && presets()[inferenceDefault] ? inferenceDefault : "";
-    let text;
-    if (last.name === MODEL) text = T("cs.active.model");
-    else if (last.name) text = T("cs.active.preset", last.name);
-    else text = def ? T("cs.active.default", def) : T("cs.active.model.default");
-    box.textContent = last.edited ? T("cs.active.edited", text) : text;
-    $("#cs-machine").hidden = !(serverPresets && serverPresets.some(p => p.name === "Machine Default"));
+    const text = scope.kind === "machine" ? T("cs.active.machine")
+      : scope.kind === "plan" ? T("cs.active.plan", scope.label || "")
+      : scope.kind === "session" ? T("cs.active.session")
+      : machineSettings() ? T("cs.active.new") : T("cs.active.new.model");
+    box.textContent = scope.kind === "new" && edited ? T("cs.active.edited", text) : text;
+    $("#chatset").dataset.scope = scope.kind;
+    $("#cs-machine").hidden = scope.kind === "machine" || !machineSettings();
+    $("#cs-preset-box").hidden = scope.kind === "machine";
   }
   async function change(req) {
     try {
@@ -229,14 +194,29 @@ const chatSettings = (() => {
     box.value = names.includes(sel) ? sel : "";
     $("#cs-preset-del").disabled = $("#cs-preset-rename").disabled = !box.value;
   }
+
+  /* saving: the open conversation, the plan or the machine default takes the panel's values a moment after the last change; with nothing open they wait here */
+  function changed() {
+    if (scope.kind === "new") { edited = true; keep(PENDING, read()); showActive(); document.dispatchEvent(new CustomEvent("tadamoo:chatset")); return; }
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flush, SAVE_AFTER_MS);
+    document.dispatchEvent(new CustomEvent("tadamoo:chatset"));
+  }
+  async function flush() {
+    clearTimeout(saveTimer); saveTimer = 0;
+    if (scope.kind === "new" || !scope.save) return;
+    const bad = fieldsOf().map(f => problem(f, read()[f.key])).find(Boolean);
+    if (bad) return;                                          // a value that is not valid waits for the person to put it right
+    const r = await scope.save(read());
+    say(r === true ? T("cs.panel.saved") : (r || T("cs.panel.failed")), r === true ? "ok" : "err");
+  }
   $("#cs-preset").onchange = () => {
     const name = $("#cs-preset").value, p = presets()[name];
     $("#cs-preset-del").disabled = $("#cs-preset-rename").disabled = !name;
     if (!p) return;
-    write(p.settings); save(); say(T("cs.preset.loaded", name), "ok");
-    remember(name === inferenceDefault ? "" : name, false);
+    write(p.settings); say(T("cs.preset.loaded", name), "ok");
     $("#cs-preset-name").value = name;
-    document.dispatchEvent(new CustomEvent("tadamoo:chatset"));
+    changed();
   };
   $("#cs-preset-save").onclick = async () => {
     const name = $("#cs-preset-name").value.trim();
@@ -261,19 +241,19 @@ const chatSettings = (() => {
     drawPresets(""); say(T("cs.preset.deleted", name), "ok");
   };
   $("#cs-reset").onclick = () => {
-    write(modelOnly());
-    save(); say(T("cs.reset.done"), "ok");
-    drawPresets(""); remember(MODEL, false);
-    document.dispatchEvent(new CustomEvent("tadamoo:chatset"));
+    const s = read();
+    write({ system: s.system, policy: s.policy, threshold: s.threshold, effort: s.effort, format: s.format, schema: s.schema, schema_name: s.schema_name });      // the model's own sampling
+    say(T("cs.reset.done"), "ok");
+    drawPresets("");
+    changed();
   };
   $("#cs-machine").onclick = async () => {
     await fetchPresets();
-    const p = presets()["Machine Default"];
-    if (!p) { say(T("cs.machine.none"), "err"); return; }
-    write(p.settings); save(); drawPresets("Machine Default");
-    remember(inferenceDefault === "Machine Default" ? "" : "Machine Default", false);
+    const s = machineSettings();
+    if (!s) { say(T("cs.machine.none"), "err"); return; }
+    write(s); drawPresets(MACHINE);
     say(T("cs.machine.done"), "ok");
-    document.dispatchEvent(new CustomEvent("tadamoo:chatset"));
+    changed();
   };
 
   /* panel */
@@ -284,25 +264,69 @@ const chatSettings = (() => {
     keep("tadamoo.chatset.open", on);
     if (on) { $("#cs-title").scrollIntoView({ block: "nearest" }); fetchPresets(); }
   }
+  const closePanel = () => { if (hosted) endEdit(); else { openPanel(false); $("#cs-open").focus(); } };
   $("#cs-open").onclick = () => openPanel($("#chatset").hidden);
-  $("#cs-close").onclick = () => { openPanel(false); $("#cs-open").focus(); };
-  $("#chatset").addEventListener("keydown", e => { if (e.key === "Escape") { openPanel(false); $("#cs-open").focus(); } });
-  // a setting changed by hand (not the preset controls): kept as it is on the next opening
+  $("#cs-close").onclick = closePanel;
+  $("#chatset").addEventListener("keydown", e => { if (e.key === "Escape") closePanel(); });
+  // a setting changed by hand (not the preset controls)
   const byHand = e => e.target.closest && !e.target.closest("#cs-preset-box") && e.target.id !== "cs-show-reasoning";
   $("#cs-form").addEventListener("input", e => {
     const f = fieldsOf().find(x => x.id === e.target.id);
     if (f) { const p = mark(f); say(p ? T("cs.bad", T(f.label), p) : "", p ? "err" : ""); }
-    show(); save();
-    if (byHand(e) && !last.edited) remember(last.name, true);
-    document.dispatchEvent(new CustomEvent("tadamoo:chatset"));
+    show();
+    if (byHand(e)) changed();
   });
-  $("#cs-form").addEventListener("change", e => {
-    show(); save();
-    if (byHand(e) && !last.edited) remember(last.name, true);
-    document.dispatchEvent(new CustomEvent("tadamoo:chatset"));
+  $("#cs-form").addEventListener("change", e => { show(); if (byHand(e)) changed(); });
+  // the header's thinking level and the panel's are one setting of the open conversation
+  $("#effort").addEventListener("change", () => {
+    if ((scope.kind === "new" || scope.kind === "session") && effortBox.value !== $("#effort").value) { effortBox.value = $("#effort").value; if (scope.kind === "new") changed(); }
   });
-  $("#effort").addEventListener("change", e => { if (e.isTrusted && !last.edited) remember(last.name, true); });
+  effortBox.addEventListener("change", () => {
+    if (scope.kind === "session" || scope.kind === "new") { $("#effort").value = effortBox.value; if (scope.kind === "session") $("#effort").dispatchEvent(new Event("change")); }
+  });
   $("#cs-form").onsubmit = e => e.preventDefault();
+
+  /* binding the panel */
+  function bind(next) { flushNow(); scope = next; edited = false; }
+  function flushNow() { if (saveTimer) flush(); }
+  /* a conversation is open: its own settings, or the machine default for one that has none saved */
+  function useSession(target) {
+    bind({ kind: "session", id: target.id, save: target.save });
+    forget(PENDING);                                            // the changes made before the conversation was made are in it now
+    write(target.settings || machineSettings() || {}); drawPresets(""); showActive();
+  }
+  /* no conversation: a new one starts from the machine default; `clear` drops the changes made for it so far */
+  function fresh(clear) {
+    if (scope.kind === "new" && !clear) return;
+    bind({ kind: "new" });
+    startNew(clear);
+  }
+  /* the panel in another place of the page, for a plan or the machine default; `end` is told when it is closed */
+  async function edit(host, target) {
+    if (hosted) endEdit();
+    if (!target.settings && serverPresets === null) await fetchPresets();      // a plan with no settings of its own shows the machine default: it is known before the panel is shown
+    const panel = $("#chatset");
+    hosted = { host, home: panel.parentNode, next: panel.nextSibling, was: scope, hidden: panel.hidden, end: target.end };
+    host.append(panel);
+    panel.hidden = false;
+    bind({ kind: target.kind, label: target.label, save: target.save });
+    write(target.settings || machineSettings() || {}); drawPresets(""); showActive();
+    $("#cs-title").scrollIntoView({ block: "nearest" });
+  }
+  function endEdit() {
+    if (!hosted) return;
+    flushNow();
+    const panel = $("#chatset"), h = hosted;
+    hosted = null;
+    h.home.insertBefore(panel, h.next);
+    panel.hidden = h.hidden;
+    const end = h.end;
+    scope = { kind: "new" };
+    startNew(false);
+    document.dispatchEvent(new CustomEvent("tadamoo:chatset-released"));      // the conversation that was open takes the panel back
+    if (end) end();
+  }
+  const editing = () => (hosted ? scope.kind : "");
 
   /* the model's defaults as placeholders (GET /props) */
   async function defaults() {
@@ -321,10 +345,10 @@ const chatSettings = (() => {
     }
   }
   document.addEventListener("tadamoo:key", () => { defaults(); fetchPresets(); });
-  // the wizard saved a new Machine Default: a client that follows the default takes it now
+  // the wizard saved a new Machine Default: a new conversation that was not changed by hand takes it now
   document.addEventListener("basalt:machine", async () => {
     await fetchPresets();
-    if (!last.edited && !last.name) { followDefault(); showActive(); }
+    if (scope.kind === "new" && !edited) startNew(false);
   });
   document.addEventListener("tadamoo:view", e => { if (e.detail === "chat" || e.detail === "agent") defaults(); });
 
@@ -337,11 +361,11 @@ const chatSettings = (() => {
     document.dispatchEvent(new CustomEvent("tadamoo:showreasoning"));
   });
 
-  write(load(STORE, {}));
+  startNew(false);
   drawPresets("");
   defaults();
-  fetchPresets();
+  fetchPresets().then(() => { if (scope.kind === "new" && !edited) startNew(false); });
   if (load("tadamoo.chatset.open", false) && innerWidth > 980) openPanel(true);
   const patterns = () => read().context_patterns || {};
-  return { body, system, policy, threshold, structured, showReasoning, autoContinue, patterns, live };
+  return { body, system, policy, threshold, structured, showReasoning, autoContinue, patterns, read, useSession, fresh, edit, endEdit, editing, machineSettings };
 })();

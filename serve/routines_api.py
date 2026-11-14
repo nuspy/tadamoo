@@ -31,14 +31,15 @@ class RoutinesApi:
     def __init__(self, directory: str | Path, sessions: Any, scheduler: Optional[Scheduler] = None,
                  power_source: Optional[Callable[[], Any]] = None, plan_paused: Optional[Callable[[str], bool]] = None,
                  plan_context: Optional[Callable[[str], Dict[str, Any]]] = None,
-                 knowledge: Optional[Callable[[str, str, Any], Dict[str, Any]]] = None) -> None:
+                 knowledge: Optional[Callable[[str, str, Any], Dict[str, Any]]] = None,
+                 plan_inference: Optional[Callable[[str], Optional[Dict[str, Any]]]] = None) -> None:
         """`power_source()` returns the GPUs' power readings (the server's telemetry); with it each result carries its energy.
         `plan_paused(plan_id)` says whether a "plan" delivery's plan has its schedule stopped; `plan_context(plan_id)` gives a "plan"
         delivery's message template the plan's title, ready step and shared values (serve/plans.py `PlanService`). `knowledge(archive, action, cancel)` runs a "knowledge"
         delivery: it checks or updates the archive and returns the run's outcome."""
         self.sessions = sessions                          # its personal skills are what a skill routine runs
         meter = (lambda: EnergyMeter(power_source)) if power_source else None
-        runner = SessionRoutineRunner(sessions, plan_paused=plan_paused, plan_context=plan_context)
+        runner = SessionRoutineRunner(sessions, plan_paused=plan_paused, plan_context=plan_context, plan_inference=plan_inference)
         runner.knowledge = knowledge                        # a "knowledge" delivery checks or updates an archive (serve/rag_sync_api.py)
         self.scheduler = scheduler or Scheduler(directory, runner, meter=meter).start()
 

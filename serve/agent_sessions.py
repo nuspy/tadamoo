@@ -45,7 +45,7 @@ from tadamoo.vault import valid_code
 from serve.coding_prefs import project_key
 from tadamoo.roles import GENERAL as GENERAL_ROLE, ROLE_IDS, valid as valid_role
 from tadamoo.worktrees import WorktreeError, Worktrees
-from serve import ROOT
+from serve import ROOT, inference
 from serve.api import logit_bias
 from serve.agent_runs import MODES, RunBusy, RunError
 from serve.approvals import ApprovalBoard
@@ -151,7 +151,7 @@ class SessionManager:
                  rule_of_two: Optional[Callable[[], str]] = None, allow_rules: Any = None, rule_of_two_prefs: Any = None,
                  intake_flags: Optional[Callable[[], List[str]]] = None,
                  gate_flags: Optional[Callable[[], List[str]]] = None, coding: Any = None,
-                 compaction_flags: Optional[Callable[[], List[str]]] = None, past: Any = None, exec_level_file: Optional[Path] = None, persistence_file: Optional[Path] = None, lessons_dir: Optional[Path] = None, next_steps_file: Optional[Path] = None, file_owners_path: Optional[Path] = None,
+                 plan_effort: Optional[Callable[[str, str], str]] = None, past: Any = None, exec_level_file: Optional[Path] = None, persistence_file: Optional[Path] = None, lessons_dir: Optional[Path] = None, next_steps_file: Optional[Path] = None, file_owners_path: Optional[Path] = None,
                  forgetter: Any = None, cards: Any = None, personas_dir: Optional[Path] = None, rag_dir: Optional[Path] = None, persona_learning: Any = None, media_file: Optional[Path] = None) -> None:
         self.directory = Path(directory) / "sessions"
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -185,7 +185,7 @@ class SessionManager:
         self.knowledge_flags = knowledge_flags                  # the options for the project notes, the wiki and the reference documents (Settings, Memories)
         self.intake_flags = intake_flags                        # the options for the look at a request, the questions and the suggestions (Settings, General)
         self.coding = coding                                    # what the person accepted for each folder (serve/coding_prefs.py)
-        self.compaction_flags = compaction_flags                # the options for the summary of older steps inside a long turn (Settings, General)
+        self.plan_effort = plan_effort                          # (plan, step) -> how long the model thinks on that step, or "" for the plan's own level
         self.gate_flags = gate_flags                            # the options for the verify gate, the budget's last report and the model-error proposal (Settings, Gate)
         self.allow_rules = allow_rules                          # the rules the person allowed for every conversation (serve/allow_rules.py)
         self.rule_of_two_prefs = rule_of_two_prefs              # where "always" is written when the person stops the Rule of Two's question for good
@@ -208,6 +208,7 @@ class SessionManager:
         self._unconfirmed: Dict[str, Dict[str, Any]] = {}      # the message sent and not yet accepted
         self.plan_effect = plan_effect                          # told what a conversation did while it worked on a plan's step (plan, step, tool, effect, what)
         self._step: Dict[str, Tuple[Any, Any]] = {}            # the plan step each conversation is working on, from its own tool calls
+        self._effort_now: Dict[str, str] = {}                  # the thinking level a conversation's process was last told because of a plan step
         self._calls: Dict[str, Dict[str, Tuple[str, Dict[str, Any], Any]]] = {}      # tool calls started and not yet ended
         self._learned: Dict[str, Dict[str, str]] = {}
         self._compare_lock = threading.Lock()                   # the two sides of a comparison, and two comparisons, run one after the other
@@ -267,6 +268,8 @@ class SessionManager:
             if r.get("state") not in ("closed",):
                 r["state"] = "dormant"                       # no process survives the server
             r.pop("ask", None)                                # and a confirmation it was waiting for goes with it
+            if "inference" not in r:
+                r["inference"] = inference.from_record(r)    # a conversation made before the settings were kept with it shows what it runs with
         return out
 
     def _save(self) -> None:
@@ -929,9 +932,11 @@ class SessionManager:
             step = self._step.get(sid)
             if tool == "plan_step_start" and " started" in str(data.get("output") or "")[:300]:
                 self._step[sid] = (args.get("plan_id"), args.get("node_id"))
+                self._step_effort(sid, args.get("plan_id"), args.get("node_id"))
             elif tool == "plan_mark":
                 if step == (args.get("plan_id"), args.get("node_id")) and args.get("status") in ("completed", "failed", "skipped", "timed_out"):
                     self._step.pop(sid, None)
+                    self._step_effort(sid, args.get("plan_id"), "")
             elif step and effect in ("reversible", "irreversible") and not tool.startswith("plan_") and self.plan_effect is not None:
                 from tadamoo.rewind import describe_call
                 try:
@@ -942,12 +947,26 @@ class SessionManager:
     # -- creating ----------------------------------------------------------------------------------------
 
     def create(self, workspace: Any, mode: Any = "default", allow: Any = None, ask_only: bool = False, title: Any = "",
-               max_turns: Any = UNLIMITED_STEPS, context_patterns: Any = None,
-               context_policy: Any = "stop", context_threshold: Any = 0.8, end_turn_bias: Any = None, worktree: Any = "auto", effort: Any = "",
+               max_turns: Any = None, context_patterns: Any = None,
+               context_policy: Any = None, context_threshold: Any = None, end_turn_bias: Any = None, worktree: Any = "auto", effort: Any = None,
                images: Any = "", charts: Any = "", unattended: bool = False, role: Any = GENERAL_ROLE, private: bool = False,
                alias: Any = "", cross_commands: Any = None, parent: Any = "", operating_rules: Any = None,
-               budget_day_tokens: Any = None, persona: Any = "", channel: str = "chat", knowledge: Any = None, council: Any = False) -> Dict[str, Any]:
+               budget_day_tokens: Any = None, persona: Any = "", channel: str = "chat", knowledge: Any = None, council: Any = False,
+               inference_settings: Any = None) -> Dict[str, Any]:
+        """A new conversation. Its inference settings are `inference_settings` (the panel's) when given, else the machine default; the plain arguments
+        (`max_turns`, `effort`, `context_policy`, `context_threshold`, `end_turn_bias`) override one of them for this conversation."""
         from serve.agent_runs import AgentRunner
+        try:
+            settings = inference.resolve(inference_settings)
+        except ValueError as e:
+            raise RunError(str(e), "bad_inference") from None
+        base = inference.fields(settings)
+        max_turns = base["max_turns"] if max_turns is None else max_turns
+        effort = base["effort"] if effort is None else effort
+        context_policy = base["context_policy"] if context_policy is None else context_policy
+        context_threshold = base["context_threshold"] if context_threshold is None else context_threshold
+        end_turn_bias = base["end_turn_bias"] if end_turn_bias is None else end_turn_bias
+        context_patterns = settings.get("context_patterns") if context_patterns is None else context_patterns
         persona = self._check_persona(persona)
         attached = self._check_knowledge(knowledge)
         if channel not in CHANNELS:
@@ -1001,9 +1020,13 @@ class SessionManager:
             raise RunError("The copy of the folder is off, auto or always.", "bad_worktree")
         sid = secrets.token_hex(4)
         copy = self._copy_for(sid, path, worktree)
-        rec = {"id": sid, "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "role": role, "effort": effort, "images": images, "charts": charts, "persona": persona, "council": council is True,
+        rec = {"id": sid, "inference": settings, "context_policy": context_policy, "compaction": context_policy == "compact",
+               "compaction_threshold": min(inference.FOLD_LIMITS[1], max(inference.FOLD_LIMITS[0], float(context_threshold))),
+               "context_patterns": patterns, "context_threshold": float(context_threshold), "end_turn_bias": float(end_turn_bias or 0), "title": str(title or "").strip()[:TITLE_CHARS], "workspace": str(path), "mode": mode, "role": role, "effort": effort, "images": images, "charts": charts, "persona": persona, "council": council is True,
                "allow": [r.strip() for r in rules], "ask_only": bool(ask_only), "max_turns": max_turns, "unattended": unattended is True, "parent": parent or "", "depth": depth,
                "budget_day_tokens": budget_day_tokens, "channel": channel,
+               **({"temperature": base["temperature"]} if base["temperature"] is not None else {}),
+               **({"max_tokens": base["max_tokens"]} if base["max_tokens"] else {}), **({"sampling": base["sampling"]} if base["sampling"] else {}),
                "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": 0}
         if copy:
             rec["worktree"], rec["workdir"] = copy, copy["workdir"]
@@ -1121,8 +1144,12 @@ class SessionManager:
             cmd += self.intake_flags()
         if self.gate_flags and not rec.get("ask_only"):
             cmd += self.gate_flags()
-        if self.compaction_flags:
-            cmd += self.compaction_flags()
+        if rec.get("compaction", True):
+            cmd += ["--compaction-threshold", str(rec.get("compaction_threshold", inference.fields({})["compaction_threshold"]))]
+        else:
+            cmd.append("--no-compaction")
+        if rec.get("sampling"):
+            cmd += ["--sampling", json.dumps(rec["sampling"])]
         if rec.get("context_patterns"):
             cmd += ["--context-patterns", json.dumps(rec["context_patterns"])]
         if rec.get("context_threshold"):
@@ -1141,6 +1168,7 @@ class SessionManager:
 
     def _spawn(self, sid: str) -> Live:
         rec = self._record(sid)
+        self._effort_now.pop(sid, None)
         if rec.get("worktree"):
             try:
                 self.worktrees.ensure(rec["worktree"])
@@ -2154,11 +2182,64 @@ class SessionManager:
             rec = self._record(sid)
             if rec["state"] == "closed":
                 raise RunError("That conversation is closed.", "closed")
-            self._set(rec, effort=level)
+            self._set(rec, effort=level, inference={**(rec.get("inference") or {}), "effort": level})
+            self._effort_now.pop(sid, None)
             told = self._tell_if_running(sid, {"cmd": "effort", "level": level})
         if not told:
             self._push(sid, {"event": "effort", "level": level})
         return self.get(sid)
+
+    def set_inference(self, sid: str, settings: Any) -> Dict[str, Any]:
+        """Replaces the inference settings of a conversation (the panel's, whole). The thinking level, the steps, the end-of-turn bias, the sampling, the most a
+        reply may write and where the context is folded take effect from the conversation's next model call; the context patterns, from its next start."""
+        try:
+            settings = inference.normalize(settings)
+        except ValueError as e:
+            raise RunError(str(e), "bad_inference") from None
+        f = inference.fields(settings)
+        patterns = context_patterns_mod.check_config(settings.get("context_patterns")) if settings.get("context_patterns") else {}
+        if f["context_policy"] != "stop":
+            patterns = context_patterns_mod.with_policy(settings.get("context_patterns") or {}, f["context_policy"])
+        with self._lock:
+            rec = self._record(sid)
+            if rec["state"] == "closed":
+                raise RunError("That conversation is closed.", "closed")
+            changes = {"inference": settings, "effort": f["effort"], "context_policy": f["context_policy"], "context_threshold": f["context_threshold"],
+                       "compaction": f["compaction"], "compaction_threshold": f["compaction_threshold"], "max_turns": f["max_turns"],
+                       "end_turn_bias": f["end_turn_bias"], "temperature": f["temperature"], "max_tokens": f["max_tokens"], "sampling": f["sampling"],
+                       "context_patterns": patterns}
+            effort_changed = self._effort_now.pop(sid, rec.get("effort", "")) != f["effort"]
+            now = {"max_turns": f["max_turns"], "end_turn_bias": f["end_turn_bias"], "temperature": f["temperature"], "max_tokens": f["max_tokens"],
+                   "sampling": f["sampling"], "fold": {"on": f["compaction"], "threshold": f["compaction_threshold"], "mask": f["context_threshold"]}}
+            was = {"max_turns": rec.get("max_turns", UNLIMITED_STEPS), "end_turn_bias": rec.get("end_turn_bias", 0.0), "temperature": rec.get("temperature"),
+                   "max_tokens": rec.get("max_tokens"), "sampling": rec.get("sampling") or {},
+                   "fold": {"on": rec.get("compaction", True), "threshold": rec.get("compaction_threshold"), "mask": rec.get("context_threshold")}}
+            live = {k: v for k, v in now.items() if v != was[k]}
+            self._set(rec, **changes)
+            told = self._tell_if_running(sid, {"cmd": "settings", **live}) if live else True
+            if effort_changed:
+                self._tell_if_running(sid, {"cmd": "effort", "level": f["effort"]})
+        if not told:
+            self._push(sid, {"event": "settings", **live})
+        return self.get(sid)
+
+    def _step_effort(self, sid: str, plan_id: Any, node_id: Any) -> None:
+        """A conversation that works on a plan's step thinks as long as that step says; with none said, as long as the plan says. The conversation's
+        own record keeps the plan's level; only the running process is told."""
+        if self.plan_effort is None:
+            return
+        try:
+            step = self.plan_effort(str(plan_id or ""), str(node_id or "")) if node_id else ""
+        except Exception:
+            step = ""
+        with self._lock:
+            rec = next((r for r in self.records if r["id"] == sid), None)
+            if rec is None or rec["state"] == "closed":
+                return
+            level = step if step in EFFORTS and step else (rec.get("inference") or {}).get("effort") or ""
+            if self._effort_now.get(sid, rec.get("effort", "")) != level:
+                self._effort_now[sid] = level
+                self._tell_if_running(sid, {"cmd": "effort", "level": level})
 
     def _check_persona(self, slug: Any) -> str:
         """The personality a conversation speaks as: empty for none, else one that exists."""
@@ -2303,7 +2384,9 @@ class SessionManager:
             rec = self._record(sid)
             if rec["state"] == "closed":
                 raise RunError("That conversation is closed.", "closed")
-            self._set(rec, **changes)
+            kept = dict(rec.get("inference") or {})
+            kept.update({k: ("" if v is None else str(v)) for k, v in changes.items()})
+            self._set(rec, **changes, inference=kept)
             told = self._tell_if_running(sid, {"cmd": "settings", **changes})
         if not told:
             self._push(sid, {"event": "settings", **changes})
