@@ -21,7 +21,7 @@ from serve.memories_api import MemoriesApi
 from serve.memory_worker import MemoryWorker, gpu_free
 from serve.plans import PlanService
 from serve.service import Service
-from serve.tasks import ChangeJournal, TaskJournal
+from serve.changes import ChangeJournal
 from serve.util.text import ByteTokenizer
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -79,7 +79,7 @@ class Plain(unittest.TestCase):
         cls.svc.keys = ApiKeys(base / "keys.json")
         cls.svc.remote = RemoteAccess(base / "remote.json", 0, lambda ip, port: None)
         cls.mem = PersonalMemory(base / "pm", key=KEY)
-        cls.patches = [mock.patch.object(handler, "_TASKS", TaskJournal(base / "j")), mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j")),
+        cls.patches = [mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j")),
                        mock.patch.object(handler, "_PLANS", PlanService(base / "planner")), mock.patch.object(handler, "_PERSONAL", cls.mem),
                        mock.patch.object(handler, "_MEMORIES", MemoriesApi(cls.mem))]
         for p in cls.patches:

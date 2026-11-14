@@ -6,7 +6,7 @@ checks the person configured) and gives each unmet criterion a verdict. All achi
 the last attempt fell short and what to change, new tasks are made for the unmet part only, and the loop goes on. The same unmet items
 with the same evidence for N passes ask for one different approach, then the loop stops with a report.
 
-This module holds the data model and the loop. The conversation, the model and the task registry are handed in (see `Conversation`,
+This module holds the data model and the loop. The conversation, the model and the register of open work are handed in (see `Conversation`,
 `StructuredLLM`, `Registry`), so the loop runs the same against the real conversation of the server and against a script in the tests.
 """
 from __future__ import annotations
@@ -145,7 +145,7 @@ class Conversation(Protocol):
 
 
 class Registry(Protocol):
-    def record(self, task_id: str, status: str, result: str = "", children: Optional[List[str]] = None,
+    def report(self, task_id: str, status: str, result: str = "", children: Optional[List[str]] = None,
                metadata: Optional[Dict[str, Any]] = None) -> Any: ...
 
 
@@ -513,7 +513,7 @@ class TargetLoop:
         kids = [self._reg_id(k["id"]) for k in self.t["tasks"] if k["parent"] == task["id"]]
         status = group_status(task, self.t["tasks"]) if kids else task["status"]
         task["status"] = status if kids else task["status"]
-        self.registry.record(self._reg_id(task["id"]), status, _clip(task["result"], RESULT_CHARS), children=kids or None,
+        self.registry.report(self._reg_id(task["id"]), status, _clip(task["result"], RESULT_CHARS), children=kids or None,
                              metadata={"kind": "target", "target": self.t["id"], "session": self.t["session"], "title": task["title"],
                                        "serves": task["serves"], "depends_on": [self._reg_id(d) for d in task["depends_on"]]})
 
@@ -756,7 +756,7 @@ class TargetLoop:
             for task in self.t["tasks"]:
                 shown = group_status(task, self.t["tasks"]) if any(k["parent"] == task["id"] for k in self.t["tasks"]) else task["status"]
                 if shown in ("pending", "running") and state != "blocked":        # what was never done leaves the registry; the target keeps it for a resume
-                    self.registry.record(self._reg_id(task["id"]), "closed", _clip(task["result"], RESULT_CHARS))
+                    self.registry.report(self._reg_id(task["id"]), "closed", _clip(task["result"], RESULT_CHARS))
                 else:
                     self._sync(task)
             now = time.time()

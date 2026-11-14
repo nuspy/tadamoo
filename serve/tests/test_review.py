@@ -12,7 +12,7 @@ from serve.engine.mock import MockEngine
 from serve.frontend import ChatTemplate
 from serve.handler import serve
 from serve.service import Service
-from serve.tasks import ChangeJournal, TaskJournal
+from serve.changes import ChangeJournal
 from serve.util.text import ByteTokenizer
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -176,8 +176,8 @@ class JournalTest(unittest.TestCase):
             self.journal.review_action(out["id"], "reject_all")
 
     def test_only_the_latest_edits_keep_their_text(self):
-        from serve import tasks
-        with mock.patch.object(tasks, "MAX_REVIEWABLE", 2):
+        from serve import changes
+        with mock.patch.object(changes, "MAX_REVIEWABLE", 2):
             ids = [self.record(f"f{i}.txt")["id"] for i in range(4)]
         states = {e["id"]: e["review"] for e in self.journal.view()["edits"]}
         self.assertEqual([states[i] for i in ids], ["unavailable", "unavailable", "pending", "pending"])
@@ -199,8 +199,7 @@ class ApiTest(unittest.TestCase):
         base = Path(cls.tmp.name)
         cls.root = base / "ws"
         cls.root.mkdir()
-        cls.patches = [mock.patch.object(handler, "_TASKS", TaskJournal(base / "j")),
-                       mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j"))]
+        cls.patches = [mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j"))]
         for p in cls.patches:
             p.start()
         cls.httpd = serve(cls.svc, port=0)

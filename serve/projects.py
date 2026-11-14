@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from serve.agent_runs import AgentRunner, RunError
-from serve.tasks import _write_json
+from serve.util.files import write_json
 
 PROJECTS_FILE = "projects.json"
 REGISTRY_DIR = ".tadamoo"
@@ -38,7 +38,7 @@ class ProjectStore:
             return []
 
     def _save(self) -> None:
-        _write_json(self.file, {"schema": "1.0", "projects": self._items})
+        write_json(self.file, {"schema": "1.0", "projects": self._items})
 
     def list(self) -> List[Dict[str, Any]]:
         """The folders in the order they were last used, each with whether it is still there."""
@@ -108,6 +108,6 @@ class ProjectStore:
                 pass
             rows = [{"id": s["id"], "title": s.get("title", ""), "created": s.get("created"), "updated": s.get("updated"), "mode": s.get("mode", "")}
                     for s in sorted(sessions, key=lambda s: s.get("created", 0))]
-            _write_json(registry, {"basalt_project": REGISTRY_VERSION, "name": folder.name or str(folder), "created": created, "conversations": rows})
+            write_json(registry, {"basalt_project": REGISTRY_VERSION, "name": folder.name or str(folder), "created": created, "conversations": rows})
         except OSError as exc:
             raise RunError(f"TaDaMoo cannot write in that folder, so it cannot keep its registry there: {exc}", "folder_readonly") from None

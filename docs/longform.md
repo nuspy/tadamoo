@@ -41,7 +41,7 @@ Where the control line is on a message:
 
 - **One text, nothing else to do:** the harness writes it alone, as above (the length is estimated first; a short text goes back to the model).
 - **Several separate texts** ("write the 10 chapters", `separate_texts`): the turn goes on with the model and a `[harness]` note after the message
-  that lists the texts and says to write each with its own `write_long` call. The parts are recorded in the task registry like the parts of any large request.
+  that lists the texts and says to write each with its own `write_long` call. The parts are recorded in the register of open work like the parts of any large request.
 - **A text that depends on a file, a page or an attachment:** left to the model, which reads first and then writes the long part with `write_long`.
 - The `[state]` note carries `long_answer=on (mode, about N words)` when it comes on or changes and `long_answer=off` when it goes off, so the model knows
   what it is working under (`self_status` too).

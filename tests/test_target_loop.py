@@ -7,7 +7,7 @@ import pytest
 
 from tadamoo import target as tg
 from tadamoo.client import TadamooError
-from serve.tasks import TaskJournal
+from tadamoo.taskboard import TaskBoard
 
 
 class FakeLLM:
@@ -79,9 +79,30 @@ def fix(*tasks, analysis=()):
     return {"analysis": [{"id": i, "why": w, "change": c} for i, w, c in analysis], "tasks": list(tasks)}
 
 
+class Register:
+    """The register of the project the target works in, and what the loop reported to it (a finished task is deleted, so what it said is what is left to check)."""
+
+    def __init__(self, board):
+        self.board, self.said = board, []
+
+    def report(self, task_id, status, result="", children=None, metadata=None, session="", by="agent"):
+        self.said.append((task_id, status, result, children, metadata or {}))
+        return self.board.report(task_id, status, result, children, metadata, session, by)
+
+    def view(self):
+        return self.board.view()
+
+    def last(self, target, local):
+        """The last status the loop reported for one of the target's tasks."""
+        return [s[1] for s in self.said if s[0] == f"tg-{target['id']}-{local}"][-1]
+
+    def present(self, target, local):
+        return next((r for r in self.board.view() if r["id"] == f"tg-{target['id']}-{local}"), None)
+
+
 @pytest.fixture
 def journal(tmp_path):
-    return TaskJournal(tmp_path / "journal")
+    return Register(TaskBoard(tmp_path / "project"))
 
 
 def run_loop(llm, conv, registry, text="Make A and B.", options=None, waits=(0.01,)):
@@ -147,10 +168,10 @@ def test_everything_achieved_in_one_pass_closes_the_loop_and_fills_the_registry(
     assert len(conv.prompts) == 2 and len(llm.of("target_verdict")) == 1 and not llm.of("target_fix")
     assert conv.prompts[0].startswith("Make A and B.\n\n---\nTarget Loop") and "Target:" not in conv.prompts[0].split("---", 1)[1]      # the text is the person's message
     assert conv.prompts[1].startswith("Target Loop · task 2 of 2") and "Target:\nMake A and B." in conv.prompts[1]
-    registry = {t["id"]: t for t in journal.load()["tasks"]}
-    assert registry[f"tg-{target['id']}-t2"]["children"] == [f"tg-{target['id']}-t2.1"]
-    assert registry[f"tg-{target['id']}-t1"]["status"] == "done" and registry[f"tg-{target['id']}-t2.1"]["status"] == "done"
-    assert registry[f"tg-{target['id']}-t1"]["metadata"]["kind"] == "target"
+    said = {s[0]: s for s in journal.said}
+    assert said[f"tg-{target['id']}-t2"][3] == [f"tg-{target['id']}-t2.1"] and said[f"tg-{target['id']}-t1"][4]["kind"] == "target"
+    assert journal.last(target, "t1") == "done" and journal.last(target, "t2.1") == "done" and journal.last(target, "t2") == "done"
+    assert journal.view() == []                                                                    # everything done: nothing is left in the register
     assert saved and [e["what"] for e in conv.events][-1] == "achieved"
 
 
@@ -204,11 +225,8 @@ def test_a_task_that_fails_is_recorded_and_the_judge_decides(journal):
     answers = [tg.TurnResult(stop_reason="error", error="model failed"), tg.TurnResult(final="fixed")]
     target, _, _ = run_loop(llm, FakeConversation(answer=lambda p: answers.pop(0)), journal)
     assert target["tasks"][0]["status"] == "failed" and target["state"] == "achieved"
-    assert journal_status(journal, target, "t1") == "failed"
-
-
-def journal_status(journal, target, local):
-    return next(t for t in journal.load()["tasks"] if t["id"] == f"tg-{target['id']}-{local}")["status"]
+    row = journal.present(target, "t1")
+    assert journal.last(target, "t1") == "failed" and row["state"] == "blocked" and row["missing"] == "model failed"          # a failed task stays, blocked, with why
 
 
 # -- checks --------------------------------------------------------------------------------------------------------------
@@ -267,7 +285,7 @@ def test_the_same_unmet_item_with_the_same_evidence_asks_for_a_different_approac
     assert len(llm.of("target_fix")) == 5                                          # fixes after passes 1, 2, 4 and 5, and the different approach after pass 3
     assert "CHANGES TRIED SO FAR" in llm.of("target_fix")[2] and "CHANGES TRIED SO FAR" not in llm.of("target_fix")[1]
     assert [e["what"] for e in conv.events].count("approach") == 1
-    leftovers = [t for t in journal.load()["tasks"] if t["status"] in ("pending", "running")]
+    leftovers = [t for t in journal.view() if t["state"] in ("queued", "running")]
     assert leftovers == []
 
 
@@ -300,7 +318,7 @@ def test_a_blocked_criterion_is_parked_and_the_rest_goes_on(journal):
     assert c1["status"] == "achieved" and c2["status"] == "blocked" and "phone" in c2["missing"]
     assert len(llm.of("target_verdict")) == 2 and "c2:" not in llm.of("target_verdict")[1].split("EVIDENCE")[0].split("CRITERIA TO JUDGE:")[1]
     assert [t["serves"] for t in target["tasks"] if t["round"] == 2] == [["c1"]]                    # the new tasks leave the parked criterion alone
-    assert journal_status(journal, target, "t2") == "done"                                         # it ran in the first pass, before the verdict
+    assert journal.last(target, "t2") == "done" and journal.present(target, "t2") is None                      # it ran in the first pass, before the verdict; done leaves the register
 
 
 def test_tasks_that_only_serve_a_parked_criterion_wait_in_the_registry(journal):
@@ -336,7 +354,7 @@ def test_stopping_mid_run_ends_the_target_and_puts_the_task_back(journal):
     assert not thread.is_alive()
     assert target["state"] == "stopped" and target["stop_reason"] == "person"
     assert [t["status"] for t in target["tasks"]] == ["pending", "pending"] and not llm.of("target_verdict")
-    assert [t for t in journal.load()["tasks"] if t["status"] in ("pending", "running")] == []        # what was not done leaves the registry
+    assert [t for t in journal.view() if t["state"] in ("queued", "running")] == []                    # what was not done leaves the registry
 
 
 def test_a_model_that_is_not_reachable_is_waited_for_and_a_stop_ends_the_wait(journal):

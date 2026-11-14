@@ -289,13 +289,11 @@ def test_a_ready_step_for_the_agent_starts_after_the_yes_and_shows_in_the_tasks_
     res = reg.execute("plan_step_start", {"plan_id": pid, "node_id": "s1", "quote": "inizia il primo passo"})
     assert "Step s1 started (quoted)" in res and "mark the step completed or failed" in res
     assert client.snapshot(pid)["plan"]["nodes"]["s1"]["status"] == "in_progress"
-    tasks = client._call("GET", "/api/tasks")["tasks"]
-    row = next(x for x in tasks if x["id"] == f"plan:{pid}:s1")
-    assert row["status"] == "running" and row["metadata"]["plan"] == pid
+    assert not [x for x in client._call("GET", "/api/tasks")["tasks"] if x["id"].startswith("plan:")]            # a plan's steps are the plan's: they are never copied into the register
     agent.last_user_text = "segnalo fatto il passo, completalo"
     reg.execute("plan_get", {"plan_id": pid})
     reg.execute("plan_mark", {"plan_id": pid, "node_id": "s1", "status": "completed", "quote": "completalo"})
-    assert next(x for x in client._call("GET", "/api/tasks")["tasks"] if x["id"] == f"plan:{pid}:s1")["status"] == "done"
+    assert not [x for x in client._call("GET", "/api/tasks")["tasks"] if x["id"].startswith("plan:")]
     # a step for the person is not for the agent
     reg.execute("plan_get", {"plan_id": pid})
     assert "is for user" in reg.execute("plan_step_start", {"plan_id": pid, "node_id": "s2", "quote": ""}) or "not ready" in reg.execute("plan_step_start", {"plan_id": pid, "node_id": "s2", "quote": ""})

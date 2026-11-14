@@ -16,7 +16,7 @@ from serve.frontend import ChatTemplate
 from serve.handler import serve
 from serve.plans import PlanService
 from serve.service import Service
-from serve.tasks import ChangeJournal, TaskJournal
+from serve.changes import ChangeJournal
 from serve.util.text import ByteTokenizer
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -32,7 +32,7 @@ class VoiceRagServerTest(unittest.TestCase):
         base = Path(cls.tmp.name)
         cls.env = mock.patch.dict(os.environ, {"TADAMOO_DATA": str(base / "data"), "TADAMOO_CACHE": str(base / "cache")})
         cls.env.start()
-        cls.patches = [mock.patch.object(handler, "_TASKS", TaskJournal(base / "j")), mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j")),
+        cls.patches = [mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j")),
                        mock.patch.object(handler, "_PLANS", PlanService(base / "planner")), mock.patch.object(handler, "_RAG", None), mock.patch.object(handler, "_RAG_EMBED", None)]
         for p in cls.patches:
             p.start()

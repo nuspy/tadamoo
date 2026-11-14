@@ -579,21 +579,12 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
                     f"Ready now: {', '.join(res.get('ready', [])) or 'nothing'}.")
         retry = res.get("retry")
         if retry:                                                   # the step has tries left: it is not failed yet
-            link_task(plan_id, node, "running")
             return (f"Step {node_id} failed on try {retry['attempt']} of {retry['of']} ({how}); its retry policy makes it ready again "
                     f"in {round(retry['wait_seconds'])} seconds. It is not marked failed. Ready now: {', '.join(res.get('ready', [])) or 'nothing'}.")
         if status in ("completed", "failed", "skipped"):
-            link_task(plan_id, node, {"completed": "done", "failed": "failed", "skipped": "closed"}[status])
             bring([])
         return (f"Step {node_id} marked {status} ({how})" + (f"; plan values set: {writes}" if writes else "")
                 + f". Ready now: {', '.join(res.get('ready', [])) or 'nothing'}.{tail}")
-
-    def link_task(plan_id: str, node: Dict[str, Any], status: str, result: str = "") -> None:
-        """The Tasks panel shows the step with its plan; a panel that cannot be reached never stops the work."""
-        try:
-            client.task(f"plan:{plan_id}:{node['id']}", status, result, {"plan": plan_id, "step": node["id"], "title": node.get("title", "")})
-        except Exception:
-            pass
 
     def plan_step_start(plan_id: str, node_id: str, quote: str = "") -> str:
         """Starts a step the agent is to do: it must be ready, and the person says yes. The work is then done with the usual tools in
@@ -620,7 +611,6 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
             seen[plan_id] = int(client.snapshot(plan_id).get("rev") or seen[plan_id])
         except Exception as exc:
             return failure(exc)
-        link_task(plan_id, node, "running")
         inherited: Dict[str, Any] = {}
         for parent in node.get("dependencies") or []:
             inherited.update(((snap["plan"]["nodes"].get(parent) or {}).get("state_variables") or {}).get("outputs") or {})

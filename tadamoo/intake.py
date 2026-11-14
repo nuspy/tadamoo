@@ -6,7 +6,7 @@ worth making. In `rules` mode (the default) there is never a call: the gate only
 says so: one grammar-constrained form, every quotation checked against the person's text, the ask-or-act decision made here in code,
 never by the model. Whatever is asked becomes one card (tadamoo/questions.py); whatever is assumed or listed becomes one short note after
 the person's message, so the cached prefix of the conversation is untouched. A request that lists three or more deliverables is
-recorded in the task registry as a parent with its parts. Nothing here ever blocks an unattended run.
+recorded in the project's register of open work as a parent with its parts. Nothing here ever blocks an unattended run.
 """
 from __future__ import annotations
 
@@ -14,13 +14,10 @@ import json
 import logging
 import re
 import unicodedata
-import urllib.error
-import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from tadamoo import control_secret
 from tadamoo import questions as qs
 from tadamoo import side_uses
 from tadamoo.side import side_extra
@@ -332,27 +329,26 @@ def note_text(*, assumptions: List[str], look: List[str], constraints: List[str]
     return NOTE_HEAD + "\n" + "\n".join(lines) if lines else ""
 
 
-# -- the task registry --------------------------------------------------------------------------------------------------
+# -- the register of open work --------------------------------------------------------------------------------------------------
 
 class TaskSink:
-    """Posts to the server's task registry (`/api/tasks`); a courtesy, so a failure is logged once and never raises."""
+    """Writes a large request and its parts into the project's register of open work (tadamoo/taskboard.py), in the conversation's name; a courtesy, so a failure is logged once
+    and never raises."""
 
-    def __init__(self, base_url: str, api_key: Optional[str] = None, timeout: float = 3.0) -> None:
-        self.base_url, self.api_key, self.timeout, self.failed = (base_url or "").rstrip("/"), api_key, timeout, False
+    def __init__(self, board: Any, session: Callable[[], str] = lambda: "", after: Optional[Callable[[], None]] = None) -> None:
+        self.board, self.session, self.after, self.failed = board, session, after, False
 
     def record(self, task_id: str, status: str, result: str = "", children: Optional[List[str]] = None, metadata: Optional[Dict[str, Any]] = None) -> bool:
-        if not self.base_url or self.failed:
+        if self.failed:
             return False
-        headers = {"Content-Type": "application/json", **({"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}), **control_secret.header_for(self.base_url)}
-        body = {"id": task_id, "status": status, "result": result[:300], **({"children": children} if children is not None else {}), **({"metadata": metadata} if metadata else {})}
-        req = urllib.request.Request(self.base_url + "/api/tasks", data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                resp.read()
+            self.board.report(task_id, status, result[:300], children, metadata, self.session())
+            if self.after is not None:
+                self.after()                                          # the conversation made this change itself: it is not news to it
             return True
-        except (urllib.error.URLError, OSError, ValueError) as exc:
+        except Exception as exc:
             self.failed = True
-            log.warning("intake: task registry not reachable: %s", exc)
+            log.warning("intake: the register of open work could not be written: %s", exc)
             return False
 
 

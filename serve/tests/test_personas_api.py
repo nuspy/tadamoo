@@ -17,7 +17,7 @@ from serve.handler import serve
 from serve.personas_api import PersonasApi
 from serve.plans import PlanService
 from serve.service import Service
-from serve.tasks import ChangeJournal, TaskJournal
+from serve.changes import ChangeJournal
 from serve.util.text import ByteTokenizer
 from tadamoo import personas as pe
 
@@ -217,7 +217,7 @@ class Routes(unittest.TestCase):
         cls.svc = Service(MockEngine(tok, "</think>\n\nok", max_context=32768), tok, ChatTemplate(ROOT / "serve" / "chat_template.jinja"))
         cls.tmp = tempfile.TemporaryDirectory()
         base = Path(cls.tmp.name)
-        cls.patches = [mock.patch.object(handler, "_TASKS", TaskJournal(base / "j")), mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j")),
+        cls.patches = [mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j")),
                        mock.patch.object(handler, "_PLANS", PlanService(base / "planner")), mock.patch.object(handler, "_PERSONAS", PersonasApi(store(base)))]
         for p in cls.patches:
             p.start()

@@ -97,9 +97,9 @@ from serve.knowledge_prefs import KnowledgeError, KnowledgePrefs, check_wiki, cl
 from serve.llm_api import LlmApi, LlmError
 from serve.mcp_auth_api import McpAuthApi, McpAuthError, result_page
 from serve.approvals import ApprovalBoard, ApprovalError
-from serve.tasks import ChangeJournal, TaskJournal
-_TASKS = TaskJournal(userdata.path("journal"))        # runtime state lives in the user's data folder, not in the assets
-_CHANGES = ChangeJournal(userdata.path("journal"))
+from serve.changes import ChangeJournal
+from tadamoo.taskboard import TaskBoard
+_CHANGES = ChangeJournal(userdata.path("journal"))      # runtime state lives in the user's data folder, not in the assets
 _APPROVALS = ApprovalBoard()
 _RUNNER = None                                        # made on first use: it needs this server's address
 PICTURE_TYPES = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp", "svg": "image/svg+xml"}      # what a file of the folder may be shown as
@@ -127,6 +127,29 @@ _REGISTER = None                                      # the register of open wor
 _SKILLS = None                                        # the skill manager's side (a test puts its own here), made on first use
 _SKILLS_JOBS = Jobs()                                 # the one installation that runs at a time, whichever request asks
 _LLM = None                                           # the Providers page's side of llmswitch, made on first use
+
+
+def _project_store() -> ProjectStore:
+    global _PROJECTS
+    if _PROJECTS is None:
+        _PROJECTS = ProjectStore(userdata.path("journal"))
+    return _PROJECTS
+
+
+def _task_folders() -> List[Dict[str, str]]:
+    """The folders that have a register of open work: the ones the person added, the Chat's own, and the data folder's, for work that runs in a folder nobody added."""
+    rows = [{"path": p["path"], "name": p.get("name", "")} for p in _project_store().list()]
+    return rows + [{"path": str(userdata.path("chat-workspace")), "name": "Chat"}, {"path": str(userdata.path("journal")), "name": "Other", "optional": True}]
+
+
+def _board_for(workspace: Any = None) -> TaskBoard:
+    """The register of the folder a piece of work runs in; a folder that is not one of the above has none of its own, and its work goes in the data folder's."""
+    plans = userdata.path("planner") / "plans"
+    folders = _task_folders()
+    for f in folders[:-1]:
+        if isinstance(workspace, str) and workspace and os.path.normcase(os.path.abspath(workspace)) == os.path.normcase(os.path.abspath(f["path"])):
+            return TaskBoard(f["path"], plans)
+    return TaskBoard(folders[-1]["path"], plans)
 
 
 def _plans_service(svc: Service, port: int):
@@ -619,7 +642,7 @@ def make_handler(svc: Service, remote: bool = False):
                                      "max_context": svc.engine.max_context})
             elif path == "/api/tasks":
                 if self._authorized():
-                    self._json(200, _TASKS.load())
+                    self._json(200, self._tasks_view())
             elif path == "/api/changes":
                 if self._authorized():
                     self._json(200, _CHANGES.view())
@@ -931,17 +954,15 @@ def make_handler(svc: Service, remote: bool = False):
                     task_id = req.get("id")
                     if not task_id:
                         raise ValueError("task 'id' is required")
-                    action = req.get("action", "record")
-                    if action == "close":
-                        _TASKS.close(task_id)
+                    board = _board_for(req.get("project"))
+                    if req.get("action", "record") == "close":
+                        board.report(task_id, "closed")
                         self._json(200, {"status": "closed", "id": task_id})
                     else:
-                        status = req.get("status", "running")
-                        result = req.get("result", "")
-                        children = req.get("children")
-                        metadata = req.get("metadata")
-                        saved = _TASKS.record(task_id, status=status, result=result, children=children, metadata=metadata)
-                        self._json(200, {"status": "ok", "task": saved})
+                        children, metadata = req.get("children"), req.get("metadata")
+                        saved = board.report(task_id, req.get("status", "running"), str(req.get("result", "")), children if isinstance(children, list) else None,
+                                             metadata if isinstance(metadata, dict) else None, str(req.get("session") or ""))
+                        self._json(200, {"status": "ended" if saved is None else "ok", "task": saved})
                 except BadBody as e:
                     self._json(e.status, {"error": {"message": str(e)}})
                 except (ValueError, TypeError) as e:
@@ -2050,7 +2071,7 @@ def make_handler(svc: Service, remote: bool = False):
             global _RUNNER
             if _RUNNER is None:
                 _RUNNER = AgentRunner(userdata.path("journal"), f"http://127.0.0.1:{self.server.server_address[1]}",
-                                      svc.api_key or "", tasks=_TASKS, board=_APPROVALS)
+                                      svc.api_key or "", boards=_board_for, board=_APPROVALS)
             return _RUNNER
 
         def _stores(self):
@@ -2330,8 +2351,7 @@ def make_handler(svc: Service, remote: bool = False):
         def _register_api(self):
             if _REGISTER is not None:
                 return _REGISTER
-            return register_api.RegisterApi(lambda: [{"path": p["path"], "name": p.get("name", "")} for p in self._projects().list()] + [{"path": str(userdata.path("chat-workspace")), "name": "Chat"}],
-                                            userdata.path("planner") / "plans")
+            return register_api.RegisterApi(_task_folders, userdata.path("planner") / "plans")
 
         def _register(self, path, post):
             """The register of open work (serve/register_api.py): it writes only the folders the person added, so any device with a key may use it."""
@@ -3647,10 +3667,18 @@ def make_handler(svc: Service, remote: bool = False):
             self._json(404, {"error": {"message": "not found"}})
 
         def _projects(self) -> ProjectStore:
-            global _PROJECTS
-            if _PROJECTS is None:
-                _PROJECTS = ProjectStore(userdata.path("journal"))
-            return _PROJECTS
+            return _project_store()
+
+        def _tasks_view(self) -> dict:
+            """Every open task of every folder, flat, for the programs that report to the register and read it back: `status` is the state."""
+            rows = []
+            for f in _task_folders():
+                if Path(f["path"]).is_dir():
+                    for r in TaskBoard(f["path"], userdata.path("planner") / "plans").view():
+                        rows.append({"id": r["id"], "title": r["title"], "state": r["state"], "status": r["state"], "parent": r["parent"], "children": r["meta"].get("children", []),
+                                     "done": r["done"], "missing": r["missing"], "result": r["missing"] if r["state"] == "blocked" else r["done"], "metadata": r["meta"],
+                                     "links": r["links"], "by": r["by"], "created": r["created"], "updated": r["updated"], "project": f["path"], "project_name": f["name"]})
+            return {"schema": "2.0", "tasks": rows}
 
         def _agent_sessions(self) -> SessionManager:
             global _SESSIONS
@@ -3679,7 +3707,7 @@ def make_handler(svc: Service, remote: bool = False):
             global _TARGETS
             mgr = self._agent_sessions()
             if _TARGETS is None or _TARGETS.sessions is not mgr:
-                _TARGETS = TargetManager(mgr, _TASKS, lambda: _CHANGES.load().get("edits", []))
+                _TARGETS = TargetManager(mgr, _board_for, lambda: _CHANGES.load().get("edits", []))
             return _TARGETS
 
         def _plan_effect_sink(self):

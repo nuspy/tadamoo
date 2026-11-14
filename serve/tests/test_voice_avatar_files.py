@@ -21,7 +21,7 @@ from serve.handler import serve
 from serve.plans import PlanService
 from serve.remote import ApiKeys, RemoteAccess
 from serve.service import Service
-from serve.tasks import ChangeJournal, TaskJournal
+from serve.changes import ChangeJournal
 from serve.util.text import ByteTokenizer
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -98,7 +98,7 @@ class DeviceFiles(unittest.TestCase):
         cls.env.start()
         cls.svc.keys = ApiKeys(base / "keys.json", key=bytes(32))
         cls.svc.remote = RemoteAccess(base / "remote.json", 0, lambda ip, port: None)
-        cls.patches = [mock.patch.object(handler, "_TASKS", TaskJournal(base / "j")), mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j")),
+        cls.patches = [mock.patch.object(handler, "_CHANGES", ChangeJournal(base / "j")),
                        mock.patch.object(handler, "_PLANS", PlanService(base / "planner"))]
         for p in cls.patches:
             p.start()

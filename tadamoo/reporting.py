@@ -1,6 +1,7 @@
 """Tells the server's Agentic coding tab what the agent is doing and what it edited.
 
-The agent posts to the server it already talks to, to /api/tasks (one task per run, with its progress) and
+The agent posts to the server it already talks to, to /api/tasks (one task per run in the register of its folder: its progress is what is done so far; a run that ends well deletes
+its task, one that fails stays blocked with the reason) and
 /api/changes (each file edit with its diff). Reporting is a courtesy: it never changes a run, and after two
 failures in a row it stops trying so an unreachable server cannot slow the agent down.
 """
@@ -60,7 +61,7 @@ class PanelReporter:
     def _task(self, status: str, result: str) -> None:
         if not self.tasks:
             return
-        self._post("/api/tasks", {"id": self.task_id, "status": status, "result": result[:RESULT_CHARS],
+        self._post("/api/tasks", {"id": self.task_id, "status": status, "result": result[:RESULT_CHARS], "project": str(getattr(self.sandbox, "root", "") or ""),
                                   "metadata": {"kind": "agent", "goal": self.goal}})
 
     def start(self) -> None:

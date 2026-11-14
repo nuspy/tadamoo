@@ -73,9 +73,9 @@ Only for a message the person wrote (not a planner note, a command, a Target Loo
    confirmation), headed "not the user's words": the assumptions, what to find first, the person's requirements quoted, dates from the
    clock ("domani" = a weekday and a date), a reminder when the message lists three or more items, and the parts of a large request. The
    page shows a one-line version.
-8. **Parts in the task registry.** A request the form calls large, with three or more grounded parts, is recorded in `/api/tasks` as
-   `req-<turn>` with children `req-<turn>.1`, ... (`metadata.kind` is `intake`; title, the person's words, a "done when" and the parts it
-   follows). They are closed when the request ends, never marked done on the model's word. The checklist is also in the note, so the model
+8. **Parts in the register of open work.** A request the form calls large, with three or more grounded parts, is recorded in the project's register (the conversation's own tasks) as
+   `req-<turn>` with subtasks `req-<turn>.1`, ... (`metadata.kind` is `intake`; title, the person's words, a "done when" and the parts it
+   follows). They are deleted when the request ends (nothing is kept), never marked done on the model's word. The checklist is also in the note, so the model
    works through it in the same conversation. Running the parts one by one with their own prompts, and re-planning, are not built (the
    Target Loop does that for a described target).
 

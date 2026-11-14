@@ -267,3 +267,10 @@ Sull'app vera e su un telefono (Android e iPhone) con la tastiera a schermo, nel
 1. Scrivere «/» all'inizio: compare l'elenco dei comandi (con `/install-skill` e `/tasks`) sopra la casella, leggibile a 360 px e non coperto dalla tastiera; le lettere lo filtrano; con Su/Giù (tastiera fisica) o il tocco si sceglie; Tab, Freccia destra e Invio scelgono.
 2. Scrivere «@»: compare l'elenco delle altre conversazioni vere (dieci, la più recente per prima, con cartella e riassunto); scorrendo arrivano le altre; «@» più due lettere filtra per nome e per riassunto (anche con accenti); la scelta mette «@nome» nel messaggio e un'etichetta sopra la casella, la crocetta la toglie.
 3. Mandare un messaggio con una citazione: parte normalmente (il testo resta com'è), e sotto il messaggio compaiono le conversazioni citate; l'altra conversazione NON riceve niente (la consegna verrà dopo).
+
+## Un solo elenco dei compiti (14 novembre; provato con server, processi e browser finti, NON con il modello vero e NON sull'app vera)
+
+1. Lanciare dall'app vera una corsa nella scheda Agentic coding (o `tadamoo-agent -p "..." --workspace <cartella aggiunta>`): mentre lavora compare nella scheda Compiti, nel progetto giusto, come compito «in corso» con il passo («step 3: ...») in «Fatto finora»; a corsa finita bene sparisce; a corsa fallita (fermare il server del modello) resta «Bloccato» con il motivo, e si cancella dalla scheda; fermata dalla pagina sparisce.
+2. Un Target Loop vero: i suoi compiti e sotto-compiti compaiono come albero nel progetto (con `kind: target` e le dipendenze nei dettagli di `/api/tasks`), spariscono man mano che finiscono; un compito fallito resta bloccato.
+3. Una richiesta grande con tre o più parti (ammissione «intake» accesa): il compito della richiesta e le sue parti compaiono come compiti della conversazione e spariscono a fine richiesta.
+4. Un piano vero in esecuzione NON mette più i suoi passi nella scheda Compiti (solo la riga del piano, se collegata a un compito).
