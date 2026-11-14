@@ -111,7 +111,7 @@ def enhance_request(video: Any, scale: Any = None, factor: Any = None, mode: Any
     return out
 
 
-TAKE = {"width": 896, "height": 512, "fps": 25, "steps": 12, "crf": 4, "crf_preset": "medium", "frames_min": 9, "frames_max": 513}          # a presenter's take by LTX 2.5: up to 20 seconds in one pass
+TAKE = {"width": 896, "height": 512, "fps": 25, "steps": 12, "crf": 4, "crf_preset": "medium", "frames_min": 9, "frames_max": 1001}          # a presenter's take by LTX 2.5: up to 40 seconds (what fits in the VRAM is the settings' choice, newscast `ltx_shot_max_s`)
 
 
 def take_request(image: Any, audio: Any, prompt: Any, seconds: Any, seed: Any = None, negative: Any = "") -> Dict[str, Any]:
