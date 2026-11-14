@@ -259,3 +259,11 @@ Sull'app vera, a 360×640, 390×844 e oltre 1280, in italiano e in inglese, senz
 4. Cambiare un titolo e le note dalla scheda mentre una conversazione è aperta: al messaggio successivo l'agente riceve una sola riga («Your open tasks were changed outside you») e rilegge con `task_list`.
 5. Un piano vero (per esempio il telegiornale): `task_link_plan` fa del compito una riga sola «Piano …» con stato e avanzamento del piano; con un passo che aspetta te la riga è in evidenza e il banner lo conta; a piano finito la riga sparisce da sola. I passi del piano non compaiono come sotto-compiti.
 6. `/tasks`, `/tasks add <titolo>` e `/tasks resume <id>` nella Chat e nell'agente di codice; senza conversazione aperta `/tasks` apre la scheda.
+
+## Casella dei messaggi: «/» e «@» (14 novembre; provato con browser senza testa e tasti simulati, NON con una tastiera a schermo vera)
+
+Sull'app vera e su un telefono (Android e iPhone) con la tastiera a schermo, nella Chat e in Agentic coding:
+
+1. Scrivere «/» all'inizio: compare l'elenco dei comandi (con `/install-skill` e `/tasks`) sopra la casella, leggibile a 360 px e non coperto dalla tastiera; le lettere lo filtrano; con Su/Giù (tastiera fisica) o il tocco si sceglie; Tab, Freccia destra e Invio scelgono.
+2. Scrivere «@»: compare l'elenco delle altre conversazioni vere (dieci, la più recente per prima, con cartella e riassunto); scorrendo arrivano le altre; «@» più due lettere filtra per nome e per riassunto (anche con accenti); la scelta mette «@nome» nel messaggio e un'etichetta sopra la casella, la crocetta la toglie.
+3. Mandare un messaggio con una citazione: parte normalmente (il testo resta com'è), e sotto il messaggio compaiono le conversazioni citate; l'altra conversazione NON riceve niente (la consegna verrà dopo).
