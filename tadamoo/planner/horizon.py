@@ -62,11 +62,12 @@ class PlanProfile:
     ends_on: str = ""
     cost: Optional[Dict[str, str]] = None
     rag_archives: List[str] = field(default_factory=list)           # knowledge archives every step of this plan may use (ids)
+    inference: Dict[str, Any] = field(default_factory=dict)         # the inference settings of the conversations that carry the plan out (serve/inference.py); empty: the machine default
 
     def to_dict(self) -> Dict[str, Any]:
         return {"goals": list(self.goals), "review_every_days": self.review_every_days, "last_review": self.last_review, "budget": self.budget,
                 "commitments": [dict(c) for c in self.commitments], "starts_on": self.starts_on, "ends_on": self.ends_on, "cost": self.cost,
-                "rag_archives": list(self.rag_archives)}
+                "rag_archives": list(self.rag_archives), "inference": dict(self.inference)}
 
     @classmethod
     def from_dict(cls, data: Any) -> "PlanProfile":
@@ -74,7 +75,7 @@ class PlanProfile:
             return cls()
         if not isinstance(data, dict):
             raise ValueError("the profile is an object")
-        unknown = sorted(set(data) - {"goals", "review_every_days", "last_review", "budget", "commitments", "starts_on", "ends_on", "cost", "rag_archives"})
+        unknown = sorted(set(data) - {"goals", "review_every_days", "last_review", "budget", "commitments", "starts_on", "ends_on", "cost", "rag_archives", "inference"})
         if unknown:
             raise ValueError(f"the profile has no field: {', '.join(unknown)}")
         goals = data.get("goals") or []
@@ -97,12 +98,18 @@ class PlanProfile:
         archives = data.get("rag_archives") or []
         if not isinstance(archives, list) or len(archives) > 50 or any(not isinstance(a, str) or not re.match(r"^[a-z0-9][a-z0-9-]{0,63}$", a) for a in archives):
             raise ValueError("rag_archives is a list of at most 50 knowledge archive ids")
+        inference = {} if data.get("inference") is None else data["inference"]
+        if not isinstance(inference, dict):
+            raise ValueError("inference is an object of settings")
+        if inference:
+            from serve import inference as inference_settings
+            inference = inference_settings.normalize(inference)
         starts, ends = _date(data.get("starts_on"), "the start"), _date(data.get("ends_on"), "the end")
         if starts and ends and starts > ends:
             raise ValueError("the plan cannot end before it starts")
         return cls(goals=[g.strip() for g in goals], review_every_days=review, last_review=_date(data.get("last_review"), "the last review"),
                    budget=_money(data.get("budget"), "the budget", period=True), commitments=clean, starts_on=starts, ends_on=ends,
-                   cost=_money(data.get("cost"), "the cost"), rag_archives=list(dict.fromkeys(archives)))
+                   cost=_money(data.get("cost"), "the cost"), rag_archives=list(dict.fromkeys(archives)), inference=inference)
 
     def review_due(self, today: Optional[datetime.date] = None) -> bool:
         """A long-term plan not looked at for longer than it said it should be (never looked at counts as due)."""

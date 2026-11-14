@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Callable, Deque, Dict, List, Optional
 
 from .card import CARD_FIELDS, DERIVED_FIELDS, PlanInsightCard, card_gaps, derive_card
-from .dag import Assignee, PlanDAG, PlanError, edge_parts, node_to_dict
+from .dag import Assignee, NodeType, PlanDAG, PlanError, clean_effort, edge_parts, node_to_dict
 from .horizon import PlanProfile
 from .involvement import EXCEPTION_KINDS, split_diff
 from .nodes import catalogue as node_kinds
@@ -231,7 +231,7 @@ class PlanCanvasBridge:
             "plan:rewind": self._rewind, "plan:rewind_impact": self._rewind_impact, "plan:note_effect": self._note_effect, "plan:propose_diff": self._propose, "plan:approve": self._approve,
             "plan:reject": self._reject, "plan:human_fallback": self._offer_fallback,
             "plan:fallback_response": self._answer_fallback, "plan:update_meta": self._update_meta, "plan:event": self._feed,
-            "plan:start": self._start, "plan:answer": self._answer,
+            "plan:start": self._start, "plan:answer": self._answer, "plan:set_reasoning": self._set_reasoning,
         }
         handler = handlers.get(kind)
         if handler is None:
@@ -395,6 +395,17 @@ class PlanCanvasBridge:
         self._bump("update_node", node.title)
         self._emit("plan:node_updated", {"node": node_to_dict(node)})
         return {"node": node_to_dict(node), "ready": self.dag.ready_nodes()}
+
+    def _set_reasoning(self, e: Dict[str, Any]) -> Dict[str, Any]:
+        """The same thinking level on every action step that is not completed (`level` empty: each follows the plan again)."""
+        level = clean_effort(NodeType.ACTION, e.get("level"))
+        changed = [n.id for n in self.dag.nodes.values() if n.type == NodeType.ACTION and n.status != "completed" and n.effort != level]
+        for node_id in changed:
+            self.dag.nodes[node_id].effort = level
+        if changed:
+            self.dag._touch()
+            self._bump("update_node", f"thinking {level or 'as the plan says'} on {len(changed)} step(s)")
+        return {"level": level or "", "changed": changed}
 
     def _move(self, e: Dict[str, Any]) -> Dict[str, Any]:
         self.dag.move_node(e["node_id"], e.get("direction"))
