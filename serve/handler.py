@@ -58,7 +58,7 @@ from serve.files_api import FilesApi, FilesError
 from serve.projects import ProjectStore
 from serve.remote import KEY_TTL_DAYS, MODE_ORDER, ApiKeys, Installer, RemoteAccess, tailscale_peers, tailscale_status, tailscale_up
 from serve.personal_skills_api import PersonalSkillsApi
-from serve import import_api, skills_api
+from serve import import_api, register_api, skills_api
 from tadamoo.rag.backends import vault_password
 from tadamoo.importer import Importer, Spaces
 from tadamoo.skillmanager import SkillManager
@@ -123,6 +123,7 @@ _CARDS = None                                         # writes the card of each 
 _EXPORT = export_api.ExportApi()                      # turns a conversation into a file; holds a PDF page for the desktop app's print
 _CAPS = None                                          # the Settings page's side of capabilities, made on first use
 _IMPORT = None                                        # the import service's side (a test puts its own here), made on first use
+_REGISTER = None                                      # the register of open work (a test puts its own here), made on first use
 _SKILLS = None                                        # the skill manager's side (a test puts its own here), made on first use
 _SKILLS_JOBS = Jobs()                                 # the one installation that runs at a time, whichever request asks
 _LLM = None                                           # the Providers page's side of llmswitch, made on first use
@@ -669,6 +670,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/skills" or path.startswith("/api/skills/"):
                 if self._authorized():
                     self._skills(path, False)
+            elif path == "/api/register":
+                if self._authorized():
+                    self._register(path, False)
             elif path in ("/api/capabilities", "/api/capabilities/review", "/api/capabilities/online", "/api/capabilities/requests"):
                 if self._authorized():
                     self._capabilities_get(path)
@@ -966,6 +970,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path.startswith("/api/skills/"):
                 self._skills(path, True)
+                return
+            if path.startswith("/api/register/"):
+                self._register(path, True)
                 return
             if path.startswith("/api/llm/"):
                 self._llm_post(path)
@@ -2318,6 +2325,28 @@ def make_handler(svc: Service, remote: bool = False):
                 if not isinstance(req, dict):
                     return self._json(400, {"error": {"message": "send a JSON object"}})
             code, obj = self._import_api().route("POST" if post else "GET", path, req)
+            self._json(code, obj)
+
+        def _register_api(self):
+            if _REGISTER is not None:
+                return _REGISTER
+            return register_api.RegisterApi(lambda: [{"path": p["path"], "name": p.get("name", "")} for p in self._projects().list()] + [{"path": str(userdata.path("chat-workspace")), "name": "Chat"}],
+                                            userdata.path("planner") / "plans")
+
+        def _register(self, path, post):
+            """The register of open work (serve/register_api.py): it writes only the folders the person added, so any device with a key may use it."""
+            req: dict = {}
+            if post:
+                try:
+                    req = json.loads(self._body(1 << 17) or b"{}")
+                except BadBody as e:
+                    return self._json(e.status, {"error": {"message": str(e)}})
+                except ValueError:
+                    return self._json(400, {"error": {"message": "send a JSON object"}})
+                if not isinstance(req, dict):
+                    return self._json(400, {"error": {"message": "send a JSON object"}})
+            query = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
+            code, obj = self._register_api().route("POST" if post else "GET", path, query, req)
             self._json(code, obj)
 
         def _skills_api(self):
