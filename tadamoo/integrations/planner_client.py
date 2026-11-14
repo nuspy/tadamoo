@@ -61,7 +61,11 @@ class PlannerClient:
 
     def event(self, plan_id: str, event: Dict[str, Any]) -> Dict[str, Any]:
         """One bridge event (plan:mark, plan:propose_diff, plan:approve, ...), sent as the Chat."""
-        return self._call("POST", f"/api/plans/{self._id(plan_id)}/events", {**event, "actor": ACTOR})
+        return self._call("POST", f"/api/plans/{self._id(plan_id)}/events", {**event, "actor": ACTOR, **({"session": self.session_id} if self.session_id else {})})
+
+    def inner(self, step: str, result: Optional[Dict[str, Any]] = None, plan_id: str = "", node_id: str = "", undo: bool = False) -> Dict[str, Any]:
+        """An inner step of the step this conversation is doing is finished (the step is found by the conversation, or named by plan_id and node_id)."""
+        return self._call("POST", "/api/plans/inner", {"step": step, "result": result or {}, "session": self.session_id, "plan_id": plan_id, "node_id": node_id, **({"undo": True} if undo else {})})
 
     def ingest(self, text: str, source: str, plan_id: Optional[str] = None) -> Dict[str, Any]:
         """One event from the world, for the planner's mailbox (its sensors and, with the pump on, its filter); for one plan, or for every plan."""

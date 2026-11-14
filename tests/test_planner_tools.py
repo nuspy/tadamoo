@@ -505,3 +505,27 @@ def test_plan_start_starts_a_plan_at_one_of_its_starts_and_a_failed_step_carries
     assert client.snapshot(pid)["plan"]["nodes"]["y"]["state_variables"]["failures"][0]["reason"] == "the disk is full"
     registered = {s["function"]["name"] for s in reg.schemas()}
     assert "plan_start" in registered
+
+
+def test_plan_step_done_records_an_inner_step_and_a_step_started_again_says_what_is_finished(world):
+    from test_planner_starts import n, plan, start
+    client, agent, build = world
+    reg, ask = build()
+    pid = "inner-" + uuid.uuid4().hex[:6]
+    client.create(plan(pid, start("go", 1), n("video", deps=["go"], spec={"steps": ["voice", "stills", "takes"]})))
+    reg.execute("plan_get", {"plan_id": pid})
+    words = "Avvia il piano e fai il video, un passo alla volta"
+    agent.last_user_text = words
+    reg.execute("plan_start", {"plan_id": pid, "number": 1, "quote": words})
+    out = reg.execute("plan_step_start", {"plan_id": pid, "node_id": "video", "quote": words})
+    assert "Its inner steps, in order: voice, stills, takes" in out and "plan_step_done" in out
+    done = reg.execute("plan_step_done", {"plan_id": pid, "node_id": "video", "step": "voice", "result": {"files": ["voice/all.wav"], "blocks": 32}})
+    assert "Inner step 'voice' of video recorded" in done and "Next: stills. Still to do: stills, takes." in done
+    assert "not among" not in reg.execute("plan_get", {"plan_id": pid}) and "Already done inside this step" in reg.execute("plan_get", {"plan_id": pid})
+    assert "these inner steps" in reg.execute("plan_step_done", {"plan_id": pid, "node_id": "video", "step": "dubbing"})
+    # cut short: put back to pending, and started again, it is told what is done and where to go on
+    reg.execute("plan_mark", {"plan_id": pid, "node_id": "video", "status": "pending", "quote": words})
+    again = reg.execute("plan_step_start", {"plan_id": pid, "node_id": "video", "quote": words})
+    assert "Already done inside this step (do not do them again): voice" in again and "voice/all.wav" in again and "Continue from: stills" in again
+    assert "is to be done again" in reg.execute("plan_step_done", {"plan_id": pid, "node_id": "video", "step": "voice", "undo": True})
+    assert "plan_step_done" in {x["function"]["name"] for x in reg.schemas()}
