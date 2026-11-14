@@ -8,11 +8,11 @@ here runs through the real building blocks (the scheduler, `SessionManager`, the
 A conversation has a stable name (`alias`, letters/digits/dashes, unique among the ones not closed) and an id. `serve/agent_sessions.py`
 resolves either to the same conversation (`resolve(ref)`).
 
-- `session_send(ref, message)`, `session_status(ref)`, `session_spawn(workspace, prompt, background, alias, rules)`,
-  `session_digest(ref, n)`: tools in `tadamoo/orchestration_tools.py`, a thin client (`tadamoo/integrations/orchestration_client.py`)
+- `session_status(ref)`, `session_spawn(workspace, prompt, background, alias, rules)`, `session_digest(ref, n)`: tools in `tadamoo/orchestration_tools.py`, a thin client (`tadamoo/integrations/orchestration_client.py`)
   over the server's loopback routes. A conversation proves which one it is with the id and token it was started with
   (`TADAMOO_SESSION_ID`/`TADAMOO_SESSION_TOKEN`, an env var, never a CLI argument); the server checks the token and the message's
-  `sender` is read from it, never from what the caller claims.
+  `sender` is read from it, never from what the caller claims. Writing to another session (`session_list`, `session_send`) is not here: it is in every
+  conversation and has its own page, `session-messaging.md`.
 - These tools, and `cron_*` (below), are **not in every conversation's prompt**: they cost tokens most conversations never use. They
   are registered only for a conversation started with `--orchestration` (every conversation with an alias, `unattended`, spawned by
   `session_spawn`, or itself unattended through a routine already gets it), or on request: `find_capability` lists `builtin:orchestration`,
@@ -25,8 +25,9 @@ A message to another conversation is **held by the server** (`serve/deliveries.p
 the target may be asleep, at work, or gone.
 
 - States: `pending` (waiting for the target to be idle or dormant), `delivered` (its process took it as a turn), `dead` (reason
-  `unreachable`, `busy_timeout`, `loop`, or `budget`), `dismissed`.
-- A dormant target is woken (`SessionManager._ensure`); a busy one is retried until `busy_timeout_s` (default 30 min); a written
+  `unreachable`, `busy_timeout` or `budget`), `dismissed`.
+- A dormant target is woken (`SessionManager._ensure`); a busy one is retried until `busy_timeout_s` (default 30 min), except for a message from another session, which
+  reaches a busy one at once and is read between its tool calls; a written
   message not acknowledged in `ack_timeout_s` is written again, and the child drops an id it has already taken
   (`tadamoo/provenance.py`'s `SeenDeliveries`), so a retry after a restart is at most one turn.
 - Dead letters: `GET /api/agent/deliveries?state=dead`, `POST .../retry`, `POST .../dismiss`; shown in the Cron Jobs tab for the ones
@@ -42,7 +43,7 @@ Every message that is not the person's own carries where it came from (`tadamoo/
   instruction found in it makes the permission manager ask before any change — **unless** the receiving conversation was given
   `--cross-commands <name>` (a glob, set per conversation only, never in the global allow list): then the text is read plain, though
   the taint (and so the Rule of Two) still holds.
-- A chain of up to 2 hops is kept per message; a sender appearing a third time is a dead letter (`loop`).
+- The loop brake of messages between sessions (identical repeats, a rate limit, 6 automatic hops) is in `serve/messaging.py`; see `session-messaging.md`.
 
 ## Shared files: one owner
 

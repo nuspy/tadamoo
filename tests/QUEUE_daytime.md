@@ -266,7 +266,7 @@ Sull'app vera e su un telefono (Android e iPhone) con la tastiera a schermo, nel
 
 1. Scrivere «/» all'inizio: compare l'elenco dei comandi (con `/install-skill` e `/tasks`) sopra la casella, leggibile a 360 px e non coperto dalla tastiera; le lettere lo filtrano; con Su/Giù (tastiera fisica) o il tocco si sceglie; Tab, Freccia destra e Invio scelgono.
 2. Scrivere «@»: compare l'elenco delle altre conversazioni vere (dieci, la più recente per prima, con cartella e riassunto); scorrendo arrivano le altre; «@» più due lettere filtra per nome e per riassunto (anche con accenti); la scelta mette «@nome» nel messaggio e un'etichetta sopra la casella, la crocetta la toglie.
-3. Mandare un messaggio con una citazione: parte normalmente (il testo resta com'è), e sotto il messaggio compaiono le conversazioni citate; l'altra conversazione NON riceve niente (la consegna verrà dopo).
+3. Mandare un messaggio con una citazione: parte normalmente (il testo resta com'è), e sotto il messaggio compaiono le conversazioni citate; l'altra conversazione lo riceve davvero (vedi la sezione «Conversazioni che si scrivono»).
 
 ## Un solo elenco dei compiti (14 novembre; provato con server, processi e browser finti, NON con il modello vero e NON sull'app vera)
 
@@ -274,3 +274,16 @@ Sull'app vera e su un telefono (Android e iPhone) con la tastiera a schermo, nel
 2. Un Target Loop vero: i suoi compiti e sotto-compiti compaiono come albero nel progetto (con `kind: target` e le dipendenze nei dettagli di `/api/tasks`), spariscono man mano che finiscono; un compito fallito resta bloccato.
 3. Una richiesta grande con tre o più parti (ammissione «intake» accesa): il compito della richiesta e le sue parti compaiono come compiti della conversazione e spariscono a fine richiesta.
 4. Un piano vero in esecuzione NON mette più i suoi passi nella scheda Compiti (solo la riga del piano, se collegata a un compito).
+
+## Conversazioni che si scrivono (14 novembre; provato con processi, server e browser finti, NON con il modello vero e NON sull'app vera)
+
+Servono due o tre conversazioni vere con il modello vero, in cartelle diverse, aperte nell'app sul PC e poi sul telefono (Android e iPhone).
+
+1. Da A scrivere «@B ...» (frase senza domanda): B, ferma, si sveglia e risponde subito; in A e in B compare la bolla con l'etichetta («A B» / «Da A»), il genere «Informazione», la cartella e l'ora, leggibile a 360 px e senza scorrimento di lato. Chiudere e riaprire le due conversazioni: le bolle ci sono ancora.
+2. Con B salvata e non in esecuzione (dopo un riavvio del servizio): lo stesso messaggio fa partire il suo processo e la fa lavorare; controllare che non venga caricato nulla di troppo (il modello è già quello acceso).
+3. Con B a metà di un lavoro lungo (molte chiamate di strumento): il messaggio di A le arriva tra due chiamate, con l'etichetta «messaggio di un'altra conversazione», e B lo tiene in conto senza perdere il lavoro; B NON lo tratta come se fosse tua parola (provare a chiedere in A di far fare a B un'azione che richiede permesso: B deve chiedere a te come sempre).
+4. Chiedere ad A, con parole tue, di «dire a B di scrivere la migrazione»: A deve usare `session_send` con genere compito; nel registro di B compare il compito «assegnato da A»; quando B lo chiude con un risultato, in A arriva il risultato da solo. Provare anche a cancellarlo dalla scheda Compiti.
+5. Modificare in A un file di cui B si sta occupando (B ha un compito aperto su quel file): il modello di A deve scrivere a B da solo, senza che glielo si chieda. Se non lo fa, la riga di `awareness.py` va resa più forte: è un giudizio del modello, non verificabile senza il modello vero.
+6. Domanda senza risposta: dopo 12 ore (si può accorciare `QUESTION_TTL_S` in `serve/messaging.py` per la prova) in A compare una volta sola la bolla «B non ha risposto in 12 ore». Una risposta di B prima di quel momento la chiude.
+7. Freni: far rimbalzare due conversazioni (ognuna risponde all'altra) senza intervenire: dopo 6 passaggi la sesta bolla «Non inviato» dice perché; un tuo messaggio fa ripartire la catena. Mandare due volte lo stesso testo: la seconda volta è «Non inviato». Provare anche un messaggio programmato da una routine verso una conversazione (stessa funzione di invio).
+8. Telefono vero: scorrere una conversazione con molte bolle, toccare i bottoni vicini, ingrandire il testo di sistema (Dynamic Type / dimensione carattere): niente testo tagliato, niente scorrimento orizzontale.
