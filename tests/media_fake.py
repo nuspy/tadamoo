@@ -13,31 +13,38 @@ MP4 = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2" + b"\x00" * 64
 
 WORKER = r'''
 import json, os, sys, time
-params_file = sys.argv[1]
-p = json.load(open(params_file))
-out = p["output"]
-open(os.path.join(os.path.dirname(params_file), "started.pid"), "w").write(str(os.getpid()))
 # the save setting the launcher looks for: stream.options = {"crf": "19", "preset": "veryfast"}
-open(os.path.join(os.path.dirname(params_file), "env.txt"), "w").write(os.environ.get("LTX_X264_CRF", "") + " " + os.environ.get("LTX_X264_PRESET", ""))
-open(os.path.join(os.path.dirname(params_file), "attention.txt"), "w").write(os.environ.get("LTX_ATTENTION", ""))
-print("[fake] loading", flush=True)
-prompt = p["prompt"]
-if "fail" in prompt:
-    print("ERRORE: the model did not load", flush=True)
-    sys.exit(1)
-if "hang" in prompt:
-    time.sleep(120)
-if "slow" in prompt:
-    for i in range(1, 400):
-        sys.stdout.write("  %d/400 [00:01<00:02\r" % i)
+def main():
+    params_file = sys.argv[1]
+    p = json.load(open(params_file))
+    out = p["output"]
+    open(os.path.join(os.path.dirname(params_file), "started.pid"), "w").write(str(os.getpid()))
+    open(os.path.join(os.path.dirname(params_file), "env.txt"), "w").write(os.environ.get("LTX_X264_CRF", "") + " " + os.environ.get("LTX_X264_PRESET", ""))
+    open(os.path.join(os.path.dirname(params_file), "attention.txt"), "w").write(os.environ.get("LTX_ATTENTION", ""))
+    print("[fake] loading", flush=True)
+    prompt = p["prompt"]
+    if "fail" in prompt:
+        print("ERRORE: the model did not load", flush=True)
+        sys.exit(1)
+    if "diediedie" in prompt:
+        os._exit(7)
+    if "hang" in prompt:
+        time.sleep(120)
+    if "slow" in prompt:
+        for i in range(1, 400):
+            sys.stdout.write("  %d/400 [00:01<00:02\r" % i)
+            sys.stdout.flush()
+            time.sleep(0.1)
+    for i in range(1, 4):
+        sys.stdout.write("  %d/3 [00:01<00:02, 1.00it/s]\r" % i)
         sys.stdout.flush()
-        time.sleep(0.1)
-for i in range(1, 4):
-    sys.stdout.write("  %d/3 [00:01<00:02, 1.00it/s]\r" % i)
-    sys.stdout.flush()
-if "nofile" not in prompt:
-    open(out, "wb").write(@@DATA@@)
-print("OK:" + out, flush=True)
+    if "nofile" not in prompt:
+        open(out, "wb").write(@@DATA@@)
+    print("OK:" + out, flush=True)
+
+
+if __name__ == "__main__":
+    main()
 '''
 
 

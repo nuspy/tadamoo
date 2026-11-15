@@ -1,6 +1,11 @@
 """Runs LTX Studio's `ltx2_infer.py` with the attention of the transformer and the quality of the saved video set from outside.
 
     python ltx_launch.py ltx2_infer.py PARAMS.json            with LTX_ATTENTION, LTX_X264_CRF and LTX_X264_PRESET in the environment
+    python ltx_launch.py ltx2_infer.py --resident             the worker kept loaded: jobs are read from the standard input, one line each (below)
+
+**Resident mode.** The process imports the worker once and then runs one job for each line of its input, `{"id": N, "params": "PARAMS.json", "env": {"LTX_X264_CRF": "4", ...}}`, with the model, the Python start and what the worker keeps between jobs
+(its pipeline cache) in memory from one job to the next. The saved quality is then read at each job from its `env` (the worker's setting is replaced by one that reads the environment), so that each job has its own. Each job ends with a line
+`[resident] done N` or `[resident] failed N: why`; the process ends when its input does. The jobs are the ones the single run would be: the same parameters, the same files.
 
 LTX Studio's worker leaves two things to its own defaults that matter here, and has no parameter for either:
   - The attention of the transformer: PyTorch's cuDNN SDPA. `LTX_ATTENTION` names another (`sage2`, `sage1`, `efficient`, `fa4`, `fa2`, `xformers`; `cudnn` or nothing: the worker's own): the attention of every
@@ -84,11 +89,60 @@ def install_attention(name: str, make: Optional[Callable[[str], Callable]] = Non
     return True
 
 
+DYNAMIC = '"crf": os.environ.get("LTX_X264_CRF", "19"), "preset": os.environ.get("LTX_X264_PRESET", "veryfast")'
+
+
+def resident(script: Path, source: str, attention: str) -> int:
+    """The worker loaded once and a job for each line of the input (see the module's text)."""
+    if OLD not in source:
+        print(f"ERRORE: the save setting {OLD} is not in {script.name}: the worker changed, the launcher has to follow", flush=True)
+        return 2
+    glb = {"__name__": "ltx_launch_worker", "__file__": str(script), "__builtins__": __builtins__}
+    sys.path.insert(0, str(script.parent))
+    sys.path.insert(0, str(script.parent.parent))
+    exec(compile(source.replace(OLD, DYNAMIC), str(script), "exec"), glb)
+    entry = glb.get("main")
+    if attention in ATTENTIONS:
+        install_attention(attention)
+    print("[resident] ready", flush=True)
+    import json
+    import traceback
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        job = json.loads(line)
+        for key in ("LTX_X264_CRF", "LTX_X264_PRESET"):
+            if (job.get("env") or {}).get(key):
+                os.environ[key] = str(job["env"][key])
+            else:
+                os.environ.pop(key, None)
+        sys.argv = [str(script), job["params"]]
+        try:
+            entry()
+            print(f"[resident] done {job['id']}", flush=True)
+        except BaseException as exc:                                           # a job that fails does not end the process
+            traceback.print_exc()
+            print(f"[resident] failed {job['id']}: {type(exc).__name__}: {str(exc)[:300]}", flush=True)
+            if isinstance(exc, (KeyboardInterrupt, MemoryError)):
+                return 3
+        try:
+            import gc
+            gc.collect()
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+    return 0
+
+
 def main() -> int:
     script = Path(sys.argv[1])
     crf, preset = os.environ.get("LTX_X264_CRF", ""), os.environ.get("LTX_X264_PRESET", "")
     attention = os.environ.get("LTX_ATTENTION", "").strip().lower()
     source = script.read_text(encoding="utf-8")
+    if "--resident" in sys.argv[2:]:
+        return resident(script, source, attention)
     if crf or preset:
         if not (crf.isdigit() and preset.isalpha()):
             print("ERRORE: LTX_X264_CRF (a number) and LTX_X264_PRESET (a word) are needed together", flush=True)

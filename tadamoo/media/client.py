@@ -110,10 +110,7 @@ def run(kind: str, request: Dict[str, Any], output: Path, settings: Dict[str, An
     output.parent.mkdir(parents=True, exist_ok=True)
     job_file = output.parent / "job.json"
     mib = settings[f"{kind}_mib"]
-    job_file.write_text(json.dumps({"kind": kind, "ltx_dir": folder, "url": url, "mib": mib, "wait_s": settings["wait_s"], "output": str(output), "request": request, "held": held,
-                                    "python": settings.get(f"{kind}_python", ""), "video_model": settings["video_model"] or VIDEO_MODEL, "edit_model": settings.get("edit_model", ""), "attention": settings.get("ltx_attention", ""), "teacache": settings.get("ltx_teacache", 0),
-                                    "attention_env": attention_env_of(settings), "avatar_precision": settings.get("avatar_precision", "int8")}),
-                        encoding="utf-8")
+    job_file.write_text(json.dumps(job_spec(kind, request, output, settings, folder, url, held)), encoding="utf-8")
     argv = list(command) + [str(job_file)] if command else [sys.executable, "-X", "utf8", str(WORKER), "--job", str(job_file)]
     timing, duration = jobtime.Timing(settings=settings), duration_of(kind, request)
     if total_s is None and duration > 0 and kind in jobtime.CLASS:         # the longest a job may take follows the length of what it works on (tadamoo/jobtime.py)
@@ -121,6 +118,160 @@ def run(kind: str, request: Dict[str, Any], output: Path, settings: Dict[str, An
         timing.record(kind, got["work_seconds"], duration)
         return got
     return _run(argv, kind, progress, cancel, settings["idle_s"] if idle_s is None else idle_s, TOTAL_S[kind] if total_s is None else total_s)
+
+
+def job_spec(kind: str, request: Dict[str, Any], output: Path, settings: Dict[str, Any], folder: str, url: str = "", held: bool = False) -> Dict[str, Any]:
+    """What the worker is told of one job: the kind, LTX Studio's folder, the lease, where the file goes, the request and the settings that reach the model process."""
+    return {"kind": kind, "ltx_dir": folder, "url": url, "mib": settings[f"{kind}_mib"], "wait_s": settings["wait_s"], "output": str(output), "request": request, "held": held,
+            "python": settings.get(f"{kind}_python", ""), "video_model": settings["video_model"] or VIDEO_MODEL, "edit_model": settings.get("edit_model", ""), "attention": settings.get("ltx_attention", ""),
+            "teacache": settings.get("ltx_teacache", 0), "attention_env": attention_env_of(settings), "avatar_precision": settings.get("avatar_precision", "int8")}
+
+
+class Session:
+    """One worker that holds one lease of the VRAM and one loaded model for a series of jobs of one kind (`worker.py --session`): `run` has the signature and the answer of the module's `run`, and the jobs it runs are the ones a
+    process of their own would run, with the same files. The first job pays for the load; the next ones do not. The model process is started again after `reload_every` jobs (0: never) and when it has ended, and the whole session when
+    the worker hangs or dies: the next `run` opens a new one. `close` ends it and gives the lease back. A job in a session has no deadline of its own until the first has ended: that one pays for the load."""
+
+    def __init__(self, kind: str, settings: Dict[str, Any], url: str = "", held: bool = False, reload_every: int = 0, command: Optional[Sequence[str]] = None) -> None:
+        self.kind, self.settings, self.url, self.held, self.reload_every, self.command = kind, settings, url, held, reload_every, command
+        self.proc: Optional["subprocess.Popen[bytes]"] = None
+        self.events: "queue.Queue[Optional[Dict[str, Any]]]" = queue.Queue()
+        self.err_tail: List[bytes] = []
+        self.next_id = 0
+        self.jobs = 0
+        self.lease: Dict[str, Any] = {}
+        self.opened = 0                                              # how many times a worker was started: more than one means one ended or hung
+
+    def _start(self, cancel: Optional[Callable[[], bool]], total_s: float, idle_s: float) -> None:
+        folder = ltx_dir_of(self.settings["ltx_dir"])
+        if not folder and not self.command:
+            raise MediaError("LTX Studio was not found: set its folder in the media settings", "unavailable")
+        argv = list(self.command) + ["--session"] if self.command else [sys.executable, "-X", "utf8", str(WORKER), "--session"]
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
+        proc = self.proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, creationflags=_flags())
+        self.events = events = queue.Queue()
+        self.err_tail = err_tail = []
+        self.opened += 1
+        self.jobs = 0
+
+        def pump() -> None:
+            for raw in proc.stdout:                                   # type: ignore[union-attr]
+                try:
+                    event = json.loads(raw)
+                except ValueError:
+                    continue
+                if isinstance(event, dict):
+                    events.put(event)
+            events.put(None)
+
+        def drain() -> None:
+            for raw in proc.stderr:                                   # type: ignore[union-attr]
+                err_tail.append(raw)
+                del err_tail[:-30]
+
+        threading.Thread(target=pump, daemon=True).start()
+        threading.Thread(target=drain, daemon=True).start()
+        spec = {"kind": self.kind, "ltx_dir": folder, "url": self.url, "mib": self.settings[f"{self.kind}_mib"], "wait_s": self.settings["wait_s"], "held": self.held, "reload_every": self.reload_every}
+        proc.stdin.write((json.dumps(spec) + "\n").encode("utf-8"))   # type: ignore[union-attr]
+        proc.stdin.flush()                                            # type: ignore[union-attr]
+        began = last = time.monotonic()
+        while True:                                                   # the lease: the first thing the worker answers
+            if cancel is not None and cancel():
+                self.close(kill=True)
+                raise Cancelled()
+            if time.monotonic() - began > total_s:
+                self.close(kill=True)
+                raise MediaError(f"the {self.kind} worker got no answer to the lease in time and was ended", "timeout")
+            try:
+                event = events.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            if event is None:
+                tail = b"".join(err_tail).decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
+                self.close(kill=True)
+                raise MediaError(f"the {self.kind} worker ended before it had the lease" + (f" ({tail[0][:200]})" if tail[0] else ""))
+            if event.get("event") == "lease":
+                self.lease = {"granted_mib": int(event.get("granted_mib") or 0), "ok": bool(event.get("ok"))}
+            elif event.get("event") == "refused":
+                self.close(kill=True)
+                raise Refused(str(event.get("reason") or "unavailable"), str(event.get("message") or ""), str(event.get("message_it") or ""))
+            elif event.get("event") == "error":
+                self.close(kill=True)
+                raise MediaError(str(event.get("message") or "unknown error"))
+            if self.lease.get("ok"):
+                return
+
+    def run(self, request: Dict[str, Any], output: Path, progress: Optional[Progress] = None, cancel: Optional[Callable[[], bool]] = None, idle_s: Optional[float] = None,
+            total_s: Optional[float] = None) -> Dict[str, Any]:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        idle = self.settings["idle_s"] if idle_s is None else idle_s
+        total = TOTAL_S[self.kind] if total_s is None else total_s
+        if self.proc is None or self.proc.poll() is not None:
+            self.proc = None
+            self._start(cancel, self.settings["wait_s"] + 900, idle)
+        folder = ltx_dir_of(self.settings["ltx_dir"])
+        self.next_id += 1
+        jid = self.next_id
+        spec = job_spec(self.kind, request, output, self.settings, folder, self.url, self.held)
+        self.proc.stdin.write((json.dumps({"id": jid, "spec": spec}) + "\n").encode("utf-8"))      # type: ignore[union-attr]
+        self.proc.stdin.flush()                                                                      # type: ignore[union-attr]
+        timing, duration = jobtime.Timing(settings=self.settings), duration_of(self.kind, request)
+        deadline = jobtime.Deadline(timing, self.kind, duration) if (self.jobs > 0 and duration > 0 and self.kind in jobtime.CLASS and total_s is None) else None
+        began = last = time.monotonic()
+        while True:
+            if cancel is not None and cancel():
+                self.close(kill=True)
+                raise Cancelled()
+            now = time.monotonic()
+            if now - began > total:
+                self.close(kill=True)
+                raise MediaError(f"the {self.kind} took longer than {int(total // 60)} minutes and was ended", "timeout")
+            if deadline is not None:
+                try:
+                    deadline.check()
+                except jobtime.Overrun as exc:
+                    self.close(kill=True)
+                    raise MediaError(str(exc), "timeout") from None
+            if now - last > idle:
+                self.close(kill=True)
+                raise MediaError(f"the {self.kind} maker said nothing for {int(idle // 60)} minutes and was ended", "timeout")
+            try:
+                event = self.events.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            if event is None:
+                tail = b"".join(self.err_tail).decode("utf-8", "replace").strip().splitlines()[-1:] or [""]
+                self.proc = None
+                raise MediaError(f"the {self.kind} worker ended before it made a file" + (f" ({tail[0][:200]})" if tail[0] else ""), "died")
+            last = time.monotonic()
+            if event.get("id") not in (None, jid, 0):
+                continue
+            kind_of = event.get("event")
+            if progress is not None and kind_of in ("log", "progress"):
+                progress({k: event.get(k) for k in ("event", "step", "steps", "line") if k in event})
+            if kind_of == "error":
+                raise MediaError(str(event.get("message") or "unknown error"))
+            if kind_of == "done":
+                self.jobs += 1
+                return {"path": str(event.get("path") or ""), "bytes": int(event.get("bytes") or 0), "seconds": float(event.get("seconds") or round(time.monotonic() - began, 1)),
+                        "work_seconds": round(time.monotonic() - began, 2), "warnings": [str(w) for w in event.get("warnings") or []], "lease": {**(event.get("lease") or {}), **{k: v for k, v in self.lease.items() if k != "ok"}}}
+
+    def close(self, kill: bool = False) -> None:
+        proc, self.proc = self.proc, None
+        if proc is None:
+            return
+        try:
+            if not kill:
+                proc.stdin.close()                                    # type: ignore[union-attr]
+                proc.wait(timeout=60)
+        except (OSError, subprocess.TimeoutExpired):
+            kill = True
+        if kill or proc.poll() is None:
+            _kill_tree(proc)
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                pass
 
 
 def duration_of(kind: str, request: Dict[str, Any]) -> float:

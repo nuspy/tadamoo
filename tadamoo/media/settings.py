@@ -16,16 +16,16 @@ VIDEO_MODEL = "ltx-2.5-22b-distilled-transformer-nvfp4.safetensors"
 DEFAULT_ATTENTION_ENV = os.environ.get("TADAMOO_LTX_ATTENTION_ENV", "E:/AI/Tools/ltx25_sage2")           # a copy of LTX Studio's LTX 2.5 environment that carries the attention package; never LTX Studio's own
 DEFAULT_WHEELS = os.environ.get("TADAMOO_LTX_WHEELS", "E:/AI/Tools/tadamoo_wheels")                  # where the wheels the component installs are kept (docs/media/sage-wheel.md)
 DEFAULTS: Dict[str, Any] = {"enabled": True, "ltx_dir": "", "image_python": "", "video_python": "", "modify_python": "", "video_model": "", "edit_model": "", "avatar_precision": "int8",
-                            "ltx_attention": "sage2", "ltx_teacache": 0.03, "ltx_attention_env": "", "ltx_wheels": "",
+                            "ltx_attention": "sage2", "ltx_teacache": 0.03, "ltx_attention_env": "", "ltx_wheels": "", "resident": True, "resident_reload_every": 25,
                             "image_mib": 11000, "video_mib": 25000, "avatar_mib": 25000, "upscale_mib": 22000, "interpolate_mib": 4000, "modify_mib": 28000, "wait_s": 600, "idle_s": 900,
                             "time_factor_audio": 3.0, "time_factor_video": 2.0, "time_min_s": 120}
-FLAGS = ("enabled",)
+FLAGS = ("enabled", "resident")
 FOLDERS = ("ltx_dir",)
 ATTENTIONS = ("sage2", "cudnn", "sage1", "efficient", "fa4", "fa2", "xformers")      # the attention of the LTX 2.5 transformer: SageAttention 2 (the default), PyTorch's cuDNN SDPA, and the others that run
 CHOICES = {"avatar_precision": ("int8", "fp8"), "ltx_attention": ATTENTIONS}          # the weights of the talking head: int8 is dequantized in bf16 at every layer, fp8 uses the GPU's own fp8 matmul (needs the fp8 weights)
 FILES = ("image_python", "video_python", "modify_python")
 PATHS = ("ltx_attention_env", "ltx_wheels")                # folders that need not exist yet (the component makes them)
-RANGES = {"image_mib": (2000, 60000), "video_mib": (2000, 60000), "avatar_mib": (2000, 60000), "upscale_mib": (2000, 60000), "interpolate_mib": (2000, 60000), "modify_mib": (2000, 60000), "wait_s": (0, 3600), "idle_s": (30, 7200), "time_min_s": (0, 3600)}
+RANGES = {"resident_reload_every": (0, 500), "image_mib": (2000, 60000), "video_mib": (2000, 60000), "avatar_mib": (2000, 60000), "upscale_mib": (2000, 60000), "interpolate_mib": (2000, 60000), "modify_mib": (2000, 60000), "wait_s": (0, 3600), "idle_s": (30, 7200), "time_min_s": (0, 3600)}
 DECIMALS = {"time_factor_audio": (1.0, 20.0), "time_factor_video": (1.0, 20.0), "ltx_teacache": (0.0, 0.2)}          # the longest a job may take, as times what jobs of its kind really took (tadamoo/jobtime.py)
 
 

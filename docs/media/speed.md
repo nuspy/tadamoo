@@ -40,3 +40,22 @@ TeaCache and a first-block cache do speed up stage 1 (about 1.2 times on the tra
 - `torch.compile` of the DiTs: see above.
 
 Measures before and after are queue entry 91 of `tests/QUEUE_daytime.md`.
+
+## Models kept loaded across a production (`resident`)
+
+A newscast makes a dozen LTX jobs and as many enhancements. A process for each job starts Python, reads the model and builds it again, and loses what the worker keeps in memory: the LTX 2.5 worker keeps the encoded prompts for the life of its process, the pipeline in a cache,
+and FlashVSR+ keeps its model once loaded. In **resident mode** (the media setting `resident`, on by default for the newscast; `resident_reload_every` sets after how many jobs the model process is renewed) the production orders the work by model and keeps each
+model loaded for all its jobs:
+
+1. the stills (image jobs, one process each), the voice (XTTS and Whisper loaded for the stage), then
+2. **all the LTX jobs** (the takes, the interlude, the B-roll clips) in one **session**: `client.Session` runs `worker.py --session`, which asks for the VRAM once and keeps one model process (`ltx_launch.py --resident`: the worker imported once, a job for each line of its input, the save quality
+   of each job brought in its own line); the session is closed when the last LTX job is done and its lease given back;
+3. **all the enhancements** in a second session over `flashvsr_launch.py --resident` (LTX and FlashVSR+ do not fit in the VRAM together: the switch is made once, not twice for each take);
+4. the edit.
+
+A job in a session is the job a process of its own would run: the same parameters, the same files, the same pictures (measured: the same bytes for the same inputs, the first job and a later one). Keep the number of different prompts small: the prompt encoding is kept
+by prompt, so a take with a prompt seen before skips it. A model process that dies or hangs ends the session and a new one is opened for the job again (what was made is on disk, so a production that stops goes on from its files); the manifest says so in `notes`. At the end
+every session is closed, the lease is given back and the language model can return. `manifest.resident` has the sessions (how many workers were opened, how many jobs) and `saved_s`, the seconds not spent on starting models, counted at the cold start measured per job
+(`produce.COLD_START_S`: LTX 18 s, enhancement 24 s).
+
+Measured on this PC (GPU at 600 W): an 8.4 s take 50 s in a process of its own and 32 s in the loaded one; its enhancement 70 s and 46 s; the first job of a session pays the load (106 s for a 12.8 s take, 89 s for its enhancement).

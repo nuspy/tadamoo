@@ -1,6 +1,7 @@
 """Runs LTX Studio's FlashVSR+ runner (`workers/flashvsrplus_run.py`) the way TaDaMoo needs it: Turbo on Windows, a picture with the size, the frames and the duration of the input.
 
     python flashvsr_launch.py RUNNER.py INPUT OUTPUT [the runner's own arguments]
+    python flashvsr_launch.py RUNNER.py --code-dir DIR --resident        the runner kept loaded: a job for each line of the input (see `resident`)
 
 Three things LTX Studio's runner does not do, each applied from outside (its source is not changed):
 
@@ -121,67 +122,114 @@ def save_quality(crf: str, limit: int) -> None:
     print(f"[launch] writer: crf {crf}, at most {limit} frames", flush=True)
 
 
-def main() -> int:
-    runner, args = sys.argv[1], sys.argv[2:]
-    source, target = args[0], args[1]
-    code_dir = option(args, "--code-dir", os.environ.get("LTX_FLASHVSRPLUS_CODE", ""))
-    plain = os.environ.get("FLASHVSR_LAUNCH") == "plain"
-    padded = ""
-    if not plain:
+class Session:
+    """The runner loaded once (the kernel, the module) and then one job after another: `run` is one job, the whole of what a single run does."""
+
+    def __init__(self, runner: str, code_dir: str, plain: bool) -> None:
+        self.runner, self.code_dir, self.plain = runner, code_dir, plain
+        self.job = {"shrink": False, "crf": "4"}                     # what the job that is running needs from the runner's finishing step
+        self.module = None
+        if plain:
+            return
         sys.path.insert(0, code_dir)
+        use_triton_kernel(code_dir)
+        spec = importlib.util.spec_from_file_location("flashvsrplus_run", runner)
+        self.module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.module)
+        original_finish = self.module.crop_and_finish
+        job = self.job
+
+        def finish(raw, out, sw, sh, tw, th):                          # a size that is not a multiple of 128 is cut after the enlargement: the same quality, the same frames
+            if (sw, sh) == (tw, th):
+                return original_finish(raw, out, sw, sh, tw, th)
+            done = subprocess.run([ffmpeg(), "-v", "error", "-y", "-i", raw, "-vf", f"crop={sw}:{sh}:0:0", "-c:v", "libx264", "-preset", "medium", "-crf", "0" if job["shrink"] else job["crf"],
+                                   "-pix_fmt", "yuv420p", "-map", "0:v:0", out], capture_output=True, text=True)
+            if done.returncode != 0:
+                raise RuntimeError("the final crop failed: " + done.stderr[-300:])
+            os.remove(raw)
+        self.module.crop_and_finish = finish
+
+    def run(self, args: list) -> int:
+        source, target = args[0], args[1]
+        padded = ""
+        if self.plain:
+            import runpy
+            sys.argv = [self.runner, *args]
+            runpy.run_path(self.runner, run_name="__main__")
+            return 0
         frames = count_frames(source)
         width, height = size_of(source)
         working = float(option(args, "--scale", "2"))
         shrink = working > 1.0 + 1e-6                        # the working picture is larger than the input: it is brought back, so the working file is written lossless
         crf = os.environ.get("FLASHVSR_CRF", "4")
+        self.job.update(shrink=shrink, crf=crf)
         extra = pad_for(frames)
         padded = target + ".padded.mp4"
         padded_copy(source, padded, extra)
-        use_triton_kernel(code_dir)
         save_quality("0" if shrink else crf, frames)
-        args = [padded, *args[1:]]
         print(f"[launch] {frames} frames in, {extra} added at the end for the model, {frames} to be written", flush=True)
-    if plain:
-        import runpy
-        sys.argv = [runner, *args]
-        runpy.run_path(runner, run_name="__main__")
-        return 0
-    spec = importlib.util.spec_from_file_location("flashvsrplus_run", runner)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    if not plain:
-        original_finish = module.crop_and_finish
-
-        def finish(raw, out, sw, sh, tw, th):               # a size that is not a multiple of 128 is cut after the enlargement: the same quality, the same frames
-            if (sw, sh) == (tw, th):
-                return original_finish(raw, out, sw, sh, tw, th)
-            done = subprocess.run([ffmpeg(), "-v", "error", "-y", "-i", raw, "-vf", f"crop={sw}:{sh}:0:0", "-c:v", "libx264", "-preset", "medium", "-crf", "0" if shrink else crf,
-                                   "-pix_fmt", "yuv420p", "-map", "0:v:0", out], capture_output=True, text=True)
-            if done.returncode != 0:
-                raise RuntimeError("the final crop failed: " + done.stderr[-300:])
-            os.remove(raw)
-        module.crop_and_finish = finish
-    try:
-        code = module.main(args)
-    finally:
-        if padded and os.path.exists(padded):
-            os.remove(padded)
-    if code == 0 and shrink:
-        big = target + ".big.mp4"
-        os.replace(target, big)
         try:
-            fit_to_input(big, target, width, height, crf, os.environ.get("FLASHVSR_DOWN", "lanczos+accurate_rnd+full_chroma_int"))
+            code = self.module.main([padded, *args[1:]])
         finally:
-            if os.path.exists(big) and not os.environ.get("FLASHVSR_KEEP_WORKING"):          # FLASHVSR_KEEP_WORKING: keep the lossless working file (to compare ways of scaling it down)
-                os.remove(big)
-        print(f"[launch] brought back to {width}x{height}", flush=True)
-    if code == 0:
-        got = count_frames(target)
-        if got != frames:
-            print(f"ERRORE: the enlarged video has {got} frames, the original {frames}", flush=True)
-            return 5
-        print(f"[launch] {got} frames out, as many as in", flush=True)
-    return code
+            if os.path.exists(padded):
+                os.remove(padded)
+        if code == 0 and shrink:
+            big = target + ".big.mp4"
+            os.replace(target, big)
+            try:
+                fit_to_input(big, target, width, height, crf, os.environ.get("FLASHVSR_DOWN", "lanczos+accurate_rnd+full_chroma_int"))
+            finally:
+                if os.path.exists(big) and not os.environ.get("FLASHVSR_KEEP_WORKING"):          # FLASHVSR_KEEP_WORKING: keep the lossless working file (to compare ways of scaling it down)
+                    os.remove(big)
+            print(f"[launch] brought back to {width}x{height}", flush=True)
+        if code == 0:
+            got = count_frames(target)
+            if got != frames:
+                print(f"ERRORE: the enlarged video has {got} frames, the original {frames}", flush=True)
+                return 5
+            print(f"[launch] {got} frames out, as many as in", flush=True)
+        return code
+
+
+def resident(session: Session) -> int:
+    """One job for each line of the input, `{"id": N, "args": [INPUT, OUTPUT, ...], "env": {"FLASHVSR_KEEP_WORKING": "1"}}`, with the runner loaded once; each ends with `[resident] done N`, or
+    `[resident] failed N: why` (and the exit code of the job when it is not 0). The process ends when its input does."""
+    import json
+    import traceback
+    print("[resident] ready", flush=True)
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        job = json.loads(line)
+        for key in ("FLASHVSR_KEEP_WORKING", "FLASHVSR_CRF"):
+            if (job.get("env") or {}).get(key):
+                os.environ[key] = str(job["env"][key])
+            else:
+                os.environ.pop(key, None)
+        try:
+            code = session.run(job["args"])
+            print(f"[resident] done {job['id']}" if code == 0 else f"[resident] failed {job['id']}: exit code {code}", flush=True)
+        except BaseException as exc:                                           # a job that fails does not end the process
+            traceback.print_exc()
+            print(f"[resident] failed {job['id']}: {type(exc).__name__}: {str(exc)[:300]}", flush=True)
+        try:
+            import gc
+            gc.collect()
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+    return 0
+
+
+def main() -> int:
+    runner, args = sys.argv[1], sys.argv[2:]
+    code_dir = option(args, "--code-dir", os.environ.get("LTX_FLASHVSRPLUS_CODE", ""))
+    plain = os.environ.get("FLASHVSR_LAUNCH") == "plain"
+    if "--resident" in args:
+        return resident(Session(runner, code_dir, plain))
+    return Session(runner, code_dir, plain).run(args)
 
 
 if __name__ == "__main__":

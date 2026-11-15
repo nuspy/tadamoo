@@ -137,6 +137,9 @@ def video_plan(folder: str, spec: dict) -> dict:
                                             num_frames=req.get("frames"), fps=req.get("fps"), seed=req.get("seed"), model=model, ltx_release="2.5",
                                             **({"negative": req["negative"]} if req.get("negative") else {}), **({"image_path": req["image"]} if req.get("image") else {}))
     plan = {"python": python, "script": script, "params": params, "missing": missing, "env": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}, "warnings": warnings}
+    launcher = str(Path(__file__).with_name("ltx_launch.py"))
+    plan["resident"] = {"script": launcher, "args": [script, "--resident"], "job_env": {k: str(v) for k, v in (("LTX_X264_CRF", req.get("crf")), ("LTX_X264_PRESET", req.get("crf_preset") or "medium"))
+                                                                                   if req.get("crf") is not None}, "drop_env": ["LTX_X264_CRF", "LTX_X264_PRESET"]}
     if req.get("crf") is not None or attention != "cudnn":      # the saved video's quality and the attention: the worker has no setting for them, the launcher sets them from outside (ltx_launch.py)
         plan.update(script=str(Path(__file__).with_name("ltx_launch.py")), args=[script, "{params}"])
         if req.get("crf") is not None:
@@ -176,7 +179,9 @@ def upscale_plan(folder: str, spec: dict) -> dict:
             "--code-dir", str(service.CODE_DIR), "--ckpt-root", str(service.ckpt_root())]
     # LTX Studio's runner, run through flashvsr_launch.py: the Triton block-sparse kernel (the runner's SDPA mask is refused at 2x), the picture saved at crf 4, and as many frames out as in
     return {"python": spec.get("python") or str(service.VENV_PY), "python_flags": ["-I"], "script": str(Path(__file__).with_name("flashvsr_launch.py")), "args": args, "params": {}, "missing": missing,
-            "cwd": str(service.RUNNER.parent), "env": {"PYTHONIOENCODING": "utf-8", "FLASHVSR_CRF": "4", **({"FLASHVSR_KEEP_WORKING": "1"} if req.get("keep_working") else {})}}
+            "cwd": str(service.RUNNER.parent), "env": {"PYTHONIOENCODING": "utf-8", "FLASHVSR_CRF": "4", **({"FLASHVSR_KEEP_WORKING": "1"} if req.get("keep_working") else {})},
+            "resident": {"script": str(Path(__file__).with_name("flashvsr_launch.py")), "args": [str(service.RUNNER), "--code-dir", str(service.CODE_DIR), "--resident"], "job_args": args[1:],
+                         "job_env": {"FLASHVSR_KEEP_WORKING": "1"} if req.get("keep_working") else {}, "drop_env": ["FLASHVSR_KEEP_WORKING"]}}
 
 
 def avatar_plan(folder: str, spec: dict) -> dict:
@@ -290,7 +295,168 @@ class Run:
             yield buffer.decode("utf-8", "replace").strip()
 
 
+class Resident:
+    """The model process of a session: started once and then given one job after another on its standard input (`ltx_launch.py --resident`, `flashvsr_launch.py --resident`), so that the model, the
+    Python start and what the worker keeps between jobs stay in memory. It is ended and started again after `reload_every` jobs, and when it has died."""
+
+    def __init__(self, plan: dict, cwd: str) -> None:
+        res = plan["resident"]
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1", "HF_HUB_OFFLINE": "1", **plan["env"]}
+        for key in res.get("drop_env", []):                      # what each job brings with it is not the process's
+            env.pop(key, None)
+        env = {k: v for k, v in env.items() if v is not None}
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+        argv = [plan["python"], *plan.get("python_flags", []), "-u", res["script"], *res["args"]]
+        self.proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, cwd=plan.get("cwd") or cwd, creationflags=flags,
+                                     start_new_session=os.name != "nt")
+        self.jobs = 0
+        self.eof = False                                          # its output has ended: it is dead or going to be
+        self._stream = self._read()
+
+    def lines(self):
+        """The lines the process prints, one stream for its whole life (a loop that stops early leaves the rest for the next one)."""
+        return self._stream
+
+    def _read(self):
+        buffer = b""
+        while True:
+            chunk = self.proc.stdout.read1(4096) if hasattr(self.proc.stdout, "read1") else self.proc.stdout.read(1)
+            if not chunk:
+                break
+            buffer += chunk
+            parts = re.split(rb"[\r\n]+", buffer)
+            buffer = parts.pop()
+            for part in parts:
+                text = part.decode("utf-8", "replace").strip()
+                if text:
+                    yield text
+        self.eof = True
+        if buffer.strip():
+            yield buffer.decode("utf-8", "replace").strip()
+
+    def alive(self) -> bool:
+        return not self.eof and self.proc.poll() is None
+
+    def close(self) -> None:
+        if self.proc.poll() is None:
+            try:
+                self.proc.stdin.close()
+                self.proc.wait(timeout=20)
+            except (OSError, subprocess.TimeoutExpired):
+                kill_tree(self.proc)
+
+
+def session_main() -> int:
+    """A session: one lease of the VRAM, then the jobs of one kind, one for each line of the standard input (`{"id": N, "spec": {the job's own spec}}`), each answered with the events of a job and `id`, over a model
+    process that is kept loaded (Resident). Ends, and gives the lease back, when its input ends."""
+    session = json.loads(sys.stdin.readline())
+    kind = session["kind"]
+    state = {"resident": None, "lease": None}
+    emit({"event": "start", "kind": kind})
+    try:
+        module = lease_module()
+        state["lease"] = heavy = module.HeavyLease(OWNER[kind], int(session["mib"]), PURPOSE[kind], minutes=MINUTES[kind], wait_s=float(session.get("wait_s") or 0), exclusive=True,
+                                                    held=bool(session.get("held")), base_url=session.get("url") or None)
+        heavy.acquire()
+        emit({"event": "lease", "ok": heavy.gpu_ok, "granted_mib": heavy.lease.granted_mib, "reason": heavy.reason, "message": heavy.message, "message_it": heavy.message_it, "swapped": heavy.swapped})
+        if not heavy.gpu_ok:
+            emit({"event": "refused", "reason": heavy.reason or "unavailable", "message": heavy.message, "message_it": heavy.message_it})
+            return 4
+        reload_every = int(session.get("reload_every") or 0)
+        for line in sys.stdin:
+            if not line.strip():
+                continue
+            job = json.loads(line)
+            jid, spec = job["id"], job["spec"]
+            began = time.monotonic()
+            try:
+                plan = PLANS[kind](session["ltx_dir"], spec)
+                for key in ("python", "script"):
+                    if not Path(plan[key]).is_file():
+                        raise JobError(f"LTX Studio's {key} is not there: {plan[key]}")
+                if plan["missing"]:
+                    raise JobError("LTX Studio lacks weights this needs: " + ", ".join(plan["missing"]))
+                res = state["resident"]
+                if res is not None and (not res.alive() or (reload_every and res.jobs >= reload_every)):
+                    emit({"event": "log", "line": "[session] the model process is started again" + (" (reload)" if res.alive() else " (it had ended)"), "id": jid})
+                    res.close()
+                    res = state["resident"] = None
+                if res is None:
+                    res = state["resident"] = Resident(plan, session["ltx_dir"])
+                    for text in res.lines():
+                        if text.startswith("[resident] ready"):
+                            break
+                        if text.startswith("ERRORE"):
+                            raise JobError(text[:300])
+                    else:
+                        raise JobError("the model process ended before it was ready")
+                work = Path(spec["output"]).parent
+                work.mkdir(parents=True, exist_ok=True)
+                job_line = {"id": jid, "env": plan["resident"].get("job_env") or {}}
+                if kind == "video":
+                    (work / "params.json").write_text(json.dumps(plan["params"]), encoding="utf-8")
+                    job_line["params"] = str(work / "params.json")
+                else:
+                    job_line["args"] = plan["resident"]["job_args"]
+                    job_line["id"] = jid
+                warnings = list(plan.get("warnings") or [])
+                for text in warnings:
+                    emit({"event": "log", "line": "[warning] " + text[:180], "id": jid})
+                try:
+                    res.proc.stdin.write((json.dumps(job_line) + "\n").encode("utf-8"))
+                    res.proc.stdin.flush()
+                except OSError:
+                    res.eof = True
+                    raise JobError("the model process had ended before the job was given to it") from None
+                tail, failed, finished = [], "", False
+                for text in res.lines():
+                    tail = (tail + [text])[-30:]
+                    if text.startswith("[attention] WARNING"):
+                        warnings.append(text[len("[attention] "):])
+                    if text.startswith(f"[resident] done {jid}"):
+                        finished = True
+                        break
+                    if text.startswith(f"[resident] failed {jid}"):
+                        failed = text
+                        break
+                    match = PROG.match(text) or STEP.search(text)
+                    if match:
+                        emit({"event": "progress", "step": int(match.group(1)), "steps": int(match.group(2)), "id": jid})
+                    elif text.startswith("["):
+                        emit({"event": "log", "line": text[:200], "id": jid})
+                if not (finished or failed):
+                    raise JobError("the model process ended in the middle of the job: " + " | ".join(tail[-4:])[-600:])
+                if failed:
+                    raise JobError(failed[:600] + " | " + " | ".join(tail[-4:])[-400:])
+                res.jobs += 1
+                out = Path(spec["output"])
+                if not out.is_file():
+                    raise JobError("the model process made no file: " + " | ".join(tail[-4:])[-600:])
+                if kind == "upscale":
+                    keep_audio(spec["request"]["video"], out)
+                if plan.get("post"):
+                    plan["post"]()
+                lease = heavy.lease
+                emit({"event": "done", "id": jid, "path": str(out), "bytes": out.stat().st_size, "seconds": round(time.monotonic() - began, 1), "warnings": warnings,
+                      "lease": {"id": lease.id or "", "owner": OWNER[kind], "granted_mib": lease.granted_mib, "swapped": heavy.swapped, "risky": heavy.risky}})
+            except JobError as exc:
+                emit({"event": "error", "id": jid, "message": str(exc)})
+            except Exception as exc:
+                emit({"event": "error", "id": jid, "message": f"{type(exc).__name__}: {str(exc)[:300]}"})
+        return 0
+    except Exception as exc:
+        emit({"event": "error", "id": 0, "message": f"{type(exc).__name__}: {str(exc)[:300]}"})
+        return 1
+    finally:
+        if state["resident"] is not None:
+            state["resident"].close()
+        if state["lease"] is not None:
+            state["lease"].release()
+
+
 def main() -> int:
+    if "--session" in sys.argv:
+        return session_main()
     if "--check" in sys.argv:
         folder = sys.argv[sys.argv.index("--ltx-dir") + 1]
         model = sys.argv[sys.argv.index("--video-model") + 1] if "--video-model" in sys.argv else ""
