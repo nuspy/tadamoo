@@ -22,6 +22,7 @@
       { id: "skills", view: "settings", label: () => T("sub.skills") },
       { id: "privacy", view: "settings", label: () => T("sub.privacy") },
       { id: "mobile", view: "settings", label: () => T("sub.mobile") },
+      { id: "network", view: "settings", label: () => T("sub.network") },
       { id: "memories", view: "settings", label: () => T("sub.memories") },
       { id: "personas", view: "settings", label: () => T("sub.personas") },
       { id: "websearch", view: "settings", label: () => T("sub.websearch") },

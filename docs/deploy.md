@@ -25,6 +25,10 @@ The listening address is `--host` (this machine only by default) and the port `-
 
 `--public-name` puts the name into `allowed-hosts`; without it a proxy that forwards the public name as the `Host` header gets `403 host_not_allowed` (see [server-security.md](server-security.md)).
 `--proxy nginx|caddy|npm` writes a ready recipe into `/etc/tadamoo/proxy/`: nginx and Caddy files, or the Nginx Proxy Manager settings. They keep the connection open and unbuffered for the streamed answers.
+The same settings are on the page, **Settings > Network** (from the PC the server runs on): the address and port to listen on, the public name, the allowed host names, a **Test** that says whether the
+address answers and whether the Host rule lets its name through (it asks the server's own `/api/network/ping` through the name, so a proxy in between is part of the test and the page shows the
+Host and scheme that arrived), and a guided set-up. The values are written to the config file (`server.host`, `server.port`, `server.allowed-hosts`, `server.public-name`); a change applies when the server is started again and the page says so.
+A proxy beside the server should send `Host` and `X-Forwarded-Proto` (`X-Forwarded-Host` too): the links the server writes then use the public name and `https` (see [remote-devices.md](remote-devices.md)).
 The page works at the root of a name (`https://tadamoo.example.org/`). A path such as `/harness/` is not supported yet.
 
 ## Docker

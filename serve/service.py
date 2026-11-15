@@ -108,6 +108,7 @@ class Service:
         self.api_key = ""                              # when set, /v1/* requires it
         self.control_token = ""                        # the secret of the changes through /api/*; empty: not required (--control-secret sets it)
         self.allowed_hosts = ()                        # names besides IP addresses, localhost and the PC's own that may reach this server (--allowed-hosts)
+        self.public_name = ""                          # the name the server is reached by from outside (--public-name); it is one of allowed_hosts
         self.allowed_origins = ()                      # page origins that may use this server from a browser; "*" turns the Origin rule off (--allowed-origins)
         # put a non-default reasoning effort in a system turn before the answer so the cached prefix survives
         self.effort_end = False

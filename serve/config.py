@@ -511,6 +511,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--allowed-hosts", action="append", type=_allowed_host, metavar="NAME",
                     help="a host name (besides IP addresses, localhost and this PC's own name) by which browsers may reach the server, "
                          "such as the Tailscale MagicDNS name; give it once per name (a list in the --config file)")
+    ap.add_argument("--public-name", type=_allowed_host, metavar="NAME",
+                    help="the name this server is reached by from outside (a domain, behind a reverse proxy, or a MagicDNS name): it is allowed as a Host "
+                         "name, as if it were also given to --allowed-hosts")
     ap.add_argument("--allowed-origins", action="append", type=_allowed_origin, metavar="ORIGIN",
                     help="a page origin such as http://localhost:3000 that may use this server from a browser; give it once per origin "
                          "(a list in the --config file). '*' turns the Origin rule off: a page of any website could then call "

@@ -100,6 +100,7 @@ from serve.llm_api import LlmApi, LlmError
 from serve.mcp_auth_api import McpAuthApi, McpAuthError, result_page
 from serve.approvals import ApprovalBoard, ApprovalError
 from serve import actions as actions_mod
+from serve import network_api
 from serve.changes import ChangeJournal
 from tadamoo.taskboard import TaskBoard
 _CHANGES = ChangeJournal(userdata.path("journal"))      # runtime state lives in the user's data folder, not in the assets
@@ -683,6 +684,11 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/sessions-base":
                 if self._authorized():
                     self._sessions_base_get()
+            elif path == "/api/network/ping":                  # what the network test asks: no key, and it says what arrived
+                self._json(200, network_api.ping_body(self.headers, self.client_address[0]))
+            elif path == "/api/network":
+                if self._authorized():
+                    self._json(200, network_api.view(svc, self.server.server_address[:2], settings.is_loopback(self.client_address[0])))
             elif path == "/api/attention":
                 if self._authorized():
                     self._json(200, {"cron": _ROUTINES.attention() if _ROUTINES is not None else {"t": 0.0},
@@ -1166,6 +1172,9 @@ def make_handler(svc: Service, remote: bool = False):
             if path.startswith("/api/actions/"):
                 if self._authorized():
                     self._actions_post(path)
+                return
+            if path in ("/api/network", "/api/network/test"):
+                self._network_post(path)
                 return
             if path == "/api/export":
                 self._export_post()
@@ -2073,6 +2082,28 @@ def make_handler(svc: Service, remote: bool = False):
                                                routines=lambda: _ROUTINES.scheduler if _ROUTINES is not None else None, approvals=_APPROVALS,
                                                path=userdata.path("actions_notified.json"))
             return _ACTIONS
+
+        def _network_post(self, path):
+            """POST /api/network | /api/network/test: this PC only (it writes the config file, and the test makes the server reach out)."""
+            try:
+                raw = self._body(settings.BODY_MAX)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            if not self._authorized():
+                return
+            if not settings.is_loopback(self.client_address[0]):
+                return self._json(403, {"error": {"type": "forbidden", "message": "the network settings can be changed only from the PC the server runs on"}})
+            try:
+                req = json.loads(raw or b"{}")
+                if path == "/api/network/test":
+                    return self._json(200, network_api.test(svc, self.server.server_address[:2], req))
+                result = network_api.save(svc, req)
+            except (ValueError, json.JSONDecodeError) as e:
+                return self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            except OSError as e:
+                return self._json(500, {"error": {"type": "server_error", "message": f"cannot write the config file: {e.strerror or e}"}})
+            print(f"[server] network settings saved: {', '.join(result['changed']) or 'nothing changed'}{' (apply on restart)' if result['changed'] else ''}", flush=True)
+            self._json(200, {**result, **network_api.view(svc, self.server.server_address[:2], True)})
 
         def _actions_post(self, path):
             try:
