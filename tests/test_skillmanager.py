@@ -640,3 +640,24 @@ def test_the_shell_does_not_take_a_page_the_model_wrote_without_a_second_command
     captured = capsys.readouterr()
     assert "Collect the decisions" in captured.out and "install --token" in captured.err
     assert Importer(Spaces.from_data(tmp_path / "data")).list() == []
+
+
+def test_updating_a_plugin_keeps_the_values_the_person_set_in_its_plan(world):
+    from tadamoo.planner import PlanDAG
+    from tadamoo.planner.dag import node_from_dict
+    mgr, tmp, asked = world
+    base = make_plugin(tmp / "src", "news", with_dep=False, mcp=False)
+
+    def put_plan(default):
+        dag = PlanDAG("news-plan", "News plan", "occasional")
+        dag.add_node(node_from_dict({"id": "p_place", "type": "parameter", "title": "Place", "description": "", "assignee": "agent",
+                                     "spec": {"prompt": "Which place?", "into": "place", "kind": "text", "default": default}}))
+        write(base / "plans" / "news.plan.json", json.dumps(dag.to_dict()))
+    put_plan("Hungary")
+    mgr.install(token=mgr.plan(str(base))["token"])
+    bridge = mgr.imp.plans().get("news-plan")
+    assert bridge.handle({"type": "plan:parameters", "values": {"place": "Poland"}})["values"] == {"place": "Poland"}
+    put_plan("Austria")
+    assert mgr.update("news")["status"] == "updated"
+    after = {p["name"]: p for p in mgr.imp.plans().get("news-plan").dag.parameters()}
+    assert after["place"]["value"] == "Poland" and after["place"]["default"] == "Austria"

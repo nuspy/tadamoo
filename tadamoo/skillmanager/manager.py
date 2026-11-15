@@ -250,8 +250,32 @@ class SkillManager:
             seen = self.imp.reimport(kind, name, source=str(path), **opts)
             if not seen["source_changed"] and not seen["local_edited"]:
                 return "same"
-            self.imp.reimport(kind, name, confirm=True, overwrite_local=overwrite_local, source=str(path), **opts)
+            only_plans = bool(seen["local_edited"]) and all(str(x).startswith("plan:") for x in seen.get("local_changes", []))
+            kept = self._plan_values([str(x)[5:] for x in seen.get("local_changes", [])]) if only_plans else {}
+            self.imp.reimport(kind, name, confirm=True, overwrite_local=overwrite_local or only_plans, source=str(path), **opts)
+            self._restore_plan_values(kept)
         return "updated"
+
+    def _plan_values(self, plan_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+        """The values the person set in the parameters of these plans: what a plan's own copy holds that the source does not."""
+        out: Dict[str, Dict[str, Any]] = {}
+        for pid in plan_ids:
+            try:
+                bridge = self.imp.plans().get(pid)
+                out[pid] = {p["name"]: p["value"] for p in bridge.dag.parameters()}
+            except Exception:
+                continue
+        return out
+
+    def _restore_plan_values(self, kept: Dict[str, Dict[str, Any]]) -> None:
+        """Puts the person's values back into the new copy of each plan, for the parameters it still has."""
+        for pid, values in kept.items():
+            try:
+                bridge = self.imp.plans().get(pid)
+                have = {p["name"] for p in bridge.dag.parameters()}
+                bridge.handle({"type": "plan:parameters", "values": {k: v for k, v in values.items() if k in have}})
+            except Exception:
+                continue
 
     def _visible(self, name: str) -> "_Visible":
         return _Visible(self, name)
