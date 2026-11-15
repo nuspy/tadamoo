@@ -181,6 +181,24 @@ class Pixabay:
             cache.write_text(json.dumps(data), encoding="utf-8")          # the answer never holds the key
         return _hits(data)
 
+    def photos(self, query: str, lang: str = "en", per_page: int = 20) -> List[Dict[str, Any]]:
+        """Photographs (not videos) for the words, as Pixabay gives them: id, pageURL, tags, user, imageWidth, largeImageURL; wide ones only."""
+        base = self.base.replace("/videos/", "/")
+        params = {"q": query[:100], "lang": lang if lang in LANGUAGES else "en", "image_type": "photo", "orientation": "horizontal", "min_width": 1600, "safesearch": "true", "order": "popular", "per_page": per_page}
+        raw = self._get(base + "?" + urlencode({"key": self.key, **params}))
+        try:
+            data = json.loads(raw.decode("utf-8", "replace"))
+        except ValueError:
+            raise StockError("Pixabay's answer was not JSON") from None
+        return [h for h in (data.get("hits") if isinstance(data, dict) else None) or [] if isinstance(h, dict) and h.get("largeImageURL")]
+
+    def download_file(self, url: str, dest: Path) -> Path:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_name(dest.name + ".part")
+        tmp.write_bytes(self._get(url, limit=60_000_000))
+        os.replace(tmp, dest)
+        return dest
+
     def download(self, hit: Hit, quality: str, dest: Path) -> Path:
         at = QUALITIES.index(quality) if quality in QUALITIES else 2
         order = QUALITIES[at:] + tuple(reversed(QUALITIES[:at]))

@@ -176,7 +176,7 @@ def upscale_plan(folder: str, spec: dict) -> dict:
             "--code-dir", str(service.CODE_DIR), "--ckpt-root", str(service.ckpt_root())]
     # LTX Studio's runner, run through flashvsr_launch.py: the Triton block-sparse kernel (the runner's SDPA mask is refused at 2x), the picture saved at crf 4, and as many frames out as in
     return {"python": spec.get("python") or str(service.VENV_PY), "python_flags": ["-I"], "script": str(Path(__file__).with_name("flashvsr_launch.py")), "args": args, "params": {}, "missing": missing,
-            "cwd": str(service.RUNNER.parent), "env": {"PYTHONIOENCODING": "utf-8", "FLASHVSR_CRF": "4"}}
+            "cwd": str(service.RUNNER.parent), "env": {"PYTHONIOENCODING": "utf-8", "FLASHVSR_CRF": "4", **({"FLASHVSR_KEEP_WORKING": "1"} if req.get("keep_working") else {})}}
 
 
 def avatar_plan(folder: str, spec: dict) -> dict:
