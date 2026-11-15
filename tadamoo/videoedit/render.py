@@ -258,6 +258,7 @@ class Shot:
                                                    # left the story's bands push the presenter (share of the width, `presenter_shift`)
     pip: Optional[Callable[[float], Image.Image]] = None
     evidence: Optional[int] = None
+    continuous: bool = False                       # the camera goes on from where the shot before ended, in the same render: no cut, no dissolve between the two
 
 
 def compose_frame(shots: Sequence[Shot], f: int, fps: int, canvas: Frame, stories: Dict[int, StoryGraphics], style: Style, pip_box: Box, pip_mask: Image.Image,
@@ -285,10 +286,10 @@ def compose_frame(shots: Sequence[Shot], f: int, fps: int, canvas: Frame, storie
         return img
 
     main = picture(shots[k])
-    if k + 1 < len(shots) and t >= shots[k].t1 - half:                     # the shot is ending: the next one comes in
+    if k + 1 < len(shots) and t >= shots[k].t1 - half and not shots[k + 1].continuous:                     # the shot is ending: the next one comes in
         u = camera.smooth((t - (shots[k].t1 - half)) / (2 * half))
         main = Image.blend(main, picture(shots[k + 1]), u)
-    elif k > 0 and t < shots[k].t0 + half:                                 # the shot has just begun: the one before goes out
+    elif k > 0 and t < shots[k].t0 + half and not shots[k].continuous:                                 # the shot has just begun: the one before goes out
         u = camera.smooth((t - (shots[k].t0 - half)) / (2 * half))
         main = Image.blend(picture(shots[k - 1]), main, u)
     # the story's graphics belong to the story that is on screen at this time
