@@ -3,6 +3,10 @@
 For each request the server knows who connected (`client_address`) and the `Host` it was asked at. A client at this machine (a loopback address, or one of this machine's own
 addresses) is local. Any other client is on another device, and the base address to give it is, in this order: the Host it used (it reached the server there, so it works for it), the
 Tailscale address of this machine, a LAN address of this machine. The answer is `""` for a local client, else `http://host:port`.
+
+Behind a reverse proxy the server sees the proxy as the client. A request that comes from a loopback or private-network address (a proxy beside the server) and carries `X-Forwarded-Proto`
+and/or `X-Forwarded-Host` says how the person reached the server: the base is then `scheme://host` of what the proxy forwarded (the port only when the forwarded host names one), and the
+person is not at this machine. The same headers from any other address are ignored: anybody can send them.
 """
 from __future__ import annotations
 
@@ -63,8 +67,13 @@ class Network:
         host = found["tailscale"] or next(iter(found["lan"]), "")
         return f"http://{host}:{port}" if host else ""
 
-    def client_base(self, client_ip: str, host_header: str, port: int) -> str:
-        """`""` for a client at this machine, else the base address that client reaches the server at (see the module's words)."""
+    def client_base(self, client_ip: str, host_header: str, port: int, fwd: Optional[Dict[str, str]] = None) -> str:
+        """`""` for a client at this machine, else the base address that client reaches the server at (see the module's words). `fwd` is what `forwarded` found."""
+        fwd = fwd or {}
+        if fwd.get("proto") or fwd.get("host"):                         # a proxy beside the server says how the person came: its name and scheme, with no port of ours
+            host, given_port = split_hostport(fwd.get("host") or host_header)
+            if host and not is_loopback_host(host):
+                return valid_base(f"{fwd.get('proto') or 'http'}://{host}{':' + given_port if given_port else ''}")
         ip = _ip(client_ip)
         if ip is None or ip.is_loopback or ip.is_unspecified:
             return ""
@@ -79,9 +88,34 @@ class Network:
 DEFAULT = Network()
 
 
-def client_base(client_ip: str, host_header: str, port: int) -> str:
-    return DEFAULT.client_base(client_ip, host_header, port)
+def client_base(client_ip: str, host_header: str, port: int, fwd: Optional[Dict[str, str]] = None) -> str:
+    return DEFAULT.client_base(client_ip, host_header, port, fwd)
 
 
 def server_base(port: int) -> str:
     return DEFAULT.server_base(port)
+
+
+_CGNAT = ipaddress.ip_network("100.64.0.0/10")
+_SCHEMES = ("http", "https")
+
+
+def trusted_proxy(client_ip: str) -> bool:
+    """A proxy beside the server: a loopback address, one of a private network, or Tailscale's range. Only such a peer is believed about how the person reached the server."""
+    ip = _ip(client_ip)
+    return ip is not None and (ip.is_loopback or ip.is_private or (ip.version == 4 and ip in _CGNAT))
+
+
+def forwarded(headers: Any, client_ip: str) -> Dict[str, str]:
+    """`{"proto": ..., "host": ...}` from `X-Forwarded-Proto` and `X-Forwarded-Host` (the first value of each, the proxy's own) when the request comes from a trusted proxy; each is empty
+    when it is not there or is not a scheme (http, https) or a host. Nothing is believed from any other peer."""
+    out = {"proto": "", "host": ""}
+    if headers is None or not trusted_proxy(client_ip):
+        return out
+    proto = str(headers.get("X-Forwarded-Proto") or "").split(",")[0].strip().lower()
+    host = str(headers.get("X-Forwarded-Host") or "").split(",")[0].strip()
+    if proto in _SCHEMES:
+        out["proto"] = proto
+    if split_hostport(host)[0]:
+        out["host"] = host
+    return out

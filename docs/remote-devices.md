@@ -29,6 +29,9 @@ What the server and the model put in front of the person, and whether it is righ
 - **Detection** (`serve/netaddr.py`): for each message the base address is `""` at the machine, else `http://host:port` with, in this order, the `Host` the client used (when it is a
   host: a header that is not one is ignored), the Tailscale address (the `tailscale` program, else an interface in 100.64.0.0/10), the LAN address. It is kept in the conversation
   (`address` of its record) and sent to its process with each message; a sender that knows nothing leaves it as it was.
+  Behind a reverse proxy the server sees the proxy as the client: a request from a loopback, private-network or Tailscale address that carries `X-Forwarded-Proto` and/or `X-Forwarded-Host`
+  gives `scheme://host` of what the proxy forwarded (the port only when the forwarded host names one), and the person is not at this machine; the same headers from any other address are
+  ignored (`serve/netaddr.py` `forwarded`).
 - **The model** is told once, and again only when it changes, in the `[state]` note (`address=` in `tadamoo/capstate.py`, the same mechanism as `reader=`): that the person is on another
   device, the address, and to give every link as a full address of it, never localhost, a relative path or a path of the disk. Nothing is added for a person at the machine, and nothing
   is in the cached start of the request.

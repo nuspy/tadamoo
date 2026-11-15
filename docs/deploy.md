@@ -48,5 +48,4 @@ helm install tadamoo deploy/helm/tadamoo -f deploy/helm/tadamoo/values-k3s.yaml 
 
 - A harness that does not serve its web page.
 - The page at a path (`/harness/`): nine calls of the page use an absolute address.
-- `X-Forwarded-Proto` for the absolute links the server writes behind HTTPS.
 - The desktop app connecting to a remote server, and its GUI-only setup (Windows); the Mac shell (`deploy/mac/`).

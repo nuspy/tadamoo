@@ -448,7 +448,7 @@ def make_handler(svc: Service, remote: bool = False):
 
         def _address(self) -> str:
             """The address this client reaches the server at, or "" when it is at this machine (serve/netaddr.py)."""
-            return netaddr.client_base(self.client_address[0], self.headers.get("Host", ""), self.server.server_address[1])
+            return netaddr.client_base(self.client_address[0], self.headers.get("Host", ""), self.server.server_address[1], netaddr.forwarded(self.headers, self.client_address[0]))
 
         def _reader(self) -> str:
             """Where the person reads the answers: a paired phone, a browser on another device, or this PC."""
