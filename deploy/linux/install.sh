@@ -13,7 +13,7 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CMD="${1:-}"; [ $# -gt 0 ] && shift
 
 PREFIX=/opt/tadamoo; DATA=/var/lib/tadamoo; CONF=/etc/tadamoo; RUN_USER=tadamoo
-HOST=127.0.0.1; PORT=7232; COMPONENTS=harness; PUBLIC=(); API_KEY=""; GENERATE_KEY=0
+HOST=127.0.0.1; PORT=7232; COMPONENTS=harness; PUBLIC=(); API_KEY=""; GENERATE_KEY=0; NO_WEB=0
 BASALT_BIN=""; STRATA_DIR=""; BUILD_BASALT=0; MODEL=""; PROXY=none; START=1; DRY=0; YES=0; PURGE=0
 
 usage() {
@@ -27,6 +27,7 @@ Options of install and update:
   --host ADDRESS       where it listens: 127.0.0.1 (this machine only), a LAN or Tailscale address, 0.0.0.0 (every address)
   --port N             the port                             (default: 7232)
   --public-name NAME   a name the server is reached by (a proxy's); may be repeated; goes into allowed-hosts
+  --no-web             serve only the API: no web page (for a server that other programs, the desktop app or the phone app use)
   --api-key KEY        the server key (optional)            --generate-key   make one and keep it in the configuration folder
   --engine-bin FILE    a built Basalt-Plus binary           --build-basalt   build it from this tree (CUDA toolkit and cmake needed)
   --strata-dir DIR     the folder of the Strata binaries
@@ -54,6 +55,7 @@ parse() {
       --host) HOST="$2"; shift 2;;
       --port) PORT="$2"; shift 2;;
       --public-name) PUBLIC+=("$2"); shift 2;;
+      --no-web) NO_WEB=1; shift;;
       --api-key) API_KEY="$2"; shift 2;;
       --generate-key) GENERATE_KEY=1; shift;;
       --engine-bin) BASALT_BIN="$2"; shift 2;;
@@ -127,8 +129,10 @@ write_config() {
   local hosts="" n
   for n in "${PUBLIC[@]+"${PUBLIC[@]}"}"; do hosts="$hosts\"$n\", "; done
   hosts="[${hosts%, }]"
-  if [ "$DRY" = 1 ]; then say "+ write $CONF/tadamoo_config.json (allowed-hosts $hosts)"; else
-    printf '{"server": {"allowed-hosts": %s}}\n' "$hosts" > "$CONF/tadamoo_config.json"
+  local web=""
+  [ "$NO_WEB" = 1 ] && web=', "no-web": true'
+  if [ "$DRY" = 1 ]; then say "+ write $CONF/tadamoo_config.json (allowed-hosts $hosts${web:+, no-web})"; else
+    printf '{"server": {"allowed-hosts": %s%s}}\n' "$hosts" "$web" > "$CONF/tadamoo_config.json"
   fi
   [ "$GENERATE_KEY" = 1 ] && [ -z "$API_KEY" ] && API_KEY="$(head -c 24 /dev/urandom | base64 | tr -d '=+/' | cut -c1-32)"
   if [ "$DRY" = 1 ]; then say "+ write $CONF/tadamoo.env (mode 600)"; else
@@ -175,6 +179,7 @@ write_proxy() {
         proxy_set_header Host \$host;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Host \$host;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection \$connection_upgrade;

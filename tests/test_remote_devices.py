@@ -198,7 +198,7 @@ def test_a_message_through_the_server_carries_the_address_the_client_reached_it_
             return json.loads(r.read().decode())
     post(f"api/agent/sessions/{sid}/send", {"text": "from this PC"})
     assert manager.get(sid)["address"] == ""                                            # a loopback client
-    monkeypatch.setattr(handler.netaddr, "client_base", lambda ip, host, port: box.client_base("100.64.0.9", host, port))       # the same request as if it came from a phone on Tailscale
+    monkeypatch.setattr(handler.netaddr, "client_base", lambda ip, host, port, fwd=None: box.client_base("100.64.0.9", host, port, fwd))       # the same request as if it came from a phone on Tailscale
     time.sleep(0.5)
     post(f"api/agent/sessions/{sid}/send", {"text": "from the phone"}, host="100.84.1.2:7232")
     assert manager.get(sid)["address"] == "http://100.84.1.2:7232"

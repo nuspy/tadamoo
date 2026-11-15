@@ -1,0 +1,34 @@
+/* Settings > Network: mobile first, one column; the fields and buttons are 44 px high on a touch screen; nothing waits for a hover. */
+.stnetwork { max-width: 760px; }
+.nw-root { display: grid; gap: 14px; align-content: start; }
+.nw-reason { margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--fg-2); overflow-wrap: anywhere; }
+.nw-set { margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 10px; min-width: 0; }
+.nw-set > legend { padding: 0 6px; font: 600 14px/1.3 var(--font-sans); color: var(--fg); }
+.nw-field { display: grid; gap: 4px; min-width: 0; }
+.nw-pair { display: grid; grid-template-columns: minmax(0, 1fr) 7.5rem; gap: 10px; }
+.nw-col { display: grid; gap: 4px; min-width: 0; }
+.nw-label { font: 500 13.5px/1.3 var(--font-sans); color: var(--fg-2); }
+.nw-help { margin: 0; font-size: 13px; line-height: 1.45; color: var(--fg-3); overflow-wrap: anywhere; }
+.nw-input { width: 100%; box-sizing: border-box; min-height: 44px; font-size: 16px; }
+textarea.nw-input { resize: vertical; font-family: var(--font-mono); }
+.nw-quick, .nw-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.nw-testbox { display: inline-flex; align-items: center; gap: 6px; }
+.nw-testbox .nw-input { width: auto; }
+.nw-btn { min-height: 44px; min-width: 44px; padding: 8px 16px; }
+.nw-pending { margin: 0; padding: 8px 12px; border-left: 3px solid var(--pl-block, #E9C341); color: var(--fg-2); overflow-wrap: anywhere; }
+.nw-status { min-height: 1.4em; margin: 0; font-size: 13.5px; color: var(--pl-done, #4CC66A); }
+.nw-status.bad { color: var(--pl-fail, #FF7B93); }
+.nw-results { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.nw-res { display: flex; gap: 8px; align-items: baseline; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; overflow-wrap: anywhere; }
+.nw-res .nw-mark { flex: none; font-weight: 700; width: 1.2em; text-align: center; }
+.nw-res.ok .nw-mark { color: var(--pl-done, #4CC66A); }
+.nw-res.bad .nw-mark { color: var(--pl-fail, #FF7B93); }
+.nw-res.warn .nw-mark { color: var(--pl-block, #E9C341); }
+.nw-wiz { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 10px; }
+.nw-wiz-h { margin: 0; font: 600 14px/1.3 var(--font-sans); }
+.nw-wiz-body { display: grid; gap: 8px; }
+.nw-wiz-opt { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.nw-wiz-opt input { width: 22px; height: 22px; flex: none; }
+.nw-wiz-nav { display: flex; flex-wrap: wrap; gap: 8px; }
+@media (pointer: fine) { .nw-btn { min-height: 36px; } .nw-input { min-height: 36px; } }
+@media (max-width: 420px) { .nw-pair { grid-template-columns: minmax(0, 1fr) 6rem; } }

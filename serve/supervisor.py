@@ -70,7 +70,7 @@ def settings_info(a, words: list[str], argv: list[str]) -> dict:
         running[f"engine.{name}"] = flag_setting(words, f"--{name}")
     if getattr(a, "shared_context", None):              # the total, before it was divided among the slots
         running["engine.max-context"] = a.shared_context
-    fields = {f"{s}.{k}" for s, k in (*settings.FIELDS, *settings.LOADER_FIELDS)}
+    fields = {f"{s}.{k}" for s, k in (*settings.FIELDS, *settings.LOADER_FIELDS, *settings.NETWORK_FIELDS)}
     return {"config": str(Path(a.config).resolve()) if a.config else None, "model": a.model, "running": running,
             "cli": sorted(n for n in fields if given(n.split(".", 1)[1]))}
 

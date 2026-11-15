@@ -238,9 +238,16 @@ def info(svc, lang: str = "en") -> dict:
     return out
 
 
+NO_ENGINE = {"type": "invalid_request_error", "code": "no_engine",
+             "message": "No engine is installed on this server, so there is nothing to load a model into. Install an engine (docs/deploy.md) or use a provider.",
+             "message_it": "Su questo server non è installato nessun motore, quindi non c'è dove caricare un modello. Installa un motore (docs/deploy.md) oppure usa un provider."}
+
+
 def load(svc, req: dict, voice_done: bool = False) -> dict:
     """Check, write and apply; Refused with the status and body otherwise. The voice functions that are on and not loaded load first
     (serve/voice_loader.py), so that the plan below reads the VRAM they left; `voice_done` is that job calling this again."""
+    if not getattr(svc, "engine_installed", True):
+        raise Refused(409, {"error": dict(NO_ENGINE)})
     sup = sup_of(svc)
     path = _config(svc)
     if not path:

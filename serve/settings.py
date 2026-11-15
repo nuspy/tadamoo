@@ -10,6 +10,7 @@ import tempfile
 import threading
 from pathlib import Path
 
+from serve.origin_guard import check_hostname
 from serve.config import PARALLEL_MAX, REMOVED_ENGINE_KEYS, REMOVED_SERVER_KEYS, SIDE_SLOT_DEFAULT, SIDE_SLOT_MIN, build_parser, parse_settings
 from serve.engine.vision import VISION_MODES, vision_mode
 
@@ -49,6 +50,8 @@ LOADER_FIELDS = (("server", "port"), ("server", "parallel"), ("server", "slot-fu
                  ("server", "passage-loop-tokens"), ("server", "passage-loop-times"), ("server", "passage-loop-window"),
                  ("server", "thinking-passage-loop-tokens"), ("server", "thinking-passage-loop-times"), ("server", "thinking-passage-loop-window"),
                  ("server", "measure-length"))
+# Settings > Network: where the server listens and the names it is reached by (a change applies when the server is started again)
+NETWORK_FIELDS = (("server", "host"), ("server", "port"), ("server", "allowed-hosts"), ("server", "public-name"))
 # the secret of the changes through /api/*: its own route, never part of the values the pages read back
 CONTROL_FIELDS = (("server", "control-secret"), ("server", "control-secret-value"))
 CONTROL_SECRET_MAX = 200
@@ -119,6 +122,27 @@ def check_value(section: str, key: str, value):
     what = f"{section}.{key}"
     if key == "port":
         return _whole(value, what, 1, 65535)
+    if key == "host":                                    # the address to listen on: an IP address or a name
+        text = value.strip().strip("[]") if isinstance(value, str) else ""
+        if not text or len(text) > 253 or any(c.isspace() or c in "/@" for c in text):
+            raise ValueError(f"{what}: an address to listen on such as 127.0.0.1 (this PC only) or 0.0.0.0 (also the network), not {value!r}")
+        try:
+            return str(ipaddress.ip_address(text))
+        except ValueError:
+            if text == "*":
+                raise ValueError(f"{what}: use 0.0.0.0 to listen on every address") from None
+            return check_hostname(text)
+    if key == "allowed-hosts":                           # names, one for each entry (a list, or text with commas or spaces)
+        items = value if isinstance(value, list) else str(value or "").replace(",", " ").split()
+        names = list(dict.fromkeys(check_hostname(i) for i in items if str(i).strip()))
+        if not names:
+            raise ValueError(f"{what}: at least one name, or remove the setting")
+        return names
+    if key == "public-name":
+        name = check_hostname(value)
+        if name == "*":
+            raise ValueError(f"{what}: a name, not *")
+        return name
     if key == "parallel":
         return _whole(value, what, 1, PARALLEL_MAX)
     if key == "side-slot":                               # the technical session: 0 (off) or its context in tokens
