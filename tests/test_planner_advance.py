@@ -224,3 +224,22 @@ def test_a_variable_that_is_not_there_yet_keeps_the_read_waiting_and_says_why():
     dag = plan(n("g", "get_var", {"name": "assente"}))
     dag.advance(T0)
     assert dag.nodes["g"].status == "pending" and "no value yet" in dag.nodes["g"].state_variables["auto_error"]
+
+
+def test_a_decision_on_values_the_plan_holds_is_taken_by_the_plan_and_one_on_an_unknown_value_is_left_to_the_agent():
+    def branches(variable):
+        return {"mode": "first", "on_no_match": "stop", "branches": [
+            {"id": "ask", "label": "Yes", "left": {"kind": "input", "variable": variable}, "op": {"kind": "value", "value": "="}, "right": {"kind": "value", "value": "yes"}},
+            {"id": "auto", "label": "No", "op": "else"}]}
+    dag = PlanDAG("p", "P", "occasional")
+    dag.add_node(n("a", "action"))
+    dag.add_node(n("b", "action"))
+    dag.add_node(n("d", "decision", branches("need"), routes={"ask": ["a"], "auto": ["b"]}))
+    dag.shared_state["need"] = "no"
+    result = dag.advance(T0)
+    assert "d" in result["done"] and dag.nodes["d"].status == "completed" and dag.nodes["a"].status == "skipped"
+    other = PlanDAG("p", "P", "occasional")
+    other.add_node(n("a", "action"))
+    other.add_node(n("b", "action"))
+    other.add_node(n("d", "decision", branches("unknown"), routes={"ask": ["a"], "auto": ["b"]}))
+    assert "d" not in other.advance(T0)["done"] and other.nodes["d"].status == "pending"

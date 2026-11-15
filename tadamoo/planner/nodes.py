@@ -808,6 +808,21 @@ def _complete(dag: Any, node: Any, now: float, outputs: Optional[Dict[str, Any]]
     return True
 
 
+def _decide(dag: Any, node: Any, now: float) -> bool:
+    """Takes a decision from the values the plan holds. False when a value is for the agent to work out or no branch holds: it then stays for the agent."""
+    from tadamoo.planner.dag import NeedValue, NoRoute
+    try:
+        dag.mark(node.id, "completed", None, now)
+    except (NeedValue, NoRoute):
+        return False
+    except PlanError:
+        return False
+    if dag.nodes[node.id].status != "completed":
+        return False
+    dag.note(node.id, "auto", f"{node.title}: decided from the values of the plan", now)
+    return True
+
+
 def _value_of(dag: Any, node: Any) -> Any:
     from tadamoo.planner.dag import safe_eval
     spec = node.spec
@@ -925,6 +940,11 @@ def advance(dag: Any, now: float) -> Dict[str, Any]:
                     enter = True
                 if not enter and _complete(dag, node, now, None, f"{node.title}: not entered, its condition does not hold"):
                     node.state_variables["runs"] = 0
+                    done.append(nid)
+                    moved = True
+                continue
+            if kind == "decision":                                           # a decision whose values the plan already holds is taken at once; one that waits for a value is the agent's
+                if _decide(dag, node, now):
                     done.append(nid)
                     moved = True
                 continue
