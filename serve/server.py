@@ -275,6 +275,7 @@ def main() -> int:
     os.environ["TADAMOO_URL"] = f"http://127.0.0.1:{a.port}"      # the workers and helpers this server starts ask it for VRAM leases here
     svc.control_token = write_control_token(a.port, a.control_secret_value) if a.control_secret else ""
     svc.engine_installed = bool(a.mock_engine or a.engine_bin)
+    svc.web = not a.no_web
     svc.public_name = a.public_name or ""
     svc.allowed_hosts = tuple(dict.fromkeys([*(a.allowed_hosts or ()), *([a.public_name] if a.public_name else [])]))
     svc.allowed_origins = tuple(dict.fromkeys(a.allowed_origins or ()))
@@ -350,7 +351,10 @@ def main() -> int:
         say_ready()
         if not a.lazy:
             first_calibration()
-    print(f"[server] web UI: http://{here}:{a.port}/ (chat, monitor, settings; Ctrl+C stops)", flush=True)
+    if svc.web:
+        print(f"[server] web UI: http://{here}:{a.port}/ (chat, monitor, settings; Ctrl+C stops)", flush=True)
+    else:
+        print("[server] web page off (--no-web): the API only (Ctrl+C stops)", flush=True)
     if a.host not in LOOPBACK_NAMES:
         # reachable from other devices: print the addresses
         ips = lan_addresses()
@@ -360,7 +364,7 @@ def main() -> int:
             print(tagged("network", f"port={a.port}"), flush=True)
         if exposed_without_key(a.host, svc.api_key):
             print(tagged("warning", "no api key, open to the network (--api-key KEY)"), flush=True)
-    if a.open:
+    if a.open and svc.web:
         import webbrowser
         webbrowser.open(f"http://{'127.0.0.1' if a.host in ('0.0.0.0', '') else a.host}:{a.port}/")
     # SIGTERM takes Ctrl+C's path (QUIT to the engine) so a container stop does not orphan it

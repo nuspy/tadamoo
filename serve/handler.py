@@ -534,6 +534,8 @@ def make_handler(svc: Service, remote: bool = False):
             if self.remote_listener and not self._authorized():          # every request to the listener for phones needs a key
                 return
             path = self.path.split("?")[0].rstrip("/")
+            if not getattr(svc, "web", True) and (path == "" or path.startswith(("/web/", "/fonts/"))):
+                return self._no_web(path)                              # --no-web: the API only
             if path.startswith("/fonts/"):
                 name = path[len("/fonts/"):]
                 f = ROOT / "serve" / "web" / "fonts" / name
@@ -893,7 +895,7 @@ def make_handler(svc: Service, remote: bool = False):
                 self._json(200, {"status": "ok", "max_context": svc.engine.max_context, "model": svc.model,
                                  "images": svc.vision is not None, "api_key": bool(svc.api_key),
                                  "loaded": svc.loaded(), "loading": svc.loading, "standby": bool(getattr(svc, "standby", False)),
-                                 "engine_installed": bool(getattr(svc, "engine_installed", True)),
+                                 "engine_installed": bool(getattr(svc, "engine_installed", True)), "web": bool(getattr(svc, "web", True)),
                                  # a test server (--mock-engine): the scripts and the app never take it for TaDaMoo
                                  "mock": type(svc.engine).__name__ == "MockEngine"
                                  or bool(getattr(getattr(svc, "supervisor", None), "mock", False)),
@@ -2073,6 +2075,12 @@ def make_handler(svc: Service, remote: bool = False):
 
         def _plan_service(self):
             return _plans_service(svc, self.server.server_address[1])
+
+        def _no_web(self, path):
+            """A server started with --no-web has no page: `/` says so (a 200, so a proxy's check of the root passes), the files of the page are not there."""
+            if path == "":
+                return self._json(200, {"service": "tadamoo", "web": False, "message": "This server serves its API only (--no-web).", "api": ["/v1", "/api", "/health"]})
+            self._json(404, {"error": {"message": "not found"}})
 
         def _actions(self):
             """The list of what waits for the person, made from the live sources (conversations, plans, routines, the approvals board)."""

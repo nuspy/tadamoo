@@ -21,7 +21,8 @@ deploy/linux/install.sh status          sudo deploy/linux/install.sh uninstall [
 ```
 
 `--dry-run` says what would be done and changes nothing. The service is `tadamoo.service`; its configuration is in `/etc/tadamoo/` (`tadamoo_config.json`, `tadamoo.env`, `proxy/`), the data in `/var/lib/tadamoo`.
-The listening address is `--host` (this machine only by default) and the port `--port`.
+The listening address is `--host` (this machine only by default) and the port `--port`. `--no-web` makes a harness that serves only its API (`no-web: true` in the config file; the root answers
+`{"web": false}`, the page's files and fonts are not there): for a server that the desktop app, the phone app or other programs use.
 
 ### A proxy in front
 
@@ -52,6 +53,5 @@ helm install tadamoo deploy/helm/tadamoo -f deploy/helm/tadamoo/values-k3s.yaml 
 
 ## What is not done yet
 
-- A harness that does not serve its web page.
 - The page at a path (`/harness/`): nine calls of the page use an absolute address.
 - The desktop app connecting to a remote server, and its GUI-only setup (Windows); the Mac shell (`deploy/mac/`).

@@ -108,6 +108,7 @@ class Service:
         self.api_key = ""                              # when set, /v1/* requires it
         self.control_token = ""                        # the secret of the changes through /api/*; empty: not required (--control-secret sets it)
         self.allowed_hosts = ()                        # names besides IP addresses, localhost and the PC's own that may reach this server (--allowed-hosts)
+        self.web = True                                # False with --no-web: the server answers its API and not the web page
         self.engine_installed = True                   # False on a server with no engine binary (the harness alone): there is nothing for the Loader to load a model into
         self.public_name = ""                          # the name the server is reached by from outside (--public-name); it is one of allowed_hosts
         self.allowed_origins = ()                      # page origins that may use this server from a browser; "*" turns the Origin rule off (--allowed-origins)
