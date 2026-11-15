@@ -68,7 +68,10 @@ def read(agent: Any, *, window: int, unattended: bool) -> Dict[str, Any]:
     if hasattr(agent, "reader_address"):                        # set once a message told where the person is: "" at this machine, else the address they reach this server at
         state["address"] = agent.reader_address
     if index is not None:                                       # the knowledge archives this conversation can use now, named (tadamoo/rag/tools.py)
-        state["knowledge"] = index()
+        try:
+            state["knowledge"] = index()
+        except Exception as e:                                  # an archive that cannot be reached must not stop the conversation
+            state["knowledge"] = f"not available now ({type(e).__name__})"
     return state
 
 

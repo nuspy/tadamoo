@@ -96,3 +96,12 @@ def test_the_reader_is_this_pc_until_the_agent_is_told_otherwise_and_is_told_whe
     teller.note(capstate.read(a, window=1000, unattended=False))
     a.reader = "phone"
     assert teller.note(capstate.read(a, window=1000, unattended=False)) == "[state] reader=phone"
+
+
+def test_an_archive_that_cannot_be_reached_does_not_stop_the_reading():
+    def broken():
+        raise RuntimeError("the database could not be reached")
+
+    a = agent()
+    a.knowledge_index = broken
+    assert capstate.read(a, window=1000, unattended=False)["knowledge"] == "not available now (RuntimeError)"
