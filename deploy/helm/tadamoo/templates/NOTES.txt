@@ -1,0 +1,9 @@
+TaDaMoo {{ .Release.Name }} is installed.
+{{- if .Values.ingress.enabled }}
+The page: http{{ if .Values.ingress.tls.enabled }}s{{ end }}://{{ .Values.ingress.host }}{{ .Values.ingress.path }}
+{{- else }}
+The page: kubectl port-forward svc/{{ include "tadamoo.harness" . }} {{ .Values.harness.port }}:{{ .Values.harness.port }}   then http://127.0.0.1:{{ .Values.harness.port }}/
+{{- end }}
+{{- if .Values.engine.enabled }}
+The engine answers inside the cluster at http://{{ include "tadamoo.engine" . }}:{{ .Values.engine.port }}/v1 : in the page, Settings > Providers, add an OpenAI-compatible provider with that address.
+{{- end }}

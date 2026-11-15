@@ -1,0 +1,63 @@
+{{- if .Values.engine.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tadamoo.engine" . }}
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: {{ include "tadamoo.engine" . }} }
+  template:
+    metadata:
+      labels: { app: {{ include "tadamoo.engine" . }} }
+    spec:
+      {{- with .Values.engine.runtimeClassName }}
+      runtimeClassName: {{ . }}
+      {{- end }}
+      containers:
+        - name: engine
+          image: "{{ .Values.engine.image.repository }}:{{ .Values.engine.image.tag }}"
+          imagePullPolicy: {{ .Values.engine.image.pullPolicy }}
+          args:
+            - "--port"
+            - "{{ .Values.engine.port }}"
+            {{- if .Values.engine.model }}
+            - "--model"
+            - "/models/{{ .Values.engine.model }}"
+            {{- else }}
+            - "--standby"
+            {{- end }}
+            {{- range .Values.engine.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          ports: [{ name: http, containerPort: {{ .Values.engine.port }} }]
+          readinessProbe: { httpGet: { path: /health, port: http }, initialDelaySeconds: 20, periodSeconds: 15 }
+          volumeMounts:
+            - { name: models, mountPath: /models }
+            - { name: data, mountPath: /data }
+          resources:
+            limits: { nvidia.com/gpu: {{ .Values.engine.gpus }} }
+            {{- with .Values.engine.resources.requests }}
+            requests: {{ toYaml . | nindent 14 }}
+            {{- end }}
+      volumes:
+        - name: models
+          persistentVolumeClaim: { claimName: {{ default (printf "%s-models" (include "tadamoo.engine" .)) .Values.engine.models.existingClaim }} }
+        - name: data
+          persistentVolumeClaim: { claimName: {{ printf "%s-data" (include "tadamoo.engine" .) }} }
+      {{- with .Values.engine.nodeSelector }}
+      nodeSelector: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.engine.tolerations }}
+      tolerations: {{ toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tadamoo.engine" . }}
+spec:
+  selector: { app: {{ include "tadamoo.engine" . }} }
+  ports: [{ name: http, port: {{ .Values.engine.port }}, targetPort: http }]
+{{- end }}

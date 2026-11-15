@@ -1,0 +1,10 @@
+# k3s: Traefik is the ingress and local-path the storage that come with it; where its GPUs run, the NVIDIA runtime class is "nvidia".
+ingress:
+  enabled: true
+  className: traefik
+harness:
+  persistence: { storageClass: local-path }
+engine:
+  runtimeClassName: nvidia
+  models: { storageClass: local-path }
+  data: { storageClass: local-path }

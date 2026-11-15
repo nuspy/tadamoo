@@ -1,0 +1,19 @@
+# The Strata engine with the server that supervises it. Strata's binaries are not built from this tree: put them in a folder and give it as the build context argument.
+#   docker build -f deploy/docker/Dockerfile.engine-strata --build-arg STRATA_DIR=strata-bin -t tadamoo-engine-strata .
+# (the folder must be inside the build context, next to the repository's serve/ and tadamoo/ folders)
+ARG CUDA_VERSION=13.1.0
+FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu24.04
+ARG STRATA_DIR=strata-bin
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv python3-pip && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY requirements.txt .
+RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
+COPY serve ./serve
+COPY tadamoo ./tadamoo
+COPY VERSION .
+COPY ${STRATA_DIR} /opt/strata
+ENV TADAMOO_DATA=/data PATH=/opt/venv/bin:$PATH PYTHONUNBUFFERED=1
+VOLUME /data
+EXPOSE 7232
+ENTRYPOINT ["python", "-m", "serve.server", "--engine-bin", "/opt/strata/strata", "--host", "0.0.0.0"]
+CMD ["--port", "7232", "--standby"]

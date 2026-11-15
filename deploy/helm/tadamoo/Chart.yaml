@@ -1,0 +1,6 @@
+apiVersion: v2
+name: tadamoo
+description: TaDaMoo on Kubernetes or k3s - the harness (server and web page), and when asked an engine (Basalt-Plus or Strata) in a pod of its own with a GPU
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

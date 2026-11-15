@@ -1,0 +1,23 @@
+# The harness alone, or with an engine in a second container (the commented block). The harness reaches the engine as a provider:
+# in Settings > Providers add an OpenAI-compatible one with the address http://engine:7232/v1.
+services:
+  harness:
+    build: { context: ../.., dockerfile: deploy/docker/Dockerfile.harness }
+    image: tadamoo-harness
+    ports: ["7232:7232"]
+    volumes: ["tadamoo-data:/data"]
+    environment:
+      TADAMOO_API_KEY: ${TADAMOO_API_KEY:-}
+    command: ["--port", "7232", "--api-key", "${TADAMOO_API_KEY:-}"]
+    restart: unless-stopped
+  # engine:
+  #   build: { context: ../.., dockerfile: deploy/docker/Dockerfile.engine-basalt }
+  #   image: tadamoo-engine-basalt
+  #   volumes: ["tadamoo-models:/models", "tadamoo-engine-data:/data"]
+  #   command: ["--port", "7232", "--model", "/models/model.basalt"]
+  #   deploy: { resources: { reservations: { devices: [{ driver: nvidia, count: all, capabilities: [gpu] }] } } }
+  #   restart: unless-stopped
+volumes:
+  tadamoo-data:
+  tadamoo-models:
+  tadamoo-engine-data:

@@ -1,0 +1,15 @@
+# The harness alone: the server and its web page, no engine (the answers come from the providers). Build from the repository root:
+#   docker build -f deploy/docker/Dockerfile.harness -t tadamoo-harness .
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY serve ./serve
+COPY tadamoo ./tadamoo
+COPY skills ./skills
+COPY VERSION .
+ENV TADAMOO_DATA=/data PYTHONUNBUFFERED=1
+VOLUME /data
+EXPOSE 7232
+ENTRYPOINT ["python", "-m", "serve.server", "--standby", "--host", "0.0.0.0"]
+CMD ["--port", "7232"]

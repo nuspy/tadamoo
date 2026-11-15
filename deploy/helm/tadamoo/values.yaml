@@ -1,0 +1,39 @@
+# The harness: the server and its web page. One copy only: it keeps the plans, the conversations and the memory in its volume.
+harness:
+  image: { repository: tadamoo-harness, tag: latest, pullPolicy: IfNotPresent }
+  port: 7232
+  apiKey: ""                 # the server key (optional); or name a Secret that holds it under the key TADAMOO_API_KEY
+  existingSecret: ""
+  persistence: { size: 5Gi, storageClass: "", existingClaim: "" }
+  resources: {}
+  extraArgs: []
+  nodeSelector: {}
+  tolerations: []
+
+# Names the server is reached by, besides the ingress host (which is added by itself): they go into allowed-hosts.
+allowedHosts: []
+
+ingress:
+  enabled: false
+  className: ""              # traefik (k3s), nginx, ...
+  host: ""
+  path: /
+  annotations: {}
+  tls: { enabled: false, secretName: "" }
+
+# An engine in a pod of its own. It needs a cluster whose NVIDIA GPUs are already set up (the NVIDIA device plugin, and the runtime class where the cluster asks for one).
+engine:
+  enabled: false
+  kind: basalt               # basalt (NVIDIA Blackwell) or strata: the image decides
+  image: { repository: tadamoo-engine-basalt, tag: latest, pullPolicy: IfNotPresent }
+  port: 7232
+  model: ""                  # the model file inside the models volume, for example qwen.basalt; empty: the engine waits for the Loader
+  gpus: 1
+  runtimeClassName: ""       # nvidia, where the cluster needs it
+  models: { size: 200Gi, storageClass: "", existingClaim: "" }
+  data: { size: 2Gi, storageClass: "" }
+  resources:
+    requests: { memory: 96Gi }
+  nodeSelector: {}
+  tolerations: []
+  extraArgs: []

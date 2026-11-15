@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tadamoo.harness" . }}
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: {{ include "tadamoo.harness" . }} }
+  template:
+    metadata:
+      labels: { app: {{ include "tadamoo.harness" . }} }
+    spec:
+      containers:
+        - name: harness
+          image: "{{ .Values.harness.image.repository }}:{{ .Values.harness.image.tag }}"
+          imagePullPolicy: {{ .Values.harness.image.pullPolicy }}
+          args:
+            - "--port"
+            - "{{ .Values.harness.port }}"
+            - "--config"
+            - /etc/tadamoo/tadamoo_config.json
+            - "--api-key"
+            - "$(TADAMOO_API_KEY)"
+            {{- range .Values.harness.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: TADAMOO_API_KEY
+              valueFrom: { secretKeyRef: { name: {{ include "tadamoo.secret" . }}, key: TADAMOO_API_KEY } }
+          ports: [{ name: http, containerPort: {{ .Values.harness.port }} }]
+          readinessProbe: { httpGet: { path: /health, port: http }, initialDelaySeconds: 5, periodSeconds: 10 }
+          livenessProbe: { httpGet: { path: /health, port: http }, initialDelaySeconds: 30, periodSeconds: 30 }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: config, mountPath: /etc/tadamoo }
+          {{- with .Values.harness.resources }}
+          resources: {{ toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: {{ default (include "tadamoo.harness" .) .Values.harness.persistence.existingClaim }} }
+        - name: config
+          configMap: { name: {{ include "tadamoo.harness" . }} }
+      {{- with .Values.harness.nodeSelector }}
+      nodeSelector: {{ toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.harness.tolerations }}
+      tolerations: {{ toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tadamoo.harness" . }}
+spec:
+  selector: { app: {{ include "tadamoo.harness" . }} }
+  ports: [{ name: http, port: {{ .Values.harness.port }}, targetPort: http }]

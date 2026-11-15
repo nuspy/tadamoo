@@ -1,0 +1,44 @@
+{{- if not .Values.harness.persistence.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "tadamoo.harness" . }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.harness.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.harness.persistence.size }}
+{{- end }}
+{{- if .Values.engine.enabled }}
+{{- if not .Values.engine.models.existingClaim }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "tadamoo.engine" . }}-models
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.engine.models.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.engine.models.size }}
+{{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "tadamoo.engine" . }}-data
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.engine.data.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.engine.data.size }}
+{{- end }}

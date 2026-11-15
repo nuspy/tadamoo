@@ -1,0 +1,23 @@
+# The Basalt-Plus engine with the server that supervises it (NVIDIA Blackwell, compute capability 12.0). Build from the repository root:
+#   docker build -f deploy/docker/Dockerfile.engine-basalt -t tadamoo-engine-basalt .
+# Run it with the GPU (docker --gpus all, or Kubernetes with the NVIDIA device plugin) and the models in /models.
+ARG CUDA_VERSION=13.1.0
+FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu24.04 AS build
+RUN apt-get update && apt-get install -y --no-install-recommends cmake g++ ninja-build python3 && rm -rf /var/lib/apt/lists/*
+COPY . /src
+RUN cmake -S /src -B /build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build /build
+
+FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu24.04
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv python3-pip && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY requirements.txt .
+RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
+COPY serve ./serve
+COPY tadamoo ./tadamoo
+COPY VERSION .
+COPY --from=build /build/bin/basalt /opt/basalt/bin/basalt
+ENV TADAMOO_DATA=/data PATH=/opt/venv/bin:$PATH PYTHONUNBUFFERED=1
+VOLUME /data
+EXPOSE 7232
+ENTRYPOINT ["python", "-m", "serve.server", "--engine-bin", "/opt/basalt/bin/basalt", "--host", "0.0.0.0"]
+CMD ["--port", "7232", "--standby"]
