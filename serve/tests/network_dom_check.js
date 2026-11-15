@@ -72,6 +72,16 @@ async function main() {
       if (!/tadamoo\.invalid/.test(joined)) throw new Error("the address is not named: " + joined);
     });
 
+    await check(`${tag}: a server with no engine has no Loader tab, and a link to it goes to the Chat`, async () => {
+      await waitFor(`q("#tab-loader") && q("#tab-loader").hidden`, "the Loader tab is hidden");
+      await ev(`location.hash = "#loader"; return 1;`);
+      await waitFor(`document.body.dataset.view === "chat"`, "#loader goes to the Chat");
+      await ev(`location.hash = "#settings"; return 1;`);
+      await waitFor(`document.body.dataset.view === "settings"`, "back to Settings");
+      await ev(`const b = q("#sub-network"); if (b) b.click(); return 1;`);
+      await waitFor(`!!q("#nw-host") && q("#nw-section").offsetParent !== null`, "the network form again");
+    });
+
     await check(`${tag}: the guided set-up fills the fields for a reverse proxy and walks to the end`, async () => {
       await ev(`qa("#nw-root button").find(b => b.textContent.trim() === ${JSON.stringify(LANG === "it" ? "Imposta passo per passo" : "Set up step by step")}).click(); return 1;`);
       await waitFor(`!q(".nw-wiz").hidden`, "the guide opens");

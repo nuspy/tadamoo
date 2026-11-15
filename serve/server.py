@@ -274,6 +274,7 @@ def main() -> int:
     svc.gpu_index = svc.gpu_indices[0]
     os.environ["TADAMOO_URL"] = f"http://127.0.0.1:{a.port}"      # the workers and helpers this server starts ask it for VRAM leases here
     svc.control_token = write_control_token(a.port, a.control_secret_value) if a.control_secret else ""
+    svc.engine_installed = bool(a.mock_engine or a.engine_bin)
     svc.public_name = a.public_name or ""
     svc.allowed_hosts = tuple(dict.fromkeys([*(a.allowed_hosts or ()), *([a.public_name] if a.public_name else [])]))
     svc.allowed_origins = tuple(dict.fromkeys(a.allowed_origins or ()))

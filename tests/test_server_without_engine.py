@@ -44,6 +44,7 @@ def test_standby_alone_starts_answers_and_keeps_the_host_rule(tmp_path):
             raise AssertionError("the server did not answer")
         health = json.loads(body)
         assert status == 200 and health["standby"] is True and health["loaded"] is False and health["service"] == "tadamoo"
+        assert health["engine_installed"] is False                                      # no engine binary: the page hides the Loader, and Load says so
         assert get(port, "/", host="tadamoo.example.org")[0] == 200 and get(port, "/", host="other.example.org")[0] == 403
     finally:
         proc.terminate()

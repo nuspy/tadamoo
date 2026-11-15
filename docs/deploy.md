@@ -8,7 +8,9 @@ Three components, one installation. On Linux the interface is the web page the h
 | basalt | the Basalt-Plus engine (NVIDIA Blackwell) | only when asked |
 | strata | the Strata engine (NVIDIA, AMD, Intel, Apple) | only when asked |
 
-With no engine the harness answers through the providers (cloud, or an engine somewhere else). `python -m serve.server --standby` starts it that way.
+With no engine the harness answers through the providers (cloud, or an engine somewhere else). `python -m serve.server --standby` starts it that way. A server with no engine binary says so
+(`engine_installed: false` in `/health` and `/api/loader/status`): the page hides the Loader tab, and a Load asked for through the API is refused with `409 no_engine` and a plain sentence in English
+and Italian ("No engine is installed on this server, so there is nothing to load a model into").
 
 ## Linux (systemd)
 

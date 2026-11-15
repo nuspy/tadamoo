@@ -506,13 +506,15 @@
     if (r.status === 401) askKey();
     return { r, j };
   }
+  /* what a refusal says; a server with no engine says it in the page's language */
+  const failText = (j, r) => ((j.error || {}).code === "no_engine" ? T("ld.no_engine") : (j.error && j.error.message) || `HTTP ${r.status}`);
   async function load(values, target, mode, model, force) {
     const m = model || modelNow();
     const body = m ? { values, model: m } : { values };
     if (force) body.force = true;
     const { r, j } = await post("api/loader/load", body);
     if (r.status === 422 && j.plan) { renderSide(target, j.plan, mode); return; }
-    if (!r.ok) { say(T("ld.phase.failed", (j.error && j.error.message) || `HTTP ${r.status}`), "err"); return; }
+    if (!r.ok) { say(T("ld.phase.failed", failText(j, r)), "err"); return; }
     if ((j.notes || []).includes("model_restart")) { say(T("ld.model.relaunch", TadamooModels.name(j.model)), "ok"); waitRestart(); return; }
     if ((j.notes || []).includes("model_on_restart")) { say(T("ld.model.restart", TadamooModels.name(j.model)), "ok"); return; }
     if ((j.notes || []).includes("port_on_restart")) say(T("ld.port.note"));
@@ -534,13 +536,13 @@
   }
   async function calibrate() {
     const { r, j } = await post("api/loader/calibrate", {});
-    if (!r.ok) { say(T("ld.phase.failed", (j.error && j.error.message) || `HTTP ${r.status}`), "err"); return; }
+    if (!r.ok) { say(T("ld.phase.failed", failText(j, r)), "err"); return; }
     INFO.status = { phase: "calibrating" };
     watch();
   }
   async function measureLength(action) {
     const { r, j } = await post("api/loader/length", { action });
-    if (!r.ok) { say(T("ld.phase.failed", (j.error && j.error.message) || `HTTP ${r.status}`), "err"); return; }
+    if (!r.ok) { say(T("ld.phase.failed", failText(j, r)), "err"); return; }
     if (action === "measure") { INFO.status = { phase: "calibrating", job: "length", step: "length" }; watch(); }
   }
   function say(text, kind) {

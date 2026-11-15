@@ -47,7 +47,7 @@ const TAB_OF = { hardware: "stats", logs: "stats", security: "stats", wallet: "s
 const SHOWN_AS = { agent: "chat" };
 let viewOn = "";
 function view(v, focus) {
-  if (!VIEWS.includes(v)) v = "chat";
+  if (!VIEWS.includes(v) || (v === "loader" && document.body.dataset.noEngine)) v = "chat";
   viewOn = v;
   VIEWS.forEach(x => { const page = document.getElementById("view-" + x); if (page) page.hidden = x !== (SHOWN_AS[v] || v); });
   $("#top").hidden = v !== "stats";
@@ -433,7 +433,14 @@ function askKey() { $("#auth").hidden = false; $("#key").focus(); }
 
 $("#host").textContent = location.host;
 let HEALTH = null;
-const healthReady = fetch("health", { cache: "no-store" }).then(r => r.json()).then(h => { HEALTH = h; $("#keyed").hidden = !h.api_key; return h; })
+/* a server with no engine (the harness alone) has no Loader: the tab is hidden and a link to it goes to the Chat */
+function noEngine() {
+  document.body.dataset.noEngine = "1";
+  const tab = $("#tab-loader");
+  if (tab) tab.hidden = true;
+  if (viewOn === "loader") view("chat");
+}
+const healthReady = fetch("health", { cache: "no-store" }).then(r => r.json()).then(h => { HEALTH = h; $("#keyed").hidden = !h.api_key; if (h.engine_installed === false) noEngine(); return h; })
   .catch(() => null);
 view(location.hash.slice(1) || "chat");
 pollMetrics(); pollLog();

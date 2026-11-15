@@ -652,7 +652,7 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/loader/status":
                 if self._authorized():
                     self._json(200, {**loader_api.sup_of(svc).status(), "loaded": svc.loaded(), "loading": svc.loading,
-                                     "standby": bool(getattr(svc, "standby", False)),
+                                     "standby": bool(getattr(svc, "standby", False)), "engine_installed": bool(getattr(svc, "engine_installed", True)),
                                      "max_context": svc.engine.max_context})
             elif path == "/api/tasks":
                 if self._authorized():
@@ -893,6 +893,7 @@ def make_handler(svc: Service, remote: bool = False):
                 self._json(200, {"status": "ok", "max_context": svc.engine.max_context, "model": svc.model,
                                  "images": svc.vision is not None, "api_key": bool(svc.api_key),
                                  "loaded": svc.loaded(), "loading": svc.loading, "standby": bool(getattr(svc, "standby", False)),
+                                 "engine_installed": bool(getattr(svc, "engine_installed", True)),
                                  # a test server (--mock-engine): the scripts and the app never take it for TaDaMoo
                                  "mock": type(svc.engine).__name__ == "MockEngine"
                                  or bool(getattr(getattr(svc, "supervisor", None), "mock", False)),
