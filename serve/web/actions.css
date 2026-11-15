@@ -1,0 +1,29 @@
+/* Required actions: the tab (a list of cards with their buttons) and the dialog for a new entry. Mobile first: the buttons are 44 px high and wrap; nothing waits for a hover. */
+.ac-sec { max-width: 860px; }
+.ac-root { display: grid; gap: 12px; align-content: start; }
+.ac-list { display: grid; gap: 12px; }
+.ac-none { margin: 8px 0; color: var(--fg-2); }
+.ac-live { min-height: 1.4em; margin: 0; font-size: 13px; color: var(--fg-2); }
+.ac-live.bad { color: var(--pl-fail, #FF7B93); }
+.ac-item { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 12px 14px; display: grid; gap: 8px; min-width: 0; }
+.ac-ctx { margin: 0; font: 500 12.5px/1.3 var(--font-mono); color: var(--fg-3); overflow-wrap: anywhere; }
+.ac-q { margin: 0; font: 600 16px/1.4 var(--font-sans); color: var(--fg); overflow-wrap: anywhere; }
+.ac-text { margin: 0; font-size: 14px; line-height: 1.5; color: var(--fg-2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 14em; overflow-y: auto; }
+.ac-cause { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+.ac-cause > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-size: 13.5px; color: var(--fg-2); }
+.ac-fact { margin: 4px 0; font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.ac-fv { font-family: var(--font-mono); white-space: pre-wrap; }
+.ac-field { width: 100%; box-sizing: border-box; min-height: 44px; font-size: 16px; }
+textarea.ac-field { resize: vertical; }
+.ac-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.ac-btn { min-height: 44px; min-width: 44px; padding: 8px 16px; }
+.ac-err { margin: 0; font-size: 13px; color: var(--pl-fail, #FF7B93); overflow-wrap: anywhere; }
+.ac-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--accent, #FF7B3A); color: #11161B; font: 700 12px/1 var(--font-sans); }
+.ac-dlg { max-width: min(560px, calc(100vw - 24px)); width: 100%; box-sizing: border-box; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--fg); }
+.ac-dlg::backdrop { background: rgba(0, 0, 0, 0.55); }
+.ac-dlg-body { padding: 14px 16px 12px; display: grid; gap: 10px; max-height: calc(100dvh - 32px); overflow-y: auto; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+.ac-dlg-h { margin: 0; font: 700 14px/1.3 var(--font-sans); color: var(--fg-2); }
+.ac-dlg .ac-item { border: 0; padding: 0; background: transparent; }
+.ac-dlg-foot { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; border-top: 1px solid var(--line); padding-top: 8px; }
+@media (pointer: fine) { .ac-btn { min-height: 36px; } .ac-cause > summary { min-height: 32px; } }
+@media (prefers-reduced-motion: reduce) { .ac-dlg { transition: none; } }

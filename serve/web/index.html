@@ -46,6 +46,7 @@
 <link rel="stylesheet" href="web/imported.css">
 <link rel="stylesheet" href="web/skills.css">
 <link rel="stylesheet" href="web/tasks.css">
+<link rel="stylesheet" href="web/actions.css">
 <link rel="stylesheet" href="web/mention.css">
 <link rel="stylesheet" href="web/peer.css">
 <link rel="stylesheet" href="web/mcpapp.css">
@@ -97,6 +98,7 @@
 <script defer src="web/imported.js"></script>
 <script defer src="web/skills.js"></script>
 <script defer src="web/tasks.js"></script>
+<script defer src="web/actions.js"></script>
 <script defer src="web/mention.js"></script>
 <script defer src="web/mcpapp.js"></script>
 <script defer src="web/knowledge.js"></script>
@@ -176,6 +178,7 @@
   <nav class="tabs" role="tablist" aria-label="Views">
     <button class="tab" role="tab" id="tab-chat" data-view="chat" aria-controls="view-chat" aria-selected="false" tabindex="-1" data-t="tab.chat" aria-keyshortcuts="Alt+1">Chat</button>
     <button class="tab" role="tab" id="tab-agent" data-view="agent" aria-controls="view-agent" aria-selected="false" tabindex="-1" data-t="tab.agent">Agentic coding</button>
+    <button class="tab" role="tab" id="tab-actions" data-view="actions" aria-controls="view-actions" aria-selected="false" tabindex="-1" data-t="tab.actions">Required actions</button>
     <button class="tab" role="tab" id="tab-plans" data-view="plans" aria-controls="view-plans" aria-selected="false" tabindex="-1" data-t="tab.plans">Plans</button>
     <button class="tab" role="tab" id="tab-cron" data-view="cron" aria-controls="view-cron" aria-selected="false" tabindex="-1" data-t="tab.cron">Cron Jobs</button>
     <button class="tab" role="tab" id="tab-stats" data-view="stats" aria-controls="view-stats" aria-selected="true" data-t="tab.stats">Monitor</button>
@@ -985,6 +988,12 @@
     <section class="sec tk-sec-main" aria-labelledby="tk-h">
       <div class="sh"><b id="tk-h" data-t="tk.title">Tasks</b></div>
       <div class="pad tk-root" id="tk-root"></div>
+    </section>
+  </div>
+  <div class="view actions" id="view-actions" role="tabpanel" aria-labelledby="tab-actions" hidden>
+    <section class="sec ac-sec" aria-labelledby="ac-h">
+      <div class="sh"><b id="ac-h" data-t="ac.title">Required actions</b><span class="cnt" id="ac-count"></span></div>
+      <div class="pad ac-root" id="ac-root"></div>
     </section>
   </div>
   <div class="view settings" id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
