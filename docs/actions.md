@@ -30,4 +30,17 @@ The first answer wins: an item that is not waiting any more gives `409 {error: {
 `notified` is one flag for each channel. A client that shows a notification, a bubble or a dialog for an entry says so with `POST /api/actions/notified` `{ids, channel}`; from then on that entry
 is `notified: true` on that channel and is not announced again. There are no reminders. Marks are kept in `actions_notified.json` and forgotten when the entry is not open any more.
 
+## The clients
+
+- **Web** (`serve/web/actions.js`): the tab *Required actions* with the number on it, the list with buttons and a field for text, what caused a security authorization (opened when the entry
+  carries orders found in a text). A new entry that arrives while the person is on another tab shows in a dialog, one at a time (channel `web`); what was waiting when the page opened is only
+  counted. What a plan asks keeps its own window (`human.js`), so the dialog does not show it again. Test: `serve/tests/test_actions_page.py`.
+- **Desktop app** (`tools/windows/desktop/MainForm.cs`): when the window is hidden in the tray or behind others the page sends `{type: "actionsNew"}` (channel `desktop`) and the tray icon shows one
+  balloon; clicking it opens the window on the tab. In front, the page's dialog is used.
+- **Android** (`mobile/lib/src/actions.dart`, `action_notifier.dart`): the tab *Actions* (the Jobs are its second part, so the bar keeps five places) with the number on its icon. While the app is open
+  the list is looked for every 8 s and what it shows counts as announced. In the background only standard notifications tell, from one periodic look of WorkManager (about every 15 minutes, only
+  with a network, no service stays running; no Firebase): one notification for each entry not announced yet (channel `android`), with up to three buttons (the answers of the entry; a written answer
+  is an inline reply; more answers than fit means the tap opens the app). A button or a reply is sent to `POST /api/actions/<id>/answer` from the notification itself. Android 13 and later ask for
+  the permission `POST_NOTIFICATIONS`. Test: `mobile/test/actions_test.dart`.
+
 Tests: `tests/test_actions.py`, `serve/tests/test_api_actions.py`.

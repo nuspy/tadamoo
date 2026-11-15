@@ -12,6 +12,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // the notifications plugin needs it (java.time on older Android versions)
+        isCoreLibraryDesugaringEnabled = true
     }
 
     defaultConfig {
@@ -51,4 +53,5 @@ flutter {
 dependencies {
     // ONNX Runtime runs the Wav2Lip model on the phone (Wav2LipEngine.kt).
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

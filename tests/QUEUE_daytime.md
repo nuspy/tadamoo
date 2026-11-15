@@ -326,3 +326,18 @@ Serve la conversazione vera con il modello vero e un server MCP con un'app. Per 
 4. Un piano tuo già esistente con domande all'avvio: dopo il riavvio del server le domande sono parametri e i passi dopo di loro partono dall'avvio.
 5. Un piano con un avvio a intervallo: da spento non parte, da acceso parte all'ora.
 
+
+## Azioni richieste: pagina web e app desktop (15 novembre; provate con browser senza testa e server finto, NON con conversazioni vere né con la finestra vera)
+
+1. Pagina web: con una conversazione dell'agente che chiede un permesso (anche uno con «ordini trovati in un testo»), la scheda «Azioni richieste» mostra il numero, la voce con i bottoni e, aprendo «Che cosa l'ha causata», il testo e la chiamata. Rispondere dalla scheda: la conversazione prosegue e la voce sparisce.
+2. Stessa voce rispondere sul telefono (quando ci sarà la scheda Android): la pagina web non la mostra più; rispondere una seconda volta da un'altra schermata dà il messaggio «ha già avuto risposta altrove».
+3. App desktop: nascondi la finestra nell'icona della barra, fai arrivare una richiesta (un permesso di una conversazione): compare un solo fumetto; cliccandolo la finestra si apre sulla scheda «Azioni richieste». Nessun secondo fumetto per la stessa voce.
+4. Domande dei piani (approvazione, valore, compito): compaiono anche nella scheda; la finestra delle richieste dei piani resta com'era.
+
+## Azioni richieste: app Android e notifiche (15 novembre; provate con i test di Flutter e un server finto, NON su un telefono; l'APK è compilato ma non installato)
+
+1. Installa l'APK sul telefono già collegato al PC; alla prima apertura Android 13+ chiede il permesso delle notifiche: concedilo. Nella scheda «Azioni» compare il numero sull'icona.
+2. Con l'app in background (schermo spento va bene), fai arrivare una richiesta sul PC (un permesso di una conversazione): entro circa 15 minuti compare UNA notifica standard con i bottoni della voce; premere un bottone risponde senza aprire l'app e la voce sparisce dalla scheda del PC. Nessuna seconda notifica per la stessa voce.
+3. Una voce che accetta testo (un compito di un piano, un codice): la notifica ha «Rispondi»; scrivere nella notifica e inviare risponde. Una voce con più di tre risposte: nessun bottone, il tocco apre la scheda.
+4. Una voce già risolta sul PC prima che tu prema il bottone: nessun errore, la notifica sparisce.
+5. Nessun servizio in primo piano: controlla in Impostazioni Android > Batteria che l'app non risulti sempre attiva.
