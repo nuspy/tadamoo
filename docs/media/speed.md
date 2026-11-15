@@ -59,3 +59,6 @@ every session is closed, the lease is given back and the language model can retu
 (`produce.COLD_START_S`: LTX 18 s, enhancement 24 s).
 
 Measured on this PC (GPU at 600 W): an 8.4 s take 50 s in a process of its own and 32 s in the loaded one; its enhancement 70 s and 46 s; the first job of a session pays the load (106 s for a 12.8 s take, 89 s for its enhancement).
+On a mini edition (five takes, the interlude, one B-roll clip; the LTX jobs of the run in the loaded process): the five renders took 289 s in processes of their own and 200 s in one session (74, 30, 38, 33, 25 s; the first pays the load), the interlude's generation 143 s and 79 s, the B-roll clip 92 s and 28 s (the prompt of a clip that is not the first costs no encoding of a prompt seen before). The enhancements of that run were not measured in the session (the run was stopped); the single measures above are what there is. The pictures of the first job of a session and of a process of its own are the same bytes, and so are a later job's.
+
+**To turn it off:** the media setting `resident` (false) in `media.json` of the user data folder, or in `/api/media`; the newscast then runs one process for each job as before. `resident_reload_every` renews the model process after that many jobs.
