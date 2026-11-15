@@ -740,7 +740,7 @@ class AgentLoop:
             notice = self.screen(name, text) if self.screen else (inject_screen.NOTICE if inject_screen.detect(text) else None)
             self.untrusted_since_user = True
         else:
-            notice = inject_screen.NOTICE if inject_screen.detect(text, strict=True) else None
+            notice = inject_screen.NOTICE if inject_screen.detect(text, strict=True) and not inject_screen.own_skill_file(arguments) else None
         if notice and self.permissions:
             self.permissions.note_instructions(name)
         return (_fence_untrusted(name, text) if outside else text) + (chr(10) + notice if notice else "")

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 from tadamoo import side_uses
@@ -49,6 +50,25 @@ _BROAD = _compile(
     r"\b" + _AI + r"\b[^.\n]{0,30}\b(?:must|should|shall|needs? to|is required to|are required to|please)\b",
     r"\b" + _AI + r"\b[^.\n]{0,30}\b(?:devi|deve|dovrebbe|dovresti|esegui|eseguire)\b",
 )
+
+
+def own_skill_file(arguments: dict) -> bool:
+    """Whether a call reads a file of the person's own skills (the project's `skills` folder, the skills imported into the user's data folder): their procedures speak to a
+    model by design, they are not text from outside."""
+    raw = (arguments or {}).get("path") or (arguments or {}).get("file_path") or ""
+    if not isinstance(raw, str) or not raw:
+        return False
+    roots = [Path(__file__).resolve().parents[1] / "skills"]
+    try:
+        from serve.userdata import user_data_dir
+        roots.append(user_data_dir() / "capabilities" / "imported")
+    except Exception:
+        pass
+    try:
+        target = Path(raw).resolve()
+    except (OSError, ValueError):
+        return False
+    return any(root in target.parents for root in (r.resolve() for r in roots))
 
 
 def detect(text: str, strict: bool = False) -> bool:

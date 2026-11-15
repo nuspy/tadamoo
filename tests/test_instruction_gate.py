@@ -79,3 +79,10 @@ def test_where_nobody_watches_the_authorization_is_parked_for_the_person():
     from tadamoo.session import question_source
     assert question_source({"kind": "permission", "tool": "write_file", "instructions": "browse_url"})["named"] == "instructions"
     assert question_source({"kind": "permission", "tool": "write_file"})["named"] is None
+
+
+def test_a_file_of_the_persons_own_skills_does_not_give_orders_but_the_same_words_in_another_file_do(tmp_path):
+    from pathlib import Path
+    skill_file = Path(inject_screen.__file__).resolve().parents[1] / "skills" / "news-research" / "scripts" / "research.py"
+    assert inject_screen.own_skill_file({"path": str(skill_file)}) and not inject_screen.own_skill_file({"path": str(tmp_path / "research.py")})
+    assert not inject_screen.own_skill_file({}) and not inject_screen.own_skill_file({"path": ""})
