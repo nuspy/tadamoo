@@ -144,6 +144,7 @@ class Choice:
     query: str
     match: float
     start: float
+    step: str = ""                                  # the step of the place ladder it was found at (stockplace.py); empty when no ladder was used
 
 
 class Pixabay:
@@ -205,23 +206,34 @@ def _hits(data: Any) -> List[Hit]:
     return out
 
 
-def find(client: Pixabay, queries: Sequence[Tuple[str, str]], seconds: float, min_match: float, taken: Set[int]) -> Tuple[Optional[Choice], List[str]]:
-    """The best video for a clip of `seconds`, given as (description, language) to try in turn, or None; and what was asked, for the record."""
+def find(client: Pixabay, queries: Sequence[Tuple[str, str]], seconds: float, min_match: float, taken: Set[int], steps: Optional[Sequence[Any]] = None,
+         exclude: Sequence[str] = (), refused: Optional[List[str]] = None) -> Tuple[Optional[Choice], List[str]]:
+    """The best video for a clip of `seconds`, given as (description, language) to try in turn, or None; and what was asked, for the record.
+    With `steps` (the ladder of a place, stockplace.py) the search goes down it: at each step the step's words are added to the query and a hit must carry a term of the step; `exclude` (terms of other regions and
+    cultures) refuses a hit at every step; what was refused for these reasons is added to `refused`."""
+    from tadamoo.media import stockplace
     asked: List[str] = []
-    for text, lang in queries:
-        keys = keywords(text)
-        for size in range(min(4, len(keys)), 0, -1):
-            query = " ".join(keys[:size])
-            asked.append(f"{lang}: {query}")
-            passing = []
-            for hit in client.search(query, lang):
-                share, count = match(keys[:size], hit)
-                if hit.id in taken or hit.duration < seconds or share < min_match or count < min(2, size):
-                    continue
-                passing.append((share, hit.downloads, hit))
-            if passing:
-                share, _, hit = max(passing, key=lambda p: (round(p[0], 3), p[1]))
-                return Choice(hit, query, round(share, 3), round(segment_start(hit.duration, seconds), 2)), asked
+    for step in steps if steps else [stockplace.Step("", (), "")]:
+        for text, lang in queries:
+            keys = keywords(text)
+            for size in range(min(4, len(keys)), 0, -1):
+                query = " ".join(keys[:size] + ([step.add] if step.add else []))[:100]
+                asked.append(f"{lang}: {query}" + (f" [{step.label}]" if steps else ""))
+                passing = []
+                for hit in client.search(query, lang):
+                    share, count = match(keys[:size], hit)
+                    if hit.id in taken or hit.duration < seconds or share < min_match or count < min(2, size):
+                        continue
+                    if steps or exclude:
+                        why = stockplace.refused_because(stockplace.words_of([" ".join(hit.words)]), step, exclude)
+                        if why:
+                            if refused is not None and len(refused) < 30:
+                                refused.append(f"video {hit.id} ({hit.page}) refused at '{step.label}': {why}")
+                            continue
+                    passing.append((share, hit.downloads, hit))
+                if passing:
+                    share, _, hit = max(passing, key=lambda p: (round(p[0], 3), p[1]))
+                    return Choice(hit, query, round(share, 3), round(segment_start(hit.duration, seconds), 2), step.label if steps else ""), asked
     return None, asked
 
 
