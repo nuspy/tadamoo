@@ -99,10 +99,12 @@ from serve.knowledge_prefs import KnowledgeError, KnowledgePrefs, check_wiki, cl
 from serve.llm_api import LlmApi, LlmError
 from serve.mcp_auth_api import McpAuthApi, McpAuthError, result_page
 from serve.approvals import ApprovalBoard, ApprovalError
+from serve import actions as actions_mod
 from serve.changes import ChangeJournal
 from tadamoo.taskboard import TaskBoard
 _CHANGES = ChangeJournal(userdata.path("journal"))      # runtime state lives in the user's data folder, not in the assets
 _APPROVALS = ApprovalBoard()
+_ACTIONS = None                                        # the one list of what waits for the person (serve/actions.py)
 _RUNNER = None                                        # made on first use: it needs this server's address
 PICTURE_TYPES = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp", "svg": "image/svg+xml"}      # what a file of the folder may be shown as
 _SESSIONS = None                                      # the Chat's conversations with the agent, made on first use
@@ -685,7 +687,12 @@ def make_handler(svc: Service, remote: bool = False):
                 if self._authorized():
                     self._json(200, {"cron": _ROUTINES.attention() if _ROUTINES is not None else {"t": 0.0},
                                      "plans": _PLANS.attention() if _PLANS is not None else {"t": 0.0},
-                                     "rag": rag_attention(self._rag())})
+                                     "rag": rag_attention(self._rag()),
+                                     "actions": {"count": self._actions().count()}})
+            elif path == "/api/actions":
+                if self._authorized():
+                    channel = (parse_qs(urlsplit(self.path).query).get("channel") or [""])[0]
+                    self._json(200, self._actions().view(channel))
             elif path == "/api/technical-session":
                 if self._authorized():
                     self._json(200, {"on": side_uses.session_on()})
@@ -1155,6 +1162,10 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path == "/api/planner/settings" or path == "/api/plans" or path.startswith("/api/plans/"):
                 self._plans_post(path)
+                return
+            if path.startswith("/api/actions/"):
+                if self._authorized():
+                    self._actions_post(path)
                 return
             if path == "/api/export":
                 self._export_post()
@@ -2052,6 +2063,33 @@ def make_handler(svc: Service, remote: bool = False):
 
         def _plan_service(self):
             return _plans_service(svc, self.server.server_address[1])
+
+        def _actions(self):
+            """The list of what waits for the person, made from the live sources (conversations, plans, routines, the approvals board)."""
+            global _ACTIONS
+            if _ACTIONS is None:
+                port = self.server.server_address[1]
+                _ACTIONS = actions_mod.Actions(sessions=lambda: _SESSIONS, plans=lambda: _plans_service(svc, port) if _PLANS is not None else None,
+                                               routines=lambda: _ROUTINES.scheduler if _ROUTINES is not None else None, approvals=_APPROVALS,
+                                               path=userdata.path("actions_notified.json"))
+            return _ACTIONS
+
+        def _actions_post(self, path):
+            try:
+                req = json.loads(self._body(1 << 16) or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                acts = self._actions()
+                if path == "/api/actions/notified":
+                    return self._json(200, acts.mark_notified(req.get("ids"), str(req.get("channel") or "")))
+                parts = path[len("/api/actions/"):].split("/")
+                if len(parts) == 2 and parts[1] == "answer":
+                    return self._json(200, acts.answer(unquote(parts[0]), req.get("value"), req.get("text")))
+                self._json(404, {"error": {"message": "not found"}})
+            except actions_mod.ActionError as exc:
+                self._json(409 if exc.code == "gone" else 400, {"error": {"message": str(exc), "code": exc.code}})
+            except (json.JSONDecodeError, BadBody, ValueError) as exc:
+                self._json(400, {"error": {"message": str(exc)}})
 
         def _plan_skill(self, action, req):
             """POST /api/agent/plan-skill/propose | fill | chat | script: a plan that ended well, made into a personal skill (see tadamoo/personal_skills/from_plan.py)."""
