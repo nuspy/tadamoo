@@ -22,7 +22,7 @@ class PrivacyPageTest(unittest.TestCase):
         self.assertIn("/private", JS)
         self.assertIn("{ private: want }", JS)
         self.assertIn("/forget", JS)
-        self.assertIn("/api/past/forget", CHAT)                                          # the model-only chat has its own route
+        self.assertIn("api/past/forget", CHAT)                                          # the model-only chat has its own route
         self.assertIn("...(window.privacy && window.privacy.pending() ? { private: true } : {})", AGENT)    # a mark made before the first message goes with the creation
 
     def test_forgetting_asks_twice_and_marking_shows_its_state_without_colour_alone(self):

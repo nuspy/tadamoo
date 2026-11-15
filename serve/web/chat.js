@@ -291,7 +291,7 @@
       const turns = messages.filter(m => m && (m.role === "user" || m.role === "assistant")).map(m => ({ role: m.role, content: wordsOf(m.text != null ? m.text : m.content) })).filter(m => m.content);
       if (!turns.length) return;
       const first = turns.find(m => m.role === "user");
-      fetch("/api/past/chat", { method: "POST", headers: { "Content-Type": "application/json" },
+      fetch("api/past/chat", { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: chatId(), title: first ? first.content.replace(/\s+/g, " ").slice(0, 80) : "", messages: turns }) }).catch(() => {});
     }, 1500);
   }
@@ -848,7 +848,7 @@
       forget: async () => {                                                        // everything the server took from this conversation
         clearTimeout(indexTimer);
         try {
-          const r = await fetch("/api/past/forget", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ id: chatId() }) });
+          const r = await fetch("api/past/forget", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ id: chatId() }) });
           const j = await r.json().catch(() => ({}));
           return { ok: r.ok, json: j };
         } catch (e) { return { ok: false, json: {} }; }

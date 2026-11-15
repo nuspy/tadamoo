@@ -110,7 +110,7 @@
   async function load() {
     try {
       const before = running();
-      S = await call("/api/rea");
+      S = await call("api/rea");
       say(before && !running() ? T("rea.installed") : (running() ? T("rea.installing") : ""));
       paint();
       follow();
@@ -120,7 +120,7 @@
   async function install(req) {
     busy = true; paint();
     try {
-      const j = await call("/api/rea/install", req);
+      const j = await call("api/rea/install", req);
       S = j.status; say(T("rea.installing"));
     } catch (e) { say(e.message, true); }
     busy = false; paint(); follow();
@@ -130,7 +130,7 @@
     const want = on.checked;
     busy = true; paint();
     try {
-      S = await call(want ? "/api/rea/enable" : "/api/rea/disable", {});
+      S = await call(want ? "api/rea/enable" : "api/rea/disable", {});
       say(T(want ? "rea.enabled" : "rea.disabled"));
     } catch (e) { on.checked = !want; say(e.message, true); }
     busy = false; paint();
