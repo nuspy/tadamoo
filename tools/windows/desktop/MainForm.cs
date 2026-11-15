@@ -100,6 +100,8 @@ sealed class MainForm : Form
         menu.Items.Add(Tr.T("Spegni", "Turn off"), null, (_, _) => TurnOff(true));
         tray = new NotifyIcon { Icon = Icon, Text = Program.TitleWithRelease.Length > 63 ? Program.AppName : Program.TitleWithRelease, ContextMenuStrip = menu, Visible = true };
         tray.DoubleClick += (_, _) => ShowWindow();
+        tray.BalloonTipClicked += (_, _) => OpenActionsTab();
+        tray.BalloonTipClosed += (_, _) => openActionsOnClick = false;
 
         BuildStartPanel();
         BuildFolderPanel();
@@ -772,6 +774,7 @@ sealed class MainForm : Form
             var m = JsonDocument.Parse(e.WebMessageAsJson).RootElement;
             string kind = m.GetProperty("type").GetString();
             if (kind == "exportPdf") { _ = ExportPdf(m.Clone()); return; }
+            if (kind == "actionsNew") { OnActionsNew(m); return; }
             if (kind != "pickFolder") return;
             string id = m.TryGetProperty("id", out var i) ? i.GetString() : "";
             string start = m.TryGetProperty("path", out var sp) && sp.ValueKind == JsonValueKind.String ? sp.GetString() : null;
@@ -782,6 +785,36 @@ sealed class MainForm : Form
             web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "folder", id, path }));
         }
         catch (Exception ex) { report.Add("web message: " + ex.Message); }
+    }
+
+    bool openActionsOnClick;        // the balloon of the tray icon that is up now is the one that announces required actions
+
+    /// <summary>The page says a new required action arrived while the window is hidden or behind others: {"type": "actionsNew", "count": n, "items": [{"title", "context"}]}.
+    /// The tray icon shows one balloon (the page says each entry once); clicking it opens the window on the Required actions tab ({"type": "openActions"} to the page).</summary>
+    void OnActionsNew(JsonElement m)
+    {
+        if (Visible && WindowState != FormWindowState.Minimized && ReferenceEquals(Form.ActiveForm, this)) return;      // in front: the page shows its own dialog
+        var lines = new List<string>();
+        if (m.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array)
+            foreach (var it in items.EnumerateArray().Take(3))
+            {
+                string t = it.TryGetProperty("title", out var tp) && tp.ValueKind == JsonValueKind.String ? tp.GetString() : "";
+                string c = it.TryGetProperty("context", out var cp) && cp.ValueKind == JsonValueKind.String ? cp.GetString() : "";
+                if (t.Length > 0) lines.Add(c.Length > 0 ? $"{c}: {t}" : t);
+            }
+        int count = m.TryGetProperty("count", out var n) && n.ValueKind == JsonValueKind.Number ? n.GetInt32() : lines.Count;
+        string text = lines.Count > 0 ? string.Join("\n", lines) : Tr.T("Qualcosa aspetta te.", "Something is waiting for you.");
+        if (text.Length > 250) text = text[..247] + "…";
+        openActionsOnClick = true;
+        tray.ShowBalloonTip(10000, count > 1 ? Tr.T($"{count} azioni richieste", $"{count} required actions") : Tr.T("Azione richiesta", "Required action"), text, ToolTipIcon.Info);
+    }
+
+    void OpenActionsTab()
+    {
+        if (!openActionsOnClick) return;
+        openActionsOnClick = false;
+        ShowWindow();
+        try { web.CoreWebView2?.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "openActions" })); } catch (Exception) { }
     }
 
     /// <summary>A window that never takes the focus and sits outside the screen: it hosts the page that is printed to PDF.</summary>
