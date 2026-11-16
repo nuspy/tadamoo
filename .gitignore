@@ -27,3 +27,6 @@ __pycache__/
 # Local working notes for the Windows port: scratch planning, not project docs.
 docs/WINDOWS-ROADMAP.md
 docs/REBASE-PLAN.md
+# built or generated when the vendored tools are compiled
+third_party/*/target/
+third_party/agent-browser/packages/

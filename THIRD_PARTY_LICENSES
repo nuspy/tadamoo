@@ -155,12 +155,24 @@ Apache License 2.0. Copyright (c) Kenneth Reitz and the requests contributors.
 The licence text is at https://www.apache.org/licenses/LICENSE-2.0.
 
 ================================================================================
-agent-desktop (https://github.com/vercel-labs/agent-desktop, by Vercel Labs; not part of this repository)
+agent-desktop (https://github.com/vercel-labs/agent-desktop, by Vercel Labs; third_party/agent-desktop/)
 ================================================================================
 
-Apache License 2.0. Run as a separate program by the computer-control tools (tadamoo/computer/agent_desktop.py). It is not shipped with TaDaMoo:
-the person installs it with a click (Wallet > Computer control, or `python -m tadamoo.computer install`), which downloads the project's own release from GitHub into the
-user's tools folder. The licence text is at https://www.apache.org/licenses/LICENSE-2.0 and in the release archive's source repository.
+Apache License 2.0. The upstream source needed to compile it is kept in third_party/agent-desktop/ (release in UPSTREAM.md) with its LICENSE file; the repository has no NOTICE
+file. It is built into the program TaDaMoo runs for computer control (tadamoo/computer/agent_desktop.py) and shipped with the installers. The code is used as it is: any change
+would be a patch in third_party/agent-desktop/patches/, listed in UPSTREAM.md. Its dependencies are limited by upstream's cargo-deny policy to Apache-2.0, MIT, MPL-2.0, Unicode
+and Unlicense licences; the list of the ones in a build is the file `licenses-agent-desktop.txt` that the vendored-tools workflow attaches to the binaries. The licence text is
+third_party/agent-desktop/LICENSE and https://www.apache.org/licenses/LICENSE-2.0.
+
+================================================================================
+agent-browser (https://github.com/vercel-labs/agent-browser, by Vercel Labs; third_party/agent-browser/)
+================================================================================
+
+Apache License 2.0. The upstream source needed to compile it is kept in third_party/agent-browser/ (release in UPSTREAM.md) with its LICENSE file; the repository has no NOTICE
+file. It is built into the program TaDaMoo runs for the browser tools when the agent-browser backend is chosen (tadamoo/browser_ab.py) and shipped with the installers. The code is
+used as it is: any change would be a patch in third_party/agent-browser/patches/, listed in UPSTREAM.md. The dependencies of a build are listed in the file
+`licenses-agent-browser.txt` that the vendored-tools workflow attaches to the binaries. The licence text is third_party/agent-browser/LICENSE and
+https://www.apache.org/licenses/LICENSE-2.0.
 
 ================================================================================
 Mermaid (https://mermaid.js.org/; serve/web/vendor/mermaid.min.js, loaded only when an answer holds a diagram)
