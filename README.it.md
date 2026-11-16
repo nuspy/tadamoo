@@ -41,8 +41,8 @@ Tutto ciò che segue è nel repository. Il [manuale](docs/harness-manual.it.md) 
 ### Strumenti che crescono
 - **Server MCP e app MCP.** Gli strumenti di qualsiasi server MCP, con accesso (OAuth) ai server remoti, e la pagina di un'app MCP mostrata accanto alla conversazione (il lato host dell'estensione ufficiale). Vedi [app MCP](docs/mcp-apps.md).
 - **Competenze e plugin, trovati, installati e usati.** Competenze, plugin e server MCP presenti sul PC sono usabili subito. Se ne manca uno lo cerca online, ti mette davanti i candidati migliori (in coda con un confronto se nessuno c'è) e ne installa uno con il tuo sì, o da solo in Automatico; un'installazione non esegue mai gli script di un pacchetto. A mano: *Impostazioni > Skills* o `/install-skill`; ogni competenza è anche un comando, `/nome testo`. Vedi [competenze](docs/skills-manager.md).
-- **Il web.** `search_web`, `browse_url`, e Edge o Chrome guidati per moduli, prenotazioni e acquisti, in un browser costruito attorno alla cassaforte: una password o una carta arriva a una pagina solo come segnaposto, e solo su un sito che la voce nomina. Per navigare e provare siti semplici si sta aggiungendo, come opzione, un secondo browser, **agent-browser** di Vercel Labs (prossima release): istantanee compatte delle pagine, schede, sessioni, video e il collegamento al tuo Chrome. Non usa la cassaforte.
-- **Controllo del computer.** Undici strumenti: uno screenshot, l'albero di accessibilità di qualsiasi finestra (così anche un modello senza visione agisce per elemento), mouse, tastiera, scorrimento e trascinamento, sullo schermo che scegli, con arresto immediato se porti il mouse in un angolo. Spento finché non lo accendi. Ha un backend interno (Windows e X11, senza dipendenze) e, in arrivo con la prossima release, **agent-desktop** di Vercel Labs, che legge l'albero di accessibilità di Windows, Linux e macOS e agisce sugli elementi senza muovere il tuo mouse; si installa con un tuo clic e il backend si sceglie da solo. Vedi [controllo del computer](docs/computer-control.md).
+- **Il web.** `search_web`, `browse_url`, e Edge o Chrome guidati per moduli, prenotazioni e acquisti, in un browser costruito attorno alla cassaforte: una password o una carta arriva a una pagina solo come segnaposto, e solo su un sito che la voce nomina. Due driver stanno dietro un selettore nel Wallet: **agent-browser** di Vercel Labs (il predefinito; viene con TaDaMoo, istantanee compatte delle pagine, schede, sessioni, video, collegamento al tuo Chrome) oppure il driver di TaDaMoo. Entrambi gestiscono cassaforte, accessi e pagamenti; agent-browser non è ancora alla pari del driver nostro, e [la pagina dei browser](docs/browser-backends.md) dice dove.
+- **Controllo del computer.** Undici strumenti: uno screenshot, l'albero di accessibilità di qualsiasi finestra (così anche un modello senza visione agisce per elemento), mouse, tastiera, scorrimento e trascinamento, sullo schermo che scegli, con arresto immediato se porti il mouse in un angolo. Attivo di default, entro i livelli di permesso. Usa **agent-desktop** di Vercel Labs, che viene con TaDaMoo e legge l'albero di accessibilità di Windows, Linux e macOS e agisce sugli elementi senza muovere il tuo mouse; il backend interno (Windows e X11, senza dipendenze) è la riserva. Vedi [controllo del computer](docs/computer-control.md).
 - **File e documenti.** Legge, elenca, cerca, modifica e scrive file; allega testo, codice, CSV, JSON, Word, Excel, PowerPoint, PDF e immagini, letti a pezzi; `docx_edit` e `docx_create` per i documenti Word. I file che crea vengono controllati prima di offrirli, e un pulsante con il nome del file li salva dove scegli.
 - **Intelligenza sul codice.** `repo_map` (le definizioni di ogni file sorgente, le più rilevanti prima), `repo_diagram` (diagrammi di importazioni e cartelle ricavati dai file, senza modello), `search_code`, diagnostica dei language server e vai-alla-definizione.
 - **Eseguire codice e delegare.** Frammenti Python, JavaScript e TypeScript, comandi di shell, comandi in background, e sotto-agenti per un compito a sé.
@@ -150,19 +150,19 @@ Il server parla entrambe le API anche verso l'esterno, così gli editor e gli st
 
 | Cosa | Dove | Per |
 |---|---|---|
-| **Windows**, completo | [windows-v1.12](https://github.com/nuspy/tadamoo/releases/tag/windows-v1.12) | app, motore, server e Python su un solo PC |
-| **Windows**, solo GUI | [windows-gui-only-v1.12](https://github.com/nuspy/tadamoo/releases/tag/windows-gui-only-v1.12) | una finestra su un server che gira altrove |
-| **Linux**, completo | [linux-complete-v1.12](https://github.com/nuspy/tadamoo/releases/tag/linux-complete-v1.12) | harness, installer e motore Basalt-Plus |
-| **Linux**, server | [server-linux-v1.12](https://github.com/nuspy/tadamoo/releases/tag/server-linux-v1.12) | harness e installer |
-| **Android** | [android-v1.12](https://github.com/nuspy/tadamoo/releases/tag/android-v1.12) | l'app per il telefono |
+| **Windows**, completo | [windows-v1.12.8](https://github.com/nuspy/tadamoo/releases/tag/windows-v1.12.8) | app, motore, server e Python su un solo PC |
+| **Windows**, solo GUI | [windows-gui-only-v1.12.8](https://github.com/nuspy/tadamoo/releases/tag/windows-gui-only-v1.12.8) | una finestra su un server che gira altrove |
+| **Linux**, completo | [linux-complete-v1.12.8](https://github.com/nuspy/tadamoo/releases/tag/linux-complete-v1.12.8) | harness, installer e motore Basalt-Plus |
+| **Linux**, server | [server-linux-v1.12.8](https://github.com/nuspy/tadamoo/releases/tag/server-linux-v1.12.8) | harness e installer |
+| **Android** | [android-v1.12.8](https://github.com/nuspy/tadamoo/releases/tag/android-v1.12.8) | l'app per il telefono |
 | **Mac** | da compilare da questo repository | la finestra su un server (predisposto in [deploy/mac](deploy/mac/README.md)) |
 
-Il controllo del computer è nel repository e arriva con la prossima release, insieme al backend agent-desktop e all'opzione agent-browser descritti sopra.
+agent-desktop e agent-browser (Vercel Labs, Apache-2.0) sono compilati da `third_party/` e stanno dentro i pacchetti Windows e Linux.
 
 Su Linux:
 
 ```
-tar xzf TaDaMoo-linux-complete-v1.12.tar.gz && cd tadamoo-1.12
+tar xzf TaDaMoo-linux-complete-v1.12.8.tar.gz && cd tadamoo-1.12
 sudo deploy/linux/install.sh install --components harness,basalt --public-name tadamoo.example.org --proxy nginx --generate-key
 ```
 
@@ -200,6 +200,6 @@ Il riepilogo serve a orientarsi; vincola il testo di [LICENSE](LICENSE).
 
 Basalt-Plus è un fork di [Basalt](https://github.com/jesdga95/basalt) di jesdga95 (MIT), a sua volta un fork di [Strata](https://github.com/Niko1221/Strata) di Niko1221 (MIT). Le note di copyright dei due progetti e del codice che includono (ggml, llama.cpp e altri) sono in [LICENSE](LICENSE) e [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES). I file dei modelli derivano da Qwen3.8-Flash-Next e sono sotto la [Qwen Community License 1.0](https://huggingface.co/Qwen/Qwen3.8-Flash-Next/blob/main/LICENSE), non MIT.
 
-[agent-desktop](https://github.com/vercel-labs/agent-desktop) e [agent-browser](https://github.com/vercel-labs/agent-browser) sono progetti di Vercel Labs (Apache-2.0). TaDaMoo li scarica quando li chiedi e non li include nei pacchetti.
+[agent-desktop](https://github.com/vercel-labs/agent-desktop) e [agent-browser](https://github.com/vercel-labs/agent-browser) sono progetti di Vercel Labs (Apache-2.0). Sono compilati da `third_party/` e stanno dentro i pacchetti Windows e Linux; la loro licenza è in [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES).
 
 Sito: [tadamoo.com](https://tadamoo.com) · Contatto: [a.taini@gmail.com](mailto:a.taini@gmail.com) · Repository: [github.com/nuspy/tadamoo](https://github.com/nuspy/tadamoo)
