@@ -131,3 +131,43 @@ def test_a_picture_without_a_qr_or_that_is_not_a_picture_is_refused():
         au.scan_image(b"not a picture")
     with pytest.raises(au.AuthenticatorError, match="no account"):
         au.read_many([])
+
+
+def vault_in(tmp_path, now=1111111109):
+    from tadamoo.vault import Vault
+    return Vault(tmp_path, key=bytes(32), clock=lambda: now)
+
+
+def test_the_preview_shows_names_and_proposed_sites_and_never_the_secret():
+    mig = au.read(export_link([account_blob(b"Hello!\xde\xad\xbe\xef", "alice@example.com", "Google"), account_blob(b"aaaaaaaaaa", "x", "Unknown Co", kind=1)]))
+    shown = au.preview(mig)
+    assert shown[0]["hosts"][0] == "accounts.google.com" and shown[0]["usable"] and shown[1]["hosts"] == [] and not shown[1]["usable"]
+    assert au.base32(b"Hello!\xde\xad\xbe\xef") not in repr(shown)
+
+
+def test_the_accounts_become_logins_that_make_their_own_codes_for_the_sites_named(tmp_path):
+    v = vault_in(tmp_path)
+    mig = au.read(export_link([account_blob(b"12345678901234567890", "alice", "Example", algorithm=1, digits=2), account_blob(b"bbbbbbbbbb", "bob", "Other"), account_blob(b"cccccccccc", "carol", "Third", kind=1)]))
+    done = au.import_into_vault(v, mig, [{"index": 0, "hosts": ["example.com"]}, {"index": 1, "hosts": []}, {"index": 2, "hosts": ["third.test"]}, {"index": 9, "hosts": ["x.test"]}])
+    assert done["created"] == ["Example-alice"] and len(done["refused"]) == 3
+    assert "name the sites" in done["refused"][0]["why"] and "HOTP" in done["refused"][1]["why"] and "no such account" in done["refused"][2]["why"]
+    d = v.describe("Example-alice")
+    assert d["hosts"] == ["example.com"] and d["second_factor"] == "automatic" and d["totp"] == {"algorithm": "SHA1", "digits": 8, "period": 30}
+    assert "totp_secret" in d["fields"] and au.base32(b"12345678901234567890") not in repr(d)
+
+
+def test_a_secret_can_be_added_to_a_login_that_is_already_there_and_its_password_stays(tmp_path):
+    v = vault_in(tmp_path)
+    v.put("shop", kind="login", label="Shop", fields={"username": "me", "password": "pw-1234"}, hosts=["shop.test"])
+    mig = au.read(export_link([account_blob(b"aaaaaaaaaa", "me", "Shop")]))
+    done = au.import_into_vault(v, mig, [{"index": 0, "hosts": ["shop.test"], "merge_into": "shop"}])
+    assert done["merged"] == ["shop"] and v.describe("shop")["second_factor"] == "automatic" and set(v.describe("shop")["fields"]) == {"username", "password", "totp_secret"}
+
+
+def test_a_backup_of_the_vault_keeps_how_the_codes_are_made(tmp_path):
+    v = vault_in(tmp_path / "a")
+    mig = au.read(export_link([account_blob(b"12345678901234567890", "alice", "Example", algorithm=2, digits=2)]))
+    au.import_into_vault(v, mig, [{"index": 0, "hosts": ["example.com"]}])
+    other = vault_in(tmp_path / "b")
+    other.import_backup(v.export_backup("pass"), "pass")
+    assert other.describe("Example-alice")["totp"] == {"algorithm": "SHA256", "digits": 8, "period": 30}

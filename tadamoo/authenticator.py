@@ -238,3 +238,70 @@ def read_many(texts: List[str]) -> Migration:
     if not accounts:
         raise AuthenticatorError("no account was found")
     return Migration(accounts)
+
+
+# The sites that the codes of a known issuer are used on, as a starting point the person confirms: the vault gives a code only to a site its entry names.
+KNOWN_SITES = {
+    "google": ["accounts.google.com", "google.com"], "github": ["github.com"], "microsoft": ["login.microsoftonline.com", "login.live.com", "microsoft.com"],
+    "amazon": ["amazon.com", "amazon.it", "amazon.de", "amazon.co.uk"], "dropbox": ["dropbox.com"], "paypal": ["paypal.com"], "facebook": ["facebook.com"],
+    "instagram": ["instagram.com"], "twitter": ["x.com", "twitter.com"], "x": ["x.com", "twitter.com"], "linkedin": ["linkedin.com"], "apple": ["appleid.apple.com", "apple.com"],
+    "cloudflare": ["cloudflare.com", "dash.cloudflare.com"], "gitlab": ["gitlab.com"], "stripe": ["stripe.com", "dashboard.stripe.com"], "slack": ["slack.com"],
+    "discord": ["discord.com"], "binance": ["binance.com"], "coinbase": ["coinbase.com"], "kraken": ["kraken.com"],
+}
+
+
+def suggested_hosts(account: Account) -> List[str]:
+    """The sites to propose for an account: from its issuer when it is a well known one."""
+    key = re.sub(r"[^a-z0-9]", "", account.issuer.lower())
+    return list(KNOWN_SITES.get(key, KNOWN_SITES.get(re.sub(r"[^a-z0-9]", "", account.issuer.lower().split(" ")[0]), [])))
+
+
+def preview(migration: Migration) -> List[dict]:
+    """What the person sees before anything is kept: the label, the algorithm and the sites proposed; never the secret. HOTP accounts are marked as not usable."""
+    return [{"index": i, "label": a.label, "issuer": a.issuer, "name": a.name, "algorithm": a.algorithm, "digits": a.digits, "period": a.period,
+             "usable": a.kind == "totp", "why_not": "" if a.kind == "totp" else "it counts events (HOTP), the vault makes codes by the clock", "hosts": suggested_hosts(a)}
+            for i, a in enumerate(migration.accounts)]
+
+
+def _entry_id(account: Account, taken: set) -> str:
+    base = re.sub(r"[^A-Za-z0-9_\-]+", "-", f"{account.issuer or account.name or 'account'}-{account.name}" if account.issuer and account.name else (account.issuer or account.name or "account")).strip("-")[:34] or "account"
+    out, n = base, 2
+    while out in taken:
+        out = f"{base[:36]}-{n}"
+        n += 1
+    return out
+
+
+def import_into_vault(vault, migration: Migration, choices: List[dict]) -> dict:
+    """Keeps the chosen accounts in the vault as logins that make their own codes. `choices` is a list of {index, hosts, merge_into}: `hosts` are the sites the code is for (confirmed by the person),
+    `merge_into` the name of a login already in the vault that gets the secret (its username and password stay). An account left out is not kept. Returns what was made, merged and refused."""
+    taken = {e["id"] for e in vault.entries()}
+    created: List[str] = []
+    merged: List[str] = []
+    refused: List[dict] = []
+    for c in choices:
+        try:
+            account = migration.accounts[int(c["index"])]
+        except (KeyError, ValueError, IndexError):
+            refused.append({"label": str(c.get("index")), "why": "no such account in the export"})
+            continue
+        if account.kind != "totp":
+            refused.append({"label": account.label, "why": "it counts events (HOTP), the vault makes codes by the clock"})
+            continue
+        meta = {"algorithm": account.algorithm, "digits": account.digits, "period": account.period}
+        hosts = list(c.get("hosts") or [])
+        if not hosts:
+            refused.append({"label": account.label, "why": "name the sites its code is for: the vault gives a code only to a site its entry names"})
+            continue
+        try:
+            if c.get("merge_into"):
+                vault.put(c["merge_into"], kind="login", fields={"totp_secret": account.secret}, hosts=None, second_factor="automatic", totp=meta)
+                merged.append(c["merge_into"])
+            else:
+                entry_id = _entry_id(account, taken)
+                vault.put(entry_id, kind="login", label=account.label, fields={"username": account.name, "totp_secret": account.secret}, hosts=hosts, second_factor="automatic", totp=meta)
+                taken.add(entry_id)
+                created.append(entry_id)
+        except Exception as exc:                                        # the vault's own refusal says why
+            refused.append({"label": account.label, "why": str(exc)})
+    return {"created": created, "merged": merged, "refused": refused}
