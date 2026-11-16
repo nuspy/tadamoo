@@ -93,10 +93,10 @@ python_bin() {
 copy_program() {
   run mkdir -p "$PREFIX"
   if command -v rsync >/dev/null 2>&1; then
-    run rsync -a --delete --exclude .git --exclude .venv --exclude __pycache__ --exclude tests --exclude build --exclude build-win --exclude dist --exclude .claude --exclude '*.exe' --exclude node_modules "$SRC"/ "$PREFIX"/program/
+    run rsync -a --delete --exclude /engines --exclude .git --exclude .venv --exclude __pycache__ --exclude tests --exclude build --exclude build-win --exclude dist --exclude .claude --exclude '*.exe' --exclude node_modules "$SRC"/ "$PREFIX"/program/
   else
     run rm -rf "$PREFIX/program"; run mkdir -p "$PREFIX/program"
-    run bash -c "cd '$SRC' && tar -c --exclude=.git --exclude=.venv --exclude=__pycache__ --exclude=tests --exclude=build --exclude=build-win --exclude=dist --exclude=.claude --exclude='*.exe' --exclude=node_modules . | tar -x -C '$PREFIX/program'"
+    run bash -c "cd '$SRC' && tar -c --exclude=./engines --exclude=.git --exclude=.venv --exclude=__pycache__ --exclude=tests --exclude=build --exclude=build-win --exclude=dist --exclude=.claude --exclude='*.exe' --exclude=node_modules . | tar -x -C '$PREFIX/program'"
   fi
 }
 

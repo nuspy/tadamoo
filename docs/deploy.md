@@ -16,7 +16,8 @@ and Italian ("No engine is installed on this server, so there is nothing to load
 
 ```
 sudo deploy/linux/install.sh install --public-name tadamoo.example.org --proxy nginx --generate-key
-sudo deploy/linux/install.sh install --components harness,basalt --engine-bin /path/to/basalt --model /models/qwen.basalt
+sudo deploy/linux/install.sh install --components harness,basalt --model /models/qwen.basalt        # complete release: the engine is in engines/basalt
+sudo deploy/linux/install.sh install --components harness,strata --strata-variant cuda13           # Strata, fetched from its own release and checked against its SHA256SUMS.txt
 deploy/linux/install.sh status          sudo deploy/linux/install.sh uninstall [--purge]
 ```
 
