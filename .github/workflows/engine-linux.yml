@@ -1,0 +1,82 @@
+name: engine-linux
+
+# Builds the Basalt-Plus engine for Linux x86_64 with the CUDA runtime libraries it loads, as one archive for a release.
+# Run by hand: gh workflow run engine-linux.yml
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: CUDA toolkit
+        run: |
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build patchelf \
+            cuda-nvcc-13-0 cuda-cudart-dev-13-0 cuda-crt-13-0 cuda-cccl-13-0 cuda-nvrtc-dev-13-0 libcublas-dev-13-0
+          echo /usr/local/cuda-13.0/bin >> "$GITHUB_PATH"
+          echo CUDA_PATH=/usr/local/cuda-13.0 >> "$GITHUB_ENV"
+
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        with:
+          key: engine-linux-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: engine-linux-
+          max-size: 1G
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_CUDA_ARCHITECTURES=120
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache
+          -DPython3_EXECUTABLE="$(python -c 'import sys;print(sys.executable)')"
+
+      - name: Build
+        run: cmake --build build -j "$(nproc)" --target basalt basalt-bench basalt-probe basalt-vision
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          mkdir -p pkg/bin pkg/lib
+          for b in basalt basalt-bench basalt-probe basalt-vision; do
+            f="$(find build -type f -name "$b" -perm -u+x | head -n 1)"
+            [ -n "$f" ] && cp "$f" "pkg/bin/$b"
+          done
+          export LD_LIBRARY_PATH=/usr/local/cuda-13.0/lib64:/usr/local/cuda-13.0/targets/x86_64-linux/lib
+          for b in pkg/bin/*; do
+            ldd "$b" | awk '/=>/ && $3 ~ /cuda/ {print $3}'
+          done | sort -u | while read -r lib; do cp -L "$lib" pkg/lib/; done
+          for b in pkg/bin/*; do patchelf --set-rpath '$ORIGIN/../lib' "$b"; done
+          cp LICENSE pkg/LICENSE
+          cp -r THIRD_PARTY_LICENSES pkg/THIRD_PARTY_LICENSES
+          echo "bin:"; ls -la pkg/bin; echo "lib:"; ls -la pkg/lib
+          for b in pkg/bin/*; do echo "== $b"; ldd "$b" | grep -E "not found|cuda" || true; done
+          tar -czf basalt-engine-linux-x86_64-cuda13.tar.gz -C pkg .
+          sha256sum basalt-engine-linux-x86_64-cuda13.tar.gz
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: basalt-engine-linux-x86_64-cuda13
+          path: basalt-engine-linux-x86_64-cuda13.tar.gz
+          if-no-files-found: error
