@@ -6,6 +6,11 @@ name: vendored-tools
 # Run by hand: gh workflow run vendored-tools.yml
 on:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      linux_only:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -17,6 +22,7 @@ env:
 jobs:
   windows:
     name: Windows x64
+    if: ${{ !inputs.linux_only }}
     runs-on: windows-latest
     timeout-minutes: 90
     defaults:

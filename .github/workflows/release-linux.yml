@@ -1,0 +1,60 @@
+name: release-linux
+
+# One run builds, together, what the complete Linux release holds: the Basalt-Plus engine (engine-linux.yml), agent-desktop and agent-browser (vendored-tools.yml, Linux only),
+# and the harness tree, and packs them as TaDaMoo-linux-complete-<version>.tar.gz: tools/vendored/ and engines/basalt/ beside the installer. Run by hand: gh workflow run release-linux.yml
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  engine:
+    uses: ./.github/workflows/engine-linux.yml
+
+  tools:
+    uses: ./.github/workflows/vendored-tools.yml
+    with:
+      linux_only: true
+
+  pack:
+    needs: [engine, tools]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: basalt-engine-linux-x86_64-cuda13
+          path: parts/engine
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: vendored-tools-x86_64-unknown-linux-gnu
+          path: parts/tools
+
+      - name: Pack
+        run: |
+          set -euo pipefail
+          VER="$(python3 -c "import json; d = json.load(open('VERSION', encoding='utf-8-sig')); print(str(d['version']) + '.' + str(d['subversion']))")"
+          NAME="tadamoo-${VER}"
+          mkdir -p pack
+          git archive --format=tar --prefix="${NAME}/" HEAD | tar -x -C pack
+          rm -rf "pack/${NAME}/third_party"
+          mkdir -p "pack/${NAME}/engines/basalt"
+          tar -xzf parts/engine/basalt-engine-linux-x86_64-cuda13.tar.gz -C "pack/${NAME}/engines/basalt"
+          tar -xzf parts/tools/tadamoo-vendored-tools-x86_64-unknown-linux-gnu.tar.gz -C "pack/${NAME}"
+          ls "pack/${NAME}/tools/vendored" "pack/${NAME}/engines/basalt"
+          tar -czf "TaDaMoo-linux-complete-v${VER}.tar.gz" -C pack "${NAME}"
+          sha256sum "TaDaMoo-linux-complete-v${VER}.tar.gz" | tee "TaDaMoo-linux-complete-v${VER}.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-complete
+          path: |
+            TaDaMoo-linux-complete-*.tar.gz
+            TaDaMoo-linux-complete-*.tar.gz.sha256
+          if-no-files-found: error

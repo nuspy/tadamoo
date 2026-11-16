@@ -4,6 +4,7 @@ name: engine-linux
 # Run by hand: gh workflow run engine-linux.yml
 on:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
