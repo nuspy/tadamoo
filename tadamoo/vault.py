@@ -68,13 +68,15 @@ def valid_code(value: Any) -> bool:
     return isinstance(value, str) and 0 < len(value.strip()) <= 32 and all(c.isalnum() or c in " -" for c in value)
 
 
-def totp_code(secret: str, at: float, step: int = 30, digits: int = 6) -> str:
-    """RFC 6238 with SHA-1, the form every authenticator app and bank uses."""
+def totp_code(secret: str, at: float, step: int = 30, digits: int = 6, algorithm: str = "SHA1") -> str:
+    """RFC 6238: SHA-1 (the form every authenticator app and bank uses), or SHA-256 and SHA-512 for the apps that ask for them."""
+    if algorithm.upper() not in ("SHA1", "SHA256", "SHA512"):
+        raise VaultError(f"the TOTP algorithm {algorithm} is not one the vault makes")
     try:
         raw = base64.b32decode(re.sub(r"[\s\-]", "", secret).upper() + "=" * (-len(re.sub(r"[\s\-]", "", secret)) % 8), casefold=True)
     except Exception:
         raise VaultError("the TOTP secret is not valid base32") from None
-    digest = hmac.new(raw, struct.pack(">Q", int(at // step)), hashlib.sha1).digest()
+    digest = hmac.new(raw, struct.pack(">Q", int(at // step)), getattr(hashlib, algorithm.lower())).digest()
     offset = digest[-1] & 0x0F
     number = (struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF) % (10 ** digits)
     return str(number).zfill(digits)
