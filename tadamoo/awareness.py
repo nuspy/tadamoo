@@ -12,6 +12,7 @@ from tadamoo import persistence
 # optional features and the plain reason each is missing, in the order they are listed to the model
 FEATURES = (
     ("browser", "no browser tools (the person has not enabled them)"),
+    ("computer", "no computer control (the screen, mouse and keyboard): the person has not enabled it"),
     ("vault", "no vault: it cannot sign in or fill in personal data"),
     ("phone", "no phone calls"),
     ("memory", "no project notes"),
