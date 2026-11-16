@@ -361,3 +361,14 @@ Serve la conversazione vera con il modello vero e un server MCP con un'app. Per 
 1. `.	ools\windows\gui_only\Make-GuiOnly.ps1`, decomprimere lo zip su un altro PC (o in una cartella), «Install-TaDaMooGUI.ps1» (chiede i diritti di amministratore): si crea il collegamento «TaDaMoo (window only)» e la voce in «App installate».
 2. Aprire dal menu Start: chiede quale server usare (elenco vuoto: «Nuovo server» si apre da solo); aggiungere `https://hrns.tadamoo.com` con la chiave, «Usa questo»: la pagina si apre senza Loader.
 3. Chiudendo la finestra l'app finisce (nessun server locale da fermare); riaprendo riprende l'ultimo server. «Remove-TaDaMooGUI.ps1» toglie cartella, collegamento e voce.
+
+## Controllo del computer (17 novembre; provato solo con un backend finto, NESSUN mouse mosso e nessuna schermata presa)
+
+Prima: Portafoglio > Controllo del computer, attivarlo (due domande), scegliere lo schermo (anche il secondo se c'è). Poi, in una conversazione nuova di Chat o Agente:
+1. «Apri il Blocco note, scrivi "ciao dal test" e fai uno screenshot.» L'agente elenca le finestre, porta in primo piano il Blocco note, scrive e restituisce l'immagine (si vede con analyze_image o nel messaggio).
+2. «Premi Ctrl+A e poi Ctrl+C» (tasti) e «leggi l'albero della finestra»: si vedono gli elementi con numero, ruolo e nome; «clicca l'elemento N» funziona e il numero poi non vale più.
+3. Con un secondo schermo scelto: il Blocco note aperto sul primo schermo NON compare nell'elenco finestre né nell'immagine; sul secondo sì. Cambiare schermo in Portafoglio con la conversazione già aperta: vale dalla chiamata dopo.
+4. Mentre l'agente fa una scrittura lunga o uno scorrimento: premere Stop (si ferma e le chiamate in coda non partono); poi ripetere portando il mouse in un angolo (si ferma, l'agente dice che si è fermato; dopo circa 20 secondi un nuovo ordine funziona).
+5. Segnaposto: scrivere un valore della cassaforte senza sito nel Blocco note con {{vault:VOCE.campo}}: viene scritto; subito dopo uno screenshot chiede il permesso (a livello Automatico no). Un valore legato a un sito viene rifiutato.
+6. Controllare nel registro (audit) le voci «computer» (screenshot, click, type_text con il numero di caratteri e mai il testo).
+7. Linux X11 (se c'è un desktop): `apt install xdotool imagemagick`, stesso giro dei punti 1-4 tranne l'albero (non c'è: lo dice).
