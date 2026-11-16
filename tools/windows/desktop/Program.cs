@@ -45,14 +45,15 @@ static class Program
             return 0;
         }
         if (!opt.TestMock && !opt.TestExit && !opt.GuiOnly && AdminChoice.Relaunch(args)) return 0;
-        using var mutex = new Mutex(true, opt.TestMock ? MutexName + ".test" : MutexName, out bool first);
+        string suffix = opt.TestMock ? ".test" : opt.GuiOnly ? ".gui" : "";       // the window alone does not take the full app's place on a PC that has both
+        using var mutex = new Mutex(true, MutexName + suffix, out bool first);
         if (!first)
         {
-            try { EventWaitHandle.OpenExisting(ShowEventName + (opt.TestMock ? ".test" : "")).Set(); } catch (WaitHandleCannotBeOpenedException) { }
+            try { EventWaitHandle.OpenExisting(ShowEventName + suffix).Set(); } catch (WaitHandleCannotBeOpenedException) { }
             return 0;
         }
         InitUi();
-        using var show = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName + (opt.TestMock ? ".test" : ""));
+        using var show = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName + suffix);
         var form = new MainForm(opt, show);
         Application.Run(form);
         return form.ExitCode;

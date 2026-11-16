@@ -355,3 +355,9 @@ Serve la conversazione vera con il modello vero e un server MCP con un'app. Per 
 2. Scrivere un indirizzo con un percorso (`http://x/abc`): «Salva» dice che l'indirizzo non è valido.
 3. «Cambia la chiave sul server»: dopo il cambio la prova di collegamento funziona con la chiave nuova; la pagina sul PC non chiede più la chiave a questo telefono se aveva quella vecchia.
 4. Un server in http su rete locale (`192.168.x.x:7232`) si collega ancora.
+
+## Installazione Windows «solo finestra» (17 novembre; lo zip si costruisce, l'installazione NON è stata eseguita)
+
+1. `.	ools\windows\gui_only\Make-GuiOnly.ps1`, decomprimere lo zip su un altro PC (o in una cartella), «Install-TaDaMooGUI.ps1» (chiede i diritti di amministratore): si crea il collegamento «TaDaMoo (window only)» e la voce in «App installate».
+2. Aprire dal menu Start: chiede quale server usare (elenco vuoto: «Nuovo server» si apre da solo); aggiungere `https://hrns.tadamoo.com` con la chiave, «Usa questo»: la pagina si apre senza Loader.
+3. Chiudendo la finestra l'app finisce (nessun server locale da fermare); riaprendo riprende l'ultimo server. «Remove-TaDaMooGUI.ps1» toglie cartella, collegamento e voce.
