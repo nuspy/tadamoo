@@ -1,0 +1,10 @@
+/* The containers of the Agent chat that hold a run of reasoning or of actions (chatdisplay.js). */
+.agroup { border: 1px solid var(--line-soft); border-radius: 8px; background: var(--bg); margin: 4px 0; min-width: 0; max-width: 100%; }
+.agroup > summary { min-height: 44px; display: flex; align-items: center; gap: 8px; padding: 4px 12px; cursor: pointer; color: var(--fg-2); font-size: 14.5px; list-style: none; }
+.agroup > summary::-webkit-details-marker { display: none; }
+.agroup > summary::before { content: "▸"; flex: none; transition: transform .12s; }
+.agroup[open] > summary::before { transform: rotate(90deg); }
+.agroup-t { min-width: 0; overflow-wrap: anywhere; }
+.agroup-b { display: flex; flex-direction: column; gap: 6px; padding: 4px 8px 8px; min-width: 0; }
+.agroup:focus-within { outline: 2px solid var(--accent, currentColor); outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) { .agroup > summary::before { transition: none; } }

@@ -964,6 +964,7 @@
     el.append(mk("div", "peer-body", body));
     return el;
   }
+  document.addEventListener('tadamoo:display', () => { window.chatDisplay.reset(); render(); });
   function render() {
     empty.hidden = items.length > 0;
     items.forEach(it => {
@@ -1012,10 +1013,11 @@
         it.el.append(it.actsEl);
       }
       it.blocks.forEach(b => {
-        if (!b.el) { b.el = makeBlock(b); b.row = mk("div", "arow"); b.row.append(window.chatUi.stamp(b.ts), b.el); it.body.append(b.row); b.dirty = true; }
+        if (!b.el) { b.el = makeBlock(b); b.row = mk("div", "arow"); b.row.append(window.chatUi.stamp(b.ts), b.el); window.chatDisplay.place(it, b); b.dirty = true; }
         if (b.dirty || b.t === "reasoning" || b.t === "text") { paintBlock(b, b.el, it); b.dirty = false; }
         b.row.hidden = b.el.hidden;                                           // a reasoning box with nothing in it shows no time either
       });
+      window.chatDisplay.paint(it, T);
       it.metaEl.textContent = it.meta;
       paintCont(it);
       paintStop(it);

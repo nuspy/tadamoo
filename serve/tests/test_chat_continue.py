@@ -44,7 +44,7 @@ const ctx = {
   requestAnimationFrame: f => setTimeout(f, 0), cancelAnimationFrame: clearTimeout,
   $: dollar, T: (k, ...a) => k + (a.length ? '[' + a.join(',') + ']' : ''), LANG: 'en', authHeaders: () => ({}), nfmt: n => String(n), askKey() {},
   healthReady: Promise.resolve(null), URL, Blob,
-  chatSettings: { policy: () => 'stop', system: () => '', body: () => ({}), threshold: () => 0.8, showReasoning: () => true, autoContinue: () => limit },
+  chatSettings: { policy: () => 'stop', system: () => '', body: () => ({}), threshold: () => 0.8, shows: () => 'full', autoContinue: () => limit },
   fetch: async (url, opt) => {
     if (String(url) !== 'v1/chat/completions') return { ok: false, status: 404, json: async () => ({}) };
     const body = JSON.parse(opt.body);

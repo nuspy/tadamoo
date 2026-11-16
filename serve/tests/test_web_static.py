@@ -269,9 +269,9 @@ class ReasoningBoxTest(unittest.TestCase):
 
     def test_the_setting_is_in_the_panel_and_the_chat_asks_it(self):
         html = (WEB / "index.html").read_text(encoding="utf-8")
-        self.assertIn('id="cs-show-reasoning"', html)
-        self.assertIn("showReasoning", (WEB / "chatset.js").read_text(encoding="utf-8"))
-        self.assertIn("chatSettings.showReasoning()", (WEB / "chat.js").read_text(encoding="utf-8"))
+        self.assertIn('id="cs-show_reasoning"', html)
+        self.assertIn("shows", (WEB / "chatset.js").read_text(encoding="utf-8"))
+        self.assertIn('chatSettings.shows("reasoning")', (WEB / "chat.js").read_text(encoding="utf-8"))
 
     def test_the_box_shows_twenty_lines_and_scrolls_for_the_rest(self):
         css = (WEB / "app.css").read_text(encoding="utf-8")

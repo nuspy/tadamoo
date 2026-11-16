@@ -61,7 +61,8 @@ const chatSettings = (() => {
       policy: (document.querySelector('input[name="cs-policy"]:checked') || {}).value || "compact",
       threshold: $("#cs-threshold").value, effort: effortBox.value,
       format: $("#cs-format").value, schema: $("#cs-schema").value, schema_name: $("#cs-schema_name").value,
-      context_patterns: window.ctxPatterns ? window.ctxPatterns.read() : {} };
+      context_patterns: window.ctxPatterns ? window.ctxPatterns.read() : {},
+      show_reasoning: $("#cs-show_reasoning").value, show_tooling: $("#cs-show_tooling").value };
     for (const f of fieldsOf()) s[f.key] = $("#" + f.id).value.trim();
     return s;
   }
@@ -79,7 +80,10 @@ const chatSettings = (() => {
     effortBox.value = s.effort || "";
     if (scope.kind === "new" || scope.kind === "session") $("#effort").value = s.effort || "";      // the header of the conversation shows its own level
     for (const f of fieldsOf()) $("#" + f.id).value = s[f.key] ?? "";
+    $("#cs-show_reasoning").value = s.show_reasoning || "full";
+    $("#cs-show_tooling").value = s.show_tooling || "full";
     show();
+    document.dispatchEvent(new CustomEvent("tadamoo:display"));
   }
   function say(text, kind) { const e = $("#cs-status"); e.textContent = text; e.dataset.kind = kind || ""; }
 
@@ -269,7 +273,7 @@ const chatSettings = (() => {
   $("#cs-close").onclick = closePanel;
   $("#chatset").addEventListener("keydown", e => { if (e.key === "Escape") closePanel(); });
   // a setting changed by hand (not the preset controls)
-  const byHand = e => e.target.closest && !e.target.closest("#cs-preset-box") && e.target.id !== "cs-show-reasoning";
+  const byHand = e => e.target.closest && !e.target.closest("#cs-preset-box");
   $("#cs-form").addEventListener("input", e => {
     const f = fieldsOf().find(x => x.id === e.target.id);
     if (f) { const p = mark(f); say(p ? T("cs.bad", T(f.label), p) : "", p ? "err" : ""); }
@@ -352,14 +356,9 @@ const chatSettings = (() => {
   });
   document.addEventListener("tadamoo:view", e => { if (e.detail === "chat" || e.detail === "agent") defaults(); });
 
-  // whether the chat shows the model's reasoning: a display choice of this client, not part of a preset
-  const SHOW = "tadamoo.showreasoning";
-  const showReasoning = () => load(SHOW, true) !== false;
-  $("#cs-show-reasoning").checked = showReasoning();
-  $("#cs-show-reasoning").addEventListener("change", e => {
-    keep(SHOW, e.target.checked);
-    document.dispatchEvent(new CustomEvent("tadamoo:showreasoning"));
-  });
+  // how the chat shows the reasoning and the actions (full, compact or absent): settings a preset keeps like the others
+  const shows = kind => { const v = $("#cs-show_" + kind).value; return v === "compact" || v === "absent" ? v : "full"; };
+  $("#cs-form").addEventListener("change", e => { if (/^cs-show_/.test(e.target.id)) document.dispatchEvent(new CustomEvent("tadamoo:display")); });
 
   startNew(false);
   drawPresets("");
@@ -367,5 +366,5 @@ const chatSettings = (() => {
   fetchPresets().then(() => { if (scope.kind === "new" && !edited) startNew(false); });
   if (load("tadamoo.chatset.open", false) && innerWidth > 980) openPanel(true);
   const patterns = () => read().context_patterns || {};
-  return { body, system, policy, threshold, structured, showReasoning, autoContinue, patterns, read, useSession, fresh, edit, endEdit, editing, machineSettings };
+  return { body, system, policy, threshold, structured, shows, autoContinue, patterns, read, useSession, fresh, edit, endEdit, editing, machineSettings };
 })();

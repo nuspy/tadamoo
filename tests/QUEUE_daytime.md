@@ -393,3 +393,13 @@ Portafoglio > Browser: «Cosa guida il browser» = agent-browser (predefinito) o
 3. Cambiare la scelta, ricaricare la pagina: resta. Una conversazione nuova parte con quel pilota.
 4. Scarico: con agent-browser il file arriva in <dati>/browser-downloads/…, la domanda viene dopo; rifiutando il file sparisce.
 5. Banner di consenso su 3-4 siti reali (nella pagina e in un frame): quelli in un frame di un altro sito con agent-browser non si trovano (limite noto).
+
+## Ragionamento e azioni in chat: tre opzioni e raccoglitori (16 novembre; provato solo con test e con node, NON sull'app avviata)
+
+Impostazioni di inferenza > «Mostrato in chat»: «Ragionamento» e «Azioni», ciascuna Completo / Compatto / Assente; sono salvate nei profili.
+1. Agent chat, una richiesta con molte letture e modifiche: le azioni consecutive stanno in un solo raccoglitore (con una scheda per ciascuna); anche i ragionamenti consecutivi. Un ragionamento o un'azione da soli non hanno raccoglitore.
+2. Completo: il raccoglitore è aperto. Compatto: una riga chiusa («N azioni · nomi»); aprirla mostra le schede. Assente: non si vede niente, nemmeno la riga.
+3. Cambiare l'opzione a conversazione avviata: i raccoglitori si ridisegnano; uno aperto o chiuso a mano torna come dice l'opzione.
+4. Salvare un profilo con Compatto/Assente, caricarlo in un'altra conversazione e in un piano: i valori tornano uguali. Una conversazione nuova parte da «Machine Default» (Completo).
+5. Chat normale: il ragionamento segue la stessa opzione (Completo si apre mentre ragiona, Compatto resta chiuso, Assente non c'è).
+6. 360×640 e 390×844: la riga del raccoglitore è alta almeno 44 px, niente scorrimento orizzontale; tastiera: Invio/Spazio apre e chiude.
