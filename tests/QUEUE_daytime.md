@@ -372,3 +372,15 @@ Prima: Portafoglio > Controllo del computer, attivarlo (due domande), scegliere 
 5. Segnaposto: scrivere un valore della cassaforte senza sito nel Blocco note con {{vault:VOCE.campo}}: viene scritto; subito dopo uno screenshot chiede il permesso (a livello Automatico no). Un valore legato a un sito viene rifiutato.
 6. Controllare nel registro (audit) le voci «computer» (screenshot, click, type_text con il numero di caratteri e mai il testo).
 7. Linux X11 (se c'è un desktop): `apt install xdotool imagemagick`, stesso giro dei punti 1-4 tranne l'albero (non c'è: lo dice).
+
+## Controllo del computer con agent-desktop (17 novembre; provate solo letture, NESSUN clic né testo)
+
+Prima: Portafoglio > Controllo del computer > «Installa agent-desktop» (scarica ~2 MB da GitHub; mostra versione e accesso di accessibilità), poi scegliere «Automatico» o «agent-desktop» e avviare una conversazione nuova.
+1. «Apri il Blocco note (se è già aperto portalo davanti), scrivi "ciao" e dimmi cosa c'è nella finestra.»: l'albero ha numeri; il testo arriva nel campo; guardare nella lista dei processi (Gestione attività, colonna Riga di comando) mentre scrive: il testo NON deve comparire negli argomenti di agent-desktop.exe.
+2. «Clicca il pulsante N» su un pulsante di una finestra dietro un'altra: deve riuscire senza spostare il mouse né portare la finestra davanti. Poi tasto destro e doppio clic (qui il mouse si muove: è voluto).
+3. Un valore della cassaforte senza sito scritto nel Blocco note; poi uno screenshot chiede il permesso.
+4. «Premi Alt+F4»: rifiutato dal programma (mai forzato). «Premi Ctrl+S»: parte.
+5. Chrome già aperto: l'albero della pagina è vuoto o no? (in lettura era vuoto); con una finestra Electron/Opera in primo piano com'è.
+6. Appunti: «metti "prova" negli appunti e incollalo con Ctrl+V»; leggere gli appunti.
+7. Stop durante una lettura lunga (albero di Opera) si ferma; Stop durante un clic non lo interrompe a metà. Mouse in un angolo: tutto si ferma.
+8. Con «Quello del sistema» le stesse cose usano il mouse vero (nessuna differenza di strumenti).
