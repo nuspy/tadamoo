@@ -10,12 +10,20 @@ const gib = n => num(n) ? (n / 1024 ** 3).toFixed(1) : "-";
 const HIST = 60;
 let perStream = Array(HIST).fill(0);   // mean tok/s per decoding slot, one sample per poll
 
-let apiKey = "";
-try { apiKey = sessionStorage.getItem("tadamoo.key") || ""; } catch (e) { /* storage blocked: ask again */ }
+/* The key is kept in this browser between visits (not asked again each time); "Forget key" takes it out, for a computer that is not yours. */
+const KEY_NAME = "tadamoo.key";
+const keptKey = () => { try { return localStorage.getItem(KEY_NAME) || sessionStorage.getItem(KEY_NAME) || ""; } catch (e) { return ""; } };
+const keepKey = key => {
+  try { localStorage.setItem(KEY_NAME, key); sessionStorage.removeItem(KEY_NAME); }
+  catch (e) { try { sessionStorage.setItem(KEY_NAME, key); } catch (e2) { /* kept for this page only */ } }
+};
+const forgetKey = () => { try { localStorage.removeItem(KEY_NAME); } catch (e) { /* nothing kept */ } try { sessionStorage.removeItem(KEY_NAME); } catch (e) { /* nothing kept */ } };
+let apiKey = keptKey();
 /* the server's key was changed from this page: the page goes on with the new one, and the desktop app keeps it in the entry of this server */
 window.setServerKey = key => {
   apiKey = key;
-  try { sessionStorage.setItem("tadamoo.key", key); } catch (e) { /* kept for this page only */ }
+  keepKey(key);
+  syncKeyButtons();
   const app = window.chrome && window.chrome.webview;
   if (app) app.postMessage({ type: "serverKey", key });
 };
@@ -54,7 +62,7 @@ const TAB_OF = { hardware: "stats", logs: "stats", security: "stats", wallet: "s
 const SHOWN_AS = { agent: "chat" };
 let viewOn = "";
 function view(v, focus) {
-  if (!VIEWS.includes(v) || (v === "loader" && document.body.dataset.noEngine)) v = "chat";
+  if (!VIEWS.includes(v)) v = "chat";
   viewOn = v;
   VIEWS.forEach(x => { const page = document.getElementById("view-" + x); if (page) page.hidden = x !== (SHOWN_AS[v] || v); });
   $("#top").hidden = v !== "stats";
@@ -428,7 +436,8 @@ async function pollLog() {
 }
 $("#auth").onsubmit = e => {
   e.preventDefault(); apiKey = $("#key").value.trim();
-  try { sessionStorage.setItem("tadamoo.key", apiKey); } catch (err) { /* kept for this page only */ }
+  keepKey(apiKey);
+  syncKeyButtons();
   document.dispatchEvent(new CustomEvent("tadamoo:key"));
 };
 // with an API key set the server gives the page its change secret only to a request that carries the key
@@ -440,14 +449,16 @@ function askKey() { $("#auth").hidden = false; $("#key").focus(); }
 
 $("#host").textContent = location.host;
 let HEALTH = null;
-/* a server with no engine (the harness alone), or a remote server shown in the desktop app (window.__tadamooRemote), has no Loader: the tab is hidden and a link to it goes to the Chat */
+/* a server with no engine (the harness alone) keeps the Models tab, with a note: its answers come from the providers, and the files listed are for an engine installed later. */
 function noEngine() {
   document.body.dataset.noEngine = "1";
-  const tab = $("#tab-loader");
-  if (tab) tab.hidden = true;
-  if (viewOn === "loader") view("chat");
+  const note = $("#noengine");
+  if (note) note.hidden = false;
 }
-const healthReady = fetch("health", { cache: "no-store" }).then(r => r.json()).then(h => { HEALTH = h; $("#keyed").hidden = !h.api_key; if (h.engine_installed === false || window.__tadamooRemote) noEngine(); return h; })
+const syncKeyButtons = () => { const f = $("#forgetkey"); if (f) f.hidden = !(HEALTH && HEALTH.api_key && apiKey); };
+$("#forgetkey").onclick = () => { forgetKey(); apiKey = ""; syncKeyButtons(); askKey(); };      // the key is taken out of this browser, and asked for again
+$("#keyed").onclick = () => askKey();                                  // the key this page sends can be entered again at any time
+const healthReady = fetch("health", { cache: "no-store" }).then(r => r.json()).then(h => { HEALTH = h; $("#keyed").hidden = !h.api_key; syncKeyButtons(); if (h.engine_installed === false) noEngine(); return h; })
   .catch(() => null);
 view(location.hash.slice(1) || "chat");
 pollMetrics(); pollLog();

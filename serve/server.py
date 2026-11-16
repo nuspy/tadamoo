@@ -281,6 +281,7 @@ def main() -> int:
     svc.control_token = write_control_token(a.port, a.control_secret_value) if a.control_secret else ""
     svc.engine_installed = bool(a.mock_engine or a.engine_bin)
     svc.web = not a.no_web
+    svc.remote_admin = bool(getattr(a, "remote_admin", False) and svc.api_key)
     svc.public_name = a.public_name or ""
     svc.allowed_hosts = tuple(dict.fromkeys([*(a.allowed_hosts or ()), *([a.public_name] if a.public_name else [])]))
     svc.allowed_origins = tuple(dict.fromkeys(a.allowed_origins or ()))

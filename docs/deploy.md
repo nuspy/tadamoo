@@ -27,6 +27,10 @@ The listening address is `--host` (this machine only by default) and the port `-
 
 The complete release also has `tools/vendored/` (agent-desktop for computer control, agent-browser for the browser tools), built by the vendored-tools workflow from `third_party/`; the installer copies it with the program and makes it runnable ([vendored-tools.md](vendored-tools.md)). A server has no desktop, so computer control there is only useful with an X11 session; the browser tools need Chrome or Chromium on the server (`--executable-path` is found like the own driver's).
 
+### Administering from the page or the app
+
+By default the configuration (providers, settings, knowledge archives, the vault, the voice and avatar) can be changed only from the PC the server runs on; from another machine the page shows it and answers 403. For a server you reach from far away, `--remote-admin` (`remote-admin: true` in `tadamoo_config.json`) lets a client that sends the server key do the same from the page, the desktop app or the phone. It needs a key and is off unless asked; with it on, **the key is as good as being at the machine**, so it should be a long, random one. The page keeps the key in the browser between visits and has a *Forget key* button for a computer that is not yours.
+
 ### A proxy in front
 
 `--public-name` puts the name into `allowed-hosts`; without it a proxy that forwards the public name as the `Host` header gets `403 host_not_allowed` (see [server-security.md](server-security.md)).

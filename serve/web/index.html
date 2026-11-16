@@ -200,7 +200,8 @@
   <span class="state" id="state" data-s="offline">Connecting</span>
   <span class="where detail" id="detail" hidden></span>
   <span class="where" id="host"></span>
-  <span class="where" id="keyed" hidden>API key</span>
+  <button type="button" class="where keyed" id="keyed" hidden data-t="auth.change" title="Enter or change the API key this page uses">API key</button>
+  <button type="button" class="where keyed" id="forgetkey" hidden data-t="auth.forget" title="Take the key out of this browser (use it on a computer that is not yours)">Forget key</button>
 </header>
 
 <nav class="subtabs viewsub" id="viewsub" role="tablist" aria-label="Sections" hidden></nav>
@@ -935,6 +936,7 @@
   </div>
 
   <div class="view loader" id="view-loader" role="tabpanel" aria-labelledby="tab-loader" hidden>
+    <p class="noengine" id="noengine" data-t="vl.noengine" hidden>This server has no engine installed: its answers come from the providers (Settings &gt; Providers). The model files here are for an engine installed later.</p>
     <div class="vl-head" id="vl-head">
       <button type="button" class="btn primary" id="vl-reload" data-t="vl.reload" hidden>Change services in memory</button>
     </div>

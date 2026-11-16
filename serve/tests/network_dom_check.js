@@ -72,10 +72,11 @@ async function main() {
       if (!/tadamoo\.invalid/.test(joined)) throw new Error("the address is not named: " + joined);
     });
 
-    await check(`${tag}: a server with no engine has no Loader tab, and a link to it goes to the Chat`, async () => {
-      await waitFor(`q("#tab-loader") && q("#tab-loader").hidden`, "the Loader tab is hidden");
+    await check(`${tag}: a server with no engine keeps the Models tab, with a note that says where the answers come from`, async () => {
+      await waitFor(`q("#tab-loader") && !q("#tab-loader").hidden`, "the Models tab is shown");
       await ev(`location.hash = "#loader"; return 1;`);
-      await waitFor(`document.body.dataset.view === "chat"`, "#loader goes to the Chat");
+      await waitFor(`document.body.dataset.view === "loader"`, "#loader opens the Models tab");
+      await waitFor(`q("#noengine") && !q("#noengine").hidden`, "the note about the missing engine is shown");
       await ev(`location.hash = "#settings"; return 1;`);
       await waitFor(`document.body.dataset.view === "settings"`, "back to Settings");
       await ev(`const b = q("#sub-network"); if (b) b.click(); return 1;`);

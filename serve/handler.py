@@ -317,6 +317,7 @@ def make_handler(svc: Service, remote: bool = False):
                                            proven=self._proven(), allowed=getattr(svc, "allowed_hosts", ()), own_name=socket.gethostname(),
                                            allowed_origins=getattr(svc, "allowed_origins", ()))
             if refused is None:
+                self._remote_admin()
                 return True
             print(f"[server] refused {self.command} {self.path.split('?', 1)[0][:200]}: {refused.code}", file=sys.stderr, flush=True)
             self._discard_body()
@@ -326,6 +327,16 @@ def make_handler(svc: Service, remote: bool = False):
             else:
                 self._json(403, {"error": {"type": "forbidden", "code": refused.code, "message": refused.message}})
             return False
+
+        def _remote_admin(self) -> None:
+            """--remote-admin: a request from another machine that carries the server key is handled as one from this PC, so the page and the app can change what only this PC
+            could. It needs the key (a server with none never does this) and is for the main listener: the phones' listener keeps its own rules."""
+            if not getattr(svc, "remote_admin", False) or self.remote_listener or settings.is_loopback(self.client_address[0]):
+                return
+            auth = self.headers.get("Authorization", "")
+            given = auth[7:].strip() if auth.lower().startswith("bearer ") else self.headers.get("x-api-key", "")
+            if given and svc.api_key and key_matches(given, svc.api_key):
+                self.client_address = ("127.0.0.1", self.client_address[1])
 
         def _retired_key(self, given: str) -> bool:
             """A key that was replaced from a client is still believed from this machine (the conversations already running hold it) until the server is started again."""
@@ -713,7 +724,7 @@ def make_handler(svc: Service, remote: bool = False):
                 if self._authorized():
                     self._json(200, {"cron": _ROUTINES.attention() if _ROUTINES is not None else {"t": 0.0},
                                      "plans": _PLANS.attention() if _PLANS is not None else {"t": 0.0},
-                                     "rag": rag_attention(self._rag()),
+                                     "rag": rag_attention(self._rag_store()),
                                      "actions": {"count": self._actions().count()}})
             elif path == "/api/actions":
                 if self._authorized():

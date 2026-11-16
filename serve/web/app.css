@@ -62,6 +62,9 @@ td, th, .v, .k, .ln, .kv dd, .sub { font-family: var(--font-mono); font-variant-
 .state[data-s="generating"], .state[data-s="reading"], .state[data-s="loading"] { color: var(--accent); }
 .state[data-s="offline"] { color: var(--err); }
 .where { font: 400 13px/1 var(--font-mono); color: var(--fg-3); white-space: nowrap; margin-left: -8px; }
+button.keyed { background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+button.keyed:hover, button.keyed:focus-visible { color: var(--fg); }
+.noengine { margin: 0 0 12px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; color: var(--fg-2); font-size: 14px; line-height: 1.5; }
 .state + .where::before, .where + .where::before { content: "·"; margin-right: 16px; color: var(--line); }
 
 /* Panels: flat, softly rounded, one step lighter than the ground */

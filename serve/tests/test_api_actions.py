@@ -34,8 +34,8 @@ class ActionsApiTest(PlansApiBase):
         self.assertEqual((rows["plan:listed:ok"]["kind"], rows["plan:listed:ok"]["title_en"], rows["plan:listed:ok"]["context"]), ("confirm", "Is it fine?", "Listed"))
         self.assertEqual(rows[f"approval:{approval['id']}"]["details"]["tool"], "shell")
         self.assertEqual(body["count"], len(rows))
-        with mock.patch.object(handler, "rag_attention", lambda rag: {"t": 0.0}):              # the knowledge archives have nothing to do with this
-            self.assertEqual(self.call("GET", "/api/attention")[1]["actions"]["count"], body["count"])
+        attention = self.call("GET", "/api/attention")[1]                                       # the real knowledge store: no archive has news
+        self.assertEqual((attention["actions"]["count"], attention["rag"]["t"]), (body["count"], 0.0))
         quoted = urllib.parse.quote("plan:listed:ok", safe="")
         code, res = self.call("POST", f"/api/actions/{quoted}/answer", {"value": "maybe"})
         self.assertEqual((code, res["error"]["code"]), (400, "bad_answer"))

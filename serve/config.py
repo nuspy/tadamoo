@@ -514,6 +514,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--no-web", action="store_true",
                     help="serve only the API: no web page, no /web/ files, no fonts (a harness that the desktop app, the phone app or other programs use); "
                          "`no-web: true` in the --config file")
+    ap.add_argument("--remote-admin", action="store_true",
+                    help="a client that sends the server key may also do what only this PC could (providers, settings, knowledge archives, the vault), from the page or the app; "
+                         "off unless asked, and it needs a key; `remote-admin: true` in the --config file")
     ap.add_argument("--public-name", type=_allowed_host, metavar="NAME",
                     help="the name this server is reached by from outside (a domain, behind a reverse proxy, or a MagicDNS name): it is allowed as a Host "
                          "name, as if it were also given to --allowed-hosts")

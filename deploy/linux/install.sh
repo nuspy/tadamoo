@@ -13,7 +13,7 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CMD="${1:-}"; [ $# -gt 0 ] && shift
 
 PREFIX=/opt/tadamoo; DATA=/var/lib/tadamoo; CONF=/etc/tadamoo; RUN_USER=tadamoo
-HOST=127.0.0.1; PORT=7232; COMPONENTS=harness; PUBLIC=(); API_KEY=""; GENERATE_KEY=0; NO_WEB=0
+HOST=127.0.0.1; PORT=7232; COMPONENTS=harness; PUBLIC=(); API_KEY=""; GENERATE_KEY=0; NO_WEB=0; REMOTE_ADMIN=0
 BASALT_BIN=""; STRATA_DIR=""; STRATA_DOWNLOAD=0; STRATA_VARIANT=""; BUILD_BASALT=0; MODEL=""; PROXY=none; START=1; DRY=0; YES=0; PURGE=0
 
 usage() {
@@ -27,6 +27,7 @@ Options of install and update:
   --host ADDRESS       where it listens: 127.0.0.1 (this machine only), a LAN or Tailscale address, 0.0.0.0 (every address)
   --port N             the port                             (default: 7232)
   --public-name NAME   a name the server is reached by (a proxy's); may be repeated; goes into allowed-hosts
+  --remote-admin       a client that sends the server key can also do what only this PC could (providers, settings, archives, the vault); needs a key
   --no-web             serve only the API: no web page (for a server that other programs, the desktop app or the phone app use)
   --api-key KEY        the server key (optional)            --generate-key   make one and keep it in the configuration folder
   --engine-bin FILE    a built Basalt-Plus binary           --build-basalt   build it from this tree (CUDA toolkit and cmake needed)
@@ -58,6 +59,7 @@ parse() {
       --port) PORT="$2"; shift 2;;
       --public-name) PUBLIC+=("$2"); shift 2;;
       --no-web) NO_WEB=1; shift;;
+      --remote-admin) REMOTE_ADMIN=1; shift;;
       --api-key) API_KEY="$2"; shift 2;;
       --generate-key) GENERATE_KEY=1; shift;;
       --engine-bin) BASALT_BIN="$2"; shift 2;;
@@ -174,6 +176,7 @@ write_config() {
   hosts="[${hosts%, }]"
   local web=""
   [ "$NO_WEB" = 1 ] && web=', "no-web": true'
+  [ "$REMOTE_ADMIN" = 1 ] && web="$web"', "remote-admin": true'
   if [ "$DRY" = 1 ]; then say "+ write $CONF/tadamoo_config.json (allowed-hosts $hosts${web:+, no-web})"; else
     printf '{"server": {"allowed-hosts": %s%s}}\n' "$hosts" "$web" > "$CONF/tadamoo_config.json"
   fi
