@@ -46,6 +46,8 @@ from serve import plans as plans_mod, userdata
 from serve import review as review_mod
 from serve.agent_runs import AgentRunner, RunBusy, RunError
 from tadamoo.browser import BrowserPrefs
+from tadamoo.computer import ComputerPrefs
+from serve import computer_api
 from tadamoo.rule_of_two import RuleOfTwoPrefs
 from serve.allow_rules import AllowRules
 from tadamoo.payments_broker import PaymentsBroker
@@ -699,6 +701,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/server-key":
                 if self._authorized():
                     self._json(200, server_key.view(svc, self._key_store()))
+            elif path == "/api/computer":
+                if self._authorized():
+                    self._json(200, computer_api.view(ComputerPrefs(userdata.path("computer.json"))))
             elif path == "/api/network/ping":                  # what the network test asks: no key, and it says what arrived
                 self._json(200, network_api.ping_body(self.headers, self.client_address[0]))
             elif path == "/api/network":
@@ -1194,6 +1199,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path == "/api/server-key":
                 self._server_key_post()
+                return
+            if path == "/api/computer":
+                self._computer_post()
                 return
             if path == "/api/export":
                 self._export_post()
@@ -2132,6 +2140,28 @@ def make_handler(svc: Service, remote: bool = False):
             except OSError as e:
                 return self._json(500, {"error": {"type": "server_error", "message": f"cannot keep the key: {e.strerror or e}"}})
             print("[server] the API key was changed from a client and is in force now", flush=True)
+            self._json(200, out)
+
+        def _computer_post(self):
+            """POST /api/computer {"enabled", "monitor"}: this PC only (it lets an agent act on the machine)."""
+            try:
+                raw = self._body(settings.BODY_MAX)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            if not self._authorized():
+                return
+            if not settings.is_loopback(self.client_address[0]) or self.remote_listener:
+                return self._json(403, {"error": {"type": "forbidden", "message": "computer control is set only from the PC the server runs on"}})
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object {enabled, monitor}")
+                out = computer_api.save(ComputerPrefs(userdata.path("computer.json")), req)
+            except (ValueError, json.JSONDecodeError) as e:
+                return self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            except OSError as e:
+                return self._json(500, {"error": {"type": "server_error", "message": f"cannot keep the setting: {e.strerror or e}"}})
+            print(f"[server] computer control {'on' if out['enabled'] else 'off'}, screen {out['monitor'] or 'all'}", flush=True)
             self._json(200, out)
 
         def _network_post(self, path):
@@ -3836,7 +3866,7 @@ def make_handler(svc: Service, remote: bool = False):
                                            file_owners_path=userdata.path(FILE_OWNERS_FILE),
                                            attachments_dir=userdata.path("attachments"), outputs_dir=userdata.path("outputs"),
                                            vault_dir=userdata.path("vault"), payments_dir=userdata.path("payments"),
-                                           browser_prefs=BrowserPrefs(userdata.path("browser.json")).read, knowledge_flags=KnowledgePrefs(userdata.path("knowledge.json")).flags,
+                                           browser_prefs=BrowserPrefs(userdata.path("browser.json")).read, computer_prefs=ComputerPrefs(userdata.path("computer.json")), knowledge_flags=KnowledgePrefs(userdata.path("knowledge.json")).flags,
                                            intake_flags=IntakePrefs(userdata.path("intake.json")).flags,
                                            gate_flags=GatePrefs(userdata.path("gate.json")).flags, coding=CodingPrefs(userdata.path("coding.json")),
                                            plan_effort=lambda plan_id, node_id: self._plan_service().node_effort(plan_id, node_id),

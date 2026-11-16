@@ -353,6 +353,26 @@
       }))] : []), h("p", "help", T("wl.br.next"))));
   }
 
+  /* ---- the agent controlling this computer: screen, mouse, keyboard ---- */
+  function computerSection() {
+    const c = data.computer;
+    if (!c) return null;
+    const on = h("input"); on.type = "checkbox"; on.id = "wl-cc-on"; on.checked = !!c.enabled; on.disabled = !c.supported;
+    const screens = [[0, T("wl.cc.all")], ...(c.monitors || []).map(m => [m.index, T("wl.cc.screen", m.index, m.width, m.height) + (m.primary ? " " + T("wl.cc.main") : "")])];
+    const pick = select(screens.map(([v, text]) => [String(v), text]), String(c.monitor || 0), !c.supported); pick.id = "wl-cc-screen";
+    const save = async () => {
+      const r = await call("POST", "api/computer", { enabled: on.checked, monitor: parseInt(pick.value, 10) || 0 });
+      if (r.ok) { data.computer = r.data; say(T("wl.saved")); draw(); } else { say(why(r), true); load(); }
+    };
+    on.onchange = async () => { if (on.checked && !(await riskConfirm([T("wl.risk.computer")]))) { on.checked = false; return; } save(); };
+    pick.onchange = save;
+    const lbl = h("label", "", T("wl.cc.screen.label")); lbl.htmlFor = pick.id;
+    const row = h("label", "wl-rm", on, h("span", "", T("wl.cc.on"))); row.htmlFor = on.id;
+    return h("section", "sec wl-sec", h("div", "sh", h("b", "", T("wl.cc"))), h("div", "wl-body", h("p", "help", T("wl.cc.help")),
+      c.supported ? null : h("p", "wl-note", T("wl.cc.none", c.reason || "")), row, ...(c.enabled ? [riskLabel(T("wl.risk.computer"))] : []),
+      h("div", "wl-pick", lbl, pick, h("p", "help", T("wl.cc.screen.help"))), h("p", "help", T("wl.br.next"))));
+  }
+
   /* ---- how strict the Rule of Two is ---- */
   function twoSection() {
     const cur = data.rule_of_two;
@@ -545,7 +565,7 @@
     const n = h("p", "wl-note", note); n.hidden = !note; n.dataset.bad = noteBad ? "1" : "";
     const problems = (data.problems || []).map(p => h("p", "wl-note", p));
     problems.forEach(p => { p.dataset.bad = "1"; });
-    root.replaceChildren(...[banner(), h("div", "wl-top", h("p", "wl-lead", T("wl.lead")), n, ...problems), vaultSection(), paySection(), browserSection(), twoSection(), execSection(), allowSection(), histSection()].filter(Boolean));
+    root.replaceChildren(...[banner(), h("div", "wl-top", h("p", "wl-lead", T("wl.lead")), n, ...problems), vaultSection(), paySection(), browserSection(), computerSection(), twoSection(), execSection(), allowSection(), histSection()].filter(Boolean));
   }
   const inField = () => { const a = document.activeElement; return !!a && root.contains(a) && a.matches("input, select, textarea"); };
   /* quiet: a periodic or view refresh. It redraws only when the data changed, and never while a field of the page has the focus (the next one does),
@@ -554,6 +574,8 @@
     const r = await call("GET", "api/wallet");
     if (!r.ok) { if (!document.getElementById("view-wallet").hidden) root.replaceChildren(h("p", "wl-note", why(r))); shown = ""; return; }
     data = r.data;
+    const cc = await call("GET", "api/computer");
+    data.computer = cc.ok ? cc.data : null;
     const sig = LANG + JSON.stringify(data);
     if (editing || sysForm || wizard) { if (document.getElementById("view-wallet").hidden) { draw(); shown = sig; } else paintPill(); return; }
     if (quiet && (sig === shown || inField())) { paintPill(); return; }

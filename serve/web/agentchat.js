@@ -16,7 +16,7 @@
     const said = explainOf(b.description), name = String(b.name || "");
     if (said) return said;
     if (name === "ask_council" && b.status !== "running" && b.output) return String(b.output).split("\n")[0].slice(0, 160);      // the first line of what the council wrote: who spoke, how long, how it ended
-    const key = ACTIONS.has(name) ? name : name.startsWith("plan_") ? "plan" : name.startsWith("browser_") ? "browser" : "";
+    const key = ACTIONS.has(name) ? name : name.startsWith("plan_") ? "plan" : name.startsWith("browser_") ? "browser" : name.startsWith("computer_") ? "computer" : "";
     return key ? T("ch.act." + key) : T("ch.act.generic", name);
   }
   /* the harness notes the person chose to see in the chat (Settings > Checks before an answer ends); all off until turned on */
