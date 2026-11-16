@@ -30,3 +30,4 @@ docs/REBASE-PLAN.md
 # built or generated when the vendored tools are compiled
 third_party/*/target/
 third_party/agent-browser/packages/
+tools/vendored/
