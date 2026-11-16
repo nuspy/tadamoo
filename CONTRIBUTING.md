@@ -53,4 +53,4 @@ Basalt-Plus is a single-purpose engine: Qwen3.8-Flash-Next on Linux with NVIDIA 
 
 ## License
 
-Basalt is MIT licensed and is based on Strata (MIT, Copyright (c) 2026 Niko1221 and the Strata contributors). By contributing you agree your contribution is licensed under the same terms. See `LICENSE` and `THIRD_PARTY_LICENSES`.
+New and modified code in this repository is licensed under the Basalt Win+GUI Community and Commercial License (see `LICENSE`); it is not MIT. Code that comes from Strata, upstream Basalt, ggml, llama.cpp and other third parties keeps its own licence (mostly MIT), listed in `THIRD_PARTY_LICENSES`. By contributing you agree your contribution is licensed under the Basalt Win+GUI Community and Commercial License, or, when it modifies third-party code, under that code's licence.
