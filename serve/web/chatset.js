@@ -40,7 +40,7 @@ const chatSettings = (() => {
     presence_penalty: 0, frequency_penalty: 0, penalty_last_n: 64, end_turn_bias: 0 };
   let modelDefaults = {}, serverPresets = null;
   // what the panel is bound to: {kind: "new"} or {kind: "session" | "plan" | "machine", label, save(settings)}; edited: changed by hand since it was bound
-  let scope = { kind: "new" }, edited = false, saveTimer = 0, hosted = null;
+  let scope = { kind: "new" }, edited = false, saveTimer = 0, hosted = null, quiet = 0;      // quiet: the panel is being written, not changed by hand
 
   const grid = $("#cs-sampling");
   for (const f of SAMPLING) {
@@ -61,11 +61,31 @@ const chatSettings = (() => {
       policy: (document.querySelector('input[name="cs-policy"]:checked') || {}).value || "compact",
       threshold: $("#cs-threshold").value, effort: effortBox.value,
       format: $("#cs-format").value, schema: $("#cs-schema").value, schema_name: $("#cs-schema_name").value,
-      context_patterns: window.ctxPatterns ? window.ctxPatterns.read() : {} };
+      context_patterns: window.ctxPatterns ? window.ctxPatterns.read() : {},
+      show_reasoning: $("#cs-show_reasoning").value, show_tooling: $("#cs-show_tooling").value, ...extrasRead() };
     for (const f of fieldsOf()) s[f.key] = $("#" + f.id).value.trim();
     return s;
   }
-  function write(s) {
+  /* the other controls of the panel a preset keeps: the old answers as a short record (chat.js), Billion Context (billioncontext.js), pictures and charts (agentchat.js); a key a preset lacks leaves the control as it is */
+  const box = id => ({ read: () => $("#" + id).checked, write: v => { $("#" + id).checked = !!v; } });
+  const field = id => ({ read: () => $("#" + id).value, write: v => { $("#" + id).value = v ?? ""; } });
+  const level = (on, id) => ({ read: () => $("#" + on).checked ? $("#" + id).value : "", write: v => { $("#" + on).checked = !!v; if (v) $("#" + id).value = v; $("#" + id).disabled = !v; } });
+  const EXTRAS = { abstract_on: box("cs-abs-on"), abstract_keep: field("cs-abs-keep"), code_keep: field("cs-code-keep"),
+    billion_on: box("cs-bc-on"), billion_compress: box("cs-bc-compress"), billion_port: field("cs-bc-port"),
+    images: level("cs-img-on", "cs-img-level"), charts: level("cs-chart-on", "cs-chart-level") };
+  const extrasRead = () => Object.fromEntries(Object.entries(EXTRAS).map(([k, f]) => [k, f.read()]));
+  /* written: the three of the old answers take effect by themselves (chat.js keeps them when one changes); pictures and charts reach the open conversation, and Billion Context its process, only when a preset is loaded by hand (`apply`), never when the panel is bound to another conversation */
+  function writeExtras(s, apply) {
+    quiet++;
+    try {
+      for (const [k, f] of Object.entries(EXTRAS)) if (s[k] !== undefined) f.write(s[k]);
+      const fire = id => $("#" + id).dispatchEvent(new Event("change", { bubbles: true }));
+      ["cs-abs-on", "cs-abs-keep", "cs-code-keep"].forEach(fire);
+      if (apply && (s.images !== undefined || s.charts !== undefined)) fire("cs-img-on");
+      if (apply && s.billion_on !== undefined) fire("cs-bc-on");
+    } finally { quiet--; }
+  }
+  function write(s, apply) {
     s = s || {};
     $("#cs-system").value = s.system || "";
     $("#cs-stop").value = Array.isArray(s.stop) ? s.stop.join("\n") : (s.stop || "");
@@ -79,7 +99,11 @@ const chatSettings = (() => {
     effortBox.value = s.effort || "";
     if (scope.kind === "new" || scope.kind === "session") $("#effort").value = s.effort || "";      // the header of the conversation shows its own level
     for (const f of fieldsOf()) $("#" + f.id).value = s[f.key] ?? "";
+    $("#cs-show_reasoning").value = s.show_reasoning || "full";
+    $("#cs-show_tooling").value = s.show_tooling || "full";
+    writeExtras(s, apply);
     show();
+    document.dispatchEvent(new CustomEvent("tadamoo:display"));
   }
   function say(text, kind) { const e = $("#cs-status"); e.textContent = text; e.dataset.kind = kind || ""; }
 
@@ -214,7 +238,7 @@ const chatSettings = (() => {
     const name = $("#cs-preset").value, p = presets()[name];
     $("#cs-preset-del").disabled = $("#cs-preset-rename").disabled = !name;
     if (!p) return;
-    write(p.settings); say(T("cs.preset.loaded", name), "ok");
+    write(p.settings, true); say(T("cs.preset.loaded", name), "ok");
     $("#cs-preset-name").value = name;
     changed();
   };
@@ -251,7 +275,7 @@ const chatSettings = (() => {
     await fetchPresets();
     const s = machineSettings();
     if (!s) { say(T("cs.machine.none"), "err"); return; }
-    write(s); drawPresets(MACHINE);
+    write(s, true); drawPresets(MACHINE);
     say(T("cs.machine.done"), "ok");
     changed();
   };
@@ -269,14 +293,15 @@ const chatSettings = (() => {
   $("#cs-close").onclick = closePanel;
   $("#chatset").addEventListener("keydown", e => { if (e.key === "Escape") closePanel(); });
   // a setting changed by hand (not the preset controls)
-  const byHand = e => e.target.closest && !e.target.closest("#cs-preset-box") && e.target.id !== "cs-show-reasoning";
+  const byHand = e => e.target.closest && !e.target.closest("#cs-preset-box");
   $("#cs-form").addEventListener("input", e => {
+    if (quiet) return;
     const f = fieldsOf().find(x => x.id === e.target.id);
     if (f) { const p = mark(f); say(p ? T("cs.bad", T(f.label), p) : "", p ? "err" : ""); }
     show();
     if (byHand(e)) changed();
   });
-  $("#cs-form").addEventListener("change", e => { show(); if (byHand(e)) changed(); });
+  $("#cs-form").addEventListener("change", e => { if (quiet) return; show(); if (byHand(e)) changed(); });
   // the header's thinking level and the panel's are one setting of the open conversation
   $("#effort").addEventListener("change", () => {
     if ((scope.kind === "new" || scope.kind === "session") && effortBox.value !== $("#effort").value) { effortBox.value = $("#effort").value; if (scope.kind === "new") changed(); }
@@ -352,14 +377,9 @@ const chatSettings = (() => {
   });
   document.addEventListener("tadamoo:view", e => { if (e.detail === "chat" || e.detail === "agent") defaults(); });
 
-  // whether the chat shows the model's reasoning: a display choice of this client, not part of a preset
-  const SHOW = "tadamoo.showreasoning";
-  const showReasoning = () => load(SHOW, true) !== false;
-  $("#cs-show-reasoning").checked = showReasoning();
-  $("#cs-show-reasoning").addEventListener("change", e => {
-    keep(SHOW, e.target.checked);
-    document.dispatchEvent(new CustomEvent("tadamoo:showreasoning"));
-  });
+  // how the chat shows the reasoning and the actions (full, compact or absent): settings a preset keeps like the others
+  const shows = kind => { const v = $("#cs-show_" + kind).value; return v === "compact" || v === "absent" ? v : "full"; };
+  $("#cs-form").addEventListener("change", e => { if (/^cs-show_/.test(e.target.id)) document.dispatchEvent(new CustomEvent("tadamoo:display")); });
 
   startNew(false);
   drawPresets("");
@@ -367,5 +387,5 @@ const chatSettings = (() => {
   fetchPresets().then(() => { if (scope.kind === "new" && !edited) startNew(false); });
   if (load("tadamoo.chatset.open", false) && innerWidth > 980) openPanel(true);
   const patterns = () => read().context_patterns || {};
-  return { body, system, policy, threshold, structured, showReasoning, autoContinue, patterns, read, useSession, fresh, edit, endEdit, editing, machineSettings };
+  return { body, system, policy, threshold, structured, shows, autoContinue, patterns, read, useSession, fresh, edit, endEdit, editing, machineSettings };
 })();

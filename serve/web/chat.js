@@ -201,7 +201,8 @@
   }
   function paintThink(el, m, streaming) {
     const det = el.querySelector(".think");
-    if (!m.reasoning || !chatSettings.showReasoning()) { det.hidden = true; return; }
+    const mode = chatSettings.shows("reasoning");
+    if (!m.reasoning || mode === "absent") { det.hidden = true; return; }
     det.hidden = false;
     const now = streaming && !m.text;
     el.querySelector(".think-t").textContent = now ? "Thinking…" : m.thinkSecs != null ? `Thought for ${m.thinkSecs.toFixed(1)} s` : "Thinking";
@@ -214,10 +215,10 @@
       body.firstChild.appendData(m.reasoning.slice(shown));
       if (atEnd) body.scrollTop = body.scrollHeight;
     }
-    if (now && !det.dataset.auto) { det.dataset.auto = "1"; det.open = true; }
+    if (now && !det.dataset.auto) { det.dataset.auto = "1"; det.open = mode === "full"; }
     else if (!now && det.dataset.auto === "1") { det.dataset.auto = "done"; if (!det.dataset.touched) det.open = false; }
   }
-  document.addEventListener("tadamoo:showreasoning", () => {
+  document.addEventListener("tadamoo:display", () => {
     msgs.querySelectorAll(".cmsg.assistant").forEach(e => { const m = messages[+e.dataset.i]; if (m) paintThink(e, m, !!busy && busy.el === e); });
   });
   function paint(el, m, streaming) {

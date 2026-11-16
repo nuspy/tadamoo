@@ -59,6 +59,7 @@
 <link rel="stylesheet" href="web/target.css">
 <link rel="stylesheet" href="web/coding.css">
 <link rel="stylesheet" href="web/longform.css">
+<link rel="stylesheet" href="web/chatdisplay.css">
 <link rel="stylesheet" href="web/heavyjobs.css">
 <link rel="stylesheet" href="web/promptswitch.css">
 <link rel="stylesheet" href="web/sideuses.css">
@@ -81,6 +82,7 @@
 <script defer src="web/projects.js"></script>
 <script defer src="web/askcard.js"></script>
 <script defer src="web/singleflight.js"></script>
+<script defer src="web/chatdisplay.js"></script>
 <script defer src="web/agentchat.js"></script>
 <script defer src="web/privacy.js"></script>
 <script defer src="web/persistence.js"></script>
@@ -702,8 +704,18 @@
           <div id="cs-patterns" class="pt"></div>
         </fieldset>
         <fieldset class="csgroup">
+          <legend data-t="cs.display">Shown in the chat</legend>
+          <div class="csnum"><label for="cs-show_reasoning" data-t="cs.show_reasoning">Reasoning</label>
+            <select id="cs-show_reasoning" aria-describedby="cs-show_reasoning-h">
+              <option value="full" data-t="cs.show.full">Full</option><option value="compact" data-t="cs.show.compact">Compact</option><option value="absent" data-t="cs.show.absent">Hidden</option></select>
+            <p class="help" id="cs-show_reasoning-h" data-t="cs.show_reasoning.help"></p></div>
+          <div class="csnum"><label for="cs-show_tooling" data-t="cs.show_tooling">Actions</label>
+            <select id="cs-show_tooling" aria-describedby="cs-show_tooling-h">
+              <option value="full" data-t="cs.show.full">Full</option><option value="compact" data-t="cs.show.compact">Compact</option><option value="absent" data-t="cs.show.absent">Hidden</option></select>
+            <p class="help" id="cs-show_tooling-h" data-t="cs.show_tooling.help"></p></div>
+        </fieldset>
+        <fieldset class="csgroup">
           <legend data-t="cs.reasoning">Reasoning</legend>
-          <label class="radio csconv"><input type="checkbox" id="cs-show-reasoning" checked><span><b data-t="cs.showreasoning">Show reasoning</b><small data-t="cs.showreasoning.help"></small></span></label>
           <div class="csgrid">
             <div class="csnum"><label for="cs-budget" data-t="cs.budget">Reasoning budget (tokens)</label>
               <input id="cs-budget" type="number" inputmode="numeric" min="-1" step="256" aria-describedby="cs-budget-h">

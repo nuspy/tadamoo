@@ -34,7 +34,9 @@ LOAD_FIELDS = [f"{s}.{k}" for s, k in settings.LOADER_FIELDS]
 # the chat settings a preset keeps (serve/web/chatset.js)
 INFERENCE_KEYS = ("system", "stop", "policy", "threshold", "effort", "temperature", "top_p", "top_k", "min_p",
                   "repetition_penalty", "presence_penalty", "frequency_penalty", "penalty_last_n", "seed",
-                  "reasoning_budget_tokens", "max_tokens", "format", "schema", "schema_name", "retries", "context_patterns", "end_turn_bias", "max_turns", "max_answer_tokens", "auto_continue")
+                  "reasoning_budget_tokens", "max_tokens", "format", "schema", "schema_name", "retries", "context_patterns", "end_turn_bias", "max_turns", "max_answer_tokens", "auto_continue", "show_reasoning", "show_tooling",
+                  "abstract_on", "abstract_keep", "code_keep", "billion_on", "billion_compress", "billion_port", "images", "charts")
+VISUAL_LEVELS = ("very_low", "low", "normal", "high", "very_high", "highest")
 
 
 def path() -> Path:
@@ -182,6 +184,22 @@ def check_inference(values) -> dict:
             times = int(times)
         if isinstance(times, bool) or not isinstance(times, int) or not 0 <= times <= 20:
             raise ValueError("auto_continue: a whole number from 0 (off) to 20")
+    for key in ("abstract_on", "billion_on", "billion_compress"):
+        if key in out and not isinstance(out[key], bool):
+            raise ValueError(f"{key}: true or false")
+    for key, low, high in (("abstract_keep", 1, 20), ("code_keep", 3, 5), ("billion_port", 1024, 65535)):
+        if out.get(key) not in (None, ""):
+            n = out[key]
+            if isinstance(n, str) and re.fullmatch(r"\d{1,6}", n.strip()):
+                n = int(n)
+            if isinstance(n, bool) or not isinstance(n, int) or not low <= n <= high:
+                raise ValueError(f"{key}: a whole number from {low} to {high}")
+    for key in ("images", "charts"):
+        if out.get(key) not in (None, "") and out[key] not in VISUAL_LEVELS:
+            raise ValueError(f"{key}: one of {', '.join(VISUAL_LEVELS)}, or empty")
+    for key in ("show_reasoning", "show_tooling"):
+        if out.get(key) not in (None, "") and out[key] not in ("full", "compact", "absent"):
+            raise ValueError(f"{key}: full, compact or absent")
     if len(json.dumps(out)) > 256 << 10:
         raise ValueError("settings: larger than 256 KiB")
     return out
