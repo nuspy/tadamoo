@@ -365,6 +365,12 @@ def check_url(url: str, allow_private: bool = False) -> str:
     return parsed.geturl()
 
 
+BACKENDS = ("agent-browser", "tadamoo")           # what drives the browser tools: agent-browser (tadamoo/browser_ab.py) or TaDaMoo's own driver (this file)
+DEFAULT_BACKEND = "agent-browser"
+VAULT_BACKENDS = ("tadamoo", "browser")           # who does the steps that use the vault when agent-browser drives the rest: the own driver, or the same one (tadamoo/browser_route.py)
+DEFAULT_VAULT_BACKEND = "tadamoo"
+
+
 class BrowserPrefs:
     """What the person chose about the agent's browser: whether it has one, whether it shows a window, whether it may open pages on this PC and
     its network, whether it keeps its sign-ins between conversations, and what it does about cookie banners (`consent`) and permission requests
@@ -380,16 +386,19 @@ class BrowserPrefs:
             data = {}
         return {"enabled": data.get("enabled") is not False, "headless": data.get("headless") is True, "private": data.get("private") is True,
                 "persistent": data.get("persistent") is True, "consent": bc.clean_consent(data.get("consent")),
-                "permissions": bc.clean_permissions(data.get("permissions"))}
+                "permissions": bc.clean_permissions(data.get("permissions")), "backend": data.get("backend") if data.get("backend") in BACKENDS else DEFAULT_BACKEND,
+                "vault_backend": data.get("vault_backend") if data.get("vault_backend") in VAULT_BACKENDS else DEFAULT_VAULT_BACKEND}
 
     def write(self, enabled: bool, headless: bool, private: bool = False, persistent: bool = False, consent: Optional[str] = None,
-              permissions: Optional[str] = None) -> Dict[str, Any]:
+              permissions: Optional[str] = None, backend: Optional[str] = None, vault_backend: Optional[str] = None) -> Dict[str, Any]:
         """A policy left out keeps what was chosen before."""
         now = self.read()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps({"enabled": bool(enabled), "headless": bool(headless), "private": bool(private), "persistent": bool(persistent),
                                          "consent": bc.clean_consent(consent if consent is not None else now["consent"]),
-                                         "permissions": bc.clean_permissions(permissions if permissions is not None else now["permissions"])}), encoding="utf-8")
+                                         "permissions": bc.clean_permissions(permissions if permissions is not None else now["permissions"]),
+                                         "backend": backend if backend in BACKENDS else now["backend"],
+                                         "vault_backend": vault_backend if vault_backend in VAULT_BACKENDS else now["vault_backend"]}), encoding="utf-8")
         return self.read()
 
 

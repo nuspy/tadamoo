@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional
 
-from tadamoo.browser import BrowserError, BrowserPrefs, find_browser, forget_signins, open_signin_window
+from tadamoo import vendored
+from tadamoo.browser import BACKENDS, VAULT_BACKENDS, BrowserError, BrowserPrefs, find_browser, forget_signins, open_signin_window
 from tadamoo.browser_consent import CONSENT_POLICIES, PERMISSION_POLICIES
 from tadamoo.rule_of_two import LEVELS as RULE_OF_TWO_LEVELS, RuleOfTwoPrefs
 from tadamoo.payments_broker import PaymentsBroker
@@ -46,7 +47,7 @@ class WalletApi:
     def overview(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {"kinds": KINDS, "second_factors": list(SECOND_FACTORS), "card_kinds": list(CARD_KINDS),
                                "credential_kinds": sorted(CREDENTIAL_KINDS), "texts": DIALOG_TEXTS, "entries": [], "systems": [], "ledger": [],
-                               "problems": [], "browser": {"found": bool(find_browser()), **self._browser.read()}}
+                               "problems": [], "browser": self._browser_view()}
         if self._two is not None:
             out["rule_of_two"] = {"level": self._two.read(), "levels": list(RULE_OF_TWO_LEVELS)}
         if self._exec is not None:
@@ -71,11 +72,16 @@ class WalletApi:
         if (not isinstance(req.get("enabled"), bool) or not isinstance(req.get("headless"), bool) or not isinstance(req.get("private", False), bool)
                 or not isinstance(req.get("persistent", False), bool)):
             raise WalletError("send enabled and headless as true or false")
-        for key, allowed in (("consent", CONSENT_POLICIES), ("permissions", PERMISSION_POLICIES)):
+        for key, allowed in (("consent", CONSENT_POLICIES), ("permissions", PERMISSION_POLICIES), ("backend", BACKENDS), ("vault_backend", VAULT_BACKENDS)):
             if req.get(key) is not None and req[key] not in allowed:
                 raise WalletError(f"{key} is one of: {', '.join(allowed)}")
-        return {"browser": {"found": bool(find_browser()), **self._browser.write(req["enabled"], req["headless"], req.get("private", False), req.get("persistent", False),
-                                                                                 req.get("consent"), req.get("permissions"))}}
+        self._browser.write(req["enabled"], req["headless"], req.get("private", False), req.get("persistent", False), req.get("consent"), req.get("permissions"), req.get("backend"), req.get("vault_backend"))
+        return {"browser": self._browser_view()}
+
+    def _browser_view(self) -> Dict[str, Any]:
+        """The browser setting, whether Edge or Chrome is found, and whether agent-browser (the default driver) is: where, so the page can say which one the tools will use."""
+        path, where = vendored.find("agent-browser", self._browser.path.parent / "tools" / "agent-browser")
+        return {"found": bool(find_browser()), **self._browser.read(), "agent_browser": {"found": bool(path), "where": where}}
 
     def _exec_view(self) -> Dict[str, Any]:
         from tadamoo import exec_level

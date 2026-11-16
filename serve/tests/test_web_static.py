@@ -19,6 +19,8 @@ ESCAPED_MARKUP = ("converter.js", "charts.js")
 # keys the scripts build at run time, as prefix + each value
 DYNAMIC = {
     "wl.cc.backend.": ["auto", "agent-desktop", "native", "auto.help", "agent-desktop.help", "native.help"],
+    "wl.br.vault.": ["tadamoo", "browser"],
+    "wl.br.backend.": ["agent-browser", "tadamoo", "agent-browser.help", "tadamoo.help", "where.bundled", "where.installed", "where.path"],
     "pl.type.": ["action", "sensor", "decision", "merge"],
     "rd.": ["kind.sqlite", "kind.postgres", "kind.mysql", "kind.other", "mode.native", "mode.app", "step.connect", "step.extension", "step.configure"],
     "im.": ["kind.skill", "kind.plugin", "kind.mcp", "kind.plan", "kind1.skill", "kind1.plugin", "kind1.mcp", "kind1.plan", "imp.btn.skill", "imp.btn.plugin", "imp.btn.mcp", "imp.btn.plan",

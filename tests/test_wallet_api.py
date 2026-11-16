@@ -161,7 +161,16 @@ def test_the_browser_choice_is_kept_and_read_by_the_conversations(setup):
     assert code == 200 and body["browser"]["enabled"] is False and body["browser"]["headless"] is True and body["browser"]["private"] is False
     assert call(base, "POST", "/api/wallet/browser", {"enabled": True, "headless": False, "private": True})[1]["browser"]["private"] is True
     assert BrowserPrefs(tmp / "browser.json").read() == {"enabled": True, "headless": False, "private": True, "persistent": False,
-                                                                 "consent": "follow", "permissions": "follow"}
+                                                                 "consent": "follow", "permissions": "follow", "backend": "agent-browser", "vault_backend": "tadamoo"}
+    assert body["browser"]["backend"] == "agent-browser" and "agent_browser" in body["browser"] and set(body["browser"]["agent_browser"]) == {"found", "where"}   # the default driver, and whether it is there
+    code, body = call(base, "POST", "/api/wallet/browser", {"enabled": True, "headless": False, "backend": "tadamoo"})
+    assert code == 200 and body["browser"]["backend"] == "tadamoo"
+    assert call(base, "POST", "/api/wallet/browser", {"enabled": True, "headless": False, "backend": "banana"})[0] == 400
+    assert call(base, "POST", "/api/wallet/browser", {"enabled": True, "headless": False})[1]["browser"]["backend"] == "tadamoo"        # left out: it stays
+    assert body["browser"]["vault_backend"] == "tadamoo"                                           # the vault's steps: the own driver, until the person says otherwise
+    code, body = call(base, "POST", "/api/wallet/browser", {"enabled": True, "headless": False, "vault_backend": "browser"})
+    assert code == 200 and body["browser"]["vault_backend"] == "browser" and body["browser"]["backend"] == "tadamoo"
+    assert call(base, "POST", "/api/wallet/browser", {"enabled": True, "headless": False, "vault_backend": "banana"})[0] == 400
 
 
 def test_the_owner_can_read_a_value_back_and_an_unknown_one_is_a_clear_error(setup):

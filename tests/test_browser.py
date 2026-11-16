@@ -1,5 +1,6 @@
 """The browser the agent drives: it reads a page, fills a form and sends it; a vault value reaches only a site its entry names."""
 import http.server
+import os
 import sys
 import threading
 import urllib.parse
@@ -68,13 +69,28 @@ def shop():
     server.shutdown()
 
 
-@pytest.fixture
-def agent(tmp_path):
+def agent_browser_exe():
+    """The agent-browser program the second run of these tests drives: TADAMOO_TEST_AGENT_BROWSER, else the shipped one, else PATH."""
+    from tadamoo import vendored
+    return os.environ.get("TADAMOO_TEST_AGENT_BROWSER") or vendored.find("agent-browser")[0]
+
+
+@pytest.fixture(params=["tadamoo", "agent-browser"])
+def agent(request, tmp_path):
+    """The same tests on both drivers of the browser tools: TaDaMoo's own, and agent-browser (skipped where that program or Edge/Chrome is not there)."""
     vault = Vault(tmp_path / "vault")
     secrets = SecretsBroker()
     secrets.attach_vault(vault, ask_code=lambda who: "554433")
     registry = ToolRegistry()
-    browser = register_browser_tools(registry, secrets, profile_dir=tmp_path / "profile", headless=True, allow_private=True)
+    if request.param == "agent-browser":
+        exe = agent_browser_exe()
+        if not exe or find_browser() is None:
+            pytest.skip("needs the agent-browser program (TADAMOO_TEST_AGENT_BROWSER) and Edge or Chrome")
+        from tadamoo.browser_ab import AbCli, AgentBrowser, session_name
+        cli = AbCli([exe], session_name(), tmp_path / "ab" / "config.json", tmp_path / "ab" / "home", executable=find_browser(), headed=False, downloads=str(tmp_path / "downloads"))
+        browser = register_browser_tools(registry, secrets, browser=AgentBrowser(cli, headless=True, allow_private=True, mask=secrets.mask_secrets))
+    else:
+        browser = register_browser_tools(registry, secrets, profile_dir=tmp_path / "profile", headless=True, allow_private=True)
     yield registry, vault, browser
     browser.close()
 
@@ -170,7 +186,11 @@ def test_a_stale_element_number_is_refused_with_advice(agent, shop):
     registry.execute("browser_open", {"url": shop})
     out = registry.execute("browser_click", {"ref": 99})
     assert "read the page again" in out["error"]
-    assert "URL: about:blank" in registry.execute("browser_back", {})           # the page before was the empty one
+    back = registry.execute("browser_back", {})
+    if type(browser).__name__ == "AgentBrowser":
+        assert f"URL: {shop}/" in back                                          # agent-browser stays on the first page: there is no page before it to go back to
+    else:
+        assert "URL: about:blank" in back                                       # the page before was the empty one
 
 
 @needs_browser
