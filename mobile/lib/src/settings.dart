@@ -83,13 +83,18 @@ class AppSettings extends ChangeNotifier {
 
   bool get configured => address.trim().isNotEmpty && key.trim().isNotEmpty;
 
-  /// The server's base address with a scheme; null when none was written.
-  Uri? get base {
-    var text = address.trim();
+  /// The server's base address: `http://name[:port]` or `https://name[:port]`, or just `name[:port]` (taken as http; a name or an IP address with no port is the scheme's own port, 80 or 443).
+  /// Null when none was written or it is not an address.
+  Uri? get base => parseServerAddress(address);
+
+  /// The address as a base `Uri`, or null: no host, a scheme that is not http or https, or anything after the name and the port (a path, a query, a user).
+  static Uri? parseServerAddress(String value) {
+    var text = value.trim();
     if (text.isEmpty) return null;
     if (!text.contains('://')) text = 'http://$text';
     final uri = Uri.tryParse(text);
-    if (uri == null || uri.host.isEmpty) return null;
+    if (uri == null || uri.host.isEmpty || (uri.scheme != 'http' && uri.scheme != 'https')) return null;
+    if ((uri.path.isNotEmpty && uri.path != '/') || uri.hasQuery || uri.hasFragment || uri.userInfo.isNotEmpty) return null;
     return Uri(scheme: uri.scheme, host: uri.host, port: uri.hasPort ? uri.port : null);
   }
 

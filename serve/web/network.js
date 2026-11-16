@@ -103,6 +103,7 @@
     if (!editable) listenOpts.querySelectorAll("button").forEach(b => { b.disabled = true; });
     const note = (key) => cli.has(key) ? h("p", "nw-help", T("nw.cli")) : null;
     const wiz = wizard(editable);
+    const keybox = keyBox();
     root.replaceChildren(
       h("p", "help", T("nw.help")),
       d.reason ? h("p", "nw-reason", T("nw.reason." + d.reason)) : null,
@@ -114,8 +115,33 @@
         row(h("div", "nw-col", labelFor(allowed, T("nw.f.allowed_hosts")), allowed), T("nw.allowed.help")), note("public-name"), note("allowed-hosts")),
       pending,
       h("div", "nw-actions", save, wiz.open, h("span", "nw-testbox", labelFor(scheme, T("nw.scheme")), scheme), test),
-      status, out, wiz.box,
+      status, out, wiz.box, keybox,
       h("p", "nw-help", T("nw.own", d.own_name, (d.addresses || []).join(", ") || "-")));
+  }
+
+  /* ---- the server's key: changed here, applied at once, and this page goes on with the new one ---- */
+  function keyBox() {
+    const cur = input("nw-key-cur", "password", typeof apiKey === "string" ? apiKey : "", { autocomplete: "current-password" });
+    const next = input("nw-key-new", "password", "", { autocomplete: "new-password" });
+    const again = input("nw-key-again", "password", "", { autocomplete: "new-password" });
+    const msg = h("p", "nw-status"); msg.setAttribute("role", "status"); msg.setAttribute("aria-live", "polite");
+    const go = btn(T("nw.key.change"), "primary nw-btn", async () => {
+      msg.classList.remove("bad");
+      if (!next.value) { msg.textContent = T("nw.key.empty"); msg.classList.add("bad"); next.focus(); return; }
+      if (next.value !== again.value) { msg.textContent = T("nw.key.mismatch"); msg.classList.add("bad"); again.focus(); return; }
+      go.disabled = true;
+      const r = await call("POST", "api/server-key", { current: cur.value, new: next.value });
+      go.disabled = false;
+      if (!r.ok) { msg.textContent = T("nw.key.err", why(r)); msg.classList.add("bad"); return; }
+      if (window.setServerKey) window.setServerKey(next.value);
+      cur.value = next.value; next.value = ""; again.value = "";
+      msg.textContent = T("nw.key.done");
+    });
+    const asked = h("p", "nw-help", "");
+    call("GET", "api/server-key").then(r => { if (r.ok) asked.textContent = r.data.set ? T("nw.key.set") : T("nw.key.none"); });
+    return h("fieldset", "nw-set", h("legend", "", T("nw.key")), h("p", "nw-help", T("nw.key.help")), asked,
+      row(h("div", "nw-col", labelFor(cur, T("nw.key.cur")), cur)), row(h("div", "nw-col", labelFor(next, T("nw.key.new")), next)), row(h("div", "nw-col", labelFor(again, T("nw.key.again")), again)),
+      h("div", "nw-actions", go), msg);
   }
 
   /* ---- the guided set-up: how the server is reached, then the fields it needs; Save and Test are the same buttons ---- */

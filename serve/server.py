@@ -36,6 +36,7 @@ from serve.engine.vision import (EngineVision, Vision, check_gpu, child_env, eng
 from serve.frontend import ChatTemplate  # noqa: E402
 from serve.handler import Server, serve, stop_sessions  # noqa: E402
 from serve.origin_guard import ANY_ORIGIN  # noqa: E402
+from serve import server_key, userdata  # noqa: E402
 from serve.security import LOOPBACK_NAMES, api_key_of, exposed_without_key, lan_addresses  # noqa: E402
 from serve.service import Service  # noqa: E402
 from serve.util.logbuf import ColorStream, LogBuffer, TeeStream, tail_file  # noqa: E402
@@ -266,6 +267,10 @@ def main() -> int:
     except ValueError as e:
         print(f"[server] error: {e}: give a key, or leave --api-key out", file=sys.stderr)
         return 2
+    kept = server_key.KeyStore(userdata.path("server_key.json")).stored()
+    if kept:                                            # a key changed from a client wins over --api-key
+        svc.api_key = kept
+        print("[server] the API key in force is the one kept in the data folder (changed from a client)", flush=True)
     svc.idle_unload_s = a.idle_unload or 0
     svc.min_free_vram_mib = a.min_free_vram_mib or 0
     svc.apply_limits(a)

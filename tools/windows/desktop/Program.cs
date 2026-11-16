@@ -44,15 +44,16 @@ static class Program
             MessageBox.Show("Elevated: " + AdminChoice.IsElevated(), AppName);
             return 0;
         }
-        if (!opt.TestMock && !opt.TestExit && AdminChoice.Relaunch(args)) return 0;
-        using var mutex = new Mutex(true, opt.TestMock ? MutexName + ".test" : MutexName, out bool first);
+        if (!opt.TestMock && !opt.TestExit && !opt.GuiOnly && AdminChoice.Relaunch(args)) return 0;
+        string suffix = opt.TestMock ? ".test" : opt.GuiOnly ? ".gui" : "";       // the window alone does not take the full app's place on a PC that has both
+        using var mutex = new Mutex(true, MutexName + suffix, out bool first);
         if (!first)
         {
-            try { EventWaitHandle.OpenExisting(ShowEventName + (opt.TestMock ? ".test" : "")).Set(); } catch (WaitHandleCannotBeOpenedException) { }
+            try { EventWaitHandle.OpenExisting(ShowEventName + suffix).Set(); } catch (WaitHandleCannotBeOpenedException) { }
             return 0;
         }
         InitUi();
-        using var show = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName + (opt.TestMock ? ".test" : ""));
+        using var show = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName + suffix);
         var form = new MainForm(opt, show);
         Application.Run(form);
         return form.ExitCode;
@@ -68,7 +69,9 @@ static class Program
 /// in the test state file as the app does).</summary>
 sealed class Options
 {
-    public string Profile, Repo, Error, Screenshot, Model, TestModelsDir, ConfigFile, Lang;
+    public string Profile, Repo, Error, Screenshot, Model, TestModelsDir, ConfigFile, Lang, ServerName;
+    /// <summary>The GUI alone (--gui-only, or a file gui-only.flag next to the program): no local server, no engine, no repository; it asks at the start which server to show.</summary>
+    public bool GuiOnly;
     public int Port;
     public double VramLibera = -1;
     public bool Load, Attach, TestAdmin, TestMock, TestExit, TestFolderPrompt, TestNoWebView, TestNoWizard, TestFallback, TestWindow;
@@ -99,6 +102,8 @@ sealed class Options
                     if (o.Lang != "it" && o.Lang != "en") o.Error = "--lang: it | en";
                     break;
                 case "--repo": o.Repo = Next(); break;
+                case "--gui-only": o.GuiOnly = true; break;
+                case "--server": o.ServerName = Next(); break;
                 case "--load": o.Load = true; break;
                 case "--attach": o.Attach = true; break;
                 case "--model": o.Model = Next(); break;
@@ -112,11 +117,12 @@ sealed class Options
                 case "--test-window": o.TestWindow = true; break;
                 case "--test-screenshot": o.Screenshot = Next(); break;
                 case "--test-exit": o.TestExit = true; break;
-                default: o.Error = $"? {args[i]}\nTaDaMoo.exe [--config \"<profile>\"] [--model \"<file .basalt>\"] [--port N] [--vram-libera GB] [--file <config>] [--load] [--lang it|en]"; break;
+                default: o.Error = $"? {args[i]}\nTaDaMoo.exe [--config \"<profile>\"] [--model \"<file .basalt>\"] [--port N] [--vram-libera GB] [--file <config>] [--load] [--lang it|en] [--gui-only] [--server <name>]"; break;
             }
         }
+        if (File.Exists(Path.Combine(AppContext.BaseDirectory, "gui-only.flag"))) o.GuiOnly = true;
         o.Repo ??= FindRepo(AppContext.BaseDirectory);
-        if (o.Repo == null && o.Error == null)
+        if (o.Repo == null && o.Error == null && !o.GuiOnly)
             o.Error = "TaDaMoo Win+GUI: bin\\basalt.exe + Avvia-TaDaMoo.ps1 ? " + AppContext.BaseDirectory + " (--repo <folder>)";
         return o;
     }

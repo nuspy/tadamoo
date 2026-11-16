@@ -49,7 +49,11 @@ sealed class MainForm : Form
     List<JsonElement> modelList = new();
     string defaultModel;
     string cfgPath;
-    int serverPort;                 // the port of the server this window shows
+    int serverPort;                 // the port of the server this window shows (this PC's)
+    readonly ServerStore servers;   // the remote servers the person added (servers.json)
+    ServerEntry remote;             // the remote server this window shows, or null for this PC's
+    string pageScriptId;            // the script that gives the remote page its key, to take off when another server is shown
+    string ServerBase => remote != null ? remote.Base : $"http://127.0.0.1:{serverPort}";
     bool ours;                      // started by this app: in its job object
     bool exiting, checkOk;
     bool waitingHealth;             // the server just started: the page opens when /health answers
@@ -76,27 +80,32 @@ sealed class MainForm : Form
         MinimumSize = new Size(420, 520);
         Size = new Size(1360, 900);
         StartPosition = FormStartPosition.CenterScreen;
-        cfgPath = opt.ConfigFile != null ? Path.GetFullPath(opt.ConfigFile) : Path.Combine(opt.Repo, "tadamoo_config.json");
-        EnsureConfig();
-        voice = new VoiceService(opt.Repo, WebPort);
+        cfgPath = opt.ConfigFile != null ? Path.GetFullPath(opt.ConfigFile) : Path.Combine(opt.Repo ?? "", "tadamoo_config.json");
+        if (!opt.GuiOnly) EnsureConfig();
+        voice = opt.GuiOnly ? null : new VoiceService(opt.Repo, WebPort);
         string data = Environment.GetEnvironmentVariable("TADAMOO_DATA");
         statePath = opt.TestMock ? Path.Combine(Path.GetTempPath(), "tadamoo-desktop-test", "desktop.json")
                   : Path.Combine(string.IsNullOrEmpty(data) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TaDaMoo") : data, "desktop.json");
+        servers = new ServerStore(Path.Combine(Path.GetDirectoryName(statePath), "servers.json"));
         LoadWindow();
         Resize += (_, _) => { if (WindowState != FormWindowState.Minimized) lastState = WindowState; };
         ResizeEnd += (_, _) => SaveWindow();
 
         var menu = new ContextMenuStrip();
         menu.Items.Add(Tr.T("Apri", "Open"), null, (_, _) => ShowWindow());
+        menu.Items.Add(Tr.T("Server…", "Servers…"), null, async (_, _) => await PickServer(false));
+        var localItems = new List<ToolStripItem>();                 // what belongs to the server this app starts: not for a remote server
         menu.Items.Add(Tr.T("Ricarica con altri parametri…", "Reload with other settings…"), null, (_, _) => { ShowWindow(); if (web.Visible) web.CoreWebView2?.Navigate($"http://127.0.0.1:{serverPort}/#loader"); });
         menu.Items.Add(Tr.T("Avvia solo server (per gli agenti)…", "Start the server alone (for agents)…"), null, async (_, _) => await HeadlessFromTray());
+        localItems.Add(menu.Items[menu.Items.Count - 1]); localItems.Add(menu.Items[menu.Items.Count - 2]);
         menu.Items.Add(new ToolStripSeparator());
         var autoItem = new ToolStripMenuItem(Tr.T("Carica il Machine Default all'avvio", "Load the Machine Default at start")) { CheckOnClick = true, Checked = ReadState("autoload") == "True" };
         autoItem.CheckedChanged += (_, _) => WriteState("autoload", autoItem.Checked);
         menu.Items.Add(autoItem);
-        var voiceItem = new ToolStripMenuItem(voice.StatusText) { Enabled = false };
+        localItems.Add(autoItem);
+        var voiceItem = new ToolStripMenuItem(voice?.StatusText ?? "") { Enabled = false, Visible = voice != null };
         menu.Items.Add(voiceItem);
-        menu.Opening += (_, _) => voiceItem.Text = voice.StatusText;
+        menu.Opening += (_, _) => { if (voice != null) voiceItem.Text = voice.StatusText; foreach (var i in localItems) i.Enabled = remote == null && !opt.GuiOnly; };
         menu.Items.Add(Tr.T("Spegni", "Turn off"), null, (_, _) => TurnOff(true));
         tray = new NotifyIcon { Icon = Icon, Text = Program.TitleWithRelease.Length > 63 ? Program.AppName : Program.TitleWithRelease, ContextMenuStrip = menu, Visible = true };
         tray.DoubleClick += (_, _) => ShowWindow();
@@ -430,7 +439,11 @@ sealed class MainForm : Form
     async Task Begin()
     {
         if (opt.TestMock) PrepareMock();
-        if (!opt.TestMock || Environment.GetEnvironmentVariable("TADAMOO_VOICE_IN_TEST") == "1")
+        // a remote server: the GUI alone asks which one; with the whole app the last one shown is taken up again (or the one --server names)
+        var wanted = opt.ServerName != null ? servers.Find(opt.ServerName) : (servers.Last.Length > 0 ? servers.Find(servers.Last) : null);
+        if (opt.GuiOnly && wanted == null) { await PickServer(true); return; }
+        if (wanted != null && !opt.TestMock) { await ConnectRemote(wanted); return; }
+        if (voice != null && (!opt.TestMock || Environment.GetEnvironmentVariable("TADAMOO_VOICE_IN_TEST") == "1"))
             await Task.Run(voice.Start);                   // before the server and any model; a missing Python is only a log line
         start.Visible = false;
         var running = opt.TestMock ? new List<(int, JsonElement)>() : await Task.Run(Native.RunningServers);
@@ -756,6 +769,7 @@ sealed class MainForm : Form
             if (pageView == "loader" && !opt.TestNoWizard && !HasMachineDefault()) q.Add("wizard=1");
             firstPage = false;
         }
+        if (remote != null) return remote.Base + "/#" + pageView;
         return $"http://127.0.0.1:{serverPort}/{(q.Count > 0 ? "?" + string.Join("&", q) : "")}#{pageView}";
     }
 
@@ -775,6 +789,7 @@ sealed class MainForm : Form
             string kind = m.GetProperty("type").GetString();
             if (kind == "exportPdf") { _ = ExportPdf(m.Clone()); return; }
             if (kind == "actionsNew") { OnActionsNew(m); return; }
+            if (kind == "serverKey") { OnServerKey(m); return; }
             if (kind != "pickFolder") return;
             string id = m.TryGetProperty("id", out var i) ? i.GetString() : "";
             string start = m.TryGetProperty("path", out var sp) && sp.ValueKind == JsonValueKind.String ? sp.GetString() : null;
@@ -785,6 +800,61 @@ sealed class MainForm : Form
             web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "folder", id, path }));
         }
         catch (Exception ex) { report.Add("web message: " + ex.Message); }
+    }
+
+    /// <summary>The page changed the server's key (or the person did in its Settings): {"type": "serverKey", "key": ...}. The entry of the remote server keeps the new one.</summary>
+    void OnServerKey(JsonElement m)
+    {
+        if (remote == null || !m.TryGetProperty("key", out var k) || k.ValueKind != JsonValueKind.String) return;
+        servers.SetKey(remote, k.GetString());
+        _ = SetPageKey(remote.Key);
+    }
+
+    /// <summary>The page of a remote server opens with the server's key already given (the page keeps it for the session) and knows it is a remote one (no Loader).</summary>
+    async Task SetPageKey(string key)
+    {
+        if (web.CoreWebView2 == null) return;
+        if (pageScriptId != null) { web.CoreWebView2.RemoveScriptToExecuteOnDocumentCreated(pageScriptId); pageScriptId = null; }
+        if (remote == null) return;
+        string script = "window.__tadamooRemote = true; try { " + (key.Length > 0 ? "sessionStorage.setItem('tadamoo.key', " + JsonSerializer.Serialize(key) + "); " : "") + "} catch (e) {}";
+        pageScriptId = await web.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
+    }
+
+    /// <summary>Shows a remote server in the window: no local server is started or stopped, the page of the server opens in the window with the entry's key.</summary>
+    async Task ConnectRemote(ServerEntry e)
+    {
+        if (e.Base.Length == 0) { MessageBox.Show(this, Tr.T("L'indirizzo di questo server non è valido.", "This server's address is not valid."), Program.AppName); return; }
+        remote = e;
+        servers.Last = e.Name;
+        servers.Save();
+        poll.Stop();
+        waitingHealth = false;
+        start.Visible = false; folders.Visible = false; startBar.Visible = false;
+        web.Visible = true;
+        pageView = "chat";
+        await InitWeb(false, null);
+        Text = Program.AppName + " — " + e.Name;
+    }
+
+    /// <summary>The list of servers (this PC, when this app has one, and the remote ones): choose what the window shows. At the start of the GUI alone a closed list ends the app.</summary>
+    async Task PickServer(bool atStart)
+    {
+        using var dlg = new ServerDialog(servers, !opt.GuiOnly, atStart ? Tr.T("Quale server vuoi usare?", "Which server do you want to use?") : Tr.T("Server", "Servers"));
+        if (dlg.ShowDialog(this) != DialogResult.OK || dlg.Chosen == null)
+        {
+            if (atStart) { exiting = true; Close(); }
+            return;
+        }
+        if (dlg.Chosen.Local)
+        {
+            if (remote == null) return;                     // already this PC's
+            remote = null; servers.Last = ""; servers.Save();
+            await SetPageKey("");
+            exiting = false;
+            await Begin();
+            return;
+        }
+        await ConnectRemote(dlg.Chosen);
     }
 
     bool openActionsOnClick;        // the balloon of the tray icon that is up now is the one that announces required actions
@@ -836,7 +906,7 @@ sealed class MainForm : Form
         {
             try { web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "exportPdf", id, state, error })); } catch (Exception) { }
         }
-        if (web.CoreWebView2 == null || !url.StartsWith($"http://127.0.0.1:{serverPort}/api/export/held/", StringComparison.Ordinal))
+        if (web.CoreWebView2 == null || !url.StartsWith(ServerBase + "/api/export/held/", StringComparison.Ordinal))
         {
             Tell("failed", "address");
             return;
@@ -892,7 +962,7 @@ sealed class MainForm : Form
     void OnDownload(object sender, CoreWebView2DownloadStartingEventArgs e)
     {
         var op = e.DownloadOperation;
-        string own = $"http://127.0.0.1:{serverPort}/";
+        string own = ServerBase + "/";
         string name = Path.GetFileName(e.ResultFilePath);
         void Tell(string state) { try { web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "download", state, name })); } catch (Exception) { } }
         if (!(op.Uri.StartsWith(own) || op.Uri.StartsWith("blob:" + own.TrimEnd('/'))))
@@ -960,6 +1030,7 @@ sealed class MainForm : Form
                 check.Text = Tr.T($"{Program.AppName} si apre nel browser: http://127.0.0.1:{serverPort}/ (WebView2 non è installato).", $"{Program.AppName} opens in the browser: http://127.0.0.1:{serverPort}/ (WebView2 is not installed).");
             }
         }
+        if (!useBrowser && remote != null) await SetPageKey(remote.Key);              // before the page opens: it opens with the key given
         if (useBrowser)
         {
             waitingHealth = loading;
@@ -1163,7 +1234,7 @@ sealed class MainForm : Form
             return;
         }
         tray.Visible = false;
-        voice.Stop();
+        voice?.Stop();
         base.OnFormClosing(e);
     }
 
@@ -1188,6 +1259,13 @@ sealed class MainForm : Form
     /// back, and exit.</summary>
     void TurnOff(bool ask)
     {
+        if (remote != null || opt.GuiOnly)                 // a remote server is not this app's to stop: the window closes and the server goes on
+        {
+            if (ask && MessageBox.Show(this, Tr.T($"Chiudere {Program.AppName}? Il server resta acceso.", $"Close {Program.AppName}? The server keeps running."), Program.AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            exiting = true;
+            Close();
+            return;
+        }
         if (ask && MessageBox.Show(this, Tr.T($"Spegnere {Program.AppName} (server e motore)?", $"Turn off {Program.AppName} (server and engine)?"), Program.AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
         exiting = true;                                    // the server's end is wanted: no restart, no fallback panel
         poll.Stop();

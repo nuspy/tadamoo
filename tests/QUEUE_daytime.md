@@ -341,3 +341,23 @@ Serve la conversazione vera con il modello vero e un server MCP con un'app. Per 
 3. Una voce che accetta testo (un compito di un piano, un codice): la notifica ha «Rispondi»; scrivere nella notifica e inviare risponde. Una voce con più di tre risposte: nessun bottone, il tocco apre la scheda.
 4. Una voce già risolta sul PC prima che tu prema il bottone: nessun errore, la notifica sparisce.
 5. Nessun servizio in primo piano: controlla in Impostazioni Android > Batteria che l'app non risulti sempre attiva.
+
+## App desktop con l'elenco dei server (17 novembre; il C# si compila e la logica senza finestre è provata, le finestre NON sono state aperte)
+
+1. Icona della barra > «Server…»: «Aggiungi…» un server con indirizzo `https://hrns.tadamoo.com` (senza porta) e la sua chiave; «Prova» dice che risponde e che la chiave è accettata (e dice che manca un motore). Con una chiave sbagliata dice che manca o non è giusta; con un nome non ammesso dice di aggiungerlo ai nomi ammessi.
+2. «Usa questo»: la finestra mostra la pagina del server remoto già con la chiave data (nessuna richiesta di chiave), la scheda Loader/Models non c'è, nel menu della barra le voci del server locale sono spente; «Spegni» chiude solo la finestra.
+3. Cambiare la chiave dalla finestra del server (Impostazioni > Rete della pagina) e da «Cambia la chiave sul server…»: dopo il cambio la voce dell'elenco ha la chiave nuova (riaprendo l'app non chiede la chiave).
+4. Chiudere e riaprire l'app: riprende il server remoto di prima; dall'elenco «Questo PC» torna al server locale.
+
+## App Android: indirizzo con nome e cambio chiave (17 novembre; prove Flutter fatte, il telefono NON è stato provato, APK da ricompilare)
+
+1. Impostazioni > Server: scrivere `https://hrns.tadamoo.com` (senza porta) e la chiave, «Prova il collegamento» dice «Collegato».
+2. Scrivere un indirizzo con un percorso (`http://x/abc`): «Salva» dice che l'indirizzo non è valido.
+3. «Cambia la chiave sul server»: dopo il cambio la prova di collegamento funziona con la chiave nuova; la pagina sul PC non chiede più la chiave a questo telefono se aveva quella vecchia.
+4. Un server in http su rete locale (`192.168.x.x:7232`) si collega ancora.
+
+## Installazione Windows «solo finestra» (17 novembre; lo zip si costruisce, l'installazione NON è stata eseguita)
+
+1. `.	ools\windows\gui_only\Make-GuiOnly.ps1`, decomprimere lo zip su un altro PC (o in una cartella), «Install-TaDaMooGUI.ps1» (chiede i diritti di amministratore): si crea il collegamento «TaDaMoo (window only)» e la voce in «App installate».
+2. Aprire dal menu Start: chiede quale server usare (elenco vuoto: «Nuovo server» si apre da solo); aggiungere `https://hrns.tadamoo.com` con la chiave, «Usa questo»: la pagina si apre senza Loader.
+3. Chiudendo la finestra l'app finisce (nessun server locale da fermare); riaprendo riprende l'ultimo server. «Remove-TaDaMooGUI.ps1» toglie cartella, collegamento e voce.

@@ -97,6 +97,23 @@ async function main() {
       const small = JSON.parse(await ev(`return JSON.stringify(qa(".nw-wiz button, .nw-wiz-opt").filter(e => e.getBoundingClientRect().height < 43.5).map(e => e.textContent.trim()))`));
       if (mobile && small.length) throw new Error("guide controls under 44 px: " + small.join(", "));
     });
+    await check(`${tag}: the server's key is changed from the page, applied at once, and the page goes on with the new one`, async () => {
+      await ev(`const b = q("#sub-network"); if (b) b.click(); return 1;`);
+      await waitFor(`!!q("#nw-key-new")`, "the key fields");
+      const change = () => ev(`qa("#nw-root button").find(b => b.textContent.trim() === ${JSON.stringify(LANG === "it" ? "Cambia la chiave" : "Change key")}).click(); return 1;`);
+      await set("#nw-key-new", "test-page-key-1234");
+      await set("#nw-key-again", "test-page-other");
+      await change();
+      await waitFor(`/(not the same|non sono uguali)/.test(qa("#nw-root .nw-status").map(e => e.textContent).join(" "))`, "the mismatch message");
+      await set("#nw-key-again", "test-page-key-1234");
+      await change();
+      await waitFor(`/(is in force now|vale subito)/.test(qa("#nw-root .nw-status").map(e => e.textContent).join(" "))`, "the changed message");
+      const now = await jget("api/server-key");                                                  // the page's own requests carry the new key
+      if (now.set !== true || now.kept !== true) throw new Error("the key is not in force: " + JSON.stringify(now));
+      if (await ev(`return apiKey`) !== "test-page-key-1234") throw new Error("the page did not keep the new key");
+      const bad = await ev(`const r = await fetch("api/server-key", { headers: { Authorization: "Bearer wrong" } }); return r.status`);
+      if (bad !== 401) throw new Error("a wrong key is accepted: " + bad);
+    });
     if (pageErrors.length) out.push({ name: `${tag}: no script error`, ok: false, error: pageErrors.splice(0).join(" ;; ") });
   } finally {
     try { proc.kill(); } catch (e) { /* gone */ }

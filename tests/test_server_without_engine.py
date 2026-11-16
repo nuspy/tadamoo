@@ -53,6 +53,37 @@ def test_no_web_serves_the_api_and_not_the_page(tmp_path):
         proc.wait(timeout=20)
 
 
+def test_a_key_changed_from_a_client_wins_over_api_key_at_the_next_start(tmp_path):
+    """The key kept in the data folder (server/server_key.py) is the one in force after a restart, whatever --api-key says. The keys are made up."""
+    port = free_port()
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "server_key.json").write_text(json.dumps({"key": "test-kept-key-1"}), encoding="utf-8")
+    proc = subprocess.Popen([sys.executable, "-m", "serve.server", "--standby", "--host", "127.0.0.1", "--port", str(port), "--api-key", "test-cli-key-2"], cwd=ROOT,
+                            env={**os.environ, "TADAMOO_DATA": str(data)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def status(key):
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/api/server-key", headers={"Authorization": f"Bearer {key}"})
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status
+        except urllib.error.HTTPError as e:
+            return e.code
+    try:
+        for _ in range(40):
+            try:
+                get(port, "/health")
+                break
+            except OSError:
+                time.sleep(1)
+        else:
+            raise AssertionError("the server did not answer")
+        assert status("test-kept-key-1") == 200 and status("test-cli-key-2") == 401
+    finally:
+        proc.terminate()
+        proc.wait(timeout=20)
+
+
 def test_the_page_is_served_without_no_web(tmp_path):
     port = free_port()
     proc = subprocess.Popen([sys.executable, "-m", "serve.server", "--standby", "--host", "127.0.0.1", "--port", str(port)], cwd=ROOT,
