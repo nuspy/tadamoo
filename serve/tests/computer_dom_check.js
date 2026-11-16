@@ -49,17 +49,19 @@ async function main() {
         return JSON.stringify({ title: q("b", sec).textContent, on: q("#wl-cc-on").checked, options: qa("#wl-cc-screen option").map(o => o.textContent), small, sw: document.documentElement.scrollWidth, iw: innerWidth, disabled: q("#wl-cc-on").disabled });`));
       const title = LANG === "it" ? "Controllo del computer" : "Computer control";
       if (r.title !== title) throw new Error("the title is " + r.title);
-      if (r.on) throw new Error("the switch is on by itself");
+      if (!r.on) throw new Error("the switch is off by default");
       if (!r.options.length) throw new Error("no screen to choose");
       if (!r.disabled && r.options[0] !== (LANG === "it" ? "Tutti gli schermi" : "All screens")) throw new Error("the first screen choice is " + r.options[0]);
       if (r.small.length) throw new Error("targets under 44 px: " + r.small.join(", "));
       if (r.sw > r.iw + 1) throw new Error(`the page scrolls sideways (${r.sw} > ${r.iw})`);
     });
-    await check(`${tag}: turning it on asks first and, said no, stays off`, async () => {
+    await check(`${tag}: it can be turned off, and turning it on again asks first and, said no, stays off`, async () => {
+      await ev(`q("#wl-cc-on").click(); return 1;`);                                       // on by default: turning it off needs no question
+      await waitFor(`q("#wl-cc-on").checked === false`, "the switch to go off");
+      await sleep(500);
+      if ((await jget("api/computer")).enabled) throw new Error("it was not saved as off");
       await ev(`q("#wl-cc-on").click(); return 1;`);
       await waitFor(`!!q("dialog.risk-dialog")`, "the question");
-      const state = await jget("api/computer");
-      if (state.enabled) throw new Error("it was saved as on before the answer");
       await ev(`q("dialog.risk-dialog .btn.ghost").click(); return 1;`);
       await waitFor(`!q("dialog.risk-dialog")`, "the question to close");
       if (await ev(`return q("#wl-cc-on").checked;`)) throw new Error("the switch stayed on after No");

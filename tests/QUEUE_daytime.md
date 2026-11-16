@@ -384,3 +384,13 @@ Prima: Portafoglio > Controllo del computer > «Installa agent-desktop» (scaric
 6. Appunti: «metti "prova" negli appunti e incollalo con Ctrl+V»; leggere gli appunti.
 7. Stop durante una lettura lunga (albero di Opera) si ferma; Stop durante un clic non lo interrompe a metà. Mouse in un angolo: tutto si ferma.
 8. Con «Quello del sistema» le stesse cose usano il mouse vero (nessuna differenza di strumenti).
+
+## Browser con agent-browser e passaggio al nostro browser per la cassaforte (17 novembre; provato con Edge vero in locale, NON con un provider di pagamento vero)
+
+Portafoglio > Browser: «Cosa guida il browser» = agent-browser (predefinito); «Per cassaforte, accessi e pagamenti» = «Il browser di TaDaMoo» (predefinito). Conversazione nuova (le scelte valgono dalla prossima).
+1. «Apri https://… (un sito con accesso), accedi con la voce X della cassaforte»: la pagina si apre con agent-browser; al passo con la cassaforte il modello riceve «Nothing was typed… the page was moved» con la pagina e i nuovi numeri, riprova e funziona; la finestra del nostro browser appare (se non è «senza finestra»). Dopo l'accesso la sessione è quella giusta (cookie).
+2. Con «Lo stesso del browser»: lo stesso accesso lo fa agent-browser senza spostare nulla; guardare che la password non compaia nella riga di comando di agent-browser.exe (Gestione attività).
+3. Pagamento in modalità TEST di un provider vero (Stripe test card 4242…, un negozio di prova): provarlo con il browser nostro (default) e poi con «lo stesso». Annotare se il frame del provider si riempie, se serve 3-D Secure, se compaiono finestre. Solo dopo questa prova ha senso portare il selettore su «lo stesso».
+4. Cambiare la scelta, ricaricare la pagina: restano. Una conversazione nuova parte con quel pilota (nell'elenco dei processi: agent-browser.exe o niente).
+5. Scarico: un sito che scarica un file con agent-browser: il file arriva in <dati>/browser-downloads/…, la domanda viene dopo; rifiutando il file sparisce.
+6. Pannello consenso/cookie: provare con 3-4 siti reali (banner nella pagina e in un frame): quelli in un frame di un altro sito con agent-browser NON si trovano (limite noto).

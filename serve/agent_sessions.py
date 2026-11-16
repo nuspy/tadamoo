@@ -1156,7 +1156,8 @@ class SessionManager:
         prefs = self.browser_prefs() if self.browser_prefs else {}
         if not rec.get("ask_only") and prefs.get("enabled"):
             cmd += ["--browser"] + (["--browser-headless"] if prefs.get("headless") else []) + (["--browser-private"] if prefs.get("private") else [])                    + (["--browser-profile", str(self.browser_profile)] if prefs.get("persistent") and self.browser_profile else [])
-            cmd += ["--browser-consent", str(prefs.get("consent", "follow")), "--browser-permissions", str(prefs.get("permissions", "follow"))]
+            cmd += ["--browser-consent", str(prefs.get("consent", "follow")), "--browser-permissions", str(prefs.get("permissions", "follow")), "--browser-backend", str(prefs.get("backend", "agent-browser")),
+                    "--browser-vault-backend", str(prefs.get("vault_backend", "tadamoo"))]
         if self.computer_prefs is not None and not rec.get("ask_only") and self.computer_prefs.read()["enabled"]:
             cmd += ["--computer", "--computer-prefs", str(self.computer_prefs.path)]
         if self.knowledge_flags:

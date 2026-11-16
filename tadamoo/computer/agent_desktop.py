@@ -97,6 +97,7 @@ class AdCli:
                 out, err = proc.communicate(input=payload, timeout=0.2)
                 break
             except subprocess.TimeoutExpired:
+                payload = None                                                         # the input was sent with the first try; a second try must not send it again
                 if interruptible and cancelled():
                     proc.kill()
                     proc.communicate()
