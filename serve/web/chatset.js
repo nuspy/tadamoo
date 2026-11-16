@@ -70,11 +70,12 @@ const chatSettings = (() => {
   const box = id => ({ read: () => $("#" + id).checked, write: v => { $("#" + id).checked = !!v; } });
   const field = id => ({ read: () => $("#" + id).value, write: v => { $("#" + id).value = v ?? ""; } });
   const level = (on, id) => ({ read: () => $("#" + on).checked ? $("#" + id).value : "", write: v => { $("#" + on).checked = !!v; if (v) $("#" + id).value = v; $("#" + id).disabled = !v; } });
-  const EXTRAS = { abstract_on: box("cs-abs-on"), abstract_keep: field("cs-abs-keep"), code_keep: field("cs-code-keep"),
+  const radio = name => ({ read: () => (document.querySelector(`input[name="${name}"]:checked`) || {}).value || "", write: () => {} });      // the level the agent works at without asking: the live one, written only by `apply`
+  const EXTRAS = { autonomy: radio("cs-perm"), abstract_on: box("cs-abs-on"), abstract_keep: field("cs-abs-keep"), code_keep: field("cs-code-keep"),
     billion_on: box("cs-bc-on"), billion_compress: box("cs-bc-compress"), billion_port: field("cs-bc-port"),
     images: level("cs-img-on", "cs-img-level"), charts: level("cs-chart-on", "cs-chart-level") };
   const extrasRead = () => Object.fromEntries(Object.entries(EXTRAS).map(([k, f]) => [k, f.read()]));
-  /* written: the three of the old answers take effect by themselves (chat.js keeps them when one changes); pictures and charts reach the open conversation, and Billion Context its process, only when a preset is loaded by hand (`apply`), never when the panel is bound to another conversation */
+  /* written: the three of the old answers take effect by themselves (chat.js keeps them when one changes); pictures and charts reach the open conversation, Billion Context its process and the autonomy level the Chat, only when a preset is loaded by hand (`apply`), never when the panel is bound to another conversation */
   function writeExtras(s, apply) {
     quiet++;
     try {
@@ -83,6 +84,8 @@ const chatSettings = (() => {
       ["cs-abs-on", "cs-abs-keep", "cs-code-keep"].forEach(fire);
       if (apply && (s.images !== undefined || s.charts !== undefined)) fire("cs-img-on");
       if (apply && s.billion_on !== undefined) fire("cs-bc-on");
+      const level = apply && s.autonomy ? document.querySelector(`input[name="cs-perm"][value="${s.autonomy}"]`) : null;
+      if (level && !level.checked) { level.checked = true; level.dispatchEvent(new Event("change", { bubbles: true })); }      // agentchat.js sets the Chat's level, as a click on it does
     } finally { quiet--; }
   }
   function write(s, apply) {

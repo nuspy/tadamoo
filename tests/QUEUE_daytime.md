@@ -402,4 +402,5 @@ Impostazioni di inferenza > «Mostrato in chat»: «Ragionamento» e «Azioni»,
 3. Assente: non si vede niente, nemmeno una riga vuota. Cambiare opzione a conversazione avviata ridisegna; un raccoglitore aperto a mano torna come dice l'opzione.
 4. Salvare un profilo e ricaricarlo in un'altra conversazione e in un piano: tornano uguali le due opzioni di chat e anche risposte vecchie (3 valori), Billion Context (acceso, piega i turni, porta), immagini e grafici (acceso e livello).
 5. Caricare a mano un profilo con immagini/grafici e Billion Context: i valori arrivano alla conversazione aperta e al processo (Billion Context si riavvia solo se il profilo lo contiene); passare da una conversazione all'altra NON li cambia.
-6. Chat normale: il ragionamento segue la stessa opzione. 360×640 e 390×844: riga alta almeno 44 px, niente scorrimento orizzontale; tastiera: Invio/Spazio apre e chiude.
+6. Livello di autonomia e livello di ragionamento: salvati nel profilo. Caricando a mano un profilo con «Automatico» il livello della Chat passa ad Automatico (come un clic sul livello); cambiare conversazione non lo cambia. Il livello di ragionamento si carica con il profilo come prima.
+7. Chat normale: il ragionamento segue la stessa opzione. 360×640 e 390×844: riga alta almeno 44 px, niente scorrimento orizzontale; tastiera: Invio/Spazio apre e chiude.

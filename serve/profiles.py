@@ -35,7 +35,8 @@ LOAD_FIELDS = [f"{s}.{k}" for s, k in settings.LOADER_FIELDS]
 INFERENCE_KEYS = ("system", "stop", "policy", "threshold", "effort", "temperature", "top_p", "top_k", "min_p",
                   "repetition_penalty", "presence_penalty", "frequency_penalty", "penalty_last_n", "seed",
                   "reasoning_budget_tokens", "max_tokens", "format", "schema", "schema_name", "retries", "context_patterns", "end_turn_bias", "max_turns", "max_answer_tokens", "auto_continue", "show_reasoning", "show_tooling",
-                  "abstract_on", "abstract_keep", "code_keep", "billion_on", "billion_compress", "billion_port", "images", "charts")
+                  "abstract_on", "abstract_keep", "code_keep", "billion_on", "billion_compress", "billion_port", "images", "charts", "autonomy")
+AUTONOMY_LEVELS = ("plan", "read_only", "default", "auto")
 VISUAL_LEVELS = ("very_low", "low", "normal", "high", "very_high", "highest")
 
 
@@ -194,6 +195,8 @@ def check_inference(values) -> dict:
                 n = int(n)
             if isinstance(n, bool) or not isinstance(n, int) or not low <= n <= high:
                 raise ValueError(f"{key}: a whole number from {low} to {high}")
+    if out.get("autonomy") not in (None, "") and out["autonomy"] not in AUTONOMY_LEVELS:
+        raise ValueError(f"autonomy: one of {', '.join(AUTONOMY_LEVELS)}, or empty")
     for key in ("images", "charts"):
         if out.get(key) not in (None, "") and out[key] not in VISUAL_LEVELS:
             raise ValueError(f"{key}: one of {', '.join(VISUAL_LEVELS)}, or empty")

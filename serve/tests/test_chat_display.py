@@ -82,15 +82,15 @@ class Settings(unittest.TestCase):
         read = CHATSET[CHATSET.index("function read() {"):CHATSET.index("for (const f of fieldsOf()) s[f.key]")]
         keys = set(re.findall(r"\b([a-z_]+):", read)) - {"checked", "value", "read", "write"}
         keys |= set(re.findall(r'\{ key: "([a-z_]+)"', CHATSET))
-        keys |= set(re.findall(r"\b([a-z_]+): (?:box|field|level)\(", CHATSET))
+        keys |= set(re.findall(r"\b([a-z_]+): (?:box|field|level|radio)\(", CHATSET))
         keys -= {"kind"}
-        self.assertTrue({"system", "temperature", "max_answer_tokens", "abstract_on", "images", "billion_port", "show_tooling"} <= keys, keys)
+        self.assertTrue({"system", "temperature", "max_answer_tokens", "abstract_on", "images", "billion_port", "show_tooling", "autonomy", "effort"} <= keys, keys)
         self.assertEqual(sorted(keys - set(profiles.INFERENCE_KEYS)), [])
 
     def test_the_old_answers_billion_context_and_the_pictures_are_kept_and_checked(self):
-        good = {"abstract_on": False, "abstract_keep": "8", "code_keep": 4, "billion_on": True, "billion_compress": False, "billion_port": "7300", "images": "high", "charts": ""}
+        good = {"abstract_on": False, "abstract_keep": "8", "code_keep": 4, "billion_on": True, "billion_compress": False, "billion_port": "7300", "images": "high", "charts": "", "autonomy": "plan"}
         self.assertEqual(profiles.check_inference(good), good)
-        for bad in ({"abstract_on": "yes"}, {"billion_on": 1}, {"abstract_keep": 0}, {"abstract_keep": 21}, {"code_keep": 6}, {"billion_port": 80}, {"billion_port": "x"}, {"images": "huge"}, {"charts": 3}):
+        for bad in ({"abstract_on": "yes"}, {"billion_on": 1}, {"abstract_keep": 0}, {"abstract_keep": 21}, {"code_keep": 6}, {"billion_port": 80}, {"billion_port": "x"}, {"images": "huge"}, {"charts": 3}, {"autonomy": "root"}, {"autonomy": 2}):
             with self.assertRaises(ValueError, msg=str(bad)):
                 profiles.check_inference(bad)
 
@@ -99,6 +99,7 @@ class Settings(unittest.TestCase):
         self.assertIn("write(s, true)", CHATSET)
         self.assertIn('if (apply && s.billion_on !== undefined) fire("cs-bc-on")', CHATSET)
         self.assertIn("if (quiet) return;", CHATSET)
+        self.assertIn('level.dispatchEvent(new Event("change"', CHATSET)
 
     def test_every_string_exists_in_both_languages(self):
         used = set(re.findall(r'data-t="((?:cs\.show[\w.]*|cs\.display))"', HTML)) | set(re.findall(r'T\("(ch\.group\.[\w]+)"', DISPLAY))
