@@ -14,7 +14,7 @@ from tadamoo.media import stock
 import pytest
 
 pytest.importorskip("tadamoo.newscast")      # the production code is a private one, kept out of the repository
-from tadamoo.newscast import produce, script as script_mod
+from tadamoo.newscast import produce, script as script_mod, stockplan
 from tadamoo.speech import service as speech
 from tadamoo.videoedit import compose
 from video_fakes import make_clip
@@ -72,6 +72,12 @@ class Pixabay:
         self.httpd.server_close()
 
 
+@pytest.fixture(autouse=True)
+def street_rungs(monkeypatch):
+    """What the technical model would say about "a crowded street at night": one rung on the subject, the place not asked (the places have their own tests)."""
+    monkeypatch.setattr(stockplan, "plan", lambda *a, **k: [stock.Rung(("street", "streets", "crowd", "crowds"), (("crowded street night", "en"),), False)])
+
+
 @pytest.fixture
 def pix(tmp_path):
     made = []
@@ -99,20 +105,25 @@ def test_a_hit_is_described_by_its_tags_and_the_title_in_its_address_and_the_mat
     assert stock.match([], h) == (0.0, 0)
 
 
-def test_the_best_matching_video_that_lasts_long_enough_wins_and_one_already_taken_is_not_taken_again(tmp_path, pix):
+STREET = stock.Rung(("street", "crowd"), (("crowded street night", "en"),), False)
+
+
+def test_the_video_that_carries_most_of_the_subject_wins_and_one_already_taken_is_not_taken_again(tmp_path, pix):
     hits = [hit(1, "street, night", duration=9, downloads=10), hit(2, "street, night, crowd", duration=9, downloads=5), hit(3, "street, night, crowd", duration=4, downloads=500),
             hit(4, "forest", duration=9)]
     server = pix(lambda q: hits)
     api = stock.Pixabay(KEY, server.api, tmp_path / "cache")
-    choice, asked = stock.find(api, [("a crowded street at night", "en")], 6.4, 0.5, set())
-    assert choice.hit.id == 2 and choice.match == 1.0 and choice.start == pytest.approx(1.3)               # 2 carries all three keywords ("crowd" for "crowded"); 3 is too short for a clip
-    assert asked == ["en: crowded street night"]
-    again, _ = stock.find(api, [("a crowded street at night", "en")], 6.4, 0.5, {2})
-    assert again.hit.id == 1 and again.match == pytest.approx(2 / 3, abs=0.01)
-    none, asked = stock.find(api, [("a spaceship over mars", "en")], 6.4, 0.5, set())
-    assert none is None and asked == ["en: spaceship mars", "en: spaceship"]
+    choice, asked = stock.find(api, [STREET], 6.4, 6.4, set())
+    assert choice.hit.id == 2 and choice.start == pytest.approx(1.3) and choice.step == "street/crowd"                  # 2 carries both words of the subject; 3 is too short when a whole clip is wanted
+    assert asked == ["en: crowded street night [street/crowd]"]
+    short, _ = stock.find(api, [STREET], 6.4, 4.0, set())
+    assert short.hit.id == 3 and short.start == 0.0                                                                      # a shorter video is allowed: the clip made of it is as long as it is
+    again, _ = stock.find(api, [STREET], 6.4, 6.4, {"pixabay:2"})
+    assert again.hit.id == 1
+    none, asked = stock.find(api, [stock.Rung(("spaceship", "mars"), (("spaceship mars", "en"),), False)], 6.4, 6.4, set())
+    assert none is None and asked == ["en: spaceship mars [spaceship/mars]"]
     assert all(r["key"] == KEY and r["video_type"] == "film" and r["safesearch"] == "true" and r["lang"] == "en" for r in server.requests)
-    second, asked = stock.find(api, [("a spaceship", "en"), ("Egy utca éjjel", "hu")], 6.4, 0.5, set())
+    second, asked = stock.find(api, [stock.Rung(("spaceship",), (("a spaceship", "en"), ("Egy utca éjjel", "hu")), False)], 6.4, 6.4, set())
     assert second is None and asked[-1].startswith("hu:") and server.requests[-1]["lang"] == "hu"
 
 
@@ -160,7 +171,7 @@ def test_the_key_is_in_the_credential_store_and_the_environment_wins(tmp_path):
 def test_a_video_is_downloaded_and_cut_from_its_middle_to_the_size_of_a_clip_without_sound(tmp_path, pix):
     server = pix(lambda q: [hit(7, "street")], seconds=10.0)
     api = stock.Pixabay(KEY, server.api)
-    got = api.download(stock.find(api, [("street", "en")], 6.4, 0.5, set())[0].hit, "small", tmp_path / "d" / "7.mp4")
+    got = api.download(stock.find(api, [stock.Rung(("street",), (("street", "en"),), False)], 6.4, 6.4, set())[0].hit, "small", tmp_path / "d" / "7.mp4")
     assert got.is_file() and server.downloads == ["/files/7.mp4"]
     clip = stock.cut(compose.tool("ffmpeg"), got, tmp_path / "clip.mp4", stock.segment_start(10.0, 6.4), 6.4, (1024, 576), 25)
     info = compose.probe(clip)
@@ -204,7 +215,7 @@ def test_the_broll_comes_from_pixabay_when_it_fits_and_the_credits_name_pixabay_
 @pytest.mark.skipif(not FFMPEG, reason="ffmpeg is not installed")
 def test_what_pixabay_cannot_give_is_made_by_the_video_model_and_without_pixabay_clips_there_are_no_credits(stage, pix):
     manifest, work, server = run(stage, lambda q: [hit(21, "forest, river")], pix, stage["tmp"])
-    assert "video" in [k for k, _, _ in stage["jobs"].asked] and any("nothing on Pixabay fits" in n for n in manifest["notes"])
+    assert "video" in [k for k, _, _ in stage["jobs"].asked] and any("nothing in pixabay is about" in n for n in manifest["notes"])
     edit = next(p for p in manifest["phases"] if p["phase"] == "edit")
     spoken = sum(speech.seconds((work / "voice" / f"{i:02d}.wav").read_bytes()) + produce.TAIL_S + produce.GAP_S for i in range(len(one_story_script().blocks())))
     assert edit["body_s"] == pytest.approx(spoken, abs=0.01) and not server.downloads
@@ -226,4 +237,4 @@ def test_a_pixabay_that_does_not_answer_is_noted_and_the_video_model_takes_over(
     work = stage["tmp"] / "w"
     manifest = produce.make(one_story_script(), nc.settings(stage, width=400, height=266, fps=12), work,
                             produce.Options(url=stage["server"].url, media=dict(nc.DEFAULTS), swap="per-job", stock_key=KEY, stock_url="http://127.0.0.1:9/api/videos/"))
-    assert any("Pixabay did not give a clip" in n for n in manifest["notes"]) and "video" in [k for k, _, _ in stage["jobs"].asked]
+    assert any("could not be asked" in n for n in manifest["notes"]) and "video" in [k for k, _, _ in stage["jobs"].asked]

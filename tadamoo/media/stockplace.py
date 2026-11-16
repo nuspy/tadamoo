@@ -1,34 +1,31 @@
-"""The place of the filler footage: a production about a place needs footage of that place, or of a near one, and never of another culture or region.
+"""The place and the subject of the filler footage: a clip shows what the words over it are about, in the place of the newscast, and never another culture or region.
 
-The matching of stock footage (stock.py) is by keyword overlap and knows nothing about where a video was shot; a market of one country is a market for the keywords of another. This module is the one place where the knowledge is kept,
-as data:
+The matching of stock footage (stock.py) knows nothing about where a video was shot or what it is about beyond its tags and title. This module is the one place where that knowledge is kept as data:
 
-  - `PLACES`: for a place (the setting `broll_place`, "Hungary" by default) the **ladder**: the terms that say the place itself (its demonyms, cities, regions, landmarks), then the countries around it (Central and Eastern Europe), then
-    European terms, and last a step where no place term is needed. A search goes down the ladder: at each step the place words are added to the query and a hit must carry a term of the step in its tags or in the title of its page.
-  - `EXCLUDE`: the terms of the regions and cultures that are not the place's continent (Asia, Africa, the Middle East, Latin America, North America, Oceania), by region. A hit whose tags or title carry one is refused at every step, the last
-    one too, and the clips the video model makes get the same terms as a negative.
-  - a place that is not in `PLACES` has the place's own words for its first step and then the open step; it has no exclusion (nothing says what a different culture is for it). To add a place: its entry in `PLACES` (`own`, `near`,
-    `wider`, `region`) and, for a new continent, its list in `EXCLUDE`.
+  - `PLACES`: for a place (the setting `broll_place`, "Hungary" by default) the terms that say the place itself: its demonyms, cities, regions and landmarks, in English and in the newscast's language. A search that
+    asks for the place wants a hit that carries one of them in its tags or in the title of its page; there is no wider step: a video of Europe, of a country nearby or of any city is not a video of the subject.
+  - `GENERIC`: words that name a kind of place or picture and no subject (city, landscape, architecture, street...). A search is never about them alone.
+  - `EXCLUDE`: the terms of the regions and cultures that are not the place's continent (Asia, Africa, the Middle East, Latin America, North America, Oceania), by region. A hit whose tags or title carry one is refused,
+    and the clips the video model makes get the same terms as a negative.
+  - a place that is not in `PLACES` has its own words as its terms; it has no exclusion (nothing says what a different culture is for it). To add a place: its entry in `PLACES` and, for a new continent, its list in `EXCLUDE`.
 
 Terms are compared in lower case without accents, as whole words; a term of several words ("middle east") is looked for in the words of the hit in a row."""
 from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence, Tuple
 
 PLACES: Dict[str, Dict[str, Any]] = {
     "hungary": {
         "region": "europe",
-        "own": ("hungary", "hungarian", "hungarians", "magyar", "budapest", "debrecen", "szeged", "pecs", "miskolc", "gyor", "eger", "szentendre", "visegrad", "esztergom", "tokaj", "balaton", "lake balaton", "tisza", "danube",
-                "hortobagy", "puszta", "pannonia", "szekesfehervar", "kecskemet", "buda", "pest"),
-        "near": ("poland", "polish", "warsaw", "krakow", "czech", "czechia", "prague", "slovakia", "slovak", "bratislava", "austria", "austrian", "vienna", "romania", "romanian", "bucharest", "transylvania", "serbia", "belgrade",
-                 "croatia", "zagreb", "slovenia", "ljubljana", "ukraine", "kyiv", "bulgaria", "sofia", "lithuania", "latvia", "estonia", "balkan", "balkans", "carpathian", "carpathians", "central europe", "eastern europe"),
-        "wider": ("europe", "european", "eu", "germany", "german", "berlin", "france", "french", "paris", "italy", "italian", "rome", "spain", "spanish", "portugal", "netherlands", "dutch", "amsterdam", "belgium", "switzerland", "swiss",
-                  "denmark", "sweden", "norway", "finland", "ireland", "england", "british", "london", "greece", "greek", "scandinavia", "alps", "mediterranean"),
+        "own": ("hungary", "hungarian", "hungarians", "magyar", "magyarorszag", "magyarorszagi", "budapest", "budapesti", "debrecen", "szeged", "pecs", "miskolc", "gyor", "eger", "szentendre", "visegrad",
+                "esztergom", "tokaj", "balaton", "lake balaton", "tisza", "danube", "hortobagy", "puszta", "pannonia", "szekesfehervar", "kecskemet", "buda", "pest"),
     },
 }
+
+GENERIC = frozenset("""city cities town village landscape landscapes nature architecture building buildings street streets skyline aerial drone travel tourism tourist tourists view views
+country countryside rural urban sky clouds sunset sunrise europe european world day night people person man woman group traffic road roads water river lake""".split())
 
 EXCLUDE: Dict[str, Tuple[str, ...]] = {
     "asia": ("asia", "asian", "china", "chinese", "beijing", "shanghai", "hong kong", "tibet", "tibetan", "japan", "japanese", "tokyo", "korea", "korean", "seoul", "india", "indian", "delhi", "mumbai", "nepal", "nepali", "thailand", "thai",
@@ -40,13 +37,6 @@ EXCLUDE: Dict[str, Tuple[str, ...]] = {
     "oceania": ("australia", "australian", "aboriginal", "maori", "polynesian", "hawaii", "hawaiian", "fiji", "new zealand"),
 }
 REGION_OF_OTHERS = {"europe": ("asia", "africa", "middle east", "latin america", "north america", "oceania")}      # for a place of this continent, the regions of EXCLUDE that are not it
-
-
-@dataclass(frozen=True)
-class Step:
-    label: str                                     # what the manifest says: "hungary", "central and eastern europe", "europe", "no place term"
-    require: Tuple[str, ...]                       # the hit must carry one of these (empty: nothing is required)
-    add: str                                       # added to the keywords of the query ("" for none)
 
 
 def plain(text: str) -> str:
@@ -67,16 +57,12 @@ def carries(words: Sequence[str], terms: Sequence[str]) -> str:
     return ""
 
 
-def ladder(place: str) -> List[Step]:
-    """The steps of the search for a place, from the place itself to the open one."""
-    key = plain(place).strip()
-    entry = PLACES.get(key)
-    name = place.strip() or "place"
-    if entry is None:
-        own = tuple(dict.fromkeys(w for w in words_of([place]) if len(w) > 2))
-        return ([Step(name.lower(), own, name.lower())] if own else []) + [Step("no place term", (), "")]
-    return [Step(name.lower(), entry["own"], name.lower()), Step("central and eastern europe", entry["own"] + entry["near"], "central europe"), Step("europe", entry["own"] + entry["near"] + entry["wider"], "europe"),
-            Step("no place term", (), "")]
+def own(place: str) -> Tuple[str, ...]:
+    """The terms that say the place itself: the ones kept for it, or, for a place nothing is known about, the words of its name."""
+    entry = PLACES.get(plain(place).strip())
+    if entry is not None:
+        return tuple(entry["own"])
+    return tuple(dict.fromkeys(w for w in words_of([place]) if len(w) > 2))
 
 
 def exclusion(place: str) -> Tuple[str, ...]:
@@ -87,13 +73,43 @@ def exclusion(place: str) -> Tuple[str, ...]:
     return tuple(t for region in REGION_OF_OTHERS.get(entry["region"], ()) for t in EXCLUDE[region])
 
 
-def refused_because(words: Sequence[str], step: Step, excluded: Sequence[str]) -> str:
-    """Why a hit with these words is not taken at this step ("" when it may be): it carries a term of another region or culture, or, at a step that needs a place term, none of the step's."""
+def _other_number(w: str) -> str:
+    if w.endswith("ies") and len(w) > 4:
+        return w[:-3] + "y"
+    if w.endswith("y"):
+        return w[:-1] + "ies"
+    if w.endswith(("us", "ss", "is")):
+        return w
+    if w.endswith("s") and len(w) > 4:
+        return w[:-1]
+    return w + "s"
+
+
+def subject_terms(words: Sequence[str], place: str) -> List[str]:
+    """The words of a subject that can stand for it: no generic word, no term of the place (a search for the place is not a search for a subject), at least three letters."""
+    banned = set(GENERIC) | {plain(t) for t in own(place)}
+    out: List[str] = []
+    for w in (plain(x) for x in words):
+        if re.fullmatch(r"[a-z]{3,}", w) and w not in banned:
+            out += [w, _other_number(w)]                                              # a tag says the thing in the singular or in the plural
+    return list(dict.fromkeys(out))
+
+
+def other_culture(words: Sequence[str], excluded: Sequence[str]) -> str:
+    """Why a hit with these words is refused for showing another region or culture ("" when it does not)."""
     term = carries(words, excluded)
-    if term:
-        return f"carries '{term}', another region or culture"
-    if step.require and not carries(words, step.require):
-        return f"carries no term of '{step.label}'"
+    return f"carries '{term}', another region or culture" if term else ""
+
+
+def refused_because(words: Sequence[str], subject: Sequence[str], place_terms: Sequence[str], excluded: Sequence[str]) -> str:
+    """Why a hit with these words is not taken ("" when it may be): it carries a term of another region or culture, none of the subject's words, or, when the place is wanted, none of the place's terms."""
+    why = other_culture(words, excluded)
+    if why:
+        return why
+    if not carries(words, subject):
+        return "is not about the subject (" + ", ".join(list(subject)[:4]) + ")"
+    if place_terms and not carries(words, place_terms):
+        return "carries no term of the place"
     return ""
 
 

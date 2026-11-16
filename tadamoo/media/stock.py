@@ -3,12 +3,11 @@
 The key is the person's own and lives in the credential store, under `media/pixabay` (`PIXABAY_API_KEY` in the environment counts too); it is never part of a file of the
 project and never printed. A search is a GET of `/api/videos/` with the keywords of what the clip must show; the answer is cached 24 hours, as Pixabay asks.
 
-Choosing, in order:
-  1. the keywords are the content words of the clip's description, in the order written, with the words that only say how footage looks (realistic, documentary, footage...) left out;
-  2. searches go from the first four keywords down to the first one, each stopping the descent as soon as a video passes;
-  3. a video passes when it lasts at least as long as a clip, and the keywords found in its tags and in the title Pixabay puts in its page address (the only description a hit
-     carries) weigh at least `min_match` of all, the first three keywords counting more than the rest, and at least two of them when the clip has two or more;
-  4. of the ones that pass the best match wins, then the more downloaded; a video already taken for another clip is not taken again.
+Choosing: a clip comes with rungs, from the most specific search to the least, each made of the words of a subject (the thing the words over the clip are about), the words to ask Pixabay and whether the
+place is wanted too (stockplace.py). A video passes a rung when it lasts at least `min_seconds` (shorter than a clip is allowed: the montage fits the shot to the clip it has), is not one already taken or used in another edition, carries none of the terms of another region or culture, carries one of the
+subject's words in its tags or in the title Pixabay puts in its page address (the only description a hit carries) and, when the rung wants the place, one of the place's terms. Nothing generic passes: a video of the place
+that is not about the subject is not taken, and with no video that passes the video model makes the clip. Of the ones that pass the one that carries most of the subject's words wins, then the better match with the
+words asked, then the more downloaded. The edition's own choices and those of the editions before are kept in a registry (`Used`): a video shown in the last week is never taken again; one shown longer ago is taken only when no other video passes.
 The video is downloaded in the size asked (`small`: 1280x720 for most), and a clip is cut from the middle of it (the start and the end of stock footage are often fades),
 scaled and cropped to the size of the clips the video model makes, with no sound."""
 from __future__ import annotations
@@ -84,13 +83,22 @@ class Hit:
     duration: float
     downloads: int
     files: Dict[str, Dict[str, Any]] = field(default_factory=dict)       # quality -> {url, width, height, size}
+    source: str = "pixabay"                                                # the site it comes from: pixabay, pexels or envato
+    title: str = ""                                                        # the title the site gives it, when the page address does not carry one
+    width: int = 0
+    height: int = 0
+    partial: bool = False                                                  # the list of the site gave only part of what the page of the video says (length, tags, size)
+
+    @property
+    def key(self) -> str:
+        """What the registry of shown videos and the sets of taken ones hold: the site and the id."""
+        return f"{self.source}:{self.id}"
 
     @property
     def words(self) -> List[str]:
-        """The words that describe it: its tags and the title in its page address (`.../videos/traffic-cars-road-12345/`)."""
-        slug = urlsplit(self.page).path.rstrip("/").rsplit("/", 1)[-1]
-        slug = re.sub(r"-\d+$", "", slug)
-        return [w for chunk in self.tags + slug.split("-") for w in re.findall(r"[^\W\d_]+", chunk.lower())]
+        """The words that describe it: its tags, its title and, for a site that puts one in the page address, the title in it (`.../videos/traffic-cars-road-12345/`)."""
+        slug = "" if self.title else re.sub(r"-\d+$", "", urlsplit(self.page).path.rstrip("/").rsplit("/", 1)[-1])
+        return [w for chunk in self.tags + [self.title] + slug.split("-") for w in re.findall(r"[^\W\d_]+", chunk.lower())]
 
 
 def stem(word: str) -> str:
@@ -144,7 +152,7 @@ class Choice:
     query: str
     match: float
     start: float
-    step: str = ""                                  # the step of the place ladder it was found at (stockplace.py); empty when no ladder was used
+    step: str = ""                                  # the rung it was found at, as "subject words / place" (see `Rung`)
 
 
 class Pixabay:
@@ -224,35 +232,120 @@ def _hits(data: Any) -> List[Hit]:
     return out
 
 
-def find(client: Pixabay, queries: Sequence[Tuple[str, str]], seconds: float, min_match: float, taken: Set[int], steps: Optional[Sequence[Any]] = None,
-         exclude: Sequence[str] = (), refused: Optional[List[str]] = None) -> Tuple[Optional[Choice], List[str]]:
-    """The best video for a clip of `seconds`, given as (description, language) to try in turn, or None; and what was asked, for the record.
-    With `steps` (the ladder of a place, stockplace.py) the search goes down it: at each step the step's words are added to the query and a hit must carry a term of the step; `exclude` (terms of other regions and
-    cultures) refuses a hit at every step; what was refused for these reasons is added to `refused`."""
+@dataclass(frozen=True)
+class Rung:
+    """One search for a clip: the words that say the subject (a hit must carry one), what to ask Pixabay (description, language) and whether the place is wanted too."""
+    subject: Tuple[str, ...]
+    queries: Tuple[Tuple[str, str], ...]
+    place: bool = True
+
+    @property
+    def label(self) -> str:
+        return "/".join(self.subject[:3]) + (" + place" if self.place else "")
+
+
+def find(client: Any, rungs: Sequence[Rung], seconds: float, min_seconds: float, taken: Set[str], place_terms: Sequence[str] = (), exclude: Sequence[str] = (),
+         refused: Optional[List[str]] = None) -> Tuple[Optional[Choice], List[str]]:
+    """The best video for a clip of `seconds` (a video that lasts less than that but at least `min_seconds` gives a shorter clip), or None; and what was asked, for the record. The rungs are tried in order (see the module's text);
+    what was refused is added to `refused`."""
     from tadamoo.media import stockplace
     asked: List[str] = []
-    for step in steps if steps else [stockplace.Step("", (), "")]:
-        for text, lang in queries:
+    for rung in rungs:
+        for text, lang in rung.queries:
+            query = text[:100]
+            asked.append(f"{lang}: {query} [{rung.label}]")
             keys = keywords(text)
-            for size in range(min(4, len(keys)), 0, -1):
-                query = " ".join(keys[:size] + ([step.add] if step.add else []))[:100]
-                asked.append(f"{lang}: {query}" + (f" [{step.label}]" if steps else ""))
-                passing = []
-                for hit in client.search(query, lang):
-                    share, count = match(keys[:size], hit)
-                    if hit.id in taken or hit.duration < seconds or share < min_match or count < min(2, size):
+            passing = []
+            looked = 0
+            for hit in client.search(query, lang):
+                if hit.key in taken or (hit.duration and hit.duration < min_seconds):
+                    continue
+                words = stockplace.words_of([" ".join(hit.words)])
+                lists_only = hit.partial and hasattr(client, "details")      # a site whose list says no length and no tags: the list is judged on the subject and the other cultures, the place after its page is read
+                why = stockplace.other_culture(words, exclude) if lists_only else stockplace.refused_because(words, rung.subject, place_terms if rung.place else (), exclude)
+                if lists_only and not why and not stockplace.carries(words, rung.subject):
+                    why = "is not about the subject (" + ", ".join(list(rung.subject)[:4]) + ")"
+                if why:
+                    if refused is not None and len(refused) < 30:
+                        refused.append(f"{hit.source} {hit.id} ({hit.page}) refused at '{rung.label}': {why}")
+                    continue
+                if lists_only:                                                     # the page of the video says its length, its tags and its size: read for the few that pass the list
+                    if looked >= getattr(client, "max_details", 6):
                         continue
-                    if steps or exclude:
-                        why = stockplace.refused_because(stockplace.words_of([" ".join(hit.words)]), step, exclude)
-                        if why:
-                            if refused is not None and len(refused) < 30:
-                                refused.append(f"video {hit.id} ({hit.page}) refused at '{step.label}': {why}")
-                            continue
-                    passing.append((share, hit.downloads, hit))
-                if passing:
-                    share, _, hit = max(passing, key=lambda p: (round(p[0], 3), p[1]))
-                    return Choice(hit, query, round(share, 3), round(segment_start(hit.duration, seconds), 2), step.label if steps else ""), asked
+                    looked += 1
+                    client.details(hit)
+                    words = stockplace.words_of([" ".join(hit.words)])
+                    why = stockplace.refused_because(words, rung.subject, place_terms if rung.place else (), exclude)
+                    if not why and hit.width and hit.height and hit.width < hit.height:
+                        why = "is not landscape"
+                    if not why and hit.duration < min_seconds:
+                        why = f"lasts {hit.duration:g} s"
+                    if why:
+                        if refused is not None and len(refused) < 30:
+                            refused.append(f"{hit.source} {hit.id} ({hit.page}) refused at '{rung.label}': {why}")
+                        continue
+                carried = sum(1 for w in rung.subject if stockplace.carries(words, [w]))
+                share, _ = match(keys, hit)
+                passing.append((carried, round(share, 3), hit.downloads, hit))
+                if getattr(client, "first_fit", False):
+                    break
+            if passing:
+                carried, share, _, hit = max(passing, key=lambda p: p[:3])
+                return Choice(hit, query, share, round(segment_start(hit.duration, min(seconds, hit.duration)), 2), rung.label), asked
     return None, asked
+
+
+WEEK_S = 7 * 24 * 3600.0
+
+
+class Used:
+    """The registry of the stock videos already shown. A video of one edition is not taken again by another for a week (`recent`); after that it may be, when nothing else passes (`ids` lists all of them).
+    One JSON file ({"videos": {id: {edition, ts, page}}}) in the folder that holds the editions."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+
+    def _read(self) -> Dict[str, Dict[str, Any]]:
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return dict(data.get("videos") or {}) if isinstance(data, dict) else {}
+
+    @staticmethod
+    def _key(k: Any) -> str:
+        return str(k) if ":" in str(k) else f"pixabay:{k}"                          # a number written before there were other sites is a Pixabay video
+
+    def ids(self) -> Set[str]:
+        return {self._key(k) for k in self._read()}
+
+    def recent(self, now: Optional[float] = None, window: float = WEEK_S) -> Set[str]:
+        """The videos shown less than `window` seconds ago."""
+        now = time.time() if now is None else now
+        return {self._key(k) for k, v in self._read().items() if now - float((v or {}).get("ts") or 0) < window}
+
+    def add(self, key: Any, edition: str, page: str = "", ts: Optional[float] = None) -> None:
+        videos = self._read()
+        videos[self._key(key)] = {"edition": edition, "ts": round(time.time() if ts is None else ts, 1), "page": page}
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_name(self.path.name + ".part")
+        tmp.write_text(json.dumps({"videos": videos}, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, self.path)
+
+    def seed_from(self, root: Path) -> int:
+        """Adds the videos that the editions kept in `root` (a folder each, with the notes of their clips in `broll/`) show and the registry does not know yet; returns how many."""
+        have, added = self.ids(), 0
+        for note in sorted(Path(root).glob("*/broll/s*_c*.json")):
+            try:
+                info = json.loads(note.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            key = f"{info.get('source')}:{info.get('id')}"
+            if info.get("source") in ("pixabay", "pexels", "envato") and info.get("id") not in (None, "") and key not in have:
+                self.add(key, note.parent.parent.name, str(info.get("page", "")), note.stat().st_mtime)
+                have.add(key)
+                added += 1
+        return added
 
 
 def cut(ffmpeg: str, source: Path, dest: Path, start: float, seconds: float, size: Tuple[int, int], fps: int) -> Path:
