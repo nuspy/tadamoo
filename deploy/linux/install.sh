@@ -91,8 +91,8 @@ copy_program() {
   if command -v rsync >/dev/null 2>&1; then
     run rsync -a --delete --exclude .git --exclude .venv --exclude __pycache__ --exclude tests --exclude build --exclude build-win --exclude dist --exclude .claude --exclude '*.exe' --exclude node_modules "$SRC"/ "$PREFIX"/program/
   else
-    run mkdir -p "$PREFIX/program"; run cp -a "$SRC"/serve "$SRC"/tadamoo "$SRC"/skills "$SRC"/requirements.txt "$SRC"/VERSION "$PREFIX/program/"
-    [ -d "$SRC/voice" ] && run cp -a "$SRC/voice" "$PREFIX/program/" || true
+    run rm -rf "$PREFIX/program"; run mkdir -p "$PREFIX/program"
+    run bash -c "cd '$SRC' && tar -c --exclude=.git --exclude=.venv --exclude=__pycache__ --exclude=tests --exclude=build --exclude=build-win --exclude=dist --exclude=.claude --exclude='*.exe' --exclude=node_modules . | tar -x -C '$PREFIX/program'"
   fi
 }
 
