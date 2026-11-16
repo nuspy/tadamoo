@@ -15,6 +15,13 @@ os.environ["TADAMOO_DOCLING"] = "off"             # no test starts a Docling rea
 
 # Tests written around the one plugin the catalogue used to ship, a private one that is kept out of the repository: they need a plugin in the catalogue and wait for a generic example plugin.
 _WAITING = {
+    "tests/test_skills_layout.py::test_a_reusable_skill_is_a_standalone_folder_with_its_documents[news-research]",
+    "tests/test_skills_layout.py::test_the_modification_skill_is_standalone_and_the_briefing_does_not_depend_on_it",
+    "tests/test_skills_layout.py::test_the_modification_skill_is_standalone_and_the_newscast_does_not_depend_on_it",
+    "tests/test_skills_layout.py::test_the_plugin_names_the_skills_it_depends_on_and_says_it_brings_no_mcp_server",
+    "tests/test_skills_layout.py::test_the_plan_template_is_a_valid_plan_and_nothing_heavy_runs_before_an_approval",
+    "tests/test_skills_layout.py::test_the_parameter_files_use_only_parameters_of_the_skill",
+    "tests/test_skillmanager.py::test_a_built_in_skill_updates_from_the_program_folder_when_it_changed_there",
     "tests/test_skillmanager.py::test_every_entry_of_the_catalogue_is_a_folder_and_every_top_folder_is_an_entry",
     "tests/test_skillmanager.py::test_what_a_skill_says_it_depends_on_is_what_the_catalogue_requires",
     "tests/test_skillmanager.py::test_a_choice_brings_what_it_requires_once_in_the_order_of_the_catalogue",
