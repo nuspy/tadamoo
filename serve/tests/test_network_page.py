@@ -65,7 +65,7 @@ class NetworkPageInARealBrowserTest(unittest.TestCase):
                     self.assertEqual((saved["host"], saved["public-name"], saved["allowed-hosts"], saved["parallel"]), ("0.0.0.0", "tadamoo.invalid", ["mypc.example.ts.net", "other.example.org"], 2))
         self.assertEqual([r["name"] + ": " + r["error"] for r in results if not r["ok"]], [], log)
         if not os.environ.get("NW_ONLY"):
-            self.assertEqual(len(results), 4 * 3 * 2, results)
+            self.assertEqual(len(results), 5 * 3 * 2, results)
 
 
 if __name__ == "__main__":

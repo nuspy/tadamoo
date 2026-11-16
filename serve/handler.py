@@ -101,6 +101,7 @@ from serve.mcp_auth_api import McpAuthApi, McpAuthError, result_page
 from serve.approvals import ApprovalBoard, ApprovalError
 from serve import actions as actions_mod
 from serve import network_api
+from serve import server_key
 from serve.changes import ChangeJournal
 from tadamoo.taskboard import TaskBoard
 _CHANGES = ChangeJournal(userdata.path("journal"))      # runtime state lives in the user's data folder, not in the assets
@@ -324,11 +325,18 @@ def make_handler(svc: Service, remote: bool = False):
                 self._json(403, {"error": {"type": "forbidden", "code": refused.code, "message": refused.message}})
             return False
 
+        def _retired_key(self, given: str) -> bool:
+            """A key that was replaced from a client is still believed from this machine (the conversations already running hold it) until the server is started again."""
+            return bool(getattr(svc, "retired_keys", None)) and settings.is_loopback(self.client_address[0]) and not self.remote_listener \
+                and any(key_matches(given, k) for k in svc.retired_keys)
+
         def _proven(self) -> bool:
             """The request carries the API key or the control secret in a header, which a page of another site cannot send."""
             auth = self.headers.get("Authorization", "")
             given = auth[7:].strip() if auth.lower().startswith("bearer ") else self.headers.get("x-api-key", "")
             if svc.api_key and given and key_matches(given, svc.api_key):
+                return True
+            if given and self._retired_key(given):
                 return True
             control = self.headers.get(CONTROL_HEADER, "")
             return bool(svc.control_token and control and key_matches(control, svc.control_token))
@@ -472,6 +480,8 @@ def make_handler(svc: Service, remote: bool = False):
                 return True
             if svc.api_key and key_matches(given, svc.api_key):
                 self._via_key = self.remote_listener
+                return True
+            if svc.api_key and given and self._retired_key(given):
                 return True
             keys = getattr(svc, "keys", None)
             row = keys.verify(given) if self.remote_listener and keys is not None and given else None
@@ -686,6 +696,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/sessions-base":
                 if self._authorized():
                     self._sessions_base_get()
+            elif path == "/api/server-key":
+                if self._authorized():
+                    self._json(200, server_key.view(svc, self._key_store()))
             elif path == "/api/network/ping":                  # what the network test asks: no key, and it says what arrived
                 self._json(200, network_api.ping_body(self.headers, self.client_address[0]))
             elif path == "/api/network":
@@ -1178,6 +1191,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path in ("/api/network", "/api/network/test"):
                 self._network_post(path)
+                return
+            if path == "/api/server-key":
+                self._server_key_post()
                 return
             if path == "/api/export":
                 self._export_post()
@@ -2091,6 +2107,32 @@ def make_handler(svc: Service, remote: bool = False):
                                                routines=lambda: _ROUTINES.scheduler if _ROUTINES is not None else None, approvals=_APPROVALS,
                                                path=userdata.path("actions_notified.json"))
             return _ACTIONS
+
+        def _key_store(self):
+            return server_key.KeyStore(userdata.path("server_key.json"))
+
+        def _server_key_post(self):
+            """POST /api/server-key {"current", "new"}: the key in force is replaced and applied at once (serve/server_key.py)."""
+            try:
+                raw = self._body(settings.BODY_MAX)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            if not self._authorized():
+                return
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object {current, new}")
+                holders = [_SESSIONS, _RUNNER]
+                out = server_key.change(svc, self._key_store(), req.get("current"), req.get("new"), settings.is_loopback(self.client_address[0]) and not self.remote_listener, holders)
+            except server_key.KeyChangeRefused as e:
+                return self._json(e.status, {"error": {"type": "invalid_request_error", "code": e.code, "message": str(e)}})
+            except (ValueError, json.JSONDecodeError) as e:
+                return self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            except OSError as e:
+                return self._json(500, {"error": {"type": "server_error", "message": f"cannot keep the key: {e.strerror or e}"}})
+            print("[server] the API key was changed from a client and is in force now", flush=True)
+            self._json(200, out)
 
         def _network_post(self, path):
             """POST /api/network | /api/network/test: this PC only (it writes the config file, and the test makes the server reach out)."""

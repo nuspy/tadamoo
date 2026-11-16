@@ -12,6 +12,13 @@ let perStream = Array(HIST).fill(0);   // mean tok/s per decoding slot, one samp
 
 let apiKey = "";
 try { apiKey = sessionStorage.getItem("tadamoo.key") || ""; } catch (e) { /* storage blocked: ask again */ }
+/* the server's key was changed from this page: the page goes on with the new one, and the desktop app keeps it in the entry of this server */
+window.setServerKey = key => {
+  apiKey = key;
+  try { sessionStorage.setItem("tadamoo.key", key); } catch (e) { /* kept for this page only */ }
+  const app = window.chrome && window.chrome.webview;
+  if (app) app.postMessage({ type: "serverKey", key });
+};
 let M = null;          // the last /metrics reading
 const authHeaders = () => apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
 
