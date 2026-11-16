@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Deque, Dict, List, Optional
 
-from .card import CARD_FIELDS, DERIVED_FIELDS, PlanInsightCard, card_gaps, derive_card
+from .card import CARD_FIELDS, DERIVED_FIELDS, PlanInsightCard, derive_card
 from .dag import Assignee, NodeType, PlanDAG, PlanError, clean_effort, edge_parts, node_to_dict
 from .horizon import PlanProfile
 from .involvement import EXCEPTION_KINDS, split_diff
@@ -176,7 +176,7 @@ class PlanCanvasBridge:
         with self._lock:
             return {"plan": self.dag.to_dict(), "seq": self.seq, "rev": self.rev, "layers": self.dag.layers(), "order": self.dag.list_order(),
                     "card": self.card.to_dict(), "card_auto": list(self.card_auto),
-                    "card_missing": card_gaps(self.card, self.dag.target_type), "profile": self.profile.to_dict(),
+                    "profile": self.profile.to_dict(),
                     "review_due": self.dag.target_type == "constant" and self.profile.review_due(), "alignment": self.alignment,
                     "history": list(self.history)[-HISTORY_SHOWN:],
                     "proposals": [p.to_dict() for p in self.proposals.values() if p.status == "pending"],

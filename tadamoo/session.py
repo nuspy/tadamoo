@@ -90,18 +90,6 @@ UNAVAILABLE_NOTE = "That information is not available in this run and nobody can
 EXCEPTION_TOOLS = {"phone_call": "people"}                          # tools that reach another person
 
 
-PLAN_NEWS_SECONDS = 600            # a plan made by someone else is asked about only while it is new
-
-
-def _recent(stamp: Any) -> bool:
-    """Whether a plan's `updated_at` (UTC, ISO) is within the last PLAN_NEWS_SECONDS."""
-    try:
-        import calendar
-        return time.time() - calendar.timegm(time.strptime(str(stamp), "%Y-%m-%dT%H:%M:%SZ")) <= PLAN_NEWS_SECONDS
-    except ValueError:
-        return False
-
-
 class SessionStore:
     """The history of one conversation and the record of an action in flight, as files in one folder."""
 
@@ -331,6 +319,7 @@ class Session:
         self.endpoint, self.api_key = "", None
         self._window: Optional[Tuple[int, float]] = None
         self._announced: set = set()                            # what the planner already woke the conversation about
+        self._started_plans: set = set()                        # the plans this conversation created or started: the planner writes to it only about these
         self._delta_lock = threading.Lock()
         self._delta_kind, self._delta_turn, self._delta_text, self._delta_at = "", "", [], time.monotonic()
         self.current = _Current(self)
@@ -364,7 +353,7 @@ class Session:
         return [*self.urgent, *self.queue, *self.inbox]
 
     def _save(self) -> None:
-        self.store.save(self.agent.messages[1:], {"session": self.session_id, "turns": self.turns_done, "plans_summary": self._summary, "announced": sorted(self._announced),
+        self.store.save(self.agent.messages[1:], {"session": self.session_id, "turns": self.turns_done, "plans_summary": self._summary, "started_plans": sorted(self._started_plans), "announced": sorted(self._announced),
                                                   "pending": self._pending(), "parked": list(self._parked.values())})
 
     def restore(self) -> int:
@@ -377,6 +366,7 @@ class Session:
             self.turns_done = int(data.get("turns") or 0)
             self._summary = str(data.get("plans_summary") or "")
             self._announced = {str(k) for k in data.get("announced", [])}
+            self._started_plans = {str(k) for k in data.get("started_plans", [])}
             self.queue = [m for m in data.get("pending", []) if isinstance(m, dict) and m.get("text")]
             self._parked = {str(i["id"]): i for i in data.get("parked", []) if isinstance(i, dict) and i.get("id")}
             count = len(data["messages"])
@@ -725,7 +715,7 @@ class Session:
             hooks.plan_event_sink = lambda text, source: client.ingest(text, source)
         recall = self.built.project_recall
         register_planner_tools(self.agent.tools, client, Confirmer(self.current, ask=self._ask, auto=lambda: self.built.permissions.level.value == "auto"),
-                               step_archives=recall.bring if recall is not None else None)
+                               step_archives=recall.bring if recall is not None else None, started=self._started_plans)
         register_ask_tool(self.agent.tools, self.current, self._question)
         self.agent.system_prompt += "\n\n" + qs.PROMPT_RULES
         self.agent.messages[0] = self.agent._system_message()
@@ -1043,7 +1033,7 @@ class Session:
             return (self._workers == 0 and not self._waiting_n and not self.blocked and not (self.queue or self.inbox or self.urgent or self.stack or self.skill_queue))
 
     def poll_plans(self) -> Optional[str]:
-        """Looks at the plans in a quiet moment and, for what is new and needs the person (a change proposed by the planner, a
+        """Looks at the plans this conversation created or started, in a quiet moment, and, for what is new and needs the person (a change proposed by the planner, a
         step it cannot do, a step that failed), starts a turn that tells them (an unattended run is told to decide for itself instead).
         Each thing is announced once. A look asked for while the conversation is busy is kept and made when it is free."""
         if self.planner is None:
@@ -1058,6 +1048,8 @@ class Session:
             return None
         for plan in sorted(plans, key=lambda x: str(x.get("updated_at") or ""), reverse=True):
             pid = str(plan.get("plan_id"))
+            if pid not in self._started_plans:
+                continue
             try:
                 snap = self.planner.snapshot(pid)
             except Exception:
@@ -1075,10 +1067,6 @@ class Session:
                 stuck = (node.get("state_variables") or {}).get("no_route") if isinstance(node, dict) else None
                 if stuck:
                     news.append((f"n:{pid}:{node.get('id')}:{stuck.get('at')}", f'the decision "{node.get("title")}" has no exit that holds and waits for the person (values: {json.dumps(stuck.get("values", {}), ensure_ascii=False)[:200]}).'))
-            gaps = snap.get("card_missing") or []
-            if gaps and not any(h.get("actor") == "chat" for h in snap.get("history") or []) and _recent(plan.get("updated_at")):
-                news.append((f"c:{pid}:{','.join(gaps)}", "to judge incoming events the planner still lacks " + ", ".join(gaps) + ": ask the person only these, in one short question, "
-                                                         "and write what they say with plan_set_card."))
             fresh = [(k, t) for k, t in news if k not in self._announced]
             if fresh:
                 key, text = fresh[0]

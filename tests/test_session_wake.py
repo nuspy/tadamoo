@@ -13,8 +13,8 @@ from test_session_tasks import Model, gated, last_user, make, said_in
 class Plans:
     """A planner client that shows what the test puts in it."""
 
-    def __init__(self):
-        self.plans, self.snaps = [], {}
+    def __init__(self, owner=None):
+        self.plans, self.snaps, self.owner = [], {}, owner
 
     def list(self, archived=False):
         return self.plans
@@ -26,11 +26,13 @@ class Plans:
         self.plans = [p for p in self.plans if p["plan_id"] != pid] + [{"plan_id": pid, "title": title, "updated_at": "2026-10-24", "nodes": 3, "completed": 1}]
         nodes = {f"n{i}": {"id": f"n{i}", "title": t, "status": "failed"} for i, t in enumerate(failed)}
         self.snaps[pid] = {"plan": {"title": title, "nodes": nodes}, "proposals": list(proposals), "offers": list(offers), "rev": 1}
+        if self.owner is not None:
+            self.owner._started_plans.add(pid)                  # a plan this conversation created or started
 
 
 def quiet(tmp_path, model):
     session, ev, store, built = make(tmp_path, model)
-    plans = Plans()
+    plans = Plans(session)
     session.planner = plans
     return session, ev, plans
 
@@ -49,6 +51,13 @@ def test_a_proposal_from_the_planner_wakes_the_conversation_once_and_the_note_is
     while not session.idle():
         threading.Event().wait(0.05)
     assert session.poll_plans() is None and len(model.sent) == 1                       # announced once: not again
+
+
+def test_a_plan_this_conversation_did_not_create_or_start_never_wakes_it(tmp_path):
+    session, ev, plans = quiet(tmp_path, Model())
+    plans.add("P1", "Telegiornale", proposals=[{"proposal_id": "pr1", "title": "x", "rationale": "", "source": "model"}], offers=[{"offer_id": "of1", "reason": "serve una persona"}], failed=["Voce"])
+    session._started_plans.clear()                                                    # started by a schedule or by another conversation
+    assert session.poll_plans() is None and "pr1" not in "".join(session._announced)
 
 
 def test_what_the_chat_itself_proposed_does_not_wake_it(tmp_path):

@@ -685,9 +685,8 @@ and the bridge the page talks to.
   measure (KPIs, habits), a review that records what was found, and reading conflicts between two long-term plans by arithmetic.
 - **Every plan has a card** (what events are judged against), however it was made: one that is not given is drawn from the plan (title, dates of the profile,
   the steps and their state) and those fields follow the plan until someone writes them (`card_auto` in the snapshot). The place, the participants
-  and what limits them are not in a plan's data: `card_missing` lists what a trip lacks, the `plan_create`/`plan_get` text tells the model to ask the
-  person only that (`ask_user`) and to save it with `plan_set_card` (the person's yes), and a plan made elsewhere (the Plans view) while the Chat is open
-  is asked about once, as a note from the planner. Without the cloud filter's consent nothing of a card leaves the machine.
+  and what limits them are not in a plan's data: every field of the card is optional, no plan type has fields the planner asks for, and the model or the
+  person writes them with `plan_set_card` (the person's yes) when they matter. Without the cloud filter's consent nothing of a card leaves the machine.
 - A plan is a graph of steps with shared values. A decision has ordered branches, each its own output connector; a RAG node gives knowledge archives to the actions it is connected to ([plan-nodes.md](plan-nodes.md)). Branches test simple conditions (`len(guests) >= 2`; never code); when no branch holds the path stops with a visible "no route" (or, if the person chose so, the step becomes theirs). A step writes the plan's values when it is completed (`outputs` of
   `plan:mark` and of `plan_mark`: names a condition can read, plain data up to 4,000 characters each and 50,000 in all); merges wait for their inputs; a task the software cannot do is offered to you with an
   alternative and, if you decline, becomes yours and blocks what depends on it. You can rewind a step. A rewind says first which recorded actions of those steps stay done (see *Branches, going back and comparing*).

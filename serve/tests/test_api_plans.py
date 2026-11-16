@@ -215,7 +215,7 @@ class PlansApiTest(PlansApiBase):
         self.assertEqual(snap["card"]["titolo"], "Weekend a Cervinia")
         self.assertEqual(snap["card"]["logistica_e_prenotazioni"], {"Hotel": "pending", "Partenza": "pending"})
         self.assertEqual(snap["card_auto"], ["titolo", "date", "logistica_e_prenotazioni"])
-        self.assertEqual(snap["card_missing"], ["date", "destinazione", "partecipanti"])
+        self.assertNotIn("card_missing", snap)
         code, res = self.call("POST", "/api/plans/nocard/triage", {"events": ["Sciopero"]})
         self.assertEqual((code, res["source"], res["sent_to_cloud"]), (200, "offline", False))
 

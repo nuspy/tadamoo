@@ -22,7 +22,7 @@ import json
 import re
 import secrets
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from tadamoo.cron_templates import PLACEHOLDER, render_template
 from tadamoo.integrations._http import ServiceError
@@ -152,18 +152,6 @@ def no_route_text(facts: Dict[str, Any]) -> str:
     return "; ".join(parts) + f"; values: {json.dumps(facts.get('values', {}), ensure_ascii=False)}"
 
 
-CARD_LABELS = {"date": "the dates", "destinazione": "the place", "partecipanti": "who takes part"}
-
-
-def interview_text(snap: Dict[str, Any]) -> str:
-    """What the plan's card lacks to judge events against the plan, as a note for the model: ask only that, in the conversation."""
-    missing = [CARD_LABELS.get(f, f) for f in snap.get("card_missing") or []]
-    if not missing:
-        return ""
-    return ("To judge incoming events against this plan the planner still lacks: " + ", ".join(missing) + ". Ask the user only these, in one short question "
-            "(ask_user), and save what they say with plan_set_card; do not ask anything else, and do not invent an answer.")
-
-
 def describe_diff(diff: Dict[str, Any], nodes: Dict[str, Any]) -> List[str]:
     """What a diff does, in lines the model and the person can read: the steps it adds with their links, the ones it changes (field by field)
     and removes, and the links it draws or cuts."""
@@ -255,8 +243,6 @@ def render_plan(snap: Dict[str, Any]) -> str:
             lines.append("      parked: waits for " + ", ".join(n["state_variables"]["parked_by"]) + " (failed or timed out)")
         if (n.get("state_variables") or {}).get("no_route"):
             lines.append("      NO EXIT HOLDS, it waits for the user: " + no_route_text(n["state_variables"]["no_route"]))
-    if interview_text(snap):
-        lines.append(interview_text(snap))
     state = plan.get("shared_state") or {}
     if state:
         lines.append("Plan values: " + "; ".join(f"{k} = {json.dumps(v, ensure_ascii=False)[:120]}" for k, v in list(state.items())[:20]))
@@ -312,8 +298,10 @@ def plans_summary(client: PlannerClient) -> str:
     return "\n".join(lines)
 
 
-def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confirmer: Confirmer, step_archives: Optional[Callable[[List[str]], str]] = None) -> None:
+def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confirmer: Confirmer, step_archives: Optional[Callable[[List[str]], str]] = None,
+                           started: Optional[Set[str]] = None) -> None:
     seen: Dict[str, int] = {}                       # the revision of each plan as the model last read it
+    started = started if started is not None else set()       # the plans this conversation created or started: the only ones the planner writes to it about
 
     def bring(ids: List[str]) -> str:
         """Gives the step the knowledge archives it declares (none: lets go of the last step's); the words that tell the model which, by name."""
@@ -461,6 +449,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         except Exception as exc:
             return failure(exc)
         seen[snap["plan"]["plan_id"]] = int(snap.get("rev") or 0)
+        started.add(snap["plan"]["plan_id"])
         found = ""
         try:
             found = render_alignment(client.alignment(snap["plan"]["plan_id"]))
@@ -506,7 +495,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
         except Exception as exc:
             return failure(exc)
         seen[plan_id] = int(fresh.get("rev") or seen[plan_id])
-        return f"Saved ({how}): {written}. " + (interview_text(fresh) or "The card now has what events need to be judged.")
+        return f"Saved ({how}): {written}."
 
     def plan_set_profile(plan_id: str, profile: Dict[str, Any], quote: str = "") -> str:
         """Sets what the plan says about time and money: aims, budget, periods already taken, how often to look again (a long-term plan); dates and cost
@@ -656,6 +645,7 @@ def register_planner_tools(registry: ToolRegistry, client: PlannerClient, confir
             seen[plan_id] = int(client.snapshot(plan_id).get("rev") or seen[plan_id])
         except Exception as exc:
             return failure(exc)
+        started.add(plan_id)
         return f"Plan started at {res.get('started')} ({how}). Ready now: {', '.join(res.get('ready', [])) or 'nothing'}."
 
     def plan_set_parameters(plan_id: str, values: Dict[str, Any], quote: str = "") -> str:

@@ -1,7 +1,16 @@
 # Diario dei task
 
-Ultimo aggiornamento: 14 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
+Ultimo aggiornamento: 16 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «9 novembre» e da «Decisioni tue in attesa». Le sezioni dell'8, 7, 5 e 4 novembre sono in `docs/task_diary_archive.md`.
+
+## 16 novembre
+
+- Fatto (16 novembre, in locale, non ancora pubblicato): il telegiornale è fuori dal repository (resta sul PC, fuori da git); il piano parte ogni giorno alle 6 sul server locale e stamattina è partito.
+- Fatto (16 novembre, non ancora pubblicato): il planner non chiede più data, destinazione e partecipanti per i piani «occasionali»; la scheda del piano ha ancora quei campi, ma facoltativi, e nessun tipo di piano li pretende.
+- Fatto (16 novembre, non ancora pubblicato): il planner scrive a una chat solo sui piani che quella chat ha creato o avviato; i piani avviati da un orario o da un'altra sessione non mandano note alle chat aperte.
+- Da fare, nell'ordine che hai deciso: riscrivere la cronologia di GitHub senza il telegiornale, fare il push, poi cancellare le release 1.12.8 e pubblicare la 1.12.9 (nona della 1.12, bizarre-smarttv).
+- In esame: telegiornale in ungherese. Il parere di un ungherese sul video precedente: meglio di prima, ma la comunicazione non è coerente, l'articolazione non torna e le pause non vanno. Idea tua: un modello specializzato in ungherese (OpenEuroLLM-Hungarian, su Ollama, 12 miliardi di parametri, 8,1 GB) che riveda o traduca le notizie dopo la scaletta; niente è stato scaricato.
+- Crash del PC alle 6:47 del 16 novembre (errore di sistema 0xF7, driver che sbaglia un buffer): vedi la risposta data a te; senza file di dump non si può dire quale driver. Prima, alle 6:23, il driver della scheda video aveva segnalato 510 errori e alle 6:26 la memoria si era esaurita, con il motore (basalt.exe) fermato da Windows.
 
 ## 14 novembre
 

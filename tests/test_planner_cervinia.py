@@ -93,17 +93,17 @@ def test_the_cervinia_weekend_from_the_chat_to_the_approved_replan(chat):
     title = f"Weekend a Cervinia {uuid.uuid4().hex[:5]}"
     run = lambda name, **args: reg.execute(name, args)
 
-    # 1. the Chat makes the plan and is told what the card still lacks
+    # 1. the Chat makes the plan; its card is drawn from the plan
     made = run("plan_create", title=title, kind="occasional", steps=[{"title": "Prenota l'hotel"}, {"title": "Parti"}])
     pid = pid_of(client, title)
-    assert "still lacks: the dates, the place, who takes part" in made
+    assert "still lacks" not in made
     snap = client.snapshot(pid)
-    assert snap["card"]["titolo"] == title and snap["card_missing"] == ["date", "destinazione", "partecipanti"]
+    assert snap["card"]["titolo"] == title
 
-    # 2. the interview: the person answers, the Chat writes it with their yes
+    # 2. the person says it, the Chat writes it with their yes
     out = run("plan_set_card", plan_id=pid, date="Venerdì 24 - Domenica 26 ottobre", destination="Cervinia", participants=["Io", "Gianna", "Lucia"],
               constraints={"Gianna": "ferroviera, può essere precettata", "Lucia": "allergica agli ovini"})
-    assert "Saved (asked)" in out and client.snapshot(pid)["card_missing"] == []
+    assert "Saved (asked)" in out
 
     # 3. the Chat gives the plan its structure; a decision with its exits and a merge that needs the head count are accepted
     out = run("plan_propose_change", plan_id=pid, title="Inviti, scelta della cena e meteo", rationale="il weekend dipende da chi accetta", diff=STRUCTURE)

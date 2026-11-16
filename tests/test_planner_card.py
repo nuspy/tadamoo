@@ -9,8 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from tadamoo.planner import JevTriageGatekeeper, PlanCanvasBridge, PlanDAG, PlanInsightCard, PlanProfile, PlanStore
-from tadamoo.planner.card import card_gaps, derive_card
-from tadamoo.planner_tools import interview_text
+from tadamoo.planner.card import derive_card
 from test_planner import CARD, chain, node
 from test_planner_tools import Asker, AgentState, world  # noqa: F401  (fixture)
 from test_session_wake import quiet
@@ -72,11 +71,9 @@ def test_the_card_survives_saving_and_loading_with_what_follows_the_plan(tmp_pat
     assert fresh.card_auto == ["titolo", "date", "logistica_e_prenotazioni"] and fresh.card.logistica_e_prenotazioni == {"A": "pending", "B": "pending"}
 
 
-def test_gaps_are_what_a_trip_needs_to_be_judged_and_a_routine_needs_nothing():
-    card = derive_card(chain("a"), None)
-    assert card_gaps(card, "occasional") == ["date", "destinazione", "partecipanti"] and card_gaps(card, "constant") == []
-    full = PlanInsightCard.from_dict({**CARD, "date": "24-26 ottobre", "destinazione": "Cervinia"})
-    assert card_gaps(full, "occasional") == []
+def test_no_plan_type_has_fields_the_planner_asks_for():
+    from tadamoo.planner import card as card_mod
+    assert not hasattr(card_mod, "card_gaps") and not hasattr(card_mod, "INTERVIEW_FIELDS")
 
 
 def test_steps_with_the_same_title_keep_both_and_a_long_plan_keeps_every_step():
@@ -115,17 +112,17 @@ def make(reg, agent, kind="occasional"):
     return title, out
 
 
-def test_the_model_is_told_what_is_missing_when_it_creates_or_reads_a_plan(world):
+def test_creating_or_reading_a_plan_asks_nothing_about_a_card_of_any_type(world):
     client, agent, build = world
     reg, ask = build("default")
-    title, out = make(reg, agent)
-    assert "still lacks: the dates, the place, who takes part" in out and "plan_set_card" in out and "do not invent" in out
-    pid = next(p["plan_id"] for p in client.list() if p["title"] == title)
-    assert "still lacks" in reg.execute("plan_get", {"plan_id": pid})
-    assert "still lacks" not in make(reg, agent, "constant")[1]
+    for kind in ("occasional", "constant"):
+        title, out = make(reg, agent, kind)
+        pid = next(p["plan_id"] for p in client.list() if p["title"] == title)
+        assert "still lacks" not in out and "still lacks" not in reg.execute("plan_get", {"plan_id": pid})
+        assert "card_missing" not in client.snapshot(pid)
 
 
-def test_the_answer_goes_into_the_card_with_the_users_yes_and_the_interview_ends(world):
+def test_the_answer_goes_into_the_card_with_the_users_yes(world):
     client, agent, build = world
     reg, ask = build("default", "confirm")
     title, _ = make(reg, agent)
@@ -136,14 +133,14 @@ def test_the_answer_goes_into_the_card_with_the_users_yes_and_the_interview_ends
     assert "list of names" in reg.execute("plan_set_card", {"plan_id": pid, "participants": [" "]})
     out = reg.execute("plan_set_card", {"plan_id": pid, "date": "24-26 ottobre", "destination": "Cervinia", "participants": ["Io", "Gianni"],
                                         "constraints": {"Gianni": "macchinista FS, può essere precettato"}})
-    assert "Saved (asked)" in out and "what events need" in out
+    assert "Saved (asked)" in out
     q = ask.asked[0]
     assert "write into its card" in q["question"] and "constraints" in q["question"]
     snap = client.snapshot(pid)
     card = snap["card"]
     assert (card["date"], card["destinazione"], card["partecipanti"]) == ("24-26 ottobre", "Cervinia", ["Io", "Gianni"])
     assert card["profilo_e_vincoli_partecipanti"] == {"Gianni": "macchinista FS, può essere precettato"}
-    assert snap["card_missing"] == [] and "date" not in snap["card_auto"]
+    assert "date" not in snap["card_auto"]
 
 
 def test_without_a_yes_nothing_is_written_to_the_card(world):
@@ -157,26 +154,19 @@ def test_without_a_yes_nothing_is_written_to_the_card(world):
     assert client.snapshot(pid)["card"]["destinazione"] == ""
 
 
-def test_the_planner_asks_in_the_chat_about_a_new_plan_made_elsewhere_once(tmp_path):
-    model = Model((said_in("[planner]"), lambda: say("Dove e quando?")))
-    session, ev, plans = quiet(tmp_path, model)
-    plans.add("P1", "Cena")
-    plans.plans[0]["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    plans.snaps["P1"].update(card_missing=["date", "partecipanti"], history=[{"actor": "user", "type": "create"}])
-    key = session.poll_plans()
-    assert key == "c:P1:date,partecipanti"
-    ev.wait("done")
-    assert "lacks date, partecipanti" in last_user(model.sent[0]) and "plan_set_card" in last_user(model.sent[0])
-
-
-@pytest.mark.parametrize("history,updated", [([{"actor": "chat", "type": "create"}], "now"), ([{"actor": "user", "type": "create"}], "2020-01-01T00:00:00Z")])
-def test_it_does_not_ask_about_a_plan_the_chat_made_or_an_old_one(tmp_path, history, updated):
-    session, ev, plans = quiet(tmp_path, Model())
-    plans.add("P1", "Cena")
-    plans.plans[0]["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) if updated == "now" else updated
-    plans.snaps["P1"].update(card_missing=["date"], history=history)
-    assert session.poll_plans() is None
-
-
-def test_interview_text_is_empty_when_nothing_is_missing():
-    assert interview_text({"card_missing": []}) == "" and "the place" in interview_text({"card_missing": ["destinazione"]})
+def test_a_plan_the_conversation_creates_is_marked_as_its_own_and_one_it_only_reads_is_not(world):
+    from tadamoo.planner_tools import Confirmer, register_planner_tools
+    from tadamoo.tools.registry import ToolRegistry
+    client, agent, build = world
+    reg, ask = build("default")
+    title, _ = make(reg, agent)
+    pid = next(p["plan_id"] for p in client.list() if p["title"] == title)
+    mine, theirs = set(), set()
+    mine_reg, theirs_reg = ToolRegistry(), ToolRegistry()
+    register_planner_tools(mine_reg, client, Confirmer(agent, ask), started=mine)
+    register_planner_tools(theirs_reg, client, Confirmer(agent, ask), started=theirs)
+    mine_reg.execute("plan_get", {"plan_id": pid})
+    assert mine == set() and theirs == set()                                           # reading is not starting
+    agent.last_user_text = "Crea il piano Cena per favore"
+    mine_reg.execute("plan_create", {"title": "Cena", "kind": "occasional", "steps": [{"title": "Cuoci"}], "quote": "Crea il piano Cena"})
+    assert len(mine) == 1 and theirs == set()

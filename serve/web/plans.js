@@ -1450,7 +1450,6 @@
           ["occasional", "constant"].map(k => el("option", { value: k, text: T("pl.kind." + k), selected: k === p.target_type })))),
         el("p", { class: "help", text: T("pl.kind.help") }),
         el("p", { class: "help", text: T("pl.card.help") }),
-        ...((S.snap.card_missing || []).length ? [el("p", { class: "pl-fact", role: "status", text: T("pl.card.missing", S.snap.card_missing.map(f => T("pl.card." + f)).join(", ")) })] : []),
         ...((S.snap.card_auto || []).length ? [el("p", { class: "help", text: T("pl.card.auto", S.snap.card_auto.map(f => T("pl.card." + f)).join(", ")) })] : []),
         field("pl-m-c-titolo", T("pl.meta.cardtitle"), el("input", { id: "pl-m-c-titolo", value: card.titolo || p.title, maxlength: "200", autocomplete: "off" })),
         field("pl-m-c-date", T("pl.card.date"), el("input", { id: "pl-m-c-date", value: card.date || "", autocomplete: "off" })),
