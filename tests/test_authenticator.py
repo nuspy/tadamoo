@@ -91,3 +91,43 @@ def test_an_otpauth_link_and_a_bare_secret():
     for bad in ("otpauth://totp/x?secret=not base32!", "otpauth://totp/x?secret=JBSWY3DP&algorithm=MD5", "otpauth://totp/x?secret=JBSWY3DP&digits=5", "otpauth://totp/x?secret=JBSWY3DP&period=1", "otpauth://totp/x", "11111"):
         with pytest.raises(au.AuthenticatorError):
             au.read(bad)
+
+
+def qr_png(text, scale=6):
+    import io
+
+    import zxingcpp
+    from PIL import Image
+    img = zxingcpp.write_barcode_to_image(zxingcpp.create_barcode(text, zxingcpp.BarcodeFormat.QRCode))
+    pil = Image.fromarray(img).resize((img.shape[1] * scale, img.shape[0] * scale), Image.NEAREST)
+    out = io.BytesIO()
+    pil.save(out, "PNG")
+    return out.getvalue()
+
+
+def test_a_picture_with_the_qr_of_an_export_gives_its_accounts():
+    link = export_link([account_blob(b"Hello!\xde\xad\xbe\xef", "alice@example.com", "Example")])
+    texts = au.scan_image(qr_png(link))
+    assert texts == [link]
+    assert [a.name for a in au.read_many(texts).accounts] == ["alice@example.com"]
+
+
+def test_two_qr_codes_of_one_export_are_joined_and_one_alone_is_said_to_be_part_of_two():
+    first = export_link([account_blob(b"aaaaaaaaaa", "a", "A")], size=2, index=0)
+    second = export_link([account_blob(b"bbbbbbbbbb", "b", "B")], size=2, index=1)
+    assert [a.name for a in au.read_many([second, first]).accounts] == ["a", "b"]
+    with pytest.raises(au.AuthenticatorError, match="2 parts"):
+        au.read_many([first])
+
+
+def test_a_picture_without_a_qr_or_that_is_not_a_picture_is_refused():
+    import io
+
+    from PIL import Image
+    blank = io.BytesIO()
+    Image.new("RGB", (80, 80), "white").save(blank, "PNG")
+    assert au.scan_image(blank.getvalue()) == []
+    with pytest.raises(au.AuthenticatorError, match="not a picture"):
+        au.scan_image(b"not a picture")
+    with pytest.raises(au.AuthenticatorError, match="no account"):
+        au.read_many([])

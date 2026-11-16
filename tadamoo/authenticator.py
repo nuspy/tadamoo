@@ -200,3 +200,41 @@ def merge_batches(batches: List[Migration]) -> Optional[Migration]:
         return None
     done = sorted(({b.batch_index: b for b in batches}).values(), key=lambda b: b.batch_index)
     return Migration([a for b in done for a in b.accounts], size, 0, batches[0].batch_id)
+
+
+def scan_image(data: bytes) -> List[str]:
+    """The text of every QR code in a picture (a screenshot, a photo, a frame of the camera), in reading order; needs the `zxing-cpp` package."""
+    try:
+        import io
+
+        import zxingcpp
+        from PIL import Image
+    except ImportError:
+        raise AuthenticatorError("reading a QR code from a picture needs the 'zxing-cpp' and 'Pillow' packages") from None
+    try:
+        image = Image.open(io.BytesIO(data))
+        image.load()
+    except Exception:
+        raise AuthenticatorError("this is not a picture this reader can open") from None
+    found = zxingcpp.read_barcodes(image.convert("RGB"), formats=zxingcpp.BarcodeFormat.QRCode)
+    return [b.text for b in sorted(found, key=lambda b: (b.position.top_left.y, b.position.top_left.x)) if b.text]
+
+
+def read_many(texts: List[str]) -> Migration:
+    """Every link found (the batches of an export, or several links) as one list of accounts; an export that lacks a batch is said."""
+    batches: List[Migration] = []
+    singles: List[Account] = []
+    for t in texts:
+        m = read(t)
+        if t.strip().lower().startswith("otpauth-migration://"):
+            batches.append(m)
+        else:
+            singles.extend(m.accounts)
+    joined = merge_batches(batches) if batches else Migration()
+    if batches and joined is None:
+        got = sorted(b.batch_index + 1 for b in batches)
+        raise AuthenticatorError(f"the export has {max(b.batch_size for b in batches)} parts and only {got} were read: read the other ones too")
+    accounts = (joined.accounts if joined else []) + singles
+    if not accounts:
+        raise AuthenticatorError("no account was found")
+    return Migration(accounts)
