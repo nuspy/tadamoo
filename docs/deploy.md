@@ -25,6 +25,8 @@ deploy/linux/install.sh status          sudo deploy/linux/install.sh uninstall [
 The listening address is `--host` (this machine only by default) and the port `--port`. `--no-web` makes a harness that serves only its API (`no-web: true` in the config file; the root answers
 `{"web": false}`, the page's files and fonts are not there): for a server that the desktop app, the phone app or other programs use.
 
+The complete release also has `tools/vendored/` (agent-desktop for computer control, agent-browser for the browser tools), built by the vendored-tools workflow from `third_party/`; the installer copies it with the program and makes it runnable ([vendored-tools.md](vendored-tools.md)). A server has no desktop, so computer control there is only useful with an X11 session; the browser tools need Chrome or Chromium on the server (`--executable-path` is found like the own driver's).
+
 ### A proxy in front
 
 `--public-name` puts the name into `allowed-hosts`; without it a proxy that forwards the public name as the `Host` header gets `403 host_not_allowed` (see [server-security.md](server-security.md)).

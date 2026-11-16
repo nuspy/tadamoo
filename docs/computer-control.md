@@ -4,7 +4,7 @@ The agent can look at the screen of this PC and work its mouse and keyboard (`ta
 only in a dialog. It is **slower and less sure than a script**: it works through what is on the screen, the screen can change between a picture and the next click, and an interface it does
 not recognise can mislead it. The tool descriptions say this to the model, and tell it to say so, and look again, instead of guessing.
 
-It is **off until the person turns it on**: Wallet > Computer control (or `POST /api/computer`, from this PC only). Nothing else changes for a conversation that has it off.
+It is **on by default** (the permission levels decide what runs, as for every tool) and is turned off in Wallet > Computer control (or `POST /api/computer`, from this PC only); a conversation with it off has none of the tools.
 
 ## The tools
 
@@ -66,7 +66,7 @@ a window that draws itself (a game, a canvas) can be empty: then the model works
 
 ## Backend: the system's own or agent-desktop
 
-`backend` in `computer.json` (and Wallet > Computer control) is `auto` (default), `agent-desktop` or `native`. `auto` takes agent-desktop when it is installed, in `<data>/tools/agent-desktop/` or on `PATH`,
+`backend` in `computer.json` (and Wallet > Computer control) is `auto` (default), `agent-desktop` or `native`. `auto` takes agent-desktop when it is found: in `<data>/tools/agent-desktop/` (a release the person took), shipped with TaDaMoo (`tools/vendored/agent-desktop/`, built from `third_party/`: [vendored-tools.md](vendored-tools.md)) or on `PATH`,
 and the system's own backend (above) otherwise; `agent-desktop` asked for by name and not installed says so instead of falling back. It applies to conversations started from then on.
 
 **agent-desktop** ([vercel-labs/agent-desktop](https://github.com/vercel-labs/agent-desktop), Apache-2.0) is a separate program run one command at a time (`tadamoo/computer/agent_desktop.py`); every command
@@ -93,7 +93,7 @@ key left pressed would be worse); a read is. A dangerous shortcut (Alt+F4, Win+L
 repeating is safe (`disposition.retry`): nothing was sent, or it may already have happened, so look at the screen first. The program's own state (snapshots, which can hold private screen text) is in
 `<data>/tools/agent-desktop/state/`. `launch` (starting programs) is not offered: it would start any program outside the shell's deny list.
 
-**Installing.** Wallet > Computer control > Install agent-desktop, or `python -m tadamoo.computer install` (`status` and `path` too; `--dir`, `--tag`). Only on that click or command: it reads the latest release from
+**Updating.** agent-desktop is shipped with the installers; a newer release is taken with Wallet > Computer control > Update agent-desktop, or `python -m tadamoo.computer install` (`status` and `path` too; `--dir`, `--tag`), whose copy is used before the shipped one. Only on that click or command: it reads the latest release from
 `api.github.com`, downloads the archive for this system from `github.com/vercel-labs/agent-desktop/releases/download` (anything else is refused), checks its SHA-256 against the release's digest or `checksums.txt`
 (a release with no checksum is installed with that said), unpacks plain files only, replaces the old files and keeps `state/`. The page shows the version and `agent-desktop status` (accessibility access).
 `gh attestation verify <archive> --repo vercel-labs/agent-desktop` checks where an archive came from; the program does not do it. On Windows the program is unsigned: SmartScreen or an antivirus may warn, and Smart

@@ -69,6 +69,11 @@ If `dist\TaDaMoo-WinGUI.ifp` exists the script **updates** it: version, install 
 and the build paths. Everything else is kept, including what you changed in InstallForge (images, texts, languages,
 the license page). Delete it to have it created again.
 
+## agent-desktop and agent-browser
+
+The setup includes the two Vercel Labs programs built from `third_party/` (computer control and the default driver of the browser tools): `compile_and_package.ps1` puts them in `toolsendored\<name>\` from the archive
+of the vendored-tools GitHub workflow (`-VendoredArchive`, or `dist\cacheendored\`), else builds them with cargo, else warns and goes on without. See [vendored-tools.md](vendored-tools.md).
+
 ## Not covered by the build
 
 The Qwen model files are not in the setup: the app downloads them (Loader, "Download models"). A PC without the WebView2
