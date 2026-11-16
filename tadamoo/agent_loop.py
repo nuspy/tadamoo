@@ -21,6 +21,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from tadamoo.audit import AuditLedger
 from tadamoo.checkpoints import CheckpointManager, call_paths
 from tadamoo.review import call_lines as review_lines
+from tadamoo.step_log import StepLog
 from tadamoo.client import TadamooClient, TadamooError, StreamCancelled, extract_reasoning_and_content
 from tadamoo.context import ContextManager, fence_untrusted, wire_messages
 from tadamoo.continuation import cut_point, join_continuation
@@ -273,6 +274,7 @@ class AgentLoop:
         self._run_started = time.monotonic()
         self._reached = False                               # the server has answered at least once: a lost connection after that is waited out
         self.context = context
+        self._step_log = StepLog.from_environment()              # experiment: a record of every model call (tadamoo/step_log.py), off unless the environment names a folder
         self.on_event = on_event
         self.on_delta = on_delta                  # the model's text as it is written ("content" or "reasoning"), when set
         self.before_inference = before_inference  # looked at before every model call; it may add messages or ask to be put aside
@@ -964,6 +966,8 @@ class AgentLoop:
             )
             self._continuing = False
             self.total_tokens += turn.prompt_tokens + turn.completion_tokens
+            if self._step_log is not None:
+                self._step_log.record(self.messages, turn, {"elapsed_s": round(time.monotonic() - t0, 2)})
 
             if done.degenerate:                          # a loop, twice: what was written is not kept
                 self.stop_reason, self.error = DEGENERATE, DEGENERATE_NOTICE

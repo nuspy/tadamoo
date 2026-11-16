@@ -145,6 +145,17 @@ def test_code_over_its_share_of_the_budget_has_its_oldest_results_masked_with_th
     assert paired(out)
 
 
+def test_code_masked_in_a_block_goes_down_to_a_lower_line_so_the_next_steps_only_add(tmp_path):
+    just = manager(tmp_path, budget=1500)
+    block = manager(tmp_path, budget=1500)
+    block.code_low = 0.4
+    one = just.prepare(only_code())
+    two = block.prepare(only_code())
+    held = lambda mgr, out: mgr.estimate_tokens([out[i] for i in code_indices(out)])
+    assert held(just, one) <= 0.6 * 1500 and held(block, two) <= 0.4 * 0.6 * 1500
+    assert sum(1 for m in two if m.get("masked")) > sum(1 for m in one if m.get("masked")) and paired(two)
+
+
 def test_code_the_person_pasted_loses_its_protection_when_results_are_not_enough(tmp_path):
     mgr = manager(tmp_path, budget=800)
     msgs = start() + [{"role": "user", "content": FENCED + "\n" + "x = 1\n" * 400}, {"role": "assistant", "content": "ok"}]

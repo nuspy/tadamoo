@@ -361,6 +361,7 @@ class ContextManager:
         self.chars_per_token = chars_per_token
         self.keep_code = keep_code                          # an agent session: code is kept whole (see `protect`)
         self.code_share = CODE_SHARE
+        self.code_low = 1.0                                 # the share the code results are masked down to once it is passed (1: just under it, at every step; lower: in a block, so the history changes less often)
         self.released: List[Dict[str, Any]] = []            # code that fell back to masking or lost its protection, until the loop takes it
 
     def estimate_tokens(self, messages: Iterable[Dict[str, Any]]) -> int:
@@ -409,8 +410,9 @@ class ContextManager:
         out = list(messages)
         calls = _arguments_by_call(messages)
         for results in (True, False):
+            target = int(limit * self.code_low) if results else limit
             for i, m in enumerate(out):
-                if held(out) <= limit:
+                if held(out) <= target:
                     return out
                 if not m.get("code") or (m.get("role") == "tool") != results:
                     continue
