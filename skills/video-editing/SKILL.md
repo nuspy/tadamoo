@@ -7,7 +7,7 @@ requires: python, ffmpeg
 
 # Video editing
 
-The code is `tadamoo/videoedit/` (docs in `docs/videoedit/`); the graphics of a particular programme (the cards of a newscast) are drawn by that programme on a `videoedit.frame.Frame`.
+The code is `tadamoo/videoedit/` (docs in `docs/videoedit/`); the graphics of a particular programme (the cards of a briefing) are drawn by that programme on a `videoedit.frame.Frame`.
 
 ## When to use it
 

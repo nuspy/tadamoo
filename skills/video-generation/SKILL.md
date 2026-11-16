@@ -21,14 +21,14 @@ Clips from words or from a picture, and the means to improve them. The code is `
 `generate_video(prompt, image, width, height, frames, fps, seed, negative, path)`; caps in [references/tools.md](references/tools.md).
 
 - A clip is 704x512, 65 frames at 25 fps (2.6 s) by default; at most 1280x720 and 161 frames (6.4 s at 25 fps). Frames are rounded to 8k+1 and sizes to a multiple of 64; the answer says what was rounded.
-- The model makes every frame it is asked for: a 25 fps clip has 25 different pictures a second (checked on the clips of a newscast run: no repeated frame). Its motion can still look stiff at small sizes, which is what
+- The model makes every frame it is asked for: a 25 fps clip has 25 different pictures a second (checked on the clips of a production run: no repeated frame). Its motion can still look stiff at small sizes, which is what
   `enhance_video` is for.
 - The prompt says what happens: subject, action, camera, light. No sound is made.
 - One clip is short on purpose: a longer scene is several clips joined (`video-editing`), each from its own prompt or from the last picture of the one before.
 
 ## enhance_video
 
-`enhance_video(path, scale, factor, mode, output)`: a better copy of a video of the working folder; the original is kept. With neither `scale` nor `factor` it enhances the picture with FlashVSR+ in its Turbo mode: the one enhancer of the product (the newscast enhances every take with it). The copy has exactly the size, the frames and so the duration of the original: "better" means the blockiness removed and the detail restored, not more pixels.
+`enhance_video(path, scale, factor, mode, output)`: a better copy of a video of the working folder; the original is kept. With neither `scale` nor `factor` it enhances the picture with FlashVSR+ in its Turbo mode: the one enhancer of the product (the briefing enhances every take with it). The copy has exactly the size, the frames and so the duration of the original: "better" means the blockiness removed and the detail restored, not more pixels.
 
 - `factor` 2 to 4: the frames a second are multiplied by RIFE (25 becomes 50 at 2): new frames are made between the real ones, the length does not change, nothing is slowed down.
 - `scale` 1 to 4: the size FlashVSR+ works at (2, the default: it works at twice the size and the result is brought back to the original size with a Lanczos downscale; 1: it restores at the original size). Before, `scale` multiplied the width and height by FlashVSR+ (`mode` turbo, faster, or base, finer): more pixels and the detail an AI enlarger infers, with the sound kept when the clip has any.

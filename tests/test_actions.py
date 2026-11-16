@@ -49,12 +49,12 @@ class Proposal:
 class Plans:
     def __init__(self):
         self.requests = [
-            {"plan_id": "p", "plan_title": "Newscast", "node_id": "approval1", "title": "Approvazione", "ask": "approve", "prompt": "Va bene?", "prompt_en": "Fine?", "help": "Read it", "content": "", "since": 10.0,
+            {"plan_id": "p", "plan_title": "Briefing", "node_id": "approval1", "title": "Approvazione", "ask": "approve", "prompt": "Va bene?", "prompt_en": "Fine?", "help": "Read it", "content": "", "since": 10.0,
              "kind": "text", "choices": []},
-            {"plan_id": "p", "plan_title": "Newscast", "node_id": "pick", "title": "Edition", "ask": "value", "prompt": "Quale?", "prompt_en": "Which?", "since": 11.0, "kind": "choice",
+            {"plan_id": "p", "plan_title": "Briefing", "node_id": "pick", "title": "Edition", "ask": "value", "prompt": "Quale?", "prompt_en": "Which?", "since": 11.0, "kind": "choice",
              "choices": [{"value": "a", "label": "A", "label_en": "A"}, {"value": "b", "label": "B", "label_en": "B"}, {"value": "c", "label": "C", "label_en": "C"}], "other": True, "proposed": "a"},
-            {"plan_id": "p", "plan_title": "Newscast", "node_id": "how_many", "title": "N", "ask": "value", "prompt": "Quanti?", "prompt_en": "How many?", "since": 12.0, "kind": "number", "choices": []},
-            {"plan_id": "p", "plan_title": "Newscast", "node_id": "call", "title": "Phone", "ask": "task", "prompt": "Chiama", "prompt_en": "", "content": "Call him", "since": 13.0, "kind": "text", "choices": []},
+            {"plan_id": "p", "plan_title": "Briefing", "node_id": "how_many", "title": "N", "ask": "value", "prompt": "Quanti?", "prompt_en": "How many?", "since": 12.0, "kind": "number", "choices": []},
+            {"plan_id": "p", "plan_title": "Briefing", "node_id": "call", "title": "Phone", "ask": "task", "prompt": "Chiama", "prompt_en": "", "content": "Call him", "since": 13.0, "kind": "text", "choices": []},
         ]
         self.events = []
         self.bridges = {"p": Bridge({"pr1": Proposal("pr1", "Add a step")})}
@@ -63,7 +63,7 @@ class Plans:
         return list(self.requests)
 
     def list(self):
-        return [{"plan_id": "p", "title": "Newscast"}]
+        return [{"plan_id": "p", "title": "Briefing"}]
 
     def bridge(self, plan_id):
         return self.bridges[plan_id]

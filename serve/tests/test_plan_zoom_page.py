@@ -50,7 +50,7 @@ class PlanZoomInARealBrowserTest(unittest.TestCase):
         dag = PlanDAG(plan_id="zoom-check", title="Zoom check", target_type="occasional")
         spots = {"a1": (20, 20), "a2": (300, 20), "a3": (580, 20), "b1": (20, 160), "b2": (300, 160), "b3": (580, 160), "c1": (20, 300), "c2": (300, 300), "c3": (580, 300)}
         from tadamoo.planner import NodeType
-        dag.add_node(node("start", NodeType.START, title="Start", spec={"number": 1, "launch": "manual"}))        # placed left of the origin, as the newscast plan's start is
+        dag.add_node(node("start", NodeType.START, title="Start", spec={"number": 1, "launch": "manual"}))        # placed left of the origin, as the briefing plan's start is
         for nid in spots:
             dag.add_node(node(nid, title=nid))
         dag.add_edge("start", "a1")

@@ -5,6 +5,9 @@ import shutil
 import pytest
 
 from tadamoo.media import stock, stockplace
+import pytest
+
+pytest.importorskip("tadamoo.newscast")      # the production code is a private one, kept out of the repository
 from tadamoo.newscast import produce, settings as settings_mod
 from test_stock import KEY, Pixabay, hit, pix, run, one_story_script  # noqa: F401  (the stand-in service and the fixture)
 from test_newscast import stage  # noqa: F401

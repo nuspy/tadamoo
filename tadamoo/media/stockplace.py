@@ -1,4 +1,4 @@
-"""The place of the filler footage: a newscast about a place needs footage of that place, or of a near one, and never of another culture or region.
+"""The place of the filler footage: a production about a place needs footage of that place, or of a near one, and never of another culture or region.
 
 The matching of stock footage (stock.py) is by keyword overlap and knows nothing about where a video was shot; a market of one country is a market for the keywords of another. This module is the one place where the knowledge is kept,
 as data:

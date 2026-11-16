@@ -15,7 +15,10 @@ from test_media import world  # noqa: F401  (the fixture)
 from tadamoo.media import client, flashvsr_launch, ltx_launch
 from tadamoo.media.errors import MediaError
 from tadamoo.media.settings import DEFAULTS, MediaSettings
-from tadamoo.newscast import produce, settings as settings_mod
+import pytest
+
+pytest.importorskip("tadamoo.briefing")      # the production code is a private one, kept out of the repository
+from tadamoo.briefing import produce, settings as settings_mod
 from test_newscast_journalists import ENDRE, LILITH, photos, three_stories  # noqa: F401
 from test_newscast import Jobs, Server
 

@@ -79,12 +79,23 @@ def off_list(tmp_path):
     return json.loads(f.read_text(encoding="utf-8")).get("off", []) if f.is_file() else []
 
 
+def _kept_out_of_git(paths):
+    """Folders this checkout keeps but git ignores (a private skill of the person's own): they are not part of what ships."""
+    import subprocess
+    try:
+        out = subprocess.run(["git", "check-ignore", "--stdin"], input=chr(10).join(str(p) for p in paths), capture_output=True, text=True, cwd=str(SKILLS), timeout=20).stdout.split(chr(10))
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return {Path(x.strip()).name for x in out if x.strip()}
+
+
 # -- what ships ---------------------------------------------------------------------------------------------------
 
 def test_every_entry_of_the_catalogue_is_a_folder_and_every_top_folder_is_an_entry():
     entries = catalogue.load()
     assert all(e["present"] for e in entries) and len({e["name"] for e in entries}) == len(entries)
-    assert {p.name for p in SKILLS.iterdir() if (p / "SKILL.md").is_file()} == {e["name"] for e in entries if e["kind"] == "skill"}
+    folders = [p for p in SKILLS.iterdir() if (p / "SKILL.md").is_file()]
+    assert {p.name for p in folders if p.name not in _kept_out_of_git(folders)} == {e["name"] for e in entries if e["kind"] == "skill"}
     for e in entries:
         assert set(e["requires"]) <= {x["name"] for x in entries} and e["title"]["en"] and e["title"]["it"] and e["summary"]["en"] and e["summary"]["it"]
 

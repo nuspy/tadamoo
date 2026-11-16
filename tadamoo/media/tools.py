@@ -221,7 +221,7 @@ def register_media_tools(registry: Any, sandbox: Any, settings: MediaSettings, w
                 "path": {"type": "string", "description": "The video to improve, relative to the working folder"},
                 "scale": {"type": "number", "description": f"Times the width and height, {e['scale_min']:g} to {e['scale_max']:g} (2 doubles the size); the size it works at (the result always has the size of the video); left out and no factor: 2; with a factor only, no enhancement of the picture"},
                 "factor": {"type": "integer", "description": f"Times the frames a second, {e['factor_min']} to {e['factor_max']} (2 turns 25 into 50); left out: the frame rate is kept"},
-                "mode": {"type": "string", "enum": list(e["modes"]), "description": "turbo (the default, and the one the newscast uses) or base (finer, slower)"},
+                "mode": {"type": "string", "enum": list(e["modes"]), "description": "turbo (the default, and the one a production uses) or base (finer, slower)"},
                 "output": {"type": "string", "description": f"Where to save it, relative to the working folder; left out: {FOLDER}/ with the name of the video and the date"}},
                 "required": ["path"]},
             effect=EffectClass.REVERSIBLE, handler=enhance_video, timeout=None)

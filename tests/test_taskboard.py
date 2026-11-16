@@ -13,13 +13,13 @@ from tadamoo.taskboard import TaskBoard, TaskError, plan_state
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def make_plan(plans: Path, plan_id="newscast", nodes=None):
+def make_plan(plans: Path, plan_id="briefing", nodes=None):
     nodes = nodes or {"start": {"type": "start", "status": "completed"},
                       "a": {"type": "action", "status": "completed", "assignee": "agent", "title": "Research"},
                       "b": {"type": "action", "status": "in_progress", "assignee": "agent", "title": "Write the script"},
                       "c": {"type": "action", "status": "in_progress", "assignee": "user", "title": "Approve"}}
     plans.mkdir(parents=True, exist_ok=True)
-    (plans / f"{plan_id}.json").write_text(json.dumps({"plan": {"plan_id": plan_id, "title": "Newscast", "nodes": nodes}}), encoding="utf-8")
+    (plans / f"{plan_id}.json").write_text(json.dumps({"plan": {"plan_id": plan_id, "title": "Briefing", "nodes": nodes}}), encoding="utf-8")
 
 
 @pytest.fixture
@@ -128,7 +128,7 @@ def test_the_signature_changes_when_a_task_is_changed_and_not_with_what_a_plan_r
     board.update(t, missing="the key")
     assert board.signature("s1") != before
     make_plan(tmp_path / "plans")
-    board.link_plan(t, "newscast")
+    board.link_plan(t, "briefing")
     linked = board.signature("s1")
     make_plan(tmp_path / "plans", nodes={"a": {"type": "action", "status": "completed"}, "b": {"type": "action", "status": "completed"}, "c": {"type": "action", "status": "in_progress", "assignee": "agent"}})
     assert board.signature("s1") == linked
@@ -138,22 +138,22 @@ def test_the_signature_changes_when_a_task_is_changed_and_not_with_what_a_plan_r
 
 def test_a_plan_is_read_for_its_progress_and_what_waits_for_the_person(tmp_path):
     make_plan(tmp_path)
-    p = plan_state(tmp_path, "newscast")
-    assert p == {"title": "Newscast", "state": "waiting", "done": 1, "total": 3, "next": ["Write the script", "Approve"]}
+    p = plan_state(tmp_path, "briefing")
+    assert p == {"title": "Briefing", "state": "waiting", "done": 1, "total": 3, "next": ["Write the script", "Approve"]}
     assert plan_state(tmp_path, "nothing") is None
     make_plan(tmp_path, nodes={"a": {"type": "action", "status": "failed"}, "b": {"type": "action", "status": "pending"}})
-    assert plan_state(tmp_path, "newscast")["state"] == "blocked"
+    assert plan_state(tmp_path, "briefing")["state"] == "blocked"
     make_plan(tmp_path, nodes={"a": {"type": "action", "status": "completed"}, "b": {"type": "action", "status": "skipped"}})
-    assert plan_state(tmp_path, "newscast") is None                                           # finished
+    assert plan_state(tmp_path, "briefing") is None                                           # finished
 
 
 def test_a_task_linked_to_a_plan_is_one_line_whose_state_comes_from_the_plan_and_the_nodes_are_never_copied(board, tmp_path):
     make_plan(tmp_path / "plans")
-    t = board.add("Make the newscast", session="s1", subtasks=[{"title": "Own subtask"}])
-    board.link_plan(t, "newscast")
+    t = board.add("Make the briefing", session="s1", subtasks=[{"title": "Own subtask"}])
+    board.link_plan(t, "briefing")
     rows = board.view()
-    assert len(rows) == 1 and rows[0]["state"] == "waiting" and rows[0]["done"] == "1/3 steps" and rows[0]["plan"]["title"] == "Newscast" and rows[0]["children"] == 0
-    assert 'Plan "Newscast" (newscast)' in board.summary("s1") and "Write the script" in rows[0]["missing"]
+    assert len(rows) == 1 and rows[0]["state"] == "waiting" and rows[0]["done"] == "1/3 steps" and rows[0]["plan"]["title"] == "Briefing" and rows[0]["children"] == 0
+    assert 'Plan "Briefing" (briefing)' in board.summary("s1") and "Write the script" in rows[0]["missing"]
     stored = (tmp_path / "project" / ".tadamoo" / "tasks.json").read_text(encoding="utf-8")
     assert "Write the script" not in stored and "Approve" not in stored and "Research" not in stored                       # nothing of the plan is copied
     with pytest.raises(TaskError):
@@ -166,8 +166,8 @@ def test_a_task_linked_to_a_plan_is_one_line_whose_state_comes_from_the_plan_and
 
 def test_a_plan_that_finishes_takes_its_line_with_it(board, tmp_path):
     make_plan(tmp_path / "plans")
-    t = board.add("Make the newscast", session="s1")
-    board.link_plan(t, "newscast")
+    t = board.add("Make the briefing", session="s1")
+    board.link_plan(t, "briefing")
     keep = board.add("Free work", session="s1")
     make_plan(tmp_path / "plans", nodes={"a": {"type": "action", "status": "completed"}})
     assert [r["id"] for r in board.view()] == [keep]

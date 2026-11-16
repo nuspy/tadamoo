@@ -993,10 +993,14 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         media_ready = bool(kinds)
         if kinds:
             media_tools.register_media_tools(registry, sandbox, media_settings, data / "media", cfg.endpoint, cancelled=stop_pressed, kinds=kinds)
-        if "video" in kinds and not media_tools.usable(media_settings.read(), "avatar"):            # a newscast needs the clips and the talking head
+        if "video" in kinds and not media_tools.usable(media_settings.read(), "avatar"):            # a production tool that needs the clips and the talking head, when one is installed
             from serve.userdata import user_data_dir
-            from tadamoo.newscast.tools import register_newscast_tools
-            register_newscast_tools(registry, sandbox, media_settings, user_data_dir(), cfg.endpoint, cfg.api_key, cancelled=stop_pressed)
+            try:
+                from tadamoo.newscast.tools import register_newscast_tools
+            except ImportError:
+                register_newscast_tools = None
+            if register_newscast_tools is not None:
+                register_newscast_tools(registry, sandbox, media_settings, user_data_dir(), cfg.endpoint, cfg.api_key, cancelled=stop_pressed)
 
     def switch_knowledge(ids: List[str]) -> str:
         """The archives attached to the conversation are now `ids`; returns the note for the model, empty when nothing changed."""

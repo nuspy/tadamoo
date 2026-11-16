@@ -47,7 +47,7 @@ the per-function consent for the cloud, for the time of the swap only; the Provi
    model (`serve/heavy_forward.py`; an OpenAI-style provider; the page's own fields are dropped, the tokens are counted). The voice service's requests (the copilot, the replies of a meeting or a call, the avatar's direct brain) go the same way with the header `X-Tadamoo-Function: voice` and the voice token, to the provider of the `voice` function; archive passages that are not marked as cleared for cloud models are removed ([voice/knowledge.md](voice/knowledge.md)). A request from any other program on
    `/v1` is refused with 503 and the reason: the engine is not woken by it. Only the job's end wakes it.
 4. When a job ends the engines stay out for `linger_s` (120 s by default, 0 to 900 in `heavy-swap.json`) in case another job follows; a second job in that
-   time takes over the swap, so a chain of jobs (a newscast: several clips, the anchor) loads and unloads the model once. The conversations stay on the
+   time takes over the swap, so a chain of jobs (a production: several clips, the anchor) loads and unloads the model once. The conversations stay on the
    provider meanwhile.
 5. The job extends the swap (`/api/heavy/<id>/touch`, every 30 s) and ends it (`/end`). A swap not touched for 90 s ends by itself, and the file
    lapses after 10 minutes without a touch, so a dead server cannot leave the conversations on the cloud. At the end the registry is released
@@ -56,7 +56,7 @@ the per-function consent for the cloud, for the time of the swap only; the Provi
 ## The client
 
 ```python
-with HeavyLease("video", 24000, "a clip for the newscast", minutes=5) as lease:
+with HeavyLease("video", 24000, "a clip for a production", minutes=5) as lease:
     if lease.gpu_ok:
         ...                       # lease.swapped: the conversations are on the provider
     else:

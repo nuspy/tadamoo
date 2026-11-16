@@ -1,6 +1,6 @@
 """VRAM for a heavy job, with the local model put to sleep when lending is not enough and the person allows it. Standard library only.
 
-    with HeavyLease("video", 24000, "a clip for the newscast", minutes=5) as lease:
+    with HeavyLease("video", 24000, "a clip for a production", minutes=5) as lease:
         if lease.gpu_ok:
             ...                                # lease.swapped says whether the conversations run on a provider meanwhile
         else:

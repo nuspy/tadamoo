@@ -75,12 +75,12 @@ def test_the_person_adds_edits_reorders_and_deletes_and_what_they_change_is_mark
 
 def test_a_task_linked_to_a_plan_is_a_line_with_the_plans_state_and_resume_names_the_plan(world):
     api, a, b, plans = world
-    t = api("POST", "/api/register/add", {"project": str(a), "title": "Make the newscast"})[1]["id"]
-    code, linked = api("POST", "/api/register/link-plan", {"project": str(a), "id": t, "plan_id": "newscast"})
+    t = api("POST", "/api/register/add", {"project": str(a), "title": "Make the briefing"})[1]["id"]
+    code, linked = api("POST", "/api/register/link-plan", {"project": str(a), "id": t, "plan_id": "briefing"})
     assert code == 200 and linked["task"]["state"] == "waiting" and linked["task"]["done"] == "1/3 steps"
     assert api("POST", "/api/register/link-plan", {"project": str(a), "id": t, "plan_id": "nothing"})[0] == 400
     code, words = api("POST", "/api/register/resume", {"project": str(a), "id": t})
-    assert code == 200 and 'plan "Newscast" (newscast)' in words["text"] and words["project"] == str(a)
+    assert code == 200 and 'plan "Briefing" (briefing)' in words["text"] and words["project"] == str(a)
     plain = api("POST", "/api/register/add", {"project": str(a), "title": "Free work"})[1]["id"]
     text = api("POST", "/api/register/resume", {"project": str(a), "id": plain})[1]["text"]
     assert f"task_resume with that id" in text and plain in text

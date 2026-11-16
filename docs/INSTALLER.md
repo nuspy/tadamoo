@@ -49,7 +49,7 @@ and the internet the first time (Python installer from python.org, wheels from P
   4. checks that the packages and `serve.server` import;
   5. asks which **built-in skills** to install (a page that lists `skills/builtin.json`, with their summaries; a skill
      ticks what it requires; picture generation, photo editing, video generation with its smoother and larger
-     copies, talking head, video editing, speech, news research and the newscast are separate entries) and imports
+     copies, talking head, video editing, speech, news research and a production are separate entries) and imports
      the chosen ones with `python -m tadamoo.skillmanager install ... --no-models` (copies in the user data folder; a failure is
      only logged). `--skills all|none|NAME,NAME` answers instead of the page; with `--no-ui` and no `--skills` the
      ticked-by-default ones are installed. The models of a skill are not downloaded here: Settings > Skills says what each one

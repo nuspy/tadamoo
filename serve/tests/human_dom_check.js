@@ -18,7 +18,7 @@ const listPlan = (id, title) => {
   const nodes = {
     i1: input("i1", ["go"], { ...g1, prompt: "Quante notizie vuoi?", prompt_en: "How many stories do you want?", help: "Da tre a nove, di solito sei.", help_en: "From three to nine, usually six.", into: "stories", kind: "choice",
       choices: [{ value: "n3", label: "Tre notizie", label_en: "Three stories" }, { value: "n6", label: "Sei notizie", label_en: "Six stories" }, { value: "n9", label: "Nove notizie", label_en: "Nine stories" }], default: "n6" }),
-    i2: input("i2", ["go"], { ...g1, prompt: "Di che cosa parla il telegiornale?", prompt_en: "What is the newscast about?", help: "Una frase, per esempio: politica ungherese.", help_en: "One sentence, for example: Hungarian politics.", into: "topic", kind: "text", default: "politica" }),
+    i2: input("i2", ["go"], { ...g1, prompt: "Di che cosa parla il bollettino?", prompt_en: "What is the briefing about?", help: "Una frase, per esempio: politica ungherese.", help_en: "One sentence, for example: Hungarian politics.", into: "topic", kind: "text", default: "politica" }),
     i3: input("i3", ["go"], { ...g1, prompt: "Quante ore indietro cercare?", prompt_en: "How many hours back to look?", into: "hours", kind: "number" }),
   };
   for (let i = 1; i <= BULK; i++) { const k = "b" + String(i).padStart(2, "0"); nodes[k] = input(k, ["go"], { ...g2, prompt: `Parametro ${i}`, prompt_en: `Setting ${i}`, into: k, kind: "text", default: "v" + i }); }
@@ -69,7 +69,7 @@ async function main() {
       const tag = vname.replace(/[^a-z0-9]+/g, "-");
       await send("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: 1, mobile });
       const W = `hr-${tag}-list`;
-      await post("api/plans", { plan: listPlan(W, "Newscast " + vname) });
+      await post("api/plans", { plan: listPlan(W, "Briefing " + vname) });
       await send("Page.navigate", { url: URL + "?lang=en" });
       await sleep(1800);
       await ev(`const t = q("#tab-stats"); if (t) t.click(); return 1;`);
@@ -86,10 +86,10 @@ async function main() {
       await check(`${vname}: ALL ${TOTAL} questions are in one list, under their headings, with their explanations and the proposed answers; there are no steps`, async () => {
         const n = await ev(`return qa("#hr-card .hr-item").length;`);
         if (n !== TOTAL) throw new Error(`the list has ${n} questions, not ${TOTAL}`);
-        await need("the header", [`${TOTAL} questions`, "Newscast " + vname]);
+        await need("the header", [`${TOTAL} questions`, "Briefing " + vname]);
         const heads = await ev(`return JSON.stringify(qa("#hr-card .hr-group").map(e => e.textContent));`);
         if (heads !== JSON.stringify(["What and when", "Other settings", "Approvals"])) throw new Error("the headings: " + heads);
-        await need("the first questions", ["How many stories do you want?", "From three to nine, usually six.", "What is the newscast about?", "Setting 30", "Is the script good?", "Is the microphone on?", "Controlla il cavo del microfono"]);
+        await need("the first questions", ["How many stories do you want?", "From three to nine, usually six.", "What is the briefing about?", "Setting 30", "Is the script good?", "Is the microphone on?", "Controlla il cavo del microfono"]);
         const menu = await ev(`const s = ${item("i1")}.querySelector("select"); return JSON.stringify({ shown: [...s.options].map(o => o.textContent), values: [...s.options].map(o => o.value), chosen: s.selectedOptions[0].textContent });`);
         const m = JSON.parse(menu);
         if (m.chosen !== "Six stories" || m.shown.join("|") !== "Choose one|Three stories|Six stories|Nine stories|Other, I write" || m.shown.some(t => /n3|n6|n9|__other__/.test(t))) throw new Error("what the menu shows: " + menu);
@@ -177,7 +177,7 @@ async function main() {
     // the same list in Italian
     await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     const I = "hr-italian";
-    await post("api/plans", { plan: listPlan(I, "Telegiornale") });
+    await post("api/plans", { plan: listPlan(I, "Bollettino") });
     await post(`api/plans/${I}/events`, { type: "plan:start", number: 1, actor: "chat" });
     await send("Page.navigate", { url: URL + "?lang=it" });
     await sleep(1800);

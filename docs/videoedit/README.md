@@ -1,6 +1,6 @@
 # Video editing: `tadamoo/videoedit`
 
-Reusable by any skill that edits video in code; the newscast uses it, so can a documentary, a lecture or a trailer maker.
+Reusable by any skill that edits video in code; a production uses it, so can a documentary, a lecture or a trailer maker.
 
 | Module | What |
 |---|---|
@@ -10,5 +10,5 @@ Reusable by any skill that edits video in code; the newscast uses it, so can a d
 | `frame` | the canvas of an overlay and the box of a picture on it, sizes given for a frame 530 pixels high and scaled |
 | `qa` | the measures of a finished picture: seams (jumps of the face, of its pixels, of the histogram and the colour, each marked designed, at a graphic event or accidental), the mouth opening, the head and shoulder motion |
 
-The graphics themselves (the cards, bars and labels of a newscast) are drawn by `tadamoo/newscast/layouts.py` on a `Frame`. Tests: `tests/test_videoedit.py`.
+The graphics themselves (the cards, bars and labels of a production) are drawn by `the production's layout module` on a `Frame`. Tests: `tests/test_videoedit.py`.
 The skill that describes it for a person and for the agent is `skills/video-editing`.

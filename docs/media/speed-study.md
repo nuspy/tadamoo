@@ -74,7 +74,7 @@ No production code was changed by this study.
 
 ## The production default (chosen by the user, 14 November)
 
-**SageAttention 2.2.0 with TeaCache 0.03**, 12 steps, guidance unchanged, saved at crf 4 (medium); the same-size FlashVSR+ enhancer (`enhance.md`) follows for the newscast. It is the default of every LTX 2.5 clip: `generate_video`, the B-roll of the newscast, `scripts/make_clip.py`.
+**SageAttention 2.2.0 with TeaCache 0.03**, 12 steps, guidance unchanged, saved at crf 4 (medium); the same-size FlashVSR+ enhancer (`enhance.md`) follows for a production. It is the default of every LTX 2.5 clip: `generate_video`, the B-roll of a production, `scripts/make_clip.py`.
 - Settings `ltx_attention` (`sage2`; `cudnn` and the other backends that ran), `ltx_teacache` (0.03; 0 is off), `ltx_attention_env`, `ltx_wheels` ([settings.md](settings.md)).
 - `tadamoo/media/ltx_launch.py` (the successor of the research launcher `tools/speed_lab/ltx_bench.py`, attention and quality only) runs the worker in the Python of a copy of LTX Studio's LTX 2.5 environment that holds the wheel; TeaCache is the worker's own `teacache_thresh`.
   No path of `E:\AI\speedlab` is used by the product.
@@ -84,7 +84,7 @@ No production code was changed by this study.
 - Checked through the product path (`client.run` -> worker -> launcher, 896x512, 161 frames, 12 steps, crf 4, a recording as the guide, GPU at 600 W, the lease from a stand-in broker): Sage 2 + TeaCache 0.03 took 49.3 s, cuDNN without cache 61.8 s
   (1.25 times; one clip each, a prompt the embedding cache had not seen). The first clip in a new copy of the environment took 100 s (kernels compiled, files cold): it is a one-time cost. Clips and logs: `E:\AI\Output\production_default\20261114\`.
 - Without the wheel or the copy the clip is made with cuDNN attention (TeaCache still on) and the answer carries a `warning` that says what to do; nothing fails.
-- Not applied to the newscast's talking-head takes: they run LongCat, which has its own attention (FlashAttention 2); the takes are LTX only when the person switches them, which is not wired ([../newscast/motion.md](../newscast/motion.md)).
+- Not applied to a production's talking-head takes: they run LongCat, which has its own attention (FlashAttention 2); the takes are LTX only when the person switches them, which is not wired ([../newscast/motion.md](../newscast/motion.md)).
 
 ## FlashVSR+ at 2x from 896x512: why it failed, and the fix
 

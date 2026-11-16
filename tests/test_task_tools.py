@@ -71,12 +71,12 @@ def test_a_task_is_handed_to_a_plan_and_from_then_on_it_is_that_plans_line(tmp_p
     session, ev, store, built = make(tmp_path, Scripted())
     plans = tmp_path / "plans"
     plans.mkdir()
-    (plans / "newscast.json").write_text('{"plan": {"plan_id": "newscast", "title": "Newscast", "nodes": {"a": {"type": "action", "status": "pending", "title": "Research"}}}}', encoding="utf-8")
-    t = run(built, "task_add", title="Make the newscast", subtasks=[{"title": "mine"}]).split()[1]
+    (plans / "briefing.json").write_text('{"plan": {"plan_id": "briefing", "title": "Briefing", "nodes": {"a": {"type": "action", "status": "pending", "title": "Research"}}}}', encoding="utf-8")
+    t = run(built, "task_add", title="Make the briefing", subtasks=[{"title": "mine"}]).split()[1]
     built.agent.tools.task_tools.board.plans_dir = plans
-    assert "one line for the plan newscast" in run(built, "task_link_plan", id=t, plan_id="newscast")
+    assert "one line for the plan briefing" in run(built, "task_link_plan", id=t, plan_id="briefing")
     rows = board_of(tmp_path).__class__(tmp_path / "ws", plans).view()
-    assert len(rows) == 1 and rows[0]["plan"]["title"] == "Newscast"
+    assert len(rows) == 1 and rows[0]["plan"]["title"] == "Briefing"
     with pytest.raises(ValueError):
         run(built, "task_link_plan", id=t, plan_id="nothing")
 

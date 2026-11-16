@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Map<String, dynamic> choice() => {
-      'plan_id': 'news', 'plan_title': 'Newscast', 'node_id': 'i1', 'title': 'i1', 'ask': 'value', 'kind': 'choice', 'index': 1,
+      'plan_id': 'news', 'plan_title': 'Briefing', 'node_id': 'i1', 'title': 'i1', 'ask': 'value', 'kind': 'choice', 'index': 1,
       'prompt': 'Quante notizie vuoi?', 'prompt_en': 'How many stories do you want?', 'help': 'Da tre a nove.', 'help_en': 'From three to nine.',
       'choices': [
         {'value': 'n3', 'label': 'Tre notizie', 'label_en': 'Three stories'},
@@ -16,7 +16,7 @@ Map<String, dynamic> choice() => {
       'other': true, 'proposed': 'n6', 'content': '',
     };
 Map<String, dynamic> two() => {
-      'plan_id': 'news', 'plan_title': 'Newscast', 'node_id': 'i5', 'title': 'i5', 'ask': 'value', 'kind': 'choice', 'index': 5, 'other': false,
+      'plan_id': 'news', 'plan_title': 'Briefing', 'node_id': 'i5', 'title': 'i5', 'ask': 'value', 'kind': 'choice', 'index': 5, 'other': false,
       'prompt': 'Il microfono è attivo?', 'prompt_en': 'Is the microphone on?', 'content': '',
       'choices': [
         {'value': 'on', 'label': 'Attivo', 'label_en': 'On'},
@@ -24,19 +24,19 @@ Map<String, dynamic> two() => {
       ],
     };
 Map<String, dynamic> task() => {
-      'plan_id': 'news', 'plan_title': 'Newscast', 'node_id': 't', 'title': 'Check the cable', 'ask': 'task', 'kind': 'text', 'index': 6, 'other': false, 'choices': [],
+      'plan_id': 'news', 'plan_title': 'Briefing', 'node_id': 't', 'title': 'Check the cable', 'ask': 'task', 'kind': 'text', 'index': 6, 'other': false, 'choices': [],
       'prompt': 'Controlla il cavo', 'prompt_en': 'Check the cable', 'content': 'Look at the microphone cable.', 'proposed': null,
     };
 Map<String, dynamic> topic() => {
-      'plan_id': 'news', 'plan_title': 'Newscast', 'node_id': 'i2', 'title': 'i2', 'ask': 'value', 'kind': 'text', 'index': 2,
+      'plan_id': 'news', 'plan_title': 'Briefing', 'node_id': 'i2', 'title': 'i2', 'ask': 'value', 'kind': 'text', 'index': 2,
       'prompt': 'Di che cosa parla?', 'prompt_en': 'What is it about?', 'help': '', 'help_en': '', 'choices': [], 'proposed': 'politica', 'content': '',
     };
 Map<String, dynamic> hours() => {
-      'plan_id': 'news', 'plan_title': 'Newscast', 'node_id': 'i3', 'title': 'i3', 'ask': 'value', 'kind': 'number', 'index': 3,
+      'plan_id': 'news', 'plan_title': 'Briefing', 'node_id': 'i3', 'title': 'i3', 'ask': 'value', 'kind': 'number', 'index': 3,
       'prompt': 'Quante ore?', 'prompt_en': 'How many hours?', 'choices': [], 'proposed': null, 'content': '',
     };
 Map<String, dynamic> approval() => {
-      'plan_id': 'news', 'plan_title': 'Newscast', 'node_id': 'i4', 'title': 'i4', 'ask': 'approve', 'kind': 'text', 'index': 4,
+      'plan_id': 'news', 'plan_title': 'Briefing', 'node_id': 'i4', 'title': 'i4', 'ask': 'approve', 'kind': 'text', 'index': 4,
       'prompt': 'Il copione va bene?', 'prompt_en': 'Is the script good?', 'choices': [], 'proposed': null, 'content': 'Buonasera.\nPrima notizia.',
     };
 Map<String, dynamic> other() => {

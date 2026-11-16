@@ -18,6 +18,9 @@ from tadamoo.media.settings import DEFAULTS
 from tadamoo.speech import service as speech
 from tadamoo.videoedit import camera, compose, render
 from video_fakes import make_clip, wav_bytes
+import pytest
+
+pytest.importorskip("tadamoo.newscast")      # the production code is a private one, kept out of the repository
 from tadamoo.newscast import layouts, plan as planner, produce, settings as settings_mod
 from tadamoo.newscast import script as script_mod
 from tadamoo.newscast.script import ScriptError

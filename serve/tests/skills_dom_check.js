@@ -62,7 +62,7 @@ async function main() {
         const info = await ev(`const li = ${card("Video modification")}; return JSON.stringify({ text: li.textContent, state: li.dataset.state });`).then(JSON.parse);
         if (info.state !== "not_installed" || !/Not installed/.test(info.text)) throw new Error("state not shown: " + info.text);
         if (!/Downloads about 60 GB of models/.test(info.text)) throw new Error("the size is not said before installing: " + info.text);
-        const news = await ev(`return ${card("AI newscast")}.textContent`);
+        const news = await ev(`return ${card("AI briefing")}.textContent`);
         if (!/It also installs:/.test(news)) throw new Error("what it also installs is not said: " + news);
         const heads = await ev(`return qa("#sk-root .sk-sec h3").map(e => e.textContent).join("|")`);
         if (!/Installed \(0\)\|Available to install \(\d+\)/.test(heads)) throw new Error("groups: " + heads);

@@ -35,7 +35,7 @@ class TasksTabInARealBrowserTest(unittest.TestCase):
         plans.mkdir(parents=True)
         nodes = {"start": {"type": "start", "status": "completed"}, "a": {"type": "action", "status": "completed", "assignee": "agent", "title": "Research"},
                  "b": {"type": "action", "status": "in_progress", "assignee": "agent", "title": "Write the script"}, "c": {"type": "action", "status": "in_progress", "assignee": "user", "title": "Approve"}}
-        (plans / "newscast.json").write_text(json.dumps({"plan": {"plan_id": "newscast", "title": "Newscast", "nodes": nodes}}), encoding="utf-8")
+        (plans / "briefing.json").write_text(json.dumps({"plan": {"plan_id": "briefing", "title": "Briefing", "nodes": nodes}}), encoding="utf-8")
         root = Path(__file__).resolve().parents[2]
         env = {**os.environ, "TADAMOO_DATA": cls.tmp + "/data", "TADAMOO_CACHE": cls.tmp + "/cache"}
         cls.server = subprocess.Popen([sys.executable, "-m", "serve.server", "--mock-engine", "--port", str(port)], cwd=str(root), env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

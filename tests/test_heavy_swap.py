@@ -68,7 +68,7 @@ def wait_card(swap):
 def test_the_default_level_asks_and_a_yes_puts_the_model_to_sleep_and_the_conversations_on_the_provider(world):
     reg, prefs, engine, cloud = world
     swap = make(world)
-    t, out = ask_in_thread(swap, "video", "a clip for the newscast", 4)
+    t, out = ask_in_thread(swap, "video", "a clip for the briefing", 4)
     card = wait_card(swap)
     assert card["provider"] and card["kind"] == "video" and card["minutes"] == 4 and "executor" in card["functions"] and "conversations" in card["leaves"]
     assert swap.answer(card["id"], True)["ok"]
@@ -333,12 +333,12 @@ def test_a_held_job_asks_for_the_vram_only_and_neither_starts_nor_ends_a_swap():
 
 def test_a_caller_can_step_the_model_aside_for_several_jobs_with_no_vram_of_its_own():
     s = Server([], (200, {"ok": True, "swap": {"id": "f" * 16, "hold_s": 90}}))
-    lease = HeavyLease("newscast", 1, "a newscast", kind="video", transport=s)
+    lease = HeavyLease("briefing", 1, "a briefing", kind="video", transport=s)
     assert lease.step_aside() and lease.swapped and not lease.gpu_ok
     lease.release()
     assert s.log == ["/api/heavy/begin", "/api/heavy/" + "f" * 16 + "/end"]
     s = Server([], (409, {"ok": False, "reason": "not_allowed", "message": "no", "message_it": "no"}))
-    lease = HeavyLease("newscast", 1, "a newscast", kind="video", transport=s)
+    lease = HeavyLease("briefing", 1, "a briefing", kind="video", transport=s)
     assert not lease.step_aside() and lease.swap_reason == "not_allowed" and lease.message == "no" and not lease.swapped
     lease.release()
     assert s.log == ["/api/heavy/begin"]

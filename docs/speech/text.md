@@ -25,7 +25,7 @@ form to the way to write it so that the engine says it right) goes first.
 | stray | any other symbol goes |
 
 A piece sent to the engine never ends in a full stop (`strip_end`). Measured on Italian with XTTS v2, 15 readings each: with the stop 7 pieces had spurious words at the end ("punto",
-"punto tale", a babble), without it none. That is the "punto tale" of the first newscast. For Hungarian a piece ends in a comma (`speech.END_MARK`): without one XTTS often cuts the last
+"punto tale", a babble), without it none. That is the "punto tale" of the first production. For Hungarian a piece ends in a comma (`speech.END_MARK`): without one XTTS often cuts the last
 syllable ("elnöke" read "elnök"); the mean error of the same sentence over three readings was 0.17 with no mark, 0.19 with a stop, 0.10 with a comma, 0.21 with "...". The table of offending
 patterns is `tests/test_newscast_speech.py` (one line for each, by language).
 

@@ -11,6 +11,9 @@ import pytest
 
 from tadamoo.llm.credentials import FileCredentials
 from tadamoo.media import stock
+import pytest
+
+pytest.importorskip("tadamoo.newscast")      # the production code is a private one, kept out of the repository
 from tadamoo.newscast import produce, script as script_mod
 from tadamoo.speech import service as speech
 from tadamoo.videoedit import compose

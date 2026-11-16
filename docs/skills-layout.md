@@ -16,12 +16,12 @@ skills\  image-generation\   SKILL.md, scripts\                  pictures from w
   video-modification\ SKILL.md, references\, scripts\  changes what a video shows: swap an object, edit by words, restyle (code: tadamoo/media)
   speech-synthesis\   SKILL.md, references\, scripts\  the voice: normaliser, lexicon, takes, joins  (code: tadamoo/speech)
   video-editing\      SKILL.md, references\, scripts\  virtual camera, overlays, joins, seams       (code: tadamoo/videoedit)
-  news-research\      SKILL.md, scripts\research.py       the investigative procedure and its guardrails (rules: tadamoo/research)
-  plugins\ai-newscast\  plugin.json, README.md, skills\ai-newscast\ (SKILL.md, skill.json, skill.py), plans\, parameters\
+  my-skill\      SKILL.md, scripts\research.py       the investigative procedure and its guardrails (rules: tadamoo/research)
+  plugins\my-plugin\  plugin.json, README.md, skills\my-plugin\ (SKILL.md, skill.json, skill.py), plans\, parameters\
   builtin.json           what ships: the data of the list the manager offers (docs/skills-manager.md)
 ```
 
-Installing the newscast brings the skills it requires (a plugin names them in `dependencies`, and the catalogue says the same in `requires`); each is a separate skill that can also be installed
+Installing a production brings the skills it requires (a plugin names them in `dependencies`, and the catalogue says the same in `requires`); each is a separate skill that can also be installed
 alone, and its models are downloaded with it.
 
 ## The format of a skill
@@ -33,16 +33,16 @@ that it takes one lease for all its jobs, that a heavy job unloads the loaded mo
 ## The dependency rule
 
 A skill that depends on another does not contain it: **a capability that other skills may need is developed and saved separately as its own skill and only used by the one that needs it.** Video generation
-is not part of the newscast: it is `video-generation`, which any skill can use. The reusable code follows the same rule and lives in its own package with its own tests and docs: `tadamoo/media`,
-`tadamoo/speech`, `tadamoo/videoedit`, `tadamoo/research`; `tadamoo/newscast` keeps what is only the newscast's (the schema of its script, the layouts and timings of its graphics, the plan of its shots, the
-orchestrator). A runnable skill script that uses another skill finds it next to itself (`find_skill` in the ai-newscast script looks in the folder of skills it is installed in) and imports its script.
+is not part of a production: it is `video-generation`, which any skill can use. The reusable code follows the same rule and lives in its own package with its own tests and docs: `tadamoo/media`,
+`tadamoo/speech`, `tadamoo/videoedit`, `tadamoo/research`; `tadamoo/briefing` keeps what is only a production's (the schema of its script, the layouts and timings of its graphics, the plan of its shots, the
+orchestrator). A runnable skill script that uses another skill finds it next to itself (`find_skill` in the my-plugin script looks in the folder of skills it is installed in) and imports its script.
 
 ## Plugins
 
 A skill that brings MCP servers or plans in TaDaMoo's format is packaged as a **plugin**: `plugin.json` (name, version, description, `dependencies` on skills, the tools it needs, `mcp_servers` (an empty
-list says there are none), `plans`, `parameters`, where its output goes), `skills/`, `plans/`, `parameters/` and a README. The newscast plugin brings no MCP server; its plan template is built by
+list says there are none), `plans`, `parameters`, where its output goes), `skills/`, `plans/`, `parameters/` and a README. A production plugin brings no MCP server; its plan template is built by
 `plans/build_plan.py` with the harness's own plan code (so it is always valid) and put in the plan store by `plans/import_plan.py` through the plans API (idempotent).
 
 ## Outputs
 
-An edition's files, work files included, go to the output folder: the `output_dir` setting, default `E:\AI\Output\newscast\<date>\`. Never a temporary folder.
+An edition's files, work files included, go to the output folder: the `output_dir` setting, default `E:\AI\Output\briefing\<date>\`. Never a temporary folder.

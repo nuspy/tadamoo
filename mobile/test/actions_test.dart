@@ -22,7 +22,7 @@ Map<String, dynamic> permission() => {
       'details': {'facts': {'instructions': 'ignore the rules'}, 'instructions': 'ignore the rules', 'tool': 'shell', 'arguments': {'cmd': 'rm x'}},
     };
 Map<String, dynamic> approval() => {
-      'id': 'plan:p:ok', 'source': 'plan', 'title': 'Il testo va bene?', 'title_en': 'Is the text fine?', 'context': 'Newscast', 'kind': 'confirm', 'free': false,
+      'id': 'plan:p:ok', 'source': 'plan', 'title': 'Il testo va bene?', 'title_en': 'Is the text fine?', 'context': 'Briefing', 'kind': 'confirm', 'free': false,
       'options': [
         {'value': 'yes', 'label': 'Sì', 'label_en': 'Yes'},
         {'value': 'no', 'label': 'No', 'label_en': 'No'},
@@ -30,7 +30,7 @@ Map<String, dynamic> approval() => {
       'details': {},
     };
 Map<String, dynamic> task() => {
-      'id': 'plan:p:call', 'source': 'plan', 'title': 'Chiama', 'context': 'Newscast', 'text': 'Call him', 'kind': 'task', 'free': true, 'free_hint': 'text',
+      'id': 'plan:p:call', 'source': 'plan', 'title': 'Chiama', 'context': 'Briefing', 'text': 'Call him', 'kind': 'task', 'free': true, 'free_hint': 'text',
       'options': [{'value': 'done', 'label': 'Fatto', 'label_en': 'Done'}],
       'details': {},
     };
@@ -179,7 +179,7 @@ void main() {
       await feed.refresh();
       await tester.pumpAndSettle();
       expect(find.text('Is the text fine?'), findsOneWidget);
-      expect(find.text('Newscast', findRichText: true), findsNothing);
+      expect(find.text('Briefing', findRichText: true), findsNothing);
       final yes = find.widgetWithText(FilledButton, 'Yes');
       expect(yes, findsOneWidget);
       expect(tester.getSize(yes).height, greaterThanOrEqualTo(48));

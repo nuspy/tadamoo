@@ -1,6 +1,6 @@
 # Speech: `tadamoo/speech`
 
-The speech side of the harness, reusable by any skill that makes a voice: the newscast uses it, so can a podcast, an audio article or a phone call.
+The speech side of the harness, reusable by any skill that makes a voice: a production uses it, so can a podcast, an audio article or a phone call.
 
 | File | What |
 |---|---|

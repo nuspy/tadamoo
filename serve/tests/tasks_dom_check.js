@@ -50,8 +50,8 @@ async function main() {
     await post("api/agent/projects", { path: DIR_A }); await post("api/agent/projects", { path: DIR_B });
     const job = (await post("api/register/add", { project: DIR_A, title: "Move the site", state: "running", missing: "the DNS change", subtasks: [{ title: "Copy files" }, { title: "Change DNS", state: "waiting", missing: "the registrar login" }] })).id;
     const build = (await post("api/register/add", { project: DIR_B, title: "Fix the build", state: "blocked", description: "fails on CI" })).id;
-    const planned = (await post("api/register/add", { project: DIR_B, title: "Make the newscast" })).id;
-    await post("api/register/link-plan", { project: DIR_B, id: planned, plan_id: "newscast" });
+    const planned = (await post("api/register/add", { project: DIR_B, title: "Make the briefing" })).id;
+    await post("api/register/link-plan", { project: DIR_B, id: planned, plan_id: "briefing" });
 
     for (const [vname, w, h, mobile] of VIEWPORTS) {
       await send("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: 1, mobile });
@@ -64,7 +64,7 @@ async function main() {
         const by = n => view.find(x => x.name === n);
         if (!by("Move the site") || by("Move the site").state !== "running" || !/Still missing: the DNS change/.test(by("Move the site").text)) throw new Error("job: " + JSON.stringify(by("Move the site")));
         if (by("Copy files").d !== "1" || by("Change DNS").state !== "waiting" || !/Waiting for you/.test(by("Change DNS").text)) throw new Error("subtasks: " + JSON.stringify([by("Copy files"), by("Change DNS")]));
-        if (!by("Plan “Newscast”") || by("Plan “Newscast”").state !== "waiting" || !/1\/3 steps/.test(by("Plan “Newscast”").text) || /Make the newscast/.test(by("Plan “Newscast”").text)) throw new Error("plan line: " + JSON.stringify(by("Plan “Newscast”")));
+        if (!by("Plan “Briefing”") || by("Plan “Briefing”").state !== "waiting" || !/1\/3 steps/.test(by("Plan “Briefing”").text) || /Make the briefing/.test(by("Plan “Briefing”").text)) throw new Error("plan line: " + JSON.stringify(by("Plan “Briefing”")));
         const banner = await ev(`return q("#tk-root .tk-banner") ? q("#tk-root .tk-banner").textContent : ""`);
         if (!/2 waiting for you/.test(banner)) throw new Error("banner: " + banner);
         const outline = await ev(`return getComputedStyle(${card("Change DNS")}).borderLeftColor + "|" + getComputedStyle(${card("Copy files")}).borderLeftColor`);
@@ -126,9 +126,9 @@ async function main() {
         await waitFor(`window.__calls.length === 1`, "the call");
         const [ws, text] = await ev(`return window.__calls[0]`);
         if (ws !== DIR_B || !text.includes(build) || !/task_resume/.test(text)) throw new Error("wrong hand-over: " + ws + " | " + text);
-        await press("Plan “Newscast”", "Resume the plan in chat");
+        await press("Plan “Briefing”", "Resume the plan in chat");
         await waitFor(`window.__calls.length === 2`, "the plan call");
-        if (!/plan "Newscast" \(newscast\)/.test(await ev(`return window.__calls[1][1]`))) throw new Error("the plan is not named");
+        if (!/plan "Briefing" \(briefing\)/.test(await ev(`return window.__calls[1][1]`))) throw new Error("the plan is not named");
         await ev(`window.agentChat.startWith = async () => false; return 1;`);
         await press("Fix the build", "Resume in chat");
         await waitFor(`/could not be started/.test(q("#tk-root .tk-msg").textContent)`, "the message when the chat cannot start");

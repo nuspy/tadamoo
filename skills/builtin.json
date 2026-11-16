@@ -22,13 +22,6 @@
    "summary": {"en": "Change what a video shows: swap an object (a yellow Fiat 500 for a red Ferrari), change the whole clip by words or give it the look of a picture (LTX 2.3 editing LoRAs and SAM2; about 60 GB of extra models).", "it": "Cambia cio' che un video mostra: sostituisce un oggetto (una Cinquecento gialla con una Ferrari rossa), cambia tutto il filmato a parole o gli da' l'aspetto di un'immagine (LoRA di modifica LTX 2.3 e SAM2; circa 60 GB di modelli in piu')."}},
   {"name": "speech-synthesis", "kind": "skill", "group": "voice", "default": true, "requires": [],
    "title": {"en": "Speech synthesis", "it": "Sintesi vocale"},
-   "summary": {"en": "The voice: text normaliser, lexicon, takes chosen on measurements, joins without clicks.", "it": "La voce: normalizzatore del testo, lessico, riprese scelte con misure, unioni senza click."}},
-  {"name": "news-research", "kind": "skill", "group": "news", "default": true, "requires": [],
-   "title": {"en": "News research", "it": "Ricerca di notizie"},
-   "summary": {"en": "The investigative procedure for news: evidence tables and relations checked with suspicion.", "it": "La procedura di indagine sulle notizie: tabelle di prove e relazioni verificate con sospetto."}},
-  {"name": "ai-newscast", "kind": "plugin", "path": "plugins/ai-newscast", "group": "news", "default": true,
-   "requires": ["news-research", "speech-synthesis", "image-generation", "image-editing", "video-generation", "talking-head", "video-editing"],
-   "title": {"en": "AI newscast", "it": "Telegiornale IA"},
-   "summary": {"en": "A newscast video made from the news, with its plan and approval step; uses all the skills above.", "it": "Un telegiornale video fatto dalle notizie, con il suo piano e il passo di approvazione; usa tutte le skill sopra."}}
+   "summary": {"en": "The voice: text normaliser, lexicon, takes chosen on measurements, joins without clicks.", "it": "La voce: normalizzatore del testo, lessico, riprese scelte con misure, unioni senza click."}}
  ]
 }
