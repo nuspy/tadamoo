@@ -341,3 +341,10 @@ Serve la conversazione vera con il modello vero e un server MCP con un'app. Per 
 3. Una voce che accetta testo (un compito di un piano, un codice): la notifica ha «Rispondi»; scrivere nella notifica e inviare risponde. Una voce con più di tre risposte: nessun bottone, il tocco apre la scheda.
 4. Una voce già risolta sul PC prima che tu prema il bottone: nessun errore, la notifica sparisce.
 5. Nessun servizio in primo piano: controlla in Impostazioni Android > Batteria che l'app non risulti sempre attiva.
+
+## App desktop con l'elenco dei server (17 novembre; il C# si compila e la logica senza finestre è provata, le finestre NON sono state aperte)
+
+1. Icona della barra > «Server…»: «Aggiungi…» un server con indirizzo `https://hrns.tadamoo.com` (senza porta) e la sua chiave; «Prova» dice che risponde e che la chiave è accettata (e dice che manca un motore). Con una chiave sbagliata dice che manca o non è giusta; con un nome non ammesso dice di aggiungerlo ai nomi ammessi.
+2. «Usa questo»: la finestra mostra la pagina del server remoto già con la chiave data (nessuna richiesta di chiave), la scheda Loader/Models non c'è, nel menu della barra le voci del server locale sono spente; «Spegni» chiude solo la finestra.
+3. Cambiare la chiave dalla finestra del server (Impostazioni > Rete della pagina) e da «Cambia la chiave sul server…»: dopo il cambio la voce dell'elenco ha la chiave nuova (riaprendo l'app non chiede la chiave).
+4. Chiudere e riaprire l'app: riprende il server remoto di prima; dall'elenco «Questo PC» torna al server locale.

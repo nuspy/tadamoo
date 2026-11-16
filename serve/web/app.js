@@ -440,14 +440,14 @@ function askKey() { $("#auth").hidden = false; $("#key").focus(); }
 
 $("#host").textContent = location.host;
 let HEALTH = null;
-/* a server with no engine (the harness alone) has no Loader: the tab is hidden and a link to it goes to the Chat */
+/* a server with no engine (the harness alone), or a remote server shown in the desktop app (window.__tadamooRemote), has no Loader: the tab is hidden and a link to it goes to the Chat */
 function noEngine() {
   document.body.dataset.noEngine = "1";
   const tab = $("#tab-loader");
   if (tab) tab.hidden = true;
   if (viewOn === "loader") view("chat");
 }
-const healthReady = fetch("health", { cache: "no-store" }).then(r => r.json()).then(h => { HEALTH = h; $("#keyed").hidden = !h.api_key; if (h.engine_installed === false) noEngine(); return h; })
+const healthReady = fetch("health", { cache: "no-store" }).then(r => r.json()).then(h => { HEALTH = h; $("#keyed").hidden = !h.api_key; if (h.engine_installed === false || window.__tadamooRemote) noEngine(); return h; })
   .catch(() => null);
 view(location.hash.slice(1) || "chat");
 pollMetrics(); pollLog();
