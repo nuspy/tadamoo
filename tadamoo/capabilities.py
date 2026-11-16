@@ -367,6 +367,14 @@ class CapabilityIndex:
     # -- the index ------------------------------------------------------------------------------------------
 
     def _builtins(self) -> List[Dict[str, Any]]:
+        out = self._core_builtins()
+        if self.vault_dir:                                                       # without a vault there are no codes to give
+            out.append({"id": "builtin:authenticator", "name": "Two-step codes (2FA)", "kind": "builtin", "origin": "builtin", "path": "", "sha": "", "command": "",
+                        "description": "Gives the one-time code a site asks for after the password, from the person's vault. Load it to see how.",
+                        "tags": ["2fa", "totp", "authenticator", "otp", "code", "login", "vault"], "forced_node": "other"})
+        return out
+
+    def _core_builtins(self) -> List[Dict[str, Any]]:
         return [
             {"id": "builtin:vision", "name": "The model's vision", "kind": "builtin", "origin": "builtin", "path": "", "sha": "", "command": "",
              "description": "Reads an image with the vision projector of the loaded model, with a crop and zoom for fine detail.",

@@ -305,3 +305,17 @@ def import_into_vault(vault, migration: Migration, choices: List[dict]) -> dict:
         except Exception as exc:                                        # the vault's own refusal says why
             refused.append({"label": account.label, "why": str(exc)})
     return {"created": created, "merged": merged, "refused": refused}
+
+
+def instructions(vault) -> str:
+    """What the model reads when it loads the two-step capability: how a code is asked for and which logins can give one. Names and sites only, never a secret."""
+    rows = []
+    for e in (vault.entries() if vault is not None else []):
+        if e.get("second_factor") in ("automatic", "manual"):
+            how = "its code is made for you" if e["second_factor"] == "automatic" else "the person is asked to type its code"
+            rows.append(f"- {e['id']} ({e['label']}): {how}; sites: {', '.join(e['hosts']) or 'any'}")
+    listing = "\n".join(rows) if rows else "- none yet: the person adds them in Settings, under the vault (Import from Google Authenticator)."
+    return ("When a page asks for a one-time code (after the password), write {{vault:ENTRY.totp}} in the code field with browser_type, where ENTRY is the login for that site. "
+            "The code is made at that moment and valid for about 30 seconds: ask for it only when the field is in front of you, and type it at once. "
+            "A code goes only to a site its entry names; on another site the request is refused. Never ask the person for a code that an entry makes by itself, "
+            "and never try to read the secret behind it.\n\nLogins with a second factor:\n" + listing)

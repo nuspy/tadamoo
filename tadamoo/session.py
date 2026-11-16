@@ -2186,6 +2186,11 @@ def main(argv: Optional[List[str]] = None, stdin: Optional[TextIO] = None, stdou
         session.enable_orchestration()
     if not args.ask_only and built.capabilities is not None:
         def activate(cap_id: str) -> Optional[str]:
+            if cap_id == "builtin:authenticator":
+                from tadamoo.authenticator import instructions
+                from tadamoo.vault import Vault
+                vault_dir = built.capabilities.vault_dir
+                return instructions(Vault(vault_dir) if vault_dir else None)
             if cap_id != "builtin:orchestration":
                 return None
             session.enable_orchestration()

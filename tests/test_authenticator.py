@@ -171,3 +171,19 @@ def test_a_backup_of_the_vault_keeps_how_the_codes_are_made(tmp_path):
     other = vault_in(tmp_path / "b")
     other.import_backup(v.export_backup("pass"), "pass")
     assert other.describe("Example-alice")["totp"] == {"algorithm": "SHA256", "digits": 8, "period": 30}
+
+
+def test_the_model_sees_the_two_step_capability_only_when_there_is_a_vault_and_reads_the_how_on_request(tmp_path):
+    from tadamoo.capabilities import CapabilityIndex
+    v = vault_in(tmp_path / "v")
+    au.import_into_vault(v, au.read(export_link([account_blob(b"aaaaaaaaaa", "me", "Example")])), [{"index": 0, "hosts": ["example.com"]}])
+    text = au.instructions(v)
+    assert "{{vault:ENTRY.totp}}" in text and "Example-me (Example: me): its code is made for you; sites: example.com" in text and "aaaaaaaaaa" not in text
+    assert "none yet" in au.instructions(vault_in(tmp_path / "empty")) and "none yet" in au.instructions(None)
+    without = CapabilityIndex(tmp_path / "d1", workspace=tmp_path, home=tmp_path, appdata=tmp_path)
+    with_vault = CapabilityIndex(tmp_path / "d2", workspace=tmp_path, home=tmp_path, appdata=tmp_path)
+    with_vault.vault_dir = tmp_path / "v"
+    with_vault.refresh()
+    assert "builtin:authenticator" not in {e["id"] for e in without.entries} and "builtin:authenticator" in {e["id"] for e in with_vault.entries}
+    entry = with_vault.get("builtin:authenticator")
+    assert "2fa" in entry["tags"] and len(entry["description"]) < 140
