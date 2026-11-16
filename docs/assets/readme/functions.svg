@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 470" width="1200" height="470" role="img" aria-label="What TaDaMoo does">
+<title>What TaDaMoo does</title>
+<defs>
+<radialGradient id="glow" cx="78%" cy="45%" r="60%"><stop offset="0" stop-color="#8cc0ff" stop-opacity=".16"/><stop offset="1" stop-color="#8cc0ff" stop-opacity="0"/></radialGradient>
+<radialGradient id="gold" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#d8b26a" stop-opacity=".35"/><stop offset="1" stop-color="#d8b26a" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="1200" height="470" rx="14" fill="#04050a"/>
+<rect width="1200" height="470" rx="14" fill="url(#glow)"/>
+<circle cx="291" cy="255" r="1.0" fill="#ece8df" opacity="0.6"/>
+<circle cx="569" cy="271" r="0.6" fill="#ece8df" opacity="0.4"/>
+<circle cx="316" cy="115" r="1.4" fill="#ece8df" opacity="0.6"/>
+<circle cx="997" cy="224" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="759" cy="401" r="1.4" fill="#ece8df" opacity="0.6"/>
+<circle cx="28" cy="360" r="0.8" fill="#ece8df" opacity="0.6"/>
+<circle cx="60" cy="361" r="1.0" fill="#ece8df" opacity="0.4"/>
+<circle cx="712" cy="424" r="1.4" fill="#ece8df" opacity="0.6"/>
+<circle cx="940" cy="202" r="1.4" fill="#ece8df" opacity="0.25"/>
+<circle cx="1047" cy="54" r="0.8" fill="#ece8df" opacity="0.4"/>
+<circle cx="266" cy="444" r="1.4" fill="#ece8df" opacity="0.6"/>
+<circle cx="1019" cy="200" r="1.4" fill="#ece8df" opacity="0.6"/>
+<circle cx="424" cy="273" r="0.8" fill="#ece8df" opacity="0.4"/>
+<circle cx="815" cy="428" r="1.0" fill="#ece8df" opacity="0.6"/>
+<circle cx="802" cy="83" r="1.0" fill="#ece8df" opacity="0.6"/>
+<circle cx="1078" cy="266" r="0.8" fill="#ece8df" opacity="0.6"/>
+<circle cx="991" cy="268" r="1.0" fill="#ece8df" opacity="0.25"/>
+<circle cx="85" cy="394" r="1.4" fill="#ece8df" opacity="0.25"/>
+<circle cx="416" cy="40" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="357" cy="356" r="0.6" fill="#ece8df" opacity="0.25"/>
+<circle cx="724" cy="353" r="1.4" fill="#ece8df" opacity="0.6"/>
+<circle cx="702" cy="258" r="1.0" fill="#ece8df" opacity="0.6"/>
+<circle cx="288" cy="26" r="0.6" fill="#ece8df" opacity="0.25"/>
+<circle cx="138" cy="251" r="0.8" fill="#ece8df" opacity="0.4"/>
+<circle cx="354" cy="129" r="0.6" fill="#ece8df" opacity="0.4"/>
+<circle cx="380" cy="441" r="1.4" fill="#ece8df" opacity="0.4"/>
+<circle cx="553" cy="244" r="0.6" fill="#ece8df" opacity="0.6"/>
+<circle cx="1158" cy="375" r="1.0" fill="#ece8df" opacity="0.4"/>
+<circle cx="758" cy="332" r="1.0" fill="#ece8df" opacity="0.4"/>
+<circle cx="1164" cy="245" r="1.0" fill="#ece8df" opacity="0.25"/>
+<circle cx="940" cy="454" r="1.0" fill="#ece8df" opacity="0.25"/>
+<circle cx="454" cy="275" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="758" cy="160" r="1.0" fill="#ece8df" opacity="0.6"/>
+<circle cx="1092" cy="284" r="1.0" fill="#ece8df" opacity="0.6"/>
+<circle cx="588" cy="275" r="0.6" fill="#ece8df" opacity="0.4"/>
+<circle cx="306" cy="215" r="1.0" fill="#ece8df" opacity="0.25"/>
+<circle cx="439" cy="151" r="1.0" fill="#ece8df" opacity="0.6"/>
+<circle cx="322" cy="364" r="0.6" fill="#ece8df" opacity="0.25"/>
+<circle cx="1156" cy="318" r="0.8" fill="#ece8df" opacity="0.4"/>
+<circle cx="600" cy="304" r="1.0" fill="#ece8df" opacity="0.25"/>
+<circle cx="397" cy="315" r="0.6" fill="#ece8df" opacity="0.25"/>
+<circle cx="719" cy="437" r="0.8" fill="#ece8df" opacity="0.4"/>
+<circle cx="966" cy="442" r="0.6" fill="#ece8df" opacity="0.4"/>
+<circle cx="886" cy="108" r="1.4" fill="#ece8df" opacity="0.4"/>
+<circle cx="276" cy="64" r="0.8" fill="#ece8df" opacity="0.4"/>
+<rect x="45" y="50" width="360" height="190" rx="12" fill="#0b101c" stroke="#2a3140"/>
+<g transform="translate(67,70)" stroke="#d8b26a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9h20v14H6z M10 9V6h12v3 M6 16h20" fill="none"/></g>
+<text x="111" y="94" font-family="Georgia, 'Times New Roman', serif" font-size="22" font-weight="400" fill="#ece8df" text-anchor="start" opacity="1">Do the work</text>
+<circle cx="73" cy="132" r="2.4" fill="#8cc0ff"/>
+<text x="87" y="136" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.9">Edit files, run commands, search the code</text>
+<circle cx="73" cy="162" r="2.4" fill="#8cc0ff"/>
+<text x="87" y="166" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.9">Browse, fill in forms, book and pay</text>
+<circle cx="73" cy="192" r="2.4" fill="#8cc0ff"/>
+<text x="87" y="196" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.9">Read Word, Excel, PDF, images and more</text>
+<rect x="435" y="50" width="360" height="190" rx="12" fill="#0b101c" stroke="#2a3140"/>
+<g transform="translate(457,70)" stroke="#d8b26a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="3"/><circle cx="24" cy="8" r="3"/><circle cx="16" cy="24" r="3"/><path d="M10.5 9.5l4 12 M21.5 9.5l-4 12 M11 8h10" fill="none"/></g>
+<text x="501" y="94" font-family="Georgia, 'Times New Roman', serif" font-size="22" font-weight="400" fill="#ece8df" text-anchor="start" opacity="1">Plan and run alone</text>
+<circle cx="463" cy="132" r="2.4" fill="#8cc0ff"/>
+<text x="477" y="136" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.9">Plans as graphs that re-plan when a step fails</text>
+<circle cx="463" cy="162" r="2.4" fill="#8cc0ff"/>
+<text x="477" y="166" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.9">Routines and schedules that run overnight</text>
+<circle cx="463" cy="192" r="2.4" fill="#8cc0ff"/>
+<text x="477" y="196" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.9">Tasks that become scripts: cheaper each run</text>
+<rect x="825" y="50" width="360" height="190" rx="12" fill="#0b101c" stroke="#2a3140"/>
+<g transform="translate(847,70)" stroke="#d8b26a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h22v13H15l-6 5v-5H5z" fill="none"/><path d="M11 14h10 M11 18h6" fill="none"/></g>
+<text x="891" y="94" font-family="Georgia, 'Times New Roman', serif" font-size="22" font-weight="400" fill="#ece8df" text-anchor="start" opacity="1">Talk and call</text>
+<circle cx="853" cy="132" r="2.4" fill="#8cc0ff"/>
+<text x="867" y="136" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.9">Voice in and out, in many languages</text>
+<circle cx="853" cy="162" r="2.4" fill="#8cc0ff"/>
+<text x="867" y="166" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.9">Real phone calls, only with your yes</text>
+<circle cx="853" cy="192" r="2.4" fill="#8cc0ff"/>
+<text x="867" y="196" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.9">Avatars on the PC and on the phone</text>
+<rect x="45" y="268" width="360" height="190" rx="12" fill="#0b101c" stroke="#2a3140"/>
+<g transform="translate(67,288)" stroke="#d8b26a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 5a7 7 0 0 0-7 7c0 2 1 3 1 5v3h12v-3c0-2 1-3 1-5a7 7 0 0 0-7-7z M12 24h8 M13 27h6" fill="none"/></g>
+<text x="111" y="312" font-family="Georgia, 'Times New Roman', serif" font-size="22" font-weight="400" fill="#ece8df" text-anchor="start" opacity="1">Remember and learn</text>
+<circle cx="73" cy="350" r="2.4" fill="#8cc0ff"/>
+<text x="87" y="354" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.9">Short and long memory per project</text>
+<circle cx="73" cy="380" r="2.4" fill="#8cc0ff"/>
+<text x="87" y="384" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.9">Skills you make by doing the task once</text>
+<circle cx="73" cy="410" r="2.4" fill="#8cc0ff"/>
+<text x="87" y="414" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.9">Knowledge archives with search by meaning</text>
+<rect x="435" y="268" width="360" height="190" rx="12" fill="#0b101c" stroke="#2a3140"/>
+<g transform="translate(457,288)" stroke="#d8b26a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4l10 4v8c0 6-4 10-10 12C10 26 6 22 6 16V8z M11 16l4 4 7-8" fill="none"/></g>
+<text x="501" y="312" font-family="Georgia, 'Times New Roman', serif" font-size="22" font-weight="400" fill="#ece8df" text-anchor="start" opacity="1">Stay in charge</text>
+<circle cx="463" cy="350" r="2.4" fill="#8cc0ff"/>
+<text x="477" y="354" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.9">Permission levels, from ask-first to automatic</text>
+<circle cx="463" cy="380" r="2.4" fill="#8cc0ff"/>
+<text x="477" y="384" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.9">Vault: the model never sees a password</text>
+<circle cx="463" cy="410" r="2.4" fill="#8cc0ff"/>
+<text x="477" y="414" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.9">Every action in a hash-chained log, undo per file</text>
+<rect x="825" y="268" width="360" height="190" rx="12" fill="#0b101c" stroke="#2a3140"/>
+<g transform="translate(847,288)" stroke="#d8b26a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="7" width="22" height="18" rx="2" fill="none"/><path d="M13 12l8 4-8 4z" fill="none"/></g>
+<text x="891" y="312" font-family="Georgia, 'Times New Roman', serif" font-size="22" font-weight="400" fill="#ece8df" text-anchor="start" opacity="1">Make things</text>
+<circle cx="853" cy="350" r="2.4" fill="#8cc0ff"/>
+<text x="867" y="354" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.9">Newscasts and videos from a plan</text>
+<circle cx="853" cy="380" r="2.4" fill="#8cc0ff"/>
+<text x="867" y="384" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.9">Long texts written in checked parts</text>
+<circle cx="853" cy="410" r="2.4" fill="#8cc0ff"/>
+<text x="867" y="414" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14.5" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.9">Voices, clips and interludes between stories</text>
+</svg>

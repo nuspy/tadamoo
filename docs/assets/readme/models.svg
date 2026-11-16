@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 640" width="1200" height="640" role="img" aria-label="Any model, any way">
+<title>Any model, any way</title>
+<defs>
+<radialGradient id="glow" cx="78%" cy="45%" r="60%"><stop offset="0" stop-color="#8cc0ff" stop-opacity=".16"/><stop offset="1" stop-color="#8cc0ff" stop-opacity="0"/></radialGradient>
+<radialGradient id="gold" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#d8b26a" stop-opacity=".35"/><stop offset="1" stop-color="#d8b26a" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="1200" height="640" rx="14" fill="#04050a"/>
+<rect width="1200" height="640" rx="14" fill="url(#glow)"/>
+<circle cx="544" cy="357" r="1.4" fill="#ece8df" opacity="0.4"/>
+<circle cx="609" cy="374" r="0.8" fill="#ece8df" opacity="0.6"/>
+<circle cx="571" cy="391" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="537" cy="98" r="0.6" fill="#ece8df" opacity="0.6"/>
+<circle cx="1169" cy="608" r="0.8" fill="#ece8df" opacity="0.6"/>
+<circle cx="28" cy="338" r="0.6" fill="#ece8df" opacity="0.25"/>
+<circle cx="234" cy="160" r="0.6" fill="#ece8df" opacity="0.4"/>
+<circle cx="395" cy="376" r="0.8" fill="#ece8df" opacity="0.6"/>
+<circle cx="286" cy="192" r="0.6" fill="#ece8df" opacity="0.6"/>
+<circle cx="110" cy="416" r="1.4" fill="#ece8df" opacity="0.6"/>
+<circle cx="1185" cy="531" r="1.0" fill="#ece8df" opacity="0.4"/>
+<circle cx="904" cy="328" r="0.6" fill="#ece8df" opacity="0.25"/>
+<circle cx="675" cy="77" r="0.6" fill="#ece8df" opacity="0.4"/>
+<circle cx="466" cy="604" r="0.6" fill="#ece8df" opacity="0.25"/>
+<circle cx="257" cy="574" r="1.4" fill="#ece8df" opacity="0.4"/>
+<circle cx="1167" cy="256" r="0.6" fill="#ece8df" opacity="0.6"/>
+<circle cx="753" cy="493" r="1.0" fill="#ece8df" opacity="0.4"/>
+<circle cx="113" cy="216" r="1.4" fill="#ece8df" opacity="0.25"/>
+<circle cx="169" cy="448" r="0.6" fill="#ece8df" opacity="0.25"/>
+<circle cx="559" cy="312" r="0.8" fill="#ece8df" opacity="0.4"/>
+<circle cx="610" cy="621" r="0.8" fill="#ece8df" opacity="0.4"/>
+<circle cx="770" cy="82" r="1.4" fill="#ece8df" opacity="0.25"/>
+<circle cx="11" cy="546" r="1.0" fill="#ece8df" opacity="0.25"/>
+<circle cx="259" cy="254" r="0.6" fill="#ece8df" opacity="0.25"/>
+<circle cx="1177" cy="142" r="1.0" fill="#ece8df" opacity="0.25"/>
+<circle cx="922" cy="214" r="1.0" fill="#ece8df" opacity="0.4"/>
+<circle cx="97" cy="66" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="720" cy="240" r="1.4" fill="#ece8df" opacity="0.25"/>
+<circle cx="1142" cy="310" r="0.8" fill="#ece8df" opacity="0.4"/>
+<circle cx="226" cy="106" r="0.8" fill="#ece8df" opacity="0.6"/>
+<circle cx="304" cy="128" r="0.8" fill="#ece8df" opacity="0.6"/>
+<circle cx="1131" cy="557" r="0.6" fill="#ece8df" opacity="0.4"/>
+<circle cx="66" cy="78" r="1.0" fill="#ece8df" opacity="0.25"/>
+<circle cx="883" cy="253" r="1.4" fill="#ece8df" opacity="0.6"/>
+<circle cx="589" cy="332" r="0.6" fill="#ece8df" opacity="0.25"/>
+<circle cx="280" cy="357" r="0.6" fill="#ece8df" opacity="0.4"/>
+<circle cx="261" cy="577" r="0.6" fill="#ece8df" opacity="0.25"/>
+<circle cx="328" cy="286" r="0.6" fill="#ece8df" opacity="0.25"/>
+<circle cx="218" cy="239" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="437" cy="562" r="1.0" fill="#ece8df" opacity="0.6"/>
+<circle cx="875" cy="334" r="0.8" fill="#ece8df" opacity="0.6"/>
+<circle cx="51" cy="21" r="1.0" fill="#ece8df" opacity="0.6"/>
+<circle cx="378" cy="31" r="0.6" fill="#ece8df" opacity="0.4"/>
+<circle cx="89" cy="203" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="99" cy="349" r="0.6" fill="#ece8df" opacity="0.6"/>
+<circle cx="880" cy="90" r="1.0" fill="#ece8df" opacity="0.4"/>
+<circle cx="110" cy="303" r="0.6" fill="#ece8df" opacity="0.4"/>
+<circle cx="1124" cy="29" r="1.4" fill="#ece8df" opacity="0.6"/>
+<circle cx="27" cy="421" r="1.4" fill="#ece8df" opacity="0.6"/>
+<circle cx="25" cy="55" r="0.6" fill="#ece8df" opacity="0.6"/>
+<circle cx="146" cy="169" r="1.4" fill="#ece8df" opacity="0.6"/>
+<circle cx="400" cy="589" r="1.4" fill="#ece8df" opacity="0.4"/>
+<circle cx="556" cy="346" r="0.6" fill="#ece8df" opacity="0.4"/>
+<circle cx="720" cy="308" r="0.8" fill="#ece8df" opacity="0.6"/>
+<circle cx="143" cy="494" r="1.4" fill="#ece8df" opacity="0.4"/>
+<circle cx="600" cy="320" r="118" fill="url(#gold)"/>
+<path d="M400 88 C 500 88, 500 320, 600 320" fill="none" stroke="#d8b26a" stroke-opacity=".45" stroke-width="1.4"/>
+<rect x="40" y="40" width="360" height="96" rx="12" fill="#0b101c" stroke="#d8b26a" stroke-opacity=".6"/>
+<text x="58" y="72" font-family="Georgia, 'Times New Roman', serif" font-size="18" font-weight="400" fill="#d8b26a" text-anchor="start" opacity="1">Your own engines</text>
+<rect x="58" y="92" width="104" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="110.0" y="109.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Basalt-Plus</text>
+<rect x="170" y="92" width="67" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="203.5" y="109.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Strata</text>
+<path d="M400 298 C 500 298, 500 320, 600 320" fill="none" stroke="#8cc0ff" stroke-opacity=".45" stroke-width="1.4"/>
+<rect x="40" y="250" width="360" height="96" rx="12" fill="#0b101c" stroke="#8cc0ff" stroke-opacity=".6"/>
+<text x="58" y="282" font-family="Georgia, 'Times New Roman', serif" font-size="18" font-weight="400" fill="#8cc0ff" text-anchor="start" opacity="1">Local servers</text>
+<rect x="58" y="302" width="89" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="102.5" y="319.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">llama.cpp</text>
+<rect x="155" y="302" width="52" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="181.0" y="319.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">vLLM</text>
+<rect x="215" y="302" width="89" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="259.5" y="319.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">LM Studio</text>
+<path d="M400 515 C 500 515, 500 320, 600 320" fill="none" stroke="#9a9aa4" stroke-opacity=".45" stroke-width="1.4"/>
+<rect x="40" y="450" width="360" height="130" rx="12" fill="#0b101c" stroke="#9a9aa4" stroke-opacity=".6"/>
+<text x="58" y="482" font-family="Georgia, 'Times New Roman', serif" font-size="18" font-weight="400" fill="#9a9aa4" text-anchor="start" opacity="1">Any address you choose</text>
+<rect x="58" y="502" width="150" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="133.0" y="519.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">OpenAI-compatible</text>
+<rect x="58" y="536" width="172" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="144.0" y="553.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Anthropic-compatible</text>
+<path d="M800 88 C 700 88, 700 320, 600 320" fill="none" stroke="#e4473a" stroke-opacity=".45" stroke-width="1.4"/>
+<rect x="800" y="40" width="360" height="96" rx="12" fill="#0b101c" stroke="#e4473a" stroke-opacity=".6"/>
+<text x="818" y="72" font-family="Georgia, 'Times New Roman', serif" font-size="18" font-weight="400" fill="#e4473a" text-anchor="start" opacity="1">Subscriptions</text>
+<rect x="818" y="92" width="104" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="870.0" y="109.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Claude Code</text>
+<rect x="930" y="92" width="89" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="974.5" y="109.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Codex CLI</text>
+<path d="M800 297 C 700 297, 700 320, 600 320" fill="none" stroke="#8cc0ff" stroke-opacity=".45" stroke-width="1.4"/>
+<rect x="800" y="215" width="360" height="164" rx="12" fill="#0b101c" stroke="#8cc0ff" stroke-opacity=".6"/>
+<text x="818" y="247" font-family="Georgia, 'Times New Roman', serif" font-size="18" font-weight="400" fill="#8cc0ff" text-anchor="start" opacity="1">Token factories and gateways</text>
+<rect x="818" y="267" width="172" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="904.0" y="284.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Nebius Token Factory</text>
+<rect x="998" y="267" width="97" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="1046.5" y="284.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">OpenRouter</text>
+<rect x="818" y="301" width="82" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="859.0" y="318.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Together</text>
+<rect x="908" y="301" width="89" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="952.5" y="318.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Fireworks</text>
+<rect x="1005" y="301" width="52" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="1031.0" y="318.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Groq</text>
+<rect x="818" y="335" width="89" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="862.5" y="352.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">DeepInfra</text>
+<rect x="915" y="335" width="82" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="956.0" y="352.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Cerebras</text>
+<rect x="1005" y="335" width="97" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="1053.5" y="352.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">NVIDIA NIM</text>
+<path d="M800 530 C 700 530, 700 320, 600 320" fill="none" stroke="#d8b26a" stroke-opacity=".45" stroke-width="1.4"/>
+<rect x="800" y="465" width="360" height="130" rx="12" fill="#0b101c" stroke="#d8b26a" stroke-opacity=".6"/>
+<text x="818" y="497" font-family="Georgia, 'Times New Roman', serif" font-size="18" font-weight="400" fill="#d8b26a" text-anchor="start" opacity="1">The makers' own APIs</text>
+<rect x="818" y="517" width="89" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="862.5" y="534.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Anthropic</text>
+<rect x="915" y="517" width="67" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="948.5" y="534.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">OpenAI</text>
+<rect x="990" y="517" width="67" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="1023.5" y="534.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Gemini</text>
+<rect x="1065" y="517" width="52" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="1091.0" y="534.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Grok</text>
+<rect x="818" y="551" width="82" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="859.0" y="568.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">DeepSeek</text>
+<rect x="908" y="551" width="52" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="934.0" y="568.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Kimi</text>
+<rect x="968" y="551" width="52" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="994.0" y="568.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Qwen</text>
+<rect x="1028" y="551" width="52" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="1054.0" y="568.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Z.AI</text>
+<circle cx="600" cy="320" r="86" fill="#04050a" stroke="#d8b26a" stroke-width="2"/>
+<text x="600" y="302" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="15" font-weight="400" fill="#d8b26a" text-anchor="middle" opacity="1" letter-spacing="2">HARNESS</text>
+<text x="600" y="326" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="400" fill="#ece8df" text-anchor="middle" opacity="1">one model per</text>
+<text x="600" y="344" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="400" fill="#ece8df" text-anchor="middle" opacity="1">function, and you</text>
+<text x="600" y="362" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="400" fill="#ece8df" text-anchor="middle" opacity="1">say what may leave</text>
+<text x="600" y="380" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="400" fill="#ece8df" text-anchor="middle" opacity="1">your PC</text>
+</svg>

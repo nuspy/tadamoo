@@ -1,6 +1,6 @@
 # Building and testing
 
-Clone, requirements and the build commands are in the [README](../README.md). This page has the rest.
+Clone, requirements and the build commands are in [the original Basalt README](reference/upstream-basalt.md). This page has the rest.
 
 ## What is in the repository
 

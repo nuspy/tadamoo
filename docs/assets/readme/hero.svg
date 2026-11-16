@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 380" width="1200" height="380" role="img" aria-label="TaDaMoo: the agent harness">
+<title>TaDaMoo: the agent harness</title>
+<defs>
+<radialGradient id="glow" cx="78%" cy="45%" r="60%"><stop offset="0" stop-color="#8cc0ff" stop-opacity=".16"/><stop offset="1" stop-color="#8cc0ff" stop-opacity="0"/></radialGradient>
+<radialGradient id="gold" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#d8b26a" stop-opacity=".35"/><stop offset="1" stop-color="#d8b26a" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="1200" height="380" rx="14" fill="#04050a"/>
+<rect width="1200" height="380" rx="14" fill="url(#glow)"/>
+<circle cx="392" cy="64" r="0.6" fill="#ece8df" opacity="0.25"/>
+<circle cx="979" cy="44" r="0.6" fill="#ece8df" opacity="0.6"/>
+<circle cx="263" cy="41" r="1.4" fill="#ece8df" opacity="0.25"/>
+<circle cx="294" cy="208" r="0.6" fill="#ece8df" opacity="0.6"/>
+<circle cx="156" cy="90" r="0.6" fill="#ece8df" opacity="0.6"/>
+<circle cx="701" cy="28" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="667" cy="58" r="1.4" fill="#ece8df" opacity="0.25"/>
+<circle cx="648" cy="216" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="696" cy="240" r="1.0" fill="#ece8df" opacity="0.25"/>
+<circle cx="656" cy="33" r="0.6" fill="#ece8df" opacity="0.6"/>
+<circle cx="253" cy="255" r="1.4" fill="#ece8df" opacity="0.4"/>
+<circle cx="559" cy="342" r="1.0" fill="#ece8df" opacity="0.4"/>
+<circle cx="303" cy="75" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="688" cy="199" r="1.0" fill="#ece8df" opacity="0.6"/>
+<circle cx="540" cy="229" r="0.6" fill="#ece8df" opacity="0.25"/>
+<circle cx="614" cy="69" r="1.0" fill="#ece8df" opacity="0.25"/>
+<circle cx="1111" cy="162" r="0.6" fill="#ece8df" opacity="0.6"/>
+<circle cx="686" cy="325" r="1.0" fill="#ece8df" opacity="0.4"/>
+<circle cx="830" cy="224" r="1.4" fill="#ece8df" opacity="0.25"/>
+<circle cx="1001" cy="350" r="1.4" fill="#ece8df" opacity="0.6"/>
+<circle cx="794" cy="32" r="1.0" fill="#ece8df" opacity="0.6"/>
+<circle cx="692" cy="255" r="1.4" fill="#ece8df" opacity="0.4"/>
+<circle cx="856" cy="329" r="1.0" fill="#ece8df" opacity="0.25"/>
+<circle cx="1120" cy="138" r="0.6" fill="#ece8df" opacity="0.4"/>
+<circle cx="80" cy="287" r="0.8" fill="#ece8df" opacity="0.6"/>
+<circle cx="302" cy="151" r="1.4" fill="#ece8df" opacity="0.25"/>
+<circle cx="206" cy="155" r="1.0" fill="#ece8df" opacity="0.25"/>
+<circle cx="977" cy="321" r="1.0" fill="#ece8df" opacity="0.6"/>
+<circle cx="500" cy="139" r="1.4" fill="#ece8df" opacity="0.25"/>
+<circle cx="188" cy="73" r="0.8" fill="#ece8df" opacity="0.6"/>
+<circle cx="285" cy="185" r="0.8" fill="#ece8df" opacity="0.4"/>
+<circle cx="343" cy="62" r="1.0" fill="#ece8df" opacity="0.6"/>
+<circle cx="678" cy="353" r="0.6" fill="#ece8df" opacity="0.4"/>
+<circle cx="1071" cy="291" r="1.4" fill="#ece8df" opacity="0.4"/>
+<circle cx="481" cy="47" r="1.4" fill="#ece8df" opacity="0.25"/>
+<circle cx="235" cy="364" r="1.4" fill="#ece8df" opacity="0.25"/>
+<circle cx="140" cy="226" r="0.6" fill="#ece8df" opacity="0.25"/>
+<circle cx="679" cy="203" r="1.0" fill="#ece8df" opacity="0.6"/>
+<circle cx="40" cy="325" r="1.4" fill="#ece8df" opacity="0.25"/>
+<circle cx="759" cy="354" r="1.0" fill="#ece8df" opacity="0.4"/>
+<circle cx="155" cy="316" r="1.4" fill="#ece8df" opacity="0.4"/>
+<circle cx="581" cy="41" r="0.6" fill="#ece8df" opacity="0.6"/>
+<circle cx="414" cy="105" r="0.8" fill="#ece8df" opacity="0.6"/>
+<circle cx="37" cy="352" r="1.0" fill="#ece8df" opacity="0.25"/>
+<circle cx="824" cy="339" r="1.0" fill="#ece8df" opacity="0.6"/>
+<circle cx="1029" cy="261" r="1.0" fill="#ece8df" opacity="0.6"/>
+<circle cx="443" cy="70" r="0.8" fill="#ece8df" opacity="0.6"/>
+<circle cx="649" cy="191" r="0.8" fill="#ece8df" opacity="0.6"/>
+<circle cx="968" cy="365" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="976" cy="276" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="621" cy="138" r="0.6" fill="#ece8df" opacity="0.25"/>
+<circle cx="942" cy="180" r="0.8" fill="#ece8df" opacity="0.6"/>
+<circle cx="724" cy="134" r="1.0" fill="#ece8df" opacity="0.4"/>
+<circle cx="105" cy="47" r="1.4" fill="#ece8df" opacity="0.25"/>
+<circle cx="409" cy="184" r="0.6" fill="#ece8df" opacity="0.4"/>
+<circle cx="1083" cy="134" r="0.6" fill="#ece8df" opacity="0.6"/>
+<circle cx="151" cy="150" r="0.8" fill="#ece8df" opacity="0.4"/>
+<circle cx="1059" cy="166" r="1.0" fill="#ece8df" opacity="0.25"/>
+<circle cx="955" cy="360" r="1.4" fill="#ece8df" opacity="0.4"/>
+<circle cx="484" cy="351" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="1182" cy="20" r="1.4" fill="#ece8df" opacity="0.6"/>
+<circle cx="182" cy="308" r="1.4" fill="#ece8df" opacity="0.6"/>
+<circle cx="1116" cy="66" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="27" cy="360" r="0.6" fill="#ece8df" opacity="0.6"/>
+<circle cx="894" cy="60" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="43" cy="87" r="0.8" fill="#ece8df" opacity="0.6"/>
+<circle cx="395" cy="206" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="1084" cy="137" r="1.4" fill="#ece8df" opacity="0.6"/>
+<circle cx="698" cy="336" r="1.4" fill="#ece8df" opacity="0.6"/>
+<circle cx="164" cy="65" r="0.6" fill="#ece8df" opacity="0.4"/>
+<text x="60" y="92" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="13" font-weight="400" fill="#d8b26a" text-anchor="start" opacity="1" letter-spacing="2.5">AGENT HARNESS  ·  LOCAL OR REMOTE</text>
+<text x="60" y="160" font-family="Georgia, 'Times New Roman', serif" font-size="58" font-weight="400" fill="#ece8df" text-anchor="start" opacity="1">Set the goal.</text>
+<text x="60" y="224" font-family="Georgia, 'Times New Roman', serif" font-size="58" font-weight="400" fill="#d8b26a" text-anchor="start" opacity="1">The crew takes off.</text>
+<text x="60" y="274" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="18" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.92">TaDaMoo turns a language model into a coworker that acts:</text>
+<text x="60" y="300" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="18" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.92">it works on your files, browses, phones, plans, remembers, and</text>
+<text x="60" y="326" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="18" font-weight="400" fill="#ece8df" text-anchor="start" opacity="0.92">asks before it does anything it cannot undo.</text>
+<circle cx="900" cy="195" r="168" fill="url(#gold)"/>
+<circle cx="900" cy="195" r="128" fill="none" stroke="#2a3140" stroke-dasharray="3 6"/>
+<line x1="900" y1="195" x2="900" y2="67" stroke="#8cc0ff" stroke-opacity=".28"/>
+<circle cx="900" cy="67" r="8" fill="#04050a" stroke="#8cc0ff" stroke-width="1.6"/>
+<text x="900" y="48" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="14" font-weight="400" fill="#ece8df" text-anchor="middle" opacity="1">Files</text>
+<line x1="900" y1="195" x2="991" y2="104" stroke="#8cc0ff" stroke-opacity=".28"/>
+<circle cx="991" cy="104" r="8" fill="#04050a" stroke="#8cc0ff" stroke-width="1.6"/>
+<text x="1007" y="93" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="14" font-weight="400" fill="#ece8df" text-anchor="start" opacity="1">Web</text>
+<line x1="900" y1="195" x2="1028" y2="195" stroke="#8cc0ff" stroke-opacity=".28"/>
+<circle cx="1028" cy="195" r="8" fill="#04050a" stroke="#8cc0ff" stroke-width="1.6"/>
+<text x="1052" y="200" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="14" font-weight="400" fill="#ece8df" text-anchor="start" opacity="1">Phone</text>
+<line x1="900" y1="195" x2="991" y2="286" stroke="#8cc0ff" stroke-opacity=".28"/>
+<circle cx="991" cy="286" r="8" fill="#04050a" stroke="#8cc0ff" stroke-width="1.6"/>
+<text x="1007" y="307" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="14" font-weight="400" fill="#ece8df" text-anchor="start" opacity="1">Plans</text>
+<line x1="900" y1="195" x2="900" y2="323" stroke="#8cc0ff" stroke-opacity=".28"/>
+<circle cx="900" cy="323" r="8" fill="#04050a" stroke="#8cc0ff" stroke-width="1.6"/>
+<text x="900" y="352" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="14" font-weight="400" fill="#ece8df" text-anchor="middle" opacity="1">Memory</text>
+<line x1="900" y1="195" x2="809" y2="286" stroke="#8cc0ff" stroke-opacity=".28"/>
+<circle cx="809" cy="286" r="8" fill="#04050a" stroke="#8cc0ff" stroke-width="1.6"/>
+<text x="793" y="307" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="14" font-weight="400" fill="#ece8df" text-anchor="end" opacity="1">Vault</text>
+<line x1="900" y1="195" x2="772" y2="195" stroke="#8cc0ff" stroke-opacity=".28"/>
+<circle cx="772" cy="195" r="8" fill="#04050a" stroke="#8cc0ff" stroke-width="1.6"/>
+<text x="748" y="200" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="14" font-weight="400" fill="#ece8df" text-anchor="end" opacity="1">Voice</text>
+<line x1="900" y1="195" x2="809" y2="104" stroke="#8cc0ff" stroke-opacity=".28"/>
+<circle cx="809" cy="104" r="8" fill="#04050a" stroke="#8cc0ff" stroke-width="1.6"/>
+<text x="793" y="93" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="14" font-weight="400" fill="#ece8df" text-anchor="end" opacity="1">Models</text>
+<circle cx="900" cy="195" r="48" fill="#04050a" stroke="#d8b26a" stroke-width="2"/>
+<text x="900" y="193" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="14" font-weight="400" fill="#d8b26a" text-anchor="middle" opacity="1" letter-spacing="1.5">HARNESS</text>
+<text x="900" y="211" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="12" font-weight="400" fill="#9a9aa4" text-anchor="middle" opacity="1">TaDaMoo</text>
+</svg>

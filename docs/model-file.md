@@ -5,7 +5,7 @@ tokenizer and chat template, the MTP drafter, the 8-bit hyper-connection copies,
 metadata with the default sampling. It carries nothing that is engine policy: no flags (those come from `--config` or
 the command line) and no expert profile (the engine's own, [below](#expert-profiles)).
 
-The layout diagram is in the [README](../README.md#models).
+The layout diagram is in the [README](reference/upstream-basalt-2.md#models).
 
 - **Layout:** a 64 KiB header (magic `BASALTMF`, version 2, a table of up to 511 named sections, each with its offset,
   size and SHA-256), then the sections, each aligned to 2 MiB so it can be memory-mapped or read with `O_DIRECT`.
