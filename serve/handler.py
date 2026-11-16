@@ -1200,8 +1200,8 @@ def make_handler(svc: Service, remote: bool = False):
             if path == "/api/server-key":
                 self._server_key_post()
                 return
-            if path == "/api/computer":
-                self._computer_post()
+            if path in ("/api/computer", "/api/computer/install"):
+                self._computer_post(path)
                 return
             if path == "/api/export":
                 self._export_post()
@@ -2142,8 +2142,8 @@ def make_handler(svc: Service, remote: bool = False):
             print("[server] the API key was changed from a client and is in force now", flush=True)
             self._json(200, out)
 
-        def _computer_post(self):
-            """POST /api/computer {"enabled", "monitor"}: this PC only (it lets an agent act on the machine)."""
+        def _computer_post(self, path="/api/computer"):
+            """POST /api/computer {"enabled", "monitor", "backend"} and POST /api/computer/install: this PC only (they let an agent act on the machine and download a program)."""
             try:
                 raw = self._body(settings.BODY_MAX)
             except BadBody as e:
@@ -2155,13 +2155,19 @@ def make_handler(svc: Service, remote: bool = False):
             try:
                 req = json.loads(raw or b"{}")
                 if not isinstance(req, dict):
-                    raise ValueError("send a JSON object {enabled, monitor}")
+                    raise ValueError("send a JSON object {enabled, monitor, backend}")
+                if path.endswith("/install"):
+                    out = computer_api.install_program(ComputerPrefs(userdata.path("computer.json")))
+                    print(f"[server] agent-desktop {out['installed']['version']} installed", flush=True)
+                    return self._json(200, out)
                 out = computer_api.save(ComputerPrefs(userdata.path("computer.json")), req)
+            except computer_api.ComputerError as e:
+                return self._json(502, {"error": {"type": "install_failed", "message": str(e)}})
             except (ValueError, json.JSONDecodeError) as e:
                 return self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
             except OSError as e:
                 return self._json(500, {"error": {"type": "server_error", "message": f"cannot keep the setting: {e.strerror or e}"}})
-            print(f"[server] computer control {'on' if out['enabled'] else 'off'}, screen {out['monitor'] or 'all'}", flush=True)
+            print(f"[server] computer control {'on' if out['enabled'] else 'off'}, screen {out['monitor'] or 'all'}, backend {out['backend']}", flush=True)
             self._json(200, out)
 
         def _network_post(self, path):

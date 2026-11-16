@@ -360,17 +360,34 @@
     const on = h("input"); on.type = "checkbox"; on.id = "wl-cc-on"; on.checked = !!c.enabled; on.disabled = !c.supported;
     const screens = [[0, T("wl.cc.all")], ...(c.monitors || []).map(m => [m.index, T("wl.cc.screen", m.index, m.width, m.height) + (m.primary ? " " + T("wl.cc.main") : "")])];
     const pick = select(screens.map(([v, text]) => [String(v), text]), String(c.monitor || 0), !c.supported); pick.id = "wl-cc-screen";
+    const backends = ["auto", "agent-desktop", "native"];
+    const engine = select(backends.map(v => [v, T("wl.cc.backend." + v)]), c.backend || "auto", !c.supported && !(c.agent_desktop || {}).found); engine.id = "wl-cc-backend";
     const save = async () => {
-      const r = await call("POST", "api/computer", { enabled: on.checked, monitor: parseInt(pick.value, 10) || 0 });
+      const r = await call("POST", "api/computer", { enabled: on.checked, monitor: parseInt(pick.value, 10) || 0, backend: engine.value });
       if (r.ok) { data.computer = r.data; say(T("wl.saved")); draw(); } else { say(why(r), true); load(); }
     };
+    const ad = c.agent_desktop || {};
+    const perm = (((ad.status || {}).status || {}).permissions || {}).accessibility;
+    const install = h("button", "btn", ad.found ? T("wl.cc.ad.update") : T("wl.cc.ad.install")); install.type = "button"; install.id = "wl-cc-ad-install";
+    install.onclick = async () => {
+      install.disabled = true; install.textContent = T("wl.cc.ad.installing");
+      const r = await call("POST", "api/computer/install", {});
+      if (r.ok) { data.computer = r.data; say(T("wl.cc.ad.done", r.data.installed.version) + (r.data.installed.note ? " " + r.data.installed.note : "")); draw(); }
+      else { install.disabled = false; install.textContent = ad.found ? T("wl.cc.ad.update") : T("wl.cc.ad.install"); say(why(r), true); }
+    };
+    const adBox = h("div", "wl-pick", h("b", "", T("wl.cc.ad")), h("p", "help", T("wl.cc.ad.help")),
+      h("p", "", ad.found ? T("wl.cc.ad.have", ((ad.status || {}).version || {}).version || ad.version || "?", ad.where === "path" ? T("wl.cc.ad.onpath") : T("wl.cc.ad.installed"), (perm || {}).state || "?")
+                          : T("wl.cc.ad.none")),
+      ad.status && ad.status.error ? h("p", "wl-note", ad.status.error) : null, ad.found && ad.where === "path" ? null : h("div", "wl-actions", install));
     on.onchange = async () => { if (on.checked && !(await riskConfirm([T("wl.risk.computer")]))) { on.checked = false; return; } save(); };
-    pick.onchange = save;
+    pick.onchange = save; engine.onchange = save;
     const lbl = h("label", "", T("wl.cc.screen.label")); lbl.htmlFor = pick.id;
     const row = h("label", "wl-rm", on, h("span", "", T("wl.cc.on"))); row.htmlFor = on.id;
     return h("section", "sec wl-sec", h("div", "sh", h("b", "", T("wl.cc"))), h("div", "wl-body", h("p", "help", T("wl.cc.help")),
       c.supported ? null : h("p", "wl-note", T("wl.cc.none", c.reason || "")), row, ...(c.enabled ? [riskLabel(T("wl.risk.computer"))] : []),
-      h("div", "wl-pick", lbl, pick, h("p", "help", T("wl.cc.screen.help"))), h("p", "help", T("wl.br.next"))));
+      h("div", "wl-pick", lbl, pick, h("p", "help", T("wl.cc.screen.help"))),
+      h("div", "wl-pick", (() => { const l = h("label", "", T("wl.cc.backend")); l.htmlFor = engine.id; return l; })(), engine, h("p", "help", T("wl.cc.backend." + (c.backend || "auto") + ".help"))),
+      adBox, h("p", "help", T("wl.br.next"))));
   }
 
   /* ---- how strict the Rule of Two is ---- */

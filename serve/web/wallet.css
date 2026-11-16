@@ -62,3 +62,4 @@
 .wl-pick { margin: 10px 0; }
 .wl-pick label { display: block; font-weight: 500; margin-bottom: 4px; }
 .wl-pick select { width: 100%; font: 400 16px/1.5 var(--font-sans); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-height: 44px; }
+#wl-cc-ad-install { min-height: 44px; }
