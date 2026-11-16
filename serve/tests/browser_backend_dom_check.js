@@ -51,43 +51,32 @@ async function main() {
       await ev(`const b = q("#sub-wallet"); if (b) b.click(); return 1;`);
       await waitFor(`!!q("#wl-br-backend")`, "the browser section again");
     };
-    const state = () => ev(`return JSON.stringify({ backend: q("#wl-br-backend").value, vault: q("#wl-br-vault").value, vaultDisabled: q("#wl-br-vault").disabled, sw: document.documentElement.scrollWidth, iw: innerWidth,
-      small: qa("#wl-br-backend, #wl-br-vault").filter(e => e.getBoundingClientRect().height < 44).length });`).then(JSON.parse);
+    const state = () => ev(`return JSON.stringify({ backend: q("#wl-br-backend").value, sw: document.documentElement.scrollWidth, iw: innerWidth, small: qa("#wl-br-backend").filter(e => e.getBoundingClientRect().height < 44).length });`).then(JSON.parse);
     const saved = () => jget("api/wallet").then(w => w.browser);
 
-    await check(`${tag}: the two selectors show the defaults (agent-browser; the vault's steps to TaDaMoo's own), big enough, with no sideways scroll`, async () => {
+    await check(`${tag}: the selector shows the default (agent-browser), big enough, with an explanation and no sideways scroll`, async () => {
       const s = await state();
-      if (s.backend !== "agent-browser" || s.vault !== "tadamoo") throw new Error("defaults are " + JSON.stringify(s));
-      if (s.vaultDisabled) throw new Error("the vault selector is off while agent-browser drives");
-      if (s.small) throw new Error("a selector is under 44 px");
+      if (s.backend !== "agent-browser") throw new Error("default is " + JSON.stringify(s));
+      if (s.small) throw new Error("the selector is under 44 px");
       if (s.sw > s.iw + 1) throw new Error(`the page scrolls sideways (${s.sw} > ${s.iw})`);
-      const text = await ev(`return q("#wl-br-vault").closest(".wl-pick").textContent;`);
-      if (text.length < 80) throw new Error("the vault choice has no explanation");
+      const text = await ev(`return q("#wl-br-backend").closest(".wl-pick").textContent;`);
+      if (text.length < 80) throw new Error("the choice has no explanation");
     });
-    await check(`${tag}: the vault choice is saved and is still there after the page is reloaded`, async () => {
-      await pick("#wl-br-vault", "browser");
-      await waitFor(`q("#wl-br-vault").value === "browser"`, "the choice");
-      await sleep(500);
-      const b = await saved();
-      if (b.vault_backend !== "browser" || b.backend !== "agent-browser") throw new Error("saved " + JSON.stringify(b));
-      await reload();
-      const s = await state();
-      if (s.vault !== "browser" || s.backend !== "agent-browser") throw new Error("after reload " + JSON.stringify(s));
-    });
-    await check(`${tag}: the driver choice is saved, switches the vault choice off (it is not used with the own driver) and is there after a reload`, async () => {
+    await check(`${tag}: the choice is saved and is still there after the page is reloaded, and back`, async () => {
       await pick("#wl-br-backend", "tadamoo");
-      await waitFor(`q("#wl-br-vault").disabled === true`, "the vault selector to switch off");
+      await waitFor(`q("#wl-br-backend").value === "tadamoo"`, "the choice");
       await sleep(500);
       const b = await saved();
-      if (b.backend !== "tadamoo" || b.vault_backend !== "browser") throw new Error("saved " + JSON.stringify(b));
+      if (b.backend !== "tadamoo") throw new Error("saved " + JSON.stringify(b));
       await reload();
       const s = await state();
-      if (s.backend !== "tadamoo" || !s.vaultDisabled) throw new Error("after reload " + JSON.stringify(s));
+      if (s.backend !== "tadamoo") throw new Error("after reload " + JSON.stringify(s));
       await pick("#wl-br-backend", "agent-browser");
-      await waitFor(`q("#wl-br-vault").disabled === false`, "the vault selector to come back");
       await sleep(500);
       const again = await saved();
       if (again.backend !== "agent-browser") throw new Error("saved back " + JSON.stringify(again));
+      await reload();
+      if ((await state()).backend !== "agent-browser") throw new Error("after the second reload");
     });
     if (pageErrors.length) out.push({ name: `${tag}: no script error`, ok: false, error: pageErrors.splice(0).join(" ;; ") });
   } finally {

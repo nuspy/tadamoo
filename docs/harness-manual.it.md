@@ -339,7 +339,7 @@ nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare
   questo PC o della rete, permessi delle pagine (fotocamera, posizione, notifiche), finestre di conferma e richiesta, download e screenshot dopo un
   valore del vault sono tutti consentiti. Sotto quel livello ognuno te lo chiede (questa volta, questa conversazione o sempre; una regola può
   nominare un sito). Le pagine lunghe si leggono a pezzi di elementi e di parole, mai tagliate. Gli strumenti del browser li guida **agent-browser** (incluso in TaDaMoo), salvo che nella stessa vista scegli il
-  pilota di TaDaMoo; una seconda scelta dice chi esegue i passi che usano la cassaforte, gli accessi e i pagamenti (di default il browser di TaDaMoo). Dettagli: [browser-backends.md](browser-backends.md).
+  pilota di TaDaMoo. Dettagli: [browser-backends.md](browser-backends.md).
 - **Controllo del computer.** È attivo di default (si spegne nella vista **Portafoglio**); l'agente può guardare uno schermo di questo PC e usare mouse e tastiera
   (finestre, albero di accessibilità, clic, testo, tasti), per ciò che non ha altra via. È più lento di uno script e può confondersi con
   un'interfaccia che cambia; scegli tu su quale schermo lavora, così un secondo schermo non ti intralcia, e portando il mouse in un angolo di

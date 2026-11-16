@@ -323,8 +323,7 @@ you the address and the number to call.
   each risky choice has a highlighted label and two questions. At *Automatic* the browser asks nothing: pages of this PC or network, a page's
   permissions (camera, location, notifications), its confirm and prompt dialogs, downloads and a screenshot after a vault value was typed are all
   allowed. Below it each of those asks you (this call, this conversation or always; an allow rule can name a site). Long pages are read in pages
-  of elements and words, never cut off. The browser tools are driven by **agent-browser** (included with TaDaMoo) unless you choose TaDaMoo's own driver in the same view; a second choice says
-  who does the steps that use the vault, sign-ins and payments (by default TaDaMoo's own browser). Details: [browser-backends.md](browser-backends.md).
+  of elements and words, never cut off. The browser tools are driven by **agent-browser** (included with TaDaMoo) unless you choose TaDaMoo's own driver in the same view. Details: [browser-backends.md](browser-backends.md).
 - **Computer control.** It is on by default (turn it off in the **Wallet** view); the agent can look at a screen of this PC and work its mouse and keyboard
   (windows, the accessibility tree, clicks, typing, keys), for what has no other way. It is slower than a script and can be confused by an
   interface that changes; you choose which screen it works on, so a second screen keeps it out of your way, and moving the mouse into a corner

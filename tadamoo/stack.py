@@ -148,8 +148,6 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
                         help="what the browser does when a page asks for a permission (location, camera, notifications...): follow the permission level (grant at Auto, ask otherwise), ask the person, grant, grant only what is safe, or refuse")
     parser.add_argument("--browser-backend", default="agent-browser", choices=["agent-browser", "tadamoo"],
                         help="what drives the browser tools: agent-browser (third_party/agent-browser, when it is found) or TaDaMoo's own driver; the tools and their names are the same")
-    parser.add_argument("--browser-vault-backend", default="tadamoo", choices=["tadamoo", "browser"],
-                        help="with agent-browser driving the pages: who does the steps that use the vault (a value typed from it, a sign-in, a card): TaDaMoo's own driver (the page is moved to it) or agent-browser")
     parser.add_argument("--computer", action="store_true", help="offer the computer tools: the screen, the mouse and the keyboard of this PC (docs/computer-control.md)")
     parser.add_argument("--computer-prefs", default="", help="the file (computer.json) that says which screen the agent works on; it is read at each call")
     parser.add_argument("--rule-of-two", default="ask", choices=list(LEVELS),
@@ -246,7 +244,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         workspace=args.workspace, endpoint=args.endpoint, api_key=args.api_key, max_turns=args.max_turns, max_failed_attempts=max(0, args.max_failed_attempts), permission_mode=args.permission_mode,
         allow=args.allow, deny=args.deny, secret_names=secret_names, secret_hosts=secret_hosts, skill_paths=args.skills,
         payments_dir=args.payments_dir, browser=args.browser, browser_headless=args.browser_headless, browser_cdp_url=args.browser_cdp_url, browser_private=args.browser_private,
-        browser_profile=args.browser_profile, browser_consent=args.browser_consent, browser_permissions=args.browser_permissions, browser_backend=args.browser_backend, browser_vault_backend=args.browser_vault_backend, computer=args.computer, computer_prefs=args.computer_prefs, vault_dir=args.vault_dir, rule_of_two=args.rule_of_two, edit_guard=args.edit_guard, capabilities=args.capabilities, lsp=args.lsp, council=args.council,
+        browser_profile=args.browser_profile, browser_consent=args.browser_consent, browser_permissions=args.browser_permissions, browser_backend=args.browser_backend, computer=args.computer, computer_prefs=args.computer_prefs, vault_dir=args.vault_dir, rule_of_two=args.rule_of_two, edit_guard=args.edit_guard, capabilities=args.capabilities, lsp=args.lsp, council=args.council,
         wiki=args.wiki, wiki_url=args.wiki_url, wiki_project=args.wiki_project, phone=args.phone,
         reference_docs=read_reference(args.reference), reference_strategy=args.reference_strategy,
         memory_min_score=args.memory_min_score, memory_notes=args.memory_notes, memory_budget_tokens=args.memory_budget, phone_on_behalf_of=args.on_behalf_of,
@@ -308,7 +306,6 @@ class AgentConfig:
     browser_profile: str = ""           # a profile folder that keeps the browser's sign-ins between conversations (empty: a new one each time)
     browser_consent: str = "follow"     # cookie banners: follow (accept at Auto, necessary otherwise), necessary, accept, reject, off (the model deals with them)
     browser_backend: str = "agent-browser"   # what drives the browser tools (tadamoo/browser_ab.py); the own driver when agent-browser is not found
-    browser_vault_backend: str = "tadamoo"   # with agent-browser: who does the vault's steps (tadamoo/browser_route.py)
     computer: bool = False              # offer the computer tools (screen, mouse, keyboard), see tadamoo/computer
     computer_prefs: str = ""            # computer.json: which screen the agent works on, read at each call
     browser_permissions: str = "follow"  # a page's request for location, camera, notifications...: follow (grant at Auto, ask otherwise), ask, grant, grant-safe, deny
@@ -917,14 +914,6 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         from tadamoo.browser import find_browser, register_browser_tools
         if cfg.browser_cdp_url or find_browser():
             ab = _agent_browser(cfg, secrets, permissions, audit, data, find_browser()) if cfg.browser_backend == "agent-browser" else None
-            if ab is not None and cfg.browser_vault_backend == "tadamoo":            # the vault's steps belong to the own driver: the page is moved to it at the first one
-                from tadamoo.browser import Browser
-                from tadamoo.browser_route import RoutedBrowser
-                own = Browser(cfg.browser_profile or data / "browser", cfg.browser_headless, find_browser() or "", cfg.browser_private,
-                              secrets.mask_secrets if secrets is not None else None, bool(cfg.browser_profile), cfg.browser_consent, cfg.browser_permissions,
-                              lambda tool, args: bool(permissions.confirm_callback and permissions.confirm_callback(tool, args)), lambda kind, details: audit.record("browser", kind, details),
-                              lambda: permissions.level == PermissionLevel.AUTO, lambda: [r.pattern for r in permissions.rules if r.action == "allow"], cfg.browser_cdp_url)
-                ab = RoutedBrowser(ab, own, "tadamoo")
             browser = register_browser_tools(registry, secrets, profile_dir=cfg.browser_profile or data / "browser", headless=cfg.browser_headless, browser=ab,
                                              allow_private=cfg.browser_private, persistent=bool(cfg.browser_profile), consent=cfg.browser_consent,
                                              permissions=cfg.browser_permissions, confirm=lambda tool, args: bool(permissions.confirm_callback and permissions.confirm_callback(tool, args)),
