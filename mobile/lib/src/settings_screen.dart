@@ -13,6 +13,7 @@ import 'chat_options.dart';
 import 'i18n.dart';
 import 'place.dart';
 import 'pskills_screen.dart';
+import 'server_key.dart';
 import 'server_prefs.dart';
 import 'settings.dart';
 import 'voice.dart';
@@ -58,7 +59,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.dispose();
   }
 
+  /// Asks for the current and a new key and has the PC apply the new one at once; the phone keeps it as its own.
+  Future<void> _changeKey() async {
+    if (AppSettings.parseServerAddress(address.text) == null) return setState(() { message = Texts.t('set.address.bad'); bad = true; });
+    final r = await showDialog<(String, String)>(context: context, builder: (_) => KeyChangeDialog(current: key.text));
+    if (r == null) return;
+    await widget.settings.setServer(address: address.text, key: key.text);          // the request is sent with the key saved now
+    try {
+      await Api(widget.settings).changeServerKey(r.$1, r.$2);
+      key.text = r.$2;
+      await widget.settings.setServer(address: address.text, key: r.$2);
+      setState(() { message = Texts.t('sk.done'); bad = false; });
+    } on ApiError catch (e) {
+      setState(() { message = Texts.t('sk.err', [e.message]); bad = true; });
+    }
+  }
+
   Future<void> _save() async {
+    if (AppSettings.parseServerAddress(address.text) == null) {
+      setState(() { message = Texts.t('set.address.bad'); bad = true; });
+      return;
+    }
     await widget.settings.setServer(address: address.text, key: key.text);
     await widget.settings.setSpeechLocale(locale.text.trim());
     setState(() {
@@ -92,7 +113,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final j = jsonDecode(code);
       if (j is! Map || j['url'] == null || j['key'] == null) throw const FormatException('not basalt');
       final url = Uri.parse('${j['url']}');
-      address.text = url.hasPort ? '${url.host}:${url.port}' : url.host;
+      address.text = url.scheme == 'https' ? '${url.scheme}://${url.host}${url.hasPort ? ':${url.port}' : ''}' : (url.hasPort ? '${url.host}:${url.port}' : url.host);
       key.text = '${j['key']}';
       await widget.settings.setServer(address: address.text, key: key.text, name: '${j['name'] ?? ''}');
       await _test();
@@ -166,6 +187,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Wrap(spacing: 8, runSpacing: 8, children: [
           FilledButton.icon(onPressed: _scan, icon: const Icon(Icons.qr_code_scanner), label: Text(Texts.t('set.scan'))),
           OutlinedButton.icon(onPressed: testing ? null : _test, icon: testing ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.wifi_tethering), label: Text(Texts.t('set.test'))),
+          OutlinedButton.icon(onPressed: widget.settings.configured ? _changeKey : null, icon: const Icon(Icons.vpn_key_outlined), label: Text(Texts.t('sk.open'))),
           TextButton(onPressed: _save, child: Text(Texts.t('set.save'))),
         ]),
         if (message.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 10), child: Text(message, style: TextStyle(color: bad ? Colors.redAccent : Colors.lightGreenAccent))),

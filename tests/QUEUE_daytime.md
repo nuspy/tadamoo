@@ -348,3 +348,10 @@ Serve la conversazione vera con il modello vero e un server MCP con un'app. Per 
 2. «Usa questo»: la finestra mostra la pagina del server remoto già con la chiave data (nessuna richiesta di chiave), la scheda Loader/Models non c'è, nel menu della barra le voci del server locale sono spente; «Spegni» chiude solo la finestra.
 3. Cambiare la chiave dalla finestra del server (Impostazioni > Rete della pagina) e da «Cambia la chiave sul server…»: dopo il cambio la voce dell'elenco ha la chiave nuova (riaprendo l'app non chiede la chiave).
 4. Chiudere e riaprire l'app: riprende il server remoto di prima; dall'elenco «Questo PC» torna al server locale.
+
+## App Android: indirizzo con nome e cambio chiave (17 novembre; prove Flutter fatte, il telefono NON è stato provato, APK da ricompilare)
+
+1. Impostazioni > Server: scrivere `https://hrns.tadamoo.com` (senza porta) e la chiave, «Prova il collegamento» dice «Collegato».
+2. Scrivere un indirizzo con un percorso (`http://x/abc`): «Salva» dice che l'indirizzo non è valido.
+3. «Cambia la chiave sul server»: dopo il cambio la prova di collegamento funziona con la chiave nuova; la pagina sul PC non chiede più la chiave a questo telefono se aveva quella vecchia.
+4. Un server in http su rete locale (`192.168.x.x:7232`) si collega ancora.
