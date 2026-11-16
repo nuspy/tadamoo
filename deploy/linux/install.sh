@@ -14,7 +14,7 @@ CMD="${1:-}"; [ $# -gt 0 ] && shift
 
 PREFIX=/opt/tadamoo; DATA=/var/lib/tadamoo; CONF=/etc/tadamoo; RUN_USER=tadamoo
 HOST=127.0.0.1; PORT=7232; COMPONENTS=harness; PUBLIC=(); API_KEY=""; GENERATE_KEY=0; NO_WEB=0
-BASALT_BIN=""; STRATA_DIR=""; BUILD_BASALT=0; MODEL=""; PROXY=none; START=1; DRY=0; YES=0; PURGE=0
+BASALT_BIN=""; STRATA_DIR=""; STRATA_DOWNLOAD=0; STRATA_VARIANT=""; BUILD_BASALT=0; MODEL=""; PROXY=none; START=1; DRY=0; YES=0; PURGE=0
 
 usage() {
   cat <<'EOF'
@@ -31,6 +31,8 @@ Options of install and update:
   --api-key KEY        the server key (optional)            --generate-key   make one and keep it in the configuration folder
   --engine-bin FILE    a built Basalt-Plus binary           --build-basalt   build it from this tree (CUDA toolkit and cmake needed)
   --strata-dir DIR     the folder of the Strata binaries
+  --strata-download    fetch the Strata engine from its own release (checked against its SHA256SUMS.txt) instead of --strata-dir
+  --strata-variant V   cuda13 (default), cuda12, hip-halo, hip-rx6000, hip-rx7900 or hip-rx9070 (implies --strata-download)
   --model FILE         the model the engine loads at the Loader's Load (optional)
   --proxy none|nginx|caddy|npm   write the proxy recipe for the public name into the configuration folder
   --no-start           install without starting the service
@@ -61,6 +63,8 @@ parse() {
       --engine-bin) BASALT_BIN="$2"; shift 2;;
       --build-basalt) BUILD_BASALT=1; shift;;
       --strata-dir) STRATA_DIR="$2"; shift 2;;
+      --strata-download) STRATA_DOWNLOAD=1; shift;;
+      --strata-variant) STRATA_VARIANT="$2"; STRATA_DOWNLOAD=1; shift 2;;
       --model) MODEL="$2"; shift 2;;
       --proxy) PROXY="$2"; shift 2;;
       --no-start) START=0; shift;;
@@ -108,20 +112,52 @@ engine_bin() {
   command -v nvidia-smi >/dev/null 2>&1 || say "warning: nvidia-smi is not there: Basalt-Plus needs an NVIDIA Blackwell GPU and its driver"
   if [ -n "$BASALT_BIN" ]; then
     run mkdir -p "$PREFIX/engines/basalt/bin"; run install -m 0755 "$BASALT_BIN" "$PREFIX/engines/basalt/bin/basalt"
+  elif [ -x "$SRC/engines/basalt/bin/basalt" ]; then
+    run mkdir -p "$PREFIX/engines"; run rm -rf "$PREFIX/engines/basalt"; run cp -a "$SRC/engines/basalt" "$PREFIX/engines/basalt"
   elif [ "$BUILD_BASALT" = 1 ]; then
     command -v cmake >/dev/null 2>&1 || die "--build-basalt needs cmake and the CUDA toolkit"
     run cmake -S "$SRC" -B "$PREFIX/engines/basalt/build" -DCMAKE_BUILD_TYPE=Release
     run cmake --build "$PREFIX/engines/basalt/build" -j
     run mkdir -p "$PREFIX/engines/basalt/bin"; run install -m 0755 "$PREFIX/engines/basalt/build/bin/basalt" "$PREFIX/engines/basalt/bin/basalt"
   else
-    die "basalt asked: give --engine-bin FILE (a built binary) or --build-basalt"
+    die "basalt asked: give --engine-bin FILE (a built binary) or --build-basalt (the complete release has the engine in engines/basalt)"
   fi
+}
+
+strata_download() {
+  local variant="${STRATA_VARIANT:-cuda13}" tmp name url sum got
+  case "$variant" in cuda13|cuda12) variant="cuda-$variant";; esac
+  say "Strata: looking for the $variant engine in the latest release of Niko1221/Strata"
+  [ "$DRY" = 1 ] && { say "+ download and check the Strata engine ($variant) into $PREFIX/engines/strata"; return 0; }
+  tmp="$(mktemp -d)"
+  python3 - "$variant" > "$tmp/found" <<'PY' || die "could not read the Strata release (network?)"
+import json, re, sys, urllib.request
+variant = sys.argv[1]
+rel = json.load(urllib.request.urlopen("https://api.github.com/repos/Niko1221/Strata/releases/latest", timeout=30))
+pat = re.compile(r"^strata-engine-.*-linux-x86_64-" + re.escape(variant) + r"\.tar\.gz$")
+asset = next((a for a in rel["assets"] if pat.match(a["name"])), None)
+sums = next((a for a in rel["assets"] if a["name"] == "SHA256SUMS.txt"), None)
+if not asset or not sums:
+    sys.exit(1)
+print(asset["name"], asset["browser_download_url"], sums["browser_download_url"])
+PY
+  read -r name url sum < "$tmp/found" || die "no Strata engine called $variant for linux-x86_64 in its latest release"
+  curl -fL --retry 3 -o "$tmp/$name" "$url"; curl -fsSL -o "$tmp/SHA256SUMS.txt" "$sum"
+  want="$(awk -v n="$name" '$2 == n {print $1}' "$tmp/SHA256SUMS.txt")"; got="$(sha256sum "$tmp/$name" | cut -d' ' -f1)"
+  [ -n "$want" ] && [ "$want" = "$got" ] || die "the Strata archive does not match its SHA256SUMS.txt"
+  mkdir -p "$PREFIX/engines/strata"; tar -xzf "$tmp/$name" -C "$PREFIX/engines/strata"; rm -rf "$tmp"
+  say "Strata engine installed: $name"
 }
 
 strata_bin() {
   has strata || return 0
-  [ -n "$STRATA_DIR" ] || die "strata asked: give --strata-dir DIR (the folder of its binaries)"
-  run mkdir -p "$PREFIX/engines/strata"; run cp -a "$STRATA_DIR"/. "$PREFIX/engines/strata/"
+  if [ -n "$STRATA_DIR" ]; then
+    run mkdir -p "$PREFIX/engines/strata"; run cp -a "$STRATA_DIR"/. "$PREFIX/engines/strata/"
+  elif [ "$STRATA_DOWNLOAD" = 1 ]; then
+    strata_download
+  else
+    die "strata asked: give --strata-dir DIR (the folder of its binaries) or --strata-download"
+  fi
 }
 
 write_config() {
