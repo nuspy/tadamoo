@@ -53,16 +53,13 @@ jobs:
           -DPython3_EXECUTABLE="$(python -c 'import sys;print(sys.executable)')"
 
       - name: Build
-        run: cmake --build build -j "$(nproc)" --target basalt basalt-bench basalt-probe basalt-vision
+        run: cmake --build build -j "$(nproc)"
 
       - name: Package
         run: |
           set -euo pipefail
           mkdir -p pkg/bin pkg/lib
-          for b in basalt basalt-bench basalt-probe basalt-vision; do
-            f="$(find build -type f -name "$b" -perm -u+x | head -n 1)"
-            [ -n "$f" ] && cp "$f" "pkg/bin/$b"
-          done
+          find bin -maxdepth 1 -type f -perm -u+x -exec cp {} pkg/bin/ \;
           export LD_LIBRARY_PATH=/usr/local/cuda-13.0/lib64:/usr/local/cuda-13.0/targets/x86_64-linux/lib
           for b in pkg/bin/*; do
             ldd "$b" | awk '/=>/ && $3 ~ /cuda/ {print $3}'
