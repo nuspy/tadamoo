@@ -111,6 +111,7 @@ GROUPS: Dict[str, Tuple[str, ...]] = {
     "shell": ("shell_command", "run_code", "job_*"),
     "web": ("browse_url", "search_web", "page_images", "show_image", "wiki_*"),
     "browser": ("browser_*",),
+    "computer": ("computer_*",),
     "phone": ("phone_*",),
     "plan": ("plan_*",),
     "orchestration": ("session_send", "session_list", "session_status", "session_spawn", "cron_*"),

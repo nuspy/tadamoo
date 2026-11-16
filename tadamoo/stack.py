@@ -146,6 +146,8 @@ def add_agent_arguments(parser: argparse.ArgumentParser, max_turns: int = -1, pe
                         help="what the browser does about a cookie banner: follow the permission level (accept at Auto, the necessary only otherwise), keep only the necessary (accept if that is not possible), accept, reject, or leave it to the model")
     parser.add_argument("--browser-permissions", default="follow", choices=["follow", "ask", "grant", "grant-safe", "deny"],
                         help="what the browser does when a page asks for a permission (location, camera, notifications...): follow the permission level (grant at Auto, ask otherwise), ask the person, grant, grant only what is safe, or refuse")
+    parser.add_argument("--computer", action="store_true", help="offer the computer tools: the screen, the mouse and the keyboard of this PC (docs/computer-control.md)")
+    parser.add_argument("--computer-prefs", default="", help="the file (computer.json) that says which screen the agent works on; it is read at each call")
     parser.add_argument("--rule-of-two", default="ask", choices=list(LEVELS),
                         help="when the agent has read content from outside and touched private data, an outward action (a web address, a query, a form) asks first (ask); "
                              "strict: it asks after untrusted content alone; off: it never asks. A known secret never leaves inside an address whatever the level")
@@ -240,7 +242,7 @@ def agent_settings(args: argparse.Namespace) -> Dict[str, Any]:
         workspace=args.workspace, endpoint=args.endpoint, api_key=args.api_key, max_turns=args.max_turns, max_failed_attempts=max(0, args.max_failed_attempts), permission_mode=args.permission_mode,
         allow=args.allow, deny=args.deny, secret_names=secret_names, secret_hosts=secret_hosts, skill_paths=args.skills,
         payments_dir=args.payments_dir, browser=args.browser, browser_headless=args.browser_headless, browser_cdp_url=args.browser_cdp_url, browser_private=args.browser_private,
-        browser_profile=args.browser_profile, browser_consent=args.browser_consent, browser_permissions=args.browser_permissions, vault_dir=args.vault_dir, rule_of_two=args.rule_of_two, edit_guard=args.edit_guard, capabilities=args.capabilities, lsp=args.lsp, council=args.council,
+        browser_profile=args.browser_profile, browser_consent=args.browser_consent, browser_permissions=args.browser_permissions, computer=args.computer, computer_prefs=args.computer_prefs, vault_dir=args.vault_dir, rule_of_two=args.rule_of_two, edit_guard=args.edit_guard, capabilities=args.capabilities, lsp=args.lsp, council=args.council,
         wiki=args.wiki, wiki_url=args.wiki_url, wiki_project=args.wiki_project, phone=args.phone,
         reference_docs=read_reference(args.reference), reference_strategy=args.reference_strategy,
         memory_min_score=args.memory_min_score, memory_notes=args.memory_notes, memory_budget_tokens=args.memory_budget, phone_on_behalf_of=args.on_behalf_of,
@@ -301,6 +303,8 @@ class AgentConfig:
     browser_private: bool = False       # may open pages on this PC or its network (off: only sites on the internet)
     browser_profile: str = ""           # a profile folder that keeps the browser's sign-ins between conversations (empty: a new one each time)
     browser_consent: str = "follow"     # cookie banners: follow (accept at Auto, necessary otherwise), necessary, accept, reject, off (the model deals with them)
+    computer: bool = False              # offer the computer tools (screen, mouse, keyboard), see tadamoo/computer
+    computer_prefs: str = ""            # computer.json: which screen the agent works on, read at each call
     browser_permissions: str = "follow"  # a page's request for location, camera, notifications...: follow (grant at Auto, ask otherwise), ask, grant, grant-safe, deny
     payments_dir: str = ""              # the person's payment systems and limits: with it the agent can ask to pay, and the broker decides
     context_window: Optional[int] = None   # tokens of context to plan for; empty: what the server reports for its model
@@ -566,6 +570,19 @@ def _oauth_for(url: str) -> Any:
     from tadamoo.mcp_oauth import McpOAuth, OAuthStore
     from serve.userdata import user_data_dir
     return McpOAuth(url, OAuthStore(user_data_dir() / "mcp_oauth.json", default_store(user_data_dir())))
+
+
+def _picture_saver(cfg: "AgentConfig") -> Optional[Callable[[bytes, str], Dict[str, Any]]]:
+    """Keeps a picture (a screenshot) as a file of the conversation and returns its card; None when the conversation has nowhere to keep files."""
+    if not (cfg.attachments_dir and cfg.outputs_dir and cfg.run_id):
+        return None
+    from tadamoo.attachments import OutputStore
+    store = OutputStore(Path(cfg.outputs_dir))
+
+    def save(data: bytes, name: str) -> Dict[str, Any]:
+        meta = store.save(cfg.run_id, name, data)
+        return {"id": meta["id"], "name": meta["name"], "path": str(store.get(cfg.run_id, meta["id"])[1])}
+    return save
 
 
 def _offer_capabilities(cfg: AgentConfig, workspace: Path, registry: Any, builder: Any, sandbox: Any, client: Any) -> Any:
@@ -867,23 +884,23 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         if not register_lsp_tools(registry, lsp_hub, lambda p, tool: sandbox.resolve_safe(p, tool)):
             lsp_hub = None
     browser = None
+    shots = _picture_saver(cfg)
     if cfg.browser:
         from tadamoo.browser import find_browser, register_browser_tools
         if cfg.browser_cdp_url or find_browser():
-            shots = None
-            if cfg.attachments_dir and cfg.outputs_dir and cfg.run_id:
-                from tadamoo.attachments import OutputStore
-                store = OutputStore(Path(cfg.outputs_dir))
-
-                def shots(data: bytes, name: str) -> Dict[str, Any]:
-                    meta = store.save(cfg.run_id, name, data)
-                    return {"id": meta["id"], "name": meta["name"], "path": str(store.get(cfg.run_id, meta["id"])[1])}
             browser = register_browser_tools(registry, secrets, profile_dir=cfg.browser_profile or data / "browser", headless=cfg.browser_headless,
                                              allow_private=cfg.browser_private, persistent=bool(cfg.browser_profile), consent=cfg.browser_consent,
                                              permissions=cfg.browser_permissions, confirm=lambda tool, args: bool(permissions.confirm_callback and permissions.confirm_callback(tool, args)),
                                              audit=lambda kind, details: audit.record("browser", kind, details), screenshots=shots,
                                              auto=lambda: permissions.level == PermissionLevel.AUTO,
                                              rules=lambda: [r.pattern for r in permissions.rules if r.action == "allow"], cdp_url=cfg.browser_cdp_url)
+    if cfg.computer:
+        from tadamoo.computer import ComputerPrefs, register_computer_tools
+        chosen = ComputerPrefs(cfg.computer_prefs) if cfg.computer_prefs else None
+        register_computer_tools(registry, secrets, monitor=(lambda: chosen.monitor()) if chosen is not None else (lambda: 0),
+                                confirm=lambda tool, args: bool(permissions.confirm_callback and permissions.confirm_callback(tool, args)),
+                                audit=lambda kind, details: audit.record("computer", kind, details), screenshots=shots,
+                                auto=lambda: permissions.level == PermissionLevel.AUTO, rules=lambda: [r.pattern for r in permissions.rules if r.action == "allow"])
     if cfg.council:
         from tadamoo.council import offer_council
         from tadamoo.llm import client_for as routed_for, registry as llm_registry
@@ -1014,7 +1031,7 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
     if not valid_role(cfg.role):
         raise ValueError(f"role must be one of {list(ROLE_IDS)}")
     role = RolePolicy(workspace, tool_names, cfg.role, on_change=role_changed, checks=lambda: permissions.safe_commands)
-    present = {"browser": cfg.browser, "vault": bool(cfg.vault_dir), "phone": cfg.phone, "memory": memory is not None, "personal_memory": bool(cfg.personal_memory_dir),
+    present = {"browser": cfg.browser, "computer": cfg.computer, "vault": bool(cfg.vault_dir), "phone": cfg.phone, "memory": memory is not None, "personal_memory": bool(cfg.personal_memory_dir),
                "past": bool(cfg.past_index), "skills": bool(cfg.personal_skills_dir), "lsp": cfg.lsp, "mcp": bool(cfg.mcp_servers), "media": media_ready}
     if cfg.self_block:
         builder.pin("self", awareness.self_model(

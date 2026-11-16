@@ -339,6 +339,10 @@ nessuno al posto tuo: in un'emergenza ti dà l'indirizzo e il numero da chiamare
   questo PC o della rete, permessi delle pagine (fotocamera, posizione, notifiche), finestre di conferma e richiesta, download e screenshot dopo un
   valore del vault sono tutti consentiti. Sotto quel livello ognuno te lo chiede (questa volta, questa conversazione o sempre; una regola può
   nominare un sito). Le pagine lunghe si leggono a pezzi di elementi e di parole, mai tagliate.
+- **Controllo del computer.** Se lo attivi nella vista **Portafoglio**, l'agente può guardare uno schermo di questo PC e usare mouse e tastiera
+  (finestre, albero di accessibilità, clic, testo, tasti), per ciò che non ha altra via. È più lento di uno script e può confondersi con
+  un'interfaccia che cambia; scegli tu su quale schermo lavora, così un secondo schermo non ti intralcia, e portando il mouse in un angolo di
+  uno schermo si ferma subito, come con Stop. Dettagli: [computer-control.md](computer-control.md).
 - **Segreti.** L'agente scrive `{{secret:NOME}}` dove serve una credenziale e non la vede mai; il valore viene inserito all'ultimo
   momento e mascherato in ciò che torna. **Il vault** (Portafoglio) tiene cifrati carte, dati personali e accessi; l'agente scrive
   `{{vault:VOCE.CAMPO}}`, e il valore va solo verso i siti che la voce indica.

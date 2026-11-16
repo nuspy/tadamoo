@@ -149,7 +149,7 @@ class SessionManager:
                  default_workspace: Optional[Path] = None, router: str = "model", pipeline: str = "full",
                  attachments_dir: Optional[Path] = None, outputs_dir: Optional[Path] = None, worktrees: Optional[Worktrees] = None,
                  vault_dir: Optional[Path] = None, payments_dir: Optional[Path] = None,
-                 browser_prefs: Optional[Callable[[], Dict[str, bool]]] = None, browser_profile: Optional[Path] = None,
+                 browser_prefs: Optional[Callable[[], Dict[str, bool]]] = None, browser_profile: Optional[Path] = None, computer_prefs: Any = None,
                  plan_effect: Optional[Callable[[str, str, str, str, str], Any]] = None, compare_wait_s: Optional[float] = None,
                  skills_dir: Optional[Path] = None, projects: Any = None, personal_dir: Optional[Path] = None, personal_keys: Optional[Path] = None,
                  learn: Optional[Callable[[Dict[str, Any]], Any]] = None, knowledge_flags: Optional[Callable[[], List[str]]] = None,
@@ -188,6 +188,7 @@ class SessionManager:
         self._place_sent: Dict[str, float] = {}                 # per conversation process: the receipt time of the position it was given
         self.browser_profile = browser_profile                  # where the browser keeps its sign-ins when the person chose that
         self.browser_prefs = browser_prefs                      # whether the conversations have a browser, and whether it shows a window
+        self.computer_prefs = computer_prefs                    # whether the conversations can control this PC (screen, mouse, keyboard), and on which screen (tadamoo/computer/prefs.py)
         self.knowledge_flags = knowledge_flags                  # the options for the project notes, the wiki and the reference documents (Settings, Memories)
         self.intake_flags = intake_flags                        # the options for the look at a request, the questions and the suggestions (Settings, General)
         self.coding = coding                                    # what the person accepted for each folder (serve/coding_prefs.py)
@@ -1156,6 +1157,8 @@ class SessionManager:
         if not rec.get("ask_only") and prefs.get("enabled"):
             cmd += ["--browser"] + (["--browser-headless"] if prefs.get("headless") else []) + (["--browser-private"] if prefs.get("private") else [])                    + (["--browser-profile", str(self.browser_profile)] if prefs.get("persistent") and self.browser_profile else [])
             cmd += ["--browser-consent", str(prefs.get("consent", "follow")), "--browser-permissions", str(prefs.get("permissions", "follow"))]
+        if self.computer_prefs is not None and not rec.get("ask_only") and self.computer_prefs.read()["enabled"]:
+            cmd += ["--computer", "--computer-prefs", str(self.computer_prefs.path)]
         if self.knowledge_flags:
             cmd += self.knowledge_flags()
         if self.intake_flags:

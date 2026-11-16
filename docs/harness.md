@@ -42,6 +42,7 @@ the Chat can reach, the others can reach:
 | `--rule-of-two {off,ask,strict}` | when an action that reaches the outside asks (default `ask`; see the Rule of Two below) |
 | `--vault-dir`, `--payments-dir` | the Wallet's vault and payment systems (`{{vault:ENTRY.FIELD}}`, `request_payment`) |
 | `--browser`, `--browser-headless`, `--browser-private`, `--browser-profile DIR`, `--browser-cdp-url URL` | the browser tools and how they run; with a URL the tools drive a browser that is already running (its debugging port) and never start or close one |
+| `--computer`, `--computer-prefs FILE` | the computer tools (screen, mouse, keyboard of this PC): off unless asked; the file (computer.json) says which screen the agent works on and is read at each call ([computer-control.md](computer-control.md)) |
 | `--browser-consent {follow,necessary,accept,reject,off}`, `--browser-permissions {follow,ask,grant,grant-safe,deny}` | what the browser does about cookie banners and permission requests; `follow` (default) is accept / grant at the Auto level and necessary / ask otherwise |
 | `--capabilities` | `find_capability`, `load_capability`, `read_capability`, `call_capability`, `analyze_image`: the skills, plugins and MCP servers found on this PC |
 | `--lsp` | `diagnostics`, `go_to_definition`, `find_references` when a language server is found |
@@ -261,7 +262,7 @@ the arguments are checked against the tool's schema (the model gets a message sa
 that fails refuses too); the permission manager; a checkpoint of the files the call changes (one per turn, filled as calls come); the
 tool; secrets masked in the result; results of untrusted tools fenced as data; an audit record.
 
-Permissions: a rule can name a group of tools, `group:read`, `group:write`, `group:shell`, `group:web`, `group:browser`, `group:phone`, `group:plan`, `group:agents` or `group:mcp` (`GROUPS` in `tadamoo/permissions.py`), and `/permissions` says which deny rule refuses which tool. Plan mode refuses anything that is not read-only; then **deny rules** (matched against every segment of a
+Permissions: a rule can name a group of tools, `group:read`, `group:write`, `group:shell`, `group:web`, `group:browser`, `group:computer`, `group:phone`, `group:plan`, `group:agents` or `group:mcp` (`GROUPS` in `tadamoo/permissions.py`), and `/permissions` says which deny rule refuses which tool. Plan mode refuses anything that is not read-only; then **deny rules** (matched against every segment of a
 shell command and the words inside `cmd /c`, `powershell -c`); then, **at the `auto` level everything passes and nothing is asked, except the Rule of Two and orders found in outside text (below)**: the
 person chose that. Below it: tools that always ask (`phone_call`); **allow rules**, which cover a command of several statements when each
 statement is covered (`cd x && make` needs `cd *` and `make *`; a command built at run time with `$(...)`, a backtick or `%VAR%` is covered
@@ -287,7 +288,7 @@ person's control: a page, a search result, an MCP or A2A answer, a file, a comma
 planner made from an event. **Private**: it touched a stored credential (`{{secret:}}`, `{{vault:}}`), a file that holds keys (`.env`,
 `id_rsa`, `*.pem`, `.aws/credentials`...) or a command or answer that showed a key, an attachment, or the person's own memories.
 **Outward**: the tool sends what the model wrote out of this PC (`outward=True` on `browse_url`, `search_web`, `browser_open`, the
-browser's click, type, select and key, `page_images`, `show_image`, `find_online_capability`, `call_capability`, MCP and A2A/ACP calls).
+browser's click, type, select and key, the computer's click, drag, type and key, `page_images`, `show_image`, `find_online_capability`, `call_capability`, MCP and A2A/ACP calls).
 When all three are true the call asks, before an allow rule can pass it, and the question lists the first sources of the first two facts.
 With `--rule-of-two strict` it asks after the first fact alone, with `off` never; at `auto` the same level also decides whether an
 irreversible action asks once the first fact and a stored secret (or the second fact) are there. The Wallet page sets the level for
