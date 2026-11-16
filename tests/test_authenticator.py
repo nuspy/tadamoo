@@ -187,3 +187,34 @@ def test_the_model_sees_the_two_step_capability_only_when_there_is_a_vault_and_r
     assert "builtin:authenticator" not in {e["id"] for e in without.entries} and "builtin:authenticator" in {e["id"] for e in with_vault.entries}
     entry = with_vault.get("builtin:authenticator")
     assert "2fa" in entry["tags"] and len(entry["description"]) < 140
+
+
+def wallet_api(tmp_path):
+    from serve.wallet_api import WalletApi
+    from tadamoo.browser import BrowserPrefs
+    from tadamoo.payments_broker import PaymentsBroker
+    from tadamoo.vault import Vault
+    return WalletApi(lambda: Vault(tmp_path / "vault", key=bytes(32)), lambda: PaymentsBroker(tmp_path / "payments"), BrowserPrefs(tmp_path / "browser.json"), tmp_path / "profile")
+
+
+def test_the_wallet_reads_a_pasted_link_and_a_picture_then_keeps_only_what_was_confirmed(tmp_path):
+    import base64 as b64, io
+    from serve.wallet_api import WalletError
+    api = wallet_api(tmp_path)
+    link = export_link([account_blob(b"aaaaaaaaaa", "me", "GitHub"), account_blob(b"bbbbbbbbbb", "me", "Unknown Co")])
+    shown = api.authenticator_preview({"text": link})
+    assert [a["hosts"] for a in shown["accounts"]] == [["github.com"], []] and shown["logins"] == [] and "aaaaaaaaaa" not in repr(shown)
+    done = api.authenticator_import({"text": link, "choices": [{"index": 0, "hosts": ["github.com"]}, {"index": 1, "hosts": []}]})
+    assert done["created"] == 1 and done["merged"] == 0 and "name the sites" in done["refused"][0]["why"]
+    assert [e["id"] for e in api._vault().entries()] == ["GitHub-me"]
+    with pytest.raises(WalletError):
+        api.authenticator_import({"text": link, "choices": []})
+    with pytest.raises(WalletError):
+        api.authenticator_preview({"text": "not a link"})
+    with pytest.raises(WalletError):
+        api.authenticator_preview({"images": ["x"] * 13})
+    qr = pytest.importorskip("segno")
+    buf = io.BytesIO()
+    qr.make(export_link([account_blob(b"cccccccccc", "me", "Slack")]), error="m").save(buf, kind="png", scale=6, border=4)
+    from_picture = api.authenticator_preview({"images": [b64.b64encode(buf.getvalue()).decode()]})
+    assert from_picture["accounts"][0]["issuer"] == "Slack"

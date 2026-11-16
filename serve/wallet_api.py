@@ -5,6 +5,8 @@ The three dialogs of a waiver are the ones the dossier records; the declaration 
 """
 from __future__ import annotations
 
+import base64
+import re
 from typing import Any, Callable, Dict, List, Optional
 
 from tadamoo import vendored
@@ -14,6 +16,7 @@ from tadamoo.rule_of_two import LEVELS as RULE_OF_TWO_LEVELS, RuleOfTwoPrefs
 from tadamoo.payments_broker import PaymentsBroker
 from tadamoo.vault import CARD_KINDS, KINDS, SECOND_FACTORS, Vault, VaultError
 from tadamoo.vault_import import parse_logins
+from tadamoo import authenticator
 from tadamoo.waiver import DIALOG_TEXTS, PaymentSystem, parse_amount, required_phrase
 from tadamoo.waiver.cards import CREDENTIAL_KINDS, VAULT_KINDS
 from tadamoo.waiver.dossier import DossierUnavailable
@@ -197,6 +200,32 @@ class WalletApi:
         except (ValueError, VaultError) as e:
             raise WalletError(str(e)) from None
         return {"added": len(made["added"]), "refused": made["refused"][:20], "skipped": parsed["skipped"]}
+
+    def _migration(self, req: Dict[str, Any]) -> "authenticator.Migration":
+        """The accounts in what the person sent: pasted links or secrets (`text`) and pictures of a QR code (`images`, base64). Nothing is kept between the preview and the import."""
+        texts = [t for t in re.split(r"\s+", req.get("text") or "") if t] if isinstance(req.get("text"), str) else []
+        images = req.get("images") or []
+        if not isinstance(images, list) or len(images) > 12:
+            raise WalletError("send up to 12 pictures")
+        try:
+            for blob in images:
+                texts += authenticator.scan_image(base64.b64decode(str(blob), validate=False))
+            return authenticator.read_many(texts)
+        except authenticator.AuthenticatorError as e:
+            raise WalletError(str(e)) from None
+
+    def authenticator_preview(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """What was read, without the secrets: the person confirms the sites before anything is kept. A login of the vault that could take the secret is offered for each account."""
+        mig = self._migration(req)
+        logins = [{"id": e["id"], "label": e["label"], "hosts": e["hosts"]} for e in self._vault().entries() if e["kind"] == "login"]
+        return {"accounts": authenticator.preview(mig), "logins": logins}
+
+    def authenticator_import(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        choices = req.get("choices")
+        if not isinstance(choices, list) or not choices:
+            raise WalletError("choose at least one account")
+        done = authenticator.import_into_vault(self._vault(), self._migration(req), [c for c in choices if isinstance(c, dict)])
+        return {"created": len(done["created"]), "merged": len(done["merged"]), "refused": done["refused"][:20]}
 
     def delete_entry(self, entry_id: Any) -> Dict[str, Any]:
         entry_id = str(entry_id or "")

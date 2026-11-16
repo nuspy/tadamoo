@@ -3488,6 +3488,10 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, api.reveal(req))
                 if action == "import":
                     return self._json(200, api.import_logins(req))
+                if action == "authenticator/preview":
+                    return self._json(200, api.authenticator_preview(req))
+                if action == "authenticator/import":
+                    return self._json(200, api.authenticator_import(req))
                 if action == "backup":
                     return self._json(200, api.backup(req))
                 if action == "restore":

@@ -7,7 +7,7 @@
   const root = document.getElementById("wl-root"), dlg = document.getElementById("wl-wizard");
   if (!root || !dlg) return;
   const live = document.getElementById("wl-live");              // the one place a screen reader is told of a result; the page itself is not a live region
-  let data = null, editing = null, sysForm = null, note = "", noteBad = false, wizard = null, vaultFilter = "all", vaultSearch = "", shown = "";
+  let data = null, authn = null, editing = null, sysForm = null, note = "", noteBad = false, wizard = null, vaultFilter = "all", vaultSearch = "", shown = "";
   const again = new Map();                                    // press-again buttons: key -> timer
 
   const h = (tag, cls, ...kids) => {
@@ -211,6 +211,58 @@
     say(T("wl.import.done", r.data.added, (r.data.skipped || {}).duplicate || 0, skipped - ((r.data.skipped || {}).duplicate || 0) + (r.data.refused || []).length));
     await load();
   }
+  const readPictures = files => Promise.all([...files].map(f => f.arrayBuffer().then(b => { let s = ""; new Uint8Array(b).forEach(c => { s += String.fromCharCode(c); }); return btoa(s); })));
+  async function authnPreview() {
+    const a = authn;
+    if (!a.text.trim() && !a.images.length) { a.out = T("wl.authn.need"); draw(); return; }
+    a.busy = true; a.out = ""; draw();
+    const r = await call("POST", "api/wallet/authenticator/preview", { text: a.text, images: a.images });
+    a.busy = false;
+    if (!r.ok) { a.out = why(r); draw(); return; }
+    a.rows = r.data.accounts.map(x => ({ ...x, on: x.usable, hosts: x.hosts.join(" "), into: "" }));
+    a.logins = r.data.logins; draw();
+  }
+  async function authnImport() {
+    const a = authn, picked = a.rows.filter(x => x.on);
+    if (!picked.length) { a.out = T("wl.authn.none"); draw(); return; }
+    a.busy = true; draw();
+    const choices = picked.map(x => ({ index: x.index, hosts: x.hosts.split(/[\s,]+/).filter(Boolean), merge_into: x.into || undefined }));
+    const r = await call("POST", "api/wallet/authenticator/import", { text: a.text, images: a.images, choices });
+    a.busy = false;
+    if (!r.ok) { a.out = why(r); draw(); return; }
+    const refused = (r.data.refused || []).map(x => x.label + ": " + x.why);
+    if (refused.length) { a.out = T("wl.authn.done.some", r.data.created + r.data.merged, refused.join("; ")); draw(); await load(true); return; }
+    authn = null; say(T("wl.authn.done", r.data.created + r.data.merged)); await load();
+  }
+  function authnPanel() {
+    const a = authn;
+    const body = h("div", "wl-body", h("b", "", T("wl.authn")), h("p", "help", T("wl.authn.help")));
+    if (!a.rows) {
+      const text = h("textarea"); text.rows = 4; text.value = a.text; text.placeholder = "otpauth-migration://offline?data=…"; text.setAttribute("aria-label", T("wl.authn.text"));
+      text.oninput = () => { a.text = text.value; };
+      const pics = h("input"); pics.type = "file"; pics.accept = "image/*"; pics.multiple = true; pics.hidden = true;
+      const cam = h("input"); cam.type = "file"; cam.accept = "image/*"; cam.setAttribute("capture", "environment"); cam.hidden = true;
+      const take = async el => { const got = await readPictures(el.files); el.value = ""; a.images = a.images.concat(got).slice(0, 12); draw(); };
+      pics.onchange = () => take(pics); cam.onchange = () => take(cam);
+      body.append(field(T("wl.authn.text"), text), h("p", "dim", T("wl.authn.pictures", a.images.length)),
+        h("div", "wl-actions", btn(T("wl.authn.pick"), "", () => pics.click()), btn(T("wl.authn.camera"), "", () => cam.click()), pics, cam));
+      body.append(h("div", "wl-actions", Object.assign(btn(T("wl.authn.read"), "primary", authnPreview), { disabled: a.busy }),
+        btn(T("wl.cancel"), "", () => { authn = null; draw(); })));
+    } else {
+      const list = h("ul", "wl-list");
+      a.rows.forEach(x => {
+        const on = h("input"); on.type = "checkbox"; on.checked = x.on; on.disabled = !x.usable; on.onchange = () => { x.on = on.checked; };
+        const sites = textInput(x.hosts, { placeholder: "example.com shop.example.com" }); sites.oninput = () => { x.hosts = sites.value; };
+        const into = select([["", T("wl.authn.new")], ...a.logins.map(l => [l.id, l.label])], x.into); into.onchange = () => { x.into = into.value; };
+        const title = h("label", "", on, " ", x.label || x.name, x.usable ? "" : " — " + T("wl.authn.hotp"));
+        list.append(h("li", "wl-card", h("div", "", title), field(T("wl.authn.sites"), sites, x.hosts.trim() ? "" : T("wl.authn.sites.help")), field(T("wl.authn.into"), into)));
+      });
+      body.append(list, h("div", "wl-actions", Object.assign(btn(T("wl.authn.import"), "primary", authnImport), { disabled: a.busy }),
+        btn(T("wl.cancel"), "", () => { authn = null; draw(); })));
+    }
+    if (a.out) body.append(h("p", "dim", a.out));
+    return body;
+  }
   function backupBox() {
     const pass = textInput("", { placeholder: T("wl.backup.pass") }); pass.type = "password"; pass.autocomplete = "off"; pass.setAttribute("aria-label", T("wl.backup.pass"));
     const file = h("input"); file.type = "file"; file.accept = ".bvb"; file.hidden = true;
@@ -240,9 +292,10 @@
   function vaultSection() {
     const pick = h("input"); pick.type = "file"; pick.accept = ".csv,text/csv"; pick.hidden = true; pick.onchange = () => { importLogins(pick.files[0]); pick.value = ""; };
     const sec = h("section", "sec wl-sec", h("div", "sh", h("b", "", T("wl.vault")), h("span", "grow"),
-      btn(T("wl.import"), "", () => pick.click()), btn(T("wl.add"), "primary", () => { editing = { id: "", kind: "card", isNew: true }; draw(); }), pick));
+      btn(T("wl.import"), "", () => pick.click()), btn(T("wl.authn"), "", () => { authn = { text: "", images: [], rows: null, logins: [], out: "", busy: false }; draw(); }), btn(T("wl.add"), "primary", () => { editing = { id: "", kind: "card", isNew: true }; draw(); }), pick));
     const body = h("div", "wl-body", h("p", "help", T("wl.vault.help")), h("p", "help", T("wl.import.help")));
     if (editing) body.append(editor());
+    if (authn) body.append(authnPanel());
     const entries = data.entries || [];
     if (!entries.length) { body.append(h("p", "dim", T("wl.vault.none")), backupBox()); sec.append(body); return sec; }
     const kinds = select([["all", T("wl.filter.all")], ...Object.keys(data.kinds).map(k => [k, T("wl.kind." + k)])], vaultFilter);
