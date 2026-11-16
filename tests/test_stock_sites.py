@@ -28,14 +28,21 @@ def test_the_page_of_a_pexels_video_says_its_length_its_size_its_tags_and_its_au
     hit = pexels_hit()
     Pexels.read(hit, PEXELS_PAGE)
     assert (hit.duration, hit.width, hit.height, hit.user, hit.partial) == (10, 3840, 2160, "George Pak", False)
-    assert "International Students" in hit.tags and "Budapest" in " ".join(hit.tags) and hit.files["download"]["url"].endswith("/download/video/5940065/")
+    assert "International Students" in hit.tags and "Budapest" in " ".join(hit.tags)
 
 
 def test_the_page_of_an_envato_video_says_its_tags_its_size_its_description_and_the_address_of_its_preview():
     hit = stock.Hit("df1d", "https://app.envato.com/x", [], "", 20.0, 0, {}, "envato", "Group of Students Walking to University Building", 0, 0, True)
     Envato.read(hit, ENVATO_PAGE)
-    assert hit.tags[:3] == ["Students", "College", "Campus"] and "Budapest" in hit.tags[-1]
+    assert hit.user == "johntrek120" and hit.tags[:3] == ["Students", "College", "Campus"] and "Budapest" in hit.tags[-1]
     assert (hit.duration, hit.width, hit.height, hit.partial) == (20.0, 3840, 2160, False) and hit.files["preview"]["url"].endswith("watermarked_preview.mp4")
+
+
+def test_the_author_of_a_pexels_video_is_read_whatever_follows_the_name():
+    hit = pexels_hit()
+    text = PEXELS_PAGE["text"].replace("Free download\nGeorge Pak\nFollow", "Free download\nKampus Production\n\nYour support via Donate button means a lot!\n\nFollow")
+    Pexels.read(hit, {**PEXELS_PAGE, "text": text})
+    assert hit.user == "Kampus Production"
 
 
 class Site:
@@ -93,3 +100,10 @@ def test_the_registry_keeps_the_site_with_the_id_and_reads_a_number_written_befo
     used.add("pexels:5940065", "ed1", "p")
     used.add(77, "ed1", "p")
     assert used.ids() == {"pexels:5940065", "pixabay:77"} and used.recent() == {"pexels:5940065", "pixabay:77"}
+
+def test_the_credits_name_every_site_used_and_the_authors_of_its_videos_once():
+    from tadamoo.newscast.produce import credit_lines
+    items = [{"source": "pexels", "user": "George Pak"}, {"source": "envato", "user": "johntrek120"}, {"source": "pexels", "user": "George Pak"},
+             {"source": "pexels", "user": "Anna Kovacs"}, {"source": "pixabay", "user": ""}, {"source": "model"}]
+    assert credit_lines(items, "by") == ["Pexels (pexels.com) · by George Pak, Anna Kovacs", "Envato (envato.com) · by johntrek120", "Pixabay (pixabay.com)"]
+    assert credit_lines([], "by") == []

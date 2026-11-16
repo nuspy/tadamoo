@@ -3,7 +3,8 @@
 Each site is a source like `stock.Pixabay`: `search(query, lang)` gives results (`stock.Hit`), `details(hit)` reads the page of a video for what the list does not say (length, tags, size) and `download(hit, dest)`
 gets the file. `stock.find` asks them in the order the production gives; the rules for choosing are the same for every site (the subject, the place, no other culture, not shown in the last week).
 
-- Pexels: a search page lists videos with a title only in the address (`/video/students-studying-outdoors-7969393/`) and a download link that works without an account; the free licence of the site applies.
+- Pexels: a search page lists videos with a title only in the address (`/video/students-studying-outdoors-7969393/`) and a "Free download" button that works without an account (the file is
+  downloaded at once and the page then asks for a donation); the free licence of the site applies.
   A page the site's own check (Cloudflare) holds back is not worked around: the source is left out of that clip.
 - Envato: the search page lists length, title and author; the page of a video gives the tags, the size, a description and the link "Download Preview", a watermarked preview that needs no account. The
   files are for tests: the previews are not for publication.
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -24,6 +26,7 @@ from tadamoo.media.stock import Hit, StockError
 SCROLLS = 3
 SCROLL_WAIT_S = 1.8
 CHECK_WAIT_S = 24.0
+VIDEO_SUFFIXES = (".mp4", ".mov", ".webm")
 
 
 class Pages:
@@ -88,29 +91,26 @@ class Pages:
             time.sleep(0.5)
         raise StockError("the page did not finish loading")
 
-    def download(self, name: str, dest: Path, wait_s: float = 60.0) -> Path:
-        """The video a link or button called `name` gives: it is clicked with the driver's mouse, and the video the link opens in the tab is read and written to `dest` (the person's rule for the site allows it)."""
+    def download(self, url: str, dest: Path, wait_s: float = 90.0) -> Path:
+        """The file a site's download address gives: the address is opened and the file the browser keeps in its downloads folder is moved to `dest` (the person's rule for the site allows the
+        download). What the page shows meanwhile (a request for a donation) does not matter."""
         b = self.browser()
-        time.sleep(2.5)
-        self.privacy()
-        time.sleep(1.5)
-        items = (b.snapshot() or {}).get("items") or []
-        ref = next((x["ref"] for x in items if re.search(name, str(x.get("name") or ""), re.I)), None)
-        if ref is None:
-            raise StockError(f"the page has no \"{name}\" to click")
-        b.click(ref)
-        video = re.compile(r"\.(mp4|mov|webm)(\?|$)", re.I)
-        began, assigned = time.monotonic(), False
+        folder = Path(getattr(b, "profile_dir", "")) / "downloads"
+        before = {p.name for p in folder.glob("*")} if folder.is_dir() else set()
+        self.js(f"window.location.assign({json.dumps(url)})")
+        began, last = time.monotonic(), (None, -1)
         while time.monotonic() - began < wait_s:
-            if str(self.js("document.contentType")).startswith("video/") or video.search(str(self.js("location.href"))):                  # the link opened the video itself: what the browser shows is read and kept
-                return self._keep_open_video(dest)
-            if not assigned and time.monotonic() - began > 8.0:               # the click did not move the page: its address is opened, which is what the link does
-                href = next((str(x.get("href") or "") for x in items if x["ref"] == ref), "")
-                if href:
-                    assigned = True
-                    self.js(f"window.location.assign({json.dumps(href if href.startswith('http') else 'https://' + href)})")
-            time.sleep(0.5)
-        raise StockError("the link did not give a video")
+            self.js("document.readyState")                                           # the driver reads the browser's events (the download's start) only while it is asked something
+            done = [p for p in folder.glob("*") if p.name not in before and p.suffix.lower() in VIDEO_SUFFIXES] if folder.is_dir() else []
+            if done:
+                file, size = done[0], done[0].stat().st_size
+                if size > 50_000 and (file.name, size) == last:                    # the size stopped changing: the download is complete
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(file), str(dest))
+                    return dest
+                last = (file.name, size)
+            time.sleep(1.0)
+        raise StockError("the address did not give a video")
 
     def save_from(self, url: str, dest: Path, wait_s: float = 45.0) -> Path:
         """The video at the address a site's download link leads to, opened in the browser's own tab and written to `dest` from there."""
@@ -210,15 +210,14 @@ class Pexels:
         m = re.search(r"Dimensions\D{0,12}(\d{3,5})\s*[x×]\s*(\d{3,5})", text)
         if m:
             hit.width, hit.height = int(m.group(1)), int(m.group(2))
-        m = re.search(r"\n\s*([^\n]{2,40})\n\s*Follow", text)
+        m = re.search(r"Free download\s*\n\s*([^\n]{2,40})\n", text) or re.search(r"\n\s*([^\n]{2,40})\n\s*Follow", text)       # the author's name follows the button
         hit.user = m.group(1).strip() if m else hit.user
         hit.tags = [t.strip() for t in str(page.get("keywords") or "").split(",") if t.strip()] + [str(page.get("description") or "")]
-        hit.files["download"] = {"url": f"https://www.pexels.com/download/video/{hit.id}/"}
         hit.partial = False
 
     def download(self, hit: Hit, quality: str, dest: Path) -> Path:
-        """The free file of the site: the address its "Free download" link leads to, opened in the browser."""
-        return self.pages.save_from(hit.files.get("download", {}).get("url") or f"https://www.pexels.com/download/video/{hit.id}/", dest)
+        """The free file of the site: the address its "Free download" button leads to; the browser downloads the file."""
+        return self.pages.download(f"https://www.pexels.com/download/video/{hit.id}/", dest)
 
 
 ENVATO_TILES = """(() => { const out = []; const seen = new Set();
@@ -284,6 +283,8 @@ class Envato:
                     hit.width, hit.height = min(hit.width or 1, hit.height or 2), max(hit.width or 1, hit.height or 2)
                 if orient + 1 < len(lines):
                     hit.tags = hit.tags + [lines[orient + 1]]            # the description
+        author = next((m.group(1).strip() for m in (re.fullmatch(r"by\s+(\S[^\n]{0,40})", ln) for ln in lines) if m), "")
+        hit.user = author or hit.user
         hit.files["preview"] = {"url": str(page.get("preview") or "")}
         hit.partial = False
 
