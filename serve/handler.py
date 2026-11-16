@@ -168,7 +168,8 @@ def _plans_service(svc: Service, port: int):
     if _PLANS is None:
         _PLANS = plans_mod.PlanService(userdata.path("planner"))
     from tadamoo.client import TadamooClient
-    _PLANS.client_factory = lambda: TadamooClient(base_url=f"http://127.0.0.1:{port}", api_key=svc.api_key or None)
+    from tadamoo.llm import client_for
+    _PLANS.client_factory = lambda: client_for("planner", TadamooClient(base_url=f"http://127.0.0.1:{port}", api_key=svc.api_key or None))
     if _LLM is not None:
         _PLANS.registry = _LLM.registry
     if _PLAN_HOST is not None and _PLANS.launcher is None:
@@ -3020,8 +3021,9 @@ def make_handler(svc: Service, remote: bool = False):
             global _PERSONA_LEARNING
             if _PERSONA_LEARNING is None:
                 from tadamoo.client import TadamooClient
+                from tadamoo.llm import client_for
                 endpoint = f"http://127.0.0.1:{self.server.server_address[1]}"
-                worker = PersonaLearningWorker(self._personas().store, lambda: TadamooClient(base_url=endpoint, api_key=svc.api_key or None),
+                worker = PersonaLearningWorker(self._personas().store, lambda: client_for("memory", TadamooClient(base_url=endpoint, api_key=svc.api_key or None)),
                                                lambda: gpu_free(svc, mine=worker.last))
                 _PERSONA_LEARNING = worker
                 worker.start()
@@ -3201,8 +3203,9 @@ def make_handler(svc: Service, remote: bool = False):
             global _MEM_WORKER
             if _MEM_WORKER is None:
                 from tadamoo.client import TadamooClient
+                from tadamoo.llm import client_for
                 endpoint = f"http://127.0.0.1:{self.server.server_address[1]}"
-                worker = MemoryWorker(self._personal(), lambda: TadamooClient(base_url=endpoint, api_key=svc.api_key or None),
+                worker = MemoryWorker(self._personal(), lambda: client_for("memory", TadamooClient(base_url=endpoint, api_key=svc.api_key or None)),
                                       lambda: gpu_free(svc, mine=worker.extractor.last))
                 _MEM_WORKER = worker
                 worker.start()
@@ -3219,9 +3222,10 @@ def make_handler(svc: Service, remote: bool = False):
             global _CARDS
             if _CARDS is None:
                 from tadamoo.client import TadamooClient
+                from tadamoo.llm import client_for
                 from serve.card_worker import BACKFILL_QUIET_S, CardWorker
                 endpoint = f"http://127.0.0.1:{self.server.server_address[1]}"
-                worker = CardWorker(self._past(), lambda: TadamooClient(base_url=endpoint, api_key=svc.api_key or None),
+                worker = CardWorker(self._past(), lambda: client_for("memory", TadamooClient(base_url=endpoint, api_key=svc.api_key or None)),
                                     lambda: gpu_free(svc, quiet_s=BACKFILL_QUIET_S, mine=worker.last))
                 _CARDS = worker
                 worker.start()
@@ -3243,7 +3247,7 @@ def make_handler(svc: Service, remote: bool = False):
             if not isinstance(req, dict) or not isinstance(req.get("source"), str):
                 return self._json(400, {"error": {"type": "diagram", "message": "send the diagram's source"}})
             from serve import diagram_fix
-            fixed = diagram_fix.fix(self._agent_sessions().model_client(), req["source"], req.get("error"))
+            fixed = diagram_fix.fix(self._agent_sessions().model_client("technical"), req["source"], req.get("error"))
             return self._json(200, {"source": fixed or ""})
 
         def _past_forget_post(self):

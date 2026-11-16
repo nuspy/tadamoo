@@ -16,6 +16,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from tadamoo import target as tg
 from tadamoo.client import TadamooClient
+from tadamoo.llm import client_for
 from serve.agent_runs import RunError
 from serve.util.files import write_json
 from tadamoo.taskboard import TaskBoard
@@ -119,7 +120,7 @@ class TargetManager:
                  llm_factory: Optional[Callable[[], tg.StructuredLLM]] = None, conversation: Optional[Callable[[str], Any]] = None,
                  waits: Tuple[float, ...] = tg.MODEL_WAITS) -> None:
         self.sessions, self.boards, self.changes, self.waits = sessions, boards, changes, waits
-        self.llm_factory = llm_factory or (lambda: tg.StructuredLLM(TadamooClient(base_url=sessions.endpoint, api_key=sessions.api_key or None)))
+        self.llm_factory = llm_factory or (lambda: tg.StructuredLLM(client_for("planner", TadamooClient(base_url=sessions.endpoint, api_key=sessions.api_key or None))))
         self.conversation = conversation or (lambda sid: SessionConversation(sessions, sid, changes))
         self._lock = threading.RLock()
         self._targets: Dict[str, List[Dict[str, Any]]] = {}

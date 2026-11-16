@@ -1041,6 +1041,9 @@ Models page, sub-tab Providers; other programs that use this server still see on
   (at most 1,500 characters), over https only. If it fails, is over its cap or has no key, the loaded model judges instead.
 - The session's router judge (steer, queue or urgent for a message written while the agent works) and the planner's triage
   take their provider from here.
+- Every other model call of the server goes through a function too, none talks to the local engine on its own: `planner` (re-plan, alignment of plans,
+  waiting conditions, targets), `memory` (personal memories, personality learning, conversation cards), `skills` (skills from conversations and plans,
+  their parameters, imports), `technical` (quick jobs, merge summary of branches, diagram repair). A function with no choice of its own follows the Primary model.
 
 Routes: `GET /api/llm`; `POST /api/llm/providers`, `/providers/<id>`, `/providers/<id>/remove`, `/providers/<id>/test`,
 `/assign`, `/consent`, `/import`, `/primary`, `/models`, `/try`. Changes are accepted only from this PC.

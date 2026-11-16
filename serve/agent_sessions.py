@@ -677,7 +677,7 @@ class SessionManager:
                 f"Branch A, \"{titles[0]}\":\n{self._digest(branches[0], MERGE_BRANCH_CHARS) or '(nothing after that point)'}\n\n"
                 f"Branch B, \"{titles[1]}\":\n{self._digest(branches[1], MERGE_BRANCH_CHARS) or '(nothing after that point)'}\n\n{asked}")
         try:
-            resp = self._skill_client().chat_completion(messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            resp = self._skill_client("technical").chat_completion(messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
                                                         temperature=0.2, max_tokens=MERGE_TOKENS, extra={"reasoning_effort": "none"}, timeout=600.0)
         except TadamooError as exc:
             raise RunError(f"The model could not be reached: {exc}", "model") from None
@@ -1884,13 +1884,15 @@ class SessionManager:
             raise RunError("Nothing was done in those requests that a skill could repeat: no tool was used.", "nothing_to_repeat")
         return chosen, steps
 
-    def _skill_client(self) -> Any:
+    def _skill_client(self, function: str = "skills") -> Any:
+        """The model for a short job of the server: the function given, on the provider the person set for it (the Primary model unless changed)."""
         from tadamoo.client import TadamooClient
-        return TadamooClient(base_url=self.endpoint, api_key=self.api_key or None)
+        from tadamoo.llm import client_for
+        return client_for(function, TadamooClient(base_url=self.endpoint, api_key=self.api_key or None))
 
-    def model_client(self) -> Any:
-        """A client of the loaded model, for the short jobs the server does for a page."""
-        return self._skill_client()
+    def model_client(self, function: str = "skills") -> Any:
+        """A client for the short jobs the server does for a page (skills by default)."""
+        return self._skill_client() if function == "skills" else self._skill_client(function)
 
     def skill_propose(self, sid: str, turns: Any) -> Dict[str, Any]:
         """The first step of making a skill from requests: the values that probably change, named and explained."""

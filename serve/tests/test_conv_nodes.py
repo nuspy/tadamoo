@@ -218,7 +218,7 @@ def test_merging_two_branches_writes_a_synthesis_after_both_and_changes_neither(
     mgr = make()
     sid, other = fork_two(mgr, ws)
     fake = FakeClient()
-    mgr._skill_client = lambda: fake
+    mgr._skill_client = lambda function="skills": fake
     out = mgr.merge(sid, other, "Which is better?")
     prompt = fake.calls[0]["messages"][1]["content"]
     assert "path A" in prompt and "path B" in prompt and "Which is better?" in prompt and prompt.count("uno") >= 1
@@ -242,7 +242,7 @@ def test_a_merge_needs_two_different_idle_conversations_with_something_to_merge_
     same = mgr.branch(sid, 1)["id"]
     with pytest.raises(RunError, match="nothing to merge"):
         mgr.merge(twin, same)
-    mgr._skill_client = lambda: FakeClient("  ")
+    mgr._skill_client = lambda function="skills": FakeClient("  ")
     with pytest.raises(RunError, match="no synthesis"):
         mgr.merge(sid, other)
     mgr._record(sid)["state"] = "busy"
@@ -253,7 +253,7 @@ def test_a_merge_needs_two_different_idle_conversations_with_something_to_merge_
 def test_the_node_tree_has_one_entry_per_run_and_marks_forks_leaves_and_merges(make, ws):
     mgr = make()
     sid, other = fork_two(mgr, ws)
-    mgr._skill_client = lambda: FakeClient()
+    mgr._skill_client = lambda function="skills": FakeClient()
     merged = mgr.merge(sid, other)["id"]
     mgr.go_back(sid, 1)
     tree = mgr.node_tree()
