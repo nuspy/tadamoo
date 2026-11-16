@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 470" width="1200" height="470" role="img" aria-label="Come è fatto TaDaMoo">
+<title>Come è fatto TaDaMoo</title>
+<defs>
+<radialGradient id="glow" cx="78%" cy="45%" r="60%"><stop offset="0" stop-color="#8cc0ff" stop-opacity=".16"/><stop offset="1" stop-color="#8cc0ff" stop-opacity="0"/></radialGradient>
+<radialGradient id="gold" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#d8b26a" stop-opacity=".35"/><stop offset="1" stop-color="#d8b26a" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="1200" height="470" rx="14" fill="#04050a"/>
+<rect width="1200" height="470" rx="14" fill="url(#glow)"/>
+<circle cx="745" cy="344" r="0.6" fill="#ece8df" opacity="0.4"/>
+<circle cx="926" cy="122" r="0.6" fill="#ece8df" opacity="0.25"/>
+<circle cx="144" cy="221" r="0.8" fill="#ece8df" opacity="0.4"/>
+<circle cx="652" cy="268" r="0.6" fill="#ece8df" opacity="0.6"/>
+<circle cx="266" cy="136" r="1.4" fill="#ece8df" opacity="0.25"/>
+<circle cx="909" cy="42" r="1.4" fill="#ece8df" opacity="0.25"/>
+<circle cx="166" cy="448" r="0.6" fill="#ece8df" opacity="0.25"/>
+<circle cx="923" cy="442" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="351" cy="443" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="1120" cy="321" r="1.4" fill="#ece8df" opacity="0.4"/>
+<circle cx="35" cy="197" r="0.8" fill="#ece8df" opacity="0.4"/>
+<circle cx="87" cy="146" r="0.6" fill="#ece8df" opacity="0.6"/>
+<circle cx="810" cy="162" r="1.0" fill="#ece8df" opacity="0.4"/>
+<circle cx="976" cy="226" r="1.0" fill="#ece8df" opacity="0.25"/>
+<circle cx="578" cy="327" r="0.6" fill="#ece8df" opacity="0.4"/>
+<circle cx="1161" cy="20" r="1.0" fill="#ece8df" opacity="0.4"/>
+<circle cx="31" cy="364" r="1.0" fill="#ece8df" opacity="0.4"/>
+<circle cx="693" cy="14" r="0.6" fill="#ece8df" opacity="0.6"/>
+<circle cx="223" cy="440" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="902" cy="428" r="1.4" fill="#ece8df" opacity="0.4"/>
+<circle cx="615" cy="412" r="1.0" fill="#ece8df" opacity="0.4"/>
+<circle cx="138" cy="347" r="1.0" fill="#ece8df" opacity="0.4"/>
+<circle cx="53" cy="436" r="0.6" fill="#ece8df" opacity="0.25"/>
+<circle cx="412" cy="285" r="0.8" fill="#ece8df" opacity="0.4"/>
+<circle cx="335" cy="326" r="0.6" fill="#ece8df" opacity="0.4"/>
+<circle cx="819" cy="148" r="0.6" fill="#ece8df" opacity="0.6"/>
+<circle cx="186" cy="320" r="1.4" fill="#ece8df" opacity="0.25"/>
+<circle cx="860" cy="46" r="1.4" fill="#ece8df" opacity="0.25"/>
+<circle cx="290" cy="277" r="1.0" fill="#ece8df" opacity="0.4"/>
+<circle cx="778" cy="76" r="0.6" fill="#ece8df" opacity="0.4"/>
+<circle cx="404" cy="103" r="0.8" fill="#ece8df" opacity="0.6"/>
+<circle cx="1068" cy="196" r="0.8" fill="#ece8df" opacity="0.4"/>
+<circle cx="450" cy="36" r="1.4" fill="#ece8df" opacity="0.4"/>
+<circle cx="177" cy="425" r="0.8" fill="#ece8df" opacity="0.6"/>
+<circle cx="545" cy="230" r="1.0" fill="#ece8df" opacity="0.4"/>
+<circle cx="333" cy="222" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="455" cy="455" r="0.8" fill="#ece8df" opacity="0.6"/>
+<circle cx="1116" cy="401" r="0.8" fill="#ece8df" opacity="0.25"/>
+<circle cx="590" cy="242" r="1.0" fill="#ece8df" opacity="0.25"/>
+<circle cx="938" cy="359" r="0.6" fill="#ece8df" opacity="0.4"/>
+<rect x="40" y="36" width="1120" height="88" rx="12" fill="#0b101c" stroke="#8cc0ff" stroke-opacity="0.55" stroke-width="1"/>
+<text x="62" y="64" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="13" font-weight="400" fill="#8cc0ff" text-anchor="start" opacity="1" letter-spacing="2">INTERFACCE</text>
+<rect x="62" y="78" width="104" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="114.0" y="95.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">App Windows</text>
+<rect x="174" y="78" width="97" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="222.5" y="95.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Pagina web</text>
+<rect x="279" y="78" width="104" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="331.0" y="95.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">App Android</text>
+<rect x="391" y="78" width="135" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="458.5" y="95.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Riga di comando</text>
+<rect x="534" y="78" width="112" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="590.0" y="95.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Editor (ACP)</text>
+<rect x="654" y="78" width="195" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="751.5" y="95.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Altri agenti (MCP, A2A)</text>
+<path d="M600 124v14 m-5 -6l5 6l5 -6" fill="none" stroke="#9a9aa4" stroke-width="1.5"/>
+<rect x="40" y="138" width="1120" height="96" rx="12" fill="#0b101c" stroke="#d8b26a" stroke-opacity="0.9" stroke-width="2"/>
+<text x="62" y="166" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="13" font-weight="400" fill="#d8b26a" text-anchor="start" opacity="1" letter-spacing="2">HARNESS</text>
+<rect x="62" y="184" width="150" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="137.0" y="201.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Ciclo dell'agente</text>
+<rect x="220" y="184" width="187" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="313.5" y="201.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Strumenti e competenze</text>
+<rect x="415" y="184" width="135" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="482.5" y="201.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Piani e routine</text>
+<rect x="558" y="184" width="74" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="595.0" y="201.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Memoria</text>
+<rect x="640" y="184" width="82" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="681.0" y="201.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Permessi</text>
+<rect x="730" y="184" width="202" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="831.0" y="201.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Cassaforte e portafoglio</text>
+<rect x="940" y="184" width="180" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="1030.0" y="201.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Registro e ripristino</text>
+<path d="M600 234v14 m-5 -6l5 6l5 -6" fill="none" stroke="#9a9aa4" stroke-width="1.5"/>
+<rect x="40" y="248" width="1120" height="88" rx="12" fill="#0b101c" stroke="#e4473a" stroke-opacity="0.55" stroke-width="1"/>
+<text x="62" y="276" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="13" font-weight="400" fill="#e4473a" text-anchor="start" opacity="1" letter-spacing="2">PERCORSI VERSO I MODELLI</text>
+<rect x="62" y="290" width="157" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="140.5" y="307.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Modello principale</text>
+<rect x="227" y="290" width="195" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="324.5" y="307.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Un modello per funzione</text>
+<rect x="430" y="290" width="187" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="523.5" y="307.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Cosa può uscire dal PC</text>
+<path d="M600 336v14 m-5 -6l5 6l5 -6" fill="none" stroke="#9a9aa4" stroke-width="1.5"/>
+<rect x="40" y="350" width="1120" height="88" rx="12" fill="#0b101c" stroke="#9a9aa4" stroke-opacity="0.55" stroke-width="1"/>
+<text x="62" y="378" font-family="Consolas, 'SFMono-Regular', Menlo, monospace" font-size="13" font-weight="400" fill="#9a9aa4" text-anchor="start" opacity="1" letter-spacing="2">MOTORI E PROVIDER</text>
+<rect x="62" y="392" width="104" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="114.0" y="409.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Basalt-Plus</text>
+<rect x="174" y="392" width="67" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="207.5" y="409.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Strata</text>
+<rect x="249" y="392" width="233" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="365.5" y="409.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">llama.cpp · vLLM · LM Studio</text>
+<rect x="490" y="392" width="104" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="542.0" y="409.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Abbonamenti</text>
+<rect x="602" y="392" width="165" height="26" rx="13" fill="#0b101c" stroke="#2a3140"/>
+<text x="684.5" y="409.55" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="500" fill="#ece8df" text-anchor="middle" opacity="1">Token factory · API</text>
+</svg>
