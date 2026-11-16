@@ -376,7 +376,7 @@
       else { install.disabled = false; install.textContent = ad.found ? T("wl.cc.ad.update") : T("wl.cc.ad.install"); say(why(r), true); }
     };
     const adBox = h("div", "wl-pick", h("b", "", T("wl.cc.ad")), h("p", "help", T("wl.cc.ad.help")),
-      h("p", "", ad.found ? T("wl.cc.ad.have", ((ad.status || {}).version || {}).version || ad.version || "?", ad.where === "path" ? T("wl.cc.ad.onpath") : T("wl.cc.ad.installed"), (perm || {}).state || "?")
+      h("p", "", ad.found ? T("wl.cc.ad.have", ((ad.status || {}).version || {}).version || ad.version || "?", T("wl.cc.ad." + (ad.where === "path" ? "onpath" : ad.where === "bundled" ? "bundled" : "installed")), (perm || {}).state || "?")
                           : T("wl.cc.ad.none")),
       ad.status && ad.status.error ? h("p", "wl-note", ad.status.error) : null, ad.found && ad.where === "path" ? null : h("div", "wl-actions", install));
     on.onchange = async () => { if (on.checked && !(await riskConfirm([T("wl.risk.computer")]))) { on.checked = false; return; } save(); };

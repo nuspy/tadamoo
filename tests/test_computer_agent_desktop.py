@@ -354,6 +354,27 @@ def test_the_tools_of_the_native_backend_do_not_have_a_clipboard(tmp_path):
     assert not [n for n in registry.names() if "clipboard" in n]
 
 
+def test_the_program_shipped_with_tadamoo_is_taken_unless_one_in_the_data_folder_or_none_at_all(tmp_path, monkeypatch):
+    from tadamoo import vendored
+    monkeypatch.setattr(vendored, "ROOT", tmp_path / "program")
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/" + name)
+    names = vendored.exe_names("agent-desktop")
+    assert vendored.find("agent-desktop", tmp_path / "data")[1] == "path"                       # nothing shipped, nothing downloaded: one on PATH
+    shipped = tmp_path / "program" / "tools" / "vendored" / "agent-desktop"
+    shipped.mkdir(parents=True)
+    (shipped / names[0]).write_bytes(b"x")
+    assert vendored.find("agent-desktop", tmp_path / "data") == (str(shipped / names[0]), "bundled")
+    assert find_agent_desktop(tmp_path / "data")[1] == "bundled" and isinstance(pick_backend("auto", tmp_path / "data"), AgentDesktopBackend)
+    mine = tmp_path / "data"
+    mine.mkdir()
+    (mine / names[0]).write_bytes(b"y")
+    assert vendored.find("agent-desktop", mine) == (str(mine / names[0]), "installed")           # an update the person made comes first
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    (mine / names[0]).unlink()
+    (shipped / names[0]).unlink()
+    assert vendored.find("agent-desktop", mine) == ("", "")
+
+
 def test_the_backend_choice_is_kept_beside_the_screen_choice(tmp_path):
     prefs = ComputerPrefs(tmp_path / "computer.json")
     assert prefs.write(True, 2, "agent-desktop")["backend"] == "agent-desktop"

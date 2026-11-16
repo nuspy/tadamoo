@@ -742,16 +742,16 @@ def test_what_a_conversation_gets_follows_the_wallet_choices(make, ws, tmp_path)
     assert not {"--vault-dir", "--payments-dir", "--browser"} & set(asking)
 
 
-def test_a_conversation_gets_computer_control_only_when_the_person_turned_it_on(make, ws, tmp_path):
+def test_a_conversation_gets_computer_control_unless_the_person_turned_it_off(make, ws, tmp_path):
     from tadamoo.computer import ComputerPrefs
     prefs = ComputerPrefs(tmp_path / "computer.json")
     mgr = make(command=None, computer_prefs=prefs)
     mgr.command = mgr._command
     rec = {"id": "s1", "workspace": ws, "mode": "default", "ask_only": False}
-    assert "--computer" not in mgr._command("s1", rec, tmp_path / "h")                                 # off until chosen
-    prefs.write(True, 2)
-    cmd = mgr._command("s1", rec, tmp_path / "h")
+    cmd = mgr._command("s1", rec, tmp_path / "h")                                                       # on by default
     assert "--computer" in cmd and cmd[cmd.index("--computer-prefs") + 1] == str(tmp_path / "computer.json")
+    prefs.write(False, 2)
+    assert "--computer" not in mgr._command("s1", rec, tmp_path / "h")
     assert "--computer" not in mgr._command("s1", {**rec, "ask_only": True}, tmp_path / "h")          # a question-only conversation gets none of it
 
 

@@ -190,14 +190,9 @@ BACKEND_CHOICES = ("auto", "agent-desktop", "native")
 
 
 def find_agent_desktop(tools_dir: Optional[Path] = None) -> Tuple[str, str]:
-    """(path, where) of the agent-desktop program: the one installed in the tools folder, else one on PATH; ('', '') when there is none."""
-    if tools_dir is not None:
-        for name in AGENT_DESKTOP_NAMES:
-            candidate = Path(tools_dir) / name
-            if candidate.is_file():
-                return str(candidate), "installed"
-    found = shutil.which("agent-desktop")
-    return (found, "path") if found else ("", "")
+    """(path, where) of the agent-desktop program: installed in the data folder's tools, shipped with the program, or on PATH; ('', '') when there is none."""
+    from tadamoo import vendored
+    return vendored.find("agent-desktop", Path(tools_dir) if tools_dir is not None else None)
 
 
 def pick_backend(choice: str = "auto", tools_dir: Optional[Path] = None) -> Backend:

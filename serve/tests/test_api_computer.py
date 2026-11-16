@@ -33,10 +33,10 @@ class ComputerApiTest(PlansApiBase):
             p.stop()
         self.data.cleanup()
 
-    def test_it_is_off_until_the_person_turns_it_on_and_lists_the_screens(self):
+    def test_it_is_on_unless_the_person_turns_it_off_and_lists_the_screens(self):
         code, res = self.call("GET", "/api/computer", headers=self.headers)
         self.assertEqual(code, 200)
-        self.assertEqual((res["enabled"], res["monitor"], res["supported"]), (False, 0, True))
+        self.assertEqual((res["enabled"], res["monitor"], res["supported"]), (True, 0, True))
         self.assertEqual([(m["index"], m["width"]) for m in res["monitors"]], [(1, 1920), (2, 2560)])
 
     def test_the_setting_is_saved_and_a_bad_one_is_refused(self):
@@ -57,7 +57,7 @@ class ComputerApiTest(PlansApiBase):
         with mock.patch.object(handler.settings, "is_loopback", lambda address: False):
             code, res = self.call("POST", "/api/computer", {"enabled": True}, headers=self.headers)
         self.assertEqual(code, 403)
-        self.assertFalse(ComputerPrefs(Path(self.data.name) / "computer.json").read()["enabled"])
+        self.assertTrue(ComputerPrefs(Path(self.data.name) / "computer.json").read()["enabled"])           # nothing was saved: still the default
 
     def test_agent_desktop_is_listed_with_its_version_and_status_and_is_used_unless_native_is_chosen(self):
         tools = Path(self.data.name) / "tools" / "agent-desktop"

@@ -1,6 +1,7 @@
 """Installing agent-desktop (https://github.com/vercel-labs/agent-desktop, Apache-2.0) into the tools folder (`<data>/tools/agent-desktop/`), from the project's own GitHub release.
 
-It runs only when the person asks (the button in Wallet > Computer control, or `python -m tadamoo.computer install`); nothing here starts by itself. The release is read from
+agent-desktop comes with TaDaMoo (built from third_party/agent-desktop, tools/vendored/); this is how a newer release is taken, and it runs only when the person asks (the button in Wallet >
+Computer control, or `python -m tadamoo.computer install`): nothing here starts by itself, and the copy it puts in the tools folder is taken before the included one. The release is read from
 api.github.com, the archive for this system is downloaded from github.com/vercel-labs/agent-desktop/releases/download, its SHA-256 is checked against the one the release gives
 (the asset's `digest`, else the release's checksums.txt), and only then is it unpacked. A release that gives no checksum is installed with that said. The archive may hold the program
 and a helper beside it; they are kept together. The program's own state (`state/`) is not touched by an upgrade.

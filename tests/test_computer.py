@@ -467,13 +467,14 @@ def test_the_accessibility_reader_script_is_valid_powershell():
 
 def test_the_choice_of_screen_is_kept_and_read_each_time(tmp_path):
     prefs = ComputerPrefs(tmp_path / "computer.json")
-    assert prefs.read() == {"enabled": False, "monitor": 0, "backend": "auto"}
+    assert prefs.read() == {"enabled": True, "monitor": 0, "backend": "auto"}                          # on unless turned off
+    assert prefs.write(False, 2) == {"enabled": False, "monitor": 2, "backend": "auto"}
     assert prefs.write(True, 2) == {"enabled": True, "monitor": 2, "backend": "auto"}
     assert prefs.monitor() == 2
     assert prefs.write(True, 99)["monitor"] == 0 and prefs.write(True, True)["monitor"] == 0        # not a screen number: all screens
     assert prefs.write(True, 1, "native")["backend"] == "native" and prefs.write(True, 1, "banana")["backend"] == "auto"
     (tmp_path / "computer.json").write_text("not json", encoding="utf-8")
-    assert prefs.read() == {"enabled": False, "monitor": 0, "backend": "auto"}
+    assert prefs.read() == {"enabled": True, "monitor": 0, "backend": "auto"}
 
 
 # -- the agent stack -----------------------------------------------------------------------------------------------------------

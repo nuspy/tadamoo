@@ -93,11 +93,18 @@ python_bin() {
 copy_program() {
   run mkdir -p "$PREFIX"
   if command -v rsync >/dev/null 2>&1; then
-    run rsync -a --delete --exclude /engines --exclude .git --exclude .venv --exclude __pycache__ --exclude tests --exclude build --exclude build-win --exclude dist --exclude .claude --exclude '*.exe' --exclude node_modules "$SRC"/ "$PREFIX"/program/
+    run rsync -a --delete --exclude /engines --exclude /third_party --exclude .git --exclude .venv --exclude __pycache__ --exclude tests --exclude build --exclude build-win --exclude dist --exclude .claude --exclude '*.exe' --exclude node_modules "$SRC"/ "$PREFIX"/program/
   else
     run rm -rf "$PREFIX/program"; run mkdir -p "$PREFIX/program"
-    run bash -c "cd '$SRC' && tar -c --exclude=./engines --exclude=.git --exclude=.venv --exclude=__pycache__ --exclude=tests --exclude=build --exclude=build-win --exclude=dist --exclude=.claude --exclude='*.exe' --exclude=node_modules . | tar -x -C '$PREFIX/program'"
+    run bash -c "cd '$SRC' && tar -c --exclude=./engines --exclude=./third_party --exclude=.git --exclude=.venv --exclude=__pycache__ --exclude=tests --exclude=build --exclude=build-win --exclude=dist --exclude=.claude --exclude='*.exe' --exclude=node_modules . | tar -x -C '$PREFIX/program'"
   fi
+}
+
+# agent-desktop (computer control) and agent-browser (the browser tools' default driver) are built from third_party/ by the vendored-tools workflow; the complete release has them in
+# tools/vendored/ and the copy above brings them. They must be runnable by the service account; one in <data>/tools/<name>/ (an update) is taken before them.
+vendored_tools() {
+  [ -d "$PREFIX/program/tools/vendored" ] || { say "note: no tools/vendored here (agent-desktop, agent-browser): computer control uses the system's own backend and the browser its own driver"; return 0; }
+  run find "$PREFIX/program/tools/vendored" -type f ! -name '*.md' ! -name '*.txt' ! -name LICENSE -exec chmod 0755 {} +
 }
 
 make_venv() {
@@ -244,7 +251,7 @@ do_install() {
   say "components: $COMPONENTS   listens on $HOST:$PORT   program $PREFIX   data $DATA"
   if [ "$YES" = 0 ] && [ "$DRY" = 0 ] && [ -t 0 ]; then read -r -p "go on? [y/N] " a; [ "$a" = y ] || [ "$a" = Y ] || die "stopped"; fi
   id "$RUN_USER" >/dev/null 2>&1 || run useradd --system --home-dir "$DATA" --shell /usr/sbin/nologin "$RUN_USER"
-  copy_program; make_venv; engine_bin; strata_bin; write_config; write_unit; write_proxy
+  copy_program; vendored_tools; make_venv; engine_bin; strata_bin; write_config; write_unit; write_proxy
   run chown -R "$RUN_USER": "$DATA"; run chmod 640 "$CONF/tadamoo.env"; run chgrp "$RUN_USER" "$CONF/tadamoo.env"
   run systemctl daemon-reload; run systemctl enable tadamoo
   [ "$START" = 1 ] && run systemctl restart tadamoo

@@ -44,6 +44,14 @@
     server running: when the engine is up to date the build is skipped by itself.
 .PARAMETER SkipDownloads
     Rare. Do not touch the network: the Python installer, the wheels and the name generator must already be in dist\cache.
+.PARAMETER SkipVendored
+    Rare. Do not put agent-desktop and agent-browser (the Vercel Labs programs in third_party\) into tools\vendored\: computer control then uses the system's own backend and the
+    browser tools their own driver.
+.PARAMETER VendoredArchive
+    The tadamoo-vendored-tools-x86_64-pc-windows-msvc.tar.gz that the vendored-tools GitHub workflow attached, to take the two programs from instead of building them here (default:
+    dist\cache\vendored\ if it has one, else cargo builds them from third_party\).
+.PARAMETER RustToolchain
+    Rare. A Rust toolchain to build the two programs with instead of the one agent-desktop pins (rust-toolchain.toml).
 .PARAMETER NoSetup
     Rare. Stop after the .ifp: the setup is then built by hand in InstallForge.
 .PARAMETER CudaRoot
@@ -64,6 +72,9 @@ param(
     [switch]$SkipEngine,
     [switch]$SkipDownloads,
     [switch]$NoSetup,
+    [switch]$SkipVendored,
+    [string]$VendoredArchive = '',
+    [string]$RustToolchain = '',
     [string]$CudaRoot = '',
     [string]$PythonMinor = '3.13',
     [string]$InstallForge = ''
@@ -93,7 +104,7 @@ $IfpPath = Join-Path $Dist 'TaDaMoo-WinGUI.ifp'
 $Company = 'Tadamoo'
 $InstallRoot = '<ProgramFilesX64>\' + $Company + '\'          # C:\Program Files\Tadamoo\ (not <ProgramFiles>: that is x86)
 $AppRel = '<InstallPath>\' + $AppFolder                        # C:\Program Files\Tadamoo\TaDaMoo
-$ExcludeFromPackage = @('tests', 'serve/tests', '.github', '.agents')   # developer-only, tracked
+$ExcludeFromPackage = @('tests', 'serve/tests', '.github', '.agents', 'third_party')   # developer-only, tracked (third_party is built into tools\vendored below)
 
 function Step([string]$Text) { Write-Host ''; Write-Host "== $Text" -ForegroundColor Cyan }
 function Info([string]$Text) { Write-Host "   $Text" }
@@ -245,6 +256,44 @@ try {
     Get-ChildItem $pub -Recurse -Include *.pdb, *.xml | Remove-Item -Force
     foreach ($exe in 'TaDaMoo.exe', 'TaDaMooSetup.exe') { if (-not (Test-Path (Join-Path $pub $exe))) { throw "$exe was not published" } }
     Info ("{0} files, {1:N0} MB" -f (Get-ChildItem $pub -Recurse -File).Count, ((Get-ChildItem $pub -Recurse -File | Measure-Object Length -Sum).Sum / 1MB))
+
+    # ------------------------------------------------------------------ vendored tools: agent-desktop and agent-browser (third_party/, Apache-2.0)
+    Step 'Vendored tools (agent-desktop, agent-browser)'
+    $vend = Join-Path $Stage 'tools\vendored'
+    $archive = $VendoredArchive
+    if (-not $archive) { $archive = (Get-ChildItem (Join-Path $Cache 'vendored') -Filter 'tadamoo-vendored-tools-x86_64-pc-windows-msvc.tar.gz' -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object { $_.FullName }) }
+    if ($SkipVendored) {
+        Info 'skipped (-SkipVendored)'
+    } elseif ($archive) {
+        Info "from $archive"
+        Run (Join-Path $env:SystemRoot 'System32\tar.exe') @('-xzf', $archive, '-C', $Stage)     # Windows' own tar (a Git tar reads C: as a host); tools\vendored\<name>\..., and the licences at the top
+        foreach ($f in Get-ChildItem $Stage -Filter 'licenses-*.txt' -File) { Move-Item -Force $f.FullName (Join-Path $Stage 'licenses') }
+        foreach ($f in Get-ChildItem $Stage -Filter 'deny-*.txt' -File) { Move-Item -Force $f.FullName (Join-Path $Stage 'licenses') }
+    } elseif (Get-Command cargo -ErrorAction SilentlyContinue) {
+        Info 'building them from third_party\ with cargo (the vendored-tools workflow gives the same programs: -VendoredArchive)'
+        if ($RustToolchain) { $env:RUSTUP_TOOLCHAIN = $RustToolchain }
+        try {
+            if (-not (Get-Command cl -ErrorAction SilentlyContinue)) { . (Join-Path $Root 'tools\windows\vsenv.ps1') }
+            Push-Location (Join-Path $Root 'third_party\agent-desktop'); try { Run cargo @('build', '--locked', '--release', '-p', 'agent-desktop') } finally { Pop-Location }
+            Push-Location (Join-Path $Root 'third_party\agent-browser\cli'); try { Run cargo @('build', '--locked', '--release', '--jobs', '2') } finally { Pop-Location }
+        } finally { if ($RustToolchain) { Remove-Item Env:RUSTUP_TOOLCHAIN -ErrorAction SilentlyContinue } }
+        New-Item -ItemType Directory -Force (Join-Path $vend 'agent-desktop'), (Join-Path $vend 'agent-browser') | Out-Null
+        Copy-Item (Join-Path $Root 'third_party\agent-desktop\target\release\agent-desktop.exe') (Join-Path $vend 'agent-desktop')
+        Copy-Item (Join-Path $Root 'third_party\agent-browser\cli\target\release\agent-browser.exe') (Join-Path $vend 'agent-browser')
+        foreach ($n in 'agent-desktop', 'agent-browser') { Copy-Item (Join-Path $Root "third_party\$n\LICENSE"), (Join-Path $Root "third_party\$n\UPSTREAM.md") (Join-Path $vend $n) }
+    } else {
+        Warn 'no cargo and no archive: the setup has no agent-desktop or agent-browser (computer control uses the system''s own backend, the browser its own driver)'
+    }
+    foreach ($n in 'agent-desktop', 'agent-browser') {
+        $dir = Join-Path $vend $n
+        if (Test-Path $dir) {
+            if (-not (Test-Path (Join-Path $dir "$n.exe"))) { throw "$n.exe is missing from $dir" }
+            Copy-Item (Join-Path $dir 'LICENSE') (Join-Path (Join-Path $Stage 'licenses') "$n-LICENSE.txt") -ErrorAction SilentlyContinue
+            & (Join-Path $dir "$n.exe") $(if ($n -eq 'agent-desktop') { 'version' } else { '--version' }) | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "$n.exe does not run" }
+            Info "$n.exe: $([math]::Round((Get-Item (Join-Path $dir "$n.exe")).Length / 1MB, 1)) MB"
+        }
+    }
 
     # ------------------------------------------------------------------ Python assets (for PCs without Python)
     Step "Python $PythonMinor assets (bundled installer and wheels)"

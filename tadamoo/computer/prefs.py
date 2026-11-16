@@ -9,7 +9,7 @@ from tadamoo.computer.backend import BACKEND_CHOICES
 
 
 class ComputerPrefs:
-    """`enabled` (off until the person turns it on), `backend` (auto: agent-desktop when it is installed, else this system's own; or one by name) and `monitor` (0: all screens, 1, 2... one screen, so the agent can work on a second screen while the person
+    """`enabled` (on unless the person turns it off: the permission levels decide what runs), `backend` (auto: agent-desktop when it is installed, else this system's own; or one by name) and `monitor` (0: all screens, 1, 2... one screen, so the agent can work on a second screen while the person
     works on the first). The conversations read the file at each call, so a change of screen applies at once."""
 
     def __init__(self, path: str | Path) -> None:
@@ -22,7 +22,7 @@ class ComputerPrefs:
             data = {}
         monitor = data.get("monitor")
         backend = data.get("backend")
-        return {"enabled": data.get("enabled") is True, "monitor": monitor if isinstance(monitor, int) and not isinstance(monitor, bool) and 0 <= monitor <= 16 else 0,
+        return {"enabled": data.get("enabled") is not False, "monitor": monitor if isinstance(monitor, int) and not isinstance(monitor, bool) and 0 <= monitor <= 16 else 0,
                 "backend": backend if backend in BACKEND_CHOICES else "auto"}
 
     def write(self, enabled: bool, monitor: int = 0, backend: str = "auto") -> Dict[str, Any]:
