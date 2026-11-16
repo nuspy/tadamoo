@@ -394,12 +394,12 @@ Portafoglio > Browser: «Cosa guida il browser» = agent-browser (predefinito) o
 4. Scarico: con agent-browser il file arriva in <dati>/browser-downloads/…, la domanda viene dopo; rifiutando il file sparisce.
 5. Banner di consenso su 3-4 siti reali (nella pagina e in un frame): quelli in un frame di un altro sito con agent-browser non si trovano (limite noto).
 
-## Ragionamento e azioni in chat: tre opzioni e raccoglitori (16 novembre; provato solo con test e con node, NON sull'app avviata)
+## Ragionamento e azioni in chat: tre opzioni, raccoglitori e profili completi (16 novembre; provato solo con test e con node, NON sull'app avviata)
 
-Impostazioni di inferenza > «Mostrato in chat»: «Ragionamento» e «Azioni», ciascuna Completo / Compatto / Assente; sono salvate nei profili.
-1. Agent chat, una richiesta con molte letture e modifiche: le azioni consecutive stanno in un solo raccoglitore (con una scheda per ciascuna); anche i ragionamenti consecutivi. Un ragionamento o un'azione da soli non hanno raccoglitore.
-2. Completo: il raccoglitore è aperto. Compatto: una riga chiusa («N azioni · nomi»); aprirla mostra le schede. Assente: non si vede niente, nemmeno la riga.
-3. Cambiare l'opzione a conversazione avviata: i raccoglitori si ridisegnano; uno aperto o chiuso a mano torna come dice l'opzione.
-4. Salvare un profilo con Compatto/Assente, caricarlo in un'altra conversazione e in un piano: i valori tornano uguali. Una conversazione nuova parte da «Machine Default» (Completo).
-5. Chat normale: il ragionamento segue la stessa opzione (Completo si apre mentre ragiona, Compatto resta chiuso, Assente non c'è).
-6. 360×640 e 390×844: la riga del raccoglitore è alta almeno 44 px, niente scorrimento orizzontale; tastiera: Invio/Spazio apre e chiude.
+Impostazioni di inferenza > «Mostrato in chat»: «Ragionamento» e «Azioni», ciascuna Completo / Compatto / Assente.
+1. Completo: ogni ragionamento e ogni azione è una riga a sé, chiusa (il ragionamento è aperto solo mentre il modello ragiona). Nessun raccoglitore.
+2. Compatto: una serie di azioni consecutive è una sola riga chiusa («N azioni · nomi»), idem una serie di ragionamenti; aprirla mostra le righe. Una sola azione resta una riga sua.
+3. Assente: non si vede niente, nemmeno una riga vuota. Cambiare opzione a conversazione avviata ridisegna; un raccoglitore aperto a mano torna come dice l'opzione.
+4. Salvare un profilo e ricaricarlo in un'altra conversazione e in un piano: tornano uguali le due opzioni di chat e anche risposte vecchie (3 valori), Billion Context (acceso, piega i turni, porta), immagini e grafici (acceso e livello).
+5. Caricare a mano un profilo con immagini/grafici e Billion Context: i valori arrivano alla conversazione aperta e al processo (Billion Context si riavvia solo se il profilo lo contiene); passare da una conversazione all'altra NON li cambia.
+6. Chat normale: il ragionamento segue la stessa opzione. 360×640 e 390×844: riga alta almeno 44 px, niente scorrimento orizzontale; tastiera: Invio/Spazio apre e chiude.

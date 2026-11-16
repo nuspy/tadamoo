@@ -1,7 +1,7 @@
 "use strict";
 /* How the Agent chat shows the model's reasoning and its actions (tools and background commands): the choice of each is a setting a preset keeps (chatset.js, `shows`): full, compact or absent.
-   Consecutive reasoning blocks go into one container and consecutive tooling blocks into another, each a box that opens like the others; a run of one block has no container.
-   Full: the container is open and every block shows as it always did. Compact: the container is closed on one line (how many, and which actions). Absent: nothing of it is shown. */
+   Full: every block is a line of its own, closed once it is done (a reasoning box is open while the model thinks). Compact: consecutive reasoning blocks are one closed line and consecutive
+   tooling blocks another, a container that opens like the others (how many, and which actions); a run of one block is its own line. Absent: nothing of it is shown. */
 window.chatDisplay = (() => {
   const MODES = ["full", "compact", "absent"];
   const seriesOf = b => b.t === "reasoning" ? "reasoning" : (b.t === "tool" || b.t === "job") ? "tooling" : "";
@@ -47,7 +47,7 @@ window.chatDisplay = (() => {
     g.body.append(b.row);
   }
 
-  /* after the blocks were painted: what is absent is hidden, and each container says what is in it and is open or closed by the setting */
+  /* after the blocks were painted: what is absent is hidden; in compact each run is in its container, which says what is in it and is closed unless the reader opened it; otherwise the rows are on their own */
   function paint(it, T) {
     const modes = { reasoning: modeOf("reasoning"), tooling: modeOf("tooling") };
     const done = new Set();
@@ -58,9 +58,15 @@ window.chatDisplay = (() => {
       const g = b.group;
       if (!g || done.has(g)) continue;
       done.add(g);
-      g.el.hidden = modes[kind] === "absent" || g.blocks.every(x => x.row.hidden);
-      g.title.textContent = summary(kind, g.blocks, T);
-      if (!g.el.dataset.touched) g.el.open = modes[kind] === "full";
+      if (modes[kind] === "compact") {
+        for (const x of g.blocks) if (x.row.parentNode !== g.body) g.body.append(x.row);
+        g.el.hidden = g.blocks.every(x => x.row.hidden);
+        g.title.textContent = summary(kind, g.blocks, T);
+        if (!g.el.dataset.touched) g.el.open = false;
+      } else {
+        for (const x of g.blocks) if (x.row.parentNode !== g.el.parentNode) g.el.before(x.row);
+        g.el.hidden = true;
+      }
     }
   }
 

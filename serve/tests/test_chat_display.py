@@ -25,6 +25,7 @@ class El {
   append(...kids) { for (const k of kids) { if (k.parent) k.parent.children.splice(k.parent.children.indexOf(k), 1); k.parent = this; this.children.push(k); } }
   before(node) { const p = this.parent; if (node.parent) node.parent.children.splice(node.parent.children.indexOf(node), 1); node.parent = p; p.children.splice(p.children.indexOf(this), 0, node); }
   addEventListener(n, f) { this.listeners[n] = f; }
+  get parentNode() { return this.parent; }
 }
 const modes = JSON.parse(process.argv[3]);
 const ctx = { document: { createElement: t => new El(t), querySelectorAll: () => [] }, chatSettings: { shows: k => modes[k] }, console };
@@ -36,12 +37,15 @@ const it = { body: new El('div'), blocks: JSON.parse(process.argv[2]) };
 for (const b of it.blocks) { b.row = new El('div'); b.el = b.row; D.place(it, b); }
 D.paint(it, T);
 const shape = it.body.children.map(c => c.tag === 'details' ? { group: c.dataset.kind, rows: c.children[1].children.length, open: c.open, hidden: c.hidden, title: c.children[0].children[0].textContent } : { row: true, hidden: c.hidden });
+if (process.argv[4] === 'flat') console.log(JSON.stringify(shape.filter(c => !c.group || !c.hidden)));
+else
 console.log(JSON.stringify(shape));
 """
 
 
-def shape(blocks, reasoning="full", tooling="full"):
-    out = subprocess.run([NODE, "-e", DRIVER, str(WEB), json.dumps(blocks), json.dumps({"reasoning": reasoning, "tooling": tooling})], capture_output=True, text=True, timeout=60)
+def shape(blocks, reasoning="full", tooling="full", flat=False):
+    args = [str(WEB), json.dumps(blocks), json.dumps({"reasoning": reasoning, "tooling": tooling})] + (["flat"] if flat else [])
+    out = subprocess.run([NODE, "-e", DRIVER, *args], capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout)
 
@@ -74,6 +78,28 @@ class Settings(unittest.TestCase):
         self.assertNotIn("showReasoning", CHATSET + CHAT)
         self.assertIn("shows,", CHATSET)
 
+    def test_a_profile_keeps_every_setting_of_the_panel(self):
+        read = CHATSET[CHATSET.index("function read() {"):CHATSET.index("for (const f of fieldsOf()) s[f.key]")]
+        keys = set(re.findall(r"\b([a-z_]+):", read)) - {"checked", "value", "read", "write"}
+        keys |= set(re.findall(r'\{ key: "([a-z_]+)"', CHATSET))
+        keys |= set(re.findall(r"\b([a-z_]+): (?:box|field|level)\(", CHATSET))
+        keys -= {"kind"}
+        self.assertTrue({"system", "temperature", "max_answer_tokens", "abstract_on", "images", "billion_port", "show_tooling"} <= keys, keys)
+        self.assertEqual(sorted(keys - set(profiles.INFERENCE_KEYS)), [])
+
+    def test_the_old_answers_billion_context_and_the_pictures_are_kept_and_checked(self):
+        good = {"abstract_on": False, "abstract_keep": "8", "code_keep": 4, "billion_on": True, "billion_compress": False, "billion_port": "7300", "images": "high", "charts": ""}
+        self.assertEqual(profiles.check_inference(good), good)
+        for bad in ({"abstract_on": "yes"}, {"billion_on": 1}, {"abstract_keep": 0}, {"abstract_keep": 21}, {"code_keep": 6}, {"billion_port": 80}, {"billion_port": "x"}, {"images": "huge"}, {"charts": 3}):
+            with self.assertRaises(ValueError, msg=str(bad)):
+                profiles.check_inference(bad)
+
+    def test_only_a_preset_loaded_by_hand_reaches_the_conversation_and_the_billion_context_process(self):
+        self.assertIn("write(p.settings, true)", CHATSET)
+        self.assertIn("write(s, true)", CHATSET)
+        self.assertIn('if (apply && s.billion_on !== undefined) fire("cs-bc-on")', CHATSET)
+        self.assertIn("if (quiet) return;", CHATSET)
+
     def test_every_string_exists_in_both_languages(self):
         used = set(re.findall(r'data-t="((?:cs\.show[\w.]*|cs\.display))"', HTML)) | set(re.findall(r'T\("(ch\.group\.[\w]+)"', DISPLAY))
         self.assertTrue({"cs.display", "cs.show_reasoning", "cs.show_tooling", "cs.show.full", "cs.show.compact", "cs.show.absent", "ch.group.reasoning", "ch.group.tooling"} <= used)
@@ -100,29 +126,31 @@ class Settings(unittest.TestCase):
 
 @unittest.skipUnless(NODE, "node is not installed")
 class Containers(unittest.TestCase):
-    def test_a_run_of_one_block_has_no_container(self):
-        self.assertEqual(shape([R, TEXT, TOOL("read_file")]), [{"row": True, "hidden": False}] * 3)
+    def test_full_is_every_block_on_a_line_of_its_own_with_no_container(self):
+        got = shape([R, R, R, TOOL("read_file"), TOOL("read_file"), TEXT, R], flat=True)
+        self.assertEqual(got, [{"row": True, "hidden": False}] * 7)
 
-    def test_consecutive_reasoning_and_consecutive_actions_each_have_one_container(self):
-        got = shape([R, R, R, TOOL("read_file"), TOOL("read_file"), TOOL("edit_file", "failed"), TEXT, R])
+    def test_compact_puts_each_run_in_one_closed_container_that_says_what_is_in_it(self):
+        got = shape([R, R, R, TOOL("read_file"), TOOL("read_file"), TOOL("edit_file", "failed"), TEXT, R], "compact", "compact")
         self.assertEqual([g.get("group") or "row" for g in got], ["reasoning", "tooling", "row", "row"])
-        self.assertEqual([g.get("rows") for g in got[:2]], [3, 3])
+        self.assertEqual([(g.get("rows"), g.get("open"), g["hidden"]) for g in got[:2]], [(3, False, False), (3, False, False)])
         self.assertEqual(got[0]["title"], "ch.group.reasoning[3]")
         self.assertEqual(got[1]["title"], "ch.group.tooling[3,read_file ×2, edit_file] · ch.group.failed[1]")
 
-    def test_full_is_open_compact_is_closed_and_absent_hides_everything(self):
-        blocks = [R, R, TOOL("a"), TOOL("b"), TEXT]
-        full = shape(blocks, "full", "full")
-        self.assertEqual([(g["open"], g["hidden"]) for g in full[:2]], [(True, False), (True, False)])
-        compact = shape(blocks, "compact", "compact")
-        self.assertEqual([(g["open"], g["hidden"]) for g in compact[:2]], [(False, False), (False, False)])
-        absent = shape(blocks, "absent", "absent")
-        self.assertEqual([g["hidden"] for g in absent], [True, True, False])
-        mixed = shape(blocks, "absent", "compact")
-        self.assertEqual([(g["hidden"], g["open"]) for g in mixed[:2]], [(True, False), (False, False)])
+    def test_a_run_of_one_block_has_no_container_in_any_mode(self):
+        for mode in ("full", "compact"):
+            self.assertEqual(shape([R, TEXT, TOOL("read_file")], mode, mode), [{"row": True, "hidden": False}] * 3)
 
-    def test_a_single_block_is_hidden_when_absent(self):
-        self.assertEqual([g["hidden"] for g in shape([R, TEXT, TOOL("a")], "absent", "absent")], [True, False, True])
+    def test_each_kind_has_its_own_setting(self):
+        got = shape([R, R, TOOL("a"), TOOL("b"), TEXT], "full", "compact")
+        self.assertEqual([g.get("group") or "row" for g in got if not g.get("group") or not g["hidden"]], ["row", "row", "tooling", "row"])
+
+    def test_absent_shows_nothing_of_it_not_even_an_empty_container(self):
+        got = shape([R, R, TOOL("a"), TOOL("b"), TEXT, R, TOOL("c")], "absent", "absent")
+        self.assertEqual([g["hidden"] for g in got if not g.get("group")], [True, True, True, True, False, True, True])
+        self.assertTrue(all(g["hidden"] for g in got if g.get("group")))
+        compact = shape([R, R, TEXT], "absent", "compact")
+        self.assertTrue(all(g["hidden"] for g in compact if g.get("group")))
 
 
 if __name__ == "__main__":
