@@ -32,4 +32,4 @@ The GitHub workflow **vendored-tools** (`.github/workflows/vendored-tools.yml`, 
 
 ## Defaults
 
-Computer control is **on** (the permission levels decide what runs; Wallet > Computer control turns it off) and uses agent-desktop when it is found. The browser driver is agent-browser; the vault, sign-in and payment steps go to the own driver (a setting; see browser-backends.md). agent-browser's `install` (a download of Chrome for Testing) is not used: the Edge or Chrome already on the PC is, by path, or one already running through the DevTools port.
+Computer control is **on** (the permission levels decide what runs; Wallet > Computer control turns it off) and uses agent-desktop when it is found. The browser driver is agent-browser, or TaDaMoo's own by one selector in Wallet > Browser, for everything (see browser-backends.md). agent-browser's `install` (a download of Chrome for Testing) is not used: the Edge or Chrome already on the PC is, by path, or one already running through the DevTools port.

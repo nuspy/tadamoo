@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, List, Optional
 
 from tadamoo import vendored
-from tadamoo.browser import BACKENDS, VAULT_BACKENDS, BrowserError, BrowserPrefs, find_browser, forget_signins, open_signin_window
+from tadamoo.browser import BACKENDS, BrowserError, BrowserPrefs, find_browser, forget_signins, open_signin_window
 from tadamoo.browser_consent import CONSENT_POLICIES, PERMISSION_POLICIES
 from tadamoo.rule_of_two import LEVELS as RULE_OF_TWO_LEVELS, RuleOfTwoPrefs
 from tadamoo.payments_broker import PaymentsBroker
@@ -72,10 +72,10 @@ class WalletApi:
         if (not isinstance(req.get("enabled"), bool) or not isinstance(req.get("headless"), bool) or not isinstance(req.get("private", False), bool)
                 or not isinstance(req.get("persistent", False), bool)):
             raise WalletError("send enabled and headless as true or false")
-        for key, allowed in (("consent", CONSENT_POLICIES), ("permissions", PERMISSION_POLICIES), ("backend", BACKENDS), ("vault_backend", VAULT_BACKENDS)):
+        for key, allowed in (("consent", CONSENT_POLICIES), ("permissions", PERMISSION_POLICIES), ("backend", BACKENDS)):
             if req.get(key) is not None and req[key] not in allowed:
                 raise WalletError(f"{key} is one of: {', '.join(allowed)}")
-        self._browser.write(req["enabled"], req["headless"], req.get("private", False), req.get("persistent", False), req.get("consent"), req.get("permissions"), req.get("backend"), req.get("vault_backend"))
+        self._browser.write(req["enabled"], req["headless"], req.get("private", False), req.get("persistent", False), req.get("consent"), req.get("permissions"), req.get("backend"))
         return {"browser": self._browser_view()}
 
     def _browser_view(self) -> Dict[str, Any]:

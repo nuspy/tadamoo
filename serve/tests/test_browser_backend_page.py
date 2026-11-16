@@ -1,5 +1,5 @@
-"""The two browser selectors of Settings > Wallet in a real headless Chrome or Edge, at three screen sizes in English and in Italian: what drives the browser tools (agent-browser or TaDaMoo's own) and
-who does the vault, sign-in and payment steps. They show their defaults, they are saved by the server, they are still there after the page is reloaded, and the file the server wrote is what the next
+"""The browser selector of Settings > Wallet in a real headless Chrome or Edge, at three screen sizes in English and in Italian: what drives the browser tools (agent-browser or TaDaMoo's own), for
+everything including the vault, sign-ins and payments. It shows its default, it is saved by the server, it is still there after the page is reloaded, and the file the server wrote is what the next
 conversation reads: it starts with the chosen driver (the agent stack is built from the flags the choice gives). Skipped where there is no browser or no node."""
 import json
 import os
@@ -48,7 +48,7 @@ class BrowserSelectorsInARealBrowserTest(unittest.TestCase):
             self.skipTest("the server did not start")
         return url, Path(tmp) / "data"
 
-    def test_the_selectors_on_a_phone_and_on_a_desktop_in_both_languages_and_the_next_conversation_follows_them(self):
+    def test_the_selector_on_a_phone_and_on_a_desktop_in_both_languages(self):
         results, log = [], ""
         for screen in SCREENS:
             for lang in ("en", "it"):
@@ -57,22 +57,20 @@ class BrowserSelectorsInARealBrowserTest(unittest.TestCase):
                 results += json.loads(out.stdout.strip().splitlines()[-1])
                 log += out.stderr[-800:]
         self.assertEqual([r["name"] + ": " + r["error"] for r in results if not r["ok"]], [], log)
-        self.assertEqual(len(results), 3 * 3 * 2, results)
+        self.assertEqual(len(results), 2 * 3 * 2, results)
 
     def test_what_the_page_saved_is_what_the_next_conversation_starts_with(self):
-        """The server writes browser.json; a conversation started from it gets the flags and builds the driver the choice names."""
+        """The server writes browser.json; a conversation started from it gets the flag and builds the driver the choice names."""
         from tadamoo import vendored
         from tadamoo.browser import BrowserPrefs
         from tadamoo.headless import config_from_args, parse_args
         from tadamoo.stack import build_agent
         url, data = self.server()
-        vault = "tadamoo"                                                                                  # the default
-        for body in ({"enabled": True, "headless": True, "backend": "tadamoo"}, {"enabled": True, "headless": True, "backend": "agent-browser", "vault_backend": "browser"},
-                     {"enabled": True, "headless": True, "backend": "agent-browser", "vault_backend": "tadamoo"}):
+        for choice in ("tadamoo", "agent-browser"):
+            body = {"enabled": True, "headless": True, "backend": choice}
             req = urllib.request.Request(url + "api/wallet/browser", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}, method="POST")
             urllib.request.urlopen(req, timeout=10).read()
-            vault = body.get("vault_backend", vault)                                                   # a field left out stays as it was
-            self.assertEqual({k: BrowserPrefs(data / "browser.json").read()[k] for k in ("backend", "vault_backend")}, {"backend": body["backend"], "vault_backend": vault})
+            self.assertEqual(BrowserPrefs(data / "browser.json").read()["backend"], choice)
         tmp = tempfile.mkdtemp(prefix="bbd-run-")
         self.addCleanup(shutil.rmtree, tmp, True)
         env_data = Path(tmp) / "data"
@@ -83,11 +81,10 @@ class BrowserSelectorsInARealBrowserTest(unittest.TestCase):
         os.environ["TADAMOO_DATA"] = str(env_data)
         self.addCleanup(lambda: os.environ.__setitem__("TADAMOO_DATA", old) if old is not None else os.environ.pop("TADAMOO_DATA", None))
         names = []
-        for choice in ({"backend": "tadamoo", "vault_backend": "tadamoo"}, {"backend": "agent-browser", "vault_backend": "browser"}, {"backend": "agent-browser", "vault_backend": "tadamoo"}):
-            argv = ["-p", "task", "--workspace", str(Path(tmp) / "work"), "--no-memory", "--browser", "--browser-cdp-url", "http://127.0.0.1:9",
-                    "--browser-backend", choice["backend"], "--browser-vault-backend", choice["vault_backend"]]
+        for choice in ("tadamoo", "agent-browser"):
+            argv = ["-p", "task", "--workspace", str(Path(tmp) / "work"), "--no-memory", "--browser", "--browser-cdp-url", "http://127.0.0.1:9", "--browser-backend", choice]
             names.append(type(build_agent(config_from_args(parse_args(argv)), client=object()).browser).__name__)
-        self.assertEqual(names, ["Browser", "AgentBrowser", "RoutedBrowser"])
+        self.assertEqual(names, ["Browser", "AgentBrowser"])
 
 
 if __name__ == "__main__":
