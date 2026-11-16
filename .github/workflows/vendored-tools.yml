@@ -1,0 +1,153 @@
+name: vendored-tools
+
+# Builds agent-desktop and agent-browser (the Vercel Labs programs vendored in third_party/, Apache-2.0) from that source, for Windows x64 and Linux x64, and attaches for each system
+# one archive with the two programs (tools/vendored/<name>/...) and the licences of their dependencies (licenses-<name>-<target>.txt, from `cargo license` and `cargo deny list`; for
+# agent-desktop also `cargo deny check licenses` with its own deny.toml). The archives are what compile_and_package.ps1 and the Linux release take for the installers.
+# Run by hand: gh workflow run vendored-tools.yml
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_NET_RETRY: 5
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      TARGET: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Rust toolchains (the one agent-desktop pins, and the stable one for agent-browser)
+        run: |
+          rustup toolchain install stable --profile minimal
+          (cd third_party/agent-desktop && rustup toolchain install)
+          rustup show
+
+      - name: Build agent-desktop
+        run: (cd third_party/agent-desktop && cargo build --locked --release -p agent-desktop)
+
+      - name: Build agent-browser with two jobs at a time (with more, the optimiser of the image crate ran out of memory)
+        run: (cd third_party/agent-browser/cli && cargo +stable build --locked --release --jobs 2)
+
+      - name: Licence tools
+        run: cargo +stable install --locked cargo-license cargo-deny
+
+      - name: Licences of the dependencies
+        run: |
+          mkdir -p out
+          cargo +stable license --manifest-path third_party/agent-desktop/src/Cargo.toml > out/licenses-agent-desktop-${TARGET}.txt
+          cargo +stable deny --manifest-path third_party/agent-desktop/Cargo.toml list >> out/licenses-agent-desktop-${TARGET}.txt
+          (cd third_party/agent-desktop && cargo +stable deny check licenses > ../../out/deny-agent-desktop-${TARGET}.txt 2>&1; echo "exit code $?" >> ../../out/deny-agent-desktop-${TARGET}.txt)
+          cargo +stable license --manifest-path third_party/agent-browser/cli/Cargo.toml > out/licenses-agent-browser-${TARGET}.txt
+          cargo +stable deny --manifest-path third_party/agent-browser/cli/Cargo.toml list >> out/licenses-agent-browser-${TARGET}.txt
+
+      - name: Archive
+        run: |
+          mkdir -p stage/tools/vendored/agent-desktop stage/tools/vendored/agent-browser
+          cp third_party/agent-desktop/target/release/agent-desktop.exe stage/tools/vendored/agent-desktop/
+          cp third_party/agent-desktop/LICENSE third_party/agent-desktop/UPSTREAM.md stage/tools/vendored/agent-desktop/
+          cp third_party/agent-browser/cli/target/release/agent-browser.exe stage/tools/vendored/agent-browser/
+          cp third_party/agent-browser/LICENSE third_party/agent-browser/UPSTREAM.md stage/tools/vendored/agent-browser/
+          "stage/tools/vendored/agent-desktop/agent-desktop.exe" version
+          "stage/tools/vendored/agent-browser/agent-browser.exe" --version
+          cp out/* stage/
+          tar -czf "tadamoo-vendored-tools-${TARGET}.tar.gz" -C stage .
+          sha256sum "tadamoo-vendored-tools-${TARGET}.tar.gz" > "tadamoo-vendored-tools-${TARGET}.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vendored-tools-x86_64-pc-windows-msvc
+          path: |
+            tadamoo-vendored-tools-*.tar.gz
+            tadamoo-vendored-tools-*.tar.gz.sha256
+            out/*
+          if-no-files-found: error
+
+  linux:
+    name: Linux x64 (glibc 2.35 floor)
+    runs-on: ubuntu-24.04
+    # agent-desktop's own release is built in Ubuntu 22.04 so that its glibc floor is 2.35
+    container: ubuntu:22.04@sha256:0a9887931b0e38af2e3487ed39e29436b0535c4f3f52e57745baaf79d1898956
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      TARGET: x86_64-unknown-linux-gnu
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Build tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl build-essential git xz-utils pkg-config
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Rust
+        run: |
+          set -euo pipefail
+          BASE="https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu"
+          curl --proto '=https' --tlsv1.2 -fsSLO "${BASE}/rustup-init"
+          echo "$(curl --proto '=https' --tlsv1.2 -fsSL "${BASE}/rustup-init.sha256" | cut -d' ' -f1)  rustup-init" | sha256sum -c -
+          chmod +x rustup-init
+          ./rustup-init -y --default-toolchain none --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          "$HOME/.cargo/bin/rustup" toolchain install stable --profile minimal
+          (cd third_party/agent-desktop && "$HOME/.cargo/bin/rustup" toolchain install)
+
+      - name: Build agent-desktop (the program and the clipboard helper that goes beside it)
+        run: |
+          cd third_party/agent-desktop
+          cargo build --locked --release -p agent-desktop
+          cargo build --locked --release -p agent-desktop-linux --bins
+
+      - name: Build agent-browser
+        run: (cd third_party/agent-browser/cli && cargo +stable build --locked --release --jobs 2)
+
+      - name: Licence tools
+        run: cargo +stable install --locked cargo-license cargo-deny
+
+      - name: Licences of the dependencies
+        run: |
+          mkdir -p out
+          cargo +stable license --manifest-path third_party/agent-desktop/src/Cargo.toml > out/licenses-agent-desktop-${TARGET}.txt
+          cargo +stable deny --manifest-path third_party/agent-desktop/Cargo.toml list >> out/licenses-agent-desktop-${TARGET}.txt
+          (cd third_party/agent-desktop && cargo +stable deny check licenses > ../../out/deny-agent-desktop-${TARGET}.txt 2>&1; echo "exit code $?" >> ../../out/deny-agent-desktop-${TARGET}.txt)
+          cargo +stable license --manifest-path third_party/agent-browser/cli/Cargo.toml > out/licenses-agent-browser-${TARGET}.txt
+          cargo +stable deny --manifest-path third_party/agent-browser/cli/Cargo.toml list >> out/licenses-agent-browser-${TARGET}.txt
+
+      - name: Archive
+        run: |
+          mkdir -p stage/tools/vendored/agent-desktop stage/tools/vendored/agent-browser
+          cp third_party/agent-desktop/target/release/agent-desktop third_party/agent-desktop/target/release/agent-desktop-linux-clipboard-owner stage/tools/vendored/agent-desktop/
+          cp third_party/agent-desktop/LICENSE third_party/agent-desktop/UPSTREAM.md stage/tools/vendored/agent-desktop/
+          cp third_party/agent-browser/cli/target/release/agent-browser stage/tools/vendored/agent-browser/
+          cp third_party/agent-browser/LICENSE third_party/agent-browser/UPSTREAM.md stage/tools/vendored/agent-browser/
+          stage/tools/vendored/agent-desktop/agent-desktop version
+          stage/tools/vendored/agent-browser/agent-browser --version
+          cp out/* stage/
+          tar -czf "tadamoo-vendored-tools-${TARGET}.tar.gz" -C stage .
+          sha256sum "tadamoo-vendored-tools-${TARGET}.tar.gz" > "tadamoo-vendored-tools-${TARGET}.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vendored-tools-x86_64-unknown-linux-gnu
+          path: |
+            tadamoo-vendored-tools-*.tar.gz
+            tadamoo-vendored-tools-*.tar.gz.sha256
+            out/*
+          if-no-files-found: error
