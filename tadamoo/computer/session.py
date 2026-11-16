@@ -51,6 +51,13 @@ class View:
         return self.left + round(x * self.width / self.shown_width), self.top + round(y * self.height / self.shown_height)
 
 
+def png_size(data: bytes) -> Optional[Tuple[int, int]]:
+    """Width and height from a PNG's header, or None when it is not one."""
+    if data[:8] != b"\x89PNG\r\n\x1a\n" or len(data) < 24:
+        return None
+    return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+
+
 def corners(monitors: List[Monitor]) -> List[Tuple[int, int]]:
     """The corners the pointer can really be pushed into: a corner of a screen with no other screen beside it in either direction."""
     out: List[Tuple[int, int]] = []
@@ -112,11 +119,12 @@ class Computer:
         if cancelled():
             raise ComputerError(PRESSED_STOP)
         now = self.clock()
-        x, y = self.backend.cursor()
-        if any(abs(x - cx) < CORNER_PX and abs(y - cy) < CORNER_PX for cx, cy in corners(self.backend.monitors())):
-            if now >= self.halted_until:
-                self.record("corner_stop", {"x": x, "y": y})
-            self.halted_until = now + HALT_SECONDS
+        if self.backend.can_see_cursor():                      # a system that cannot tell where the pointer is has no corner stop
+            x, y = self.backend.cursor()
+            if any(abs(x - cx) < CORNER_PX and abs(y - cy) < CORNER_PX for cx, cy in corners(self.backend.monitors())):
+                if now >= self.halted_until:
+                    self.record("corner_stop", {"x": x, "y": y})
+                self.halted_until = now + HALT_SECONDS
         if now < self.halted_until:
             raise ComputerError(STOPPED)
 
@@ -126,15 +134,18 @@ class Computer:
         if any(abs(x - cx) < CORNER_PX * 2 and abs(y - cy) < CORNER_PX * 2 for cx, cy in corners(self.backend.monitors())):
             raise ComputerError("the corners of the screen are how the person stops the agent: do not aim there")
 
-    def point(self, x: Optional[int] = None, y: Optional[int] = None, element: Optional[int] = None) -> Tuple[int, int, str]:
-        """A real position from picture pixels or an element number, and a few words for it; refused when it is off the agent's screen or in a corner."""
+    def point(self, x: Optional[int] = None, y: Optional[int] = None, element: Optional[int] = None) -> Tuple[int, int, str, str]:
+        """A real position from picture pixels or an element number, a few words for it, and the element's ref when the backend gave one (else '');
+        refused when it is off the agent's screen or in a corner."""
         mons, _ = self.area()
+        ref = ""
         if element is not None:
             node = self.elements.get(int(element))
             if node is None:
                 raise ComputerError(f"there is no element {element}: the numbers belong to the last computer_ui_tree and end when something is clicked, typed or scrolled; read the tree again")
             rx, ry = node.left + node.width // 2, node.top + node.height // 2
             label = f"element {element} ({node.role} '{node.name[:40]}')"
+            ref = node.ref
         else:
             if x is None or y is None:
                 raise ComputerError("say where: x and y (pixels of the last picture) or an element number")
@@ -145,7 +156,7 @@ class Computer:
             rx, ry = self.view.to_real(x, y)
             label = f"({x}, {y})"
         self._target(rx, ry, mons)
-        return rx, ry, f"{label} at screen position {rx},{ry}"
+        return rx, ry, f"{label} at screen position {rx},{ry}", ref
 
     # -- looking ---------------------------------------------------------------------------------------------------
 
@@ -177,6 +188,7 @@ class Computer:
         scale = min(1.0, MAX_SIDE / max(rect[2], rect[3]))
         out_w, out_h = max(1, round(rect[2] * scale)), max(1, round(rect[3] * scale))
         data = self.backend.capture(rect[0], rect[1], rect[2], rect[3], out_w, out_h)
+        out_w, out_h = png_size(data) or (out_w, out_h)            # the picture says how big it is, whoever made it
         self.view = View(rect[0], rect[1], rect[2], rect[3], out_w, out_h, label)
         self.record("screenshot", {"area": label, "size": f"{rect[2]}x{rect[3]}", "bytes": len(data)})
         return data, f"{label}, {rect[2]}x{rect[3]} pixels shown as {out_w}x{out_h}"
@@ -234,7 +246,7 @@ class Computer:
             return "desktop"
 
     def move(self, x: Optional[int], y: Optional[int], element: Optional[int]) -> str:
-        rx, ry, label = self.point(x, y, element)
+        rx, ry, label, _ = self.point(x, y, element)
         self.checkpoint()
         self.backend.move_to(rx, ry)
         return f"Moved the mouse to {label}."
@@ -242,8 +254,13 @@ class Computer:
     def click(self, x: Optional[int], y: Optional[int], element: Optional[int], button: str = "left", double: bool = False) -> str:
         if button not in BUTTONS:
             raise ComputerError(f"button is one of {', '.join(BUTTONS)}")
-        rx, ry, label = self.point(x, y, element)
+        rx, ry, label, ref = self.point(x, y, element)
         self.checkpoint()
+        if self.backend.gestures:                                    # the backend clicks the element itself (no pointer when it can), or the position
+            note = self.backend.click(ref if ref and button != "middle" else (rx, ry), button, 2 if double else 1)
+            self.elements.clear()
+            self.record("click", {"button": button, "double": bool(double), "x": rx, "y": ry, "by": "element" if ref and button != "middle" else "position", "app": self.foreground_app()})
+            return f"Clicked {button}{' twice' if double else ''} at {label}." + (" " + note if note else "")
         self.backend.move_to(rx, ry)
         self.sleep(PAUSE)
         for turn in range(2 if double else 1):
@@ -259,9 +276,14 @@ class Computer:
         return f"Clicked {button}{' twice' if double else ''} at {label}."
 
     def drag(self, x: Optional[int], y: Optional[int], element: Optional[int], to_x: Optional[int], to_y: Optional[int], to_element: Optional[int]) -> str:
-        sx, sy, start = self.point(x, y, element)
-        ex, ey, end = self.point(to_x, to_y, to_element)
+        sx, sy, start, sref = self.point(x, y, element)
+        ex, ey, end, eref = self.point(to_x, to_y, to_element)
         self.checkpoint()
+        if self.backend.gestures:
+            note = self.backend.drag(sref or (sx, sy), eref or (ex, ey))
+            self.elements.clear()
+            self.record("drag", {"from": [sx, sy], "to": [ex, ey], "app": self.foreground_app()})
+            return f"Dragged from {start} to {end}." + (" " + note if note else "")
         steps = max(4, min(40, int(((ex - sx) ** 2 + (ey - sy) ** 2) ** 0.5 // 25)))
         self.backend.move_to(sx, sy)
         self.sleep(PAUSE)
@@ -283,11 +305,23 @@ class Computer:
             raise ComputerError("direction is up, down, left or right")
         amount = max(1, min(int(amount), MAX_NOTCHES))
         where = "where the mouse is"
+        ref = ""
         if element is not None or x is not None or y is not None:
-            rx, ry, where = self.point(x, y, element)
+            rx, ry, where, ref = self.point(x, y, element)
             self.checkpoint()
+            if self.backend.gestures:
+                note = self.backend.scroll(ref or (rx, ry), direction, amount)
+                self.elements.clear()
+                self.record("scroll", {"direction": direction, "notches": amount})
+                return f"Scrolled {direction} {amount} notch(es) {where}." + (" " + note if note else "")
             self.backend.move_to(rx, ry)
             self.sleep(PAUSE)
+        elif self.backend.gestures:
+            self.checkpoint()
+            note = self.backend.scroll(None, direction, amount)
+            self.elements.clear()
+            self.record("scroll", {"direction": direction, "notches": amount})
+            return f"Scrolled {direction} {amount} notch(es) {where}." + (" " + note if note else "")
         dx, dy = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}[direction]
         for i in range(amount):
             if i % 5 == 0:
@@ -302,12 +336,20 @@ class Computer:
         """Types text where the keyboard focus is, or after a click on the element or point given. `secret`: it came from the vault (never recorded)."""
         if len(text) > MAX_TEXT:
             raise ComputerError(f"type at most {MAX_TEXT} characters at a time")
-        if element is not None or x is not None or y is not None:
+        ref = ""
+        if self.backend.gestures and element is not None:
+            ref = self.point(None, None, element)[3]
+        if (element is not None or x is not None or y is not None) and not ref:
             self.click(x, y, element)
             self.sleep(PAUSE)
         self.checkpoint()
         if secret:
             self.typed_secret = True
+        if self.backend.gestures:                                    # the backend types the whole text, into the element or where the focus is
+            note = self.backend.type_into(ref, text.replace("\r\n", "\n")) if ref else self.backend.type_focus(text.replace("\r\n", "\n"))
+            self.elements.clear()
+            self.record("type_text", {"characters": len(text), "from_vault": bool(secret), "app": self.foreground_app()})
+            return f"Typed {len(text)} character(s)." + (" " + note if note else "")
         count = 0
         for ch in text.replace("\r\n", "\n"):
             if count % 25 == 24:
@@ -341,13 +383,31 @@ class Computer:
     def key(self, combo: str, times: int = 1) -> str:
         keys = parse_combo(combo)
         times = max(1, min(int(times), 20))
+        notes: List[str] = []
         for i in range(times):
             self.checkpoint()
-            self._press(keys)
+            if self.backend.gestures:
+                notes.append(self.backend.press(keys))
+            else:
+                self._press(keys)
             self.sleep(PAUSE)
         self.elements.clear()
         self.record("key", {"combo": "+".join(keys), "times": times, "app": self.foreground_app()})
-        return f"Pressed {'+'.join(keys)}{f' {times} times' if times > 1 else ''}."
+        return f"Pressed {'+'.join(keys)}{f' {times} times' if times > 1 else ''}." + (" " + next((n for n in notes if n), "") if any(notes) else "")
+
+    def clipboard_get(self) -> str:
+        self.checkpoint()
+        text = self.backend.clipboard_get()
+        self.record("clipboard_get", {"characters": len(text)})
+        return text
+
+    def clipboard_set(self, text: str) -> str:
+        if len(text) > MAX_TEXT:
+            raise ComputerError(f"put at most {MAX_TEXT} characters on the clipboard at a time")
+        self.checkpoint()
+        note = self.backend.clipboard_set(text)
+        self.record("clipboard_set", {"characters": len(text)})
+        return f"Put {len(text)} character(s) on the clipboard." + (" " + note if note else "")
 
     def wait(self, seconds: float) -> str:
         self.checkpoint()

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import fnmatch
 import time
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from tadamoo.computer.backend import Backend, ComputerError, UiNode, Window, pick_backend
@@ -23,7 +24,8 @@ HONEST = ("Slower and less sure than a script or an API: it works through what i
 def register_computer_tools(registry: Any, secrets: Any = None, backend: Optional[Backend] = None, monitor: Callable[[], int] = lambda: 0,
                             confirm: Optional[Callable[[str, Dict[str, Any]], bool]] = None, audit: Optional[Callable[[str, Dict[str, Any]], None]] = None,
                             screenshots: Optional[Callable[[bytes, str], Dict[str, Any]]] = None, auto: Optional[Callable[[], bool]] = None,
-                            rules: Optional[Callable[[], List[str]]] = None, computer: Optional[Computer] = None, sleep: Callable[[float], None] = time.sleep) -> Computer:
+                            rules: Optional[Callable[[], List[str]]] = None, computer: Optional[Computer] = None, sleep: Callable[[float], None] = time.sleep,
+                            backend_choice: str = "auto", tools_dir: Optional[Path] = None) -> Computer:
     """Adds the computer tools. `monitor` says which screen the agent works on (0: all), read at each call so a change applies at once. With `screenshots`
     (it keeps a picture as a file of the conversation and returns its card) the model can look at the screen."""
     from tadamoo.tools.registry import EffectClass
@@ -43,7 +45,7 @@ def register_computer_tools(registry: Any, secrets: Any = None, backend: Optiona
         except Exception:
             return False
 
-    c = computer or Computer(backend or pick_backend(), monitor, audit, approve, sleep)
+    c = computer or Computer(backend or pick_backend(backend_choice, tools_dir), monitor, audit, approve, sleep)
 
     def guard(fn: Callable[..., Any]) -> Callable[..., Any]:
         def run(**kw: Any) -> Any:
@@ -116,8 +118,9 @@ def register_computer_tools(registry: Any, secrets: Any = None, backend: Optiona
         for n in nodes:
             extra = ("" if n.enabled else " [disabled]") + (f" value={mask(n.value)[:60]!r}" if n.value else "")
             lines.append(f"{'  ' * min(n.depth, 8)}[{n.id}] {n.role} {mask(n.name)[:80]!r} ({n.width}x{n.height} at {n.left},{n.top}){extra}")
+        note = f"\nNote: {c.backend.tree_note}" if c.backend.tree_note else ""
         return (f"Elements of {target.title[:60]!r} ({target.app}); click one by its number with computer_click(element=N). The numbers end when something is clicked, typed or scrolled.\n"
-                + "\n".join(lines))
+                + "\n".join(lines) + note)
 
     reg("computer_ui_tree", "Reads the accessibility tree of a window (the one in front by default): numbered elements with a role, a name and a rectangle. It is how a model that "
         "cannot see pictures finds buttons and fields, and it is often more exact than a picture. Not every program offers one (games, some canvases): then use a picture. " + HONEST,
@@ -154,6 +157,16 @@ def register_computer_tools(registry: Any, secrets: Any = None, backend: Optiona
     reg("computer_key", "Presses a key or a combination: Enter, Tab, Escape, Ctrl+C, Alt+Tab, Ctrl+Shift+S, Win+D, F5... Modifiers (ctrl, shift, alt, win), then one key.",
         shot_prop({"combo": {"type": "string", "description": "for example Ctrl+S"}, "times": {"type": "integer", "description": "repeat (default 1, at most 20)"}}),
         EffectClass.IRREVERSIBLE, with_shot(lambda combo, times=1: c.key(combo, times)), ["combo"], outward=True)
+    if c.backend.clipboard:
+        reg("computer_clipboard_get", "Reads the text on the clipboard (what the person last copied: it can be private).", {}, EffectClass.PURE, lambda: mask(c.clipboard_get())[:4000] or "The clipboard has no text.")
+
+        def clipboard_set(text: str) -> Any:
+            if secrets is not None and secrets.has_references(text):
+                return {"error": "a value from the vault is not put on the clipboard: it would stay there for any program to read. Type it with computer_type_text instead"}
+            return c.clipboard_set(text)
+
+        reg("computer_clipboard_set", "Puts text on the clipboard, replacing what is there (then paste it with computer_key Ctrl+V). Never for a value from the vault.",
+            {"text": {"type": "string"}}, EffectClass.IRREVERSIBLE, clipboard_set, ["text"], outward=True)
     reg("computer_wait", f"Waits (up to {MAX_WAIT:g} seconds) for something on the screen to load or open, then look again.",
         {"seconds": {"type": "number", "description": "how long"}}, EffectClass.PURE, lambda seconds: c.wait(seconds), ["seconds"])
     return c
@@ -161,4 +174,4 @@ def register_computer_tools(registry: Any, secrets: Any = None, backend: Optiona
 
 def tool_names() -> List[str]:
     return ["computer_screenshot", "computer_list_windows", "computer_focus_window", "computer_ui_tree", "computer_move", "computer_click", "computer_drag", "computer_scroll",
-            "computer_type_text", "computer_key", "computer_wait"]
+            "computer_type_text", "computer_key", "computer_wait", "computer_clipboard_get", "computer_clipboard_set"]

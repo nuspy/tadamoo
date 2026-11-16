@@ -898,6 +898,7 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         from tadamoo.computer import ComputerPrefs, register_computer_tools
         chosen = ComputerPrefs(cfg.computer_prefs) if cfg.computer_prefs else None
         register_computer_tools(registry, secrets, monitor=(lambda: chosen.monitor()) if chosen is not None else (lambda: 0),
+                                backend_choice=chosen.read()["backend"] if chosen is not None else "auto", tools_dir=chosen.path.parent / "tools" / "agent-desktop" if chosen is not None else None,
                                 confirm=lambda tool, args: bool(permissions.confirm_callback and permissions.confirm_callback(tool, args)),
                                 audit=lambda kind, details: audit.record("computer", kind, details), screenshots=shots,
                                 auto=lambda: permissions.level == PermissionLevel.AUTO, rules=lambda: [r.pattern for r in permissions.rules if r.action == "allow"])

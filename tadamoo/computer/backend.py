@@ -10,7 +10,8 @@ import os
 import shutil
 import sys
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from pathlib import Path
+from typing import List, Optional, Tuple, Union
 
 MODIFIERS = ("ctrl", "shift", "alt", "win")
 _MODIFIER_NAMES = {"control": "ctrl", "ctl": "ctrl", "cmd": "win", "command": "win", "super": "win", "meta": "win", "windows": "win", "option": "alt", "opt": "alt"}
@@ -71,6 +72,7 @@ class UiNode:
     depth: int = 0
     enabled: bool = True
     value: str = ""
+    ref: str = ""             # the backend's own handle for the element when it can act on one without the pointer (agent-desktop: @snapshot:eN)
 
 
 def parse_combo(text: str) -> List[str]:
@@ -92,10 +94,46 @@ def parse_combo(text: str) -> List[str]:
     return [*mods, key]
 
 
+Target = Union[str, Tuple[int, int]]       # an element's ref, or a position on the desktop
+
+
 class Backend:
-    """The machine as the computer tools see it. A method a system cannot do raises ComputerError saying so."""
+    """The machine as the computer tools see it. A method a system cannot do raises ComputerError saying so.
+
+    The native backends give primitives (move, button down and up, wheel, key down and up, one character) and the session composes the gestures. A backend with
+    `gestures` set (agent-desktop) does whole gestures itself, on an element's ref when it has one, and the session calls those instead."""
 
     name = "none"
+    gestures = False          # click, drag, scroll, press, type_into and type_focus below are implemented
+    clipboard = False         # clipboard_get and clipboard_set are implemented
+    tree_note = ""            # something to tell the model about the last ui_tree (partial, thin)
+
+    def can_see_cursor(self) -> bool:
+        return True
+
+    def click(self, target: Target, button: str, count: int) -> str:
+        raise ComputerError("this system clicks only with the pointer primitives")
+
+    def drag(self, source: Target, destination: Target) -> str:
+        raise ComputerError("this system drags only with the pointer primitives")
+
+    def scroll(self, target: Optional[Target], direction: str, amount: int) -> str:
+        raise ComputerError("this system scrolls only with the pointer primitives")
+
+    def press(self, keys: List[str]) -> str:
+        raise ComputerError("this system presses keys only one at a time")
+
+    def type_into(self, ref: str, text: str) -> str:
+        raise ComputerError("this system cannot type into an element")
+
+    def type_focus(self, text: str) -> str:
+        raise ComputerError("this system types only one character at a time")
+
+    def clipboard_get(self) -> str:
+        raise ComputerError("this system gives no access to the clipboard")
+
+    def clipboard_set(self, text: str) -> str:
+        raise ComputerError("this system gives no access to the clipboard")
 
     def unavailable(self) -> str:
         """Why this backend cannot work here (what to install), or '' when it can."""
@@ -147,8 +185,38 @@ class UnsupportedBackend(Backend):
         return self.reason
 
 
-def pick_backend() -> Backend:
-    """The backend of this system: Windows; Linux with X11 and xdotool; anything else is said not to be supported."""
+AGENT_DESKTOP_NAMES = ("agent-desktop.exe", "agent-desktop")
+BACKEND_CHOICES = ("auto", "agent-desktop", "native")
+
+
+def find_agent_desktop(tools_dir: Optional[Path] = None) -> Tuple[str, str]:
+    """(path, where) of the agent-desktop program: the one installed in the tools folder, else one on PATH; ('', '') when there is none."""
+    if tools_dir is not None:
+        for name in AGENT_DESKTOP_NAMES:
+            candidate = Path(tools_dir) / name
+            if candidate.is_file():
+                return str(candidate), "installed"
+    found = shutil.which("agent-desktop")
+    return (found, "path") if found else ("", "")
+
+
+def pick_backend(choice: str = "auto", tools_dir: Optional[Path] = None) -> Backend:
+    """The backend for this PC. `auto` takes agent-desktop when it is installed (in the tools folder, else on PATH) and this system's own backend otherwise;
+    `agent-desktop` and `native` are asked for by name (a missing agent-desktop is said, not replaced)."""
+    if choice in ("auto", "agent-desktop"):
+        path, _ = find_agent_desktop(tools_dir)
+        if path:
+            from tadamoo.computer.agent_desktop import AdCli, AgentDesktopBackend
+            native = pick_native()
+            home = Path(tools_dir) / "state" if tools_dir is not None else None
+            return AgentDesktopBackend(AdCli([path], home), native)
+        if choice == "agent-desktop":
+            return UnsupportedBackend("agent-desktop is not installed: install it from Wallet > Computer control, or choose the native backend")
+    return pick_native()
+
+
+def pick_native() -> Backend:
+    """This system's own backend: Windows; Linux with X11 and xdotool; anything else is said not to be supported."""
     if sys.platform == "win32":
         from tadamoo.computer.windows import WindowsBackend
         return WindowsBackend()

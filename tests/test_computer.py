@@ -467,12 +467,13 @@ def test_the_accessibility_reader_script_is_valid_powershell():
 
 def test_the_choice_of_screen_is_kept_and_read_each_time(tmp_path):
     prefs = ComputerPrefs(tmp_path / "computer.json")
-    assert prefs.read() == {"enabled": False, "monitor": 0}
-    assert prefs.write(True, 2) == {"enabled": True, "monitor": 2}
+    assert prefs.read() == {"enabled": False, "monitor": 0, "backend": "auto"}
+    assert prefs.write(True, 2) == {"enabled": True, "monitor": 2, "backend": "auto"}
     assert prefs.monitor() == 2
     assert prefs.write(True, 99)["monitor"] == 0 and prefs.write(True, True)["monitor"] == 0        # not a screen number: all screens
+    assert prefs.write(True, 1, "native")["backend"] == "native" and prefs.write(True, 1, "banana")["backend"] == "auto"
     (tmp_path / "computer.json").write_text("not json", encoding="utf-8")
-    assert prefs.read() == {"enabled": False, "monitor": 0}
+    assert prefs.read() == {"enabled": False, "monitor": 0, "backend": "auto"}
 
 
 # -- the agent stack -----------------------------------------------------------------------------------------------------------
@@ -480,7 +481,7 @@ def test_the_choice_of_screen_is_kept_and_read_each_time(tmp_path):
 def test_the_options_reach_the_agent_and_the_tools_are_there_only_when_asked(tmp_path, monkeypatch):
     from tadamoo.headless import config_from_args, parse_args
     from tadamoo.stack import build_agent
-    monkeypatch.setattr("tadamoo.computer.tools.pick_backend", FakeBackend)
+    monkeypatch.setattr("tadamoo.computer.tools.pick_backend", lambda *a, **k: FakeBackend())
     prefs = tmp_path / "computer.json"
     prefs.write_text(json.dumps({"enabled": True, "monitor": 2}), encoding="utf-8")
     base = ["-p", "task", "--workspace", str(tmp_path), "--no-memory"]
