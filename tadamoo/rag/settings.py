@@ -14,7 +14,7 @@ from tadamoo.rag.errors import RagError
 
 FILE = "settings.json"
 DEFAULTS: Dict[str, Any] = {"docling_python": "", "docling_device": "auto", "flagged": "keep",
-                            "embed_enabled": True, "embed_python": "", "embed_models_dir": "", "embed_model": "", "rerank": True, "rerank_model": "",
+                            "embed_enabled": True, "embed_python": "", "embed_models_dir": "", "images_dir": "", "embed_model": "", "rerank": True, "rerank_model": "",
                             "lexical_weight": 0.05, "min_cosine": 0.3, "min_rerank": 0.2, "idle_s": 120,
                             "enrich_language": "Italian", "enrich_batch": 5, "figures": True, "chunk_target": 350, "chunk_hard": 600}
 FLAGGED = ("keep", "drop")
@@ -62,7 +62,7 @@ class RagSettings:
                     out[key] = raw[key]
             if isinstance(raw.get("enrich_language"), str) and LANGUAGE.match(raw["enrich_language"].strip()):
                 out["enrich_language"] = raw["enrich_language"].strip()
-            for key in NAMES + ("embed_models_dir",):
+            for key in NAMES + ("embed_models_dir", "images_dir"):
                 if isinstance(raw.get(key), str):
                     out[key] = raw[key].strip()[:500]
             for key, (lo, hi) in RANGES.items():
@@ -111,6 +111,11 @@ class RagSettings:
                 if not isinstance(value, str) or len(value) > 500 or "\x00" in value or (value.strip() and not Path(value.strip()).is_dir()):
                     raise RagError("embed_models_dir: a folder that holds the model folders, or empty")
                 now["embed_models_dir"] = value.strip()
+            if "images_dir" in changes:
+                value = changes["images_dir"]
+                if not isinstance(value, str) or len(value) > 500 or "\x00" in value or (value.strip() and not Path(value.strip()).is_dir()):
+                    raise RagError("images_dir: a folder for the images of the documents, or empty for the folder inside the knowledge data")
+                now["images_dir"] = value.strip()
             for key in NAMES:
                 if key in changes:
                     value = changes[key]

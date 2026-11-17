@@ -65,8 +65,11 @@ def test_the_words_read_inside_an_image_are_kept_without_the_page_header_on_a_sh
 
 
 def image_of(store, aid, doc_id, name="1.webp"):
-    """The bytes of a document's figure image in the archive's database, or None."""
-    return store._backend(aid).get_blob(aid, "image", f"{doc_id}/{name}")
+    """The bytes of a document's figure image in the image folder, or None (no record of it: no image)."""
+    for f in store._backend(aid).read_figures(aid, doc_id):
+        if f["image"] == name:
+            return store.image_store().get(f["sha"])
+    return None
 
 
 def test_the_images_and_drawings_of_a_pdf_with_a_text_layer_are_found_and_cut_out_with_a_thumbnail(tmp_path):
@@ -149,6 +152,50 @@ def test_a_search_gives_text_passages_and_the_figures_of_their_section_come_with
     assert [f["label"] for f in near] == ["FIG. 1A"] and near[0]["matched"] and near[0]["id"].startswith(aid + ":")
     only = lookup.search(store, recall, "map of the plasmid", filters={"kind": "figure"})
     assert only["passages"][0]["figure"]["label"] == "FIG. 1A" and "figures" not in only            # asked for figures: they are the passages
+
+
+def test_the_images_are_files_in_a_folder_named_by_their_hash_not_blobs_of_the_database(tmp_path):
+    store, aid, pdf = archive(tmp_path)
+    doc = store.add_file(aid, "patent.pdf", pdf)["document"]
+    rec = store._backend(aid).read_figures(aid, doc["id"])[0]
+    files = sorted(p.name for p in (tmp_path / "rag" / "images").rglob("*.webp"))
+    assert files == sorted([rec["sha"] + ".webp", rec["sha"] + "_t.webp"]) and not store._backend(aid).list_blobs(aid, "image")
+    found = store.figure(aid, doc["id"], 1)
+    assert found["image"] == store.image_store().get(rec["sha"]) and found["thumb"] == store.image_store().get(rec["sha"] + "_t")
+    assert store.image_store().path(rec["sha"]).parent.parent.parent == tmp_path / "rag" / "images"                # two levels of folders under the root
+
+
+def test_the_same_picture_in_two_archives_is_one_file_and_a_sweep_removes_only_what_no_figure_names(tmp_path):
+    store, aid, pdf = archive(tmp_path)
+    other = store.create("Other", project=PROJ)["id"]
+    store.add_file(aid, "patent.pdf", pdf)
+    store.add_file(other, "patent.pdf", pdf)
+    assert len(list((tmp_path / "rag" / "images").rglob("*.webp"))) == 2                         # an image and its thumbnail, once
+    store.image_store().put("f" * 24, b"orphan")
+    assert store.sweep_images() == 1 and not store.image_store().has("f" * 24)
+    for doc in store.get(aid)["document_list"]:
+        store.remove_document(aid, doc["id"])
+    assert store.sweep_images() == 0                                                              # the other archive still names it
+    for doc in store.get(other)["document_list"]:
+        store.remove_document(other, doc["id"])
+    assert store.sweep_images() == 2 and not list((tmp_path / "rag" / "images").rglob("*.webp"))
+
+
+def test_the_folder_can_be_set_and_a_figure_kept_in_the_database_by_an_older_archive_is_moved_to_it_when_read(tmp_path):
+    store, aid, pdf = archive(tmp_path)
+    where = tmp_path / "pictures"
+    where.mkdir()
+    store.settings.write({"images_dir": str(where)})
+    with pytest.raises(RagError):
+        store.settings.write({"images_dir": str(tmp_path / "nope")})
+    doc = store.add_file(aid, "patent.pdf", pdf)["document"]
+    rec = store._backend(aid).read_figures(aid, doc["id"])[0]
+    assert (where / rec["sha"][:2] / rec["sha"][2:4] / (rec["sha"] + ".webp")).is_file()
+    image = store.image_store().get(rec["sha"])
+    store.image_store().path(rec["sha"]).unlink()
+    store.image_store().path(rec["sha"] + "_t").unlink()
+    store._backend(aid).put_blob(aid, "image", f"{doc['id']}/1.webp", image)                  # how an archive made before the folder kept it
+    assert store.figure(aid, doc["id"], 1)["image"] == image and store.image_store().get(rec["sha"]) == image
 
 
 def test_the_setting_that_turns_figures_off_leaves_a_document_without_them(tmp_path):

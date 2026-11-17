@@ -32,6 +32,7 @@ from tadamoo.rag import search as ranking
 from tadamoo.rag.backends import MAIN, Backend, Router
 from tadamoo.rag.embed import Embedder, EmbedderProvider, compatible, embed_all, no_embedder, normalize as unit_rows
 from tadamoo.rag.errors import RagError
+from tadamoo.rag.imagestore import ImageStore
 from tadamoo.rag.ingest import chunker, extraction_of, formats, normalize, read_document
 from tadamoo.rag.ingest import docling_client, figures
 from tadamoo.rag.ingest import meta as facts
@@ -777,14 +778,16 @@ class RagStore:
         """Puts the staged images of a document in the archive's database and writes the record of its figures, replacing what the document had before; no
         records: the document has no figures and its old ones are removed."""
         backend = self._backend(aid)
-        backend.delete_blobs(aid, "image", prefix=doc_id + "/")
+        backend.delete_blobs(aid, "image", prefix=doc_id + "/")             # what an archive made before the image folder kept in its database
         backend.write_figures(aid, doc_id, [])
         staging = fset.get("staging")
         if not fset.get("records") or not staging:
             return
-        for p in sorted(Path(staging).iterdir()):
-            if p.is_file():
-                backend.put_blob(aid, "image", f"{doc_id}/{p.name}", p.read_bytes())
+        images = self.image_store()
+        for f in fset["records"]:
+            for name, key in ((f["image"], f["sha"]), (f["thumb"], f["sha"] + "_t")):
+                if (Path(staging) / name).is_file():
+                    images.put(key, (Path(staging) / name).read_bytes())
         shutil.rmtree(staging, ignore_errors=True)
         fset["staging"] = None
         backend.write_figures(aid, doc_id, fset["records"])
@@ -797,13 +800,41 @@ class RagStore:
         row = next((c for c in archive.chunks if c["doc"] == doc_id and c.get("kind") == "figure" and c.get("fig") == n), None)
         if row is None:
             raise RagError("there is no such figure", "not_found")
+        image, thumb = self._image_bytes(aid, row)
+        if image is None:
+            raise RagError("the image of this figure is missing", "not_found")
+        return {"passage": row, "image": image, "thumb": thumb or image, "document": archive.document(doc_id)["name"],
+                "archive": archive.meta["name"]}
+
+    def image_store(self) -> ImageStore:
+        """The folder of the document images: the one set in the knowledge settings (`images_dir`), else `images/` inside the knowledge data."""
+        chosen = self.settings.read().get("images_dir") or ""
+        return ImageStore(Path(chosen) if chosen else self.root / IMAGES)
+
+    def _image_bytes(self, aid: str, row: Dict[str, Any]) -> Tuple[Optional[bytes], Optional[bytes]]:
+        """The image and the thumbnail of a figure passage from the image folder. A figure of an archive made before that folder is read from the archive's database
+        and put in the folder on the way, so that it is read from there the next time."""
+        images, sha = self.image_store(), str(row.get("image_sha") or "")
+        image, thumb = (images.get(sha), images.get(sha + "_t")) if sha else (None, None)
+        if image is not None:
+            return image, thumb
         backend = self._backend(aid)
         key = lambda path: path[len(IMAGES) + 1:] if str(path).startswith(IMAGES + "/") else str(path)       # noqa: E731
         image = backend.get_blob(aid, "image", key(row["image"]))
-        if image is None:
-            raise RagError("the image of this figure is missing", "not_found")
-        return {"passage": row, "image": image, "thumb": backend.get_blob(aid, "image", key(row["thumb"])) or image, "document": archive.document(doc_id)["name"],
-                "archive": archive.meta["name"]}
+        thumb = backend.get_blob(aid, "image", key(row["thumb"]))
+        if image is not None and sha:
+            images.put(sha, image)
+            if thumb is not None:
+                images.put(sha + "_t", thumb)
+        return image, thumb
+
+    def sweep_images(self) -> int:
+        """Removes the files of the image folder that no figure of any archive names any more; the number removed."""
+        named = set()
+        for meta in self._metas(None):
+            named |= {str(c.get("image_sha")) for c in self.load(meta["id"]).chunks if c.get("kind") == "figure" and c.get("image_sha")}
+        keep = named | {k + "_t" for k in named}
+        return self.image_store().sweep(keep)
 
     def describe_documents(self, aid: Any, documents: List[Dict[str, Any]]) -> None:
         """Puts the cached description of a document (by the hash of its file) on each of `documents`, and takes off one made for the text it had before."""
