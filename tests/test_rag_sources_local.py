@@ -167,6 +167,29 @@ def test_a_file_that_goes_is_marked_and_never_removed_until_the_person_decides(t
     assert sync.check(aid)["counts"] == {"unchanged": 2}
 
 
+def test_an_update_marks_a_document_the_source_lost_as_a_past_version_and_the_citation_says_so_and_it_comes_back_when_the_file_does(tmp_path):
+    from tadamoo.rag.recall import citation
+    store, sync, aid, src, sid = folder_archive(tmp_path)
+    sync.update(aid)
+    beta = doc_of(store, aid, "beta")
+    assert not beta.get("past")
+    (src / "beta.md").rename(tmp_path / "beta.keep")
+    sync.check(aid)
+    assert not doc_of(store, aid, "beta").get("past")                                  # a check alone writes nothing
+    sync.update(aid, dry_run=True)
+    assert not doc_of(store, aid, "beta").get("past")
+    done = sync.update(aid)
+    marked = doc_of(store, aid, "beta")
+    assert marked["past"]["note"] == "past version, no longer available at its source" and marked["past"]["since"] and store.get(aid)["documents"] == 3
+    assert [i for i in done["items"] if i["name"] == "beta.md"][0]["marked"] is True
+    hit = store.search([aid], "beta", top_k=3)["hits"][0]
+    assert hit["document"] == "beta.md" and hit["past"] and citation(hit).endswith(", past version, no longer available]")
+    assert not store.search([aid], "alpha", top_k=1)["hits"][0]["past"]
+    (tmp_path / "beta.keep").rename(src / "beta.md")
+    sync.update(aid)
+    assert not doc_of(store, aid, "beta").get("past")
+
+
 def test_a_failed_document_keeps_its_old_version_and_the_others_go_through(tmp_path):
     store, sync, aid, src, sid = folder_archive(tmp_path)
     sync.update(aid)

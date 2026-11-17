@@ -43,6 +43,8 @@ def citation(hit: Dict[str, Any]) -> str:
     path = str(hit.get("path") or "")
     if SECTION_SEP in path:
         parts.append(path.split(SECTION_SEP, 1)[1])
+    if hit.get("past"):
+        parts.append("past version, no longer available")
     return "[" + ", ".join(parts) + "]"
 
 

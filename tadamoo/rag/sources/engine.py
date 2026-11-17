@@ -318,6 +318,8 @@ class Sync:
                 self._wait(tell, cancel)
             tell({"event": "stage", "stage": "checking"})
             items, errors, remotes = self._probe(aid, None, cancel)
+            if not dry_run:
+                self._mark_past(aid, items)
             force = force or []
             chosen = [i for i in items if (i["state"] in ("changed",) or (i["state"] == "new" and include_new) or (i["state"] == "pinned" and (i["id"] in force or i["doc"] in force)))
                       and (not only or i["id"] in only or i["doc"] in only)]
@@ -504,6 +506,25 @@ class Sync:
                 d["links"][did] = link
                 d["acknowledged"].pop(did, None)
         self.state(aid).change(write)
+
+    PAST_NOTE = "past version, no longer available at its source"
+
+    def _mark_past(self, aid: Any, items: List[Dict[str, Any]]) -> None:
+        """A document its source no longer has stays in the archive, marked `past` with the time it was first missed; one that is there again loses the mark. The check
+        alone does not write this; an update (the person's or a schedule's) does. Nothing is ever removed here."""
+        documents = {d["id"]: d for d in self.store.load(aid).meta["documents"]}
+        gone = {i["doc"] for i in items if i["state"] == "gone" and i["doc"] in documents}
+        back = {i["doc"] for i in items if i["state"] != "gone" and i["state"] != "error" and i["doc"] in documents} - gone
+        now = self.clock()
+        for doc in sorted(gone):
+            if not documents[doc].get("past"):
+                self.store.annotate_document(aid, doc, {"past": {"since": now, "note": self.PAST_NOTE}})
+        for doc in sorted(back):
+            if documents[doc].get("past"):
+                self.store.annotate_document(aid, doc, {"past": None})
+        for i in items:
+            if i["state"] == "gone" and i["doc"] in gone:
+                i["marked"] = True
 
     # -- the person's decisions ------------------------------------------------------------------
 

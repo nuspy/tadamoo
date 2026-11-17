@@ -59,7 +59,7 @@ def _hit(archive: Any, i: int, lexical: Optional[float], semantic: Optional[floa
             "figure": chunk.get("figure", ""), "caption": chunk.get("caption", ""), "image": chunk.get("image", ""), "thumb": chunk.get("thumb", ""), "fig": chunk.get("fig", 0),
             "questions": chunk.get("questions") or [], "flag": chunk.get("flag", ""), "score": round(score, 4),
             "lexical": None if lexical is None else round(lexical, 4), "semantic": None if semantic is None else round(semantic, 4),
-            "rerank": None if rerank is None else round(rerank, 4), "stages": stages, "mode": "hybrid" if semantic is not None else "lexical"}
+            "rerank": None if rerank is None else round(rerank, 4), "past": bool(doc.get("past")), "stages": stages, "mode": "hybrid" if semantic is not None else "lexical"}
 
 
 def _said(note: str, more: str) -> str:
