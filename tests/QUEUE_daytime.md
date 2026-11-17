@@ -404,3 +404,11 @@ Impostazioni di inferenza > «Mostrato in chat»: «Ragionamento» e «Azioni»,
 5. Caricare a mano un profilo con immagini/grafici e Billion Context: i valori arrivano alla conversazione aperta e al processo (Billion Context si riavvia solo se il profilo lo contiene); passare da una conversazione all'altra NON li cambia.
 6. Livello di autonomia e livello di ragionamento: salvati nel profilo. Caricando a mano un profilo con «Automatico» il livello della Chat passa ad Automatico (come un clic sul livello); cambiare conversazione non lo cambia. Il livello di ragionamento si carica con il profilo come prima.
 7. Chat normale: il ragionamento segue la stessa opzione. 360×640 e 390×844: riga alta almeno 44 px, niente scorrimento orizzontale; tastiera: Invio/Spazio apre e chiude.
+
+## 2FA: importazione da Google Authenticator (17 novembre; provata solo con test e con flutter test, NON sull'app avviata; ramo feat/authenticator)
+
+Portafoglio > vault > «Importa da Google Authenticator» (PC), e Impostazioni dell'app Android > «Importa da Google Authenticator».
+1. PC, fotocamera: «Scansiona con la fotocamera del PC» (la pagina deve essere su localhost); inquadra i QR di «Trasferisci account» uno dopo l'altro: la riga dice «Letta la parte X di N»; a esportazione completa si apre l'anteprima da sola. Nessun fotogramma resta salvato.
+2. Anteprima: i siti proposti (Google, GitHub…) si possono correggere; un account senza siti non viene tenuto; un account HOTP è segnalato; «tienilo in» un accesso già presente aggiunge il segreto senza toccare la password.
+3. Telefono: Impostazioni > Importa da Google Authenticator: inquadra i QR; sul PC compare «Il telefono ha consegnato…» entro pochi secondi e il bottone «Usa quello che il telefono ha scansionato»; dopo 10 minuti senza conferma la consegna sparisce. Il vault non cambia finché non confermi sul PC.
+4. Vero uso: una voce importata dà il codice a un sito vero che lo chiede (codice accettato, solo sul sito indicato); nel contesto compare solo la voce «Codici a due passaggi» e le istruzioni arrivano quando il modello le carica.

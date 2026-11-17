@@ -139,6 +139,18 @@ def test_a_pdf_added_to_an_archive_keeps_its_figure_as_an_image_and_a_passage_th
     assert not [c for c in store.load(aid).chunks if c["kind"] != "figure" and "Map of the plasmid" in c["text"] and c["page_start"] == 2] or True
 
 
+def test_a_search_gives_text_passages_and_the_figures_of_their_section_come_with_them_not_in_front(tmp_path):
+    store, aid, pdf = archive(tmp_path)
+    store.add_file(aid, "patent.pdf", pdf)
+    recall = ProjectRecall(store, PROJ, attached=[aid])
+    found = lookup.search(store, recall, "map of the plasmid tetracycline response element")
+    assert found["passages"] and all("figure" not in p for p in found["passages"])                     # no figure is a passage of its own
+    near = [f for p in found["passages"] for f in p.get("figures", [])] + found.get("figures", [])
+    assert [f["label"] for f in near] == ["FIG. 1A"] and near[0]["matched"] and near[0]["id"].startswith(aid + ":")
+    only = lookup.search(store, recall, "map of the plasmid", filters={"kind": "figure"})
+    assert only["passages"][0]["figure"]["label"] == "FIG. 1A" and "figures" not in only            # asked for figures: they are the passages
+
+
 def test_the_setting_that_turns_figures_off_leaves_a_document_without_them(tmp_path):
     store, aid, pdf = archive(tmp_path)
     store.settings.write({"figures": False})

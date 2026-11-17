@@ -19,6 +19,8 @@ LIMIT = 8                          # passages given when the caller does not say
 PER_QUERY = 5                      # passages kept from each query of a search with several
 MAX_QUERIES = 6
 QUERY_CHARS = 300
+FIGURE_SLOTS = 3                   # hits asked for beyond the passages, so that figures never take the place of a text passage
+PER_ROW_FIGURES = 3                # figures named under a passage
 OUTLINE_SHOWN = 80                 # sections an outline names; the rest is counted
 READ_CHARS = 20000
 
@@ -68,7 +70,9 @@ def _queries(query: Any, queries: Any) -> List[str]:
 
 def search(store: RagStore, recall: ProjectRecall, query: Any = "", queries: Any = None, archive: str = "", document: str = "", expand: bool = False,
            limit: Any = LIMIT, filters: Any = None) -> Dict[str, Any]:
-    """`{status, searched, passages: [{cite, archive, document, page, section, score, text, for?, flagged?}], mode, note?}`."""
+    """`{status, searched, passages: [{cite, archive, document, page, section, score, text, figures?, for?, flagged?}], figures?, mode, note?}`. The passages are text; the
+    figures of a passage's section come with it (`figures`), and a figure that matched while its own passage did not is in `figures` of the answer. Only a search that
+    asks for `kind: figure` gives figures as passages."""
     asked = _queries(query, queries)
     if not asked:
         return {"status": "error", "note": "query: the words to look for (or queries: a list of them, one for each thing you need)"}
@@ -88,9 +92,10 @@ def search(store: RagStore, recall: ProjectRecall, query: Any = "", queries: Any
     wanted = min(wanted, LIMITS["top_k"])
     found: List[List[Dict[str, Any]]] = []
     mode, notes = "lexical", []
+    figures_only = narrow.get("kind") == "figure"
     for q in asked:
         try:
-            got = store.search(ids, q, top_k=wanted, strict=False, filters=narrow) if ids else {"hits": [], "mode": "lexical", "note": ""}
+            got = store.search(ids, q, top_k=wanted if figures_only else wanted + FIGURE_SLOTS, strict=False, filters=narrow) if ids else {"hits": [], "mode": "lexical", "note": ""}
         except RagError as e:
             return {"status": "error", "note": str(e)}
         found.append(got["hits"])
@@ -102,7 +107,12 @@ def search(store: RagStore, recall: ProjectRecall, query: Any = "", queries: Any
     used = 0
     seen_chunks, seen_sections = set(), set()
     owner = {id(h): q for q, hits in zip(asked, found) for h in hits}
-    for h in spread(found):
+    aside: List[Dict[str, Any]] = []                      # figures that matched: they go with a passage, never in front of one
+    ordered = list(spread(found))
+    if not figures_only:
+        aside = [h for h in ordered if h.get("kind") == "figure" and not (drop and h.get("flag"))]
+        ordered = [h for h in ordered if h.get("kind") != "figure"]
+    for h in ordered:
         key = (h["archive_id"], h["doc_id"], h["chunk"])
         if key in seen_chunks or (drop and h.get("flag")):
             continue
@@ -120,6 +130,8 @@ def search(store: RagStore, recall: ProjectRecall, query: Any = "", queries: Any
             break
         row = {"cite": citation(h), "archive": h["archive"], "document": h["document"], "page": h.get("page_start") or None, "section": h.get("path", ""),
                "score": h["score"], "text": text}
+        if not figures_only:
+            row["_at"] = (h["archive_id"], h["doc_id"], h.get("section", ""))
         if h.get("kind") == "figure":                         # a figure: the handle to look at it, with its label and caption
             row["figure"] = {"id": f"{h['archive_id']}:{h['doc_id']}:{h.get('fig')}", "label": h.get("figure", ""), "caption": h.get("caption", "")}
         if h.get("summary"):
@@ -133,12 +145,49 @@ def search(store: RagStore, recall: ProjectRecall, query: Any = "", queries: Any
         out.append(row)
         used += len(text)
         recall.remember(h, text, shown(h), citation(h), h.get("summary") or "")
+    if not figures_only:
+        loose = _with_figures(store, out, aside)
+        for row in out:
+            row.pop("_at", None)
     answer: Dict[str, Any] = {"status": "ok", "searched": len(ids), "passages": out, "mode": mode}
+    if not figures_only and loose:
+        answer["figures"] = loose
     if notes:
         answer["note"] = "; ".join(notes)
     elif not out:
         answer["note"] = "no passage matches" + (" with those filters or in that document: try other terms or fewer filters, or read it with knowledge_read" if narrow else "")
     return answer
+
+
+def _figure_ref(archive_id: str, doc_id: str, c: Dict[str, Any], matched: bool = False) -> Dict[str, Any]:
+    ref = {"id": f"{archive_id}:{doc_id}:{c.get('fig')}", "label": c.get("figure", ""), "caption": c.get("caption", "")}
+    if c.get("summary"):
+        ref["summary"] = c["summary"]
+    if matched:
+        ref["matched"] = True
+    return ref
+
+
+def _with_figures(store: RagStore, rows: List[Dict[str, Any]], matched: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Puts under each passage the figures of its section (`figures`: id, label, caption), the ones that matched the question marked; the matched figures whose section
+    has no passage in the answer are returned, to be listed after the passages."""
+    wanted = {(h["archive_id"], h["doc_id"], h.get("fig")) for h in matched}
+    shown_ids = set()
+    cache: Dict[str, List[Dict[str, Any]]] = {}
+    for row in rows:
+        aid, doc, section = row["_at"]
+        if aid not in cache:
+            try:
+                cache[aid] = [c for c in store.load(aid).chunks if c.get("kind") == "figure"]
+            except RagError:
+                cache[aid] = []
+        near = [c for c in cache[aid] if c["doc"] == doc and section and c.get("section") == section]
+        near.sort(key=lambda c: ((aid, doc, c.get("fig")) not in wanted, c.get("fig") or 0))
+        if near:
+            row["figures"] = [_figure_ref(aid, doc, c, (aid, doc, c.get("fig")) in wanted) for c in near[:PER_ROW_FIGURES]]
+            shown_ids |= {(aid, doc, c.get("fig")) for c in near[:PER_ROW_FIGURES]}
+    return [{**_figure_ref(h["archive_id"], h["doc_id"], h, True), "cite": citation(h), "document": h["document"], "page": h.get("page_start") or None}
+            for h in matched if (h["archive_id"], h["doc_id"], h.get("fig")) not in shown_ids][:FIGURE_SLOTS]
 
 
 def _title_range(row: Dict[str, Any]) -> str:

@@ -1103,6 +1103,9 @@ def make_handler(svc: Service, remote: bool = False):
             if path.startswith("/api/wallet/"):
                 self._wallet_post(path)
                 return
+            if path == "/api/authenticator/offer":
+                self._authenticator_offer()
+                return
             if path.startswith("/api/websearch/"):
                 self._websearch_post(path)
                 return
@@ -3469,6 +3472,18 @@ def make_handler(svc: Service, remote: bool = False):
             self.end_headers()
             self.wfile.write(data)
 
+        def _authenticator_offer(self):
+            """A paired phone hands over a QR it scanned; nothing reaches the vault until the person confirms on the PC."""
+            try:
+                req = json.loads(self._body(1 << 16) or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                self._json(200, self._wallet().authenticator_offer(req))
+            except BadBody as e:
+                self._json(e.status, {"error": {"message": str(e)}})
+            except (WalletError, ValueError, TypeError) as e:
+                self._json(400, {"error": {"message": str(e)}})
+
         def _wallet_post(self, path):
             if not settings.is_loopback(self.client_address[0]):
                 self._discard_body()
@@ -3488,6 +3503,14 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, api.reveal(req))
                 if action == "import":
                     return self._json(200, api.import_logins(req))
+                if action == "authenticator/scan":
+                    return self._json(200, api.authenticator_scan(req))
+                if action == "authenticator/waiting":
+                    return self._json(200, api.authenticator_waiting())
+                if action == "authenticator/preview":
+                    return self._json(200, api.authenticator_preview(req))
+                if action == "authenticator/import":
+                    return self._json(200, api.authenticator_import(req))
                 if action == "backup":
                     return self._json(200, api.backup(req))
                 if action == "restore":

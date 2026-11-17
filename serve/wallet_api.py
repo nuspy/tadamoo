@@ -5,6 +5,9 @@ The three dialogs of a waiver are the ones the dossier records; the declaration 
 """
 from __future__ import annotations
 
+import base64
+import re
+import time
 from typing import Any, Callable, Dict, List, Optional
 
 from tadamoo import vendored
@@ -14,6 +17,7 @@ from tadamoo.rule_of_two import LEVELS as RULE_OF_TWO_LEVELS, RuleOfTwoPrefs
 from tadamoo.payments_broker import PaymentsBroker
 from tadamoo.vault import CARD_KINDS, KINDS, SECOND_FACTORS, Vault, VaultError
 from tadamoo.vault_import import parse_logins
+from tadamoo import authenticator
 from tadamoo.waiver import DIALOG_TEXTS, PaymentSystem, parse_amount, required_phrase
 from tadamoo.waiver.cards import CREDENTIAL_KINDS, VAULT_KINDS
 from tadamoo.waiver.dossier import DossierUnavailable
@@ -41,6 +45,8 @@ class WalletApi:
         self._allow = allow_rules                       # the rules allowed for every conversation (serve/allow_rules.py)
         self._exec = exec_prefs                         # how freely the code the model writes runs (tadamoo/exec_level.py)
         self._two = rule_of_two                         # how strict the Rule of Two is for the conversations started from now on
+        self._offered: List[Any] = []                   # what a phone scanned and handed over, waiting for the person to confirm on this PC: (time, link); only in memory
+        self.clock: Callable[[], float] = time.time
 
     # -- what the page shows ---------------------------------------------------------------------
 
@@ -197,6 +203,80 @@ class WalletApi:
         except (ValueError, VaultError) as e:
             raise WalletError(str(e)) from None
         return {"added": len(made["added"]), "refused": made["refused"][:20], "skipped": parsed["skipped"]}
+
+    def _migration(self, req: Dict[str, Any]) -> "authenticator.Migration":
+        """The accounts in what the person sent: pasted links or secrets (`text`) and pictures of a QR code (`images`, base64). Nothing is kept between the preview and the import."""
+        texts = [t for t in re.split(r"\s+", req.get("text") or "") if t] if isinstance(req.get("text"), str) else []
+        if req.get("phone"):
+            texts += self._offered_links()
+        images = req.get("images") or []
+        if not isinstance(images, list) or len(images) > 12:
+            raise WalletError("send up to 12 pictures")
+        try:
+            for blob in images:
+                texts += authenticator.scan_image(base64.b64decode(str(blob), validate=False))
+            return authenticator.read_many(texts)
+        except authenticator.AuthenticatorError as e:
+            raise WalletError(str(e)) from None
+
+    OFFER_SECONDS = 600
+    OFFER_MAX = 24
+
+    def _offered_links(self) -> List[str]:
+        self._offered = [(t, s) for t, s in self._offered if self.clock() - t < self.OFFER_SECONDS]
+        return [s for _, s in self._offered]
+
+    def authenticator_offer(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """A phone hands over a link it scanned. It is kept in memory for a few minutes; the vault is changed only when the person confirms on this PC."""
+        text = req.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise WalletError("send the text of the QR code")
+        try:
+            authenticator.read(text)
+        except authenticator.AuthenticatorError as e:
+            raise WalletError(str(e)) from None
+        links = self._offered_links()
+        if text.strip() not in links:
+            if len(links) >= self.OFFER_MAX:
+                raise WalletError("too many parts are waiting: confirm or wait a few minutes")
+            self._offered.append((self.clock(), text.strip()))
+        return {"progress": authenticator.progress(self._offered_links())}
+
+    def authenticator_waiting(self) -> Dict[str, Any]:
+        """What the phone has handed over so far, for the wallet page (no secrets)."""
+        links = self._offered_links()
+        return {"count": len(links), "progress": authenticator.progress(links)}
+
+    def authenticator_scan(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """One frame of the PC's camera: the links read in it added to those already read, and how far the export has come."""
+        have = [t for t in (req.get("have") or []) if isinstance(t, str)][:24]
+        try:
+            found = authenticator.scan_image(base64.b64decode(str(req.get("image") or ""), validate=False))
+        except authenticator.AuthenticatorError as e:
+            raise WalletError(str(e)) from None
+        for t in found:
+            try:
+                authenticator.read(t)
+            except authenticator.AuthenticatorError:
+                continue
+            if t not in have and len(have) < 24:
+                have.append(t)
+        return {"links": have, "progress": authenticator.progress(have)}
+
+    def authenticator_preview(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """What was read, without the secrets: the person confirms the sites before anything is kept. A login of the vault that could take the secret is offered for each account."""
+        mig = self._migration(req)
+        logins = [{"id": e["id"], "label": e["label"], "hosts": e["hosts"]} for e in self._vault().entries() if e["kind"] == "login"]
+        return {"accounts": authenticator.preview(mig), "logins": logins}
+
+    def authenticator_import(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        choices = req.get("choices")
+        if not isinstance(choices, list) or not choices:
+            raise WalletError("choose at least one account")
+        done = authenticator.import_into_vault(self._vault(), self._migration(req), [c for c in choices if isinstance(c, dict)])
+        if req.get("phone") and (done["created"] or done["merged"]):
+            self._offered = []                                       # what the phone handed over has been used
+        return {"created": len(done["created"]), "merged": len(done["merged"]), "refused": done["refused"][:20]}
 
     def delete_entry(self, entry_id: Any) -> Dict[str, Any]:
         entry_id = str(entry_id or "")

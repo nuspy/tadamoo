@@ -634,4 +634,4 @@ class LiveSamplingAndDiagramRepairTest(unittest.TestCase):
         self.assertIn('"api/diagram/fix"', chat)
         self.assertIn("const TRIES = 2", chat.replace("MAX_FIXES = 60, TRIES = 2", "const TRIES = 2"))
         self.assertIn("gaveUp", chat)
-        self.assertIn("keepFix(original, code)", chat)
+        self.assertIn("keepFix(original, source)", chat)

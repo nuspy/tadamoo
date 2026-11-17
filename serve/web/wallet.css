@@ -28,6 +28,7 @@
 .wl-facts, .wl-status { margin: 0; font-size: 14px; color: var(--fg-2); overflow-wrap: anywhere; line-height: 1.5; }
 .wl-status { color: var(--fg); }
 .wl-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.wl-cam { width: 100%; max-width: 480px; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; background: #000; }
 .wl-actions .btn, .wl-sec .sh .btn { min-height: var(--btn-h); }
 .wl-form { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px; border: 1px solid var(--accent); border-radius: 8px; min-width: 0; }
 .wl-form .field, .wl-wbody .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }

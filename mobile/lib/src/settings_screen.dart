@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'authenticator_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'api.dart';
@@ -220,6 +221,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: Text(Texts.t('psk.sub')),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => PersonalSkillsScreen(api: Api(widget.settings), settings: widget.settings, voice: widget.voice))),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.qr_code_scanner),
+            title: Text(Texts.t('authn.title')),
+            subtitle: Text(Texts.t('authn.sub')),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AuthenticatorScanScreen(api: Api(widget.settings)))),
           ),
           ListTile(
             contentPadding: EdgeInsets.zero,

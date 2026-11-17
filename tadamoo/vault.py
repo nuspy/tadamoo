@@ -68,13 +68,27 @@ def valid_code(value: Any) -> bool:
     return isinstance(value, str) and 0 < len(value.strip()) <= 32 and all(c.isalnum() or c in " -" for c in value)
 
 
-def totp_code(secret: str, at: float, step: int = 30, digits: int = 6) -> str:
-    """RFC 6238 with SHA-1, the form every authenticator app and bank uses."""
+def _totp_meta(meta: Dict[str, Any]) -> Dict[str, Any]:
+    """The non-secret way a login's codes are made: algorithm, digits and period, checked."""
+    algorithm = str(meta.get("algorithm", "SHA1")).upper()
+    try:
+        digits, period = int(meta.get("digits", 6)), int(meta.get("period", 30))
+    except (TypeError, ValueError):
+        raise VaultError("the digits and the period of a code are numbers") from None
+    if algorithm not in ("SHA1", "SHA256", "SHA512") or digits not in (6, 7, 8) or not 5 <= period <= 300:
+        raise VaultError("a code is made with SHA1, SHA256 or SHA512, 6 to 8 digits and a period of 5 to 300 seconds")
+    return {"algorithm": algorithm, "digits": digits, "period": period}
+
+
+def totp_code(secret: str, at: float, step: int = 30, digits: int = 6, algorithm: str = "SHA1") -> str:
+    """RFC 6238: SHA-1 (the form every authenticator app and bank uses), or SHA-256 and SHA-512 for the apps that ask for them."""
+    if algorithm.upper() not in ("SHA1", "SHA256", "SHA512"):
+        raise VaultError(f"the TOTP algorithm {algorithm} is not one the vault makes")
     try:
         raw = base64.b32decode(re.sub(r"[\s\-]", "", secret).upper() + "=" * (-len(re.sub(r"[\s\-]", "", secret)) % 8), casefold=True)
     except Exception:
         raise VaultError("the TOTP secret is not valid base32") from None
-    digest = hmac.new(raw, struct.pack(">Q", int(at // step)), hashlib.sha1).digest()
+    digest = hmac.new(raw, struct.pack(">Q", int(at // step)), getattr(hashlib, algorithm.lower())).digest()
     offset = digest[-1] & 0x0F
     number = (struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF) % (10 ** digits)
     return str(number).zfill(digits)
@@ -152,12 +166,12 @@ class Vault:
 
     def put(self, entry_id: str, *, kind: str, label: str = "", fields: Optional[Dict[str, Any]] = None, hosts: Optional[Iterable[Any]] = None,
             second_factor: Optional[str] = None, card_kind: Optional[str] = None, currency: Optional[str] = None,
-            guard: Optional[bool] = None) -> Dict[str, Any]:
+            guard: Optional[bool] = None, totp: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Creates or changes an entry. A field sent as None keeps its old value and one sent as "" is removed; the others replace."""
         with self._lock:
             entries = dict(self._read())
             self._apply(entries, entry_id, kind=kind, label=label, fields=fields, hosts=hosts, second_factor=second_factor, card_kind=card_kind,
-                        currency=currency, guard=guard)
+                        currency=currency, guard=guard, totp=totp)
             self._write(entries)
             return self.describe(entry_id)
 
@@ -169,7 +183,8 @@ class Vault:
             for spec in specs:
                 try:
                     self._apply(entries, spec["id"], kind=spec["kind"], label=spec.get("label", ""), fields=spec.get("fields"), hosts=spec.get("hosts"),
-                                second_factor=spec.get("second_factor"), card_kind=spec.get("card_kind"), currency=spec.get("currency"), guard=spec.get("guard"))
+                                second_factor=spec.get("second_factor"), card_kind=spec.get("card_kind"), currency=spec.get("currency"), guard=spec.get("guard"),
+                                totp=spec.get("totp"))
                     added.append(spec["id"])
                 except VaultError as e:
                     refused.append({"id": spec.get("id", ""), "why": str(e)})
@@ -178,7 +193,7 @@ class Vault:
         return {"added": added, "refused": refused}
 
     def _apply(self, entries: Dict[str, Dict[str, Any]], entry_id: str, *, kind: str, label: str, fields: Optional[Dict[str, Any]], hosts: Optional[Iterable[Any]],
-               second_factor: Optional[str], card_kind: Optional[str], currency: Optional[str], guard: Optional[bool]) -> None:
+               second_factor: Optional[str], card_kind: Optional[str], currency: Optional[str], guard: Optional[bool], totp: Optional[Dict[str, Any]] = None) -> None:
         if not ID.match(entry_id or ""):
             raise VaultError("the name of an entry is 1 to 40 letters, digits, - or _")
         if kind not in KINDS:
@@ -211,6 +226,9 @@ class Vault:
             if values.get("totp_secret"):
                 totp_code(values["totp_secret"], 0)                      # refuses a secret that is not base32
             entry["second_factor"] = level
+            meta = totp if totp is not None else (old or {}).get("totp")
+            if meta:
+                entry["totp"] = _totp_meta(meta)                          # how its codes are made, when it is not the usual SHA-1, 6 digits, 30 seconds
         if kind == "card":
             ck = card_kind if card_kind is not None else (old or {}).get("card_kind", "virtual")
             if ck not in CARD_KINDS:
@@ -249,7 +267,8 @@ class Vault:
         except Exception:
             raise VaultError("the passphrase is wrong, or the backup was changed") from None
         specs = [{"id": i, "kind": e["kind"], "label": e.get("label", ""), "fields": e.get("fields", {}), "hosts": e.get("hosts", []),
-                  "second_factor": e.get("second_factor"), "card_kind": e.get("card_kind"), "currency": e.get("currency"), "guard": e.get("guard")}
+                  "second_factor": e.get("second_factor"), "card_kind": e.get("card_kind"), "currency": e.get("currency"), "guard": e.get("guard"),
+                  "totp": e.get("totp")}
                  for i, e in entries.items()]
         for spec in specs:
             with self._lock:
@@ -304,7 +323,7 @@ class Vault:
             raise VaultError(f"there is no entry '{entry_id}'")
         out = {"id": entry_id, "kind": e["kind"], "label": e["label"], "hosts": list(e["hosts"]),
                "fields": {n: self._hint(e["kind"], n, v) for n, v in sorted(e["fields"].items())}}
-        for extra in ("second_factor", "card_kind", "currency", "guard"):
+        for extra in ("second_factor", "card_kind", "currency", "guard", "totp"):
             if extra in e:
                 out[extra] = e[extra]
         return out
@@ -406,7 +425,8 @@ class Vault:
     def _code(self, entry_id: str, e: Dict[str, Any], ask_code: Optional[Callable[[str], str]]) -> str:
         level = e.get("second_factor", "none")
         if level == "automatic":
-            return totp_code(e["fields"]["totp_secret"], self.clock())
+            m = e.get("totp") or {}
+            return totp_code(e["fields"]["totp_secret"], self.clock(), m.get("period", 30), m.get("digits", 6), m.get("algorithm", "SHA1"))
         if level == "manual":
             if ask_code is None:
                 raise VaultError(f"'{entry_id}' needs you to type its code, and there is no way to ask you here")
