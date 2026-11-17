@@ -52,9 +52,12 @@ def items_from_personal(skills: Sequence[Dict[str, Any]], off: Iterable[str] = (
             for s in skills]
 
 
-def build(entries: Iterable[Dict[str, Any]], personal: Sequence[Dict[str, Any]] = (), personal_off: Iterable[str] = ()) -> Inventory:
-    """The inventory of everything found: external items from discovery, personal skills from their store."""
-    return Inventory(items_from_index(entries) + items_from_personal(personal, personal_off))
+def build(entries: Iterable[Dict[str, Any]], personal: Sequence[Dict[str, Any]] = (), personal_off: Iterable[str] = (), available: Sequence[Item] = ()) -> Inventory:
+    """The inventory of everything found: external items from discovery, personal skills from their store, and the items the providers list that are not installed (a name already
+    installed is not listed twice)."""
+    items = items_from_index(entries) + items_from_personal(personal, personal_off)
+    have = {i.id for i in items} | {i.name.lower() for i in items if i.kind == "mcp_server"}
+    return Inventory(items + [a for a in available if a.id not in have and not (a.kind == "mcp_server" and a.name.lower() in have)])
 
 
 def describe(inv: Inventory, item: Item) -> Dict[str, Any]:

@@ -3,7 +3,7 @@
 // Prints [{name, ok, error}] as JSON (read by test_connectors_page.py). One page, actions in sequence on the buttons a person presses, each checked against what the server then holds
 // (the state of the skill, and what the harness sees). Only a skill with no models is ever installed here: nothing is downloaded.
 const { spawn } = require("child_process"), fs = require("fs"), os = require("os"), path = require("path");
-const [URL, EXE] = process.argv.slice(2);
+const [URL, EXE, FOLDER] = process.argv.slice(2);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const get = async p => (await fetch(URL + p)).json();
 const post = async (p, body) => (await fetch(URL + p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
@@ -43,6 +43,7 @@ async function main() {
       if (f.wide) throw new Error(what + ": the page scrolls sideways");
       if (f.small.length) throw new Error(what + ": controls under 44 px: " + f.small.join(", "));
     });
+    const press2 = label => ev(`const b = [...qa("#cx-root .cx-item .cx-acts button")].find(x => x.textContent.trim() === ${JSON.stringify(label)}); if (!b) throw new Error("no button ${label}"); b.click(); return 1;`);
     const capState = async id => ((await get("api/capabilities")).entries.find(e => e.id === id) || {}).state;
     const calls = [];
 
@@ -96,6 +97,25 @@ async function main() {
         await waitFor(`qa("#cx-root .cx-item").length === 0`, "no personal skill");
         await ev(`[...qa("#cx-scope button")].find(b => b.textContent.startsWith("All")).click(); return 1;`);
         await waitFor(`qa("#cx-root .cx-item").length === 2`, "all again");
+      });
+
+      await check(`${vname}: the Providers sub-tab lists the providers, adds a folder, switches it off and removes it, as the server then holds`, async () => {
+        await ev(`[...qa("#cx-subtabs button")].find(b => b.textContent === "Providers").click(); return 1;`);
+        await waitFor(`qa("#cx-root .cx-item").length >= 0 && !!q("#cx-pr")`, "the providers form");
+        const rows = await get("api/connectors/providers");
+        if (rows.providers.length !== 0) throw new Error("the test starts with no provider: " + JSON.stringify(rows.providers));
+        await ev(`const k = q("#cx-pk"); k.value = "folder"; const r = q("#cx-pr"); r.value = ${JSON.stringify(FOLDER)}; r.dispatchEvent(new Event("input", { bubbles: true })); q(".cx-provform button[type=submit]").click(); return 1;`);
+        await waitFor(`qa("#cx-root .cx-item").length === 1`, "the new provider row");
+        if ((await get("api/connectors/providers")).providers.length !== 1) throw new Error("the server did not keep the provider");
+        await fits("providers tab");
+        await press2("Switch off");
+        await waitFor(`qa("#cx-root .cx-item")[0].textContent.includes("Off")`, "provider shown off");
+        if ((await get("api/connectors/providers")).providers[0].enabled !== false) throw new Error("the server still has it on");
+        await press2("Remove");
+        await waitFor(`qa("#cx-root .cx-item").length === 0`, "provider removed");
+        if ((await get("api/connectors/providers")).providers.length !== 0) throw new Error("the server still lists it");
+        await ev(`[...qa("#cx-subtabs button")].find(b => b.textContent === "Skills").click(); return 1;`);
+        await waitFor(`!!${item("alpha-skill")}`, "the skills again");
       });
     }
     await send("Page.navigate", { url: "about:blank" });

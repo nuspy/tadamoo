@@ -13,7 +13,7 @@ Legenda: [x] fatto e verificato, [~] iniziato, [ ] da fare. Un punto per riga.
    - [~] 2b. Interfaccia web (17 novembre, provata in un browser vero a 360x640, 390x844, 1280x800): filtro unico, interruttore Esterni/Personali/Tutti, sotto-tab, due fasce, descrizione al clic, accendi/spegni. Non fatto: pulsanti Configura e Disinstalla, sotto-tab App MCP vuota, controllo a segmenti su schermo stretto.
    - [~] 2c. Albero delle dipendenze: c'è dentro la scheda del plugin (figli, stato, interruttori, cosa toglierebbe); non è in una finestra a parte.
    - [ ] 2d. Installa e disinstalla, con revisione dell'LLM e scheda dei fatti.
-   - [ ] 2e. Tab Provider (lista modificabile, con WhatsApp, Telegram, Viber da te approvati).
+   - [x] 2e. (17 novembre, provato con test e in un browser vero a 3 larghezze) Sotto-scheda Provider: elenco modificabile (registro MCP ufficiale predefinito, cartelle di skill), accendi/spegni, aggiungi, togli, ripristina; la fascia «Da installare» si costruisce dai provider accesi, con cache di 10 minuti. Provato sul registro vero: Telegram, WhatsApp e Viber compaiono (cercando per nome). Non fatto: repository GitHub come provider, sezione «versione fissata» per provider, token dei repository privati nel vault.
    - [ ] 2f. Configurazione guidata (sessione effimera) e account multipli.
    - [ ] 2g. Controllo aggiornamenti, unione sulla copia di lavoro, avviso in ogni tab.
    - [ ] 2h. Indice leggero per l'LLM e carte a richiesta.

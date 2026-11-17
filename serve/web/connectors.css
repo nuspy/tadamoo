@@ -29,4 +29,9 @@
 .cx-treeh { margin: 6px 0 0; font-weight: 600; }
 .cx-leaf { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; }
 .connectors .help { color: var(--fg-2); font-size: 13px; margin: 0; }
+.cx-provform { display: grid; gap: 8px; margin: 10px 0; }
+.cx-pf { display: grid; gap: 4px; }
+.cx-pf label { color: var(--fg-2); font-size: 13px; }
+.cx-pf input, .cx-pf select { min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font: 400 16px/1.5 var(--font-sans); }
+#cx-bands .btn, .cx-provform .btn { min-height: 44px; min-width: 44px; }
 @media (min-width: 720px) { .cx-top { grid-template-columns: minmax(0, 1fr) 200px; } .cx-flabel { grid-column: 1 / -1; } .cx-scope { grid-column: 1 / -1; } }

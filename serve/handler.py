@@ -60,6 +60,7 @@ from serve.files_api import FilesApi, FilesError
 from serve.projects import ProjectStore
 from serve.remote import KEY_TTL_DAYS, MODE_ORDER, ApiKeys, Installer, RemoteAccess, tailscale_peers, tailscale_status, tailscale_up
 from serve.connectors_api import ConnectorError, ConnectorsApi
+from tadamoo.connectors.providers import Providers
 from serve.personal_skills_api import PersonalSkillsApi
 from serve import import_api, register_api, skills_api
 from tadamoo.rag.backends import vault_password
@@ -132,6 +133,7 @@ _CARDS = None                                         # writes the card of each 
 _EXPORT = export_api.ExportApi()                      # turns a conversation into a file; holds a PDF page for the desktop app's print
 _TELEGRAM_PORT = [0]                                  # the port of the server, for the address a chat is given (serve/netaddr.py)
 _APPS = None                                          # MCP Apps' side of the page, made on first use
+_CONNECTOR_LISTS = {}                                 # what each provider answered, with the time: the lists the Connectors tab shows as available
 _CAPS = None                                          # the Settings page's side of capabilities, made on first use
 _IMPORT = None                                        # the import service's side (a test puts its own here), made on first use
 _REGISTER = None                                      # the register of open work (a test puts its own here), made on first use
@@ -759,7 +761,7 @@ def make_handler(svc: Service, remote: bool = False):
             elif path in ("/api/capabilities", "/api/capabilities/review", "/api/capabilities/online", "/api/capabilities/requests"):
                 if self._authorized():
                     self._capabilities_get(path)
-            elif path in ("/api/connectors", "/api/connectors/item"):
+            elif path in ("/api/connectors", "/api/connectors/item", "/api/connectors/providers"):
                 if self._authorized():
                     self._connectors_get(path)
             elif path == "/api/netwatch" or path.startswith("/api/netwatch/"):
@@ -1064,6 +1066,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path == "/api/attachments" or (path.startswith("/api/attachments/") and path.rsplit("/", 1)[-1] == "remove"):
                 self._attachments_post(path)
+                return
+            if path == "/api/connectors/providers":
+                self._connectors_post()
                 return
             if path.startswith("/api/capabilities/"):
                 self._capabilities_post(path)
@@ -2401,13 +2406,47 @@ def make_handler(svc: Service, remote: bool = False):
                 return self._json(403, {"error": {"type": "forbidden", "message": "connectors can be seen only from the PC the server runs on or a phone with a key"}})
             q = parse_qs(urlsplit(self.path).query)
             one = lambda name: (q.get(name) or [""])[0][:300]                                       # noqa: E731
-            api = ConnectorsApi(lambda: self._caps().overview()["entries"], lambda: (self._pskills().store.list(), ()))
+            api = self._connectors_api()
             try:
+                if path == "/api/connectors/providers":
+                    return self._json(200, api.provider_rows())
                 if path == "/api/connectors/item":
                     return self._json(200, api.item(one("id")))
                 return self._json(200, api.view(one("scope") or "all", one("kind"), one("state"), one("q")))
             except ConnectorError as e:
                 return self._json(404 if e.code == "gone" else 400, {"error": {"type": "connectors", "message": str(e), "code": e.code}})
+
+        def _connectors_api(self):
+            def get(url):
+                import time
+                import urllib.request
+                hit = _CONNECTOR_LISTS.get(url)
+                if hit and time.time() - hit[0] < 600:                                  # a provider's list is asked again after ten minutes, not at every look
+                    return hit[1]
+                req = urllib.request.Request(url, headers={"User-Agent": "TaDaMoo-connectors", "Accept": "application/json"})
+                with urllib.request.urlopen(req, timeout=15) as r:                      # a list of names and descriptions: nothing is installed or run
+                    body = r.read(2_000_000)
+                _CONNECTOR_LISTS[url] = (time.time(), body)
+                return body
+            return ConnectorsApi(lambda: self._caps().overview()["entries"], lambda: (self._pskills().store.list(), ()), Providers(userdata.path("connectors") / "providers.json"), get)
+
+        def _connectors_post(self):
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the providers can be changed only from the PC the server runs on"}})
+            try:
+                raw = self._body(1 << 14)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                return self._json(200, self._connectors_api().change_providers(req))
+            except ConnectorError as e:
+                return self._json(400, {"error": {"type": "connectors", "message": str(e), "code": e.code}})
+            except ValueError as e:
+                return self._json(400, {"error": {"message": str(e)}})
 
         def _capabilities_post(self, path):
             phone_may = path[len("/api/capabilities/"):] in ("settings", "requests/approve", "requests/reject")

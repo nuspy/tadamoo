@@ -60,6 +60,8 @@ class ConnectorsTabInARealBrowserTest(unittest.TestCase):
             folder = home / ".claude" / "skills" / name
             folder.mkdir(parents=True)
             (folder / "SKILL.md").write_text(f"---\nname: {name}\ndescription: Does the {name} thing.\n---\n\nDo it.\n", encoding="utf-8")
+        (Path(cls.tmp) / "data" / "connectors").mkdir(parents=True)
+        (Path(cls.tmp) / "data" / "connectors" / "providers.json").write_text("[]", encoding="utf-8")              # no provider: the test does not need the network
         root = Path(__file__).resolve().parents[2]
         env = {**os.environ, "TADAMOO_DATA": cls.tmp + "/data", "TADAMOO_CACHE": cls.tmp + "/cache", "USERPROFILE": str(home), "HOME": str(home), "APPDATA": cls.tmp + "/appdata"}
         cls.server = subprocess.Popen([sys.executable, "-m", "serve.server", "--mock-engine", "--port", str(port)], cwd=str(root), env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -83,10 +85,10 @@ class ConnectorsTabInARealBrowserTest(unittest.TestCase):
 
     def test_the_tab_on_a_phone_and_on_a_desktop(self):
         self.maxDiff = None
-        out = subprocess.run([self.node, str(Path(__file__).resolve().parent / "connectors_dom_check.js"), self.url, self.browser], capture_output=True, text=True, timeout=900)
+        out = subprocess.run([self.node, str(Path(__file__).resolve().parent / "connectors_dom_check.js"), self.url, self.browser, str(Path(self.tmp) / "home" / ".claude" / "skills")], capture_output=True, text=True, timeout=900)
         results = json.loads(out.stdout.strip().splitlines()[-1])
         self.assertEqual([r["name"] + ": " + r["error"] for r in results if not r["ok"]], [])
-        self.assertEqual(len(results), 12, results)
+        self.assertEqual(len(results), 15, results)
 
 
 if __name__ == "__main__":

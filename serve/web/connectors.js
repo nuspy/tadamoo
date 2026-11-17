@@ -5,7 +5,7 @@
   const root = document.getElementById("cx-root");
   if (!root) return;
 
-  const SUBTABS = ["skill", "mcp_server", "mcp_app", "plugin"];
+  const SUBTABS = ["skill", "mcp_server", "mcp_app", "plugin", "providers"];
   const S = { sub: "skill", scope: "all", query: "", state: "", data: null, detail: "", tree: null, busy: false, off: null };
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick, tip) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; if (tip) b.title = tip; return b; };
@@ -22,7 +22,45 @@
     } catch (e) { return { ok: false, status: 0, data: {} }; }
   }
 
+  /* the providers: where the connectors that are not installed yet are listed from. Rows the person can switch off, remove or add to; the list can be reset. */
+  async function loadProviders() {
+    const r = await api("GET", "api/connectors/providers");
+    if (!r.ok) { say(errText(r), true); return; }
+    S.providers = r.data; say(""); draw();
+  }
+  async function changeProviders(body) {
+    const r = await api("POST", "api/connectors/providers", body);
+    if (!r.ok) { say(errText(r), true); return; }
+    S.providers = r.data; say(""); draw();
+  }
+  function providersView() {
+    const host = document.createDocumentFragment(), d = S.providers;
+    if (!d) return host;
+    host.append(el("p", "help", T("cx.prov.help")));
+    const ul = el("ul", "cx-list");
+    d.providers.forEach(p => {
+      const li = el("li", "cx-item cx-" + (p.enabled ? "active" : "disabled")), head = el("div", "cx-open");
+      head.append(el("span", "cx-name", p.ref), el("span", "cx-badge", T("cx.prov.kind." + p.kind)), el("span", "cx-badge", T("cx.prov.trust." + p.trust)), el("span", "cx-badge", T(p.enabled ? "cx.state.active" : "cx.state.disabled")));
+      const acts = el("div", "cx-acts");
+      acts.append(btn(T(p.enabled ? "cx.disable" : "cx.enable"), "", () => changeProviders({ action: p.enabled ? "disable" : "enable", id: p.id })), btn(T("cx.prov.remove"), "", () => changeProviders({ action: "remove", id: p.id })));
+      li.append(head, acts); ul.append(li);
+    });
+    host.append(ul);
+    const form = el("form", "cx-provform"), kind = el("select"), ref = el("input"), trust = el("select");
+    kind.id = "cx-pk"; ref.id = "cx-pr"; trust.id = "cx-pt"; ref.type = "text"; ref.maxLength = 500; ref.autocomplete = "off"; ref.spellcheck = false;
+    d.kinds.forEach(k => { const o = el("option", "", T("cx.prov.kind." + k)); o.value = k; kind.append(o); });
+    d.trust.forEach(k => { const o = el("option", "", T("cx.prov.trust." + k)); o.value = k; trust.append(o); });
+    trust.value = "unknown";
+    const lab = (id, key, input) => { const w = el("div", "cx-pf"), l = el("label", "", T(key)); l.htmlFor = id; w.append(l, input); return w; };
+    const add = btn(T("cx.prov.add"), "primary", () => {}); add.type = "submit";
+    form.append(lab("cx-pk", "cx.prov.f.kind", kind), lab("cx-pr", "cx.prov.f.ref", ref), lab("cx-pt", "cx.prov.f.trust", trust), add);
+    form.onsubmit = e => { e.preventDefault(); changeProviders({ action: "add", kind: kind.value, ref: ref.value, trust: trust.value }); };
+    host.append(form, btn(T("cx.prov.reset"), "", () => changeProviders({ action: "reset" })));
+    return host;
+  }
+
   async function load() {
+    if (S.sub === "providers") { await loadProviders(); return; }
     const q = new URLSearchParams({ scope: S.scope, kind: S.sub, q: S.query });
     if (S.state) q.set("state", S.state);
     const [view, caps] = await Promise.all([api("GET", "api/connectors?" + q), api("GET", "api/capabilities")]);
@@ -124,6 +162,8 @@
     });
     const host = document.getElementById("cx-bands");
     host.replaceChildren();
+    document.getElementById("cx-top").hidden = S.sub === "providers";
+    if (S.sub === "providers") { host.append(providersView()); return; }
     if (!d) return;
     host.append(band(T("cx.installed"), d.installed, T("cx.none")), band(T("cx.available"), d.available, T("cx.available.none")));
   }
