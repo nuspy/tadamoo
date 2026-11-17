@@ -32,7 +32,9 @@ class VisualsPageTest(base.PlansApiBase):
 
     def test_a_picture_in_an_answer_comes_only_from_the_conversations_own_files(self):
         self.assertIn("tadamoo-file:([a-f0-9]{12})", CHAT)
-        self.assertEqual(len(re.findall(r"!\\\[", CHAT)), 1)                  # the only picture rule: none loads a picture from an address
+        rules = [l for l in CHAT.splitlines() if re.search(r"!\\\[", l)]
+        self.assertEqual(len(rules), 3)                                        # a conversation's own file, its own path, a picture carried inside the answer
+        self.assertFalse([l for l in rules if re.search(r"https?:|ftp:|//", l.split("=>")[0])])   # none loads a picture from an address
         self.assertEqual(set(re.findall(r"\(tadamoo-(\w+):", CHAT)), {"file", "path"})
         self.assertIn("api/outputs/${encodeURIComponent(sid)}/${id}/file", CHAT)
         self.assertIn("headers: authHeaders()", CHAT[CHAT.index("async function loadPictures"):CHAT.index("const drawn = new Map()")])
