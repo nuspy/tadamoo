@@ -3,15 +3,20 @@
     GET /api/connectors?scope=all|personal|external&kind=&state=&q=   the counts and the two bands (installed, available) of a sub-tab
     GET /api/connectors/item?id=                                      one item with its relations and, for a plugin, its tree
     POST /api/connectors/review  {id}                                 the facts sheet of an item that is not installed yet and the advisory review of a model
+    POST /api/connectors/install {id, allow_scripts?, anyway?, update?}   installs an item a provider lists (the press of the button is the authorisation)
+    POST /api/connectors/uninstall {id}                               removes what TaDaMoo installed (the downloaded originals stay)
+    GET|POST /api/connectors/settings {originals_dir?}                where the downloaded originals are kept
 """
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from tadamoo.connectors import facts, inventory, model, providers as prov, review as review_mod
 from tadamoo.connectors.model import Inventory
+from serve.connectors_install import ConnectorInstallError
 
 
 class ConnectorError(ValueError):
@@ -21,12 +26,13 @@ class ConnectorError(ValueError):
 
 
 class ConnectorsApi:
-    def __init__(self, entries: Any, personal: Any, providers: Any = None, get: Any = None, reviewer: Optional[Callable[[], Any]] = None) -> None:
+    def __init__(self, entries: Any, personal: Any, providers: Any = None, get: Any = None, reviewer: Optional[Callable[[], Any]] = None, installer: Any = None) -> None:
         """`entries` returns the entries of the capability index, `personal` the personal skills (and the slugs switched off); both are called on every request. `providers` is the
         list the person set (tadamoo/connectors/providers.py) and `get` fetches an address: with them the "available" band is made from the enabled providers."""
         self._entries = entries
         self._personal = personal
         self.providers, self._get = providers, get
+        self.installer = installer                            # serve/connectors_install.py: installs and removes (None: the tab only looks)
         self.reviewer = reviewer                              # gives the model client for the review (None: the facts sheet only)
 
     def inventory(self, query: str = "") -> Inventory:
@@ -70,37 +76,108 @@ class ConnectorsApi:
         return {"counts": model.counts(inv), "installed": [inventory.describe(inv, i) for i in bands["installed"]],
                 "available": [inventory.describe(inv, i) for i in bands["available"]]}
 
-    def facts(self, item_id: str) -> Dict[str, Any]:
-        """The facts sheet and the excerpts a review reads, for an item a provider lists: a server of a registry or a skill in a folder. Nothing is downloaded or run."""
-        inv = self.inventory()
-        it = inv.items.get(item_id)
+    def _item(self, item_id: str, installed: bool = False) -> model.Item:
+        it = self.inventory().items.get(item_id)
         if it is None:
             raise ConnectorError("That item is not there any more: look again.", "gone")
-        if it.installed:
-            raise ConnectorError("Only an item that is not installed yet can be looked at here.", "installed")
-        if item_id.startswith("registry:") and self._get is not None:
-            name = item_id[len("registry:"):]
+        if it.installed != installed:
+            raise ConnectorError("Only an item that is not installed yet can be looked at or installed here." if not installed else "That item is not installed.", "installed")
+        return it
+
+    def _server(self, it: model.Item) -> Dict[str, Any]:
+        """The listing of a registry server, asked again by name."""
+        name = it.id[len("registry:"):]
+        try:
+            data = json.loads(self._get(it.source.rstrip("/") + "/v0/servers?limit=100&search=" + name.rsplit("/", 1)[-1]).decode("utf-8", "replace"))
+        except (ValueError, OSError):
+            raise ConnectorError("The registry did not answer.", "offline") from None
+        rows = [(r.get("server", r) if isinstance(r, dict) else {}) for r in (data.get("servers") if isinstance(data, dict) else None) or []]
+        server = next((s for s in rows if s.get("name") == name), None)
+        if server is None:
+            raise ConnectorError("The registry no longer lists this server.", "gone")
+        return server
+
+    @staticmethod
+    def _github_parts(it: model.Item) -> Dict[str, str]:
+        """`github:owner/repo:folder` and the source `github.com/owner/repo@pin`."""
+        _, _, rest = it.id.partition(":")
+        repo, _, folder = rest.partition(":")
+        pin = it.source.rpartition("@")[2] if "@" in it.source else ""
+        return {"repo": repo, "path": folder, "pin": pin, "name": it.name, "description": it.description}
+
+    @staticmethod
+    def _skill_excerpts(folder: Path) -> str:
+        parts: List[str] = []
+        for f in [folder / "SKILL.md"] + sorted(p for p in folder.rglob("*") if p.is_file() and p.suffix.lower() in (".py", ".js", ".sh", ".ps1", ".bat"))[:3]:
             try:
-                data = json.loads(self._get(it.source.rstrip("/") + "/v0/servers?limit=100&search=" + name.rsplit("/", 1)[-1]).decode("utf-8", "replace"))
-            except (ValueError, OSError):
-                raise ConnectorError("The registry did not answer.", "offline") from None
-            rows = [(r.get("server", r) if isinstance(r, dict) else {}) for r in (data.get("servers") if isinstance(data, dict) else None) or []]
-            server = next((s for s in rows if s.get("name") == name), None)
-            if server is None:
-                raise ConnectorError("The registry no longer lists this server.", "gone")
-            return {"sheet": facts.from_server(server), "excerpts": ""}
+                parts.append(f"--- {f.relative_to(folder).as_posix()}\n" + f.read_text(encoding="utf-8", errors="replace")[:1500])
+            except OSError:
+                continue
+        return "\n".join(parts)
+
+    def facts(self, item_id: str) -> Dict[str, Any]:
+        """The facts sheet and the excerpts a review reads, for an item a provider lists: a server of a registry, a skill in a folder or a skill in a GitHub repository. Nothing is run."""
+        it = self._item(item_id)
+        if item_id.startswith("registry:") and self._get is not None:
+            return {"sheet": facts.from_server(self._server(it)), "excerpts": ""}
         if item_id.startswith("folder:"):
             folder = Path(it.source) / item_id[len("folder:"):]
             if not folder.is_dir() or folder.resolve().parent != Path(it.source).resolve():
                 raise ConnectorError("That folder is not there any more.", "gone")
-            parts: List[str] = []
-            for f in [folder / "SKILL.md"] + sorted(p for p in folder.rglob("*") if p.is_file() and p.suffix.lower() in (".py", ".js", ".sh", ".ps1", ".bat"))[:3]:
+            return {"sheet": facts.from_skill(folder), "excerpts": self._skill_excerpts(folder)}
+        if item_id.startswith("github:") and self.installer is not None:
+            parts = self._github_parts(it)
+            with tempfile.TemporaryDirectory(prefix="tadamoo-skill-") as tmp:
                 try:
-                    parts.append(f"--- {f.relative_to(folder).as_posix()}\n" + f.read_text(encoding="utf-8", errors="replace")[:1500])
-                except OSError:
-                    continue
-            return {"sheet": facts.from_skill(folder), "excerpts": "\n".join(parts)}
+                    folder = self.installer.fetch_skill(parts["repo"], parts["path"], parts["pin"], Path(tmp))
+                except Exception as e:                         # a repository that does not answer is told, not raised
+                    raise ConnectorError(f"GitHub did not give the files: {str(e)[:160]}", "offline") from None
+                return {"sheet": facts.from_skill(folder), "excerpts": self._skill_excerpts(folder)}
         raise ConnectorError("This kind of item cannot be looked at yet.", "kind")
+
+    def install(self, item_id: str, flags: Dict[str, Any]) -> Dict[str, Any]:
+        """Installs an item a provider lists. The person's press of the button is the authorisation; `flags` may hold allow_scripts, anyway and update."""
+        if self.installer is None:
+            raise ConnectorError("Installing is not available here.", "none")
+        it = self._item(item_id)
+        known = {k: flags.get(k) is True for k in ("allow_scripts", "anyway", "update")}
+        try:
+            if item_id.startswith("registry:"):
+                record = self.installer.install("server", {"server": self._server(it)}, known)
+            elif item_id.startswith("folder:"):
+                folder = Path(it.source) / item_id[len("folder:"):]
+                if not folder.is_dir() or folder.resolve().parent != Path(it.source).resolve():
+                    raise ConnectorError("That folder is not there any more.", "gone")
+                record = self.installer.install("folder_skill", {"folder": str(folder)}, known)
+            elif item_id.startswith("github:"):
+                record = self.installer.install("github_skill", self._github_parts(it), known)
+            else:
+                raise ConnectorError("This kind of item cannot be installed yet.", "kind")
+        except ConnectorInstallError as e:
+            raise ConnectorError(str(e), e.code or "install") from None
+        return {"installed": record}
+
+    def uninstall(self, item_id: str) -> Dict[str, Any]:
+        """Removes what TaDaMoo installed (its folder and its record). Something that was not installed from here is left alone."""
+        if self.installer is None:
+            raise ConnectorError("Removing is not available here.", "none")
+        self._item(item_id, installed=True)
+        try:
+            gone = self.installer.uninstall(item_id)
+        except ConnectorInstallError as e:
+            raise ConnectorError(str(e), "uninstall") from None
+        if not gone:
+            raise ConnectorError("TaDaMoo did not install that one, so it is not removed from here.", "foreign")
+        return {"removed": item_id}
+
+    def folder_settings(self, req: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Where the downloaded originals are kept; with `originals_dir` in `req` it is changed."""
+        if self.installer is None:
+            raise ConnectorError("There is no folder for downloads here.", "none")
+        try:
+            return self.installer.settings.write(req["originals_dir"]) if req and "originals_dir" in req else self.installer.settings.read()
+        except ConnectorInstallError as e:
+            raise ConnectorError(str(e), e.code or "bad_folder") from None
 
     def review(self, item_id: str) -> Dict[str, Any]:
         """The facts sheet (counted by a program) and the review (advice from a model, kept nowhere)."""

@@ -51,3 +51,8 @@
 .cx-leafhead { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .cx-treebig .cx-leaf .btn { min-height: 44px; justify-self: start; }
 #cx-tree-open, #cx-tree-close { min-height: 44px; }
+
+.cx-install { display: grid; gap: 6px; margin-top: 6px; }
+.cx-install .btn, .cx-orig .btn, .cx-acts .btn { min-height: 44px; }
+.cx-orig { display: grid; gap: 6px; margin-top: 12px; }
+.cx-orig input { min-height: 44px; width: 100%; box-sizing: border-box; }

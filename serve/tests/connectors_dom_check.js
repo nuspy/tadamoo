@@ -6,6 +6,7 @@ const { spawn } = require("child_process"), fs = require("fs"), os = require("os
 const [URL, EXE, FOLDER] = process.argv.slice(2);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const get = async p => (await fetch(URL + p)).json();
+const until = async (fn, what) => { for (let i = 0; i < 80; i++) { if (await fn()) return; await new Promise(r => setTimeout(r, 250)); } throw new Error("never: " + what); };
 const post = async (p, body) => (await fetch(URL + p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
 const VIEWPORTS = [["phone 360x640", 360, 640, true], ["phone 390x844", 390, 844, true], ["desktop 1280x800", 1280, 800, false]];
 
@@ -102,14 +103,17 @@ async function main() {
       await check(`${vname}: the Providers sub-tab lists the providers, adds a folder, switches it off and removes it, as the server then holds`, async () => {
         await ev(`[...qa("#cx-subtabs button")].find(b => b.textContent === "Providers").click(); return 1;`);
         await waitFor(`qa("#cx-root .cx-item").length >= 0 && !!q("#cx-pr")`, "the providers form");
+        const OFFER = path.join(FOLDER, "..", "offered");
+        fs.mkdirSync(path.join(OFFER, "gamma-skill"), { recursive: true });
+        fs.writeFileSync(path.join(OFFER, "gamma-skill", "SKILL.md"), ["---", "name: gamma-skill", "description: Offered by the provider.", "---", "", "Do it.", ""].join("\n"));
         const rows = await get("api/connectors/providers");
         if (rows.providers.length !== 0) throw new Error("the test starts with no provider: " + JSON.stringify(rows.providers));
-        await ev(`const k = q("#cx-pk"); k.value = "folder"; const r = q("#cx-pr"); r.value = ${JSON.stringify(FOLDER)}; r.dispatchEvent(new Event("input", { bubbles: true })); q(".cx-provform button[type=submit]").click(); return 1;`);
+        await ev(`const k = q("#cx-pk"); k.value = "folder"; const r = q("#cx-pr"); r.value = ${JSON.stringify(OFFER)}; r.dispatchEvent(new Event("input", { bubbles: true })); q(".cx-provform button[type=submit]").click(); return 1;`);
         await waitFor(`qa("#cx-root .cx-item").length === 1`, "the new provider row");
         if ((await get("api/connectors/providers")).providers.length !== 1) throw new Error("the server did not keep the provider");
         await fits("providers tab");
         await ev(`[...qa("#cx-subtabs button")].find(b => b.textContent === "Skills").click(); return 1;`);
-        const offered = `qa("#cx-root .cx-item").find(li => li.querySelector(".cx-name").textContent === "alpha-skill" && li.querySelector(".cx-src").textContent === ${JSON.stringify(FOLDER)})`;
+        const offered = `qa("#cx-root .cx-item").find(li => li.querySelector(".cx-name").textContent === "gamma-skill" && li.querySelector(".cx-src").textContent === ${JSON.stringify(OFFER)})`;
         await waitFor(`!!${offered}`, "the skill the provider lists");
         await ev(`${offered}.querySelector(".cx-open").click(); return 1;`);
         await waitFor(`!!q("#cx-review-go")`, "the review button on an item that is not installed");
@@ -117,6 +121,21 @@ async function main() {
         await waitFor(`!!q("#cx-root .cx-facts") && !!q("#cx-root .cx-verdict")`, "the facts sheet and the verdict");
         if (!/only text for the model/.test(await ev(`return q("#cx-root .cx-review").textContent`))) throw new Error("the sheet does not say the skill is only text");
         await fits("review");
+        await waitFor(`!!q("#cx-install-go")`, "the install button after the review");
+        await ev(`q("#cx-install-go").click(); return 1;`);                                  // the first press only asks again
+        await waitFor(`q("#cx-install-go") && q("#cx-install-go").textContent.startsWith("Press again")`, "the second press asked for");
+        if ((await get("api/capabilities")).entries.some(e => e.origin === "tadamoo")) throw new Error("one press already installed it");
+        await ev(`q("#cx-install-go").click(); return 1;`);
+        await until(async () => (await get("api/capabilities")).entries.some(e => e.id === "skill:gamma-skill" && e.origin === "tadamoo"), "the skill installed by the tab");
+        await ev(`[...qa("#cx-subtabs button")].find(b => b.textContent === "Skills").click(); return 1;`);
+        await waitFor(`qa("#cx-root .cx-item").some(li => li.querySelector(".cx-src") && li.querySelector(".cx-src").textContent === "tadamoo")`, "the installed row");
+        await ev(`const b = qa('#cx-root [id^="cx-uninstall-"]')[0]; if (!b) throw new Error("no uninstall button"); b.click(); return 1;`);
+        await waitFor(`qa('#cx-root [id^="cx-uninstall-"]')[0].textContent.startsWith("Press again")`, "the uninstall asks again");
+        await ev(`qa('#cx-root [id^="cx-uninstall-"]')[0].click(); return 1;`);
+        await until(async () => !(await get("api/capabilities")).entries.some(e => e.origin === "tadamoo"), "the skill removed again");
+        await ev(`[...qa("#cx-subtabs button")].find(b => b.textContent === "Providers").click(); return 1;`);
+        await waitFor(`!!q("#cx-orig-dir")`, "the originals folder field");
+        await fits("providers with originals");
         await ev(`[...qa("#cx-subtabs button")].find(b => b.textContent === "Providers").click(); return 1;`);
         await waitFor(`!!q("#cx-pr")`, "the providers form again");
         await press2("Switch off");

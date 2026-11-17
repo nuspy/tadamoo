@@ -60,6 +60,7 @@ from serve.files_api import FilesApi, FilesError
 from serve.projects import ProjectStore
 from serve.remote import KEY_TTL_DAYS, MODE_ORDER, ApiKeys, Installer, RemoteAccess, tailscale_peers, tailscale_status, tailscale_up
 from serve.connectors_api import ConnectorError, ConnectorsApi
+from serve.connectors_install import ConnectorInstaller
 from tadamoo.connectors.providers import Providers
 from serve.personal_skills_api import PersonalSkillsApi
 from serve import import_api, register_api, skills_api
@@ -762,7 +763,7 @@ def make_handler(svc: Service, remote: bool = False):
             elif path in ("/api/capabilities", "/api/capabilities/review", "/api/capabilities/online", "/api/capabilities/requests"):
                 if self._authorized():
                     self._capabilities_get(path)
-            elif path in ("/api/connectors", "/api/connectors/item", "/api/connectors/providers"):
+            elif path in ("/api/connectors", "/api/connectors/item", "/api/connectors/providers", "/api/connectors/settings"):
                 if self._authorized():
                     self._connectors_get(path)
             elif path == "/api/netwatch" or path.startswith("/api/netwatch/"):
@@ -1068,7 +1069,7 @@ def make_handler(svc: Service, remote: bool = False):
             if path == "/api/attachments" or (path.startswith("/api/attachments/") and path.rsplit("/", 1)[-1] == "remove"):
                 self._attachments_post(path)
                 return
-            if path in ("/api/connectors/providers", "/api/connectors/review"):
+            if path in ("/api/connectors/providers", "/api/connectors/review", "/api/connectors/install", "/api/connectors/uninstall", "/api/connectors/settings"):
                 self._connectors_post(path)
                 return
             if path.startswith("/api/capabilities/"):
@@ -2411,6 +2412,8 @@ def make_handler(svc: Service, remote: bool = False):
             try:
                 if path == "/api/connectors/providers":
                     return self._json(200, api.provider_rows())
+                if path == "/api/connectors/settings":
+                    return self._json(200, api.folder_settings())
                 if path == "/api/connectors/item":
                     return self._json(200, api.item(one("id")))
                 return self._json(200, api.view(one("scope") or "all", one("kind"), one("state"), one("q")))
@@ -2434,7 +2437,8 @@ def make_handler(svc: Service, remote: bool = False):
                 from tadamoo import llm
                 from tadamoo.client import TadamooClient
                 return llm.client_for("technical", TadamooClient(base_url=f"http://127.0.0.1:{self.server.server_address[1]}", api_key=svc.api_key or None))
-            return ConnectorsApi(lambda: self._caps().overview()["entries"], lambda: (self._pskills().store.list(), ()), Providers(userdata.path("connectors") / "providers.json"), get, reviewer)
+            return ConnectorsApi(lambda: self._caps().overview()["entries"], lambda: (self._pskills().store.list(), ()), Providers(userdata.path("connectors") / "providers.json"), get, reviewer,
+                                ConnectorInstaller(self._caps(), userdata.path("connectors"), userdata.path("vault")))
 
         def _connectors_post(self, path="/api/connectors/providers"):
             if not settings.is_loopback(self.client_address[0]):
@@ -2450,6 +2454,12 @@ def make_handler(svc: Service, remote: bool = False):
                     raise ValueError("send a JSON object")
                 if path == "/api/connectors/review":
                     return self._json(200, self._connectors_api().review(str(req.get("id") or "")[:300]))
+                if path == "/api/connectors/install":
+                    return self._json(200, self._connectors_api().install(str(req.get("id") or "")[:300], req))
+                if path == "/api/connectors/uninstall":
+                    return self._json(200, self._connectors_api().uninstall(str(req.get("id") or "")[:300]))
+                if path == "/api/connectors/settings":
+                    return self._json(200, self._connectors_api().folder_settings(req))
                 return self._json(200, self._connectors_api().change_providers(req))
             except ConnectorError as e:
                 return self._json(400, {"error": {"type": "connectors", "message": str(e), "code": e.code}})

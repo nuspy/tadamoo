@@ -69,6 +69,42 @@ class Finder:
         self._github_left = 0
         self._github_stopped = ""
 
+    def _prepare(self) -> Dict[str, Any]:
+        cfg = self.settings.load()
+        bases = resolve_bases(cfg["base_urls"], self.bases)
+        self.registry = src.RegistryClient(self.http, bases["registry"])
+        self.npm = src.NpmClient(self.http, bases["npm"], bases["npm_downloads"])
+        self.pypi = src.PypiClient(self.http, bases["pypi"])
+        self.github = src.GithubClient(self.http, bases["github"], bases["github_raw"], self.token)
+        self._github_left, self._github_stopped = GITHUB_REPO_CAP, ""
+        return cfg
+
+    def candidate_for_server(self, server: Dict[str, Any]) -> Candidate:
+        """The candidate for one server a registry lists (its `server` object), enriched and scored like the ones a search makes. Raises ValueError, with the reason, when it cannot be installed."""
+        cfg = self._prepare()
+        on = {s for s, enabled in cfg["sources"].items() if enabled}
+        c = self._from_registry({"server": server}, keywords(str(server.get("name") or "")))
+        if c is None:
+            raise ValueError("the listing gives nothing TaDaMoo can install (no package it can run and no address it can sign in to)")
+        self._enrich(c, on, cfg, SearchResult())
+        if not c.installable or c.check():
+            raise ValueError(c.problem or c.check() or "it cannot be installed")
+        c.score = score(c.metrics, cfg["weights"], self.now())
+        return self.store.add(c)
+
+    def candidate_for_skill(self, repo: str, path: str, pin: str = "", name: str = "", description: str = "") -> Candidate:
+        """The candidate for a folder of a GitHub repository at a pinned branch or tag (the default branch when none): its commit is fixed now."""
+        cfg = self._prepare()
+        owner, _, project = repo.partition("/")
+        ref = pin or str(self.github.repo(owner, project).get("default_branch") or "HEAD")
+        commit = self.github.head_commit(owner, project, ref)
+        c = Candidate(kind="skill", name=slugify(name or path.rsplit("/", 1)[-1]), source="github", route="skill", repo=repo, path=path, commit=commit, version=commit[:10],
+                      description=description)
+        if bad := c.check():
+            raise ValueError(bad)
+        c.score = score(c.metrics, cfg["weights"], self.now())
+        return self.store.add(c)
+
     # -- the whole search -----------------------------------------------------------------------------------------
 
     def search(self, need: str) -> SearchResult:

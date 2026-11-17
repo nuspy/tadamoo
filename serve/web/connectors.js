@@ -6,7 +6,9 @@
   if (!root) return;
 
   const SUBTABS = ["skill", "mcp_server", "mcp_app", "plugin", "providers"];
-  const S = { sub: "skill", scope: "all", query: "", state: "", data: null, detail: "", tree: null, busy: false, off: null, reviews: {} };
+  const S = { sub: "skill", scope: "all", query: "", state: "", data: null, detail: "", tree: null, busy: false, off: null, reviews: {}, armed: "", installing: "", failed: {}, originals: null };
+  let armTimer = 0;
+  const ARM_MS = 4000;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick, tip) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; if (tip) b.title = tip; return b; };
   const errText = r => (r.data && r.data.error && r.data.error.message) || `HTTP ${r.status}`;
@@ -27,12 +29,32 @@
     const r = await api("GET", "api/connectors/providers");
     if (!r.ok) { say(errText(r), true); return; }
     S.providers = r.data; say(""); draw();
+    loadOriginals();
   }
   async function changeProviders(body) {
     const r = await api("POST", "api/connectors/providers", body);
     if (!r.ok) { say(errText(r), true); return; }
     S.providers = r.data; say(""); draw();
   }
+  /* where the downloaded originals are kept: the installed copy is the one that may be changed, the original stays as it came */
+  async function loadOriginals() {
+    const r = await api("GET", "api/connectors/settings");
+    if (r.ok) { S.originals = r.data; draw(); }
+  }
+  function originalsBlock() {
+    const box = el("section", "cx-orig"), input = el("input");
+    input.type = "text"; input.id = "cx-orig-dir"; input.maxLength = 500; input.autocomplete = "off"; input.spellcheck = false; input.value = S.originals ? S.originals.originals_dir : "";
+    const lab = el("label", "", T("cx.orig.title")); lab.htmlFor = "cx-orig-dir";
+    const save = btn(T("cx.orig.save"), "", async () => {
+      const r = await api("POST", "api/connectors/settings", { originals_dir: input.value.trim() });
+      if (r.ok) { S.originals = r.data; say(T("cx.orig.saved"), false); draw(); } else say(errText(r), true);
+    }, T("cx.orig.save.tip"));
+    save.id = "cx-orig-save";
+    const row = el("div", "cx-pf"); row.append(input, save);
+    box.append(lab, el("p", "help", T("cx.orig.help")), row);
+    return box;
+  }
+
   function providersView() {
     const host = document.createDocumentFragment(), d = S.providers;
     if (!d) return host;
@@ -56,6 +78,7 @@
     form.append(lab("cx-pk", "cx.prov.f.kind", kind), lab("cx-pr", "cx.prov.f.ref", ref), lab("cx-pt", "cx.prov.f.trust", trust), add);
     form.onsubmit = e => { e.preventDefault(); changeProviders({ action: "add", kind: kind.value, ref: ref.value, trust: trust.value }); };
     host.append(form, btn(T("cx.prov.reset"), "", () => changeProviders({ action: "reset" })));
+    host.append(originalsBlock());
     return host;
   }
 
@@ -136,6 +159,41 @@
     S.reviews[id] = r.ok ? r.data : { error: errText(r) };
     draw();
   }
+  /* installing and removing: the press of the button is the authorisation, and it takes two presses (the second says what will happen) */
+  function arm(key) { S.armed = key; clearTimeout(armTimer); armTimer = setTimeout(() => { S.armed = ""; draw(); }, ARM_MS); draw(); }
+  function twice(key, label, again, tip, run, id) {
+    const armed = S.armed === key;
+    const b = btn(armed ? again : label, armed ? "primary" : "", () => { if (armed) { S.armed = ""; run(); } else arm(key); }, tip);
+    if (id) b.id = id;
+    return b;
+  }
+  async function installItem(d, flags) {
+    S.installing = d.id; delete S.failed[d.id]; draw();
+    const r = await api("POST", "api/connectors/install", { id: d.id, ...(flags || {}) });
+    S.installing = "";
+    if (r.ok) { delete S.reviews[d.id]; S.detail = ""; S.tree = null; say(T("cx.done.installed", r.data.installed.name || d.name), false); await load(); return; }
+    S.failed[d.id] = { message: errText(r), code: (r.data && r.data.error && r.data.error.code) || "" };
+    draw();
+  }
+  async function uninstallItem(item) {
+    S.installing = item.id; draw();
+    const r = await api("POST", "api/connectors/uninstall", { id: item.id });
+    S.installing = "";
+    if (r.ok) { S.detail = ""; S.tree = null; say(T("cx.removed", item.name), false); await load(); return; }
+    say(errText(r), true); draw();
+  }
+  function installControls(d) {
+    const box = el("div", "cx-install"), bad = S.failed[d.id];
+    if (S.installing === d.id) { const p = el("p", "help", T("cx.installing")); p.setAttribute("role", "status"); box.append(p); return box; }
+    if (bad) {
+      const p = el("p", "cx-why", bad.message); p.setAttribute("role", "alert"); box.append(p);
+      if (bad.code === "installed") box.append(btn(T("cx.update"), "", () => installItem(d, { update: true }), T("cx.update.tip")));
+      if (bad.code === "integrity") box.append(btn(T("cx.anyway"), "", () => installItem(d, { anyway: true }), T("cx.anyway.tip")));
+      return box;
+    }
+    box.append(twice("i" + d.id, T("cx.install"), T("cx.install.again"), T("cx.install.tip"), () => installItem(d, {}), "cx-install-go"));
+    return box;
+  }
   const factLine = (label, values) => { const items = (values || []).filter(Boolean); return items.length ? el("li", "", `${label}: ${items.join(", ")}`) : null; };
   function reviewBlock(d) {
     const box = el("section", "cx-review"), got = S.reviews[d.id];
@@ -159,6 +217,7 @@
     box.append(verdict);
     if (rv.risks && rv.risks.length) { const r = el("ul", "cx-facts"); rv.risks.forEach(x => r.append(el("li", "", x))); box.append(r); }
     box.append(el("p", "help", T("cx.review.warn")));
+    box.append(installControls(d));
     return box;
   }
 
@@ -175,6 +234,9 @@
       const on = item.state !== "disabled";
       acts.append(btn(on ? T("cx.disable") : T("cx.enable"), "", () => setEnabled(item, !on), on ? T("cx.disable.tip") : T("cx.enable.tip")));
     }
+    if (item.installed && item.source === "tadamoo") {                           // what TaDaMoo installed from here can be removed from here
+      acts.append(S.installing === item.id ? el("span", "help", T("cx.installing")) : twice("u" + item.id, T("cx.uninstall"), T("cx.uninstall.again"), T("cx.uninstall.tip"), () => uninstallItem(item), "cx-uninstall-" + item.id.replace(/[^a-z0-9]+/gi, "-")));
+    }
     if (acts.childNodes.length) li.append(acts);
     if (S.detail === item.id && S.tree) li.append(detail(S.tree));
     return li;
@@ -185,7 +247,7 @@
     box.append(el("p", "cx-desc", d.description || T("cx.nodesc")));
     if (d.keywords.length) box.append(el("p", "help", T("cx.keywords", d.keywords.join(", "))));
     if (d.why) box.append(el("p", "cx-why", d.why));
-    if (!d.installed && /^(registry|folder):/.test(d.id)) box.append(reviewBlock(d));
+    if (!d.installed && /^(registry|folder|github):/.test(d.id)) box.append(reviewBlock(d));
     if (d.used_by.length) box.append(el("p", "help", T("cx.usedby", d.used_by.join(", "))));
     if (d.tree && d.tree.length) {
       box.append(el("p", "cx-treeh", T("cx.tree")));
