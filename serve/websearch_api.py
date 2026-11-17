@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from tadamoo import websearch as ws
+from tadamoo import websearch_custom as wc
 from tadamoo import websearch_runtime as rt
 
 JOB_KEEP = 8
@@ -31,13 +32,14 @@ class WebSearchError(ValueError):
 class WebSearchApi:
     def __init__(self, prefs: Optional[ws.Prefs] = None, keys: Optional[ws.Keys] = None, *, base_dir: Optional[Path] = None,
                  runtime: Optional[rt.Runtime] = None, packages: Optional[rt.Packages] = None, up: Callable[[str], bool] = ws.local_up,
-                 browser: Callable[[str], str] = rt.browser_channel) -> None:
+                 browser: Callable[[str], str] = rt.browser_channel, custom: Optional[wc.Store] = None) -> None:
         self.prefs = prefs or ws.Prefs()
         self.keys = keys or ws.Keys()
         self.base = Path(base_dir) if base_dir else ws.user_dir() / "websearch"
         self.runtime = runtime or rt.Runtime(self.base)
         self.packages = packages or rt.Packages(self.base, self.runtime)
         self._up, self._browser = up, browser
+        self.custom = custom or wc.Store(self.base / wc.FILE)
         self._jobs: Dict[str, Dict[str, Any]] = {}
         self._lock = threading.Lock()
 
@@ -82,6 +84,29 @@ class WebSearchApi:
         if "reader" in changes:
             ws.close_readers()
         return self.overview()
+
+    # -- the person's own search engines and page directories, used automatically in every search --------------
+
+    def custom_lists(self) -> Dict[str, Any]:
+        return {kind: [vars(s) for s in rows] for kind, rows in self.custom.list_all().items()}
+
+    def custom_add(self, kind: Any, name: Any, url: Any) -> Dict[str, Any]:
+        try:
+            return {kind: [vars(s) for s in self.custom.add(str(kind), str(name or ""), str(url or ""))]}
+        except wc.CustomSearchError as exc:
+            raise WebSearchError(str(exc)) from None
+
+    def custom_toggle(self, kind: Any, name: Any, enabled: Any) -> Dict[str, Any]:
+        try:
+            return {kind: [vars(s) for s in self.custom.set_enabled(str(kind), str(name or ""), bool(enabled))]}
+        except wc.CustomSearchError as exc:
+            raise WebSearchError(str(exc)) from None
+
+    def custom_remove(self, kind: Any, name: Any) -> Dict[str, Any]:
+        try:
+            return {kind: [vars(s) for s in self.custom.remove(str(kind), str(name or ""))]}
+        except wc.CustomSearchError as exc:
+            raise WebSearchError(str(exc)) from None
 
     def set_key(self, provider: Any, key: Any) -> Dict[str, Any]:
         try:

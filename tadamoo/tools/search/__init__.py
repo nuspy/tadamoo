@@ -262,6 +262,31 @@ def duckduckgo_search(query: str, limit: int = 5, base: str = "", allow_private:
     return out
 
 
+MAX_CUSTOM_HITS = 20
+
+
+def _custom_hits(query: str) -> List[Dict[str, Any]]:
+    """The person's own search engines and page directories (Settings > Web search): asked on every search, automatically, alongside the chosen
+    provider. A source that fails is skipped; nothing here stops the normal results. Each hit is marked untrusted, like any other."""
+    from tadamoo import websearch_custom as wc
+    store = wc.shared()
+    out: List[Dict[str, Any]] = []
+    for kind in wc.KINDS:
+        sources = [s for s in store.list(kind) if s.enabled]
+        if not sources:
+            continue
+        for found in wc.search_many(sources, query, lambda u: _fetch_for_custom(u)):
+            tag = f"custom:{kind[:-1]}:{found['name']}"            # "custom:engine:<name>" / "custom:directory:<name>"
+            for h in found.get("hits") or []:
+                out.append({"title": h["title"], "url": h["url"], "snippet": "", "source": tag, "untrusted": True})
+    return out[:MAX_CUSTOM_HITS]
+
+
+def _fetch_for_custom(url: str) -> Tuple[int, str, bytes]:
+    page = fetch_page(url)
+    return page["status"], page["content_type"], page["text"].encode("utf-8", "replace")
+
+
 def offer_search(registry: Any, secrets: Any = None, hub: Any = None, environ: Optional[Mapping[str, str]] = None) -> List[str]:
     """Registers `search_web` when a backend exists and returns the providers it can use; with none, the model is not told of it."""
     from tadamoo.tools.registry import EffectClass
@@ -303,9 +328,12 @@ def offer_search(registry: Any, secrets: Any = None, hub: Any = None, environ: O
                 raise ProviderUnavailable(f"{now} is the search provider chosen in Settings > Web search, but it is not ready: a key or an address is missing, "
                                           "or its program is not installed. Tell the person; do not search elsewhere unless they say so")
         try:
-            return search_web(query, provider or default, limit, backends=backends)
+            out = search_web(query, provider or default, limit, backends=backends)
         except websearch.SearchError as exc:
             raise ProviderUnavailable(f"{provider or default}: {exc}") from None
+        if environ is None:
+            out += _custom_hits(query)
+        return out
 
     registry.register(
         name="search_web",

@@ -24,6 +24,8 @@
   let S = null, loadFailed = "", timer = 0, armTimer = 0;
   const state = {};                                   // per provider: the plan shown, the install job, the last test, the line under the card
   const st = pid => state[pid] || (state[pid] = { plan: null, planErr: "", showing: false, job: null, test: null, testing: false, msg: "", bad: false, armed: false, busy: false });
+  let custom = { engines: [], directories: [] };
+  const cst = { editing: "", armed: "", note: "", bad: false };     // "<kind>:<name>" being edited or armed to remove
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   function icon(name) {
@@ -59,8 +61,9 @@
 
   /* ---- loading and drawing ---- */
   async function refresh(quiet) {
-    const r = await api("GET", "api/websearch");
+    const [r, rc] = await Promise.all([api("GET", "api/websearch"), api("GET", "api/websearch/custom")]);
     if (r.ok) { S = r.data; loadFailed = ""; } else loadFailed = errText(r);
+    if (rc.ok) custom = rc.data;
     if (!quiet) paint();
     return r.ok;
   }
@@ -110,6 +113,56 @@
     }
     return box;
   }
+  /* ---- the person's own search engines and page directories: add, edit, switch on/off, remove; used on every search automatically ---- */
+  async function customCall(path, body) {
+    const r = await api("POST", "api/websearch/custom/" + path, body);
+    if (r.ok) { custom = { ...custom, ...r.data }; cst.note = T("ws.custom.saved"); cst.bad = false; }
+    else { cst.note = errText(r); cst.bad = true; }
+    paint();
+  }
+  function customEntry(kind, entry) {
+    const key = kind + ":" + entry.name, li = el("li", "ws-custom-row");
+    if (cst.editing === key) {
+      const form = el("form", "ws-custom-edit"), name = el("input"), url = el("input");
+      name.value = entry.name; name.maxLength = 80; name.required = true; name.setAttribute("aria-label", T("ws.custom.name"));
+      url.value = entry.url; url.maxLength = 500; url.required = true; url.type = "url"; url.setAttribute("aria-label", T("ws.custom.url"));
+      form.append(name, url, btn(T("ws.custom.save"), "primary", () => {}), btn(T("ws.custom.cancel"), "ghost", () => { cst.editing = ""; paint(); }));
+      form.querySelector(".primary").type = "submit";
+      form.onsubmit = e => { e.preventDefault(); cst.editing = ""; customCall("add", { kind, name: name.value, url: url.value }).then(() => { if (name.value.toLowerCase() !== entry.name.toLowerCase()) customCall("remove", { kind, name: entry.name }); }); };
+      li.append(form);
+      return li;
+    }
+    const box = el("div", "ws-custom-line"), c = el("input"), lab = el("label", "", entry.name);
+    c.type = "checkbox"; c.checked = entry.enabled; c.id = "ws-c-" + kind + "-" + entry.name; lab.htmlFor = c.id;
+    c.onchange = () => customCall("toggle", { kind, name: entry.name, enabled: c.checked });
+    const url = el("span", "ws-custom-url", entry.url);
+    const bar = el("div", "ws-custom-bar");
+    bar.append(btn(T("ws.custom.edit"), "", () => { cst.editing = key; paint(); }));
+    const armKey = key, rm = btn(cst.armed === armKey ? T("ws.custom.remove.sure") : T("ws.custom.remove"), "ghost" + (cst.armed === armKey ? " ws-armed" : ""), () => {
+      if (cst.armed !== armKey) { cst.armed = armKey; clearTimeout(armTimer); armTimer = setTimeout(() => { cst.armed = ""; paint(); }, ARM_MS); paint(); return; }
+      cst.armed = ""; customCall("remove", { kind, name: entry.name });
+    });
+    bar.append(rm);
+    box.append(c, lab, url, bar);
+    li.append(box);
+    return li;
+  }
+  function customForm(kind) {
+    const form = el("form", "ws-custom-add"), name = el("input"), url = el("input");
+    name.placeholder = T("ws.custom.name"); name.maxLength = 80; name.setAttribute("aria-label", T("ws.custom.name"));
+    url.placeholder = "https://example.com/search?q={query}"; url.maxLength = 500; url.setAttribute("aria-label", T("ws.custom.url"));
+    form.append(name, url, btn(T("ws.custom.add"), "primary", () => {}));
+    form.querySelector(".primary").type = "submit";
+    form.onsubmit = e => { e.preventDefault(); if (!name.value.trim() || !url.value.trim()) return; customCall("add", { kind, name: name.value, url: url.value }).then(() => { name.value = ""; url.value = ""; }); };
+    return form;
+  }
+  function customList(kind) {
+    const box = el("div", "ws-custom"), rows = custom[kind] || [];
+    box.append(el("h4", "", T("ws.custom." + kind)), el("p", "help", T("ws.custom." + kind + ".help")));
+    if (rows.length) { const ul = el("ul", "ws-custom-list"); rows.forEach(e => ul.append(customEntry(kind, e))); box.append(ul); }
+    box.append(customForm(kind));
+    return box;
+  }
   function globalBox() {
     const box = el("div", "ws-global"), now = S.providers.find(p => p.search), rd = S.providers.find(p => p.reader);
     const line = el("p", "ws-now");
@@ -118,6 +171,8 @@
     const set = el("fieldset", "ws-reader"), lg = el("legend", "", T("ws.reader.label"));
     set.append(lg, radio("ws-reader", "ws-reader-none", T("ws.reader.none"), S.reader === "none", () => change({ reader: "none" })), el("p", "help", T("ws.reader.help")));
     box.append(set);
+    box.append(customList("engines"), customList("directories"));
+    if (cst.note) { const n = el("p", "ws-note", cst.note); n.dataset.bad = cst.bad ? "1" : ""; n.setAttribute("role", cst.bad ? "alert" : "status"); box.append(n); }
     const note = el("p", "ws-note"); note.id = "ws-gnote"; note.hidden = true; note.setAttribute("role", "status");
     box.append(note);
     return box;

@@ -209,6 +209,61 @@ def test_uninstall_removes_the_package_and_stops_the_servers_and_refuses_what_it
             api.uninstall(pid)
 
 
+# -- the person's own search engines and page directories -------------------------------------------------------------
+
+
+def test_the_two_lists_start_empty_are_kept_apart_and_need_a_query_placeholder(api):
+    assert api.custom_lists() == {"engines": [], "directories": []}
+    for bad in (("engines", "", "https://e.example/?q={query}"), ("engines", "x", "https://e.example/?q=fixed")):
+        with pytest.raises(WebSearchError):
+            api.custom_add(*bad)
+    with pytest.raises(WebSearchError):
+        api.custom_add("other", "x", "https://e.example/?q={query}")
+    got = api.custom_add("engines", "MyEngine", "https://e.example/s?q={query}")
+    assert got == {"engines": [{"name": "MyEngine", "url": "https://e.example/s?q={query}", "enabled": True}]}
+    assert api.custom_lists()["directories"] == []                              # the other list is untouched
+
+
+def test_an_entry_can_be_switched_off_and_removed_with_a_second_call(api):
+    api.custom_add("directories", "ADir", "https://d.example/s?q={query}")
+    got = api.custom_toggle("directories", "adir", False)                       # case does not matter
+    assert got["directories"][0]["enabled"] is False
+    with pytest.raises(WebSearchError):
+        api.custom_toggle("directories", "nope", True)
+    assert api.custom_remove("directories", "ADIR")["directories"] == []
+    with pytest.raises(WebSearchError):
+        api.custom_remove("directories", "ADir")
+
+
+def test_custom_sources_are_asked_automatically_on_every_search_alongside_the_chosen_provider(tmp_path, monkeypatch):
+    from tadamoo.tools import search as st
+    from tadamoo.tools.registry import ToolRegistry
+    from tadamoo import websearch_custom as wc
+    monkeypatch.setattr(wc, "shared", lambda: wc.Store(tmp_path / "custom.json"))
+    wc.shared().add("engines", "MyEngine", "https://e.example/s?q={query}")
+    monkeypatch.setattr(st, "fetch_page", lambda url, *a, **k: {"status": 200, "content_type": "text/html", "text": '<a href="https://e.example/r/1">A custom hit</a>'})
+    reg = ToolRegistry()
+    st.offer_search(reg, environ=None)
+    out = reg.execute("search_web", {"query": "wind"})
+    tags = [h["source"] for h in out]
+    assert any(t == "custom:engine:MyEngine" for t in tags)
+    assert any(h["title"] == "A custom hit" and h["untrusted"] for h in out if h["source"] == "custom:engine:MyEngine")
+
+
+def test_a_disabled_source_is_skipped(tmp_path, monkeypatch):
+    from tadamoo.tools import search as st
+    from tadamoo.tools.registry import ToolRegistry
+    from tadamoo import websearch_custom as wc
+    monkeypatch.setattr(wc, "shared", lambda: wc.Store(tmp_path / "custom.json"))
+    store = wc.shared()
+    store.add("engines", "Off", "https://off.example/s?q={query}")
+    store.set_enabled("engines", "Off", False)
+    reg = ToolRegistry()
+    st.offer_search(reg, environ=None)
+    out = reg.execute("search_web", {"query": "wind"})
+    assert not any(h.get("source", "").startswith("custom:") for h in out)
+
+
 # -- the routes -------------------------------------------------------------------------------------------------------
 
 

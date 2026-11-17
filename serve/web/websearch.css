@@ -66,3 +66,14 @@
 @media (min-width: 640px) { .ws-gw { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .ws-card, .ws-global { padding: 12px; } .ws-form .btn, .ws-bar .btn, .ws-testrow .btn { flex: 1 1 100%; } .ws-field { max-width: none; flex-basis: 100%; } }
 @media (prefers-reduced-motion: reduce) { .ws-root *, .ws-root *::before, .ws-root *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+.ws-custom { display: grid; gap: 8px; padding: 10px 0; border-top: 1px solid var(--line-soft); }
+.ws-custom h4 { margin: 0; font: 600 14px/1.3 var(--font-sans); color: var(--fg); }
+.ws-custom-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.ws-custom-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.ws-custom-line input[type="checkbox"] { width: 20px; height: 20px; flex: none; }
+.ws-custom-url { color: var(--fg-2); overflow-wrap: anywhere; flex: 1 1 160px; min-width: 0; }
+.ws-custom-bar { display: flex; gap: 8px; flex: none; }
+.ws-custom-bar .btn { min-height: 44px; }
+.ws-custom-add, .ws-custom-edit { display: flex; flex-wrap: wrap; gap: 8px; }
+.ws-custom-add input, .ws-custom-edit input { min-height: 44px; flex: 1 1 160px; min-width: 0; box-sizing: border-box; font: 16px/1.4 var(--font-sans); padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+.ws-custom-add .btn, .ws-custom-edit .btn { min-height: 44px; }

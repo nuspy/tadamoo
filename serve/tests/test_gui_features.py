@@ -39,6 +39,7 @@ FEATURES = [
     ("Settings: skills, memories, personalities, phones, network, benchmarks", "Settings", "index.html", 'data-sub="skills"'),
     ("Plans and routines", "Plans, Cron Jobs", "index.html", 'id="view-plans"'),
     ("Models: loader, converter, voice services", "Models", "index.html", 'id="view-loader"'),
+    ("Web search: custom search engines and page directories (add, edit, switch, remove)", "Settings > Web search", "websearch.js", "api/websearch/custom"),
 ]
 
 

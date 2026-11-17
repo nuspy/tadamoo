@@ -23,7 +23,8 @@ class WebSearchPageTest(unittest.TestCase):
 
     def test_every_route_of_the_server_is_used_and_the_data_loads_when_the_tab_is_shown(self):
         for route in ('"api/websearch"', '"api/websearch/select"', '"api/websearch/key"', '"api/websearch/test"', 'api/websearch/plan?provider=',
-                      '"api/websearch/install"', 'api/websearch/job?id=', '"api/websearch/stop"', '"api/websearch/uninstall"'):
+                      '"api/websearch/install"', 'api/websearch/job?id=', '"api/websearch/stop"', '"api/websearch/uninstall"',
+                      '"api/websearch/custom"', '"api/websearch/custom/" + path'):
             self.assertIn(route, JS)
         self.assertIn('"tadamoo:sub"', JS)
         self.assertIn('e.detail !== "websearch"', JS)
@@ -109,6 +110,11 @@ class WebSearchPageTest(unittest.TestCase):
         for key in ("ws.cloud.signup", "ws.cloud.instances", "ws.steps.show", "ws.steps.hide", "ws.remove", "ws.remove.sure", "ws.test", "ws.test.running",
                     "ws.what.results", "ws.what.characters", "ws.key.saved", "ws.key.removed", "ws.good", "ws.weak"):
             keys.add(key)
+        for kind in ("engines", "directories"):
+            keys |= {f"ws.custom.{kind}", f"ws.custom.{kind}.help"}
+        for key in ("ws.custom.name", "ws.custom.url", "ws.custom.add", "ws.custom.edit", "ws.custom.save", "ws.custom.cancel",
+                    "ws.custom.remove", "ws.custom.remove.sure", "ws.custom.saved"):
+            keys.add(key)
         self.assertGreater(len(keys), 90)
         for key in keys:
             self.assertEqual(I18N.count(f'"{key}":'), 2, key)
@@ -130,6 +136,18 @@ class WebSearchPageTest(unittest.TestCase):
         self.assertNotRegex(CSS, r"overflow-x:\s*(auto|scroll)")
         self.assertRegex(CSS, r"@media \(min-width: 640px\) \{ \.ws-gw")              # good and weak side by side only on wide screens
         self.assertNotIn("max-width: 360px", CSS)
+
+    def test_the_two_custom_lists_are_global_add_edit_toggle_and_remove_with_a_second_press(self):
+        self.assertIn('customList("engines")', JS)
+        self.assertIn('customList("directories")', JS)
+        self.assertIn('c.type = "checkbox"', JS)
+        self.assertIn('"api/websearch/custom/" + path', JS)
+        self.assertIn('customCall("add"', JS)
+        self.assertIn('customCall("toggle"', JS)
+        self.assertIn('customCall("remove"', JS)
+        self.assertIn("cst.editing = key", JS)
+        self.assertIn("cst.armed !== armKey", JS)                                                      # a second press removes
+        self.assertIn('{query}', JS)
 
     def test_state_is_never_shown_by_colour_alone(self):
         self.assertIn('icon(c.key_set ? "ok" : "none")', JS)

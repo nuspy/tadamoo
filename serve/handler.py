@@ -831,7 +831,7 @@ def make_handler(svc: Service, remote: bool = False):
                     if not settings.is_loopback(self.client_address[0]):
                         return self._json(403, {"error": {"type": "forbidden", "message": "the Telegram settings are shown only on the PC the server runs on"}})
                     self._json(200, self._telegram().overview())
-            elif path in ("/api/websearch", "/api/websearch/plan", "/api/websearch/job"):
+            elif path in ("/api/websearch", "/api/websearch/plan", "/api/websearch/job", "/api/websearch/custom"):
                 if self._authorized():
                     if not settings.is_loopback(self.client_address[0]):
                         return self._json(403, {"error": {"type": "forbidden", "message": "the web search settings are shown only on the PC the server runs on"}})
@@ -839,7 +839,7 @@ def make_handler(svc: Service, remote: bool = False):
                     try:
                         api = self._websearch()
                         self._json(200, api.overview() if path == "/api/websearch" else api.plan((query.get("provider") or [""])[0]) if path == "/api/websearch/plan"
-                                   else api.job((query.get("id") or [""])[0]))
+                                   else api.custom_lists() if path == "/api/websearch/custom" else api.job((query.get("id") or [""])[0]))
                     except WebSearchError as e:
                         self._json(404 if e.code == "not_found" else 400, {"error": {"type": "websearch", "code": e.code, "message": str(e)}})
             elif path == "/api/personas" or path.startswith("/api/personas/"):
@@ -3119,6 +3119,12 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, api.stop(req.get("provider")))
                 if action == "uninstall":
                     return self._json(200, api.uninstall(req.get("provider")))
+                if action == "custom/add":
+                    return self._json(200, api.custom_add(req.get("kind"), req.get("name"), req.get("url")))
+                if action == "custom/toggle":
+                    return self._json(200, api.custom_toggle(req.get("kind"), req.get("name"), req.get("enabled")))
+                if action == "custom/remove":
+                    return self._json(200, api.custom_remove(req.get("kind"), req.get("name")))
                 return self._json(404, {"error": {"message": "not found"}})
             except WebSearchError as e:
                 return self._json(400, {"error": {"type": "websearch", "code": e.code, "message": str(e)}})
