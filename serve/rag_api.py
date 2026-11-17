@@ -4,6 +4,7 @@ Only the server's own page reaches it (this PC): the archives hold the person's 
 belongs to a project (a workspace folder, or the Chat's own folder), named by its key (tadamoo/rag/project.py)."""
 from __future__ import annotations
 
+import base64
 import importlib.util
 import json
 from collections import Counter
@@ -263,9 +264,43 @@ class RagApi:
             return self.enrichment(parts[1])
         if len(parts) == 4 and parts[0] == "archives" and parts[2] == "sections":
             return self.section(parts[1], parts[3])
+        if len(parts) == 5 and parts[0] == "archives" and parts[2] == "documents" and parts[4] == "figures":
+            return self.figures(parts[1], parts[3], query or {})
+        if len(parts) == 6 and parts[0] == "archives" and parts[2] == "documents" and parts[4] == "figures":
+            return self.figure(parts[1], parts[3], int(parts[5]) if parts[5].isdigit() else -1)
         if len(parts) == 2 and parts[0] == "archives":
             return self.get(parts[1])
         raise RagError("not found", "not_found")
+
+    FIGURES_PAGE = 40
+
+    @staticmethod
+    def _data_url(raw: bytes) -> str:
+        return "data:image/webp;base64," + base64.b64encode(raw).decode("ascii")
+
+    def figures(self, aid: str, doc: str, query: Dict[str, List[str]]) -> Dict[str, Any]:
+        """The figures of a document with their thumbnails (`offset`, `limit` in the query; at most FIGURES_PAGE at a time). Captions and descriptions come from the document: data."""
+        def number(name: str, default: int, top: int) -> int:
+            raw = (query.get(name) or [""])[0]
+            return min(max(int(raw), 0), top) if raw.isdigit() else default
+        rows = sorted((c for c in self.store.load(aid).chunks if c["doc"] == doc and c.get("kind") == "figure"), key=lambda c: int(c.get("fig") or 0))
+        offset, limit = number("offset", 0, len(rows)), max(1, number("limit", self.FIGURES_PAGE, self.FIGURES_PAGE))
+        out = []
+        for c in rows[offset:offset + limit]:
+            got = self.store.figure(aid, doc, int(c["fig"]))
+            out.append({"n": int(c["fig"]), "label": c.get("figure", ""), "caption": c.get("caption", ""), "page": int(c.get("page_start") or 0), "section": c.get("path", ""),
+                        "summary": c.get("summary", ""), "thumb": self._data_url(got["thumb"])})
+        return {"total": len(rows), "offset": offset, "figures": out}
+
+    def figure(self, aid: str, doc: str, n: int) -> Dict[str, Any]:
+        """One figure whole: the image and everything kept with it (caption, description, words read inside it, sentences that name it, where it came from)."""
+        got = self.store.figure(aid, doc, n)
+        row = got["passage"]
+        rec = next((r for r in self.store._backend(aid).read_figures(aid, doc) if r.get("n") == n), {})
+        return {"n": n, "label": row.get("figure", ""), "caption": row.get("caption", ""), "alt": rec.get("alt", ""), "source": rec.get("source", ""), "url": rec.get("url", ""),
+                "page": int(row.get("page_start") or 0), "section": row.get("path", ""), "summary": row.get("summary", ""), "questions": row.get("questions") or [],
+                "ocr": rec.get("ocr", ""), "refs": rec.get("refs") or [], "width": rec.get("width", 0), "height": rec.get("height", 0), "document": got["document"],
+                "archive": got["archive"], "image": self._data_url(got["image"])}
 
     def route_post(self, parts: Sequence[str], query: Dict[str, List[str]], raw: bytes) -> Dict[str, Any]:
         """POST under /api/rag. `raw` is the body: JSON, except for `archives/<id>/upload`, where it is the file and `?name=` its name."""

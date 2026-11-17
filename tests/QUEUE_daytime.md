@@ -412,3 +412,8 @@ Portafoglio > vault > «Importa da Google Authenticator» (PC), e Impostazioni d
 2. Anteprima: i siti proposti (Google, GitHub…) si possono correggere; un account senza siti non viene tenuto; un account HOTP è segnalato; «tienilo in» un accesso già presente aggiunge il segreto senza toccare la password.
 3. Telefono: Impostazioni > Importa da Google Authenticator: inquadra i QR; sul PC compare «Il telefono ha consegnato…» entro pochi secondi e il bottone «Usa quello che il telefono ha scansionato»; dopo 10 minuti senza conferma la consegna sparisce. Il vault non cambia finché non confermi sul PC.
 4. Vero uso: una voce importata dà il codice a un sito vero che lo chiede (codice accettato, solo sul sito indicato); nel contesto compare solo la voce «Codici a due passaggi» e le istruzioni arrivano quando il modello le carica.
+
+## Figure dei documenti nella scheda Knowledge (17 novembre sera)
+
+- Aggiungi a un archivio un Word con immagini e una pagina web con immagini; nella lista dei documenti compare «Figure (N)»: la griglia di anteprime si apre, «Mostra altre» carica le successive, un clic apre la finestra con l'immagine intera, la didascalia, la descrizione, le parole lette, le frasi che la nominano e la provenienza; «Chiudi» la toglie. Da provare a 360x640, 390x844 e 1280 e in italiano e in inglese.
+- Cosa verificare: nessuno scroll orizzontale, bersagli da almeno 44 px, immagini che si caricano solo aprendo il documento.

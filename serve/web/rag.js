@@ -328,6 +328,49 @@
     form.onsubmit = e => { e.preventDefault(); save({ name: name.value, description: desc.value, cloud_ok: cloud.checked, others_ok: others.value }); };
     return form;
   }
+  /* the figures of a document: a button, a grid of thumbnails, and a dialog with the whole picture and everything kept with it. Every text comes from the document: it enters as text. */
+  const figs = {};                                                     // document id -> { open, total, list, busy }
+  async function loadFigures(a, d, more) {
+    const f = figs[d.id] = figs[d.id] || { open: false, total: 0, list: [], busy: false };
+    f.busy = true; paint();
+    const r = await api("GET", `api/rag/archives/${encodeURIComponent(a.id)}/documents/${encodeURIComponent(d.id)}/figures?offset=${more ? f.list.length : 0}`);
+    f.busy = false;
+    if (r.ok) { f.total = r.data.total; f.list = more ? f.list.concat(r.data.figures) : r.data.figures; } else say(why(r), true);
+    paint();
+  }
+  async function showFigure(a, d, n) {
+    const r = await api("GET", `api/rag/archives/${encodeURIComponent(a.id)}/documents/${encodeURIComponent(d.id)}/figures/${n}`);
+    if (!r.ok) { say(why(r), true); paint(); return; }
+    const g = r.data, dlg = el("dialog", "rg-figdlg"), body = el("div", "rg-figbody");
+    dlg.setAttribute("aria-label", g.label || T("rg.fig.one"));
+    const img = el("img", "rg-figimg"); img.src = g.image; img.alt = g.alt || g.caption || g.label || "";
+    const info = el("div", "rg-figinfo");
+    info.append(el("h4", "rg-h2", [g.label || T("rg.fig.one"), g.page ? T("rg.fig.page", g.page) : ""].filter(Boolean).join(" · ")));
+    [["", g.caption], ["rg.fig.alt", g.alt], ["rg.fig.summary", g.summary], ["rg.fig.ocr", g.ocr]].forEach(([key, text]) => { if (text) { const p = el("p", "rg-dmeta"); p.append(key ? el("b", "", T(key) + " ") : "", text); info.append(p); } });
+    if ((g.refs || []).length) { info.append(el("p", "rg-dmeta", T("rg.fig.refs"))); const ul = el("ul", "rg-figrefs"); g.refs.forEach(t => ul.append(el("li", "", t))); info.append(ul); }
+    info.append(el("p", "rg-dmeta", T("rg.fig.from", g.document, g.section || "-", g.source || "pdf") + (g.url ? " · " + g.url : "")));
+    const close = btn(T("rg.fig.close"), "primary", () => { dlg.close(); dlg.remove(); });
+    dlg.onclose = () => dlg.remove();
+    body.append(img, info); dlg.append(body, close);
+    document.body.append(dlg); dlg.showModal();
+  }
+  function figuresBlock(a, d) {
+    const f = figs[d.id], box = el("div", "rg-figs");
+    if (!f || !f.open) return null;
+    if (!f.list.length && f.busy) { box.append(el("p", "rg-help", T("rg.fig.loading"))); return box; }
+    const grid = el("div", "rg-figgrid");
+    f.list.forEach(g => {
+      const b = el("button", "rg-figthumb"); b.type = "button";
+      const im = el("img"); im.src = g.thumb; im.alt = ""; im.loading = "lazy";
+      b.setAttribute("aria-label", [g.label || T("rg.fig.one"), g.caption].filter(Boolean).join(": "));
+      b.append(im, el("span", "rg-figlabel", g.label || String(g.n)));
+      b.onclick = () => showFigure(a, d, g.n);
+      grid.append(b);
+    });
+    box.append(grid, el("p", "rg-dmeta", T("rg.fig.showing", f.list.length, f.total)));
+    if (f.list.length < f.total) { const more = btn(T("rg.fig.more"), "", () => loadFigures(a, d, true)); more.disabled = f.busy; box.append(more); }
+    return box;
+  }
   function docsBlock(a) {
     const box = el("section", "rg-block"), ul = el("ul", "rg-docs");
     box.setAttribute("aria-labelledby", "rg-docs-h");
@@ -343,7 +386,19 @@
       const key = "d" + d.id, sure = armed === key;
       const b = btn(sure ? T("rg.doc.remove.sure") : T("rg.doc.remove"), sure ? "rg-warn" : "", () => { if (!sure) arm(key); else removeDoc(d); });
       b.id = "rg-rm-" + d.id;
-      li.append(text, b); ul.append(li);
+      li.append(text, b);
+      if (d.figures) {
+        const fb = btn(T((figs[d.id] && figs[d.id].open) ? "rg.fig.hide" : "rg.fig.show", d.figures), "", () => {
+          const f = figs[d.id] = figs[d.id] || { open: false, total: 0, list: [], busy: false };
+          f.open = !f.open;
+          if (f.open && !f.list.length) loadFigures(a, d, false); else paint();
+        });
+        fb.id = "rg-fig-" + d.id; fb.setAttribute("aria-expanded", String(!!(figs[d.id] && figs[d.id].open)));
+        li.append(fb);
+        const grid = figuresBlock(a, d);
+        if (grid) li.append(grid);
+      }
+      ul.append(li);
     });
     box.append(a.document_list.length ? ul : el("p", "rg-help", T("rg.docs.none")));
     const pick = el("input"); pick.type = "file"; pick.multiple = true; pick.accept = S.formats.join(","); pick.disabled = working;
