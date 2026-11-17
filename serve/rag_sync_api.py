@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from tadamoo.rag import RagError
-from tadamoo.rag.sources import coverage
+from tadamoo.rag.sources import coverage, nodes
 from tadamoo.rag.sources.engine import Sync
 from tadamoo.rag.sources.verify import verify
 
@@ -67,6 +67,8 @@ class RagSyncApi:
             return {"settings": self.sync.settings.read()}
         if len(parts) == 3 and parts[0] == "archives" and parts[2] == "sync":
             return self.view(parts[1])
+        if len(parts) == 3 and parts[0] == "archives" and parts[2] == "tree":
+            return nodes.view(self.sync, parts[1])
         if len(parts) == 5 and parts[0] == "archives" and parts[2] == "documents" and parts[4] == "versions":
             return {"versions": self.sync.versions(parts[1], parts[3])}
         return None
@@ -82,6 +84,20 @@ class RagSyncApi:
             return {"source": self.sync.add_source(aid, kind, {k: v for k, v in req.items() if k not in ("kind", "label")}, req.get("label", ""))}
         if len(parts) == 5 and action == "sources" and parts[4] == "remove":
             return self.sync.remove_source(aid, parts[3], _flag(req, "remove_documents"))
+        if len(parts) == 4 and action == "tree":
+            what = parts[3]
+            if what == "follow":
+                return nodes.set_follow(self.sync, aid, req.get("node"), req.get("on"))
+            if what == "frequency":
+                return nodes.set_frequency(self.sync, aid, req.get("node"), req.get("frequency"))
+            if what == "remove":
+                return nodes.remove_node(self.sync, aid, req.get("node"), req.get("confirm"))
+            if what == "refresh":
+                node = req.get("node")
+                return self._job("read again", aid, lambda progress, cancel: nodes.refresh_node(self.sync, aid, node, progress, cancel))
+            if what == "due":
+                return self._job("scheduled", aid, lambda progress, cancel: nodes.run_due(self.sync, aid, progress, cancel))
+            raise RagError("not found", "not_found")
         if len(parts) == 3 and action == "check":
             only = _ids(req.get("sources"), "sources")
             return self._job("check", aid, lambda progress, cancel: self.sync.check(aid, only, progress, cancel))
@@ -117,7 +133,10 @@ class RagSyncApi:
         that has to wait for a heavy job is skipped and tried at the next time."""
         try:
             aid = self.archive_of(ref)
-            report = self.sync.check(aid, None, None, cancel) if action == "check" else self.sync.update(aid, None, True, False, None, None, cancel)
+            if action == "due":                                                  # the nodes whose own schedule says they are due, each read again
+                report = nodes.run_due(self.sync, aid, None, cancel)
+            else:
+                report = self.sync.check(aid, None, None, cancel) if action == "check" else self.sync.update(aid, None, True, False, None, None, cancel)
         except RagError as e:
             if e.code == "busy":
                 return {"status": "skipped", "outcome": "nothing_new", "summary": str(e)}

@@ -160,3 +160,29 @@ def test_a_knowledge_routine_runs_without_a_model_and_leaves_its_outcome(tmp_pat
     bare = SessionRoutineRunner(None)
     out = bare.run({"id": "r", "deliver_to": {"kind": "knowledge", "ref": "wiki"}, "message": "check", "prompt": "x"}, threading.Event())
     assert out["status"] == "failed" and "not available" in out["summary"]
+
+
+def test_the_tree_routes_show_the_tree_switch_a_node_give_it_a_schedule_and_the_scheduled_due_action_reads_what_is_due(api):
+    import json
+    import time
+    api, aid, src, store, sync = api
+    sid = sync.add_source(aid, "folder", {"path": str(src)})["id"]
+    sync.update(aid)
+    post = lambda path, body: api.route_post(["archives", aid, "tree", path], {}, json.dumps(body).encode())          # noqa: E731
+    got = api.route_get(["archives", aid, "tree"])
+    assert [n["id"] for n in got["tree"]] == ["k:folder"] and got["options"]["min_minutes"] == 5 and "weekday" in got["options"]["occurrences"]
+    assert post("follow", {"node": f"s:{sid}", "on": False})["tree"][0]["state"] == "off"
+    assert post("follow", {"node": f"s:{sid}", "on": True})["tree"][0]["state"] == "on"
+    for bad in (("follow", {"node": f"s:{sid}", "on": "no"}), ("frequency", {"node": f"s:{sid}", "frequency": {"mode": "interval", "every": 0, "unit": "days"}}), ("remove", {"node": f"s:{sid}"}),
+                ("unknown", {})):
+        with pytest.raises(RagError):
+            post(*bad)
+    set_ = post("frequency", {"node": f"s:{sid}", "frequency": {"mode": "interval", "every": 5, "unit": "minutes"}})
+    assert set_["tree"][0]["children"][0]["freq"] == {"mode": "interval", "every": 5, "unit": "minutes"}
+    put(src, "alpha.md", body(3, "alpha"), 1_700_000_800)
+    assert api.syncing.scheduled(aid, "due", threading.Event())["outcome"] == "nothing_new"                          # five minutes have not passed since it was set
+    started = post("refresh", {"node": f"s:{sid}"})
+    assert api.jobs.wait(started["job"]["id"], 20)["state"] == "done"
+    removed = post("remove", {"node": f"s:{sid}", "confirm": True})
+    assert removed["removed_documents"] == 2 and store.get(aid)["documents"] == 0
+

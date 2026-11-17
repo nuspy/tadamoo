@@ -23,7 +23,7 @@ import numpy as np
 
 from tadamoo.rag.errors import RagError
 from tadamoo.rag.ingest import read_document
-from tadamoo.rag.sources import coverage
+from tadamoo.rag.sources import coverage, tree
 from tadamoo.rag.sources.local import FileProvider, FolderProvider
 from tadamoo.rag.sources.mediawiki import MediaWikiProvider
 from tadamoo.rag.sources.model import KINDS, Fetched, Provider, Remote, SourceError
@@ -245,6 +245,16 @@ class Sync:
                     if did in d["links"]:
                         d["links"][did]["stamp"] = change["stamp"]
             self.state(aid).change(move)
+        kept: List[Dict[str, Any]] = []
+        for item in items:
+            if item.get("key") is not None and tree.excluded(data, item["source"], str(item["key"])):          # removed on purpose from the tree: not read again
+                remotes.pop(item["id"], None)
+                continue
+            if item["state"] != "error" and item.get("key") and not tree.followed(data, item["source"], str(item["key"])):
+                item.update(state="unfollowed", detail="not followed")
+                remotes.pop(item["id"], None)
+            kept.append(item)
+        items = kept
         for item in items:
             if item["state"] == "gone" and item["doc"] in data["acknowledged"]:
                 item["acknowledged"] = True
@@ -306,7 +316,7 @@ class Sync:
     # -- updating --------------------------------------------------------------------------------
 
     def update(self, aid: Any, only: Optional[List[str]] = None, include_new: bool = True, dry_run: bool = False, force: Optional[List[str]] = None,
-               progress: Optional[Progress] = None, cancel: Optional[threading.Event] = None) -> Dict[str, Any]:
+               progress: Optional[Progress] = None, cancel: Optional[threading.Event] = None, scope: Optional[Callable[[Dict[str, Any]], bool]] = None) -> Dict[str, Any]:
         """Reads again what changed and puts it in the archive. `only` limits it to items (ids from a check) or document ids; `force` lists pinned items to bring up to date;
         `dry_run` reads and cuts but changes nothing and says what would change (passages added, removed, kept, with a few examples)."""
         tell = progress or (lambda event: None)
@@ -322,7 +332,7 @@ class Sync:
                 self._mark_past(aid, items)
             force = force or []
             chosen = [i for i in items if (i["state"] in ("changed",) or (i["state"] == "new" and include_new) or (i["state"] == "pinned" and (i["id"] in force or i["doc"] in force)))
-                      and (not only or i["id"] in only or i["doc"] in only)]
+                      and (not only or i["id"] in only or i["doc"] in only) and (scope is None or scope(i))]
             deadline = time.monotonic() + float(self.settings.read()["max_run_minutes"]) * 60
             prepared: List[Dict[str, Any]] = []
             archive = self.store.load(aid)

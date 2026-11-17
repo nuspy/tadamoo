@@ -15,7 +15,7 @@ HISTORY_KEPT = 30
 
 
 def blank() -> Dict[str, Any]:
-    return {"version": 1, "sources": [], "links": {}, "acknowledged": {}, "check": {}, "last": {}, "attention": {"t": 0.0, "signature": "", "counts": {}}, "history": [], "versions": {}}
+    return {"version": 1, "sources": [], "links": {}, "acknowledged": {}, "nodes": {}, "excluded": {}, "check": {}, "last": {}, "attention": {"t": 0.0, "signature": "", "counts": {}}, "history": [], "versions": {}}
 
 
 class State:
