@@ -1067,8 +1067,8 @@ def make_handler(svc: Service, remote: bool = False):
             if path == "/api/attachments" or (path.startswith("/api/attachments/") and path.rsplit("/", 1)[-1] == "remove"):
                 self._attachments_post(path)
                 return
-            if path == "/api/connectors/providers":
-                self._connectors_post()
+            if path in ("/api/connectors/providers", "/api/connectors/review"):
+                self._connectors_post(path)
                 return
             if path.startswith("/api/capabilities/"):
                 self._capabilities_post(path)
@@ -2428,9 +2428,14 @@ def make_handler(svc: Service, remote: bool = False):
                     body = r.read(2_000_000)
                 _CONNECTOR_LISTS[url] = (time.time(), body)
                 return body
-            return ConnectorsApi(lambda: self._caps().overview()["entries"], lambda: (self._pskills().store.list(), ()), Providers(userdata.path("connectors") / "providers.json"), get)
+            def reviewer():
+                """The model that reads a connector before it is installed: the technical function, kept nowhere."""
+                from tadamoo import llm
+                from tadamoo.client import TadamooClient
+                return llm.client_for("technical", TadamooClient(base_url=f"http://127.0.0.1:{self.server.server_address[1]}", api_key=svc.api_key or None))
+            return ConnectorsApi(lambda: self._caps().overview()["entries"], lambda: (self._pskills().store.list(), ()), Providers(userdata.path("connectors") / "providers.json"), get, reviewer)
 
-        def _connectors_post(self):
+        def _connectors_post(self, path="/api/connectors/providers"):
             if not settings.is_loopback(self.client_address[0]):
                 self._discard_body()
                 return self._json(403, {"error": {"type": "forbidden", "message": "the providers can be changed only from the PC the server runs on"}})
@@ -2442,6 +2447,8 @@ def make_handler(svc: Service, remote: bool = False):
                 req = json.loads(raw or b"{}")
                 if not isinstance(req, dict):
                     raise ValueError("send a JSON object")
+                if path == "/api/connectors/review":
+                    return self._json(200, self._connectors_api().review(str(req.get("id") or "")[:300]))
                 return self._json(200, self._connectors_api().change_providers(req))
             except ConnectorError as e:
                 return self._json(400, {"error": {"type": "connectors", "message": str(e), "code": e.code}})

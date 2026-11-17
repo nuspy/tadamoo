@@ -6,7 +6,7 @@
   if (!root) return;
 
   const SUBTABS = ["skill", "mcp_server", "mcp_app", "plugin", "providers"];
-  const S = { sub: "skill", scope: "all", query: "", state: "", data: null, detail: "", tree: null, busy: false, off: null };
+  const S = { sub: "skill", scope: "all", query: "", state: "", data: null, detail: "", tree: null, busy: false, off: null, reviews: {} };
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick, tip) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; if (tip) b.title = tip; return b; };
   const errText = r => (r.data && r.data.error && r.data.error.message) || `HTTP ${r.status}`;
@@ -91,6 +91,40 @@
 
   const stateText = s => T("cx.state." + s);
 
+  /* the facts sheet and the advisory review of an item that is not installed yet: the sheet is counted by a program, the review is advice from a model and can be wrong */
+  async function reviewItem(id) {
+    S.reviews[id] = { busy: true };
+    draw();
+    const r = await api("POST", "api/connectors/review", { id });
+    S.reviews[id] = r.ok ? r.data : { error: errText(r) };
+    draw();
+  }
+  const factLine = (label, values) => { const items = (values || []).filter(Boolean); return items.length ? el("li", "", `${label}: ${items.join(", ")}`) : null; };
+  function reviewBlock(d) {
+    const box = el("section", "cx-review"), got = S.reviews[d.id];
+    box.setAttribute("aria-label", T("cx.review.title"));
+    if (!got) {
+      const go = btn(T("cx.review.go"), "", () => reviewItem(d.id), T("cx.review.go.tip")); go.id = "cx-review-go";
+      box.append(go);
+      return box;
+    }
+    if (got.busy) { const p = el("p", "help", T("cx.review.busy")); p.setAttribute("role", "status"); box.append(p); return box; }
+    if (got.error) { const p = el("p", "cx-why", got.error); p.setAttribute("role", "alert"); box.append(p); box.append(btn(T("cx.review.go"), "", () => reviewItem(d.id))); return box; }
+    const f = got.facts, rv = got.review;
+    box.append(el("h4", "cx-treeh", T("cx.review.sheet")));
+    const ul = el("ul", "cx-facts");
+    [factLine(T("cx.f.commands"), f.commands), factLine(T("cx.f.hosts"), f.hosts), factLine(T("cx.f.secrets"), f.secrets), factLine(T("cx.f.repository"), [f.repository]),
+     factLine(T("cx.f.scripts"), f.scripts), factLine(T("cx.f.tools"), [f.allowed_tools]), ...Object.entries(f.signs || {}).map(([k, v]) => factLine(k, v)), ...(f.notes || []).map(n => el("li", "", n))]
+      .filter(Boolean).forEach(li => ul.append(li));
+    box.append(ul);
+    box.append(el("h4", "cx-treeh", T("cx.review.advice")));
+    const verdict = el("p", "cx-verdict cx-v-" + rv.verdict, T("cx.verdict." + rv.verdict) + (rv.summary ? ": " + rv.summary : "") + (rv.note ? " (" + rv.note + ")" : ""));
+    box.append(verdict);
+    if (rv.risks && rv.risks.length) { const r = el("ul", "cx-facts"); rv.risks.forEach(x => r.append(el("li", "", x))); box.append(r); }
+    box.append(el("p", "help", T("cx.review.warn")));
+    return box;
+  }
+
   function row(item) {
     const li = el("li", "cx-item cx-" + item.state + (S.detail === item.id ? " sel" : ""));
     const open = btn("", "cx-open", () => showDetail(S.detail === item.id ? "" : item.id));
@@ -114,6 +148,7 @@
     box.append(el("p", "cx-desc", d.description || T("cx.nodesc")));
     if (d.keywords.length) box.append(el("p", "help", T("cx.keywords", d.keywords.join(", "))));
     if (d.why) box.append(el("p", "cx-why", d.why));
+    if (!d.installed && /^(registry|folder):/.test(d.id)) box.append(reviewBlock(d));
     if (d.used_by.length) box.append(el("p", "help", T("cx.usedby", d.used_by.join(", "))));
     if (d.tree && d.tree.length) {
       box.append(el("p", "cx-treeh", T("cx.tree")));

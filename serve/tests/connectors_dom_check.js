@@ -108,6 +108,17 @@ async function main() {
         await waitFor(`qa("#cx-root .cx-item").length === 1`, "the new provider row");
         if ((await get("api/connectors/providers")).providers.length !== 1) throw new Error("the server did not keep the provider");
         await fits("providers tab");
+        await ev(`[...qa("#cx-subtabs button")].find(b => b.textContent === "Skills").click(); return 1;`);
+        const offered = `qa("#cx-root .cx-item").find(li => li.querySelector(".cx-name").textContent === "alpha-skill" && li.querySelector(".cx-src").textContent === ${JSON.stringify(FOLDER)})`;
+        await waitFor(`!!${offered}`, "the skill the provider lists");
+        await ev(`${offered}.querySelector(".cx-open").click(); return 1;`);
+        await waitFor(`!!q("#cx-review-go")`, "the review button on an item that is not installed");
+        await ev(`q("#cx-review-go").click(); return 1;`);
+        await waitFor(`!!q("#cx-root .cx-facts") && !!q("#cx-root .cx-verdict")`, "the facts sheet and the verdict");
+        if (!/only text for the model/.test(await ev(`return q("#cx-root .cx-review").textContent`))) throw new Error("the sheet does not say the skill is only text");
+        await fits("review");
+        await ev(`[...qa("#cx-subtabs button")].find(b => b.textContent === "Providers").click(); return 1;`);
+        await waitFor(`!!q("#cx-pr")`, "the providers form again");
         await press2("Switch off");
         await waitFor(`qa("#cx-root .cx-item")[0].textContent.includes("Off")`, "provider shown off");
         if ((await get("api/connectors/providers")).providers[0].enabled !== false) throw new Error("the server still has it on");

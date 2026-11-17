@@ -2,12 +2,15 @@
 
     GET /api/connectors?scope=all|personal|external&kind=&state=&q=   the counts and the two bands (installed, available) of a sub-tab
     GET /api/connectors/item?id=                                      one item with its relations and, for a plugin, its tree
+    POST /api/connectors/review  {id}                                 the facts sheet of an item that is not installed yet and the advisory review of a model
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import json
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
 
-from tadamoo.connectors import inventory, model, providers as prov
+from tadamoo.connectors import facts, inventory, model, providers as prov, review as review_mod
 from tadamoo.connectors.model import Inventory
 
 
@@ -18,12 +21,13 @@ class ConnectorError(ValueError):
 
 
 class ConnectorsApi:
-    def __init__(self, entries: Any, personal: Any, providers: Any = None, get: Any = None) -> None:
+    def __init__(self, entries: Any, personal: Any, providers: Any = None, get: Any = None, reviewer: Optional[Callable[[], Any]] = None) -> None:
         """`entries` returns the entries of the capability index, `personal` the personal skills (and the slugs switched off); both are called on every request. `providers` is the
         list the person set (tadamoo/connectors/providers.py) and `get` fetches an address: with them the "available" band is made from the enabled providers."""
         self._entries = entries
         self._personal = personal
         self.providers, self._get = providers, get
+        self.reviewer = reviewer                              # gives the model client for the review (None: the facts sheet only)
 
     def inventory(self, query: str = "") -> Inventory:
         skills, off = self._personal()
@@ -65,6 +69,48 @@ class ConnectorsApi:
             raise ConnectorError(str(e), "scope") from None
         return {"counts": model.counts(inv), "installed": [inventory.describe(inv, i) for i in bands["installed"]],
                 "available": [inventory.describe(inv, i) for i in bands["available"]]}
+
+    def facts(self, item_id: str) -> Dict[str, Any]:
+        """The facts sheet and the excerpts a review reads, for an item a provider lists: a server of a registry or a skill in a folder. Nothing is downloaded or run."""
+        inv = self.inventory()
+        it = inv.items.get(item_id)
+        if it is None:
+            raise ConnectorError("That item is not there any more: look again.", "gone")
+        if it.installed:
+            raise ConnectorError("Only an item that is not installed yet can be looked at here.", "installed")
+        if item_id.startswith("registry:") and self._get is not None:
+            name = item_id[len("registry:"):]
+            try:
+                data = json.loads(self._get(it.source.rstrip("/") + "/v0/servers?limit=100&search=" + name.rsplit("/", 1)[-1]).decode("utf-8", "replace"))
+            except (ValueError, OSError):
+                raise ConnectorError("The registry did not answer.", "offline") from None
+            rows = [(r.get("server", r) if isinstance(r, dict) else {}) for r in (data.get("servers") if isinstance(data, dict) else None) or []]
+            server = next((s for s in rows if s.get("name") == name), None)
+            if server is None:
+                raise ConnectorError("The registry no longer lists this server.", "gone")
+            return {"sheet": facts.from_server(server), "excerpts": ""}
+        if item_id.startswith("folder:"):
+            folder = Path(it.source) / item_id[len("folder:"):]
+            if not folder.is_dir() or folder.resolve().parent != Path(it.source).resolve():
+                raise ConnectorError("That folder is not there any more.", "gone")
+            parts: List[str] = []
+            for f in [folder / "SKILL.md"] + sorted(p for p in folder.rglob("*") if p.is_file() and p.suffix.lower() in (".py", ".js", ".sh", ".ps1", ".bat"))[:3]:
+                try:
+                    parts.append(f"--- {f.relative_to(folder).as_posix()}\n" + f.read_text(encoding="utf-8", errors="replace")[:1500])
+                except OSError:
+                    continue
+            return {"sheet": facts.from_skill(folder), "excerpts": "\n".join(parts)}
+        raise ConnectorError("This kind of item cannot be looked at yet.", "kind")
+
+    def review(self, item_id: str) -> Dict[str, Any]:
+        """The facts sheet (counted by a program) and the review (advice from a model, kept nowhere)."""
+        got = self.facts(item_id)
+        client = None
+        try:
+            client = self.reviewer() if self.reviewer else None
+        except Exception:                                      # no model to ask: the facts stand alone
+            client = None
+        return {"id": item_id, "facts": got["sheet"], "review": review_mod.review(client, got["sheet"], got["excerpts"])}
 
     def item(self, item_id: str) -> Dict[str, Any]:
         inv = self.inventory()
