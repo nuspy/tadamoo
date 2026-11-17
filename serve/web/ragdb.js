@@ -207,11 +207,12 @@
     return box;
   }
 
+  const NEEDS = { sqlite: ["sqlite-vec"], postgres: ["psycopg"], mysql: ["pymysql"], other: [] };      // the package each kind of database needs
   function componentsBlock() {
-    const box = el("div", "rd-comps");
-    box.append(el("h4", "rg-h2", T("rd.comp.title")), el("p", "rg-help", T("rd.comp.help")));
+    const box = el("div", "rd-comps"), needed = NEEDS[st.cfg.kind] || [], shown = st.comps.filter(c => needed.includes(c.id));
+    box.append(el("h4", "rg-h2", T("rd.comp.title")), el("p", "rg-help", T(shown.length ? "rd.comp.help" : "rd.comp.none")));
     const ul = el("ul", "rd-list");
-    st.comps.forEach(c => {
+    shown.forEach(c => {
       const li = el("li", "rd-comp");
       li.append(el("b", "", c.id), " ", el("span", "rd-mark", c.installed ? T("rd.comp.have", c.version || "") : T("rd.comp.missing")), el("p", "rg-help", c.what[LANG] || c.what.en),
         el("p", "rg-help rd-mono", `${c.requirement} - ${T("rd.comp.size", c.size_mb)}`));

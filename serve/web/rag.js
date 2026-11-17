@@ -238,14 +238,14 @@
   }
   function settingsBlock() {
     const box = el("details", "rg-settings"), sum = el("summary", "rg-sum", T("rg.set.title"));
-    const py = textInput(S.settings.docling_python, 500), keep = el("select");
+    const keep = el("select");
     [["keep", "rg.set.flagged.keep"], ["drop", "rg.set.flagged.drop"]].forEach(([k, key]) => { const o = el("option", "", T(key)); o.value = k; keep.append(o); });
     keep.value = S.settings.flagged;
     const device = el("select");
     [["auto", "rg.set.device.auto"], ["cpu", "rg.set.device.cpu"]].forEach(([k, key]) => { const o = el("option", "", T(key)); o.value = k; device.append(o); });
     device.value = S.settings.docling_device || "auto";
-    const go = btn(T("rg.save"), "primary", () => saveSettings({ docling_python: py.value.trim(), docling_device: device.value, flagged: keep.value }));
-    box.append(sum, field("rg-docling", T("rg.set.docling"), S.docling_python ? T("rg.set.docling.found", S.docling_python) : T("rg.set.docling.none"), py),
+    const go = btn(T("rg.save"), "primary", () => saveSettings({ docling_device: device.value, flagged: keep.value }));
+    box.append(sum, el("p", "rg-help", S.docling_python ? T("rg.set.docling.found", S.docling_python) : T("rg.set.docling.none")),
       field("rg-device", T("rg.set.device"), T("rg.set.device.help"), device), field("rg-flagged", T("rg.set.flagged"), T("rg.set.flagged.help"), keep), go);
     return box;
   }
@@ -273,14 +273,14 @@
     const roots = (e.roots || []).join(", ");
     const rerank = checkField("rg-sem-rerank", T("rg.sem.rerank"), T("rg.sem.rerank.help"), cfg.rerank);
     const weight = numberInput(cfg.lexical_weight, 0, 0.3, 0.01), cos = numberInput(cfg.min_cosine, 0, 0.9, 0.05), rr = numberInput(cfg.min_rerank, 0, 0.95, 0.05);
-    const idle = numberInput(cfg.idle_s, 10, 3600, 10), py = textInput(cfg.embed_python, 500), dir = textInput(cfg.embed_models_dir, 500);
+    const idle = numberInput(cfg.idle_s, 10, 3600, 10), dir = textInput(cfg.embed_models_dir, 500);
     const go = btn(T("rg.save"), "primary", () => saveSettings({ embed_enabled: on.box.checked, embed_model: pick.value, rerank: rerank.box.checked, lexical_weight: Number(weight.value),
-      min_cosine: Number(cos.value), min_rerank: Number(rr.value), idle_s: Number(idle.value), embed_python: py.value.trim(), embed_models_dir: dir.value.trim() }));
+      min_cosine: Number(cos.value), min_rerank: Number(rr.value), idle_s: Number(idle.value), embed_models_dir: dir.value.trim() }));
     const test = btn(T("rg.sem.test"), "", testEmbedding); test.disabled = !e.available;
     box.append(on.wrap, field("rg-sem-model", T("rg.sem.model"), models.length ? T("rg.sem.model.help", roots) : T("rg.sem.model.none", roots), pick), rerank.wrap,
       field("rg-sem-weight", T("rg.sem.weight"), T("rg.sem.weight.help"), weight), field("rg-sem-cos", T("rg.sem.mincos"), T("rg.sem.mincos.help"), cos),
       field("rg-sem-rr", T("rg.sem.minrr"), T("rg.sem.minrr.help"), rr), field("rg-sem-idle", T("rg.sem.idle"), T("rg.sem.idle.help"), idle),
-      field("rg-sem-py", T("rg.sem.python"), T("rg.sem.python.help", e.python || "-"), py), field("rg-sem-dir", T("rg.sem.dir"), T("rg.sem.dir.help"), dir), go, test);
+      el("p", "rg-help", T("rg.sem.python.help", e.python || "-")), field("rg-sem-dir", T("rg.sem.dir"), T("rg.sem.dir.help"), dir), go, test);
     return box;
   }
   function sideList() {
