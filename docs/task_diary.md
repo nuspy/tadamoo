@@ -39,9 +39,9 @@ Legenda: [x] fatto e verificato, [~] iniziato, [ ] da fare. Un punto per riga.
    - [ ] 7.1 Creare e cancellare progetti.
    - [ ] 7.2 Elenco dei progetti in colonna a sinistra con modifica e cancella; cancella con doppio dialogo (sei sicuro, poi scrivere a mano il nome).
    - [ ] 7.3 Archivi del progetto sotto l'elenco dei progetti; ricerca semantica, lettura e database a destra.
-   - [ ] 7.4 «Python per gli embedding»: tolto dalla vista, installato e basta.
-   - [ ] 7.5 «Python dell'ambiente di lettura»: stesso.
-   - [ ] 7.6 Database: la lista dei componenti mostra solo quelli del tipo scelto.
+   - [~] 7.4 (17 novembre) «Python per gli embedding»: tolto dalla vista, resta la riga che dice quale ambiente è stato trovato da solo. Installazione automatica dal setup: non fatta.
+   - [~] 7.5 (17 novembre) «Python dell'ambiente di lettura»: stesso (campo tolto, resta la riga di stato). Installazione automatica: non fatta.
+   - [x] 7.6 (17 novembre) Database: la lista dei componenti mostra solo il pacchetto del tipo scelto (sqlite-vec, psycopg, pymysql; nessuno per «altro»).
    - [~] 7.7 Password dell'utente: fatto il 17 novembre (pallini e numero di caratteri, il server dà solo la lunghezza; provato con test del server, non in un browser). Password dell'amministratore: non fatto, non resta salvata da nessuna parte (si manda una volta sola), quindi non c'è un numero da mostrare.
    - [ ] 7.8 Pulsante «Prova» per verificare che il database sia installato e configurato.
    - [ ] 7.9 «Segui questa fonte»: spiegarlo meglio; un suggerimento (tooltip) su ogni cosa.
