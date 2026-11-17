@@ -22,11 +22,11 @@ Legenda: [x] fatto e verificato, [~] iniziato, [ ] da fare. Un punto per riga.
    - [ ] 3a. Spostare nel pacchetto il nostro pilota e il wrapper di Agent Browser.
    - [ ] 3b. TaDaMoo importa dal pacchetto, dipendenza fissata.
    - [ ] 3c. Tor da sorgente verificata nel sistema di compilazione e nel setup.
-   - [~] 3d. Fase 1 fatta in parte (impostazioni, cartella di quarantena, gestore di Tor solo SOCKS locale e solo .onion, lettore di testo sicuro; 17 test con stand-in): manca la sezione del vault e il collegamento ai profili. Fasi 2-5, interruttori nei profili e Android: non fatti.
+   - [~] 3d. (17 novembre, repository locale `darkweb`, solo stand-in, nessuna rete né Tor) Fase 1: impostazioni, quarantena, gestore di Tor (SOCKS locale, solo .onion), lettore di testo sicuro, sezione del vault per i segreti del dark web. Fase 2: registro dei motori con affidabilità e riposo dopo 3 fallimenti, ricerca in parallelo con unione dei risultati e ordine per accordo, raffinamento e filtro con il modello (risultati chiusi come dati). 26 test. Non fatti: fasi 3-5 (scoperta, estrazione, continuità), adattatori dei motori veri (Robin, VoidAccess, Sicry non scaricati), interruttori nei profili, Android.
    - [ ] 3e. Nome, proprietario e visibilità del repository: decidi tu, niente push senza OK.
 4. [ ] Completare i modelli per avatar.
    - [ ] 4a. ID-LoRA TalkVid su LTX e predittore Veda.
-   - [ ] 4b. Riordinare la cartella wan22-s2v sul NAS e scrivere il README.
+   - [x] 4b. (17 novembre) Cartella wan22-s2v sul NAS: scritto il README (cosa è di S2V, cosa è del wav2vec2, cosa manca: il config.json di S2V sovrascritto); nessun file spostato, come deciso.
    - [ ] 4c. Aggiornare la pagina dei test se escono righe nuove.
 5. [x] Spiegarti le decisioni in sospeso (spiegate a te il 17 novembre; le decisioni restano tue).
    - [x] 5.1 Analisi di Docker: spiegata (docker_data.vhdx 75,1 GB in E:\Docker\Images\DockerDesktopWSL\disk, fermo dal 4 novembre; nessun processo Docker attivo). Non ho aperto Docker né cancellato niente.
