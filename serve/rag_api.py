@@ -18,6 +18,7 @@ from tadamoo.rag.project import is_key, project_key
 from tadamoo.rag.resolve import FUNCTIONS, Resolution, resolve, routes_outside
 from serve.rag_add_api import RagAddApi
 from serve.rag_db_api import RagDbApi
+from serve.rag_discover_api import RagDiscoverApi
 from serve.rag_images_api import RagImagesApi
 from serve.rag_jobs import Jobs
 from serve.rag_sync_api import RagSyncApi
@@ -55,6 +56,7 @@ class RagApi:
         self.syncing = RagSyncApi(sync if sync is not None else Sync(store), self.jobs)
         self.adding = RagAddApi(self.syncing, self.jobs)                      # adding documents in a batch and the state of an archive (serve/rag_add_api.py)
         self.database = RagDbApi(store, self.jobs, vault_dir)               # the Database section of a project's settings (serve/rag_db_api.py)
+        self.discovering = RagDiscoverApi(self.syncing, self.jobs, describer)   # adding from a request in words (serve/rag_discover_api.py)
         self.images = RagImagesApi(store, vault_dir, tools_dir)             # where the images of the documents are kept (serve/rag_images_api.py)
         self.project_store = projects                                       # the list of project folders (serve/projects.py): made, renamed and forgotten from the page
 
@@ -410,6 +412,8 @@ class RagApi:
             got = self.adding.route_post(parts, req)
         if got is None:
             got = self.database.route_post(parts, req)
+        if got is None:
+            got = self.discovering.route_post(parts, req)
         if got is None:
             got = self.images.route_post(parts, req)
         if got is not None:

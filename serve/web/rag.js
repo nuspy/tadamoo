@@ -627,7 +627,7 @@
   function detailView() {
     const a = detail.archive, main = el("div", "rg-main");
     const box = x => { const w = el("section", "rg-box"); w.append(x); return w; };
-    main.append(el("h3", "rg-h", a.name), ...[editForm(a), docsBlock(a), ...(window.ragSync ? [window.ragSync.block(a, { reload: reloadAll, paint })] : []), indexBlock(a), tryBlock(a)].map(box));
+    main.append(el("h3", "rg-h", a.name), ...[editForm(a), docsBlock(a), ...(window.ragDiscover ? [window.ragDiscover.block(a, { reload: reloadAll })] : []), ...(window.ragSync ? [window.ragSync.block(a, { reload: reloadAll, paint })] : []), indexBlock(a), tryBlock(a)].map(box));
     const sure = armed === "delete", bar = el("div", "rg-bar");
     const del = btn(sure ? T("rg.delete.sure") : T("rg.delete"), "rg-warn", () => { if (!sure) arm("delete"); else remove(); });
     del.id = "rg-delete";

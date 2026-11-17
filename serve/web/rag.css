@@ -103,3 +103,10 @@
 .rg-browselist { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 50dvh; overflow-y: auto; }
 .rg-browselist .rg-pick, .rg-browselist .rg-file { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; text-align: left; }
 .rg-browselist .rg-file input { width: 24px; height: 24px; margin: 0; }
+
+.rd-list { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; }
+.rd-pick { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.rd-pick input { width: 24px; height: 24px; margin: 2px 0 0; flex: none; }
+.rd-body { display: grid; gap: 2px; min-width: 0; }
+.rd-title { font-weight: 600; overflow-wrap: anywhere; }
+.rd-url { font-size: 0.85em; opacity: 0.8; overflow-wrap: anywhere; }
