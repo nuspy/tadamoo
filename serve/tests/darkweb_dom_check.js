@@ -27,11 +27,15 @@ const root = new El("div");
 const document = { createElement: tag => new El(tag), getElementById: id => (id === "dw-root" ? root : null), addEventListener: () => {} };
 let state = { package: true, settings: { darkweb: false, search: true, read: true, write: false, send: false }, tor: { installed: false, running: false, socks: "127.0.0.1:9071" }, gpg: true };
 const posted = [];
+let archives = [{ name: "WikiLeaks", address: "https://wikileaks.org/", search: "https://search.wikileaks.org/?q={query}", about: "Cables.", own: false }, { name: "Cryptome", address: "https://cryptome.org/", search: "", about: "", own: false }];
 const answer = (status, body) => ({ ok: status < 400, status, json: async () => body });
 const fetch = async (url, opts) => {
   const method = (opts && opts.method) || "GET";
   const body = JSON.parse((opts && opts.body) || "{}");
   if (method === "POST") posted.push({ url, body });
+  if (url === "api/darkweb/leaks") return answer(200, { archives });
+  if (url === "api/darkweb/leaks/add") { archives.push({ name: body.name, address: body.address, search: body.search, about: "", own: true }); return answer(200, { archives }); }
+  if (url === "api/darkweb/leaks/remove") { archives = archives.filter(a => a.name !== body.name); return answer(200, { archives }); }
   if (method === "GET") return answer(200, state);
   if (url === "api/darkweb") { state = { ...state, settings: { ...state.settings, ...body } }; return answer(200, state); }
   if (url === "api/darkweb/tor/install") { state = { ...state, tor: { ...state.tor, installed: true } }; return answer(200, state); }
@@ -85,14 +89,35 @@ t("a saved profile keeps the three switches, and loading one writes them to the 
   root.children = [];
   setup();
   await settle();
-  eq(window.dwSet.read(), { darkweb: true, darkweb_search: true, darkweb_read: false, darkweb_navigation: "own", darkweb_watches: false });
+  eq(window.dwSet.read(), { darkweb: true, darkweb_search: true, darkweb_read: false, darkweb_navigation: "own", darkweb_watches: false, darkweb_leaks: true });
   posted.length = 0;
   await window.dwSet.write({ darkweb: false, darkweb_search: false, darkweb_read: true });
   eq(posted[0], { url: "api/darkweb", body: { darkweb: false, search: false, read: true } });
-  eq(window.dwSet.read(), { darkweb: false, darkweb_search: false, darkweb_read: true, darkweb_navigation: "own", darkweb_watches: false });
+  eq(window.dwSet.read(), { darkweb: false, darkweb_search: false, darkweb_read: true, darkweb_navigation: "own", darkweb_watches: false, darkweb_leaks: true });
   posted.length = 0;
   await window.dwSet.write({});
   eq(posted.length, 0);                                                         // a profile that says nothing about it changes nothing
+});
+t("the leak archives are listed, one with no search says so, one is added and then removed; only an added one has a Remove button", async () => {
+  state = { ...state, package: true, settings: { ...state.settings, darkweb: true } };
+  root.children = [];
+  setup();
+  await settle();
+  if (!root.textContent.includes("WikiLeaks") || !root.textContent.includes("dw.leaks.nosearch")) throw new Error("the list or the no-search note is missing");
+  eq(root.buttons("dw.leaks.remove").length, 0);
+  byId("dw-leak-name").value = "Mine"; byId("dw-leak-address").value = "https://mine.example/"; byId("dw-leak-search").value = "https://mine.example/s?q={query}";
+  posted.length = 0;
+  byId("dw-leak-add").parent.onsubmit({ preventDefault() {} });
+  await settle();
+  eq(posted[0], { url: "api/darkweb/leaks/add", body: { name: "Mine", address: "https://mine.example/", search: "https://mine.example/s?q={query}" } });
+  eq(root.buttons("dw.leaks.remove").length, 1);
+  root.buttons("dw.leaks.remove")[0].onclick();
+  await settle();
+  eq(posted[1], { url: "api/darkweb/leaks/remove", body: { name: "Mine" } });
+  eq(root.buttons("dw.leaks.remove").length, 0);
+  byId("dw-leaks-on").checked = false; byId("dw-leaks-on").onchange();
+  await settle();
+  eq(posted[2], { url: "api/darkweb", body: { leak_archives: false } });
 });
 t("without the package the page says so and offers nothing", async () => {
   state = { ...state, package: false };

@@ -29,6 +29,5 @@ Chat, Agentic coding, Required actions, Plans, Cron Jobs, Monitor, Models, Conne
 
 ## Funzioni costruite o decise che NON hanno ancora il loro controllo nella GUI
 - Connectors: pulsante «Configura» (configurazione guidata, più account per connettore), controllo aggiornamenti e unione, sotto-scheda «MCP apps» vuota, app Android e nativa.
-- Dark web: interruttori per le sorveglianze e per gli archivi di fughe di dati (esistono come impostazioni, non come controlli).
 - Knowledge: scegliere una versione più vecchia di un archivio; installazione automatica degli ambienti Python (embedding, Docling).
 - Variabili d'ambiente lette dal codice senza controllo nella GUI: vedi l'elenco in `docs/task_diary.md`, voce «Audit GUI».

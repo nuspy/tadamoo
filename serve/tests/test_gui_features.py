@@ -25,6 +25,7 @@ FEATURES = [
     ("Connectors: configure an installed server (keys to the vault)", "Connectors > installed item", "connectors.js", "api/connectors/configure"),
     ("Connectors: check for updates and update", "Connectors", "connectors.js", "api/connectors/updates"),
     ("Dark web: watching pages", "Chat settings > Dark web", "darkwebset.js", "dw-watches"),
+    ("Dark web: published leak archives (list, add, remove)", "Chat settings > Dark web", "darkwebset.js", "dw-leaks-on"),
     ("Connectors: dependency tree of a plugin", "Connectors > plugin", "connectors.js", "treeDialog"),
     ("Connectors: folder for the downloaded originals", "Connectors > Providers", "connectors.js", "api/connectors/settings"),
     ("Knowledge: projects", "Knowledge", "rag.js", "api/rag/projects"),

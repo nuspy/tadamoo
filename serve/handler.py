@@ -763,7 +763,7 @@ def make_handler(svc: Service, remote: bool = False):
             elif path in ("/api/capabilities", "/api/capabilities/review", "/api/capabilities/online", "/api/capabilities/requests"):
                 if self._authorized():
                     self._capabilities_get(path)
-            elif path == "/api/darkweb":
+            elif path in ("/api/darkweb", "/api/darkweb/leaks"):
                 if self._authorized():
                     self._darkweb(path)
             elif path in ("/api/connectors", "/api/connectors/item", "/api/connectors/providers", "/api/connectors/settings", "/api/connectors/config"):
@@ -2420,7 +2420,7 @@ def make_handler(svc: Service, remote: bool = False):
             api = DarkwebApi(shared())
             try:
                 if self.command == "GET":
-                    return self._json(200, api.get())
+                    return self._json(200, api.leaks() if path == "/api/darkweb/leaks" else api.get())
                 try:
                     raw = self._body(1 << 14)
                 except BadBody as e:
