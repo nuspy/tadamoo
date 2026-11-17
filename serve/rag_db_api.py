@@ -40,20 +40,21 @@ class RagDbApi:
         """The Python packages the databases need, and whether each is installed here (the Components section installs the ones that are not)."""
         return {"sqlite_vec": importlib.util.find_spec("sqlite_vec") is not None, "postgres_driver": driver_name(), "mysql_driver": importlib.util.find_spec("pymysql") is not None}
 
-    def _has_password(self, cfg: Dict[str, Any]) -> bool:
+    def _password_chars(self, cfg: Dict[str, Any]) -> int:
+        """How many characters the stored password has (0: none is set). Only the length leaves the vault here, never the password."""
         if not cfg.get("vault") or self.vault_dir is None:
-            return False
+            return 0
         try:
-            vault_password(self.vault_dir)(cfg["vault"])
-            return True
+            return len(vault_password(self.vault_dir)(cfg["vault"]))
         except RagError:
-            return False
+            return 0
 
     def overview(self, project: Any) -> Dict[str, Any]:
         project = _project(project)
         router = self.store.router
         cfg = router.config(project)
-        out: Dict[str, Any] = {"project": project or "none", "config": cfg, "kinds": list(KINDS), "has_password": self._has_password(cfg), "components": self.components(),
+        chars = self._password_chars(cfg)
+        out: Dict[str, Any] = {"project": project or "none", "config": cfg, "kinds": list(KINDS), "has_password": bool(chars), "password_chars": chars, "components": self.components(),
                                "waiting": [{"id": p.name, "project": legacy.read_meta(p).get("project", "")} for p in self.store.legacy() if self._readable(p)]}
         out["waiting_here"] = [w["id"] for w in out["waiting"] if w["project"] == project]
         out["default_path"] = str(router.dir / f"{router._name(project)}.sqlite")

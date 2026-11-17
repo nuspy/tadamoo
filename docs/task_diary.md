@@ -42,7 +42,7 @@ Legenda: [x] fatto e verificato, [~] iniziato, [ ] da fare. Un punto per riga.
    - [ ] 7.4 «Python per gli embedding»: tolto dalla vista, installato e basta.
    - [ ] 7.5 «Python dell'ambiente di lettura»: stesso.
    - [ ] 7.6 Database: la lista dei componenti mostra solo quelli del tipo scelto.
-   - [ ] 7.7 Password utente e amministratore: se inserite si vedono pallini e numero di caratteri.
+   - [~] 7.7 Password dell'utente: fatto il 17 novembre (pallini e numero di caratteri, il server dà solo la lunghezza; provato con test del server, non in un browser). Password dell'amministratore: non fatto, non resta salvata da nessuna parte (si manda una volta sola), quindi non c'è un numero da mostrare.
    - [ ] 7.8 Pulsante «Prova» per verificare che il database sia installato e configurato.
    - [ ] 7.9 «Segui questa fonte»: spiegarlo meglio; un suggerimento (tooltip) su ogni cosa.
    - [ ] 7.10 Pulsante «Apri» su ogni documento.

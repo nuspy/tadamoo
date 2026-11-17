@@ -121,7 +121,7 @@
       ssl.value = st.cfg.sslmode || ""; ssl.onchange = () => { st.cfg.sslmode = ssl.value; };
       box.append(field("rd-host", T("rd.f.host"), "", Object.assign(input("host"), { placeholder: "localhost" })), field("rd-port", T("rd.f.port"), "", port),
         field("rd-db", T("rd.f.dbname"), T("rd.f.dbname.help"), input("dbname", "text", 63)), field("rd-user", T("rd.f.user"), "", input("user", "text", 63)),
-        field("rd-pw", T("rd.f.password"), st.view && st.view.has_password ? T("rd.f.password.kept") : T("rd.f.password.help"), pw));
+        field("rd-pw", T("rd.f.password"), st.view && st.view.has_password ? T("rd.f.password.kept", "●".repeat(Math.min(st.view.password_chars || 0, 24)), st.view.password_chars || 0) : T("rd.f.password.help"), pw));
       if (k === "postgres") {
         const su = el("input"); su.type = "text"; su.autocomplete = "off"; su.spellcheck = false; su.maxLength = 63; su.value = st.superuser; su.oninput = () => { st.superuser = su.value; };
         const sp = el("input"); sp.type = "password"; sp.autocomplete = "off"; sp.value = st.superpassword; sp.oninput = () => { st.superpassword = sp.value; };
@@ -133,7 +133,7 @@
       dia.value = st.cfg.dialect || "postgres"; dia.onchange = () => { st.cfg.dialect = dia.value; };
       const pw = el("input"); pw.type = "password"; pw.autocomplete = "new-password"; pw.value = st.password; pw.oninput = () => { st.password = pw.value; };
       box.append(field("rd-driver", T("rd.f.driver"), T("rd.f.driver.help"), input("driver")), field("rd-dsn", T("rd.f.dsn"), T("rd.f.dsn.help"), input("dsn")), field("rd-dialect", T("rd.f.dialect"), "", dia),
-        field("rd-pw", T("rd.f.password"), st.view && st.view.has_password ? T("rd.f.password.kept") : T("rd.f.password.help"), pw));
+        field("rd-pw", T("rd.f.password"), st.view && st.view.has_password ? T("rd.f.password.kept", "●".repeat(Math.min(st.view.password_chars || 0, 24)), st.view.password_chars || 0) : T("rd.f.password.help"), pw));
     }
     if (k !== "sqlite") box.append(field("rd-prefix", T("rd.f.prefix"), T("rd.f.prefix.help"), Object.assign(input("prefix", "text", 31), { placeholder: "rag_" })));
   }

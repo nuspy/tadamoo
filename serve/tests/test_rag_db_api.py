@@ -67,6 +67,7 @@ def test_the_password_goes_to_the_vault_and_the_settings_name_the_entry_only(tmp
     api, store = api_for(tmp_path)
     out = api.route_post(["db", "config"], {}, json.dumps({"project": PROJ, "password": "s3cret", "config": {"kind": "postgres", "host": "db.invalid", "dbname": "kb", "user": "me"}}).encode())
     assert out["config"]["vault"] == f"rag-db-{PROJ}" and out["has_password"] is True and out["config"]["kind"] == "postgres"
+    assert out["password_chars"] == len("s3cret") and "s3cret" not in json.dumps(out)                   # the length is shown, never the password
     everything = "".join(p.read_text(errors="ignore") for p in (tmp_path / "rag").rglob("*.json"))
     assert "s3cret" not in everything and "password" not in everything
     for bad in ({"project": PROJ, "config": {"kind": "postgres"}}, {"project": PROJ, "config": {"kind": "sqlite"}}, {"project": PROJ, "config": {"kind": "postgres", "dbname": "d", "password": "x"}}, {"project": PROJ}):
