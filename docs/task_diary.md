@@ -276,7 +276,7 @@ Legenda: [x] fatto e verificato, [~] iniziato, [ ] da fare. Un punto per riga.
 - Fatto (fase 1): scheda Conoscenza, blocco «Tieni aggiornato»: controllo, «cosa è cambiato?» (anteprima che non cambia nulla), «Aggiorna tutto», fonti, versioni, copertura, verifica e controllo programmato (routine senza modello: «controlla ogni notte»). La scheda lampeggia quando c'è una novità. Lo strumento per l'agente: `knowledge_check` e `knowledge_update`.
 - Fatto (fase 1): ogni lettura ha un rapporto di copertura (pagine con testo, pagine vuote, pagine saltate, passaggi segnalati) e «Verifica l'archivio» controlla che l'archivio sia intero e uguale alle fonti. Prova in sola lettura su una copia dell'archivio ER100: nessun errore; due brevetti hanno pagine senza passaggi (US12274733B2: 177, 202, 266, 324; WO2023196851A1: 20, 98, 260-261), da guardare a mano.
 - Provato per davvero solo su Wikipedia inglese con un archivio di prova (2 pagine lette, una pagina inesistente segnalata, secondo controllo senza cambi). La wiki aziendale non era accesa (porta 8775): prova solo con un finto che ne imita il servizio.
-- Da decidere, tuo: se la wiki aziendale deve poter essere interrogata anche per far controllare alla wiki stessa le sue fonti (ha un comando «aggiorna» da amministratore); se le citazioni dei passaggi devono mostrare data e versione della fonte; se un aggiornamento programmato può rimuovere i documenti spariti (ora mai).
+- Deciso il 17 novembre: sì, la wiki aziendale può essere interrogata anche per far controllare alla wiki stessa le sue fonti; sì, le citazioni dei passaggi mostrano data e versione della fonte. Da costruire (nel punto 7 della lista del 17 novembre). Ancora da decidere, tuo: se un aggiornamento programmato può rimuovere i documenti spariti (ora mai).
 
 - In corso (ramo feature/rag-voice, fase 1: codice e prove con finti, non ancora unito): gli archivi di conoscenza arrivano al copilota, alle riunioni (risposte a voce e verbali), alle telefonate e al cervello diretto dell'avatar. Scelta salvata per id e mostrata per nome (Impostazioni > Voce, e nella riunione pianificata).
 - Fatto (fase 1): la ricerca in tempo reale è ibrida (parole e significato insieme), mai solo parole. Misurato su 96 domande in italiano sui brevetti ER100: solo parole 3% al primo posto; modello piccolo (0.6B) su CPU 32% in 390 ms; modello 4B su GPU 40% in 80 ms ma serve il prestito di VRAM, che le funzioni vocali tengono occupato; con il reranker 54% ma 3,4 secondi. Scelta: il piccolo su CPU, sempre caldo durante la riunione, con un secondo file di vettori per ogni archivio usato (fatto in background).
@@ -495,8 +495,7 @@ Stato (1 novembre, sera): committati il blocco «cosa sei» con `self_status` (`
 
 ## Decisioni tue in attesa
 
-- Sessione tecnica accesa di default: decidi tu dopo la misura. Hai detto che la capienza del contesto conta più di una
-  percentuale di velocità.
+- (Deciso il 17 novembre: sessione tecnica accesa di default. Nel codice lo è già, con 30.000 token di contesto; resta spenta solo nei valori «sicuri» del Loader e con il motore finto.)
 - Formato del primo messaggio del Target Loop (unito o separato): si decide con l'esperimento E1.
 - Cancello di verifica acceso di default (con te presente / non presidiato): si decide con l'esperimento E2.
 - (Deciso: classificatore degli errori acceso di default.)
@@ -560,7 +559,7 @@ Stato (1 novembre, sera): committati il blocco «cosa sei» con `self_status` (`
 - Suite `tests/` completa sulla testa precedente: 3102 passati, nessun fallimento.
 - Casella «Ottimizza il prompt», solo con la sessione tecnica attiva (commit `45ececa0`), con esperimento E8.
 - Sessione tecnica corta da circa 30.000 token: opzione del motore `--side-context`, server `--side-slot`, campo di
-  richiesta `cache_slot`, voce «Sessione tecnica» nel Loader (commit `933c4503`). Spenta di default. Il motore compila per
+  richiesta `cache_slot`, voce «Sessione tecnica» nel Loader (commit `933c4503`). Spenta di default allora (dal 17 novembre è accesa di default). Il motore compila per
   intero senza errori né avvisi.
 - Prova GPU n. 1 (limite di potenza 600 W): motore vecchio contro nuovo diverso al token 62. Causa trovata nei log: la
   cache degli esperti ha avuto dimensioni diverse (9380 contro 9364 posizioni). Controllo con cache fissata: IDENTICO.
