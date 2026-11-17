@@ -220,11 +220,27 @@ class RagStore:
     def _commit(self, aid: str, meta: Dict[str, Any], chunks: List[Dict[str, Any]], vectors: Optional[np.ndarray], model: str,
                 sections: Optional[Dict[str, Dict[str, Any]]] = None, version: str = "") -> None:
         has = vectors is not None
+        self._advance_version(meta)
         meta.update(chunks=len(chunks), embed_model=model if has else "", embed_dim=int(vectors.shape[1]) if has else 0, embed_version=version if has else "",
                     updated=self.clock(), ingest=self.ingest())
         self._backend(aid).commit(aid, meta, chunks, sections, np.asarray(vectors, dtype=np.float32) if has else None, model if has else "", version if has else "")
         self._cache.pop(aid, None)
         self._metas_cache.pop(aid, None)
+
+    VERSION_LOG = 100                   # versions whose record is kept
+
+    def _advance_version(self, meta: Dict[str, Any]) -> None:
+        """The archive's own version goes up by one when the set of its documents changes: one is added, replaced by another content, or removed. A new cutting, new vectors
+        or a model's descriptions over the same documents do not move it. `version_log` keeps when each version came and which documents it held."""
+        held = {d["id"]: str(d.get("sha256") or "") for d in meta["documents"]}
+        sig = hashlib.sha1(json.dumps(sorted(held.items())).encode("utf-8")).hexdigest()[:16]
+        if sig == meta.get("version_sig") or (not held and not meta.get("version")):
+            return
+        n = int(meta.get("version") or 0) + 1
+        meta.update(version=n, version_sig=sig)
+        log = list(meta.get("version_log") or [])
+        log.append({"n": n, "at": self.clock(), "documents": held})
+        meta["version_log"] = log[-self.VERSION_LOG:]
 
     # -- the archives ----------------------------------------------------------------------------
 
@@ -238,7 +254,7 @@ class RagStore:
 
     def _summary(self, meta: Dict[str, Any]) -> Dict[str, Any]:
         return {"id": meta["id"], "name": meta["name"], "description": meta["description"], "project": meta.get("project", ""), "project_name": meta.get("project_name", ""), "cloud_ok": bool(meta.get("cloud_ok")), "others_ok": others_of(meta), "created": meta["created"],
-                "updated": meta["updated"], "documents": len(meta["documents"]), "chunks": meta["chunks"], "bytes": sum(d["bytes"] for d in meta["documents"]),
+                "updated": meta["updated"], "version": int(meta.get("version") or 0), "documents": len(meta["documents"]), "chunks": meta["chunks"], "bytes": sum(d["bytes"] for d in meta["documents"]),
                 "flagged": sum(d.get("flagged", 0) for d in meta["documents"]), "extraction": _extraction(meta), **self.status(meta)}
 
     def _metas(self, project: Optional[str] = None) -> List[Dict[str, Any]]:
