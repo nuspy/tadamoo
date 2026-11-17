@@ -110,3 +110,6 @@
 .rd-body { display: grid; gap: 2px; min-width: 0; }
 .rd-title { font-weight: 600; overflow-wrap: anywhere; }
 .rd-url { font-size: 0.85em; opacity: 0.8; overflow-wrap: anywhere; }
+
+.rg-hitfigs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.rg-hitfig { min-height: 44px; max-width: 100%; overflow-wrap: anywhere; text-align: left; }

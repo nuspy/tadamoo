@@ -49,6 +49,22 @@ def _native_cosines(archive: Any, q: np.ndarray, wide: bool) -> Optional[np.ndar
     return cos
 
 
+FIGURES_PER_HIT = 3
+
+
+def _figures_of(archive: Any, chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The figures that complete a passage: the ones of the same document and section, never more than a few. A figure passage has none: it is the figure."""
+    if chunk.get("kind") == "figure":
+        return []
+    out = []
+    for c in archive.chunks:
+        if c.get("kind") == "figure" and c["doc"] == chunk["doc"] and c.get("section") == chunk.get("section"):
+            out.append({"fig": c.get("fig", 0), "label": c.get("figure", ""), "caption": c.get("caption", "")[:200]})
+            if len(out) >= FIGURES_PER_HIT:
+                break
+    return out
+
+
 def _hit(archive: Any, i: int, lexical: Optional[float], semantic: Optional[float], rerank: Optional[float], score: float) -> Dict[str, Any]:
     chunk = archive.chunks[i]
     doc = archive.document(chunk["doc"])
@@ -57,7 +73,7 @@ def _hit(archive: Any, i: int, lexical: Optional[float], semantic: Optional[floa
             "text": chunk["text"], "path": chunk.get("path", ""), "page_start": chunk.get("page_start", 0), "page_end": chunk.get("page_end", 0),
             "kind": chunk.get("kind", "text"), "section": chunk.get("section", ""), "facts": chunk.get("facts") or {}, "summary": chunk.get("summary", ""),
             "figure": chunk.get("figure", ""), "caption": chunk.get("caption", ""), "image": chunk.get("image", ""), "thumb": chunk.get("thumb", ""), "fig": chunk.get("fig", 0),
-            "questions": chunk.get("questions") or [], "flag": chunk.get("flag", ""), "score": round(score, 4),
+            "questions": chunk.get("questions") or [], "flag": chunk.get("flag", ""), "figures": _figures_of(archive, chunk), "score": round(score, 4),
             "lexical": None if lexical is None else round(lexical, 4), "semantic": None if semantic is None else round(semantic, 4),
             "rerank": None if rerank is None else round(rerank, 4), "past": bool(doc.get("past")), "stages": stages, "mode": "hybrid" if semantic is not None else "lexical"}
 

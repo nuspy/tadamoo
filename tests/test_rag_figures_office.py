@@ -80,6 +80,9 @@ def test_a_word_file_added_to_an_archive_keeps_its_figure_linked_to_the_passage_
     assert store.figure(aid, doc["id"], 1)["image"][:4] == b"RIFF"
     found = store.search([aid], "map of the plasmid", top_k=3, filters={"kind": "figure"})["hits"]
     assert found and found[0]["kind"] == "figure"
+    text_hits = [h for h in store.search([aid], "tetracycline response element expression reporter gene", top_k=5)["hits"] if h["kind"] != "figure"]
+    assert text_hits and text_hits[0]["figures"] == [{"fig": 1, "label": "Figure 1", "caption": row["caption"][:200]}]                # the figure completes its passage
+    assert found[0]["figures"] == []                                                                                            # a figure passage has none: it is the figure
 
 
 def test_a_scan_is_one_figure_and_a_presentation_a_workbook_and_a_book_give_the_pictures_kept_inside_them(tmp_path):
@@ -98,3 +101,30 @@ def test_a_scan_is_one_figure_and_a_presentation_a_workbook_and_a_book_give_the_
         want = 2 if ext != ".epub" else 3                                  # an EPUB keeps its pictures anywhere; the others in one folder
         assert len(made) == want and made[0]["source"] == ext[1:], ext
     assert figures.extract(tmp_path / "x.txt", "x.txt", {}, [], tmp_path / "o9") == []
+
+
+def make_epub(path):
+    container = '<?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'
+    opf = ('<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0"><manifest><item id="c2" href="text/two.xhtml" media-type="application/xhtml+xml"/>'
+           '<item id="c1" href="text/one.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c1"/><itemref idref="c2"/></spine></package>')
+    one = f'<html><body><p>{INTRO}</p><figure><img src="../images/map.png" alt="Map of the plasmid"/><figcaption>Figure 1. The plasmid map.</figcaption></figure><p>{AFTER}</p></body></html>'
+    two = f'<html><body><p>A second chapter that talks about the sequencing results in some detail for the reader.</p><img src="../images/gel.png" alt="Gel"/><img src="../images/map.png" alt="Again"/></body></html>'
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("META-INF/container.xml", container)
+        z.writestr("OEBPS/content.opf", opf)
+        z.writestr("OEBPS/text/one.xhtml", one)
+        z.writestr("OEBPS/text/two.xhtml", two)
+        z.writestr("OEBPS/images/map.png", png((300, 200), 3))
+        z.writestr("OEBPS/images/gel.png", png((300, 200), 9))
+
+
+def test_an_epub_gives_its_pictures_in_the_order_of_the_book_each_with_its_caption_and_the_text_beside_it(tmp_path):
+    book = tmp_path / "book.epub"
+    make_epub(book)
+    items = figures_office.epub_items(book)
+    assert [i["alt"] for i in items] == ["Map of the plasmid", "Gel"]                       # the spine order, not the manifest's; a picture used twice is kept once
+    assert items[0]["caption"] == "Figure 1. The plasmid map." and items[0]["anchor"].startswith("The tetracycline") and items[0]["source"] == "epub"
+    assert items[1]["anchor"].startswith("A second chapter")
+    made = figures.extract(book, "book.epub", {}, [], tmp_path / "o")
+    assert len(made) == 2 and made[0]["source"] == "epub"
+

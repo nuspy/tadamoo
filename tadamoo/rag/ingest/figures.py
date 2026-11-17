@@ -270,7 +270,7 @@ def extract(path: Path, name: str, reading: Dict[str, Any], blocks: Sequence[Dic
     if path.suffix.lower() in figures_office.IMAGE_EXT:                  # a scan or a photo: the document is the picture
         return figures_office.finish(figures_office.file_items(path), blocks, folder, python, progress, cancel, command)
     if path.suffix.lower() in figures_office.ZIP_MEDIA:                  # a presentation, a workbook, a book: the pictures kept inside
-        return figures_office.finish(figures_office.zip_media_items(path), blocks, folder, python, progress, cancel, command)
+        return figures_office.finish(figures_office.epub_items(path) if Path(path).suffix.lower() == ".epub" else figures_office.zip_media_items(path), blocks, folder, python, progress, cancel, command)
     if path.suffix.lower() != ".pdf":
         return []
     found = regions(path, reading, blocks)

@@ -618,7 +618,17 @@
         head.append(el("strong", "", T("rg.try.from", hit.archive, hit.document)),
           el("span", "rg-tag", hit.mode === "hybrid" ? T("rg.tag.hybrid") : T("rg.tag.lexical")), el("span", "rg-tag", T("rg.try.score", hit.score)),
           ...(hit.rerank != null ? [el("span", "rg-tag", T("rg.tag.rerank", hit.rerank))] : []));
-        li.append(head, el("p", "rg-hit-text", hit.text)); ul.append(li);
+        li.append(head, el("p", "rg-hit-text", hit.text));
+        if ((hit.figures || []).length) {                                            // the figures that complete this passage
+          const row = el("div", "rg-hitfigs");
+          hit.figures.forEach(g => {
+            const b = btn([g.label || T("rg.fig.one"), g.caption].filter(Boolean).join(": ").slice(0, 80), "", () => showFigure({ id: hit.archive_id }, { id: hit.doc_id }, g.fig));
+            b.classList.add("rg-hitfig");
+            row.append(b);
+          });
+          li.append(row);
+        }
+        ul.append(li);
       });
       box.append(ul);
     }

@@ -78,6 +78,47 @@ def docx_items(path: Path) -> List[Dict[str, Any]]:
     return items
 
 
+def epub_items(path: Path) -> List[Dict[str, Any]]:
+    """The pictures of an EPUB in the order of the book: each chapter (the files of the spine) is read like a web page, so a picture comes with its description, its caption and the text it
+    sits beside, and is linked to the passage that holds that text. A book whose structure cannot be read falls back to its pictures by name."""
+    from tadamoo.rag.ingest import figures_web
+    try:
+        z = zipfile.ZipFile(path)
+        container = ET.fromstring(z.read("META-INF/container.xml"))
+        opf_path = next(e.get("full-path") for e in container.iter() if e.tag.endswith("rootfile") and e.get("full-path"))
+        opf = ET.fromstring(z.read(opf_path))
+    except (OSError, KeyError, StopIteration, zipfile.BadZipFile, ET.ParseError):
+        return zip_media_items(path)
+    manifest = {e.get("id"): e.get("href") for e in opf.iter() if e.tag.endswith("}item") or e.tag == "item"}
+    order = [manifest.get(e.get("idref")) for e in opf.iter() if e.tag.endswith("itemref") and manifest.get(e.get("idref"))]
+    base = posixpath.dirname(opf_path)
+    items: List[Dict[str, Any]] = []
+    seen = set()
+    with z:
+        for href in order:
+            chapter = posixpath.normpath(posixpath.join(base, href.split("#")[0]))
+            try:
+                html = z.read(chapter).decode("utf-8", errors="replace")
+            except KeyError:
+                continue
+            page = figures_web._Images()
+            page.feed(html)
+            for img in page.images:
+                src = img["src"].strip()
+                if not src or src.startswith("data:") or figures_web._NOT_PIXELS.search(src) or figures_web._too_small(img):
+                    continue
+                member = posixpath.normpath(posixpath.join(posixpath.dirname(chapter), src.split("#")[0].split("?")[0]))
+                if member in seen:
+                    continue
+                try:
+                    data = z.read(member)
+                except KeyError:
+                    continue
+                seen.add(member)
+                items.append({"data": data, "alt": img["alt"], "caption": img["caption"], "anchor": img["anchor"], "source": "epub", "url": ""})
+    return items or zip_media_items(path)
+
+
 IMAGE_EXT = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp", ".gif")
 ZIP_MEDIA = {".pptx": ("ppt/media/",), ".xlsx": ("xl/media/",), ".epub": ("",)}        # where the pictures of a presentation, a workbook and a book are
 MAX_FILE_BYTES = 200 << 20
