@@ -28,7 +28,7 @@ def blob_sha(data):
 
 @pytest.fixture
 def stub():
-    state = {"hits": []}
+    state = {"hits": [], "head": COMMIT}
 
     class H(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
@@ -38,10 +38,10 @@ def stub():
             if path == "/gh/repos/acme/skills":
                 body = json.dumps({"full_name": "acme/skills", "default_branch": "main"}).encode()
             elif path.startswith("/gh/repos/acme/skills/commits/"):
-                body, ctype = COMMIT.encode(), "text/plain"
-            elif path in (f"/gh/repos/acme/skills/git/trees/{COMMIT}", "/gh/repos/acme/skills/git/trees/main"):
+                body, ctype = state["head"].encode(), "text/plain"
+            elif path in (f"/gh/repos/acme/skills/git/trees/{COMMIT}", f"/gh/repos/acme/skills/git/trees/{'b' * 40}", "/gh/repos/acme/skills/git/trees/main"):
                 body = json.dumps({"tree": [{"path": p, "type": "blob", "mode": "100644", "size": len(d), "sha": blob_sha(d)} for p, d in FILES.items()]}).encode()
-            elif path.startswith(f"/raw/acme/skills/{COMMIT}/") or path.startswith("/raw/acme/skills/main/"):
+            elif path.startswith(f"/raw/acme/skills/{COMMIT}/") or path.startswith(f"/raw/acme/skills/{'b' * 40}/") or path.startswith("/raw/acme/skills/main/"):
                 body, ctype = FILES[path.split("/", 5)[5]], "text/plain"
             elif path == "/reg/v0/servers":
                 body = json.dumps({"servers": [{"server": {"name": "io.example/cloud", "description": "A cloud service", "version": "1.0.0",
@@ -161,3 +161,56 @@ def test_only_what_was_installed_from_here_is_removed_and_nothing_installs_witho
     for call in (lambda: bare.install("x", {}), lambda: bare.uninstall("x"), lambda: bare.folder_settings()):
         with pytest.raises(ConnectorError):
             call()
+
+
+def test_a_variable_of_an_installed_server_is_set_secrets_go_to_the_vault_and_are_never_given_back(tmp_path, stub, monkeypatch):
+    from tadamoo.discovery.installed import InstalledStore
+    import tadamoo.vault as vault_mod
+    kept = {}
+
+    class FakeVault:
+        def __init__(self, directory):
+            pass
+
+        def put(self, entry, kind="secret", label="", fields=None):
+            kept[entry] = (kind, label, dict(fields or {}))
+
+        def reveal(self, entry, field):
+            return kept[entry][2][field]
+    monkeypatch.setattr(vault_mod, "Vault", FakeVault)
+    api, caps, installer = make(tmp_path, stub, [])
+    installer.vault_dir = tmp_path / "vault"
+    InstalledStore(tmp_path / "capabilities").put({"id": "mcp:demo", "name": "demo", "kind": "mcp", "url": "https://x.example/mcp", "folder": "", "sha": "s", "source": "registry", "route": "remote",
+                                                   "version": "1", "env": [{"name": "API_KEY", "required": True, "secret": True, "entry": "API_KEY", "value": ""},
+                                                                           {"name": "REGION", "required": False, "secret": False, "entry": "REGION", "value": ""}]})
+    first = api.config("mcp:demo")
+    assert [(v["name"], v["secret"], v["set"]) for v in first["variables"]] == [("API_KEY", True, False), ("REGION", False, False)]
+    got = api.configure("mcp:demo", {"API_KEY": "sk-secret-123", "REGION": " eu "})
+    assert [(v["name"], v["set"], v["value"]) for v in got["variables"]] == [("API_KEY", True, ""), ("REGION", True, "eu")]
+    assert "sk-secret-123" not in json.dumps(got) and kept["API_KEY"][2] == {"value": "sk-secret-123"} and "sk-secret-123" not in (tmp_path / "capabilities" / "installed.json").read_text(encoding="utf-8")
+    assert api.configure("mcp:demo", {"API_KEY": ""})["variables"][0]["set"] is True                         # an empty secret leaves what is there
+    assert api.configure("mcp:demo", {"REGION": ""})["variables"][1]["set"] is False                          # an empty plain value clears it
+    for bad in ({"NOPE": "x"}, {"API_KEY": 5}, {"API_KEY": "x" * 5000}):
+        with pytest.raises(ConnectorError):
+            api.configure("mcp:demo", bad)
+    with pytest.raises(ConnectorError) as e:
+        api.config("skill:not-ours")
+    assert e.value.code == "foreign"
+
+
+def test_a_newer_commit_of_an_installed_skill_is_found_and_installed_over_it_keeping_the_old_original(tmp_path, stub):
+    api, caps, installer = make(tmp_path, stub, [{"id": "g", "kind": "github", "ref": "acme/skills@main", "trust": "known", "enabled": True}])
+    installer.settings.write(str(tmp_path / "originals"))
+    item = next(i for i in api.view("all", "skill")["available"] if i["id"].startswith("github:"))
+    api.install(item["id"], {})
+    assert api.updates() == {"updates": [], "errors": []}
+    stub["head"] = "b" * 40
+    found = api.updates()["updates"]
+    assert found == [{"id": "skill:pdf-tools", "name": "pdf-tools", "from": COMMIT[:10], "to": ("b" * 40)[:10], "kind": "skill"}]
+    got = api.update("skill:pdf-tools", {})["installed"]
+    assert got["version"] == ("b" * 40)[:10]
+    assert api.updates()["updates"] == []
+    names = sorted(p.name for p in (tmp_path / "originals" / "github").iterdir())
+    assert len(names) == 2 and any("b" * 12 in n for n in names) and any(COMMIT[:12] in n for n in names)       # both originals are kept, the old one untouched
+    with pytest.raises(ConnectorError):
+        api.update("skill:nothing", {})

@@ -6,7 +6,7 @@
   if (!root) return;
 
   const SUBTABS = ["skill", "mcp_server", "mcp_app", "plugin", "providers"];
-  const S = { sub: "skill", scope: "all", query: "", state: "", data: null, detail: "", tree: null, busy: false, off: null, reviews: {}, armed: "", installing: "", failed: {}, originals: null };
+  const S = { sub: "skill", scope: "all", query: "", state: "", data: null, detail: "", tree: null, busy: false, off: null, reviews: {}, armed: "", installing: "", failed: {}, originals: null, updates: null, checking: false };
   let armTimer = 0;
   const ARM_MS = 4000;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -175,6 +175,57 @@
     S.failed[d.id] = { message: errText(r), code: (r.data && r.data.error && r.data.error.code) || "" };
     draw();
   }
+  /* updates: asks GitHub and the registry for the newest version of what was installed from here; an update installs over it (the old one comes back if the new one fails) */
+  async function checkUpdates() {
+    S.checking = true; draw();
+    const r = await api("POST", "api/connectors/updates", {});
+    S.checking = false;
+    if (r.ok) { S.updates = Object.fromEntries(r.data.updates.map(u => [u.id, u])); say(r.data.updates.length ? T("cx.upd.some", r.data.updates.length) : T("cx.upd.none") + (r.data.errors.length ? " " + T("cx.upd.errors", r.data.errors.length) : ""), false); }
+    else say(errText(r), true);
+    draw();
+  }
+  async function updateItem(item) {
+    S.installing = item.id; draw();
+    const r = await api("POST", "api/connectors/update", { id: item.id });
+    S.installing = "";
+    if (r.ok) { delete S.updates[item.id]; say(T("cx.upd.done", item.name), false); await load(); return; }
+    say(errText(r), true); draw();
+  }
+
+  /* configure: the variables an installed server reads. A secret is typed here once and goes to the vault; the page never gets it back (it only says whether it is set) */
+  async function configureDialog(item) {
+    const r = await api("GET", "api/connectors/config?id=" + encodeURIComponent(item.id));
+    if (!r.ok) { say(errText(r), true); return; }
+    const d = r.data, dlg = el("dialog", "cx-dlg"), form = el("form", "cx-cfg"), inputs = {};
+    dlg.id = "cx-cfgdlg"; dlg.setAttribute("aria-label", T("cx.cfg.title", d.name));
+    form.append(el("h3", "cx-bh", T("cx.cfg.title", d.name)), el("p", "help", T("cx.cfg.help")));
+    if (!d.variables.length) form.append(el("p", "help", d.remote ? T("cx.cfg.remote") : T("cx.cfg.none")));
+    d.variables.forEach((v, n) => {
+      const wrap = el("div", "cx-pf"), id = "cx-cv-" + n, lab = el("label", "", v.name + (v.required ? " *" : "")), inp = el("input");
+      lab.htmlFor = id; inp.id = id; inp.type = v.secret ? "password" : "text"; inp.autocomplete = "off"; inp.spellcheck = false; inp.maxLength = 4000;
+      inp.value = v.secret ? "" : v.value; inp.placeholder = v.secret ? (v.set ? T("cx.cfg.kept") : T("cx.cfg.empty")) : "";
+      inputs[v.name] = { inp, secret: v.secret };
+      wrap.append(lab, inp, el("p", "help", v.secret ? T(v.set ? "cx.cfg.secret.set" : "cx.cfg.secret.unset") : T("cx.cfg.plain")));
+      form.append(wrap);
+    });
+    const save = btn(T("cx.cfg.save"), "primary", () => {}); save.type = "submit"; save.id = "cx-cfg-save"; save.disabled = !d.variables.length;
+    const close = btn(T("cx.tree.close"), "", () => dlg.close());
+    const bar = el("div", "dw-bar"); bar.append(save, close);
+    const note = el("p", "help"); note.setAttribute("role", "status");
+    form.append(bar, note);
+    form.onsubmit = async e => {
+      e.preventDefault();
+      const values = {};
+      Object.entries(inputs).forEach(([name, f]) => { if (!f.secret || f.inp.value) values[name] = f.inp.value; });                   // an empty secret leaves what is there
+      const w = await api("POST", "api/connectors/configure", { id: item.id, values });
+      if (w.ok) { note.textContent = T("cx.cfg.saved"); note.className = "help"; Object.values(inputs).forEach(f => { if (f.secret) f.inp.value = ""; }); await load(); }
+      else { note.textContent = errText(w); note.className = "cx-why"; note.setAttribute("role", "alert"); }
+    };
+    dlg.onclose = () => dlg.remove();
+    dlg.append(form);
+    document.body.append(dlg); dlg.showModal();
+  }
+
   async function uninstallItem(item) {
     S.installing = item.id; draw();
     const r = await api("POST", "api/connectors/uninstall", { id: item.id });
@@ -236,6 +287,12 @@
     }
     if (item.installed && item.source === "tadamoo") {                           // what TaDaMoo installed from here can be removed from here
       acts.append(S.installing === item.id ? el("span", "help", T("cx.installing")) : twice("u" + item.id, T("cx.uninstall"), T("cx.uninstall.again"), T("cx.uninstall.tip"), () => uninstallItem(item), "cx-uninstall-" + item.id.replace(/[^a-z0-9]+/gi, "-")));
+    }
+    if (item.installed && item.source === "tadamoo") {
+      const cfg = btn(T("cx.cfg"), "", () => configureDialog(item), T("cx.cfg.tip")); cfg.id = "cx-config-" + item.id.replace(/[^a-z0-9]+/gi, "-");
+      acts.append(cfg);
+      const up = S.updates && S.updates[item.id];
+      if (up) acts.append(twice("p" + item.id, T("cx.upd", up.to), T("cx.upd.again"), T("cx.upd.tip", up.from, up.to), () => updateItem(item), "cx-update-" + item.id.replace(/[^a-z0-9]+/gi, "-")));
     }
     if (acts.childNodes.length) li.append(acts);
     if (S.detail === item.id && S.tree) li.append(detail(S.tree));
@@ -300,7 +357,8 @@
     document.getElementById("cx-top").hidden = S.sub === "providers";
     if (S.sub === "providers") { host.append(providersView()); return; }
     if (!d) return;
-    host.append(band(T("cx.installed"), d.installed, T("cx.none")), band(T("cx.available"), d.available, T("cx.available.none")));
+    const chk = btn(S.checking ? T("cx.upd.checking") : T("cx.upd.check"), "", checkUpdates, T("cx.upd.check.tip")); chk.id = "cx-upd-check"; chk.disabled = S.checking;
+    host.append(chk, band(T("cx.installed"), d.installed, T("cx.none")), band(T("cx.available"), d.available, T("cx.available.none")));
   }
 
   const filter = document.getElementById("cx-filter");

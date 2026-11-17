@@ -62,3 +62,7 @@
 .dw-bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
 .dw-bar .btn { min-height: 44px; }
 .dw-tor { margin: 8px 0 2px; font-weight: 600; }
+
+#cx-upd-check { min-height: 44px; margin: 6px 0; }
+.cx-cfg { display: grid; gap: 10px; }
+.cx-cfg input { min-height: 44px; width: 100%; box-sizing: border-box; }

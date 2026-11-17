@@ -170,6 +170,35 @@ class ConnectorsApi:
             raise ConnectorError("TaDaMoo did not install that one, so it is not removed from here.", "foreign")
         return {"removed": item_id}
 
+    def config(self, item_id: str) -> Dict[str, Any]:
+        if self.installer is None:
+            raise ConnectorError("Setting up is not available here.", "none")
+        try:
+            return self.installer.config(item_id)
+        except ConnectorInstallError as e:
+            raise ConnectorError(str(e), e.code or "config") from None
+
+    def configure(self, item_id: str, values: Any) -> Dict[str, Any]:
+        if self.installer is None:
+            raise ConnectorError("Setting up is not available here.", "none")
+        try:
+            return self.installer.configure(item_id, values)
+        except ConnectorInstallError as e:
+            raise ConnectorError(str(e), e.code or "config") from None
+
+    def updates(self) -> Dict[str, Any]:
+        if self.installer is None:
+            raise ConnectorError("Updates are not available here.", "none")
+        return self.installer.updates()
+
+    def update(self, item_id: str, flags: Dict[str, Any]) -> Dict[str, Any]:
+        if self.installer is None:
+            raise ConnectorError("Updates are not available here.", "none")
+        try:
+            return {"installed": self.installer.update(item_id, {k: flags.get(k) is True for k in ("allow_scripts", "anyway")})}
+        except ConnectorInstallError as e:
+            raise ConnectorError(str(e), e.code or "install") from None
+
     def folder_settings(self, req: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Where the downloaded originals are kept; with `originals_dir` in `req` it is changed."""
         if self.installer is None:

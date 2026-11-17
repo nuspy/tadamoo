@@ -766,7 +766,7 @@ def make_handler(svc: Service, remote: bool = False):
             elif path == "/api/darkweb":
                 if self._authorized():
                     self._darkweb(path)
-            elif path in ("/api/connectors", "/api/connectors/item", "/api/connectors/providers", "/api/connectors/settings"):
+            elif path in ("/api/connectors", "/api/connectors/item", "/api/connectors/providers", "/api/connectors/settings", "/api/connectors/config"):
                 if self._authorized():
                     self._connectors_get(path)
             elif path == "/api/netwatch" or path.startswith("/api/netwatch/"):
@@ -1072,7 +1072,8 @@ def make_handler(svc: Service, remote: bool = False):
             if path == "/api/attachments" or (path.startswith("/api/attachments/") and path.rsplit("/", 1)[-1] == "remove"):
                 self._attachments_post(path)
                 return
-            if path in ("/api/connectors/providers", "/api/connectors/review", "/api/connectors/install", "/api/connectors/uninstall", "/api/connectors/settings"):
+            if path in ("/api/connectors/providers", "/api/connectors/review", "/api/connectors/install", "/api/connectors/uninstall", "/api/connectors/settings",
+                        "/api/connectors/configure", "/api/connectors/updates", "/api/connectors/update"):
                 self._connectors_post(path)
                 return
             if path == "/api/darkweb" or path.startswith("/api/darkweb/"):
@@ -2444,6 +2445,8 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, api.provider_rows())
                 if path == "/api/connectors/settings":
                     return self._json(200, api.folder_settings())
+                if path == "/api/connectors/config":
+                    return self._json(200, api.config(one("id")))
                 if path == "/api/connectors/item":
                     return self._json(200, api.item(one("id")))
                 return self._json(200, api.view(one("scope") or "all", one("kind"), one("state"), one("q")))
@@ -2488,6 +2491,12 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, self._connectors_api().install(str(req.get("id") or "")[:300], req))
                 if path == "/api/connectors/uninstall":
                     return self._json(200, self._connectors_api().uninstall(str(req.get("id") or "")[:300]))
+                if path == "/api/connectors/configure":
+                    return self._json(200, self._connectors_api().configure(str(req.get("id") or "")[:300], req.get("values")))
+                if path == "/api/connectors/updates":
+                    return self._json(200, self._connectors_api().updates())
+                if path == "/api/connectors/update":
+                    return self._json(200, self._connectors_api().update(str(req.get("id") or "")[:300], req))
                 if path == "/api/connectors/settings":
                     return self._json(200, self._connectors_api().folder_settings(req))
                 return self._json(200, self._connectors_api().change_providers(req))

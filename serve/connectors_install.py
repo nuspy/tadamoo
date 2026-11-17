@@ -120,6 +120,8 @@ class ConnectorInstaller:
                     record = self._installer(store).install(c.id, allow_scripts=bool(flags.get("allow_scripts")), anyway=bool(flags.get("anyway")), update=bool(flags.get("update")))
                     if kind == "github_skill":
                         self._keep_original(record, source)
+                        records = InstalledStore(self.caps.index.dir)
+                        records.put({**record, "pin": source.get("pin", ""), "source_path": source["path"]})            # what an update asks GitHub about
         except IntegrityError as e:
             raise ConnectorInstallError(str(e), "integrity") from None
         except AlreadyInstalled as e:
@@ -179,6 +181,95 @@ class ConnectorInstaller:
                 shutil.copytree(installed, target)
         except OSError:
             pass                                             # the originals are a convenience for the updates: a folder that cannot be written does not undo the install
+
+    # -- configure: the variables a server reads --------------------------------------------------------
+
+    def _record(self, entry_id: str) -> Dict[str, Any]:
+        rec = InstalledStore(self.caps.index.dir).get(entry_id)
+        if rec is None:
+            raise ConnectorInstallError("TaDaMoo did not install that one, so it cannot be set up from here.", "foreign")
+        return rec
+
+    def _vault_has(self, entry: str) -> bool:
+        if not self.vault_dir:
+            return False
+        try:
+            from tadamoo.vault import Vault
+            return bool(Vault(self.vault_dir).reveal(entry, "value"))
+        except Exception:
+            return False
+
+    def config(self, entry_id: str) -> Dict[str, Any]:
+        """The variables the installed server reads: for each, whether it is secret and whether it is set. A secret's value is never given back; a plain value is."""
+        rec = self._record(entry_id)
+        rows = []
+        for spec in rec.get("env") or []:
+            if not isinstance(spec, dict) or not spec.get("name"):
+                continue
+            secret = bool(spec.get("secret"))
+            rows.append({"name": str(spec["name"]), "required": bool(spec.get("required")), "secret": secret, "entry": spec.get("entry", ""),
+                         "set": self._vault_has(str(spec.get("entry") or "")) if secret else bool(spec.get("value")), "value": "" if secret else str(spec.get("value") or "")})
+        return {"id": entry_id, "name": rec.get("name", ""), "kind": rec.get("kind", ""), "variables": rows, "remote": bool(rec.get("url"))}
+
+    def configure(self, entry_id: str, values: Dict[str, Any]) -> Dict[str, Any]:
+        """Sets the variables: a secret goes to the vault, bound to the entry the record names; a plain value is kept in the record. An empty plain value clears it, an empty secret leaves what is there."""
+        records = InstalledStore(self.caps.index.dir)
+        rec = self._record(entry_id)
+        known = {str(s["name"]): s for s in rec.get("env") or [] if isinstance(s, dict) and s.get("name")}
+        if not isinstance(values, dict) or any(k not in known for k in values):
+            raise ConnectorInstallError("values: only the variables this server reads", "bad_values")
+        for name, value in values.items():
+            if not isinstance(value, str) or len(value) > 4000 or "\x00" in value:
+                raise ConnectorInstallError(f"{name}: a text of at most 4000 characters", "bad_values")
+        with self._lock:
+            for name, value in values.items():
+                spec = known[name]
+                if spec.get("secret"):
+                    if value:
+                        if not self.vault_dir:
+                            raise ConnectorInstallError("there is no vault to keep a secret in", "no_vault")
+                        from tadamoo.vault import Vault
+                        Vault(self.vault_dir).put(str(spec.get("entry")), kind="secret", label=f"{rec.get('name', entry_id)}: {name}", fields={"value": value})
+                else:
+                    spec["value"] = value.strip()
+            records.put(rec)
+        self.caps.index.refresh()
+        return self.config(entry_id)
+
+    # -- updates ----------------------------------------------------------------------------------------
+
+    def updates(self) -> Dict[str, Any]:
+        """For each thing TaDaMoo installed from GitHub or a registry, whether a newer one is there. Nothing is downloaded: only the newest commit or version is asked. One that does not answer is listed with the reason."""
+        out, errors = [], []
+        github, finder = self._github(), self.finder(CandidateStore())
+        for rec in InstalledStore(self.caps.index.dir).load().values():
+            try:
+                if rec.get("route") == "skill" and rec.get("repo") and rec.get("commit"):
+                    owner, _, project = str(rec["repo"]).partition("/")
+                    ref = rec.get("pin") or str(github.repo(owner, project).get("default_branch") or "HEAD")
+                    head = github.head_commit(owner, project, ref)
+                    if head != rec["commit"]:
+                        out.append({"id": rec["id"], "name": rec.get("name", ""), "from": str(rec["commit"])[:10], "to": head[:10], "kind": "skill"})
+                elif rec.get("source") == "registry" and rec.get("version"):
+                    finder._prepare()
+                    for row in finder.registry.search(str(rec.get("name") or "").replace("-", " ")):
+                        s = row.get("server", {})
+                        if rec.get("package") and any(str(p.get("identifier")) == rec["package"] for p in s.get("packages") or [] if isinstance(p, dict)) or (rec.get("url") and any(str(r.get("url")) == rec["url"] for r in s.get("remotes") or [] if isinstance(r, dict))):
+                            if str(s.get("version") or "") not in ("", str(rec["version"])):
+                                out.append({"id": rec["id"], "name": rec.get("name", ""), "from": str(rec["version"]), "to": str(s["version"]), "kind": "mcp"})
+                            break
+            except Exception as e:                       # a source that does not answer is told, and does not stop the others
+                errors.append({"id": rec.get("id", ""), "why": str(e)[:160]})
+        return {"updates": out, "errors": errors}
+
+    def update(self, entry_id: str, flags: Dict[str, bool]) -> Dict[str, Any]:
+        """Installs the newer one over the installed one (the old one comes back if the new one fails). The downloaded original of the new commit is kept next to the old one."""
+        rec = self._record(entry_id)
+        flags = {**flags, "update": True}
+        if rec.get("route") == "skill":
+            return self.install("github_skill", {"repo": rec["repo"], "path": rec.get("source_path") or "", "pin": rec.get("pin", ""), "name": rec.get("name", ""),
+                                                  "description": rec.get("description", "")}, flags)
+        raise ConnectorInstallError("Only a skill from GitHub can be updated from here for now.", "kind")
 
     # -- remove -----------------------------------------------------------------------------------------
 

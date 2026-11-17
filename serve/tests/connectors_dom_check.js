@@ -129,6 +129,13 @@ async function main() {
         await until(async () => (await get("api/capabilities")).entries.some(e => e.id === "skill:gamma-skill" && e.origin === "tadamoo"), "the skill installed by the tab");
         await ev(`[...qa("#cx-subtabs button")].find(b => b.textContent === "Skills").click(); return 1;`);
         await waitFor(`qa("#cx-root .cx-item").some(li => li.querySelector(".cx-src") && li.querySelector(".cx-src").textContent === "tadamoo")`, "the installed row");
+        await ev(`const c = qa('#cx-root [id^="cx-config-"]')[0]; if (!c) throw new Error("no Configure button on what was installed here"); c.click(); return 1;`);
+        await waitFor(`!!q("#cx-cfgdlg[open]")`, "the configure dialog");
+        if (!/reads no variables/.test(await ev(`return q("#cx-cfgdlg").textContent`))) throw new Error("the dialog does not say the skill reads no variables");
+        await fits("configure dialog");
+        await ev(`q("#cx-cfgdlg").close(); return 1;`);
+        await ev(`q("#cx-upd-check").click(); return 1;`);
+        await waitFor(`/up to date|update/i.test(q("#cx-status").textContent)`, "the answer of the update check");
         await ev(`const b = qa('#cx-root [id^="cx-uninstall-"]')[0]; if (!b) throw new Error("no uninstall button"); b.click(); return 1;`);
         await waitFor(`qa('#cx-root [id^="cx-uninstall-"]')[0].textContent.startsWith("Press again")`, "the uninstall asks again");
         await ev(`qa('#cx-root [id^="cx-uninstall-"]')[0].click(); return 1;`);
