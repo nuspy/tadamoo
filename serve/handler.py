@@ -59,6 +59,7 @@ from tadamoo.target import TargetError
 from serve.files_api import FilesApi, FilesError
 from serve.projects import ProjectStore
 from serve.remote import KEY_TTL_DAYS, MODE_ORDER, ApiKeys, Installer, RemoteAccess, tailscale_peers, tailscale_status, tailscale_up
+from serve.connectors_api import ConnectorError, ConnectorsApi
 from serve.personal_skills_api import PersonalSkillsApi
 from serve import import_api, register_api, skills_api
 from tadamoo.rag.backends import vault_password
@@ -758,6 +759,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path in ("/api/capabilities", "/api/capabilities/review", "/api/capabilities/online", "/api/capabilities/requests"):
                 if self._authorized():
                     self._capabilities_get(path)
+            elif path in ("/api/connectors", "/api/connectors/item"):
+                if self._authorized():
+                    self._connectors_get(path)
             elif path == "/api/netwatch" or path.startswith("/api/netwatch/"):
                 if self._authorized():
                     self._netwatch(path, None)
@@ -2391,6 +2395,19 @@ def make_handler(svc: Service, remote: bool = False):
                 return self._json(200, api.overview())
             except CapabilityError as e:
                 return self._json(404, {"error": {"type": "capabilities", "message": str(e), "code": e.code}})
+
+        def _connectors_get(self, path):
+            if not self._local_or_device():
+                return self._json(403, {"error": {"type": "forbidden", "message": "connectors can be seen only from the PC the server runs on or a phone with a key"}})
+            q = parse_qs(urlsplit(self.path).query)
+            one = lambda name: (q.get(name) or [""])[0][:300]                                       # noqa: E731
+            api = ConnectorsApi(lambda: self._caps().overview()["entries"], lambda: (self._pskills().store.list(), ()))
+            try:
+                if path == "/api/connectors/item":
+                    return self._json(200, api.item(one("id")))
+                return self._json(200, api.view(one("scope") or "all", one("kind"), one("state"), one("q")))
+            except ConnectorError as e:
+                return self._json(404 if e.code == "gone" else 400, {"error": {"type": "connectors", "message": str(e), "code": e.code}})
 
         def _capabilities_post(self, path):
             phone_may = path[len("/api/capabilities/"):] in ("settings", "requests/approve", "requests/reject")
