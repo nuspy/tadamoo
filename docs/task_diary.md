@@ -57,7 +57,14 @@ Legenda: [x] fatto e verificato, [~] iniziato, [ ] da fare. Un punto per riga.
    - [ ] 7.19 Contenitori separati per gruppi di funzioni (copertura, indice, prova una domanda, albero, aggiunta file, pagine web), spazio minimo tra i contenitori.
    - [ ] 7.20 Documenti spariti dalla fonte: un aggiornamento programmato NON li cancella; li segna «versione passata, non più disponibile» (deciso il 17 novembre).
    - [ ] 7.21 Versione da cui estrarre i passaggi, scelta per ogni singolo archivio; predefinita: l'ultima; la scelta resta salvata tra le sessioni (deciso il 17 novembre).
-   - [ ] 7.22 Domanda tua: come si leggono (ingestione) e poi si forniscono le immagini? Risposta da dare dopo aver guardato il codice.
+   - [~] 7.22 Immagini (domanda e decisione del 17 novembre). Risposta data: oggi solo nei PDF (codice presente su master, 22 test passano, mai provato col modello di visione vero); nella scheda Knowledge si vede solo il numero di figure. Decisione tua: le figure vanno gestite per ogni tipo di documento, con il metodo adatto; ogni figura ha il collegamento al passaggio, i metadati e i collegamenti alla struttura del documento e ai significati; le figure COMPLETANO e ARRICCHISCONO i passaggi di testo, non sono mai la risposta principale di una ricerca.
+     - [x] 7.22a (fatto il 17 novembre, provato con test) Le figure accompagnano i passaggi di testo: fuori dai risultati principali (restano cercabili con il filtro «figure»), attaccate al passaggio o alla sezione a cui appartengono.
+     - [ ] 7.22b Collegamento al passaggio e alla struttura senza numero di pagina (Word, web, wiki, EPUB): posizione nel documento (indice del blocco) e sezione.
+     - [ ] 7.22c Word (.docx): estrarre le immagini direttamente dal file (cartella media), nell'ordine del testo, con testo alternativo e didascalia.
+     - [ ] 7.22d Pagine web e wiki: copiare le immagini nel contenitore delle immagini (con il file originale, l'indirizzo, il testo alternativo e la didascalia), anche per l'aggiornamento delle fonti.
+     - [ ] 7.22e Scansioni e file immagine (.png, .jpg, .tiff...): il documento è l'immagine; lettura del testo con OCR; EPUB e PowerPoint con il metodo adatto; audio e video: da chiarire (fotogrammi?).
+     - [ ] 7.22f Scheda Knowledge: anteprima delle figure di un documento e delle figure di un passaggio.
+     - [ ] 7.22g Domanda aperta a te: quale contenitore per le immagini e i loro file? Oggi sono blob nel database dell'archivio (SQLite o PostgreSQL); l'indicazione «MinIO» non è scritta da nessuna parte.
 
 ## 16 novembre
 
