@@ -105,3 +105,32 @@ def test_a_separate_minio_is_installed_on_request_started_on_its_own_port_and_us
     with pytest.raises(RagError):
         api.route_post(["images", "nothing"], {})
     assert api.route_post(["other"], {}) is None
+
+
+def test_our_own_minio_is_one_process_for_every_request_and_comes_up_by_itself_when_the_images_are_kept_in_it(tmp_path, monkeypatch):
+    from serve import rag_images_api
+    store, api, vault, started = make(tmp_path, monkeypatch)
+    try:
+        api.route_post(["images", "minio", "install"], {})
+        assert len(started) == 1
+        again = RagImagesApi(store, tools_dir=tmp_path / "tools", launcher=api._launcher, put_secret=api._put, get_secret=api._get)          # the API is made again at each request
+        assert again.overview()["minio"]["own"]["running"] and again.route_post(["images", "minio", "start"], {})["minio"]["own"]["running"] and len(started) == 1
+        assert again.route_post(["images", "minio", "stop"], {})["minio"]["own"]["running"] is False and api.overview()["minio"]["own"]["running"] is False
+        assert again.autostart() is True and len(started) == 2 and api.overview()["minio"]["own"]["running"]            # kept in MinIO and not running: it is started
+        assert again.autostart() is False and len(started) == 2                                                         # already running: nothing is started twice
+        store.settings.write({"images_store": "folder"})
+        again.route_post(["images", "minio", "stop"], {})
+        assert again.autostart() is False and len(started) == 2                                                         # the images are in the folder: MinIO is left alone
+        store.settings.write({"images_store": "s3"})
+        assert again.autostart() is True
+        rag_images_api.stop_all()
+        assert api.overview()["minio"]["own"]["running"] is False
+    finally:
+        rag_images_api.stop_all()
+
+
+def test_nothing_is_started_when_there_is_no_minio_of_our_own(tmp_path, monkeypatch):
+    store, api, _, started = make(tmp_path, monkeypatch)
+    store.settings.write({"images_store": "s3"})
+    assert api.autostart() is False and started == []
+

@@ -27,6 +27,19 @@ def _put_secret(vault_dir: Any, entry: str, secret: str) -> None:
     Vault(vault_dir).put(entry, kind="secret", label="Secret key of the image store (MinIO)", fields={"value": secret})
 
 
+_SHARED: Dict[str, minio_setup.MinioService] = {}        # our own MinIO of each programs folder: the API is made again at each request, the process it started is not
+
+
+def stop_all() -> None:
+    """Stops the MinIO processes this server started (called when the server ends)."""
+    for service in list(_SHARED.values()):
+        try:
+            service.stop()
+        except Exception:                                   # a process that is already gone is stopped
+            pass
+    _SHARED.clear()
+
+
 class RagImagesApi:
     def __init__(self, store: RagStore, vault_dir: Any = None, tools_dir: Any = None, detect: Callable[[], Dict[str, Any]] = minio_setup.detect,
                  fetch: Optional[Callable[[str, Path], None]] = None, launcher: Optional[Callable[[List[str], Dict[str, str]], Any]] = None,
@@ -35,7 +48,28 @@ class RagImagesApi:
         self._detect, self._fetch, self._launcher, self._s3 = detect, fetch, launcher, s3_factory
         self._put = put_secret or (lambda entry, secret: _put_secret(vault_dir, entry, secret))
         self._get = get_secret or self._vault_secret
-        self._service: Optional[minio_setup.MinioService] = None
+
+    @property
+    def _service(self) -> Optional[minio_setup.MinioService]:
+        return _SHARED.get(str(self.tools))
+
+    @_service.setter
+    def _service(self, value: Optional[minio_setup.MinioService]) -> None:
+        if value is None:
+            _SHARED.pop(str(self.tools), None)
+        else:
+            _SHARED[str(self.tools)] = value
+
+    def autostart(self) -> bool:
+        """Starts our own MinIO when the images are kept in it and it is not running: the server does this once when it begins, so the images are there without a click. A failure is
+        left for the page to show (the images page says the store does not answer); it never stops the server."""
+        if self.store.settings.read().get("images_store") != "s3" or not self._own() or (self._service and self._service.running()):
+            return False
+        try:
+            self.start_own()
+            return True
+        except Exception:
+            return False
 
     def _vault_secret(self, entry: str) -> str:
         from tadamoo.rag.backends import vault_password
@@ -152,6 +186,8 @@ class RagImagesApi:
         if not own or exe is None:
             raise RagError("there is no MinIO of our own installed: install it first")
         secret = self._get(SECRET_ENTRY)
+        if self._service and self._service.running():
+            return self.overview()
         self._service = minio_setup.MinioService(exe, Path(self.tools) / "data", int(own["port"]), own["access_key"], secret, self._launcher)
         self._service.start()
         return self.overview()

@@ -268,6 +268,7 @@ _TELEGRAM = None                                       # the Telegram bot and it
 _LEVELS = None                                         # the permission level of each channel, made on first use
 _PERSONAS = None                                       # Settings > Personalities, made on first use
 _PERSONA_LEARNING = None                               # a personality learns from a conversation once it is over, when the GPU is free
+_IMAGES_AUTOSTARTED = False
 _RAG_JOBS = None                                    # the long jobs of the knowledge archives (reading a big document), made on first use
 _RAG = None                                            # the knowledge archives (the Knowledge tab), made on first use
 _RAG_SYNC = None                                       # the refresh of the archives (their sources, checks and updates), made on first use
@@ -3153,9 +3154,17 @@ def make_handler(svc: Service, remote: bool = False):
                 from tadamoo import llm
                 from tadamoo.client import TadamooClient
                 return llm.client_for("rag_enrich", TadamooClient(base_url=f"http://127.0.0.1:{self.server.server_address[1]}", api_key=svc.api_key or None))
-            return RagApi(self._rag_store(), jobs=_RAG_JOBS, service=self._rag_embed(), sync=self._rag_sync(), describer=describer, folders=lambda: [{"name": "Chat", "path": str(chat), "chat": True}]
+            global _IMAGES_AUTOSTARTED
+            api = RagApi(self._rag_store(), jobs=_RAG_JOBS, service=self._rag_embed(), sync=self._rag_sync(), describer=describer, folders=lambda: [{"name": "Chat", "path": str(chat), "chat": True}]
                           + [{"name": p["name"], "path": p["path"], "chat": False} for p in self._projects().list() if p.get("exists")],
                           sources=lambda: {"session": session, "plan_node": guarded(plan_node), "routine": guarded(routine)}, vault_dir=userdata.path("vault"), tools_dir=userdata.path("tools") / "minio", projects=self._projects())
+            if not _IMAGES_AUTOSTARTED:
+                _IMAGES_AUTOSTARTED = True                                             # our own MinIO, when the images are kept in it, comes up with the first look at the Knowledge
+                import atexit
+                from serve import rag_images_api
+                atexit.register(rag_images_api.stop_all)
+                api.images.autostart()
+            return api
 
         def _voice_rag(self):
             def make():
