@@ -497,3 +497,27 @@ def test_a_project_is_made_renamed_and_deleted_with_its_archives_only_after_its_
     with pytest.raises(RagError, match="no such project"):
         post(["projects", "delete"], {"key": "p" * 12, "name": "x", "confirm": True})
 
+
+def test_browsing_this_pc_lists_folders_then_readable_files_leaves_out_hidden_and_forbidden_ones_and_refuses_anything_but_a_full_folder_path(tmp_path):
+    root = tmp_path / "files"
+    (root / "sub").mkdir(parents=True)
+    (root / "Zeta").mkdir()
+    (root / ".hidden").mkdir()
+    (root / "notes.txt").write_text("a note", encoding="utf-8")
+    (root / "photo.xyz").write_text("not a readable format", encoding="utf-8")
+    secret = tmp_path / "personas"
+    secret.mkdir()
+    api = make(tmp_path)
+    api.store.forbidden = [secret.resolve()]
+    shown = api.route_get(["browse"], {"path": [str(root)]})
+    assert shown["path"] == str(root) and shown["parent"] == str(tmp_path)
+    assert [(e["name"], e["dir"]) for e in shown["entries"]] == [("sub", True), ("Zeta", True), ("notes.txt", False)]                 # folders first, the readable file, nothing hidden or unreadable
+    assert shown["entries"][2]["path"] == str(root / "notes.txt") and shown["entries"][2]["size"] == 6
+    up = api.route_get(["browse"], {"path": [str(tmp_path)]})
+    assert "personas" not in [e["name"] for e in up["entries"]] and "files" in [e["name"] for e in up["entries"]]                   # the app's own data is not offered
+    start = api.route_get(["browse"], {})
+    assert start["path"] == "" and start["parent"] is None and start["entries"] and all(e["dir"] for e in start["entries"])
+    for bad in ("relative/folder", str(root / "notes.txt"), str(tmp_path / "nowhere"), str(root / ".." / "files"), "x\x00y"):
+        with pytest.raises(RagError):
+            api.route_get(["browse"], {"path": [bad]})
+

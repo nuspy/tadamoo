@@ -96,3 +96,10 @@
 .rg-dlg { max-width: min(94vw, 520px); padding: 14px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
 .rg-dlg::backdrop { background: rgba(0, 0, 0, .6); }
 .rg-dlg .rg-bar { margin-top: 12px; }
+
+.rg-drop { margin: 8px 0; padding: 14px; text-align: center; border: 2px dashed var(--line); border-radius: 10px; background: var(--surface); cursor: pointer; min-height: 88px; }
+.rg-drop.over, .rg-drop:focus-visible { border-color: var(--accent); background: var(--bg); }
+.rg-browsebody { display: grid; gap: 8px; min-width: min(80vw, 420px); }
+.rg-browselist { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 50dvh; overflow-y: auto; }
+.rg-browselist .rg-pick, .rg-browselist .rg-file { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; text-align: left; }
+.rg-browselist .rg-file input { width: 24px; height: 24px; margin: 0; }

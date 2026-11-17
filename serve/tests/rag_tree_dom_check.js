@@ -46,6 +46,7 @@ async function main() {
     const find = (roots, nid) => { for (const n of roots) { if (n.id === nid) return n; const f = find(n.children || [], nid); if (f) return f; } return null; };
     const until = async (fn, what, tries = 60) => { for (let i = 0; i < tries; i++) { if (await fn()) return true; await sleep(250); } throw new Error("the server never held: " + what); };
     const jobDone = async jid => { for (let i = 0; i < 120; i++) { const j = (await get(`api/rag/jobs/${jid}`)).job; if (j.state !== "running") return j; await sleep(250); } throw new Error("the job did not end"); };
+    const click = (sel, text) => ev(`const b = [...qa(${JSON.stringify(sel)})].find(x => x.textContent.trim() === ${JSON.stringify(text)} || (x.getAttribute("aria-label") || "") === ${JSON.stringify(text)}); if (!b) throw new Error("no " + ${JSON.stringify(sel)} + " " + ${JSON.stringify(text)}); b.click(); return 1;`);
     const typeIn = (sel, value) => ev(`const i = q(${JSON.stringify(sel)}); if (!i) throw new Error("no field " + ${JSON.stringify(sel)}); i.value = ${JSON.stringify(value)}; i.dispatchEvent(new Event("input", { bubbles: true })); i.dispatchEvent(new Event("change", { bubbles: true })); return 1;`);
 
     for (const [vname, w, h, mobile] of VIEWPORTS) {
@@ -140,6 +141,35 @@ async function main() {
         await jobDone(upd.data.job.id);
         if (find(await treeNow(aid), deeper) !== null || (await get(`api/rag/archives/${aid}`)).archive.documents !== 2) throw new Error("what was removed came back");
         if (!fs.existsSync(path.join(folder, "sub", "deeper", "c.md"))) throw new Error("the file was deleted");
+      });
+
+      await check(`${vname}: a file is chosen by its real path in the Browse dialog, a folder is followed from it, and a dropped file is copied into the archive`, async () => {
+        const extra = path.join(BASE, "extra-" + key);
+        fs.mkdirSync(extra, { recursive: true });
+        fs.writeFileSync(path.join(extra, "picked.md"), "# picked\n\n" + TEXT);
+        const docsNow = async () => (await get(`api/rag/archives/${aid}`)).archive.documents;
+        const before = await docsNow();
+        const browseTo = async () => {
+          await waitFor(`!!q("#rg-browse") && !q("#rg-browse").disabled`, "the Browse button free again");
+          await click("#rg-root #rg-browse", "Browse this PC…");
+          await waitFor(`!!q("dialog[open] #rg-br-path")`, "the browse dialog; the button is " + await ev(`const b = q("#rg-browse"); return b ? "there, disabled=" + b.disabled : "missing"`) + "; the page says: " + await ev(`return (q("#rg-root .rg-say") || q("#rg-root [role=status]") || { textContent: "" }).textContent.slice(0, 200)`));
+          await typeIn("dialog[open] #rg-br-path", extra);
+          await click("dialog[open] button", "Go");
+          await waitFor(`!!q('dialog[open] [id="rg-br-f-picked.md"]')`, "the file listed");
+        };
+        await browseTo();
+        if (!(await ev(`return q("dialog[open] #rg-br-add").disabled`))) throw new Error("Add is on before a file is chosen");
+        await ev(`q('dialog[open] [id="rg-br-f-picked.md"]').click(); return 1;`);
+        await click("dialog[open] button", "Add the selected files");
+        await until(async () => (await docsNow()) === before + 1, "the picked file added");
+        await browseTo();
+        await click("dialog[open] button", "Follow this folder");
+        await until(async () => ((await get(`api/rag/archives/${aid}/sync`)).sources || []).length === 2, "the folder followed as a source");
+        await waitFor(`!!q("#rg-drop")`, "the drop zone");
+        await ev(`const z = q("#rg-drop"); const dt = new DataTransfer(); dt.items.add(new File(["Dropped text. ".repeat(40)], "dropped-${key}.txt", { type: "text/plain" })); z.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true })); return 1;`);
+        await until(async () => (await docsNow()) === before + 2, "the dropped file copied");
+        if (!(await treeNow(aid)).some(n => n.id === "k:hand")) throw new Error("the files added by hand are not in their node");
+        await fits("tree after adding");
       });
     }
     await send("Page.navigate", { url: "about:blank" });

@@ -7,6 +7,8 @@ from __future__ import annotations
 import base64
 import importlib.util
 import json
+import os
+from pathlib import Path
 from collections import Counter
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
@@ -304,6 +306,8 @@ class RagApi:
             got = self.images.route_get(parts, query)
         if got is not None:
             return got
+        if parts == ["browse"]:
+            return self.browse(((query or {}).get("path") or [""])[0])
         if parts == ["settings"]:
             return self.settings()
         if len(parts) == 2 and parts[0] == "jobs":
@@ -324,6 +328,43 @@ class RagApi:
         """Where the kept copy of a document's original is and the name to give it when it is saved: `{path, name}`."""
         path, name = self.store.original(aid, doc)
         return {"path": path, "name": name}
+
+    BROWSE_MAX = 500
+
+    def browse(self, raw: Any) -> Dict[str, Any]:
+        """A look at this PC's folders, for choosing a file or a folder with its real path (a browser never gives the path of a file dropped on it). `raw` is a folder; empty gives the
+        drives (the home folder on a system without drives). Folders come first, then the files this archive can read; hidden ones and the app's own data are left out."""
+        text = str(raw or "").strip()
+        if "\x00" in text:
+            raise RagError("path: a folder of this PC")
+        if not text:
+            drives = [f"{c}:\\" for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" if os.path.isdir(f"{c}:\\")] if os.name == "nt" else []
+            home = str(Path.home())
+            return {"path": "", "parent": None, "entries": [{"name": d, "path": d, "dir": True} for d in (drives or ["/"])], "home": home, "formats": self.store.formats()}
+        folder = Path(text)
+        if not folder.is_absolute() or ".." in folder.parts or not folder.is_dir():
+            raise RagError("path: the full path of a folder of this PC")
+        allowed = set(self.store.formats())
+        forbidden = [Path(p).resolve() for p in self.store.forbidden]
+        dirs, files = [], []
+        try:
+            for entry in sorted(folder.iterdir(), key=lambda p: p.name.lower()):
+                if entry.name.startswith(".") or len(dirs) + len(files) >= self.BROWSE_MAX:
+                    continue
+                try:
+                    real = entry.resolve()
+                    if any(real == f or f in real.parents for f in forbidden):
+                        continue
+                    if entry.is_dir():
+                        dirs.append({"name": entry.name, "path": str(entry), "dir": True})
+                    elif entry.is_file() and entry.suffix.lower() in allowed:
+                        files.append({"name": entry.name, "path": str(entry), "dir": False, "size": entry.stat().st_size})
+                except OSError:
+                    continue
+        except OSError as e:
+            raise RagError(f"that folder cannot be read: {e}") from None
+        parent = str(folder.parent) if folder.parent != folder else ""
+        return {"path": str(folder), "parent": parent, "entries": dirs + files, "formats": sorted(allowed)}
 
     FIGURES_PAGE = 40
 

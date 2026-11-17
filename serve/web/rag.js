@@ -145,6 +145,93 @@
     say(lines.join("\n"), bad);
     await reloadAll();
   }
+  /* what is dropped on the page: files, and folders walked entry by entry (a browser gives no path, so a dropped file is copied into the archive and is not followed) */
+  async function droppedFiles(dt) {
+    const out = [], seen = new Set();
+    const keep = (f, name) => { const n = name.replace(/[\\/]+/g, " - "); if (!seen.has(n)) { seen.add(n); out.push(new File([f], n, { type: f.type })); } };
+    const walk = async (entry, prefix) => {
+      if (entry.isFile) keep(await new Promise((ok, no) => entry.file(ok, no)), prefix + entry.name);
+      else if (entry.isDirectory) {
+        const reader = entry.createReader();
+        for (;;) {
+          const batch = await new Promise((ok, no) => reader.readEntries(ok, no));
+          if (!batch.length) break;
+          for (const e of batch) await walk(e, prefix + entry.name + "/");
+        }
+      }
+    };
+    const entries = [...(dt.items || [])].map(i => (i.webkitGetAsEntry ? i.webkitGetAsEntry() : null)).filter(Boolean);
+    if (entries.length) for (const e of entries) await walk(e, "");
+    else [...(dt.files || [])].forEach(f => keep(f, f.name));
+    const readable = out.filter(f => S.formats.includes("." + (f.name.split(".").pop() || "").toLowerCase()));
+    return { files: readable, skipped: out.length - readable.length };
+  }
+  function dropZone(pick) {
+    const zone = el("div", "rg-drop");
+    zone.id = "rg-drop"; zone.tabIndex = 0; zone.setAttribute("role", "button"); zone.setAttribute("aria-label", T("rg.drop"));
+    zone.append(el("p", "rg-line", T("rg.drop")), el("p", "rg-help", T("rg.drop.help")));
+    zone.onclick = () => pick.click();
+    zone.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick.click(); } };
+    zone.ondragover = e => { e.preventDefault(); zone.classList.add("over"); };
+    zone.ondragleave = () => zone.classList.remove("over");
+    zone.ondrop = async e => {
+      e.preventDefault(); zone.classList.remove("over");
+      const got = await droppedFiles(e.dataTransfer);
+      if (got.skipped) say(T("rg.drop.skipped", got.skipped), true);
+      await addFiles(got.files);
+    };
+    return zone;
+  }
+
+  /* a look at this PC's folders, from the server, so that a file or a folder is chosen with its real path and can be followed */
+  const browse = { path: "", entries: [], parent: null, chosen: new Set(), open: false };
+  async function browseTo(path) {
+    const r = await api("GET", `api/rag/browse?path=${encodeURIComponent(path)}`);
+    if (!r.ok) { say(why(r), true); return false; }
+    browse.path = r.data.path; browse.parent = r.data.parent; browse.entries = r.data.entries; browse.chosen = new Set();
+    return true;
+  }
+  async function browseDialog() {
+    if (!(await browseTo(browse.path))) await browseTo("");
+    const dlg = el("dialog", "rg-dlg rg-browse"), body = el("div", "rg-browsebody"), bar = el("div", "rg-bar");
+    dlg.setAttribute("aria-label", T("rg.browse.title"));
+    const draw = () => {
+      const where = textInput(browse.path, 500); where.id = "rg-br-path";
+      const go = btn(T("rg.browse.go"), "", async () => { if (await browseTo(where.value.trim())) draw(); });
+      where.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); go.click(); } };
+      const row = el("div", "rg-row"); row.append(where, go);
+      if (browse.parent !== null && browse.path) row.append(btn(T("rg.browse.up"), "", async () => { if (await browseTo(browse.parent)) draw(); }));
+      const ul = el("ul", "rg-browselist");
+      browse.entries.forEach(e => {
+        const li = el("li");
+        if (e.dir) { const b = btn("", "rg-pick", async () => { if (await browseTo(e.path)) draw(); }); b.append(el("span", "rg-pname", "▸ " + e.name)); li.append(b); }
+        else {
+          const lab = el("label", "rg-pick rg-file"), c = el("input"); c.type = "checkbox"; c.checked = browse.chosen.has(e.path); c.id = "rg-br-f-" + e.name;
+          c.onchange = () => { if (c.checked) browse.chosen.add(e.path); else browse.chosen.delete(e.path); add.disabled = !browse.chosen.size; };
+          lab.append(c, el("span", "rg-pname", e.name), el("span", "rg-pcount", size(e.size)));
+          li.append(lab);
+        }
+        ul.append(li);
+      });
+      const add = btn(T("rg.browse.addfiles"), "primary", async () => {
+        const paths = [...browse.chosen]; dlg.close();
+        for (const p of paths) await addPath(p);
+      });
+      add.disabled = !browse.chosen.size; add.id = "rg-br-add";
+      const follow = btn(T("rg.browse.follow"), "", async () => {
+        dlg.close();
+        const r = await api("POST", `api/rag/archives/${encodeURIComponent(chosen)}/sources`, { kind: "folder", path: browse.path });
+        say(r.ok ? T("rs.source.added") : why(r), !r.ok); await reloadAll();
+      });
+      follow.disabled = !browse.path; follow.id = "rg-br-follow";
+      bar.replaceChildren(add, follow, btn(T("rg.browse.close"), "", () => dlg.close()));
+      body.replaceChildren(el("p", "rg-help", T("rg.browse.help")), row, ul.children.length ? ul : el("p", "rg-help", T("rg.browse.none")));
+    };
+    draw();
+    dlg.append(el("h4", "rg-h2", T("rg.browse.title")), body, bar);
+    dlg.onclose = () => dlg.remove();
+    document.body.append(dlg); dlg.showModal();
+  }
   async function addPath(path) {
     if (!path.trim() || working) return;
     working = true; say(T("rg.add.reading", path), false); paint();
@@ -492,9 +579,10 @@
     pick.onchange = () => addFiles([...pick.files]);
     const path = textInput("", 500); path.inputMode = "url";
     const addp = btn(T("rg.add.path.btn"), "", () => addPath(path.value)); addp.disabled = working;
+    const br = btn(T("rg.browse"), "", browseDialog); br.id = "rg-browse"; br.disabled = working;
     const row = el("div", "rg-row");
-    row.append(path, addp);
-    box.append(el("p", "rg-help", T("rg.add.vs")), field("rg-file", T("rg.add.file"), T("rg.add.help", S.formats.join(" "), Math.round(S.limits.document_bytes / (1 << 20))), pick), field("rg-path", T("rg.add.path"), "", row, path));
+    row.append(path, addp, br);
+    box.append(el("p", "rg-help", T("rg.add.vs")), dropZone(pick), field("rg-file", T("rg.add.file"), T("rg.add.help", S.formats.join(" "), Math.round(S.limits.document_bytes / (1 << 20))), pick), field("rg-path", T("rg.add.path"), "", row, path));
     path.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); addPath(path.value); } };
     return box;
   }
