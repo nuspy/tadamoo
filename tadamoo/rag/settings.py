@@ -14,12 +14,14 @@ from tadamoo.rag.errors import RagError
 
 FILE = "settings.json"
 DEFAULTS: Dict[str, Any] = {"docling_python": "", "docling_device": "auto", "flagged": "keep",
-                            "embed_enabled": True, "embed_python": "", "embed_models_dir": "", "images_dir": "", "embed_model": "", "rerank": True, "rerank_model": "",
+                            "embed_enabled": True, "embed_python": "", "embed_models_dir": "", "images_dir": "", "images_store": "folder", "images_s3_endpoint": "", "images_s3_bucket": "tadamoo-images", "images_s3_access_key": "", "images_s3_vault": "", "images_s3_secure": False, "embed_model": "", "rerank": True, "rerank_model": "",
                             "lexical_weight": 0.05, "min_cosine": 0.3, "min_rerank": 0.2, "idle_s": 120,
                             "enrich_language": "Italian", "enrich_batch": 5, "figures": True, "chunk_target": 350, "chunk_hard": 600}
 FLAGGED = ("keep", "drop")
 DEVICES = ("auto", "cpu")
-FLAGS = ("embed_enabled", "rerank", "figures")
+FLAGS = ("embed_enabled", "rerank", "figures", "images_s3_secure")
+IMAGE_STORES = ("folder", "s3")
+S3_TEXT = ("images_s3_endpoint", "images_s3_bucket", "images_s3_access_key", "images_s3_vault")
 PATHS = ("docling_python", "embed_python")
 NAMES = ("embed_model", "rerank_model")                 # the name of a model folder, not a path
 RANGES = {"lexical_weight": (0.0, 0.3), "min_cosine": (0.0, 0.9), "min_rerank": (0.0, 0.95), "idle_s": (10, 3600), "enrich_batch": (1, 12), "chunk_target": (100, 3000), "chunk_hard": (150, 6000)}
@@ -62,7 +64,9 @@ class RagSettings:
                     out[key] = raw[key]
             if isinstance(raw.get("enrich_language"), str) and LANGUAGE.match(raw["enrich_language"].strip()):
                 out["enrich_language"] = raw["enrich_language"].strip()
-            for key in NAMES + ("embed_models_dir", "images_dir"):
+            if raw.get("images_store") in IMAGE_STORES:
+                out["images_store"] = raw["images_store"]
+            for key in NAMES + ("embed_models_dir", "images_dir") + S3_TEXT:
                 if isinstance(raw.get(key), str):
                     out[key] = raw[key].strip()[:500]
             for key, (lo, hi) in RANGES.items():
@@ -111,6 +115,16 @@ class RagSettings:
                 if not isinstance(value, str) or len(value) > 500 or "\x00" in value or (value.strip() and not Path(value.strip()).is_dir()):
                     raise RagError("embed_models_dir: a folder that holds the model folders, or empty")
                 now["embed_models_dir"] = value.strip()
+            if "images_store" in changes:
+                if changes["images_store"] not in IMAGE_STORES:
+                    raise RagError("images_store: folder (files on this PC) or s3 (MinIO or another S3 service)")
+                now["images_store"] = changes["images_store"]
+            for key in S3_TEXT:
+                if key in changes:
+                    value = changes[key]
+                    if not isinstance(value, str) or len(value) > 200 or any(c in value for c in " /") or "\x00" in value:
+                        raise RagError(f"{key}: text with no spaces or slashes (the endpoint is host:port)")
+                    now[key] = value.strip()
             if "images_dir" in changes:
                 value = changes["images_dir"]
                 if not isinstance(value, str) or len(value) > 500 or "\x00" in value or (value.strip() and not Path(value.strip()).is_dir()):

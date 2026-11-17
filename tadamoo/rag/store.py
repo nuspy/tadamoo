@@ -33,6 +33,7 @@ from tadamoo.rag.backends import MAIN, Backend, Router
 from tadamoo.rag.embed import Embedder, EmbedderProvider, compatible, embed_all, no_embedder, normalize as unit_rows
 from tadamoo.rag.errors import RagError
 from tadamoo.rag.imagestore import ImageStore
+from tadamoo.rag.s3store import S3ImageStore
 from tadamoo.rag.ingest import chunker, extraction_of, formats, normalize, read_document
 from tadamoo.rag.ingest import docling_client, figures
 from tadamoo.rag.ingest import meta as facts
@@ -134,6 +135,8 @@ class RagStore:
         self.root = Path(root)
         self.settings = RagSettings(self.root)
         self.router = router if router is not None else Router(self.root, password)       # the database of each project
+        self._password = password
+        self._s3: Tuple[Any, Optional[S3ImageStore]] = (None, None)
         self.provider, self.clock = embedder, clock
         self.remote: Optional[Callable[[List[str], str, int, float], Dict[str, Any]]] = None      # a process with no embedder asks the server's store instead
         self.forbidden = [Path(p).resolve() for p in forbidden]
@@ -806,9 +809,18 @@ class RagStore:
         return {"passage": row, "image": image, "thumb": thumb or image, "document": archive.document(doc_id)["name"],
                 "archive": archive.meta["name"]}
 
-    def image_store(self) -> ImageStore:
-        """The folder of the document images: the one set in the knowledge settings (`images_dir`), else `images/` inside the knowledge data."""
-        chosen = self.settings.read().get("images_dir") or ""
+    def image_store(self) -> Any:
+        """Where the document images are kept: an S3 service (MinIO or another) when the knowledge settings say `images_store: s3`, else a folder: `images_dir`, or `images/`
+        inside the knowledge data. Both have the same calls (has, put, get, keys, sweep). The secret key of the service is read from the vault entry `images_s3_vault`."""
+        cfg = self.settings.read()
+        if cfg.get("images_store") == "s3":
+            spec = tuple(cfg[k] for k in ("images_s3_endpoint", "images_s3_bucket", "images_s3_access_key", "images_s3_vault", "images_s3_secure"))
+            if self._s3[0] != spec:
+                if not spec[0] or not spec[2] or not spec[3]:
+                    raise RagError("the image service is not set: give its endpoint, access key and the vault entry that holds its secret key")
+                self._s3 = (spec, S3ImageStore(spec[0], spec[1], spec[2], self._password(spec[3]), bool(spec[4])))
+            return self._s3[1]
+        chosen = cfg.get("images_dir") or ""
         return ImageStore(Path(chosen) if chosen else self.root / IMAGES)
 
     def _image_bytes(self, aid: str, row: Dict[str, Any]) -> Tuple[Optional[bytes], Optional[bytes]]:

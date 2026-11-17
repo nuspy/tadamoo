@@ -66,6 +66,20 @@ Legenda: [x] fatto e verificato, [~] iniziato, [ ] da fare. Un punto per riga.
      - [ ] 7.22f Scheda Knowledge: anteprima delle figure di un documento e delle figure di un passaggio.
      - [x] 7.22g Contenitore delle immagini (deciso il 17 novembre; fatto, provato con test): le immagini NON stanno nel database, possono essere decine di migliaia. MinIO scartato: l'edizione libera non ha più programmi pronti dall'ottobre 2025, è in manutenzione dal dicembre 2025 e archiviata nel 2026. Scelta: una cartella su disco con file indicati dall'hash del contenuto (`ab/cd/<hash>.webp`, anteprima `<hash>_t.webp`), la stessa immagine in più documenti, versioni o archivi è un file solo; il database tiene solo la chiave. Cartella nelle impostazioni del Knowledge (`images_dir`, vuota = `images/` dentro i dati del Knowledge). Un archivio fatto prima, con le immagini nel database, le sposta nella cartella la prima volta che si leggono. `sweep_images()` toglie i file che nessuna figura nomina più. Per un server o più PC si potrà aggiungere un magazzino con interfaccia S3 (SeaweedFS o simili) dietro la stessa interfaccia: non fatto.
 
+## Risposte del 17 novembre sera (per la notte)
+
+- MinIO (nella versione community, ora fork «Silo»): incluso nel setup accanto all'harness; programma Windows 37,7 MB (zip), release 2026-11-12, hash fissato in `tadamoo/minio_setup.py`; il setup cerca prima uno già presente e propone «usa quello» o «installazione separata» (porta 9400-9499, dati propri); avviso di distribuzione AGPL nel file `THIRD_PARTY_SEPARATE_PACKAGES.md`. Cartella dei dati scelta dall'utente nel setup (predefinito C:), spostabile dalla GUI (da fare). Fatto: modulo e test; da fare: collegamento nel setup e nella GUI.
+- Immagini: da pagine web e wiki tutte, convertite in WebP e ridotte; salvare anche i file originali e renderli disponibili in sola lettura (salvataggio altrove). Il magazzino S3 per più PC è lasciato stare (prodotto per un solo utente su un solo PC).
+- Versioni dell'archivio: niente passaggi conservati in più, si usano le versioni a differenze che già esistono.
+- Python per embedding e Docling: installati dal setup (sul PC di sviluppo restano gli ambienti separati).
+- Trascinamento file: browser sullo stesso PC = selettore del server con percorso vero (seguibile); altro PC = upload; app nativa = percorso diretto. Da fare.
+- Pagine web e wiki: profondità 2, nessun limite di pagine di default, impostabile dall'utente secondo le sue stime.
+- Connettori: elenco dinamico dai repository impostati. Dark web: pacchetto Tor ufficiale, scaricare Robin/VoidAccess/Sicry per integrarli, repository locale `darkweb` senza push.
+- Avatar: GPU di notte consentita; cartella NAS wan22-s2v: solo README; Docker e WSL più avanti.
+- IQ3_S: lo usi da tempo (il diario era vecchio). I file indicati in `E:\lmstudio\...\orcarouter` NON sono gli originali dell'IQ3_S (del 11 ottobre, 89,3 GB, IQ3_XXS, usati da LM Studio): NON cancellati; cercati gli originali veri, non trovati.
+- Release 1.12.9: approvato il push forzato (riscrittura della cronologia senza il telegiornale, cancellazione della 1.12.8, pubblicazione della 1.12.9).
+- Decisioni del diario: Target Loop unito (E1), cancello di verifica acceso (E2), soglie, sei domande, guardia Host/Origin, 25 fps: tutte «default». Codice senza licenza e MuseTalk: pacchetti separati inclusi nella distribuzione, con avviso delle licenze separate o mancanti (la licenza è sul codice, non sulla ridistribuzione del pacchetto). triton-windows: prima si vedono i benefici.
+
 ## 16 novembre
 
 - Fatto (16 novembre, in locale, non ancora pubblicato): il telegiornale è fuori dal repository (resta sul PC, fuori da git); il piano parte ogni giorno alle 6 sul server locale e stamattina è partito.
