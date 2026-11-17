@@ -765,8 +765,15 @@ class RagStore:
         rows: List[Dict[str, Any]] = []
         start = sum(1 for c in chunks if c["doc"] == doc_id)
         for i, f in enumerate(records):
-            near = [c for c in chunks if c["doc"] == doc_id and c.get("kind") != "figure" and int(c.get("page_start") or 0) <= int(f["page"])]
-            home = max(near, key=lambda c: (int(c.get("page_start") or 0), c["n"]), default=None)
+            home = None
+            key = " ".join(str(f.get("anchor") or "").split())[:60]
+            if key:                                                         # a picture with no page: the passage that holds the text it sits beside
+                home = next((c for c in chunks if c["doc"] == doc_id and c.get("kind") != "figure" and key in " ".join(c["text"].split())), None)
+            if home is None:
+                near = [c for c in chunks if c["doc"] == doc_id and c.get("kind") != "figure" and int(c.get("page_start") or 0) <= int(f["page"])]
+                home = max(near, key=lambda c: (int(c.get("page_start") or 0), c["n"]), default=None)
+                if home is None and not int(f["page"]):
+                    home = next((c for c in chunks if c["doc"] == doc_id and c.get("kind") != "figure"), None)
             text = figures.passage_text(f)
             found = {**facts.passage(text, known), **({"figure": f["number"]} if f.get("number") else {})}
             rows.append({"doc": doc_id, "n": start + i, "text": text, "path": home["path"] if home else title, "page_start": int(f["page"]), "page_end": int(f["page"]),

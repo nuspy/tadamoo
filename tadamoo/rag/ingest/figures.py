@@ -243,7 +243,9 @@ def refs_to(number: str, blocks: Sequence[Dict[str, Any]], page: int) -> List[st
 def passage_text(f: Dict[str, Any]) -> str:
     """The text of a figure's passage: its name and caption, what the document says of it, the words inside it."""
     head = f.get("label") or "Figure"
-    parts = [f"{head} (page {f['page']})" + (f": {f['caption']}" if f.get("caption") else "")]
+    parts = [head + (f" (page {f['page']})" if f.get("page") else "") + (f": {f['caption']}" if f.get("caption") else "")]
+    if f.get("alt"):
+        parts.append("Description in the document: " + f["alt"])
     if f.get("refs"):
         parts.append("The text says: " + " | ".join(f["refs"]))
     if f.get("ocr"):
@@ -257,6 +259,9 @@ def extract(path: Path, name: str, reading: Dict[str, Any], blocks: Sequence[Dic
             progress: Optional[Callable[[Dict[str, Any]], None]] = None, cancel: Optional[Any] = None, command: Optional[Sequence[str]] = None) -> List[Dict[str, Any]]:
     """Cuts every figure of the PDF at `path` out of its pages into `folder`, reads the words inside, and labels each: the list of `Figure` records, in page order.
     A file that is not a PDF, or that PyMuPDF cannot open, has none. `python` is the Python of the Docling environment (for the OCR; empty: no labels read)."""
+    if path.suffix.lower() == ".docx":
+        from tadamoo.rag.ingest import figures_office
+        return figures_office.finish(figures_office.docx_items(path), blocks, folder, python, progress, cancel, command)
     if path.suffix.lower() != ".pdf":
         return []
     found = regions(path, reading, blocks)
