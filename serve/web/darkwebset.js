@@ -16,13 +16,54 @@
     } catch (e) { return { ok: false, status: 0, data: {} }; }
   }
   let view = null, busy = "", note = "", bad = false, armed = false, armTimer = 0, leaks = [], leakNote = "", leakBad = false;
+  let custom = { engines: [], directories: [] }, customNote = "", customBad = false;
 
   async function load() {
     const r = await api("GET", "api/darkweb");
     if (r.ok) view = r.data; else { note = why(r); bad = true; }
     const l = r.ok && r.data.package ? await api("GET", "api/darkweb/leaks") : null;
     if (l && l.ok) leaks = l.data.archives || [];
+    const c = r.ok && r.data.package ? await api("GET", "api/darkweb/custom") : null;
+    if (c && c.ok) custom = c.data || custom;
     draw();
+  }
+  /* the person's own pinned onion search engines and directories, used automatically alongside the self-discovered ones in every search */
+  async function customChange(kind, action, body) {
+    const r = await api("POST", `api/darkweb/custom/${kind}/${action}`, body);
+    const noteKey = { add: "dw.custom.added", enabled: "dw.custom.toggled", remove: "dw.custom.removed" }[action];
+    if (r.ok) { custom = r.data || custom; customNote = T(noteKey); customBad = false; } else { customNote = why(r); customBad = true; }
+    draw();
+  }
+  function customList(kind, on) {
+    const wrap = el("div", "dw-custom"), list = el("ul", "dw-customlist");
+    (custom[kind] || []).forEach(s => {
+      const li = el("li"), name = el("strong", "", s.name), where = el("span", "help", " " + s.url);
+      const tglId = `dw-custom-${kind}-${s.name}-on`, tgl = el("input"), tlab = el("label", "", T("dw.custom.enabled"));
+      tgl.type = "checkbox"; tgl.id = tglId; tgl.checked = !!s.enabled; tgl.disabled = !on; tlab.htmlFor = tglId;
+      tgl.onchange = () => customChange(kind, "enabled", { name: s.name, enabled: tgl.checked });
+      const rm = btn(T("dw.custom.remove"), "", () => customChange(kind, "remove", { name: s.name }));
+      rm.setAttribute("aria-label", T("dw.custom.remove") + " " + s.name); rm.disabled = !on;
+      li.append(name, where, tgl, tlab, rm);
+      list.append(li);
+    });
+    const form = el("form", "dw-customform"), f = {};
+    [["name", "dw.custom.name", ""], ["url", "dw.custom.url", "http://…onion/search?q={query}"]].forEach(([k, key, ph]) => {
+      const row = el("div", "cx-pf"), id = `dw-custom-${kind}-${k}`, lab = el("label", "", T(key)), inp = el("input");
+      lab.htmlFor = id; inp.id = id; inp.type = "text"; inp.placeholder = ph; inp.maxLength = 500; inp.autocomplete = "off"; inp.spellcheck = false; inp.disabled = !on;
+      f[k] = inp; row.append(lab, inp); form.append(row);
+    });
+    const add = btn(T("dw.custom.add"), "primary", () => {}); add.type = "submit"; add.disabled = !on;
+    form.append(add);
+    form.onsubmit = e => { e.preventDefault(); customChange(kind, "add", { name: f.name.value, url: f.url.value }); };
+    wrap.append(el("h4", "", T("dw.custom." + kind)), el("p", "help", T("dw.custom." + kind + ".help")), list, form);
+    return wrap;
+  }
+  function customBlock(on) {
+    const wrap = el("div", "dw-custom-root");
+    wrap.id = "dw-custom";
+    wrap.append(el("p", "help", T("dw.custom.help")), customList("engines", on), customList("directories", on));
+    if (customNote) { const p = el("p", customBad ? "cx-why" : "help", customNote); p.setAttribute("role", customBad ? "alert" : "status"); wrap.append(p); }
+    return wrap;
   }
   /* the leak archives: the built-in list and the ones added here; an archive added can be removed, a built-in one stays */
   async function leakChange(path, body) {
@@ -92,6 +133,7 @@
     box.push(el("p", "help", T("dw.watches.help")));
     box.push(check("dw-leaks-on", "dw.leaks", s.leak_archives, v => change({ leak_archives: v }), !s.darkweb));
     box.push(leakBlock(!!s.darkweb));
+    box.push(customBlock(!!s.darkweb));
     const nav = el("select"), navId = "dw-nav";
     nav.id = navId; nav.disabled = !s.darkweb;
     ["default", "own", "agent-browser"].forEach(v => { const o = el("option", "", T("dw.nav." + v)); o.value = v; nav.append(o); });

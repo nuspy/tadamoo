@@ -6,12 +6,16 @@
     POST /api/darkweb/tor/start|stop     our own Tor process
     GET  /api/darkweb/leaks              the leak archives (the built-in ones and the ones added)
     POST /api/darkweb/leaks/add|remove   add an archive {name, address, search?, about?}; remove one that was added {name}
+    GET  /api/darkweb/custom                   the person's pinned onion search engines and directories, used in every search
+    POST /api/darkweb/custom/<kind>/add        add a source {name, url}; kind is "engines" or "directories"
+    POST /api/darkweb/custom/<kind>/enabled    turn one on or off {name, enabled}
+    POST /api/darkweb/custom/<kind>/remove     remove one {name}
 """
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from tadamoo.darkweb_runtime import Runtime, _leak_add, _leak_remove, _leak_rows
+from tadamoo.darkweb_runtime import Runtime, _custom_add, _custom_remove, _custom_rows, _custom_set_enabled, _leak_add, _leak_remove, _leak_rows
 
 
 class DarkwebError(ValueError):
@@ -32,6 +36,11 @@ class DarkwebApi:
             raise DarkwebError("the darkweb package is not installed in this Python", "no_package")
         return {"archives": _leak_rows(self.rt)}
 
+    def custom(self) -> Dict[str, Any]:
+        if self.rt.status()["package"] is False:
+            raise DarkwebError("the darkweb package is not installed in this Python", "no_package")
+        return _custom_rows(self.rt)
+
     def post(self, path: str, req: Dict[str, Any]) -> Dict[str, Any]:
         if self.rt.status()["package"] is False:
             raise DarkwebError("the darkweb package is not installed in this Python", "no_package")
@@ -43,6 +52,18 @@ class DarkwebApi:
         if path in ("leaks/add", "leaks/remove"):
             try:
                 return {"archives": _leak_add(self.rt, req) if path == "leaks/add" else _leak_remove(self.rt, str(req.get("name") or ""))}
+            except ValueError as e:
+                raise DarkwebError(str(e)) from None
+        if path.startswith("custom/") and path.count("/") == 2:
+            _, kind, action = path.split("/")
+            if action not in ("add", "enabled", "remove"):
+                raise DarkwebError("not found", "not_found")
+            try:
+                if action == "add":
+                    return _custom_add(self.rt, kind, req)
+                if action == "enabled":
+                    return _custom_set_enabled(self.rt, kind, req)
+                return _custom_remove(self.rt, kind, str(req.get("name") or ""))
             except ValueError as e:
                 raise DarkwebError(str(e)) from None
         if path == "":

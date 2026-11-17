@@ -201,6 +201,55 @@ def test_the_leak_archives_can_be_added_and_removed_through_the_api(tmp_path):
     assert [a["name"] for a in api.post("leaks/remove", {"name": "Mine"})["archives"]] == names
 
 
+def test_custom_engines_and_directories_can_be_managed_through_the_api_and_are_asked_automatically(tmp_path):
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", dr.TOR_PORT))
+    srv.listen(5)
+
+    def serve():
+        while True:
+            try:
+                c, _ = srv.accept()
+            except OSError:
+                return
+            c.recv(3)
+            c.sendall(b"\x05\x00")
+            c.recv(4)
+            n = c.recv(1)[0]
+            c.recv(n)
+            c.recv(2)
+            c.sendall(b"\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00")
+            c.recv(4096)
+            link = "http://" + "e" * 56 + ".onion/found"
+            body = f'<html><body><a href="{link}">Pinned hit</a></body></html>'.encode()
+            c.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: " + str(len(body)).encode() + b"\r\n\r\n" + body)
+            c.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    try:
+        rt = make(tmp_path)
+        rt.save({"darkweb": True})
+        rt._tor = type("T", (), {"running": lambda self: True})()
+        api = DarkwebApi(rt)
+        assert api.custom() == {"engines": [], "directories": []}
+        host = "c" * 56 + ".onion"
+        rows = api.post("custom/engines/add", {"name": "Mine", "url": f"http://{host}/s?q={{query}}"})
+        assert rows["engines"][0] == {"name": "Mine", "url": f"http://{host}/s?q={{query}}", "enabled": True}
+        with pytest.raises(DarkwebError):
+            api.post("custom/engines/add", {"name": "Bad", "url": "https://example.com/s?q={query}"})            # not an onion address
+        with pytest.raises(DarkwebError, match="engines or directories"):
+            api.post("custom/zzz/add", {"name": "Bad", "url": f"http://{host}/s?q={{query}}"})
+        found = rt.search("x")
+        assert "Mine" in found["asked"] and any(h["url"].endswith("/found") for h in found["hits"])
+        rows = api.post("custom/engines/enabled", {"name": "Mine", "enabled": False})
+        assert rows["engines"][0]["enabled"] is False
+        assert api.post("custom/engines/remove", {"name": "Mine"})["engines"] == []
+        with pytest.raises(DarkwebError):
+            api.post("custom/engines/remove", {"name": "Mine"})
+    finally:
+        srv.close()
+
+
 def test_navigation_default_follows_the_wallet_browser_and_can_be_overridden(tmp_path, monkeypatch):
     from tadamoo import browser as br
     rt = make(tmp_path)

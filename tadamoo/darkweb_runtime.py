@@ -84,10 +84,19 @@ class Runtime:
                 return p
         return None
 
+    def resolved_navigation(self) -> str:
+        """"own" or "agent-browser": the setting as saved, or the one default browser (Settings > Wallet) when it is left at "default"."""
+        value = self.settings()["navigation"]
+        if value != "default":
+            return value
+        from tadamoo.browser import default_backend
+        return "own" if default_backend() == "tadamoo" else "agent-browser"
+
     def status(self) -> Dict[str, Any]:
         pkg = _package()
         s = self.settings() if pkg else {}
-        return {"package": pkg is not None, "settings": s, "tor": {"installed": self.tor_program() is not None, "running": bool(self._tor and self._tor.running()), "socks": f"127.0.0.1:{TOR_PORT}"},
+        return {"package": pkg is not None, "settings": s, "navigation_resolved": self.resolved_navigation() if pkg else "own",
+                "tor": {"installed": self.tor_program() is not None, "running": bool(self._tor and self._tor.running()), "socks": f"127.0.0.1:{TOR_PORT}"},
                 "gpg": bool(_which("gpg"))}
 
     def install_tor(self) -> Dict[str, Any]:
@@ -147,12 +156,15 @@ class Runtime:
 
     def search(self, query: str, limit: int = 10) -> Dict[str, Any]:
         from darkweb import search as dsearch
+        from darkweb.customsearch import search_custom
         from darkweb.seed import build_registry
         self._ready("search")
         with _lock:
             if self._registry is None:
                 self._registry = build_registry(self._fetch())
-        out = dsearch.search(self._registry, query[:200])
+        pinned = [s for rows in _custom_store(self).list_all().values() for s in rows]
+        extra, extra_failed = search_custom(pinned, query[:200], self._fetch())
+        out = dsearch.search(self._registry, query[:200], extra=extra, extra_failed=extra_failed)
         return {"hits": [{"url": h.url, "title": h.title, "engines": h.engines} for h in out["hits"][:max(1, min(int(limit), 30))]], "asked": out["asked"], "failed": out["failed"]}
 
     def read(self, url: str) -> str:
@@ -211,6 +223,30 @@ def _clear_fetch(url: str):
             return r.status, r.headers.get("Content-Type", ""), r.read(2_000_000)
     except urllib.error.HTTPError as e:
         return e.code, "", b""
+
+
+def _custom_store(rt: "Runtime"):
+    from darkweb.customsearch import Store
+    return Store(rt.dir / "custom_search.json")
+
+
+def _custom_rows(rt: "Runtime") -> Dict[str, List[Dict[str, Any]]]:
+    return {kind: [{"name": s.name, "url": s.url, "enabled": s.enabled} for s in rows] for kind, rows in _custom_store(rt).list_all().items()}
+
+
+def _custom_add(rt: "Runtime", kind: str, req: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
+    _custom_store(rt).add(kind, str(req.get("name") or ""), str(req.get("url") or ""))
+    return _custom_rows(rt)
+
+
+def _custom_set_enabled(rt: "Runtime", kind: str, req: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
+    _custom_store(rt).set_enabled(kind, str(req.get("name") or ""), bool(req.get("enabled")))
+    return _custom_rows(rt)
+
+
+def _custom_remove(rt: "Runtime", kind: str, name: str) -> Dict[str, List[Dict[str, Any]]]:
+    _custom_store(rt).remove(kind, name)
+    return _custom_rows(rt)
 
 
 def _watch_store(rt: "Runtime"):

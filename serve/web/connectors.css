@@ -73,6 +73,14 @@
 .dw-leakform { display: grid; gap: 8px; }
 .dw-leakform input { min-height: 44px; width: 100%; box-sizing: border-box; }
 .dw-leaks .btn { min-height: 44px; }
+.dw-custom-root { display: grid; gap: 8px; margin: 6px 0 12px; }
+.dw-custom { display: grid; gap: 8px; }
+.dw-customlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.dw-customlist li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.dw-customlist input[type="checkbox"] { width: 24px; height: 24px; margin: 0; flex: none; }
+.dw-customform { display: grid; gap: 8px; }
+.dw-customform input { min-height: 44px; width: 100%; box-sizing: border-box; }
+.dw-custom .btn { min-height: 44px; }
 .cx-rev { display: grid; gap: 6px; margin-top: 12px; }
 .cx-rev select { min-height: 44px; }
 .cx-rev .btn { min-height: 44px; }

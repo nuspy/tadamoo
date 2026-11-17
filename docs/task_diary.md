@@ -86,6 +86,7 @@ Legenda: [x] fatto e verificato, [~] iniziato, [ ] da fare. Un punto per riga.
    - Fatto: `tadamoo/skillreview_nvidia.py` (trova un Python 3.12+, costruisce il suo ambiente, lo installa, lo fa girare: solo livello 1 di base, livello 1+2+3 quando chiedi anche il livello 3 e Docker c'è).
    - In Connettori > Provider: scelta «Quale revisione gira» (la nostra, NVIDIA, entrambe), «Installa NVIDIA SkillEvaluator», e la casella per il livello 3 (spenta se non c'è Docker sul PC, con la spiegazione). Il parere di NVIDIA compare nella finestra di revisione di uno strumento, accanto al nostro.
    - Licenza NVIDIA: Apache-2.0, come tu hai detto; non ho trovato nulla in contrasto.
+25. [x] Dark web: due liste tue di motori di ricerca onion e directory di pagine onion (18 novembre, provato con test; nessuna rete vera). Stesso schema del punto 21 (web search normale) ma per il dark web: nome, indirizzo .onion con `{query}`, interruttore attivo/disattivo, aggiungi/togli, nelle impostazioni di inferenza sotto Dark web. Si aggiungono da sole a ogni ricerca `darkweb_search`, insieme ai motori che la ricerca trova da sé: restano sempre interrogate (non vanno a riposo come un motore che fallisce) perché le hai scelte tu di proposito. Prima non c'era: la ricerca nel dark web si scopriva solo da sé (punto 20 della lista «Dark web search decisions»), gli archivi di fughe (punto 19) sono una cosa diversa (pagine pubbliche con una loro ricerca, non motori onion).
 
 ## Risposte del 17 novembre sera (per la notte)
 

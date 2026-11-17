@@ -43,6 +43,7 @@ FEATURES = [
     ("Page reader and browser override for a preset's conversations", "Chat settings", "index.html", 'id="cs-browsing"'),
     ("Connectors: review mode (our own, NVIDIA SkillEvaluator, both) and its Tier 3", "Connectors > Providers", "connectors.js", "api/connectors/nvidia"),
     ("Dark web browser follows the default browser unless overridden", "Chat settings > Dark web", "darkwebset.js", '"default", "own", "agent-browser"'),
+    ("Dark web: own pinned onion search engines and page directories (add, enable, remove)", "Chat settings > Dark web", "darkwebset.js", "api/darkweb/custom"),
 ]
 
 
