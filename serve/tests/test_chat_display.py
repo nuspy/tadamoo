@@ -94,6 +94,16 @@ class Settings(unittest.TestCase):
             with self.assertRaises(ValueError, msg=str(bad)):
                 profiles.check_inference(bad)
 
+    def test_the_dark_web_switches_are_kept_by_a_saved_profile_checked_and_written_back_only_when_one_is_loaded_by_hand(self):
+        good = {"darkweb": True, "darkweb_search": False, "darkweb_read": True}
+        self.assertEqual(profiles.check_inference(good), good)
+        for bad in ({"darkweb": "yes"}, {"darkweb_search": 1}, {"darkweb_read": None}):
+            with self.assertRaises(ValueError, msg=str(bad)):
+                profiles.check_inference(bad)
+        self.assertIn('darkweb: dw("darkweb")', CHATSET)
+        self.assertIn("window.dwSet.write(s)", CHATSET)
+        self.assertIn("if (apply && window.dwSet", CHATSET)
+
     def test_only_a_preset_loaded_by_hand_reaches_the_conversation_and_the_billion_context_process(self):
         self.assertIn("write(p.settings, true)", CHATSET)
         self.assertIn("write(s, true)", CHATSET)

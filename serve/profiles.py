@@ -35,7 +35,8 @@ LOAD_FIELDS = [f"{s}.{k}" for s, k in settings.LOADER_FIELDS]
 INFERENCE_KEYS = ("system", "stop", "policy", "threshold", "effort", "temperature", "top_p", "top_k", "min_p",
                   "repetition_penalty", "presence_penalty", "frequency_penalty", "penalty_last_n", "seed",
                   "reasoning_budget_tokens", "max_tokens", "format", "schema", "schema_name", "retries", "context_patterns", "end_turn_bias", "max_turns", "max_answer_tokens", "auto_continue", "show_reasoning", "show_tooling",
-                  "abstract_on", "abstract_keep", "code_keep", "billion_on", "billion_compress", "billion_port", "images", "charts", "autonomy")
+                  "abstract_on", "abstract_keep", "code_keep", "billion_on", "billion_compress", "billion_port", "images", "charts", "autonomy",
+                  "darkweb", "darkweb_search", "darkweb_read")
 AUTONOMY_LEVELS = ("plan", "read_only", "default", "auto")
 VISUAL_LEVELS = ("very_low", "low", "normal", "high", "very_high", "highest")
 
@@ -185,7 +186,7 @@ def check_inference(values) -> dict:
             times = int(times)
         if isinstance(times, bool) or not isinstance(times, int) or not 0 <= times <= 20:
             raise ValueError("auto_continue: a whole number from 0 (off) to 20")
-    for key in ("abstract_on", "billion_on", "billion_compress"):
+    for key in ("abstract_on", "billion_on", "billion_compress", "darkweb", "darkweb_search", "darkweb_read"):
         if key in out and not isinstance(out[key], bool):
             raise ValueError(f"{key}: true or false")
     for key, low, high in (("abstract_keep", 1, 20), ("code_keep", 3, 5), ("billion_port", 1024, 65535)):

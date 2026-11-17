@@ -80,6 +80,20 @@ t("Tor is not downloaded by one press: the second press does it, then Start and 
   await settle();
   if (!root.textContent.includes("dw.tor.running")) throw new Error("the page does not say Tor is running");
 });
+t("a saved profile keeps the three switches, and loading one writes them to the server", async () => {
+  state = { ...state, package: true, settings: { ...state.settings, darkweb: true, search: true, read: false } };
+  root.children = [];
+  setup();
+  await settle();
+  eq(window.dwSet.read(), { darkweb: true, darkweb_search: true, darkweb_read: false });
+  posted.length = 0;
+  await window.dwSet.write({ darkweb: false, darkweb_search: false, darkweb_read: true });
+  eq(posted[0], { url: "api/darkweb", body: { darkweb: false, search: false, read: true } });
+  eq(window.dwSet.read(), { darkweb: false, darkweb_search: false, darkweb_read: true });
+  posted.length = 0;
+  await window.dwSet.write({});
+  eq(posted.length, 0);                                                         // a profile that says nothing about it changes nothing
+});
 t("without the package the page says so and offers nothing", async () => {
   state = { ...state, package: false };
   root.children = [];

@@ -20,7 +20,7 @@ class DarkwebPageTest(unittest.TestCase):
         out = subprocess.run([NODE, str(HERE / "darkweb_dom_check.js")], capture_output=True, text=True, timeout=60)
         self.assertEqual(out.returncode, 0, out.stderr)
         results = json.loads(out.stdout)
-        self.assertEqual(len(results), 4)
+        self.assertEqual(len(results), 5)
         self.assertEqual([f"{r['name']}: {r['error']}" for r in results if not r["ok"]], [])
 
     def test_every_string_exists_in_both_languages(self):

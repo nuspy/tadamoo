@@ -96,7 +96,7 @@ class Base(unittest.TestCase):
         self.cfg.write_text(json.dumps({"server": {"model": str(self.a)}, "engine": {"max-context": 4096, "vram-reserve-mib": 1200}}), encoding="utf-8")
         tok = ByteTokenizer()
         self.svc = Service(MockEngine(tok, ["</think>\n\nhello"]), tok, ChatTemplate(ROOT / "serve/chat_template.jinja"))
-        self.svc.settings_info = {"config": str(self.cfg), "model": str(self.a), "cli": [], "running": {}}
+        self.svc.settings_info = {"config": str(self.cfg), "model": str(self.a), "cli": [], "running": {"engine.vram-elastic": False}}
         self.sup = self.svc.supervisor = supervisor.Supervisor(self.svc, ["--mock-engine", "--config", str(self.cfg)], mock=True)
         self.sup.mock_delay = 0.1
         log, pool = self.log, self.pool
