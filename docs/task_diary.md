@@ -8,29 +8,29 @@ Ultimo aggiornamento: 17 novembre 2026 (6.2 fatto, nuovi punti 7.20-7.22). Si ag
 Legenda: [x] fatto e verificato, [~] iniziato, [ ] da fare. Un punto per riga.
 
 1. [x] Unire il ramo della 2FA a master (17 novembre, commit 9483b409, 67 test passano).
-2. [ ] Finire le funzioni mancanti dei Connettori (fase 1 fatta, ramo feat/connectors).
-   - [ ] 2a. Lettura dell'inventario reale e API in sola lettura.
-   - [ ] 2b. Interfaccia web: filtro unico, due fasce, tre pulsanti, sotto-tab.
-   - [ ] 2c. Albero delle dipendenze in una finestra a parte.
+2. [~] Finire le funzioni mancanti dei Connettori (fase 1 e 2a-2b fatte, unite a master il 17 novembre; il resto non fatto).
+   - [x] 2a. Lettura dell'inventario reale e API in sola lettura (17 novembre: 332 elementi trovati su questo PC; `GET /api/connectors`, `/api/connectors/item`; provato con test).
+   - [~] 2b. Interfaccia web (17 novembre, provata in un browser vero a 360x640, 390x844, 1280x800): filtro unico, interruttore Esterni/Personali/Tutti, sotto-tab, due fasce, descrizione al clic, accendi/spegni. Non fatto: pulsanti Configura e Disinstalla, sotto-tab App MCP vuota, controllo a segmenti su schermo stretto.
+   - [~] 2c. Albero delle dipendenze: c'è dentro la scheda del plugin (figli, stato, interruttori, cosa toglierebbe); non è in una finestra a parte.
    - [ ] 2d. Installa e disinstalla, con revisione dell'LLM e scheda dei fatti.
    - [ ] 2e. Tab Provider (lista modificabile, con WhatsApp, Telegram, Viber da te approvati).
    - [ ] 2f. Configurazione guidata (sessione effimera) e account multipli.
    - [ ] 2g. Controllo aggiornamenti, unione sulla copia di lavoro, avviso in ogni tab.
    - [ ] 2h. Indice leggero per l'LLM e carte a richiesta.
    - [ ] 2i. Android e app nativa.
-3. [ ] Finire le funzioni del dark web (cartella E:\Projects\darkweb).
+3. [~] Finire le funzioni del dark web (cartella E:\Projects\darkweb; fase 1 in parte, commit 07fbbf9, solo locale).
    - [ ] 3a. Spostare nel pacchetto il nostro pilota e il wrapper di Agent Browser.
    - [ ] 3b. TaDaMoo importa dal pacchetto, dipendenza fissata.
    - [ ] 3c. Tor da sorgente verificata nel sistema di compilazione e nel setup.
-   - [ ] 3d. Fasi 1-5 del progetto, interruttori nei profili e su Android.
+   - [~] 3d. Fase 1 fatta in parte (impostazioni, cartella di quarantena, gestore di Tor solo SOCKS locale e solo .onion, lettore di testo sicuro; 17 test con stand-in): manca la sezione del vault e il collegamento ai profili. Fasi 2-5, interruttori nei profili e Android: non fatti.
    - [ ] 3e. Nome, proprietario e visibilità del repository: decidi tu, niente push senza OK.
 4. [ ] Completare i modelli per avatar.
    - [ ] 4a. ID-LoRA TalkVid su LTX e predittore Veda.
    - [ ] 4b. Riordinare la cartella wan22-s2v sul NAS e scrivere il README.
    - [ ] 4c. Aggiornare la pagina dei test se escono righe nuove.
-5. [~] Spiegarti le decisioni in sospeso.
-   - [ ] 5.1 Analisi di Docker.
-   - [ ] 5.2 IQ3_S.
+5. [x] Spiegarti le decisioni in sospeso (spiegate a te il 17 novembre; le decisioni restano tue).
+   - [x] 5.1 Analisi di Docker: spiegata (docker_data.vhdx 75,1 GB in E:\Docker\Images\DockerDesktopWSL\disk, fermo dal 4 novembre; nessun processo Docker attivo). Non ho aperto Docker né cancellato niente.
+   - [x] 5.2 IQ3_S: spiegato (il file .basalt da 81,6 GB è in E:\Modelliasalt2; i GGUF da cancellare dopo il primo caricamento: da riconfermare quali, perché in E:\lmstudio trovo IQ3_XXS da 79,4 GB più 3,9 GB di bozza, non un IQ3_S).
 6. [~] Correggere i due test che falliscono.
    - [x] 6.1 Disegno dei diagrammi: il test cercava un vecchio nome di variabile, corretto (commit 784fd328).
    - [x] 6.2 Pannello di inferenza nell'editor dei piani: le caselle cs-system e cs-stop erano schiacciate a 0 px da una regola delle note dei piani (`plans.css`, `.pl-panel textarea`); ora almeno 44 px. `test_inference_page.py` passa (browser vero a 360x640, 390x844, 1280x800). Resta un altro test che fallisce da prima, non richiesto: `test_visuals_page` (immagini nelle risposte).
