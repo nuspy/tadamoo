@@ -1,7 +1,59 @@
 # Diario dei task
 
-Ultimo aggiornamento: 16 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
+Ultimo aggiornamento: 17 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «9 novembre» e da «Decisioni tue in attesa». Le sezioni dell'8, 7, 5 e 4 novembre sono in `docs/task_diary_archive.md`.
+
+## Lista di lavoro del 17 novembre (tasks e subtasks, aggiornata a ogni passo)
+
+Legenda: [x] fatto e verificato, [~] iniziato, [ ] da fare. Un punto per riga.
+
+1. [x] Unire il ramo della 2FA a master (17 novembre, commit 9483b409, 67 test passano).
+2. [ ] Finire le funzioni mancanti dei Connettori (fase 1 fatta, ramo feat/connectors).
+   - [ ] 2a. Lettura dell'inventario reale e API in sola lettura.
+   - [ ] 2b. Interfaccia web: filtro unico, due fasce, tre pulsanti, sotto-tab.
+   - [ ] 2c. Albero delle dipendenze in una finestra a parte.
+   - [ ] 2d. Installa e disinstalla, con revisione dell'LLM e scheda dei fatti.
+   - [ ] 2e. Tab Provider (lista modificabile, con WhatsApp, Telegram, Viber da te approvati).
+   - [ ] 2f. Configurazione guidata (sessione effimera) e account multipli.
+   - [ ] 2g. Controllo aggiornamenti, unione sulla copia di lavoro, avviso in ogni tab.
+   - [ ] 2h. Indice leggero per l'LLM e carte a richiesta.
+   - [ ] 2i. Android e app nativa.
+3. [ ] Finire le funzioni del dark web (cartella E:\Projects\darkweb).
+   - [ ] 3a. Spostare nel pacchetto il nostro pilota e il wrapper di Agent Browser.
+   - [ ] 3b. TaDaMoo importa dal pacchetto, dipendenza fissata.
+   - [ ] 3c. Tor da sorgente verificata nel sistema di compilazione e nel setup.
+   - [ ] 3d. Fasi 1-5 del progetto, interruttori nei profili e su Android.
+   - [ ] 3e. Nome, proprietario e visibilità del repository: decidi tu, niente push senza OK.
+4. [ ] Completare i modelli per avatar.
+   - [ ] 4a. ID-LoRA TalkVid su LTX e predittore Veda.
+   - [ ] 4b. Riordinare la cartella wan22-s2v sul NAS e scrivere il README.
+   - [ ] 4c. Aggiornare la pagina dei test se escono righe nuove.
+5. [~] Spiegarti le decisioni in sospeso.
+   - [ ] 5.1 Analisi di Docker.
+   - [ ] 5.2 IQ3_S.
+6. [~] Correggere i due test che falliscono.
+   - [x] 6.1 Disegno dei diagrammi: il test cercava un vecchio nome di variabile, corretto (non ancora committato).
+   - [ ] 6.2 Barra dei pulsanti (cs-system e cs-stop sotto i 44 px).
+7. [ ] Sezione Knowledge/RAG, da completare. Prima di tutto: la ricerca web segue anche i link delle pagine lette e giudica con la sessione tecnica se il link è coerente (a gruppi, secondo il limite di token).
+   - [ ] 7.1 Creare e cancellare progetti.
+   - [ ] 7.2 Elenco dei progetti in colonna a sinistra con modifica e cancella; cancella con doppio dialogo (sei sicuro, poi scrivere a mano il nome).
+   - [ ] 7.3 Archivi del progetto sotto l'elenco dei progetti; ricerca semantica, lettura e database a destra.
+   - [ ] 7.4 «Python per gli embedding»: tolto dalla vista, installato e basta.
+   - [ ] 7.5 «Python dell'ambiente di lettura»: stesso.
+   - [ ] 7.6 Database: la lista dei componenti mostra solo quelli del tipo scelto.
+   - [ ] 7.7 Password utente e amministratore: se inserite si vedono pallini e numero di caratteri.
+   - [ ] 7.8 Pulsante «Prova» per verificare che il database sia installato e configurato.
+   - [ ] 7.9 «Segui questa fonte»: spiegarlo meglio; un suggerimento (tooltip) su ogni cosa.
+   - [ ] 7.10 Pulsante «Apri» su ogni documento.
+   - [ ] 7.11 Spiegare la differenza tra «aggiungi file» e «fonti».
+   - [ ] 7.12 Perché dice «nessuna fonte» con documenti presenti: correggere.
+   - [ ] 7.13 Albero a nodi (tipo di fonte, directory annidate, wiki con sezioni, documenti) con tre stati, aggiornamento immediato, elimina, «rifai la ricerca su questo nodo».
+   - [ ] 7.14 Frequenza di controllo nell'albero (manuale, a intervalli, segue i sotto-nodi, a ricorrenza); sostituisce «controlla secondo programma».
+   - [ ] 7.15 Aggiunta di file e directory con trascinamento (e clic per sfogliare, come ora).
+   - [ ] 7.16 Campo per pagine, siti e wiki con profondità dei link, salvata sulla fonte.
+   - [ ] 7.17 Aggiunta in linguaggio naturale con l'LLM: lista con caselle, bottoni estendi ricerca, importa tutti, importa selezionati, cancella.
+   - [ ] 7.18 «Taglia di nuovo le letture e confronta»: spiegarlo.
+   - [ ] 7.19 Contenitori separati per gruppi di funzioni (copertura, indice, prova una domanda, albero, aggiunta file, pagine web), spazio minimo tra i contenitori.
 
 ## 16 novembre
 
