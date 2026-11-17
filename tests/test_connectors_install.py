@@ -85,9 +85,9 @@ def make(tmp_path, stub, providers):
 
 def test_the_originals_folder_is_a_full_path_made_when_set_and_empty_by_default(tmp_path):
     s = ConnectorSettings(tmp_path / "c")
-    assert s.read() == {"originals_dir": ""}
+    assert s.read() == {"originals_dir": "", "review_mode": "ours", "review_tier3_docker": False}
     where = tmp_path / "AI" / "connectors"
-    assert s.write(str(where)) == {"originals_dir": str(where)} and where.is_dir()
+    assert s.write(str(where)) == {"originals_dir": str(where), "review_mode": "ours", "review_tier3_docker": False} and where.is_dir()
     for bad in ("relative/dir", str(tmp_path / ".." / "x"), "x" * 600):
         with pytest.raises(Exception):
             s.write(bad)

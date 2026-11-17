@@ -31,8 +31,12 @@ class ConnectorInstallError(ValueError):
         self.code = code
 
 
+REVIEW_MODES = ("ours", "nvidia", "both")
+
+
 class ConnectorSettings:
-    """The few settings of the Connectors tab kept in its own folder: where the downloaded originals go."""
+    """The few settings of the Connectors tab kept in its own folder: where the downloaded originals go, and which review(s) run before an install
+    (our own, NVIDIA SkillEvaluator's, or both) with whether its Tier 3 (a live agent run, needs Docker) may be used."""
 
     def __init__(self, directory: Path) -> None:
         self.path = Path(directory) / SETTINGS
@@ -42,22 +46,37 @@ class ConnectorSettings:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             data = {}
-        return {"originals_dir": str(data.get("originals_dir") or "") if isinstance(data, dict) else ""}
+        if not isinstance(data, dict):
+            data = {}
+        mode = data.get("review_mode")
+        return {"originals_dir": str(data.get("originals_dir") or ""), "review_mode": mode if mode in REVIEW_MODES else "ours",
+                "review_tier3_docker": data.get("review_tier3_docker") is True}
 
-    def write(self, originals_dir: Any) -> Dict[str, Any]:
-        text = str(originals_dir or "").strip()
-        if len(text) > 500 or "\x00" in text:
-            raise ConnectorInstallError("originals_dir: a folder of this PC", "bad_folder")
-        if text:
-            folder = Path(text)
-            if not folder.is_absolute() or ".." in folder.parts:
-                raise ConnectorInstallError("originals_dir: the full path of a folder of this PC", "bad_folder")
-            try:
-                folder.mkdir(parents=True, exist_ok=True)
-            except OSError as e:
-                raise ConnectorInstallError(f"that folder cannot be made: {e}", "bad_folder") from None
+    def write(self, originals_dir: Any = None, review_mode: Any = None, review_tier3_docker: Any = None) -> Dict[str, Any]:
+        now = self.read()
+        if originals_dir is not None:
+            text = str(originals_dir or "").strip()
+            if len(text) > 500 or "\x00" in text:
+                raise ConnectorInstallError("originals_dir: a folder of this PC", "bad_folder")
+            if text:
+                folder = Path(text)
+                if not folder.is_absolute() or ".." in folder.parts:
+                    raise ConnectorInstallError("originals_dir: the full path of a folder of this PC", "bad_folder")
+                try:
+                    folder.mkdir(parents=True, exist_ok=True)
+                except OSError as e:
+                    raise ConnectorInstallError(f"that folder cannot be made: {e}", "bad_folder") from None
+            now["originals_dir"] = text
+        if review_mode is not None:
+            if review_mode not in REVIEW_MODES:
+                raise ConnectorInstallError(f"review_mode: one of {', '.join(REVIEW_MODES)}", "bad_review_mode")
+            now["review_mode"] = review_mode
+        if review_tier3_docker is not None:
+            if not isinstance(review_tier3_docker, bool):
+                raise ConnectorInstallError("review_tier3_docker: true or false", "bad_review_mode")
+            now["review_tier3_docker"] = review_tier3_docker
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps({"originals_dir": text}), encoding="utf-8")
+        self.path.write_text(json.dumps(now), encoding="utf-8")
         return self.read()
 
 

@@ -87,6 +87,64 @@ def test_an_item_a_registry_lists_is_looked_at_by_its_listing_and_reviewed(tmp_p
         api.review("registry:nothing/here")
 
 
+def test_the_review_mode_decides_which_reviews_run(tmp_path, monkeypatch):
+    from serve.connectors_install import ConnectorInstaller, ConnectorSettings
+    from tadamoo.discovery.candidates import CandidateStore
+    skills = tmp_path / "skills"
+    (skills / "demo").mkdir(parents=True)
+    (skills / "demo" / "SKILL.md").write_text("---\nname: demo\ndescription: A demo\n---\nBody.\n", encoding="utf-8")
+    rows = [{"id": "folder-skills", "kind": "folder", "ref": str(skills), "trust": "known", "enabled": True}]
+    (tmp_path / "providers.json").write_text(json.dumps(rows), encoding="utf-8")
+    installer = ConnectorInstaller(type("Caps", (), {"index": type("Idx", (), {"dir": tmp_path / "caps", "refresh": lambda self: None})()})(), tmp_path / "caps", None)
+    installer.settings = ConnectorSettings(tmp_path / "connsettings")
+    client = Client(json.dumps({"verdict": "ok", "summary": "Fine.", "risks": []}))
+    api = ConnectorsApi(lambda: [], lambda: ([], ()), Providers(tmp_path / "providers.json"), lambda url: b"{}", lambda: client, installer)
+
+    class FakeRuntime:
+        def installed(self):
+            return True
+
+        def quality_check(self, folder):
+            assert Path(folder).is_dir()
+            return {"score": 88, "grade": "B"}
+    import tadamoo.skillreview_nvidia as sr_mod
+    monkeypatch.setattr(sr_mod, "shared", lambda: FakeRuntime())
+
+    out = api.review("folder:demo")                                            # default "ours": no nvidia_review key
+    assert "review" in out and "nvidia_review" not in out
+    installer.settings.write(review_mode="nvidia")
+    out = api.review("folder:demo")
+    assert "review" not in out and out["nvidia_review"] == {"available": True, "tier3": False, "report": {"score": 88, "grade": "B"}}
+    installer.settings.write(review_mode="both")
+    out = api.review("folder:demo")
+    assert out["review"]["verdict"] == "ok" and out["nvidia_review"]["available"] is True
+
+
+def test_nvidia_review_says_so_when_not_installed_or_the_kind_has_no_folder(tmp_path, monkeypatch):
+    from serve.connectors_install import ConnectorInstaller, ConnectorSettings
+    rows = [{"id": "mcp-registry", "kind": "mcp_registry", "ref": "https://registry.example", "trust": "official", "enabled": True}]
+    (tmp_path / "providers.json").write_text(json.dumps(rows), encoding="utf-8")
+    installer = ConnectorInstaller(type("Caps", (), {"index": type("Idx", (), {"dir": tmp_path / "caps", "refresh": lambda self: None})()})(), tmp_path / "caps", None)
+    installer.settings = ConnectorSettings(tmp_path / "connsettings")
+    installer.settings.write(review_mode="nvidia")
+    listing = json.dumps({"servers": [{"server": SERVER}]}).encode()
+    api = ConnectorsApi(lambda: [], lambda: ([], ()), Providers(tmp_path / "providers.json"), lambda url: listing, None, installer)
+
+    class NotInstalled:
+        def installed(self):
+            return False
+    import tadamoo.skillreview_nvidia as sr_mod
+    monkeypatch.setattr(sr_mod, "shared", lambda: NotInstalled())
+    assert api.review("registry:io.example/weather")["nvidia_review"] == {"available": False, "error": "NVIDIA SkillEvaluator is not installed (Settings > Connectors)."}
+
+    class Installed:
+        def installed(self):
+            return True
+    monkeypatch.setattr(sr_mod, "shared", lambda: Installed())
+    out = api.review("registry:io.example/weather")
+    assert out["nvidia_review"] == {"available": False, "error": "This kind of item has no skill folder for NVIDIA SkillEvaluator to read."}
+
+
 def test_a_skill_in_a_provider_folder_is_looked_at_with_excerpts_and_nothing_outside_the_folder_is_read(tmp_path):
     skills = tmp_path / "skills"
     (skills / "demo").mkdir(parents=True)

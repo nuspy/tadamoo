@@ -766,7 +766,7 @@ def make_handler(svc: Service, remote: bool = False):
             elif path in ("/api/darkweb", "/api/darkweb/leaks"):
                 if self._authorized():
                     self._darkweb(path)
-            elif path in ("/api/connectors", "/api/connectors/item", "/api/connectors/providers", "/api/connectors/settings", "/api/connectors/config"):
+            elif path in ("/api/connectors", "/api/connectors/item", "/api/connectors/providers", "/api/connectors/settings", "/api/connectors/config", "/api/connectors/nvidia"):
                 if self._authorized():
                     self._connectors_get(path)
             elif path == "/api/netwatch" or path.startswith("/api/netwatch/"):
@@ -1073,7 +1073,7 @@ def make_handler(svc: Service, remote: bool = False):
                 self._attachments_post(path)
                 return
             if path in ("/api/connectors/providers", "/api/connectors/review", "/api/connectors/install", "/api/connectors/uninstall", "/api/connectors/settings",
-                        "/api/connectors/configure", "/api/connectors/updates", "/api/connectors/update"):
+                        "/api/connectors/configure", "/api/connectors/updates", "/api/connectors/update", "/api/connectors/nvidia/install"):
                 self._connectors_post(path)
                 return
             if path == "/api/darkweb" or path.startswith("/api/darkweb/"):
@@ -2447,6 +2447,8 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, api.folder_settings())
                 if path == "/api/connectors/config":
                     return self._json(200, api.config(one("id")))
+                if path == "/api/connectors/nvidia":
+                    return self._json(200, api.nvidia_status())
                 if path == "/api/connectors/item":
                     return self._json(200, api.item(one("id")))
                 return self._json(200, api.view(one("scope") or "all", one("kind"), one("state"), one("q")))
@@ -2499,6 +2501,8 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, self._connectors_api().update(str(req.get("id") or "")[:300], req))
                 if path == "/api/connectors/settings":
                     return self._json(200, self._connectors_api().folder_settings(req))
+                if path == "/api/connectors/nvidia/install":
+                    return self._json(200, self._connectors_api().nvidia_install())
                 return self._json(200, self._connectors_api().change_providers(req))
             except ConnectorError as e:
                 return self._json(400, {"error": {"type": "connectors", "message": str(e), "code": e.code}})

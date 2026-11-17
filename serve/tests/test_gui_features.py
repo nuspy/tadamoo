@@ -41,6 +41,7 @@ FEATURES = [
     ("Models: loader, converter, voice services", "Models", "index.html", 'id="view-loader"'),
     ("Web search: custom search engines and page directories (add, edit, switch, remove)", "Settings > Web search", "websearch.js", "api/websearch/custom"),
     ("Page reader and browser override for a preset's conversations", "Chat settings", "index.html", 'id="cs-browsing"'),
+    ("Connectors: review mode (our own, NVIDIA SkillEvaluator, both) and its Tier 3", "Connectors > Providers", "connectors.js", "api/connectors/nvidia"),
     ("Dark web browser follows the default browser unless overridden", "Chat settings > Dark web", "darkwebset.js", '"default", "own", "agent-browser"'),
 ]
 

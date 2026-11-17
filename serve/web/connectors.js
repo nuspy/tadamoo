@@ -6,7 +6,7 @@
   if (!root) return;
 
   const SUBTABS = ["skill", "mcp_server", "mcp_app", "plugin", "providers"];
-  const S = { sub: "skill", scope: "all", query: "", state: "", data: null, detail: "", tree: null, busy: false, off: null, reviews: {}, armed: "", installing: "", failed: {}, originals: null, updates: null, checking: false };
+  const S = { sub: "skill", scope: "all", query: "", state: "", data: null, detail: "", tree: null, busy: false, off: null, reviews: {}, armed: "", installing: "", failed: {}, originals: null, updates: null, checking: false, nvidia: null };
   let armTimer = 0;
   const ARM_MS = 4000;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -30,6 +30,7 @@
     if (!r.ok) { say(errText(r), true); return; }
     S.providers = r.data; say(""); draw();
     loadOriginals();
+    loadNvidia();
   }
   async function changeProviders(body) {
     const r = await api("POST", "api/connectors/providers", body);
@@ -52,6 +53,50 @@
     save.id = "cx-orig-save";
     const row = el("div", "cx-pf"); row.append(input, save);
     box.append(lab, el("p", "help", T("cx.orig.help")), row);
+    return box;
+  }
+
+  /* the review before an install: our own, NVIDIA SkillEvaluator's, or both; its Tier 3 (a live agent run) only when Docker is on this PC and the person wants it */
+  async function changeReviewSettings(body) {
+    const r = await api("POST", "api/connectors/settings", body);
+    if (r.ok) { S.originals = r.data; say(T("cx.rev.saved"), false); draw(); } else say(errText(r), true);
+  }
+  async function loadNvidia() {
+    const r = await api("GET", "api/connectors/nvidia");
+    if (r.ok) { S.nvidia = r.data; draw(); }
+  }
+  function reviewSettingsBlock() {
+    const box = el("section", "cx-rev"), o = S.originals || {};
+    box.append(el("h3", "", T("cx.rev.title")), el("p", "help", T("cx.rev.help")));
+    const mode = el("select"), modeId = "cx-rev-mode";
+    mode.id = modeId;
+    ["ours", "nvidia", "both"].forEach(v => { const opt = el("option", "", T("cx.rev.mode." + v)); opt.value = v; mode.append(opt); });
+    mode.value = o.review_mode || "ours";
+    mode.onchange = () => changeReviewSettings({ review_mode: mode.value });
+    const modeLab = el("label", "", T("cx.rev.mode")); modeLab.htmlFor = modeId;
+    box.append(modeLab, mode);
+    const n = S.nvidia;
+    if (mode.value !== "ours") {
+      const wrap = el("div", "cx-nvidia");
+      if (n && n.installed) {
+        wrap.append(el("p", "help", T("cx.rev.nvidia.installed", n.version || "?")));
+        const tier3 = el("label", "check"), c = el("input");
+        c.type = "checkbox"; c.id = "cx-rev-tier3"; c.checked = !!o.review_tier3_docker; c.disabled = !(n.docker);
+        c.onchange = () => changeReviewSettings({ review_tier3_docker: c.checked });
+        tier3.append(c, el("span", "", T("cx.rev.tier3")));
+        wrap.append(tier3, el("p", "help", n.docker ? T("cx.rev.tier3.help") : T("cx.rev.tier3.nodocker")));
+      } else {
+        wrap.append(el("p", "help", n && n.python_found ? T("cx.rev.nvidia.ready") : T("cx.rev.nvidia.needpython")));
+        const install = btn(T("cx.rev.nvidia.install"), "primary", async () => {
+          say(T("cx.rev.nvidia.installing"), false);
+          const r = await api("POST", "api/connectors/nvidia/install", {});
+          if (r.ok) { S.nvidia = r.data; say(T("cx.rev.nvidia.installed", r.data.version || "?"), false); draw(); } else say(errText(r), true);
+        });
+        install.id = "cx-rev-nvidia-install"; install.disabled = !(n && n.python_found);
+        wrap.append(install);
+      }
+      box.append(wrap);
+    }
     return box;
   }
 
@@ -78,7 +123,7 @@
     form.append(lab("cx-pk", "cx.prov.f.kind", kind), lab("cx-pr", "cx.prov.f.ref", ref), lab("cx-pt", "cx.prov.f.trust", trust), add);
     form.onsubmit = e => { e.preventDefault(); changeProviders({ action: "add", kind: kind.value, ref: ref.value, trust: trust.value }); };
     host.append(form, btn(T("cx.prov.reset"), "", () => changeProviders({ action: "reset" })));
-    host.append(originalsBlock());
+    host.append(originalsBlock(), reviewSettingsBlock());
     return host;
   }
 
@@ -263,12 +308,30 @@
      factLine(T("cx.f.scripts"), f.scripts), factLine(T("cx.f.tools"), [f.allowed_tools]), ...Object.entries(f.signs || {}).map(([k, v]) => factLine(k, v)), ...(f.notes || []).map(n => el("li", "", n))]
       .filter(Boolean).forEach(li => ul.append(li));
     box.append(ul);
-    box.append(el("h4", "cx-treeh", T("cx.review.advice")));
-    const verdict = el("p", "cx-verdict cx-v-" + rv.verdict, T("cx.verdict." + rv.verdict) + (rv.summary ? ": " + rv.summary : "") + (rv.note ? " (" + rv.note + ")" : ""));
-    box.append(verdict);
-    if (rv.risks && rv.risks.length) { const r = el("ul", "cx-facts"); rv.risks.forEach(x => r.append(el("li", "", x))); box.append(r); }
+    if (rv) {
+      box.append(el("h4", "cx-treeh", T("cx.review.advice")));
+      const verdict = el("p", "cx-verdict cx-v-" + rv.verdict, T("cx.verdict." + rv.verdict) + (rv.summary ? ": " + rv.summary : "") + (rv.note ? " (" + rv.note + ")" : ""));
+      box.append(verdict);
+      if (rv.risks && rv.risks.length) { const r = el("ul", "cx-facts"); rv.risks.forEach(x => r.append(el("li", "", x))); box.append(r); }
+    }
+    if (got.nvidia_review) box.append(nvidiaReviewBlock(got.nvidia_review));
     box.append(el("p", "help", T("cx.review.warn")));
     box.append(installControls(d));
+    return box;
+  }
+
+  function nvidiaReviewBlock(nr) {
+    const box = el("div", "cx-nvidia-review");
+    box.append(el("h4", "cx-treeh", T("cx.review.nvidia")));
+    if (!nr.available) { box.append(el("p", "help", nr.error)); return box; }
+    const rep = nr.report || {}, score = rep.score;
+    box.append(el("p", "cx-verdict", T("cx.review.nvidia.score", typeof score === "number" ? score : "?", rep.grade || "?") + (nr.tier3 ? " " + T("cx.review.nvidia.tier3done") : "")));
+    const findings = Array.isArray(rep.findings) ? rep.findings : [];
+    if (findings.length) {
+      const ul = el("ul", "cx-facts");
+      findings.slice(0, 12).forEach(f => ul.append(el("li", "", typeof f === "string" ? f : (f.message || f.title || JSON.stringify(f)).slice(0, 200))));
+      box.append(ul);
+    }
     return box;
   }
 

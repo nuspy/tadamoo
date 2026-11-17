@@ -5,7 +5,9 @@
     POST /api/connectors/review  {id}                                 the facts sheet of an item that is not installed yet and the advisory review of a model
     POST /api/connectors/install {id, allow_scripts?, anyway?, update?}   installs an item a provider lists (the press of the button is the authorisation)
     POST /api/connectors/uninstall {id}                               removes what TaDaMoo installed (the downloaded originals stay)
-    GET|POST /api/connectors/settings {originals_dir?}                where the downloaded originals are kept
+    GET|POST /api/connectors/settings {originals_dir?, review_mode?, review_tier3_docker?}   where the downloaded originals are kept, and which review(s) run
+    GET /api/connectors/nvidia                                        NVIDIA SkillEvaluator's own state (installed, a Python 3.12+ found, Docker found)
+    POST /api/connectors/nvidia/install {}                            installs it into its own venv (synchronous; a Python 3.12+ already on this PC, never downloaded)
 """
 from __future__ import annotations
 
@@ -23,6 +25,11 @@ class ConnectorError(ValueError):
     def __init__(self, message: str, code: str = "") -> None:
         super().__init__(message)
         self.code = code
+
+
+def _has_docker() -> bool:
+    import shutil
+    return bool(shutil.which("docker"))
 
 
 class ConnectorsApi:
@@ -124,7 +131,7 @@ class ConnectorsApi:
             folder = Path(it.source) / item_id[len("folder:"):]
             if not folder.is_dir() or folder.resolve().parent != Path(it.source).resolve():
                 raise ConnectorError("That folder is not there any more.", "gone")
-            return {"sheet": facts.from_skill(folder), "excerpts": self._skill_excerpts(folder)}
+            return {"sheet": facts.from_skill(folder), "excerpts": self._skill_excerpts(folder), "folder": str(folder)}
         if item_id.startswith("github:") and self.installer is not None:
             parts = self._github_parts(it)
             with tempfile.TemporaryDirectory(prefix="tadamoo-skill-") as tmp:
@@ -134,6 +141,27 @@ class ConnectorsApi:
                     raise ConnectorError(f"GitHub did not give the files: {str(e)[:160]}", "offline") from None
                 return {"sheet": {**facts.from_skill(folder), "name": it.name}, "excerpts": self._skill_excerpts(folder)}
         raise ConnectorError("This kind of item cannot be looked at yet.", "kind")
+
+    def _skill_folder(self, item_id: str) -> Any:
+        """A context manager yielding the skill's folder on disk for `item_id` ("folder:" or "github:"), or None for a kind NVIDIA's reviewer cannot read
+        (an MCP server); a "folder:" item's folder outlives the call, a "github:" one is fetched again into a temporary folder that is cleaned up after."""
+        import contextlib
+        it = self._item(item_id)
+        if item_id.startswith("folder:"):
+            folder = Path(it.source) / item_id[len("folder:"):]
+            return contextlib.nullcontext(folder if folder.is_dir() else None)
+        if item_id.startswith("github:") and self.installer is not None:
+            parts = self._github_parts(it)
+
+            @contextlib.contextmanager
+            def fetch():
+                with tempfile.TemporaryDirectory(prefix="tadamoo-skill-") as tmp:
+                    try:
+                        yield self.installer.fetch_skill(parts["repo"], parts["path"], parts["pin"], Path(tmp))
+                    except Exception:
+                        yield None
+            return fetch()
+        return contextlib.nullcontext(None)
 
     def install(self, item_id: str, flags: Dict[str, Any]) -> Dict[str, Any]:
         """Installs an item a provider lists. The person's press of the button is the authorisation; `flags` may hold allow_scripts, anyway and update."""
@@ -200,23 +228,62 @@ class ConnectorsApi:
             raise ConnectorError(str(e), e.code or "install") from None
 
     def folder_settings(self, req: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Where the downloaded originals are kept; with `originals_dir` in `req` it is changed."""
+        """Where the downloaded originals are kept, and which review(s) run before an install; any of `originals_dir`, `review_mode`,
+        `review_tier3_docker` in `req` changes that one, the rest stay as they were."""
         if self.installer is None:
             raise ConnectorError("There is no folder for downloads here.", "none")
         try:
-            return self.installer.settings.write(req["originals_dir"]) if req and "originals_dir" in req else self.installer.settings.read()
+            keys = ("originals_dir", "review_mode", "review_tier3_docker")
+            return self.installer.settings.write(**{k: req[k] for k in keys if req and k in req}) if req and any(k in req for k in keys) \
+                else self.installer.settings.read()
         except ConnectorInstallError as e:
             raise ConnectorError(str(e), e.code or "bad_folder") from None
 
+    def nvidia_status(self) -> Dict[str, Any]:
+        from tadamoo.skillreview_nvidia import shared as nvidia_shared
+        rt = nvidia_shared()
+        return {**rt.info(), "version": rt.version() if rt.installed() else "", "docker": _has_docker()}
+
+    def nvidia_install(self) -> Dict[str, Any]:
+        from tadamoo.skillreview_nvidia import SkillEvaluatorError, shared as nvidia_shared
+        rt = nvidia_shared()
+        try:
+            rt.install()
+        except SkillEvaluatorError as e:
+            raise ConnectorError(str(e), "nvidia_install") from None
+        return self.nvidia_status()
+
     def review(self, item_id: str) -> Dict[str, Any]:
-        """The facts sheet (counted by a program) and the review (advice from a model, kept nowhere)."""
+        """The facts sheet (counted by a program) and the review(s): our own (advice from a model, kept nowhere) and, when Settings > Connectors asks
+        for it, NVIDIA SkillEvaluator's static quality/security check (Tier 1, and Tier 3 when that is on and Docker is found)."""
         got = self.facts(item_id)
         client = None
         try:
             client = self.reviewer() if self.reviewer else None
         except Exception:                                      # no model to ask: the facts stand alone
             client = None
-        return {"id": item_id, "facts": got["sheet"], "review": review_mod.review(client, got["sheet"], got["excerpts"])}
+        out: Dict[str, Any] = {"id": item_id, "facts": got["sheet"]}
+        mode = self.installer.settings.read()["review_mode"] if self.installer is not None else "ours"
+        if mode in ("ours", "both"):
+            out["review"] = review_mod.review(client, got["sheet"], got["excerpts"])
+        if mode in ("nvidia", "both"):
+            out["nvidia_review"] = self._nvidia_review(item_id)
+        return out
+
+    def _nvidia_review(self, item_id: str) -> Dict[str, Any]:
+        from tadamoo.skillreview_nvidia import SkillEvaluatorError, shared as nvidia_shared
+        rt = nvidia_shared()
+        if not rt.installed():
+            return {"available": False, "error": "NVIDIA SkillEvaluator is not installed (Settings > Connectors)."}
+        with self._skill_folder(item_id) as folder:
+            if folder is None:
+                return {"available": False, "error": "This kind of item has no skill folder for NVIDIA SkillEvaluator to read."}
+            docker = bool(self.installer and self.installer.settings.read()["review_tier3_docker"] and _has_docker())
+            try:
+                report = rt.validate(folder, "1,2,3" if docker else "1") if docker else rt.quality_check(folder)
+            except SkillEvaluatorError as e:
+                return {"available": False, "error": str(e)[:600]}
+        return {"available": True, "tier3": docker, "report": report}
 
     def item(self, item_id: str) -> Dict[str, Any]:
         inv = self.inventory()

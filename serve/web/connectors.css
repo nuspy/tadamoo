@@ -73,3 +73,9 @@
 .dw-leakform { display: grid; gap: 8px; }
 .dw-leakform input { min-height: 44px; width: 100%; box-sizing: border-box; }
 .dw-leaks .btn { min-height: 44px; }
+.cx-rev { display: grid; gap: 6px; margin-top: 12px; }
+.cx-rev select { min-height: 44px; }
+.cx-rev .btn { min-height: 44px; }
+.cx-nvidia { display: grid; gap: 8px; }
+.cx-nvidia .check input { width: 20px; height: 20px; }
+.cx-nvidia-review { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line-soft); }
