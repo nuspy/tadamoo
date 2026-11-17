@@ -45,5 +45,16 @@ class RagDiscoverPageTest(unittest.TestCase):
         self.assertIn("overflow-wrap: anywhere", CSS[CSS.index(".rd-title"):CSS.index(".rd-title") + 120])
 
 
+    def test_every_suggestion_exists_in_both_languages_and_is_loaded_with_the_page(self):
+        tips = (WEB / "ragtips.js").read_text(encoding="utf-8")
+        keys = set(re.findall(r'"(rt\.[a-z]+)"', tips))
+        self.assertGreater(len(keys), 40)
+        for key in sorted(keys):
+            self.assertEqual(I18N.count(f'"{key}":'), 2, key)
+        self.assertLess(HTML.index("web/rag.js"), HTML.index("web/ragtips.js"))
+        for banned in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function"):
+            self.assertNotIn(banned, tips)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -196,7 +196,7 @@
     const dlg = el("dialog", "rg-dlg rg-browse"), body = el("div", "rg-browsebody"), bar = el("div", "rg-bar");
     dlg.setAttribute("aria-label", T("rg.browse.title"));
     const draw = () => {
-      const where = textInput(browse.path, 500); where.id = "rg-br-path";
+      const where = textInput(browse.path, 500); where.id = "rg-br-path"; where.setAttribute("aria-label", T("rg.browse.path"));
       const go = btn(T("rg.browse.go"), "", async () => { if (await browseTo(where.value.trim())) draw(); });
       where.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); go.click(); } };
       const row = el("div", "rg-row"); row.append(where, go);

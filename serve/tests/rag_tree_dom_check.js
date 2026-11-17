@@ -171,6 +171,20 @@ async function main() {
         if (!(await treeNow(aid)).some(n => n.id === "k:hand")) throw new Error("the files added by hand are not in their node");
         await fits("tree after adding");
       });
+
+      await check(`${vname}: every button and every field on the Knowledge page has a suggestion, in the Browse window too`, async () => {
+        await new Promise(r => setTimeout(r, 200));
+        const bare = sel => ev(`return qa(${JSON.stringify(sel)}).filter(e => !e.title && e.type !== "hidden" && !e.closest("[hidden]")).map(e => (e.id || e.className || e.tagName) + ":" + (e.textContent || e.value || "").slice(0, 30)).slice(0, 8)`);
+        const loose = await bare("#rg-root button, #rg-root input:not([type=checkbox]), #rg-root select, #rg-root textarea");
+        if (loose.length) throw new Error("no suggestion on: " + loose.join(" | "));
+        await waitFor(`!!q("#rg-browse") && !q("#rg-browse").disabled`, "the Browse button free again");
+        await click("#rg-root #rg-browse", "Browse this PC…");
+        await waitFor(`!!q("dialog[open] #rg-br-path")`, "the browse dialog");
+        await new Promise(r => setTimeout(r, 200));
+        const inDialog = await bare("dialog[open] button, dialog[open] input:not([type=checkbox])");
+        await ev(`q("dialog[open]").close(); return 1;`);
+        if (inDialog.length) throw new Error("no suggestion in the Browse window on: " + inDialog.join(" | "));
+      });
     }
     await send("Page.navigate", { url: "about:blank" });
   } catch (e) {
