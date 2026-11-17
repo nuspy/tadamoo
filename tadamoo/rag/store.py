@@ -849,6 +849,23 @@ class RagStore:
                 images.put(sha + "_t", thumb)
         return image, thumb
 
+    def move_images(self, target: Path) -> int:
+        """Copies every image of the folder in use to `target`, checks that each is there, then makes `target` the folder (setting `images_dir`). The old folder is left as it is.
+        Returns how many images were copied; the same picture already in `target` is not copied twice."""
+        source = self.image_store()
+        if not isinstance(source, ImageStore):
+            raise RagError("the images are not in a folder")
+        dest = ImageStore(target)
+        if Path(target).resolve() == source.root.resolve():
+            raise RagError("the images are already in that folder")
+        keys = list(source.keys())
+        for key in keys:
+            data = source.get(key)
+            if data is None or (not dest.has(key) and not dest.put(key, data)) or dest.get(key) != data:
+                raise RagError(f"the image {key} could not be copied: nothing was changed")
+        self.settings.write({"images_dir": str(target)})
+        return len(keys)
+
     def sweep_images(self) -> int:
         """Removes the files of the image folder that no figure of any archive names any more; the number removed."""
         named = set()

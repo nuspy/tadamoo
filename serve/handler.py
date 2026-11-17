@@ -3109,7 +3109,7 @@ def make_handler(svc: Service, remote: bool = False):
                 return llm.client_for("rag_enrich", TadamooClient(base_url=f"http://127.0.0.1:{self.server.server_address[1]}", api_key=svc.api_key or None))
             return RagApi(self._rag_store(), jobs=_RAG_JOBS, service=self._rag_embed(), sync=self._rag_sync(), describer=describer, folders=lambda: [{"name": "Chat", "path": str(chat), "chat": True}]
                           + [{"name": p["name"], "path": p["path"], "chat": False} for p in self._projects().list() if p.get("exists")],
-                          sources=lambda: {"session": session, "plan_node": guarded(plan_node), "routine": guarded(routine)}, vault_dir=userdata.path("vault"))
+                          sources=lambda: {"session": session, "plan_node": guarded(plan_node), "routine": guarded(routine)}, vault_dir=userdata.path("vault"), tools_dir=userdata.path("tools") / "minio")
 
         def _voice_rag(self):
             def make():

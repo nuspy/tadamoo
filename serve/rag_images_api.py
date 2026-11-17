@@ -1,0 +1,157 @@
+"""Where the images of the documents are kept, from the Knowledge settings.
+
+    GET  /api/rag/images                  the store in use, the folder and how many images it holds, and what MinIO there is on this PC with the choices to offer
+    POST /api/rag/images/folder           {path}: move the images to another folder (copied, checked, then the setting changes; the old folder is left)
+    POST /api/rag/images/use-folder       {}: keep the images as files in a folder again
+    POST /api/rag/images/minio/existing   {endpoint, access_key, secret_key, bucket?}: use a MinIO that is already here (its secret key goes to the vault)
+    POST /api/rag/images/minio/install    {}: install a separate MinIO of our own (its own folder, data and port), start it and use it
+    POST /api/rag/images/minio/start|stop our own copy
+
+Nothing is downloaded or started except by a POST the person made."""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Sequence
+
+from tadamoo import minio_setup
+from tadamoo.rag import RagError, RagStore
+from tadamoo.rag.s3store import S3Error, S3ImageStore
+
+OWN = "own.json"
+SECRET_ENTRY = "images-s3"
+
+
+def _put_secret(vault_dir: Any, entry: str, secret: str) -> None:
+    from tadamoo.vault import Vault
+    Vault(vault_dir).put(entry, kind="secret", label="Secret key of the image store (MinIO)", fields={"value": secret})
+
+
+class RagImagesApi:
+    def __init__(self, store: RagStore, vault_dir: Any = None, tools_dir: Any = None, detect: Callable[[], Dict[str, Any]] = minio_setup.detect,
+                 fetch: Optional[Callable[[str, Path], None]] = None, launcher: Optional[Callable[[List[str], Dict[str, str]], Any]] = None,
+                 s3_factory: Callable[..., Any] = S3ImageStore, put_secret: Optional[Callable[[str, str], None]] = None, get_secret: Optional[Callable[[str], str]] = None) -> None:
+        self.store, self.vault_dir, self.tools = store, vault_dir, Path(tools_dir) if tools_dir else None
+        self._detect, self._fetch, self._launcher, self._s3 = detect, fetch, launcher, s3_factory
+        self._put = put_secret or (lambda entry, secret: _put_secret(vault_dir, entry, secret))
+        self._get = get_secret or self._vault_secret
+        self._service: Optional[minio_setup.MinioService] = None
+
+    def _vault_secret(self, entry: str) -> str:
+        from tadamoo.rag.backends import vault_password
+        return vault_password(self.vault_dir)(entry)
+
+    # -- reading -----------------------------------------------------------------------------------
+
+    def _own_file(self) -> Optional[Path]:
+        return (self.tools / OWN) if self.tools else None
+
+    def _own(self) -> Dict[str, Any]:
+        f = self._own_file()
+        try:
+            return json.loads(f.read_text(encoding="utf-8")) if f and f.is_file() else {}
+        except (OSError, ValueError):
+            return {}
+
+    def overview(self) -> Dict[str, Any]:
+        cfg = self.store.settings.read()
+        folder = Path(cfg.get("images_dir") or (self.store.root / "images"))
+        try:
+            count = sum(1 for _ in folder.glob("??/??/*.webp")) if folder.is_dir() else 0
+        except OSError:
+            count = 0
+        own = self._own()
+        found = self._detect()
+        exe = next((Path(self.tools) / n for n in minio_setup.NAMES if self.tools and (Path(self.tools) / n).is_file()), None)
+        return {"store": cfg.get("images_store", "folder"), "folder": str(folder), "count": count,
+                "s3": {"endpoint": cfg.get("images_s3_endpoint", ""), "bucket": cfg.get("images_s3_bucket", ""), "access_key": cfg.get("images_s3_access_key", ""),
+                       "secure": bool(cfg.get("images_s3_secure"))},
+                "minio": {**minio_setup.plan(found), "release": {"tag": minio_setup.RELEASE["tag"], "bytes": minio_setup.RELEASE["bytes"], "url": minio_setup.RELEASE["url"]},
+                          "own": {"installed": exe is not None, "running": bool(self._service and self._service.running()), "endpoint": own.get("endpoint", "")}}}
+
+    # -- the person's choices ----------------------------------------------------------------------
+
+    def route_get(self, parts: Sequence[str], query: Optional[Dict[str, List[str]]] = None) -> Optional[Dict[str, Any]]:
+        return self.overview() if parts == ["images"] else None
+
+    def route_post(self, parts: Sequence[str], req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if parts[:1] != ["images"]:
+            return None
+        if parts == ["images", "folder"]:
+            return self.move_folder(req.get("path"))
+        if parts == ["images", "use-folder"]:
+            self.store.settings.write({"images_store": "folder"})
+            return self.overview()
+        if parts == ["images", "minio", "existing"]:
+            return self.use_existing(req)
+        if parts == ["images", "minio", "install"]:
+            return self.install_separate()
+        if parts == ["images", "minio", "start"]:
+            return self.start_own()
+        if parts == ["images", "minio", "stop"]:
+            if self._service:
+                self._service.stop()
+            return self.overview()
+        raise RagError("not found", "not_found")
+
+    def move_folder(self, path: Any) -> Dict[str, Any]:
+        if not isinstance(path, str) or not path.strip() or len(path) > 500 or "\x00" in path:
+            raise RagError("path: the folder to move the images to")
+        target = Path(path.strip())
+        if self.store.settings.read().get("images_store") == "s3":
+            raise RagError("the images are in MinIO, not in a folder: choose the folder store first")
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            raise RagError(f"that folder cannot be made: {e}") from None
+        moved = self.store.move_images(target)
+        return {**self.overview(), "moved": moved}
+
+    def _check(self, endpoint: str, bucket: str, access: str, secret: str, secure: bool) -> None:
+        try:
+            self._s3(endpoint, bucket, access, secret, secure).ensure_bucket()
+        except S3Error as e:
+            raise RagError(f"MinIO did not accept it: {e}") from None
+        except ValueError as e:
+            raise RagError(str(e)) from None
+
+    def use_existing(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        endpoint, access, secret = (str(req.get(k) or "").strip() for k in ("endpoint", "access_key", "secret_key"))
+        bucket = str(req.get("bucket") or minio_setup.LOCAL_BUCKET).strip()
+        if not endpoint or not access or not secret:
+            raise RagError("endpoint, access_key and secret_key are needed")
+        secure = bool(req.get("secure"))
+        self._check(endpoint, bucket, access, secret, secure)
+        minio_setup.provision(self.store, self._put, endpoint, access, secret, bucket, SECRET_ENTRY)
+        self.store.settings.write({"images_s3_secure": secure})
+        return self.overview()
+
+    def install_separate(self) -> Dict[str, Any]:
+        if self.tools is None:
+            raise RagError("there is no folder for the programs of this app")
+        folder = self.tools
+        program = minio_setup.install_release(folder, fetch=self._fetch)
+        own = self._own()
+        port = int(own.get("port") or minio_setup.free_port())
+        keys = {"access_key": own.get("access_key"), "secret_key": ""}
+        if not keys["access_key"]:
+            keys = minio_setup.new_keys()
+        else:
+            keys["secret_key"] = self._get(SECRET_ENTRY)
+        self._service = minio_setup.MinioService(program, folder / "data", port, keys["access_key"], keys["secret_key"], self._launcher)
+        endpoint = self._service.start()
+        self._check(endpoint, minio_setup.LOCAL_BUCKET, keys["access_key"], keys["secret_key"], False)
+        minio_setup.provision(self.store, self._put, endpoint, keys["access_key"], keys["secret_key"], minio_setup.LOCAL_BUCKET, SECRET_ENTRY)
+        f = self._own_file()
+        f.write_text(json.dumps({"port": port, "access_key": keys["access_key"], "endpoint": endpoint}), encoding="utf-8")
+        return self.overview()
+
+    def start_own(self) -> Dict[str, Any]:
+        own = self._own()
+        exe = next((Path(self.tools) / n for n in minio_setup.NAMES if self.tools and (Path(self.tools) / n).is_file()), None)
+        if not own or exe is None:
+            raise RagError("there is no MinIO of our own installed: install it first")
+        secret = self._get(SECRET_ENTRY)
+        self._service = minio_setup.MinioService(exe, Path(self.tools) / "data", int(own["port"]), own["access_key"], secret, self._launcher)
+        self._service.start()
+        return self.overview()
