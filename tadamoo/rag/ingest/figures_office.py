@@ -78,6 +78,34 @@ def docx_items(path: Path) -> List[Dict[str, Any]]:
     return items
 
 
+IMAGE_EXT = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp", ".gif")
+ZIP_MEDIA = {".pptx": ("ppt/media/",), ".xlsx": ("xl/media/",), ".epub": ("",)}        # where the pictures of a presentation, a workbook and a book are
+MAX_FILE_BYTES = 200 << 20
+
+
+def file_items(path: Path) -> List[Dict[str, Any]]:
+    """A document that is itself a picture (a scan, a photo): the picture is the one item; its words are read like those of any figure."""
+    try:
+        if Path(path).stat().st_size > MAX_FILE_BYTES:
+            return []
+        return [{"data": Path(path).read_bytes(), "alt": "", "caption": "", "anchor": "", "source": "image", "url": ""}]
+    except OSError:
+        return []
+
+
+def zip_media_items(path: Path) -> List[Dict[str, Any]]:
+    """The pictures kept inside a PowerPoint, Excel or EPUB file, in the order of their names. They are not placed in the text, so each is linked to the document as a whole."""
+    folders = ZIP_MEDIA.get(Path(path).suffix.lower())
+    if folders is None:
+        return []
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = sorted(n for n in z.namelist() if any(n.startswith(f) for f in folders) and Path(n).suffix.lower() in IMAGE_EXT)
+            return [{"data": z.read(n), "alt": "", "caption": "", "anchor": "", "source": Path(path).suffix.lower().lstrip("."), "url": ""} for n in names]
+    except (OSError, zipfile.BadZipFile):
+        return []
+
+
 def finish(items: Sequence[Dict[str, Any]], blocks: Sequence[Dict[str, Any]], folder: Path, python: str = "", progress: Optional[Callable[[Dict[str, Any]], None]] = None,
            cancel: Optional[Any] = None, command: Optional[Sequence[str]] = None) -> List[Dict[str, Any]]:
     """The figure records for `items`: each picture opened, flattened to RGB, cut down to `figures.MAX_SIDE` and saved as WebP with its thumbnail in `folder`, its words read, its

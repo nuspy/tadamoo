@@ -80,3 +80,21 @@ def test_a_word_file_added_to_an_archive_keeps_its_figure_linked_to_the_passage_
     assert store.figure(aid, doc["id"], 1)["image"][:4] == b"RIFF"
     found = store.search([aid], "map of the plasmid", top_k=3, filters={"kind": "figure"})["hits"]
     assert found and found[0]["kind"] == "figure"
+
+
+def test_a_scan_is_one_figure_and_a_presentation_a_workbook_and_a_book_give_the_pictures_kept_inside_them(tmp_path):
+    scan = tmp_path / "scan.png"
+    scan.write_bytes(png((400, 300), 2))
+    got = figures.extract(scan, "scan.png", {}, [], tmp_path / "o1")
+    assert len(got) == 1 and got[0]["source"] == "image" and Image.open(tmp_path / "o1" / got[0]["image"]).format == "WEBP"
+    for ext, folder in ((".pptx", "ppt/media/"), (".xlsx", "xl/media/"), (".epub", "OEBPS/images/")):
+        pkg = tmp_path / f"a{ext}"
+        with zipfile.ZipFile(pkg, "w") as z:
+            z.writestr(folder + "b.png", png((300, 200), 5))
+            z.writestr(folder + "a.png", png((300, 200), 1))
+            z.writestr(folder + "icon.png", png((16, 16)))
+            z.writestr("other/c.png", png((300, 200), 8))
+        made = figures.extract(pkg, pkg.name, {}, [], tmp_path / ("o" + ext[1:]))
+        want = 2 if ext != ".epub" else 3                                  # an EPUB keeps its pictures anywhere; the others in one folder
+        assert len(made) == want and made[0]["source"] == ext[1:], ext
+    assert figures.extract(tmp_path / "x.txt", "x.txt", {}, [], tmp_path / "o9") == []
