@@ -328,6 +328,24 @@
     form.onsubmit = e => { e.preventDefault(); save({ name: name.value, description: desc.value, cloud_ok: cloud.checked, others_ok: others.value }); };
     return form;
   }
+  /* the original file of a document: "Open" shows it in a tab when the browser can (a PDF, an image, plain text; a page is shown as text, never run), else saves it; "Save as" always
+     saves a copy. The kept original is read-only on the server: what comes here is a copy. */
+  const VIEW_AS = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", txt: "text/plain", md: "text/plain", markdown: "text/plain", html: "text/plain", htm: "text/plain" };
+  async function getOriginal(a, d, save) {
+    try {
+      const r = await fetch(`api/rag/archives/${encodeURIComponent(a.id)}/documents/${encodeURIComponent(d.id)}/original`, { cache: "no-store", headers: authHeaders() });
+      if (!r.ok) {
+        let m = ""; try { m = ((await r.json()).error || {}).message || ""; } catch (e) { /* no body */ }
+        say(m || `HTTP ${r.status}`, true); paint(); return;
+      }
+      const blob = await r.blob(), type = VIEW_AS[(d.name.split(".").pop() || "").toLowerCase()];
+      const href = URL.createObjectURL(type && !save ? new Blob([blob], { type }) : blob);
+      if (type && !save) window.open(href, "_blank", "noopener");
+      else { const link = el("a"); link.href = href; link.download = d.name; document.body.append(link); link.click(); link.remove(); }
+      setTimeout(() => URL.revokeObjectURL(href), 60000);
+    } catch (e) { say(T("rg.e.offline"), true); paint(); }
+  }
+
   /* the figures of a document: a button, a grid of thumbnails, and a dialog with the whole picture and everything kept with it. Every text comes from the document: it enters as text. */
   const figs = {};                                                     // document id -> { open, total, list, busy }
   async function loadFigures(a, d, more) {
@@ -386,7 +404,10 @@
       const key = "d" + d.id, sure = armed === key;
       const b = btn(sure ? T("rg.doc.remove.sure") : T("rg.doc.remove"), sure ? "rg-warn" : "", () => { if (!sure) arm(key); else removeDoc(d); });
       b.id = "rg-rm-" + d.id;
-      li.append(text, b);
+      const open = btn(T("rg.doc.open"), "", () => getOriginal(a, d, false)), save = btn(T("rg.doc.save"), "", () => getOriginal(a, d, true));
+      open.id = "rg-open-" + d.id; save.id = "rg-save-" + d.id;
+      [open, save].forEach(x => { x.disabled = !d.has_original; if (!d.has_original) x.title = T("rg.doc.noorig"); });
+      li.append(text, open, save, b);
       if (d.figures) {
         const fb = btn(T((figs[d.id] && figs[d.id].open) ? "rg.fig.hide" : "rg.fig.show", d.figures), "", () => {
           const f = figs[d.id] = figs[d.id] || { open: false, total: 0, list: [], busy: false };

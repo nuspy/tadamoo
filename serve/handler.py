@@ -3184,6 +3184,9 @@ def make_handler(svc: Service, remote: bool = False):
             parts = [p for p in path[len("/api/rag"):].split("/") if p]
             try:
                 if method == "GET":
+                    if len(parts) == 5 and parts[0] == "archives" and parts[2] == "documents" and parts[4] == "original":
+                        got = self._rag().original(parts[1], parts[3])                  # the kept copy, as an attachment that never runs as a page
+                        return self._send_file(got["path"], "application/octet-stream", got["name"], False)
                     return self._json(200, self._rag().route_get(parts, parse_qs(urlsplit(self.path).query)))
                 try:
                     raw = self._body(upload_limit(parts) + 4096)

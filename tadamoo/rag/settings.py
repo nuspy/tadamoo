@@ -14,12 +14,12 @@ from tadamoo.rag.errors import RagError
 
 FILE = "settings.json"
 DEFAULTS: Dict[str, Any] = {"docling_python": "", "docling_device": "auto", "flagged": "keep",
-                            "embed_enabled": True, "embed_python": "", "embed_models_dir": "", "images_dir": "", "images_store": "folder", "images_s3_endpoint": "", "images_s3_bucket": "tadamoo-images", "images_s3_access_key": "", "images_s3_vault": "", "images_s3_secure": False, "embed_model": "", "rerank": True, "rerank_model": "",
+                            "embed_enabled": True, "embed_python": "", "embed_models_dir": "", "images_dir": "", "originals_dir": "", "keep_originals": True, "images_store": "folder", "images_s3_endpoint": "", "images_s3_bucket": "tadamoo-images", "images_s3_access_key": "", "images_s3_vault": "", "images_s3_secure": False, "embed_model": "", "rerank": True, "rerank_model": "",
                             "lexical_weight": 0.05, "min_cosine": 0.3, "min_rerank": 0.2, "idle_s": 120,
                             "enrich_language": "Italian", "enrich_batch": 5, "figures": True, "chunk_target": 350, "chunk_hard": 600}
 FLAGGED = ("keep", "drop")
 DEVICES = ("auto", "cpu")
-FLAGS = ("embed_enabled", "rerank", "figures", "images_s3_secure")
+FLAGS = ("embed_enabled", "rerank", "figures", "images_s3_secure", "keep_originals")
 IMAGE_STORES = ("folder", "s3")
 S3_TEXT = ("images_s3_endpoint", "images_s3_bucket", "images_s3_access_key", "images_s3_vault")
 PATHS = ("docling_python", "embed_python")
@@ -66,7 +66,7 @@ class RagSettings:
                 out["enrich_language"] = raw["enrich_language"].strip()
             if raw.get("images_store") in IMAGE_STORES:
                 out["images_store"] = raw["images_store"]
-            for key in NAMES + ("embed_models_dir", "images_dir") + S3_TEXT:
+            for key in NAMES + ("embed_models_dir", "images_dir", "originals_dir") + S3_TEXT:
                 if isinstance(raw.get(key), str):
                     out[key] = raw[key].strip()[:500]
             for key, (lo, hi) in RANGES.items():
@@ -125,6 +125,11 @@ class RagSettings:
                     if not isinstance(value, str) or len(value) > 200 or any(c in value for c in " /") or "\x00" in value:
                         raise RagError(f"{key}: text with no spaces or slashes (the endpoint is host:port)")
                     now[key] = value.strip()
+            if "originals_dir" in changes:
+                value = changes["originals_dir"]
+                if not isinstance(value, str) or len(value) > 500 or chr(0) in value or (value.strip() and not Path(value.strip()).is_dir()):
+                    raise RagError("originals_dir: a folder for the original files, or empty for the folder inside the knowledge data")
+                now["originals_dir"] = value.strip()
             if "images_dir" in changes:
                 value = changes["images_dir"]
                 if not isinstance(value, str) or len(value) > 500 or "\x00" in value or (value.strip() and not Path(value.strip()).is_dir()):

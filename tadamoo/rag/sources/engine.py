@@ -375,6 +375,8 @@ class Sync:
                 item.update(state="unchanged", detail="the source says it changed but the text is the same")
                 return
             tell({"event": "stage", "stage": "reading"})
+            if not dry_run:
+                self.store.keep_original(fetched.path, fetched.sha256)
             reading = read_document(fetched.path, fetched.name, self.store.settings.read(), progress=tell, cancel=cancel)
             tell({"event": "stage", "stage": "cutting"})
             chunks, sections, stats = self.store.passages_of(doc["id"], fetched.name, reading["blocks"], aid)

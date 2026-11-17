@@ -33,6 +33,7 @@ from tadamoo.rag.backends import MAIN, Backend, Router
 from tadamoo.rag.embed import Embedder, EmbedderProvider, compatible, embed_all, no_embedder, normalize as unit_rows
 from tadamoo.rag.errors import RagError
 from tadamoo.rag.imagestore import ImageStore
+from tadamoo.rag.originals import Originals
 from tadamoo.rag.s3store import S3ImageStore
 from tadamoo.rag.ingest import chunker, extraction_of, formats, normalize, read_document
 from tadamoo.rag.ingest import docling_client, figures
@@ -303,7 +304,8 @@ class RagStore:
 
     def get(self, aid: Any) -> Dict[str, Any]:
         meta = self.load(aid).meta
-        return {**self._summary(meta), "document_list": [dict(d) for d in meta["documents"]]}
+        kept = self.originals()
+        return {**self._summary(meta), "document_list": [{**d, "has_original": kept.has(str(d.get("sha256") or ""))} for d in meta["documents"]]}
 
     def create(self, name: Any, description: Any = "", project: Any = None, project_name: Any = "") -> Dict[str, Any]:
         name, description = _text(name, "name", LIMITS["name"], True), _text(description, "description", LIMITS["description"])
@@ -487,7 +489,9 @@ class RagStore:
             raise RagError("the reading was cancelled", "cancelled")
         fset = self.figure_set(aid, doc_id, path, name, reading, chunks, progress, cancel, origin=origin, get=get)
         try:
-            return self._add_read(aid, name, size, sha, reading, doc_id, chunks, sections, stats, fset, progress, cancel)
+            added = self._add_read(aid, name, size, sha, reading, doc_id, chunks, sections, stats, fset, progress, cancel)
+            self.keep_original(path, sha)
+            return added
         finally:
             if fset.get("staging"):
                 shutil.rmtree(fset["staging"], ignore_errors=True)
@@ -848,6 +852,35 @@ class RagStore:
             if thumb is not None:
                 images.put(sha + "_t", thumb)
         return image, thumb
+
+    def originals(self) -> Originals:
+        """The folder of the original files: `originals_dir` in the knowledge settings, else `originals/` inside the knowledge data."""
+        chosen = self.settings.read().get("originals_dir") or ""
+        return Originals(Path(chosen) if chosen else self.root / "originals")
+
+    def keep_original(self, path: Path, sha256: str) -> bool:
+        """Keeps a copy of the file a document was made from (setting `keep_originals`, on by default). A copy that cannot be made does not undo the document."""
+        if not self.settings.read().get("keep_originals", True):
+            return False
+        try:
+            return self.originals().put(Path(path), sha256)
+        except (OSError, ValueError):
+            return False
+
+    def original(self, aid: Any, doc_id: Any) -> Tuple[Path, str]:
+        """The kept copy of a document's original and the name it had: `(path, name)`. A document added before copies were kept, or with the setting off, has none."""
+        if not isinstance(doc_id, str) or not DOC_ID.match(doc_id):
+            raise RagError("there is no such document", "not_found")
+        doc = self.load(aid).document(doc_id)
+        found = self.originals().get(str(doc.get("sha256") or ""))
+        if found is None:
+            raise RagError("the original of this document was not kept: add the file again to keep it", "not_found")
+        return found, str(doc["name"])
+
+    def sweep_originals(self) -> int:
+        """Removes the kept originals that no document of any archive names any more; how many went."""
+        held = {str(d.get("sha256")) for meta in self._metas(None) for d in meta["documents"]}
+        return self.originals().sweep(held)
 
     def move_images(self, target: Path) -> int:
         """Copies every image of the folder in use to `target`, checks that each is there, then makes `target` the folder (setting `images_dir`). The old folder is left as it is.

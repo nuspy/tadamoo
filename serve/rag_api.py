@@ -276,6 +276,11 @@ class RagApi:
             return self.get(parts[1])
         raise RagError("not found", "not_found")
 
+    def original(self, aid: str, doc: str) -> Dict[str, Any]:
+        """Where the kept copy of a document's original is and the name to give it when it is saved: `{path, name}`."""
+        path, name = self.store.original(aid, doc)
+        return {"path": path, "name": name}
+
     FIGURES_PAGE = 40
 
     @staticmethod
