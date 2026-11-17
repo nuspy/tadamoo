@@ -132,7 +132,7 @@ class ConnectorsApi:
                     folder = self.installer.fetch_skill(parts["repo"], parts["path"], parts["pin"], Path(tmp))
                 except Exception as e:                         # a repository that does not answer is told, not raised
                     raise ConnectorError(f"GitHub did not give the files: {str(e)[:160]}", "offline") from None
-                return {"sheet": facts.from_skill(folder), "excerpts": self._skill_excerpts(folder)}
+                return {"sheet": {**facts.from_skill(folder), "name": it.name}, "excerpts": self._skill_excerpts(folder)}
         raise ConnectorError("This kind of item cannot be looked at yet.", "kind")
 
     def install(self, item_id: str, flags: Dict[str, Any]) -> Dict[str, Any]:

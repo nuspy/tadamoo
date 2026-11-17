@@ -418,4 +418,3 @@ Portafoglio > vault > «Importa da Google Authenticator» (PC), e Impostazioni d
 - Aggiungi a un archivio un Word con immagini e una pagina web con immagini; nella lista dei documenti compare «Figure (N)»: la griglia di anteprime si apre, «Mostra altre» carica le successive, un clic apre la finestra con l'immagine intera, la didascalia, la descrizione, le parole lette, le frasi che la nominano e la provenienza; «Chiudi» la toglie. Da provare a 360x640, 390x844 e 1280 e in italiano e in inglese.
 - Cosa verificare: nessuno scroll orizzontale, bersagli da almeno 44 px, immagini che si caricano solo aprendo il documento.
 
-- Conoscenza, «Aggiungi da una richiesta a parole» (18 nov): con il modello caricato e internet, cercare una richiesta vera, controllare che i giudizi abbiano senso, «Amplia la ricerca», aggiungere due pagine e vedere che l'archivio le legge.

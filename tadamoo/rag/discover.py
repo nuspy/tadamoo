@@ -20,11 +20,13 @@ from tadamoo.side import side_extra_for
 log = logging.getLogger("tadamoo.rag.discover")
 
 USE = "rag_discover"
-ANSWER_TOKENS = 400
+ANSWER_TOKENS = 700
+GROUP_ITEMS = 12                     # candidates in one call at most: the answer has a verdict for each and must fit
 RESULTS_MAX = 30                     # results offered by one search
 FOLLOW_PAGES = 8                     # pages whose links are read by one extension
 FOLLOW_PER_PAGE = 40                 # links of a page that are put to the judge
 FOLLOW_NEW_MAX = 30                  # new results one extension adds at most
+NOT_CONTENT = re.compile(r"(log-?in|sign-?in|sign-?out|log-?out|register|sign-?up|account|profile|cart|checkout|privacy|cookie|terms|membership|subscribe|contact|wp-json|/feed|#)", re.I)
 TEXT_CHARS = 240                     # the part of a title or snippet the judge reads
 SYSTEM = (
     "You choose web pages for a person who is building a knowledge archive. You are given the request and a numbered list of candidates (a title, an address and "
@@ -80,7 +82,7 @@ def groups(items: Sequence[Dict[str, Any]], budget: int) -> List[List[Dict[str, 
     used = 0
     for item in items:
         cost = _tokens(" ".join(str(item.get(k, ""))[:TEXT_CHARS] for k in ("title", "url", "snippet")))
-        if run and used + cost > budget:
+        if run and (used + cost > budget or len(run) >= GROUP_ITEMS):
             out.append(run)
             run, used = [], 0
         run.append(item)
@@ -116,8 +118,7 @@ def judge(client: Any, request: str, items: List[Dict[str, Any]], cancel: Option
         body = json.dumps({"request": request[:600], "candidates": [{"id": n + 1, "title": str(i.get("title", ""))[:TEXT_CHARS], "url": str(i.get("url", ""))[:200],
                                                                       "text": str(i.get("snippet", ""))[:TEXT_CHARS]} for n, i in enumerate(run)]}, ensure_ascii=False)
         extra = side_extra_for(client, USE, len(body) + len(SYSTEM), ANSWER_TOKENS)
-        if not extra:
-            continue                                                       # no session now: this group stays unjudged
+                                                                           # without the technical session the call runs in an ordinary slot, like the archives' own descriptions
         try:
             reply = client.chat_completion(messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": body}], temperature=0.0, max_tokens=ANSWER_TOKENS,
                                            timeout=side_uses.param(USE, "timeout_s"), response_format={"type": "json_object"}, extra={"reasoning_effort": "none", **extra})
@@ -171,13 +172,13 @@ def extend(fetch: Callable[[str], Optional[bytes]], client: Any, request: str, i
         host = (urlsplit(page["url"]).hostname or "").lower()
         taken = 0
         for link in anchors(html, page["url"]):
-            if link["url"] in known or not link["title"] or len(link["title"]) < 3 or taken >= FOLLOW_PER_PAGE:
+            if link["url"] in known or not link["title"] or len(link["title"]) < 3 or taken >= FOLLOW_PER_PAGE or NOT_CONTENT.search(link["url"]):
                 continue
             known.add(link["url"])
             taken += 1
             candidates.append({"title": link["title"][:200], "url": link["url"], "snippet": "", "via": page["title"][:80] or host})
     judged = judge(client, request, candidates, cancel)
-    kept = [c for c in judged if c["relevant"] is not False][:FOLLOW_NEW_MAX]
+    kept = [c for c in judged if (c["relevant"] if client is not None else c["relevant"] is not False)][:FOLLOW_NEW_MAX]     # with a model only what it kept; without, the first links
     return _number_after(kept, len(items))
 
 

@@ -143,3 +143,17 @@ def test_widening_reads_the_pages_found_and_offers_only_what_is_new(tmp_path, si
     assert [i["title"] for i in got["items"]] == ["Wind guide"] and got["items"][0]["id"] == 2
     with pytest.raises(RagError):
         api.route_post(["archives", aid, "discover", "more"], {}, json.dumps({"query": "wind", "items": [{"url": "ftp://x"}]}).encode())
+
+
+def test_a_group_never_holds_more_candidates_than_the_answer_can_judge_and_links_that_are_not_content_are_not_offered(monkeypatch):
+    many = [{"title": f"wind {i}", "url": f"https://example.org/{i}", "snippet": ""} for i in range(30)]
+    session = Session()
+    discover.search(lambda q, n: many, session, "wind", 30)
+    assert max(len(c["candidates"]) for c in session.calls) <= discover.GROUP_ITEMS and sum(len(c["candidates"]) for c in session.calls) == 30
+    page = b'<a href="/wind/guide">Wind guide</a> <a href="/login?next=/x">Login to wind portal</a> <a href="/wp-json/x/signin">Wind sign in</a> <a href="/membership/">Join wind club</a>'
+    items = discover.search(lambda q, n: results(1), Session(), "wind", 5)
+    new = discover.extend(lambda url: page, Session(), "wind", items)
+    assert [i["title"] for i in new] == ["Wind guide"]
+    unjudged = discover.extend(lambda url: b'<a href="/a">Wind guide a</a> <a href="/b">Other thing</a>', None, "wind", [{**items[0], "relevant": None}])
+    assert [i["title"] for i in unjudged] == ["Wind guide a", "Other thing"]                 # no model: the first links are offered as they are
+
