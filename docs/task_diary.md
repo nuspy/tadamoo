@@ -47,7 +47,7 @@ Legenda: [x] fatto e verificato, [~] iniziato, [ ] da fare. Un punto per riga.
    - [ ] 7.9 «Segui questa fonte»: spiegarlo meglio; un suggerimento (tooltip) su ogni cosa.
    - [ ] 7.10 Pulsante «Apri» su ogni documento.
    - [ ] 7.11 Spiegare la differenza tra «aggiungi file» e «fonti».
-   - [ ] 7.12 Perché dice «nessuna fonte» con documenti presenti: correggere.
+   - [x] 7.12 (fatto il 17 novembre, provato con test) Con documenti aggiunti a mano e nessuna fonte, la pagina ora dice che i documenti sono stati aggiunti a mano e nessuna fonte li segue, invece di «nessuna fonte».
    - [ ] 7.13 Albero a nodi (tipo di fonte, directory annidate, wiki con sezioni, documenti) con tre stati, aggiornamento immediato, elimina, «rifai la ricerca su questo nodo».
    - [ ] 7.14 Frequenza di controllo nell'albero (manuale, a intervalli, segue i sotto-nodi, a ricorrenza); sostituisce «controlla secondo programma».
    - [ ] 7.15 Aggiunta di file e directory con trascinamento (e clic per sfogliare, come ora).

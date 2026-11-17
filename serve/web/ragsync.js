@@ -197,7 +197,7 @@
 
   function sourcesBlock(v) {
     const box = el("div", "rs-sources");
-    if (!v.sources.length) box.append(el("p", "rg-help", T("rs.sources.none")));
+    if (!v.sources.length) box.append(el("p", "rg-help", cur && cur.documents ? T("rs.sources.byhand", cur.documents) : T("rs.sources.none")));
     const ul = el("ul", "rs-items");
     v.sources.forEach(s => {
       const li = el("li", "rs-item"), t = el("div", "rs-item-t"), n = v.links.filter(l => l.source === s.id).length;

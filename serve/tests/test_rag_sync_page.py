@@ -36,6 +36,10 @@ class RagSyncPageTest(unittest.TestCase):
         for key in sorted(keys):
             self.assertEqual(I18N.count(f'"{key}":'), 2, key)
 
+    def test_documents_added_by_hand_are_not_reported_as_an_archive_with_no_source(self):
+        self.assertIn('cur && cur.documents ? T("rs.sources.byhand", cur.documents) : T("rs.sources.none")', JS)
+        self.assertEqual(I18N.count('"rs.sources.byhand":'), 2)
+
     def test_what_the_server_says_enters_the_page_as_text(self):
         for banned in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function"):
             self.assertNotIn(banned, JS)
