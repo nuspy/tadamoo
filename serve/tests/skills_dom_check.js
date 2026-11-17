@@ -123,17 +123,17 @@ async function main() {
       });
 
       await check(`${vname}: /install-skill with no conversation opens Settings > Skills, and a skill with no models is installed from its preview`, async () => {
-        const about = (await get("api/skills")).skills.find(r => r.name === "news-research");
+        const about = (await get("api/skills")).skills.find(r => r.name === "gamma-skill");
         if (about.has_models || about.state !== "not_installed") throw new Error("the test skill must have no models and not be installed: " + JSON.stringify(about));
-        await ev(`q("#tab-chat").click(); const s = q("#chatmode"); s.value = "direct"; s.dispatchEvent(new Event("change", { bubbles: true })); await wait(300); const p = q("#prompt"); p.value = "/install-skill news-research"; p.dispatchEvent(new Event("input", { bubbles: true })); q("#send").click(); return 1;`);
+        await ev(`q("#tab-chat").click(); const s = q("#chatmode"); s.value = "direct"; s.dispatchEvent(new Event("change", { bubbles: true })); await wait(300); const p = q("#prompt"); p.value = "/install-skill gamma-skill"; p.dispatchEvent(new Event("input", { bubbles: true })); q("#send").click(); return 1;`);
         await waitFor(`q("#sub-skills") && q("#sub-skills").getAttribute("aria-selected") === "true" && !!q("#sk-root .sk-found")`, "the Skills tab with the preview", 40);
         const t = await ev(`return q("#sk-root .sk-found").textContent`);
-        if (!/Install “News research”\?/.test(t) || !/Nothing else to download/.test(t)) throw new Error("preview: " + t);
+        if (!/Install “Gamma skill”\?/.test(t) || !/Nothing else to download/.test(t)) throw new Error("preview: " + t);
         await fits("preview in the tab");
         await ev(`[...q("#sk-root .sk-found").querySelectorAll("button")].find(b => b.textContent.trim() === "Install").click(); return 1;`);
-        await waitFor(`!!${card("News research")} && ${card("News research")}.dataset.state === "installed"`, "installed", 120);
-        if (await capState("skill:news-research") !== "approved") throw new Error("the harness does not see it");
-        await post("api/skills/remove", { name: "news-research" });
+        await waitFor(`!!${card("Gamma skill")} && ${card("Gamma skill")}.dataset.state === "installed"`, "installed", 120);
+        if (await capState("skill:gamma-skill") !== "approved") throw new Error("the harness does not see it");
+        await post("api/skills/remove", { name: "gamma-skill" });
       });
       if (pageErrors.length) out.push({ name: `${vname}: no script error`, ok: false, error: pageErrors.splice(0).join(" ;; ") });
     }

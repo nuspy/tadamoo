@@ -33,8 +33,16 @@ class SkillsTabInARealBrowserTest(unittest.TestCase):
             folder = Path(cls.tmp) / "clone" / name
             folder.mkdir(parents=True)
             (folder / "SKILL.md").write_text(f"---\nname: {name}\ndescription: Does the {name} thing.\n---\n\nDo it.\n", encoding="utf-8")
+        # a built-in-looking skill with no models, for the /install-skill name command (every shipped one now needs models)
+        gamma = Path(cls.tmp) / "extra" / "gamma-skill"
+        gamma.mkdir(parents=True)
+        (gamma / "SKILL.md").write_text("---\nname: gamma-skill\ndescription: Does the gamma thing.\n---\n\nDo it.\n", encoding="utf-8")
+        extra_catalogue = Path(cls.tmp) / "extra_skills.json"
+        extra_catalogue.write_text(json.dumps({"skills": [{"name": "gamma-skill", "path": str(gamma), "kind": "skill", "group": "test", "default": False, "requires": [],
+                                                           "title": {"en": "Gamma skill", "it": "Skill gamma"},
+                                                           "summary": {"en": "A skill with no models, for tests.", "it": "Una skill senza modelli, per i test."}}]}), encoding="utf-8")
         root = Path(__file__).resolve().parents[2]
-        env = {**os.environ, "TADAMOO_DATA": cls.tmp + "/data", "TADAMOO_CACHE": cls.tmp + "/cache"}
+        env = {**os.environ, "TADAMOO_DATA": cls.tmp + "/data", "TADAMOO_CACHE": cls.tmp + "/cache", "TADAMOO_EXTRA_SKILLS": str(extra_catalogue)}
         cls.server = subprocess.Popen([sys.executable, "-m", "serve.server", "--mock-engine", "--port", str(port)], cwd=str(root), env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         cls.url = f"http://127.0.0.1:{port}/"
         for _ in range(80):
