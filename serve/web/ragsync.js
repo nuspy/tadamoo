@@ -207,6 +207,7 @@
       li.append(t, bar); ul.append(li);
     });
     box.append(ul);
+    box.append(el("p", "rg-help", T("rs.source.help")));
     const form = el("form", "rg-form"), pick = el("select");
     KINDS.forEach(k => { const o = el("option", "", T("rs.kind." + k)); o.value = k; pick.append(o); });
     pick.value = kind;
@@ -223,7 +224,7 @@
       Object.entries(inputs).forEach(([k, i]) => { if (i.value.trim()) body[k] = i.value.trim(); });
       addSource(body);
     });
-    go.type = "submit"; go.disabled = working;
+    go.type = "submit"; go.disabled = working; go.title = T("rs.source.add.tip");
     form.onsubmit = e => { e.preventDefault(); go.click(); };
     form.append(go);
     const det = el("details", "rg-settings"), sum = el("summary", "rg-sum", T("rs.source.new"));
@@ -314,8 +315,9 @@
     const st = el("p", "rg-note", status || note); st.setAttribute("role", "status"); st.dataset.bad = !status && noteBad ? "1" : ""; st.hidden = !(status || note);
     const vbar = el("div", "rg-bar"), dp = el("input"), dl = el("label", "rs-deep");
     dp.type = "checkbox"; dp.checked = deep; dp.id = "rs-deep"; dp.onchange = () => { deep = dp.checked; };
-    dl.htmlFor = "rs-deep"; dl.append(dp, el("span", "", T("rs.verify.deep")));
+    dl.htmlFor = "rs-deep"; dl.append(dp, el("span", "", T("rs.verify.deep"))); dl.title = T("rs.verify.deep.help");
     const vb = btn(T("rs.verify"), "", verify); vb.disabled = working;
+    vb.title = T("rs.verify.tip");
     vbar.append(vb, dl);
     const vers = versionsBlock(v);
     kids.push(el("h4", "rg-h2", T("rs.title")), el("p", "rg-help", T("rs.help")), bar, st, changesBlock(v),

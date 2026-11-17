@@ -428,7 +428,7 @@
     const addp = btn(T("rg.add.path.btn"), "", () => addPath(path.value)); addp.disabled = working;
     const row = el("div", "rg-row");
     row.append(path, addp);
-    box.append(field("rg-file", T("rg.add.file"), T("rg.add.help", S.formats.join(" "), Math.round(S.limits.document_bytes / (1 << 20))), pick), field("rg-path", T("rg.add.path"), "", row, path));
+    box.append(el("p", "rg-help", T("rg.add.vs")), field("rg-file", T("rg.add.file"), T("rg.add.help", S.formats.join(" "), Math.round(S.limits.document_bytes / (1 << 20))), pick), field("rg-path", T("rg.add.path"), "", row, path));
     path.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); addPath(path.value); } };
     return box;
   }
