@@ -766,7 +766,8 @@ def make_handler(svc: Service, remote: bool = False):
             elif path in ("/api/darkweb", "/api/darkweb/leaks", "/api/darkweb/custom"):
                 if self._authorized():
                     self._darkweb(path)
-            elif path in ("/api/connectors", "/api/connectors/item", "/api/connectors/providers", "/api/connectors/settings", "/api/connectors/config", "/api/connectors/nvidia"):
+            elif path in ("/api/connectors", "/api/connectors/item", "/api/connectors/providers", "/api/connectors/settings", "/api/connectors/config", "/api/connectors/nvidia",
+                          "/api/connectors/accounts"):
                 if self._authorized():
                     self._connectors_get(path)
             elif path == "/api/netwatch" or path.startswith("/api/netwatch/"):
@@ -1073,7 +1074,8 @@ def make_handler(svc: Service, remote: bool = False):
                 self._attachments_post(path)
                 return
             if path in ("/api/connectors/providers", "/api/connectors/review", "/api/connectors/install", "/api/connectors/uninstall", "/api/connectors/settings",
-                        "/api/connectors/configure", "/api/connectors/updates", "/api/connectors/update", "/api/connectors/nvidia/install"):
+                        "/api/connectors/configure", "/api/connectors/updates", "/api/connectors/update", "/api/connectors/nvidia/install",
+                        "/api/connectors/accounts/add", "/api/connectors/accounts/remove", "/api/connectors/accounts/default"):
                 self._connectors_post(path)
                 return
             if path == "/api/darkweb" or path.startswith("/api/darkweb/"):
@@ -2450,9 +2452,11 @@ def make_handler(svc: Service, remote: bool = False):
                 if path == "/api/connectors/settings":
                     return self._json(200, api.folder_settings())
                 if path == "/api/connectors/config":
-                    return self._json(200, api.config(one("id")))
+                    return self._json(200, api.config(one("id"), one("account")))
                 if path == "/api/connectors/nvidia":
                     return self._json(200, api.nvidia_status())
+                if path == "/api/connectors/accounts":
+                    return self._json(200, api.accounts(one("id")))
                 if path == "/api/connectors/item":
                     return self._json(200, api.item(one("id")))
                 return self._json(200, api.view(one("scope") or "all", one("kind"), one("state"), one("q")))
@@ -2498,7 +2502,13 @@ def make_handler(svc: Service, remote: bool = False):
                 if path == "/api/connectors/uninstall":
                     return self._json(200, self._connectors_api().uninstall(str(req.get("id") or "")[:300]))
                 if path == "/api/connectors/configure":
-                    return self._json(200, self._connectors_api().configure(str(req.get("id") or "")[:300], req.get("values")))
+                    return self._json(200, self._connectors_api().configure(str(req.get("id") or "")[:300], req.get("values"), str(req.get("account") or "")[:80]))
+                if path == "/api/connectors/accounts/add":
+                    return self._json(200, self._connectors_api().add_account(str(req.get("id") or "")[:300], str(req.get("name") or "")[:80]))
+                if path == "/api/connectors/accounts/remove":
+                    return self._json(200, self._connectors_api().remove_account(str(req.get("id") or "")[:300], str(req.get("name") or "")[:80]))
+                if path == "/api/connectors/accounts/default":
+                    return self._json(200, self._connectors_api().set_default_account(str(req.get("id") or "")[:300], str(req.get("name") or "")[:80]))
                 if path == "/api/connectors/updates":
                     return self._json(200, self._connectors_api().updates())
                 if path == "/api/connectors/update":

@@ -8,6 +8,9 @@
     GET|POST /api/connectors/settings {originals_dir?, review_mode?, review_tier3_docker?}   where the downloaded originals are kept, and which review(s) run
     GET /api/connectors/nvidia                                        NVIDIA SkillEvaluator's own state (installed, a Python 3.12+ found, Docker found)
     POST /api/connectors/nvidia/install {}                            installs it into its own venv (synchronous; a Python 3.12+ already on this PC, never downloaded)
+    GET /api/connectors/accounts?id=                                  the accounts of an installed item and which is the default
+    POST /api/connectors/accounts/add|remove|default {id, name}       add, remove or set the default account (a second account onward keeps its own secrets apart)
+    GET /api/connectors/config?id=&account=                          the variables of one account (default: the item's default account, or its only one)
 """
 from __future__ import annotations
 
@@ -198,21 +201,53 @@ class ConnectorsApi:
             raise ConnectorError("TaDaMoo did not install that one, so it is not removed from here.", "foreign")
         return {"removed": item_id}
 
-    def config(self, item_id: str) -> Dict[str, Any]:
+    def config(self, item_id: str, account: str = "") -> Dict[str, Any]:
         if self.installer is None:
             raise ConnectorError("Setting up is not available here.", "none")
         try:
-            return self.installer.config(item_id)
+            return self.installer.config(item_id, account)
         except ConnectorInstallError as e:
             raise ConnectorError(str(e), e.code or "config") from None
 
-    def configure(self, item_id: str, values: Any) -> Dict[str, Any]:
+    def configure(self, item_id: str, values: Any, account: str = "") -> Dict[str, Any]:
         if self.installer is None:
             raise ConnectorError("Setting up is not available here.", "none")
         try:
-            return self.installer.configure(item_id, values)
+            return self.installer.configure(item_id, values, account)
         except ConnectorInstallError as e:
             raise ConnectorError(str(e), e.code or "config") from None
+
+    def accounts(self, item_id: str) -> Dict[str, Any]:
+        if self.installer is None:
+            raise ConnectorError("Accounts are not available here.", "none")
+        try:
+            return self.installer.accounts(item_id)
+        except ConnectorInstallError as e:
+            raise ConnectorError(str(e), e.code or "account") from None
+
+    def add_account(self, item_id: str, name: str) -> Dict[str, Any]:
+        if self.installer is None:
+            raise ConnectorError("Accounts are not available here.", "none")
+        try:
+            return self.installer.add_account(item_id, name)
+        except ConnectorInstallError as e:
+            raise ConnectorError(str(e), e.code or "account") from None
+
+    def remove_account(self, item_id: str, name: str) -> Dict[str, Any]:
+        if self.installer is None:
+            raise ConnectorError("Accounts are not available here.", "none")
+        try:
+            return self.installer.remove_account(item_id, name)
+        except ConnectorInstallError as e:
+            raise ConnectorError(str(e), e.code or "account") from None
+
+    def set_default_account(self, item_id: str, name: str) -> Dict[str, Any]:
+        if self.installer is None:
+            raise ConnectorError("Accounts are not available here.", "none")
+        try:
+            return self.installer.set_default_account(item_id, name)
+        except ConnectorInstallError as e:
+            raise ConnectorError(str(e), e.code or "account") from None
 
     def updates(self) -> Dict[str, Any]:
         if self.installer is None:

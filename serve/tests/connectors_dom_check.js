@@ -133,6 +133,14 @@ async function main() {
         await waitFor(`!!q("#cx-cfgdlg[open]")`, "the configure dialog");
         if (!/reads no variables/.test(await ev(`return q("#cx-cfgdlg").textContent`))) throw new Error("the dialog does not say the skill reads no variables");
         await fits("configure dialog");
+        if ((await ev(`return qa("#cx-cfg-account option").length`)) !== 1) throw new Error("one account to start with");
+        await ev(`const f = q("#cx-cfgdlg .cx-acc-add"); f.querySelector("input").value = "second"; f.querySelector("button[type=submit]").click(); return 1;`);
+        await waitFor(`qa("#cx-cfg-account option").length === 2`, "the second account in the list");
+        if (!/second/.test(await ev(`return q("#cx-cfg-account").textContent`))) throw new Error("the new account's name is not in the select");
+        await waitFor(`!!q("#cx-cfgdlg .cx-acc-add")`, "the add-account form on the new account's page too");            // the dialog reopened itself on the new one
+        await ev(`[...q("#cx-cfgdlg .cx-accounts").querySelectorAll("button")].find(b => /Remove this account/.test(b.textContent)).click(); return 1;`);
+        await ev(`[...q("#cx-cfgdlg .cx-accounts").querySelectorAll("button")].find(b => /Press again/.test(b.textContent)).click(); return 1;`);
+        await waitFor(`qa("#cx-cfg-account option").length === 1`, "back to one account after removing the second");
         await ev(`q("#cx-cfgdlg").close(); return 1;`);
         await ev(`q("#cx-upd-check").click(); return 1;`);
         await waitFor(`/up to date|update/i.test(q("#cx-status").textContent)`, "the answer of the update check");

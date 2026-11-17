@@ -6,12 +6,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import tempfile
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from tadamoo.capabilities import _read_skill
 from tadamoo.discovery import sources as src
@@ -23,6 +24,22 @@ from tadamoo.discovery.settings import DiscoverySettings
 
 MB = 1 << 20
 SETTINGS = "settings.json"
+MAX_ACCOUNTS = 10
+ACCOUNT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,59}$")
+
+
+def _accounts(rec: Dict[str, Any]) -> List[str]:
+    """The record's own account names, or a single implicit "default" for a record made before this feature (its values are read from the old, un-suffixed places)."""
+    accs = rec.get("accounts")
+    return [str(a) for a in accs] if isinstance(accs, list) and accs else ["default"]
+
+
+def _default_account(rec: Dict[str, Any]) -> str:
+    accs = _accounts(rec)
+    d = str(rec.get("default_account") or "")
+    if d in accs:
+        return d
+    return accs[0] if len(accs) == 1 else ""
 
 
 class ConnectorInstallError(ValueError):
@@ -218,22 +235,104 @@ class ConnectorInstaller:
         except Exception:
             return False
 
-    def config(self, entry_id: str) -> Dict[str, Any]:
-        """The variables the installed server reads: for each, whether it is secret and whether it is set. A secret's value is never given back; a plain value is."""
+    @staticmethod
+    def _entry_key(spec: Dict[str, Any], account: str, accs: List[str]) -> str:
+        """The vault entry a secret is kept under: the plain name the record always used, for the first (or only) account, so an install made before
+        multiple accounts existed still finds its own secret; a later account's is kept apart by its name."""
+        entry = str(spec.get("entry") or "")
+        return entry if account == accs[0] else f"{entry}::{account}"
+
+    def _resolve_account(self, rec: Dict[str, Any], account: str) -> str:
+        accs = _accounts(rec)
+        if account:
+            if account not in accs:
+                raise ConnectorInstallError("no such account", "bad_account")
+            return account
+        d = _default_account(rec)
+        if d:
+            return d
+        if len(accs) == 1:
+            return accs[0]
+        raise ConnectorInstallError("more than one account and none is the default: name which one", "account_needed")
+
+    def accounts(self, entry_id: str) -> Dict[str, Any]:
         rec = self._record(entry_id)
+        return {"id": entry_id, "accounts": _accounts(rec), "default": _default_account(rec)}
+
+    def add_account(self, entry_id: str, name: str) -> Dict[str, Any]:
+        name = (name or "").strip()
+        if not ACCOUNT_RE.match(name):
+            raise ConnectorInstallError("a name: letters, digits, spaces, _ . -, up to 60 characters", "bad_account")
+        with self._lock:
+            rec = self._record(entry_id)
+            accs = _accounts(rec)
+            if name.lower() in (a.lower() for a in accs):
+                raise ConnectorInstallError(f"there is already an account called {name}", "bad_account")
+            if len(accs) >= MAX_ACCOUNTS:
+                raise ConnectorInstallError("too many accounts: remove one first", "bad_account")
+            rec["accounts"] = accs + [name]
+            if not rec.get("default_account") and len(accs) == 1:
+                rec["default_account"] = accs[0]                         # the one account there was stays the default once a second one exists
+            InstalledStore(self.caps.index.dir).put(rec)
+        return self.accounts(entry_id)
+
+    def remove_account(self, entry_id: str, name: str) -> Dict[str, Any]:
+        with self._lock:
+            rec = self._record(entry_id)
+            accs = _accounts(rec)
+            if name not in accs:
+                raise ConnectorInstallError("no such account", "bad_account")
+            if len(accs) <= 1:
+                raise ConnectorInstallError("the last account cannot be removed; uninstall the connector instead", "bad_account")
+            if self.vault_dir:
+                from tadamoo.vault import Vault
+                vault = Vault(self.vault_dir)
+                for spec in rec.get("env") or []:
+                    if isinstance(spec, dict) and spec.get("secret"):
+                        vault.delete(self._entry_key(spec, name, accs))
+            values = dict(rec.get("account_values") or {})
+            values.pop(name, None)
+            rec["account_values"] = values
+            rec["accounts"] = [a for a in accs if a != name]
+            if rec.get("default_account") == name:
+                rec["default_account"] = ""
+            InstalledStore(self.caps.index.dir).put(rec)
+        return self.accounts(entry_id)
+
+    def set_default_account(self, entry_id: str, name: str) -> Dict[str, Any]:
+        with self._lock:
+            rec = self._record(entry_id)
+            accs = _accounts(rec)
+            if name and name not in accs:
+                raise ConnectorInstallError("no such account", "bad_account")
+            rec["default_account"] = name or ""
+            InstalledStore(self.caps.index.dir).put(rec)
+        return self.accounts(entry_id)
+
+    def config(self, entry_id: str, account: str = "") -> Dict[str, Any]:
+        """The variables the installed server reads, for one account: for each, whether it is secret and whether it is set. A secret's value is never given back; a plain value is."""
+        rec = self._record(entry_id)
+        accs = _accounts(rec)
+        acc = self._resolve_account(rec, account)
+        plain = (rec.get("account_values") or {}).get(acc) or {}
         rows = []
         for spec in rec.get("env") or []:
             if not isinstance(spec, dict) or not spec.get("name"):
                 continue
-            secret = bool(spec.get("secret"))
-            rows.append({"name": str(spec["name"]), "required": bool(spec.get("required")), "secret": secret, "entry": spec.get("entry", ""),
-                         "set": self._vault_has(str(spec.get("entry") or "")) if secret else bool(spec.get("value")), "value": "" if secret else str(spec.get("value") or "")})
-        return {"id": entry_id, "name": rec.get("name", ""), "kind": rec.get("kind", ""), "variables": rows, "remote": bool(rec.get("url"))}
+            name, secret = str(spec["name"]), bool(spec.get("secret"))
+            value = plain.get(name, spec.get("value") if acc == accs[0] and name not in plain else "")        # a pre-multi-account value still reads back for the first account
+            rows.append({"name": name, "required": bool(spec.get("required")), "secret": secret, "entry": spec.get("entry", ""),
+                         "set": self._vault_has(self._entry_key(spec, acc, accs)) if secret else bool(value), "value": "" if secret else str(value or "")})
+        return {"id": entry_id, "name": rec.get("name", ""), "kind": rec.get("kind", ""), "variables": rows, "remote": bool(rec.get("url")),
+                "account": acc, "accounts": accs, "default_account": _default_account(rec)}
 
-    def configure(self, entry_id: str, values: Dict[str, Any]) -> Dict[str, Any]:
-        """Sets the variables: a secret goes to the vault, bound to the entry the record names; a plain value is kept in the record. An empty plain value clears it, an empty secret leaves what is there."""
+    def configure(self, entry_id: str, values: Dict[str, Any], account: str = "") -> Dict[str, Any]:
+        """Sets the variables of one account: a secret goes to the vault, bound to an entry of its own per account; a plain value is kept in the record, per account.
+        An empty plain value clears it, an empty secret leaves what is there."""
         records = InstalledStore(self.caps.index.dir)
         rec = self._record(entry_id)
+        accs = _accounts(rec)
+        acc = self._resolve_account(rec, account)
         known = {str(s["name"]): s for s in rec.get("env") or [] if isinstance(s, dict) and s.get("name")}
         if not isinstance(values, dict) or any(k not in known for k in values):
             raise ConnectorInstallError("values: only the variables this server reads", "bad_values")
@@ -241,6 +340,8 @@ class ConnectorInstaller:
             if not isinstance(value, str) or len(value) > 4000 or "\x00" in value:
                 raise ConnectorInstallError(f"{name}: a text of at most 4000 characters", "bad_values")
         with self._lock:
+            account_values = dict(rec.get("account_values") or {})
+            plain = dict(account_values.get(acc) or {})
             for name, value in values.items():
                 spec = known[name]
                 if spec.get("secret"):
@@ -248,12 +349,16 @@ class ConnectorInstaller:
                         if not self.vault_dir:
                             raise ConnectorInstallError("there is no vault to keep a secret in", "no_vault")
                         from tadamoo.vault import Vault
-                        Vault(self.vault_dir).put(str(spec.get("entry")), kind="secret", label=f"{rec.get('name', entry_id)}: {name}", fields={"value": value})
+                        label = f"{rec.get('name', entry_id)}: {name}" + (f" ({acc})" if acc != accs[0] else "")
+                        Vault(self.vault_dir).put(self._entry_key(spec, acc, accs), kind="secret", label=label, fields={"value": value})
                 else:
-                    spec["value"] = value.strip()
+                    plain[name] = value.strip()
+                    spec.pop("value", None)                              # the schema keeps no value of its own once an account has one
+            account_values[acc] = plain
+            rec["account_values"] = account_values
             records.put(rec)
         self.caps.index.refresh()
-        return self.config(entry_id)
+        return self.config(entry_id, acc)
 
     # -- updates ----------------------------------------------------------------------------------------
 

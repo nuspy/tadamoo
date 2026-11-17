@@ -198,6 +198,77 @@ def test_a_variable_of_an_installed_server_is_set_secrets_go_to_the_vault_and_ar
     assert e.value.code == "foreign"
 
 
+def test_a_second_account_keeps_its_own_secrets_apart_and_the_first_still_reads_its_old_one(tmp_path, stub, monkeypatch):
+    from tadamoo.discovery.installed import InstalledStore
+    import tadamoo.vault as vault_mod
+    kept = {}
+
+    class FakeVault:
+        def __init__(self, directory):
+            pass
+
+        def put(self, entry, kind="secret", label="", fields=None):
+            kept[entry] = (kind, label, dict(fields or {}))
+
+        def reveal(self, entry, field):
+            return kept[entry][2][field]
+
+        def delete(self, entry):
+            return kept.pop(entry, None) is not None
+    monkeypatch.setattr(vault_mod, "Vault", FakeVault)
+    api, caps, installer = make(tmp_path, stub, [])
+    installer.vault_dir = tmp_path / "vault"
+    InstalledStore(tmp_path / "capabilities").put({"id": "mcp:demo", "name": "demo", "kind": "mcp", "url": "https://x.example/mcp", "folder": "", "sha": "s", "source": "registry", "route": "remote",
+                                                   "version": "1", "env": [{"name": "API_KEY", "required": True, "secret": True, "entry": "API_KEY", "value": ""},
+                                                                           {"name": "REGION", "required": False, "secret": False, "entry": "REGION", "value": ""}]})
+    assert api.accounts("mcp:demo") == {"id": "mcp:demo", "accounts": ["default"], "default": "default"}         # a record made before accounts existed has one, implicit
+    api.configure("mcp:demo", {"API_KEY": "sk-first", "REGION": "eu"})
+    assert kept["API_KEY"][2]["value"] == "sk-first"                                                              # unsuffixed: an old install's secret is found unchanged
+
+    got = api.add_account("mcp:demo", "work")
+    assert got == {"id": "mcp:demo", "accounts": ["default", "work"], "default": "default"}
+    with pytest.raises(ConnectorError):
+        api.add_account("mcp:demo", "Default")                                                                    # case-insensitive clash
+    with pytest.raises(ConnectorError):
+        api.add_account("mcp:demo", "bad name!")
+
+    before = api.config("mcp:demo")                                                                                # unnamed: the default account
+    assert before["account"] == "default" and before["variables"][0]["set"] is True
+    work = api.config("mcp:demo", "work")
+    assert work["account"] == "work" and [v["set"] for v in work["variables"]] == [False, False]                  # the new account starts with nothing of its own
+
+    api.configure("mcp:demo", {"API_KEY": "sk-second", "REGION": "us"}, "work")
+    assert kept["API_KEY::work"][2]["value"] == "sk-second" and kept["API_KEY"][2]["value"] == "sk-first"          # apart, and the first unchanged
+    assert api.config("mcp:demo", "work")["variables"][1]["value"] == "us" and api.config("mcp:demo")["variables"][1]["value"] == "eu"
+    with pytest.raises(ConnectorError):
+        api.config("mcp:demo", "nobody")
+
+    api.set_default_account("mcp:demo", "work")
+    assert api.accounts("mcp:demo")["default"] == "work"
+    assert api.config("mcp:demo")["account"] == "work"                                                            # unnamed now resolves to the new default
+
+    with pytest.raises(ConnectorError):
+        api.remove_account("mcp:demo", "nobody")
+    removed = api.remove_account("mcp:demo", "default")
+    assert removed == {"id": "mcp:demo", "accounts": ["work"], "default": "work"} and "API_KEY" not in kept and kept["API_KEY::work"]
+    with pytest.raises(ConnectorError):
+        api.remove_account("mcp:demo", "work")                                                                     # the last account cannot be removed
+
+
+def test_two_or_more_accounts_with_no_default_must_be_named_to_configure(tmp_path, stub):
+    from tadamoo.discovery.installed import InstalledStore
+    api, caps, installer = make(tmp_path, stub, [])
+    InstalledStore(tmp_path / "capabilities").put({"id": "mcp:demo", "name": "demo", "kind": "mcp", "url": "https://x.example/mcp", "folder": "", "sha": "s", "source": "registry", "route": "remote",
+                                                   "version": "1", "env": [{"name": "REGION", "required": False, "secret": False, "entry": "REGION", "value": ""}]})
+    api.add_account("mcp:demo", "second")
+    assert api.config("mcp:demo")["account"] == "default"                                                        # adding a second keeps the one there was as the default
+    api.set_default_account("mcp:demo", "")
+    with pytest.raises(ConnectorError) as e:
+        api.config("mcp:demo")
+    assert e.value.code == "account_needed"
+    assert api.config("mcp:demo", "default")["account"] == "default"
+
+
 def test_a_newer_commit_of_an_installed_skill_is_found_and_installed_over_it_keeping_the_old_original(tmp_path, stub):
     api, caps, installer = make(tmp_path, stub, [{"id": "g", "kind": "github", "ref": "acme/skills@main", "trust": "known", "enabled": True}])
     installer.settings.write(str(tmp_path / "originals"))

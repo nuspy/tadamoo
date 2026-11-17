@@ -237,13 +237,48 @@
     say(errText(r), true); draw();
   }
 
-  /* configure: the variables an installed server reads. A secret is typed here once and goes to the vault; the page never gets it back (it only says whether it is set) */
-  async function configureDialog(item) {
-    const r = await api("GET", "api/connectors/config?id=" + encodeURIComponent(item.id));
+  /* configure: the variables an installed server reads, one account at a time. A secret is typed here once and goes to the vault; the page never gets it back
+     (it only says whether it is set). Multiple accounts (Connectors module decisions, 16 Nov): add, remove, choose the default; the one named account keeps the
+     secrets an install made before accounts existed, so it still reads them. */
+  async function configureDialog(item, account) {
+    const qs = "id=" + encodeURIComponent(item.id) + (account ? "&account=" + encodeURIComponent(account) : "");
+    const r = await api("GET", "api/connectors/config?" + qs);
     if (!r.ok) { say(errText(r), true); return; }
     const d = r.data, dlg = el("dialog", "cx-dlg"), form = el("form", "cx-cfg"), inputs = {};
     dlg.id = "cx-cfgdlg"; dlg.setAttribute("aria-label", T("cx.cfg.title", d.name));
     form.append(el("h3", "cx-bh", T("cx.cfg.title", d.name)), el("p", "help", T("cx.cfg.help")));
+    const reopen = acc => { dlg.close(); configureDialog(item, acc); };
+
+    const accBox = el("div", "cx-accounts");
+    const sel = el("select"), selId = "cx-cfg-account", selLab = el("label", "", T("cx.acc.label"));
+    selLab.htmlFor = selId; sel.id = selId;
+    d.accounts.forEach(a => { const o = el("option", "", a + (a === d.default_account ? " " + T("cx.acc.isdefault") : "")); o.value = a; if (a === d.account) o.selected = true; sel.append(o); });
+    sel.onchange = () => reopen(sel.value);
+    accBox.append(selLab, sel);
+    if (d.account !== d.default_account) {
+      accBox.append(btn(T("cx.acc.setdefault"), "", async () => { const w = await api("POST", "api/connectors/accounts/default", { id: item.id, name: d.account }); if (w.ok) reopen(d.account); else say(errText(w), true); }));
+    }
+    if (d.accounts.length > 1) {
+      const rm = btn(T("cx.acc.remove"), "ghost", async () => {
+        if (rm.dataset.armed !== "1") { rm.dataset.armed = "1"; rm.textContent = T("cx.acc.remove.sure"); setTimeout(() => { rm.dataset.armed = ""; rm.textContent = T("cx.acc.remove"); }, 4000); return; }
+        const w = await api("POST", "api/connectors/accounts/remove", { id: item.id, name: d.account });
+        if (w.ok) reopen(""); else say(errText(w), true);
+      });
+      accBox.append(rm);
+    }
+    const addForm = el("form", "cx-acc-add"), addName = el("input");
+    addName.placeholder = T("cx.acc.add.name"); addName.maxLength = 60; addName.setAttribute("aria-label", T("cx.acc.add.name"));
+    const addBtn = btn(T("cx.acc.add"), "", () => {}); addBtn.type = "submit";
+    addForm.append(addName, addBtn);
+    addForm.onsubmit = async e => {
+      e.preventDefault();
+      if (!addName.value.trim()) return;
+      const w = await api("POST", "api/connectors/accounts/add", { id: item.id, name: addName.value });
+      if (w.ok) reopen(addName.value.trim()); else say(errText(w), true);
+    };
+    accBox.append(addForm);
+    form.append(accBox);
+
     if (!d.variables.length) form.append(el("p", "help", d.remote ? T("cx.cfg.remote") : T("cx.cfg.none")));
     d.variables.forEach((v, n) => {
       const wrap = el("div", "cx-pf"), id = "cx-cv-" + n, lab = el("label", "", v.name + (v.required ? " *" : "")), inp = el("input");
@@ -262,7 +297,7 @@
       e.preventDefault();
       const values = {};
       Object.entries(inputs).forEach(([name, f]) => { if (!f.secret || f.inp.value) values[name] = f.inp.value; });                   // an empty secret leaves what is there
-      const w = await api("POST", "api/connectors/configure", { id: item.id, values });
+      const w = await api("POST", "api/connectors/configure", { id: item.id, values, account: d.account });
       if (w.ok) { note.textContent = T("cx.cfg.saved"); note.className = "help"; Object.values(inputs).forEach(f => { if (f.secret) f.inp.value = ""; }); await load(); }
       else { note.textContent = errText(w); note.className = "cx-why"; note.setAttribute("role", "alert"); }
     };

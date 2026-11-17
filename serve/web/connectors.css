@@ -66,6 +66,11 @@
 #cx-upd-check { min-height: 44px; margin: 6px 0; }
 .cx-cfg { display: grid; gap: 10px; }
 .cx-cfg input { min-height: 44px; width: 100%; box-sizing: border-box; }
+.cx-accounts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.cx-accounts select { min-height: 44px; }
+.cx-accounts .btn { min-height: 44px; }
+.cx-acc-add { display: flex; flex-wrap: wrap; gap: 8px; }
+.cx-acc-add input { min-height: 44px; width: 10em; max-width: 100%; box-sizing: border-box; }
 
 .dw-leaks { display: grid; gap: 8px; margin: 6px 0 12px; }
 .dw-leaklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
