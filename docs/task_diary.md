@@ -640,3 +640,9 @@ Stato (1 novembre, sera): committati il blocco «cosa sei» con `self_status` (`
 - Modulo «Accesso anticipato» del sito: senza backend.
 - Rilascio per Mac: rimandato a quando il progetto è quasi finale.
 - Studio sulle chiamate in contesti separati: in parte coperto dalla sessione tecnica.
+
+## Audit GUI (18 novembre 2026, su richiesta dell'utente: «quello che non c'è su GUI non esiste»)
+- Aperta la GUI vera in un browser e letta scheda per scheda (`docs/gui_map.md`). Trovate presenti: 2FA e importazione da Google Authenticator (Settings > Wallet), scelta del browser tra agent-browser e il nostro pilota (Settings > Wallet), Connectors con le cinque sotto-schede, Knowledge con le novità, sezione Dark web nelle impostazioni di inferenza.
+- Trovato male: la sezione Dark web restava su «Caricamento…» perché il servizio girava con il codice di prima che esistesse la rotta (ora mostra l'errore e «Riprova»; serve riavviare il servizio). Il browser per il dark web non aveva la scelta: aggiunta (pilota o agent-browser), anche nei profili salvati.
+- Aggiunto `serve/tests/test_gui_features.py`: elenco di 24 funzioni con il controllo che deve esistere nella pagina; più un controllo che ogni stringa chiesta dagli script esista in italiano e inglese e che ogni script sia caricato.
+- Ancora senza controllo nella GUI: vedi la fine di `docs/gui_map.md`.

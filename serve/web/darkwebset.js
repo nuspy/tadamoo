@@ -44,7 +44,11 @@
 
   function draw() {
     const box = [];
-    if (!view) { root.replaceChildren(el("p", "help", T("dw.loading"))); return; }
+    if (!view) {
+      const p = el("p", bad ? "cx-why" : "help", bad ? note : T("dw.loading")); if (bad) p.setAttribute("role", "alert");
+      const kids = [p]; if (bad) kids.push(el("p", "help", T("dw.restart")), btn(T("dw.retry"), "", load));
+      root.replaceChildren(...kids); return;
+    }
     if (!view.package) { root.replaceChildren(el("p", "cx-why", T("dw.nopackage"))); return; }
     const s = view.settings || {};
     box.push(el("p", "help", T("dw.help")));
@@ -52,6 +56,14 @@
     box.push(el("p", "help", T("dw.on.help")));
     box.push(check("dw-search", "dw.search", s.search, v => change({ search: v }), !s.darkweb));
     box.push(check("dw-read", "dw.read", s.read, v => change({ read: v }), !s.darkweb));
+    const nav = el("select"), navId = "dw-nav";
+    nav.id = navId; nav.disabled = !s.darkweb;
+    ["own", "agent-browser"].forEach(v => { const o = el("option", "", T("dw.nav." + v)); o.value = v; nav.append(o); });
+    nav.value = s.navigation || "own";
+    nav.onchange = () => change({ navigation: nav.value });
+    const navLab = el("label", "", T("dw.nav")); navLab.htmlFor = navId;
+    const navRow = el("div", "dw-nav"); navRow.append(navLab, nav);
+    box.push(navRow, el("p", "help", T("dw.nav.help")));
     box.push(el("p", "help", T("dw.writeoff")));
     const t = view.tor || {}, line = el("p", "dw-tor", T(t.running ? "dw.tor.running" : t.installed ? "dw.tor.installed" : "dw.tor.missing"));
     box.push(line);
@@ -73,12 +85,13 @@
   }
   /* what a saved inference profile keeps of this section, and what loading one does: the three switches are written to the server (the file of the option), the Tor of this PC is left as it is */
   window.dwSet = {
-    read: () => { const s = (view && view.settings) || {}; return { darkweb: !!s.darkweb, darkweb_search: s.search !== false, darkweb_read: s.read !== false }; },
+    read: () => { const s = (view && view.settings) || {}; return { darkweb: !!s.darkweb, darkweb_search: s.search !== false, darkweb_read: s.read !== false, darkweb_navigation: s.navigation || "own" }; },
     write: async s => {
       const body = {};
       if (s.darkweb !== undefined) body.darkweb = !!s.darkweb;
       if (s.darkweb_search !== undefined) body.search = !!s.darkweb_search;
       if (s.darkweb_read !== undefined) body.read = !!s.darkweb_read;
+      if (s.darkweb_navigation !== undefined) body.navigation = s.darkweb_navigation;
       if (Object.keys(body).length && view && view.package) await change(body);
     },
   };

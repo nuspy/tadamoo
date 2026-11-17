@@ -36,7 +36,7 @@ INFERENCE_KEYS = ("system", "stop", "policy", "threshold", "effort", "temperatur
                   "repetition_penalty", "presence_penalty", "frequency_penalty", "penalty_last_n", "seed",
                   "reasoning_budget_tokens", "max_tokens", "format", "schema", "schema_name", "retries", "context_patterns", "end_turn_bias", "max_turns", "max_answer_tokens", "auto_continue", "show_reasoning", "show_tooling",
                   "abstract_on", "abstract_keep", "code_keep", "billion_on", "billion_compress", "billion_port", "images", "charts", "autonomy",
-                  "darkweb", "darkweb_search", "darkweb_read")
+                  "darkweb", "darkweb_search", "darkweb_read", "darkweb_navigation")
 AUTONOMY_LEVELS = ("plan", "read_only", "default", "auto")
 VISUAL_LEVELS = ("very_low", "low", "normal", "high", "very_high", "highest")
 
@@ -204,6 +204,8 @@ def check_inference(values) -> dict:
     for key in ("show_reasoning", "show_tooling"):
         if out.get(key) not in (None, "") and out[key] not in ("full", "compact", "absent"):
             raise ValueError(f"{key}: full, compact or absent")
+    if out.get("darkweb_navigation") not in (None, "") and out["darkweb_navigation"] not in ("own", "agent-browser"):
+        raise ValueError("darkweb_navigation: own or agent-browser")
     if len(json.dumps(out)) > 256 << 10:
         raise ValueError("settings: larger than 256 KiB")
     return out
