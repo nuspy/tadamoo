@@ -62,7 +62,8 @@ const chatSettings = (() => {
       threshold: $("#cs-threshold").value, effort: effortBox.value,
       format: $("#cs-format").value, schema: $("#cs-schema").value, schema_name: $("#cs-schema_name").value,
       context_patterns: window.ctxPatterns ? window.ctxPatterns.read() : {},
-      show_reasoning: $("#cs-show_reasoning").value, show_tooling: $("#cs-show_tooling").value, ...extrasRead() };
+      show_reasoning: $("#cs-show_reasoning").value, show_tooling: $("#cs-show_tooling").value,
+      reader_override: $("#cs-browsing-reader").value, browser_override: $("#cs-browsing-browser").value, ...extrasRead() };
     for (const f of fieldsOf()) s[f.key] = $("#" + f.id).value.trim();
     return s;
   }
@@ -106,9 +107,25 @@ const chatSettings = (() => {
     for (const f of fieldsOf()) $("#" + f.id).value = s[f.key] ?? "";
     $("#cs-show_reasoning").value = s.show_reasoning || "full";
     $("#cs-show_tooling").value = s.show_tooling || "full";
+    $("#cs-browsing-reader").value = s.reader_override || "";
+    $("#cs-browsing-browser").value = s.browser_override || "";
+    if (apply) applyBrowsingDefaults(s.reader_override, s.browser_override);
     writeExtras(s, apply);
     show();
     document.dispatchEvent(new CustomEvent("tadamoo:display"));
+  }
+  /* loading a preset with a reader or browser chosen here changes that one default (Settings > Web search / Settings > Wallet); left at
+     "Use the default", loading the preset leaves it as it is, same as the dark web's own choice does today */
+  async function applyBrowsingDefaults(reader, browser) {
+    try {
+      if (reader) await fetch("api/websearch/select", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ reader }) });
+      if (browser) {
+        const cur = await (await fetch("api/wallet", { cache: "no-store", headers: authHeaders() })).json();
+        const b = cur.browser || {};
+        await fetch("api/wallet/browser", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
+          body: JSON.stringify({ enabled: b.enabled !== false, headless: !!b.headless, private: !!b.private, persistent: !!b.persistent, consent: b.consent, permissions: b.permissions, backend: browser }) });
+      }
+    } catch (e) { /* the preset still loads; the default just did not change */ }
   }
   function say(text, kind) { const e = $("#cs-status"); e.textContent = text; e.dataset.kind = kind || ""; }
 

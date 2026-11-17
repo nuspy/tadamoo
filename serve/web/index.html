@@ -675,6 +675,26 @@
           <label for="cs-chart-level" data-t="vis.level">How present</label>
           <select id="cs-chart-level"><option value="very_low" data-t="vis.level.very_low">very_low</option><option value="low" data-t="vis.level.low">low</option><option value="normal" selected data-t="vis.level.normal">normal</option><option value="high" data-t="vis.level.high">high</option><option value="very_high" data-t="vis.level.very_high">very_high</option><option value="highest" data-t="vis.level.highest">highest</option></select>
         </fieldset>
+        <fieldset class="csgroup csconv" id="cs-browsing">
+          <legend data-t="cs.browsing">Page reader and browser for this conversation</legend>
+          <p class="help" data-t="cs.browsing.help"></p>
+          <label for="cs-browsing-reader" data-t="cs.browsing.reader">Page reader</label>
+          <select id="cs-browsing-reader" aria-describedby="cs-browsing-reader-h">
+            <option value="" data-t="cs.browsing.default">Use the default (Settings &gt; Web search)</option>
+            <option value="none" data-t="ws.reader.none">No page reader</option>
+            <option value="firecrawl">Firecrawl</option>
+            <option value="playwright">Playwright</option>
+            <option value="openwebsearch">open-websearch</option>
+          </select>
+          <p class="help" id="cs-browsing-reader-h" data-t="cs.browsing.reader.help"></p>
+          <label for="cs-browsing-browser" data-t="cs.browsing.browser">Browser</label>
+          <select id="cs-browsing-browser" aria-describedby="cs-browsing-browser-h">
+            <option value="" data-t="cs.browsing.default2">Use the default (Settings &gt; Wallet)</option>
+            <option value="tadamoo" data-t="wl.br.backend.tadamoo">TaDaMoo's own driver</option>
+            <option value="agent-browser" data-t="wl.br.backend.agent-browser">agent-browser (default)</option>
+          </select>
+          <p class="help" id="cs-browsing-browser-h" data-t="cs.browsing.browser.help"></p>
+        </fieldset>
         <fieldset class="csgroup csconv" id="cs-perm">
           <legend data-t="cs.perm">What the agent may do without asking</legend>
           <p class="help" data-t="cs.perm.help"></p>

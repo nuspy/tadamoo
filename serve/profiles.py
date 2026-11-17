@@ -36,7 +36,8 @@ INFERENCE_KEYS = ("system", "stop", "policy", "threshold", "effort", "temperatur
                   "repetition_penalty", "presence_penalty", "frequency_penalty", "penalty_last_n", "seed",
                   "reasoning_budget_tokens", "max_tokens", "format", "schema", "schema_name", "retries", "context_patterns", "end_turn_bias", "max_turns", "max_answer_tokens", "auto_continue", "show_reasoning", "show_tooling",
                   "abstract_on", "abstract_keep", "code_keep", "billion_on", "billion_compress", "billion_port", "images", "charts", "autonomy",
-                  "darkweb", "darkweb_search", "darkweb_read", "darkweb_navigation", "darkweb_watches", "darkweb_leaks")
+                  "darkweb", "darkweb_search", "darkweb_read", "darkweb_navigation", "darkweb_watches", "darkweb_leaks",
+                  "reader_override", "browser_override")
 AUTONOMY_LEVELS = ("plan", "read_only", "default", "auto")
 VISUAL_LEVELS = ("very_low", "low", "normal", "high", "very_high", "highest")
 
@@ -204,8 +205,16 @@ def check_inference(values) -> dict:
     for key in ("show_reasoning", "show_tooling"):
         if out.get(key) not in (None, "") and out[key] not in ("full", "compact", "absent"):
             raise ValueError(f"{key}: full, compact or absent")
-    if out.get("darkweb_navigation") not in (None, "") and out["darkweb_navigation"] not in ("own", "agent-browser"):
-        raise ValueError("darkweb_navigation: own or agent-browser")
+    if out.get("darkweb_navigation") not in (None, "") and out["darkweb_navigation"] not in ("default", "own", "agent-browser"):
+        raise ValueError("darkweb_navigation: default, own or agent-browser")
+    if out.get("reader_override") not in (None, ""):
+        from tadamoo.websearch import READERS
+        if out["reader_override"] not in READERS:
+            raise ValueError(f"reader_override: one of {', '.join(READERS)}, or empty")
+    if out.get("browser_override") not in (None, ""):
+        from tadamoo.browser import BACKENDS
+        if out["browser_override"] not in BACKENDS:
+            raise ValueError(f"browser_override: one of {', '.join(BACKENDS)}, or empty")
     if len(json.dumps(out)) > 256 << 10:
         raise ValueError("settings: larger than 256 KiB")
     return out

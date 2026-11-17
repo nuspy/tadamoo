@@ -94,12 +94,13 @@
     box.push(leakBlock(!!s.darkweb));
     const nav = el("select"), navId = "dw-nav";
     nav.id = navId; nav.disabled = !s.darkweb;
-    ["own", "agent-browser"].forEach(v => { const o = el("option", "", T("dw.nav." + v)); o.value = v; nav.append(o); });
-    nav.value = s.navigation || "own";
+    ["default", "own", "agent-browser"].forEach(v => { const o = el("option", "", T("dw.nav." + v)); o.value = v; nav.append(o); });
+    nav.value = s.navigation || "default";
     nav.onchange = () => change({ navigation: nav.value });
     const navLab = el("label", "", T("dw.nav")); navLab.htmlFor = navId;
     const navRow = el("div", "dw-nav"); navRow.append(navLab, nav);
-    box.push(navRow, el("p", "help", T("dw.nav.help")));
+    const resolved = view.navigation_resolved ? T("dw.nav." + view.navigation_resolved) : "";
+    box.push(navRow, el("p", "help", T("dw.nav.help") + (nav.value === "default" && resolved ? " " + T("dw.nav.now", resolved) : "")));
     box.push(el("p", "help", T("dw.writeoff")));
     const t = view.tor || {}, line = el("p", "dw-tor", T(t.running ? "dw.tor.running" : t.installed ? "dw.tor.installed" : "dw.tor.missing"));
     box.push(line);
@@ -121,7 +122,7 @@
   }
   /* what a saved inference profile keeps of this section, and what loading one does: the three switches are written to the server (the file of the option), the Tor of this PC is left as it is */
   window.dwSet = {
-    read: () => { const s = (view && view.settings) || {}; return { darkweb: !!s.darkweb, darkweb_search: s.search !== false, darkweb_read: s.read !== false, darkweb_navigation: s.navigation || "own", darkweb_watches: !!s.watches, darkweb_leaks: s.leak_archives !== false }; },
+    read: () => { const s = (view && view.settings) || {}; return { darkweb: !!s.darkweb, darkweb_search: s.search !== false, darkweb_read: s.read !== false, darkweb_navigation: s.navigation || "default", darkweb_watches: !!s.watches, darkweb_leaks: s.leak_archives !== false }; },
     write: async s => {
       const body = {};
       if (s.darkweb !== undefined) body.darkweb = !!s.darkweb;

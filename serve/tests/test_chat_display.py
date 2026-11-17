@@ -104,6 +104,18 @@ class Settings(unittest.TestCase):
         self.assertIn("window.dwSet.write(s)", CHATSET)
         self.assertIn("if (apply && window.dwSet", CHATSET)
 
+    def test_the_page_reader_and_browser_override_are_checked_and_applied_only_when_a_preset_is_loaded_by_hand(self):
+        good = {"reader_override": "firecrawl", "browser_override": "tadamoo"}
+        self.assertEqual(profiles.check_inference(good), good)
+        self.assertEqual(profiles.check_inference({"reader_override": "", "browser_override": ""}), {"reader_override": "", "browser_override": ""})
+        for bad in ({"reader_override": "chrome"}, {"browser_override": "edge"}):
+            with self.assertRaises(ValueError, msg=str(bad)):
+                profiles.check_inference(bad)
+        self.assertIn('reader_override: $("#cs-browsing-reader").value', CHATSET)
+        self.assertIn('browser_override: $("#cs-browsing-browser").value', CHATSET)
+        self.assertIn("if (apply) applyBrowsingDefaults(s.reader_override, s.browser_override)", CHATSET)
+        self.assertIn('id="cs-browsing"', HTML)
+
     def test_only_a_preset_loaded_by_hand_reaches_the_conversation_and_the_billion_context_process(self):
         self.assertIn("write(p.settings, true)", CHATSET)
         self.assertIn("write(s, true)", CHATSET)

@@ -89,11 +89,11 @@ t("a saved profile keeps the three switches, and loading one writes them to the 
   root.children = [];
   setup();
   await settle();
-  eq(window.dwSet.read(), { darkweb: true, darkweb_search: true, darkweb_read: false, darkweb_navigation: "own", darkweb_watches: false, darkweb_leaks: true });
+  eq(window.dwSet.read(), { darkweb: true, darkweb_search: true, darkweb_read: false, darkweb_navigation: "default", darkweb_watches: false, darkweb_leaks: true });
   posted.length = 0;
   await window.dwSet.write({ darkweb: false, darkweb_search: false, darkweb_read: true });
   eq(posted[0], { url: "api/darkweb", body: { darkweb: false, search: false, read: true } });
-  eq(window.dwSet.read(), { darkweb: false, darkweb_search: false, darkweb_read: true, darkweb_navigation: "own", darkweb_watches: false, darkweb_leaks: true });
+  eq(window.dwSet.read(), { darkweb: false, darkweb_search: false, darkweb_read: true, darkweb_navigation: "default", darkweb_watches: false, darkweb_leaks: true });
   posted.length = 0;
   await window.dwSet.write({});
   eq(posted.length, 0);                                                         // a profile that says nothing about it changes nothing

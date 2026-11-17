@@ -199,3 +199,15 @@ def test_the_leak_archives_can_be_added_and_removed_through_the_api(tmp_path):
     with pytest.raises(DarkwebError):
         api.post("leaks/remove", {"name": "WikiLeaks"})
     assert [a["name"] for a in api.post("leaks/remove", {"name": "Mine"})["archives"]] == names
+
+
+def test_navigation_default_follows_the_wallet_browser_and_can_be_overridden(tmp_path, monkeypatch):
+    from tadamoo import browser as br
+    rt = make(tmp_path)
+    monkeypatch.setattr(br, "default_backend", lambda: "agent-browser")
+    assert rt.resolved_navigation() == "agent-browser"
+    monkeypatch.setattr(br, "default_backend", lambda: "tadamoo")
+    assert rt.resolved_navigation() == "own"
+    rt.save({"navigation": "agent-browser"})
+    monkeypatch.setattr(br, "default_backend", lambda: "tadamoo")
+    assert rt.resolved_navigation() == "agent-browser"                   # an explicit choice is never overridden by the default

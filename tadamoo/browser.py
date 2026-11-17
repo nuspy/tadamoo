@@ -369,6 +369,13 @@ BACKENDS = ("agent-browser", "tadamoo")           # what drives the browser tool
 DEFAULT_BACKEND = "agent-browser"
 
 
+def default_backend() -> str:
+    """The browser chosen as the one default driver (Settings > Wallet > Browser): everything that needs a real browser and has no reason of its own to
+    differ (the dark web's own choice, when it is left at "default") follows this."""
+    from serve.userdata import path as _userdata_path
+    return BrowserPrefs(_userdata_path("browser.json")).read()["backend"]
+
+
 class BrowserPrefs:
     """What the person chose about the agent's browser: whether it has one, whether it shows a window, whether it may open pages on this PC and
     its network, whether it keeps its sign-ins between conversations, and what it does about cookie banners (`consent`) and permission requests

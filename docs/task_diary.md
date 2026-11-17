@@ -25,10 +25,10 @@ Legenda: [x] fatto e verificato, [~] iniziato, [ ] da fare. Un punto per riga.
    - [x] 3c. (18 novembre, provato dal vero) Tor: il pacchetto «Tor Expert Bundle» ufficiale per Windows (versione 16.0.1, 23,8 MB), fissato per hash (9eed3c3f…) e per chiave di firma (impronta EF6E 286D DA85 EA2A 4BA7 DE68 4E2C 6E87 9329 8290, i Tor Browser Developers); `darkweb.torbundle.install` lo scarica, controlla hash e firma con GnuPG e solo allora lo scompatta (un percorso fuori cartella o un collegamento non si scompattano). Provato con il download vero da dist.torproject.org: firma buona, hash uguale a quello dell'elenco firmato. Scaricato in `E:\AI\_darkweb_src	or-expert`. Non fatto: metterlo nel sistema di compilazione e nel setup (installatore).
    - [~] 3d. (17 novembre, repository locale `darkweb`, solo stand-in, nessuna rete né Tor) Fase 1: impostazioni, quarantena, gestore di Tor (SOCKS locale, solo .onion), lettore di testo sicuro, sezione del vault per i segreti del dark web. Fase 2: registro dei motori con affidabilità e riposo dopo 3 fallimenti, ricerca in parallelo con unione dei risultati e ordine per accordo, raffinamento e filtro con il modello (risultati chiusi come dati). 26 test. Non fatti: fasi 3-5 (scoperta, estrazione, continuità), adattatori dei motori veri (Robin, VoidAccess, Sicry non scaricati), interruttori nei profili, Android.
    - [ ] 3e. Nome, proprietario e visibilità del repository: decidi tu, niente push senza OK.
-4. [ ] Completare i modelli per avatar.
-   - [ ] 4a. ID-LoRA TalkVid su LTX e predittore Veda.
+4. [x] Avatar: ABBANDONATO (deciso da te il 18 novembre: troppo lento).
+   - [x] 4a. ID-LoRA TalkVid su LTX e predittore Veda: non si fa più.
    - [x] 4b. (17 novembre) Cartella wan22-s2v sul NAS: scritto il README (cosa è di S2V, cosa è del wav2vec2, cosa manca: il config.json di S2V sovrascritto); nessun file spostato, come deciso.
-   - [ ] 4c. Aggiornare la pagina dei test se escono righe nuove.
+   - [x] 4c. Pagina dei test: resta com'è, non si aggiorna più.
 5. [x] Spiegarti le decisioni in sospeso (spiegate a te il 17 novembre; le decisioni restano tue).
    - [x] 5.1 Analisi di Docker: spiegata (docker_data.vhdx 75,1 GB in E:\Docker\Images\DockerDesktopWSL\disk, fermo dal 4 novembre; nessun processo Docker attivo). Non ho aperto Docker né cancellato niente.
    - [x] 5.2 IQ3_S: spiegato (il file .basalt da 81,6 GB è in E:\Modelliasalt2; i GGUF da cancellare dopo il primo caricamento: da riconfermare quali, perché in E:\lmstudio trovo IQ3_XXS da 79,4 GB più 3,9 GB di bozza, non un IQ3_S).
@@ -77,6 +77,8 @@ Legenda: [x] fatto e verificato, [~] iniziato, [ ] da fare. Un punto per riga.
 21. [x] Web search: due liste tue (18 novembre, provato con test) in Impostazioni > Ricerca web: motori di ricerca personalizzati e directory di pagine personalizzate. Per ognuna: nome, indirizzo con {query} dove vanno le parole, interruttore attivo/disattivo, modifica, cancella. Usate automaticamente a ogni ricerca insieme al servizio scelto (DuckDuckGo o altro): i collegamenti trovati si aggiungono ai risultati, marcati come dati esterni. Una fonte che non risponde non blocca le altre.
 
 22. [x] `test_skills_page` (18 novembre). Causa: tutte le skill incluse nel programma ora hanno dei modelli, ma il test provava a installare «news-research» aspettandosi che non ne avesse (non è più vero, e quella skill non è più nell'elenco). Aggiunta una piccola variabile d'ambiente solo per i test (`TADAMOO_EXTRA_SKILLS`, un file con skill aggiunte in piu' al catalogo) e una skill finta di prova («gamma-skill», senza modelli) creata dal test stesso, come chiesto.
+
+23. [x] Browser e lettore di pagine, unificati (18 novembre, approvato da te). Quattro categorie, un posto solo per ciascuna: motore di ricerca predefinito e lettore di pagina predefinito (Impostazioni > Ricerca web, già c'erano), browser predefinito (Impostazioni > Portafoglio, già c'era), browser del dark web (ora segue il predefinito se lasciato su «Browser predefinito», altrimenti puoi scegliere diversamente solo per il dark web). Nelle impostazioni di inferenza (Chat e Agentic coding) due nuovi menu, «Lettore di pagina» e «Browser», con «Usa il predefinito» come scelta di base: se li imposti e salvi un preset, caricare quel preset cambia il predefinito di quella categoria (come già succedeva per il dark web); lasciati su «predefinito» caricare il preset non tocca nulla. Provato con test (28 nuovi/aggiornati) e nel browser vero.
 
 ## Risposte del 17 novembre sera (per la notte)
 

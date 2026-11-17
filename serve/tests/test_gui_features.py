@@ -14,7 +14,7 @@ FEATURES = [
     ("2FA: import from Google Authenticator", "Settings > Wallet", "wallet.js", "api/wallet/authenticator/preview"),
     ("2FA: scan the Authenticator export", "Settings > Wallet", "wallet.js", "api/wallet/authenticator/scan"),
     ("Browser: which driver (agent-browser or TaDaMoo's own)", "Settings > Wallet > Browser", "wallet.js", 'select(["agent-browser", "tadamoo"]'),
-    ("Browser for the dark web (own pilot or agent-browser)", "Chat settings > Dark web", "darkwebset.js", '["own", "agent-browser"]'),
+    ("Browser for the dark web (default, own pilot or agent-browser)", "Chat settings > Dark web", "darkwebset.js", '["default", "own", "agent-browser"]'),
     ("Dark web: switch, search, read, Tor", "Chat settings > Dark web", "index.html", 'id="dw-root"'),
     ("Dark web kept by saved inference profiles", "Chat settings > presets", "chatset.js", 'darkweb_navigation: dw("darkweb_navigation")'),
     ("Connectors: skills, MCP servers, MCP apps, plugins, providers", "Connectors", "connectors.js", 'const SUBTABS = ["skill", "mcp_server", "mcp_app", "plugin", "providers"]'),
@@ -40,6 +40,8 @@ FEATURES = [
     ("Plans and routines", "Plans, Cron Jobs", "index.html", 'id="view-plans"'),
     ("Models: loader, converter, voice services", "Models", "index.html", 'id="view-loader"'),
     ("Web search: custom search engines and page directories (add, edit, switch, remove)", "Settings > Web search", "websearch.js", "api/websearch/custom"),
+    ("Page reader and browser override for a preset's conversations", "Chat settings", "index.html", 'id="cs-browsing"'),
+    ("Dark web browser follows the default browser unless overridden", "Chat settings > Dark web", "darkwebset.js", '"default", "own", "agent-browser"'),
 ]
 
 
