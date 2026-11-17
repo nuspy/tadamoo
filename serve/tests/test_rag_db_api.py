@@ -246,3 +246,31 @@ def test_a_component_is_installed_only_by_a_job_the_person_starts_and_the_databa
     with pytest.raises(RagError):
         api.route_post(["db", "components", "install"], {}, json.dumps({"id": "something-else"}).encode())
     store.router.close()
+
+
+def test_the_test_button_checks_the_package_the_connection_the_archives_and_a_small_write_and_changes_nothing_of_the_persons(tmp_path):
+    api, store = api_for(tmp_path)
+    got = api.database.test({"project": PROJ})
+    assert got["ok"] and [s["step"] for s in got["steps"]] == ["package", "connect", "tables", "read", "write"] and all(s["ok"] for s in got["steps"])
+    assert "removed" in got["steps"][4]["message"] and store.list(PROJ) == []                       # the small archive it wrote is gone
+    assert not (tmp_path / "vault").exists()                                                            # a test never stores a password
+
+
+def test_the_test_button_stops_at_the_first_step_that_fails_and_says_why_in_words(tmp_path, monkeypatch):
+    from tadamoo.rag.backends import components
+    api, _ = api_for(tmp_path)
+    cfg = {"kind": "postgres", "host": "db.invalid", "dbname": "kb", "user": "me"}
+    monkeypatch.setattr(components, "listing", lambda: [{"id": "psycopg", "installed": False, "version": ""}])
+    got = api.database.test({"project": PROJ, "config": cfg})
+    assert not got["ok"] and [(s["step"], s["ok"]) for s in got["steps"]] == [("package", False)] and "install it below" in got["steps"][0]["message"]
+    monkeypatch.setattr(components, "listing", lambda: [{"id": "psycopg", "installed": True, "version": "3.3.4"}])
+
+    def refuse(cfg, pw):
+        raise ConnectionError("connection to server at db.invalid failed: refused")
+    api.database._open = refuse
+    got = api.database.test({"project": PROJ, "config": cfg, "password": "s3cret"})
+    assert not got["ok"] and [(s["step"], s["ok"]) for s in got["steps"]] == [("package", True), ("connect", False)]
+    assert "refused" in got["steps"][1]["message"] and "s3cret" not in json.dumps(got)
+    other = api.database.test({"project": PROJ, "config": {"kind": "other", "driver": "nonexistent_driver_xyz", "dsn": "x"}})
+    assert not other["ok"] and other["steps"][0]["ok"] and other["steps"][1]["step"] == "connect"
+

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from tadamoo.rag import RagError, RagStore
-from tadamoo.rag.backends import KINDS, clean_config, components, legacy, prepare as prepare_mod, store_password, vault_password
+from tadamoo.rag.backends import KINDS, clean_config, components, legacy, open_backend, prepare as prepare_mod, store_password, vault_password
 from tadamoo.rag.backends.postgres_pgvector import driver_name
 from tadamoo.rag.project import is_key
 from serve.rag_jobs import Jobs
@@ -34,6 +34,7 @@ def _project(value: Any) -> str:
 class RagDbApi:
     def __init__(self, store: RagStore, jobs: Jobs, vault_dir: Optional[Path] = None) -> None:
         self.store, self.jobs, self.vault_dir = store, jobs, vault_dir
+        self._open: Callable[..., Any] = open_backend                                        # a test puts its own here
         self.installer: Callable[..., Dict[str, Any]] = components.install                   # a test puts its own here: nothing is installed by a test
 
     def components(self) -> Dict[str, Any]:
@@ -78,6 +79,61 @@ class RagDbApi:
 
     # -- the routes -----------------------------------------------------------------------------------------------
 
+    NEEDS = {"sqlite": "sqlite-vec", "postgres": "psycopg", "mysql": "pymysql"}
+
+    def test(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """The Test button: is the database installed and set up? `{ok, steps: [{step, ok, message}]}`, the steps in order and stopping at the first that fails: the package it needs, the
+        connection, the tables (made when they are missing, as a first use would), the archives it can read, and a small archive written, searched and removed again. Nothing of the person's is changed. The settings are the form's, else the saved ones;
+        a password the form sent is not stored by a test."""
+        project = _project(req.get("project"))
+        router = self.store.router
+        cfg = clean_config(req["config"]) if isinstance(req.get("config"), dict) else router.config(project)
+        pw = req.get("password") if isinstance(req.get("password"), str) and req.get("password") else (
+            vault_password(self.vault_dir)(cfg["vault"]) if cfg.get("vault") and self.vault_dir is not None else "")
+        steps: List[Dict[str, Any]] = []
+
+        def step(name: str, ok: bool, message: str) -> bool:
+            steps.append({"step": name, "ok": ok, "message": message})
+            return ok
+        need = self.NEEDS.get(cfg["kind"])
+        if need:
+            have = next((c for c in components.listing() if c["id"] == need), None)
+            if not step("package", bool(have and have["installed"]), f"{need} is installed" + (f" ({have['version']})" if have and have.get("version") else "") if have and have["installed"] else f"{need} is not installed: install it below"):
+                return {"ok": False, "steps": steps}
+        else:
+            step("package", True, "this kind of database needs no package of ours")
+        try:
+            backend = self._open(cfg, pw)
+        except Exception as e:                                                      # any driver says it in its own way
+            step("connect", False, str(e)[:300] or e.__class__.__name__)
+            return {"ok": False, "steps": steps}
+        try:
+            info = backend.info()
+            step("connect", True, f"connected to {info.get('backend', cfg['kind'])}")
+            try:
+                backend.prepare()                                                  # the tables, as a first use would make them (nothing is changed when they are there)
+                step("tables", True, "the tables are in place")
+            except Exception as e:
+                step("tables", False, str(e)[:300])
+                return {"ok": False, "steps": steps}
+            try:
+                n = len(backend.read_metas(project or None))
+                step("read", True, f"{n} archive(s) readable")
+            except Exception as e:
+                step("read", False, str(e)[:300])
+                return {"ok": False, "steps": steps}
+            try:
+                done = prepare_mod.selftest(backend)
+                step("write", True, f"a small archive was written, searched (vectors {done['vectors']}, words {done['words']}) and removed in {done['ms']} ms")
+            except Exception as e:
+                step("write", False, str(e)[:300])
+        finally:
+            try:
+                backend.close()
+            except Exception:
+                pass
+        return {"ok": all(s["ok"] for s in steps), "steps": steps}
+
     def route_get(self, parts: Sequence[str], query: Optional[Dict[str, List[str]]] = None) -> Optional[Dict[str, Any]]:
         if parts == ["db"]:
             return self.overview(((query or {}).get("project") or [""])[0])
@@ -90,6 +146,8 @@ class RagDbApi:
             return self.config(req)
         if parts == ["db", "prepare"]:
             return self.prepare(req)
+        if parts == ["db", "test"]:
+            return self.test(req)
         if parts == ["db", "import"]:
             return self.import_archives(req)
         if parts == ["db", "components", "install"]:

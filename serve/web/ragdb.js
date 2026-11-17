@@ -62,6 +62,31 @@
     repaint();
   }
 
+  /* the Test button: is the database installed and set up? The server checks, in order, the package, the connection, the tables, the archives and a small write that is removed again;
+     it stops at the first step that fails and says why. It never keeps the password the form holds. */
+  async function runTest() {
+    if (st.testing || st.running) return;
+    st.testing = true; st.test = null; repaint();
+    const r = await api("POST", "api/rag/db/test", { project: st.project, config: cleanConfig(), ...(st.password ? { password: st.password } : {}) });
+    st.testing = false;
+    if (r.ok) st.test = r.data; else say(why(r), true);
+    repaint();
+  }
+  function testBlock() {
+    if (!st.test) return null;
+    const ol = el("ol", "rd-steps rd-test");
+    ol.setAttribute("aria-label", T("rd.test.title"));
+    st.test.steps.forEach(s => {
+      const li = el("li", "rd-step " + (s.ok ? "ok" : "bad"));
+      li.append(el("b", "", T("rd.test.step." + s.step)), " ", el("span", "rd-mark", s.ok ? T("rd.ok") : T("rd.failed")), el("p", "rg-help", s.message));
+      ol.append(li);
+    });
+    const box = el("div", "rd-testbox");
+    box.setAttribute("role", "status");
+    box.append(el("p", "rg-line", T(st.test.ok ? "rd.test.ok" : "rd.test.bad")), ol);
+    return box;
+  }
+
   function cleanConfig() {
     const c = { kind: st.cfg.kind };
     ["path", "host", "port", "dbname", "user", "sslmode", "prefix", "driver", "dsn", "dialect", "vault"].forEach(k => { if (st.cfg[k] !== undefined && String(st.cfg[k]).trim() !== "") c[k] = typeof st.cfg[k] === "number" ? st.cfg[k] : String(st.cfg[k]).trim(); });
@@ -236,12 +261,16 @@
     kindFields(box);
     const row = el("div", "rd-actions");
     const go = btn(st.running ? T("rd.running") : T("rd.prepare"), "primary", () => prepare({}));
-    go.disabled = st.running;
-    row.append(go);
+    go.disabled = st.running || st.testing;
+    const test = btn(st.testing ? T("rd.running") : T("rd.test"), "", runTest);
+    test.disabled = st.running || st.testing; test.title = T("rd.test.tip");
+    row.append(go, test);
     if (st.view && st.view.config.kind !== "sqlite" || (st.view && st.view.config.path !== st.view.default_path)) row.append(btn(T("rd.reset"), "ghost", reset));
     box.append(row);
     const status = el("p", "rg-note", st.note); status.setAttribute("role", "status"); status.dataset.bad = st.bad ? "1" : ""; status.hidden = !st.note;
     box.append(status);
+    const tested = testBlock();
+    if (tested) box.append(tested);
     const steps = stepsBlock();
     if (steps) box.append(steps);
     box.append(importBlock() || "", componentsBlock());
