@@ -34,6 +34,7 @@ Legenda: [x] fatto e verificato, [~] iniziato, [ ] da fare. Un punto per riga.
 6. [~] Correggere i due test che falliscono.
    - [x] 6.1 Disegno dei diagrammi: il test cercava un vecchio nome di variabile, corretto (non ancora committato).
    - [ ] 6.2 Barra dei pulsanti (cs-system e cs-stop sotto i 44 px).
+8. [x] Verifica del diario (17 novembre): il file contiene 8 copie intere una dopo l'altra (righe 1, 611, 945, 1309, 1643, 2015, 2349, 2707); vale la prima. [ ] Pulizia: tenere una sola copia e segnare chiuse le voci vecchie già fatte.
 7. [ ] Sezione Knowledge/RAG, da completare. Prima di tutto: la ricerca web segue anche i link delle pagine lette e giudica con la sessione tecnica se il link è coerente (a gruppi, secondo il limite di token).
    - [ ] 7.1 Creare e cancellare progetti.
    - [ ] 7.2 Elenco dei progetti in colonna a sinistra con modifica e cancella; cancella con doppio dialogo (sei sicuro, poi scrivere a mano il nome).
