@@ -289,3 +289,71 @@ def test_the_wiki_project_name_is_checked(tmp_path):
         sync.add_source(aid, "wikibridge", {"project": "acme", "sections": ["secrets"]})
     with pytest.raises(RagError, match="address"):
         sync.add_source(aid, "wikibridge", {"project": "acme", "address": "http://u:p@h/"})
+
+
+# -- a site followed link by link -----------------------------------------------------------------
+
+def linked(title, *links):
+    """A page that links to `links` (addresses or paths)."""
+    anchors = "".join(f'<a href="{l}">{l}</a> ' for l in links)
+    return html_page(title).replace(b"</body>", f"<p>{anchors}</p></body>".encode())
+
+
+def test_the_depth_and_the_limit_are_kept_on_the_source_and_checked_when_it_is_made(tmp_path, site):
+    store, sync, aid = make(tmp_path)
+    src = sync.add_source(aid, "url", {"url": site.url + "/a.html", "depth": 2, "limit": 5})
+    assert src["config"] == {"url": site.url + "/a.html", "depth": 2, "same_site": True, "limit": 5} and "(depth 2)" in src["label"]
+    flat = sync.add_source(aid, "url", {"url": site.url + "/b.html"})
+    assert flat["config"] == {"url": site.url + "/b.html"} and "depth" not in flat["label"]                   # as before: the address only
+    for bad in ({"depth": 11}, {"depth": -1}, {"depth": "2"}, {"depth": True}, {"depth": 1, "limit": 0}, {"depth": 1, "limit": "ten"}):
+        with pytest.raises(RagError):
+            sync.add_source(aid, "url", {"url": site.url + "/c.html", **bad})
+
+
+def test_a_site_is_followed_as_deep_as_asked_on_its_own_host_and_each_page_is_a_document(tmp_path, site):
+    site.pages["/root.html"] = linked("Root", "/one.html", "/two.html", "http://elsewhere.example/other.html", "mailto:x@y.z", "/one.html#part")
+    site.pages["/one.html"] = linked("One", "/deep.html", "/root.html")
+    site.pages["/two.html"] = html_page("Two")
+    site.pages["/deep.html"] = linked("Deep", "/deeper.html")
+    site.pages["/deeper.html"] = html_page("Deeper")
+    store, sync, aid = make(tmp_path)
+    sync.add_source(aid, "url", {"url": site.url + "/root.html", "depth": 1})
+    sync.update(aid)
+    assert sorted(d["name"] for d in store.get(aid)["document_list"]) == ["One.html", "Root.html", "Two.html"]              # the page, and the pages it links to; not the other host, not deeper
+    store2, sync2, aid2 = make(tmp_path / "two")
+    sync2.add_source(aid2, "url", {"url": site.url + "/root.html", "depth": 3})
+    sync2.update(aid2)
+    assert sorted(d["name"] for d in store2.get(aid2)["document_list"]) == ["Deep.html", "Deeper.html", "One.html", "Root.html", "Two.html"]
+    assert not any("elsewhere" in str(h) for h in site.hits)
+
+
+def test_the_limit_stops_the_reading_and_an_unchanged_page_is_still_followed_from_its_kept_links(tmp_path, site):
+    site.pages["/root.html"] = linked("Root", "/one.html", "/two.html")
+    site.pages["/one.html"] = linked("One", "/deep.html")
+    site.pages["/two.html"] = html_page("Two")
+    site.pages["/deep.html"] = html_page("Deep")
+    store, sync, aid = make(tmp_path)
+    sync.add_source(aid, "url", {"url": site.url + "/root.html", "depth": 2, "limit": 2})
+    sync.update(aid)
+    assert store.get(aid)["documents"] == 2
+    store2, sync2, aid2 = make(tmp_path / "two")
+    sync2.add_source(aid2, "url", {"url": site.url + "/root.html", "depth": 2})
+    sync2.update(aid2)
+    assert store2.get(aid2)["documents"] == 4
+    site.hits.clear()
+    site.pages["/deep.html"] = html_page("Deep changed", word="river")
+    report = sync2.check(aid2)
+    assert [v for k, v in states(report).items() if k.startswith("Deep")] == ["changed"] and report["counts"].get("unchanged") == 3                                  # the 304 pages were still followed down to the one that changed
+    assert any(h[0] == "/deep.html" for h in site.hits) and all(h[1] for h in site.hits if h[0] in ("/root.html", "/one.html", "/two.html"))
+
+
+def test_a_page_deeper_in_that_goes_away_is_gone_and_one_that_never_answered_does_not_stop_the_others(tmp_path, site):
+    site.pages["/root.html"] = linked("Root", "/one.html", "/missing.html")
+    site.pages["/one.html"] = html_page("One")
+    store, sync, aid = make(tmp_path)
+    sync.add_source(aid, "url", {"url": site.url + "/root.html", "depth": 1})
+    sync.update(aid)
+    assert sorted(d["name"] for d in store.get(aid)["document_list"]) == ["One.html", "Root.html"]                              # /missing.html gave 404: no document, no error for the rest
+    del site.pages["/one.html"]
+    assert states(sync.check(aid))["One.html"] == "gone"
+

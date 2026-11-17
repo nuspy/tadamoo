@@ -177,6 +177,26 @@ t("removing a node takes two presses and says its documents are removed from the
   await settle();
   eq(posted.find(p => p.url.endsWith("/tree/remove")).body.confirm, true);
 });
+t("a web address is added with its depth and limit as numbers, two links deep by default and no limit unless one is written", async () => {
+  const box = await show();
+  const f = box.tag("FORM").find(x => x.tag("SELECT").length);
+  const pick = f.tag("SELECT")[0];
+  pick.value = "url"; pick.onchange();
+  await settle();
+  const form = current.tag("FORM").find(x => x.tag("SELECT").length);
+  const fields = form.tag("INPUT");
+  eq(fields.map(i => i.value), ["", "2", ""]);                                                 // the address, the depth (2) and no limit
+  fields[0].value = "https://example.org/docs";
+  posted.length = 0;
+  form.buttons("rs.source.add")[0].onclick();
+  await settle();
+  eq(posted.find(p => p.url.endsWith("/sources")).body, { kind: "url", url: "https://example.org/docs", depth: 2 });
+  fields[2].value = "40";
+  posted.length = 0;
+  form.buttons("rs.source.add")[0].onclick();
+  await settle();
+  eq(posted.find(p => p.url.endsWith("/sources")).body, { kind: "url", url: "https://example.org/docs", depth: 2, limit: 40 });
+});
 t("the versions of a document are listed and putting one back takes two presses", async () => {
   const box = await show();
   box.buttons("rs.versions.show")[0].onclick();
