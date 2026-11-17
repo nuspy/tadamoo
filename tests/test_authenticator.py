@@ -218,3 +218,49 @@ def test_the_wallet_reads_a_pasted_link_and_a_picture_then_keeps_only_what_was_c
     qr.make(export_link([account_blob(b"cccccccccc", "me", "Slack")]), error="m").save(buf, kind="png", scale=6, border=4)
     from_picture = api.authenticator_preview({"images": [b64.b64encode(buf.getvalue()).decode()]})
     assert from_picture["accounts"][0]["issuer"] == "Slack"
+
+
+def test_progress_counts_the_parts_of_an_export_read_so_far():
+    first = export_link([account_blob(b"aaaaaaaaaa", "a", "One")], size=2, index=0, batch_id=5)
+    second = export_link([account_blob(b"bbbbbbbbbb", "b", "Two")], size=2, index=1, batch_id=5)
+    other = export_link([account_blob(b"cccccccccc", "c", "Three")], size=2, index=1, batch_id=6)
+    assert au.progress([first, "https://example.com"]) == {"parts": 2, "have": [1], "accounts": 1, "complete": False, "mixed": False}
+    assert au.progress([first, second])["complete"] and au.progress([first, second])["accounts"] == 2
+    assert au.progress([first, other])["mixed"] and not au.progress([first, other])["complete"]
+    assert au.progress(["otpauth://totp/x?secret=JBSWY3DPEHPK3PXP"])["complete"] and not au.progress([])["complete"]
+
+
+def test_a_phone_hands_over_parts_the_pc_waits_and_the_vault_changes_only_on_the_pc(tmp_path):
+    from serve.wallet_api import WalletError
+    api = wallet_api(tmp_path)
+    now = [1000.0]
+    api.clock = lambda: now[0]
+    first = export_link([account_blob(b"aaaaaaaaaa", "a", "GitHub")], size=2, index=0, batch_id=5)
+    second = export_link([account_blob(b"bbbbbbbbbb", "b", "Slack")], size=2, index=1, batch_id=5)
+    assert api.authenticator_offer({"text": first})["progress"]["have"] == [1]
+    assert api.authenticator_offer({"text": first})["progress"]["have"] == [1]            # the same part twice is one
+    assert api.authenticator_waiting()["count"] == 1 and "aaaaaaaaaa" not in repr(api.authenticator_waiting())
+    assert api.authenticator_offer({"text": second})["progress"]["complete"]
+    with pytest.raises(WalletError):
+        api.authenticator_offer({"text": "https://example.com"})
+    assert api._vault().entries() == []                                                     # handing over keeps nothing
+    shown = api.authenticator_preview({"phone": True})
+    assert [a["issuer"] for a in shown["accounts"]] == ["GitHub", "Slack"]
+    done = api.authenticator_import({"phone": True, "choices": [{"index": 0, "hosts": ["github.com"]}]})
+    assert done["created"] == 1 and api.authenticator_waiting()["count"] == 0
+    api.authenticator_offer({"text": first})
+    now[0] += 601
+    assert api.authenticator_waiting()["count"] == 0                                        # left unconfirmed, it is forgotten
+
+
+def test_a_frame_of_the_pc_camera_adds_the_links_it_shows(tmp_path):
+    import base64 as b64, io
+    qr = pytest.importorskip("segno")
+    api = wallet_api(tmp_path)
+    link = export_link([account_blob(b"cccccccccc", "me", "Slack")])
+    buf = io.BytesIO()
+    qr.make(link, error="m").save(buf, kind="png", scale=6, border=4)
+    frame = b64.b64encode(buf.getvalue()).decode()
+    got = api.authenticator_scan({"image": frame, "have": []})
+    assert got["links"] == [link] and got["progress"]["complete"]
+    assert api.authenticator_scan({"image": frame, "have": got["links"]})["links"] == [link]

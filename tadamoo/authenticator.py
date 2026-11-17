@@ -319,3 +319,27 @@ def instructions(vault) -> str:
             "The code is made at that moment and valid for about 30 seconds: ask for it only when the field is in front of you, and type it at once. "
             "A code goes only to a site its entry names; on another site the request is refused. Never ask the person for a code that an entry makes by itself, "
             "and never try to read the secret behind it.\n\nLogins with a second factor:\n" + listing)
+
+
+def progress(texts: List[str]) -> dict:
+    """How far a scan has come: the parts of an export read so far out of its total, the accounts counted, and whether it can be used. A link that is not an authenticator link is ignored."""
+    batches: List[Migration] = []
+    singles = 0
+    for t in texts:
+        try:
+            m = read(t)
+        except AuthenticatorError:
+            continue
+        if t.strip().lower().startswith("otpauth-migration://"):
+            batches.append(m)
+        else:
+            singles += len(m.accounts)
+    out = {"parts": 0, "have": [], "accounts": singles, "complete": bool(singles)}
+    if batches:
+        ids = {b.batch_id for b in batches}
+        out["parts"] = max(b.batch_size for b in batches)
+        out["have"] = sorted({b.batch_index + 1 for b in batches})
+        out["accounts"] += sum(len(b.accounts) for b in {b.batch_index: b for b in batches}.values())
+        out["complete"] = len(ids) == 1 and len(out["have"]) >= out["parts"]
+        out["mixed"] = len(ids) > 1
+    return out

@@ -7,7 +7,7 @@
   const root = document.getElementById("wl-root"), dlg = document.getElementById("wl-wizard");
   if (!root || !dlg) return;
   const live = document.getElementById("wl-live");              // the one place a screen reader is told of a result; the page itself is not a live region
-  let data = null, authn = null, editing = null, sysForm = null, note = "", noteBad = false, wizard = null, vaultFilter = "all", vaultSearch = "", shown = "";
+  let data = null, authn = null, authnCam = null, authnPoll = 0, editing = null, sysForm = null, note = "", noteBad = false, wizard = null, vaultFilter = "all", vaultSearch = "", shown = "";
   const again = new Map();                                    // press-again buttons: key -> timer
 
   const h = (tag, cls, ...kids) => {
@@ -212,11 +212,52 @@
     await load();
   }
   const readPictures = files => Promise.all([...files].map(f => f.arrayBuffer().then(b => { let s = ""; new Uint8Array(b).forEach(c => { s += String.fromCharCode(c); }); return btoa(s); })));
+  function authnOpen() {
+    authn = { text: "", images: [], rows: null, logins: [], out: "", busy: false, phone: false, waiting: 0, links: [], scanning: false, status: "" };
+    clearInterval(authnPoll);
+    authnPoll = setInterval(async () => {
+      if (!authn || authn.rows) return;
+      const r = await call("POST", "api/wallet/authenticator/waiting", {});
+      if (r.ok && authn && authn.waiting !== r.data.count) { authn.waiting = r.data.count; authn.phoneProgress = r.data.progress; draw(); }
+    }, 2500);
+    draw();
+  }
+  function authnClose() { authnStop(); clearInterval(authnPoll); authn = null; draw(); }
+  function authnStop() {
+    if (authnCam) { clearInterval(authnCam.timer); authnCam.stream.getTracks().forEach(t => t.stop()); authnCam = null; }
+    if (authn) authn.scanning = false;
+  }
+  const partsLine = p => p.parts ? T("wl.authn.parts", p.have.length, p.parts) : T("wl.authn.found", p.accounts);
+  async function authnCamera() {
+    const a = authn;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { a.out = T("wl.authn.nocam"); draw(); return; }
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 } } }); }
+    catch (e) { a.out = T("wl.authn.camdenied"); draw(); return; }
+    const video = h("video"); video.srcObject = stream; video.muted = true; video.playsInline = true; await video.play().catch(() => {});
+    const canvas = document.createElement("canvas");
+    authnCam = { stream, video, timer: 0, busy: false };
+    a.scanning = true; a.links = []; a.status = T("wl.authn.aim"); a.out = ""; draw();
+    authnCam.timer = setInterval(async () => {
+      const c = authnCam;
+      if (!c || c.busy || !video.videoWidth) return;
+      c.busy = true;
+      const w = Math.min(1024, video.videoWidth); canvas.width = w; canvas.height = Math.round(video.videoHeight * w / video.videoWidth);
+      canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+      const jpg = canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
+      const r = await call("POST", "api/wallet/authenticator/scan", { image: jpg, have: a.links });
+      c.busy = false;
+      if (!authnCam || !r.ok) return;
+      a.links = r.data.links; a.status = r.data.progress.mixed ? T("wl.authn.mixed") : (a.links.length ? partsLine(r.data.progress) : T("wl.authn.aim"));
+      const note = document.getElementById("wl-authn-status"); if (note) note.textContent = a.status;
+      if (r.data.progress.complete) { authnStop(); a.text = a.links.join("\n"); await authnPreview(); }
+    }, 450);
+  }
   async function authnPreview() {
     const a = authn;
-    if (!a.text.trim() && !a.images.length) { a.out = T("wl.authn.need"); draw(); return; }
-    a.busy = true; a.out = ""; draw();
-    const r = await call("POST", "api/wallet/authenticator/preview", { text: a.text, images: a.images });
+    if (!a.text.trim() && !a.images.length && !a.phone) { a.out = T("wl.authn.need"); draw(); return; }
+    authnStop(); a.busy = true; a.out = ""; draw();
+    const r = await call("POST", "api/wallet/authenticator/preview", { text: a.text, images: a.images, phone: a.phone });
     a.busy = false;
     if (!r.ok) { a.out = why(r); draw(); return; }
     a.rows = r.data.accounts.map(x => ({ ...x, on: x.usable, hosts: x.hosts.join(" "), into: "" }));
@@ -227,12 +268,12 @@
     if (!picked.length) { a.out = T("wl.authn.none"); draw(); return; }
     a.busy = true; draw();
     const choices = picked.map(x => ({ index: x.index, hosts: x.hosts.split(/[\s,]+/).filter(Boolean), merge_into: x.into || undefined }));
-    const r = await call("POST", "api/wallet/authenticator/import", { text: a.text, images: a.images, choices });
+    const r = await call("POST", "api/wallet/authenticator/import", { text: a.text, images: a.images, phone: a.phone, choices });
     a.busy = false;
     if (!r.ok) { a.out = why(r); draw(); return; }
     const refused = (r.data.refused || []).map(x => x.label + ": " + x.why);
     if (refused.length) { a.out = T("wl.authn.done.some", r.data.created + r.data.merged, refused.join("; ")); draw(); await load(true); return; }
-    authn = null; say(T("wl.authn.done", r.data.created + r.data.merged)); await load();
+    authnClose(); say(T("wl.authn.done", r.data.created + r.data.merged)); await load();
   }
   function authnPanel() {
     const a = authn;
@@ -244,10 +285,17 @@
       const cam = h("input"); cam.type = "file"; cam.accept = "image/*"; cam.setAttribute("capture", "environment"); cam.hidden = true;
       const take = async el => { const got = await readPictures(el.files); el.value = ""; a.images = a.images.concat(got).slice(0, 12); draw(); };
       pics.onchange = () => take(pics); cam.onchange = () => take(cam);
+      if (a.scanning && authnCam) {
+        authnCam.video.className = "wl-cam";
+        const status = h("p", "dim", a.status); status.id = "wl-authn-status"; status.setAttribute("aria-live", "polite");
+        body.append(authnCam.video, status, h("div", "wl-actions", btn(T("wl.authn.stopcam"), "", () => { authnStop(); draw(); })));
+      }
       body.append(field(T("wl.authn.text"), text), h("p", "dim", T("wl.authn.pictures", a.images.length)),
-        h("div", "wl-actions", btn(T("wl.authn.pick"), "", () => pics.click()), btn(T("wl.authn.camera"), "", () => cam.click()), pics, cam));
+        h("div", "wl-actions", btn(T("wl.authn.pcam"), "", authnCamera), btn(T("wl.authn.pick"), "", () => pics.click()), btn(T("wl.authn.camera"), "", () => cam.click()), pics, cam));
+      if (a.waiting) body.append(h("div", "wl-actions", h("span", "dim", T("wl.authn.phone", partsLine(a.phoneProgress || { parts: 0, accounts: 0, have: [] }))),
+        btn(T("wl.authn.usephone"), "primary", () => { a.phone = true; authnPreview(); })));
       body.append(h("div", "wl-actions", Object.assign(btn(T("wl.authn.read"), "primary", authnPreview), { disabled: a.busy }),
-        btn(T("wl.cancel"), "", () => { authn = null; draw(); })));
+        btn(T("wl.cancel"), "", authnClose)));
     } else {
       const list = h("ul", "wl-list");
       a.rows.forEach(x => {
@@ -258,7 +306,7 @@
         list.append(h("li", "wl-card", h("div", "", title), field(T("wl.authn.sites"), sites, x.hosts.trim() ? "" : T("wl.authn.sites.help")), field(T("wl.authn.into"), into)));
       });
       body.append(list, h("div", "wl-actions", Object.assign(btn(T("wl.authn.import"), "primary", authnImport), { disabled: a.busy }),
-        btn(T("wl.cancel"), "", () => { authn = null; draw(); })));
+        btn(T("wl.cancel"), "", authnClose)));
     }
     if (a.out) body.append(h("p", "dim", a.out));
     return body;
@@ -292,7 +340,7 @@
   function vaultSection() {
     const pick = h("input"); pick.type = "file"; pick.accept = ".csv,text/csv"; pick.hidden = true; pick.onchange = () => { importLogins(pick.files[0]); pick.value = ""; };
     const sec = h("section", "sec wl-sec", h("div", "sh", h("b", "", T("wl.vault")), h("span", "grow"),
-      btn(T("wl.import"), "", () => pick.click()), btn(T("wl.authn"), "", () => { authn = { text: "", images: [], rows: null, logins: [], out: "", busy: false }; draw(); }), btn(T("wl.add"), "primary", () => { editing = { id: "", kind: "card", isNew: true }; draw(); }), pick));
+      btn(T("wl.import"), "", () => pick.click()), btn(T("wl.authn"), "", authnOpen), btn(T("wl.add"), "primary", () => { editing = { id: "", kind: "card", isNew: true }; draw(); }), pick));
     const body = h("div", "wl-body", h("p", "help", T("wl.vault.help")), h("p", "help", T("wl.import.help")));
     if (editing) body.append(editor());
     if (authn) body.append(authnPanel());
