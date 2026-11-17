@@ -189,6 +189,11 @@ def create_standard_tool_registry(
     register_repo_diagram(registry, lambda p: sandbox.resolve_safe(p, "repo_diagram"))
     from tadamoo.todo import register_todo_tool
     register_todo_tool(registry)
+    try:                                                      # the dark web tools exist only while the person has the option on
+        from tadamoo.darkweb_runtime import offer_darkweb, shared
+        offer_darkweb(registry, shared())
+    except Exception:
+        pass
     registry.mark_stable()
 
     return registry, sandbox

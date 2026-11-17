@@ -56,3 +56,9 @@
 .cx-install .btn, .cx-orig .btn, .cx-acts .btn { min-height: 44px; }
 .cx-orig { display: grid; gap: 6px; margin-top: 12px; }
 .cx-orig input { min-height: 44px; width: 100%; box-sizing: border-box; }
+
+.dw-check { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.dw-check input { width: 24px; height: 24px; margin: 0; flex: none; }
+.dw-bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
+.dw-bar .btn { min-height: 44px; }
+.dw-tor { margin: 8px 0 2px; font-weight: 600; }

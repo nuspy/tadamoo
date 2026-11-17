@@ -289,7 +289,7 @@ class PlanAccounting(unittest.TestCase):
         self.assertEqual(loader.fingerprint(BASE), old)
         self.assertEqual(loader.fingerprint({**BASE, "engine.adapt-swaps": 96, "engine.prefill-cpu-share": 0.6}), old)
         for key, value in (("engine.adapt-swaps", 0), ("engine.prefill-cpu-share", 0.2), ("engine.kv-resident", 30000),
-                           ("engine.mmap-experts", True), ("engine.resident-budget-gib", 8), ("engine.vram-elastic", True)):
+                           ("engine.mmap-experts", True), ("engine.resident-budget-gib", 8), ("engine.vram-elastic", False)):          # lending is the default, so turning it off is the change
             self.assertNotEqual(loader.fingerprint({**BASE, key: value}), old, key)
 
     def test_every_new_field_has_an_engine_default(self):

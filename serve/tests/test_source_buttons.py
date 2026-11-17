@@ -30,7 +30,7 @@ class SourceButtonsTest(unittest.TestCase):
     def setUpClass(cls):
         esc = re.search(r"^  const esc = .*$", CHAT, re.M).group(0)
         markdown = block(CHAT, "  const sourceButton", "  function blocks(text)")
-        cls.prefix = f'const T = k => ({{"src.btn": "source", "src.open": "Open the source"}})[k];\n{esc}\nfunction inline(s) {{}}\n' + markdown.replace("function inline(s) {}\n", "")
+        cls.prefix = f'globalThis.window = {{}};\nconst T = k => ({{"src.btn": "source", "src.open": "Open the source"}})[k];\n{esc}\nfunction inline(s) {{}}\n' + markdown.replace("function inline(s) {}\n", "")
 
     def render(self, text):
         code = self.prefix + f"\nprocess.stdout.write(JSON.stringify(inline({json.dumps(text)})));"

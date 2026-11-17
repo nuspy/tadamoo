@@ -440,7 +440,7 @@ class Lending(Base):
         self.assertEqual(self.lend.sizes(), {})
 
     def test_an_engine_that_does_not_lend_keeps_todays_behaviour(self):
-        self.svc.settings_info["running"] = {}
+        self.svc.settings_info["running"] = {"engine.vram-elastic": False}        # lending is on by default: this engine was started without it
         self.pool["free"] = 12000
         code, out = self.apply({"tts": {"on": True}})
         self.assertEqual(out["lent"], {"used": False, "refused": None})

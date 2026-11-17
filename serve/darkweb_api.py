@@ -1,0 +1,42 @@
+"""The dark web option over the API (this PC only): its settings, Tor, and nothing else. The work is tadamoo/darkweb_runtime.py.
+
+    GET  /api/darkweb                    {package, settings, tor: {installed, running, socks}, gpg}
+    POST /api/darkweb                    any of the settings (darkweb, search, read, leak_archives, watches, navigation); write and send cannot be turned on yet
+    POST /api/darkweb/tor/install        downloads the official Tor bundle, checks its hash and signature, unpacks it
+    POST /api/darkweb/tor/start|stop     our own Tor process
+"""
+from __future__ import annotations
+
+from typing import Any, Dict, Optional
+
+from tadamoo.darkweb_runtime import Runtime
+
+
+class DarkwebError(ValueError):
+    def __init__(self, message: str, code: str = "bad_request") -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class DarkwebApi:
+    def __init__(self, runtime: Runtime) -> None:
+        self.rt = runtime
+
+    def get(self) -> Dict[str, Any]:
+        return self.rt.status()
+
+    def post(self, path: str, req: Dict[str, Any]) -> Dict[str, Any]:
+        if self.rt.status()["package"] is False:
+            raise DarkwebError("the darkweb package is not installed in this Python", "no_package")
+        if path in ("tor/install", "tor/start", "tor/stop"):
+            try:
+                return {"tor/install": self.rt.install_tor, "tor/start": self.rt.start_tor, "tor/stop": self.rt.stop_tor}[path]()
+            except Exception as e:                          # the reason is told as it is (no GnuPG, a hash that is not the pinned one, no Tor installed)
+                raise DarkwebError(str(e)[:300] or type(e).__name__, "tor") from None
+        if path == "":
+            try:
+                self.rt.save(req)
+            except ValueError as e:
+                raise DarkwebError(str(e)) from None
+            return self.rt.status()
+        raise DarkwebError("not found", "not_found")

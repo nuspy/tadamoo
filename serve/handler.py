@@ -763,6 +763,9 @@ def make_handler(svc: Service, remote: bool = False):
             elif path in ("/api/capabilities", "/api/capabilities/review", "/api/capabilities/online", "/api/capabilities/requests"):
                 if self._authorized():
                     self._capabilities_get(path)
+            elif path == "/api/darkweb":
+                if self._authorized():
+                    self._darkweb(path)
             elif path in ("/api/connectors", "/api/connectors/item", "/api/connectors/providers", "/api/connectors/settings"):
                 if self._authorized():
                     self._connectors_get(path)
@@ -1071,6 +1074,9 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path in ("/api/connectors/providers", "/api/connectors/review", "/api/connectors/install", "/api/connectors/uninstall", "/api/connectors/settings"):
                 self._connectors_post(path)
+                return
+            if path == "/api/darkweb" or path.startswith("/api/darkweb/"):
+                self._darkweb(path)
                 return
             if path.startswith("/api/capabilities/"):
                 self._capabilities_post(path)
@@ -2182,7 +2188,7 @@ def make_handler(svc: Service, remote: bool = False):
                 req = json.loads(raw or b"{}")
                 if not isinstance(req, dict):
                     raise ValueError("send a JSON object {enabled, monitor, backend}")
-                if path.endswith("/install"):
+                if path.rsplit("/", 1)[-1] == "install":
                     out = computer_api.install_program(ComputerPrefs(userdata.path("computer.json")))
                     print(f"[server] agent-desktop {out['installed']['version']} installed", flush=True)
                     return self._json(200, out)
@@ -2402,6 +2408,30 @@ def make_handler(svc: Service, remote: bool = False):
                 return self._json(200, api.overview())
             except CapabilityError as e:
                 return self._json(404, {"error": {"type": "capabilities", "message": str(e), "code": e.code}})
+
+        def _darkweb(self, path):
+            """/api/darkweb: the dark web option's settings and its Tor, from this PC only."""
+            from serve.darkweb_api import DarkwebApi, DarkwebError
+            from tadamoo.darkweb_runtime import shared
+            if not settings.is_loopback(self.client_address[0]):
+                self._discard_body()
+                return self._json(403, {"error": {"type": "forbidden", "message": "the dark web option can be set only from the PC the server runs on"}})
+            api = DarkwebApi(shared())
+            try:
+                if self.command == "GET":
+                    return self._json(200, api.get())
+                try:
+                    raw = self._body(1 << 14)
+                except BadBody as e:
+                    return self._json(e.status, {"error": {"message": str(e)}})
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                return self._json(200, api.post(path[len("/api/darkweb"):].strip("/"), req))
+            except DarkwebError as e:
+                return self._json(400 if e.code != "not_found" else 404, {"error": {"type": "darkweb", "message": str(e), "code": e.code}})
+            except ValueError as e:
+                return self._json(400, {"error": {"message": str(e)}})
 
         def _connectors_get(self, path):
             if not self._local_or_device():
