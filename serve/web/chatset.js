@@ -72,7 +72,7 @@ const chatSettings = (() => {
   const level = (on, id) => ({ read: () => $("#" + on).checked ? $("#" + id).value : "", write: v => { $("#" + on).checked = !!v; if (v) $("#" + id).value = v; $("#" + id).disabled = !v; } });
   const radio = name => ({ read: () => (document.querySelector(`input[name="${name}"]:checked`) || {}).value || "", write: () => {} });      // the level the agent works at without asking: the live one, written only by `apply`
   const dw = key => ({ read: () => (window.dwSet ? window.dwSet.read()[key] : undefined), write: () => {} });      // the dark web option (darkwebset.js): read from the page, written to the server only when a preset is loaded by hand
-  const EXTRAS = { darkweb: dw("darkweb"), darkweb_search: dw("darkweb_search"), darkweb_read: dw("darkweb_read"), darkweb_navigation: dw("darkweb_navigation"), autonomy: radio("cs-perm"), abstract_on: box("cs-abs-on"), abstract_keep: field("cs-abs-keep"), code_keep: field("cs-code-keep"),
+  const EXTRAS = { darkweb: dw("darkweb"), darkweb_search: dw("darkweb_search"), darkweb_read: dw("darkweb_read"), darkweb_navigation: dw("darkweb_navigation"), darkweb_watches: dw("darkweb_watches"), autonomy: radio("cs-perm"), abstract_on: box("cs-abs-on"), abstract_keep: field("cs-abs-keep"), code_keep: field("cs-code-keep"),
     billion_on: box("cs-bc-on"), billion_compress: box("cs-bc-compress"), billion_port: field("cs-bc-port"),
     images: level("cs-img-on", "cs-img-level"), charts: level("cs-chart-on", "cs-chart-level") };
   const extrasRead = () => Object.fromEntries(Object.entries(EXTRAS).map(([k, f]) => [k, f.read()]));
@@ -85,7 +85,7 @@ const chatSettings = (() => {
       ["cs-abs-on", "cs-abs-keep", "cs-code-keep"].forEach(fire);
       if (apply && (s.images !== undefined || s.charts !== undefined)) fire("cs-img-on");
       if (apply && s.billion_on !== undefined) fire("cs-bc-on");
-      if (apply && window.dwSet && (s.darkweb !== undefined || s.darkweb_search !== undefined || s.darkweb_read !== undefined || s.darkweb_navigation !== undefined)) window.dwSet.write(s);
+      if (apply && window.dwSet && (s.darkweb !== undefined || s.darkweb_search !== undefined || s.darkweb_read !== undefined || s.darkweb_navigation !== undefined || s.darkweb_watches !== undefined)) window.dwSet.write(s);
       const level = apply && s.autonomy ? document.querySelector(`input[name="cs-perm"][value="${s.autonomy}"]`) : null;
       if (level && !level.checked) { level.checked = true; level.dispatchEvent(new Event("change", { bubbles: true })); }      // agentchat.js sets the Chat's level, as a click on it does
     } finally { quiet--; }

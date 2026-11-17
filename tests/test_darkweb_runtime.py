@@ -143,3 +143,23 @@ def test_installing_tor_goes_through_the_pinned_checks_and_a_failure_installs_no
     with pytest.raises(DarkwebError) as e:
         api.post("tor/install", {})
     assert e.value.code == "tor" and "hash" in str(e.value)
+
+
+def test_watching_pages_is_a_tool_only_when_its_setting_is_on_and_checks_nothing_until_asked(tmp_path):
+    rt = make(tmp_path)
+    rt.save({"darkweb": True})
+    reg = ToolRegistry()
+    assert dr.offer_darkweb(reg, rt) == ["darkweb_search", "darkweb_read"]
+    rt.save({"watches": True})
+    reg = ToolRegistry()
+    assert dr.offer_darkweb(reg, rt) == ["darkweb_search", "darkweb_read", "darkweb_watch_add", "darkweb_watch_check"]
+    rt._tor = type("T", (), {"running": lambda self: True})()
+    rt._fetch = lambda: (lambda url: (200, "text/html", b"<html><title>t</title><body><p>one</p></body></html>"))
+    url = "http://" + "c" * 56 + ".onion/"
+    assert dr._watch_add(rt, url) == {"watching": [url]}
+    assert [r["state"] for r in dr._watch_check(rt)] == ["first"]
+    rt._fetch = lambda: (lambda u: (200, "text/html", b"<html><title>t</title><body><p>one</p><p>two</p></body></html>"))
+    got = dr._watch_check(rt)
+    assert got[0]["state"] == "changed" and got[0]["added"] == 1
+    with pytest.raises(Exception):
+        dr._watch_add(rt, "https://example.org/")

@@ -56,6 +56,8 @@
     box.push(el("p", "help", T("dw.on.help")));
     box.push(check("dw-search", "dw.search", s.search, v => change({ search: v }), !s.darkweb));
     box.push(check("dw-read", "dw.read", s.read, v => change({ read: v }), !s.darkweb));
+    box.push(check("dw-watches", "dw.watches", s.watches, v => change({ watches: v }), !s.darkweb));
+    box.push(el("p", "help", T("dw.watches.help")));
     const nav = el("select"), navId = "dw-nav";
     nav.id = navId; nav.disabled = !s.darkweb;
     ["own", "agent-browser"].forEach(v => { const o = el("option", "", T("dw.nav." + v)); o.value = v; nav.append(o); });
@@ -85,13 +87,14 @@
   }
   /* what a saved inference profile keeps of this section, and what loading one does: the three switches are written to the server (the file of the option), the Tor of this PC is left as it is */
   window.dwSet = {
-    read: () => { const s = (view && view.settings) || {}; return { darkweb: !!s.darkweb, darkweb_search: s.search !== false, darkweb_read: s.read !== false, darkweb_navigation: s.navigation || "own" }; },
+    read: () => { const s = (view && view.settings) || {}; return { darkweb: !!s.darkweb, darkweb_search: s.search !== false, darkweb_read: s.read !== false, darkweb_navigation: s.navigation || "own", darkweb_watches: !!s.watches }; },
     write: async s => {
       const body = {};
       if (s.darkweb !== undefined) body.darkweb = !!s.darkweb;
       if (s.darkweb_search !== undefined) body.search = !!s.darkweb_search;
       if (s.darkweb_read !== undefined) body.read = !!s.darkweb_read;
       if (s.darkweb_navigation !== undefined) body.navigation = s.darkweb_navigation;
+      if (s.darkweb_watches !== undefined) body.watches = !!s.darkweb_watches;
       if (Object.keys(body).length && view && view.package) await change(body);
     },
   };
