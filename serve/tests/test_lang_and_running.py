@@ -163,12 +163,15 @@ class RunningServer(Isolated):
         root = Path(self.dir.name)
         self.cfg = root / "tadamoo_config.json"
         self.model = tiny_basalt(root / "a.basalt", "A")
-        self.cfg.write_text(json.dumps({"server": {"port": PORT, "model": str(self.model)}}), encoding="utf-8")        # the script wants a model to be chosen, wherever it is asked
-        profiles.change({"action": "save", "kind": "load", "name": "Uguale", "values": {"server.side-slot": 0}})
-        profiles.change({"action": "save", "kind": "load", "name": "Corto", "values": {"engine.max-context": 8192, "server.side-slot": 0}})
+        self.cfg.write_text(json.dumps({"server": {"port": PORT}}), encoding="utf-8")        # no model here: a comparison that asks for none finds no difference on it
+        mock_cfg = root / "mock_config.json"                 # --mock-engine needs no model; one in config still demands a real, loadable --engine-bin
+        mock_cfg.write_text(json.dumps({"server": {"port": PORT}}), encoding="utf-8")
+        profiles.change({"action": "save", "kind": "load", "name": "Uguale", "values": {"server.side-slot": 0, "server.port": PORT}})
+        profiles.change({"action": "save", "kind": "load", "name": "Corto", "values": {"engine.max-context": 8192, "server.side-slot": 0, "server.port": PORT}})
         self.envs = {**os.environ, "TADAMOO_DATA": self.dir.name, "TADAMOO_CACHE": self.dir.name, "PYTHONUTF8": "1",
-                     "TADAMOO_NO_DIALOG": "1", "TADAMOO_LANG": "it"}
-        self.server = subprocess.Popen([sys.executable, "-m", "serve.server", "--mock-engine", "--config", str(self.cfg),
+                     "TADAMOO_NO_DIALOG": "1", "TADAMOO_LANG": "it", "TADAMOO_SCAN_MOCK": "1"}        # the script sees this test's mock server as the one already running
+        venv_py = ROOT / ".venv" / "Scripts" / "python.exe"            # the script only counts a server as "this project's" when its python lives under the repo's own venv
+        self.server = subprocess.Popen([str(venv_py) if venv_py.is_file() else sys.executable, "-m", "serve.server", "--mock-engine", "--config", str(mock_cfg),
                                         "--port", str(PORT)], cwd=ROOT, env=self.envs, stdout=subprocess.DEVNULL,
                                        stderr=subprocess.DEVNULL)
         for _ in range(150):
@@ -179,6 +182,8 @@ class RunningServer(Isolated):
                 c.close()
                 break
             except OSError:
+                if self.server.poll() is not None:            # a server that has exited will never answer
+                    break
                 time.sleep(0.1)
 
     def tearDown(self):

@@ -139,8 +139,10 @@ def tiny_qwen(folder: Path, name="Tiny-Flash-Next-IQ3_XXS", shards=2, gu=IQ3_XXS
     return paths
 
 
-def tiny_basalt(path, name="Tiny basalt", mtp=True, vision=True, projector=BF16) -> Path:
-    """A small .basalt; `vision` embeds a projector header with `projector` matrices (BF16: one the engine reads)."""
+def tiny_basalt(path, name="Tiny basalt", mtp=True, vision=True, projector=BF16, tokenizer=False) -> Path:
+    """A small .basalt; `vision` embeds a projector header with `projector` matrices (BF16: one the engine reads).
+    `tokenizer`: adds a minimal tokenizer/* so the file passes server.py's unconditional modelfile validation
+    (needed for --model, even under --mock-engine, which never reads the tensors)."""
     path = Path(path)
     proj_bytes = b""
     if vision:
@@ -164,6 +166,9 @@ def tiny_basalt(path, name="Tiny basalt", mtp=True, vision=True, projector=BF16)
         w.add_bytes("mtp/experts", b"\4" * 100)
     if vision:
         w.add_bytes("vision/mmproj", proj_bytes)
+    if tokenizer:
+        for n, b in (("vocab.json", b'{"a": 0}'), ("merges.txt", b"a a"), ("token_type.json", b"[1]"), ("chat_template.jinja", b"{{ messages }}")):
+            w.add_bytes("tokenizer/" + n, b)
     w.close()
     return path
 

@@ -263,7 +263,7 @@ def run_process(tmp_path, monkeypatch, fake, answers, need="extract tables from 
     real_which = shutil.which
     monkeypatch.setattr("tadamoo.discovery.installer.default_runner", runner)
     monkeypatch.setattr(shutil, "which", lambda name, *a, **k: "npm" if name == "npm" else real_which(name, *a, **k))
-    client = Scripted(call("find_online_capability", need=need), say("Done with the capability."))
+    client = Scripted(call("find_online_capability", need=need, look_anyway=True), say("Done with the capability."))    # read_document now covers plain PDF-table reading locally; look_anyway tests the online-ask flow regardless
     ws = tmp_path / "ws"
     ws.mkdir()
     real_build = hs.build_agent
