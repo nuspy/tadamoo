@@ -1,0 +1,32 @@
+/* Connectors: one filter, a scope switch, sub-tabs, and two bands of items. Mobile first: every control is at least 44 px. */
+.connectors { overflow: auto; }
+.cx { display: grid; gap: 10px; max-width: 960px; padding-bottom: 24px; }
+.cx-top { display: grid; gap: 8px; grid-template-columns: 1fr; }
+.cx-flabel { color: var(--fg-2); font-size: 13px; }
+.cx-top input, .cx-top select { width: 100%; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font: 400 16px/1.5 var(--font-sans); }
+.cx-scope, .cx-subtabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.cx-scope .btn, .cx-subtabs .btn { min-height: 44px; min-width: 44px; padding: 6px 14px; }
+.cx-scope .btn.on, .cx-subtabs .btn.on { outline: 2px solid var(--accent); }
+.cx-status { margin: 0; min-height: 1.5em; color: var(--fg-2); }
+.cx-status.bad { color: #FF8FA3; }
+.cx-bh { margin: 14px 0 6px; font-size: 15px; }
+.cx-list, .cx-tree { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.cx-item { border: 1px solid var(--line); border-left-width: 5px; border-radius: 8px; background: var(--surface); }
+.cx-item.cx-active { border-left-color: var(--pl-done, #4CC66A); }
+.cx-item.cx-disabled, .cx-item.cx-inactive { border-left-color: var(--fg-3, #888); }
+.cx-item.cx-error { border-left-color: #FF8FA3; }
+.cx-item.cx-needs_config { border-left-color: #E8B44C; }
+.cx-item.sel { outline: 2px solid var(--accent); }
+.cx-open { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; width: 100%; min-height: 44px; padding: 8px 12px; text-align: left; color: var(--fg); }
+.cx-name { font-weight: 600; overflow-wrap: anywhere; }
+.cx-badge { padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 12.5px; color: var(--fg-2); }
+.cx-src, .cx-tri { color: var(--fg-2); font: 12.5px/1.4 var(--font-mono); overflow-wrap: anywhere; }
+.cx-acts { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 10px; }
+.cx-acts .btn, .cx-leaf .btn { min-height: 44px; min-width: 44px; }
+.cx-detail { padding: 0 12px 12px; display: grid; gap: 6px; }
+.cx-desc { margin: 0; overflow-wrap: anywhere; }
+.cx-why { margin: 0; color: #E8B44C; }
+.cx-treeh { margin: 6px 0 0; font-weight: 600; }
+.cx-leaf { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; }
+.connectors .help { color: var(--fg-2); font-size: 13px; margin: 0; }
+@media (min-width: 720px) { .cx-top { grid-template-columns: minmax(0, 1fr) 200px; } .cx-flabel { grid-column: 1 / -1; } .cx-scope { grid-column: 1 / -1; } }

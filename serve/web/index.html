@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="web/plans.css">
 <link rel="stylesheet" href="web/human.css">
 <link rel="stylesheet" href="web/cron.css">
+<link rel="stylesheet" href="web/connectors.css">
 <link rel="stylesheet" href="web/sesschat.css">
 <link rel="stylesheet" href="web/traces.css">
 <link rel="stylesheet" href="web/mobile.css">
@@ -139,6 +140,7 @@
 <script defer src="web/planparams.js"></script>
 <script defer src="web/plans.js"></script>
 <script defer src="web/cron.js"></script>
+<script defer src="web/connectors.js"></script>
 <script defer src="web/mobile.js"></script>
 <script defer src="web/memories.js"></script>
 <script defer src="web/personas.js"></script>
@@ -187,6 +189,7 @@
     <button class="tab" role="tab" id="tab-cron" data-view="cron" aria-controls="view-cron" aria-selected="false" tabindex="-1" data-t="tab.cron">Cron Jobs</button>
     <button class="tab" role="tab" id="tab-stats" data-view="stats" aria-controls="view-stats" aria-selected="true" data-t="tab.stats">Monitor</button>
     <button class="tab" role="tab" id="tab-loader" data-view="loader" aria-controls="view-loader" aria-selected="false" tabindex="-1" data-t="tab.loader">Models</button>
+    <button class="tab" role="tab" id="tab-connectors" data-view="connectors" aria-controls="view-connectors" aria-selected="false" tabindex="-1" data-t="tab.connectors">Connectors</button>
     <button class="tab" role="tab" id="tab-rag" data-view="rag" aria-controls="view-rag" aria-selected="false" tabindex="-1" data-t="tab.rag">Knowledge</button>
     <button class="tab" role="tab" id="tab-voice" data-view="voice" aria-controls="view-voice" aria-selected="false" tabindex="-1" data-t="tab.voice">Voice</button>
     <button class="tab" role="tab" id="tab-canary" data-view="canary" aria-controls="view-canary" aria-selected="false" tabindex="-1" data-t="tab.canary">Canary</button>
@@ -868,6 +871,24 @@
 
   <div class="view plans" id="view-plans" role="tabpanel" aria-labelledby="tab-plans" hidden>
     <div class="chatrow plrow" id="plans-root"></div>
+  </div>
+
+  <div class="view connectors" id="view-connectors" role="tabpanel" aria-labelledby="tab-connectors" hidden>
+    <div class="cx" id="cx-root">
+      <div class="sh"><b data-t="cx.title">Connectors</b></div>
+      <div class="cx-top">
+        <label class="cx-flabel" for="cx-filter" data-t="cx.filter">Filter</label>
+        <input id="cx-filter" type="search" autocomplete="off" data-t-ph="cx.filter.ph" placeholder="Name, keyword, source or description">
+        <select id="cx-state" aria-label="State">
+          <option value="" data-t="cx.state.any">Any state</option><option value="active" data-t="cx.state.active">On</option><option value="disabled" data-t="cx.state.disabled">Off</option>
+          <option value="inactive" data-t="cx.state.inactive">Inactive</option><option value="needs_config" data-t="cx.state.needs_config">Needs setup</option><option value="error" data-t="cx.state.error">Error</option>
+        </select>
+        <div class="cx-scope" id="cx-scope" role="group" data-t-aria="cx.scope.label" aria-label="Which connectors"></div>
+      </div>
+      <div class="cx-subtabs" id="cx-subtabs" role="tablist"></div>
+      <p class="cx-status" id="cx-status" role="status"></p>
+      <div id="cx-bands"></div>
+    </div>
   </div>
 
   <div class="view cron" id="view-cron" role="tabpanel" aria-labelledby="tab-cron" hidden>
