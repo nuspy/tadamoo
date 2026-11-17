@@ -12,12 +12,14 @@ from typing import Any, Callable, Dict, List, Optional
 
 from tadamoo.connectors.model import Item
 
-KINDS = ("mcp_registry", "folder")
+KINDS = ("mcp_registry", "folder", "github")
 TRUST = ("official", "known", "unknown")
 DEFAULTS: List[Dict[str, Any]] = [{"id": "mcp-registry", "kind": "mcp_registry", "ref": "https://registry.modelcontextprotocol.io", "trust": "official", "enabled": True}]
 MAX_PROVIDERS = 50
 MAX_ITEMS = 100
 Get = Callable[[str], bytes]
+GITHUB_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}(?:@[A-Za-z0-9._/-]{1,100})?$")
+GITHUB_SKILLS_MAX = 30
 
 
 class ProviderError(ValueError):
@@ -58,6 +60,8 @@ class Providers:
             raise ProviderError("a registry is an http or https address")
         if kind == "folder" and not Path(ref).is_dir():
             raise ProviderError("there is no such folder")
+        if kind == "github" and not GITHUB_REF.match(ref):
+            raise ProviderError("a GitHub repository is written owner/name, with @branch or @tag to pin a version")
         rows = self.list()
         pid = _id(kind, ref)
         if any(r["id"] == pid for r in rows):
@@ -124,6 +128,33 @@ def folder_items(path: str) -> List[Item]:
     return out
 
 
+def github_items(ref: str, get: Get) -> List[Item]:
+    """The skills in a GitHub repository (each a folder with a SKILL.md), read from the repository's file list at the pinned branch or tag (the default branch when none is pinned). Only names and
+    descriptions are read; nothing is cloned or run. An answer that is not the expected JSON gives no item."""
+    repo, _, pin = ref.partition("@")
+    try:
+        if not pin:
+            pin = json.loads(get(f"https://api.github.com/repos/{repo}").decode("utf-8", "replace")).get("default_branch") or "HEAD"
+        tree = json.loads(get(f"https://api.github.com/repos/{repo}/git/trees/{pin}?recursive=1").decode("utf-8", "replace"))
+    except (ValueError, OSError, AttributeError):
+        return []
+    paths = sorted(t["path"] for t in (tree.get("tree") if isinstance(tree, dict) else None) or [] if isinstance(t, dict) and str(t.get("path", "")).endswith("/SKILL.md"))
+    out: List[Item] = []
+    for p in paths[:GITHUB_SKILLS_MAX]:
+        folder = p[: -len("/SKILL.md")]
+        name, desc = folder.rsplit("/", 1)[-1], ""
+        try:
+            from tadamoo.skills import parse_frontmatter
+            meta = parse_frontmatter(get(f"https://raw.githubusercontent.com/{repo}/{pin}/{p}").decode("utf-8", "replace")[:4000])
+            head = meta[0] if isinstance(meta, tuple) else meta
+            name, desc = _clean((head or {}).get("name") or name, 80), _clean((head or {}).get("description"), 400)
+        except Exception:                                                  # a file that does not come keeps the folder's name
+            pass
+        out.append(Item(id=f"github:{repo}:{folder}", kind="skill", name=name, description=desc, source=f"github.com/{repo}@{pin}", scope="external", installed=False,
+                        keywords=tuple(re.findall(r"[a-z0-9]+", folder.lower())[:6])))
+    return out
+
+
 def available(providers: List[Dict[str, Any]], get: Get, query: str = "") -> List[Item]:
     """The items of every enabled provider. One that fails gives nothing and does not stop the others."""
     out: List[Item] = []
@@ -132,7 +163,8 @@ def available(providers: List[Dict[str, Any]], get: Get, query: str = "") -> Lis
         if not row.get("enabled"):
             continue
         try:
-            items = registry_items(row["ref"], get, query) if row["kind"] == "mcp_registry" else folder_items(row["ref"]) if row["kind"] == "folder" else []
+            items = (registry_items(row["ref"], get, query) if row["kind"] == "mcp_registry" else folder_items(row["ref"]) if row["kind"] == "folder"
+                     else github_items(row["ref"], get) if row["kind"] == "github" else [])
         except Exception:
             items = []
         for it in items:

@@ -89,3 +89,45 @@ def test_the_providers_are_changed_through_the_api_with_errors_named(tmp_path):
             api.change_providers(bad)
     with pytest.raises(ConnectorError):
         ConnectorsApi(lambda: [], lambda: ([], ())).change_providers({"action": "reset"})
+
+
+TREE = {"tree": [{"path": "README.md"}, {"path": "skills/pdf/SKILL.md"}, {"path": "skills/docx/SKILL.md"}, {"path": "skills/docx/helper.py"}, {"path": "other/SKILL.md.bak"}]}
+
+
+def github_get(pin_seen):
+    def get(url):
+        pin_seen.append(url)
+        if url == "https://api.github.com/repos/acme/skills":
+            return json.dumps({"default_branch": "main"}).encode()
+        if "/git/trees/" in url:
+            return json.dumps(TREE).encode()
+        if url.endswith("skills/pdf/SKILL.md"):
+            return b"---\nname: pdf-tools\ndescription: Read and fill PDF forms\n---\nBody"
+        raise OSError("not there")
+    return get
+
+
+def test_a_github_repository_is_a_provider_written_owner_slash_name_with_an_optional_pin(tmp_path):
+    p = prov.Providers(tmp_path / "p.json")
+    assert p.add("github", "acme/skills@v1.2", "known")[-1]["ref"] == "acme/skills@v1.2"
+    for bad in ("acme", "acme/skills/extra", "https://github.com/acme/skills", "acme/ skills", "-x/y"):
+        with pytest.raises(prov.ProviderError):
+            p.add("github", bad)
+
+
+def test_the_skills_of_a_github_repository_are_listed_by_name_and_description_at_the_default_branch_or_the_pin():
+    seen = []
+    items = prov.github_items("acme/skills", github_get(seen))
+    assert [(i.id, i.name, i.description) for i in items] == [("github:acme/skills:skills/docx", "docx", ""), ("github:acme/skills:skills/pdf", "pdf-tools", "Read and fill PDF forms")]
+    assert items[0].source == "github.com/acme/skills@main" and not items[0].installed and any("/git/trees/main" in u for u in seen)
+    seen.clear()
+    prov.github_items("acme/skills@v1.2", github_get(seen))
+    assert not any(u.endswith("/repos/acme/skills") for u in seen) and any("/git/trees/v1.2" in u for u in seen)        # a pinned version asks nothing about the default branch
+    assert prov.github_items("acme/skills", get_for(OSError("down"))) == [] and prov.github_items("acme/skills", get_for(b"not json")) == []
+
+
+def test_an_enabled_github_provider_adds_its_skills_to_the_available_band_and_a_failing_one_does_not_stop_the_others():
+    rows = [{"id": "g", "kind": "github", "ref": "acme/skills", "trust": "known", "enabled": True}, {"id": "off", "kind": "github", "ref": "x/y", "trust": "known", "enabled": False}]
+    got = prov.available(rows, github_get([]))
+    assert [i.name for i in got] == ["docx", "pdf-tools"]
+
