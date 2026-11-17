@@ -88,7 +88,7 @@ class ConnectorsTabInARealBrowserTest(unittest.TestCase):
         out = subprocess.run([self.node, str(Path(__file__).resolve().parent / "connectors_dom_check.js"), self.url, self.browser, str(Path(self.tmp) / "home" / ".claude" / "skills")], capture_output=True, text=True, timeout=900)
         results = json.loads(out.stdout.strip().splitlines()[-1])
         self.assertEqual([r["name"] + ": " + r["error"] for r in results if not r["ok"]], [])
-        self.assertEqual(len(results), 15, results)
+        self.assertEqual(len(results), 18, results)
 
 
 if __name__ == "__main__":

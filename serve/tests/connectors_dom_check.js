@@ -128,6 +128,32 @@ async function main() {
         await ev(`[...qa("#cx-subtabs button")].find(b => b.textContent === "Skills").click(); return 1;`);
         await waitFor(`!!${item("alpha-skill")}`, "the skills again");
       });
+
+      await check(`${vname}: a plugin opens its dependency tree in a window of its own, where a part is switched off and on again`, async () => {
+        const tag = vname.replace(/\W+/g, "-"), pname = "demo-" + tag;
+        const plugin = path.join(FOLDER, "..", "plugins", pname, "skills", "pl-skill-" + tag);
+        fs.mkdirSync(plugin, { recursive: true });
+        fs.writeFileSync(path.join(plugin, "SKILL.md"), ["---", "name: pl-skill-" + tag, "description: A skill the plugin brings.", "---", "", "Do it.", ""].join("\n"));
+        await post("api/capabilities/rescan", {});                                 // the index reads the new plugin
+        await ev(`[...qa("#cx-subtabs button")].find(b => b.textContent === "Plugins").click(); return 1;`);
+        await waitFor(`!!${item(pname)}`, "the plugin row");
+        await ev(`${item(pname)}.querySelector(".cx-open").click(); return 1;`);
+        await waitFor(`!!q("#cx-tree-open")`, "the open-tree button");
+        await ev(`q("#cx-tree-open").click(); return 1;`);
+        await waitFor(`!!q("#cx-treedlg[open]") && qa("#cx-treedlg .cx-leaf").length === 2`, "the tree window with the plugin and its skill");
+        await fits("tree window");
+        const toggle = `q('#cx-treedlg button[id^="cx-tn-"]')`;
+        await ev(`${toggle}.click(); return 1;`);
+        await waitFor(`qa("#cx-treedlg .cx-leaf")[1].classList.contains("cx-disabled")`, "the part switched off");
+        await ev(`${toggle}.click(); return 1;`);
+        await waitFor(`qa("#cx-treedlg .cx-leaf")[1].classList.contains("cx-active")`, "the part switched on again");
+        await ev(`q("#cx-tree-close").click(); return 1;`);
+        await waitFor(`!q("#cx-treedlg")`, "the window closed");
+        fs.rmSync(path.join(FOLDER, "..", "plugins"), { recursive: true, force: true });          // the next size starts without the plugin
+        await post("api/capabilities/rescan", {});
+        await ev(`[...qa("#cx-subtabs button")].find(b => b.textContent === "Skills").click(); return 1;`);
+        await waitFor(`!!${item("alpha-skill")}`, "the skills again");
+      });
     }
     await send("Page.navigate", { url: "about:blank" });
   } catch (e) {

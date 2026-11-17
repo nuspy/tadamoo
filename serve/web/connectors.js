@@ -81,6 +81,43 @@
     if (S.detail === item.id) showDetail(item.id);
   }
 
+  /* the dependency tree of a plugin in a window of its own: the plugin and what it brings (servers, skills), each with its state, its description, what else uses it and its own switch */
+  async function treeDialog(id) {
+    const dlg = el("dialog", "cx-dlg");
+    dlg.id = "cx-treedlg";
+    dlg.onclose = () => dlg.remove();
+    const fill = async () => {
+      const r = await api("GET", "api/connectors/item?id=" + encodeURIComponent(id));
+      if (!r.ok) { dlg.replaceChildren(el("p", "cx-why", errText(r)), btn(T("cx.tree.close"), "", () => dlg.close())); return; }
+      const d = r.data, body = el("div", "cx-treebody");
+      dlg.setAttribute("aria-label", T("cx.tree.title", d.name));
+      body.append(el("h3", "cx-bh", T("cx.tree.title", d.name)), el("p", "help", T("cx.tree.help")));
+      const ul = el("ul", "cx-tree cx-treebig");
+      [d, ...(d.tree || [])].forEach(n => {
+        const li = el("li", "cx-leaf cx-" + n.state + (n.id === d.id ? " cx-root" : ""));
+        li.dataset.node = n.id;
+        const head = el("div", "cx-leafhead");
+        head.append(el("span", "cx-name", n.name), el("span", "cx-badge", stateText(n.state)), el("span", "cx-src", T("cx.kind." + n.kind)));
+        li.append(head, el("p", "cx-desc", n.description || T("cx.nodesc")));
+        if (n.why) li.append(el("p", "cx-why", n.why));
+        if (n.used_by && n.used_by.length) li.append(el("p", "help", T("cx.usedby", n.used_by.join(", "))));
+        if (S.off !== null && n.scope === "external" && n.kind !== "plugin") {
+          const on = n.state !== "disabled";
+          const b = btn(on ? T("cx.disable") : T("cx.enable"), "", async () => { await setEnabled(n, !on); await fill(); }, on ? T("cx.disable.tip") : T("cx.enable.tip"));
+          b.id = "cx-tn-" + n.id.replace(/[^a-z0-9]+/gi, "-");
+          li.append(b);
+        }
+        ul.append(li);
+      });
+      body.append(ul, el("p", "help", T("cx.removal", d.removal.removed.length, d.removal.kept.length)));
+      const close = btn(T("cx.tree.close"), "primary", () => dlg.close()); close.id = "cx-tree-close";
+      dlg.replaceChildren(body, close);
+    };
+    await fill();
+    document.body.append(dlg);
+    dlg.showModal();
+  }
+
   async function showDetail(id) {
     S.detail = id;
     const r = await api("GET", "api/connectors/item?id=" + encodeURIComponent(id));
@@ -152,6 +189,7 @@
     if (d.used_by.length) box.append(el("p", "help", T("cx.usedby", d.used_by.join(", "))));
     if (d.tree && d.tree.length) {
       box.append(el("p", "cx-treeh", T("cx.tree")));
+      if (d.kind === "plugin") { const open = btn(T("cx.tree.open"), "", () => treeDialog(d.id), T("cx.tree.open.tip")); open.id = "cx-tree-open"; box.append(open); }
       const ul = el("ul", "cx-tree");
       d.tree.forEach(c => {
         const li = el("li", "cx-leaf cx-" + c.state);

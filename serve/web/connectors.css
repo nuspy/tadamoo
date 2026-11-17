@@ -43,3 +43,11 @@
 .cx-v-caution { border-left: 6px solid var(--warn, #a15c00); }
 .cx-v-ok { border-left: 6px solid var(--good, #1b6e3c); }
 #cx-review-go { min-height: 44px; }
+
+.cx-dlg { width: min(94vw, 720px); max-height: 90dvh; overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: var(--surface); color: inherit; }
+.cx-treebody { display: grid; gap: 8px; margin-bottom: 10px; }
+.cx-treebig { display: grid; gap: 8px; padding: 0; list-style: none; }
+.cx-treebig .cx-leaf { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.cx-leafhead { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.cx-treebig .cx-leaf .btn { min-height: 44px; justify-self: start; }
+#cx-tree-open, #cx-tree-close { min-height: 44px; }
