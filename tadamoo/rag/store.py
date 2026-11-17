@@ -460,7 +460,8 @@ class RagStore:
         except (OSError, ValueError):
             raise RagError(f"the saved reading of {doc['name']} is missing: add the document again") from None
 
-    def add_file(self, aid: Any, name: str, path: Path, progress: Optional[Callable[[Dict[str, Any]], None]] = None, cancel: Optional[threading.Event] = None) -> Dict[str, Any]:
+    def add_file(self, aid: Any, name: str, path: Path, progress: Optional[Callable[[Dict[str, Any]], None]] = None, cancel: Optional[threading.Event] = None, origin: str = "",
+                 get: Optional[Callable[[str], Optional[bytes]]] = None) -> Dict[str, Any]:
         """Reads the file at `path` as a document called `name`, cleans it, cuts it into passages and indexes it. Nothing is kept when it is refused or
         cancelled. `progress` is told of the stages and, for a long reading, of the pages."""
         self.load(aid)
@@ -484,7 +485,7 @@ class RagStore:
         chunks, sections, stats = self._build(doc_id, name, reading["blocks"])
         if cancel is not None and cancel.is_set():
             raise RagError("the reading was cancelled", "cancelled")
-        fset = self.figure_set(aid, doc_id, path, name, reading, chunks, progress, cancel)
+        fset = self.figure_set(aid, doc_id, path, name, reading, chunks, progress, cancel, origin=origin, get=get)
         try:
             return self._add_read(aid, name, size, sha, reading, doc_id, chunks, sections, stats, fset, progress, cancel)
         finally:
@@ -739,7 +740,8 @@ class RagStore:
     # -- the figures of a document ------------------------------------------------------------------------------------
 
     def figure_set(self, aid: Any, doc_id: str, path: Path, name: str, reading: Dict[str, Any], chunks: List[Dict[str, Any]],
-                   progress: Optional[Callable[[Dict[str, Any]], None]] = None, cancel: Optional[threading.Event] = None) -> Dict[str, Any]:
+                   progress: Optional[Callable[[Dict[str, Any]], None]] = None, cancel: Optional[threading.Event] = None, origin: str = "",
+                   get: Optional[Callable[[str], Optional[bytes]]] = None) -> Dict[str, Any]:
         """Cuts the figures of the PDF at `path` out of its pages (tadamoo/rag/ingest/figures.py) into a staging folder and appends a passage for each to `chunks`:
         `{records, staging}`. The images are put in the archive by `install_figures` once the document is committed; without the setting `figures`, or for a file that is not
         a PDF, there are none."""
@@ -749,7 +751,7 @@ class RagStore:
         shutil.rmtree(staging, ignore_errors=True)
         python = docling_client.find_python(self.settings.read()["docling_python"]) or ""
         try:
-            records = figures.extract(path, name, reading, reading["blocks"], staging, python, progress, cancel)
+            records = figures.extract(path, name, reading, reading["blocks"], staging, python, progress, cancel, origin=origin, get=get)
         except BaseException:
             shutil.rmtree(staging, ignore_errors=True)
             raise

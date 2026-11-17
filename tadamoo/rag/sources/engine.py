@@ -378,7 +378,7 @@ class Sync:
             reading = read_document(fetched.path, fetched.name, self.store.settings.read(), progress=tell, cancel=cancel)
             tell({"event": "stage", "stage": "cutting"})
             chunks, sections, stats = self.store.passages_of(doc["id"], fetched.name, reading["blocks"], aid)
-            fset = {"records": [], "staging": None} if dry_run else self.store.figure_set(aid, doc["id"], fetched.path, fetched.name, reading, chunks, tell, cancel)
+            fset = {"records": [], "staging": None} if dry_run else self.store.figure_set(aid, doc["id"], fetched.path, fetched.name, reading, chunks, tell, cancel, origin=fetched.origin, get=self._image_getter())
             diff = self._diff(old_chunks.get(doc["id"], []), chunks)
             new = {k: v for k, v in doc.items() if k not in ("skipped_pages", "empty_pages", "coverage", "figures")}
             new.update(name=fetched.name, ext=Path(fetched.name).suffix.lower(), bytes=fetched.bytes, chars=stats["chars"], chunks=len(chunks), sha256=fetched.sha256,
@@ -408,7 +408,7 @@ class Sync:
             chunks, _, _ = self.store.passages_of("d00000000", fetched.name, reading["blocks"])
             item.update(state="would add", passages={"added": len(chunks), "removed": 0, "kept": 0})
             return
-        got = self.store.add_file(aid, fetched.name, fetched.path, tell, cancel)
+        got = self.store.add_file(aid, fetched.name, fetched.path, tell, cancel, origin=fetched.origin, get=self._image_getter())
         doc = got["document"]
         by_doc[doc["id"]] = doc
         link_updates[doc["id"]] = {"stamp": fetched.stamp, "fetched": now, "version": fetched.version, "origin": fetched.origin, "source": item["source"], "key": item["key"]}
@@ -506,6 +506,20 @@ class Sync:
                 d["links"][did] = link
                 d["acknowledged"].pop(did, None)
         self.state(aid).change(write)
+
+    def _image_getter(self) -> Callable[[str], Optional[bytes]]:
+        """How the pictures of a page are fetched: through the sources' own HTTP client, with its size limit and its respect of robots; one that does not come is None."""
+        def get(url: str) -> Optional[bytes]:
+            self.ctx.stage.mkdir(parents=True, exist_ok=True)
+            tmp = self.ctx.stage / ("i" + hashlib.sha1(url.encode("utf-8")).hexdigest()[:12])
+            try:
+                got = self.ctx.http.get(url, robots=True, to=tmp)
+                return tmp.read_bytes() if got.status == 200 and tmp.is_file() else None
+            except Exception:
+                return None
+            finally:
+                tmp.unlink(missing_ok=True)
+        return get
 
     PAST_NOTE = "past version, no longer available at its source"
 

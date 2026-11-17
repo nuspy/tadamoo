@@ -256,9 +256,13 @@ def passage_text(f: Dict[str, Any]) -> str:
 # -- the whole step ----------------------------------------------------------------------------------------------------------------------
 
 def extract(path: Path, name: str, reading: Dict[str, Any], blocks: Sequence[Dict[str, Any]], folder: Path, python: str = "",
-            progress: Optional[Callable[[Dict[str, Any]], None]] = None, cancel: Optional[Any] = None, command: Optional[Sequence[str]] = None) -> List[Dict[str, Any]]:
+            progress: Optional[Callable[[Dict[str, Any]], None]] = None, cancel: Optional[Any] = None, command: Optional[Sequence[str]] = None,
+            origin: str = "", get: Optional[Callable[[str], Optional[bytes]]] = None) -> List[Dict[str, Any]]:
     """Cuts every figure of the PDF at `path` out of its pages into `folder`, reads the words inside, and labels each: the list of `Figure` records, in page order.
     A file that is not a PDF, or that PyMuPDF cannot open, has none. `python` is the Python of the Docling environment (for the OCR; empty: no labels read)."""
+    if path.suffix.lower() in (".html", ".htm"):                  # a web page or a wiki page: its pictures are fetched with `get` (the page's address is `origin`), else read from beside it
+        from tadamoo.rag.ingest import figures_office, figures_web
+        return figures_office.finish(figures_web.items(path, origin, get), blocks, folder, python, progress, cancel, command)
     if path.suffix.lower() == ".docx":
         from tadamoo.rag.ingest import figures_office
         return figures_office.finish(figures_office.docx_items(path), blocks, folder, python, progress, cancel, command)
