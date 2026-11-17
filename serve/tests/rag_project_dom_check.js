@@ -27,7 +27,7 @@ class El {
 const host = new El("div");
 const listeners = {};
 const document = {
-  getElementById: id => (id === "rg-root" ? host : null), createElement: tag => new El(tag), body: { dataset: { view: "rag" } }, activeElement: null,
+  getElementById: id => (id === "rg-root" ? host : null), createElement: tag => new El(tag), createElementNS: (ns, tag) => new El(tag), body: { dataset: { view: "rag" } }, activeElement: null,
   addEventListener: (type, fn) => { (listeners[type] = listeners[type] || []).push(fn); },
 };
 
@@ -62,35 +62,36 @@ async function open() {
   for (const fn of listeners["tadamoo:view"] || []) fn({ detail: "rag" });
   await settle();
 }
-const picker = () => host.tag("SELECT")[0];
-const names = () => host.withClass("rg-pname").map(e => e.textContent);
+const rows = () => host.withClass("rg-projects")[0].withClass("rg-prow");
+const picks = () => rows().map(r => r.withClass("rg-pick")[0]);
+const current = () => [CHAT.key, WORK.key][picks().findIndex(b => b.attrs["aria-current"] === "true")];
+const names = () => host.withClass("rg-side").filter(n => !n.classes.has("rg-projects"))[0].withClass("rg-pname").map(e => e.textContent);   // the archives of the picked project
 
 t("without a conversation the tab starts on the Chat's own folder and lists only its archives", async () => {
   await open();
-  eq(picker().value, CHAT.key);
-  eq(picker().elements.map(o => o.value), [CHAT.key, WORK.key]);
-  eq(picker().elements.map(o => o.textContent), ["rg.proj.opt:rg.proj.chat|1", "rg.proj.opt:Work|2"]);
+  eq(current(), CHAT.key);
+  eq(picks().map(b => b.withClass("rg-pname")[0].textContent), ["rg.proj.chat", "Work"]);
+  eq(rows().map(r => r.withClass("rg-iconbtn").length), [0, 2]);                  // the Chat's own project cannot be renamed or deleted; another can
   eq(names(), ["Chat notes"]);
   eq(asked.includes("GET api/rag/projects") && asked.includes(`GET api/rag?project=${CHAT.key}`) && !asked.includes(`GET api/rag?project=${WORK.key}`), true);
 });
 t("with a conversation open the tab starts on its folder, however the path is spelt", async () => {
   window.agentChat = { record: () => ({ workspace: "d:/projects/work/" }) };
   await open();
-  eq(picker().value, WORK.key);
+  eq(current(), WORK.key);
   eq(names(), ["Specs", "Manuals"]);
 });
 t("choosing another project asks for that project's archives and keeps the choice", async () => {
   window.agentChat = null;
   await open();
   asked.length = 0;
-  picker().value = WORK.key;
-  picker().onchange();
+  picks()[1].onclick();
   await settle();
   eq(names(), ["Specs", "Manuals"]);
   eq(asked.includes(`GET api/rag?project=${WORK.key}`), true);
   window.agentChat = { record: () => ({ workspace: "C:\\Users\\me\\AppData\\chat-workspace" }) };
   await open();
-  eq(picker().value, WORK.key);                                                  // the person's choice is not undone by the conversation
+  eq(current(), WORK.key);                                                  // the person's choice is not undone by the conversation
 });
 t("a new archive is made in the picked project", async () => {
   const make = host.withClass("rg-newbtn")[0];

@@ -60,6 +60,19 @@ class ProjectStore:
             self._save()
             return {**known, "exists": True}
 
+    def rename(self, path: Any, name: Any) -> Dict[str, Any]:
+        """Gives a folder another name in the list; the folder itself is not touched."""
+        text = " ".join(str(name or "").split())[:80]
+        if not text:
+            raise ValueError("name: the new name of the project")
+        with self._lock:
+            known = next((p for p in self._items if _same(p["path"], str(path))), None)
+            if known is None:
+                raise ValueError("there is no such project")
+            known["name"] = text
+            self._save()
+            return {**known, "exists": Path(known["path"]).is_dir()}
+
     def remove(self, path: Any) -> bool:
         """Forgets a folder: its files, its `.basalt` and its conversations stay where they are."""
         with self._lock:

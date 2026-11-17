@@ -460,3 +460,40 @@ def test_the_figures_of_a_document_are_listed_with_thumbnails_and_one_is_given_w
     for bad in (["archives", aid, "documents", doc["id"], "figures", "9"], ["archives", aid, "documents", doc["id"], "figures", "x"], ["archives", aid, "documents", "d00000000", "figures", "1"]):
         with pytest.raises(RagError):
             api.route_get(bad, None)
+
+
+def test_a_project_is_made_renamed_and_deleted_with_its_archives_only_after_its_name_is_typed_and_its_files_stay(tmp_path):
+    chat, work = tmp_path / "chat", tmp_path / "work"
+    chat.mkdir()
+    work.mkdir()
+    (work / "keep.txt").write_text("my file", encoding="utf-8")
+    projects = ProjectStore(tmp_path / "journal")
+
+    def folders():
+        return [{"name": "Chat", "path": str(chat), "chat": True}] + [{"name": p["name"], "path": p["path"], "chat": False} for p in projects.list() if p.get("exists")]
+    api = RagApi(RagStore(tmp_path / "rag", embedder=lambda: None), folders, projects=projects)
+    post = lambda parts, body: api.route_post(parts, {}, json.dumps(body).encode())          # noqa: E731
+    made = post(["projects"], {"path": str(work), "name": "Delta notes"})
+    key = made["created"]
+    assert [p["name"] for p in made["projects"]] == ["Chat", "Delta notes"] and made["projects"][1]["archives"] == 0
+    with pytest.raises(RagError):
+        post(["projects"], {"path": str(tmp_path / "nowhere")})
+    assert post(["projects", "rename"], {"key": key, "name": "Delta"})["projects"][1]["name"] == "Delta"
+    a1 = api.store.create("One", project=key)["id"]
+    api.store.create("Two", project=key)
+    api.store.add_bytes(a1, "n.txt", b"The wind carries the boat along the shore, and the delta is wide. " * 6)
+    assert [p["archives"] for p in api.projects()["projects"]] == [0, 2]
+    for bad in ({"key": key, "name": "wrong", "confirm": True}, {"key": key, "name": "Delta"}, {"key": key, "confirm": True}):
+        with pytest.raises(RagError, match="exactly"):
+            post(["projects", "delete"], bad)
+    assert len(api.store.list(key)) == 2                                                    # nothing was deleted by the refused requests
+    gone = post(["projects", "delete"], {"key": key, "name": " Delta ", "confirm": True})
+    assert (gone["deleted_archives"], gone["deleted_documents"]) == (2, 1) and [p["name"] for p in gone["projects"]] == ["Chat"]
+    assert api.store.list(key) == [] and (work / "keep.txt").read_text(encoding="utf-8") == "my file"
+    chat_key = api.projects()["projects"][0]["key"]
+    for parts in (["projects", "delete"], ["projects", "rename"]):
+        with pytest.raises(RagError, match="Chat"):
+            post(parts, {"key": chat_key, "name": "Chat", "confirm": True})
+    with pytest.raises(RagError, match="no such project"):
+        post(["projects", "delete"], {"key": "p" * 12, "name": "x", "confirm": True})
+

@@ -47,8 +47,12 @@ class RagPageTest(unittest.TestCase):
         self.assertNotIn("/link", JS)                                                                 # an archive is not linked to a personality
 
     def test_the_tab_has_a_project_picker_and_makes_archives_in_the_picked_project(self):
-        self.assertIn('const sel = el("select");', JS)
-        self.assertIn('field("rg-project", T("rg.proj.label")', JS)
+        self.assertIn("function projectsList()", JS)                                                  # a list in the left column, not a dropdown
+        self.assertIn('btn(T("rg.proj.new"), "rg-newproj", newProjectDialog)', JS)
+        self.assertIn("api/rag/projects${path}", JS)
+        for step in ("rg.proj.delete.1", "rg.proj.delete.2"):                                         # deleting asks twice: what goes, then the name typed by hand
+            self.assertIn(f'T("{step}"', JS)
+        self.assertIn("typed.value.trim() !== String(p.name).trim()", JS)
         self.assertIn('api("POST", "api/rag/archives", { name, description, project })', JS)
         self.assertIn("window.agentChat.record()", JS)                                                # the default is the open conversation's folder
         self.assertIn("projects.find(p => p.chat)", JS)                                               # else the Chat's own folder
@@ -135,7 +139,7 @@ class RagPageTest(unittest.TestCase):
         self.assertIn("prefers-reduced-motion: reduce", CSS)
         self.assertIn("@media (min-width: 900px)", CSS)                                              # one column first, two on a wide window
         self.assertIn("width: 24px; height: 24px", CSS)                                               # the tick boxes, inside rows 44px high
-        self.assertRegex(CSS, r"\.rg-field select \{[^}]*min-height: 44px")                              # the project picker
+        self.assertRegex(CSS, r"\.rg-iconbtn \{[^}]*min-width: 44px; min-height: 44px")                      # the icons of a project
         self.assertIn("overflow-wrap: anywhere", CSS)
         self.assertNotIn("hover", CSS)                                                                # nothing that works only with a pointer
 

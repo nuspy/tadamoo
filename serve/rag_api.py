@@ -41,7 +41,7 @@ def _project(value: Any) -> str:
 class RagApi:
     def __init__(self, store: RagStore, folders: Callable[[], List[Dict[str, Any]]] = lambda: [], jobs: Optional[Jobs] = None, service: Any = None,
                  sources: Callable[[], Dict[str, Callable[[Dict[str, Any]], Any]]] = lambda: {}, leaves_pc: Callable[[str], bool] = routes_outside, sync: Any = None,
-                 describer: Optional[Callable[[], Any]] = None, vault_dir: Any = None, tools_dir: Any = None) -> None:
+                 describer: Optional[Callable[[], Any]] = None, vault_dir: Any = None, tools_dir: Any = None, projects: Any = None) -> None:
         """`folders` lists the projects as `{name, path, chat}`: the folders of the Agentic coding tab and the Chat's own folder (`chat` true). `jobs` is the
         board of the long jobs, kept by the server between requests. `service` is the embedding service (tadamoo/rag/embed_client.py) the store's embedder
         comes from, when there is one: it tells where the embeddings run and can be tried. `sources` gives what the resolver cannot know alone (the session's
@@ -54,6 +54,7 @@ class RagApi:
         self.adding = RagAddApi(self.syncing, self.jobs)                      # adding documents in a batch and the state of an archive (serve/rag_add_api.py)
         self.database = RagDbApi(store, self.jobs, vault_dir)               # the Database section of a project's settings (serve/rag_db_api.py)
         self.images = RagImagesApi(store, vault_dir, tools_dir)             # where the images of the documents are kept (serve/rag_images_api.py)
+        self.project_store = projects                                       # the list of project folders (serve/projects.py): made, renamed and forgotten from the page
 
     # -- reading ---------------------------------------------------------------------------------
 
@@ -99,6 +100,49 @@ class RagApi:
             seen.add(key)
             out.append({"key": key, "name": row["name"], "path": row["path"], "chat": bool(row.get("chat")), "archives": counts.get(key, 0)})
         return {"projects": out}
+
+    def _project_row(self, key: Any) -> Dict[str, Any]:
+        row = next((r for r in self.folders() if project_key(r["path"]) == key), None)
+        if row is None:
+            raise RagError("there is no such project", "not_found")
+        return row
+
+    def create_project(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """`{path, name?}`: a folder of this PC becomes a project of the Knowledge tab (and of the Agentic coding tab). The folder must exist and be one the agent can work in."""
+        if self.project_store is None:
+            raise RagError("projects cannot be made here")
+        try:
+            row = self.project_store.add(req.get("path"))
+            if req.get("name"):
+                row = self.project_store.rename(row["path"], req["name"])
+        except ValueError as e:
+            raise RagError(str(e)) from None
+        return {**self.projects(), "created": project_key(row["path"])}
+
+    def rename_project(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        row = self._project_row(req.get("key"))
+        if row.get("chat") or self.project_store is None:
+            raise RagError("the Chat's own project cannot be renamed")
+        try:
+            self.project_store.rename(row["path"], req.get("name"))
+        except ValueError as e:
+            raise RagError(str(e)) from None
+        return self.projects()
+
+    def delete_project(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        """`{key, name, confirm: true}`: deletes the archives of the project (their passages and index) and forgets the folder. `name` is the project's name typed by hand and must be
+        the same. The folder and its files are never touched."""
+        row = self._project_row(req.get("key"))
+        if row.get("chat") or self.project_store is None:
+            raise RagError("the Chat's own project cannot be deleted")
+        if req.get("confirm") is not True or str(req.get("name") or "").strip() != str(row["name"]).strip():
+            raise RagError("type the name of the project exactly to delete it")
+        key = project_key(row["path"])
+        gone = [a for a in self.store.list() if a["project"] == key]
+        for a in gone:
+            self.store.delete(a["id"], True)
+        self.project_store.remove(row["path"])
+        return {**self.projects(), "deleted_archives": len(gone), "deleted_documents": sum(a["documents"] for a in gone)}
 
     def names(self) -> Dict[str, str]:
         """Project key -> name, for the folders the page can pick."""
@@ -333,6 +377,12 @@ class RagApi:
             return self.search(req)
         if parts == ["resolve"]:
             return self.resolve(req)
+        if parts == ["projects"]:
+            return self.create_project(req)
+        if parts == ["projects", "rename"]:
+            return self.rename_project(req)
+        if parts == ["projects", "delete"]:
+            return self.delete_project(req)
         if parts == ["settings"]:
             return self.set_settings(req)
         if parts == ["embedding", "test"]:

@@ -204,18 +204,80 @@
     const i = el("input"); i.type = "text"; i.value = value || ""; i.maxLength = max; i.autocomplete = "off"; i.spellcheck = false;
     return i;
   }
-  function projectPicker() {
-    const sel = el("select");
-    projects.forEach(p => { const o = el("option", "", T("rg.proj.opt", p.chat ? T("rg.proj.chat") : p.name, p.archives)); o.value = p.key; sel.append(o); });
-    sel.value = project;
-    sel.onchange = () => {
-      project = sel.value; picked = true; chosen = ""; creating = false; detail = null; results = null; question = ""; armed = ""; say("", false);
-      refresh();
-    };
-    const wrap = field("rg-project", T("rg.proj.label"), T("rg.proj.help"), sel), cur = projects.find(p => p.key === project);
-    wrap.classList.add("rg-project");
-    if (cur) wrap.append(el("p", "rg-help rg-path", cur.path));
-    return wrap;
+  /* the projects: a list in the left column, each with an icon to rename and one to delete (the Chat's own project has neither); a new one is made from a folder of this PC. Deleting
+     asks twice: first what will go, then the name of the project typed by hand. The folder and its files are never touched. */
+  const ICONS = { edit: "M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z",
+                  trash: "M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" };
+  function icon(name) {
+    const ns = "http://www.w3.org/2000/svg", svg = document.createElementNS(ns, "svg"), p = document.createElementNS(ns, "path");
+    svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("width", "20"); svg.setAttribute("height", "20"); svg.setAttribute("aria-hidden", "true");
+    p.setAttribute("d", ICONS[name]); p.setAttribute("fill", "currentColor"); svg.append(p);
+    return svg;
+  }
+  function selectProject(key) {
+    project = key; picked = true; chosen = ""; creating = false; detail = null; results = null; question = ""; armed = ""; say("", false);
+    refresh();
+  }
+  function dialog(title, body, actions) {
+    const dlg = el("dialog", "rg-dlg"), bar = el("div", "rg-bar");
+    dlg.setAttribute("aria-label", title);
+    actions.forEach(a => bar.append(a));
+    dlg.append(el("h4", "rg-h2", title), ...body, bar);
+    dlg.onclose = () => dlg.remove();
+    document.body.append(dlg); dlg.showModal();
+    return dlg;
+  }
+  async function changeProjects(path, body, doneText) {
+    const r = await api("POST", `api/rag/projects${path}`, body);
+    if (!r.ok) { say(why(r), true); paint(); return false; }
+    projects = r.data.projects || projects;
+    if (r.data.created) project = r.data.created;
+    if (r.data.deleted_archives != null) { project = (projects.find(p => p.chat) || projects[0] || {}).key || ""; chosen = ""; detail = null; }
+    say(T(doneText, r.data.deleted_archives || 0), false);
+    await refresh();
+    return true;
+  }
+  function newProjectDialog() {
+    const path = textInput("", 500), name = textInput("", 80), err = el("p", "rg-note"); err.setAttribute("role", "status");
+    path.inputMode = "url";
+    const go = btn(T("rg.proj.create"), "primary", async () => { if (await changeProjects("", { path: path.value.trim(), name: name.value.trim() }, "rg.proj.created")) dlg.close(); else dlg.close(); });
+    go.disabled = true; path.oninput = () => { go.disabled = !path.value.trim(); };
+    const dlg = dialog(T("rg.proj.new"), [field("rg-pj-path", T("rg.proj.path"), T("rg.proj.path.help"), path), field("rg-pj-name", T("rg.proj.name"), "", name), err], [go, btn(T("rg.cancel"), "", () => dlg.close())]);
+  }
+  function renameDialog(p) {
+    const name = textInput(p.name, 80), go = btn(T("rg.proj.save"), "primary", async () => { await changeProjects("/rename", { key: p.key, name: name.value }, "rg.proj.renamed"); dlg.close(); });
+    const dlg = dialog(T("rg.proj.edit"), [field("rg-pj-rename", T("rg.proj.name"), "", name)], [go, btn(T("rg.cancel"), "", () => dlg.close())]);
+  }
+  async function deleteDialog(p) {
+    const r = await api("GET", `api/rag?project=${encodeURIComponent(p.key)}`);
+    const docs = r.ok ? (r.data.archives || []).reduce((n, a) => n + a.documents, 0) : 0;
+    const next = btn(T("rg.proj.continue"), "rg-warn", () => {
+      dlg.close();
+      const typed = textInput("", 80), go = btn(T("rg.proj.delete.go"), "rg-warn", async () => { await changeProjects("/delete", { key: p.key, name: typed.value, confirm: true }, "rg.proj.deleted"); dlg2.close(); });
+      go.disabled = true; typed.oninput = () => { go.disabled = typed.value.trim() !== String(p.name).trim(); };
+      const dlg2 = dialog(T("rg.proj.delete.title", p.name), [el("p", "rg-help", T("rg.proj.delete.2", p.name)), field("rg-pj-typed", T("rg.proj.name"), "", typed)], [go, btn(T("rg.cancel"), "", () => dlg2.close())]);
+    });
+    const dlg = dialog(T("rg.proj.delete.title", p.name), [el("p", "rg-line", T("rg.proj.delete.1", p.name, p.archives, docs))], [next, btn(T("rg.cancel"), "", () => dlg.close())]);
+  }
+  function projectsList() {
+    const side = el("nav", "rg-side rg-projects"), ul = el("ul", "rg-names");
+    side.setAttribute("aria-label", T("rg.proj.title"));
+    projects.forEach(p => {
+      const li = el("li", "rg-prow"), on = p.key === project;
+      const pick = btn("", "rg-pick" + (on ? " on" : ""), () => selectProject(p.key));
+      pick.setAttribute("aria-current", String(on)); pick.title = p.path;
+      pick.append(el("span", "rg-pname", p.chat ? T("rg.proj.chat") : p.name), el("span", "rg-pcount", T("rg.count", p.archives)));
+      li.append(pick);
+      if (!p.chat) {
+        const ed = btn("", "rg-iconbtn", () => renameDialog(p)), del = btn("", "rg-iconbtn rg-warn", () => deleteDialog(p));
+        ed.append(icon("edit")); ed.setAttribute("aria-label", T("rg.proj.edit") + ": " + p.name); ed.title = T("rg.proj.edit");
+        del.append(icon("trash")); del.setAttribute("aria-label", T("rg.proj.delete") + ": " + p.name); del.title = T("rg.proj.delete");
+        li.append(ed, del);
+      }
+      ul.append(li);
+    });
+    side.append(el("h3", "rg-h2", T("rg.proj.title")), projects.length ? ul : el("p", "rg-help", T("rg.proj.none")), btn(T("rg.proj.new"), "rg-newproj", newProjectDialog));
+    return side;
   }
   /* where the semantic search stands: the model and where it runs, or why it is not on */
   function semanticLine() {
@@ -472,7 +534,8 @@
   }
   function detailView() {
     const a = detail.archive, main = el("div", "rg-main");
-    main.append(el("h3", "rg-h", a.name), editForm(a), docsBlock(a), ...(window.ragSync ? [window.ragSync.block(a, { reload: reloadAll })] : []), indexBlock(a), tryBlock(a));
+    const box = x => { const w = el("section", "rg-box"); w.append(x); return w; };
+    main.append(el("h3", "rg-h", a.name), ...[editForm(a), docsBlock(a), ...(window.ragSync ? [window.ragSync.block(a, { reload: reloadAll })] : []), indexBlock(a), tryBlock(a)].map(box));
     const sure = armed === "delete", bar = el("div", "rg-bar");
     const del = btn(sure ? T("rg.delete.sure") : T("rg.delete"), "rg-warn", () => { if (!sure) arm("delete"); else remove(); });
     del.id = "rg-delete";
@@ -488,10 +551,13 @@
     if (creating) { main = el("div", "rg-main"); main.append(el("h3", "rg-h", T("rg.new")), createForm()); }
     else if (detail) main = detailView();
     else { main = el("div", "rg-main"); main.append(el("p", "rg-help", T("rg.pick"))); }
-    const layout = el("div", "rg-layout");
-    layout.append(sideList(), main);
+    const layout = el("div", "rg-layout"), left = el("div", "rg-left"), right = el("div", "rg-right");
+    const box = x => { const w = el("section", "rg-box"); w.append(x); return w; };                      // each group of functions in a container of its own
+    left.append(projectsList(), sideList());
+    right.append(main, ...[banner(), semanticBlock(), settingsBlock(), window.RagImages ? window.RagImages.block(paint) : "", window.RagDatabase && project ? window.RagDatabase.block(project, paint, reloadAll) : null].filter(Boolean).map(box));
+    layout.append(left, right);
     const stop = jobNow ? btn(T("rg.job.cancel"), "", cancelJob) : null;
-    host.replaceChildren(el("p", "rg-intro", T("rg.intro")), projectPicker(), banner(), ...[semanticBlock(), settingsBlock(), window.RagImages ? window.RagImages.block(paint) : "", window.RagDatabase && project ? window.RagDatabase.block(project, paint, reloadAll) : null].filter(Boolean), status, ...(stop ? [stop] : []), layout);
+    host.replaceChildren(el("p", "rg-intro", T("rg.intro")), status, ...(stop ? [stop] : []), layout);
     const again = focus && document.getElementById(focus);
     if (again && again !== document.activeElement) again.focus();
   }
