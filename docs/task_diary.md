@@ -1,6 +1,6 @@
 # Diario dei task
 
-Ultimo aggiornamento: 17 novembre 2026. Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
+Ultimo aggiornamento: 17 novembre 2026 (6.2 fatto, nuovi punti 7.20-7.22). Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti da «9 novembre» e da «Decisioni tue in attesa». Le sezioni dell'8, 7, 5 e 4 novembre sono in `docs/task_diary_archive.md`.
 
 ## Lista di lavoro del 17 novembre (tasks e subtasks, aggiornata a ogni passo)
@@ -32,8 +32,8 @@ Legenda: [x] fatto e verificato, [~] iniziato, [ ] da fare. Un punto per riga.
    - [ ] 5.1 Analisi di Docker.
    - [ ] 5.2 IQ3_S.
 6. [~] Correggere i due test che falliscono.
-   - [x] 6.1 Disegno dei diagrammi: il test cercava un vecchio nome di variabile, corretto (non ancora committato).
-   - [ ] 6.2 Barra dei pulsanti (cs-system e cs-stop sotto i 44 px).
+   - [x] 6.1 Disegno dei diagrammi: il test cercava un vecchio nome di variabile, corretto (commit 784fd328).
+   - [x] 6.2 Pannello di inferenza nell'editor dei piani: le caselle cs-system e cs-stop erano schiacciate a 0 px da una regola delle note dei piani (`plans.css`, `.pl-panel textarea`); ora almeno 44 px. `test_inference_page.py` passa (browser vero a 360x640, 390x844, 1280x800). Resta un altro test che fallisce da prima, non richiesto: `test_visuals_page` (immagini nelle risposte).
 8. [x] Verifica del diario (17 novembre): il file contiene 8 copie intere una dopo l'altra (righe 1, 611, 945, 1309, 1643, 2015, 2349, 2707); vale la prima. [ ] Pulizia: tenere una sola copia e segnare chiuse le voci vecchie già fatte.
 7. [ ] Sezione Knowledge/RAG, da completare. Prima di tutto: la ricerca web segue anche i link delle pagine lette e giudica con la sessione tecnica se il link è coerente (a gruppi, secondo il limite di token).
    - [ ] 7.1 Creare e cancellare progetti.
@@ -55,6 +55,9 @@ Legenda: [x] fatto e verificato, [~] iniziato, [ ] da fare. Un punto per riga.
    - [ ] 7.17 Aggiunta in linguaggio naturale con l'LLM: lista con caselle, bottoni estendi ricerca, importa tutti, importa selezionati, cancella.
    - [ ] 7.18 «Taglia di nuovo le letture e confronta»: spiegarlo.
    - [ ] 7.19 Contenitori separati per gruppi di funzioni (copertura, indice, prova una domanda, albero, aggiunta file, pagine web), spazio minimo tra i contenitori.
+   - [ ] 7.20 Documenti spariti dalla fonte: un aggiornamento programmato NON li cancella; li segna «versione passata, non più disponibile» (deciso il 17 novembre).
+   - [ ] 7.21 Versione da cui estrarre i passaggi, scelta per ogni singolo archivio; predefinita: l'ultima; la scelta resta salvata tra le sessioni (deciso il 17 novembre).
+   - [ ] 7.22 Domanda tua: come si leggono (ingestione) e poi si forniscono le immagini? Risposta da dare dopo aver guardato il codice.
 
 ## 16 novembre
 

@@ -364,6 +364,7 @@ body[data-view="plans"] .plrow { height: 100%; gap: 8px; }
 .pl-side .pad, .pl-lower .pad { padding: 4px 10px; }
 .pl-lower p, .pl-lower ul { margin-block: 2px; }
 .pl-panel textarea, .pl-lower textarea { min-height: 0; max-height: 40vh; resize: vertical; line-height: 1.35; padding-block: 4px; }
+.pl-panel .csgroup textarea, .pl-lower .csgroup textarea { min-height: 44px; }
 /* the log lines: left aligned, one line each, close together */
 .pl-lower .rl-log, .pl-lower .pl-hist { text-align: left; padding: 2px 8px; min-height: 0; max-height: 220px; }
 .pl-lower .rl-card, .pl-lower .rl-entry, .pl-lower .chg-row { margin: 0; padding: 1px 0; border: 0; border-radius: 0; background: transparent; text-align: left; justify-content: flex-start; font: 400 12px/1.35 var(--font-mono); }
