@@ -162,8 +162,8 @@ class RunningServer(Isolated):
         super().setUp()
         root = Path(self.dir.name)
         self.cfg = root / "tadamoo_config.json"
-        self.cfg.write_text(json.dumps({"server": {"port": PORT}}), encoding="utf-8")
         self.model = tiny_basalt(root / "a.basalt", "A")
+        self.cfg.write_text(json.dumps({"server": {"port": PORT, "model": str(self.model)}}), encoding="utf-8")        # the script wants a model to be chosen, wherever it is asked
         profiles.change({"action": "save", "kind": "load", "name": "Uguale", "values": {"server.side-slot": 0}})
         profiles.change({"action": "save", "kind": "load", "name": "Corto", "values": {"engine.max-context": 8192, "server.side-slot": 0}})
         self.envs = {**os.environ, "TADAMOO_DATA": self.dir.name, "TADAMOO_CACHE": self.dir.name, "PYTHONUTF8": "1",

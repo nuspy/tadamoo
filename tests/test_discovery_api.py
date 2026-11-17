@@ -87,7 +87,8 @@ def test_the_installed_one_shows_in_the_tree_as_installed_by_basalt_and_approved
     assert entry["origin"] == "tadamoo" and entry["state"] == "approved"
 
 
-def test_the_search_settings_and_removal_do_not_look_at_the_origin(setup):
+def test_the_search_settings_and_removal_are_refused_to_a_page_of_another_site_and_done_for_this_one(setup):
     api, _ = setup
-    assert api("POST", "/api/capabilities/online", {"auto_install": True}, headers={"Origin": "http://evil.example"})[0] == 200
+    assert api("POST", "/api/capabilities/online", {"auto_install": True}, headers={"Origin": "http://evil.example"})[0] == 403          # the Host/Origin guard is on
+    assert api("POST", "/api/capabilities/online", {"auto_install": True})[0] == 200
     assert api("GET", "/api/capabilities/online")[1]["settings"]["auto_install"] is True
