@@ -480,8 +480,8 @@ class Scheduler:
             raise RoutineError("A new-session routine has no 'ref'.", "bad_deliver_to")
         if not isinstance(message, str) or len(message) > MESSAGE_MAX:
             raise RoutineError(f"The message is at most {MESSAGE_MAX} characters.", "bad_message")
-        if deliver_to["kind"] == "knowledge" and message.strip() not in ("check", "update"):
-            raise RoutineError("A knowledge routine's message is 'check' (look for changes) or 'update' (look, then read again what changed).", "bad_message")
+        if deliver_to["kind"] == "knowledge" and message.strip() not in ("check", "update", "due"):
+            raise RoutineError("A knowledge routine's message is 'check' (look for changes), 'update' (look, then read again what changed) or 'due' (read again the nodes of the tree whose own schedule says they are due).", "bad_message")
         if link is not None and (not isinstance(link, dict) or set(link) - {"plan"} or (("plan" in link) and not isinstance(link["plan"], str))):
             raise RoutineError("The link is {\"plan\": a plan id}, or empty.", "bad_link")
         if rag_archives is not None and (not isinstance(rag_archives, list) or len(rag_archives) > 50 or any(not isinstance(a, str) or not _ARCHIVE.match(a) for a in rag_archives)):

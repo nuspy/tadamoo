@@ -17,3 +17,19 @@
 .rs-deep { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
 .rs-deep input { width: 24px; height: 24px; accent-color: var(--accent); }
 @media (max-width: 520px) { .rs-item-b .btn { flex: 1 1 100%; } }
+
+.rs-tree-list { list-style: none; margin: 0; padding: 0 0 0 14px; display: grid; gap: 4px; }
+.rs-tree-root { padding-left: 0; }
+.rs-node { min-width: 0; }
+.rs-nrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 0; min-height: 44px; }
+.rs-nrow .rg-doc { flex: 1 1 260px; min-width: 0; }
+.rs-nlabel { font-weight: 600; overflow-wrap: anywhere; }
+.rs-toggle { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 0; background: none; border: 0; color: var(--fg-2); cursor: pointer; }
+.rs-leaf { cursor: default; }
+.rs-nrow input[type="checkbox"] { width: 24px; height: 24px; margin: 10px; }
+.rs-freq, .rs-nrow .btn { min-height: 44px; }
+.rs-fgroup { display: grid; gap: 8px; margin: 6px 0; }
+.rs-days { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
+.rs-day { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.rs-day input { width: 24px; height: 24px; }
+.rg-dlg select, .rg-dlg input[type="number"], .rg-dlg input[type="time"], .rg-dlg input[type="text"] { width: 100%; min-height: 44px; padding: 8px 10px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font: 400 16px/1.5 var(--font-sans); }

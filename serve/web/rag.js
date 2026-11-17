@@ -78,6 +78,7 @@
     await reloadDetail();
   }
   async function reloadAll() {
+    if (chosen && window.ragSync && window.ragSync.invalidate) window.ragSync.invalidate(chosen);              // the tree is drawn again from what the archive holds now
     await loadProjects();
     await loadArchives();
     if (chosen) await reloadDetail(); else paint();
@@ -456,8 +457,8 @@
     box.setAttribute("aria-labelledby", "rg-docs-h");
     const h = el("h4", "rg-h2", T("rg.docs.title")); h.id = "rg-docs-h";
     box.append(h);
-    a.document_list.forEach(d => {
-      const li = el("li", "rg-doc"), text = el("div", "rg-doc-t");
+    const docRow = d => {
+      const li = el("div", "rg-doc"), text = el("div", "rg-doc-t");
       text.append(el("span", "rg-dname", d.name), el("span", "rg-dmeta", T("rg.doc.meta", size(d.bytes), d.chunks)),
         el("span", "rg-dmeta", T(READ_BY[d.extraction] || READ_BY.basic, d.pages || 0) + (d.flagged ? " " + T("rg.doc.flagged", d.flagged) : "")));
       if (d.figures) text.append(el("span", "rg-dmeta", T("rg.doc.figures", d.figures) + ((d.coverage && (d.coverage.figure_pages || []).length) ? " " + T("rg.doc.figpages", d.coverage.figure_pages.join(", ")) : "")));
@@ -481,9 +482,12 @@
         const grid = figuresBlock(a, d);
         if (grid) li.append(grid);
       }
-      ul.append(li);
-    });
-    box.append(a.document_list.length ? ul : el("p", "rg-help", T("rg.docs.none")));
+      return li;
+    };
+    const byId = Object.fromEntries(a.document_list.map(d => [d.id, d]));
+    const treeEl = window.ragSync && window.ragSync.tree ? window.ragSync.tree(a, id => (byId[id] ? docRow(byId[id]) : null)) : null;
+    a.document_list.forEach(d => { const li = el("li"); li.append(docRow(d)); ul.append(li); });
+    box.append(!a.document_list.length ? el("p", "rg-help", T("rg.docs.none")) : (treeEl || ul));
     const pick = el("input"); pick.type = "file"; pick.multiple = true; pick.accept = S.formats.join(","); pick.disabled = working;
     pick.onchange = () => addFiles([...pick.files]);
     const path = textInput("", 500); path.inputMode = "url";
@@ -535,7 +539,7 @@
   function detailView() {
     const a = detail.archive, main = el("div", "rg-main");
     const box = x => { const w = el("section", "rg-box"); w.append(x); return w; };
-    main.append(el("h3", "rg-h", a.name), ...[editForm(a), docsBlock(a), ...(window.ragSync ? [window.ragSync.block(a, { reload: reloadAll })] : []), indexBlock(a), tryBlock(a)].map(box));
+    main.append(el("h3", "rg-h", a.name), ...[editForm(a), docsBlock(a), ...(window.ragSync ? [window.ragSync.block(a, { reload: reloadAll, paint })] : []), indexBlock(a), tryBlock(a)].map(box));
     const sure = armed === "delete", bar = el("div", "rg-bar");
     const del = btn(sure ? T("rg.delete.sure") : T("rg.delete"), "rg-warn", () => { if (!sure) arm("delete"); else remove(); });
     del.id = "rg-delete";

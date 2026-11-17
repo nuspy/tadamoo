@@ -29,9 +29,13 @@ class RagSyncPageTest(unittest.TestCase):
         keys = set(re.findall(r'T\("(rs\.[a-z0-9.]+)"', JS))
         keys |= {f"rs.stage.{s}" for s in ("checking", "waiting", "fetching", "reading", "cutting", "indexing", "saving", "comparing", "recutting")}
         keys |= {f"rs.kind.{k}" for k in ("folder", "file", "url", "mediawiki", "wikibridge")} | {f"rs.level.{k}" for k in ("error", "warn", "info")}
-        keys |= {f"rs.sched.act.{k}" for k in ("check", "update")} | {"rs.sched.check", "rs.sched.update", "rs.f.file", "rs.f.folder"}
+        keys |= {"rs.f.file", "rs.f.folder"}
+        keys |= {f"rs.tree.kind.{k}" for k in ("folder", "file", "url", "mediawiki", "wikibridge", "hand")} | {f"rs.tree.unit.{u}" for u in ("minutes", "hours", "days", "weeks", "months", "years")}
+        keys |= {f"rs.tree.day.{d}" for d in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")} | {f"rs.tree.nth.{n}" for n in ("1", "2", "3", "4", "-1")}
+        keys |= {f"rs.tree.f.{k}" for k in ("first_workday", "last_workday")} | {f"rs.tree.k.{k}" for k in ("weekday", "monthday", "nth", "first_workday", "last_workday")}
+        keys |= {f"rs.tree.m.{k}" for k in ("manual", "interval", "parts", "occurrence")}
         keys |= {f"rs.state.{k}" for k in ("changed", "new", "gone", "error", "pinned", "unchanged", "updated", "added", "linked", "failed", "wouldupdate", "wouldadd")}
-        keys -= {"rs.stage.", "rs.kind.", "rs.level."}
+        keys -= {"rs.stage.", "rs.kind.", "rs.level.", "rs.tree.kind.", "rs.tree.unit.", "rs.tree.day.", "rs.tree.nth.", "rs.tree.f.", "rs.tree.k.", "rs.tree.m."}
         self.assertGreater(len(keys), 100)
         for key in sorted(keys):
             self.assertEqual(I18N.count(f'"{key}":'), 2, key)
@@ -47,11 +51,13 @@ class RagSyncPageTest(unittest.TestCase):
     def test_it_is_wired_into_the_page_and_the_archive_view(self):
         self.assertLess(HTML.index("web/ragsync.js"), HTML.index("web/rag.js"))
         self.assertIn('href="web/ragsync.css"', HTML)
-        self.assertIn("window.ragSync.block(a, { reload: reloadAll })", RAG)
+        self.assertIn("window.ragSync.block(a, { reload: reloadAll, paint })", RAG)
+        self.assertIn("window.ragSync.tree(a,", RAG)
+        self.assertIn("window.ragSync.invalidate(chosen)", RAG)                                      # a document added or removed shows in the tree at once                                              # the tree takes the place of the flat list of documents
         self.assertIn("window.ragSync.docLines(d)", RAG)
 
     def test_removing_anything_takes_two_presses_and_a_phone_gets_big_targets(self):
-        for armed in ('armed === "g" + it.doc', 'armed === "s" + s.id', 'armed === "r" + r.id', "armed === key"):
+        for armed in ('armed === "g" + it.doc', 'armed === "s" + s.id', "armed === key"):
             self.assertIn(armed, JS)
         self.assertRegex(CSS, r"@media \(max-width: 520px\) \{ \.rs-item-b \.btn \{ flex: 1 1 100%; \} \}")
         self.assertIn("overflow-wrap: anywhere", CSS)

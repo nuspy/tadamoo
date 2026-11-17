@@ -41,6 +41,9 @@ const view = () => ({
     { id: "s1:sources/vpn.md", doc: "d2", name: "VPN guide", state: "gone", detail: "not listed" }] },
   coverage: { documents: 2, ok: 1, check: 1, incomplete: 0, unknown: 0, pages: 10, covered: 9, flagged: 0, failed: [], problems: [{ doc: "d1", name: "Handbook", status: "check", problems: ["1 page hold no passage"] }], status: "check" },
 });
+const doc = (id, label, own, state) => ({ id: "x:" + id, type: "doc", doc: id, label, own, state, freq: null, last: 0, since: 0, children: [] });
+const TREE = { options: {}, tree: [{ id: "k:wikibridge", type: "kind", label: "wikibridge", own: true, state: "mixed", freq: null, children: [
+  { id: "s:s1", type: "source", label: "acme", source: "s1", own: true, state: "mixed", freq: { mode: "interval", every: 6, unit: "hours" }, children: [doc("d1", "Handbook", true, "on"), doc("d2", "VPN guide", false, "off")] }] }] };
 const asked = [], posted = [];
 let jobPolls = 0;
 const answer = (status, body) => ({ ok: status < 400, status, json: async () => body });
@@ -52,6 +55,8 @@ const fetch = async (url, opts) => {
   if (url === "api/rag/archives/wiki-1/sync") return answer(200, view());
   if (url === "api/routines" && method === "GET") return answer(200, { routines: [{ id: "r1", name: "n", schedule: "daily 03:00", message: "check", deliver_to: { kind: "knowledge", ref: "wiki-1" }, last_run: 0 }] });
   if (url === "api/routines" && method === "POST") return answer(200, { routine: { id: "r2" } });
+  if (url === "api/rag/archives/wiki-1/tree") return answer(200, TREE);
+  if (/archives\/wiki-1\/tree\/(follow|remove)$/.test(url)) return answer(200, { ...TREE, removed_documents: 1 });
   if (url === "api/knowledge") return answer(200, { wiki_url: "http://127.0.0.1:8775", wiki_project: "acme" });
   if (method === "POST" && /archives\/wiki-1\/(check|refresh|verify)$|documents\/d1\/rollback$/.test(url)) return answer(200, { job: { id: "j1", state: "running", stage: "fetching" } });
   if (url === "api/rag/jobs/j1") { jobPolls += 1; return answer(200, { job: { id: "j1", state: "done", result: { summary: "1 updated", items: [{ id: "s1:sources/handbook.md", state: "would update", passages: { added: 2, removed: 1, kept: 5 }, examples: { added: ["new text"], removed: ["old text"] } }], ok: true, errors: 0, problems: [], archive: "wiki-1" } } }); }
@@ -135,16 +140,42 @@ t("a source is added with the wiki's address and project from the settings", asy
   await new Promise(r => setTimeout(r, 40));
   eq(posted.find(p => p.url.endsWith("/sources")).body, { kind: "wikibridge", address: "http://127.0.0.1:8775", project: "acme" });
 });
-t("a schedule is a routine that delivers to the archive, with check or update as its message", async () => {
-  const box = await show();
-  const sel = box.tag("SELECT").find(s => s.elements.some(o => o.value === "update"));
-  sel.value = "update";
-  const row = sel.parent.parent;
-  row.buttons("rs.sched.add")[0].onclick();
-  await new Promise(r => setTimeout(r, 40));
-  const made = posted.find(p => p.url === "api/routines");
-  eq([made.body.deliver_to, made.body.message, made.body.schedule], [{ kind: "knowledge", ref: "wiki-1" }, "update", "daily 03:00"]);
-  if (!current.textContent.includes("rs.sched.check:daily 03:00")) throw new Error("the routine of this archive is not listed");
+t("the tree has a switch for each node and each document with three states, and a switch sends the node and the new state", async () => {
+  await show();
+  const holder = window.ragSync.tree({ id: "wiki-1" }, id => { const s = new El("span"); s.textContent = "doc " + id; return s; });
+  if (!holder) throw new Error("the tree did not come");
+  const boxes = holder.tag("INPUT").filter(i => i.type === "checkbox");
+  eq(boxes.map(b => b.id), ["rs-cb-k:wikibridge", "rs-cb-s:s1", "rs-cb-x:d1", "rs-cb-x:d2"]);
+  eq(boxes.map(b => [b.checked, b.indeterminate]), [[false, true], [false, true], [true, false], [false, false]]);          // mixed, mixed, on, off
+  eq(holder.textContent.includes("doc d1") && holder.textContent.includes("rs.tree.f.short:rs.tree.f.every:6|rs.tree.unit.hours"), true);
+  posted.length = 0;
+  boxes[3].onchange();
+  await settle();
+  eq(posted.find(p => p.url.endsWith("/tree/follow")).body, { node: "x:d2", on: true });
+  boxes[1].onchange();                                                                         // a mixed node turns on
+  await settle();
+  eq(posted.filter(p => p.url.endsWith("/tree/follow")).pop().body, { node: "s:s1", on: true });
+});
+t("when the archive changes the tree is asked for again", async () => {
+  await show();
+  if (!window.ragSync.tree({ id: "wiki-1" }, () => null)) throw new Error("the tree was not there");
+  window.ragSync.invalidate("wiki-1");
+  eq(window.ragSync.tree({ id: "wiki-1" }, () => null), null);                      // nothing stale is drawn while it comes again
+  await settle();
+  if (!window.ragSync.tree({ id: "wiki-1" }, () => null)) throw new Error("the tree did not come again");
+});
+t("removing a node takes two presses and says its documents are removed from the archive", async () => {
+  await show();
+  const holder = window.ragSync.tree({ id: "wiki-1" }, () => null);
+  posted.length = 0;
+  holder.buttons("rs.tree.remove")[1].onclick();
+  await settle();
+  eq(posted.some(p => p.url.endsWith("/tree/remove")), false);
+  const again = window.ragSync.tree({ id: "wiki-1" }, () => null).buttons("rs.tree.remove.sure");
+  eq(again.length, 1);
+  again[0].onclick();
+  await settle();
+  eq(posted.find(p => p.url.endsWith("/tree/remove")).body.confirm, true);
 });
 t("the versions of a document are listed and putting one back takes two presses", async () => {
   const box = await show();
