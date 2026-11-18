@@ -191,7 +191,7 @@ def create_standard_tool_registry(
     register_todo_tool(registry)
     try:                                                      # the dark web tools exist only while the person has the option on
         from tadamoo.darkweb_runtime import offer_darkweb, shared
-        offer_darkweb(registry, shared())
+        offer_darkweb(registry, shared(), secrets)
     except Exception:
         pass
     registry.mark_stable()

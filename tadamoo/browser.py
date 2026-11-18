@@ -1218,14 +1218,19 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
                            permissions: str = bc.DEFAULT_PERMISSIONS, confirm: Optional[Callable[[str, Dict[str, Any]], bool]] = None,
                            audit: Optional[Callable[[str, Dict[str, Any]], None]] = None,
                            screenshots: Optional[Callable[[bytes, str], Dict[str, Any]]] = None, auto: Optional[Callable[[], bool]] = None,
-                           rules: Optional[Callable[[], List[str]]] = None, cdp_url: str = "") -> Browser:
-    """Adds the browser tools. The browser starts at the first use and is closed with the conversation. With `screenshots` (it keeps a picture as a file of the
-    conversation and returns its card) the model can take a picture of the page: on its own, or after an action that changes the page."""
+                           rules: Optional[Callable[[], List[str]]] = None, cdp_url: str = "", name_prefix: str = "browser",
+                           url_check: Optional[Callable[[str], None]] = None) -> Browser:
+    """Adds the browser tools, named `{name_prefix}_open` and so on (a second, differently named set can share the registry: the dark web's own browser, on
+    its own proxied Browser, is the reason this exists). The browser starts at the first use and is closed with the conversation. With `screenshots` (it
+    keeps a picture as a file of the conversation and returns its card) the model can take a picture of the page: on its own, or after an action that
+    changes the page. `url_check`, when given, is asked about an address before `{name_prefix}_open` goes there (it raises BrowserError to refuse one); the
+    ordinary browser has none."""
     from tadamoo.tools.registry import EffectClass
 
     mask = secrets.mask_secrets if secrets is not None else (lambda t: t)
     b = browser or Browser(profile_dir, headless, executable, allow_private, mask, persistent, consent, permissions, confirm, audit, auto, rules, cdp_url)
     b.mask = mask
+    tool_name = f"{name_prefix}_{{}}".format
 
     def shown(page: Dict[str, Any], **view: Any) -> str:
         text = mask(describe(page, b.hidden, **view))
@@ -1249,7 +1254,7 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
             return f"Screenshot not taken: {e}"
         name = re.sub(r"[^A-Za-z0-9_-]+", "_", urlparse(b.page_url).hostname or "page").strip("_")[:30] or "page"
         card = screenshots(data, f"screenshot_{name}_{time.strftime('%H%M%S')}.png")
-        b._record("browser_screenshot", {"site": b.page_url[:100], "file": card.get("name", ""), "bytes": len(data), "full_page": bool(full_page)})
+        b._record(tool_name("screenshot"), {"site": b.page_url[:100], "file": card.get("name", ""), "bytes": len(data), "full_page": bool(full_page)})
         where = f" Path: {card['path']}." if card.get("path") else ""
         return (f"Screenshot of {b.page_url[:100]} kept as [file:{card['id']}:{card['name']}] ({len(data) // 1000} kB).{where} Look at it with analyze_image "
                 f"(path output:{card['id']}); show it in your answer with ![caption](tadamoo-file:{card['id']}).")
@@ -1266,12 +1271,17 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
             return props
         return {**props, "screenshot": {"type": "boolean", "description": "also keep a picture of the page this leads to (a file of the conversation, its path is returned)"}}
 
+    def do_open(url: str) -> str:
+        if url_check is not None:
+            url_check(url)
+        return shown(b.open(url))
+
     ref_prop = {"ref": {"type": "integer", "description": "the number of the element, from the last reading of the page"}}
-    registry.register("browser_open", "Opens a web page in the browser and reads it: numbered elements (links, buttons, fields) and the text.",
+    registry.register(tool_name("open"), "Opens a web page in the browser and reads it: numbered elements (links, buttons, fields) and the text.",
                       {"type": "object", "properties": shot_prop({"url": {"type": "string"}}), "required": ["url"]}, EffectClass.PURE,
-                      with_shot(guard(lambda url: shown(b.open(url)))), untrusted=True, outward=True)
+                      with_shot(guard(lambda url: do_open(url))), untrusted=True, outward=True)
     if screenshots is not None:
-        registry.register("browser_screenshot", "Takes a picture of the page that is open and keeps it as a file of the conversation; returns its path and how to look at it. In a "
+        registry.register(tool_name("screenshot"), "Takes a picture of the page that is open and keeps it as a file of the conversation; returns its path and how to look at it. In a "
                           "browser where a value from the vault was typed the person is asked first (the picture could show it).",
                           {"type": "object", "properties": {"full_page": {"type": "boolean", "description": "the whole page, not only what the window shows (default false)"}}},
                           EffectClass.REVERSIBLE, guard(lambda full_page=False: take(bool(full_page))), untrusted=True)
@@ -1281,10 +1291,10 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
                   "role": {"type": "string", "description": "list only this kind of element: link, button, input, select, checkbox, textarea..."},
                   "words_from": {"type": "integer", "description": "read the page text from this word (default: the start)"},
                   "words": {"type": "integer", "description": f"how many words of the text to read (default {TEXT_WORDS})"}}
-    registry.register("browser_read", "Reads the page that is open again: its numbered elements, in pages or filtered with contains and role, and its text in words. "
+    registry.register(tool_name("read"), "Reads the page that is open again: its numbered elements, in pages or filtered with contains and role, and its text in words. "
                       "The numbers are those of the whole page, so an element found by a filter can be clicked at once.", {"type": "object", "properties": read_props},
                       EffectClass.PURE, guard(lambda **view: shown(b.snapshot(), **view)), untrusted=True)
-    registry.register("browser_click", "Clicks an element of the page (a link, a button, a box to tick) and reads the page that follows.",
+    registry.register(tool_name("click"), "Clicks an element of the page (a link, a button, a box to tick) and reads the page that follows.",
                       {"type": "object", "properties": shot_prop(ref_prop), "required": ["ref"]}, EffectClass.IRREVERSIBLE, with_shot(guard(lambda ref: shown(b.click(ref)))), untrusted=True, outward=True)
 
     def type_into(ref: int, text: str, submit: bool = False, clear: bool = True) -> Any:
@@ -1301,7 +1311,7 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
         page = b.type(ref, text, submit, clear, secret=from_vault)
         return shown(page)
 
-    registry.register("browser_type", "Types text into a field of the page. Write {{vault:ENTRY.FIELD}} (or {{secret:NAME}}) for a value from the person's vault; "
+    registry.register(tool_name("type"), "Types text into a field of the page. Write {{vault:ENTRY.FIELD}} (or {{secret:NAME}}) for a value from the person's vault; "
                       "it is filled in only on a site its entry names, and you never see it.",
                       {"type": "object", "properties": {**ref_prop, "text": {"type": "string"}, "submit": {"type": "boolean", "description": "press Enter after"},
                                                         "clear": {"type": "boolean", "description": "replace what is in the field (default true)"}},
@@ -1346,17 +1356,17 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
             out = shown(b.press("Enter"))
         return out if out is not None else {"error": f"'{entry}' has no user name or password to fill in."}
 
-    registry.register("browser_sign_in", "Signs in on the open page with a login from the person's vault: fills the user name and the password (never shown to you). "
-                      "Only on a site the entry names. If the page asks for a code, write {{vault:ENTRY.totp}} in the field with browser_type.",
+    registry.register(tool_name("sign_in"), "Signs in on the open page with a login from the person's vault: fills the user name and the password (never shown to you). "
+                      f"Only on a site the entry names. If the page asks for a code, write {{{{vault:ENTRY.totp}}}} in the field with {tool_name('type')}.",
                       {"type": "object", "properties": {"entry": {"type": "string", "description": "the name of the login in the vault"},
                                                         "submit": {"type": "boolean", "description": "press Enter after the password"}}, "required": ["entry"]},
                       EffectClass.IRREVERSIBLE, guard(sign_in), untrusted=True, outward=True)
-    registry.register("browser_select", "Chooses an option in a list of the page, by its value or its visible text.",
+    registry.register(tool_name("select"), "Chooses an option in a list of the page, by its value or its visible text.",
                       {"type": "object", "properties": shot_prop({**ref_prop, "value": {"type": "string"}}), "required": ["ref", "value"]}, EffectClass.IRREVERSIBLE,
                       with_shot(guard(lambda ref, value: shown(b.select(ref, value)))), untrusted=True, outward=True)
-    registry.register("browser_press", "Presses a key: Enter, Tab, Escape, Backspace, the arrows or Space.",
+    registry.register(tool_name("press"), "Presses a key: Enter, Tab, Escape, Backspace, the arrows or Space.",
                       {"type": "object", "properties": shot_prop({"key": {"type": "string", "enum": list(KEYS)}}), "required": ["key"]}, EffectClass.IRREVERSIBLE,
                       with_shot(guard(lambda key: shown(b.press(key)))), untrusted=True, outward=True)
-    registry.register("browser_back", "Goes back to the page before.", {"type": "object", "properties": shot_prop({})}, EffectClass.IRREVERSIBLE,
+    registry.register(tool_name("back"), "Goes back to the page before.", {"type": "object", "properties": shot_prop({})}, EffectClass.IRREVERSIBLE,
                       with_shot(guard(lambda: shown(b.back()))), untrusted=True)
     return b
