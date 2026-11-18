@@ -30,4 +30,4 @@ Chat, Agentic coding, Required actions, Plans, Cron Jobs, Monitor, Models, Conne
 ## Funzioni costruite o decise che NON hanno ancora il loro controllo nella GUI
 - Connectors: pulsante «Configura» (configurazione guidata, più account per connettore), controllo aggiornamenti e unione, sotto-scheda «MCP apps» vuota, app Android e nativa.
 - Knowledge: scegliere una versione più vecchia di un archivio; installazione automatica degli ambienti Python (embedding, Docling).
-- Variabili d'ambiente lette dal codice senza controllo nella GUI: vedi l'elenco in `docs/task_diary.md`, voce «Audit GUI».
+- Variabili d'ambiente lette dal codice senza controllo nella GUI: controllate una per una il 18 novembre (`docs/task_diary.md`, voce «Audit GUI»). Nessuna è una funzione vera nascosta: sistema operativo, solo test, argomenti di strumenti a riga di comando separati, leve di chi gestisce la macchina (non preferenze personali), valori di partenza di campi che la GUI ha già, o credenziali personali già coperte da `CLAUDE.md`.
