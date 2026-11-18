@@ -333,6 +333,55 @@
     document.body.append(dlg); dlg.showModal();
   }
 
+  /* the three-way merge of an update to a GitHub skill (Connectors module decisions, 16 Nov): what stays, what upstream changes, what the person's own
+     edit keeps, and the real conflicts (both changed it) the person resolves one by one, next to the model's advisory review of what would actually
+     change. Nothing applies until every conflict has a choice. */
+  async function mergeDialog(item) {
+    const dlg = el("dialog", "cx-dlg"), box = el("div", "cx-merge");
+    dlg.id = "cx-mergedlg"; dlg.setAttribute("aria-label", T("cx.merge.title", item.name));
+    box.append(el("h3", "cx-bh", T("cx.merge.title", item.name)), el("p", "help", T("cx.merge.loading")));
+    dlg.append(box); dlg.onclose = () => dlg.remove(); document.body.append(dlg); dlg.showModal();
+
+    const r = await api("POST", "api/connectors/update/plan", { id: item.id });
+    if (!r.ok) { box.replaceChildren(el("h3", "cx-bh", T("cx.merge.title", item.name)), el("p", "cx-why", errText(r)), btn(T("cx.tree.close"), "", () => dlg.close())); return; }
+    const d = r.data, resolutions = {};
+    paint();
+
+    function paint() {
+      box.replaceChildren(el("h3", "cx-bh", T("cx.merge.title", item.name)));
+      box.append(el("p", "help", T("cx.merge.counts", d.counts.upstream, d.counts.kept, d.counts.same)));
+      if (!d.has_base) box.append(el("p", "cx-why", T("cx.merge.nobase")));
+      const rv = d.review;
+      if (rv) {
+        box.append(el("p", "cx-verdict cx-v-" + rv.verdict, T("cx.verdict." + rv.verdict) + (rv.summary ? ": " + rv.summary : "") + (rv.note ? " (" + rv.note + ")" : "")));
+        if (rv.risks && rv.risks.length) { const ul = el("ul", "cx-facts"); rv.risks.forEach(x => ul.append(el("li", "", x))); box.append(ul); }
+      }
+      const list = el("ul", "cx-merge-list");
+      Object.entries(d.files).filter(([, o]) => o !== "same").sort(([a], [b]) => a.localeCompare(b)).forEach(([path, outcome]) => {
+        const li = el("li", "cx-merge-row cx-merge-" + outcome);
+        li.append(el("span", "cx-merge-path", path), el("span", "cx-merge-tag", T("cx.merge." + outcome)));
+        if (outcome === "conflict") {
+          const pick = el("div", "cx-merge-pick");
+          ["upstream", "kept"].forEach(choice => pick.append(btn(T("cx.merge.choice." + choice), resolutions[path] === choice ? "primary" : "", () => { resolutions[path] = choice; paint(); })));
+          li.append(pick);
+        }
+        list.append(li);
+      });
+      box.append(list);
+      const conflicts = Object.keys(d.files).filter(p => d.files[p] === "conflict");
+      const apply = btn(T("cx.merge.apply"), "primary", async () => {
+        apply.disabled = true;
+        const w = await api("POST", "api/connectors/update/apply", { id: item.id, resolutions });
+        if (w.ok) { delete S.updates[item.id]; say(T("cx.upd.done", item.name), false); dlg.close(); await load(); }
+        else { note.textContent = errText(w); note.className = "cx-why"; note.setAttribute("role", "alert"); apply.disabled = false; }
+      });
+      apply.disabled = conflicts.some(p => !resolutions[p]);
+      const bar = el("div", "dw-bar"), note = el("p", "help"); note.setAttribute("role", "status");
+      bar.append(apply, btn(T("cx.tree.close"), "", () => dlg.close()));
+      box.append(bar, note);
+    }
+  }
+
   async function uninstallItem(item) {
     S.installing = item.id; draw();
     const r = await api("POST", "api/connectors/uninstall", { id: item.id });
@@ -417,7 +466,12 @@
       const cfg = btn(T("cx.cfg"), "", () => configureDialog(item), T("cx.cfg.tip")); cfg.id = "cx-config-" + item.id.replace(/[^a-z0-9]+/gi, "-");
       acts.append(cfg);
       const up = S.updates && S.updates[item.id];
-      if (up) acts.append(twice("p" + item.id, T("cx.upd", up.to), T("cx.upd.again"), T("cx.upd.tip", up.from, up.to), () => updateItem(item), "cx-update-" + item.id.replace(/[^a-z0-9]+/gi, "-")));
+      if (up && up.kind === "skill") {
+        const go = btn(T("cx.upd.review", up.to), "", () => mergeDialog(item), T("cx.upd.tip", up.from, up.to)); go.id = "cx-update-" + item.id.replace(/[^a-z0-9]+/gi, "-");
+        acts.append(go);
+      } else if (up) {
+        acts.append(twice("p" + item.id, T("cx.upd", up.to), T("cx.upd.again"), T("cx.upd.tip", up.from, up.to), () => updateItem(item), "cx-update-" + item.id.replace(/[^a-z0-9]+/gi, "-")));
+      }
     }
     if (acts.childNodes.length) li.append(acts);
     if (S.detail === item.id && S.tree) li.append(detail(S.tree));

@@ -12,6 +12,8 @@
     POST /api/connectors/accounts/add|remove|default {id, name}       add, remove or set the default account (a second account onward keeps its own secrets apart)
     GET /api/connectors/config?id=&account=                          the variables of one account (default: the item's default account, or its only one)
     POST /api/connectors/configure/ask {id, question, history?, account?}   a guided answer about filling in the settings; the model sees field names only, never a value
+    POST /api/connectors/update/plan {id}                             a GitHub skill's update, file by file (same, upstream, kept, conflict) and a risk review of the diff
+    POST /api/connectors/update/apply {id, resolutions}                applies the plan; `resolutions` gives "upstream" or "kept" for every conflicting path
 """
 from __future__ import annotations
 
@@ -279,6 +281,31 @@ class ConnectorsApi:
             return {"installed": self.installer.update(item_id, {k: flags.get(k) is True for k in ("allow_scripts", "anyway")})}
         except ConnectorInstallError as e:
             raise ConnectorError(str(e), e.code or "install") from None
+
+    def update_plan(self, item_id: str) -> Dict[str, Any]:
+        """What updating this GitHub skill would do, file by file (tadamoo/connectors/merge3.py), plus the advisory review of what would actually
+        change (never of the files that stay the same or that only the person touched)."""
+        if self.installer is None:
+            raise ConnectorError("Updates are not available here.", "none")
+        try:
+            got = self.installer.update_plan(item_id)
+        except ConnectorInstallError as e:
+            raise ConnectorError(str(e), e.code or "merge") from None
+        client = None
+        try:
+            client = self.reviewer() if self.reviewer else None
+        except Exception:
+            client = None
+        got["review"] = review_mod.review_update(client, got["id"], got.pop("changed_text"))
+        return got
+
+    def apply_update(self, item_id: str, resolutions: Any) -> Dict[str, Any]:
+        if self.installer is None:
+            raise ConnectorError("Updates are not available here.", "none")
+        try:
+            return self.installer.apply_update(item_id, resolutions if isinstance(resolutions, dict) else {})
+        except ConnectorInstallError as e:
+            raise ConnectorError(str(e), e.code or "merge") from None
 
     def folder_settings(self, req: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Where the downloaded originals are kept, and which review(s) run before an install; any of `originals_dir`, `review_mode`,

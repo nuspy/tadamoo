@@ -387,13 +387,100 @@ class ConnectorInstaller:
         return {"updates": out, "errors": errors}
 
     def update(self, entry_id: str, flags: Dict[str, bool]) -> Dict[str, Any]:
-        """Installs the newer one over the installed one (the old one comes back if the new one fails). The downloaded original of the new commit is kept next to the old one."""
+        """Installs the newer one over the installed one (the old one comes back if the new one fails). The downloaded original of the new commit is kept next to the old one.
+        This replaces the installed copy whole: a change the person made directly to it is lost. `update_plan`/`apply_update` below merge instead, keeping it."""
         rec = self._record(entry_id)
         flags = {**flags, "update": True}
         if rec.get("route") == "skill":
             return self.install("github_skill", {"repo": rec["repo"], "path": rec.get("source_path") or "", "pin": rec.get("pin", ""), "name": rec.get("name", ""),
                                                   "description": rec.get("description", "")}, flags)
         raise ConnectorInstallError("Only a skill from GitHub can be updated from here for now.", "kind")
+
+    # -- three-way merge of an update -------------------------------------------------------------------
+
+    def _original_dir(self, rec: Dict[str, Any]) -> Optional[Path]:
+        """Where `_keep_original` put the download this skill was installed at, if the originals folder was set at the time: the common base for a merge."""
+        base = self.settings.read()["originals_dir"]
+        if not base or not rec.get("repo") or not rec.get("commit"):
+            return None
+        name = f"{rec['repo'].replace('/', '__')}@{str(rec['commit'])[:12]}__{str(rec.get('source_path') or '').replace('/', '_')}"
+        return Path(base) / "github" / name
+
+    def _new_commit(self, rec: Dict[str, Any]) -> tuple:
+        """The repository, the current ref and the commit it resolves to now, for a skill's own record."""
+        repo, path, pin = str(rec.get("repo") or ""), str(rec.get("source_path") or ""), str(rec.get("pin") or "")
+        github = self._github()
+        owner, _, project = repo.partition("/")
+        ref = pin or str(github.repo(owner, project).get("default_branch") or "HEAD")
+        return repo, path, github.head_commit(owner, project, ref)
+
+    def update_plan(self, entry_id: str) -> Dict[str, Any]:
+        """What updating this GitHub skill to its current commit would do, file by file (tadamoo/connectors/merge3.py): `same`, `upstream`, `kept` or
+        `conflict`. Nothing on disk changes; a conflict needs a choice before `apply_update` can run. `has_base` says whether a real three-way merge was
+        possible (the original download was kept) or every difference had to be called a conflict for lack of one to compare against."""
+        from tadamoo.connectors import merge3
+        rec = self._record(entry_id)
+        if rec.get("route") != "skill" or not rec.get("repo"):
+            raise ConnectorInstallError("Only a skill from GitHub can be merged from here.", "kind")
+        try:
+            repo, path, to_commit = self._new_commit(rec)
+            installed = Path(self.caps.index.dir) / str(rec.get("folder") or "")
+            base_dir = self._original_dir(rec)
+            with tempfile.TemporaryDirectory(prefix="tadamoo-merge-") as tmp:
+                theirs = self.fetch_skill(repo, path, to_commit, Path(tmp))
+                got = merge3.plan(base_dir if base_dir and base_dir.is_dir() else None, installed, theirs)
+                changed = merge3.changed_text(got, theirs)
+        except ConnectorInstallError:
+            raise
+        except (ValueError, OSError) as e:
+            raise ConnectorInstallError(str(e)[:300] or type(e).__name__, "merge") from None
+        return {"id": entry_id, "from_commit": str(rec.get("commit") or ""), "to_commit": to_commit, "has_base": bool(base_dir and base_dir.is_dir()),
+                "files": got, "changed_text": changed, "counts": {o: sum(1 for v in got.values() if v == o) for o in merge3.OUTCOMES}}
+
+    def apply_update(self, entry_id: str, resolutions: Dict[str, Any]) -> Dict[str, Any]:
+        """Applies the plan `update_plan` would compute now: `upstream` and `same` files resolve themselves, `kept` ones are left exactly as they are,
+        and every `conflict` needs `resolutions[path]` to be `"upstream"` or `"kept"` (checked before anything on disk is touched). The installed folder
+        is backed up first and put back if anything fails partway; the new commit is recorded and its own original kept, same as `update()`."""
+        from tadamoo.connectors import merge3
+        if not isinstance(resolutions, dict):
+            raise ConnectorInstallError("resolutions: an object of path to \"upstream\" or \"kept\"", "bad_resolution")
+        with self._lock:
+            rec = self._record(entry_id)
+            if rec.get("route") != "skill" or not rec.get("repo"):
+                raise ConnectorInstallError("Only a skill from GitHub can be merged from here.", "kind")
+            try:
+                repo, path, to_commit = self._new_commit(rec)
+                installed = Path(self.caps.index.dir) / str(rec.get("folder") or "")
+                base_dir = self._original_dir(rec)
+                backup = Path(tempfile.mkdtemp(prefix="tadamoo-mergebak-"))
+                try:
+                    if installed.is_dir():
+                        shutil.copytree(installed, backup / "ours")
+                    with tempfile.TemporaryDirectory(prefix="tadamoo-merge-") as tmp:
+                        theirs = self.fetch_skill(repo, path, to_commit, Path(tmp))
+                        got = merge3.plan(base_dir if base_dir and base_dir.is_dir() else None, installed, theirs)
+                        unresolved = [p for p, o in got.items() if o == merge3.CONFLICT and resolutions.get(p) not in ("upstream", "kept")]
+                        if unresolved:
+                            raise ConnectorInstallError("some files need a choice (\"upstream\" or \"kept\"): " + ", ".join(sorted(unresolved)[:5]), "conflicts")
+                        merge3.apply(got, installed, theirs, resolutions)
+                    (installed / ".tadamoo-source.json").write_text(f'{{"repo": "{repo}", "path": "{path}", "commit": "{to_commit}"}}', encoding="utf-8")
+                    rec["commit"], rec["version"] = to_commit, to_commit[:10]
+                    InstalledStore(self.caps.index.dir).put(rec)
+                    self._keep_original(rec, {"repo": repo, "path": path})
+                except BaseException:
+                    if installed.is_dir():
+                        shutil.rmtree(installed, ignore_errors=True)
+                    if (backup / "ours").is_dir():
+                        shutil.copytree(backup / "ours", installed)
+                    raise
+                finally:
+                    shutil.rmtree(backup, ignore_errors=True)
+            except ConnectorInstallError:
+                raise
+            except (ValueError, OSError) as e:
+                raise ConnectorInstallError(str(e)[:300] or type(e).__name__, "merge") from None
+            self.caps.index.refresh()
+        return {"id": entry_id, "to_commit": to_commit, "applied": {p: resolutions.get(p, o) for p, o in got.items()}}
 
     # -- remove -----------------------------------------------------------------------------------------
 

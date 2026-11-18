@@ -301,6 +301,61 @@ def test_configure_ask_gives_the_model_only_field_names_through_the_api(tmp_path
         api.configure_ask("mcp:demo", "q", history="not a list")
 
 
+def test_the_update_plan_merges_the_persons_edit_with_upstreams_change_and_flags_the_real_conflict(tmp_path, stub, monkeypatch):
+    api, caps, installer = make(tmp_path, stub, [{"id": "g", "kind": "github", "ref": "acme/skills@main", "trust": "known", "enabled": True}])
+    installer.settings.write(str(tmp_path / "originals"))
+    item = next(i for i in api.view("all", "skill")["available"] if i["id"].startswith("github:"))
+    api.install(item["id"], {})
+    installed_dir = tmp_path / "capabilities" / "skills" / "pdf-tools"
+    (installed_dir / "run.py").write_text("print('mine')\n", encoding="utf-8")            # the person's own edit, upstream touches this file too: conflict
+    (installed_dir / "SKILL.md").write_text((SKILL + b"\nmore.\n").decode(), encoding="utf-8")   # the person's own edit, upstream leaves this one alone: kept
+
+    new_commit = "c" * 40
+
+    def fake_new_commit(rec):
+        return rec["repo"], rec.get("source_path") or "", new_commit
+    monkeypatch.setattr(installer, "_new_commit", fake_new_commit)
+
+    def fake_fetch(repo, path, pin, into, files_max=30, file_bytes=200_000):
+        (into / "SKILL.md").write_bytes(SKILL)                                            # unchanged from the base: upstream did not touch it
+        (into / "run.py").write_text("print('upstream')\n", encoding="utf-8")             # changed from the base: the real conflict
+        (into / "new.txt").write_text("from upstream", encoding="utf-8")                  # a file only the new version has
+        return into
+    monkeypatch.setattr(installer, "fetch_skill", fake_fetch)
+
+    plan = api.update_plan("skill:pdf-tools")
+    assert plan["from_commit"] == COMMIT and plan["to_commit"] == new_commit and plan["has_base"] is True
+    assert plan["files"] == {"SKILL.md": "kept", "run.py": "conflict", "new.txt": "upstream"}
+    assert plan["counts"] == {"same": 0, "upstream": 1, "kept": 1, "conflict": 1}
+    assert plan["review"]["verdict"] == "unknown" and "no model" in plan["review"]["note"]      # no reviewer client here: advisory only, never blocking
+
+    with pytest.raises(ConnectorError) as e:
+        api.apply_update("skill:pdf-tools", {})
+    assert e.value.code == "conflicts"
+
+    out = api.apply_update("skill:pdf-tools", {"run.py": "upstream"})
+    assert out["to_commit"] == new_commit and out["applied"] == {"SKILL.md": "kept", "run.py": "upstream", "new.txt": "upstream"}
+    assert (installed_dir / "run.py").read_text() == "print('upstream')\n"                # the conflict, resolved "upstream"
+    assert "more." in (installed_dir / "SKILL.md").read_text()                            # kept: the person's edit stands
+    assert (installed_dir / "new.txt").read_text() == "from upstream"                     # a plain upstream addition
+    from tadamoo.discovery.installed import InstalledStore
+    assert InstalledStore(tmp_path / "capabilities").get("skill:pdf-tools")["commit"] == new_commit
+    assert json.loads((installed_dir / ".tadamoo-source.json").read_text())["commit"] == new_commit      # the provenance marker is rewritten, not merged away
+
+    with pytest.raises(ConnectorError):
+        api.update_plan("skill:not-ours")
+
+
+def test_without_an_originals_folder_any_real_difference_from_upstream_is_a_conflict(tmp_path, stub, monkeypatch):
+    api, caps, installer = make(tmp_path, stub, [{"id": "g", "kind": "github", "ref": "acme/skills@main", "trust": "known", "enabled": True}])
+    item = next(i for i in api.view("all", "skill")["available"] if i["id"].startswith("github:"))         # no originals_dir set: there is no base
+    api.install(item["id"], {})
+    monkeypatch.setattr(installer, "_new_commit", lambda rec: (rec["repo"], rec.get("source_path") or "", "d" * 40))
+    monkeypatch.setattr(installer, "fetch_skill", lambda repo, path, pin, into, files_max=30, file_bytes=200_000: (into / "run.py").write_bytes(SCRIPT) and into)
+    plan = api.update_plan("skill:pdf-tools")
+    assert plan["has_base"] is False and plan["files"] == {"run.py": "same", "SKILL.md": "conflict"}      # run.py untouched: same; SKILL.md absent upstream: conflict, not a guess
+
+
 def test_a_newer_commit_of_an_installed_skill_is_found_and_installed_over_it_keeping_the_old_original(tmp_path, stub):
     api, caps, installer = make(tmp_path, stub, [{"id": "g", "kind": "github", "ref": "acme/skills@main", "trust": "known", "enabled": True}])
     installer.settings.write(str(tmp_path / "originals"))

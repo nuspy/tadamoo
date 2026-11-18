@@ -79,6 +79,14 @@
 .cx-ask-form { display: flex; gap: 8px; }
 .cx-ask-form input { min-height: 44px; flex: 1; box-sizing: border-box; }
 .cx-ask-form .btn { min-height: 44px; }
+.cx-merge { display: grid; gap: 10px; }
+.cx-merge-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.cx-merge-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+.cx-merge-path { overflow-wrap: anywhere; font: 400 14px/1.4 var(--font-mono, monospace); }
+.cx-merge-tag { font-size: 12px; color: var(--fg-2); margin-left: auto; }
+.cx-merge-conflict { border-color: var(--accent); }
+.cx-merge-pick { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
+.cx-merge-pick .btn { min-height: 44px; }
 
 .dw-leaks { display: grid; gap: 8px; margin: 6px 0 12px; }
 .dw-leaklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }

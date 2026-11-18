@@ -67,6 +67,16 @@ def test_the_review_reads_the_models_answer_and_never_blocks_on_a_missing_or_fai
     assert review.review(Client("not json"), {})["verdict"] == "unknown" and review.review(Client('{"verdict": "great"}'), {})["verdict"] == "unknown"
 
 
+def test_the_update_review_reads_only_what_actually_changes_and_says_so_when_there_is_nothing_to_read():
+    good = json.dumps({"verdict": "caution", "summary": "Adds a network call.", "risks": ["reads env vars"]})
+    client = Client(good)
+    out = review.review_update(client, "demo", {"run.py": "import os\nrequests.get(os.environ['TOKEN'])\n"})
+    assert out == {"verdict": "caution", "summary": "Adds a network call.", "risks": ["reads env vars"]}
+    assert "demo" in client.asked[0][1]["content"] and "run.py" in client.asked[0][1]["content"]
+    assert review.review_update(None, "demo", {"a": "b"})["verdict"] == "unknown"
+    assert review.review_update(client, "demo", {})["verdict"] == "unknown"
+
+
 def make(tmp_path, reviewer=None, folder=None):
     rows = [{"id": "mcp-registry", "kind": "mcp_registry", "ref": "https://registry.example", "trust": "official", "enabled": True}]
     if folder:

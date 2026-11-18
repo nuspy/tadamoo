@@ -46,6 +46,7 @@ FEATURES = [
     ("Dark web: own pinned onion search engines and page directories (add, enable, remove)", "Chat settings > Dark web", "darkwebset.js", "api/darkweb/custom"),
     ("Connectors: more than one account per installed item (add, remove, choose the default)", "Connectors > installed item > Configure", "connectors.js", "api/connectors/accounts"),
     ("Connectors: ask for guided help filling in the settings (field names only, never a value)", "Connectors > installed item > Configure", "connectors.js", "api/connectors/configure/ask"),
+    ("Connectors: three-way merge of an update (what stays, what changes, what conflicts) with a risk review of the diff", "Connectors > installed item > update", "connectors.js", "api/connectors/update/plan"),
 ]
 
 

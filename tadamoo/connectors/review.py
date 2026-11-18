@@ -58,3 +58,24 @@ def review(client: Any, facts: Dict[str, Any], excerpts: str = "") -> Dict[str, 
     if out["verdict"] == "unknown":
         out["note"] = "the model's answer could not be read"
     return out
+
+
+def review_update(client: Any, name: str, changed: Dict[str, str]) -> Dict[str, Any]:
+    """The advisory review of what an update would actually add or change (tadamoo/connectors/merge3.py's `changed_text`): the same verdict, summary
+    and risks as `review()`, judged from the new files' own content, never saved. Without anything changed, or without a model, there is nothing to
+    say and the verdict stays `unknown` with the reason."""
+    if client is None or not changed:
+        return {"verdict": "unknown", "summary": "", "risks": [], "note": "no model to read it now" if client is None else "nothing changed to review"}
+    body = "\n\n".join(f"--- {path}\n{text}" for path, text in changed.items())[:6000]
+    user = f"An update to the connector {name}. These are the files it would add or change (a removal is not shown, there being nothing new to read):\n\n{body}"
+    extra = side_extra_for(client, USE, len(body) + len(SYSTEM), ANSWER_TOKENS) if side_uses.enabled(USE) else {}
+    try:
+        reply = client.chat_completion(messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}], temperature=0.0, max_tokens=ANSWER_TOKENS,
+                                       timeout=side_uses.param(USE, "timeout_s"), response_format={"type": "json_object"}, extra={"reasoning_effort": "none", **extra})
+        out = parse(reply["choices"][0]["message"].get("content") or "")
+    except Exception as exc:
+        log.info("connector update review: not made: %s", type(exc).__name__)
+        return {"verdict": "unknown", "summary": "", "risks": [], "note": "the review could not be made now"}
+    if out["verdict"] == "unknown":
+        out["note"] = "the model's answer could not be read"
+    return out
