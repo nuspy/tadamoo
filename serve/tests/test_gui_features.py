@@ -51,6 +51,7 @@ FEATURES = [
     ("Knowledge: a separate PostgreSQL of our own, installed, started and stopped by TaDaMoo", "Knowledge", "ragpostgres.js", "api/rag/postgres"),
     ("Knowledge > Database: point a project at TaDaMoo's own PostgreSQL with one button", "Knowledge > Database", "ragdb.js", "api/rag/db/use-own-postgres"),
     ("Knowledge: install the embeddings/Docling Python environment on request", "Knowledge > semantic search", "rag.js", "api/rag/embedding/env/install"),
+    ("Knowledge: general settings (not per project) moved under Settings", "Settings > Knowledge", "ragsettings.js", "api/rag/settings"),
     ("Connectors: a GitHub token in the vault (rate limit, private repositories)", "Connectors > Providers", "connectors.js", "api/connectors/github-token"),
     ("Knowledge: try a question against an older version of the archive", "Knowledge > archive > try a question", "rag.js", "rg.try.version"),
     ("Knowledge: first-run offer to install the embeddings environment, once", "Knowledge", "rag.js", "api/rag/setup/pending"),

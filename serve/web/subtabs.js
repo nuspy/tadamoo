@@ -20,6 +20,7 @@
       { id: "inference", view: "settings", label: () => T("sub.inference") },
       { id: "models", view: "settings", label: () => T("sub.models") },
       { id: "skills", view: "settings", label: () => T("sub.skills") },
+      { id: "knowledge", view: "settings", label: () => T("sub.knowledge") },
       { id: "privacy", view: "settings", label: () => T("sub.privacy") },
       { id: "mobile", view: "settings", label: () => T("sub.mobile") },
       { id: "network", view: "settings", label: () => T("sub.network") },

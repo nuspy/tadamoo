@@ -145,7 +145,6 @@
   const STAGES = { reading: "rg.job.stage.reading", cutting: "rg.job.stage.cutting", indexing: "rg.job.stage.indexing" };
   const READ_BY = { docling: "rg.doc.read.docling", basic: "rg.doc.read.basic" };
   const REASON = { off: "rg.sem.reason.off", detecting: "rg.sem.reason.detecting", no_python: "rg.sem.reason.no_python", no_model: "rg.sem.reason.no_model" };
-  const ENV_DEVICE = { cuda: "rg.sem.env.device.cuda", cpu: "rg.sem.env.device.cpu" };
   const LEASE = { busy: "rg.sem.lease.busy", unavailable: "rg.sem.lease.unavailable", no_engine: "rg.sem.lease.no_engine", not_enough: "rg.sem.lease.not_enough", no_cuda: "rg.sem.lease.no_cuda" };
   async function followJob(job, name) {
     jobNow = job.id;
@@ -170,31 +169,6 @@
     if (jobNow) await api("POST", `api/rag/jobs/${encodeURIComponent(jobNow)}/cancel`, {});
   }
 
-  /* the embeddings environment (torch, transformers, docling), its own venv: not installed by default, only on this request. A few GB: it can take a while. */
-  let envBusy = false, envStage = "", envDevice = "";
-  async function installEmbedEnv() {
-    if (envBusy) return;
-    envBusy = true; envStage = ""; paint();
-    const r = await api("POST", "api/rag/embedding/env/install", {});
-    if (!r.ok) { envBusy = false; say(why(r), true); paint(); return; }
-    let job = r.data.job;
-    for (;;) {
-      envStage = job.stage || ""; paint();
-      if (job.state !== "running") break;
-      await new Promise(res => setTimeout(res, JOB_MS));
-      const p = await api("GET", `api/rag/jobs/${encodeURIComponent(job.id)}`);
-      if (!p.ok) { envBusy = false; say(why(p), true); paint(); return; }
-      job = p.data.job;
-    }
-    envBusy = false; envStage = "";
-    if (job.state === "done" && job.result && job.result.ok) { say(T("rg.sem.env.done"), false); await refresh(); }
-    else say(job.state === "done" ? (job.result && job.result.error) || T("rg.sem.env.failed") : T("rg.sem.env.failed"), true);
-    paint();
-  }
-  async function probeEmbedEnv() {
-    const r = await api("POST", "api/rag/embedding/env/probe", {});
-    if (r.ok) { envDevice = r.data.device || ""; paint(); } else say(why(r), true);
-  }
   async function addFiles(files) {
     if (!files.length || working) return;
     working = true;
@@ -305,11 +279,6 @@
     say(out.text, !out.ok);
     await reloadAll();
   }
-  async function saveSettings(body) {
-    const r = await api("POST", "api/rag/settings", body);
-    say(r.ok ? T("rg.saved") : why(r), !r.ok);
-    await reloadAll();
-  }
   async function removeDoc(doc) {
     armed = "";
     const r = await api("POST", `api/rag/archives/${encodeURIComponent(chosen)}/documents/${encodeURIComponent(doc.id)}/remove`, {});
@@ -325,14 +294,6 @@
     const out = r.ok ? await followJob(r.data.job, name) : { ok: false, text: why(r) };
     working = false;
     say(out.text, !out.ok);
-    await reloadAll();
-  }
-  async function testEmbedding() {
-    say(T("rg.sem.testing"), false); paint();
-    const r = await api("POST", "api/rag/embedding/test", {});
-    if (!r.ok) say(why(r), true);
-    else if (r.data.ok) say(T("rg.sem.test.ok", r.data.model, String(r.data.device || "").toUpperCase(), r.data.seconds, r.data.dim), false);
-    else say(T("rg.sem.test.bad", r.data.error || ""), true);
     await reloadAll();
   }
   /* which version of the archive "try a question" looks at: the latest (default) or one picked from its own history, kept per archive between sessions */
@@ -459,64 +420,6 @@
     else if (!on) box.append(el("p", "rg-help", T("rg.textonly.help")));
     if (!S.pdf && S.extraction !== "docling") box.append(el("p", "rg-help", T("rg.nopdf")));
     box.append(el("p", "rg-help", S.extraction === "docling" ? T("rg.read.docling") : T("rg.read.basic")));
-    return box;
-  }
-  function settingsBlock() {
-    const box = el("details", "rg-settings"), sum = el("summary", "rg-sum", T("rg.set.title"));
-    const keep = el("select");
-    [["keep", "rg.set.flagged.keep"], ["drop", "rg.set.flagged.drop"]].forEach(([k, key]) => { const o = el("option", "", T(key)); o.value = k; keep.append(o); });
-    keep.value = S.settings.flagged;
-    const device = el("select");
-    [["auto", "rg.set.device.auto"], ["cpu", "rg.set.device.cpu"]].forEach(([k, key]) => { const o = el("option", "", T(key)); o.value = k; device.append(o); });
-    device.value = S.settings.docling_device || "auto";
-    const go = btn(T("rg.save"), "primary", () => saveSettings({ docling_device: device.value, flagged: keep.value }));
-    box.append(sum, el("p", "rg-help", S.docling_python ? T("rg.set.docling.found", S.docling_python) : T("rg.set.docling.none")),
-      field("rg-device", T("rg.set.device"), T("rg.set.device.help"), device), field("rg-flagged", T("rg.set.flagged"), T("rg.set.flagged.help"), keep), go);
-    return box;
-  }
-  function numberInput(value, lo, hi, step) {
-    const i = el("input"); i.type = "number"; i.min = String(lo); i.max = String(hi); i.step = String(step); i.value = String(value); i.inputMode = "decimal";
-    return i;
-  }
-  function checkField(id, labelText, help, on) {
-    const box = el("input"), wrap = el("div", "rg-field rg-check"), lab = el("label", "");
-    box.type = "checkbox"; box.checked = !!on; box.id = id; lab.htmlFor = id;
-    lab.append(box, el("span", "", labelText));
-    wrap.append(lab, el("p", "rg-help", help));
-    return { wrap, box };
-  }
-  /* semantic search: the embedding model and the reranker, how they are blended, and when the GPU is given back */
-  function semanticBlock() {
-    const e = S.embedding || {}, cfg = S.settings, box = el("details", "rg-settings"), models = (e.models || []).filter(m => m.kind === "embed");
-    box.append(el("summary", "rg-sum", T("rg.sem.title")));
-    if (e.enabled === undefined) return null;
-    const on = checkField("rg-sem-on", T("rg.sem.on"), T("rg.sem.on.help"), cfg.embed_enabled);
-    const pick = el("select");
-    const auto = el("option", "", T("rg.sem.model.auto")); auto.value = ""; pick.append(auto);
-    models.forEach(m => { const o = el("option", "", T("rg.sem.model.opt", m.name, (m.bytes / (1 << 30)).toFixed(1))); o.value = m.name; pick.append(o); });
-    pick.value = models.some(m => m.name === cfg.embed_model) ? cfg.embed_model : "";
-    const roots = (e.roots || []).join(", ");
-    const rerank = checkField("rg-sem-rerank", T("rg.sem.rerank"), T("rg.sem.rerank.help"), cfg.rerank);
-    const weight = numberInput(cfg.lexical_weight, 0, 0.3, 0.01), cos = numberInput(cfg.min_cosine, 0, 0.9, 0.05), rr = numberInput(cfg.min_rerank, 0, 0.95, 0.05);
-    const idle = numberInput(cfg.idle_s, 10, 3600, 10), dir = textInput(cfg.embed_models_dir, 500);
-    const go = btn(T("rg.save"), "primary", () => saveSettings({ embed_enabled: on.box.checked, embed_model: pick.value, rerank: rerank.box.checked, lexical_weight: Number(weight.value),
-      min_cosine: Number(cos.value), min_rerank: Number(rr.value), idle_s: Number(idle.value), embed_models_dir: dir.value.trim() }));
-    const test = btn(T("rg.sem.test"), "", testEmbedding); test.disabled = !e.available;
-    box.append(on.wrap, field("rg-sem-model", T("rg.sem.model"), models.length ? T("rg.sem.model.help", roots) : T("rg.sem.model.none", roots), pick), rerank.wrap,
-      field("rg-sem-weight", T("rg.sem.weight"), T("rg.sem.weight.help"), weight), field("rg-sem-cos", T("rg.sem.mincos"), T("rg.sem.mincos.help"), cos),
-      field("rg-sem-rr", T("rg.sem.minrr"), T("rg.sem.minrr.help"), rr), field("rg-sem-idle", T("rg.sem.idle"), T("rg.sem.idle.help"), idle),
-      el("p", "rg-help", T("rg.sem.python.help", e.python || "-")), field("rg-sem-dir", T("rg.sem.dir"), T("rg.sem.dir.help"), dir), go, test, envBlock(e.env || {}));
-    return box;
-  }
-  function envBlock(env) {
-    const box = el("div", "rg-env");
-    const line = env.installed ? T("rg.sem.env.installed") : (env.python_found ? T("rg.sem.env.none") : T("rg.sem.env.nopython"));
-    box.append(el("p", "rg-help", line));
-    if (envBusy) { box.append(el("p", "rg-help", envStage ? T("rg.sem.env.doing", envStage) : T("rg.sem.env.doing0"))); return box; }
-    const row = el("div", "rd-actions");
-    if (!env.installed) { const go = btn(T("rg.sem.env.install"), "", installEmbedEnv); go.disabled = !env.python_found; row.append(go); }
-    else { const probe = btn(T("rg.sem.env.probe"), "", probeEmbedEnv); row.append(probe); if (ENV_DEVICE[envDevice]) row.append(el("span", "rg-note", T(ENV_DEVICE[envDevice]))); }
-    box.append(row);
     return box;
   }
   function sideList() {
@@ -756,8 +659,7 @@
     const layout = el("div", "rg-layout"), left = el("div", "rg-left"), right = el("div", "rg-right");
     const box = x => { const w = el("section", "rg-box"); w.append(x); return w; };                      // each group of functions in a container of its own
     left.append(projectsList(), sideList());
-    right.append(main, ...[banner(), semanticBlock(), settingsBlock(), window.RagImages ? window.RagImages.block(paint) : "", window.RagPostgres ? window.RagPostgres.block(paint) : "",
-                   window.RagDatabase && project ? window.RagDatabase.block(project, paint, reloadAll) : null].filter(Boolean).map(box));
+    right.append(main, ...[banner(), window.RagDatabase && project ? window.RagDatabase.block(project, paint, reloadAll) : null].filter(Boolean).map(box));
     layout.append(left, right);
     const stop = jobNow ? btn(T("rg.job.cancel"), "", cancelJob) : null;
     host.replaceChildren(el("p", "rg-intro", T("rg.intro")), status, ...(stop ? [stop] : []), layout);
