@@ -411,8 +411,18 @@ try {
 
     # Tor (Expert Bundle, for the dark web option): hash and signature checked by darkweb.torbundle, the same module Settings > Dark web uses to install
     # it on a PC that builds nothing. Bundling it here means a person who gets the finished package never needs GnuPG or a download of their own for it.
+    # darkweb.torbundle calls plain "gpg" (resolved on PATH): a native PowerShell session has no gpg of its own, only Git for Windows ships one, so it is
+    # added to PATH for this step (torbundle swallows "gpg not found" and a bad signature the same way, so a missing gpg otherwise fails with a confusing
+    # signature error instead of a clear one).
     $addPy = Join-Path $Root '.venv\Scripts\python.exe'
     if (-not (Test-Path $addPy)) { $addPy = (Get-Command python -ErrorAction Stop).Source }
+    if (-not (Get-Command gpg -ErrorAction SilentlyContinue)) {
+        $gitExe = (Get-Command git -ErrorAction SilentlyContinue).Source
+        $gpgBin = if ($gitExe) { Join-Path (Split-Path (Split-Path $gitExe)) 'usr\bin' } else { $null }
+        if (-not $gpgBin -or -not (Test-Path (Join-Path $gpgBin 'gpg.exe'))) { throw 'GnuPG (gpg.exe) was not found on PATH or under Git for Windows (usr\bin): required to check the Tor Expert Bundle signature' }
+        $env:PATH = "$gpgBin;$env:PATH"
+        Info "gpg.exe found under Git for Windows: $gpgBin"
+    }
     $torCache = Join-Path $addCache 'tor'
     New-Item -ItemType Directory -Force $torCache | Out-Null
     $torPyFile = Join-Path $torCache 'fetch_tor.py'
@@ -484,7 +494,7 @@ print(str(exe))
 "@ | Set-Content -Encoding UTF8 $pgPyFile
     $pgOut = & $addPy $pgPyFile
     if ($LASTEXITCODE -ne 0) { throw "PostgreSQL ${pgVersion}: install_release() failed (its own sha256 check); see output above:`n$pgOut" }
-    $pgExe = $pgOut[-1].Trim()
+    $pgExe = (@($pgOut))[-1].Trim()   # install_postgres.py prints one line only: PowerShell then hands back a scalar string, not a one-element array, so [-1] must be forced to array-index
     $pgRoot = Split-Path (Split-Path $pgExe)        # .../pgsql, the parent of bin, lib, share and include
     $pgDst = Join-Path $addDir 'postgres'
     if (Test-Path $pgDst) { Remove-Item -Recurse -Force $pgDst }
