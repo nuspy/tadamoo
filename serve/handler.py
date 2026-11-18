@@ -3237,13 +3237,16 @@ def make_handler(svc: Service, remote: bool = False):
             global _IMAGES_AUTOSTARTED
             api = RagApi(self._rag_store(), jobs=_RAG_JOBS, service=self._rag_embed(), sync=self._rag_sync(), describer=describer, folders=lambda: [{"name": "Chat", "path": str(chat), "chat": True}]
                           + [{"name": p["name"], "path": p["path"], "chat": False} for p in self._projects().list() if p.get("exists")],
-                          sources=lambda: {"session": session, "plan_node": guarded(plan_node), "routine": guarded(routine)}, vault_dir=userdata.path("vault"), tools_dir=userdata.path("tools") / "minio", projects=self._projects())
+                          sources=lambda: {"session": session, "plan_node": guarded(plan_node), "routine": guarded(routine)}, vault_dir=userdata.path("vault"), tools_dir=userdata.path("tools") / "minio",
+                          projects=self._projects(), postgres_tools_dir=userdata.path("tools") / "postgres")
             api.images.wire()                                                         # our own MinIO (when the images are kept in it) starts on real use and stops after being idle
+            api.postgres.wire()                                                       # our own PostgreSQL (when a project points at it) starts on real use and stops after being idle
             if not _IMAGES_AUTOSTARTED:
                 _IMAGES_AUTOSTARTED = True
                 import atexit
-                from serve import rag_images_api
+                from serve import rag_images_api, rag_postgres_api
                 atexit.register(rag_images_api.stop_all)
+                atexit.register(rag_postgres_api.stop_all)
                 api.images.autostart()                                                # also up right away, so it is there before the first look at the Knowledge needs it
             return api
 

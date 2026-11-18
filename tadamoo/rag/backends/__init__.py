@@ -127,6 +127,7 @@ class Router:
         self.password, self.open_fn = password, open_fn
         self._open: Dict[str, Backend] = {}
         self._owner: Dict[str, str] = {}
+        self.on_open: Optional[Callable[[Dict[str, Any]], None]] = None      # told the configuration every time a project's database is actually used (not only the first time)
 
     @staticmethod
     def _name(project: str) -> str:
@@ -157,8 +158,10 @@ class Router:
 
     def for_project(self, project: str) -> Backend:
         name = self._name(project)
+        cfg = self.config(project)
+        if self.on_open:
+            self.on_open(cfg)
         if name not in self._open:
-            cfg = self.config(project)
             backend = self.open_fn(cfg, self.password(cfg["vault"]) if cfg.get("vault") else "")
             backend.prepare()
             self._open[name] = backend

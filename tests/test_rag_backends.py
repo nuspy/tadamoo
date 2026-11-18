@@ -325,6 +325,16 @@ def test_the_settings_of_a_database_hold_no_password_and_name_a_vault_entry(tmp_
     r2.close()
 
 
+def test_on_open_is_told_the_configuration_on_every_real_use_not_only_the_first(tmp_path):
+    r = Router(tmp_path)
+    seen = []
+    r.on_open = lambda cfg: seen.append(cfg["kind"])
+    r.for_project(PROJ)
+    r.for_project(PROJ)                                                        # cached: the backend is not opened again, but on_open still fires
+    assert seen == ["sqlite", "sqlite"]
+    r.close()
+
+
 def test_the_password_goes_in_the_vault_and_is_read_from_it(tmp_path):
     entry = store_password(tmp_path / "vault", PROJ, "s3cret")
     assert entry == f"rag-db-{PROJ}" and vault_password(tmp_path / "vault")(entry) == "s3cret"

@@ -45,6 +45,23 @@
     }
   }
 
+  /* a shortcut next to "kind": point this project at TaDaMoo's own PostgreSQL (the block above this one) instead of filling in the fields by hand. The server
+     starts it first if it had gone idle, makes the project's own database the first time, and the usual "Connect and prepare" steps are shown the same way. */
+  async function useOwnPostgres() {
+    if (st.running) return;
+    st.running = true; st.steps = []; st.note = ""; repaint();
+    const r = await api("POST", "api/rag/db/use-own-postgres", { project: st.project });
+    if (!r.ok) { st.running = false; say(why(r), true); return; }
+    const done = await follow(r.data.job, j => { st.stage = j.stage; if (j.data && j.data.steps) st.steps = j.data.steps; });
+    st.running = false;
+    if (done.state === "done" && done.result) {
+      st.steps = done.result.steps;
+      if (done.result.ok) { st.loaded = false; st.note = T("rd.prepare.ok"); st.bad = false; await load(); changed(); }
+      else say(T("rd.prepare.stopped", T("rd.step." + done.result.stopped_at)), true);
+    } else say(done.error || T("rd.prepare.failed"), true);
+    repaint();
+  }
+
   async function prepare(extra) {
     if (st.running) return;
     st.running = true; st.steps = []; st.note = ""; repaint();
@@ -258,6 +275,9 @@
     KINDS.forEach(k => { const o = el("option", "", T("rd.kind." + k)); o.value = k; kind.append(o); });
     kind.value = st.cfg.kind; kind.onchange = () => { st.cfg = { kind: kind.value }; st.steps = []; repaint(); };
     box.append(field("rd-kind", T("rd.kind"), T("rd.kind.help"), kind));
+    const useOwn = btn(T("rd.useown"), "", useOwnPostgres);
+    useOwn.disabled = st.running || st.testing; useOwn.id = "rd-use-own";
+    box.append(el("p", "rg-dmeta", T("rd.useown.help")), useOwn);
     kindFields(box);
     const row = el("div", "rd-actions");
     const go = btn(st.running ? T("rd.running") : T("rd.prepare"), "primary", () => prepare({}));

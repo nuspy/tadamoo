@@ -656,7 +656,8 @@
     const layout = el("div", "rg-layout"), left = el("div", "rg-left"), right = el("div", "rg-right");
     const box = x => { const w = el("section", "rg-box"); w.append(x); return w; };                      // each group of functions in a container of its own
     left.append(projectsList(), sideList());
-    right.append(main, ...[banner(), semanticBlock(), settingsBlock(), window.RagImages ? window.RagImages.block(paint) : "", window.RagDatabase && project ? window.RagDatabase.block(project, paint, reloadAll) : null].filter(Boolean).map(box));
+    right.append(main, ...[banner(), semanticBlock(), settingsBlock(), window.RagImages ? window.RagImages.block(paint) : "", window.RagPostgres ? window.RagPostgres.block(paint) : "",
+                   window.RagDatabase && project ? window.RagDatabase.block(project, paint, reloadAll) : null].filter(Boolean).map(box));
     layout.append(left, right);
     const stop = jobNow ? btn(T("rg.job.cancel"), "", cancelJob) : null;
     host.replaceChildren(el("p", "rg-intro", T("rg.intro")), status, ...(stop ? [stop] : []), layout);

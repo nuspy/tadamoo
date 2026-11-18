@@ -165,6 +165,17 @@ def install_from(folder: Path, exe: Path) -> Path:
     return target
 
 
+def bundled_program() -> Optional[Path]:
+    """PostgreSQL, bundled with this copy of TaDaMoo (the hash of `RELEASE` was already checked by whoever made the package, and pgvector was compiled in), when
+    there is one: the path of `bin/postgres.exe` (or `bin/postgres`)."""
+    from serve import addons
+    found = addons.addons_dir()
+    if found is None:
+        return None
+    p = found / "postgres" / "bin" / EXE
+    return p if p.is_file() else None
+
+
 def new_password() -> str:
     """A password for our own copy's superuser, made here and never shown in a file: the secret goes to the vault."""
     return secrets.token_urlsafe(24)

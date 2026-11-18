@@ -20,6 +20,7 @@ from serve.rag_add_api import RagAddApi
 from serve.rag_db_api import RagDbApi
 from serve.rag_discover_api import RagDiscoverApi
 from serve.rag_images_api import RagImagesApi
+from serve.rag_postgres_api import RagPostgresApi
 from serve.rag_jobs import Jobs
 from serve.rag_sync_api import RagSyncApi
 from tadamoo.rag.sources.engine import Sync
@@ -44,7 +45,7 @@ def _project(value: Any) -> str:
 class RagApi:
     def __init__(self, store: RagStore, folders: Callable[[], List[Dict[str, Any]]] = lambda: [], jobs: Optional[Jobs] = None, service: Any = None,
                  sources: Callable[[], Dict[str, Callable[[Dict[str, Any]], Any]]] = lambda: {}, leaves_pc: Callable[[str], bool] = routes_outside, sync: Any = None,
-                 describer: Optional[Callable[[], Any]] = None, vault_dir: Any = None, tools_dir: Any = None, projects: Any = None) -> None:
+                 describer: Optional[Callable[[], Any]] = None, vault_dir: Any = None, tools_dir: Any = None, projects: Any = None, postgres_tools_dir: Any = None) -> None:
         """`folders` lists the projects as `{name, path, chat}`: the folders of the Agentic coding tab and the Chat's own folder (`chat` true). `jobs` is the
         board of the long jobs, kept by the server between requests. `service` is the embedding service (tadamoo/rag/embed_client.py) the store's embedder
         comes from, when there is one: it tells where the embeddings run and can be tried. `sources` gives what the resolver cannot know alone (the session's
@@ -58,6 +59,7 @@ class RagApi:
         self.database = RagDbApi(store, self.jobs, vault_dir)               # the Database section of a project's settings (serve/rag_db_api.py)
         self.discovering = RagDiscoverApi(self.syncing, self.jobs, describer)   # adding from a request in words (serve/rag_discover_api.py)
         self.images = RagImagesApi(store, vault_dir, tools_dir)             # where the images of the documents are kept (serve/rag_images_api.py)
+        self.postgres = RagPostgresApi(store, vault_dir, postgres_tools_dir)   # a separate PostgreSQL of our own, for the Database section (serve/rag_postgres_api.py)
         self.project_store = projects                                       # the list of project folders (serve/projects.py): made, renamed and forgotten from the page
 
     # -- reading ---------------------------------------------------------------------------------
@@ -280,6 +282,20 @@ class RagApi:
         out = self.store.search(ids, query[:QUERY_CHARS], top_k=top_k, min_share=float(share), strict=strict, filters=req.get("filters"))
         return {**out, "searched": len(ids), **({"blocked": blocked} if blocked else {})}
 
+    def use_own_postgres(self, project: Any) -> Dict[str, Any]:
+        """Points a project's database at TaDaMoo's own PostgreSQL (the block above Database, once installed): starts it first if it had gone idle, then lets
+        'prepare' connect as its own superuser and make the project's own database and tables the first time, the same way as for any PostgreSQL. The
+        superuser's password is read from the vault here, server-side, and given to 'prepare' for this one run only."""
+        key = _project(project)
+        own = self.postgres.overview()["own"]
+        if not own["installed"]:
+            raise RagError("install TaDaMoo's own PostgreSQL first, above")
+        if not own["running"] and not self.postgres.autostart():
+            raise RagError("TaDaMoo's own PostgreSQL did not start")
+        own = self.postgres.overview()["own"]
+        cfg = {"kind": "postgres", "host": own["host"], "port": int(own["port"]), "dbname": own["database"], "user": own["user"], "prefix": f"rag_{key or 'none'}_"}
+        return self.database.prepare({"project": project, "config": cfg, "password": self.postgres.password(), "create_db": True})
+
     # -- the routes ------------------------------------------------------------------------------
 
     def route_get(self, parts: Sequence[str], query: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
@@ -306,6 +322,8 @@ class RagApi:
             got = self.database.route_get(parts, query)
         if got is None:
             got = self.images.route_get(parts, query)
+        if got is None:
+            got = self.postgres.route_get(parts, query)
         if got is not None:
             return got
         if parts == ["browse"]:
@@ -416,6 +434,8 @@ class RagApi:
             got = self.discovering.route_post(parts, req)
         if got is None:
             got = self.images.route_post(parts, req)
+        if got is None:
+            got = self.postgres.route_post(parts, req)
         if got is not None:
             return got
         if parts == ["search"]:
@@ -430,6 +450,8 @@ class RagApi:
             return self.delete_project(req)
         if parts == ["settings"]:
             return self.set_settings(req)
+        if parts == ["db", "use-own-postgres"]:
+            return self.use_own_postgres(req.get("project"))
         if parts == ["embedding", "test"]:
             return self.embedding_test()
         if len(parts) == 3 and parts[0] == "jobs" and parts[2] == "cancel":
