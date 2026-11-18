@@ -109,6 +109,7 @@
     const attachName = T(on ? "ch.att.btn" : "ch.att.img");
     $("#attach").setAttribute("aria-label", attachName); $("#attach").title = attachName;
     $("#attach-dir").hidden = !on;                                            // a directory is attached only to a conversation of the Agent
+    $("#knowledge-attach").hidden = !on;                                      // knowledge archives attach only to a conversation with tools
     $("#branches-open").hidden = !on;
     $("#pskills-open").hidden = !on;
     $("#ps-chat").hidden = !on;                                               // the model-only chat has no look at a request
@@ -1182,6 +1183,7 @@
     if (left > 0) status(T("ch.attdir.cut", use.length, left, DIR_MAX));
   }
   $("#attach-dir").addEventListener("click", () => { if (active()) $("#adir").click(); });
+  $("#knowledge-attach").addEventListener("click", () => { if (active() && window.KnowledgeAttach) window.KnowledgeAttach.open(window.agentChat); });
   $("#adir").onchange = e => { attachDir([...e.target.files]); e.target.value = ""; };
   const dropZone = document.getElementById("view-chat");
   dropZone.addEventListener("dragover", e => { if (active() && [...(e.dataTransfer || {}).types || []].includes("Files")) e.preventDefault(); });

@@ -85,6 +85,7 @@
 <script defer src="web/singleflight.js"></script>
 <script defer src="web/chatdisplay.js"></script>
 <script defer src="web/agentchat.js"></script>
+<script defer src="web/knowledgepicker.js"></script>
 <script defer src="web/privacy.js"></script>
 <script defer src="web/persistence.js"></script>
 <script defer src="web/technical.js"></script>
@@ -572,6 +573,9 @@
           <button type="button" class="btn attach" id="attach" hidden aria-label="Attach files" title="Attach files" data-t-aria="ch.att.btn" data-t-title="ch.att.btn">+</button>
           <input type="file" id="adir" webkitdirectory multiple hidden>
           <button type="button" class="btn attach attach-dir" id="attach-dir" hidden aria-label="Add a directory" title="Add a directory" data-t-aria="ch.attdir.btn" data-t-title="ch.attdir.btn">++</button>
+          <button type="button" class="btn attach" id="knowledge-attach" hidden aria-label="Add knowledge" title="Add knowledge" data-t-aria="kp.btn" data-t-title="kp.btn" aria-haspopup="dialog">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M4 5.5C4 4.1 6.7 3 10 3s6 1.1 6 2.5v13C16 17.1 13.3 16 10 16s-6 1.1-6 2.5v-13zM20 5.5C20 4.1 17.3 3 14 3c-1.1 0-2.1.1-3 .4v13.1c.9-.3 1.9-.4 3-.4 3.3 0 6 1.1 6 2.5v-13z"/></svg>
+          </button>
           <span class="hint" id="chat-hint">Enter sends, Shift+Enter adds a line</span>
           <span class="grow"></span>
           <div class="ctxm" id="ctx-meter" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Context">

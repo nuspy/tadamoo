@@ -96,6 +96,14 @@
 .rg-dlg { max-width: min(94vw, 520px); padding: 14px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
 .rg-dlg::backdrop { background: rgba(0, 0, 0, .6); }
 .rg-dlg .rg-bar { margin-top: 12px; }
+.kp-dlg { max-height: 80vh; overflow: auto; }
+.kp-dlg select { width: 100%; min-height: 44px; margin: 8px 0; }
+.kp-list { display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow: auto; margin-bottom: 10px; }
+.kp-row { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 4px; border-radius: 6px; }
+.kp-row:focus-within { background: var(--bg-2, rgba(255, 255, 255, .06)); }
+.kp-row input[type="checkbox"] { width: 20px; height: 20px; flex: 0 0 auto; }
+.kp-name { flex: 1 1 auto; }
+.kp-project { color: var(--fg-3); font-size: .85em; }
 
 .rg-drop { margin: 8px 0; padding: 14px; text-align: center; border: 2px dashed var(--line); border-radius: 10px; background: var(--surface); cursor: pointer; min-height: 88px; }
 .rg-drop.over, .rg-drop:focus-visible { border-color: var(--accent); background: var(--bg); }
