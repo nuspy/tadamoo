@@ -266,9 +266,10 @@ class RagApi:
         return {"enrichment": self.store.enrichment(aid)}
 
     def search(self, req: Dict[str, Any]) -> Dict[str, Any]:
-        """`{query, archives: [ids] | project: key, top_k, min_share?, strict?}`: the best passages of those archives, or of all the archives of the project.
-        `min_share` (0 to 1) is how much of the question's words a words-only hit must answer; `strict` false leaves out an archive that is gone.
-        `filters` narrows the passages searched (`language`, `number`, `gene`, `seq`, `year`, `kind`, `unit`, `document`)."""
+        """`{query, archives: [ids] | project: key, top_k, min_share?, strict?, version?}`: the best passages of those archives, or of all the archives of the
+        project. `min_share` (0 to 1) is how much of the question's words a words-only hit must answer; `strict` false leaves out an archive that is gone.
+        `filters` narrows the passages searched (`language`, `number`, `gene`, `seq`, `year`, `kind`, `unit`, `document`). `version` looks at the archives as
+        they stood at that version instead of their latest: words only, since semantic search has never been kept per version."""
         query = req.get("query")
         if not isinstance(query, str) or not query.strip():
             raise RagError("query: the text of the question")
@@ -278,6 +279,9 @@ class RagApi:
         share = req.get("min_share", 0)
         if isinstance(share, bool) or not isinstance(share, (int, float)) or not 0 <= share <= 1:
             raise RagError("min_share: a number from 0 to 1")
+        version = req.get("version")
+        if version is not None and (isinstance(version, bool) or not isinstance(version, int) or version < 0):
+            raise RagError("version: a whole number of at least 0, or none for the latest")
         if req.get("archives") is not None:
             ids, strict = req["archives"], req.get("strict", True) is not False
             if not isinstance(ids, list) or any(not isinstance(i, str) for i in ids):
@@ -293,7 +297,7 @@ class RagApi:
             allowed = set(mine["ids"])
             blocked = mine["blocked"]
             ids = [i for i in ids if i in allowed]
-        out = self.store.search(ids, query[:QUERY_CHARS], top_k=top_k, min_share=float(share), strict=strict, filters=req.get("filters"))
+        out = self.store.search(ids, query[:QUERY_CHARS], top_k=top_k, min_share=float(share), strict=strict, filters=req.get("filters"), version=version)
         return {**out, "searched": len(ids), **({"blocked": blocked} if blocked else {})}
 
     def use_own_postgres(self, project: Any) -> Dict[str, Any]:

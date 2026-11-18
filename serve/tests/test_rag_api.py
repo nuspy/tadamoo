@@ -158,6 +158,24 @@ def test_a_search_can_be_for_one_projects_archives(tmp_path):
     assert e.value.code == "not_found"
 
 
+def test_a_search_can_look_at_an_older_version_of_the_archive_in_words_only(tmp_path):
+    api = make(tmp_path)
+    aid = new(api, "Boats")["archive"]["id"]
+    up(api, aid, "boats.txt", BOATS)
+    v1 = api.overview(PROJ)["archives"][0]["version"]
+    up(api, aid, "rice.txt", RICE)
+    v2 = api.overview(PROJ)["archives"][0]["version"]
+    rice_doc = next(d for d in api.get(aid)["archive"]["document_list"] if d["name"] == "rice.txt")
+    api.remove_document(aid, rice_doc["id"])
+    assert api.search({"query": "risotto stock", "archives": [aid]})["hits"] == []                  # gone again from the latest
+    at_v2 = api.search({"query": "risotto stock", "archives": [aid], "version": v2})
+    assert at_v2["hits"] and at_v2["mode"] == "lexical"
+    assert api.search({"query": "risotto stock", "archives": [aid], "version": v1})["hits"] == []    # rice.txt did not exist yet at v1
+    for bad in ({"query": "x", "archives": [aid], "version": -1}, {"query": "x", "archives": [aid], "version": 1.5}, {"query": "x", "archives": [aid], "version": True}):
+        with pytest.raises(RagError):
+            api.search(bad)
+
+
 def test_the_route_parts_are_dispatched_and_unknown_ones_are_not_found(tmp_path):
     api = make(tmp_path)
     created = api.route_post(["archives"], {}, json.dumps({"name": "Boats", "project": PROJ}).encode())["archive"]

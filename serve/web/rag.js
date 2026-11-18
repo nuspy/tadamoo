@@ -108,6 +108,7 @@
   const STAGES = { reading: "rg.job.stage.reading", cutting: "rg.job.stage.cutting", indexing: "rg.job.stage.indexing" };
   const READ_BY = { docling: "rg.doc.read.docling", basic: "rg.doc.read.basic" };
   const REASON = { off: "rg.sem.reason.off", detecting: "rg.sem.reason.detecting", no_python: "rg.sem.reason.no_python", no_model: "rg.sem.reason.no_model" };
+  const ENV_DEVICE = { cuda: "rg.sem.env.device.cuda", cpu: "rg.sem.env.device.cpu" };
   const LEASE = { busy: "rg.sem.lease.busy", unavailable: "rg.sem.lease.unavailable", no_engine: "rg.sem.lease.no_engine", not_enough: "rg.sem.lease.not_enough", no_cuda: "rg.sem.lease.no_cuda" };
   async function followJob(job, name) {
     jobNow = job.id;
@@ -297,10 +298,21 @@
     else say(T("rg.sem.test.bad", r.data.error || ""), true);
     await reloadAll();
   }
+  /* which version of the archive "try a question" looks at: the latest (default) or one picked from its own history, kept per archive between sessions */
+  function versionKey(aid) { return "rag-search-version-" + aid; }
+  function loadSearchVersion(aid) {
+    try { return localStorage.getItem(versionKey(aid)) || ""; } catch (e) { return ""; }
+  }
+  function saveSearchVersion(aid, v) {
+    try { if (v) localStorage.setItem(versionKey(aid), v); else localStorage.removeItem(versionKey(aid)); } catch (e) { /* a private window, or storage blocked: the choice just does not survive a reload */ }
+  }
   async function ask() {
     if (!question.trim() || asking) return;
     asking = true; results = null; paint();
-    const r = await api("POST", "api/rag/search", { query: question.trim(), archives: [chosen], top_k: TOP_K });
+    const v = chosen ? loadSearchVersion(chosen) : "";
+    const body = { query: question.trim(), archives: [chosen], top_k: TOP_K };
+    if (v) body.version = Number(v);
+    const r = await api("POST", "api/rag/search", body);
     asking = false;
     if (!r.ok) { say(why(r), true); results = null; } else { say("", false); results = r.data; }
     paint();
@@ -466,7 +478,7 @@
     if (envBusy) { box.append(el("p", "rg-help", envStage ? T("rg.sem.env.doing", envStage) : T("rg.sem.env.doing0"))); return box; }
     const row = el("div", "rd-actions");
     if (!env.installed) { const go = btn(T("rg.sem.env.install"), "", installEmbedEnv); go.disabled = !env.python_found; row.append(go); }
-    else { const probe = btn(T("rg.sem.env.probe"), "", probeEmbedEnv); row.append(probe); if (envDevice) row.append(el("span", "rg-note", T("rg.sem.env.device." + envDevice))); }
+    else { const probe = btn(T("rg.sem.env.probe"), "", probeEmbedEnv); row.append(probe); if (ENV_DEVICE[envDevice]) row.append(el("span", "rg-note", T(ENV_DEVICE[envDevice]))); }
     box.append(row);
     return box;
   }
@@ -634,17 +646,31 @@
     box.append(go, el("p", "rg-help", T("rg.index.again.help")));
     return box;
   }
+  function versionPicker(a) {
+    const log = a.version_log || [];
+    if (!log.length) return null;
+    const wrap = el("div", "rg-field"), sel = el("select"), lab = el("label", "", T("rg.try.version")); sel.id = "rg-try-version"; lab.htmlFor = "rg-try-version";
+    const latest = el("option", "", T("rg.try.version.latest")); latest.value = ""; sel.append(latest);
+    log.slice().reverse().forEach(e => { const o = el("option", "", T("rg.try.version.opt", e.n, e.documents)); o.value = String(e.n); sel.append(o); });
+    sel.value = loadSearchVersion(a.id);
+    sel.onchange = () => { saveSearchVersion(a.id, sel.value); results = null; paint(); };
+    wrap.append(lab, sel, el("p", "rg-help", T("rg.try.version.help")));
+    return wrap;
+  }
   function tryBlock(a) {
     const box = el("section", "rg-block");
     box.setAttribute("aria-labelledby", "rg-try-h");
     const h = el("h4", "rg-h2", T("rg.try.title")); h.id = "rg-try-h";
+    const picker = versionPicker(a);
     const form = el("form", "rg-row"), q = textInput(question, 500);
     q.placeholder = T("rg.try.ph"); q.setAttribute("aria-label", T("rg.try.title")); q.id = "rg-q";
     q.oninput = () => { question = q.value; };
     const go = btn(T("rg.try.go"), "primary", ask); go.type = "submit"; go.disabled = asking || !a.chunks;
     form.append(q, go);
     form.onsubmit = e => { e.preventDefault(); ask(); };
-    box.append(h, form);
+    box.append(h);
+    if (picker) box.append(picker);
+    box.append(form);
     if (asking) box.append(el("p", "rg-help", T("rg.try.working")));
     if (results) {
       box.append(el("p", "rg-help", (results.reranked ? T("rg.try.mode.reranked") : results.mode === "hybrid" ? T("rg.try.mode.hybrid") : T("rg.try.mode.lexical")) + (results.note ? " " + results.note : "")));

@@ -201,6 +201,20 @@ class RagStore:
             self._metas_cache[aid] = (key, meta)
             return meta
 
+    def load_at_version(self, aid: Any, version: int) -> Archive:
+        """The archive as it stood at `version`: never cached (a look back is occasional, not the hot path) and always without vectors, since semantic search
+        was never kept per version — an older look is words only. A tombstone from later than `version` does not hide a passage that genuinely existed then.
+        Which documents counted as the archive's own at that version comes from `version_log` (today's document list is the wrong one to filter by: it may
+        have gained or lost documents since)."""
+        version = int(version)
+        backend = self._backend(aid)
+        meta = self._read_meta(backend, aid)
+        at_version = next((e for e in reversed(meta.get("version_log") or []) if int(e["n"]) <= version), None)
+        known = set(at_version["documents"]) if at_version is not None else {d["id"] for d in meta["documents"]}
+        chunks = [c for c in backend.read_chunks(aid, version=version) if c.get("doc") in known]
+        sections = {sid: row for sid, row in backend.read_sections(aid).items() if row.get("doc") in known}
+        return Archive(meta, chunks, None, sections, backend, None)
+
     def load(self, aid: Any) -> Archive:
         """The archive with its passages, kept in memory until it changes; its vectors are read when a search first needs them."""
         backend = self._backend(aid)
@@ -306,7 +320,8 @@ class RagStore:
     def get(self, aid: Any) -> Dict[str, Any]:
         meta = self.load(aid).meta
         kept = self.originals()
-        return {**self._summary(meta), "document_list": [{**d, "has_original": kept.has(str(d.get("sha256") or ""))} for d in meta["documents"]]}
+        return {**self._summary(meta), "document_list": [{**d, "has_original": kept.has(str(d.get("sha256") or ""))} for d in meta["documents"]],
+                "version_log": [{"n": e["n"], "at": e["at"], "documents": len(e["documents"])} for e in (meta.get("version_log") or [])]}
 
     def create(self, name: Any, description: Any = "", project: Any = None, project_name: Any = "") -> Dict[str, Any]:
         name, description = _text(name, "name", LIMITS["name"], True), _text(description, "description", LIMITS["description"])
@@ -696,16 +711,18 @@ class RagStore:
 
     # -- asking ----------------------------------------------------------------------------------
 
-    def search(self, ids: Sequence[str], query: Any, top_k: int = TOP_K, min_share: float = 0.0, strict: bool = True, filters: Any = None) -> Dict[str, Any]:
+    def search(self, ids: Sequence[str], query: Any, top_k: int = TOP_K, min_share: float = 0.0, strict: bool = True, filters: Any = None,
+               version: Optional[int] = None) -> Dict[str, Any]:
         """The best passages of the archives `ids` for `query`. A words-only hit must answer at least `min_share` of the question (0: any hit).
         With `strict` False an archive that is gone is left out instead of refused. `filters` narrows the passages searched (tadamoo/rag/ingest/meta.py
-        `clean_filters`: language, number, gene, seq, year, kind, unit, document)."""
+        `clean_filters`: language, number, gene, seq, year, kind, unit, document). `version` looks at the archives as they stood at that version instead
+        of their latest: words only (a look back never goes through the server's own embedder, so `remote` is skipped), never cached."""
         wanted = facts.clean_filters(filters)
         from tadamoo.rag.query import run
         if not isinstance(query, str):
             raise RagError("query: the text of the question")
         top_k = max(1, min(int(top_k), LIMITS["top_k"]))
-        if self.remote is not None:                        # the archives are only checked to exist (their meta); the server holds their passages
+        if version is None and self.remote is not None:    # the archives are only checked to exist (their meta); the server holds their passages
             there = []
             for aid in ids:
                 try:
@@ -720,11 +737,11 @@ class RagStore:
         loaded = []
         for aid in ids:
             try:
-                loaded.append(self.load(aid))
+                loaded.append(self.load(aid) if version is None else self.load_at_version(aid, version))
             except RagError:
                 if strict:
                     raise
-        return run(loaded, self.embedder(), query.strip()[:2000], top_k, min_share, self.settings.read(), wanted)
+        return run(loaded, None if version is not None else self.embedder(), query.strip()[:2000], top_k, min_share, self.settings.read(), wanted)
 
     # -- hooks for the refresh of archives (tadamoo/rag/sources) ---------------------------------
 

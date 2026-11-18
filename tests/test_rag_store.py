@@ -463,3 +463,23 @@ def test_the_archive_advances_a_version_when_its_documents_change_and_not_when_i
     got = store.load(aid).meta
     assert got["version"] == 3 and [e["n"] for e in got["version_log"]] == [1, 2, 3]
     assert len(got["version_log"][1]["documents"]) == 2 and len(got["version_log"][2]["documents"]) == 1
+
+
+def test_a_search_at_an_older_version_finds_what_was_there_then_in_words_only(tmp_path):
+    s = store(tmp_path, Fake())
+    aid = s.create("Boats", project=PROJ)["id"]
+    add(s, tmp_path, aid, "sailing.txt", SAILING)
+    v1 = s.get(aid)["version"]
+    add(s, tmp_path, aid, "cooking.txt", COOKING)
+    v2 = s.get(aid)["version"]
+    doc = next(d for d in s.get(aid)["document_list"] if d["name"] == "cooking.txt")
+    s.remove_document(aid, doc["id"])
+    v3 = s.get(aid)["version"]
+    assert v1 < v2 < v3
+    at_v1 = s.search([aid], "risotto stock")
+    assert at_v1["hits"] == [] or all("risotto" not in h["text"].lower() for h in at_v1["hits"])     # already gone again: today's search sees none
+    at_v2 = s.search([aid], "risotto stock", version=v2)
+    assert any("risotto" in h["text"].lower() for h in at_v2["hits"]) and at_v2["mode"] == "lexical"  # a look back is words only, never hybrid
+    at_v1_only = s.search([aid], "risotto stock", version=v1)
+    assert at_v1_only["hits"] == []                                                  # cooking.txt did not exist yet at v1
+    assert any("keel" in h["text"].lower() for h in s.search([aid], "keel boat", version=v1)["hits"])
