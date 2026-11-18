@@ -145,6 +145,23 @@ def test_installing_tor_goes_through_the_pinned_checks_and_a_failure_installs_no
     assert e.value.code == "tor" and "hash" in str(e.value)
 
 
+def test_tor_bundled_with_the_package_is_found_before_a_download_of_its_own(tmp_path, monkeypatch):
+    from serve import addons
+    rt = make(tmp_path)
+    assert rt.tor_program() is None
+    bundled = tmp_path / "bundled-addons"
+    exe = bundled / "tor" / "tor.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"MZ")
+    (bundled / "addons.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(addons, "addons_dir", lambda: bundled)
+    assert rt.tor_program() == exe
+    own = tmp_path / "tools" / "tor" / "bundle" / "tor" / "tor.exe"
+    own.parent.mkdir(parents=True)
+    own.write_bytes(b"MZ")
+    assert rt.tor_program() == exe                                 # the bundled one still wins when this PC also downloaded its own
+
+
 def test_watching_pages_is_a_tool_only_when_its_setting_is_on_and_checks_nothing_until_asked(tmp_path):
     rt = make(tmp_path)
     rt.save({"darkweb": True})

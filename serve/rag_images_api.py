@@ -77,6 +77,13 @@ class RagImagesApi:
 
     # -- reading -----------------------------------------------------------------------------------
 
+    def _exe(self) -> Optional[Path]:
+        """MinIO ready to run: bundled with this copy of TaDaMoo (run from where it is, nothing to install) first, else one this PC downloaded itself."""
+        bundled = minio_setup.bundled_program()
+        if bundled is not None:
+            return bundled
+        return next((Path(self.tools) / n for n in minio_setup.NAMES if self.tools and (Path(self.tools) / n).is_file()), None)
+
     def _own_file(self) -> Optional[Path]:
         return (self.tools / OWN) if self.tools else None
 
@@ -96,7 +103,7 @@ class RagImagesApi:
             count = 0
         own = self._own()
         found = self._detect()
-        exe = next((Path(self.tools) / n for n in minio_setup.NAMES if self.tools and (Path(self.tools) / n).is_file()), None)
+        exe = self._exe()
         return {"store": cfg.get("images_store", "folder"), "folder": str(folder), "count": count,
                 "s3": {"endpoint": cfg.get("images_s3_endpoint", ""), "bucket": cfg.get("images_s3_bucket", ""), "access_key": cfg.get("images_s3_access_key", ""),
                        "secure": bool(cfg.get("images_s3_secure"))},
@@ -164,7 +171,8 @@ class RagImagesApi:
         if self.tools is None:
             raise RagError("there is no folder for the programs of this app")
         folder = self.tools
-        program = minio_setup.install_release(folder, fetch=self._fetch)
+        bundled = minio_setup.bundled_program()
+        program = bundled if bundled is not None else minio_setup.install_release(folder, fetch=self._fetch)
         own = self._own()
         port = int(own.get("port") or minio_setup.free_port())
         keys = {"access_key": own.get("access_key"), "secret_key": ""}
@@ -182,7 +190,7 @@ class RagImagesApi:
 
     def start_own(self) -> Dict[str, Any]:
         own = self._own()
-        exe = next((Path(self.tools) / n for n in minio_setup.NAMES if self.tools and (Path(self.tools) / n).is_file()), None)
+        exe = self._exe()
         if not own or exe is None:
             raise RagError("there is no MinIO of our own installed: install it first")
         secret = self._get(SECRET_ENTRY)

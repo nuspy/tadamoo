@@ -72,6 +72,18 @@ def test_the_release_is_downloaded_checked_and_unpacked_and_a_wrong_hash_removes
     assert len(ms.RELEASE["sha256"]) == 64 and ms.RELEASE["url"].startswith("https://github.com/pgsty/silo/releases/download/")
 
 
+def test_a_bundled_minio_is_found_without_any_network_address(tmp_path, monkeypatch):
+    from serve import addons
+    assert ms.bundled_program() is None
+    bundled = tmp_path / "bundled-addons"
+    exe = bundled / "minio" / ms.EXE
+    exe.parent.mkdir(parents=True)
+    exe.write_bytes(b"MZ")
+    (bundled / "addons.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(addons, "addons_dir", lambda: bundled)
+    assert ms.bundled_program() == exe
+
+
 def test_a_program_the_person_points_at_is_copied_and_a_download_needs_its_hash(tmp_path):
     src = program(tmp_path / "theirs")
     got = ms.install_from(tmp_path / "own", program=src)

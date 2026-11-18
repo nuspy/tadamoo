@@ -79,10 +79,13 @@ class Runtime:
     # -- Tor --------------------------------------------------------------------------------------------
 
     def tor_program(self) -> Optional[Path]:
-        for p in (self.tools / "tor" / "bundle" / "tor" / "tor.exe", self.tools / "tor" / "bundle" / "tor" / "tor"):
-            if p.is_file():
-                return p
-        return None
+        """Tor, bundled with this copy of TaDaMoo (built in, verified once by whoever made the package) if there is one, else the one this PC
+        downloaded itself (Settings > Inference > Dark web, "Install")."""
+        from serve import addons
+        bundled = addons.addons_dir()
+        candidates = ([bundled / "tor" / "tor.exe", bundled / "tor" / "tor"] if bundled else []) + \
+            [self.tools / "tor" / "bundle" / "tor" / "tor.exe", self.tools / "tor" / "bundle" / "tor" / "tor"]
+        return next((p for p in candidates if p.is_file()), None)
 
     def resolved_navigation(self) -> str:
         """"own" or "agent-browser": the setting as saved, or the one default browser (Settings > Wallet) when it is left at "default"."""

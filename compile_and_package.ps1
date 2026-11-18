@@ -342,7 +342,7 @@ try {
     Info ("{0} wheels, {1:N0} MB" -f $wheels.Count, (($wheels | Measure-Object Length -Sum).Sum / 1MB))
 
     # ------------------------------------------------------------------ add-ons (dependencies shipped with the app)
-    Step 'Add-ons: Node.js, Billion Context, REA and Openweight Canary'
+    Step 'Add-ons: Node.js, Billion Context, REA, Openweight Canary, Tor and MinIO'
     $addDir = Join-Path $Stage 'addons'
     New-Item -ItemType Directory -Force $addDir | Out-Null
     $addCache = Join-Path $Cache 'addons'
@@ -409,6 +409,61 @@ try {
         Info ("{0}@{1}: {2:N0} MB, license {3}" -f $a.name, $a.version, ((Get-ChildItem $dst -Recurse -File | Measure-Object Length -Sum).Sum / 1MB), $pkgJson.license)
     }
 
+    # Tor (Expert Bundle, for the dark web option): hash and signature checked by darkweb.torbundle, the same module Settings > Dark web uses to install
+    # it on a PC that builds nothing. Bundling it here means a person who gets the finished package never needs GnuPG or a download of their own for it.
+    $addPy = Join-Path $Root '.venv\Scripts\python.exe'
+    if (-not (Test-Path $addPy)) { $addPy = (Get-Command python -ErrorAction Stop).Source }
+    $torCache = Join-Path $addCache 'tor'
+    New-Item -ItemType Directory -Force $torCache | Out-Null
+    $torPyFile = Join-Path $torCache 'fetch_tor.py'
+    @"
+import sys, urllib.request
+from pathlib import Path
+sys.path.insert(0, r'$Root')
+from darkweb import torbundle
+
+cache = Path(r'$torCache')
+
+def fetch(url, dest):
+    if dest.is_file() and dest.stat().st_size > 0:
+        return
+    if $(if ($SkipDownloads) { 'True' } else { 'False' }):
+        raise RuntimeError(f'{dest} is not in the cache (run without -SkipDownloads once)')
+    urllib.request.urlretrieve(url, dest)
+
+exe = torbundle.install(cache, fetch, torbundle.gpg_with_key(cache / 'gnupg'))
+print(str(exe))
+print(torbundle.BUNDLE['version'])
+"@ | Set-Content -Encoding UTF8 $torPyFile
+    $torOut = & $addPy $torPyFile
+    if ($LASTEXITCODE -ne 0) { throw "Tor Expert Bundle: install() failed (hash, signature or GnuPG); see output above:`n$torOut" }
+    $torExe, $torVersion = $torOut[-2].Trim(), $torOut[-1].Trim()
+    $torDst = Join-Path $addDir 'tor'
+    if (Test-Path $torDst) { Remove-Item -Recurse -Force $torDst }
+    New-Item -ItemType Directory -Force $torDst | Out-Null
+    Copy-Item (Join-Path (Split-Path $torExe) '*') $torDst -Recurse -Force
+    $addInfo['tor'] = [ordered]@{ version = $torVersion; license = 'BSD-3-Clause and others (Tor Project); see THIRD_PARTY_SEPARATE_PACKAGES.md'; source = 'https://dist.torproject.org' }
+    Info "Tor Expert Bundle $torVersion, hash and signature checked"
+
+    # MinIO (community fork "Silo"), for the image store of the knowledge archives: same pinned release and hash as tadamoo/minio_setup.py, read from
+    # there so the two never drift apart. Bundling it means Settings > Knowledge > Images finds it at once, with nothing to download on that PC.
+    $minioInfo = (& $addPy -c "import sys; sys.path.insert(0, r'$Root'); from tadamoo.minio_setup import RELEASE as R; print(R['url']); print(R['sha256']); print(R['tag'])")
+    $minioUrl, $minioSha, $minioTag = $minioInfo[0].Trim(), $minioInfo[1].Trim(), $minioInfo[2].Trim()
+    $minioZip = Join-Path $addCache 'minio-release.zip'
+    Get-Cached $minioUrl $minioZip
+    $haveMinio = (Get-FileHash $minioZip -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($haveMinio -ne $minioSha) { throw "MinIO ${minioTag}: the sha256 does not match the one pinned in tadamoo/minio_setup.py" }
+    $minioTmp = Join-Path $addCache 'minio-extract'
+    if (Test-Path $minioTmp) { Remove-Item -Recurse -Force $minioTmp }
+    Expand-Archive -LiteralPath $minioZip -DestinationPath $minioTmp
+    $minioExeSrc = Get-ChildItem $minioTmp -Recurse -File | Where-Object { $_.Name -in @('minio.exe', 'silo.exe', 'minio', 'silo') } | Select-Object -First 1
+    if (-not $minioExeSrc) { throw 'MinIO: the archive holds no program' }
+    $minioDst = Join-Path $addDir 'minio'
+    New-Item -ItemType Directory -Force $minioDst | Out-Null
+    Copy-Item $minioExeSrc.FullName (Join-Path $minioDst $minioExeSrc.Name)
+    $addInfo['minio'] = [ordered]@{ tag = $minioTag; license = 'AGPL-3.0 (Silo, community fork of MinIO); see THIRD_PARTY_SEPARATE_PACKAGES.md'; sha256 = $haveMinio; source = $minioUrl }
+    Info "MinIO (Silo) $minioTag, sha256 matches tadamoo/minio_setup.py"
+
     # Openweight Canary (the owner's own repository): the committed tree, without tests
     $CanaryRepo = Join-Path (Split-Path $Root -Parent) 'openweight-canary'
     $canaryDst = Join-Path $addDir 'openweight-canary'
@@ -448,6 +503,8 @@ Bundled third-party files that are not part of the repository:
   addons\node\node.exe                        Node.js $NodeVersion (MIT), runs Billion Context and REA
   addons\billion-context, addons\rea-agents   npm packages with their dependencies (MIT; licenses\addons), installed without install scripts
   addons\openweight-canary                      the exfiltration test (python -m canary), from github.com/nuspy/Openweight-Canary
+  addons\tor                                    the Tor Expert Bundle (BSD-3-Clause and others), for the dark web option; hash and signature checked at build time
+  addons\minio                                  MinIO (Silo fork, AGPL-3.0; see THIRD_PARTY_SEPARATE_PACKAGES.md), for the image store of the knowledge archives
   addons\addons.json                            versions, hashes and licenses of the add-ons
 The setup\ folder is removed by the installer once everything is in place. The Qwen model has its own license.
 "@ | Set-Content -Encoding UTF8 (Join-Path $lic 'BUNDLED-FILES.txt')

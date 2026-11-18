@@ -107,6 +107,19 @@ def test_a_separate_minio_is_installed_on_request_started_on_its_own_port_and_us
     assert api.route_post(["other"], {}) is None
 
 
+def test_a_bundled_minio_is_used_in_place_with_no_download_and_still_found_without_installing_it_here(tmp_path, monkeypatch):
+    store, api, vault, started = make(tmp_path, monkeypatch)
+    bundled = tmp_path / "bundled" / minio_setup.EXE
+    bundled.parent.mkdir(parents=True)
+    bundled.write_bytes(b"MZ-bundled")
+    monkeypatch.setattr(minio_setup, "bundled_program", lambda: bundled)
+    assert api.overview()["minio"]["own"]["installed"] is True                       # found straight away, before any "install" was pressed
+    got = api.route_post(["images", "minio", "install"], {})
+    assert got["minio"]["own"]["installed"] and got["minio"]["own"]["running"]
+    assert not (tmp_path / "tools" / minio_setup.EXE).exists()                       # nothing downloaded into the tools folder: run from the bundled copy
+    assert not (tmp_path / "tools" / "download.zip").exists()
+
+
 def test_our_own_minio_is_one_process_for_every_request_and_comes_up_by_itself_when_the_images_are_kept_in_it(tmp_path, monkeypatch):
     from serve import rag_images_api
     store, api, vault, started = make(tmp_path, monkeypatch)

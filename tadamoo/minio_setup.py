@@ -98,6 +98,16 @@ def free_port(taken: Sequence[int] = (), listening: Callable[[str, int], bool] =
     raise RuntimeError("no free port between 9400 and 9499")
 
 
+def bundled_program() -> Optional[Path]:
+    """MinIO, bundled with this copy of TaDaMoo (the hash of `RELEASE` was already checked by whoever made the package), when there is one."""
+    from serve import addons
+    found = addons.addons_dir()
+    if found is None:
+        return None
+    p = found / "minio" / EXE
+    return p if p.is_file() else None
+
+
 def install_release(folder: Path, release: Optional[Dict[str, Any]] = None, fetch: Optional[Callable[[str, Path], None]] = None) -> Path:
     """Downloads the release TaDaMoo ships (`RELEASE`, or the one given), checks its SHA-256 and unpacks the service program into `folder`. Called only after the person said yes."""
     release = release or RELEASE
