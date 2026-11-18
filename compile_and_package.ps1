@@ -342,7 +342,7 @@ try {
     Info ("{0} wheels, {1:N0} MB" -f $wheels.Count, (($wheels | Measure-Object Length -Sum).Sum / 1MB))
 
     # ------------------------------------------------------------------ add-ons (dependencies shipped with the app)
-    Step 'Add-ons: Node.js, Billion Context, REA, Openweight Canary, Tor and MinIO'
+    Step 'Add-ons: Node.js, Billion Context, REA, Openweight Canary, Tor, MinIO and PostgreSQL (with pgvector)'
     $addDir = Join-Path $Stage 'addons'
     New-Item -ItemType Directory -Force $addDir | Out-Null
     $addCache = Join-Path $Cache 'addons'
@@ -464,6 +464,58 @@ print(torbundle.BUNDLE['version'])
     $addInfo['minio'] = [ordered]@{ tag = $minioTag; license = 'AGPL-3.0 (Silo, community fork of MinIO); see THIRD_PARTY_SEPARATE_PACKAGES.md'; sha256 = $haveMinio; source = $minioUrl }
     Info "MinIO (Silo) $minioTag, sha256 matches tadamoo/minio_setup.py"
 
+    # PostgreSQL (for a knowledge archive's database, Conoscenza > Database): same pinned release and hash as tadamoo/postgres_setup.py, read from there so
+    # the two never drift apart. Only the server, its libraries and the headers are kept (never pgAdmin or StackBuilder); install_release() does the keeping.
+    $pgInfo = (& $addPy -c "import sys; sys.path.insert(0, r'$Root'); from tadamoo.postgres_setup import RELEASE as R; print(R['url']); print(R['sha256']); print(R['version'])")
+    $pgUrl, $pgSha, $pgVersion = $pgInfo[0].Trim(), $pgInfo[1].Trim(), $pgInfo[2].Trim()
+    $pgCache = Join-Path $addCache 'postgres'
+    New-Item -ItemType Directory -Force $pgCache | Out-Null
+    $pgZip = Join-Path $pgCache 'postgresql-release.zip'
+    Get-Cached $pgUrl $pgZip
+    $pgPyFile = Join-Path $pgCache 'install_postgres.py'
+@"
+import shutil, sys
+from pathlib import Path
+sys.path.insert(0, r'$Root')
+from tadamoo import postgres_setup
+
+exe = postgres_setup.install_release(Path(r'$pgCache') / 'pgsql', fetch=lambda url, dest: shutil.copyfile(r'$pgZip', dest))
+print(str(exe))
+"@ | Set-Content -Encoding UTF8 $pgPyFile
+    $pgOut = & $addPy $pgPyFile
+    if ($LASTEXITCODE -ne 0) { throw "PostgreSQL ${pgVersion}: install_release() failed (its own sha256 check); see output above:`n$pgOut" }
+    $pgExe = $pgOut[-1].Trim()
+    $pgRoot = Split-Path (Split-Path $pgExe)        # .../pgsql, the parent of bin, lib, share and include
+    $pgDst = Join-Path $addDir 'postgres'
+    if (Test-Path $pgDst) { Remove-Item -Recurse -Force $pgDst }
+    Copy-Item $pgRoot $pgDst -Recurse
+    Copy-Item (Join-Path $pgDst 'server_license.txt') (Join-Path $licAdd 'PostgreSQL-LICENSE.txt') -ErrorAction SilentlyContinue
+    $addInfo['postgres'] = [ordered]@{ version = $pgVersion; license = 'PostgreSQL License (see licenses\addons\PostgreSQL-LICENSE.txt)'; sha256 = $pgSha; source = $pgUrl }
+    Info "PostgreSQL $pgVersion, sha256 matches tadamoo/postgres_setup.py"
+
+    # pgvector: no official Windows binary exists, and an unofficial one is not trusted for a program with full database access (decided with the owner), so
+    # it is compiled from its own source at build time, tag v0.8.7 (PostgreSQL License), with the same Visual Studio C++ tools that build the engine.
+    $PgvectorTag = 'v0.8.7'
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (-not (Test-Path $vswhere)) { throw 'pgvector: vswhere.exe was not found (Visual Studio with the "Desktop development with C++" workload is required to build it)' }
+    $vsPath = (& $vswhere -latest -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath).Trim()
+    if (-not $vsPath) { throw 'pgvector: no Visual Studio installation with the C++ tools was found' }
+    $vcvars = Join-Path $vsPath 'VC\Auxiliary\Build\vcvars64.bat'
+    if (-not (Test-Path $vcvars)) { throw "pgvector: $vcvars is missing" }
+    $pgvSrc = Join-Path $addCache 'pgvector'
+    if (Test-Path $pgvSrc) { Remove-Item -Recurse -Force $pgvSrc }
+    if ($SkipDownloads) { throw 'pgvector: its source is cloned fresh every build (git clone), which -SkipDownloads has no cache for; build once with network access' }
+    Run git @('clone', '--branch', $PgvectorTag, '--depth', '1', 'https://github.com/pgvector/pgvector.git', $pgvSrc)
+    Copy-Item (Join-Path $pgvSrc 'LICENSE') (Join-Path $licAdd 'pgvector-LICENSE.txt') -ErrorAction SilentlyContinue
+    $pgvLog = Join-Path $addCache 'pgvector-build.log'
+    $pgvCmd = "call `"$vcvars`" >nul && set `"PGROOT=$pgDst`" && cd /d `"$pgvSrc`" && nmake /F Makefile.win 2>&1 && nmake /F Makefile.win install 2>&1"
+    cmd.exe /c $pgvCmd | Set-Content -Encoding UTF8 $pgvLog
+    if ($LASTEXITCODE -ne 0) { throw "pgvector ${PgvectorTag}: the build failed (nmake); see $pgvLog" }
+    $vectorDll = Get-ChildItem (Join-Path $pgDst 'lib') -Filter 'vector.dll' -ErrorAction SilentlyContinue
+    if (-not $vectorDll) { throw "pgvector ${PgvectorTag}: the build did not install vector.dll into $pgDst\lib; see $pgvLog" }
+    $addInfo['pgvector'] = [ordered]@{ tag = $PgvectorTag; license = 'PostgreSQL License (see licenses\addons\pgvector-LICENSE.txt)'; source = 'https://github.com/pgvector/pgvector'; compiled_for = $pgVersion }
+    Info "pgvector $PgvectorTag compiled against PostgreSQL $pgVersion"
+
     # Openweight Canary (the owner's own repository): the committed tree, without tests
     $CanaryRepo = Join-Path (Split-Path $Root -Parent) 'openweight-canary'
     $canaryDst = Join-Path $addDir 'openweight-canary'
@@ -505,6 +557,7 @@ Bundled third-party files that are not part of the repository:
   addons\openweight-canary                      the exfiltration test (python -m canary), from github.com/nuspy/Openweight-Canary
   addons\tor                                    the Tor Expert Bundle (BSD-3-Clause and others), for the dark web option; hash and signature checked at build time
   addons\minio                                  MinIO (Silo fork, AGPL-3.0; see THIRD_PARTY_SEPARATE_PACKAGES.md), for the image store of the knowledge archives
+  addons\postgres                               PostgreSQL (PostgreSQL License), with pgvector compiled from its own source at build time, for the Database section of the knowledge archives
   addons\addons.json                            versions, hashes and licenses of the add-ons
 The setup\ folder is removed by the installer once everything is in place. The Qwen model has its own license.
 "@ | Set-Content -Encoding UTF8 (Join-Path $lic 'BUNDLED-FILES.txt')
