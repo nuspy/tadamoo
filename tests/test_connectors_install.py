@@ -28,7 +28,8 @@ def blob_sha(data):
 
 @pytest.fixture
 def stub():
-    state = {"hits": [], "head": COMMIT}
+    state = {"hits": [], "head": COMMIT, "registry_server": {"name": "io.example/cloud", "description": "A cloud service", "version": "1.0.0",
+                                                              "remotes": [{"type": "streamable-http", "url": "https://mcp.example.com/cloud"}]}}
 
     class H(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
@@ -43,9 +44,8 @@ def stub():
                 body = json.dumps({"tree": [{"path": p, "type": "blob", "mode": "100644", "size": len(d), "sha": blob_sha(d)} for p, d in FILES.items()]}).encode()
             elif path.startswith(f"/raw/acme/skills/{COMMIT}/") or path.startswith(f"/raw/acme/skills/{'b' * 40}/") or path.startswith("/raw/acme/skills/main/"):
                 body, ctype = FILES[path.split("/", 5)[5]], "text/plain"
-            elif path == "/reg/v0/servers":
-                body = json.dumps({"servers": [{"server": {"name": "io.example/cloud", "description": "A cloud service", "version": "1.0.0",
-                                                          "remotes": [{"type": "streamable-http", "url": "https://mcp.example.com/cloud"}]}}]}).encode()
+            elif path in ("/reg/v0/servers", "/reg/v0.1/servers"):
+                body = json.dumps({"servers": [{"server": state["registry_server"]}]}).encode()
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -144,6 +144,44 @@ def test_a_remote_server_of_a_registry_is_installed_as_a_record_and_listed_by_th
     assert "mcp.example.com" in entry["command"]
     assert api.uninstall(entry["id"])["removed"] == entry["id"]
     assert not any(e["origin"] == "tadamoo" for e in caps.overview()["entries"])
+
+
+def test_an_mcp_servers_update_is_found_in_the_registry_and_installed_over_it(tmp_path, stub):
+    api, caps, installer = make(tmp_path, stub, [{"id": "r", "kind": "mcp_registry", "ref": stub["url"] + "/reg", "trust": "official", "enabled": True}])
+    item = next(i for i in api.view("all", "mcp_server")["available"] if i["id"] == "registry:io.example/cloud")
+    entry_id = api.install(item["id"], {})["installed"]["id"]
+    assert api.updates() == {"updates": [], "errors": []}
+    stub["registry_server"] = {**stub["registry_server"], "version": "2.0.0"}
+    found = api.updates()["updates"]
+    assert len(found) == 1 and found[0]["id"] == entry_id and found[0]["from"] == "1.0.0" and found[0]["to"] == "2.0.0" and found[0]["kind"] == "mcp"
+    got = api.update(entry_id, {})["installed"]
+    assert got["version"] == "2.0.0"
+    assert api.updates()["updates"] == []
+    with pytest.raises(ConnectorError):
+        api.update("mcp:not-ours", {})
+
+
+def test_updating_a_connector_carries_its_accounts_and_configured_values_over(tmp_path, stub, monkeypatch):
+    from tadamoo.discovery.installed import InstalledStore
+    api, caps, installer = make(tmp_path, stub, [])
+    rec = {"id": "mcp:demo", "name": "demo", "kind": "mcp", "url": "https://x.example/mcp", "folder": "", "sha": "s", "source": "registry", "route": "remote", "version": "1",
+           "env": [{"name": "REGION", "required": False, "secret": False, "entry": "REGION", "value": ""}],
+           "accounts": ["default", "work"], "default_account": "default", "account_values": {"default": {"REGION": "eu"}, "work": {"REGION": "us"}}}
+    InstalledStore(tmp_path / "capabilities").put(dict(rec))
+
+    def fake_install(kind, source, flags):
+        InstalledStore(tmp_path / "capabilities").put({"id": "mcp:demo", "name": "demo", "kind": "mcp", "url": "https://x.example/mcp", "folder": "", "sha": "s2",
+                                                        "source": "registry", "route": "remote", "version": "2",
+                                                        "env": [{"name": "REGION", "required": False, "secret": False, "entry": "REGION", "value": ""}]})
+        return {"id": "mcp:demo", "kind": "mcp", "version": "2"}
+    monkeypatch.setattr(installer, "install", fake_install)
+    monkeypatch.setattr(installer, "_registry_match", lambda finder, rec: {"name": "io.example/demo", "version": "2"})
+
+    out = api.update("mcp:demo", {})
+    assert out["installed"]["version"] == "2"
+    new = InstalledStore(tmp_path / "capabilities").get("mcp:demo")
+    assert new["accounts"] == ["default", "work"] and new["default_account"] == "default" and new["account_values"] == {"default": {"REGION": "eu"}, "work": {"REGION": "us"}}
+    assert api.config("mcp:demo", "work")["variables"][0]["value"] == "us"                    # still readable through the normal account API after the update
 
 
 def test_only_what_was_installed_from_here_is_removed_and_nothing_installs_without_an_installer(tmp_path, stub):

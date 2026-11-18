@@ -362,6 +362,18 @@ class ConnectorInstaller:
 
     # -- updates ----------------------------------------------------------------------------------------
 
+    @staticmethod
+    def _registry_match(finder: Finder, rec: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """The registry's current listing for an installed MCP server's record (matched by its package identifier or its remote URL, the two things
+        a record keeps that a listing can be recognised by), or `None` when the registry no longer has it."""
+        finder._prepare()
+        for row in finder.registry.search(str(rec.get("name") or "").replace("-", " ")):
+            s = row.get("server", {})
+            if (rec.get("package") and any(str(p.get("identifier")) == rec["package"] for p in s.get("packages") or [] if isinstance(p, dict))) or \
+               (rec.get("url") and any(str(r.get("url")) == rec["url"] for r in s.get("remotes") or [] if isinstance(r, dict))):
+                return s
+        return None
+
     def updates(self) -> Dict[str, Any]:
         """For each thing TaDaMoo installed from GitHub or a registry, whether a newer one is there. Nothing is downloaded: only the newest commit or version is asked. One that does not answer is listed with the reason."""
         out, errors = [], []
@@ -375,26 +387,40 @@ class ConnectorInstaller:
                     if head != rec["commit"]:
                         out.append({"id": rec["id"], "name": rec.get("name", ""), "from": str(rec["commit"])[:10], "to": head[:10], "kind": "skill"})
                 elif rec.get("source") == "registry" and rec.get("version"):
-                    finder._prepare()
-                    for row in finder.registry.search(str(rec.get("name") or "").replace("-", " ")):
-                        s = row.get("server", {})
-                        if rec.get("package") and any(str(p.get("identifier")) == rec["package"] for p in s.get("packages") or [] if isinstance(p, dict)) or (rec.get("url") and any(str(r.get("url")) == rec["url"] for r in s.get("remotes") or [] if isinstance(r, dict))):
-                            if str(s.get("version") or "") not in ("", str(rec["version"])):
-                                out.append({"id": rec["id"], "name": rec.get("name", ""), "from": str(rec["version"]), "to": str(s["version"]), "kind": "mcp"})
-                            break
+                    s = self._registry_match(finder, rec)
+                    if s is not None and str(s.get("version") or "") not in ("", str(rec["version"])):
+                        out.append({"id": rec["id"], "name": rec.get("name", ""), "from": str(rec["version"]), "to": str(s["version"]), "kind": "mcp"})
             except Exception as e:                       # a source that does not answer is told, and does not stop the others
                 errors.append({"id": rec.get("id", ""), "why": str(e)[:160]})
         return {"updates": out, "errors": errors}
 
     def update(self, entry_id: str, flags: Dict[str, bool]) -> Dict[str, Any]:
-        """Installs the newer one over the installed one (the old one comes back if the new one fails). The downloaded original of the new commit is kept next to the old one.
-        This replaces the installed copy whole: a change the person made directly to it is lost. `update_plan`/`apply_update` below merge instead, keeping it."""
+        """Installs the newer one over the installed one (the old one comes back if the new one fails): a GitHub skill at its current commit, or an
+        MCP server (npm, PyPI or remote) at the registry's current listing. The downloaded original of a new skill commit is kept next to the old
+        one. Accounts and their configured values carry over to the new record (a variable the new version no longer reads is simply unused, never
+        shown again). This replaces the installed copy whole: a change the person made directly to a skill's files is lost; `update_plan`/
+        `apply_update` below merge a skill instead, keeping it."""
         rec = self._record(entry_id)
         flags = {**flags, "update": True}
+        carry = {k: rec[k] for k in ("accounts", "default_account", "account_values") if k in rec}
         if rec.get("route") == "skill":
-            return self.install("github_skill", {"repo": rec["repo"], "path": rec.get("source_path") or "", "pin": rec.get("pin", ""), "name": rec.get("name", ""),
+            out = self.install("github_skill", {"repo": rec["repo"], "path": rec.get("source_path") or "", "pin": rec.get("pin", ""), "name": rec.get("name", ""),
                                                   "description": rec.get("description", "")}, flags)
-        raise ConnectorInstallError("Only a skill from GitHub can be updated from here for now.", "kind")
+        elif rec.get("source") == "registry":
+            s = self._registry_match(self.finder(CandidateStore()), rec)
+            if s is None:
+                raise ConnectorInstallError("The registry no longer lists this server.", "gone")
+            out = self.install("server", {"server": s}, flags)
+        else:
+            raise ConnectorInstallError("This kind of connector cannot be updated from here.", "kind")
+        if carry:
+            with self._lock:
+                records = InstalledStore(self.caps.index.dir)
+                new_rec = records.get(out["id"])
+                if new_rec is not None:
+                    new_rec.update(carry)
+                    records.put(new_rec)
+        return out
 
     # -- three-way merge of an update -------------------------------------------------------------------
 
