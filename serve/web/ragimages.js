@@ -22,7 +22,7 @@
   const text = (value, max) => { const i = el("input"); i.type = "text"; i.value = value || ""; i.maxLength = max || 200; i.autocomplete = "off"; i.spellcheck = false; return i; };
   const mb = n => `${(n / 1e6).toFixed(1)} MB`;
 
-  let view = null, note = "", bad = false, busy = "", form = { path: "", endpoint: "", access: "", secret: "", bucket: "", open: false }, repaint = () => {};
+  let view = null, note = "", bad = false, busy = "", form = { path: "", dpath: "", endpoint: "", access: "", secret: "", bucket: "", open: false }, repaint = () => {};
 
   async function load() {
     const r = await api("GET", "api/rag/images");
@@ -69,6 +69,11 @@
     if (own.installed) {
       mbox.append(el("p", "rg-line", T(own.running ? "ri.own.running" : "ri.own.stopped", own.endpoint || "")));
       mbox.append(btn(T(own.running ? "ri.stop" : "ri.start"), "", () => act("own", `api/rag/images/minio/${own.running ? "stop" : "start"}`, {})));
+      const dpath = text(form.dpath || own.data_dir, 500); dpath.oninput = () => { form.dpath = dpath.value; };
+      const dmove = btn(T(busy === "dmove" ? "ri.running" : "ri.move"), "", () => act("dmove", "api/rag/images/minio/folder", { path: dpath.value.trim() }));
+      dmove.disabled = !!busy || !dpath.value.trim() || dpath.value.trim() === own.data_dir;
+      const drow = el("div", "rg-row"); drow.append(dpath, dmove);
+      mbox.append(field("ri-dpath", T("ri.own.datadir"), T("ri.own.datadir.help"), drow));
     } else {
       const inst = btn(T(busy === "install" ? "ri.running" : "ri.install", mb(m.release.bytes)), "primary", () => act("install", "api/rag/images/minio/install", {}));
       inst.disabled = !!busy;

@@ -56,7 +56,8 @@ def test_the_overview_says_where_the_images_are_and_what_minio_there_is(tmp_path
     store, api, _, _ = make(tmp_path, monkeypatch)
     got = api.route_get(["images"])
     assert got["store"] == "folder" and got["count"] == 0 and got["folder"].endswith("images") and got["minio"]["recommended"] == "install_separate"
-    assert got["minio"]["release"]["bytes"] == minio_setup.RELEASE["bytes"] and got["minio"]["own"] == {"installed": False, "running": False, "endpoint": ""}
+    assert got["minio"]["release"]["bytes"] == minio_setup.RELEASE["bytes"]
+    assert got["minio"]["own"] == {"installed": False, "running": False, "endpoint": "", "data_dir": str(tmp_path / "tools" / "data")}
     there = make(tmp_path, monkeypatch, {"programs": [{"path": "x"}], "broken": [], "listening": []})[1].overview()["minio"]
     assert [o["id"] for o in there["options"]] == ["use_existing", "install_separate", "skip"] and there["recommended"] is None
 
@@ -106,6 +107,33 @@ def test_a_separate_minio_is_installed_on_request_started_on_its_own_port_and_us
     with pytest.raises(RagError):
         api.route_post(["images", "nothing"], {})
     assert api.route_post(["other"], {}) is None
+
+
+def test_our_own_minios_data_folder_moves_from_the_gui_and_it_restarts_there(tmp_path, monkeypatch):
+    store, api, vault, started = make(tmp_path, monkeypatch)
+    with pytest.raises(RagError, match="install it first"):
+        api.route_post(["images", "minio", "folder"], {"path": str(tmp_path / "nope")})
+    api.route_post(["images", "minio", "install"], {})
+    old_dir = tmp_path / "tools" / "data"
+    old_dir.mkdir(parents=True, exist_ok=True)
+    (old_dir / "bucket.dat").write_bytes(b"stuff")
+    where = tmp_path / "elsewhere"
+    got = api.route_post(["images", "minio", "folder"], {"path": str(where)})
+    assert got["moved"] is True and got["minio"]["own"]["data_dir"] == str(where)
+    assert not old_dir.is_dir() and (where / "bucket.dat").read_bytes() == b"stuff"
+    assert got["minio"]["own"]["running"] is True and len(started) == 2                 # it was running: stopped, moved, started again
+    cmd, _ = started[1]
+    assert str(where) in cmd
+    with pytest.raises(RagError, match="already"):
+        api.route_post(["images", "minio", "folder"], {"path": str(where)})
+    occupied = tmp_path / "occupied"
+    occupied.mkdir(parents=True, exist_ok=True)
+    (occupied / "junk").write_text("x", encoding="utf-8")
+    with pytest.raises(RagError, match="not empty"):
+        api.route_post(["images", "minio", "folder"], {"path": str(occupied)})
+    for bad in (None, "", "x" * 600):
+        with pytest.raises(RagError):
+            api.route_post(["images", "minio", "folder"], {"path": bad})
 
 
 def test_a_bundled_minio_is_used_in_place_with_no_download_and_still_found_without_installing_it_here(tmp_path, monkeypatch):

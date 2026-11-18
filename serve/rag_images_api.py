@@ -6,12 +6,14 @@
     POST /api/rag/images/minio/existing   {endpoint, access_key, secret_key, bucket?}: use a MinIO that is already here (its secret key goes to the vault)
     POST /api/rag/images/minio/install    {}: install a separate MinIO of our own (its own folder, data and port), start it and use it
     POST /api/rag/images/minio/start|stop our own copy
+    POST /api/rag/images/minio/folder     {path}: move our own copy's data folder there (stopped first, moved, started again if it was running)
 
 Nothing is downloaded except by a POST the person made. Our own copy, once installed, starts itself the first time something actually reads or writes an image
 through it and stops itself after IDLE_S (10 minutes) with no such use; `wire()` ties a RagStore to this, `stop_all()` is called when the server ends."""
 from __future__ import annotations
 
 import json
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -156,7 +158,8 @@ class RagImagesApi:
                 "s3": {"endpoint": cfg.get("images_s3_endpoint", ""), "bucket": cfg.get("images_s3_bucket", ""), "access_key": cfg.get("images_s3_access_key", ""),
                        "secure": bool(cfg.get("images_s3_secure"))},
                 "minio": {**minio_setup.plan(found), "release": {"tag": minio_setup.RELEASE["tag"], "bytes": minio_setup.RELEASE["bytes"], "url": minio_setup.RELEASE["url"]},
-                          "own": {"installed": exe is not None, "running": bool(self._service and self._service.running()), "endpoint": own.get("endpoint", "")}}}
+                          "own": {"installed": exe is not None, "running": bool(self._service and self._service.running()), "endpoint": own.get("endpoint", ""),
+                                  "data_dir": own.get("data_dir", str(Path(self.tools) / "data") if self.tools else "")}}}
 
     # -- the person's choices ----------------------------------------------------------------------
 
@@ -181,6 +184,8 @@ class RagImagesApi:
             if self._service:
                 self._service.stop()
             return self.overview()
+        if parts == ["images", "minio", "folder"]:
+            return self.move_minio_folder(req.get("path"))
         raise RagError("not found", "not_found")
 
     def move_folder(self, path: Any) -> Dict[str, Any]:
@@ -223,18 +228,19 @@ class RagImagesApi:
         program = bundled if bundled is not None else minio_setup.install_release(folder, fetch=self._fetch)
         own = self._own()
         port = int(own.get("port") or minio_setup.free_port())
+        data_dir = Path(own.get("data_dir") or (folder / "data"))
         keys = {"access_key": own.get("access_key"), "secret_key": ""}
         if not keys["access_key"]:
             keys = minio_setup.new_keys()
         else:
             keys["secret_key"] = self._get(SECRET_ENTRY)
-        self._service = minio_setup.MinioService(program, folder / "data", port, keys["access_key"], keys["secret_key"], self._launcher)
+        self._service = minio_setup.MinioService(program, data_dir, port, keys["access_key"], keys["secret_key"], self._launcher)
         endpoint = self._service.start()
         _touch(str(self.tools))
         self._check(endpoint, minio_setup.LOCAL_BUCKET, keys["access_key"], keys["secret_key"], False)
         minio_setup.provision(self.store, self._put, endpoint, keys["access_key"], keys["secret_key"], minio_setup.LOCAL_BUCKET, SECRET_ENTRY)
         f = self._own_file()
-        f.write_text(json.dumps({"port": port, "access_key": keys["access_key"], "endpoint": endpoint}), encoding="utf-8")
+        f.write_text(json.dumps({"port": port, "access_key": keys["access_key"], "endpoint": endpoint, "data_dir": str(data_dir)}), encoding="utf-8")
         return self.overview()
 
     def start_own(self) -> Dict[str, Any]:
@@ -245,7 +251,42 @@ class RagImagesApi:
         secret = self._get(SECRET_ENTRY)
         if self._service and self._service.running():
             return self.overview()
-        self._service = minio_setup.MinioService(exe, Path(self.tools) / "data", int(own["port"]), own["access_key"], secret, self._launcher)
+        data_dir = Path(own.get("data_dir") or (Path(self.tools) / "data"))
+        self._service = minio_setup.MinioService(exe, data_dir, int(own["port"]), own["access_key"], secret, self._launcher)
         self._service.start()
         _touch(str(self.tools))
         return self.overview()
+
+    def move_minio_folder(self, path: Any) -> Dict[str, Any]:
+        """Moves our own copy's data folder to `path`: stopped first (a running MinIO keeps its files open), moved whole, started again at the new place
+        if it had been running. Nothing is left behind at the old folder, unlike move_folder's copy of the plain folder store: this data is only ever ours."""
+        if not isinstance(path, str) or not path.strip() or len(path) > 500 or "\x00" in path:
+            raise RagError("path: the folder to move MinIO's data to")
+        own = self._own()
+        if not own:
+            raise RagError("there is no MinIO of our own installed: install it first")
+        target = Path(path.strip())
+        current = Path(own.get("data_dir") or (Path(self.tools) / "data"))
+        if target.resolve() == current.resolve():
+            raise RagError("the data is already in that folder")
+        if target.is_dir() and any(target.iterdir()):
+            raise RagError("that folder is not empty")
+        was_running = bool(self._service and self._service.running())
+        if self._service:
+            self._service.stop()
+            self._service = None
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if current.is_dir():
+                if target.is_dir():
+                    target.rmdir()
+                shutil.move(str(current), str(target))
+            else:
+                target.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            raise RagError(f"the data could not be moved: {e}") from None
+        own["data_dir"] = str(target)
+        self._own_file().write_text(json.dumps(own), encoding="utf-8")
+        if was_running:
+            self.start_own()
+        return {**self.overview(), "moved": True}
