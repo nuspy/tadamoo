@@ -131,6 +131,32 @@
   async function cancelJob() {
     if (jobNow) await api("POST", `api/rag/jobs/${encodeURIComponent(jobNow)}/cancel`, {});
   }
+
+  /* the embeddings environment (torch, transformers, docling), its own venv: not installed by default, only on this request. A few GB: it can take a while. */
+  let envBusy = false, envStage = "", envDevice = "";
+  async function installEmbedEnv() {
+    if (envBusy) return;
+    envBusy = true; envStage = ""; paint();
+    const r = await api("POST", "api/rag/embedding/env/install", {});
+    if (!r.ok) { envBusy = false; say(why(r), true); paint(); return; }
+    let job = r.data.job;
+    for (;;) {
+      envStage = job.stage || ""; paint();
+      if (job.state !== "running") break;
+      await new Promise(res => setTimeout(res, JOB_MS));
+      const p = await api("GET", `api/rag/jobs/${encodeURIComponent(job.id)}`);
+      if (!p.ok) { envBusy = false; say(why(p), true); paint(); return; }
+      job = p.data.job;
+    }
+    envBusy = false; envStage = "";
+    if (job.state === "done" && job.result && job.result.ok) { say(T("rg.sem.env.done"), false); await refresh(); }
+    else say(job.state === "done" ? (job.result && job.result.error) || T("rg.sem.env.failed") : T("rg.sem.env.failed"), true);
+    paint();
+  }
+  async function probeEmbedEnv() {
+    const r = await api("POST", "api/rag/embedding/env/probe", {});
+    if (r.ok) { envDevice = r.data.device || ""; paint(); } else say(why(r), true);
+  }
   async function addFiles(files) {
     if (!files.length || working) return;
     working = true;
@@ -430,7 +456,18 @@
     box.append(on.wrap, field("rg-sem-model", T("rg.sem.model"), models.length ? T("rg.sem.model.help", roots) : T("rg.sem.model.none", roots), pick), rerank.wrap,
       field("rg-sem-weight", T("rg.sem.weight"), T("rg.sem.weight.help"), weight), field("rg-sem-cos", T("rg.sem.mincos"), T("rg.sem.mincos.help"), cos),
       field("rg-sem-rr", T("rg.sem.minrr"), T("rg.sem.minrr.help"), rr), field("rg-sem-idle", T("rg.sem.idle"), T("rg.sem.idle.help"), idle),
-      el("p", "rg-help", T("rg.sem.python.help", e.python || "-")), field("rg-sem-dir", T("rg.sem.dir"), T("rg.sem.dir.help"), dir), go, test);
+      el("p", "rg-help", T("rg.sem.python.help", e.python || "-")), field("rg-sem-dir", T("rg.sem.dir"), T("rg.sem.dir.help"), dir), go, test, envBlock(e.env || {}));
+    return box;
+  }
+  function envBlock(env) {
+    const box = el("div", "rg-env");
+    const line = env.installed ? T("rg.sem.env.installed") : (env.python_found ? T("rg.sem.env.none") : T("rg.sem.env.nopython"));
+    box.append(el("p", "rg-help", line));
+    if (envBusy) { box.append(el("p", "rg-help", envStage ? T("rg.sem.env.doing", envStage) : T("rg.sem.env.doing0"))); return box; }
+    const row = el("div", "rd-actions");
+    if (!env.installed) { const go = btn(T("rg.sem.env.install"), "", installEmbedEnv); go.disabled = !env.python_found; row.append(go); }
+    else { const probe = btn(T("rg.sem.env.probe"), "", probeEmbedEnv); row.append(probe); if (envDevice) row.append(el("span", "rg-note", T("rg.sem.env.device." + envDevice))); }
+    box.append(row);
     return box;
   }
   function sideList() {

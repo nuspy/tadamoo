@@ -90,7 +90,15 @@ def _venv_python(root: Path) -> Optional[Path]:
     return None
 
 
-def venv_python(roots: Sequence[str] = VENV_ROOTS) -> str:
+def _own_venv() -> Optional[Path]:
+    from tadamoo.rag import embed_env
+    return embed_env.shared()._venv_python()
+
+
+def venv_python(roots: Sequence[str] = VENV_ROOTS, own: Optional[Callable[[], Optional[Path]]] = _own_venv) -> str:
+    found_own = own() if own is not None else None
+    if found_own is not None:
+        return str(found_own)
     for root in roots:
         for name in VENV_NAMES:
             found = _venv_python(Path(root) / name)
@@ -259,9 +267,10 @@ class EmbedService:
     def __init__(self, settings: Callable[[], Dict[str, Any]], models_dirs: Callable[[], Sequence[str]] = lambda: (), lease_url: Callable[[], str] = lambda: "",
                  argv: Optional[Sequence[str]] = None, lease_factory: Callable[..., Any] = VramLease, clock: Callable[[], float] = time.monotonic,
                  pythons: Callable[[], List[str]] = system_pythons, probe_fn: Callable[[str], str] = probe, venv_roots: Sequence[str] = VENV_ROOTS,
-                 tmp_dir: Optional[str] = None) -> None:
+                 own_venv: Optional[Callable[[], Optional[Path]]] = _own_venv, tmp_dir: Optional[str] = None) -> None:
         self.settings, self.models_dirs, self.lease_url, self.argv = settings, models_dirs, lease_url, argv
-        self.lease_factory, self.clock, self.pythons, self.probe_fn, self.venv_roots, self.tmp_dir = lease_factory, clock, pythons, probe_fn, venv_roots, tmp_dir
+        self.lease_factory, self.clock, self.pythons, self.probe_fn, self.venv_roots, self.own_venv, self.tmp_dir = \
+            lease_factory, clock, pythons, probe_fn, venv_roots, own_venv, tmp_dir
         self._state = threading.RLock()
         self._io = threading.Lock()
         self._worker: Optional[_Worker] = None
@@ -292,7 +301,7 @@ class EmbedService:
             if Path(s["embed_python"]).is_file():
                 return s["embed_python"]
             raise Unavailable("no_python", "the Python set for the embeddings is not there")
-        found = venv_python(self.venv_roots)
+        found = venv_python(self.venv_roots, self.own_venv)
         if found:
             return found
         if self._detected is None:

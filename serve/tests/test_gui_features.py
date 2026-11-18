@@ -49,6 +49,7 @@ FEATURES = [
     ("Connectors: three-way merge of an update (what stays, what changes, what conflicts) with a risk review of the diff", "Connectors > installed item > update", "connectors.js", "api/connectors/update/plan"),
     ("Knowledge: a separate PostgreSQL of our own, installed, started and stopped by TaDaMoo", "Knowledge", "ragpostgres.js", "api/rag/postgres"),
     ("Knowledge > Database: point a project at TaDaMoo's own PostgreSQL with one button", "Knowledge > Database", "ragdb.js", "api/rag/db/use-own-postgres"),
+    ("Knowledge: install the embeddings/Docling Python environment on request", "Knowledge > semantic search", "rag.js", "api/rag/embedding/env/install"),
 ]
 
 

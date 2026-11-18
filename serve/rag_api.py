@@ -13,6 +13,7 @@ from collections import Counter
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from tadamoo.rag import LIMITS, RagError, RagStore
+from tadamoo.rag import embed_env
 from tadamoo.rag.ingest import docling_client, extraction_of
 from tadamoo.rag.project import is_key, project_key
 from tadamoo.rag.resolve import FUNCTIONS, Resolution, resolve, routes_outside
@@ -45,7 +46,8 @@ def _project(value: Any) -> str:
 class RagApi:
     def __init__(self, store: RagStore, folders: Callable[[], List[Dict[str, Any]]] = lambda: [], jobs: Optional[Jobs] = None, service: Any = None,
                  sources: Callable[[], Dict[str, Callable[[Dict[str, Any]], Any]]] = lambda: {}, leaves_pc: Callable[[str], bool] = routes_outside, sync: Any = None,
-                 describer: Optional[Callable[[], Any]] = None, vault_dir: Any = None, tools_dir: Any = None, projects: Any = None, postgres_tools_dir: Any = None) -> None:
+                 describer: Optional[Callable[[], Any]] = None, vault_dir: Any = None, tools_dir: Any = None, projects: Any = None, postgres_tools_dir: Any = None,
+                 embed_runtime: Any = None) -> None:
         """`folders` lists the projects as `{name, path, chat}`: the folders of the Agentic coding tab and the Chat's own folder (`chat` true). `jobs` is the
         board of the long jobs, kept by the server between requests. `service` is the embedding service (tadamoo/rag/embed_client.py) the store's embedder
         comes from, when there is one: it tells where the embeddings run and can be tried. `sources` gives what the resolver cannot know alone (the session's
@@ -60,6 +62,7 @@ class RagApi:
         self.discovering = RagDiscoverApi(self.syncing, self.jobs, describer)   # adding from a request in words (serve/rag_discover_api.py)
         self.images = RagImagesApi(store, vault_dir, tools_dir)             # where the images of the documents are kept (serve/rag_images_api.py)
         self.postgres = RagPostgresApi(store, vault_dir, postgres_tools_dir)   # a separate PostgreSQL of our own, for the Database section (serve/rag_postgres_api.py)
+        self.embed_runtime = embed_runtime if embed_runtime is not None else embed_env.shared()   # the venv with torch/transformers/docling for embeddings (tadamoo/rag/embed_env.py)
         self.project_store = projects                                       # the list of project folders (serve/projects.py): made, renamed and forgotten from the page
 
     # -- reading ---------------------------------------------------------------------------------
@@ -71,7 +74,18 @@ class RagApi:
         out: Dict[str, Any] = {"available": emb is not None, "model": emb.model if emb is not None else ""}
         if self.service is not None:
             out.update({k: v for k, v in self.service.info().items() if k not in ("available", "model")})
+        env = self.embed_runtime.info()
+        out["env"] = {"installed": env["installed"], "python_found": env["python_found"]}
         return out
+
+    def _install_embed_env(self, progress: Any, cancel: Any) -> Dict[str, Any]:
+        def say(text: str) -> None:
+            progress({"event": "stage", "stage": text})
+        try:
+            self.embed_runtime.install(say=say)
+        except embed_env.EmbedEnvError as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True}
 
     def embedding_test(self) -> Dict[str, Any]:
         """Embeds one sentence with the model in use: `{ok, model, device, seconds, dim}`, or `{ok: false, error}`."""
@@ -454,6 +468,10 @@ class RagApi:
             return self.use_own_postgres(req.get("project"))
         if parts == ["embedding", "test"]:
             return self.embedding_test()
+        if parts == ["embedding", "env", "install"]:
+            return {"job": self.jobs.start("embedding_env", self._install_embed_env)}
+        if parts == ["embedding", "env", "probe"]:
+            return {"device": self.embed_runtime.probe()}
         if len(parts) == 3 and parts[0] == "jobs" and parts[2] == "cancel":
             return self.cancel_job(parts[1])
         if parts == ["archives"]:

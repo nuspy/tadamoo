@@ -5,7 +5,7 @@
 (() => {
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; return b; };
-  const why = r => (r.status === 0 ? T("rp.e.offline") : ((r.data && r.data.error && r.data.error.message) || `HTTP ${r.status}`));
+  const why = r => (r.status === 0 ? T("rpg.e.offline") : ((r.data && r.data.error && r.data.error.message) || `HTTP ${r.status}`));
   const mb = n => `${(n / 1e6).toFixed(1)} MB`;
   async function api(method, path, body) {
     try {
@@ -27,32 +27,32 @@
     busy = name; note = ""; repaint();
     const r = await api("POST", path, {});
     busy = "";
-    if (r.ok) { view = r.data; note = T("rp.done"); bad = false; } else { note = why(r); bad = true; }
+    if (r.ok) { view = r.data; note = T("rpg.done"); bad = false; } else { note = why(r); bad = true; }
     repaint();
   }
 
   function build() {
     const box = el("details", "rg-settings rp-box");
-    const sum = el("summary", "rg-sum", T("rp.title")); box.append(sum);
+    const sum = el("summary", "rg-sum", T("rpg.title")); box.append(sum);
     box.addEventListener("toggle", () => { open = box.open; });
     box.open = open;
-    if (!view) { box.append(el("p", "rg-help", T("rp.loading"))); return box; }
-    box.append(el("p", "rg-help", T("rp.help")));
-    if (view.found.programs.length) box.append(el("p", "rg-help", T("rp.found", view.found.programs.map(p => p.path).join(", "))));
-    if (view.found.listening.length) box.append(el("p", "rg-help", T("rp.listening", view.found.listening.join(", "))));
-    if (view.found.broken.length) box.append(el("p", "rg-help", T("rp.broken", view.found.broken.map(p => p.path).join(", "))));
-    if (!view.found.programs.length && !view.found.listening.length) box.append(el("p", "rg-help", T("rp.none")));
-    view.options.forEach(o => { if (o.id !== "skip") box.append(el("p", "rg-dmeta", "• " + T("rp.opt." + o.id))); });
+    if (!view) { box.append(el("p", "rg-help", T("rpg.loading"))); return box; }
+    box.append(el("p", "rg-help", T("rpg.help")));
+    if (view.found.programs.length) box.append(el("p", "rg-help", T("rpg.found", view.found.programs.map(p => p.path).join(", "))));
+    if (view.found.listening.length) box.append(el("p", "rg-help", T("rpg.listening", view.found.listening.join(", "))));
+    if (view.found.broken.length) box.append(el("p", "rg-help", T("rpg.broken", view.found.broken.map(p => p.path).join(", "))));
+    if (!view.found.programs.length && !view.found.listening.length) box.append(el("p", "rg-help", T("rpg.none")));
+    view.options.forEach(o => { if (o.id !== "skip") box.append(el("p", "rg-dmeta", "• " + T("rpg.opt." + o.id))); });
 
     const own = view.own;
     if (own.installed) {
-      box.append(el("p", "rg-line", T(own.running ? "rp.own.running" : "rp.own.stopped", own.host ? `${own.host}:${own.port}` : "")));
-      if (own.running) box.append(el("p", "rg-help", T("rp.own.connect", own.host, own.port, own.user, own.database)));
-      box.append(btn(T(own.running ? "rp.stop" : "rp.start"), "", () => act("own", `api/rag/postgres/${own.running ? "stop" : "start"}`)));
+      box.append(el("p", "rg-line", T(own.running ? "rpg.own.running" : "rpg.own.stopped", own.host ? `${own.host}:${own.port}` : "")));
+      if (own.running) box.append(el("p", "rg-help", T("rpg.own.connect", own.host, own.port, own.user, own.database)));
+      box.append(btn(T(own.running ? "rpg.stop" : "rpg.start"), "", () => act("own", `api/rag/postgres/${own.running ? "stop" : "start"}`)));
     } else {
-      const inst = btn(T(busy === "install" ? "rp.running" : "rp.install"), "primary", () => act("install", "api/rag/postgres/install"));
+      const inst = btn(T(busy === "install" ? "rpg.running" : "rpg.install"), "primary", () => act("install", "api/rag/postgres/install"));
       inst.disabled = !!busy;
-      box.append(el("p", "rg-help", T("rp.install.help", view.release.version, mb(view.release.bytes))), inst);
+      box.append(el("p", "rg-help", T("rpg.install.help", view.release.version, mb(view.release.bytes))), inst);
     }
     const status = el("p", "rg-note", note); status.setAttribute("role", "status"); status.dataset.bad = bad ? "1" : ""; status.hidden = !note;
     box.append(status);

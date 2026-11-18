@@ -32,9 +32,34 @@ PROJ = project_key("project-one")
 OTHER = project_key("project-two")
 
 
-def make(tmp_path, embedder=None):
+class FakeEmbedRuntime:
+    """Stands in for tadamoo.rag.embed_env.Runtime: isolates tests from whatever embeddings venv this real PC happens to have."""
+
+    def __init__(self, installed=False, probe_result="", fails=None):
+        self.installed_flag, self.probe_result, self.fails, self.said = installed, probe_result, fails, []
+
+    def installed(self):
+        return self.installed_flag
+
+    def info(self):
+        return {"installed": self.installed_flag, "python_found": self.installed_flag, "python": ""}
+
+    def probe(self):
+        return self.probe_result
+
+    def install(self, say=lambda text: None):
+        self.said = []
+        say("Python found: fake")
+        if self.fails:
+            raise self.fails
+        self.installed_flag = True
+        say("torch installed")
+
+
+def make(tmp_path, embedder=None, **kw):
     folders = [{"name": "Chat", "path": str(tmp_path / "chat"), "chat": True}, {"name": "Work", "path": str(tmp_path / "work"), "chat": False}]
-    return RagApi(RagStore(tmp_path / "rag", embedder=embedder or (lambda: None), forbidden=[tmp_path / "personas"]), lambda: folders)
+    kw.setdefault("embed_runtime", FakeEmbedRuntime())
+    return RagApi(RagStore(tmp_path / "rag", embedder=embedder or (lambda: None), forbidden=[tmp_path / "personas"]), lambda: folders, **kw)
 
 
 def up(api, aid, name, data):
@@ -53,7 +78,8 @@ def test_an_archive_is_made_filled_asked_and_deleted(tmp_path):
     api = make(tmp_path)
     made = new(api, "Boats", description="About sailing")["archive"]
     aid = made["id"]
-    assert made["documents"] == 0 and made["mode"] == "text" and made["project"] == PROJ and api.overview(PROJ)["embedding"] == {"available": False, "model": ""}
+    assert made["documents"] == 0 and made["mode"] == "text" and made["project"] == PROJ
+    assert api.overview(PROJ)["embedding"] == {"available": False, "model": "", "env": {"installed": False, "python_found": False}}
     added = up(api, aid, "boats.txt", BOATS)
     assert added["document"]["name"] == "boats.txt" and added["embedded"] is False
     up(api, aid, "rice.md", RICE)
@@ -176,7 +202,8 @@ def test_hybrid_search_switches_on_when_an_embedder_appears(tmp_path):
     up(api, aid, "boats.txt", BOATS)
     assert api.embedding()["available"] is False and api.get(aid)["archive"]["mode"] == "text"
     holder["e"] = Embedder()
-    assert api.embedding() == {"available": True, "model": "fake-1"} and api.get(aid)["archive"]["reindex"] is True
+    assert api.embedding() == {"available": True, "model": "fake-1", "env": {"installed": False, "python_found": False}}
+    assert api.get(aid)["archive"]["reindex"] is True
     job = api.reindex(aid)["job"]
     assert api.jobs.wait(job["id"])["result"]["embedded"] is True
     assert api.get(aid)["archive"]["mode"] == "hybrid" and api.search({"query": "boat keel", "project": PROJ})["mode"] == "hybrid"
@@ -194,13 +221,32 @@ class EmbedInfo:
 
 def test_the_embedding_state_the_test_and_the_settings_come_through_the_service(tmp_path):
     api = make(tmp_path, lambda: Embedder())
-    assert api.embedding() == {"available": True, "model": "fake-1"} and api.embedding_test()["ok"] is False                  # no service: nothing to try
+    assert api.embedding() == {"available": True, "model": "fake-1", "env": {"installed": False, "python_found": False}}
+    assert api.embedding_test()["ok"] is False                  # no service: nothing to try
     api.service = EmbedInfo()
     got = api.overview(PROJ)["embedding"]
     assert got["available"] and got["model"] == "fake-1" and got["device"] == "cuda" and got["models"][0]["name"] == "fake-1"
     assert api.route_post(["embedding", "test"], {}, b"{}")["dim"] == 2
     out = api.route_post(["settings"], {}, json.dumps({"lexical_weight": 0.1, "rerank": False, "idle_s": 30}).encode())
     assert out["settings"]["lexical_weight"] == 0.1 and out["settings"]["rerank"] is False and out["embedding"]["device"] == "cuda"
+
+
+def test_the_embeddings_environment_is_installed_on_request_and_can_be_probed(tmp_path):
+    api = make(tmp_path)
+    assert api.embedding()["env"] == {"installed": False, "python_found": False}
+    job = api.route_post(["embedding", "env", "install"], {}, b"{}")["job"]
+    done = api.jobs.wait(job["id"])
+    assert done["result"] == {"ok": True} and api.embedding()["env"]["installed"] is True
+    api.embed_runtime.probe_result = "cuda"
+    assert api.route_post(["embedding", "env", "probe"], {}, b"{}") == {"device": "cuda"}
+
+
+def test_a_failed_embeddings_install_is_reported_and_does_not_mark_it_installed(tmp_path):
+    from tadamoo.rag import embed_env
+    api = make(tmp_path, embed_runtime=FakeEmbedRuntime(fails=embed_env.EmbedEnvError("no matching distribution")))
+    job = api.route_post(["embedding", "env", "install"], {}, b"{}")["job"]
+    done = api.jobs.wait(job["id"])
+    assert done["result"] == {"ok": False, "error": "no matching distribution"} and api.embedding()["env"]["installed"] is False
     with pytest.raises(RagError):
         api.route_post(["settings"], {}, json.dumps({"lexical_weight": 2}).encode())
 

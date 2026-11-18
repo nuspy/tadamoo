@@ -129,6 +129,7 @@ def service(tmp_path, settings=None, clock=time.monotonic, models=True, **kw):
     cfg = {"embed_enabled": True, "embed_python": sys.executable, "embed_model": "", "rerank": True, "rerank_model": "", "idle_s": 120, "embed_models_dir": ""}
     cfg.update(settings or {})
     root = models_folder(tmp_path) if models is True else models
+    kw.setdefault("own_venv", lambda: None)                                             # isolated from whatever embeddings venv this real PC happens to have
     svc = ec.EmbedService(lambda: cfg, lambda: [str(root)] if root else [], lambda: "", argv=[sys.executable, "-X", "utf8", STUB], lease_factory=Lease, clock=clock, **kw)
     svc.spec_ttl = 0.0
     svc.cfg = cfg
