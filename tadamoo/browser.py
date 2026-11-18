@@ -1233,6 +1233,8 @@ def register_browser_tools(registry: Any, secrets: Any, profile_dir: str | Path 
     tool_name = f"{name_prefix}_{{}}".format
 
     def shown(page: Dict[str, Any], **view: Any) -> str:
+        if url_check is not None and page.get("url"):                   # a click, a submit or a key can leave the page open led to, not only to where it was opened
+            url_check(page["url"])
         text = mask(describe(page, b.hidden, **view))
         if b.notice:
             text, b.notice = b.notice + "\n" + text, ""

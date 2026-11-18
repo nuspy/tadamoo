@@ -217,8 +217,8 @@ class Runtime:
         return AgentBrowser(cli, headless=True, allow_private=True, proxy=proxy, confirm=confirm, audit=audit, auto=auto, rules=rules)
 
     def _onion_only(self, url: str) -> None:
-        from darkweb.navigation.pilot import BrowserError
         from darkweb.tor import is_onion
+        from tadamoo.browser import BrowserError                       # the kind register_browser_tools' own guard() catches, so a refusal is a clean {"error": ...}, not a crash
         if not is_onion(url):
             raise BrowserError("only an .onion address can be opened here")
 

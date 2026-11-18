@@ -298,6 +298,8 @@ class _FakeDarkBrowser:
         return self._page()
 
     def click(self, ref):
+        if getattr(self, "next_url", ""):
+            self.page_url = self.next_url
         return self._page()
 
     def type(self, ref, text, submit=False, clear=True, secret=False):
@@ -338,9 +340,13 @@ def test_browse_gives_the_full_toolkit_restricted_to_onion_addresses(tmp_path, m
     link = "http://" + "b" * 56 + ".onion/page"
     out = reg.get("darkweb_browser_open").handler(url=link)
     assert "onion page body" in out and link in out
-    with pytest.raises(Exception, match="only an .onion address"):
-        reg.get("darkweb_browser_open").handler(url="https://example.com")
+    refused = reg.get("darkweb_browser_open").handler(url="https://example.com")
+    assert refused == {"error": "only an .onion address can be opened here"}       # a clean refusal, not a crash of the turn
     assert "onion page body" in reg.get("darkweb_browser_click").handler(ref=1)
+    fake = rt._browser
+    fake.next_url = "https://surfaceweb.example/landed-here"
+    led_out = reg.get("darkweb_browser_click").handler(ref=1)
+    assert led_out == {"error": "only an .onion address can be opened here"}       # a click that leaves .onion is caught too, not only the first open
     rt.close_browser()
     assert rt._browser is None
 
