@@ -1,6 +1,7 @@
 """Where the images are kept, from the settings page: the folder moved from the GUI, a MinIO that is already here, and a separate one of our own installed on request."""
 import hashlib
 import io
+import time
 import zipfile
 from pathlib import Path
 
@@ -146,4 +147,31 @@ def test_nothing_is_started_when_there_is_no_minio_of_our_own(tmp_path, monkeypa
     store, api, _, started = make(tmp_path, monkeypatch)
     store.settings.write({"images_store": "s3"})
     assert api.autostart() is False and started == []
+
+
+def test_idle_minio_is_stopped_by_the_sweep_and_a_real_use_of_the_store_touches_it_and_starts_it_again(tmp_path, monkeypatch):
+    from serve import rag_images_api
+    store, api, vault, started = make(tmp_path, monkeypatch)
+    try:
+        api.route_post(["images", "minio", "install"], {})
+        key = str(tmp_path / "tools")
+        assert key in rag_images_api._LAST_USED and api.overview()["minio"]["own"]["running"]
+        rag_images_api.sweep(clock=lambda: time.time() + rag_images_api.IDLE_S + 1)
+        assert api.overview()["minio"]["own"]["running"] is False                      # stopped: idle longer than IDLE_S
+
+        api.wire()
+        store.on_image_store_use()                                                     # a real use of the store: touches it and starts it again since it is configured
+        assert api.overview()["minio"]["own"]["running"] is True and len(started) == 2
+        rag_images_api.sweep()                                                         # just touched: the ordinary sweep leaves it alone
+        assert api.overview()["minio"]["own"]["running"] is True
+    finally:
+        rag_images_api.stop_all()
+
+
+def test_wiring_the_store_calls_the_hook_only_when_the_images_are_actually_kept_in_s3(tmp_path, monkeypatch):
+    store, api, _, started = make(tmp_path, monkeypatch)
+    api.wire()
+    assert store.on_image_store_use is not None
+    store.image_store()                                                                # the folder store: the hook is never called (nothing to start)
+    assert started == []
 

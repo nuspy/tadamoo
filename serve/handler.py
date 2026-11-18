@@ -3238,12 +3238,13 @@ def make_handler(svc: Service, remote: bool = False):
             api = RagApi(self._rag_store(), jobs=_RAG_JOBS, service=self._rag_embed(), sync=self._rag_sync(), describer=describer, folders=lambda: [{"name": "Chat", "path": str(chat), "chat": True}]
                           + [{"name": p["name"], "path": p["path"], "chat": False} for p in self._projects().list() if p.get("exists")],
                           sources=lambda: {"session": session, "plan_node": guarded(plan_node), "routine": guarded(routine)}, vault_dir=userdata.path("vault"), tools_dir=userdata.path("tools") / "minio", projects=self._projects())
+            api.images.wire()                                                         # our own MinIO (when the images are kept in it) starts on real use and stops after being idle
             if not _IMAGES_AUTOSTARTED:
-                _IMAGES_AUTOSTARTED = True                                             # our own MinIO, when the images are kept in it, comes up with the first look at the Knowledge
+                _IMAGES_AUTOSTARTED = True
                 import atexit
                 from serve import rag_images_api
                 atexit.register(rag_images_api.stop_all)
-                api.images.autostart()
+                api.images.autostart()                                                # also up right away, so it is there before the first look at the Knowledge needs it
             return api
 
         def _voice_rag(self):

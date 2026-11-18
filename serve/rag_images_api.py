@@ -7,10 +7,13 @@
     POST /api/rag/images/minio/install    {}: install a separate MinIO of our own (its own folder, data and port), start it and use it
     POST /api/rag/images/minio/start|stop our own copy
 
-Nothing is downloaded or started except by a POST the person made."""
+Nothing is downloaded except by a POST the person made. Our own copy, once installed, starts itself the first time something actually reads or writes an image
+through it and stops itself after IDLE_S (10 minutes) with no such use; `wire()` ties a RagStore to this, `stop_all()` is called when the server ends."""
 from __future__ import annotations
 
 import json
+import threading
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
@@ -20,6 +23,8 @@ from tadamoo.rag.s3store import S3Error, S3ImageStore
 
 OWN = "own.json"
 SECRET_ENTRY = "images-s3"
+IDLE_S = 600.0             # our own MinIO stops after this long with no real use of the image store
+SWEEP_S = 30.0
 
 
 def _put_secret(vault_dir: Any, entry: str, secret: str) -> None:
@@ -28,6 +33,9 @@ def _put_secret(vault_dir: Any, entry: str, secret: str) -> None:
 
 
 _SHARED: Dict[str, minio_setup.MinioService] = {}        # our own MinIO of each programs folder: the API is made again at each request, the process it started is not
+_LAST_USED: Dict[str, float] = {}
+_sweeper_started = False
+_sweeper_lock = threading.Lock()
 
 
 def stop_all() -> None:
@@ -38,6 +46,35 @@ def stop_all() -> None:
         except Exception:                                   # a process that is already gone is stopped
             pass
     _SHARED.clear()
+
+
+def _touch(key: str, clock: Callable[[], float] = time.time) -> None:
+    _LAST_USED[key] = clock()
+
+
+def sweep(clock: Callable[[], float] = time.time) -> None:
+    """Stops a running copy of ours that went unused for `IDLE_S`: called by the background sweeper, and directly by tests."""
+    now = clock()
+    for key, service in list(_SHARED.items()):
+        try:
+            if service.running() and now - _LAST_USED.get(key, now) > IDLE_S:
+                service.stop()
+        except Exception:                                    # a process already gone, or one that refuses to stop, is not this sweep's problem
+            pass
+
+
+def _ensure_sweeper() -> None:
+    global _sweeper_started
+    with _sweeper_lock:
+        if _sweeper_started:
+            return
+        _sweeper_started = True
+
+        def loop() -> None:
+            while True:
+                time.sleep(SWEEP_S)
+                sweep()
+        threading.Thread(target=loop, daemon=True, name="minio-idle").start()
 
 
 class RagImagesApi:
@@ -61,8 +98,8 @@ class RagImagesApi:
             _SHARED[str(self.tools)] = value
 
     def autostart(self) -> bool:
-        """Starts our own MinIO when the images are kept in it and it is not running: the server does this once when it begins, so the images are there without a click. A failure is
-        left for the page to show (the images page says the store does not answer); it never stops the server."""
+        """Starts our own MinIO when the images are kept in it and it is not running: called whenever something actually asks for the image store (`wire()`), so a copy the idle
+        sweep stopped comes back on its own, with nothing to click. A failure is left for the page to show (the images page says the store does not answer); it never stops the server."""
         if self.store.settings.read().get("images_store") != "s3" or not self._own() or (self._service and self._service.running()):
             return False
         try:
@@ -70,6 +107,17 @@ class RagImagesApi:
             return True
         except Exception:
             return False
+
+    def wire(self) -> None:
+        """Ties this API to its store: every real use of the image store touches our own MinIO as just used (so the idle sweep leaves it alone) and starts it first if it had
+        gone idle. Safe to call again on every request: it only replaces the same callback."""
+        key = str(self.tools)
+
+        def used() -> None:
+            _touch(key)
+            _ensure_sweeper()
+            self.autostart()
+        self.store.on_image_store_use = used
 
     def _vault_secret(self, entry: str) -> str:
         from tadamoo.rag.backends import vault_password
@@ -182,6 +230,7 @@ class RagImagesApi:
             keys["secret_key"] = self._get(SECRET_ENTRY)
         self._service = minio_setup.MinioService(program, folder / "data", port, keys["access_key"], keys["secret_key"], self._launcher)
         endpoint = self._service.start()
+        _touch(str(self.tools))
         self._check(endpoint, minio_setup.LOCAL_BUCKET, keys["access_key"], keys["secret_key"], False)
         minio_setup.provision(self.store, self._put, endpoint, keys["access_key"], keys["secret_key"], minio_setup.LOCAL_BUCKET, SECRET_ENTRY)
         f = self._own_file()
@@ -198,4 +247,5 @@ class RagImagesApi:
             return self.overview()
         self._service = minio_setup.MinioService(exe, Path(self.tools) / "data", int(own["port"]), own["access_key"], secret, self._launcher)
         self._service.start()
+        _touch(str(self.tools))
         return self.overview()

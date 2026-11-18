@@ -138,6 +138,7 @@ class RagStore:
         self.router = router if router is not None else Router(self.root, password)       # the database of each project
         self._password = password
         self._s3: Tuple[Any, Optional[S3ImageStore]] = (None, None)
+        self.on_image_store_use: Optional[Callable[[], None]] = None     # told every time the S3 image service is asked for: the server starts it on demand and stops it when idle
         self.provider, self.clock = embedder, clock
         self.remote: Optional[Callable[[List[str], str, int, float], Dict[str, Any]]] = None      # a process with no embedder asks the server's store instead
         self.forbidden = [Path(p).resolve() for p in forbidden]
@@ -827,6 +828,8 @@ class RagStore:
         inside the knowledge data. Both have the same calls (has, put, get, keys, sweep). The secret key of the service is read from the vault entry `images_s3_vault`."""
         cfg = self.settings.read()
         if cfg.get("images_store") == "s3":
+            if self.on_image_store_use:
+                self.on_image_store_use()
             spec = tuple(cfg[k] for k in ("images_s3_endpoint", "images_s3_bucket", "images_s3_access_key", "images_s3_vault", "images_s3_secure"))
             if self._s3[0] != spec:
                 if not spec[0] or not spec[2] or not spec[3]:
