@@ -129,6 +129,8 @@
     box.push(el("p", "help", T("dw.on.help")));
     box.push(check("dw-search", "dw.search", s.search, v => change({ search: v }), !s.darkweb));
     box.push(check("dw-read", "dw.read", s.read, v => change({ read: v }), !s.darkweb));
+    box.push(check("dw-browse", "dw.browse", s.browse, v => change({ browse: v }), !s.darkweb));
+    box.push(el("p", "help", T("dw.browse.help")));
     box.push(check("dw-watches", "dw.watches", s.watches, v => change({ watches: v }), !s.darkweb));
     box.push(el("p", "help", T("dw.watches.help")));
     box.push(check("dw-leaks-on", "dw.leaks", s.leak_archives, v => change({ leak_archives: v }), !s.darkweb));
