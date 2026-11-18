@@ -3,6 +3,7 @@ proxy (a small Python program on the loopback) in the place of the Node.js add-o
 import io
 import json
 import os
+import subprocess
 import sys
 import time
 
@@ -177,6 +178,43 @@ def test_the_servers_own_port_is_refused(manager):
     m.apply()
     assert until(lambda: m.view()["status"] == "error")
     assert "this server" in m.view()["detail"] and m.target() is None
+
+
+def test_a_proxy_an_earlier_uncleanly_stopped_server_left_running_is_used_as_it_is_not_fought_for_the_port(manager, tmp_path):
+    """An orphan: something answering healthy on the port already, with no Popen of ours behind it (a kill instead of a quit leaves the
+    add-on's own process running after the server that started it is gone). A fresh Manager must adopt it, not loop forever failing to
+    bind the same port (what serve/billion_context.py did before this fix). Its own script, naming its real pid in the health answer the
+    way the real add-on does: the shared `fake_script` leaves that out, so the manager()-spawned process it has of its own is unaffected."""
+    own_script = tmp_path / "orphan_proxy.py"
+    own_script.write_text(FAKE.replace('{"ok": True, "version": "t"}', '{"ok": True, "version": "t", "pid": os.getpid()}'), encoding="utf-8")
+    port = free_port()
+    orphan = subprocess.Popen([sys.executable, str(own_script)], env={**os.environ, "ACP_PORT": str(port)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        seen = {}
+
+        def probed():
+            seen["health"] = bc._http_json(port, "/__bili/health")
+            return seen["health"] is not None
+        assert until(probed)                                                                  # the orphan is up, on its own, before any Manager exists
+        worker_pid = seen["health"]["pid"]             # the process actually answering: a venv's own python.exe can be a launcher for a distinct child
+        bc.save({"port": port})
+        m = manager()
+        m.apply()
+        assert until(lambda: m.target() == port)
+        v = m.view()
+        assert v["status"] == "running" and v["running"] is True and v["restarts"] == 0      # adopted at once: no failed spawn, no retry
+        assert isinstance(m._proc, bc._Adopted) and m._proc.pid == worker_pid
+        m.stop()
+        assert until(lambda: bc._http_json(port, "/__bili/health") is None)                  # stopping the manager ends the orphan too
+    finally:
+        import signal
+        try:
+            os.kill(worker_pid, signal.SIGTERM)
+        except (OSError, NameError):
+            pass
+        if orphan.poll() is None:
+            orphan.kill()
+        orphan.wait(5)
 
 
 class FakeHandler:

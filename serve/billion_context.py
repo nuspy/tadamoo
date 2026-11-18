@@ -151,6 +151,42 @@ def _start_process(argv: Sequence[str], env: Dict[str, str], log: Any) -> "subpr
     return subprocess.Popen(list(argv), env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log, **kw)
 
 
+class _Adopted:
+    """Stands in for a Popen when the proxy already found something answering, healthy, on its port: most often this same add-on, left running by an
+    earlier server that stopped without a clean shutdown (a kill instead of a quit). It is used as it is instead of fighting it for the port forever;
+    `.poll()` asks it directly, there being no child process of ours to wait on, and `.terminate()`/`.kill()` end it by its PID when asked to."""
+
+    def __init__(self, pid: Optional[int], probe: Callable[[int, str], Optional[Dict[str, Any]]], port: int) -> None:
+        self.pid, self._probe, self._port = pid, probe, port
+
+    def poll(self) -> Optional[int]:
+        h = self._probe(self._port, "/__bili/health")
+        return None if h and h.get("ok") else 0
+
+    def _signal(self, sig: int) -> None:
+        if self.pid:
+            try:
+                os.kill(self.pid, sig)
+            except OSError:
+                pass
+
+    def terminate(self) -> None:
+        import signal
+        self._signal(signal.SIGTERM)
+
+    def kill(self) -> None:
+        import signal
+        self._signal(getattr(signal, "SIGKILL", signal.SIGTERM))
+
+    def wait(self, timeout: Optional[float] = None) -> int:
+        deadline = time.monotonic() + (timeout if timeout is not None else 0.0)
+        while self.poll() is None and (timeout is None or time.monotonic() < deadline):
+            time.sleep(0.2)
+        if self.poll() is None:
+            raise subprocess.TimeoutExpired(cmd="adopted-billion-context", timeout=timeout or 0.0)
+        return 0
+
+
 class Manager:
     """Starts the proxy when it is on and the add-on is there, keeps it running, stops it with the server.
 
@@ -251,6 +287,11 @@ class Manager:
         if self.server_port and port == self.server_port:
             self._set("error", "the port is the one of this server: choose another")
             return "later"
+        already = self.probe(port, "/__bili/health")
+        if already and already.get("ok"):
+            self._proc, self._since = _Adopted(already.get("pid"), self.probe, port), time.monotonic()
+            self._set("running", healthy=True)
+            return "ok"
         for sub in ("config", "data", "state"):
             (state_dir() / sub).mkdir(parents=True, exist_ok=True)
         self._started_ctx = max(0, int(self.context() or 0))
@@ -292,8 +333,9 @@ class Manager:
                 self._set("disabled")
                 self._wait(self.poll_s * 5)
                 continue
-            if self._proc is not None and self._proc.poll() is not None:
-                code, ran = self._proc.poll(), time.monotonic() - self._since
+            proc = self._proc                                     # read once: stop()/restart() may clear self._proc from another thread mid-check
+            if proc is not None and proc.poll() is not None:
+                code, ran = proc.poll(), time.monotonic() - self._since
                 self._proc = None
                 if ran >= STABLE_S:
                     wait = self.backoff_first_s
