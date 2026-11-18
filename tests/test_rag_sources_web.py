@@ -212,6 +212,50 @@ def test_the_wiki_lag_is_waited_for_and_a_wrong_address_is_told(tmp_path, wiki_s
         sync.add_source(aid, "mediawiki", {"api": wiki_site.api})
 
 
+def test_the_depth_and_limit_of_a_wiki_source_are_kept_and_checked_when_it_is_made(tmp_path, wiki_site):
+    wiki_site.put("Delta", 100, article("The delta"))
+    store, sync, aid = make(tmp_path)
+    with pytest.raises(RagError, match="depth"):
+        sync.add_source(aid, "mediawiki", {"api": wiki_site.api, "titles": ["Delta"], "depth": 11})
+    with pytest.raises(RagError, match="limit"):
+        sync.add_source(aid, "mediawiki", {"api": wiki_site.api, "titles": ["Delta"], "depth": 1, "limit": 0})
+    src = sync.add_source(aid, "mediawiki", {"api": wiki_site.api, "titles": ["Delta"], "depth": 2, "limit": 5})
+    assert src["config"]["depth"] == 2 and src["config"]["limit"] == 5 and "depth 2" in src["label"]
+    without = sync.add_source(aid, "mediawiki", {"api": wiki_site.api, "titles": ["Delta"]})
+    assert "depth" not in without["config"] and "limit" not in without["config"]
+
+
+def test_a_wiki_source_follows_its_own_links_as_deep_as_asked_within_the_article_namespace(tmp_path, wiki_site):
+    wiki_site.put("Delta", 100, article("The delta"))
+    wiki_site.put("River", 200, article("The river"))
+    wiki_site.put("Sea", 300, article("The sea"))
+    wiki_site.put("Boat club", 400, article("A club"))                    # 2 links deep from Delta: not followed at depth 1
+    wiki_site.link("Delta", "River", "Talk:Delta")                        # Talk: is not the article namespace: not followed
+    wiki_site.link("River", "Sea", "Delta", "Boat club")                  # Delta already seen; Boat club is 2 deep
+    store, sync, aid = make(tmp_path)
+    sync.add_source(aid, "mediawiki", {"api": wiki_site.api, "titles": ["Delta"], "depth": 1})
+    done = sync.update(aid)
+    assert done["counts"] == {"added": 2}
+    assert {d["name"] for d in store.get(aid)["document_list"]} == {"Delta.html", "River.html"}
+    assert not any(r.get("prop") == "links" and r.get("titles") == "Boat club" for r in wiki_site.requests)
+
+
+def test_the_limit_stops_a_wiki_crawl_and_a_page_deeper_in_that_is_gone_does_not_stop_the_others(tmp_path, wiki_site):
+    wiki_site.put("Delta", 100, article("The delta"))
+    wiki_site.put("River", 200, article("The river"))
+    wiki_site.put("Sea", 300, article("The sea"))
+    wiki_site.link("Delta", "River", "Sea")
+    store, sync, aid = make(tmp_path)
+    sync.add_source(aid, "mediawiki", {"api": wiki_site.api, "titles": ["Delta"], "depth": 1, "limit": 2})
+    assert sync.update(aid)["counts"] == {"added": 2}
+
+    wiki_site.link("Delta", "River", "Ghost")                            # Ghost does not exist: the crawl still brings in River
+    sync.add_source(aid, "mediawiki", {"api": wiki_site.api, "titles": ["Delta"], "depth": 1})
+    report = sync.check(aid)
+    assert {i["key"] for i in report["items"]} == {"Delta", "River", "Ghost"}
+    assert next(i for i in report["items"] if i["key"] == "Ghost")["state"] == "error"
+
+
 # -- the company wiki ----------------------------------------------------------------------------
 
 def company():

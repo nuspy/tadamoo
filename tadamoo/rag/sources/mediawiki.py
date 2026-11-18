@@ -19,10 +19,12 @@ from urllib.parse import quote, unquote, urlencode, urlsplit
 
 from tadamoo.rag.errors import RagError
 from tadamoo.rag.sources.model import Fetched, Provider, Remote, SourceError, doc_name, need
+from tadamoo.rag.sources.web import DEPTH_MAX
 
 BATCH = 50
 PAGES_MAX = 500
 MAXLAG = 5
+LINKS_PER_PAGE = 500                 # the wiki's own cap per request (pllimit); good enough to find the next level without paging through every one
 _COMMENT = re.compile(r"<!--.*?-->", re.S)
 
 
@@ -72,13 +74,23 @@ class MediaWikiProvider(Provider):
             raise RagError("titles: name at least one page, or a category")
         if len(titles) > PAGES_MAX:
             raise RagError(f"titles: at most {PAGES_MAX} pages")
-        return {"api": out["api"], "titles": titles, "category": category}
+        depth, limit = config.get("depth", 0), config.get("limit")
+        if isinstance(depth, bool) or not isinstance(depth, int) or not 0 <= depth <= DEPTH_MAX:
+            raise RagError(f"depth: a whole number from 0 (the named pages only) to {DEPTH_MAX}")
+        if limit not in (None, "") and (isinstance(limit, bool) or not isinstance(limit, int) or limit < 1):
+            raise RagError("limit: a whole number of at least 1, or none")
+        result = {"api": out["api"], "titles": titles, "category": category}
+        if depth:
+            result["depth"] = depth
+            if limit not in (None, ""):
+                result["limit"] = limit
+        return result
 
     def label(self, config: Dict[str, Any]) -> str:
         host = urlsplit(config["api"]).netloc
-        if config.get("category"):
-            return f"{host}: {config['category']}"
-        return f"{host}: {config['titles'][0]}" + (f" and {len(config['titles']) - 1} more" if len(config["titles"]) > 1 else "")
+        text = f"{host}: {config['category']}" if config.get("category") else \
+            f"{host}: {config['titles'][0]}" + (f" and {len(config['titles']) - 1} more" if len(config["titles"]) > 1 else "")
+        return text + (f" (depth {config['depth']})" if config.get("depth") else "")
 
     # -- the API ---------------------------------------------------------------------------------
 
@@ -118,16 +130,12 @@ class MediaWikiProvider(Provider):
         base, name = f"{parts.scheme}://{parts.netloc}", quote(title.replace(" ", "_"))
         return f"{base}/wiki/{name}" if parts.path.endswith("/w/api.php") else f"{base}{parts.path[: -len('api.php')]}index.php?title={name}"
 
-    def list(self, config: Dict[str, Any], known: Dict[str, Dict[str, Any]], cancel: Optional[Callable[[], bool]] = None) -> List[Remote]:
-        api = config["api"]
-        wanted = list(config["titles"])
-        if config.get("category"):
-            wanted += [t for t in self._members(api, config["category"]) if t not in wanted]
+    def _resolve(self, api: str, titles: List[str], cancel: Optional[Callable[[], bool]] = None) -> List[Remote]:
         out: List[Remote] = []
-        for start in range(0, len(wanted), BATCH):
+        for start in range(0, len(titles), BATCH):
             if cancel is not None and cancel():
                 raise SourceError("cancelled", "cancelled")
-            batch = wanted[start:start + BATCH]
+            batch = titles[start:start + BATCH]
             data = (self._api(api, {"action": "query", "redirects": 1, "prop": "info|revisions", "rvprop": "ids|timestamp|sha1", "rvslots": "main", "titles": "|".join(batch)})
                     .get("query") or {})
             normalized = {n["from"]: n["to"] for n in data.get("normalized", [])}
@@ -144,6 +152,45 @@ class MediaWikiProvider(Provider):
                 stamp = {"revid": int(rev.get("revid") or page.get("lastrevid") or 0), "title": title, "timestamp": rev.get("timestamp", ""), "sha1": rev.get("sha1", "")}
                 out.append(Remote(asked, doc_name(title, ".html"), stamp, origin=self._page_url(api, title), note=f"redirected to {title}" if title != asked else ""))
         return out
+
+    def _links(self, api: str, title: str) -> List[str]:
+        """The article-namespace (`ns=0`) pages `title` links to, from the wiki's own API: at most LINKS_PER_PAGE of them, which is enough to find the
+        next level without paging through a page's entire link list."""
+        data = self._api(api, {"action": "query", "prop": "links", "titles": title, "plnamespace": 0, "pllimit": LINKS_PER_PAGE, "redirects": 1}).get("query") or {}
+        return [link["title"] for page in (data.get("pages") or []) for link in (page.get("links") or [])]
+
+    def list(self, config: Dict[str, Any], known: Dict[str, Dict[str, Any]], cancel: Optional[Callable[[], bool]] = None) -> List[Remote]:
+        """The named pages and category members (depth 0), then, up to `depth` levels, the pages they link to on the same wiki (article namespace only),
+        the same shape as `web.UrlProvider`: a page's links are asked fresh every time, since this provider has no conditional-fetch shortcut to carry them
+        on. `limit` caps how many pages are kept; following stops past PAGES_MAX distinct titles regardless."""
+        api = config["api"]
+        wanted = list(config["titles"])
+        if config.get("category"):
+            wanted += [t for t in self._members(api, config["category"]) if t not in wanted]
+        depth, limit = int(config.get("depth") or 0), config.get("limit")
+        out: List[Remote] = []
+        seen = set(wanted)
+        level = wanted
+        for d in range(depth + 1):
+            if not level or (limit and len(out) >= limit):
+                break
+            out += self._resolve(api, level, cancel)
+            if d < depth:
+                following: List[str] = []
+                for r in out[-len(level):]:
+                    if r.missing:
+                        continue
+                    if cancel is not None and cancel():
+                        raise SourceError("cancelled", "cancelled")
+                    for link in self._links(api, r.stamp["title"]):
+                        if link in seen:
+                            continue
+                        seen.add(link)
+                        following.append(link)
+                        if len(seen) > PAGES_MAX:
+                            raise SourceError(f"following links went past {PAGES_MAX} pages: use a smaller depth or name fewer pages", "too_big")
+                level = following
+        return out[:limit] if limit else out
 
     def fetch(self, config: Dict[str, Any], remote: Remote, into: Path) -> Fetched:
         data = self._api(config["api"], {"action": "parse", "oldid": remote.stamp["revid"], "prop": "text|displaytitle", "disableeditsection": 1, "disablelimitreport": 1,

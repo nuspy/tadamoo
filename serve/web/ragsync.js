@@ -359,7 +359,12 @@
       inputs.depth.type = "number"; inputs.depth.min = "0"; inputs.depth.max = "10"; inputs.depth.inputMode = "numeric";
       inputs.limit.type = "number"; inputs.limit.min = "1"; inputs.limit.inputMode = "numeric";
     }
-    if (kind === "mediawiki") { add("url", T("rs.f.wikipage"), T("rs.f.wikipage.help"), ""); add("category", T("rs.f.category"), T("rs.f.category.help"), ""); }
+    if (kind === "mediawiki") {
+      add("url", T("rs.f.wikipage"), T("rs.f.wikipage.help"), ""); add("category", T("rs.f.category"), T("rs.f.category.help"), "");
+      add("depth", T("rs.f.wikidepth"), T("rs.f.wikidepth.help"), "0"); add("limit", T("rs.f.limit"), T("rs.f.limit.help"), "");
+      inputs.depth.type = "number"; inputs.depth.min = "0"; inputs.depth.max = "10"; inputs.depth.inputMode = "numeric";
+      inputs.limit.type = "number"; inputs.limit.min = "1"; inputs.limit.inputMode = "numeric";
+    }
     if (kind === "wikibridge") { add("address", T("rs.f.address"), T("rs.f.address.help"), wiki ? wiki.wiki_url : ""); add("project", T("rs.f.wproject"), T("rs.f.wproject.help"), wiki ? wiki.wiki_project : ""); }
     form.append(field("rs-kind", T("rs.f.kind"), "", pick), fields);
     const go = btn(T("rs.source.add"), "primary", () => {

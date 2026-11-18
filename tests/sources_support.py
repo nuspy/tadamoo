@@ -142,6 +142,7 @@ class WikiSite:
     def __init__(self) -> None:
         self.pages: Dict[str, Dict[str, Any]] = {}          # title -> {revid, text} ; a redirect is {redirect: title}
         self.category: Dict[str, List[str]] = {}
+        self.links: Dict[str, List[str]] = {}               # title -> article-namespace titles it links to
         self.requests: List[Dict[str, str]] = []
         self.lag = 0
         site = self
@@ -159,6 +160,11 @@ class WikiSite:
                     out = {"error": {"code": "maxlag", "info": "waiting"}}
                 elif q.get("action") == "query" and q.get("list") == "categorymembers":
                     out = {"query": {"categorymembers": [{"title": t} for t in site.category.get(q["cmtitle"], [])]}}
+                elif q.get("action") == "query" and q.get("prop") == "links":
+                    namespaced = q.get("plnamespace") == "0"
+                    def kept(x):
+                        return not namespaced or ":" not in x or x.split(":", 1)[0] not in ("Talk", "Category", "Template", "File", "User", "Help", "Wikipedia")
+                    out = {"query": {"pages": [{"title": t, "links": [{"ns": 0, "title": x} for x in site.links.get(t, []) if kept(x)]} for t in q["titles"].split("|")]}}
                 elif q.get("action") == "query":
                     titles = q["titles"].split("|")
                     pages, redirects = [], []
@@ -191,6 +197,9 @@ class WikiSite:
 
     def put(self, title: str, revid: int, text: str, ts: str = "2026-01-01T00:00:00Z") -> None:
         self.pages[title] = {"revid": revid, "text": text, "ts": ts}
+
+    def link(self, title: str, *to: str) -> None:
+        self.links[title] = list(to)
 
     def close(self) -> None:
         self.server.shutdown()

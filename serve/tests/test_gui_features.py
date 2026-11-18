@@ -33,6 +33,7 @@ FEATURES = [
     ("Knowledge: add by drop, by browsing this PC, by words", "Knowledge > archive", "rag.js", "browseDialog"),
     ("Knowledge: add from a request in words", "Knowledge > archive", "ragdiscover.js", "api/rag/archives/"),
     ("Knowledge: web address with depth", "Knowledge > archive > sources", "ragsync.js", "rs.f.depth"),
+    ("Knowledge: a wiki source follows its own links too, within the wiki", "Knowledge > archive > sources", "ragsync.js", "rs.f.wikidepth"),
     ("Knowledge: images store (folder, MinIO)", "Knowledge > Images", "ragimages.js", "api/rag/images"),
     ("Knowledge: database", "Knowledge > Database", "ragdb.js", "api/rag/db/config"),
     ("Knowledge: figures of a document and of a search hit", "Knowledge", "rag.js", "hit.figures"),
