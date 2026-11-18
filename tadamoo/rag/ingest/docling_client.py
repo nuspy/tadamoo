@@ -40,13 +40,23 @@ def _python_of(root: Path) -> Optional[Path]:
     return None
 
 
-def find_python(configured: str = "", roots: Sequence[str] = VENV_ROOTS) -> str:
-    """The Python to run the worker with: the configured one when it is a file, else the first Docling environment under `roots`; "" when none.
-    The environment variable `TADAMOO_DOCLING=off` says there is none, whatever the setting."""
+def _own_venv() -> Optional[Path]:
+    """Our own embeddings environment (tadamoo/rag/embed_env.py): it already has torch, transformers and docling, so it reads documents too. The same
+    fallback embed_client.py uses for embeddings, so installing that one environment covers both without a second, separate install."""
+    from tadamoo.rag import embed_env
+    return embed_env.shared()._venv_python()
+
+
+def find_python(configured: str = "", roots: Sequence[str] = VENV_ROOTS, own: Optional[Callable[[], Optional[Path]]] = _own_venv) -> str:
+    """The Python to run the worker with: the configured one when it is a file, else our own embeddings environment when it is installed, else the
+    first Docling environment under `roots`; "" when none. The environment variable `TADAMOO_DOCLING=off` says there is none, whatever the setting."""
     if os.environ.get("TADAMOO_DOCLING", "").lower() == "off":
         return ""
     if configured:
         return configured if Path(configured).is_file() else ""
+    found_own = own() if own is not None else None
+    if found_own is not None:
+        return str(found_own)
     for root in roots:
         for name in VENV_NAMES:
             found = _python_of(Path(root) / name)

@@ -72,13 +72,37 @@ def test_the_python_of_docling_is_the_setting_else_the_gpu_environment_else_the_
         folder.mkdir(parents=True)
         (folder / "python.exe").write_text("", encoding="utf-8")
     roots = (str(tmp_path),)
-    assert docling_client.find_python("", roots) == str(gpu / "python.exe")
+    none = lambda: None                                                # isolates this test from whatever embeddings environment this real PC happens to have
+    assert docling_client.find_python("", roots, own=none) == str(gpu / "python.exe")
     (gpu / "python.exe").unlink()
-    assert docling_client.find_python("", roots) == str(cpu / "python.exe")
-    assert docling_client.find_python(str(cpu / "python.exe"), ()) == str(cpu / "python.exe") and docling_client.find_python(str(tmp_path / "none.exe"), roots) == ""
-    assert docling_client.find_python("", (str(tmp_path / "nothing"),)) == ""
+    assert docling_client.find_python("", roots, own=none) == str(cpu / "python.exe")
+    assert docling_client.find_python(str(cpu / "python.exe"), (), own=none) == str(cpu / "python.exe") and docling_client.find_python(str(tmp_path / "none.exe"), roots, own=none) == ""
+    assert docling_client.find_python("", (str(tmp_path / "nothing"),), own=none) == ""
     monkeypatch.setenv("TADAMOO_DOCLING", "off")
-    assert docling_client.find_python("", roots) == ""
+    assert docling_client.find_python("", roots, own=none) == ""
+
+
+def test_the_docling_python_falls_back_to_our_own_embeddings_environment_before_the_external_roots(tmp_path, monkeypatch):
+    monkeypatch.delenv("TADAMOO_DOCLING", raising=False)
+    gpu = tmp_path / "docling-gpu" / "Scripts"
+    gpu.mkdir(parents=True)
+    (gpu / "python.exe").write_text("", encoding="utf-8")
+    own = tmp_path / "embeddings" / "venv" / "Scripts" / "python.exe"
+    own.parent.mkdir(parents=True)
+    own.write_text("", encoding="utf-8")
+    assert docling_client.find_python("", (str(tmp_path),), own=lambda: own) == str(own)   # our own environment wins over the external roots
+    assert docling_client.find_python(str(gpu / "python.exe"), (str(tmp_path),), own=lambda: own) == str(gpu / "python.exe")   # an explicit setting still wins
+
+
+def test_the_own_venv_helper_asks_the_shared_embeddings_runtime(monkeypatch, tmp_path):
+    from tadamoo.rag import embed_env
+    rt = embed_env.Runtime(tmp_path / "embeddings")
+    monkeypatch.setattr(embed_env, "shared", lambda: rt)
+    assert docling_client._own_venv() is None
+    py = rt.venv / "Scripts" / "python.exe"
+    py.parent.mkdir(parents=True)
+    py.write_text("", encoding="utf-8")
+    assert docling_client._own_venv() == py
 
 
 def test_formats_grow_with_docling_and_a_format_only_docling_reads_is_refused_without_it(tmp_path):
