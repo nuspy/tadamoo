@@ -131,6 +131,39 @@ def test_the_prompt_carries_only_the_top_of_the_tree_and_it_stays_small(tmp_path
     assert len(flat) > 20 * (len(top) + len(schemas))                                   # against a flat list of everything
 
 
+def test_the_prompt_names_the_active_connectors_without_a_search(tmp_path):
+    from tadamoo.stack import AgentConfig, _capabilities_summary
+    home, ws = tmp_path / "h", tmp_path / "w"
+    ws.mkdir()
+    skill(home / ".claude" / "skills", "ocr-reader", "Read text from a screenshot or a photo with OCR.")
+    skill(home / ".claude" / "skills", "off-one", "Switched off on purpose.")
+    idx = cap.CapabilityIndex(tmp_path / "c", ws, home=home, appdata=tmp_path / "nope")
+    idx.save_settings(off=["skill:off-one"])
+    cfg = AgentConfig()
+    summary = _capabilities_summary(idx, cfg)
+    assert summary.startswith(idx.top_of_tree())
+    assert "ocr-reader" in summary and "off-one" not in summary
+    personal = tmp_path / "personal"
+    skill_dir = personal / "mine"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "skill.json").write_text(json.dumps({"name": "My Skill", "description": "A personal one."}), encoding="utf-8")
+    (skill_dir / "skill.py").write_text("def main(params):\n    return {}\n", encoding="utf-8")
+    cfg2 = AgentConfig(personal_skills_dir=str(personal))
+    assert "My Skill" in _capabilities_summary(idx, cfg2)
+
+
+def test_a_small_budget_still_shows_how_many_are_left_out(tmp_path):
+    from tadamoo.stack import AgentConfig, _capabilities_summary
+    home, ws = tmp_path / "h", tmp_path / "w"
+    ws.mkdir()
+    for i in range(20):
+        skill(home / ".claude" / "skills", f"s{i}", f"Skill number {i} for something fairly specific and described at length " * 3)
+    idx = cap.CapabilityIndex(tmp_path / "c", ws, home=home, appdata=tmp_path / "nope")
+    summary = _capabilities_summary(idx, AgentConfig())
+    assert "more, find_capability" in summary
+    assert len(summary) < 800
+
+
 def test_the_tools_search_load_and_call_what_is_found(world):
     idx, *_ = world
     started = []

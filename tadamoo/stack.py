@@ -670,8 +670,24 @@ def _offer_capabilities(cfg: AgentConfig, workspace: Path, registry: Any, builde
                 raise FileNotFoundError("that output file is not there") from None
         return sandbox.resolve_safe(path, "analyze_image")
     register_vision_tool(registry, index, reader, cfg.endpoint, cfg.api_key, client)
-    builder.pin("capabilities", index.top_of_tree())
+    builder.pin("capabilities", _capabilities_summary(index, cfg))
     return index
+
+
+def _capabilities_summary(index: Any, cfg: AgentConfig) -> str:
+    """The top-of-tree counts, plus the name and one line of each active connector (skill, plugin, MCP server), within a small character budget, so the
+    model sees what is on without a find_capability search for the common case; the rest is still reachable by searching."""
+    from tadamoo.connectors import inventory as conn_inventory, model as conn_model
+    personal = []
+    if cfg.personal_skills_dir:
+        from tadamoo.personal_skills.store import PersonalSkills
+        personal = PersonalSkills(cfg.personal_skills_dir).list()
+    inv = conn_inventory.build(index.entries, personal)
+    cards, left_out = conn_model.session_index(inv, budget_chars=600)
+    summary = index.top_of_tree()
+    if cards:
+        summary += " Active: " + "; ".join(cards) + "." + (f" ({left_out} more, find_capability)" if left_out else "")
+    return summary
 
 
 def _hook_files(cfg: AgentConfig, workspace: Path) -> List[Path]:

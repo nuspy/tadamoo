@@ -331,7 +331,7 @@ def test_browse_gives_the_full_toolkit_restricted_to_onion_addresses(tmp_path, m
     reg = ToolRegistry()
     with pytest.raises(PermissionError):
         rt.dark_browser()                                           # the switch and the setting are both off by default
-    rt.save({"darkweb": True, "browse": True})
+    rt.save({"darkweb": True, "browse": True, "navigation": "own"})
     names = dr.offer_darkweb(reg, rt)
     for n in ("darkweb_browser_open", "darkweb_browser_read", "darkweb_browser_click", "darkweb_browser_type", "darkweb_browser_sign_in", "darkweb_browser_select", "darkweb_browser_press", "darkweb_browser_back"):
         assert n in names and reg.get(n) is not None
@@ -357,3 +357,38 @@ def test_browse_is_a_tool_only_when_its_own_setting_is_on(tmp_path, monkeypatch)
     rt.save({"browse": True})
     names = dr.offer_darkweb(reg, rt)
     assert "darkweb_browser_open" in names
+
+
+def test_browse_follows_the_agent_browser_choice_through_the_same_tor_proxy(tmp_path, monkeypatch):
+    from tadamoo import vendored
+    from tadamoo import browser_ab
+
+    class FakeCli:
+        def __init__(self, command, session, config, home, executable="", **kw):
+            self.command, self.launch_args = command, None
+
+    class FakeAgentBrowser:
+        def __init__(self, cli, headless=False, allow_private=False, proxy="", **kw):
+            self.cli, self.headless, self.allow_private, self.proxy = cli, headless, allow_private, proxy
+
+    monkeypatch.setattr(vendored, "find", lambda name, tools_dir=None, root=None: ("C:/fake/agent-browser.exe", "installed"))
+    monkeypatch.setattr(browser_ab, "AbCli", FakeCli)
+    monkeypatch.setattr(browser_ab, "AgentBrowser", FakeAgentBrowser)
+    rt = make(tmp_path)
+    rt._tor = type("T", (), {"running": lambda self: True})()
+    rt.save({"darkweb": True, "browse": True, "navigation": "agent-browser"})
+    browser = rt.dark_browser()
+    assert isinstance(browser, FakeAgentBrowser)
+    assert browser.allow_private is True and browser.proxy == f"socks5://127.0.0.1:{dr.TOR_PORT}"
+    rt.close_browser()
+
+
+def test_browse_falls_back_to_the_pilot_when_agent_browser_is_not_found(tmp_path, monkeypatch):
+    from darkweb.navigation import pilot
+    from tadamoo import vendored
+    monkeypatch.setattr(pilot, "Browser", _FakeDarkBrowser)
+    monkeypatch.setattr(vendored, "find", lambda name, tools_dir=None, root=None: ("", ""))
+    rt = make(tmp_path)
+    rt._tor = type("T", (), {"running": lambda self: True})()
+    rt.save({"darkweb": True, "browse": True, "navigation": "agent-browser"})
+    assert isinstance(rt.dark_browser(), _FakeDarkBrowser)

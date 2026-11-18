@@ -187,13 +187,34 @@ class Runtime:
                       auto: Optional[Callable[[], bool]] = None, rules: Optional[Callable[[], List[str]]] = None) -> Any:
         """The one real browser of this process for the dark web, made the first time it is needed: through Tor's own SOCKS port, `allow_private` on because
         an onion address is never this PC's or its network's own (and could never be resolved to tell); `_onion_only` is what actually keeps it to onion
-        addresses. The same consent and permission policies as the ordinary browser (browser_consent.py) are not touched."""
-        from darkweb.navigation.pilot import Browser
+        addresses. Driven by agent-browser or by the pilot of the `darkweb` package, following the same navigation choice (own, agent-browser, or the
+        app's default) already offered for the dark web (Chat settings > Dark web). The same consent and permission policies as the ordinary browser
+        (browser_consent.py) are not touched."""
         self._ready("browse")
         with _lock:
             if self._browser is None:
-                self._browser = Browser(proxy=f"socks5://127.0.0.1:{TOR_PORT}", headless=True, allow_private=True, confirm=confirm, audit=audit, auto=auto, rules=rules)
+                proxy = f"socks5://127.0.0.1:{TOR_PORT}"
+                if self.resolved_navigation() == "agent-browser":
+                    self._browser = self._agent_dark_browser(proxy, confirm, audit, auto, rules)
+                if self._browser is None:
+                    from darkweb.navigation.pilot import Browser
+                    self._browser = Browser(proxy=proxy, headless=True, allow_private=True, confirm=confirm, audit=audit, auto=auto, rules=rules)
             return self._browser
+
+    def _agent_dark_browser(self, proxy: str, confirm: Optional[Callable[[str, Dict[str, Any]], bool]], audit: Optional[Callable[[str, Dict[str, Any]], None]],
+                             auto: Optional[Callable[[], bool]], rules: Optional[Callable[[], List[str]]]) -> Any:
+        """The dark web's browser driven by agent-browser instead of the pilot, proxied through Tor the same way; None when the program is not found (the
+        pilot is then used, same as the regular browser falls back to TaDaMoo's own driver)."""
+        from tadamoo import vendored
+        from tadamoo.browser import find_browser
+        from tadamoo.browser_ab import AbCli, AgentBrowser, session_name
+        agent_dir = self.tools / "agent-browser"
+        path, _ = vendored.find("agent-browser", agent_dir)
+        if not path:
+            return None
+        session = session_name()
+        cli = AbCli([path], session, agent_dir / "config.json", agent_dir / "home", executable=find_browser() or "")
+        return AgentBrowser(cli, headless=True, allow_private=True, proxy=proxy, confirm=confirm, audit=audit, auto=auto, rules=rules)
 
     def _onion_only(self, url: str) -> None:
         from darkweb.navigation.pilot import BrowserError

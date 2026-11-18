@@ -171,8 +171,8 @@ class AgentBrowser(Browser):
     def __init__(self, cli: AbCli, headless: bool = False, allow_private: bool = False, mask: Optional[Callable[[str], str]] = None, persistent: bool = False,
                  consent: str = bc.DEFAULT_CONSENT, permissions: str = bc.DEFAULT_PERMISSIONS, confirm: Optional[Callable[[str, Dict[str, Any]], bool]] = None,
                  audit: Optional[Callable[[str, Dict[str, Any]], None]] = None, auto: Optional[Callable[[], bool]] = None, rules: Optional[Callable[[], List[str]]] = None,
-                 sleep: Callable[[float], None] = time.sleep) -> None:
-        self.cli, self.sleep = cli, sleep
+                 sleep: Callable[[float], None] = time.sleep, proxy: str = "") -> None:
+        self.cli, self.sleep, self.proxy = cli, sleep, proxy
         self.cdp_url = cli.cdp_url
         self.headless, self.allow_private = headless, allow_private or bool(cli.cdp_url)
         self.persistent = persistent
@@ -198,8 +198,12 @@ class AgentBrowser(Browser):
 
     def _launch_args(self) -> List[str]:
         """What a page's request for a permission (camera, location, notifications...) meets: the browser's prompt cannot be answered from here, so it is refused; `grant` lets the browser
-        give the camera and the microphone (the one thing a switch can grant). The person's `ask` and `grant-safe` choices are not carried over (docs/browser-backends.md)."""
-        return ["--use-fake-ui-for-media-stream"] if self._permission_policy() == "grant" else ["--deny-permission-prompts"]
+        give the camera and the microphone (the one thing a switch can grant). The person's `ask` and `grant-safe` choices are not carried over (docs/browser-backends.md). With `proxy` set
+        (the dark web, through Tor) the browser's own DNS goes through it too, so an address never asked of this PC's resolver leaks there instead."""
+        args = ["--use-fake-ui-for-media-stream"] if self._permission_policy() == "grant" else ["--deny-permission-prompts"]
+        if self.proxy:
+            args += [f"--proxy-server={self.proxy}", "--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1"]
+        return args
 
     def start(self) -> None:
         pass
