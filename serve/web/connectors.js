@@ -6,7 +6,7 @@
   if (!root) return;
 
   const SUBTABS = ["skill", "mcp_server", "mcp_app", "plugin", "providers"];
-  const S = { sub: "skill", scope: "all", query: "", state: "", data: null, detail: "", tree: null, busy: false, off: null, reviews: {}, armed: "", installing: "", failed: {}, originals: null, updates: null, checking: false, nvidia: null };
+  const S = { sub: "skill", scope: "all", query: "", state: "", data: null, detail: "", tree: null, busy: false, off: null, reviews: {}, armed: "", installing: "", failed: {}, originals: null, updates: null, checking: false, nvidia: null, githubToken: null };
   let armTimer = 0;
   const ARM_MS = 4000;
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -31,6 +31,7 @@
     S.providers = r.data; say(""); draw();
     loadOriginals();
     loadNvidia();
+    loadGithubToken();
   }
   async function changeProviders(body) {
     const r = await api("POST", "api/connectors/providers", body);
@@ -53,6 +54,27 @@
     save.id = "cx-orig-save";
     const row = el("div", "cx-pf"); row.append(input, save);
     box.append(lab, el("p", "help", T("cx.orig.help")), row);
+    return box;
+  }
+
+  /* a GitHub token in the vault: raises the rate limit of browsing GitHub as a provider, and reaches the private repositories the token can see. Write-only:
+     the field is always empty on load, the line above it says only whether one is set. */
+  async function loadGithubToken() {
+    const r = await api("GET", "api/connectors/github-token");
+    if (r.ok) { S.githubToken = r.data; draw(); }
+  }
+  function githubTokenBlock() {
+    const box = el("section", "cx-orig"), input = el("input"), g = S.githubToken || {};
+    input.type = "password"; input.id = "cx-gh-token"; input.maxLength = 500; input.autocomplete = "off"; input.spellcheck = false;
+    input.placeholder = T(g.set ? "cx.ghtoken.replace" : "cx.ghtoken.placeholder");
+    const lab = el("label", "", T("cx.ghtoken.title")); lab.htmlFor = "cx-gh-token";
+    const save = btn(T("cx.ghtoken.save"), "", async () => {
+      const r = await api("POST", "api/connectors/github-token", { token: input.value.trim() });
+      if (r.ok) { S.githubToken = r.data; input.value = ""; say(T(r.data.set ? "cx.ghtoken.saved" : "cx.ghtoken.removed"), false); draw(); } else say(errText(r), true);
+    }, T("cx.ghtoken.save.tip"));
+    save.id = "cx-gh-token-save";
+    const row = el("div", "cx-pf"); row.append(input, save);
+    box.append(lab, el("p", "help", T(g.set ? "cx.ghtoken.isset" : "cx.ghtoken.isnotset")), el("p", "help", T("cx.ghtoken.help")), row);
     return box;
   }
 
@@ -123,7 +145,7 @@
     form.append(lab("cx-pk", "cx.prov.f.kind", kind), lab("cx-pr", "cx.prov.f.ref", ref), lab("cx-pt", "cx.prov.f.trust", trust), add);
     form.onsubmit = e => { e.preventDefault(); changeProviders({ action: "add", kind: kind.value, ref: ref.value, trust: trust.value }); };
     host.append(form, btn(T("cx.prov.reset"), "", () => changeProviders({ action: "reset" })));
-    host.append(originalsBlock(), reviewSettingsBlock());
+    host.append(originalsBlock(), githubTokenBlock(), reviewSettingsBlock());
     return host;
   }
 

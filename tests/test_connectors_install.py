@@ -410,3 +410,18 @@ def test_a_newer_commit_of_an_installed_skill_is_found_and_installed_over_it_kee
     assert len(names) == 2 and any("b" * 12 in n for n in names) and any(COMMIT[:12] in n for n in names)       # both originals are kept, the old one untouched
     with pytest.raises(ConnectorError):
         api.update("skill:nothing", {})
+
+
+def test_a_github_token_in_the_vault_is_set_removed_and_never_shown_back(tmp_path, stub):
+    api, caps, installer = make(tmp_path, stub, [])
+    assert api.github_token_status() == {"set": False}                                   # no vault here yet
+    installer.vault_dir = tmp_path / "vault"
+    assert api.github_token_status() == {"set": False}
+    assert api.set_github_token("ghp_abc123") == {"set": True}
+    assert api.github_token_status() == {"set": True}
+    from tadamoo.vault import Vault
+    assert Vault(installer.vault_dir).reveal("github", "value") == "ghp_abc123"
+    assert api.set_github_token("") == {"set": False}                                     # an empty token removes the entry
+    assert api.github_token_status() == {"set": False}
+    with pytest.raises(ConnectorError):
+        api.set_github_token(123)

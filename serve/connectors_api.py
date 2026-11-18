@@ -319,6 +319,32 @@ class ConnectorsApi:
         except ConnectorInstallError as e:
             raise ConnectorError(str(e), e.code or "bad_folder") from None
 
+    def github_token_status(self) -> Dict[str, Any]:
+        """Whether a GitHub token is in the vault (never the value itself): it raises the rate limit of browsing GitHub as a provider, and reaches the
+        private repositories that token can see. Set from Connectors > Providers; read by tadamoo.discovery.installed.github_token."""
+        vault_dir = self.installer.vault_dir if self.installer is not None else None
+        if not vault_dir:
+            return {"set": False}
+        from tadamoo.vault import Vault, VaultError
+        try:
+            Vault(vault_dir).describe("github")
+            return {"set": True}
+        except VaultError:
+            return {"set": False}
+
+    def set_github_token(self, token: Any) -> Dict[str, Any]:
+        if self.installer is None or not self.installer.vault_dir:
+            raise ConnectorError("There is no vault here.", "none")
+        if not isinstance(token, str):
+            raise ConnectorError("token: text", "bad_token")
+        from tadamoo.vault import Vault
+        v, clean = Vault(self.installer.vault_dir), token.strip()
+        if clean:
+            v.put("github", kind="secret", label="GitHub token (raises the rate limit; also reaches the private repositories it can see)", fields={"value": clean})
+        else:
+            v.delete("github")
+        return self.github_token_status()
+
     def nvidia_status(self) -> Dict[str, Any]:
         from tadamoo.skillreview_nvidia import shared as nvidia_shared
         rt = nvidia_shared()
