@@ -1,11 +1,11 @@
 {
   "version": 1,
-  "subversion": 12,
+  "subversion": 14,
   "name": "bizarre-smarttv",
   "names_used": [
     "bizarre-smarttv"
   ],
-  "release": "bizarre-smarttv_(v_1_12)",
-  "built": "2026-11-16T04:57:23",
-  "commit": "72729000"
+  "release": "bizarre-smarttv_(v_1_14)",
+  "built": "2026-11-19T00:08:40",
+  "commit": "7f13c4dd"
 }
