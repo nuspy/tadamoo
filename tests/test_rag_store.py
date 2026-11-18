@@ -368,7 +368,7 @@ def test_a_damaged_archive_is_left_out_of_the_list_and_chunks_of_unknown_documen
     (tmp_path / "rag" / "stray").mkdir()
     assert [x["id"] for x in s.list()] == [a]
     backend = s._backend(a)
-    backend.run("INSERT INTO rag_chunks (archive_id, pos, doc, n, text) VALUES (?, ?, ?, ?, ?)", (a, 999, "dffffffff", 0, "orphan keel keel keel")).close()
+    backend.run("INSERT INTO rag_chunks (archive_id, row_id, pos, doc, n, text) VALUES (?, ?, ?, ?, ?, ?)", (a, 999, 999, "dffffffff", 0, "orphan keel keel keel")).close()
     s._cache.clear()
     assert all(h["document"] == "boats.txt" for h in store(tmp_path).search([a], "keel")["hits"])
 

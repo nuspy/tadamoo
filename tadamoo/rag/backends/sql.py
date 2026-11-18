@@ -18,7 +18,7 @@ import numpy as np
 from tadamoo.rag.backends.base import MAIN, Backend, BackendError
 from tadamoo.rag.errors import RagError
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 BLOCK_ROWS = 256                             # vectors kept together in one binary value
 
 
@@ -67,7 +67,21 @@ def migrations(p: str, d: Dialect) -> List[Tuple[int, List[str]]]:
         f"CREATE TABLE {p}sources (archive_id {k} PRIMARY KEY, data {t} NOT NULL)",
         f"CREATE TABLE {p}enrich (archive_id {k} NOT NULL, k {k} NOT NULL, data {t} NOT NULL, PRIMARY KEY (archive_id, k))",
     ]
-    return [(1, v1)]
+    v2 = [
+        # a passage's slot (archive_id, doc, n) keeps its past content instead of losing it to an update: `archive_version` says from which archive version a row is the
+        # answer for that slot, `retired` (never un-set once 1) says the slot stopped existing there. `row_id` replaces `pos` as the primary key, since more than one row
+        # can now exist for the same `pos` across versions; `pos` keeps meaning "its place in the current, searched list" for the backends with their own word/vector index.
+        f"CREATE TABLE {p}chunks_v2 (archive_id {k} NOT NULL, row_id INTEGER NOT NULL, archive_version INTEGER NOT NULL DEFAULT 0, retired INTEGER NOT NULL DEFAULT 0, "
+        f"pos INTEGER NOT NULL, doc {k} NOT NULL, n INTEGER NOT NULL, text {t} NOT NULL, path {t}, page_start INTEGER, page_end INTEGER, kind {k}, section {k}, flag {t}, "
+        f"summary {t}, questions {t}, facts {t}, search_text {t}, data {t}, PRIMARY KEY (archive_id, row_id))",
+        f"INSERT INTO {p}chunks_v2 (archive_id, row_id, archive_version, retired, pos, doc, n, text, path, page_start, page_end, kind, section, flag, summary, questions, facts, "
+        f"search_text, data) SELECT archive_id, pos, 0, 0, pos, doc, n, text, path, page_start, page_end, kind, section, flag, summary, questions, facts, search_text, data FROM {p}chunks",
+        f"DROP TABLE {p}chunks",
+        f"ALTER TABLE {p}chunks_v2 RENAME TO {p}chunks",
+        f"CREATE INDEX {p}chunks_doc ON {p}chunks (archive_id, doc)",
+        f"CREATE INDEX {p}chunks_slot ON {p}chunks (archive_id, doc, n)",
+    ]
+    return [(1, v1), (2, v2)]
 
 
 class SqlBackend(Backend):
@@ -252,11 +266,8 @@ class SqlBackend(Backend):
                vectors: Optional[np.ndarray], model: str = "", version: str = "") -> None:
         with self.tx():
             self._put_meta(aid, meta)
-            self.run(f"DELETE FROM {self.t('chunks')} WHERE archive_id = ?", (aid,)).close()
             self._before_chunks(aid)
-            rows = [self._chunk_row(aid, i, c) for i, c in enumerate(chunks)]
-            self.many(f"INSERT INTO {self.t('chunks')} (archive_id, pos, doc, n, text, path, page_start, page_end, kind, section, flag, summary, questions, facts, search_text, data) "
-                      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
+            self._write_chunks(aid, int(meta.get("version") or 0), chunks)
             self._after_chunks(aid, chunks)
             if sections is not None:
                 self.run(f"DELETE FROM {self.t('sections')} WHERE archive_id = ?", (aid,)).close()
@@ -271,7 +282,8 @@ class SqlBackend(Backend):
         """Hook: a backend with its own text index clears it for this archive."""
 
     def _after_chunks(self, aid: str, chunks: Sequence[Dict[str, Any]]) -> None:
-        """Hook: a backend with its own text index fills it from the passages just written."""
+        """Hook: a backend with its own text index fills it from the passages just written. Always reflects the current, searched list: a backend's own word or vector
+        index never carries the history kept in the chunks table."""
 
     def _search_text(self, chunk: Dict[str, Any]) -> Optional[str]:
         return None
@@ -280,10 +292,15 @@ class SqlBackend(Backend):
     def _opt(chunk: Dict[str, Any], key: str) -> Optional[str]:
         return dumps(chunk[key]) if key in ("questions", "facts") and key in chunk else (chunk[key] if key in chunk else None)
 
-    def _chunk_row(self, aid: str, pos: int, c: Dict[str, Any]) -> Tuple[Any, ...]:
+    def _chunk_content(self, c: Dict[str, Any]) -> Tuple[Any, ...]:
+        """The columns that hold a passage's own content (everything but its place, its version and whether it is retired): two rows with the same content tuple answer
+        the same thing, and the older one does not need a row of its own."""
         extra = {k: v for k, v in c.items() if k not in CHUNK_BASE and k not in CHUNK_OPT}
-        return (aid, pos, c["doc"], int(c["n"]), c["text"], c.get("path", ""), int(c.get("page_start") or 0), int(c.get("page_end") or 0), c.get("kind", "text"), c.get("section", ""),
+        return (c["text"], c.get("path", ""), int(c.get("page_start") or 0), int(c.get("page_end") or 0), c.get("kind", "text"), c.get("section", ""),
                 self._opt(c, "flag"), self._opt(c, "summary"), self._opt(c, "questions"), self._opt(c, "facts"), self._search_text(c), dumps(extra) if extra else None)
+
+    def _chunk_row(self, aid: str, row_id: int, version: int, retired: int, pos: int, c: Dict[str, Any]) -> Tuple[Any, ...]:
+        return (aid, row_id, version, retired, pos, c["doc"], int(c["n"])) + self._chunk_content(c)
 
     @staticmethod
     def _chunk_dict(row: Tuple[Any, ...]) -> Dict[str, Any]:
@@ -306,11 +323,59 @@ class SqlBackend(Backend):
         return (aid, sid, pos, s.get("doc", ""), s.get("parent", ""), s.get("path", ""), int(s.get("page_start") or 0), int(s.get("page_end") or 0), s.get("text", ""),
                 dumps(extra) if extra else None)
 
-    def read_chunks(self, aid: str) -> List[Dict[str, Any]]:
+    _CHUNK_COLS = "archive_id, row_id, archive_version, retired, pos, doc, n, text, path, page_start, page_end, kind, section, flag, summary, questions, facts, search_text, data"
+
+    def _write_chunks(self, aid: str, new_version: int, chunks: Sequence[Dict[str, Any]]) -> None:
+        """Writes the archive's passages at `new_version`, keeping the ones before it instead of losing them: a slot (archive, doc, n) whose content has not changed
+        keeps its row untouched (just moved to its new place in the list); one whose content changed gets a fresh row at `new_version`, the older one left exactly as
+        it answered up to here; one no longer in `chunks` has its current row marked retired (never deleted, never un-marked). A `new_version` that is not higher than
+        what is already there (a re-cut or a re-described passage under the same archive version, or a caller that gives none) replaces that version's own rows in
+        place, as before: nothing is kept twice for the same version."""
+        existing = self.all(f"SELECT row_id, archive_version, retired, pos, doc, n, text, path, page_start, page_end, kind, section, flag, summary, questions, facts, "
+                            f"search_text, data FROM {self.t('chunks')} WHERE archive_id = ?", (aid,))
+        prev_version = max((int(r[1]) for r in existing), default=-1)
+        next_row_id = max((int(r[0]) for r in existing), default=-1) + 1
+        if not existing or new_version <= prev_version:
+            self.run(f"DELETE FROM {self.t('chunks')} WHERE archive_id = ? AND archive_version = ?", (aid, max(new_version, prev_version))).close()
+            rows = [self._chunk_row(aid, next_row_id + i, max(new_version, prev_version), 0, i, c) for i, c in enumerate(chunks)]
+            self.many(f"INSERT INTO {self.t('chunks')} ({self._CHUNK_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
+            return
+        current = {(r[4], int(r[5])): (r[0], r[6:]) for r in existing if int(r[1]) == prev_version and not r[2]}      # (doc, n) -> (row_id, content tuple)
+        seen_keys = set()
+        pos_updates: List[Tuple[Any, ...]] = []
+        to_insert: List[Tuple[Any, ...]] = []
+        for i, c in enumerate(chunks):
+            key = (c["doc"], int(c["n"]))
+            seen_keys.add(key)
+            old = current.get(key)
+            if old is not None and old[1] == self._chunk_content(c):
+                pos_updates.append((i, aid, old[0]))
+                continue
+            to_insert.append(self._chunk_row(aid, next_row_id, new_version, 0, i, c))
+            next_row_id += 1
+        for key, (_, content) in current.items():                      # a slot dropped from `chunks`: a tombstone row at new_version, the old one left exactly as it was
+            if key not in seen_keys:
+                to_insert.append((aid, next_row_id, new_version, 1, -1, key[0], key[1]) + content)
+                next_row_id += 1
+        if pos_updates:
+            self.many(f"UPDATE {self.t('chunks')} SET pos = ? WHERE archive_id = ? AND row_id = ?", pos_updates)
+        if to_insert:
+            self.many(f"INSERT INTO {self.t('chunks')} ({self._CHUNK_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", to_insert)
+
+    def read_chunks(self, aid: str, version: Optional[int] = None) -> List[Dict[str, Any]]:
+        """The passages of `aid`: the current ones (`version` None), or the archive as it stood at that version (every slot's own row at the highest version not
+        past it, dropped where that row is a retired one: the slot did not exist there yet, or not any more)."""
         with self.lock:
-            rows = self.all(f"SELECT doc, n, text, path, page_start, page_end, kind, section, flag, summary, questions, facts, data FROM {self.t('chunks')} "
-                            "WHERE archive_id = ? ORDER BY pos", (aid,))
-            return [self._chunk_dict(r) for r in rows]
+            rows = self.all(f"SELECT archive_version, retired, pos, doc, n, text, path, page_start, page_end, kind, section, flag, summary, questions, facts, data "
+                            f"FROM {self.t('chunks')} WHERE archive_id = ?" + ("" if version is None else " AND archive_version <= ?"),
+                            (aid,) if version is None else (aid, int(version)))
+            latest: Dict[Tuple[Any, int], Tuple[Any, ...]] = {}
+            for r in rows:
+                key = (r[3], int(r[4]))
+                if key not in latest or int(r[0]) > int(latest[key][0]):
+                    latest[key] = r
+            picked = sorted((r for r in latest.values() if not r[1]), key=lambda r: int(r[2]))
+            return [self._chunk_dict(r[3:]) for r in picked]
 
     def read_sections(self, aid: str) -> Dict[str, Dict[str, Any]]:
         with self.lock:
@@ -328,7 +393,7 @@ class SqlBackend(Backend):
             def n(table: str) -> int:
                 return int((self.one(f"SELECT COUNT(*) FROM {self.t(table)} WHERE archive_id = ?", (aid,)) or (0,))[0])
             note = self.vector_note(aid, MAIN)
-            return {"chunks": n("chunks"), "documents": n("documents"), "sections": n("sections"), "vectors": int(note["rows"]) if note else 0}
+            return {"chunks": len(self.read_chunks(aid)), "documents": n("documents"), "sections": n("sections"), "vectors": int(note["rows"]) if note else 0}
 
     def delete_archive(self, aid: str) -> None:
         with self.tx():

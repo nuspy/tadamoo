@@ -161,12 +161,12 @@ def test_a_database_that_has_other_tables_keeps_them_and_gets_its_own_with_a_pre
 def test_the_schema_has_a_version_and_a_newer_one_is_applied_by_itself(tmp_path):
     conn = sqlite3.connect(str(tmp_path / "v.db"), isolation_level=None, check_same_thread=False)
     b = SqlBackend(lambda: conn, SQLITE)
-    assert b.schema_version() == 0 and b.prepare()["schema"] == 1
+    assert b.schema_version() == 0 and b.prepare()["schema"] == 2
     b.commit("a-1", meta_of(), CHUNKS, SECTIONS, VECTORS, "m", "v")
     later = SqlBackend(lambda: conn, SQLITE)
-    later.migration_list = lambda p, d: migrations(p, d) + [(2, [f"ALTER TABLE {p}archives ADD COLUMN note TEXT"])]
-    assert later.prepare()["schema"] == 2 and later.read_meta("a-1") == meta_of()                    # nothing lost, nothing run twice
-    assert later.prepare()["schema"] == 2
+    later.migration_list = lambda p, d: migrations(p, d) + [(3, [f"ALTER TABLE {p}archives ADD COLUMN note TEXT"])]
+    assert later.prepare()["schema"] == 3 and later.read_meta("a-1") == meta_of()                    # nothing lost, nothing run twice
+    assert later.prepare()["schema"] == 3
 
 
 def test_a_file_made_where_the_extension_was_is_read_where_it_is_not(tmp_path, monkeypatch):
@@ -515,3 +515,57 @@ def test_an_archive_is_copied_from_one_backend_to_another_with_all_that_hangs_on
     with pytest.raises(RagError):
         copy_archive(src, dst, "missing")
     src.close(), dst.close()
+
+
+# -- a passage's own version and its retirement -----------------------------------------------------------
+
+def test_an_unchanged_passage_keeps_its_row_across_a_version_bump_and_a_changed_one_gets_a_new_row(db):
+    db.commit("a-1", meta_of(), CHUNKS, SECTIONS, VECTORS, "m", "v")
+    changed = [dict(CHUNKS[0]), {**CHUNKS[1], "text": "a new foxier sentence"}]
+    db.commit("a-1", {**meta_of(), "version": 2}, changed, SECTIONS, VECTORS, "m", "v")
+    assert db.read_chunks("a-1") == changed and db.read_chunks("a-1", version=1) == CHUNKS
+    rows = db.all(f"SELECT archive_version, retired, doc, n FROM {db.t('chunks')} WHERE archive_id = ? ORDER BY archive_version, n", ("a-1",))
+    assert rows == [(0, 0, "d1", 0), (0, 0, "d1", 1), (2, 0, "d1", 1)]              # d1.0 is byte-identical: one row serves both versions; d1.1 changed: a second row
+
+
+def test_a_passage_dropped_at_a_later_version_is_retired_not_deleted_and_is_gone_only_from_that_version_on(db):
+    db.commit("a-1", meta_of(), CHUNKS, SECTIONS, VECTORS, "m", "v")
+    db.commit("a-1", {**meta_of(), "version": 2}, CHUNKS[:1], SECTIONS, VECTORS, "m", "v")
+    assert db.read_chunks("a-1") == CHUNKS[:1] and db.read_chunks("a-1", version=1) == CHUNKS and db.read_chunks("a-1", version=0) == CHUNKS
+    rows = db.all(f"SELECT archive_version, retired FROM {db.t('chunks')} WHERE archive_id = ? AND n = 1", ("a-1",))
+    assert rows == [(0, 0), (2, 1)]                                                # the version-1 row is untouched; a tombstone at version 2 marks the drop, nothing deleted
+
+
+def test_a_passage_that_comes_back_after_being_dropped_is_a_fresh_row_at_the_new_version(db):
+    db.commit("a-1", meta_of(), CHUNKS, SECTIONS, VECTORS, "m", "v")
+    db.commit("a-1", {**meta_of(), "version": 2}, CHUNKS[:1], SECTIONS, VECTORS, "m", "v")
+    db.commit("a-1", {**meta_of(), "version": 3}, CHUNKS, SECTIONS, VECTORS, "m", "v")
+    assert db.read_chunks("a-1") == CHUNKS and db.read_chunks("a-1", version=2) == CHUNKS[:1] and db.read_chunks("a-1", version=3) == CHUNKS
+    rows = db.all(f"SELECT archive_version, retired FROM {db.t('chunks')} WHERE archive_id = ? AND n = 1 ORDER BY archive_version", ("a-1",))
+    assert rows == [(0, 0), (2, 1), (3, 0)]                                        # the original, the tombstone of being dropped, and the fresh row of coming back
+
+
+def test_a_recut_or_a_redescription_under_the_same_version_still_replaces_in_place(db):
+    db.commit("a-1", meta_of(), CHUNKS, SECTIONS, VECTORS, "m", "v")
+    recut = [{**CHUNKS[0], "text": "re-cut text"}]
+    db.commit("a-1", meta_of(), recut, SECTIONS, VECTORS, "m", "v")                 # version stays 0: a mere recut, not a content change
+    assert db.read_chunks("a-1") == recut and db.read_chunks("a-1", version=0) == recut
+    assert db.counts("a-1")["chunks"] == 1                                         # the old row at version 0 is gone, not kept twice
+
+
+def test_three_versions_of_an_archive_each_search_only_their_own_content(tmp_path):
+    db = SqliteVecBackend(tmp_path / "hist.sqlite")
+    db.prepare()
+    try:
+        v1 = [{"doc": "d1", "n": 0, "text": "alpha", "path": "x", "page_start": 1, "page_end": 1, "kind": "text", "section": "s"}]
+        v2 = [{"doc": "d1", "n": 0, "text": "alpha"}, {"doc": "d1", "n": 1, "text": "beta", "path": "x", "page_start": 1, "page_end": 1, "kind": "text", "section": "s"}]
+        v3 = [{"doc": "d1", "n": 1, "text": "beta", "path": "x", "page_start": 1, "page_end": 1, "kind": "text", "section": "s"}]       # d1.0 dropped again
+        db.commit("a-1", meta_of(chunks=1), v1, None, None)
+        db.commit("a-1", {**meta_of(chunks=2), "version": 2}, v2, None, None)
+        db.commit("a-1", {**meta_of(chunks=1), "version": 3}, v3, None, None)
+        assert [c["text"] for c in db.read_chunks("a-1", version=1)] == ["alpha"]
+        assert sorted(c["text"] for c in db.read_chunks("a-1", version=2)) == ["alpha", "beta"]
+        assert [c["text"] for c in db.read_chunks("a-1")] == ["beta"]
+        assert [c["text"] for c in db.read_chunks("a-1", version=3)] == ["beta"]
+    finally:
+        db.close()

@@ -83,7 +83,7 @@ def test_connect_and_prepare_is_a_job_that_reports_each_step_and_saves_the_setti
     job = started(api, ["db", "prepare"], {"project": PROJ})
     done = finish(api, job)
     assert done["state"] == "done" and done["result"]["ok"] and [s["step"] for s in done["data"]["steps"]] == ["connect", "extension", "configure"]
-    assert (tmp_path / "rag" / "db" / f"{PROJ}.json").is_file() and api.route_get(["db"], {"project": [PROJ]})["info"]["schema"] == 1
+    assert (tmp_path / "rag" / "db" / f"{PROJ}.json").is_file() and api.route_get(["db"], {"project": [PROJ]})["info"]["schema"] == 2
     store.router.close()
 
 
