@@ -129,7 +129,8 @@ class ConnectorsApi:
         return "\n".join(parts)
 
     def facts(self, item_id: str) -> Dict[str, Any]:
-        """The facts sheet and the excerpts a review reads, for an item a provider lists: a server of a registry, a skill in a folder or a skill in a GitHub repository. Nothing is run."""
+        """The facts sheet and the excerpts a review reads, for an item a provider lists: a server of a registry, a skill in a folder, or a skill or an MCP server in a GitHub
+        repository. Nothing is run."""
         it = self._item(item_id)
         if item_id.startswith("registry:") and self._get is not None:
             return {"sheet": facts.from_server(self._server(it)), "excerpts": ""}
@@ -138,25 +139,27 @@ class ConnectorsApi:
             if not folder.is_dir() or folder.resolve().parent != Path(it.source).resolve():
                 raise ConnectorError("That folder is not there any more.", "gone")
             return {"sheet": facts.from_skill(folder), "excerpts": self._skill_excerpts(folder), "folder": str(folder)}
-        if item_id.startswith("github:") and self.installer is not None:
+        if (item_id.startswith("github:") or item_id.startswith("github_mcp:")) and self.installer is not None:
             parts = self._github_parts(it)
             with tempfile.TemporaryDirectory(prefix="tadamoo-skill-") as tmp:
                 try:
                     folder = self.installer.fetch_skill(parts["repo"], parts["path"], parts["pin"], Path(tmp))
                 except Exception as e:                         # a repository that does not answer is told, not raised
                     raise ConnectorError(f"GitHub did not give the files: {str(e)[:160]}", "offline") from None
-                return {"sheet": {**facts.from_skill(folder), "name": it.name}, "excerpts": self._skill_excerpts(folder)}
+                kind = "skill" if item_id.startswith("github:") else "mcp_server"
+                return {"sheet": {**facts.from_skill(folder), "kind": kind, "name": it.name}, "excerpts": self._skill_excerpts(folder)}
         raise ConnectorError("This kind of item cannot be looked at yet.", "kind")
 
     def _skill_folder(self, item_id: str) -> Any:
-        """A context manager yielding the skill's folder on disk for `item_id` ("folder:" or "github:"), or None for a kind NVIDIA's reviewer cannot read
-        (an MCP server); a "folder:" item's folder outlives the call, a "github:" one is fetched again into a temporary folder that is cleaned up after."""
+        """A context manager yielding the folder on disk for `item_id` ("folder:", "github:" or "github_mcp:"), or None for a kind NVIDIA's reviewer cannot read (an MCP server
+        from a registry, with no folder of its own to scan); a "folder:" item's folder outlives the call, a GitHub one is fetched again into a temporary folder that is
+        cleaned up after."""
         import contextlib
         it = self._item(item_id)
         if item_id.startswith("folder:"):
             folder = Path(it.source) / item_id[len("folder:"):]
             return contextlib.nullcontext(folder if folder.is_dir() else None)
-        if item_id.startswith("github:") and self.installer is not None:
+        if (item_id.startswith("github:") or item_id.startswith("github_mcp:")) and self.installer is not None:
             parts = self._github_parts(it)
 
             @contextlib.contextmanager
@@ -183,6 +186,8 @@ class ConnectorsApi:
                 if not folder.is_dir() or folder.resolve().parent != Path(it.source).resolve():
                     raise ConnectorError("That folder is not there any more.", "gone")
                 record = self.installer.install("folder_skill", {"folder": str(folder)}, known)
+            elif item_id.startswith("github_mcp:"):
+                record = self.installer.install("github_mcp_server", self._github_parts(it), known)
             elif item_id.startswith("github:"):
                 record = self.installer.install("github_skill", self._github_parts(it), known)
             else:

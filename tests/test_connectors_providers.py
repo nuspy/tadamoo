@@ -131,3 +131,33 @@ def test_an_enabled_github_provider_adds_its_skills_to_the_available_band_and_a_
     got = prov.available(rows, github_get([]))
     assert [i.name for i in got] == ["docx", "pdf-tools"]
 
+
+MCP_TREE = {"tree": [{"path": "README.md"}, {"path": "servers/search/package.json"}, {"path": "servers/search/index.js"}, {"path": "servers/py/pyproject.toml"},
+                      {"path": "servers/lib/package.json"}]}
+
+
+def github_mcp_get(seen):
+    def get(url):
+        seen.append(url)
+        if url == "https://api.github.com/repos/acme/servers":
+            return json.dumps({"default_branch": "main"}).encode()
+        if "/git/trees/" in url:
+            return json.dumps(MCP_TREE).encode()
+        if url.endswith("servers/search/package.json"):
+            return json.dumps({"name": "acme-search-mcp", "description": "Search the web", "bin": {"acme-search-mcp": "./index.js"}}).encode()
+        if url.endswith("servers/py/pyproject.toml"):
+            return b'[project]\nname = "acme-py-mcp"\ndescription = "A python MCP server"\n\n[project.scripts]\nacme-py-mcp = "acme_mod:main"\n'
+        if url.endswith("servers/lib/package.json"):
+            return json.dumps({"name": "acme-lib", "description": "Just a library, no bin"}).encode()
+        raise OSError("not there")
+    return get
+
+
+def test_mcp_servers_kept_only_in_a_github_repository_are_listed_from_their_own_package_json_or_pyproject_toml():
+    seen = []
+    items = [i for i in prov.github_items("acme/servers", github_mcp_get(seen)) if i.kind == "mcp_server"]
+    assert [(i.id, i.name, i.description) for i in items] == [("github_mcp:acme/servers:servers/search", "acme-search-mcp", "Search the web"),
+                                                               ("github_mcp:acme/servers:servers/py", "acme-py-mcp", "A python MCP server")]
+    assert not items[0].installed and items[0].source == "github.com/acme/servers@main"                     # servers/lib has no "bin": not listed
+
+

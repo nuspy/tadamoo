@@ -82,7 +82,11 @@ class Candidate:
         elif self.route == "skill":
             owner, _, repo = self.repo.partition("/")
             if not (GITHUB_PART.match(owner) and GITHUB_PART.match(repo) and SHA.match(self.commit) and safe_relative(self.path)):
-                return "the skill's repository, folder or commit is not valid"
+                return "the repository, folder or commit is not valid"
+        elif self.route == "github_mcp":
+            owner, _, repo = self.repo.partition("/")
+            if not (GITHUB_PART.match(owner) and GITHUB_PART.match(repo) and SHA.match(self.commit) and (not self.path or safe_relative(self.path))):
+                return "the repository, folder or commit is not valid"
         else:
             return "unknown way to install"
         if any(not isinstance(a, str) or len(a) > MAX_ARG or "\x00" in a for a in self.args):
@@ -101,6 +105,9 @@ class Candidate:
             return f"{self.package} {args}".strip() + f"   [python package {self.package}=={self.version}]"
         if self.route == "remote":
             return self.url
+        if self.route == "github_mcp":
+            where = f"github.com/{self.repo}" + (f"/{self.path}" if self.path else "") + f" at commit {self.commit[:10]}"
+            return f"the program {where} declares in its own package.json or pyproject.toml (found after it is downloaded)"
         return f"no program: the folder {self.path} of github.com/{self.repo} at commit {self.commit[:10]}"
 
     def keys(self) -> List[str]:

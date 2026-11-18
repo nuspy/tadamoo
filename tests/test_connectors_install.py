@@ -20,6 +20,9 @@ SKILL = b"---\nname: pdf-tools\ndescription: Read and fill PDF forms\n---\nUse i
 SCRIPT = b"import subprocess\nsubprocess.run(['echo', 'hi'])\n"
 FILES = {"skills/pdf/SKILL.md": SKILL, "skills/pdf/run.py": SCRIPT}
 COMMIT = "a" * 40
+MCP_PACKAGE_JSON = json.dumps({"name": "acme-search-mcp", "description": "Search the web", "bin": {"acme-search-mcp": "./index.js"}}).encode()
+MCP_FILES = {"servers/search/package.json": MCP_PACKAGE_JSON, "servers/search/index.js": b"console.log('server');\n"}
+MCP_COMMIT = "c" * 40
 
 
 def blob_sha(data):
@@ -46,6 +49,14 @@ def stub():
                 body, ctype = FILES[path.split("/", 5)[5]], "text/plain"
             elif path in ("/reg/v0/servers", "/reg/v0.1/servers"):
                 body = json.dumps({"servers": [{"server": state["registry_server"]}]}).encode()
+            elif path == "/gh/repos/acme/mcp-servers":
+                body = json.dumps({"full_name": "acme/mcp-servers", "default_branch": "main"}).encode()
+            elif path.startswith("/gh/repos/acme/mcp-servers/commits/"):
+                body, ctype = MCP_COMMIT.encode(), "text/plain"
+            elif path in (f"/gh/repos/acme/mcp-servers/git/trees/{MCP_COMMIT}", "/gh/repos/acme/mcp-servers/git/trees/main"):
+                body = json.dumps({"tree": [{"path": p, "type": "blob", "mode": "100644", "size": len(d), "sha": blob_sha(d)} for p, d in MCP_FILES.items()]}).encode()
+            elif path.startswith(f"/raw/acme/mcp-servers/{MCP_COMMIT}/") or path.startswith("/raw/acme/mcp-servers/main/"):
+                body, ctype = MCP_FILES[path.split("/", 5)[5]], "text/plain"
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -66,7 +77,7 @@ def stub():
     server.shutdown()
 
 
-def make(tmp_path, stub, providers):
+def make(tmp_path, stub, providers, runner=None, which=None):
     caps_dir = tmp_path / "capabilities"
     caps_dir.mkdir()
     (caps_dir / "discovery.json").write_text(json.dumps({"base_urls": {"github": stub["url"] + "/gh", "github_raw": stub["url"] + "/raw", "registry": stub["url"] + "/reg"}}), encoding="utf-8")
@@ -74,7 +85,7 @@ def make(tmp_path, stub, providers):
     (home / ".claude").mkdir(parents=True)
     caps = CapabilityApi(caps_dir, tmp_path / "work", home=home, appdata=tmp_path / "appdata")
     (tmp_path / "providers.json").write_text(json.dumps(providers), encoding="utf-8")
-    installer = ConnectorInstaller(caps, tmp_path / "connectors")
+    installer = ConnectorInstaller(caps, tmp_path / "connectors", runner=runner, which=which)
     def get(url):                                                                              # the real addresses of GitHub go to the stand-in
         import urllib.request
         url = url.replace("https://api.github.com", stub["url"] + "/gh").replace("https://raw.githubusercontent.com", stub["url"] + "/raw")
@@ -131,6 +142,37 @@ def test_a_skill_of_a_github_repository_is_read_before_installing_then_installed
     (installed / "run.py").write_bytes(b"changed")                                          # changes are made only on the installed copy
     assert (original / "run.py").read_bytes() == SCRIPT
     assert api.uninstall("skill:pdf-tools")["removed"] == "skill:pdf-tools" and original.is_dir()
+
+
+def test_an_mcp_server_kept_only_in_a_github_repository_is_read_before_installing_then_started_from_its_own_package_json(tmp_path, stub):
+    npm_calls = []
+
+    def runner(command, cwd, timeout):
+        npm_calls.append(list(command))
+        return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+    api, caps, installer = make(tmp_path, stub, [{"id": "g", "kind": "github", "ref": "acme/mcp-servers@main", "trust": "known", "enabled": True}],
+                               runner=runner, which=lambda n: {"npm": "npm", "node": "node"}.get(n))
+    installer.settings.write(str(tmp_path / "originals"))
+    item = next(i for i in api.view("all", "mcp_server")["available"] if i["id"].startswith("github_mcp:"))
+    assert item["id"] == "github_mcp:acme/mcp-servers:servers/search" and item["name"] == "acme-search-mcp" and item["description"] == "Search the web"
+    got = api.install(item["id"], {})["installed"]
+    assert got["id"] == "mcp:acme-search-mcp" and got["version"] == MCP_COMMIT[:10]
+    installed = tmp_path / "capabilities" / "mcp" / "acme-search-mcp"
+    assert (installed / "index.js").is_file() and npm_calls == [["npm", "install", "--prefix", str(installed), "--ignore-scripts", "--no-audit", "--no-fund"]]
+    entry = caps.index.get("mcp:acme-search-mcp")
+    assert entry["origin"] == "tadamoo" and entry["state"] == "approved" and caps.index.target("mcp:acme-search-mcp") == ["node", str(installed / "index.js")]
+    original = next((tmp_path / "originals" / "github").iterdir())
+    assert original.name.startswith("acme__mcp-servers@" + MCP_COMMIT[:12]) and (original / "package.json").read_bytes() == MCP_PACKAGE_JSON
+    assert api.uninstall("mcp:acme-search-mcp")["removed"] == "mcp:acme-search-mcp" and original.is_dir()
+
+
+def test_an_mcp_server_kept_in_a_github_repository_can_be_reviewed_before_installing(tmp_path, stub):
+    api, caps, installer = make(tmp_path, stub, [{"id": "g", "kind": "github", "ref": "acme/mcp-servers@main", "trust": "known", "enabled": True}])
+    item = next(i for i in api.view("all", "mcp_server")["available"] if i["id"].startswith("github_mcp:"))
+    sheet = api.facts(item["id"])
+    assert sheet["sheet"]["kind"] == "mcp_server" and sheet["sheet"]["name"] == "acme-search-mcp" and "index.js" in sheet["sheet"]["scripts"][0]
+    out = api.review(item["id"])
+    assert out["facts"]["kind"] == "mcp_server" and "review" in out
 
 
 def test_a_remote_server_of_a_registry_is_installed_as_a_record_and_listed_by_the_index(tmp_path, stub):

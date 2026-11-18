@@ -404,3 +404,90 @@ def test_the_size_limits_default_to_none(tmp_path):
     assert s.save({"max_skill_mb": 12})["max_skill_mb"] == 12
     with pytest.raises(ValueError):
         s.save({"max_skill_files": -1})
+
+# -- an MCP server kept only in a GitHub repository, not published to any registry ---------------
+
+@pytest.fixture
+def mcp_repo(tmp_path):
+    f = FakeServices()
+    w = f.world
+    pkg = b'{"name": "acme-search-mcp", "bin": {"acme-search-mcp": "./index.js"}}'
+    index_js = b"console.log('server');\n"
+    w.trees["acme/mcp-servers"] = [
+        {"path": "servers/search/package.json", "type": "blob", "mode": "100644", "sha": git_blob_sha(pkg), "size": len(pkg)},
+        {"path": "servers/search/index.js", "type": "blob", "mode": "100644", "sha": git_blob_sha(index_js), "size": len(index_js)}]
+    w.files[("acme/mcp-servers", "servers/search/package.json")] = pkg
+    w.files[("acme/mcp-servers", "servers/search/index.js")] = index_js
+    yield f
+    f.close()
+
+
+@pytest.fixture
+def mcp_repo_python(tmp_path):
+    f = FakeServices()
+    w = f.world
+    pyproject = (b'[project]\nname = "acme-py-mcp"\n\n[project.scripts]\nacme-py-mcp = "acme_mod:main"\n')
+    reqs = b"requests\n"
+    w.trees["acme/py-mcp"] = [
+        {"path": "pyproject.toml", "type": "blob", "mode": "100644", "sha": git_blob_sha(pyproject), "size": len(pyproject)},
+        {"path": "requirements.txt", "type": "blob", "mode": "100644", "sha": git_blob_sha(reqs), "size": len(reqs)}]
+    w.files[("acme/py-mcp", "pyproject.toml")] = pyproject
+    w.files[("acme/py-mcp", "requirements.txt")] = reqs
+    yield f
+    f.close()
+
+
+def mcp_installer(env, services):
+    gh = src.GithubClient(src.Http(), services.bases["github"], services.bases["github_raw"])
+    return Installer(env.caps, env.store, index=env.index, runner=env.runner, github=gh, which=lambda n: {"npm": "npm", "node": "node"}.get(n))
+
+
+def mcp_candidate(**kw):
+    return Candidate(**{**dict(kind="mcp", name="acme-search-mcp", source="github", route="github_mcp", repo="acme/mcp-servers", path="servers/search", commit=SHA,
+                               version="aaaaaaa", description="A search server"), **kw})
+
+
+def test_a_github_mcp_server_with_a_package_json_bin_is_cloned_and_npm_install_runs_without_a_package_name(env, mcp_repo):
+    c = env.store.add(mcp_candidate())
+    record = mcp_installer(env, mcp_repo).install(c.id)
+    folder = env.caps / "mcp" / "acme-search-mcp"
+    assert (folder / "package.json").is_file() and (folder / "index.js").read_bytes() == b"console.log('server');\n"
+    assert record["command"] == ["node", str(folder / "index.js")] and record["commit"] == SHA
+    assert json.loads((folder / ".tadamoo-source.json").read_text())["repo"] == "acme/mcp-servers"
+    npm_calls = [c for c in env.runner.calls if c[0] == "npm"]
+    assert npm_calls == [["npm", "install", "--prefix", str(folder), "--ignore-scripts", "--no-audit", "--no-fund"]]
+    entry = env.index.get("mcp:acme-search-mcp")
+    assert entry["origin"] == "tadamoo" and entry["state"] == "approved"
+
+
+def test_a_github_mcp_server_with_a_pyproject_scripts_entry_installs_its_requirements_and_runs_the_boot_shim(env, mcp_repo_python):
+    c = env.store.add(mcp_candidate(name="acme-py-mcp", repo="acme/py-mcp", path=""))
+    record = mcp_installer(env, mcp_repo_python).install(c.id)
+    folder = env.caps / "mcp" / "acme-py-mcp"
+    assert (folder / "pyproject.toml").is_file() and (folder / "requirements.txt").is_file()
+    assert record["command"] == [env.inst.python, "-c", BOOT, str(folder), "acme_mod", "main"]
+    pip_calls = [c for c in env.runner.calls if c[1:3] == ["-m", "pip"] and "install" in c]
+    assert pip_calls and "-r" in pip_calls[0] and "--target" in pip_calls[0] and "--only-binary=:all:" in pip_calls[0]
+
+
+def test_a_github_repo_with_neither_a_bin_nor_a_scripts_entry_refuses_clearly(env):
+    f = FakeServices()
+    w = f.world
+    readme = b"# just a library\n"
+    w.trees["acme/lib-only"] = [{"path": "README.md", "type": "blob", "mode": "100644", "sha": git_blob_sha(readme), "size": len(readme)}]
+    w.files[("acme/lib-only", "README.md")] = readme
+    try:
+        c = env.store.add(mcp_candidate(name="acme-lib", repo="acme/lib-only", path=""))
+        with pytest.raises(InstallError, match="No program was found"):
+            skill_installer(env, f).install(c.id)
+        assert not (env.caps / "mcp" / "acme-lib").exists()
+    finally:
+        f.close()
+
+
+def test_a_github_mcp_file_that_does_not_match_its_git_hash_is_refused_and_deleted(env, mcp_repo):
+    mcp_repo.world.files[("acme/mcp-servers", "servers/search/index.js")] = b"console.log('evil');\n"
+    c = env.store.add(mcp_candidate())
+    with pytest.raises(IntegrityError):
+        mcp_installer(env, mcp_repo).install(c.id)
+    assert not (env.caps / "mcp" / "acme-search-mcp").exists()

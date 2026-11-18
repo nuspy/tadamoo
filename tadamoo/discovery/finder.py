@@ -105,6 +105,20 @@ class Finder:
         c.score = score(c.metrics, cfg["weights"], self.now())
         return self.store.add(c)
 
+    def candidate_for_mcp_repo(self, repo: str, path: str = "", pin: str = "", name: str = "", description: str = "") -> Candidate:
+        """The candidate for an MCP server kept in a GitHub repository (or one folder of it), not published to any registry: its commit is fixed now, and the command to start
+        it with is found later, at install time, from the repository's own package.json or pyproject.toml (installer._github_mcp)."""
+        cfg = self._prepare()
+        owner, _, project = repo.partition("/")
+        ref = pin or str(self.github.repo(owner, project).get("default_branch") or "HEAD")
+        commit = self.github.head_commit(owner, project, ref)
+        c = Candidate(kind="mcp", name=slugify(name or path.rsplit("/", 1)[-1] or project), source="github", route="github_mcp", repo=repo, path=path, commit=commit,
+                      version=commit[:10], description=description)
+        if bad := c.check():
+            raise ValueError(bad)
+        c.score = score(c.metrics, cfg["weights"], self.now())
+        return self.store.add(c)
+
     # -- the whole search -----------------------------------------------------------------------------------------
 
     def search(self, need: str) -> SearchResult:

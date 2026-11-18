@@ -128,9 +128,20 @@ def folder_items(path: str) -> List[Item]:
     return out
 
 
+GITHUB_MCP_MAX = 10
+
+
+def _mcp_candidate_files(tree_entries: List[Dict[str, Any]]) -> List[str]:
+    """The package.json and pyproject.toml paths of a repository's tree, nearest to the root first: where a program to start might be declared."""
+    names = ("package.json", "pyproject.toml")
+    return sorted((str(t["path"]) for t in tree_entries if isinstance(t, dict) and str(t.get("path", "")).rsplit("/", 1)[-1] in names),
+                  key=lambda p: p.count("/"))
+
+
 def github_items(ref: str, get: Get) -> List[Item]:
-    """The skills in a GitHub repository (each a folder with a SKILL.md), read from the repository's file list at the pinned branch or tag (the default branch when none is pinned). Only names and
-    descriptions are read; nothing is cloned or run. An answer that is not the expected JSON gives no item."""
+    """The skills (each a folder with a SKILL.md) and the MCP servers (a package.json with "bin", or a pyproject.toml with [project.scripts]) in a GitHub repository, read from
+    the repository's file list at the pinned branch or tag (the default branch when none is pinned). Only names and descriptions are read; nothing is cloned or run. An answer
+    that is not the expected JSON gives no item."""
     repo, _, pin = ref.partition("@")
     try:
         if not pin:
@@ -138,7 +149,8 @@ def github_items(ref: str, get: Get) -> List[Item]:
         tree = json.loads(get(f"https://api.github.com/repos/{repo}/git/trees/{pin}?recursive=1").decode("utf-8", "replace"))
     except (ValueError, OSError, AttributeError):
         return []
-    paths = sorted(t["path"] for t in (tree.get("tree") if isinstance(tree, dict) else None) or [] if isinstance(t, dict) and str(t.get("path", "")).endswith("/SKILL.md"))
+    entries = (tree.get("tree") if isinstance(tree, dict) else None) or []
+    paths = sorted(t["path"] for t in entries if isinstance(t, dict) and str(t.get("path", "")).endswith("/SKILL.md"))
     out: List[Item] = []
     for p in paths[:GITHUB_SKILLS_MAX]:
         folder = p[: -len("/SKILL.md")]
@@ -152,6 +164,27 @@ def github_items(ref: str, get: Get) -> List[Item]:
             pass
         out.append(Item(id=f"github:{repo}:{folder}", kind="skill", name=name, description=desc, source=f"github.com/{repo}@{pin}", scope="external", installed=False,
                         keywords=tuple(re.findall(r"[a-z0-9]+", folder.lower())[:6])))
+    for p in _mcp_candidate_files(entries)[:GITHUB_MCP_MAX]:
+        folder = p.rsplit("/", 1)[0] if "/" in p else ""
+        try:
+            text = get(f"https://raw.githubusercontent.com/{repo}/{pin}/{p}").decode("utf-8", "replace")[:40_000]
+        except Exception:
+            continue
+        if p.endswith("package.json"):
+            try:
+                data = json.loads(text)
+            except ValueError:
+                continue
+            if not (isinstance(data, dict) and data.get("bin")):
+                continue
+            name, desc = _clean(data.get("name") or folder.rsplit("/", 1)[-1] or repo.rsplit("/", 1)[-1], 80), _clean(data.get("description"), 400)
+        else:
+            if not re.search(r"\[project\.scripts\]", text):
+                continue
+            name = _clean((re.search(r'(?m)^name\s*=\s*"([^"]+)"', text) or [None, folder.rsplit("/", 1)[-1] or repo.rsplit("/", 1)[-1]])[1], 80)
+            desc = _clean((re.search(r'(?m)^description\s*=\s*"([^"]+)"', text) or [None, ""])[1], 400)
+        out.append(Item(id=f"github_mcp:{repo}:{folder}", kind="mcp_server", name=name, description=desc, source=f"github.com/{repo}@{pin}", scope="external", installed=False,
+                        keywords=tuple(re.findall(r"[a-z0-9]+", (folder or name).lower())[:6])))
     return out
 
 

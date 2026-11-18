@@ -98,11 +98,13 @@ class ConnectorSettings:
 
 
 class ConnectorInstaller:
-    def __init__(self, caps: Any, directory: Path, vault_dir: Any = None, http: Optional[src.Http] = None) -> None:
-        """`caps` is the CapabilityApi (its index reads what is installed); `directory` is the Connectors folder of the user data."""
+    def __init__(self, caps: Any, directory: Path, vault_dir: Any = None, http: Optional[src.Http] = None, runner: Any = None, which: Any = None) -> None:
+        """`caps` is the CapabilityApi (its index reads what is installed); `directory` is the Connectors folder of the user data. `runner` and `which` are the ones tests give
+        an Installer to avoid a real npm/pip; left out, the Installer runs the real ones."""
         self.caps, self.vault_dir = caps, vault_dir
         self.settings = ConnectorSettings(directory)
         self.http = http or src.Http()
+        self.runner, self.which = runner, which
         self._lock = threading.Lock()
 
     # -- the clients -----------------------------------------------------------------------------------
@@ -118,7 +120,7 @@ class ConnectorInstaller:
         return Finder(DiscoverySettings(self.caps.index.dir), store, http=self.http, token=lambda: github_token(self.vault_dir))
 
     def _installer(self, store: CandidateStore) -> Installer:
-        return Installer(self.caps.index.dir, store, index=self.caps.index, github=self._github())
+        return Installer(self.caps.index.dir, store, index=self.caps.index, github=self._github(), runner=self.runner, which=self.which)
 
     # -- what can be fetched to be read before installing --------------------------------------------------
 
@@ -142,7 +144,8 @@ class ConnectorInstaller:
     # -- install ------------------------------------------------------------------------------------------
 
     def install(self, kind: str, source: Dict[str, Any], flags: Dict[str, bool]) -> Dict[str, Any]:
-        """`kind`: `server` (source: the registry's `server` object), `github_skill` (repo, path, pin, name, description) or `folder_skill` (folder). `flags`: allow_scripts, anyway, update.
+        """`kind`: `server` (source: the registry's `server` object), `github_skill` (repo, path, pin, name, description), `github_mcp_server` (an MCP server kept in a GitHub
+        repository, not published to any registry: same source fields, started from what its own package.json or pyproject.toml declares) or `folder_skill` (folder). `flags`: allow_scripts, anyway, update.
         Returns the record that was made."""
         store = CandidateStore()
         try:
@@ -151,10 +154,14 @@ class ConnectorInstaller:
                     record = self._install_folder(Path(source["folder"]), flags.get("update", False))
                 else:
                     finder = self.finder(store)
-                    c = finder.candidate_for_server(source["server"]) if kind == "server" else finder.candidate_for_skill(source["repo"], source["path"], source.get("pin", ""),
-                                                                                                                       source.get("name", ""), source.get("description", ""))
+                    if kind == "server":
+                        c = finder.candidate_for_server(source["server"])
+                    elif kind == "github_mcp_server":
+                        c = finder.candidate_for_mcp_repo(source["repo"], source["path"], source.get("pin", ""), source.get("name", ""), source.get("description", ""))
+                    else:
+                        c = finder.candidate_for_skill(source["repo"], source["path"], source.get("pin", ""), source.get("name", ""), source.get("description", ""))
                     record = self._installer(store).install(c.id, allow_scripts=bool(flags.get("allow_scripts")), anyway=bool(flags.get("anyway")), update=bool(flags.get("update")))
-                    if kind == "github_skill":
+                    if kind in ("github_skill", "github_mcp_server"):
                         self._keep_original(record, source)
                         records = InstalledStore(self.caps.index.dir)
                         records.put({**record, "pin": source.get("pin", ""), "source_path": source["path"]})            # what an update asks GitHub about
@@ -380,12 +387,13 @@ class ConnectorInstaller:
         github, finder = self._github(), self.finder(CandidateStore())
         for rec in InstalledStore(self.caps.index.dir).load().values():
             try:
-                if rec.get("route") == "skill" and rec.get("repo") and rec.get("commit"):
+                if rec.get("route") in ("skill", "github_mcp") and rec.get("repo") and rec.get("commit"):
                     owner, _, project = str(rec["repo"]).partition("/")
                     ref = rec.get("pin") or str(github.repo(owner, project).get("default_branch") or "HEAD")
                     head = github.head_commit(owner, project, ref)
                     if head != rec["commit"]:
-                        out.append({"id": rec["id"], "name": rec.get("name", ""), "from": str(rec["commit"])[:10], "to": head[:10], "kind": "skill"})
+                        out.append({"id": rec["id"], "name": rec.get("name", ""), "from": str(rec["commit"])[:10], "to": head[:10],
+                                   "kind": "skill" if rec["route"] == "skill" else "mcp"})
                 elif rec.get("source") == "registry" and rec.get("version"):
                     s = self._registry_match(finder, rec)
                     if s is not None and str(s.get("version") or "") not in ("", str(rec["version"])):
@@ -403,9 +411,10 @@ class ConnectorInstaller:
         rec = self._record(entry_id)
         flags = {**flags, "update": True}
         carry = {k: rec[k] for k in ("accounts", "default_account", "account_values") if k in rec}
-        if rec.get("route") == "skill":
-            out = self.install("github_skill", {"repo": rec["repo"], "path": rec.get("source_path") or "", "pin": rec.get("pin", ""), "name": rec.get("name", ""),
-                                                  "description": rec.get("description", "")}, flags)
+        if rec.get("route") in ("skill", "github_mcp"):
+            out = self.install("github_skill" if rec["route"] == "skill" else "github_mcp_server",
+                               {"repo": rec["repo"], "path": rec.get("source_path") or "", "pin": rec.get("pin", ""), "name": rec.get("name", ""),
+                                "description": rec.get("description", "")}, flags)
         elif rec.get("source") == "registry":
             s = self._registry_match(self.finder(CandidateStore()), rec)
             if s is None:

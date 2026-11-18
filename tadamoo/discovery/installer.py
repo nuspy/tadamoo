@@ -23,6 +23,7 @@ import configparser
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -125,8 +126,8 @@ class Installer:
         if c.route == "pypi":
             if not self.which("uv") and self.runner([self.python, "-m", "pip", "--version"], None, 60.0).returncode != 0:
                 return "neither uv nor pip is available to install a Python package. Install uv (https://docs.astral.sh/uv/) or pip, or choose another candidate."
-        if c.route == "skill" and self.github is None:
-            return "the skill cannot be downloaded in this conversation."
+        if c.route in ("skill", "github_mcp") and self.github is None:
+            return "the repository cannot be downloaded in this conversation."
         return ""
 
     # -- install ------------------------------------------------------------------------------------------------
@@ -186,7 +187,7 @@ class Installer:
             self.index.refresh()
 
     def _build(self, c: Candidate, entry_id: str, allow_scripts: bool, anyway: bool) -> Dict[str, Any]:
-        build = {"npm": self._npm, "pypi": self._pypi, "remote": self._remote, "skill": self._skill}[c.route]
+        build = {"npm": self._npm, "pypi": self._pypi, "remote": self._remote, "skill": self._skill, "github_mcp": self._github_mcp}[c.route]
         record = build(c) if c.route == "remote" else build(c, allow_scripts, anyway)
         record.update(id=record.get("id", entry_id), name=c.name, kind=c.kind, source=c.source, route=c.route, version=c.version, description=c.description[:300],
                       installed_at=self.now().isoformat(timespec="seconds"), score=c.score.total if c.score else None, repo=c.repo, env=env_spec(c.env),
@@ -348,6 +349,86 @@ class Installer:
             _forget(folder)
             raise
         return {"id": found.id, "folder": f"skills/{c.name}", "commit": c.commit, "sha": found.sha, **({"integrity_differs": differs} if differs else {})}
+
+    def _github_mcp(self, c: Candidate, allow_scripts: bool = False, anyway: bool = False) -> Dict[str, Any]:
+        """Clones one folder of a GitHub repository at a pinned commit, file by file, each checked against the commit's own git hash (same safety as a skill), then looks for a
+        program to start it with: npm's own package.json ("bin"), or a pyproject.toml with a [project.scripts] entry. Nothing beyond those two, standard, author-declared places
+        is ever guessed; `missing()`'s message is kept for the one case where neither is there."""
+        owner, _, repo = c.repo.partition("/")
+        tree = self.github.tree(owner, repo, c.commit)
+        prefix = c.path.rstrip("/") + "/" if c.path else ""
+        files = [e for e in tree["tree"] if isinstance(e, dict) and e.get("type") == "blob" and str(e.get("path", "")).startswith(prefix) and e.get("mode") != "120000"]
+        if not files:
+            raise InstallError("The folder is empty at that commit.")
+        limits = DiscoverySettings(self.root).load()
+        top_files, top_total, top_one = (limits[k] for k in ("max_skill_files", "max_skill_mb", "max_skill_file_mb"))
+        if (top_files and len(files) > top_files) or (top_total and sum(int(e.get("size") or 0) for e in files) > top_total * MB) \
+                or (top_one and any(int(e.get("size") or 0) > top_one * MB for e in files)):
+            raise InstallError("The repository's folder is larger than the limits set in Settings, under Capabilities, Search online.")
+        folder = self._folder("mcp", c.name)
+        differs: List[Dict[str, str]] = []
+        try:
+            for e in files:
+                rel = e["path"][len(prefix):]
+                if not safe_relative(rel):
+                    raise InstallError(f"A file in the folder has a path that is not allowed: {rel[:60]}")
+                data = self.github.raw_file(owner, repo, c.commit, e["path"], int(top_one * MB) + 1 if top_one else 2**31)
+                got = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+                if got != e.get("sha"):
+                    if not anyway:
+                        raise IntegrityError(f"{rel} does not match the commit's own hash for it. The download was deleted.", got, str(e.get("sha")))
+                    differs.append({"file": rel, "got": got, "expected": str(e.get("sha"))})
+                dest = folder / rel
+                if folder.resolve() not in dest.resolve().parents:
+                    raise InstallError("A file would be written outside the server's folder.")
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(data)
+            command = self._mcp_launch_command(folder, c, allow_scripts)
+            (folder / ".tadamoo-source.json").write_text(json.dumps({"repo": c.repo, "path": c.path, "commit": c.commit}), encoding="utf-8")
+        except BaseException:
+            _forget(folder)
+            raise
+        return {"folder": f"mcp/{c.name}", "command": command, "commit": c.commit, "sha": mcp_spec_sha(command[0], command[1:]),
+                **({"integrity_differs": differs} if differs else {})}
+
+    def _mcp_launch_command(self, folder: Path, c: Candidate, allow_scripts: bool) -> List[str]:
+        """What `package.json` or `pyproject.toml` themselves declare as the program to run; installs that declaration's own dependencies first (never a build or an install
+        script unless the person allowed it). Raises InstallError when neither file declares anything to run."""
+        pkg = folder / "package.json"
+        if pkg.is_file():
+            if not self.which("npm"):
+                raise InstallError("npm is not installed on this PC (it comes with Node.js): needed for this program's own dependencies.")
+            try:
+                data = json.loads(pkg.read_text(encoding="utf-8"))
+            except ValueError:
+                raise InstallError("package.json could not be read.") from None
+            raw_bins = data.get("bin")
+            bins = {str(k): str(v) for k, v in raw_bins.items()} if isinstance(raw_bins, dict) else {c.name: str(raw_bins)} if isinstance(raw_bins, str) else {}
+            if not bins:
+                raise InstallError('package.json has no "bin": nothing declares a program to start.')
+            script = next(iter(bins.values())).lstrip("./")
+            if not safe_relative(script):
+                raise InstallError("The program path in package.json is not allowed.")
+            run = self.runner(["npm", "install", "--prefix", str(folder), *([] if allow_scripts else ["--ignore-scripts"]), "--no-audit", "--no-fund"], folder, INSTALL_TIMEOUT_S)
+            if run.returncode != 0:
+                raise InstallError(f"npm install failed: {_tail(run)}")
+            return [self.which("node") or "node", str(folder / script)]
+        pyproject = folder / "pyproject.toml"
+        if pyproject.is_file():
+            section = re.search(r"\[project\.scripts\]\s*\n((?:[^\n\[][^\n]*\n?)*)", pyproject.read_text(encoding="utf-8", errors="replace"))
+            line = next((ln for ln in (section.group(1).splitlines() if section else []) if "=" in ln), "")
+            target = line.partition("=")[2].strip().strip("'\"")
+            module, _, func = target.partition(":")
+            if not module or not func:
+                raise InstallError('pyproject.toml has no [project.scripts] entry: nothing declares a program to start.')
+            reqs = folder / "requirements.txt"
+            if reqs.is_file():
+                run = self.runner([self.python, "-m", "pip", "install", "-r", str(reqs), "--target", str(folder), *([] if allow_scripts else ["--only-binary=:all:"]), "--no-input"],
+                                  folder, INSTALL_TIMEOUT_S)
+                if run.returncode != 0:
+                    raise InstallError(f"pip install -r requirements.txt failed: {_tail(run)}")
+            return [self.python, "-c", BOOT, str(folder), module.strip(), func.strip()]
+        raise InstallError('No program was found to start it: no package.json with a "bin", and no pyproject.toml with a [project.scripts] entry.')
 
     # -- the list and the removal ---------------------------------------------------------------------------------
 
