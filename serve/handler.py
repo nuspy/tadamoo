@@ -3242,7 +3242,7 @@ def make_handler(svc: Service, remote: bool = False):
             api = RagApi(self._rag_store(), jobs=_RAG_JOBS, service=self._rag_embed(), sync=self._rag_sync(), describer=describer, folders=lambda: [{"name": "Chat", "path": str(chat), "chat": True}]
                           + [{"name": p["name"], "path": p["path"], "chat": False} for p in self._projects().list() if p.get("exists")],
                           sources=lambda: {"session": session, "plan_node": guarded(plan_node), "routine": guarded(routine)}, vault_dir=userdata.path("vault"), tools_dir=userdata.path("tools") / "minio",
-                          projects=self._projects(), postgres_tools_dir=userdata.path("tools") / "postgres")
+                          projects=self._projects(), postgres_tools_dir=userdata.path("tools") / "postgres", wizard_file=userdata.path("setup_wizard.json"))
             api.images.wire()                                                         # our own MinIO (when the images are kept in it) starts on real use and stops after being idle
             api.postgres.wire()                                                       # our own PostgreSQL (when a project points at it) starts on real use and stops after being idle
             if not _IMAGES_AUTOSTARTED:

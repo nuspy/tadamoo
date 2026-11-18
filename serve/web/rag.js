@@ -17,6 +17,7 @@
   const size = n => (n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
   const say = (text, bad) => { note = text; noteBad = !!bad; };
   const knowledgeOn = () => document.body.dataset.view === "rag";
+  let wizardShown = false;
 
   async function api(method, path, body, raw) {
     try {
@@ -66,6 +67,42 @@
       followJob(job, String(job.label || "").replace(/^(add|index) /, "")).then(out => { working = false; say(out.text, !out.ok); reloadAll(); });
     }
     if (chosen) await reloadDetail(); else paint();
+    checkWizard();
+  }
+
+  /* first-run wizard: the embeddings/Docling environment, offered once, the first time this tab opens and it is not already found on this PC. */
+  async function checkWizard() {
+    if (wizardShown) return;
+    wizardShown = true;
+    const r = await api("GET", "api/rag/setup/pending");
+    if (r.ok && (r.data.pending || []).includes("embed_env")) showWizard();
+  }
+  function showWizard() {
+    const dlg = el("dialog", "rg-dlg");
+    const status = el("p", "rg-note", ""); status.hidden = true;
+    let answered = false;
+    const answer = async choice => { if (answered) return; answered = true; await api("POST", "api/rag/setup/answer", { step: "embed_env", choice }); };
+    const skip = btn(T("rg.wizard.skip"), "", () => { answer("skipped"); dlg.close(); });
+    const install = btn(T("rg.wizard.install"), "primary", async () => {
+      skip.disabled = install.disabled = true; status.hidden = false; status.textContent = T("ri.running");
+      const r = await api("POST", "api/rag/embedding/env/install", {});
+      if (!r.ok) { status.textContent = why(r); skip.disabled = install.disabled = false; return; }
+      let job = r.data.job;
+      while (job.state === "running") {
+        status.textContent = job.stage || T("ri.running");
+        await new Promise(res => setTimeout(res, 1000));
+        const p = await api("GET", `api/rag/jobs/${encodeURIComponent(job.id)}`);
+        if (!p.ok) break;
+        job = p.data.job;
+      }
+      await answer(job.state === "done" && job.result && job.result.ok ? "installed" : "skipped");
+      dlg.close();
+      reloadAll();
+    });
+    dlg.append(el("h3", "rg-h", T("rg.wizard.embed.title")), el("p", "rg-help", T("rg.wizard.embed.help")), status, install, skip);
+    dlg.addEventListener("close", () => { answer("skipped"); dlg.remove(); });     // Escape or any other dismissal still counts as an answer: it must not nag again
+    document.body.append(dlg);
+    dlg.showModal();
   }
   async function reloadDetail() {
     const r = await api("GET", `api/rag/archives/${encodeURIComponent(chosen)}`);

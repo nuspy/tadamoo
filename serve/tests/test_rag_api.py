@@ -269,6 +269,19 @@ def test_a_failed_embeddings_install_is_reported_and_does_not_mark_it_installed(
         api.route_post(["settings"], {}, json.dumps({"lexical_weight": 2}).encode())
 
 
+def test_the_wizard_offers_the_embeddings_step_once_and_not_when_already_installed(tmp_path):
+    api = make(tmp_path)
+    assert api.route_get(["setup", "pending"]) == {"pending": ["embed_env"]}
+    assert api.route_post(["setup", "answer"], {}, json.dumps({"step": "embed_env", "choice": "skipped"}).encode()) == {"pending": []}
+    assert api.route_get(["setup", "pending"]) == {"pending": []}
+    again = make(tmp_path, wizard_file=api.wizard.file)                                # the same file: the answer is kept between requests
+    assert again.route_get(["setup", "pending"]) == {"pending": []}
+    installed = make(tmp_path, embed_runtime=FakeEmbedRuntime(installed=True))
+    assert installed.route_get(["setup", "pending"]) == {"pending": []}                # already there: no need to ask
+    with pytest.raises(RagError):
+        api.route_post(["setup", "answer"], {}, json.dumps({"step": "nope", "choice": "skipped"}).encode())
+
+
 def test_indexing_again_is_a_job_that_tells_its_passages_and_search_takes_a_share_and_a_strictness(tmp_path):
     api = make(tmp_path, lambda: Embedder())
     aid = new(api, "Boats")["archive"]["id"]

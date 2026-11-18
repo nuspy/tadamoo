@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from tadamoo.rag import LIMITS, RagError, RagStore
 from tadamoo.rag import embed_env
+from tadamoo.setup_wizard import Wizard
 from tadamoo.rag.ingest import docling_client, extraction_of
 from tadamoo.rag.project import is_key, project_key
 from tadamoo.rag.resolve import FUNCTIONS, Resolution, resolve, routes_outside
@@ -47,7 +48,7 @@ class RagApi:
     def __init__(self, store: RagStore, folders: Callable[[], List[Dict[str, Any]]] = lambda: [], jobs: Optional[Jobs] = None, service: Any = None,
                  sources: Callable[[], Dict[str, Callable[[Dict[str, Any]], Any]]] = lambda: {}, leaves_pc: Callable[[str], bool] = routes_outside, sync: Any = None,
                  describer: Optional[Callable[[], Any]] = None, vault_dir: Any = None, tools_dir: Any = None, projects: Any = None, postgres_tools_dir: Any = None,
-                 embed_runtime: Any = None) -> None:
+                 embed_runtime: Any = None, wizard_file: Any = None) -> None:
         """`folders` lists the projects as `{name, path, chat}`: the folders of the Agentic coding tab and the Chat's own folder (`chat` true). `jobs` is the
         board of the long jobs, kept by the server between requests. `service` is the embedding service (tadamoo/rag/embed_client.py) the store's embedder
         comes from, when there is one: it tells where the embeddings run and can be tried. `sources` gives what the resolver cannot know alone (the session's
@@ -64,6 +65,7 @@ class RagApi:
         self.postgres = RagPostgresApi(store, vault_dir, postgres_tools_dir)   # a separate PostgreSQL of our own, for the Database section (serve/rag_postgres_api.py)
         self.embed_runtime = embed_runtime if embed_runtime is not None else embed_env.shared()   # the venv with torch/transformers/docling for embeddings (tadamoo/rag/embed_env.py)
         self.project_store = projects                                       # the list of project folders (serve/projects.py): made, renamed and forgotten from the page
+        self.wizard = Wizard(Path(wizard_file) if wizard_file is not None else (Path(tools_dir).parent if tools_dir else store.root) / "setup_wizard.json")
 
     # -- reading ---------------------------------------------------------------------------------
 
@@ -92,6 +94,19 @@ class RagApi:
         if self.service is None:
             return {"ok": False, "error": "there is no embedding service"}
         return self.service.test()
+
+    def wizard_pending(self) -> Dict[str, Any]:
+        """Which first-run steps are still open: not answered yet, and not already true on this PC without needing to ask (an embeddings environment
+        already found needs no question)."""
+        pending = [s for s in ("embed_env",) if not self.wizard.seen(s) and not (s == "embed_env" and self.embed_runtime.info()["installed"])]
+        return {"pending": pending}
+
+    def wizard_answer(self, step: str, choice: str) -> Dict[str, Any]:
+        try:
+            self.wizard.answer(step, choice)
+        except ValueError as e:
+            raise RagError(str(e)) from None
+        return self.wizard_pending()
 
     def overview(self, project: Any) -> Dict[str, Any]:
         pdf = any(importlib.util.find_spec(m) is not None for m in ("pypdf", "fitz"))
@@ -324,6 +339,8 @@ class RagApi:
             return self.projects()
         if parts == ["catalog"]:
             return self.catalog()
+        if parts == ["setup", "pending"]:
+            return self.wizard_pending()
         if parts == ["resolve"]:
             q = query or {}
             req: Dict[str, Any] = {k: (q.get(k) or [""])[0] for k in (*CONTEXT_IDS,) if q.get(k)}
@@ -460,6 +477,8 @@ class RagApi:
             return self.search(req)
         if parts == ["resolve"]:
             return self.resolve(req)
+        if parts == ["setup", "answer"]:
+            return self.wizard_answer(str(req.get("step") or ""), str(req.get("choice") or ""))
         if parts == ["projects"]:
             return self.create_project(req)
         if parts == ["projects", "rename"]:
