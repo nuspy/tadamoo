@@ -80,6 +80,7 @@ USES: Tuple[Use, ...] = (
         prompt="tadamoo.tool_extract:SYSTEM"),
     Use("rag_discover", params=(Param("group_tokens", 1200, 200, 8000), Param("timeout_s", 30, 5, 300, False)), prompt="tadamoo.rag.discover:SYSTEM"),
     Use("connector_review", params=(Param("timeout_s", 60, 5, 300, False),), prompt="tadamoo.connectors.review:SYSTEM"),
+    Use("connector_configure_ask", params=(Param("timeout_s", 30, 5, 300, False), Param("answer_tokens", 500, 100, 1500)), prompt="tadamoo.connectors.configure_help:SYSTEM"),
     Use("lessons", needs_session=True, params=(Param("timeout_s", 60, 5, 600, False),), prompt="tadamoo.lessons:POLISH_SYSTEM"),
     Use("completion_check", needs_session=True, params=(Param("timeout_s", 10, 2, 60, False),), prompt="tadamoo.completion:SYSTEM"),
     Use("request_review", needs_session=True, params=(Param("timeout_s", 20, 2, 120, False),), prompt="tadamoo.review:SYSTEM"),

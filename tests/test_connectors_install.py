@@ -269,6 +269,38 @@ def test_two_or_more_accounts_with_no_default_must_be_named_to_configure(tmp_pat
     assert api.config("mcp:demo", "default")["account"] == "default"
 
 
+def test_configure_ask_gives_the_model_only_field_names_through_the_api(tmp_path, stub):
+    from tadamoo.discovery.installed import InstalledStore
+
+    class Client:
+        def side_context(self):
+            return 60000
+
+        def chat_completion(self, messages, **kw):
+            self.seen = messages
+            return {"choices": [{"message": {"content": "Look in the provider's dashboard."}}]}
+
+    client = Client()
+    caps_dir = tmp_path / "capabilities"
+    caps_dir.mkdir()
+    (caps_dir / "discovery.json").write_text(json.dumps({"base_urls": {"github": stub["url"] + "/gh", "github_raw": stub["url"] + "/raw", "registry": stub["url"] + "/reg"}}), encoding="utf-8")
+    from serve.capabilities_api import CapabilityApi
+    caps = CapabilityApi(caps_dir, tmp_path / "work", home=tmp_path / "home2", appdata=tmp_path / "appdata2")
+    installer = ConnectorInstaller(caps, tmp_path / "connectors")
+    InstalledStore(caps_dir).put({"id": "mcp:demo", "name": "demo", "kind": "mcp", "url": "https://x.example/mcp", "folder": "", "sha": "s", "source": "registry", "route": "remote",
+                                  "version": "1", "env": [{"name": "API_KEY", "required": True, "secret": True, "entry": "API_KEY", "value": ""}]})
+    (tmp_path / "providers2.json").write_text("[]", encoding="utf-8")
+    api = ConnectorsApi(lambda: caps.overview()["entries"], lambda: ([], ()), Providers(tmp_path / "providers2.json"), None, lambda: client, installer)
+    out = api.configure_ask("mcp:demo", "Where do I get the key?")
+    assert out == {"answer": "Look in the provider's dashboard."}
+    assert "API_KEY: required, secret, not set" in client.seen[0]["content"] and client.seen[-1]["content"] == "Where do I get the key?"
+    for bad in ("", "x" * 3000, 5):
+        with pytest.raises(ConnectorError):
+            api.configure_ask("mcp:demo", bad)
+    with pytest.raises(ConnectorError):
+        api.configure_ask("mcp:demo", "q", history="not a list")
+
+
 def test_a_newer_commit_of_an_installed_skill_is_found_and_installed_over_it_keeping_the_old_original(tmp_path, stub):
     api, caps, installer = make(tmp_path, stub, [{"id": "g", "kind": "github", "ref": "acme/skills@main", "trust": "known", "enabled": True}])
     installer.settings.write(str(tmp_path / "originals"))

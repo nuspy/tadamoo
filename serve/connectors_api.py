@@ -11,6 +11,7 @@
     GET /api/connectors/accounts?id=                                  the accounts of an installed item and which is the default
     POST /api/connectors/accounts/add|remove|default {id, name}       add, remove or set the default account (a second account onward keeps its own secrets apart)
     GET /api/connectors/config?id=&account=                          the variables of one account (default: the item's default account, or its only one)
+    POST /api/connectors/configure/ask {id, question, history?, account?}   a guided answer about filling in the settings; the model sees field names only, never a value
 """
 from __future__ import annotations
 
@@ -216,6 +217,23 @@ class ConnectorsApi:
             return self.installer.configure(item_id, values, account)
         except ConnectorInstallError as e:
             raise ConnectorError(str(e), e.code or "config") from None
+
+    def configure_ask(self, item_id: str, question: Any, history: Any = None, account: str = "") -> Dict[str, Any]:
+        """A guided answer about filling in this item's settings: the model sees only the field names (never a value) and nothing of this chat is kept once it answers."""
+        if self.installer is None:
+            raise ConnectorError("Setting up is not available here.", "none")
+        if not isinstance(question, str) or not question.strip() or len(question) > 2000:
+            raise ConnectorError("question: a text of 1 to 2000 characters", "bad_question")
+        if history is not None and not isinstance(history, list):
+            raise ConnectorError("history: a list", "bad_question")
+        cfg = self.config(item_id, account)
+        client = None
+        try:
+            client = self.reviewer() if self.reviewer else None
+        except Exception:                                      # no model to ask: the person is told plainly, nothing crashes
+            client = None
+        from tadamoo.connectors import configure_help
+        return {"answer": configure_help.ask(client, cfg.get("name") or item_id, cfg["variables"], question, history or [])}
 
     def accounts(self, item_id: str) -> Dict[str, Any]:
         if self.installer is None:

@@ -1075,7 +1075,7 @@ def make_handler(svc: Service, remote: bool = False):
                 return
             if path in ("/api/connectors/providers", "/api/connectors/review", "/api/connectors/install", "/api/connectors/uninstall", "/api/connectors/settings",
                         "/api/connectors/configure", "/api/connectors/updates", "/api/connectors/update", "/api/connectors/nvidia/install",
-                        "/api/connectors/accounts/add", "/api/connectors/accounts/remove", "/api/connectors/accounts/default"):
+                        "/api/connectors/accounts/add", "/api/connectors/accounts/remove", "/api/connectors/accounts/default", "/api/connectors/configure/ask"):
                 self._connectors_post(path)
                 return
             if path == "/api/darkweb" or path.startswith("/api/darkweb/"):
@@ -2509,6 +2509,8 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, self._connectors_api().remove_account(str(req.get("id") or "")[:300], str(req.get("name") or "")[:80]))
                 if path == "/api/connectors/accounts/default":
                     return self._json(200, self._connectors_api().set_default_account(str(req.get("id") or "")[:300], str(req.get("name") or "")[:80]))
+                if path == "/api/connectors/configure/ask":
+                    return self._json(200, self._connectors_api().configure_ask(str(req.get("id") or "")[:300], req.get("question"), req.get("history"), str(req.get("account") or "")[:80]))
                 if path == "/api/connectors/updates":
                     return self._json(200, self._connectors_api().updates())
                 if path == "/api/connectors/update":

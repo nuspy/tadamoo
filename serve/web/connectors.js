@@ -237,6 +237,32 @@
     say(errText(r), true); draw();
   }
 
+  /* a short, ephemeral chat about filling in the fields above: the model sees only their names, never a value (never type a secret in here, the page does
+     not even send it); kept nowhere once the dialog closes, so reopening starts fresh. */
+  function askBlock(item, account) {
+    const box = el("div", "cx-ask"), log = el("div", "cx-ask-log"), history = [];
+    log.setAttribute("aria-live", "polite");
+    const form = el("form", "cx-ask-form"), inp = el("input"), go = btn(T("cx.ask.go"), "", () => {});
+    inp.placeholder = T("cx.ask.placeholder"); inp.maxLength = 2000; inp.setAttribute("aria-label", T("cx.ask.placeholder"));
+    go.type = "submit";
+    form.append(inp, go);
+    box.append(el("h4", "", T("cx.ask.title")), el("p", "help", T("cx.ask.help")), log, form);
+    form.onsubmit = async e => {
+      e.preventDefault();
+      const q = inp.value.trim();
+      if (!q) return;
+      log.append(el("p", "cx-ask-q", q));
+      inp.value = ""; inp.disabled = go.disabled = true;
+      const r = await api("POST", "api/connectors/configure/ask", { id: item.id, question: q, history, account });
+      inp.disabled = go.disabled = false;
+      const a = r.ok ? r.data.answer : errText(r);
+      log.append(el("p", r.ok ? "cx-ask-a" : "cx-why", a));
+      log.scrollTop = log.scrollHeight;
+      history.push({ role: "user", content: q }, { role: "assistant", content: a });
+      inp.focus();
+    };
+    return box;
+  }
   /* configure: the variables an installed server reads, one account at a time. A secret is typed here once and goes to the vault; the page never gets it back
      (it only says whether it is set). Multiple accounts (Connectors module decisions, 16 Nov): add, remove, choose the default; the one named account keeps the
      secrets an install made before accounts existed, so it still reads them. */
@@ -293,6 +319,7 @@
     const bar = el("div", "dw-bar"); bar.append(save, close);
     const note = el("p", "help"); note.setAttribute("role", "status");
     form.append(bar, note);
+    if (d.variables.length) form.append(askBlock(item, d.account));
     form.onsubmit = async e => {
       e.preventDefault();
       const values = {};

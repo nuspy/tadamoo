@@ -71,6 +71,14 @@
 .cx-accounts .btn { min-height: 44px; }
 .cx-acc-add { display: flex; flex-wrap: wrap; gap: 8px; }
 .cx-acc-add input { min-height: 44px; width: 10em; max-width: 100%; box-sizing: border-box; }
+.cx-ask { display: grid; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.cx-ask-log { display: grid; gap: 6px; max-height: 180px; overflow-y: auto; }
+.cx-ask-log p { margin: 0; padding: 6px 10px; border-radius: 8px; font-size: 14px; border: 1px solid var(--line); max-width: 85%; }
+.cx-ask-q { background: var(--surface); justify-self: end; }
+.cx-ask-a { border-left: 3px solid var(--accent); }
+.cx-ask-form { display: flex; gap: 8px; }
+.cx-ask-form input { min-height: 44px; flex: 1; box-sizing: border-box; }
+.cx-ask-form .btn { min-height: 44px; }
 
 .dw-leaks { display: grid; gap: 8px; margin: 6px 0 12px; }
 .dw-leaklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
