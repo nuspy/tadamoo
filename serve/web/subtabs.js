@@ -28,6 +28,7 @@
       { id: "websearch", view: "settings", label: () => T("sub.websearch") },
       { id: "voice", view: "settings", label: () => T("sub.voice") },
       { id: "benchmarks", view: "settings", label: () => T("sub.benchmarks") },
+      { id: "admin", view: "settings", label: () => T("sub.admin") },
       { id: "wallet", view: "wallet", label: () => T("tab.wallet") }],
   };
   const strip = document.getElementById("viewsub");

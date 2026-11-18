@@ -54,6 +54,7 @@ FEATURES = [
     ("Connectors: a GitHub token in the vault (rate limit, private repositories)", "Connectors > Providers", "connectors.js", "api/connectors/github-token"),
     ("Knowledge: try a question against an older version of the archive", "Knowledge > archive > try a question", "rag.js", "rg.try.version"),
     ("Knowledge: first-run offer to install the embeddings environment, once", "Knowledge", "rag.js", "api/rag/setup/pending"),
+    ("Admin: restart the server, a plain process or a named service", "Settings > Admin", "admin.js", "api/admin/restart"),
     ("Dark web: browse an onion page with a real browser, over Tor", "Chat settings > Dark web", "darkwebset.js", "dw-browse"),
 ]
 

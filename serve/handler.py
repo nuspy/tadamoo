@@ -1236,6 +1236,9 @@ def make_handler(svc: Service, remote: bool = False):
             if path == "/api/server-key":
                 self._server_key_post()
                 return
+            if path == "/api/admin/restart":
+                self._admin_restart_post()
+                return
             if path in ("/api/computer", "/api/computer/install"):
                 self._computer_post(path)
                 return
@@ -2177,6 +2180,20 @@ def make_handler(svc: Service, remote: bool = False):
                 return self._json(500, {"error": {"type": "server_error", "message": f"cannot keep the key: {e.strerror or e}"}})
             print("[server] the API key was changed from a client and is in force now", flush=True)
             self._json(200, out)
+
+        def _admin_restart_post(self):
+            """POST /api/admin/restart {}: restarts the server, whether it is a plain process or a named service (serve/handler.py -> tadamoo/restart.py).
+            Answers first, so the client has its confirmation before the server actually goes down."""
+            try:
+                self._body(settings.BODY_MAX)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            if not self._authorized():
+                return
+            from tadamoo import restart as restart_mod
+            out = restart_mod.restart()
+            self._json(200, out)
+            print(f"[server] restarting now ({out['way']}), asked from a client", flush=True)
 
         def _computer_post(self, path="/api/computer"):
             """POST /api/computer {"enabled", "monitor", "backend"} and POST /api/computer/install: this PC only (they let an agent act on the machine and download a program)."""
