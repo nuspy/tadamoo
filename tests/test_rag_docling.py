@@ -139,7 +139,7 @@ def test_a_document_is_added_by_a_job_that_reports_its_pages_and_leaves_the_arch
     assert done["state"] == "done" and done["page"] == 4 and done["pages"] == 4 and done["device"] == "cuda" and done["stage"] == "indexing"
     doc = done["result"]["document"]
     assert doc["extraction"] == "docling" and doc["pages"] == 4 and store.get(aid)["extraction"] == "docling"
-    assert [s["stage"] for s in steps if s["event"] == "stage"] == ["reading", "cutting", "indexing"]
+    assert [s["stage"] for s in steps if s["event"] == "stage"] == ["reading", "cutting", "figures", "indexing"]
     hit = store.search([aid], "lighthouse keeper number 26")["hits"][0]
     assert hit["page_start"] == 2 and hit["path"].endswith("Chapter 2")
     before = store.get(aid)
