@@ -6,6 +6,7 @@
    same safe renderer as the model-only chat. */
 (() => {
   const MODE_KEY = "tadamoo.chatmode", LAST_KEYS = { chat: "tadamoo.chat.session", agent: "tadamoo.agent.session" }, PROJECT_KEY = "tadamoo.agent.project";
+  const FOLDER_KEY = "tadamoo.chat.folder";
   const MODES = ["agent", "ask", "direct"];
   const FAST_MS = 350, SLOW_MS = 3000, SHOWN_OUTPUT = 1500, EXPLAIN_MAX = 300;
   /* what an action is called when the model gave no sentence for it: a phrase by tool name (ch.act.*), else a generic one */
@@ -40,6 +41,7 @@
   }
   const COPY_ICON = ["M9 9h10v11H9z", "M5 15V4h10"], TICK_ICON = ["M5 12l5 5 9-10"], BRANCH_ICON = ["M6 4v10", "M6 14a4 4 0 0 0 4 4h4", "M18 4v6", "M6 4h0", "M18 10h0"];
   const CLOSE_ICON = ["M6 6l12 12", "M18 6l-12 12"];
+  const NEW_IN_FOLDER_ICON = ["M6 3h8l4 4v14H6z", "M14 3v4h4", "M9.5 13.5h5", "M12 11v5"];   // a page with a "+": a new conversation inside this folder
   async function clipboardCopy(text) {
     try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* no clipboard here: the old way */ }
     const t = document.createElement("textarea");
@@ -67,16 +69,26 @@
     };
     return b;
   }
+  function groupActBtn(paths, title, label) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "aicon cv-act"; b.title = title; b.setAttribute("aria-label", label || title);
+    b.append(icon(paths));
+    return b;
+  }
 
   let mode = load(MODE_KEY, "agent");
   if (!MODES.includes(mode)) mode = "agent";
   const inAgent = () => document.body.dataset.view === "agent";           // the Agentic coding tab is this page, working in a folder
   const lastKey = () => LAST_KEYS[inAgent() ? "agent" : "chat"];
   let projects = [], curProject = load(PROJECT_KEY, ""), defaultWs = "", lastCtx = null;
+  let folders = [], curFolder = load(FOLDER_KEY, "");
+  let renaming = null;                                 // {kind: "project"|"folder"|"session", id}: which row shows an inline rename field instead of its name
   const sameDir = (a, b) => String(a || "").replace(/[\\/]+$/, "").toLowerCase() === String(b || "").replace(/[\\/]+$/, "").toLowerCase();
   const isChatSession = x => !x.workspace || (defaultWs && sameDir(x.workspace, defaultWs));
   const inContext = x => (inAgent() ? !isChatSession(x) : isChatSession(x));
   const curPath = () => (projects.some(x => sameDir(x.path, curProject)) ? curProject : "");
+  const setFolder = id => { curFolder = id; keep(FOLDER_KEY, id); };
+  const curFolderId = () => (folders.some(f => f.id === curFolder) ? curFolder : "");
   let supported = null;                               // whether this server offers conversations
   let sid = "", after = 0, state = "dormant", rec = null, timer = 0, items = [], current = null, busyNow = false, replaying = false;
   const status = t => { $("#chat-status").textContent = t; };
@@ -178,9 +190,44 @@
     if (e.key !== "Escape" || e.defaultPrevented || !narrow.matches || convs.classList.contains("shut")) return;
     e.preventDefault(); dismiss(); $("#cv-toggle").focus();
   });
+  /* ---- renaming a conversation, a Chat folder or an Agentic coding project in place, with the keyboard or the right-click menu ---- */
+  function startRename(kind, id) { renaming = { kind, id }; paintList(); }
+  function cancelRename() { renaming = null; paintList(); }
+  function renameField(value, onCommit) {
+    const input = mk("input", "cv-rename");
+    input.type = "text"; input.value = value; input.maxLength = 80;
+    input.setAttribute("aria-label", T("cv.rename"));
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+      if (e.key === "Escape") { e.preventDefault(); cancelRename(); }
+    });
+    let settled = false;
+    input.addEventListener("blur", () => {
+      if (settled) return;
+      settled = true;
+      const v = input.value.trim();
+      renaming = null;
+      if (v && v !== value) onCommit(v); else paintList();
+    });
+    setTimeout(() => { input.focus(); input.select(); }, 0);
+    return input;
+  }
+  function renameMenu(x, y, kind, id) {
+    openContextMenu(x, y, [{ label: T("cv.rename"), onClick: () => startRename(kind, id) }]);
+  }
+
   function convRow(s) {
     const name = s.title || s.id, li = mk("li", "cv");
     if (s.id === sid) li.setAttribute("aria-current", "true");
+    li.oncontextmenu = e => { e.preventDefault(); renameMenu(e.clientX, e.clientY, "session", s.id); };
+    if (renaming && renaming.kind === "session" && renaming.id === s.id) {
+      li.append(renameField(name, async v => {
+        const r = await api("POST", `/${s.id}/rename`, { title: v });
+        if (!r.ok) status(errText(r));
+        await refreshList();
+      }));
+      return li;
+    }
     const open = mk("button", "cv-open");
     open.type = "button";
     open.append(mk("span", "cv-t", name), mk("span", "cv-s", `${T("ch.state." + s.state)} \u00B7 ${when(s.updated)}`));
@@ -210,7 +257,8 @@
     li.append(open, star, del);
     return li;
   }
-  /* the Agentic coding tab's column: the folders added, each with the conversations held in it */
+  /* the Agentic coding tab's column: the folders added, each with the conversations held in it. Its name is the code workspace
+     itself: removing it now also takes its own conversations and their files with it (never the code), so it asks first. */
   function setProject(path) { curProject = path; keep(PROJECT_KEY, path); }
   async function addFolder() {
     const p = await window.agentProjects.open();
@@ -222,16 +270,28 @@
   }
   function projectGroup(p) {
     const group = mk("div", "cv-group cv-proj"), head = mk("div", "cv-projhead" + (sameDir(p.path, curProject) ? " here" : ""));
-    const name = mk("button", "cv-projname", p.name);
-    name.type = "button"; name.title = p.path;
-    name.onclick = () => { setProject(p.path); paintList(); setControls(); };
-    const plus = mk("button", "cv-act", "+"), gone = mk("button", "cv-act", "\u2715");
-    plus.type = gone.type = "button";
-    plus.title = T("ag.proj.new"); plus.setAttribute("aria-label", `${plus.title}: ${p.name}`);
+    let nameEl;
+    if (renaming && renaming.kind === "project" && renaming.id === p.path) {
+      nameEl = renameField(p.name, async v => {
+        const r = await window.agentProjects.rename(p.path, v);
+        if (!r.ok) status(r.message);
+        projects = window.agentProjects.list(); paintList();
+      });
+    } else {
+      nameEl = mk("button", "cv-projname", p.name);
+      nameEl.type = "button"; nameEl.title = p.path;
+      nameEl.onclick = () => { setProject(p.path); paintList(); setControls(); };
+      nameEl.oncontextmenu = e => { e.preventDefault(); renameMenu(e.clientX, e.clientY, "project", p.path); };
+    }
+    const plus = groupActBtn(NEW_IN_FOLDER_ICON, T("ag.proj.new"), `${T("ag.proj.new")}: ${p.name}`);
+    const gone = groupActBtn(CLOSE_ICON, T("ag.proj.remove"), `${T("ag.proj.remove")}: ${p.name}`);
     plus.onclick = () => { setProject(p.path); dismiss(); newChat(); $("#prompt").focus(); };
-    gone.title = T("ag.proj.remove"); gone.setAttribute("aria-label", `${gone.title}: ${p.name}`);
-    gone.onclick = async () => { await window.agentProjects.remove(p.path); projects = window.agentProjects.list(); if (sameDir(p.path, curProject)) setProject(""); paintList(); setControls(); };
-    head.append(name, plus, gone);
+    gone.onclick = async () => {
+      if (!confirm(T("ag.proj.remove.confirm", p.name))) return;
+      await window.agentProjects.remove(p.path); projects = window.agentProjects.list(); if (sameDir(p.path, curProject)) setProject("");
+      paintList(); setControls();
+    };
+    head.append(nameEl, plus, gone);
     const mine = known.filter(x => x.state !== "closed" && inContext(x) && sameDir(x.workspace, p.path));
     const ul = mk("ul", "cv-list");
     ul.replaceChildren(...[...mine.filter(x => x.favorite), ...mine.filter(x => !x.favorite)].map(convRow));
@@ -240,6 +300,54 @@
     else if (!mine.length) group.append(mk("p", "cv-empty", T("cv.empty")));
     return group;
   }
+
+  /* the Chat column's own folders: a pure name, no code workspace - removing one also takes its own conversations with it. */
+  async function addChatFolder() {
+    const input = $("#cv-folder-name");
+    const name = input.value.trim();
+    if (!name) return;
+    const r = await window.chatFolders.add(name);
+    if (!r.ok) { status(r.message); return; }
+    folders = window.chatFolders.list();
+    input.value = "";
+    paintList();
+  }
+  function folderGroup(f) {
+    const group = mk("div", "cv-group cv-proj"), head = mk("div", "cv-projhead" + (f.id === curFolder ? " here" : ""));
+    let nameEl;
+    if (renaming && renaming.kind === "folder" && renaming.id === f.id) {
+      nameEl = renameField(f.name, async v => {
+        const r = await window.chatFolders.rename(f.id, v);
+        if (!r.ok) status(r.message);
+        folders = window.chatFolders.list(); paintList();
+      });
+    } else {
+      nameEl = mk("button", "cv-projname", f.name);
+      nameEl.type = "button";
+      nameEl.onclick = () => { setFolder(f.id); paintList(); };
+      nameEl.oncontextmenu = e => { e.preventDefault(); renameMenu(e.clientX, e.clientY, "folder", f.id); };
+    }
+    const plus = groupActBtn(NEW_IN_FOLDER_ICON, T("cv.folder.new"), `${T("cv.folder.new")}: ${f.name}`);
+    const gone = groupActBtn(CLOSE_ICON, T("cv.folder.remove"), `${T("cv.folder.remove")}: ${f.name}`);
+    plus.onclick = () => { setFolder(f.id); dismiss(); newChat({ keepFolder: true }); $("#prompt").focus(); };
+    gone.onclick = async () => {
+      if (!confirm(T("cv.folder.remove.confirm", f.name))) return;
+      const r = await window.chatFolders.remove(f.id);
+      if (!r.ok) { status(r.message); return; }
+      folders = window.chatFolders.list();
+      if (f.id === curFolder) setFolder("");
+      if (r.deleted_sessions.includes(sid)) { forget(); setControls(); }
+      await refreshList();
+    };
+    head.append(nameEl, plus, gone);
+    const mine = known.filter(x => x.state !== "closed" && !inAgent() && x.folder_id === f.id);
+    const ul = mk("ul", "cv-list");
+    ul.replaceChildren(...[...mine.filter(x => x.favorite), ...mine.filter(x => !x.favorite)].map(convRow));
+    group.append(head, ul);
+    if (!mine.length) group.append(mk("p", "cv-empty", T("cv.empty")));
+    return group;
+  }
+
   function paintList() {
     const agent = inAgent();
     $("#cv-projects").hidden = !agent;
@@ -250,7 +358,8 @@
       $("#cv-proj-list").replaceChildren(...projects.map(projectGroup));
       return;
     }
-    const shown = known.filter(s => s.state !== "closed" && inContext(s));
+    $("#cv-folders-list").replaceChildren(...folders.map(folderGroup));
+    const shown = known.filter(s => s.state !== "closed" && inContext(s) && !s.folder_id);
     const fav = shown.filter(s => s.favorite), rest = shown.filter(s => !s.favorite);
     $("#cv-fav-group").hidden = !fav.length;
     $("#cv-fav").replaceChildren(...fav.map(convRow));
@@ -294,8 +403,9 @@
 
   function forget() { pick = null; learn = null; paintPick(); paintLearn(); pend = []; sid = ""; after = 0; state = "dormant"; rec = null; items = []; current = null; Object.keys(byTurn).forEach(k => delete byTurn[k]); box.querySelectorAll(".cmsg, .anote, .ablocked, .asuggest").forEach(e => e.remove()); chipsEl = null; chipTexts = []; empty.hidden = false; keep(lastKey(), ""); copyShown = false; conversationChanged(); }
   function conversationChanged(created) { syncPanel(); document.dispatchEvent(new CustomEvent("tadamoo:conversation", { detail: { created: !!created } })); }
-  function newChat() {
+  function newChat(opts) {
     if (inAgent() && !curPath()) { addFolder(); return; }                      // a conversation in the Agentic coding tab needs a folder to work in
+    if (!inAgent() && !(opts && opts.keepFolder)) setFolder("");               // "New conversation" always starts outside any folder; a folder's own "+" keeps it
     forget(); status(T("ch.new")); setControls(); paintList();
   }
   async function openSession(id) {
@@ -1459,7 +1569,7 @@
   async function ensure() {
     if (sid) return true;
     if (inAgent() && !curPath() && !(await addFolder())) { status(T("ag.noproject")); return false; }
-    const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath(), ...(window.codingUi ? { role: window.codingUi.role() } : {}) } : {}), mode: permMode(), allow: allowRules(), ask_only: mode === "ask", inference: chatSettings.read(), worktree: copyMode(), ...visuals(), ...(window.personaUi && window.personaUi.pending() ? { persona: window.personaUi.pending() } : {}), ...(window.councilUi && window.councilUi.pending() ? { council: true } : {}), ...(window.privacy && window.privacy.pending() ? { private: true } : {}) });
+    const r = await api("POST", "", { ...(inAgent() ? { workspace: curPath(), ...(window.codingUi ? { role: window.codingUi.role() } : {}) } : { folder_id: curFolderId() }), mode: permMode(), allow: allowRules(), ask_only: mode === "ask", inference: chatSettings.read(), worktree: copyMode(), ...visuals(), ...(window.personaUi && window.personaUi.pending() ? { persona: window.personaUi.pending() } : {}), ...(window.councilUi && window.councilUi.pending() ? { council: true } : {}), ...(window.privacy && window.privacy.pending() ? { private: true } : {}) });
     if (!r.ok) { status(errText(r)); if (r.json.error && r.json.error.code === "level_above_channel") loadLevel(); return false; }
     sid = r.json.session.id; rec = r.json.session; keep(lastKey(), sid); after = 0; conversationChanged(true);
     await refreshList();
@@ -1555,6 +1665,8 @@
   chgOpen.onclick = () => showChanges(chgSide.hidden);
   $("#chg-close").onclick = () => showChanges(false);
   $("#cv-addfolder").onclick = () => { addFolder(); };
+  $("#cv-folder-add").onclick = () => { addChatFolder(); };
+  $("#cv-folder-name").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addChatFolder(); } });
   function paintContext() {
     const agent = inAgent();
     $("#achat-empty").querySelector("b").textContent = T(agent ? "ag.empty.t" : "ch.empty.t");
@@ -1574,12 +1686,15 @@
     paintContext();
     await window.agentProjects.load();
     projects = window.agentProjects.list();
+    await window.chatFolders.load();
+    folders = window.chatFolders.list();
     await refreshList();
     applyMode();
     const last = load(lastKey(), "");
     if (active() && last && known.some(x => x.id === last && inContext(x))) openSession(last);
   }
   window.agentProjects.onChange(list => { projects = list; paintList(); setControls(); });
+  window.chatFolders.onChange(list => { folders = list; paintList(); setControls(); });
   document.addEventListener("tadamoo:view", e => { if (e.detail === "chat" || e.detail === "agent") { enterContext().then(() => { refreshList(); poll(true); }); } });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(true); });
 
@@ -1670,6 +1785,8 @@
   (async () => {
     await window.agentProjects.load();
     projects = window.agentProjects.list();
+    await window.chatFolders.load();
+    folders = window.chatFolders.list();
     await refreshList();
     $("#attach").dataset.can = $("#attach").hidden ? "" : "1";
     if (supported === false) { modeSel.querySelectorAll("option").forEach(o => { if (o.value !== "direct") o.disabled = true; }); modeSel.value = "direct"; }

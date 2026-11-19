@@ -70,6 +70,7 @@
 <script defer src="web/cuttext.js"></script>
 <script defer src="web/risk.js"></script>
 <script defer src="web/app.js"></script>
+<script defer src="web/contextmenu.js"></script>
 <script defer src="web/listtools.js"></script>
 <script defer src="web/shell.js"></script>
 <script defer src="web/subtabs.js"></script>
@@ -82,6 +83,7 @@
 <script defer src="web/chatsize.js"></script>
 <script defer src="web/chathead.js"></script>
 <script defer src="web/projects.js"></script>
+<script defer src="web/chatfolders.js"></script>
 <script defer src="web/askcard.js"></script>
 <script defer src="web/singleflight.js"></script>
 <script defer src="web/chatdisplay.js"></script>
@@ -458,6 +460,13 @@
           <p class="cv-empty" id="cv-proj-empty" data-t="ag.projects.empty" hidden>No folders yet.</p>
         </div>
         <div id="cv-chatlists">
+        <div id="cv-folders">
+          <div id="cv-folders-list"></div>
+          <div class="cv-addrow">
+            <input type="text" id="cv-folder-name" data-t-placeholder="cv.folder.add.ph" autocomplete="off" maxlength="80">
+            <button type="button" class="btn" id="cv-folder-add" data-t="cv.folder.add">Add a folder</button>
+          </div>
+        </div>
         <div class="cv-group" id="cv-fav-group" hidden>
           <h3 id="cv-fav-h" data-t="cv.fav">Favorites</h3>
           <ul class="cv-list" id="cv-fav" aria-labelledby="cv-fav-h"></ul>

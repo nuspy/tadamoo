@@ -47,6 +47,13 @@
     changed();
     return true;
   }
+  async function rename(value, name) {
+    const r = await api("POST", "/rename", { path: value, name });
+    if (!r.ok) return { ok: false, message: (r.json && r.json.error && r.json.error.message) || `HTTP ${r.status}` };
+    await load();
+    changed();
+    return { ok: true, project: r.json.project };
+  }
 
   /* ---- the window ---- */
   let done = null;
@@ -77,5 +84,5 @@
   browse.addEventListener("click", () => { if (app) app.postMessage({ type: "pickFolder", id: "af-path", path: path.value.trim(), title: T("ag.add.title") }); });
   applyT(dlg);
 
-  window.agentProjects = { load, list: () => projects, add, remove, open, onChange: f => listeners.push(f) };
+  window.agentProjects = { load, list: () => projects, add, remove, rename, open, onChange: f => listeners.push(f) };
 })();
