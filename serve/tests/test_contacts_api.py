@@ -83,3 +83,32 @@ class ContactsApiTest(PlansApiBase):
         self.assertEqual(code, 401)
         code, res = self.call("POST", "/api/contacts/categories", {"action": "add", "label": "x"}, headers={"Authorization": "Bearer wrong"})
         self.assertEqual(code, 401)
+
+    def test_only_one_contact_can_be_marked_as_yourself(self):
+        self.call("POST", "/api/contacts/items", {"action": "add", "name": "Io", "is_self": True}, headers=self.headers())
+        code, res = self.call("POST", "/api/contacts/items", {"action": "add", "name": "Anche io", "is_self": True}, headers=self.headers())
+        self.assertEqual((code, res["error"]["message"]), (400, "There is already a contact marked as yourself; remove that mark before adding another."))
+
+    def test_voice_enroll_summarizes_readings_and_never_sends_the_raw_embeddings(self):
+        import base64
+        code, res = self.call("POST", "/api/contacts/items", {"action": "add", "name": "Mario"}, headers=self.headers())
+        contact_id = res["contacts"][0]["id"]
+        self.assertEqual(res["contacts"][0]["voice"], {"enrolled": False, "readings": {}, "f0_hz": 0.0})
+        fake = {"embedding": [1.0, 0.0], "f0_hz": 120.0}
+        with mock.patch("tadamoo.contacts.voiceid.read", return_value=fake), mock.patch("tadamoo.contacts.voiceid.phone_proxy", side_effect=lambda w: w):
+            one_wav = base64.b64encode(b"not-really-a-wav-just-a-token").decode()
+            code, res = self.call("POST", "/api/contacts/voice", {"action": "enroll", "id": contact_id, "channel": "mic", "wavs": [one_wav]},
+                                  headers=self.headers())
+        voice = res["contacts"][0]["voice"]
+        self.assertEqual((code, voice), (200, {"enrolled": True, "readings": {"mic": 1, "phone": 1}, "f0_hz": 120.0}))
+        self.assertNotIn("embeddings", voice)
+
+    def test_voice_enroll_reports_a_bad_channel_or_missing_recordings(self):
+        code, res = self.call("POST", "/api/contacts/items", {"action": "add", "name": "Mario"}, headers=self.headers())
+        contact_id = res["contacts"][0]["id"]
+        code, res = self.call("POST", "/api/contacts/voice", {"action": "enroll", "id": contact_id, "channel": "bogus", "wavs": ["AA=="]},
+                              headers=self.headers())
+        self.assertEqual(code, 400)
+        code, res = self.call("POST", "/api/contacts/voice", {"action": "enroll", "id": contact_id, "channel": "mic", "wavs": []},
+                              headers=self.headers())
+        self.assertEqual((code, res["error"]["code"]), (400, "wavs"))

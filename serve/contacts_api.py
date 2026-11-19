@@ -5,15 +5,26 @@
     POST /api/contacts/types      {action: add|update|remove|reorder, id?, category_id?, label?, order?}
     POST /api/contacts/groups     {action: add|update|remove, id?, name?, permissions?}
     POST /api/contacts/items      {action: add|update|remove, id?, name?, organization?, role?, group_id?, phones?, emails?,
-                                    sharing_notes?, relationship_notes?, overrides?}
+                                    sharing_notes?, relationship_notes?, overrides?, is_self?}
+    POST /api/contacts/voice      {action: enroll, id, channel: mic|phone, wavs: [base64 PCM16 mono 16kHz wav, ...]}
 """
 from __future__ import annotations
 
+import base64
 from typing import Any, Dict
 
 from tadamoo.contacts import ContactError, ContactStore
 
-CONTACT_FIELDS = ("name", "organization", "role", "group_id", "phones", "emails", "sharing_notes", "relationship_notes", "overrides")
+CONTACT_FIELDS = ("name", "organization", "role", "group_id", "phones", "emails", "sharing_notes", "relationship_notes", "overrides",
+                   "is_self")
+
+
+def _voice_summary(voice: Any) -> Dict[str, Any]:
+    """How many readings each channel has - never the raw embeddings, which have no use to the GUI and no business leaving the server."""
+    if not voice:
+        return {"enrolled": False, "readings": {}, "f0_hz": 0.0}
+    readings = {ch: len(v) for ch, v in (voice.get("embeddings") or {}).items()}
+    return {"enrolled": any(readings.values()), "readings": readings, "f0_hz": voice.get("f0_hz", 0.0)}
 
 
 class ContactsError(ValueError):
@@ -28,7 +39,8 @@ class ContactsApi:
 
     def view(self) -> Dict[str, Any]:
         data = self.store.load()
-        contacts = [{**c, "effective": self.store.effective_permissions(c, data)} for c in data["contacts"]]
+        contacts = [{**c, "voice": _voice_summary(c.get("voice")), "effective": self.store.effective_permissions(c, data)}
+                    for c in data["contacts"]]
         return {"permission_categories": data["permission_categories"], "permission_types": data["permission_types"],
                 "groups": data["groups"], "contacts": contacts}
 
@@ -85,7 +97,7 @@ class ContactsApi:
         if action == "add":
             self._call(self.store.add_contact, req.get("name"), req.get("organization") or "", req.get("role") or "",
                        req.get("group_id") or "", req.get("phones"), req.get("emails"), req.get("sharing_notes") or "",
-                       req.get("relationship_notes") or "", req.get("overrides"))
+                       req.get("relationship_notes") or "", req.get("overrides"), bool(req.get("is_self")))
         elif action == "update":
             fields = {k: req[k] for k in CONTACT_FIELDS if k in req}
             self._call(self.store.update_contact, str(req.get("id") or ""), **fields)
@@ -93,4 +105,18 @@ class ContactsApi:
             self._call(self.store.remove_contact, str(req.get("id") or ""))
         else:
             raise ContactsError("action: add, update or remove", "action")
+        return self.view()
+
+    def change_voice(self, req: Dict[str, Any]) -> Dict[str, Any]:
+        action = req.get("action")
+        if action != "enroll":
+            raise ContactsError("action: enroll", "action")
+        wavs = req.get("wavs")
+        if not isinstance(wavs, list) or not wavs or not all(isinstance(w, str) for w in wavs):
+            raise ContactsError("wavs: a list of at least one base64-encoded wav recording", "wavs")
+        try:
+            decoded = [base64.b64decode(w) for w in wavs]
+        except (ValueError, TypeError):
+            raise ContactsError("wavs: not valid base64", "wavs") from None
+        self._call(self.store.enroll_voice, str(req.get("id") or ""), decoded, str(req.get("channel") or ""))
         return self.view()

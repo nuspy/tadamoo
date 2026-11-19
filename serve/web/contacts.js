@@ -82,6 +82,102 @@
     return box;
   }
 
+  // -- voice enrollment (tadamoo/speech/voiceid.py): a few sentences read into the microphone, encoded as a 16 kHz mono WAV in the
+  // browser itself - the server never needs to decode any other audio format. -------------------------------------------------
+
+  const ENROLL_SENTENCES = {
+    en: ["The weather today is quite different from yesterday.", "I would like to schedule a call for next week.",
+         "Please remember to confirm this before the end of the day.", "This is a short sentence to recognise my voice."],
+    it: ["Oggi il tempo è piuttosto diverso da ieri.", "Vorrei fissare una chiamata per la settimana prossima.",
+         "Ricordati di confermare questo entro la fine della giornata.", "Questa è una frase breve per riconoscere la mia voce."],
+  };
+
+  function downsample(samples, inRate, outRate) {
+    if (inRate === outRate) return samples;
+    const ratio = inRate / outRate, outLen = Math.floor(samples.length / ratio);
+    const out = new Float32Array(outLen);
+    for (let i = 0; i < outLen; i++) out[i] = samples[Math.floor(i * ratio)];
+    return out;
+  }
+
+  function wavBase64(samples) {
+    const pcm = new Int16Array(samples.length);
+    for (let i = 0; i < samples.length; i++) { const s = Math.max(-1, Math.min(1, samples[i])); pcm[i] = s < 0 ? s * 32768 : s * 32767; }
+    const bytes = pcm.length * 2, buf = new ArrayBuffer(44 + bytes), view = new DataView(buf);
+    const str = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+    str(0, "RIFF"); view.setUint32(4, 36 + bytes, true); str(8, "WAVE");
+    str(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+    view.setUint32(24, 16000, true); view.setUint32(28, 32000, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+    str(36, "data"); view.setUint32(40, bytes, true);
+    for (let i = 0; i < pcm.length; i++) view.setInt16(44 + i * 2, pcm[i], true);
+    let binary = ""; const u8 = new Uint8Array(buf);
+    for (let i = 0; i < u8.length; i++) binary += String.fromCharCode(u8[i]);
+    return btoa(binary);
+  }
+
+  async function recordWav(seconds) {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = ctx.createMediaStreamSource(stream);
+      const proc = ctx.createScriptProcessor(4096, 1, 1);
+      const chunks = [];
+      proc.onaudioprocess = e => chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      src.connect(proc);
+      proc.connect(ctx.destination);
+      await new Promise(r => setTimeout(r, seconds * 1000));
+      proc.disconnect();
+      src.disconnect();
+      const inRate = ctx.sampleRate;
+      await ctx.close();
+      let total = 0;
+      for (const c of chunks) total += c.length;
+      const merged = new Float32Array(total);
+      let off = 0;
+      for (const c of chunks) { merged.set(c, off); off += c.length; }
+      return wavBase64(downsample(merged, inRate, 16000));
+    } finally {
+      stream.getTracks().forEach(t => t.stop());
+    }
+  }
+
+  function voicePanel(c) {
+    const box = el("div", "ct-voice");
+    box.append(el("h4", "ct-cath", T("ct.voice.title")));
+    const selfRow = el("label", "ct-selfrow");
+    const selfBox = document.createElement("input");
+    selfBox.type = "checkbox";
+    selfBox.checked = !!c.is_self;
+    selfBox.onchange = () => act("api/contacts/items", { action: "update", id: c.id, is_self: selfBox.checked });
+    selfRow.append(selfBox, document.createTextNode(" " + T("ct.voice.self")));
+    box.append(selfRow);
+    const v = c.voice || { enrolled: false, readings: {} };
+    box.append(el("p", "help", v.enrolled ? T("ct.voice.readings", v.readings.mic || 0, v.readings.phone || 0) : T("ct.voice.none")));
+    const progress = el("p", "ct-voiceprog", "");
+    box.append(progress);
+    const recordBtn = btn(T("ct.voice.record"), "", async () => {
+      recordBtn.disabled = true;
+      const sentences = ENROLL_SENTENCES[LANG] || ENROLL_SENTENCES.en;
+      try {
+        const wavs = [];
+        for (const s of sentences) {
+          progress.textContent = `${T("ct.voice.sentence")} "${s}"`;
+          await new Promise(r => setTimeout(r, 900));
+          progress.textContent = T("ct.voice.recording");
+          wavs.push(await recordWav(4));
+        }
+        progress.textContent = T("ct.voice.saving");
+        const ok = await act("api/contacts/voice", { action: "enroll", id: c.id, channel: "mic", wavs });
+        if (!ok) recordBtn.disabled = false;
+      } catch (e) {
+        progress.textContent = T("ct.voice.needmic");
+        recordBtn.disabled = false;
+      }
+    });
+    box.append(recordBtn);
+    return box;
+  }
+
   function groupDetail(g) {
     const box = el("div", "ct-detail");
     box.append(el("h3", "ct-h3", g.name));
@@ -122,6 +218,7 @@
     const overrides = { ...c.overrides };
     const group = data.groups.find(g => g.id === (c.group_id || ""));
     box.append(el("h4", "ct-cath", T("ct.perms.title")), permissionsEditor("contact", overrides, group ? group.permissions : {}));
+    box.append(voicePanel(c));
     const parseList = (text, key) => text.split("\n").map(l => l.trim()).filter(Boolean).map(l => { const [v, label] = l.split("|").map(s => s.trim()); return { [key]: v, label: label || "" }; });
     const save = btn(T("ct.save"), "primary", () => act("api/contacts/items", {
       action: "update", id: c.id, name: name.value, organization: org.value, role: role.value, group_id: groupSel.value,

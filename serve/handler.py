@@ -1084,7 +1084,8 @@ def make_handler(svc: Service, remote: bool = False):
                         "/api/connectors/update/plan", "/api/connectors/update/apply", "/api/connectors/github-token"):
                 self._connectors_post(path)
                 return
-            if path in ("/api/contacts/categories", "/api/contacts/types", "/api/contacts/groups", "/api/contacts/items"):
+            if path in ("/api/contacts/categories", "/api/contacts/types", "/api/contacts/groups", "/api/contacts/items",
+                        "/api/contacts/voice"):
                 self._contacts_post(path)
                 return
             if path == "/api/darkweb" or path.startswith("/api/darkweb/"):
@@ -2564,7 +2565,8 @@ def make_handler(svc: Service, remote: bool = False):
 
         def _contacts_post(self, path):
             try:
-                raw = self._body(1 << 15)
+                # base64 voice recordings (a few readings, a few seconds each) need far more room than the other, text-only actions.
+                raw = self._body((1 << 22) if path == "/api/contacts/voice" else (1 << 15))
             except BadBody as e:
                 return self._json(e.status, {"error": {"message": str(e)}})
             try:
@@ -2578,6 +2580,8 @@ def make_handler(svc: Service, remote: bool = False):
                     return self._json(200, api.change_types(req))
                 if path == "/api/contacts/groups":
                     return self._json(200, api.change_groups(req))
+                if path == "/api/contacts/voice":
+                    return self._json(200, api.change_voice(req))
                 return self._json(200, api.change_contacts(req))
             except ContactsError as e:
                 return self._json(400, {"error": {"type": "contacts", "message": str(e), "code": e.code}})

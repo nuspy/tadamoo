@@ -27,4 +27,9 @@
 .ct-typerow input { flex: 1 1 200px; min-height: 44px; }
 .ct-typerow select { min-height: 44px; }
 .ct-typerow .btn { min-height: 44px; min-width: 44px; }
+.ct-voice { display: grid; gap: 8px; }
+.ct-selfrow { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.ct-selfrow input[type="checkbox"] { width: 22px; height: 22px; }
+.ct-voiceprog { min-height: 20px; color: var(--fg-2); }
+.ct-voice .btn { min-height: 44px; align-self: start; }
 @media (prefers-reduced-motion: reduce) { .ct-root *, .ct-root *::before, .ct-root *::after { transition: none !important; animation: none !important; } }

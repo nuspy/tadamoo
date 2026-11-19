@@ -4,22 +4,29 @@ by every project and conversation: userdata.path("contacts.json"), the same plac
 
 A contact belongs to at most one group. A permission type not mentioned anywhere for a contact is denied - there is no such thing as an
 implicit grant. An unknown caller who only claims to belong to a known organization is not a contact and so has no permissions at all:
-only a saved contact, matched by its own phone number, ever gets any."""
+only a saved contact, matched by its own phone number or its own voice, ever gets any.
+
+A contact can also be identified by voice (tadamoo/speech/voiceid.py), enrolled only when the owner is there to say so: a live
+confirmation on a call or local microphone session, or a guided local recording. One contact - the owner themselves - can be marked
+`is_self`, since the voice tests need to recognise the owner too, and a contact is the only identity record this file knows."""
 from __future__ import annotations
 
 import json
 import re
 import secrets
+import statistics
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from serve.util.files import write_json
+from tadamoo.speech import voiceid
 
 NAME_MAX = 120
 LABEL_MAX = 160
 NOTE_MAX = 2000
 MAX_PHONES = 10
 MAX_EMAILS = 10
+VOICE_CHANNELS = ("mic", "phone")
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -235,20 +242,27 @@ class ContactStore:
         return out
 
     def add_contact(self, name: str, organization: str = "", role: str = "", group_id: str = "", phones: Any = None,
-                     emails: Any = None, sharing_notes: str = "", relationship_notes: str = "", overrides: Any = None) -> Dict[str, Any]:
+                     emails: Any = None, sharing_notes: str = "", relationship_notes: str = "", overrides: Any = None,
+                     is_self: bool = False) -> Dict[str, Any]:
         name = _text(name, NAME_MAX)
         if not name:
             raise ContactError("A contact needs a name.")
         data = self.load()
         if group_id and not any(g["id"] == group_id for g in data["groups"]):
             raise ContactError("That group is not there any more.")
+        if is_self and any(c.get("is_self") for c in data["contacts"]):
+            raise ContactError("There is already a contact marked as yourself; remove that mark before adding another.")
         row = {"id": _new_id(), "name": name, "organization": _text(organization, NAME_MAX), "role": _text(role, NAME_MAX),
                "group_id": group_id, "phones": self._check_phones(phones or []), "emails": self._check_emails(emails or []),
                "sharing_notes": _text(sharing_notes, NOTE_MAX), "relationship_notes": _text(relationship_notes, NOTE_MAX),
-               "overrides": self._check_permissions(data, overrides)}
+               "overrides": self._check_permissions(data, overrides), "is_self": bool(is_self), "voice": None}
         data["contacts"].append(row)
         self.save(data)
         return row
+
+    def self_contact(self, data: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        data = data if data is not None else self.load()
+        return next((c for c in data["contacts"] if c.get("is_self")), None)
 
     def update_contact(self, contact_id: str, **fields: Any) -> None:
         data = self.load()
@@ -274,6 +288,11 @@ class ContactStore:
             row["emails"] = self._check_emails(fields["emails"])
         if "overrides" in fields:
             row["overrides"] = self._check_permissions(data, fields["overrides"])
+        if "is_self" in fields:
+            is_self = bool(fields["is_self"])
+            if is_self and any(c.get("is_self") and c["id"] != contact_id for c in data["contacts"]):
+                raise ContactError("There is already a contact marked as yourself; remove that mark before adding another.")
+            row["is_self"] = is_self
         self.save(data)
 
     def remove_contact(self, contact_id: str) -> None:
@@ -306,3 +325,41 @@ class ContactStore:
             if any(digits(p["number"]) == want for p in c["phones"]):
                 return c
         return None
+
+    # -- voice identification (tadamoo/speech/voiceid.py) ----------------------------------------------
+
+    def enroll_voice(self, contact_id: str, wavs: List[bytes], channel: str) -> Dict[str, Any]:
+        """Adds one or more readings of `contact_id`'s voice to `channel` ("mic" or "phone") - readings accumulate, they never
+        replace what is already there, the same way voiceprint.build() gathers several takes. A "mic" reading also seeds a rough
+        "phone" reading of its own (voiceid.phone_proxy), so the phone channel has a starting point before any real call is heard."""
+        if channel not in VOICE_CHANNELS:
+            raise ContactError(f"channel must be one of {VOICE_CHANNELS}.")
+        if not wavs:
+            raise ContactError("At least one recording is needed.")
+        data = self.load()
+        row = next((c for c in data["contacts"] if c["id"] == contact_id), None)
+        if row is None:
+            raise ContactError("That contact is not there any more.")
+        voice = row.get("voice") or {"embeddings": {c: [] for c in VOICE_CHANNELS}, "f0_samples": []}
+        for wav in wavs:
+            reading = voiceid.read(wav)
+            voice["embeddings"][channel].append(reading["embedding"])
+            voice["f0_samples"].append(reading["f0_hz"])
+            if channel == "mic":
+                voice["embeddings"]["phone"].append(voiceid.read(voiceid.phone_proxy(wav))["embedding"])
+        voiced = [f for f in voice["f0_samples"] if f]
+        voice["f0_hz"] = round(statistics.median(voiced), 1) if voiced else 0.0
+        row["voice"] = voice
+        self.save(data)
+        return voice
+
+    def match_voice(self, embedding: List[float], f0_hz: float) -> Optional[Dict[str, Any]]:
+        """Who this voice most likely is, or None - see voiceid.identify() for how the search is ordered and when it gives up."""
+        data = self.load()
+        found = voiceid.identify(embedding, f0_hz, data["contacts"])
+        if found is None:
+            return None
+        contact = next((c for c in data["contacts"] if c["id"] == found.contact_id), None)
+        if contact is None:
+            return None
+        return {"contact": contact, "score": found.score, "channel": found.channel, "confident": found.confident}
