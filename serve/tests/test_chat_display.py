@@ -35,7 +35,8 @@ vm.runInContext(fs.readFileSync(process.argv[1] + '/chatdisplay.js', 'utf8'), ct
 const D = ctx.window.chatDisplay, T = (k, ...a) => k + '[' + a.join(',') + ']';
 const it = { body: new El('div'), blocks: JSON.parse(process.argv[2]) };
 for (const b of it.blocks) { b.row = new El('div'); b.el = b.row; D.place(it, b); }
-D.paint(it, T);
+const paintModes = process.argv[5] ? JSON.parse(process.argv[5]) : undefined;
+D.paint(it, T, paintModes);
 const shape = it.body.children.map(c => c.tag === 'details' ? { group: c.dataset.kind, rows: c.children[1].children.length, open: c.open, hidden: c.hidden, title: c.children[0].children[0].textContent } : { row: true, hidden: c.hidden });
 if (process.argv[4] === 'flat') console.log(JSON.stringify(shape.filter(c => !c.group || !c.hidden)));
 else
@@ -43,8 +44,8 @@ console.log(JSON.stringify(shape));
 """
 
 
-def shape(blocks, reasoning="full", tooling="full", flat=False):
-    args = [str(WEB), json.dumps(blocks), json.dumps({"reasoning": reasoning, "tooling": tooling})] + (["flat"] if flat else [])
+def shape(blocks, reasoning="full", tooling="full", flat=False, paint_modes=None):
+    args = [str(WEB), json.dumps(blocks), json.dumps({"reasoning": reasoning, "tooling": tooling}), "flat" if flat else "-"] + ([json.dumps(paint_modes)] if paint_modes else [])
     out = subprocess.run([NODE, "-e", DRIVER, *args], capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout)
@@ -135,7 +136,7 @@ class Settings(unittest.TestCase):
         self.assertIn('mode === "absent"', CHAT)
         self.assertIn('document.addEventListener("tadamoo:display"', CHAT)
         self.assertIn("window.chatDisplay.place(it, b)", AGENT)
-        self.assertIn("window.chatDisplay.paint(it, T)", AGENT)
+        self.assertIn("window.chatDisplay.paint(it, T, rec && rec.inference ?", AGENT)        # the open conversation's own choice, not whatever the settings panel last held
         self.assertIn("web/chatdisplay.js", HTML)
         self.assertIn("web/chatdisplay.css", HTML)
         self.assertLess(HTML.index("web/chatdisplay.js"), HTML.index("web/agentchat.js"))
@@ -167,6 +168,12 @@ class Containers(unittest.TestCase):
     def test_each_kind_has_its_own_setting(self):
         got = shape([R, R, TOOL("a"), TOOL("b"), TEXT], "full", "compact")
         self.assertEqual([g.get("group") or "row" for g in got if not g.get("group") or not g["hidden"]], ["row", "row", "tooling", "row"])
+
+    def test_an_explicit_choice_wins_over_whatever_the_settings_panel_currently_holds(self):
+        # the settings panel (chatSettings.shows, mocked here) says "full" for both, but the open conversation's own saved choice is "compact":
+        # paint() must follow the conversation, not the panel - this is what a conversation opened while the panel is bound to something else needs.
+        got = shape([R, R, R, TOOL("read_file"), TOOL("read_file")], reasoning="full", tooling="full", paint_modes={"reasoning": "compact", "tooling": "compact"})
+        self.assertEqual([g.get("group") or "row" for g in got], ["reasoning", "tooling"])
 
     def test_absent_shows_nothing_of_it_not_even_an_empty_container(self):
         got = shape([R, R, TOOL("a"), TOOL("b"), TEXT, R, TOOL("c")], "absent", "absent")

@@ -5,10 +5,8 @@
 window.chatDisplay = (() => {
   const MODES = ["full", "compact", "absent"];
   const seriesOf = b => b.t === "reasoning" ? "reasoning" : (b.t === "tool" || b.t === "job") ? "tooling" : "";
-  const modeOf = kind => {
-    const m = typeof chatSettings === "object" && chatSettings && chatSettings.shows ? chatSettings.shows(kind) : "full";
-    return MODES.includes(m) ? m : "full";
-  };
+  const modeFor = m => MODES.includes(m) ? m : "full";
+  const modeOf = kind => modeFor(typeof chatSettings === "object" && chatSettings && chatSettings.shows ? chatSettings.shows(kind) : "full");
 
   /* the line a container shows when it is closed */
   function summary(kind, blocks, T) {
@@ -47,9 +45,11 @@ window.chatDisplay = (() => {
     g.body.append(b.row);
   }
 
-  /* after the blocks were painted: what is absent is hidden; in compact each run is in its container, which says what is in it and is closed unless the reader opened it; otherwise the rows are on their own */
-  function paint(it, T) {
-    const modes = { reasoning: modeOf("reasoning"), tooling: modeOf("tooling") };
+  /* after the blocks were painted: what is absent is hidden; in compact each run is in its container, which says what is in it and is closed unless the reader opened it; otherwise the rows are on their own.
+     `modes` is the open conversation's own saved choice, when there is one: the settings panel binds to it only in some chat modes (chatset.js), so a block list would otherwise show whatever
+     the panel last held - possibly another conversation's choice, or the machine default - rather than the one this conversation was actually given. */
+  function paint(it, T, modes) {
+    modes = modes || { reasoning: modeOf("reasoning"), tooling: modeOf("tooling") };
     const done = new Set();
     for (const b of it.blocks) {
       const kind = seriesOf(b);
@@ -73,5 +73,5 @@ window.chatDisplay = (() => {
   /* the setting changed: what a reader opened or closed by hand gives way to it */
   function reset() { document.querySelectorAll(".agroup").forEach(g => { delete g.dataset.touched; }); }
 
-  return { seriesOf, summary, place, paint, reset };
+  return { seriesOf, summary, place, paint, reset, modeFor };
 })();
