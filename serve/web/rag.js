@@ -384,7 +384,7 @@
     const dlg = dialog(T("rg.proj.delete.title", p.name), [el("p", "rg-line", T("rg.proj.delete.1", p.name, p.archives, docs))], [next, btn(T("rg.cancel"), "", () => dlg.close())]);
   }
   function projectsList() {
-    const side = el("nav", "rg-side rg-projects"), ul = el("ul", "rg-names");
+    const side = el("nav", "rg-side rg-projects rg-box"), ul = el("ul", "rg-names");
     side.setAttribute("aria-label", T("rg.proj.title"));
     projects.forEach(p => {
       const li = el("li", "rg-prow"), on = p.key === project;
@@ -423,7 +423,7 @@
     return box;
   }
   function sideList() {
-    const side = el("nav", "rg-side"), ul = el("ul", "rg-names");
+    const side = el("nav", "rg-side rg-box"), ul = el("ul", "rg-names");
     side.setAttribute("aria-label", T("rg.list.title"));
     list.forEach(a => {
       const li = el("li"), on = a.id === chosen && !creating;

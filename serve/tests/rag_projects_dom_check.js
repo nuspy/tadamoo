@@ -52,6 +52,9 @@ async function main() {
       await waitFor(`!!q("#tab-rag") && typeof view === "function"`, "the page");
       await ev(`q("#tab-rag").click(); return 1;`);
       await waitFor(`!!q("#rg-root .rg-projects")`, "the projects column");
+      await sleep(800);                                   // the first-run embeddings wizard, if it offers itself, opens asynchronously and would otherwise block every click behind it
+      await ev(`const skip = [...qa("dialog[open] button")].find(b => b.textContent.trim() === "Not now"); if (skip) skip.click(); return 1;`);
+      await sleep(200);
 
       await check(`${vname}: the projects are a list in the left column with the archives below, in separate containers, and everything fits the screen`, async () => {
         const text = await ev(`return q("#rg-root .rg-projects").textContent`);
