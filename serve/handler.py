@@ -61,6 +61,8 @@ from serve.projects import ProjectStore
 from serve.remote import KEY_TTL_DAYS, MODE_ORDER, ApiKeys, Installer, RemoteAccess, tailscale_peers, tailscale_status, tailscale_up
 from serve.connectors_api import ConnectorError, ConnectorsApi
 from serve.connectors_install import ConnectorInstaller
+from serve.contacts_api import ContactsApi, ContactsError
+from tadamoo.contacts import ContactStore
 from tadamoo.connectors.providers import Providers
 from serve.personal_skills_api import PersonalSkillsApi
 from serve import import_api, register_api, skills_api
@@ -770,6 +772,9 @@ def make_handler(svc: Service, remote: bool = False):
                           "/api/connectors/accounts", "/api/connectors/github-token"):
                 if self._authorized():
                     self._connectors_get(path)
+            elif path == "/api/contacts":
+                if self._authorized():
+                    self._json(200, self._contacts_api().view())
             elif path == "/api/netwatch" or path.startswith("/api/netwatch/"):
                 if self._authorized():
                     self._netwatch(path, None)
@@ -1078,6 +1083,9 @@ def make_handler(svc: Service, remote: bool = False):
                         "/api/connectors/accounts/add", "/api/connectors/accounts/remove", "/api/connectors/accounts/default", "/api/connectors/configure/ask",
                         "/api/connectors/update/plan", "/api/connectors/update/apply", "/api/connectors/github-token"):
                 self._connectors_post(path)
+                return
+            if path in ("/api/contacts/categories", "/api/contacts/types", "/api/contacts/groups", "/api/contacts/items"):
+                self._contacts_post(path)
                 return
             if path == "/api/darkweb" or path.startswith("/api/darkweb/"):
                 self._darkweb(path)
@@ -2548,6 +2556,31 @@ def make_handler(svc: Service, remote: bool = False):
                 return self._json(200, self._connectors_api().change_providers(req))
             except ConnectorError as e:
                 return self._json(400, {"error": {"type": "connectors", "message": str(e), "code": e.code}})
+            except ValueError as e:
+                return self._json(400, {"error": {"message": str(e)}})
+
+        def _contacts_api(self) -> ContactsApi:
+            return ContactsApi(ContactStore(userdata.path("contacts.json")))
+
+        def _contacts_post(self, path):
+            try:
+                raw = self._body(1 << 15)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"message": str(e)}})
+            try:
+                req = json.loads(raw or b"{}")
+                if not isinstance(req, dict):
+                    raise ValueError("send a JSON object")
+                api = self._contacts_api()
+                if path == "/api/contacts/categories":
+                    return self._json(200, api.change_categories(req))
+                if path == "/api/contacts/types":
+                    return self._json(200, api.change_types(req))
+                if path == "/api/contacts/groups":
+                    return self._json(200, api.change_groups(req))
+                return self._json(200, api.change_contacts(req))
+            except ContactsError as e:
+                return self._json(400, {"error": {"type": "contacts", "message": str(e), "code": e.code}})
             except ValueError as e:
                 return self._json(400, {"error": {"message": str(e)}})
 
