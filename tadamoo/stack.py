@@ -879,9 +879,12 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
             permissions.note_instructions(label)            # an instruction file that speaks like an attack: the person authorizes it before anything changes or is sent
 
     if cfg.phone:
+        from serve import userdata
+        from tadamoo.contacts import ContactStore
         from tadamoo.integrations.call_api_client import CallAPICallClient
         from tadamoo.integrations.telephony_tools import register_phone_tools
-        register_phone_tools(registry, CallAPICallClient.from_environment(), permissions, cfg.phone_on_behalf_of)
+        register_phone_tools(registry, CallAPICallClient.from_environment(), permissions, cfg.phone_on_behalf_of,
+                             contacts=ContactStore(userdata.path("contacts.json")))
 
     if cfg.attachments_dir and cfg.outputs_dir and cfg.run_id:
         from tadamoo.attachment_tools import register_attachment_tools
