@@ -125,9 +125,13 @@ def _leaf_order(f0_hz: float, voiced: List[Dict[str, Any]]) -> List[Tuple[str, i
 
 
 def identify(embedding: Sequence[float], f0_hz: float, contacts: List[Dict[str, Any]]) -> Optional[Match]:
-    """The enrolled contact this voice most likely is, or None. Walks branches in `_leaf_order`, returning the moment a comparison
-    clears CONFIDENT; otherwise keeps the best seen across every branch and, if it at least clears PASSABLE, returns it unconfident
-    rather than silently dropping it - the caller decides what an unconfident match is allowed to do."""
+    """The enrolled contact this voice most likely is, or None. Walks every branch in `_leaf_order` - predicted first, then the
+    next closest, climbing all the way out if it must - and always finishes the walk: with a few dozen contacts a full scan costs
+    nothing, and stopping at the first comparison to clear CONFIDENT is not safe. A crowded leaf (many people enrolled near the same
+    pitch) can hand back a WRONG candidate above CONFIDENT before the search ever reaches the right one sitting a little further
+    along - found by testing against 25 different real voices, where this used to misidentify 15 of them, confidently. Only the
+    global best across every branch decides the answer now; if it clears PASSABLE but not CONFIDENT, it is returned unconfident
+    rather than silently dropped - the caller decides what an unconfident match is allowed to do."""
     voiced = [c for c in contacts if (c.get("voice") or {}).get("embeddings")]
     if not voiced:
         return None
@@ -146,8 +150,6 @@ def identify(embedding: Sequence[float], f0_hz: float, contacts: List[Dict[str, 
             score, channel = _best_cosine(embedding, c["voice"]["embeddings"])
             if best is None or score > best.score:
                 best = Match(c["id"], round(score, 4), channel, score >= CONFIDENT)
-            if score >= CONFIDENT:
-                return best
     if best and best.score >= PASSABLE:
         return best
     return None

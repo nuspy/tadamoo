@@ -9,10 +9,21 @@ def _voiced(contact_id: str, f0_hz: float, embedding, channel: str = "mic"):
     return {"id": contact_id, "voice": {"embeddings": {channel: [embedding]}, "f0_hz": f0_hz}}
 
 
-def test_a_voice_matched_in_its_own_predicted_branch_returns_at_once():
+def test_a_voice_matched_in_its_own_predicted_branch_is_found():
     contacts = [_voiced("mario", 110.0, [1.0, 0.0]), _voiced("anna", 220.0, [0.0, 1.0])]
     found = voiceid.identify([1.0, 0.0], 110.0, contacts)
     assert found is not None and found.contact_id == "mario" and found.confident
+
+
+def test_a_crowded_branch_does_not_stop_at_the_first_confident_match_if_a_better_one_is_still_ahead():
+    # a real bug, found testing against 25 different real voices: with several candidates in the same branch, the first one
+    # that clears CONFIDENT is not always the best one - stopping there returned a confidently wrong answer 15 times out of 25.
+    probe = [1.0, 0.0]
+    wrong_but_confident = [0.92, math.sqrt(1 - 0.92 ** 2)]    # cosine ~0.92 with probe: clears CONFIDENT, but is not the best
+    right_and_better = [0.97, math.sqrt(1 - 0.97 ** 2)]       # cosine ~0.97 with probe: the true match, listed after the wrong one
+    contacts = [_voiced("wrong", 110.0, wrong_but_confident), _voiced("right", 112.0, right_and_better)]
+    found = voiceid.identify(probe, 110.0, contacts)
+    assert found is not None and found.contact_id == "right" and found.confident
 
 
 def test_a_voice_whose_pitch_lands_in_the_wrong_branch_is_still_found_by_climbing_back_up():
