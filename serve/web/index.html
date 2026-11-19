@@ -369,6 +369,13 @@
         <option value="rewrite" data-t="la.mode.rewrite">A rewrite of my message</option>
       </select>
       <p class="lad-dim" id="la-mode-h" data-t="la.mode.h"></p></div>
+    <div class="lad-row" id="la-size-box"><label for="la-size" data-t="la.size">How long</label>
+      <select id="la-size" aria-describedby="la-size-h">
+        <option value="fixed" data-t="la.size.fixed">A fixed length I choose</option>
+        <option value="heuristic" data-t="la.size.heuristic">Let the agent judge, as it works</option>
+        <option value="hybrid" data-t="la.size.hybrid">An approximate length, as a base for its judgment</option>
+      </select>
+      <p class="lad-dim" id="la-size-h" data-t="la.size.h"></p></div>
     <div class="lad-row" id="la-words-box"><label for="la-words" data-t="la.words">Length in words</label>
       <input id="la-words" type="number" inputmode="numeric" min="50" max="200000" step="100" value="3000" aria-describedby="la-words-h">
       <p class="lad-dim" id="la-words-h" data-t="la.words.h"></p></div>
@@ -389,7 +396,8 @@
     <div class="lad-check"><input id="la-default" type="checkbox"><label for="la-default" data-t="la.default">Start new conversations with Long answer on</label></div>
     <p class="lad-msg" id="la-msg" role="alert"></p>
     <div class="lad-actions">
-      <button type="submit" class="btn primary" id="la-on" data-t="la.on" data-t-title="la.on.tip">Keep on for this conversation</button>
+      <button type="button" class="btn primary" id="la-once" data-t="la.once" data-t-title="la.once.tip">Only this next prompt</button>
+      <button type="button" class="btn" id="la-on" data-t="la.on" data-t-title="la.on.tip">Keep on for this conversation</button>
       <button type="button" class="btn" id="la-off" data-t="la.off" data-t-title="la.off.tip">Turn off</button></div>
   </form>
 </dialog>

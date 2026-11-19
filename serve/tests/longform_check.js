@@ -20,7 +20,8 @@ let current = "";
 global.chatUi = { sessionId: () => current };
 require(path.join(__dirname, "..", "web", "longform.js"));
 const LA = global.longAnswer;
-const submit = () => els["#la-form"].listeners.submit[0]({ preventDefault() {} });
+const submit = () => els["#la-on"].listeners.click[0]();            // "Keep on for this conversation": the sticky choice these older cases exercise
+const submitOnce = () => els["#la-once"].listeners.click[0]();      // "Only this next prompt": the default scope
 const turnOff = () => els["#la-off"].listeners.click[0]();
 const cases = [];
 const t = (name, fn) => cases.push([name, fn]);
@@ -35,7 +36,7 @@ t("it is off at first and, once on, it is still on after a message was sent", ()
   eq(first.target_words, 1500);
   eq(LA.armed(), true);
   eq(LA.request(), first);
-  eq(LA.decorate("hello").includes("[long answer: mode=write; words=1500]"), true);
+  eq(LA.decorate("hello").includes("[long answer: mode=write; size=fixed; words=1500]"), true);
   eq(LA.decorate("again").includes("[long answer:"), true);
   eq(els["#long-open"].attrs["aria-pressed"], "true");
 });
@@ -76,6 +77,42 @@ t("with the new-conversations box ticked a fresh conversation starts on, and tur
   els["#la-default"].checked = false; current = "s4"; fire("tadamoo:conversation"); submit(); turnOff();
   current = "s5"; fire("tadamoo:conversation");
   eq(LA.armed(), false);
+});
+
+t("once is armed for exactly the next prompt, then turns itself off", () => {
+  current = "s6"; fire("tadamoo:conversation");
+  eq(LA.armed(), false);
+  els["#la-words"].value = "4000"; els["#la-mode"].value = "write"; els["#la-size"].value = "fixed";
+  submitOnce();
+  eq(LA.armed(), true);
+  eq(LA.decorate("first").includes("[long answer:"), true);
+  eq(LA.armed(), false);                                             // used once: off again, with no second click
+  eq(LA.decorate("second"), "second");                                // and the next message is ordinary
+});
+
+t("once used through request() (the Chat) turns itself off the same way", () => {
+  current = "s7"; fire("tadamoo:conversation");
+  submitOnce();
+  eq(LA.request() !== null, true);
+  eq(LA.armed(), false);
+  eq(LA.request(), null);
+});
+
+t("heuristic asks for no fixed number at all, hybrid gives one as a base only", () => {
+  current = "s8"; fire("tadamoo:conversation");
+  els["#la-mode"].value = "write"; els["#la-size"].value = "heuristic";
+  submit();
+  eq(LA.request().size, "heuristic");
+  eq("target_words" in LA.request(), false);
+  eq(LA.decorate("x").includes("size=heuristic"), true);
+  eq(LA.decorate("x").includes("words="), false);
+  turnOff();
+  current = "s9"; fire("tadamoo:conversation");
+  els["#la-size"].value = "hybrid"; els["#la-words"].value = "9000";
+  submit();
+  eq(LA.request().size, "hybrid");
+  eq(LA.request().target_words, 9000);
+  eq(LA.decorate("x").includes("size=hybrid; words=9000"), true);
 });
 
 console.log(JSON.stringify(cases.map(([name, fn]) => { try { fn(); return { name, ok: true }; } catch (e) { return { name, ok: false, error: String(e.message || e) }; } })));

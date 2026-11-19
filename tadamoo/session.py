@@ -1504,6 +1504,10 @@ class Session:
             pieces = lf.separate_texts(asked["text"] if asked is not None else text)
             if pieces is not None:                            # several texts that stand apart: the model writes them one by one with write_long
                 return self._long_pieces(task, pieces)
+            if asked is not None and asked["mode"] == "write" and asked.get("size", "fixed") != "fixed":
+                self._long_defer_note(task, asked)
+                self._audit("long_answer", {"deferred": "size", "size": asked["size"], "words": asked["words"]})
+                return False                                  # the length is judged, not fixed: the model works first, and writes with write_long once it knows more
             if asked is not None and asked["mode"] == "write" and self._needs_work(asked["text"], facts):
                 self._audit("long_answer", {"deferred": "work", "words": asked["words"]})
                 return False                                  # the text depends on files or pages: the model works, and writes the long part with write_long
@@ -1573,6 +1577,22 @@ class Session:
     def _needs_work(text: str, facts: Optional[Dict[str, Any]]) -> bool:
         """Whether a request for a new text also needs the model's tools first: a file or a page to read, or files attached."""
         return bool((facts or {}).get("attachments")) or bool(it._PATH.search(text) or it._URL.search(text))
+
+    @staticmethod
+    def _long_defer_note(task: Task, asked: Dict[str, Any]) -> None:
+        """Long answer, with its length judged rather than fixed: a note so the model looks at what the request actually needs (existing material,
+        its own length, how much the topic takes to cover) before writing anything, then calls write_long once it knows more - never upfront, since
+        that is often the one point where the right length can be told at all."""
+        if asked["size"] == "heuristic":
+            how = ("Work out what this needs first (read what is already there, look at related material, gauge how much the topic takes to cover) "
+                   "before writing a word. When you call write_long, leave `words` out (or 0): it judges the length itself from the brief and what "
+                   "you found, not from a number chosen before any of that work.")
+        else:
+            how = (f"Work out what this needs first (read what is already there, look at related material, gauge how much the topic takes to cover) "
+                   f"before writing a word. About {asked['words']} words was the person's own rough guess, not a target to hit exactly: when you call "
+                   f"write_long, pass `words` near it only if what you found agrees, and a different number (or 0, to judge freely) when it does not.")
+        note = f"[harness] Long answer: the length is judged, not fixed. {how} Do not write the text yourself in one go."
+        task.agent.append({"role": "user", "content": note, "note": True})
 
     def _long_pieces(self, task: Task, pieces: Dict[str, Any]) -> bool:
         """A request for several separate texts is not written as one: the model is told to write them one after the other, each with its own

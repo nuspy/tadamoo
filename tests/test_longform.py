@@ -206,6 +206,17 @@ def test_spec_defaults_and_errors():
         lf.Spec.from_request("yes", "x")
 
 
+def test_the_size_a_person_chose_decides_whether_anything_is_declared():
+    fixed = lf.Spec.from_request({"target_words": 5000}, "x")
+    assert fixed.target_words == 5000 and fixed.declared is True                    # unchanged: the old shape, still a fixed target
+    heuristic = lf.Spec.from_request({"size": "heuristic"}, "Write about rivers")
+    assert heuristic.target_words == 0 and heuristic.declared is False              # no number fills in behind its back: the estimate is free
+    hybrid = lf.Spec.from_request({"size": "hybrid", "target_words": 9000}, "x")
+    assert hybrid.target_words == 9000 and hybrid.declared is False                 # a number, but not declared: it bounds the estimate, does not replace it
+    with pytest.raises(lf.LongformError, match="size"):
+        lf.Spec.from_request({"size": "bogus"}, "x")
+
+
 # -- when a request needs parts ---------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("text,expected", [
@@ -502,6 +513,13 @@ def test_the_control_line_is_read_and_removed():
     assert lf.parse_hint("Translate\n\n[long answer: mode=bogus]")["mode"] == "write"
     assert lf.parse_hint("a message about [long answer: x] in the middle\nand more") is None
     assert lf.parse_hint("no line") is None
+
+
+def test_the_size_is_fixed_for_a_line_that_names_none_a_line_from_before_it_existed():
+    assert lf.parse_hint("x\n\n[long answer: mode=write; words=4000]")["size"] == "fixed"             # unchanged: no size field, no behavior change
+    assert lf.parse_hint("x\n\n[long answer: mode=write; size=heuristic]")["size"] == "heuristic"
+    assert lf.parse_hint("x\n\n[long answer: mode=write; size=hybrid; words=9000]")["size"] == "hybrid"
+    assert lf.parse_hint("x\n\n[long answer: mode=write; size=bogus; words=10]")["size"] == "fixed"    # an unknown size is never silently honored
 
 
 def test_cancel_while_planning_ends_cleanly():

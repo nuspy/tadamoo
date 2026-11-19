@@ -393,6 +393,25 @@ def test_a_text_that_depends_on_a_file_is_left_to_the_model_which_writes_the_lon
     assert ev.wait("done")["stop_reason"] == al.FINAL and model.calls == [] and len(model.agent_calls) == 1
 
 
+def test_a_judged_length_is_never_fixed_upfront_the_model_works_first_and_chooses_with_write_long(tmp_path):
+    """size=heuristic (no number at all, even for a request with no file or page in it - the one case the fixed-words path would otherwise
+    run _long_run on at once) and size=hybrid (a number, but only as a base) both leave the turn to the model, the same as a request that
+    needs a file read first, with a note that says why and how to call write_long."""
+    model = Model(say("Fatto."))
+    session, ev, built = session_with(tmp_path, model)
+    session.send("m1", "Scrivi qualcosa sui fiumi d'Europa\n\n[long answer: mode=write; size=heuristic]")
+    assert ev.wait("done")["stop_reason"] == al.FINAL and model.calls == [] and len(model.agent_calls) == 1
+    note = next(m["content"] for m in built.agent.messages if str(m.get("content")).startswith("[harness] Long answer: the length is judged"))
+    assert "leave `words` out (or 0)" in note and "write_long" in note
+
+    model2 = Model(say("Fatto."))
+    session2, ev2, built2 = session_with(tmp_path, model2)
+    session2.send("m1", "Scrivi qualcosa sui fiumi d'Europa\n\n[long answer: mode=write; size=hybrid; words=9000]")
+    assert ev2.wait("done")["stop_reason"] == al.FINAL and model2.calls == [] and len(model2.agent_calls) == 1
+    note2 = next(m["content"] for m in built2.agent.messages if str(m.get("content")).startswith("[harness] Long answer: the length is judged"))
+    assert "About 9000 words" in note2 and "not a target to hit exactly" in note2 and "write_long" in note2
+
+
 def test_the_model_is_told_when_the_control_is_on_and_when_it_goes_off_and_only_then(tmp_path):
     model = Model(say("a"), say("b"), say("c"), say("d"))
     session, ev, built = session_with(tmp_path, model)

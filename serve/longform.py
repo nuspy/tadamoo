@@ -244,17 +244,23 @@ def asked_words(text: str) -> int:
 HINT_RE = re.compile(r"\n*\[long answer:([^\]\n]*)\][ \t]*$")
 
 
+SIZES = ("fixed", "heuristic", "hybrid")     # fixed: words is the target, as given. heuristic: no words at all, judged once the agent has looked at the
+# request. hybrid: words bounds that same judgment instead of fixing it (serve/longflow.py's LongFlow, hint_words + stated)
+
+
 def parse_hint(text: str) -> Optional[Dict[str, Any]]:
     """The line the Agentic coding tab's Long answer control puts at the end of a message ("[long answer: mode=translate; words=5000; language=it]"):
-    the request without it, the mode, the words and the other fields, or None when the message has no such line."""
+    the request without it, the mode, the words and the other fields, or None when the message has no such line. `size` (a plain write only) is
+    "fixed" when the line has no size field of its own, for a line from before this existed."""
     m = HINT_RE.search(text) if isinstance(text, str) else None
     if m is None:
         return None
     fields = {k.strip(): v.strip() for k, v in (p.split("=", 1) for p in m.group(1).split(";") if "=" in p)}
     body = text[:m.start()].rstrip()
     mode = fields.get("mode") if fields.get("mode") in MODES else "write"
+    size = fields.get("size") if fields.get("size") in SIZES else "fixed"
     words = int(fields["words"]) if fields.get("words", "").isdigit() else max(count_words(body), words_for_tokens(LONG_MIN_TOKENS, request_language(body)))
-    return {"mode": mode, "words": words, "parts": chunk_count(words), "reason": "asked", "text": body, "fields": fields}
+    return {"mode": mode, "size": size, "words": words, "parts": chunk_count(words), "reason": "asked", "text": body, "fields": fields}
 
 
 def detect_long_request(text: str, source_words: int = 0, min_tokens: int = LONG_MIN_TOKENS) -> Optional[Dict[str, Any]]:
@@ -658,10 +664,13 @@ class Spec:
             raise LongformError("long_answer: true or an object")
         known = {"mode", "task", "instruction", "source", "target_words", "target_language", "language", "style", "glossary",
                  "segment_words", "sections", "headings", "retries", "protect", "max_segments", "max_seconds", "context_tokens",
-                 "end_turn_bias", "outline", "title"}
+                 "end_turn_bias", "outline", "title", "size"}
         unknown = sorted(set(raw) - known)
         if unknown:
             raise LongformError(f"long_answer: unknown field {unknown[0]!r}")
+        size = raw.get("size", "fixed")
+        if size not in SIZES:
+            raise LongformError(f"long_answer.size: one of {', '.join(SIZES)}")
 
         def number(key: str, lo: float, hi: float, default: float, whole: bool = True) -> Any:
             v = raw.get(key)
@@ -687,7 +696,8 @@ class Spec:
         target = number("target_words", *TARGET_WORDS_RANGE, 0)
         if mode == "write":
             text = text or task_text.strip()
-            target = target or (sum(r["target_words"] for r in outline if r["target_words"]) if outline else 0) or 2000
+            fallback = 0 if size == "heuristic" else 2000           # heuristic judges freely: no number fills in behind its back
+            target = target or (sum(r["target_words"] for r in outline if r["target_words"]) if outline else 0) or fallback
             if not text:
                 raise LongformError("long_answer: write needs a task (the last user message, or `task`)")
         else:
@@ -716,7 +726,7 @@ class Spec:
                     max_seconds=number("max_seconds", 0, 86400 * 7, 0.0, whole=False), context_tokens=number("context_tokens", 0, 10 ** 8, 0),
                     end_turn_bias=float(bias) if bias is not None else None, outline=outline,
                     title=" ".join(str(raw.get("title") or "").split())[:160],
-                    declared=mode == "write" and (raw.get("target_words") is not None or bool(outline)))
+                    declared=mode == "write" and size == "fixed" and (raw.get("target_words") is not None or bool(outline)))
 
 
 @dataclass
