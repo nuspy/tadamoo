@@ -55,3 +55,9 @@ typing_extensions>=4.13    # richiesto da pydantic/openai (Sentinel)
 # torch (backend di openai-whisper): NON qui — va installato con la wheel CUDA
 # giusta per la GPU (vedi installer: pip install torch --index-url .../cu130).
 # Su CPU-only: `pip install torch` (default) va bene ma la trascrizione e' piu' lenta.
+
+# Riconoscimento vocale di chi parla (tadamoo/speech/voiceprint.py, voiceid.py): l'embedding
+# WavLM gira SEMPRE su CPU (nessuna wheel CUDA da scegliere, a differenza di whisper sopra):
+# qui basta `pip install torch` semplice.
+transformers>=4.40        # WavLMForXVector, l'embedding vocale
+librosa>=0.10             # tono (f0) delle letture, sia nel controllo qualita' delle voci sintetiche sia nel riconoscimento
