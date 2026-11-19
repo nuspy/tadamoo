@@ -18,7 +18,10 @@ const keepKey = key => {
   catch (e) { try { sessionStorage.setItem(KEY_NAME, key); } catch (e2) { /* kept for this page only */ } }
 };
 const forgetKey = () => { try { localStorage.removeItem(KEY_NAME); } catch (e) { /* nothing kept */ } try { sessionStorage.removeItem(KEY_NAME); } catch (e) { /* nothing kept */ } };
-let apiKey = keptKey();
+/* a mobile app's own WebView has no earlier visit to keep a key from: it passes one once as ?key=... on the page it opens. */
+const urlKey = () => { try { return new URLSearchParams(location.search).get("key") || ""; } catch (e) { return ""; } };
+let apiKey = keptKey() || urlKey();
+if (!keptKey() && urlKey()) keepKey(apiKey);
 /* the server's key was changed from this page: the page goes on with the new one, and the desktop app keeps it in the entry of this server */
 window.setServerKey = key => {
   apiKey = key;

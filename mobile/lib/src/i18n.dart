@@ -330,6 +330,8 @@ class Texts {
     'cap.kind.mcp': ['server MCP', 'MCP server'],
     'cap.kind.skill': ['skill', 'skill'],
     'opts.title': ['Opzioni della conversazione', 'Conversation options'],
+    'infset.title': ['Impostazioni di inferenza', 'Inference settings'],
+    'infset.tip': ['Impostazioni di inferenza (le stesse di web e PC)', 'Inference settings (the same as web and PC)'],
     'opts.saved': ['Salvato sul PC.', 'Saved on the PC.'],
     'opts.reload': ['Rileggi dal PC', 'Read again from the PC'],
     'opts.pconly': ['Il PC non lascia cambiare questa impostazione dal telefono: si cambia dal PC.', 'The PC does not let a phone change this setting: change it on the PC.'],

@@ -11,6 +11,7 @@ import 'chat_options.dart';
 import 'event_blocks.dart';
 import 'files.dart';
 import 'i18n.dart';
+import 'inference_settings_screen.dart';
 import 'network_screen.dart';
 import 'place.dart';
 import 'server_prefs.dart';
@@ -362,6 +363,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _options() => showChatOptions(context, prefs: prefs, role: widget.agent ? _role : null, onRole: widget.agent ? _setRole : null, council: _council, onCouncil: _setCouncil);
+  void _inferenceSettings() => Navigator.of(context).push(MaterialPageRoute(builder: (_) => InferenceSettingsScreen(settings: widget.settings)));
 
   // ---- drawing ----
   @override
@@ -380,6 +382,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
             onPressed: _toggleReadAloud,
           ),
           IconButton(tooltip: Texts.t('opts.title'), icon: const Icon(Icons.tune), onPressed: _options),
+          IconButton(tooltip: Texts.t('infset.tip'), icon: const Icon(Icons.settings_suggest_outlined), onPressed: _inferenceSettings),
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: ActionChip(label: Text(Texts.t('mode.$mode')), onPressed: _modeSheet),
