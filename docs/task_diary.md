@@ -1,7 +1,15 @@
 # Diario dei task
 
-Ultimo aggiornamento: 19 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
+Ultimo aggiornamento: 20 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti dalla lista del 17 novembre e da «Decisioni tue in attesa». Il 17 novembre sono state tolte 7 copie vecchie incollate in fondo al file (sezione «12 novembre» compresa): si leggono con `git show 183b0300:docs/task_diary.md`. Le sezioni dell'8, 7, 5 e 4 novembre sono in `docs/task_diary_archive.md`.
+
+## 20 novembre
+
+Richiesta grande in 10 punti più una regola di stile (cartelle di sessioni, rinomina, Contatti per gruppo, bottoni). Pianificata tutta insieme (3 tue decisioni: cartella di progetto = contenitore sessioni anche in Agentic coding; solo le sessioni nuove usano le basi separate; il controllo sui bottoni è un giro completo).
+
+- [x] **Punto 7**: il tab Canary dava `addon_outdated` (mancava `canary.gui.server`). La copia in `addons/openweight-canary/` non è tracciata da git: sincronizzato il pacchetto corrente da `E:\Projects\openweight-canary\canary` (72 file), verificato che la pagina risponda 200. Nessun codice toccato in questo repository.
+- [x] **Punti 1-2 e metà del 3** (basi separate Chat/Agentic coding, cartella di sessione dentro il progetto): `serve/userdata.py` ha ora due file separati (uno per Chat, uno per Agentic coding), con ripiego sul vecchio file unico se uno dei due non è mai stato scelto a parte (una scelta fatta prima di oggi vale ancora per entrambi). La cartella di OGNI conversazione (`serve/agent_sessions.py`) va: dentro `.tadamoo/sessions/` del suo progetto se lavora su una cartella aggiunta in Agentic coding; altrimenti nella base Agentic coding generica se ha un'altra cartella di lavoro; altrimenti nella base Chat. Togliere un progetto da Agentic coding ora cancella prima le sue conversazioni (stessa pulizia di sempre, una per una) e poi la sua `sessions/` — mai il codice né il resto del registro `.tadamoo`. Settings > General mostra ora due pannelli (Chat, Agentic coding). 284 test passano (uno resta rosso, confermato rotto anche PRIMA di oggi, non mio).
+- [ ] **Resta da fare**: la parte nuova del punto 3 (cartelle vere e proprie in Chat, non legate a un progetto di codice — oggi non esistono), i punti 4-6 (rinomina col tasto destro, colore arancione delle cartelle, pulsante "+" ridisegnato — nessun menu contestuale esiste ancora nella GUI, va costruito da zero), gli 8-10 (colonna Contatti guidata dai gruppi: oggi gruppi e contatti sono mescolati nella stessa colonna), l'11 (bottoni con bordo o sfondo ovunque, giro completo sulla GUI — non ancora iniziato). Il piano completo con i dettagli è in `C:\Users\atain\.claude\plans\1-verifica-che-tutte-tender-moonbeam.md`.
 
 ## 19 novembre
 
