@@ -12,6 +12,7 @@ from serve.agent_runs import RunError
 from serve.agent_sessions import SessionManager
 from serve.approvals import ApprovalBoard
 from serve.projects import ProjectStore
+from serve.chat_folders import ChatFolderStore
 from serve.changes import ChangeJournal
 from tadamoo.taskboard import TaskBoard
 from test_e2e_mock_server import answer, start_server, tool_call, ws  # noqa: F401  (fixtures)
@@ -104,10 +105,13 @@ def server(tmp_path, monkeypatch, start_server):  # noqa: F811
     def make(scripts):
         url = start_server(scripts)
         projects = ProjectStore(tmp_path / "j")
-        mgr = SessionManager(tmp_path / "j", url, "", board=ApprovalBoard(), tick_s=0.2, router="rules", projects=projects, default_workspace=tmp_path / "chat-workspace")
+        chat_folders = ChatFolderStore(tmp_path / "j" / "chat-folders.json")
+        mgr = SessionManager(tmp_path / "j", url, "", board=ApprovalBoard(), tick_s=0.2, router="rules", projects=projects,
+                             chat_folders=chat_folders, default_workspace=tmp_path / "chat-workspace")
         monkeypatch.setattr(handler, "_SESSIONS", mgr)
         monkeypatch.setattr(handler, "_PROJECTS", projects)
-        state.update(mgr=mgr, api=Api(url, ""), projects=projects)
+        monkeypatch.setattr(handler, "_CHAT_FOLDERS", chat_folders)
+        state.update(mgr=mgr, api=Api(url, ""), projects=projects, chat_folders=chat_folders)
         return state
 
     yield make
@@ -195,3 +199,43 @@ def test_deleting_a_project_deletes_only_its_own_sessions_and_their_folders(tmp_
     store.clear_sessions_dir(str(folder))
     assert not (folder / ".tadamoo" / "sessions").exists()
     assert (other / ".tadamoo" / "project.json").is_file()          # never touched the other project at all
+
+
+def test_the_project_rename_route_renames_in_the_list_only(server, tmp_path):
+    s = server([answer("ok")])
+    api, folder = s["api"], tmp_path / "site"
+    folder.mkdir()
+    api("POST", "/api/agent/projects", {"path": str(folder)})
+    code, body = api("POST", "/api/agent/projects/rename", {"path": str(folder), "name": "Renamed"})
+    assert (code, body["project"]["name"]) == (200, "Renamed")
+    assert [p["name"] for p in api("GET", "/api/agent/projects")[1]["projects"]] == ["Renamed"]
+    code, body = api("POST", "/api/agent/projects/rename", {"path": str(folder), "name": ""})
+    assert code == 400
+
+
+def test_the_chat_folder_routes_add_list_rename_and_remove_cascades(server, tmp_path):
+    s = server([answer("done"), answer("done")])
+    api = s["api"]
+    code, body = api("POST", "/api/agent/chat-folders", {"name": "Work"})
+    assert code == 200 and body["folder"]["name"] == "Work"
+    fid = body["folder"]["id"]
+    assert [f["name"] for f in api("GET", "/api/agent/chat-folders")[1]["folders"]] == ["Work"]
+    code, body = api("POST", "/api/agent/chat-folders/rename", {"id": fid, "name": "Renamed"})
+    assert (code, body["folder"]["name"]) == (200, "Renamed")
+    sid = api("POST", "/api/agent/sessions", {"workspace": "", "mode": "default", "folder_id": fid})[1]["session"]["id"]
+    assert s["mgr"].get(sid)["folder_id"] == fid
+    assert s["mgr"].history_dir(sid) == s["mgr"].chat_folder_dir(fid) / "sessions" / sid
+    folder_dir = s["mgr"].chat_folder_dir(fid)
+    code, body = api("POST", "/api/agent/chat-folders/remove", {"id": fid})
+    assert (code, body["removed"], body["deleted_sessions"]) == (200, True, [sid])
+    assert not folder_dir.exists()
+    assert api("GET", "/api/agent/chat-folders")[1]["folders"] == []
+    with pytest.raises(RunError):
+        s["mgr"].get(sid)
+
+
+def test_creating_a_session_in_an_unknown_chat_folder_is_a_clear_refusal(server):
+    s = server([answer("unused")])
+    api = s["api"]
+    code, body = api("POST", "/api/agent/sessions", {"workspace": "", "mode": "default", "folder_id": "bogus"})
+    assert code == 409 and body["error"]["code"] == "gone"

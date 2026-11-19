@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import re
 import secrets
 import select
@@ -58,6 +59,7 @@ from serve.target_api import TargetManager
 from tadamoo.target import TargetError
 from serve.files_api import FilesApi, FilesError
 from serve.projects import ProjectStore
+from serve.chat_folders import ChatFolderStore, FolderError
 from serve.remote import KEY_TTL_DAYS, MODE_ORDER, ApiKeys, Installer, RemoteAccess, tailscale_peers, tailscale_status, tailscale_up
 from serve.connectors_api import ConnectorError, ConnectorsApi
 from serve.connectors_install import ConnectorInstaller
@@ -119,6 +121,7 @@ PICTURE_TYPES = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", 
 _SESSIONS = None                                      # the Chat's conversations with the agent, made on first use
 _TARGETS = None                                       # the Target Loop of those conversations, made on first use
 _PROJECTS = None                                      # the folders of the Agentic coding tab, made on first use
+_CHAT_FOLDERS = None                                  # the Chat tab's own folders, made on first use
 _INSTALLER = Installer()                              # installs Tailscale when the person asks
 _ROUTINES = None                                      # the agent's recurring routines, made with the conversations or on first use
 _PSKILLS = None                                       # the person's personal skills, made on first use
@@ -150,6 +153,13 @@ def _project_store() -> ProjectStore:
     if _PROJECTS is None:
         _PROJECTS = ProjectStore(userdata.path("journal"))
     return _PROJECTS
+
+
+def _chat_folder_store() -> ChatFolderStore:
+    global _CHAT_FOLDERS
+    if _CHAT_FOLDERS is None:
+        _CHAT_FOLDERS = ChatFolderStore(userdata.path("chat-folders.json"))
+    return _CHAT_FOLDERS
 
 
 def _task_folders() -> List[Dict[str, str]]:
@@ -4115,6 +4125,9 @@ def make_handler(svc: Service, remote: bool = False):
         def _projects(self) -> ProjectStore:
             return _project_store()
 
+        def _chat_folders(self) -> ChatFolderStore:
+            return _chat_folder_store()
+
         def _tasks_view(self) -> dict:
             """Every open task of every folder, flat, for the programs that report to the register and read it back: `status` is the state."""
             rows = []
@@ -4142,7 +4155,7 @@ def make_handler(svc: Service, remote: bool = False):
                                            rule_of_two=RuleOfTwoPrefs(userdata.path("rule_of_two.json")).read, allow_rules=AllowRules(userdata.path("allow_rules.json")),
                                            rule_of_two_prefs=RuleOfTwoPrefs(userdata.path("rule_of_two.json")),
                                            browser_profile=userdata.path("browser-profile"), plan_effect=self._plan_effect_sink(),
-                                           skills_dir=userdata.path("personal-skills"), projects=self._projects(),
+                                           skills_dir=userdata.path("personal-skills"), projects=self._projects(), chat_folders=self._chat_folders(),
                                            personal_dir=userdata.path("personal-memory"), personal_keys=userdata.path("vault"), personas_dir=userdata.path("personas"), rag_dir=userdata.path("rag"), media_file=userdata.path("media.json"), learn=self._memory_worker().offer, past=self._past(),
                                            exec_level_file=userdata.path(exec_level.FILE), persistence_file=userdata.path(persistence.FILE), next_steps_file=userdata.path(nextsteps.FILE), lessons_dir=userdata.path("lessons"), forgetter=self._forgetter(), cards=self._card_worker(), persona_learning=self._persona_learning(), boards=_board_for)
                 _PERSONA_LEARNING.source = _SESSIONS.learning_source
@@ -4225,6 +4238,8 @@ def make_handler(svc: Service, remote: bool = False):
                         return self._json(200, {"session": mgr.get(parts[1])})
                 if parts == ["projects"]:
                     return self._json(200, {"projects": self._projects().list()})
+                if parts == ["chat-folders"]:
+                    return self._json(200, {"folders": self._chat_folders().list()})
                 if parts == ["runs"]:
                     return self._json(200, self._agent_runner().view())
                 if len(parts) == 3 and parts[0] == "runs" and parts[2] == "log":
@@ -4284,6 +4299,24 @@ def make_handler(svc: Service, remote: bool = False):
                     deleted = self._agent_sessions().delete_project_sessions(project_path)
                     self._projects().clear_sessions_dir(project_path)
                     return self._json(200, {"removed": self._projects().remove(project_path), "deleted_sessions": deleted})
+                if parts == ["projects", "rename"]:
+                    try:
+                        return self._json(200, {"project": self._projects().rename(req.get("path"), req.get("name"))})
+                    except ValueError as e:
+                        return self._json(400, {"error": {"message": str(e)}})
+                if parts == ["chat-folders"] or (len(parts) == 2 and parts[0] == "chat-folders" and parts[1] in ("rename", "remove")):
+                    try:
+                        if parts == ["chat-folders"]:
+                            return self._json(200, {"folder": self._chat_folders().add(req.get("name"))})
+                        if parts[1] == "rename":
+                            return self._json(200, {"folder": self._chat_folders().rename(req.get("id"), req.get("name"))})
+                        folder_id = req.get("id")
+                        mgr = self._agent_sessions()
+                        deleted = mgr.delete_chat_folder_sessions(folder_id)
+                        shutil.rmtree(mgr.chat_folder_dir(folder_id), ignore_errors=True)
+                        return self._json(200, {"removed": self._chat_folders().remove(folder_id), "deleted_sessions": deleted})
+                    except FolderError as e:
+                        return self._json(400, {"error": {"message": str(e)}})
                 if parts[0] == "sessions":
                     mgr = self._agent_sessions()
                     channel = self._channel()
@@ -4309,7 +4342,7 @@ def make_handler(svc: Service, remote: bool = False):
                                                                       req.get("unattended") is True, req.get("role", "general"), req.get("private") is True,
                                                                       req.get("alias", ""), req.get("cross_commands"), req.get("parent", ""), req.get("rules"),
                                                                       req.get("budget_day_tokens"), req.get("persona", ""), channel or "chat", req.get("knowledge"),
-                                                                      req.get("council") is True, req.get("inference"))})
+                                                                      req.get("council") is True, req.get("inference"), req.get("folder_id", ""))})
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "apply":
                         return self._json(200, mgr.copy_apply(parts[1], req.get("paths")))
                     if len(parts) == 4 and parts[2] == "copy" and parts[3] == "discard":

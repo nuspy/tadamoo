@@ -152,7 +152,7 @@ class SessionManager:
                  vault_dir: Optional[Path] = None, payments_dir: Optional[Path] = None,
                  browser_prefs: Optional[Callable[[], Dict[str, bool]]] = None, browser_profile: Optional[Path] = None, computer_prefs: Any = None,
                  plan_effect: Optional[Callable[[str, str, str, str, str], Any]] = None, compare_wait_s: Optional[float] = None,
-                 skills_dir: Optional[Path] = None, projects: Any = None, personal_dir: Optional[Path] = None, personal_keys: Optional[Path] = None,
+                 skills_dir: Optional[Path] = None, projects: Any = None, chat_folders: Any = None, personal_dir: Optional[Path] = None, personal_keys: Optional[Path] = None,
                  learn: Optional[Callable[[Dict[str, Any]], Any]] = None, knowledge_flags: Optional[Callable[[], List[str]]] = None,
                  rule_of_two: Optional[Callable[[], str]] = None, allow_rules: Any = None, rule_of_two_prefs: Any = None,
                  intake_flags: Optional[Callable[[], List[str]]] = None,
@@ -163,8 +163,10 @@ class SessionManager:
         # chat and agent-coding conversations can be told apart to settle in different places (Settings > General), but the records,
         # the shared message store and the compared-answers file are not split by kind - they stay where they always have, under
         # the chat base, which is also the one every installation already had before the two were split.
-        self.chat_directory = Path(chat_directory) / "sessions"
+        self._chat_base = Path(chat_directory)
+        self.chat_directory = self._chat_base / "sessions"
         self.agent_directory = Path(agent_directory) / "sessions" if agent_directory is not None else self.chat_directory
+        self.chat_folders = chat_folders                       # the Chat tab's own folders (serve/chat_folders.py); None where it is not wired up
         self.chat_directory.mkdir(parents=True, exist_ok=True)
         if agent_directory is not None:
             self.agent_directory.mkdir(parents=True, exist_ok=True)
@@ -348,11 +350,15 @@ class SessionManager:
             return dict(self._record(sid))
 
     def _folder_for(self, rec: Dict[str, Any]) -> Path:
-        """Where one conversation's own files live: the chat base for a Chat conversation (no workspace, or the default one);
-        inside its own project's `.tadamoo/sessions/` for an Agentic coding conversation on a folder that was added there
-        (serve/projects.py); the agent base for one on a folder that never was."""
+        """Where one conversation's own files live: inside its own Chat folder (serve/chat_folders.py) when it names one that still
+        exists; the chat base for a Chat conversation with no folder (no workspace, or the default one); inside its own project's
+        `.tadamoo/sessions/` for an Agentic coding conversation on a folder that was added there (serve/projects.py); the agent
+        base for one on a folder that never was."""
         workspace = str(rec.get("workspace") or "")
         is_chat = not workspace or (self.default_workspace is not None and Path(workspace) == self.default_workspace)
+        folder_id = str(rec.get("folder_id") or "")
+        if is_chat and folder_id and self.chat_folders is not None and self.chat_folders.known(folder_id):
+            return self._chat_base / "folders" / folder_id / "sessions" / rec["id"]
         if not is_chat and self.projects is not None:
             project_dir = self.projects.sessions_dir(workspace)
             if project_dir is not None:
@@ -996,7 +1002,7 @@ class SessionManager:
                images: Any = "", charts: Any = "", unattended: bool = False, role: Any = GENERAL_ROLE, private: bool = False,
                alias: Any = "", cross_commands: Any = None, parent: Any = "", operating_rules: Any = None,
                budget_day_tokens: Any = None, persona: Any = "", channel: str = "chat", knowledge: Any = None, council: Any = False,
-               inference_settings: Any = None) -> Dict[str, Any]:
+               inference_settings: Any = None, folder_id: Any = "") -> Dict[str, Any]:
         """A new conversation. Its inference settings are `inference_settings` (the panel's) when given, else the machine default; the plain arguments
         (`max_turns`, `effort`, `context_policy`, `context_threshold`, `end_turn_bias`) override one of them for this conversation."""
         from serve.agent_runs import AgentRunner
@@ -1029,6 +1035,9 @@ class SessionManager:
                 live = sum(1 for r in self.records if r.get("parent") == parent and r.get("unattended") and r["state"] != "closed")
                 if live >= MAX_SPAWN_CHILDREN:
                     raise RunError(f"This conversation already has {MAX_SPAWN_CHILDREN} background conversations of its own running; close one first.", "too_many_children")
+        folder_id = str(folder_id or "")
+        if folder_id and (self.chat_folders is None or not self.chat_folders.known(folder_id)):
+            raise RunError("That folder is not there any more.", "gone")
         if (workspace is None or workspace == "") and self.default_workspace is not None:
             self.default_workspace.mkdir(parents=True, exist_ok=True)
             workspace = str(self.default_workspace)
@@ -1072,6 +1081,8 @@ class SessionManager:
                **({"temperature": base["temperature"]} if base["temperature"] is not None else {}),
                **({"max_tokens": base["max_tokens"]} if base["max_tokens"] else {}), **({"sampling": base["sampling"]} if base["sampling"] else {}),
                "created": time.time(), "updated": time.time(), "state": "dormant", "blocked": None, "turns": 0}
+        if folder_id:
+            rec["folder_id"] = folder_id
         if copy:
             rec["worktree"], rec["workdir"] = copy, copy["workdir"]
         if attached:
@@ -2652,6 +2663,19 @@ class SessionManager:
         for sid in ids:
             self.delete(sid)
         return ids
+
+    def delete_chat_folder_sessions(self, folder_id: str) -> List[str]:
+        """Deletes every conversation held in this Chat folder, the same way `delete` would one at a time - called when the
+        folder itself is removed (serve/chat_folders.py), before its own subfolder (chat_folder_dir) is cleared."""
+        with self._lock:
+            ids = [r["id"] for r in self.records if r.get("folder_id") == folder_id]
+        for sid in ids:
+            self.delete(sid)
+        return ids
+
+    def chat_folder_dir(self, folder_id: str) -> Path:
+        """The whole subfolder of a Chat folder's own conversations (their one shared parent) - removed once they are all gone."""
+        return self._chat_base / "folders" / str(folder_id)
 
     def slash(self, sid: str, name: Any, args: Any = "") -> Dict[str, Any]:
         """A slash command that needs the conversation's process (tadamoo/commands.py); its answer comes as a `command` event."""
