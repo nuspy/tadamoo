@@ -198,7 +198,7 @@ class MarkupTest(unittest.TestCase):
 
     def test_navigation_order_and_the_palette_and_the_notice_exist(self):
         tabs = re.findall(r'<button class="tab" role="tab" id="tab-(\w+)" data-view=', self.html)
-        self.assertEqual(tabs, ["chat", "agent", "actions", "plans", "cron", "stats", "loader", "connectors", "rag", "voice", "canary", "tasks", "settings"])     # Hardware and LOGS sit under Monitor, Wallet under Settings
+        self.assertEqual(tabs, ["chat", "agent", "actions", "plans", "cron", "stats", "loader", "connectors", "rag", "voice", "contacts", "canary", "tasks", "settings"])     # Hardware and LOGS sit under Monitor, Wallet under Settings
         for needle in ('id="palette"', 'id="pal-input"', 'id="pal-list"', 'id="pal-open"', 'id="nomodel"', 'id="viewsub"',
                        'id="st-ui-scale"', 'id="st-planner-body"', 'aria-keyshortcuts="Control+K"'):
             self.assertIn(needle, self.html, needle)
@@ -362,6 +362,34 @@ class QueuedRequestTest(unittest.TestCase):
         text = (WEB / "i18n.js").read_text(encoding="utf-8")
         for key in ("ch.drop.confirm.title", "ch.drop.confirm.help", "ch.drop.go"):
             self.assertEqual(text.count(f'"{key}":'), 2, key)
+
+
+class ContactsPageTest(unittest.TestCase):
+    """The Contacts tab: groups and contacts, the permission types list (CRUD and reorder) and its categories."""
+
+    def test_the_tab_and_its_section_exist(self):
+        html = (WEB / "index.html").read_text(encoding="utf-8")
+        for needle in ('id="tab-contacts"', 'data-view="contacts"', 'id="view-contacts"', 'id="ct-root"', 'src="web/contacts.js"', 'href="web/contacts.css"'):
+            self.assertIn(needle, html)
+
+    def test_the_page_builds_markup_with_the_dom_not_strings(self):
+        js = (WEB / "contacts.js").read_text(encoding="utf-8")
+        for banned in ("innerHTML", "insertAdjacentHTML", "document.write", "eval("):
+            self.assertNotIn(banned, js)
+
+    def test_removing_a_type_or_a_group_warns_what_it_clears_or_loosens(self):
+        js = (WEB / "contacts.js").read_text(encoding="utf-8")
+        self.assertIn("ct.type.remove.confirm", js)
+        self.assertIn("ct.group.remove.confirm", js)
+
+    def test_no_hover_only_control_and_touch_targets_are_44px(self):
+        css = (WEB / "contacts.css").read_text(encoding="utf-8")
+        self.assertNotIn("hover", css)
+        self.assertIn("min-height: 44px", css)
+
+    def test_reduced_motion_is_respected(self):
+        css = (WEB / "contacts.css").read_text(encoding="utf-8")
+        self.assertIn("prefers-reduced-motion", css)
 
 
 class CutReplyTest(unittest.TestCase):

@@ -58,6 +58,7 @@ FEATURES = [
     ("Knowledge: first-run offer to install the embeddings environment, once", "Knowledge", "rag.js", "api/rag/setup/pending"),
     ("Admin: restart the server, a plain process or a named service", "Settings > Admin", "admin.js", "api/admin/restart"),
     ("Dark web: browse an onion page with a real browser, over Tor", "Chat settings > Dark web", "darkwebset.js", "dw-browse"),
+    ("Contacts: groups with default permissions, a contact's own overrides, and a dynamic reorderable list of permission types", "Contacts", "contacts.js", "api/contacts"),
 ]
 
 

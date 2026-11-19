@@ -27,6 +27,7 @@
 <link rel="stylesheet" href="web/websearch.css">
 <link rel="stylesheet" href="web/voice.css">
 <link rel="stylesheet" href="web/voicetab.css">
+<link rel="stylesheet" href="web/contacts.css">
 <link rel="stylesheet" href="web/voiceavatar.css">
 <link rel="stylesheet" href="web/voicemeet.css">
 <link rel="stylesheet" href="web/voiceplan.css">
@@ -175,6 +176,7 @@
 <script defer src="web/voiceengines.js"></script>
 <script defer src="web/voicetrain.js"></script>
 <script defer src="web/voicetab.js"></script>
+<script defer src="web/contacts.js"></script>
 <script defer src="web/telegram.js"></script>
 <script defer src="web/wallet.js"></script>
 <script defer src="web/netwatch.js"></script>
@@ -200,6 +202,7 @@
     <button class="tab" role="tab" id="tab-connectors" data-view="connectors" aria-controls="view-connectors" aria-selected="false" tabindex="-1" data-t="tab.connectors">Connectors</button>
     <button class="tab" role="tab" id="tab-rag" data-view="rag" aria-controls="view-rag" aria-selected="false" tabindex="-1" data-t="tab.rag">Knowledge</button>
     <button class="tab" role="tab" id="tab-voice" data-view="voice" aria-controls="view-voice" aria-selected="false" tabindex="-1" data-t="tab.voice">Voice</button>
+    <button class="tab" role="tab" id="tab-contacts" data-view="contacts" aria-controls="view-contacts" aria-selected="false" tabindex="-1" data-t="tab.contacts">Contacts</button>
     <button class="tab" role="tab" id="tab-canary" data-view="canary" aria-controls="view-canary" aria-selected="false" tabindex="-1" data-t="tab.canary">Canary</button>
     <button class="tab" role="tab" id="tab-tasks" data-view="tasks" aria-controls="view-tasks" aria-selected="false" tabindex="-1" data-t="tab.tasks">Tasks</button>
     <button class="tab" role="tab" id="tab-settings" data-view="settings" aria-controls="view-settings" aria-selected="false" tabindex="-1" data-t="tab.settings">Settings</button>
@@ -1056,6 +1059,12 @@
     <section class="sec vt-sec" aria-labelledby="vt-h">
       <div class="sh"><b id="vt-h" data-t="vt.title">Voice</b></div>
       <div class="pad vt-root" id="vt-root"></div>
+    </section>
+  </div>
+  <div class="view ct" id="view-contacts" role="tabpanel" aria-labelledby="tab-contacts" hidden>
+    <section class="sec ct-sec" aria-labelledby="ct-h">
+      <div class="sh"><b id="ct-h" data-t="ct.title">Contacts</b></div>
+      <div class="pad ct-root" id="ct-root"></div>
     </section>
   </div>
   <div class="view rg" id="view-rag" role="tabpanel" aria-labelledby="tab-rag" hidden>

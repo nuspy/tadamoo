@@ -1,0 +1,30 @@
+.ct-panel { margin: 0 0 24px; padding-bottom: 20px; border-bottom: 1px solid var(--line-soft); }
+.ct-panel:last-child { border-bottom: none; }
+.ct-h3 { margin: 0 0 10px; }
+.ct-cath { margin: 14px 0 6px; font-size: 14px; color: var(--fg-2); }
+.ct-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (min-width: 900px) { .ct-cols { grid-template-columns: 240px minmax(0, 1fr); } }
+.ct-list { display: grid; gap: 6px; align-content: start; }
+.ct-item { text-align: left; justify-content: flex-start; min-height: 44px; }
+.ct-item[aria-pressed="true"], .ct-item.ct-on { background: var(--accent); color: var(--tadamoo-950); border-color: var(--accent); }
+.ct-loose { margin: 10px 0 2px; font-size: 13px; color: var(--fg-3); }
+.ct-addrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+.ct-addrow input, .ct-addrow select { min-height: 44px; flex: 1 1 160px; }
+.ct-detail { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.ct-field { display: grid; gap: 4px; }
+.ct-field input, .ct-field select, .ct-field textarea { min-height: 44px; }
+.ct-field textarea { min-height: 64px; }
+.ct-empty { color: var(--fg-3); padding: 12px 0; }
+.ct-perms { display: grid; gap: 6px; }
+.ct-prow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 44px; }
+.ct-plabel { flex: 1 1 200px; }
+.ct-prow select { min-height: 44px; min-width: 140px; }
+.ct-inherited { font-size: 13px; color: var(--fg-3); }
+.ct-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.ct-acts .btn { min-height: 44px; }
+.ct-typelist { display: grid; gap: 8px; }
+.ct-typerow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ct-typerow input { flex: 1 1 200px; min-height: 44px; }
+.ct-typerow select { min-height: 44px; }
+.ct-typerow .btn { min-height: 44px; min-width: 44px; }
+@media (prefers-reduced-motion: reduce) { .ct-root *, .ct-root *::before, .ct-root *::after { transition: none !important; animation: none !important; } }
