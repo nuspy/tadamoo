@@ -15,13 +15,33 @@ def test_a_voice_matched_in_its_own_predicted_branch_is_found():
     assert found is not None and found.contact_id == "mario" and found.confident
 
 
+def _unit(cosine_with_x_axis: float):
+    return [cosine_with_x_axis, math.sqrt(1 - cosine_with_x_axis ** 2)]
+
+
 def test_a_crowded_branch_does_not_stop_at_the_first_confident_match_if_a_better_one_is_still_ahead():
     # a real bug, found testing against 25 different real voices: with several candidates in the same branch, the first one
     # that clears CONFIDENT is not always the best one - stopping there returned a confidently wrong answer 15 times out of 25.
     probe = [1.0, 0.0]
-    wrong_but_confident = [0.92, math.sqrt(1 - 0.92 ** 2)]    # cosine ~0.92 with probe: clears CONFIDENT, but is not the best
-    right_and_better = [0.97, math.sqrt(1 - 0.97 ** 2)]       # cosine ~0.97 with probe: the true match, listed after the wrong one
+    wrong_but_confident = _unit(0.90)     # cosine 0.90 with probe: clears CONFIDENT, but is not the best, and well outside MARGIN
+    right_and_better = _unit(0.99)        # cosine 0.99 with probe: the true match, listed after the wrong one
     contacts = [_voiced("wrong", 110.0, wrong_but_confident), _voiced("right", 112.0, right_and_better)]
+    found = voiceid.identify(probe, 110.0, contacts)
+    assert found is not None and found.contact_id == "right" and found.confident
+
+
+def test_two_people_nearly_tied_above_confident_counts_as_unconfident_not_a_coin_toss():
+    # the risk that grows with the roster (col tempo potrebbero esserci centinaia di contatti): someone else's voice landing
+    # close enough to the right one by chance. Both clear CONFIDENT on their own; too close to each other to trust either.
+    probe = [1.0, 0.0]
+    contacts = [_voiced("right", 110.0, _unit(0.97)), _voiced("almost_as_close", 112.0, _unit(0.93))]
+    found = voiceid.identify(probe, 110.0, contacts)
+    assert found is not None and found.contact_id == "right" and not found.confident
+
+
+def test_a_clear_margin_stays_confident_even_with_many_other_contacts():
+    probe = [1.0, 0.0]
+    contacts = [_voiced("right", 110.0, _unit(0.97))] + [_voiced(f"other{i}", 110.0, _unit(0.5)) for i in range(50)]
     found = voiceid.identify(probe, 110.0, contacts)
     assert found is not None and found.contact_id == "right" and found.confident
 

@@ -22,6 +22,7 @@ from tadamoo.speech import voiceprint
 
 CONFIDENT = 0.90                                # a match this close ends the search right away
 PASSABLE = 0.80                                 # below this, no match at all - above it but under CONFIDENT, an "uncertain" one
+MARGIN = 0.05                                   # the best match must clear the runner-up by at least this much - see identify()
 GENDER_SPLIT_HZ = 165.0                         # only an ordering hint between branches, see the module docstring
 
 _embedder: Optional[voiceprint.Embedder] = None
@@ -126,12 +127,18 @@ def _leaf_order(f0_hz: float, voiced: List[Dict[str, Any]]) -> List[Tuple[str, i
 
 def identify(embedding: Sequence[float], f0_hz: float, contacts: List[Dict[str, Any]]) -> Optional[Match]:
     """The enrolled contact this voice most likely is, or None. Walks every branch in `_leaf_order` - predicted first, then the
-    next closest, climbing all the way out if it must - and always finishes the walk: with a few dozen contacts a full scan costs
-    nothing, and stopping at the first comparison to clear CONFIDENT is not safe. A crowded leaf (many people enrolled near the same
-    pitch) can hand back a WRONG candidate above CONFIDENT before the search ever reaches the right one sitting a little further
-    along - found by testing against 25 different real voices, where this used to misidentify 15 of them, confidently. Only the
-    global best across every branch decides the answer now; if it clears PASSABLE but not CONFIDENT, it is returned unconfident
-    rather than silently dropped - the caller decides what an unconfident match is allowed to do."""
+    next closest, climbing all the way out if it must - and always finishes the walk: with even a few hundred contacts a full scan
+    costs microseconds, and stopping at the first comparison to clear CONFIDENT is not safe. A crowded leaf (many people enrolled
+    near the same pitch) can hand back a WRONG candidate above CONFIDENT before the search ever reaches the right one sitting a
+    little further along - found by testing against 25 different real voices, where this used to misidentify 15 of them,
+    confidently. Only the global best across every branch decides the answer now.
+
+    The roster growing is a second, separate risk a plain threshold does not catch: with more people enrolled, it gets more likely
+    that someone else's voice happens to land near the right one by chance. So the best match must also clear the RUNNER-UP (the
+    best score any OTHER contact reached) by at least MARGIN - two people nearly tied is exactly what a biometric 1:N search
+    confusing two people looks like, however high the top score is on its own. A match that clears PASSABLE but not both CONFIDENT
+    and the margin is returned unconfident rather than silently dropped - the caller decides what an unconfident match is allowed
+    to do."""
     voiced = [c for c in contacts if (c.get("voice") or {}).get("embeddings")]
     if not voiced:
         return None
@@ -144,12 +151,19 @@ def identify(embedding: Sequence[float], f0_hz: float, contacts: List[Dict[str, 
         g = _gender(c["voice"]["f0_hz"])
         by_leaf.setdefault((g, _band(c["voice"]["f0_hz"], cuts[g])), []).append(c)
 
-    best: Optional[Match] = None
+    per_contact: Dict[str, Tuple[float, str]] = {}      # contact id -> (its own best score, the channel that gave it)
     for leaf in _leaf_order(f0_hz, voiced):
         for c in by_leaf.get(leaf, []):
             score, channel = _best_cosine(embedding, c["voice"]["embeddings"])
-            if best is None or score > best.score:
-                best = Match(c["id"], round(score, 4), channel, score >= CONFIDENT)
-    if best and best.score >= PASSABLE:
-        return best
-    return None
+            prior = per_contact.get(c["id"])
+            if prior is None or score > prior[0]:
+                per_contact[c["id"]] = (score, channel)
+    if not per_contact:
+        return None
+    ranked = sorted(per_contact.items(), key=lambda kv: kv[1][0], reverse=True)
+    best_id, (best_score, best_channel) = ranked[0]
+    runner_up = ranked[1][1][0] if len(ranked) > 1 else -1.0
+    if best_score < PASSABLE:
+        return None
+    confident = best_score >= CONFIDENT and (best_score - runner_up) >= MARGIN
+    return Match(best_id, round(best_score, 4), best_channel, confident)
