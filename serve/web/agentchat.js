@@ -39,6 +39,7 @@
     return s;
   }
   const COPY_ICON = ["M9 9h10v11H9z", "M5 15V4h10"], TICK_ICON = ["M5 12l5 5 9-10"], BRANCH_ICON = ["M6 4v10", "M6 14a4 4 0 0 0 4 4h4", "M18 4v6", "M6 4h0", "M18 10h0"];
+  const CLOSE_ICON = ["M6 6l12 12", "M18 6l-12 12"];
   async function clipboardCopy(text) {
     try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* no clipboard here: the old way */ }
     const t = document.createElement("textarea");
@@ -937,14 +938,27 @@
     }
     if (it.goEl) it.goEl.hidden = busyNow || items.slice(items.indexOf(it) + 1).some(x => x.kind === "user");    // only the latest answer can be continued
   }
+  function confirmDrop(turn) {
+    const dlg = mk("dialog", "rg-dlg");
+    const go = btn(T("ch.drop.go"), "rg-warn", () => { dlg.close(); tell("drop", turn); });
+    dlg.append(mk("h3", "rg-h2", T("ch.drop.confirm.title")), mk("p", "rg-help", T("ch.drop.confirm.help")),
+      go, btn(T("rg.cancel"), "", () => dlg.close()));
+    dlg.addEventListener("close", () => dlg.remove());
+    document.body.append(dlg);
+    dlg.showModal();
+  }
   function paintNote(it) {
     const row = mk("div", "arow"), body = mk("span");
     row.append(window.chatUi.stamp(it.ts), body);
     it.el.replaceChildren(row);
     if (it.build) { body.append(it.build()); return; }
     body.append(mk("span", "", it.s));
-    if (it.route && it.how === "queue" && !it.over) {                         // a request that waits: it can be made urgent or taken out
-      body.append(btn(T("ch.promote"), "ghost", () => tell("promote", it.route)), btn(T("ch.drop"), "ghost", () => tell("drop", it.route)));
+    if (it.route && it.how === "queue" && !it.over) {                         // a request that waits: it can be made urgent, or taken out of the queue (asked first: there is no undo)
+      const drop = btn("", "ghost", () => confirmDrop(it.route));
+      drop.append(icon(CLOSE_ICON));
+      drop.title = T("ch.drop");
+      drop.setAttribute("aria-label", T("ch.drop"));
+      body.append(btn(T("ch.promote"), "ghost", () => tell("promote", it.route)), drop);
     }
   }
   async function tell(what, turn) {

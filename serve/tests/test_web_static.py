@@ -348,6 +348,22 @@ class ConversationChatTest(unittest.TestCase):
             self.assertNotIn(banned, js)
 
 
+class QueuedRequestTest(unittest.TestCase):
+    """A message routed behind the task in hand: it can be made urgent, or taken out of the queue only after a confirm dialog (there is no undo)."""
+
+    def test_dropping_a_queued_request_asks_first_and_only_then_calls_drop(self):
+        js = (WEB / "agentchat.js").read_text(encoding="utf-8")
+        self.assertIn("function confirmDrop(turn) {", js)
+        self.assertIn('const go = btn(T("ch.drop.go"), "rg-warn", () => { dlg.close(); tell("drop", turn); });', js)
+        self.assertIn("confirmDrop(it.route)", js)
+        self.assertNotIn('() => tell("drop", it.route)', js)              # the old one-click button is gone
+
+    def test_both_languages_have_the_confirm_texts(self):
+        text = (WEB / "i18n.js").read_text(encoding="utf-8")
+        for key in ("ch.drop.confirm.title", "ch.drop.confirm.help", "ch.drop.go"):
+            self.assertEqual(text.count(f'"{key}":'), 2, key)
+
+
 class CutReplyTest(unittest.TestCase):
     """A reply the model ended in the middle of a word is flagged, and the reader can ask again without it."""
 
