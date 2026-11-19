@@ -396,6 +396,35 @@ def test_a_queued_message_is_confirmed_by_the_process_and_not_sent_again_after_a
     assert sid not in mgr._unconfirmed
 
 
+def test_a_message_not_yet_confirmed_is_saved_with_the_record_and_cleared_once_the_process_takes_it(make, ws):
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "hello")
+    assert mgr.get(sid)["unconfirmed"]["text"] == "hello" and sid in mgr._unconfirmed
+    until(lambda: "accepted" in kinds(mgr, sid))
+    assert mgr.get(sid)["unconfirmed"] is None and sid not in mgr._unconfirmed
+
+
+def test_a_message_the_server_never_confirmed_before_it_stopped_is_not_lost_on_the_next_restart(make, ws, tmp_path):
+    """The exact failure the person reported: a title was set from a first message that then never reached the record (serve/agent_sessions.py
+    send() titles a conversation from the text it is about to deliver; the delivery itself only happens once the process is ready, so a server
+    that stops in between used to lose the words behind that title for good)."""
+    mgr = make()
+    sid = mgr.create(ws)["id"]
+    mgr.send(sid, "remember me across a restart")                  # the process is brand new: this almost certainly queues, unconfirmed
+    unconfirmed = mgr.get(sid).get("unconfirmed")
+    assert unconfirmed and unconfirmed["text"] == "remember me across a restart"
+    mgr.shutdown()                                                  # the whole server stops - not just this conversation's own process
+    mgr2 = make(command=stub_command(die_times=0))
+    try:
+        assert mgr2.get(sid)["unconfirmed"]["text"] == "remember me across a restart"      # the record on disk still has it
+        mgr2.send(sid, "and here is a second one")                 # ensure()'s fresh process takes the recovered message first
+        until(lambda: [m["content"] for m in mgr2.history(sid)["messages"] if m["role"] == "user"] ==
+                      ["remember me across a restart", "and here is a second one"])
+    finally:
+        mgr2.shutdown()
+
+
 def test_a_waiting_request_can_be_promoted_or_dropped_through_the_manager(make, ws):
     mgr = make()
     sid = mgr.create(ws)["id"]

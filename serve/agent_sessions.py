@@ -222,6 +222,9 @@ class SessionManager:
         self._compare_lock = threading.Lock()                   # the two sides of a comparison, and two comparisons, run one after the other
         self.compares: List[Dict[str, Any]] = self._load_compares()
         self.records: List[Dict[str, Any]] = self._load()
+        for r in self.records:                                  # a message the server never confirmed before it stopped: redelivered once this conversation runs again
+            if r.get("unconfirmed"):
+                self._unconfirmed[r["id"]] = r["unconfirmed"]
         self.nodes = NodeStore(self.directory / NODES_FILE)         # every conversation's messages as shared immutable nodes
         self._migrate_nodes()
         self._token_key = secrets.token_bytes(32)               # signs the name a conversation's process presents when it calls the server
@@ -275,6 +278,8 @@ class SessionManager:
         for r in out:
             if r.get("state") not in ("closed",):
                 r["state"] = "dormant"                       # no process survives the server
+            else:
+                r.pop("unconfirmed", None)                    # a closed conversation never runs again to take it
             r.pop("ask", None)                                # and a confirmation it was waiting for goes with it
             if "inference" not in r:
                 r["inference"] = inference.from_record(r)    # a conversation made before the settings were kept with it shows what it runs with
@@ -1229,7 +1234,11 @@ class SessionManager:
             if live is not None and live.proc.poll() is None and not live.ending:
                 return live
             self._set(self._record(sid), state="starting")
-            return self._spawn(sid)
+            live = self._spawn(sid)
+            unconfirmed = self._unconfirmed.get(sid)
+            if unconfirmed is not None:                           # a message the server never confirmed before it last stopped: redelivered first
+                live.after_ready = [dict(unconfirmed)]
+            return live
 
     # -- what the process says ---------------------------------------------------------------------------
 
@@ -1287,7 +1296,7 @@ class SessionManager:
                         self._write(sid, live, cmd)
             elif kind in ("accepted", "woke"):                        # a message of the person, or a note of the planner
                 self._unconfirmed.pop(sid, None)
-                self._set(rec, state="busy", blocked=None, ask=None, question=None, suggestions=None)
+                self._set(rec, state="busy", blocked=None, ask=None, question=None, suggestions=None, unconfirmed=None)
             elif kind == "suggestions":
                 self._set(rec, suggestions=event.get("items") if isinstance(event.get("items"), list) else None)
             elif kind == "ask":
@@ -1320,6 +1329,7 @@ class SessionManager:
                     self._set(rec, rule_of_two="off")
             elif kind == "queued":
                 self._unconfirmed.pop(sid, None)                     # the process has the message; it will look at it before its next model call
+                self._set(rec, unconfirmed=None)
             elif kind in ("started", "resumed"):
                 if rec["state"] not in ("asking", "blocked"):
                     self._set(rec, state="busy")
@@ -1757,7 +1767,10 @@ class SessionManager:
             if not rec.get("title"):
                 rec["title"] = " ".join(text.split())[:TITLE_CHARS]
             keep = rec["state"] in ("busy", "asking") and live.ready.is_set()       # a task is under way: its state is not changed
-            self._set(rec, blocked=None, question=None, suggestions=None, **({} if keep else {"state": "starting" if not live.ready.is_set() else "busy"}))
+            # written to disk with the record (not only kept in memory): a server that stops before the process takes it redelivers it once this
+            # conversation runs again (__init__, _ensure) instead of losing the person's own words behind a title that outlives them
+            self._set(rec, blocked=None, question=None, suggestions=None, unconfirmed=cmd,
+                      **({} if keep else {"state": "starting" if not live.ready.is_set() else "busy"}))
             if not live.ready.is_set():
                 live.after_ready.append(cmd)
             elif not self._write(sid, live, cmd):
@@ -2109,7 +2122,7 @@ class SessionManager:
             self._unconfirmed[sid] = cmd
             if not rec.get("title"):
                 rec["title"] = " ".join(skill["name"].split())[:TITLE_CHARS]
-            self._set(rec, blocked=None, question=None, state="starting" if not live.ready.is_set() else "busy")
+            self._set(rec, blocked=None, question=None, unconfirmed=cmd, state="starting" if not live.ready.is_set() else "busy")
             if not live.ready.is_set():
                 live.after_ready.append(cmd)
             elif not self._write(sid, live, cmd):
