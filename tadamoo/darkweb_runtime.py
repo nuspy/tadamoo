@@ -6,7 +6,10 @@ data: it comes back fenced, and it never goes to the agent as an instruction. No
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -109,7 +112,7 @@ class Runtime:
         folder = self.tools / "tor"
         fetch = self._fetch_file or _download
         with _lock:
-            torbundle.install(folder, fetch, torbundle.gpg_with_key(self.dir / "gnupg"))
+            torbundle.install(folder, fetch, torbundle.gpg_with_key(self.dir / "gnupg", gpg_exe=_which("gpg") or "gpg"))
         return self.status()
 
     def start_tor(self) -> Dict[str, Any]:
@@ -321,8 +324,18 @@ def _watch_check(rt: "Runtime") -> List[Dict[str, Any]]:
 
 
 def _which(name: str) -> Optional[str]:
-    import shutil
-    return shutil.which(name)
+    """`name` resolved on PATH, or (for GnuPG on Windows) one of the places that bundle it without adding it to every process's PATH: Git for
+    Windows (its own installer and GitHub Desktop's copy both put a `gpg.exe` under `usr\\bin`, off PATH) and Gpg4win."""
+    found = shutil.which(name)
+    if found or name != "gpg" or sys.platform != "win32":
+        return found
+    for root in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramW6432"), os.environ.get("LocalAppData")):
+        if not root:
+            continue
+        for candidate in (Path(root) / "Git" / "usr" / "bin" / "gpg.exe", Path(root) / "GnuPG" / "bin" / "gpg.exe", Path(root) / "Programs" / "Git" / "usr" / "bin" / "gpg.exe"):
+            if candidate.is_file():
+                return str(candidate)
+    return None
 
 
 def _download(url: str, dest: Path) -> None:

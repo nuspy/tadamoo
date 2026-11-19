@@ -162,6 +162,22 @@ def test_tor_bundled_with_the_package_is_found_before_a_download_of_its_own(tmp_
     assert rt.tor_program() == exe                                 # the bundled one still wins when this PC also downloaded its own
 
 
+def test_gnupg_is_found_under_git_for_windows_even_when_it_is_off_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(dr.sys, "platform", "win32")
+    monkeypatch.setattr(dr.shutil, "which", lambda name: None)
+    pf = tmp_path / "Program Files"
+    gpg = pf / "Git" / "usr" / "bin" / "gpg.exe"
+    gpg.parent.mkdir(parents=True)
+    gpg.write_bytes(b"MZ")
+    monkeypatch.setenv("ProgramFiles", str(pf))
+    monkeypatch.delenv("ProgramFiles(x86)", raising=False)
+    monkeypatch.delenv("ProgramW6432", raising=False)
+    monkeypatch.delenv("LocalAppData", raising=False)
+    assert dr._which("gpg") == str(gpg)
+    gpg.unlink()
+    assert dr._which("gpg") is None                                # PATH said no and none of the known spots have it either
+
+
 def test_watching_pages_is_a_tool_only_when_its_setting_is_on_and_checks_nothing_until_asked(tmp_path):
     rt = make(tmp_path)
     rt.save({"darkweb": True})
