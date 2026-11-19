@@ -435,6 +435,8 @@ code { font-family: var(--font-mono); font-size: .92em; }
 .settings { overflow: auto; }
 .setnote { margin: 0; padding: 0 26px 18px; color: var(--fg-2); font-size: 15px; line-height: 1.55; }
 .setnote b { color: var(--fg); }
+.sb-kindh { margin: 18px 0 4px; padding: 0 26px; font: 600 13px/1.4 var(--font-sans); color: var(--fg-3); text-transform: uppercase; letter-spacing: .03em; }
+.sb-kindh:first-of-type { margin-top: 0; }
 .warnnote { color: var(--warn); }
 .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px 24px; padding: 20px; }
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }

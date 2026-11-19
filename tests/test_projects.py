@@ -29,7 +29,7 @@ def test_adding_a_folder_writes_its_registry_and_a_gitignore_and_lists_it(tmp_pa
     project = store.add(str(folder))
     assert project["name"] == "site" and project["exists"] is True
     assert registry(folder)["basalt_project"] == 1 and registry(folder)["conversations"] == []
-    assert (folder / ".tadamoo" / ".gitignore").read_text(encoding="utf-8").strip() == "artifacts/"
+    assert (folder / ".tadamoo" / ".gitignore").read_text(encoding="utf-8").strip() == "artifacts/\nsessions/"
     assert [p["path"] for p in ProjectStore(tmp_path / "j").list()] == [str(folder.resolve())]       # kept between runs
     store.add(str(folder))                                                                                # again: still one
     assert len(store.list()) == 1
@@ -71,6 +71,30 @@ def test_removing_a_folder_forgets_it_and_leaves_its_files_and_registry(tmp_path
     assert (folder / ".tadamoo" / "project.json").is_file()
     store.sync(str(folder), [{"id": "x", "workspace": str(folder), "state": "idle"}])                    # no longer known: not rewritten
     assert registry(folder)["conversations"] == []
+
+
+def test_sessions_dir_is_only_given_to_a_known_folder(tmp_path):
+    folder = tmp_path / "site"
+    folder.mkdir()
+    store = ProjectStore(tmp_path / "j")
+    assert store.sessions_dir(str(folder)) is None                 # never added: no sessions folder handed out
+    store.add(str(folder))
+    made = store.sessions_dir(str(folder))
+    assert made == folder / ".tadamoo" / "sessions" and made.is_dir()
+
+
+def test_clear_sessions_dir_removes_only_that_one_subfolder(tmp_path):
+    folder = tmp_path / "site"
+    folder.mkdir()
+    store = ProjectStore(tmp_path / "j")
+    store.add(str(folder))
+    sessions = store.sessions_dir(str(folder))
+    (sessions / "abc12345").mkdir()
+    (sessions / "abc12345" / "history.json").write_text("{}", encoding="utf-8")
+    store.clear_sessions_dir(str(folder))
+    assert not sessions.exists()
+    assert (folder / ".tadamoo" / "project.json").is_file()          # the registry itself is untouched
+    assert (folder / ".tadamoo" / ".gitignore").is_file()
 
 
 @pytest.fixture
@@ -127,3 +151,47 @@ def test_a_conversation_in_a_folder_shows_its_file_edits_in_the_changes_panel_an
     assert (folder / "hello.txt").read_text(encoding="utf-8") == "one two"
     assert [(e["file"], e["kind"]) for e in changes.load()["edits"]] == [("hello.txt", "added")]
     assert TaskBoard(tmp_path / "data" / "journal").view() == []                                        # a conversation is not one task with an end
+
+
+def test_a_sessions_own_folder_is_inside_its_project_once_the_project_is_added(tmp_path):
+    folder = tmp_path / "site"
+    folder.mkdir()
+    store = ProjectStore(tmp_path / "j")
+    store.add(str(folder))
+    mgr = SessionManager(tmp_path / "j", "http://127.0.0.1:1", projects=store, command=None)
+    rec = mgr.create(str(folder))
+    sid = rec["id"]
+    assert mgr.history_dir(sid) == folder / ".tadamoo" / "sessions" / sid
+    assert mgr.history_dir(sid) != mgr.chat_directory / sid
+
+
+def test_a_folder_never_added_falls_back_to_the_agent_base(tmp_path):
+    folder = tmp_path / "unregistered"
+    folder.mkdir()
+    store = ProjectStore(tmp_path / "j")
+    mgr = SessionManager(tmp_path / "j", "http://127.0.0.1:1", projects=store, command=None)
+    rec = mgr.create(str(folder))
+    assert mgr.history_dir(rec["id"]) == mgr.agent_directory / rec["id"]
+
+
+def test_deleting_a_project_deletes_only_its_own_sessions_and_their_folders(tmp_path):
+    folder = tmp_path / "site"
+    folder.mkdir()
+    other = tmp_path / "other"
+    other.mkdir()
+    store = ProjectStore(tmp_path / "j")
+    store.add(str(folder))
+    store.add(str(other))
+    mgr = SessionManager(tmp_path / "j", "http://127.0.0.1:1", projects=store, command=None)
+    mine = mgr.create(str(folder))["id"]
+    theirs = mgr.create(str(other))["id"]
+    mine_folder = mgr.history_dir(mine)
+    mine_folder.mkdir(parents=True, exist_ok=True)
+    (mine_folder / "history.json").write_text("{}", encoding="utf-8")
+    deleted = mgr.delete_project_sessions(str(folder))
+    assert deleted == [mine]
+    assert mgr.get(theirs)["id"] == theirs                          # the other project's conversation is untouched
+    assert not mine_folder.exists()
+    store.clear_sessions_dir(str(folder))
+    assert not (folder / ".tadamoo" / "sessions").exists()
+    assert (other / ".tadamoo" / "project.json").is_file()          # never touched the other project at all

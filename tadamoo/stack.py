@@ -744,7 +744,7 @@ def build_agent(cfg: AgentConfig, client: Optional[TadamooClient] = None, summar
         from serve.userdata import user_data_dir
         secrets.protect_in(user_data_dir(), *PROTECTED_FILES)
         from serve.userdata import chosen_sessions_base
-        if (moved := chosen_sessions_base()) is not None:
+        if (moved := chosen_sessions_base("chat")) is not None:          # the shared index always lives under the chat base, never the agent one
             secrets.protect_in(moved, "sessions/agent_sessions.json")
     except Exception:
         pass

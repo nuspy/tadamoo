@@ -509,11 +509,13 @@ def test_deleting_a_conversation_takes_away_its_process_history_and_files_and_le
     for folder in (attach / sid, outputs / sid):
         folder.mkdir(parents=True)
         (folder / "a.txt").write_text("x", encoding="utf-8")
-    assert mgr.history_dir(sid).exists()
+    folder = mgr.history_dir(sid)
+    assert folder.exists()
     assert mgr.delete(sid) == {"deleted": sid}
-    assert not mgr.history_dir(sid).exists() and not (attach / sid).exists() and not (outputs / sid).exists()
+    assert not folder.exists() and not (attach / sid).exists() and not (outputs / sid).exists()
     assert sid not in [r["id"] for r in mgr.view()["sessions"]] and child in [r["id"] for r in mgr.view()["sessions"]]
-    for call in (lambda: mgr.get(sid), lambda: mgr.events(sid), lambda: mgr.send(sid, "ancora"), lambda: mgr.delete(sid)):
+    # history_dir needs the record to know which base or project the conversation's folder is under: gone with the record, like the rest
+    for call in (lambda: mgr.get(sid), lambda: mgr.events(sid), lambda: mgr.send(sid, "ancora"), lambda: mgr.delete(sid), lambda: mgr.history_dir(sid)):
         with pytest.raises(RunError):
             call()
     assert mgr.history(child)["messages"]                                       # the branch still has its messages

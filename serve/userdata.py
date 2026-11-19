@@ -24,7 +24,8 @@ from pathlib import Path
 
 APP_DIR = "TaDaMoo"                       # the desktop app's folder: one place for everything of this user
 MARKER = "migrated-from-cache.json"
-SESSIONS_BASE_FILE = "sessions-base.json"
+SESSIONS_BASE_FILE = "sessions-base.json"              # the single choice from before Chat and Agentic coding had their own; read-only now
+SESSIONS_BASE_FILES = {"chat": "sessions-base-chat.json", "agent": "sessions-base-agent.json"}
 COPIED = ("profiles.json", "models.json")       # the user's files that earlier versions kept in the cache folder
 _lock = threading.Lock()
 _checked: set = set()
@@ -56,24 +57,34 @@ def path(name: str) -> Path:
     return user_data_dir() / name
 
 
-def sessions_base() -> Path:
-    """The folder whose `sessions/` holds every conversation's files: the one chosen in Settings, else `journal/` of the data folder."""
-    chosen = chosen_sessions_base()
+def sessions_base(kind: str) -> Path:
+    """The folder whose `sessions/` holds every conversation's files of this kind ("chat" or "agent"): the one chosen in Settings
+    for that kind, else `journal/` of the data folder."""
+    chosen = chosen_sessions_base(kind)
     return chosen if chosen is not None else path("journal")
 
 
-def chosen_sessions_base() -> Path | None:
-    """The folder chosen in Settings (kept in the default data folder, which is known before anything else is opened), or None."""
+def _read_chosen(name: str) -> Path | None:
     try:
-        value = json.loads((user_data_dir() / SESSIONS_BASE_FILE).read_text(encoding="utf-8")).get("path")
+        value = json.loads((user_data_dir() / name).read_text(encoding="utf-8")).get("path")
     except (OSError, ValueError, AttributeError):
         return None
     return Path(value) if isinstance(value, str) and value.strip() else None
 
 
-def set_sessions_base(folder: Path | None) -> None:
-    """Keep the chosen folder, or forget it with None; the file is replaced whole."""
-    target = user_data_dir() / SESSIONS_BASE_FILE
+def chosen_sessions_base(kind: str) -> Path | None:
+    """The folder chosen in Settings for this kind ("chat" or "agent"), kept in the default data folder (known before anything
+    else is opened); when that kind was never set on its own, falls back to the single choice from before Chat and Agentic
+    coding had their own bases - so a customization made before the split still applies to both until one is changed again."""
+    assert kind in SESSIONS_BASE_FILES, f"kind must be one of {sorted(SESSIONS_BASE_FILES)}, got {kind!r}"
+    return _read_chosen(SESSIONS_BASE_FILES[kind]) or _read_chosen(SESSIONS_BASE_FILE)
+
+
+def set_sessions_base(kind: str, folder: Path | None) -> None:
+    """Keep the chosen folder for this kind ("chat" or "agent"), or forget it with None; the file is replaced whole. Never
+    touches the old, pre-split file - forgetting a kind's own choice can still fall back to it."""
+    assert kind in SESSIONS_BASE_FILES, f"kind must be one of {sorted(SESSIONS_BASE_FILES)}, got {kind!r}"
+    target = user_data_dir() / SESSIONS_BASE_FILES[kind]
     if folder is None:
         target.unlink(missing_ok=True)
         return

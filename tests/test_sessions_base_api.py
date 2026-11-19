@@ -18,7 +18,7 @@ from test_e2e_mock_server import start_server, ws  # noqa: F401,E402  (fixtures)
 def api(tmp_path, monkeypatch, start_server):  # noqa: F811
     monkeypatch.setenv("TADAMOO_DATA", str(tmp_path / "data"))
     url = start_server(["unused"])
-    mgr = SessionManager(userdata.sessions_base(), url, board=ApprovalBoard())
+    mgr = SessionManager(userdata.sessions_base("chat"), url, board=ApprovalBoard())
     monkeypatch.setattr(handler, "_SESSIONS", mgr)
     yield Api(url), mgr, tmp_path
     mgr.shutdown()
@@ -41,7 +41,7 @@ def test_a_check_then_a_move_keeps_the_original_and_asks_for_a_restart(api, ws):
     assert code == 200 and done["restart"] and (target / "sessions" / "agent_sessions.json").exists()
     assert (tmp / "data" / "journal" / "sessions" / "agent_sessions.json").exists()
     assert client("GET", "/api/sessions-base")[1]["chosen"] is True
-    assert json.loads((tmp / "data" / "sessions-base.json").read_text(encoding="utf-8"))["path"] == str(target)
+    assert json.loads((tmp / "data" / "sessions-base-chat.json").read_text(encoding="utf-8"))["path"] == str(target)
 
 
 def test_a_path_that_cannot_be_used_is_a_clear_refusal(api):

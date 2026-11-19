@@ -3912,15 +3912,22 @@ def make_handler(svc: Service, remote: bool = False):
                 return self._json(400, {"error": {"message": str(e), "field": e.field}})
             self._json(404, {"error": {"message": "not found"}})
 
+        @staticmethod
+        def _base_kind(query: Dict[str, Any]) -> str:
+            kind = (query.get("kind") or ["chat"])[0]
+            return kind if kind in ("chat", "agent") else "chat"
+
         def _sessions_base_get(self):
-            chosen = userdata.chosen_sessions_base()
-            self._json(200, {"current": str(userdata.sessions_base() / "sessions"), "default": str(userdata.path("journal") / "sessions"),
+            kind = self._base_kind(parse_qs(urlsplit(self.path).query))
+            chosen = userdata.chosen_sessions_base(kind)
+            self._json(200, {"current": str(userdata.sessions_base(kind) / "sessions"), "default": str(userdata.path("journal") / "sessions"),
                              "chosen": chosen is not None, "running": _SESSIONS.running_count() if _SESSIONS is not None else 0})
 
         def _sessions_base_post(self, path):
             if not self._local_or_device():
                 self._discard_body()
                 return self._json(403, {"error": {"type": "forbidden", "message": "the conversations' folder can be changed only from the PC the server runs on"}})
+            kind = self._base_kind(parse_qs(urlsplit(self.path).query))
             try:
                 req = json.loads(self._body() or b"{}")
                 if not isinstance(req, dict) or not isinstance(req.get("path"), str) or not req["path"].strip():
@@ -3930,8 +3937,8 @@ def make_handler(svc: Service, remote: bool = False):
             running = _SESSIONS.running_count() if _SESSIONS is not None else 0
             try:
                 if path == "/api/sessions-base/check":
-                    return self._json(200, sessions_move.inspect(userdata.sessions_base(), Path(req["path"].strip()), running))
-                self._json(200, sessions_move.move(userdata.sessions_base(), Path(req["path"].strip()), running))
+                    return self._json(200, sessions_move.inspect(userdata.sessions_base(kind), Path(req["path"].strip()), running))
+                self._json(200, sessions_move.move(userdata.sessions_base(kind), Path(req["path"].strip()), running, kind))
             except sessions_move.MoveError as e:
                 self._json(409, {"error": {"type": "move", "code": e.code, "message": e.message}})
 
@@ -4122,8 +4129,9 @@ def make_handler(svc: Service, remote: bool = False):
         def _agent_sessions(self) -> SessionManager:
             global _SESSIONS
             if _SESSIONS is None:
-                _SESSIONS = SessionManager(userdata.sessions_base(), f"http://127.0.0.1:{self.server.server_address[1]}",
+                _SESSIONS = SessionManager(userdata.sessions_base("chat"), f"http://127.0.0.1:{self.server.server_address[1]}",
                                            svc.api_key or "", board=_APPROVALS, default_workspace=userdata.path("chat-workspace"),
+                                           agent_directory=userdata.sessions_base("agent"),
                                            file_owners_path=userdata.path(FILE_OWNERS_FILE),
                                            attachments_dir=userdata.path("attachments"), outputs_dir=userdata.path("outputs"),
                                            vault_dir=userdata.path("vault"), payments_dir=userdata.path("payments"),
@@ -4272,7 +4280,10 @@ def make_handler(svc: Service, remote: bool = False):
                 if parts == ["projects"]:
                     return self._json(200, {"project": self._projects().add(req.get("path"))})
                 if parts == ["projects", "remove"]:
-                    return self._json(200, {"removed": self._projects().remove(req.get("path"))})
+                    project_path = req.get("path")
+                    deleted = self._agent_sessions().delete_project_sessions(project_path)
+                    self._projects().clear_sessions_dir(project_path)
+                    return self._json(200, {"removed": self._projects().remove(project_path), "deleted_sessions": deleted})
                 if parts[0] == "sessions":
                     mgr = self._agent_sessions()
                     channel = self._channel()

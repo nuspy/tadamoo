@@ -77,8 +77,9 @@ def inspect(source_base: Path, dest_base: Path, live: int) -> Dict[str, Any]:
     return out
 
 
-def move(source_base: Path, dest_base: Path, live: int) -> Dict[str, Any]:
-    """Copies `<source>/sessions` to `<dest>/sessions`, checks every file by size and hash, and only then keeps `dest_base` as the new base."""
+def move(source_base: Path, dest_base: Path, live: int, kind: str) -> Dict[str, Any]:
+    """Copies `<source>/sessions` to `<dest>/sessions`, checks every file by size and hash, and only then keeps `dest_base` as the
+    new base for this kind ("chat" or "agent")."""
     report = inspect(source_base, dest_base, live)
     if not report["ok"]:
         first = report["problems"][0]
@@ -107,5 +108,5 @@ def move(source_base: Path, dest_base: Path, live: int) -> Dict[str, Any]:
         shutil.rmtree(staging, ignore_errors=True)
         raise MoveError("io", f"The copy failed: {e}") from e
     default = userdata.path("journal")
-    userdata.set_sessions_base(None if os.path.normcase(os.path.abspath(dest_base)) == os.path.normcase(os.path.abspath(default)) else Path(dest_base))
+    userdata.set_sessions_base(kind, None if os.path.normcase(os.path.abspath(dest_base)) == os.path.normcase(os.path.abspath(default)) else Path(dest_base))
     return {**report, "ok": True, "restart": True, "kept": str(source)}

@@ -142,11 +142,12 @@ class Live:
 
 
 class SessionManager:
-    def __init__(self, directory: str | Path, endpoint: str, api_key: str = "", board: Optional[ApprovalBoard] = None,
+    def __init__(self, chat_directory: str | Path, endpoint: str, api_key: str = "", board: Optional[ApprovalBoard] = None,
                  python: Optional[str] = None, root: Path = ROOT, command: Optional[Callable[[str, Dict[str, Any], Path], List[str]]] = None,
                  idle_s: Optional[float] = None, beat_timeout_s: Optional[float] = None,
                  restart_waits: Tuple[float, ...] = RESTART_WAITS, tick_s: float = 1.0, start_wait_s: float = 60.0,
                  default_workspace: Optional[Path] = None, router: str = "model", pipeline: str = "full",
+                 agent_directory: Optional[str | Path] = None,
                  attachments_dir: Optional[Path] = None, outputs_dir: Optional[Path] = None, worktrees: Optional[Worktrees] = None,
                  vault_dir: Optional[Path] = None, payments_dir: Optional[Path] = None,
                  browser_prefs: Optional[Callable[[], Dict[str, bool]]] = None, browser_profile: Optional[Path] = None, computer_prefs: Any = None,
@@ -159,8 +160,15 @@ class SessionManager:
                  plan_effort: Optional[Callable[[str, str], str]] = None, past: Any = None, exec_level_file: Optional[Path] = None, persistence_file: Optional[Path] = None, lessons_dir: Optional[Path] = None, next_steps_file: Optional[Path] = None, file_owners_path: Optional[Path] = None,
                  forgetter: Any = None, cards: Any = None, personas_dir: Optional[Path] = None, rag_dir: Optional[Path] = None, persona_learning: Any = None, media_file: Optional[Path] = None,
                  boards: Optional[Callable[[Any], Any]] = None) -> None:
-        self.directory = Path(directory) / "sessions"
-        self.directory.mkdir(parents=True, exist_ok=True)
+        # chat and agent-coding conversations can be told apart to settle in different places (Settings > General), but the records,
+        # the shared message store and the compared-answers file are not split by kind - they stay where they always have, under
+        # the chat base, which is also the one every installation already had before the two were split.
+        self.chat_directory = Path(chat_directory) / "sessions"
+        self.agent_directory = Path(agent_directory) / "sessions" if agent_directory is not None else self.chat_directory
+        self.chat_directory.mkdir(parents=True, exist_ok=True)
+        if agent_directory is not None:
+            self.agent_directory.mkdir(parents=True, exist_ok=True)
+        self.directory = self.chat_directory
         self.endpoint, self.api_key, self.board = endpoint, api_key, board
         self.router = router                                    # how a message that comes during a task is judged: "model" or "rules"
         self.attachments_dir, self.outputs_dir = attachments_dir, outputs_dir      # the conversation's attached files and the files the agent made
@@ -200,7 +208,7 @@ class SessionManager:
         self.payments_dir = payments_dir                        # the person's payment systems and limits, for the agent's request_payment
         self.vault_dir = vault_dir                              # the person's vault: the conversation's process fills placeholders from it
         self.pipeline = pipeline                                # the check of an answer against its request: "off", "light" or "full"
-        self.worktrees = worktrees or Worktrees(Path(directory) / "worktrees")      # a conversation's own copy of a git folder
+        self.worktrees = worktrees or Worktrees(Path(chat_directory) / "worktrees")      # a conversation's own copy of a git folder
         self.default_workspace = Path(default_workspace) if default_workspace else None     # where a conversation works when none is named
         self.python, self.root = python or sys.executable, Path(root)
         self.command = command or self._command
@@ -229,7 +237,7 @@ class SessionManager:
         self._migrate_nodes()
         self._token_key = secrets.token_bytes(32)               # signs the name a conversation's process presents when it calls the server
         self.budget = SessionBudget()                           # tokens spent today, per conversation (serve/session_budget.py)
-        self.deliveries = DeliveryQueue(Path(directory), self)  # messages from schedules, plans and other conversations, until they are taken
+        self.deliveries = DeliveryQueue(Path(chat_directory), self)  # messages from schedules, plans and other conversations, until they are taken
         self.messenger = Messenger(self, boards)                # the messages conversations send each other (serve/messaging.py)
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._supervise, name="session-supervisor", daemon=True)
@@ -339,8 +347,20 @@ class SessionManager:
         with self._lock:
             return dict(self._record(sid))
 
+    def _folder_for(self, rec: Dict[str, Any]) -> Path:
+        """Where one conversation's own files live: the chat base for a Chat conversation (no workspace, or the default one);
+        inside its own project's `.tadamoo/sessions/` for an Agentic coding conversation on a folder that was added there
+        (serve/projects.py); the agent base for one on a folder that never was."""
+        workspace = str(rec.get("workspace") or "")
+        is_chat = not workspace or (self.default_workspace is not None and Path(workspace) == self.default_workspace)
+        if not is_chat and self.projects is not None:
+            project_dir = self.projects.sessions_dir(workspace)
+            if project_dir is not None:
+                return project_dir / rec["id"]
+        return (self.chat_directory if is_chat else self.agent_directory) / rec["id"]
+
     def history_dir(self, sid: str) -> Path:
-        return self.directory / sid
+        return self._folder_for(self._record(sid))
 
     def history(self, sid: str) -> Dict[str, Any]:
         """The saved messages of a conversation, for the page to show (the system prompt left out)."""
@@ -1063,7 +1083,7 @@ class SessionManager:
         if operating_rules is not None:
             text = str(operating_rules).strip()[:RULES_TEXT_MAX]
             if text:
-                path = self.history_dir(sid) / "rules.md"
+                path = self._folder_for(rec) / "rules.md"          # rec is not in self.records yet: history_dir(sid) could not find it
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(text, encoding="utf-8")
                 rec["rules_file"] = str(path)
@@ -2622,6 +2642,16 @@ class SessionManager:
         self.nodes.keep(leaves)                                 # the messages only this conversation had go with it
         self._registry(rec.get("workspace"))
         return {"deleted": sid}
+
+    def delete_project_sessions(self, workspace: Any) -> List[str]:
+        """Deletes every conversation held in this project's folder, the same way `delete` would one at a time - called when the
+        folder itself is removed from the Agentic coding tab (serve/projects.py), before its `.tadamoo/sessions/` is cleared."""
+        want = Path(str(workspace))
+        with self._lock:
+            ids = [r["id"] for r in self.records if r.get("workspace") and Path(str(r["workspace"])) == want]
+        for sid in ids:
+            self.delete(sid)
+        return ids
 
     def slash(self, sid: str, name: Any, args: Any = "") -> Dict[str, Any]:
         """A slash command that needs the conversation's process (tadamoo/commands.py); its answer comes as a `command` event."""

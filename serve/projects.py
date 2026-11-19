@@ -15,8 +15,9 @@ from serve.util.files import write_json
 PROJECTS_FILE = "projects.json"
 REGISTRY_DIR = ".tadamoo"
 REGISTRY_FILE = "project.json"
+SESSIONS_DIR = "sessions"
 # what the agent keeps in the folder for itself is not part of the project's own files
-IGNORE_LINES = ("artifacts/",)
+IGNORE_LINES = ("artifacts/", "sessions/")
 REGISTRY_VERSION = 1
 
 
@@ -85,6 +86,21 @@ class ProjectStore:
     def known(self, path: Any) -> bool:
         with self._lock:
             return any(_same(p["path"], str(path)) for p in self._items)
+
+    def sessions_dir(self, path: Any) -> Path | None:
+        """Where this project's own conversations keep their files (`.tadamoo/sessions/`) - None for a folder that was never added,
+        so a session there falls back to the agent base instead of writing into someone's unregistered folder uninvited."""
+        if not self.known(path):
+            return None
+        folder = Path(str(path)) / REGISTRY_DIR / SESSIONS_DIR
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder
+
+    def clear_sessions_dir(self, path: Any) -> None:
+        """Removes a project's whole sessions folder - called once its conversations are already gone, when the project itself is
+        removed. Never touches the project's own files or its `.tadamoo` registry, only this one subfolder of it."""
+        import shutil
+        shutil.rmtree(Path(str(path)) / REGISTRY_DIR / SESSIONS_DIR, ignore_errors=True)
 
     def touch(self, path: Any) -> None:
         with self._lock:

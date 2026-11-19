@@ -11,17 +11,20 @@ I18N = (WEB / "i18n.js").read_text(encoding="utf-8")
 
 class SessionsBasePage(unittest.TestCase):
     def test_the_section_and_the_script_are_in_the_page(self):
-        self.assertIn('id="sb-root"', HTML)
+        self.assertIn('id="sb-root-chat"', HTML)
+        self.assertIn('id="sb-root-agent"', HTML)
         self.assertIn('data-sub="general" id="sb-section"', HTML)
         self.assertIn("web/sessionsbase.js", HTML)
 
-    def test_the_script_calls_the_three_routes(self):
+    def test_the_script_calls_the_three_routes_and_mounts_both_kinds(self):
         for call in ('"api/sessions-base"', '"api/sessions-base/check"', '"api/sessions-base/move"'):
             self.assertIn(call, JS)
+        self.assertIn('mount("sb-root-chat", "chat")', JS)
+        self.assertIn('mount("sb-root-agent", "agent")', JS)
 
     def test_the_move_waits_for_a_good_check_and_the_field_is_labelled(self):
         self.assertIn("go.disabled = busy || !(checked && checked.ok)", JS)
-        self.assertIn('label.htmlFor = "sb-path"', JS)
+        self.assertIn('label.htmlFor = "sb-path-" + kind', JS)
         self.assertIn('input.addEventListener("input", () => { checked = null; })', JS)
 
     def test_every_string_exists_in_both_languages(self):
