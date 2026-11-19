@@ -648,6 +648,35 @@ class PushToTalkManager:
             s = self._session
         return bool(s is not None and s.request_language(code))
 
+    def voice_status(self) -> dict:
+        """Who the current session's voice most recently matched (tadamoo/speech/voiceid.py), for the GUI's "Who is this?"
+        control - {"active": False} with no session running."""
+        with self._lock:
+            s = self._session
+        if s is None:
+            return {"active": False}
+        found = s.last_identity
+        identity = None if not found else {"contact_id": found["contact"]["id"], "name": found["contact"]["name"],
+                                            "score": found["score"], "confident": found["confident"]}
+        return {"active": True, "channel": s._voice_channel, "identity": identity}
+
+    def voice_confirm(self, contact_id: str) -> str:
+        """Enrolls the current session's buffered audio under `contact_id` - "" on success, else why not."""
+        with self._lock:
+            s = self._session
+        if s is None:
+            return "no_session"
+        if s._contacts is None:
+            return "unavailable"
+        wav = s._buffered_voice_wav()
+        if wav is None:
+            return "not_enough_audio"
+        try:
+            s._contacts.enroll_voice(contact_id, [wav], s._voice_channel)
+        except Exception as e:  # noqa: BLE001 - reported to the GUI as text, not a 500
+            return str(e)
+        return ""
+
     # --- gestione sessione -----------------------------------------------
 
     def _toggle(self, brain: str, half_duplex: bool, mode: str,

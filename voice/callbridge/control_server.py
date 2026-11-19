@@ -185,6 +185,27 @@ def create_app(
         limit = min(max(request.args.get("limit", default=20, type=int), 1), 200)
         return jsonify({"rows": calls.policy.audit.tail(limit)})
 
+    @app.get("/call/voice")
+    def call_voice():
+        """Chi la voce dell'altra persona sulla chiamata in corso ha riconosciuto (tadamoo/speech/voiceid.py)."""
+        return jsonify(bridge.voice_status())
+
+    @app.post("/call/voice/confirm")
+    def call_voice_confirm():
+        contact_id = str((request.get_json(silent=True) or {}).get("contact_id") or "")
+        if not contact_id:
+            return jsonify({"error": "contact_id"}), 400
+        problem = bridge.voice_confirm(contact_id)
+        if problem == "no_session":
+            return jsonify({"error": "no call is active"}), 409
+        if problem == "unavailable":
+            return jsonify({"error": "voice identification is not available"}), 503
+        if problem == "not_enough_audio":
+            return jsonify({"error": "not enough recent audio yet - let the person speak a little more first"}), 409
+        if problem:
+            return jsonify({"error": problem}), 400
+        return jsonify({"status": "enrolled"})
+
     @app.get("/engines/catalog")
     def engines_catalog():
         """Elenco dei motori TTS dal BRIDGE (sempre acceso), non dal server voci

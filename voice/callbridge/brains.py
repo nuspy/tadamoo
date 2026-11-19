@@ -415,12 +415,12 @@ class ModeBrain:
 
     def respond_stream(self, text: str, source: str = "mic", context_note: str = "") -> Iterator[str]:
         line = self._state_line()
+        note = "\n".join(p for p in (context_note, line) if p)
         if self.mode == "direct":
-            note = "\n".join(p for p in (context_note, line) if p)
             if note or self._reply_name or self.knowledge is not None:
                 return self.current.respond_stream(text, source, context_note=note, reply_language=self._reply_name, knowledge=self.knowledge)
             return self.current.respond_stream(text, source)
-        return self.current.respond_stream(text, source, state=line) if line else self.current.respond_stream(text, source)
+        return self.current.respond_stream(text, source, state=note) if note else self.current.respond_stream(text, source)
 
     def ask_stream(self, text: str, source: str = "remote") -> Iterator[str]:
         return self.current.ask_stream(text, source)

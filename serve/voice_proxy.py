@@ -58,6 +58,13 @@ def _say(body: Any) -> dict:
     return {"text": text.strip()}
 
 
+def _voice_confirm(body: Any) -> dict:
+    contact_id = body.get("contact_id") if isinstance(body, dict) and set(body) == {"contact_id"} else None
+    if not isinstance(contact_id, str) or not contact_id or len(contact_id) > 64:
+        raise Refused(400, "bad_request", "Send contact_id: the contact this voice belongs to.")
+    return {"contact_id": contact_id}
+
+
 def _fields(body: Any, allowed: tuple, required: tuple = ()) -> dict:
     if not isinstance(body, dict) or set(body) - set(allowed) or any(k not in body for k in required):
         raise Refused(400, "bad_request", "Send " + ", ".join(allowed) + ".")
@@ -225,8 +232,11 @@ ROUTES: dict[tuple[str, str], Callable[[Any], Any]] = {
     ("POST", "/session/stop"): _none,
     ("POST", "/session/new"): _none,
     ("POST", "/brain/say"): _say,
+    ("POST", "/brain/voice/confirm"): _voice_confirm,
     ("GET", "/call/approvals"): _none,
     ("GET", "/call/audit"): _none,
+    ("GET", "/call/voice"): _none,
+    ("POST", "/call/voice/confirm"): _voice_confirm,
     # the avatar (the files of the wizard, the training video upload and the preview stream pass through serve/voice_avatar.py, not here)
     ("GET", "/avatar/state"): _none,
     ("GET", "/avatar/list"): _none,

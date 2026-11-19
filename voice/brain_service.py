@@ -2,8 +2,9 @@
 the brains and a spoken test sentence.
 
 Routes (the control app already demands the bearer token on all of them):
-    GET  /brain/state   the default mode, the personality, what waits for an approval, the last exchanges, the session
-    POST /brain/say     {"text"}: speaks a test sentence with the TTS that is loaded (409 `tts_not_loaded` when it is not)
+    GET  /brain/state         the default mode, the personality, what waits for an approval, the last exchanges, the session, the voice match
+    POST /brain/voice/confirm {"contact_id"}: enrolls the current session's recent audio under that contact
+    POST /brain/say           {"text"}: speaks a test sentence with the TTS that is loaded (409 `tts_not_loaded` when it is not)
 
 The push-to-talk manager imports `pynput`, so it is made on first use: a service on a PC without it still starts and says why a session
 cannot. Nothing here opens a microphone or a speaker until a session or a test sentence is asked for."""
@@ -75,6 +76,16 @@ class Session:
         if self._ptt is None:
             return {"active": False, "mode": None, "phase": "idle", "avatar": False, "brain": None}
         return self._ptt.session_state()
+
+    def voice_status(self) -> dict:
+        if self._ptt is None:
+            return {"active": False}
+        return self._ptt.voice_status()
+
+    def voice_confirm(self, contact_id: str) -> str:
+        if self._ptt is None:
+            return "no_session"
+        return self._ptt.voice_confirm(contact_id)
 
     def current_language(self) -> str:
         return self._ptt.current_language() if self._ptt is not None else ""
@@ -161,7 +172,25 @@ def register(app, state, speaker: Speaker | None = None) -> None:
 
     @app.get("/brain/state")
     def brain_state():
-        return jsonify({**state.brains.state(), "session": state.session.session_state(), "hotkeys": state.session.hotkeys_attive})
+        return jsonify({**state.brains.state(), "session": state.session.session_state(), "hotkeys": state.session.hotkeys_attive,
+                        "voice": state.session.voice_status()})
+
+    @app.post("/brain/voice/confirm")
+    def brain_voice_confirm():
+        body = request.get_json(silent=True) or {}
+        contact_id = str(body.get("contact_id") or "")
+        if not contact_id:
+            return jsonify({"error": "contact_id"}), 400
+        problem = state.session.voice_confirm(contact_id)
+        if problem == "no_session":
+            return jsonify({"error": "no session is active"}), 409
+        if problem == "unavailable":
+            return jsonify({"error": "voice identification is not available"}), 503
+        if problem == "not_enough_audio":
+            return jsonify({"error": "not enough recent audio yet - let the person speak a little more first"}), 409
+        if problem:
+            return jsonify({"error": problem}), 400
+        return jsonify({"status": "enrolled"})
 
     @app.post("/brain/say")
     def brain_say():

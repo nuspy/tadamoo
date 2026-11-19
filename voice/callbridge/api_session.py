@@ -9,6 +9,8 @@ Endpoint:
   POST /session/start   {"mode": "half"|"full", "brain": "harness"|"direct" (opzionale), "avatar": bool}
   POST /session/stop
   GET  /session/state   -> {"active", "mode", "phase", "avatar"}
+  GET  /session/voice    -> {"active", "channel", "identity"} - chi la voce della sessione in corso ha riconosciuto (tadamoo/speech/voiceid.py)
+  POST /session/voice/confirm {"contact_id"} -> arruola l'audio recente della sessione su quel contatto
   POST /copilot/toggle  -> {"active"}
   GET  /copilot/state   -> {"enabled", "active"}
 """
@@ -74,6 +76,34 @@ def session_state():
     if ptt is None:
         return jsonify({"error": "push-to-talk non disponibile in questa istanza"}), 503
     return jsonify(ptt.session_state())
+
+
+@bp.get("/session/voice")
+def session_voice():
+    ptt = _ptt()
+    if ptt is None:
+        return jsonify({"error": "push-to-talk non disponibile in questa istanza"}), 503
+    return jsonify(ptt.voice_status())
+
+
+@bp.post("/session/voice/confirm")
+def session_voice_confirm():
+    ptt = _ptt()
+    if ptt is None:
+        return jsonify({"error": "push-to-talk non disponibile in questa istanza"}), 503
+    contact_id = str((request.get_json(silent=True) or {}).get("contact_id") or "")
+    if not contact_id:
+        return jsonify({"error": "contact_id"}), 400
+    problem = ptt.voice_confirm(contact_id)
+    if problem == "no_session":
+        return jsonify({"error": "no session is active"}), 409
+    if problem == "unavailable":
+        return jsonify({"error": "voice identification is not available"}), 503
+    if problem == "not_enough_audio":
+        return jsonify({"error": "not enough recent audio yet - let the person speak a little more first"}), 409
+    if problem:
+        return jsonify({"error": problem}), 400
+    return jsonify({"status": "enrolled"})
 
 
 @bp.post("/copilot/toggle")

@@ -278,6 +278,16 @@ class ProxyTests(ServerBase):
             self.assertEqual(self.req("POST", "/api/voice/service/call", body)[0], 400 if body.get("extra") else 403, body)
         self.assertEqual(self.service.seen, [])
 
+    def test_voice_confirm_needs_exactly_a_contact_id(self):
+        code, out = self.call("POST", "/brain/voice/confirm", {"contact_id": "abc123"})
+        self.assertEqual((code, out["route"]), (200, "/brain/voice/confirm"))
+        self.assertEqual(self.service.seen[0][3], {"contact_id": "abc123"})
+        for body in ({}, {"contact_id": ""}, {"contact_id": "x" * 65}, {"contact_id": "abc", "extra": 1}, {"contact_id": 5}):
+            code, out = self.call("POST", "/brain/voice/confirm", body)
+            self.assertEqual(code, 400, body)
+        code, out = self.call("POST", "/call/voice/confirm", {"contact_id": "abc123"})
+        self.assertEqual((code, out["route"]), (200, "/call/voice/confirm"))
+
     def test_a_service_that_is_not_there_is_a_503_with_the_reason(self):
         (self.data / "voice-service.json").unlink()
         code, out = self.call("GET", "/status")
@@ -296,7 +306,8 @@ class ProxyTests(ServerBase):
         self.assertEqual(sorted(f"{m} {p}" for m, p in voice_proxy.ROUTES),
                          sorted(["GET /status", "GET /components/status", "GET /functions", "GET /brain/state", "GET /session/state", "GET /diag/brain", "POST /session/start",
                                  "GET /session/language", "POST /session/language",
-                                 "POST /session/stop", "POST /session/new", "POST /brain/say", "GET /call/approvals", "GET /call/audit", "GET /gateway",
+                                 "POST /session/stop", "POST /session/new", "POST /brain/say", "POST /brain/voice/confirm", "GET /call/approvals", "GET /call/audit",
+                                 "GET /call/voice", "POST /call/voice/confirm", "GET /gateway",
                                  # the avatar (serve/tests/test_voice_avatar_proxy.py)
                                  "GET /avatar/state", "GET /avatar/list", "GET /avatar/output", "GET /avatar/enhance", "GET /avatar/engines", "GET /avatar/prepare", "POST /avatar/prepare", "POST /avatar/prepare/cancel",
                                  "POST /avatar/speak", "POST /avatar/start", "POST /avatar/wizard/start",

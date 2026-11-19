@@ -23,11 +23,14 @@ Se l'interlocutore parla mentre il TTS sta riproducendo una risposta:
 
 from __future__ import annotations
 
+import collections
+import io
 import logging
 import queue
 import re
 import threading
 import time
+import wave
 
 import numpy as np
 
@@ -148,6 +151,79 @@ class StreamingSession:
         # attivi, cioe' con il microfono della persona. Telefonate e riunioni non ce l'hanno: la loro
         # lingua e' quella configurata e resta ferma.
         self._lang_session: LanguageSession | None = self._make_language_session() if self.voice_commands_enabled else None
+        # Voice identification (tadamoo/speech/voiceid.py, via tadamoo/contacts.py): who the downlink audio belongs to, best-effort.
+        # Optional on purpose - a contacts store that fails to open, or the WavLM model not being installed, must never break a call.
+        self._voice_channel = "mic" if self.utterance_source == "mic" else "phone"
+        self._voice_buffer: collections.deque = collections.deque()
+        self._voice_buffer_samples = 0
+        self._voice_lock = threading.Lock()
+        self.last_identity: dict | None = None
+        self._contacts = self._open_contacts()
+
+    @staticmethod
+    def _open_contacts():
+        try:
+            from serve import userdata
+            from tadamoo.contacts import ContactStore
+            return ContactStore(userdata.path("contacts.json"))
+        except Exception as e:  # noqa: BLE001 - optional feature, never fatal to a call
+            log.debug("Voice identification not available: %s", e)
+            return None
+
+    def _remember_for_voice(self, chunk: np.ndarray) -> None:
+        """Keeps the last ~12s of downlink audio (at STT_RATE), for whenever the next utterance needs identifying."""
+        if self._contacts is None:
+            return
+        max_samples = STT_RATE * 12
+        with self._voice_lock:
+            self._voice_buffer.append(chunk.copy())
+            self._voice_buffer_samples += len(chunk)
+            while self._voice_buffer_samples > max_samples and len(self._voice_buffer) > 1:
+                self._voice_buffer_samples -= len(self._voice_buffer.popleft())
+
+    def _buffered_voice_wav(self) -> bytes | None:
+        with self._voice_lock:
+            if self._voice_buffer_samples < STT_RATE:            # under a second: not enough to identify from
+                return None
+            samples = np.concatenate(list(self._voice_buffer))
+        pcm = np.clip(samples * 32767, -32768, 32767).astype(np.int16)
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(STT_RATE)
+            w.writeframes(pcm.tobytes())
+        return buf.getvalue()
+
+    def _identify_speaker_async(self) -> None:
+        """Fires the identification in the background and never waits for it - the brain turn must never be slowed down by it.
+        `last_identity` simply reflects whichever utterance finished identifying last, which is good enough: who is on a call or
+        at the microphone does not change mid-conversation."""
+        if self._contacts is None:
+            return
+
+        def run() -> None:
+            wav = self._buffered_voice_wav()
+            if wav is None:
+                return
+            try:
+                from tadamoo.speech import voiceid
+                reading = voiceid.read(wav)
+                self.last_identity = self._contacts.match_voice(reading["embedding"], reading["f0_hz"])
+            except Exception as e:  # noqa: BLE001 - optional feature, never fatal to a call
+                log.debug("Voice identification failed: %s", e)
+
+        threading.Thread(target=run, name="voice-id", daemon=True).start()
+
+    def _voice_note(self) -> str:
+        """A one-line note on who the voice matched, for the brain's own context - "" when nothing is known yet or nothing matched."""
+        found = self.last_identity
+        if not found:
+            return ""
+        contact, confident = found["contact"], found["confident"]
+        if confident:
+            return f"[voice] This sounds like {contact['name']}, recognised by voice on the {found['channel']} channel."
+        return f"[voice] This might be {contact['name']}, but the voice match is not confident enough to rely on."
 
     # --- lingua: leggibile e impostabile dall'esterno ----------------------
 
@@ -367,6 +443,7 @@ class StreamingSession:
                     log.info("Voce abbassata: l'utente parla")
             if self.audio_rate != STT_RATE:
                 chunk = resample(chunk, self.audio_rate, STT_RATE)
+            self._remember_for_voice(chunk)
             stt.send_audio(chunk)
 
     def _brain(self, stt: HandySttClient, tts: HandyTtsClient) -> None:
@@ -413,6 +490,7 @@ class StreamingSession:
                 self._listening.clear()
 
             log.info("Interlocutore: %s", utterance)
+            self._identify_speaker_async()
             heard = self._take_language_info(stt)
             # Solo cio' che viene dal microfono della persona puo' cambiare la lingua: in una sessione
             # che ascolta altri (telefonata, riunione) `voice_commands_enabled` e' falso e non succede nulla.
@@ -530,7 +608,10 @@ class StreamingSession:
         # mentre l'agente genera il resto -> primo audio molto prima. L'attesa di
         # fine avviene DOPO tutta la generazione (non tra le frasi), cosi' le
         # pause di generazione non riaprono il microfono a meta' risposta.
-        for text_chunk in self.brain.respond_stream(utterance, self.utterance_source):
+        voice_note = self._voice_note()
+        stream = (self.brain.respond_stream(utterance, self.utterance_source, context_note=voice_note) if voice_note
+                 else self.brain.respond_stream(utterance, self.utterance_source))
+        for text_chunk in stream:
             if self._stop.is_set():
                 interrupted = True
                 break

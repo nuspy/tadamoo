@@ -23,7 +23,8 @@
   const ui = {};                                      // per service: the line under the card
   const st = id => ui[id] || (ui[id] = { msg: "", bad: false });
   let dirMsg = { text: "", bad: false };
-  let TEL = null, telMsg = { text: "", bad: false }, telLive = { pending: [], rows: [], down: false }, telTimer = 0;
+  let TEL = null, telMsg = { text: "", bad: false }, telLive = { pending: [], rows: [], down: false, voice: { active: false } }, telTimer = 0;
+  let telVoiceConfirm = { busy: false, msg: "", bad: false, pick: "" }, telContactsCache = null;
   const TEL_POLL_MS = 3000;
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -175,8 +176,9 @@
   const APPROVALS = { manual: () => T("vo.tel.approval.manual"), auto: () => T("vo.tel.approval.auto") };
   async function serviceGet(path) { return api("POST", "api/voice/service/call", { method: "GET", path }); }
   async function loadTelLive() {
-    const [a, l] = await Promise.all([serviceGet("/call/approvals"), serviceGet("/call/audit")]);
-    telLive = { pending: a.ok && Array.isArray(a.data.pending) ? a.data.pending : [], rows: l.ok && Array.isArray(l.data.rows) ? l.data.rows : [], down: !a.ok };
+    const [a, l, v] = await Promise.all([serviceGet("/call/approvals"), serviceGet("/call/audit"), serviceGet("/call/voice")]);
+    telLive = { pending: a.ok && Array.isArray(a.data.pending) ? a.data.pending : [], rows: l.ok && Array.isArray(l.data.rows) ? l.data.rows : [],
+      down: !a.ok, voice: v.ok ? v.data : { active: false } };
   }
   async function saveTel(change) {
     const r = await api("POST", "api/voice/telephony", change);
@@ -230,10 +232,47 @@
     return form;
   }
   const word = (prefix, value) => { const s = T(prefix + value); return s === prefix + value ? String(value || "") : s; };
+  function telVoiceBox() {
+    const v = telLive.voice || { active: false };
+    if (!v.active) return null;
+    const box = el("div", "vo-tel-voice");
+    const id = v.identity;
+    if (id) box.append(el("p", "vo-help", T(id.confident ? "vo.tel.voice.match" : "vo.tel.voice.maybe", id.name)));
+    else box.append(el("p", "vo-help", T("vo.tel.voice.none")));
+    const row = el("div", "vo-bar");
+    const sel = document.createElement("select");
+    sel.append(new Option(T("vo.tel.voice.pick"), ""));
+    if (telContactsCache) for (const c of telContactsCache) sel.append(new Option(c.name, c.id));
+    sel.value = telVoiceConfirm.pick;
+    sel.disabled = !telContactsCache || telVoiceConfirm.busy;
+    sel.onchange = () => { telVoiceConfirm.pick = sel.value; };
+    const go = btn(telVoiceConfirm.busy ? T("vo.tel.voice.busy") : T("vo.tel.voice.confirm"), "", confirmTelVoice, "vo-tel-voice-go");
+    go.disabled = telVoiceConfirm.busy || !telVoiceConfirm.pick;
+    row.append(sel, go);
+    box.append(row, note(telVoiceConfirm.msg, telVoiceConfirm.bad));
+    if (telContactsCache === null) loadTelContactsCache();
+    return box;
+  }
+  async function loadTelContactsCache() {
+    telContactsCache = [];
+    const r = await api("GET", "api/contacts");
+    if (r.ok && Array.isArray(r.data.contacts)) telContactsCache = r.data.contacts;
+    repaintTelLive();
+  }
+  async function confirmTelVoice() {
+    if (!telVoiceConfirm.pick) return;
+    telVoiceConfirm = { ...telVoiceConfirm, busy: true, msg: "", bad: false };
+    repaintTelLive();
+    const r = await api("POST", "api/voice/service/call", { method: "POST", path: "/call/voice/confirm", body: { contact_id: telVoiceConfirm.pick } });
+    telVoiceConfirm = { pick: "", busy: false, msg: r.ok ? T("vo.tel.voice.done") : errText(r), bad: !r.ok };
+    repaintTelLive();
+  }
   function telLiveBox() {
     const wrap = el("div", "vo-tel-live");
     wrap.id = "vo-tel-live";
     if (telLive.down) wrap.append(note(T("vo.tel.down"), false));
+    const vb = telVoiceBox();
+    if (vb) wrap.append(vb);
     wrap.append(el("h4", "vo-h2", T("vo.tel.pending")));
     if (!telLive.pending.length) wrap.append(el("p", "vo-help", T("vo.tel.pending.none")));
     const list = el("ul", "vo-tel-rows");

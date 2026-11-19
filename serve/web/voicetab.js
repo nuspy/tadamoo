@@ -15,6 +15,7 @@
   let live = { up: false, reason: "", fns: null, state: null };
   let talk = { down: false, starting: false, active: false, msg: "", bad: false }, say = { busy: false, msg: "", bad: false };
   let sayText = "", talkSig = "", brainMsg = { text: "", bad: false }, levelMsg = { text: "", bad: false };
+  let voiceConfirm = { busy: false, msg: "", bad: false, pick: "" }, contactsCache = null;
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick, id) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; if (id) b.id = id; return b; };
@@ -175,7 +176,8 @@
     return missing.length ? T("vt.off.fns", missing.map(f => T("vt.fn." + f)).join(", ")) : "";
   }
   const sessionOf = () => (live.state && live.state.session) || {};
-  const sigOf = () => JSON.stringify([why(), sessionOf().active, sessionOf().phase, sessionOf().brain, talk, say]);
+  const voiceOf = () => (live.state && live.state.voice) || { active: false };
+  const sigOf = () => JSON.stringify([why(), sessionOf().active, sessionOf().phase, sessionOf().brain, voiceOf(), talk, say, voiceConfirm]);
   function paintTalk() {
     talkSig = sigOf();
     const s = body("talk"), reason = why(), sess = sessionOf();
@@ -194,6 +196,7 @@
       const row = el("div", "vt-chips");
       row.append(chip(T("vt.sess.on", T("vt.mode." + (sess.brain || "direct")), T("vt.phase." + (sess.phase || "idle"))), "vt-ok"), btn(T("vt.talk.stop"), "ghost", stopSession, "vt-stop"));
       s.append(row);
+      s.append(voiceBox());
     }
     s.append(note(talk.msg, talk.bad));
     const f = el("div", "vt-field"), lab = el("label", "", T("vt.say.label")), input = el("input");
@@ -203,6 +206,39 @@
     input.oninput = () => { sayText = input.value; go.disabled = !!why() || say.busy || !sayText.trim(); };
     f.append(lab, input);
     s.append(f, go, note(say.msg, say.bad));
+  }
+  function voiceBox() {
+    const v = voiceOf(), box = el("div", "vt-voice");
+    const id = v.identity;
+    if (id) box.append(chip(T(id.confident ? "vt.voice.match" : "vt.voice.maybe", id.name), id.confident ? "vt-ok" : ""));
+    else box.append(el("p", "vt-help", T("vt.voice.none")));
+    const row = el("div", "vt-chips vt-voice-row");
+    const sel = document.createElement("select");
+    sel.append(new Option(T("vt.voice.pick"), ""));
+    if (contactsCache) for (const c of contactsCache) sel.append(new Option(c.name, c.id));
+    sel.value = voiceConfirm.pick;
+    sel.disabled = !contactsCache || voiceConfirm.busy;
+    sel.onchange = () => { voiceConfirm.pick = sel.value; };
+    const go = btn(voiceConfirm.busy ? T("vt.voice.confirm.busy") : T("vt.voice.confirm.button"), "", confirmVoice, "vt-voice-go");
+    go.disabled = voiceConfirm.busy || !voiceConfirm.pick;
+    row.append(sel, go);
+    box.append(row, note(voiceConfirm.msg, voiceConfirm.bad));
+    if (contactsCache === null) loadContactsCache();
+    return box;
+  }
+  async function loadContactsCache() {
+    contactsCache = [];
+    const r = await api("GET", "api/contacts");
+    if (r.ok && Array.isArray(r.data.contacts)) contactsCache = r.data.contacts;
+    paintTalk();
+  }
+  async function confirmVoice() {
+    if (!voiceConfirm.pick) return;
+    voiceConfirm = { ...voiceConfirm, busy: true, msg: "", bad: false };
+    paintTalk();
+    const r = await svc("POST", "/brain/voice/confirm", { contact_id: voiceConfirm.pick });
+    voiceConfirm = { pick: "", busy: false, msg: r.ok ? T("vt.voice.confirm.done") : errText(r), bad: !r.ok };
+    paintTalk();
   }
   async function press() {
     if (talk.down) return;

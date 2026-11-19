@@ -164,9 +164,19 @@ def test_brain_state_needs_the_token_and_shows_the_mode_and_the_session(env):
     st = env.client.get("/brain/state", headers=AUTH).get_json()
     assert (st["default_mode"], st["persona"], st["last"], st["pending"], st["hotkeys"]) == ("harness", "maria", None, None, False) and "permission" not in st
     assert st["session"] == {"active": False, "mode": None, "phase": "idle", "avatar": False, "brain": None}
+    assert st["voice"] == {"active": False}
     env.state.brains.direct._api = FakeApi()
     "".join(env.state.brains.fork("direct").respond_stream("hello"))
     assert env.client.get("/brain/state", headers=AUTH).get_json()["last"]["user"] == "hello"
+
+
+def test_confirming_a_voice_with_no_session_active_says_so(env):
+    r = env.client.post("/brain/voice/confirm", json={"contact_id": "c1"}, headers=AUTH)
+    assert r.status_code == 409 and r.get_json()["error"] == "no session is active"
+
+
+def test_confirming_a_voice_without_a_contact_id_is_rejected(env):
+    assert env.client.post("/brain/voice/confirm", json={}, headers=AUTH).status_code == 400
 
 
 def test_the_state_follows_voice_json(env):
@@ -225,6 +235,9 @@ class FakeManager:
 
     def session_state(self):
         return {"active": True, "mode": "half", "phase": "idle", "avatar": False, "brain": "harness"}
+
+    def voice_status(self):
+        return {"active": False}
 
     def start(self):
         self.calls.append("start")
