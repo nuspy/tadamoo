@@ -37,12 +37,33 @@ async function main() {
     const near = (a, b, tol, what) => { if (Math.abs(a - b) > tol) throw new Error(`${what}: ${a} is not ${b} (+-${tol})`); };
     const open = async (vw, vh, mobile, lang) => {
       await send("Emulation.setDeviceMetricsOverride", { width: vw, height: vh, deviceScaleFactor: 1, mobile });
-      await send("Page.navigate", { url: URL + `?lang=${lang}` });
-      await sleep(1500);
-      await ev(`q("#tab-plans").click(); await wait(1200);
-        const find = () => qa("#plans-root *").filter(e => e.children.length === 0 && e.textContent.includes(${JSON.stringify(TITLE)}) && e.closest("li, button, a")).sort((a, b) => a.textContent.length - b.textContent.length)[0];
-        let hit = find(); if (!hit) { const tg = q("#pl-toggle"); if (tg && q(".plcol.shut")) { tg.click(); await wait(400); hit = find(); } }
-        if (hit) (hit.closest("button, a, li, [role=button], [tabindex]") || hit).click(); return 1;`);
+      await sleep(300);                                   // lets the override settle before the navigate, instead of racing it
+      // a navigate right after changing the emulated viewport occasionally lands while the browser is still mid-transition: the page's own
+      // scripts then run with nothing set up yet (app.js itself did not finish) and every later script trips on undefined globals. Retried
+      // whole, not just waited out longer: a page in that state never recovers on its own.
+      let ready = false;
+      for (let attempt = 0; attempt < 3 && !ready; attempt++) {
+        pageErrors.length = 0;
+        await send("Page.navigate", { url: URL + `?lang=${lang}` });
+        await sleep(1500);
+        try {
+          await waitFor(`!!q("#tab-plans") && typeof view === "function"`, "the page, after changing the viewport", 40);
+          ready = true;
+        } catch (e) { /* one more try, with a fresh navigate */ }
+      }
+      if (!ready) throw new Error("never: the page, after changing the viewport, after retrying the navigate");
+      pageErrors.length = 0;                                // the page is up: anything from an earlier, discarded attempt is not this check's problem
+      await ev(`q("#tab-plans").click(); return 1;`);
+      // the plan's own link can take a moment to render after the tab switch, especially right after a viewport change: retried, not a single blind attempt
+      let clicked = false;
+      for (let i = 0; i < 15 && !clicked; i++) {
+        clicked = await ev(`const find = () => qa("#plans-root *").filter(e => e.children.length === 0 && e.textContent.includes(${JSON.stringify(TITLE)}) && e.closest("li, button, a")).sort((a, b) => a.textContent.length - b.textContent.length)[0];
+          let hit = find(); if (!hit) { const tg = q("#pl-toggle"); if (tg && q(".plcol.shut")) { tg.click(); await wait(400); hit = find(); } }
+          if (!hit) return false;
+          (hit.closest("button, a, li, [role=button], [tabindex]") || hit).click(); return true;`);
+        if (!clicked) await sleep(300);
+      }
+      if (!clicked) throw new Error("never: the plan's own link, after changing the viewport");
       for (let i = 0; i < 20; i++) {
         await ev(`const gb = qa("#plans-root button").find(b => /^(Graph|Grafo)$/.test(b.textContent.trim())); if (gb) gb.click(); const d = qa("#plans-root .pl-tabs button").find(b => /^(Plan definition|Definizione del piano)$/.test(b.textContent.trim())); if (d) d.click(); return 1;`);
         await sleep(300);
