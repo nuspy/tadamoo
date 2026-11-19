@@ -1,7 +1,15 @@
 # Diario dei task
 
-Ultimo aggiornamento: 17 novembre 2026 (6.2 fatto, nuovi punti 7.20-7.22). Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
+Ultimo aggiornamento: 19 novembre 2026 (vedi sezione sotto). Si aggiorna a ogni task nuovo ricevuto e a ogni task completato
 (regola nel `CLAUDE.md` globale). Se hai perso il filo, parti dalla lista del 17 novembre e da «Decisioni tue in attesa». Il 17 novembre sono state tolte 7 copie vecchie incollate in fondo al file (sezione «12 novembre» compresa): si leggono con `git show 183b0300:docs/task_diary.md`. Le sezioni dell'8, 7, 5 e 4 novembre sono in `docs/task_diary_archive.md`.
+
+## 19 novembre
+
+- [x] Android: la app ha ora le stesse impostazioni di inferenza di web/PC. Non riscritte in Flutter (sarebbe enorme: preset, effort, system prompt, compattazione, lettura/browser, permessi, checkpoint, output strutturato, sampling...): una nuova icona in chat apre la pagina web vera dentro una WebView (scelta tua). APK compilata e installata sul tuo Galaxy S25 Ultra.
+- [x] Corretto un errore mio: ho richiamato per davvero `POST /api/admin/restart` su un server appena riavviato da te, solo per controllare che l'endpoint rispondesse. TaDaMoo.exe si è chiuso del tutto (non solo il server). Recuperato subito riavviando `TaDaMoo.exe --attach`: server di nuovo su, nessun modello caricato. Non richiamerò più quell'endpoint dal vivo.
+- [x] Bug GnuPG nell'installazione di Tor: GnuPG c'è (quello di Git for Windows) ma non è sul PATH del processo del server, solo su quello delle shell con il profilo di Git. `_which("gpg")` ora cerca anche nei percorsi noti di Git for Windows e Gpg4win; l'installazione di Tor passa il percorso trovato invece del nome nudo "gpg". Richiede un riavvio del server per essere attivo.
+- [x] Bug «compattazione ragionamento/azioni impostata ma non si vede in chat»: la pagina leggeva la modalità dal pannello Impostazioni (legato alla conversazione aperta solo in certe modalità locali), non dalla conversazione stessa. Ora segue sempre le impostazioni salvate della conversazione aperta. Richiede un riavvio del server.
+- [x] Richiesta che una richiesta ancora in coda (non ancora arrivata al modello) si possa togliere con conferma: il pulsante «Togli» esisteva già ma cancellava con un solo clic; ora apre un dialog di conferma (stesso stile del riavvio di Admin) prima di togliere davvero. Richiede un riavvio del server.
 
 ## Lista di lavoro del 17 novembre (tasks e subtasks, aggiornata a ogni passo)
 
