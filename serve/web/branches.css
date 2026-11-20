@@ -21,7 +21,7 @@
 .brd-tree ul { margin-left: 22px; padding-left: 10px; border-left: 2px solid var(--line); }
 .brd-tree li:focus { outline: none; }
 .brd-tree li:focus-visible > .brd-row, .brd-tree li:focus > .brd-row { outline: 2px solid var(--accent); outline-offset: 1px; }
-.brd-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; min-height: 44px; padding: 8px 12px; border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
+.brd-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); cursor: pointer; }
 .brd-row:hover { background: var(--surface); border-color: var(--line); }
 .brd-tree [aria-selected="true"] > .brd-row { background: var(--surface); border-color: var(--line); }
 .brd-tw { width: 1.2em; flex: none; color: var(--fg-2); }

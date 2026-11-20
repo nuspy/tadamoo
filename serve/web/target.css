@@ -4,7 +4,7 @@
 
 /* list tools: two small buttons in the row of the prompt box, and in the dialog above its text box */
 .lt-bar { display: inline-flex; gap: 2px; align-items: center; }
-.lt-btn { min-width: var(--btn-h, 30px); min-height: var(--btn-h, 30px); border-radius: 6px; border: 1px solid transparent; color: var(--fg-2); display: inline-flex; align-items: center; justify-content: center; }
+.lt-btn { min-width: var(--btn-h, 30px); min-height: var(--btn-h, 30px); border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--fg-2); display: inline-flex; align-items: center; justify-content: center; }
 .lt-btn:hover { background: var(--raised); color: var(--fg); border-color: var(--line); }
 .lt-icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .lt-offer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg-2); }
