@@ -226,11 +226,13 @@ SAYINGS = {
            "ask_file": "The agent wants to change a file. Say yes or no.", "ask_file_named": "The agent wants to change the file {name}. Say yes or no.", "ask_again": "Say yes or no.",
            "screen": "An approval is waiting on the screen.", "allowed": "Okay, allowed.", "denied": "Okay, not allowed.",
            "busy": "It is still working.", "down": "I cannot reach the assistant.", "refused": "The assistant refused the request.",
+           "not_ready": "No model is loaded yet. Load one in the Loader, then try again.",
            "not_mic": "Only the person at the microphone can approve that."},
     "it": {"harness": "Va bene, ora risponde l'agente.", "direct": "Va bene, ora conversazione diretta.",
            "ask_file": "L'agente vuole modificare un file. Dimmi sì o no.", "ask_file_named": "L'agente vuole modificare il file {name}. Dimmi sì o no.", "ask_again": "Dimmi sì o no.",
            "screen": "Un'approvazione ti aspetta sullo schermo.", "allowed": "Va bene, consentito.", "denied": "Va bene, non consentito.",
            "busy": "Sta ancora lavorando.", "down": "Non riesco a raggiungere l'assistente.", "refused": "L'assistente ha rifiutato la richiesta.",
+           "not_ready": "Nessun modello è ancora caricato. Caricane uno nel Loader, poi riprova.",
            "not_mic": "Solo chi è al microfono può approvare."},
 }
 

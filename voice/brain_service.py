@@ -150,8 +150,12 @@ class Speaker:
         cfg = self.state.config
         router = engines._get_tts_engine(cfg)
         persona = self.state.settings.brain.persona
-        lang = (persona and persona_link.language_of(persona, TadamooApi(cfg.tadamoo_base_url, cfg.tadamoo_token, timeout=5))) or cfg.default_lang
-        return router.synth(text, cfg.default_voice, lang, cfg.tts_speed, "")
+        api = TadamooApi(cfg.tadamoo_base_url, cfg.tadamoo_token, timeout=5)
+        # The personality's own voice, same as the avatar speaks with: cfg.default_voice is a generic, often
+        # language-locked voice (e.g. Kokoro/espeak) that garbles a sentence in any language it was not set up for.
+        voice = persona_link.voice_of(persona, api) if persona else {}
+        lang = (persona and persona_link.language_of(persona, api)) or cfg.default_lang
+        return router.synth(text, voice.get("voice") or cfg.default_voice, lang, cfg.tts_speed, voice.get("engine", ""))
 
     def _default_play(self, samples, rate) -> None:
         import sounddevice as sd                                     # noqa: PLC0415 (opened only when a sentence is spoken)

@@ -42,6 +42,14 @@ def language_of(slug: str, api: TadamooApi) -> str:
     return str(row.get("language") or "") if isinstance(row, dict) else ""
 
 
+def voice_of(slug: str, api: TadamooApi) -> dict:
+    """The personality's own voice ({"engine", "voice"}, or {} when it names none, or the lookup fails): the same voice the avatar speaks
+    with, so a sentence spoken without the avatar still sounds like this personality instead of falling back to a generic, language-locked one."""
+    row = _row(slug, api)
+    voice = row.get("voice") if isinstance(row, dict) else None
+    return {"engine": str(voice.get("engine") or ""), "voice": str(voice.get("voice") or "")} if isinstance(voice, dict) else {}
+
+
 def resolve(slug: str, api: TadamooApi, store: AvatarStore) -> Link:
     """The link for personality `slug`. A server that does not answer or a personality that is gone gives a Link with `problem` set."""
     row = _row(slug, api)

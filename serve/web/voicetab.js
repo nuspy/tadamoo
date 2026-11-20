@@ -40,15 +40,14 @@
     root.append(el("p", "vt-intro", T("vt.intro")));
     const status = el("p", "sr"); status.id = "vt-live"; status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
     root.append(status);
-    const grid = el("div", "vt-grid"), main = el("div", "vt-col-main");
+    const grid = el("div", "vt-grid");
     for (const [id, key] of [["brain", "vt.brain"], ["talk", "vt.talk"], ["last", "vt.last"], ["service", "vt.service"], ["avatar", "vt.avatar"], ["meetings", "vt.meetings"]]) {
       const s = el("section", "vt-card"), h = el("h3", "vt-h", T(key));
       h.id = "vt-h-" + id; s.id = "vt-card-" + id; s.setAttribute("aria-labelledby", h.id);
       s.append(h);
       parts[id] = { s, h };
-      (id === "avatar" ? grid : main).append(s);        // the Avatar card is its own column; everything else stacks in the main one
+      grid.append(s);
     }
-    grid.prepend(main);
     root.append(grid);
     if (window.VoiceAvatar) window.VoiceAvatar.mount(parts.avatar.s, avatarCtx);
     if (window.VoiceMeet) window.VoiceMeet.mount(parts.meetings.s, avatarCtx);

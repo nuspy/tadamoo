@@ -103,9 +103,19 @@ def test_a_server_that_does_not_answer_is_one_spoken_line_not_an_exception():
     assert say(b, "ciao") == spoken.saying("down", "it")
 
 
-def test_a_refusal_is_spoken_and_nothing_is_added_to_the_context():
+def test_no_model_loaded_is_spoken_as_not_ready_and_nothing_is_added_to_the_context():
     api = FakeApi()
     api.chat_error = ApiError("no model is loaded", 503)
+    b, _ = brain(api)
+    assert say(b, "hi") == spoken.saying("not_ready")
+    api.chat_error = None
+    say(b, "again")
+    assert len([c for c in api.calls if c[0] == "CHAT"][-1][1]) == 2             # system + the one question
+
+
+def test_a_genuine_refusal_is_spoken_and_nothing_is_added_to_the_context():
+    api = FakeApi()
+    api.chat_error = ApiError("blocked by policy", 403)
     b, _ = brain(api)
     assert say(b, "hi") == spoken.saying("refused")
     api.chat_error = None

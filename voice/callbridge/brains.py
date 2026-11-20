@@ -65,7 +65,8 @@ def _persona_slug(value) -> str:
 
 
 def _error_line(e: ApiError, lang: str) -> str:
-    return spoken.saying("down" if e.status == 0 else "refused", lang)
+    key = "down" if e.status == 0 else "not_ready" if e.status == 503 else "refused"
+    return spoken.saying(key, lang)
 
 
 # ------------------------------------------------------------------------------------------------ direct
