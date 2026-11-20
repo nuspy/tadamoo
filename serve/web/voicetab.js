@@ -40,13 +40,21 @@
     root.append(el("p", "vt-intro", T("vt.intro")));
     const status = el("p", "sr"); status.id = "vt-live"; status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
     root.append(status);
+    // Coherent groups, each its own column while there is room for one: brain (who answers), talk+last (try it and
+    // what came of it), service+meetings (status cards), avatar (always alone, never sharing a column).
+    const groups = [["brain"], ["talk", "last"], ["service", "meetings"], ["avatar"]];
     const grid = el("div", "vt-grid");
-    for (const [id, key] of [["brain", "vt.brain"], ["talk", "vt.talk"], ["last", "vt.last"], ["service", "vt.service"], ["avatar", "vt.avatar"], ["meetings", "vt.meetings"]]) {
-      const s = el("section", "vt-card"), h = el("h3", "vt-h", T(key));
-      h.id = "vt-h-" + id; s.id = "vt-card-" + id; s.setAttribute("aria-labelledby", h.id);
-      s.append(h);
-      parts[id] = { s, h };
-      grid.append(s);
+    for (const ids of groups) {
+      const col = el("div", "vt-col" + (ids[0] === "avatar" ? " vt-col-avatar" : ""));
+      for (const id of ids) {
+        const key = { brain: "vt.brain", talk: "vt.talk", last: "vt.last", service: "vt.service", avatar: "vt.avatar", meetings: "vt.meetings" }[id];
+        const s = el("section", "vt-card"), h = el("h3", "vt-h", T(key));
+        h.id = "vt-h-" + id; s.id = "vt-card-" + id; s.setAttribute("aria-labelledby", h.id);
+        s.append(h);
+        parts[id] = { s, h };
+        col.append(s);
+      }
+      grid.append(col);
     }
     root.append(grid);
     if (window.VoiceAvatar) window.VoiceAvatar.mount(parts.avatar.s, avatarCtx);
