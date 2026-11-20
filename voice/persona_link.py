@@ -24,17 +24,29 @@ class Link:
         return {"persona": self.slug, "name": self.name, "avatar": self.avatar, "voice": self.voice, "language": self.language, "problem": self.problem}
 
 
-def resolve(slug: str, api: TadamooApi, store: AvatarStore) -> Link:
-    """The link for personality `slug`. A server that does not answer or a personality that is gone gives a Link with `problem` set."""
+def _row(slug: str, api: TadamooApi) -> dict | str:
+    """The personality's own row from `/api/personas`, or an error message."""
     if not slug:
-        return Link(problem="no personality is chosen in Settings > Voice")
+        return "no personality is chosen in Settings > Voice"
     try:
         listing = api.get("/api/personas")
     except ApiError as e:
-        return Link(slug, problem=f"TaDaMoo's personalities could not be read: {e}")
+        return f"TaDaMoo's personalities could not be read: {e}"
     row = next((p for p in listing.get("personas", []) if isinstance(p, dict) and p.get("slug") == slug), None)
-    if row is None:
-        return Link(slug, problem="the personality chosen in Settings > Voice does not exist any more")
+    return row if row is not None else "the personality chosen in Settings > Voice does not exist any more"
+
+
+def language_of(slug: str, api: TadamooApi) -> str:
+    """The personality's own language (`""` when it names none, or the lookup fails): what a spoken reply should default to, same as the avatar."""
+    row = _row(slug, api)
+    return str(row.get("language") or "") if isinstance(row, dict) else ""
+
+
+def resolve(slug: str, api: TadamooApi, store: AvatarStore) -> Link:
+    """The link for personality `slug`. A server that does not answer or a personality that is gone gives a Link with `problem` set."""
+    row = _row(slug, api)
+    if isinstance(row, str):
+        return Link(slug, problem=row)
     avatar = row.get("avatar") if isinstance(row.get("avatar"), str) else ""
     voice = row.get("voice") if isinstance(row.get("voice"), dict) else {}
     link = Link(slug, str(row.get("name") or slug), "", {"engine": str(voice.get("engine") or ""), "voice": str(voice.get("voice") or "")},

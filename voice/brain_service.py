@@ -145,9 +145,13 @@ class Speaker:
 
     def _default_synth(self, text: str):
         from callbridge import engines
+        from callbridge.tadamoo_api import TadamooApi
+        from voice import persona_link
         cfg = self.state.config
         router = engines._get_tts_engine(cfg)
-        return router.synth(text, cfg.default_voice, cfg.default_lang, cfg.tts_speed, "")
+        persona = self.state.settings.brain.persona
+        lang = (persona and persona_link.language_of(persona, TadamooApi(cfg.tadamoo_base_url, cfg.tadamoo_token, timeout=5))) or cfg.default_lang
+        return router.synth(text, cfg.default_voice, lang, cfg.tts_speed, "")
 
     def _default_play(self, samples, rate) -> None:
         import sounddevice as sd                                     # noqa: PLC0415 (opened only when a sentence is spoken)
