@@ -6,7 +6,7 @@
 (() => {
   const root = document.getElementById("ct-root");
   if (!root) return;
-  let data = null, selected = null, note = "", bad = false;
+  let data = null, selectedGroup = null, selectedContact = null, note = "", bad = false;
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (text, cls, onclick) => { const b = el("button", "btn " + (cls || ""), text); b.type = "button"; b.onclick = onclick; return b; };
@@ -187,7 +187,7 @@
     const overrides = { ...g.permissions };
     box.append(permissionsEditor("group", overrides, {}));
     const save = btn(T("ct.save"), "primary", () => act("api/contacts/groups", { action: "update", id: g.id, name: name.value, permissions: overrides }));
-    const remove = btn(T("ct.remove"), "ghost", () => { if (confirm(T("ct.group.remove.confirm", g.name))) { selected = null; act("api/contacts/groups", { action: "remove", id: g.id }); } });
+    const remove = btn(T("ct.remove"), "ghost", () => { if (confirm(T("ct.group.remove.confirm", g.name))) { selectedGroup = null; act("api/contacts/groups", { action: "remove", id: g.id }); } });
     const acts = el("div", "ct-acts");
     acts.append(save, remove);
     box.append(acts);
@@ -224,26 +224,56 @@
       action: "update", id: c.id, name: name.value, organization: org.value, role: role.value, group_id: groupSel.value,
       phones: parseList(phones.value, "number"), emails: parseList(emails.value, "address"),
       sharing_notes: sharing.value, relationship_notes: relation.value, overrides }));
-    const remove = btn(T("ct.remove"), "ghost", () => { if (confirm(T("ct.contact.remove.confirm", c.name))) { selected = null; act("api/contacts/items", { action: "remove", id: c.id }); } });
+    const remove = btn(T("ct.remove"), "ghost", () => { if (confirm(T("ct.contact.remove.confirm", c.name))) { selectedContact = null; act("api/contacts/items", { action: "remove", id: c.id }); } });
     const acts = el("div", "ct-acts"); acts.append(save, remove);
     box.append(acts);
     return box;
   }
 
-  function detailPane() {
-    if (!selected) return el("p", "ct-empty", T("ct.pick"));
-    if (selected.kind === "group") {
-      const g = data.groups.find(g => g.id === selected.id);
-      return g ? groupDetail(g) : el("p", "ct-empty", T("ct.pick"));
-    }
-    const c = data.contacts.find(c => c.id === selected.id);
-    return c ? contactDetail(c) : el("p", "ct-empty", T("ct.pick"));
+  // -1-: null = nothing picked yet, "" = the "no group" row, anything else = a real group's id.
+  function memberRow(c) {
+    const on = selectedContact === c.id;
+    const b = btn(c.name, "ghost ct-item" + (on ? " ct-on" : ""), () => { selectedContact = c.id; draw(); });
+    b.setAttribute("aria-pressed", String(on));
+    return b;
   }
 
-  function itemButton(label, kind, id) {
-    const on = selected && selected.kind === kind && selected.id === id;
-    const b = btn(label, "ghost ct-item" + (on ? " ct-on" : ""), () => { selected = { kind, id }; draw(); });
-    b.setAttribute("aria-pressed", String(!!on));
+  function groupMembers(g, groupId) {
+    const box = el("div", "ct-detail");
+    if (g) box.append(groupDetail(g));
+    else box.append(el("h3", "ct-h3", T("ct.ungrouped")));
+    box.append(el("h4", "ct-cath", T("ct.members.title")));
+    const members = data.contacts.filter(c => (c.group_id || "") === groupId);
+    const list = el("div", "ct-list");
+    members.forEach(c => list.append(memberRow(c)));
+    if (!members.length) list.append(el("p", "ct-empty", T("ct.members.none")));
+    box.append(list);
+    const contactName = field("input", T("ct.contact.add.ph"));
+    const addContactBtn = btn(T("ct.contact.add"), "primary", () => { if (contactName.value.trim()) act("api/contacts/items", { action: "add", name: contactName.value.trim(), group_id: groupId }).then(ok => { if (ok) { const last = data.contacts[data.contacts.length - 1]; selectedContact = last.id; draw(); } }); });
+    const addRow = el("div", "ct-addrow");
+    addRow.append(contactName, addContactBtn);
+    box.append(addRow);
+    return box;
+  }
+
+  function detailPane() {
+    if (selectedContact) {
+      const c = data.contacts.find(c => c.id === selectedContact);
+      if (c) return contactDetail(c);
+      selectedContact = null;
+    }
+    if (selectedGroup !== null) {
+      const g = selectedGroup ? data.groups.find(g => g.id === selectedGroup) : null;
+      if (!selectedGroup || g) return groupMembers(g, selectedGroup || "");
+      selectedGroup = null;
+    }
+    return el("p", "ct-empty", T("ct.pick"));
+  }
+
+  function groupButton(label, id) {
+    const on = selectedGroup === id;
+    const b = btn(label, "ghost ct-item" + (on ? " ct-on" : ""), () => { selectedGroup = id; selectedContact = null; draw(); });
+    b.setAttribute("aria-pressed", String(on));
     return b;
   }
 
@@ -252,24 +282,13 @@
     box.append(el("h3", "ct-h3", T("ct.groups.title")));
     const cols = el("div", "ct-cols");
     const list = el("div", "ct-list");
-    for (const g of data.groups) {
-      list.append(itemButton(g.name, "group", g.id));
-      for (const c of data.contacts.filter(c => c.group_id === g.id)) list.append(itemButton(c.name, "contact", c.id));
-    }
-    const loners = data.contacts.filter(c => !c.group_id);
-    if (loners.length) {
-      list.append(el("p", "ct-loose", T("ct.ungrouped")));
-      for (const c of loners) list.append(itemButton(c.name, "contact", c.id));
-    }
+    list.append(groupButton(T("ct.ungrouped"), ""));
+    for (const g of data.groups) list.append(groupButton(g.name, g.id));
     const groupName = field("input", T("ct.group.add.ph"));
     const addGroupBtn = btn(T("ct.group.add"), "", () => { if (groupName.value.trim()) act("api/contacts/groups", { action: "add", name: groupName.value.trim() }); });
-    const contactName = field("input", T("ct.contact.add.ph"));
-    const addContactBtn = btn(T("ct.contact.add"), "", () => { if (contactName.value.trim()) act("api/contacts/items", { action: "add", name: contactName.value.trim() }).then(ok => { if (ok) { const last = data.contacts[data.contacts.length - 1]; selected = { kind: "contact", id: last.id }; draw(); } }); });
     const addRow = el("div", "ct-addrow");
     addRow.append(groupName, addGroupBtn);
-    const addRow2 = el("div", "ct-addrow");
-    addRow2.append(contactName, addContactBtn);
-    list.append(addRow, addRow2);
+    list.append(addRow);
     cols.append(list, detailPane());
     box.append(cols);
     return box;
