@@ -52,10 +52,21 @@ def _language(body: Any) -> dict:
 
 
 def _say(body: Any) -> dict:
-    text = body.get("text") if isinstance(body, dict) and set(body) == {"text"} else None
+    body = _fields(body, ("text", "voice", "engine", "lang"), ("text",))
+    text, voice, engine, lang = body["text"], body.get("voice", ""), body.get("engine", ""), body.get("lang", "")
     if not isinstance(text, str) or not text.strip() or len(text) > SAY_MAX:
         raise Refused(400, "bad_request", f"Send a sentence of at most {SAY_MAX} characters.")
-    return {"text": text.strip()}
+    if not isinstance(voice, str) or len(voice) > 80 or not isinstance(engine, str) or len(engine) > 32 or \
+            not isinstance(lang, str) or (lang and not LANG.fullmatch(lang)):
+        raise Refused(400, "bad_request", "voice is at most 80 characters, engine at most 32, lang a language code.")
+    out = {"text": text.strip()}
+    if voice.strip():
+        out["voice"] = voice.strip()
+        if engine.strip():
+            out["engine"] = engine.strip()
+        if lang:
+            out["lang"] = lang
+    return out
 
 
 def _voice_confirm(body: Any) -> dict:
@@ -228,6 +239,7 @@ ROUTES: dict[tuple[str, str], Callable[[Any], Any]] = {
     ("GET", "/session/language"): _none,
     ("POST", "/session/language"): _language,
     ("GET", "/diag/brain"): _none,
+    ("GET", "/engines/voices"): _none,
     ("POST", "/session/start"): _start,
     ("POST", "/session/stop"): _none,
     ("POST", "/session/new"): _none,

@@ -217,6 +217,18 @@ def create_app(
             log.warning("engines_catalog: %s", e)
             return jsonify({"error": str(e)}), 500
 
+    @app.get("/engines/voices")
+    def engines_voices():
+        """Come /engines/catalog, con le voci di ogni motore disponibile: alimenta i menu voce per lingua
+        (Settings > Voice > Lingua parlata). A differenza di /engines/catalog carica il file degli speaker XTTS la
+        prima volta: un costo piccolo e una tantum, mai un modello."""
+        from .engines import catalogo_voci
+        try:
+            return jsonify({"models": catalogo_voci(config)})
+        except Exception as e:  # noqa: BLE001
+            log.warning("engines_voices: %s", e)
+            return jsonify({"error": str(e)}), 500
+
     @app.get("/engines/status")
     def engines_status_route():
         """Dove sono caricati DAVVERO i motori STT/TTS (device, file, modello).

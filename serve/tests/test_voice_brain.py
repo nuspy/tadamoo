@@ -240,13 +240,14 @@ class ProxyTests(ServerBase):
     def test_every_allowed_route_reaches_the_service_with_the_token(self):
         calls = [("GET", "/status", None), ("GET", "/functions", None), ("GET", "/brain/state", None), ("GET", "/session/state", None), ("GET", "/diag/brain", None),
                  ("POST", "/session/start", {"mode": "full", "brain": "direct"}), ("POST", "/session/stop", None), ("POST", "/session/new", None),
-                 ("POST", "/brain/say", {"text": "Prova."})]
+                 ("POST", "/brain/say", {"text": "Prova."}), ("POST", "/brain/say", {"text": "Ciao.", "voice": "if_sara", "engine": "kokoro", "lang": "it"})]
         for method, path, body in calls:
             code, out = self.call(method, path, body)
             self.assertEqual((code, out["route"]), (200, path), path)
         self.assertEqual([s[:3] for s in self.service.seen], [(m, p, "Bearer " + self.token) for m, p, _ in calls])
         self.assertEqual(self.service.seen[5][3], {"mode": "full", "brain": "direct", "avatar": False})
         self.assertEqual(self.service.seen[8][3], {"text": "Prova."})
+        self.assertEqual(self.service.seen[9][3], {"text": "Ciao.", "voice": "if_sara", "engine": "kokoro", "lang": "it"})
 
     def test_the_token_never_comes_back(self):
         code, out = self.call("GET", "/status")
@@ -265,7 +266,8 @@ class ProxyTests(ServerBase):
     def test_bodies_are_checked_and_cleaned(self):
         for path, body in (("/session/start", {"mode": "limited"}), ("/session/start", {"mode": "half", "avatar": True}), ("/session/start", {"brain": "hermes"}),
                            ("/session/start", {"mode": "half", "extra": 1}), ("/brain/say", {"text": ""}), ("/brain/say", {"text": "x" * 301}),
-                           ("/brain/say", {"text": "ok", "voice": "x"}), ("/brain/say", {}), ("/brain/say", "text"), ("/session/stop", {"a": 1})):
+                           ("/brain/say", {"text": "ok", "extra": 1}), ("/brain/say", {"text": "ok", "voice": "x" * 81}), ("/brain/say", {"text": "ok", "voice": "x", "engine": "x" * 33}),
+                           ("/brain/say", {"text": "ok", "voice": "x", "lang": "english"}), ("/brain/say", {}), ("/brain/say", "text"), ("/session/stop", {"a": 1})):
             code, out = self.call("POST", path, body)
             self.assertEqual(code, 400, (path, body))
         self.assertEqual(self.service.seen, [])
@@ -305,7 +307,7 @@ class ProxyTests(ServerBase):
     def test_the_list_is_what_the_page_needs_and_no_more(self):
         self.assertEqual(sorted(f"{m} {p}" for m, p in voice_proxy.ROUTES),
                          sorted(["GET /status", "GET /components/status", "GET /functions", "GET /brain/state", "GET /session/state", "GET /diag/brain", "POST /session/start",
-                                 "GET /session/language", "POST /session/language",
+                                 "GET /session/language", "POST /session/language", "GET /engines/voices",
                                  "POST /session/stop", "POST /session/new", "POST /brain/say", "POST /brain/voice/confirm", "GET /call/approvals", "GET /call/audit",
                                  "GET /call/voice", "POST /call/voice/confirm", "GET /gateway",
                                  # the avatar (serve/tests/test_voice_avatar_proxy.py)

@@ -200,6 +200,25 @@ def test_a_test_sentence_is_synthesised_and_played(env, monkeypatch):
     assert played == [(24000, 24000)]
 
 
+def test_a_preview_voice_bypasses_the_persona_and_is_heard_with_that_voice(env, monkeypatch):
+    env.state.functions._live = lambda name: "loaded"
+    seen = []
+    monkeypatch.setattr(brain_service.Speaker, "_default_synth", lambda self, text, preview=None: (seen.append((text, preview)), ([0.0] * 100, 100))[1])
+    monkeypatch.setattr(brain_service.Speaker, "_default_play", lambda self, samples, rate: None)
+    r = env.client.post("/brain/say", json={"text": "Ciao.", "voice": "if_sara", "engine": "kokoro", "lang": "it"}, headers=AUTH)
+    assert r.status_code == 200
+    assert seen == [("Ciao.", {"voice": "if_sara", "engine": "kokoro", "lang": "it"})]
+
+
+def test_a_test_sentence_with_no_voice_field_never_builds_a_preview(env, monkeypatch):
+    env.state.functions._live = lambda name: "loaded"
+    seen = []
+    monkeypatch.setattr(brain_service.Speaker, "_default_synth", lambda self, text: (seen.append(text), ([0.0] * 100, 100))[1])
+    monkeypatch.setattr(brain_service.Speaker, "_default_play", lambda self, samples, rate: None)
+    r = env.client.post("/brain/say", json={"text": "hi"}, headers=AUTH)
+    assert r.status_code == 200 and seen == ["hi"]
+
+
 @pytest.mark.parametrize("body", [{}, {"text": ""}, {"text": 5}, {"text": "x" * 301}])
 def test_a_bad_test_sentence_is_refused(env, body):
     env.state.functions._live = lambda name: "loaded"

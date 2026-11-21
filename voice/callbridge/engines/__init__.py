@@ -148,6 +148,23 @@ def catalogo_motori(cfg) -> list[dict]:
     return catalog.elenca(cfg, router, disponibile_fn=fn, con_voci=False)
 
 
+def catalogo_voci(cfg) -> list[dict]:
+    """Come `catalogo_motori`, ma con le voci di ogni motore disponibile (`voci()` in catalog.py): quelle installate
+    per Piper, quelle clonate e i 58 speaker di serie per XTTS, quelle preimpostate per Qwen3-TTS, quelle fisse per
+    gli altri. Da sospeso (nessun router) resta vuoto per Piper e per le voci clonate, che solo il router sa
+    elencare; le voci fisse (Kokoro, Orpheus) restano comunque visibili."""
+    from . import catalog
+    from .tts_router import disponibile_senza_router
+    router = _tts_engine
+    if router is not None:
+        def fn(s):
+            return router.engine_available(s.id)
+    else:
+        def fn(s):
+            return disponibile_senza_router(cfg, s)
+    return catalog.elenca(cfg, router, disponibile_fn=fn, con_voci=True)
+
+
 def engines_status(cfg) -> dict:
     """Dove girano DAVVERO STT e TTS, non dove dovrebbero.
 

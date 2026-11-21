@@ -64,6 +64,45 @@ def test_endpoint_engines_catalog_funziona_da_sospeso(monkeypatch):
     assert engines._tts_engine is None                 # nessun router creato
 
 
+def test_catalogo_voci_uguale_al_catalogo_motori_ma_con_le_voci(monkeypatch):
+    class Router:
+        def engine_available(self, eid):
+            return eid == "kokoro"
+
+    cfg = Config()
+    r = Router()
+    monkeypatch.setattr(engines, "_tts_engine", r)
+    con_voci = engines.catalogo_voci(cfg)
+    senza_voci = engines.catalogo_motori(cfg)
+    spogliato = lambda L: [{k: v for k, v in m.items() if k != "voices"} for m in L]  # noqa: E731
+    assert spogliato(con_voci) == spogliato(senza_voci)   # stessa disponibilita', stesso tutto tranne le voci
+    kokoro = next(m for m in con_voci if m["id"] == "kokoro")
+    assert ("if_sara", "it") in [(v["voice"], v["lang"]) for v in kokoro["voices"]]
+    piper = next(m for m in con_voci if m["id"] == "piper")
+    assert piper["voices"] == []                        # non disponibile per questo Router: niente voci lette
+
+
+def test_endpoint_engines_voices_funziona_da_sospeso(monkeypatch):
+    from callbridge.control_server import create_app
+    from callbridge.orchestrator import CallBridge
+    from fakes import FakeBrain
+
+    class Router:
+        def engine_available(self, eid):
+            return eid == "kokoro"
+
+    cfg = Config()
+    cfg.call_transport = "off"
+    cfg.control_auth_token = ""
+    monkeypatch.setattr(engines, "_tts_engine", Router())
+    app = create_app(cfg, bridge=CallBridge(cfg, FakeBrain()))
+    sospensione.sospendi()
+    r = app.test_client().get("/engines/voices")
+    assert r.status_code == 200
+    kokoro = next(m for m in r.get_json()["models"] if m["id"] == "kokoro")
+    assert any(v["voice"] == "if_sara" for v in kokoro["voices"])
+
+
 _CODICE = r"""
 import sys
 sys.path.insert(0, sys.argv[1])

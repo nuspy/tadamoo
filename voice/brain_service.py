@@ -147,12 +147,16 @@ class Speaker:
         self._play = play
         self._busy = threading.Lock()
 
-    def _default_synth(self, text: str):
+    def _default_synth(self, text: str, preview: dict | None = None):
         from callbridge import engines
-        from callbridge.tadamoo_api import TadamooApi
-        from voice import persona_link
         cfg = self.state.config
         router = engines._get_tts_engine(cfg)
+        if preview and preview.get("voice"):
+            # A catalog voice asked by name (Settings > Voice > Lingua parlata's play button): that exact
+            # voice/engine/language, never the persona's - the point is to hear a choice before picking it.
+            return router.synth(text, preview["voice"], preview.get("lang") or cfg.default_lang, cfg.tts_speed, preview.get("engine", ""))
+        from callbridge.tadamoo_api import TadamooApi
+        from voice import persona_link
         persona = self.state.settings.brain.persona
         api = TadamooApi(cfg.tadamoo_base_url, cfg.tadamoo_token, timeout=5)
         # The personality's own voice, same as the avatar speaks with: cfg.default_voice is a generic, often
@@ -166,11 +170,12 @@ class Speaker:
         sd.play(samples, rate, device=self.state.config.ptt_output_device)
         sd.wait()
 
-    def say(self, text: str) -> dict:
+    def say(self, text: str, preview: dict | None = None) -> dict:
         if not self._busy.acquire(blocking=False):
             raise Busy()
         try:
-            samples, rate = (self._synth or self._default_synth)(text)
+            synth = self._synth or self._default_synth
+            samples, rate = synth(text, preview) if preview else synth(text)
             (self._play or self._default_play)(samples, rate)
             return {"status": "spoken", "duration_ms": int(1000 * len(samples) / rate)}
         finally:
@@ -214,8 +219,15 @@ def register(app, state, speaker: Speaker | None = None) -> None:
             return jsonify({"error": f"at most {SAY_MAX_CHARS} characters", "code": "bad_request"}), 400
         if state.functions is not None and state.functions._live("tts") != "loaded":
             return jsonify({"error": "the speech synthesis is not loaded: load it from Models > Voice services", "code": "tts_not_loaded"}), 409
+        # A preview of one catalog voice (Settings > Voice > Lingua parlata's play button), never the persona's.
+        voice = body.get("voice") if isinstance(body, dict) else None
+        preview = None
+        if isinstance(voice, str) and voice.strip():
+            engine, lang = body.get("engine"), body.get("lang")
+            preview = {"voice": voice.strip(), "engine": engine.strip() if isinstance(engine, str) else "",
+                       "lang": lang.strip() if isinstance(lang, str) else ""}
         try:
-            return jsonify(speaker.say(text.strip()))
+            return jsonify(speaker.say(text.strip(), preview))
         except Busy:
             return jsonify({"error": "a sentence is being spoken", "code": "busy"}), 409
         except Exception as e:                                       # noqa: BLE001 (a model that went away, no output device)
