@@ -96,7 +96,9 @@ sealed class VoiceService
         }
     }
 
-    /// <summary>Ends the service this app started (its whole job). A copy the app did not start is left alone.</summary>
+    /// <summary>Ends the service, started by this app or found already running (almost always this same app's own
+    /// orphan from a run that did not exit cleanly - nothing else runs a voice service on its port). An adopted one is
+    /// not in this app's job object, so it is asked to end over its own HTTP API instead of killed by handle.</summary>
     public void Stop()
     {
         Process p;
@@ -104,7 +106,7 @@ sealed class VoiceService
         lock (gate)
         {
             stopping = true;
-            if (adopted) { adopted = false; Log("a service not started by this app is left running"); return; }
+            if (adopted) { adopted = false; StopAdopted(); return; }
             p = proc; j = job;
             proc = null; job = IntPtr.Zero; ready = false;
         }
@@ -113,6 +115,22 @@ sealed class VoiceService
         try { if (!p.WaitForExit(5000)) p.Kill(true); } catch { }
         p.Dispose();
         Log("stopped");
+    }
+
+    // must be called under the lock
+    void StopAdopted()
+    {
+        int p = ReadInfoPort();
+        if (p < 1) { Log("an adopted service left no info file: left running"); return; }
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{p}/shutdown");
+            string token = File.Exists(TokenFile) ? File.ReadAllText(TokenFile).Trim() : "";
+            if (token.Length > 0) req.Headers.Add("Authorization", $"Bearer {token}");
+            http.SendAsync(req).GetAwaiter().GetResult();
+            Log("an adopted service was asked to shut down");
+        }
+        catch (Exception e) { Log($"could not stop the adopted service: {e.Message}"); }
     }
 
     public bool Restart()
