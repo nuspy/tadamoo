@@ -317,6 +317,41 @@ def test_the_push_to_talk_manager_asks_for_the_avatar_client_when_it_needs_it(mo
     assert getter() is None
 
 
+def test_the_push_to_talk_manager_gets_the_overlay_the_desktop_already_built(monkeypatch):
+    """serve() builds the overlay (desktop_features.start) and sets state.desktop well before any session can start
+    (manager() only runs on the first real attempt): the manager used to be made with no overlay at all, so a session
+    never showed the listening/reasoning/speaking icons."""
+    import callbridge.ptt as ptt
+
+    made = {}
+
+    class FakePtt:
+        def __init__(self, config, brains, **kw):
+            made.update(kw)
+
+    monkeypatch.setattr(ptt, "PushToTalkManager", FakePtt)
+    overlay = object()
+    state = types.SimpleNamespace(config=object(), brains=object(), meetings=None,
+                                  desktop=types.SimpleNamespace(overlay=overlay))
+    brain_service.Session(state).manager()
+    assert made["overlay"] is overlay
+
+
+def test_the_push_to_talk_manager_has_no_overlay_before_the_desktop_is_built(monkeypatch):
+    import callbridge.ptt as ptt
+
+    made = {}
+
+    class FakePtt:
+        def __init__(self, config, brains, **kw):
+            made.update(kw)
+
+    monkeypatch.setattr(ptt, "PushToTalkManager", FakePtt)
+    state = types.SimpleNamespace(config=object(), brains=object(), meetings=None)   # no .desktop at all yet
+    brain_service.Session(state).manager()
+    assert made["overlay"] is None
+
+
 def test_the_avatar_hotkeys_are_registered_even_when_the_avatar_comes_later():
     from callbridge.config import Config
     from callbridge.ptt import PushToTalkManager

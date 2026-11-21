@@ -43,8 +43,12 @@ class Session:
         except Exception as e:                                       # noqa: BLE001 (pynput or a desktop that is missing)
             raise Unavailable(f"push-to-talk is not available on this PC ({e.__class__.__name__}: {e})") from None
         meetings = getattr(self.state, "meetings", None)
+        # `self.state.desktop` is None until `serve()` calls `desktop_features.start()`, well before any session can
+        # actually start (`.manager()` only runs on the first real attempt) - same late read as `_avatar` below, for
+        # the same reason: without it, a session never got the state icons (listening/reasoning/speaking) at all.
+        desktop = getattr(self.state, "desktop", None)
         return PushToTalkManager(self.state.config, self.state.brains, copilot=meetings.copilot if meetings is not None else None,
-                                 avatar_getter=self._avatar)
+                                 overlay=desktop.overlay if desktop is not None else None, avatar_getter=self._avatar)
 
     def _avatar(self):
         """The shared avatar client while the avatar function is on in voice.json, else None; asked for when a hotkey is pressed or a session starts."""
