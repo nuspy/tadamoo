@@ -85,7 +85,7 @@ class VoiceLoaderPageTest(unittest.TestCase):
         for call in ('write(f.id, "api/voice/enabled", { service: f.id, enabled: cb.checked })',
                      'write(f.id, "api/voice/select", { service: f.id, model: v })',
                      'write(f.id, "api/voice/placement", { service: f.id, device, memory })',
-                     'btn(T("vl.apply"), "primary", () => confirmApply(f), "vl-apply-" + f.id)',
+                     'btn(T(APPLY_LABEL[f.action] || "vl.apply"), "primary", () => confirmApply(f), "vl-apply-" + f.id)',
                      'dl.part(catalog(f.id), m)'):
             self.assertIn(call, JS, call)
         self.assertIn('{ only: f.id }', JS)                                                  # the plan is for that function only
@@ -95,13 +95,18 @@ class VoiceLoaderPageTest(unittest.TestCase):
     def test_the_avatar_card_chooses_when_it_loads_and_how_long_it_may_sit_unused(self):
         self.assertIn('write(f.id, "api/voice/load-mode", { service: f.id, mode: v })', JS)       # saved at once, like the other choices
         self.assertIn('write(f.id, "api/voice/avatar", { idle_unload_s: Number(v) })', JS)
-        self.assertIn('if (f.id === "avatar") box.append(whenRow(f));', JS)                       # only the avatar may load on request
+        self.assertIn('box.append(whenRow(f));', JS)                                              # every card shows it, not the avatar alone
         self.assertIn('"/api/voice/load-mode"', HANDLER)
         self.assertIn('on_request: "vl.act.onrequest"', JS)
         self.assertIn('select([["at_load", T("vl.when.load")], ["on_request", T("vl.when.req")]]', JS)       # a select, not a new row of buttons
         self.assertIn('api("GET", "api/voice/avatar")', JS)
         apply_line = JS.split("const pending = ")[1].splitlines()[0]
         self.assertNotIn("on_request", apply_line)                                                # a function on request has nothing to apply
+
+    def test_speech_to_text_and_synthesis_show_the_same_row_fixed_and_explained(self):
+        self.assertIn('if (f.id !== "avatar") {', JS)                                             # STT and TTS: same row, shown disabled with why
+        self.assertIn('fixed.disabled = true;', JS)
+        self.assertIn('T("vl.when.fixed")', JS)
 
     def test_settings_voice_does_not_set_the_functions_and_points_to_the_loader(self):
         self.assertIn('S.services.filter(svc => !FUNCTIONS.includes(svc.id))', VOICE_JS)
@@ -119,7 +124,7 @@ class VoiceLoaderPageTest(unittest.TestCase):
         self.assertIn('document.addEventListener("tadamoo:voice", () => refresh(true))', JS)
 
     def test_the_text_keys_exist_twice_in_the_translations(self):
-        keys = set(re.findall(r'\bT\(\s*"([\w.]+)"', JS)) | set(re.findall(r'"(vl\.(?:ph|act)\.[\w]+)"', JS)) | set(re.findall(r'data-t="(vl\.[\w.]+)"', HTML))
+        keys = set(re.findall(r'\bT\(\s*"([\w.]+)"', JS)) | set(re.findall(r'"(vl\.(?:ph|act|apply)(?:\.[\w]+)?)"', JS)) | set(re.findall(r'data-t="(vl\.[\w.]+)"', HTML))
         keys |= set(re.findall(r'\bT\(\s*"(vl\.[\w.]+)"', VOICE_JS))
         self.assertGreater(len(keys), 40)
         for key in sorted(keys):

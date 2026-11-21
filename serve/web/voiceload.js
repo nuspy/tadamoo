@@ -16,6 +16,7 @@
   const PHASE = { starting: "vl.ph.applying", unloading_llm: "vl.ph.unloading", applying: "vl.ph.applying", loading_llm: "vl.ph.loading", reloading_llm: "vl.ph.loading" };
   const ACT = { load: "vl.act.load", reload: "vl.act.reload", unload: "vl.act.unload", keep: "vl.act.keep", off: "vl.act.off", missing: "vl.act.missing", on_request: "vl.act.onrequest" };
   const IDLE_MIN = [1, 2, 5, 10, 30, 60];                // minutes an avatar loaded on request may sit unused before it is unloaded
+  const APPLY_LABEL = { load: "vl.apply.start", reload: "vl.apply.restart", unload: "vl.apply.stop" };  // the one Apply button, named for what it will really do
   let S = null, models = null, loaderPhase = "idle", timer = 0, loadFailed = "", idleS = 300;
   const lines = {};                                    // per function: the line under its card
 
@@ -146,8 +147,14 @@
     const src = f.estimate_source === "measured" ? T("vl.est.measured") : f.estimate_source === "catalog" ? T("vl.est.catalog") : "";
     return f.estimated_mib == null ? T("vl.est.unknown") : gb(f.estimated_mib) + (src ? " (" + src + ")" : "");
   }
-  function whenRow(f) {                                  // when the avatar loads, and how long it may sit unused before it is unloaded
+  function whenRow(f) {                                  // when the function loads, and (the avatar only) how long it may sit unused before it is unloaded
     const row = el("div", "vl-place");
+    if (f.id !== "avatar") {                             // STT and TTS always load with the Loader's Load - shown, not hidden, so every card looks the same
+      const fixed = select([["at_load", T("vl.when.load")]], "at_load", () => {});
+      fixed.disabled = true;
+      row.append(field("vl-load-" + f.id, T("vl.when"), fixed), el("p", "vl-help", T("vl.when.fixed")));
+      return row;
+    }
     row.append(field("vl-load-" + f.id, T("vl.when"), select([["at_load", T("vl.when.load")], ["on_request", T("vl.when.req")]], f.load || "on_request",
       v => write(f.id, "api/voice/load-mode", { service: f.id, mode: v }))));
     if ((f.load || "on_request") === "on_request") {
@@ -184,7 +191,7 @@
     const where = el("div", "vl-place");
     where.append(device, memory);
     box.append(sw, model, where);
-    if (f.id === "avatar") box.append(whenRow(f));
+    box.append(whenRow(f));
 
     const facts = el("dl", "vl-facts"), m = entry(f.id, f.model);
     row(facts, T("vo.engine"), f.engine);
@@ -198,7 +205,7 @@
     if (ACT[f.action]) box.append(el("p", "vl-help" + (f.action === "missing" ? " vl-bad" : ""), T(ACT[f.action])));
     if (f.error) box.append(el("p", "vl-help vl-bad", f.error));
     if (models && m && !f.installed) box.append(dl.part(catalog(f.id), m));
-    const apply = btn(T("vl.apply"), "primary", () => confirmApply(f), "vl-apply-" + f.id);
+    const apply = btn(T(APPLY_LABEL[f.action] || "vl.apply"), "primary", () => confirmApply(f), "vl-apply-" + f.id);
     apply.disabled = !pending || !S.service.running || !!busyNow();
     const bar = el("div", "vl-bar");
     bar.append(apply);
