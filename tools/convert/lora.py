@@ -15,9 +15,10 @@ The routed experts (mlp.experts.E.{gate,up,down}_proj) are converted too; whethe
 engine's decision, not this file's. Each expert tensor becomes its own small adapter pair
 ("blk.N.ffn_{gate,up,down}_exps.E.lora_a/b", a name of this converter's own choosing: llama.cpp has no
 per-expert equivalent). The file's metadata records what share of the update's energy (the squared Frobenius
-norm of scale*B*A, summed per group so the four shares add up to 1) sits in the ten projection families the
-engine applies in phase 1, the router, the experts, and everything else (hyper-connection, the indexer, the GDN
-gates, the output head) — so an adapter that reaches outside phase 1's coverage carries that fact with it.
+norm of scale*B*A, summed per group so the four shares add up to 1) sits in the ten projection families
+`eligible()` in src/core/native_dense.cpp loads as native matrices, the router, the experts, and everything else
+(hyper-connection, the indexer, the GDN alpha/beta gates, the output head) — so an adapter that reaches outside
+that list carries that fact with it.
 
 Unsupported PEFT features (DoRA, modules_to_save, a bias other than "none", LoRA on an embedding or a conv
 module) raise ConvertError naming the thing this converter does not handle, the same way the checkpoint
@@ -47,8 +48,7 @@ LAYER_RE = re.compile(r"model\.language_model\.layers\.(\d+)\.(.+)")
 EXPERT_RE = re.compile(r"mlp\.experts\.(\d+)\.(.+)")
 EXPERT_ROLE_TO_GGUF = {"gate_proj": "gate", "up_proj": "up", "down_proj": "down"}
 ROUTER_SUFFIX = "mlp.gate.weight"
-# the ten per-layer projection families the engine's fusion (phase 1) actually applies; everything else that
-# converts without error (hyper-connection, the indexer, the GDN alpha/beta gates, the output head) is "other"
+# the suffixes eligible() in src/core/native_dense.cpp loads as native matrices; keep the two lists equal
 PROJECTION_GGUF_NAMES = {
     "attn_qkv.weight", "attn_gate.weight", "ssm_out.weight",
     "attn_q.weight", "attn_k.weight", "attn_v.weight", "attn_output.weight",
@@ -221,19 +221,26 @@ def _add_tensor(writer: GGUFWriter, name: str, arr: np.ndarray) -> None:
     writer.add_raw(name, list(reversed(a.shape)), "F32", a.tobytes())
 
 
+def _req_int(cfg: dict, key: str) -> int:
+    if key not in cfg:
+        raise ConvertError(f"{key}: missing from the base model's config.json")
+    return int(cfg[key])
+
+
 def _check_gdn_geometry(base: dict) -> None:
     """Same check as checkpoint.py's CheckpointDense.__init__: this converter uses the same fixed GDN constants,
     so a base model with a different head geometry would silently misplace rows."""
-    if int(base["linear_num_key_heads"]) != S.GDN_K_HEADS or int(base["linear_num_value_heads"]) != S.GDN_V_HEADS \
-            or int(base["linear_key_head_dim"]) != S.GDN_HEAD or int(base["linear_value_head_dim"]) != S.GDN_HEAD:
+    if _req_int(base, "linear_num_key_heads") != S.GDN_K_HEADS or _req_int(base, "linear_num_value_heads") != S.GDN_V_HEADS \
+            or _req_int(base, "linear_key_head_dim") != S.GDN_HEAD or _req_int(base, "linear_value_head_dim") != S.GDN_HEAD:
         raise ConvertError("the GDN head geometry differs from the GGUF head order this converter knows")
 
 
 def convert(adapter_dir: pathlib.Path, base_config: pathlib.Path, out: pathlib.Path) -> dict:
     cfg = load_adapter_config(adapter_dir)
     base = json.loads(base_config.read_text(encoding="utf-8"))
+    base = base.get("text_config", base)  # the model also has a visual config; same unwrap as checkpoint.py
     _check_gdn_geometry(base)
-    qk_rows = int(base["indexer_n_heads"]) * int(base["indexer_head_dim"])
+    qk_rows = _req_int(base, "indexer_n_heads") * _req_int(base, "indexer_head_dim")
     tensors = AdapterTensors(adapter_dir)
 
     writer = GGUFWriter()

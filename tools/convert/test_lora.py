@@ -21,16 +21,27 @@ from gguf_reader import GGUFFile  # noqa: E402
 RNG = np.random.default_rng(1234)
 
 
+def _encode(arr: np.ndarray, dtype: str) -> bytes:
+    a = np.ascontiguousarray(arr, dtype="<f4")
+    if dtype == "F32":
+        return a.tobytes()
+    if dtype == "F16":
+        return a.astype("<f2").tobytes()
+    if dtype == "BF16":
+        return (a.view(np.uint32) >> 16).astype("<u2").tobytes()
+    raise ValueError(dtype)
+
+
 # ------------------------------------------------------------------ tiny safetensors writer (PEFT's own format)
-def write_safetensors(path: pathlib.Path, tensors: dict[str, np.ndarray]) -> None:
+def write_safetensors(path: pathlib.Path, tensors: dict[str, np.ndarray], dtype: str = "F32") -> None:
     header = {}
     blobs = []
     offset = 0
     for name, arr in tensors.items():
-        arr = np.ascontiguousarray(arr, dtype="<f4")
-        header[name] = {"dtype": "F32", "shape": list(arr.shape), "data_offsets": [offset, offset + arr.nbytes]}
-        blobs.append(arr.tobytes())
-        offset += arr.nbytes
+        raw = _encode(arr, dtype)
+        header[name] = {"dtype": dtype, "shape": list(np.asarray(arr).shape), "data_offsets": [offset, offset + len(raw)]}
+        blobs.append(raw)
+        offset += len(raw)
     header["__metadata__"] = {"format": "pt"}
     raw = json.dumps(header).encode("utf-8")
     pad = (-len(raw)) % 8
@@ -42,7 +53,7 @@ def write_safetensors(path: pathlib.Path, tensors: dict[str, np.ndarray]) -> Non
             f.write(b)
 
 
-def write_adapter(tmp: pathlib.Path, tensors: dict[str, np.ndarray], **cfg_overrides) -> pathlib.Path:
+def write_adapter(tmp: pathlib.Path, tensors: dict[str, np.ndarray], dtype: str = "F32", **cfg_overrides) -> pathlib.Path:
     adapter_dir = tmp / "adapter"
     adapter_dir.mkdir(parents=True, exist_ok=True)
     cfg = {"peft_type": "LORA", "r": 8, "lora_alpha": 16, "rank_pattern": {}, "alpha_pattern": {},
@@ -50,19 +61,32 @@ def write_adapter(tmp: pathlib.Path, tensors: dict[str, np.ndarray], **cfg_overr
            "fan_in_fan_out": False}
     cfg.update(cfg_overrides)
     (adapter_dir / "adapter_config.json").write_text(json.dumps(cfg), encoding="utf-8")
-    write_safetensors(adapter_dir / "adapter_model.safetensors", tensors)
+    write_safetensors(adapter_dir / "adapter_model.safetensors", tensors, dtype=dtype)
     return adapter_dir
 
 
-def write_base_config(tmp: pathlib.Path, **overrides) -> pathlib.Path:
+def _base_fields(**overrides) -> dict:
     cfg = {
         "indexer_n_heads": 4, "indexer_head_dim": 16,
         "linear_num_key_heads": S.GDN_K_HEADS, "linear_num_value_heads": S.GDN_V_HEADS,
         "linear_key_head_dim": S.GDN_HEAD, "linear_value_head_dim": S.GDN_HEAD,
     }
     cfg.update(overrides)
-    p = tmp / "config.json"
-    p.write_text(json.dumps(cfg), encoding="utf-8")
+    return cfg
+
+
+def write_base_config(tmp: pathlib.Path, path: str = "config.json", **overrides) -> pathlib.Path:
+    """The flat form (no text_config), as most of the tests use it."""
+    p = tmp / path
+    p.write_text(json.dumps(_base_fields(**overrides)), encoding="utf-8")
+    return p
+
+
+def write_base_config_nested(tmp: pathlib.Path, path: str = "config.json", **overrides) -> pathlib.Path:
+    """The real form: the model's text fields live under "text_config", beside an unrelated "vision_config"."""
+    p = tmp / path
+    whole = {"vision_config": {"not_a_text_field": 1}, "text_config": _base_fields(**overrides)}
+    p.write_text(json.dumps(whole), encoding="utf-8")
     return p
 
 
@@ -200,6 +224,14 @@ _MODULES = {
 }
 
 
+def test_r3_modules_table_matches_checkpoint():
+    """_MODULES is written by hand; this ties it to the real table instead of letting it drift from it."""
+    for suffix, (_n_out, _n_in, _r, how, gguf_name) in _MODULES.items():
+        rule = CK.LAYER[suffix + ".weight"]
+        assert rule[0] == gguf_name, suffix
+        assert rule[2] == how, suffix
+
+
 def test_b2_real_parity_every_how_and_alpha_pattern(tmp_path):
     base_config = write_base_config(tmp_path)
     global_alpha = 16.0
@@ -315,6 +347,56 @@ def test_full_adapter_with_experts_router_split(tmp_path):
     assert "blk.0.indexer.k_proj.weight.lora_a" in names
     assert "blk.0.ffn_gate_exps.3.weight.lora_a" in names
     assert "blk.0.ffn_gate_inp.weight.lora_a" in names  # mlp.gate -> ffn_gate_inp.weight
+
+
+# ------------------------------------------------------------------ N1: the base config's real, nested shape
+def test_n1_text_config_unwrap_gives_the_same_file(tmp_path):
+    A, B = lora_pair(32, 16, 4)
+    tensors = {
+        "base_model.model.model.language_model.layers.0.self_attn.q_proj.lora_A.weight": A,
+        "base_model.model.model.language_model.layers.0.self_attn.q_proj.lora_B.weight": B,
+    }
+    adapter = write_adapter(tmp_path, tensors)
+
+    flat_config = write_base_config(tmp_path, path="flat.json")
+    nested_config = write_base_config_nested(tmp_path, path="nested.json")
+    out_flat, out_nested = tmp_path / "flat.gguf", tmp_path / "nested.gguf"
+    L.convert(adapter, flat_config, out_flat)
+    L.convert(adapter, nested_config, out_nested)
+
+    assert out_flat.read_bytes() == out_nested.read_bytes()
+
+
+def test_n1_missing_field_gives_convert_error(tmp_path):
+    A, B = lora_pair(32, 16, 4)
+    adapter = write_adapter(tmp_path, {
+        "base_model.model.model.language_model.layers.0.self_attn.q_proj.lora_A.weight": A,
+        "base_model.model.model.language_model.layers.0.self_attn.q_proj.lora_B.weight": B,
+    })
+    cfg = _base_fields()
+    del cfg["indexer_n_heads"]
+    (tmp_path / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
+    with pytest.raises(L.ConvertError, match="indexer_n_heads"):
+        L.convert(adapter, tmp_path / "config.json", tmp_path / "out.gguf")
+
+
+# ------------------------------------------------------------------ R2: F16/BF16 adapters give the same file as F32
+def test_r2_f16_and_bf16_give_the_same_file_as_f32(tmp_path):
+    base_config = write_base_config(tmp_path)
+    # small integers: exactly representable in F32, F16 and BF16 alike, so the three files must be identical
+    A = RNG.integers(-4, 5, size=(4, 12)).astype(np.float32)
+    B = RNG.integers(-4, 5, size=(16, 4)).astype(np.float32)
+    tensors = {
+        "base_model.model.model.language_model.layers.0.self_attn.q_proj.lora_A.weight": A,
+        "base_model.model.model.language_model.layers.0.self_attn.q_proj.lora_B.weight": B,
+    }
+    outs = {}
+    for dtype in ("F32", "F16", "BF16"):
+        adapter = write_adapter(tmp_path / dtype, tensors, dtype=dtype)
+        out = tmp_path / f"out_{dtype}.gguf"
+        L.convert(adapter, base_config, out)
+        outs[dtype] = out.read_bytes()
+    assert outs["F32"] == outs["F16"] == outs["BF16"]
 
 
 if __name__ == "__main__":
