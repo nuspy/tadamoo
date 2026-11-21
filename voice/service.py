@@ -132,9 +132,12 @@ class State:
                 "avatar_engines": self.settings.avatar.engines.as_dict()}
 
 
-def build_app(settings_path, token: str, default_models_dir: str = "", host: str = "127.0.0.1", port: int = 0, with_gateway: bool = True):
+def build_app(settings_path, token: str, default_models_dir: str = "", host: str = "127.0.0.1", port: int = 0, with_gateway: bool = True,
+              stop: threading.Event | None = None):
     """The Flask app of the control server (callbridge) with the standby status, and its `State`. No model is loaded, no hardware opened;
-    the gateway object exists but listens only when `serve` starts it."""
+    the gateway object exists but listens only when `serve` starts it. With `stop`, POST /shutdown sets it: a clean stop asked over HTTP
+    (TaDaMoo's server, restarting it), the same path as Ctrl+Break or the console closing. The app that started this process watches it exit
+    and, finding none of its own doing, starts a fresh one."""
     from callbridge.control_server import create_app
     models_store.apply_offline()
     config = Config()
@@ -160,6 +163,12 @@ def build_app(settings_path, token: str, default_models_dir: str = "", host: str
         state.gateway = gateway.Gateway(gateway.Host(state, token))
         gateway.register(app, state.gateway)
     app.register_blueprint(speech_routes.bp)
+    if stop is not None:
+        @app.post("/shutdown")
+        def _shutdown():
+            from flask import jsonify
+            stop.set()
+            return jsonify({"status": "stopping"})
     return app, state
 
 
@@ -209,7 +218,8 @@ def serve(args) -> int:
     token = read_token(args.token_file)
     logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     _keep_vram_commit(args.settings)
-    app, state = build_app(args.settings, token, args.default_models_dir, host, args.port, with_gateway=not args.no_gateway)
+    stop, done = threading.Event(), threading.Event()
+    app, state = build_app(args.settings, token, args.default_models_dir, host, args.port, with_gateway=not args.no_gateway, stop=stop)
     from werkzeug.serving import make_server
     try:
         server = make_server(host, args.port, app, threaded=True)
@@ -225,7 +235,6 @@ def serve(args) -> int:
             server.server_close()
             raise StartError(f"cannot start the voice gateway on {host}: {e.strerror or e}") from None
         state.config.gateway_port = gateway_port
-    stop, done = threading.Event(), threading.Event()
     _install_stop(stop, done)
     thread = threading.Thread(target=server.serve_forever, name="voice-http", daemon=True)
     thread.start()

@@ -132,6 +132,16 @@ def call(method: str, route: str, body: dict | None = None, timeout: float = TIM
     return r.status, data if isinstance(data, dict) else None
 
 
+def restart() -> bool:
+    """Asks the running voice service to stop cleanly (POST /shutdown); the desktop app that started it watches it exit and starts a fresh one
+    within a couple of seconds, the same way it recovers from a crash. False when there was no service to ask (nothing to restart, not a failure)."""
+    try:
+        call("POST", "/shutdown")
+    except ServiceDown:
+        return False
+    return True
+
+
 def status() -> dict:
     """{running, port, pid, status}: `status` is the service's own /status, or {"reason": ...} when it is not reachable."""
     found = info()

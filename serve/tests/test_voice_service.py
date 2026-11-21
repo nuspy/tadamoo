@@ -48,6 +48,20 @@ class FakeService:
                 self.end_headers()
                 self.wfile.write(raw)
 
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                self.rfile.read(length)
+                outer.seen.append((self.path, self.headers.get("Authorization")))
+                if self.headers.get("Authorization") != "Bearer " + outer.token:
+                    code, body = 401, {"error": "unauthorized"}
+                else:
+                    code, body = outer.status_code, {"status": "stopping"}
+                raw = json.dumps(body).encode()
+                self.send_response(code)
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
         self.httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
         self.port = self.httpd.server_address[1]
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
@@ -187,6 +201,24 @@ class StatusTests(Base):
         for fake in (self.stand_in(token=token), self.stand_in(token="other")):
             self.write_info(port=fake.port)
             self.assertNotIn(token, json.dumps(voice_service.status()))
+
+
+class RestartTests(Base):
+    def test_nothing_to_restart_when_there_is_no_service(self):
+        self.assertFalse(voice_service.restart())
+
+    def test_asks_the_running_service_to_stop_and_reports_true(self):
+        voice_service.ensure_token()
+        fake = self.stand_in(token=voice_service.token_path().read_text(encoding="utf-8"))
+        self.write_info(port=fake.port)
+        self.assertTrue(voice_service.restart())
+        self.assertEqual(fake.seen[0][0], "/shutdown")
+
+    def test_a_service_that_refuses_the_token_is_still_not_a_crash(self):
+        voice_service.ensure_token()
+        fake = self.stand_in(token="not-the-token")
+        self.write_info(port=fake.port)
+        self.assertFalse(voice_service.restart())
 
 
 class RouteTests(Base):

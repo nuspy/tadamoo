@@ -1258,6 +1258,9 @@ def make_handler(svc: Service, remote: bool = False):
             if path == "/api/admin/restart":
                 self._admin_restart_post()
                 return
+            if path == "/api/admin/voice-service/restart":
+                self._admin_voice_restart_post()
+                return
             if path in ("/api/computer", "/api/computer/install"):
                 self._computer_post(path)
                 return
@@ -2201,8 +2204,10 @@ def make_handler(svc: Service, remote: bool = False):
             self._json(200, out)
 
         def _admin_restart_post(self):
-            """POST /api/admin/restart {}: restarts the server, whether it is a plain process or a named service (serve/handler.py -> tadamoo/restart.py).
-            Answers first, so the client has its confirmation before the server actually goes down."""
+            """POST /api/admin/restart {}: restarts the server, whether it is a plain process or a named service (serve/handler.py -> tadamoo/restart.py),
+            and asks the voice service (if one is running) to restart too - a different process, started by the desktop app, not this one; it is a
+            best-effort companion to the server restart, never a reason to fail it. Answers first, so the client has its confirmation before the
+            server actually goes down."""
             try:
                 self._body(settings.BODY_MAX)
             except BadBody as e:
@@ -2210,9 +2215,22 @@ def make_handler(svc: Service, remote: bool = False):
             if not self._authorized():
                 return
             from tadamoo import restart as restart_mod
+            voice_restarted = voice_service.restart()
             out = restart_mod.restart()
+            out["voice_service_restarted"] = voice_restarted
             self._json(200, out)
             print(f"[server] restarting now ({out['way']}), asked from a client", flush=True)
+
+        def _admin_voice_restart_post(self):
+            """POST /api/admin/voice-service/restart {}: asks the voice service alone to restart, without touching this server. {"restarted": bool} -
+            false when there was none running (nothing to do, not a failure)."""
+            try:
+                self._body(settings.BODY_MAX)
+            except BadBody as e:
+                return self._json(e.status, {"error": {"type": "invalid_request_error", "message": str(e)}})
+            if not self._authorized():
+                return
+            self._json(200, {"restarted": voice_service.restart()})
 
         def _computer_post(self, path="/api/computer"):
             """POST /api/computer {"enabled", "monitor", "backend"} and POST /api/computer/install: this PC only (they let an agent act on the machine and download a program)."""
