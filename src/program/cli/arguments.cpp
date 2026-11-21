@@ -241,6 +241,7 @@ std::optional<int> parse_options(int argc, char** argv, Options& o, std::string&
                 o.lora_files.push_back({item.substr(0, colon), sc});
             }
         }
+        else if (a == "--no-lora-partial") o.lora_partial = false;
         else if (a == "--eos-ids") {
             std::string e;
             if (!parse_i64_list(next("--eos-ids"), o.eos_ids, e)) { basalt::log::error("basalt", "--eos-ids: %s", e.c_str()); return 2; }

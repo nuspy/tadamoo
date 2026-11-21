@@ -15,7 +15,7 @@ basalt::core::LoraSet g_set;
 }  // namespace
 
 bool load_lora(const Options& o, std::string& summary, std::string& err) {
-    if (o.lora_files.empty()) return basalt::core::NativeDense::set_lora(nullptr, err);
+    if (o.lora_files.empty()) return basalt::core::NativeDense::set_lora(nullptr, o.lora_partial, err);
     g_adapters.clear();
     g_adapters.reserve(o.lora_files.size());
     for (const auto& [path, scale] : o.lora_files) {
@@ -27,7 +27,7 @@ bool load_lora(const Options& o, std::string& summary, std::string& err) {
     entries.reserve(g_adapters.size());
     for (size_t i = 0; i < g_adapters.size(); ++i) entries.push_back({&g_adapters[i], o.lora_files[i].second});
     g_set = basalt::core::LoraSet(std::move(entries));
-    if (!basalt::core::NativeDense::set_lora(&g_set, err)) return false;
+    if (!basalt::core::NativeDense::set_lora(&g_set, o.lora_partial, err)) return false;
     summary = std::to_string(g_adapters.size());   // a bare count: the INFO line splits on whitespace, like cvec's
     return true;
 }

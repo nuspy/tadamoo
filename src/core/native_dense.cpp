@@ -143,7 +143,7 @@ bool NativeDense::plan_bytes_by_layer(const std::vector<std::string>& shards, bo
 
 void NativeDense::set_layer_range(int lb, int le) { g_layer_lb = lb; g_layer_le = le; }
 
-bool NativeDense::set_lora(const LoraSet* set, std::string& err) {
+bool NativeDense::set_lora(const LoraSet* set, bool allow_partial, std::string& err) {
     if (set) {
         auto share_text = [](const LoraAdapter& a, const char* group) {
             const auto v = a.energy_share(group);
@@ -155,12 +155,19 @@ bool NativeDense::set_lora(const LoraSet* set, std::string& err) {
         for (const auto& entry : set->entries()) {
             const LoraAdapter& a = *entry.adapter;
             if (a.router_count() || a.expert_count() || a.other_count()) {
-                err = a.path() + ": touches " + std::to_string(a.router_count()) + " router, " +
-                      std::to_string(a.expert_count()) + " expert and " + std::to_string(a.other_count()) +
+                const std::string detail = a.path() + ": touches " + std::to_string(a.router_count()) +
+                      " router, " + std::to_string(a.expert_count()) + " expert and " +
+                      std::to_string(a.other_count()) +
                       " other tensor(s) outside the ten families this engine fuses; energy share router=" +
                       share_text(a, "router") + " experts=" + share_text(a, "experts") + " other=" +
                       share_text(a, "other");
-                return false;
+                if (!allow_partial) {
+                    err = detail;
+                    return false;
+                }
+                basalt::log::warn("basalt lora", "%s; fusing the ten covered families only, the rest of this "
+                                     "adapter's update is not applied",
+                             detail.c_str());
             }
         }
     }

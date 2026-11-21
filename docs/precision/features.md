@@ -273,9 +273,11 @@ every covered tensor becomes Q8_0.
   without `--lora`.
 - **Rounding:** a covered tensor is dequantized, has the delta added in double, and is requantized to Q8_0 — one
   more rounding than the pack's own, on top of whatever rounding its own format already has (none, for a pack whose
-  dense tensors are already Q8_0). A null adapter (every weight zero) reproduces a Q8_0 base tensor's bytes exactly
-  (`lora_merge_test`'s R1); on another type it still rounds once, same as loading that tensor with any `--lora`
-  adapter that happens to leave its delta at zero for every value.
+  dense tensors are already Q8_0). A null adapter (every weight zero) reproduces a Q8_0 base tensor's bytes exactly:
+  a zero delta on an already-Q8_0 block is a byte copy, never a requantization. On another type it still rounds
+  once, same as loading that tensor with any `--lora` adapter that happens to leave its delta at zero for every
+  value.
 - **Not fused:** the router, the routed experts, hyper-connection, the indexer, the GDN alpha/beta gates and the
-  output head. An adapter that covers any of these is refused at startup (see
+  output head. An adapter that covers any of these still has its ten covered families fused, with a startup log
+  line naming what was left out; `--no-lora-partial` refuses that adapter instead (see
   [configuration](../configuration/lora.md)).
