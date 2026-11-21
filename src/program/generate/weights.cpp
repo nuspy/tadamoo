@@ -118,6 +118,11 @@ int weights(Context& context) {
         }
         basalt::log::info("basalt generate", "%zu native projection matrices, %.2f MiB of weights, in %.1f s",
                      native_dense.tensor_count(), (double) native_dense.weight_bytes() / (1024.0 * 1024.0), load_s());
+        if (!o.lora_files.empty())
+            basalt::log::info("basalt generate", "lora: %zu tensors fused, %+.1f MiB over the pack's own types, "
+                                 "%.2f s",
+                         native_dense.lora_fused_count(), (double) native_dense.lora_extra_bytes() / (1024.0 * 1024.0),
+                         native_dense.lora_seconds());
     }
 
     // The fused hyper-connection read needs the layout where R lags by one pending write; the per-stage measurement

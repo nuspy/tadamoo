@@ -11,6 +11,7 @@
 
 #include <cuda_runtime.h>
 #include <algorithm>
+#include <chrono>
 #include <climits>
 #include <cstdio>
 #include <cstdlib>
@@ -298,6 +299,11 @@ bool NativeDense::load(const std::vector<std::string>& shards, WeightTable& tabl
                 int type = 0;
                 bool lora_covered = false;
                 if (!effective_type(tensor, type, lora_covered, err)) return false;
+                if (lora_covered && !ref.quantized()) {
+                    err = "native dense: " + tensor.name + " is covered by a LoRA adapter but is not quantized in "
+                          "the pack (BF16 or F32), not handled";
+                    return false;
+                }
                 if (!basalt::kernels::native_mmvq_supported(type)) continue;
                 // the file keeps an unquantized key here, which the PLE reads from the arena
                 if (tensor.name == "blk.1.ple_key.weight" && !ref.quantized()) continue;
@@ -324,6 +330,7 @@ bool NativeDense::load(const std::vector<std::string>& shards, WeightTable& tabl
                 if (lora_covered) {
                     // the base blocks come from the mapped file (tensor_data), not a device-side upload: the
                     // merge needs them on the host, and the result is already in RAM to copy from
+                    const auto lora_t0 = std::chrono::steady_clock::now();
                     std::vector<uint8_t> fused;
                     std::string merge_err;
                     if (!lora_merge_q8_0((uint32_t) tensor.type, gguf.tensor_data(tensor), ref.ne0, ref.ne1,
@@ -340,6 +347,14 @@ bool NativeDense::load(const std::vector<std::string>& shards, WeightTable& tabl
                     if (cuda_err != cudaSuccess) {
                         err = "native dense lora upload " + tensor.name + ": " + cudaGetErrorString(cuda_err);
                         return false;
+                    }
+                    lora_seconds_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - lora_t0).count();
+                    ++lora_fused_count_;
+                    int pack_be = 0, pack_bb = 0;
+                    if (basalt::block_geometry(tensor.type, pack_be, pack_bb)) {
+                        const uint64_t pack_bytes = (uint64_t) ref.ne0 * (uint64_t) ref.ne1 / (uint64_t) pack_be *
+                                                    (uint64_t) pack_bb;
+                        lora_extra_bytes_ += (int64_t) bytes - (int64_t) pack_bytes;
                     }
                 } else {
                     std::string upload_err;

@@ -263,8 +263,8 @@ as a suggestion ([probe](../probe.md)); it never changes it on its own.
 ## LoRA adapters
 
 `--lora`/`--lora-scaled` fuses the adapter's delta into a dense tensor's own blocks at load (`lora_merge_q8_0`,
-`include/basalt/core/lora.hpp`); this is a weight-format change, like the NVFP4 pack's 6-bit projections above, but
-unconditional rather than per-tensor-type:
+`include/basalt/core/lora.hpp`); this is a weight-format change, like the NVFP4 pack's 6-bit projections above:
+every covered tensor becomes Q8_0.
 
 - **What moves:** only the ten native-matrix families (`attn_qkv`, `attn_gate`, `ssm_out`, `attn_q`, `attn_k`,
   `attn_v`, `attn_output`, `ffn_gate_shexp`, `ffn_up_shexp`, `ffn_down_shexp`) that an adapter actually covers. A
@@ -276,9 +276,6 @@ unconditional rather than per-tensor-type:
   dense tensors are already Q8_0). A null adapter (every weight zero) reproduces a Q8_0 base tensor's bytes exactly
   (`lora_merge_test`'s R1); on another type it still rounds once, same as loading that tensor with any `--lora`
   adapter that happens to leave its delta at zero for every value.
-- **Not yet applied:** the router, the routed experts, hyper-connection, the indexer, the GDN alpha/beta gates and
-  the output head. An adapter that covers any of these is refused at startup (see
-  [configuration](../configuration/index.md#lora-adapters)), so its effect on those parts is simply absent, never
-  silently partial.
-- **Measured numbers:** pending a real adapter and a GPU run (`tests/QUEUE_daytime.md`); `lora_merge_test` is the
-  CPU-only parity test (no quality numbers, since nothing it merges is a real trained adapter).
+- **Not fused:** the router, the routed experts, hyper-connection, the indexer, the GDN alpha/beta gates and the
+  output head. An adapter that covers any of these is refused at startup (see
+  [configuration](../configuration/lora.md)).

@@ -15,7 +15,7 @@ the model file's sampling defaults. For what a setting does to speed, memory and
 - [Conversation cache](#conversation-cache)
 - [Vision](#vision)
 - [Control vectors](#control-vectors)
-- [LoRA adapters](#lora-adapters)
+- [LoRA adapters](lora.md)
 - [Sampling and thinking](sampling.md)
 - [The adaptive tier](adaptive.md)
 - [Web search](web-search.md)
@@ -252,21 +252,6 @@ with `cvec` (0 or 1).
 | `control-vector-layer-range` | engine | two layer numbers, `A B` | 1 to the last layer | The layers it follows, inclusive. |
 | `cvec-mode` | engine | `add`, `project` | `add` | `add`: h += s v. `project`: h -= s (h.v) v with v a unit vector. |
 | `cvec-dir` | engine | `per-layer`, `single:L` | `per-layer` | Each layer's own direction, or layer L's direction everywhere (`project`). |
-
-## LoRA adapters
-
-A LoRA adapter (a GGUF written by `tools/convert/lora.py`, in llama.cpp's naming convention) is fused into the dense
-native matrices (the ten projection families `attn_qkv`, `attn_gate`, `ssm_out`, `attn_q`, `attn_k`, `attn_v`,
-`attn_output`, `ffn_gate_shexp`, `ffn_up_shexp`, `ffn_down_shexp`) once, at load; there is no per-request switch yet.
-A covered tensor becomes Q8_0 in VRAM regardless of its type in the pack: see
-[precision](../precision/features.md#lora-adapters). An adapter that touches a tensor outside those ten families
-(the router, the routed experts, or anything else) is refused at startup, naming how many and what share of the
-adapter's update that is.
-
-| Setting | Where | Type, values | Default | What it does |
-| --- | --- | --- | --- | --- |
-| `lora` | engine | file path | off | A LoRA adapter at scale 1. |
-| `lora-scaled` | engine | `FILE:SCALE[,...]` | off | LoRA adapters with their scales. |
 
 ## Sampling
 

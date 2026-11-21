@@ -55,11 +55,20 @@ public:
     static bool keep_unquantized_ple_key(const PackFiles& pack, std::set<std::string>& skip, std::string& err);
     uint64_t weight_bytes() const { return bytes_; }
     size_t tensor_count() const { return weights_.size(); }
+    /// This load's LoRA fusion, all zero without --lora: how many tensors were fused, how many more bytes that
+    /// took than the pack's own types would have (the Q8_0 upgrade a covered tensor gets), and how long the
+    /// merges themselves (not the rest of load) took.
+    size_t lora_fused_count() const { return lora_fused_count_; }
+    int64_t lora_extra_bytes() const { return lora_extra_bytes_; }
+    double lora_seconds() const { return lora_seconds_; }
 
 private:
     std::vector<void*> weights_;   // each matrix
     std::vector<void*> allocs_;    // the device allocations holding them
     void* scratch_ = nullptr;
     uint64_t bytes_ = 0;
+    size_t lora_fused_count_ = 0;
+    int64_t lora_extra_bytes_ = 0;
+    double lora_seconds_ = 0.0;
 };
 } // namespace basalt::core
