@@ -1,8 +1,9 @@
-/* The Voice tab and the voice card of Settings > Voice. Same overall width as every other tab; four coherent groups (who answers, try it
-   + last exchange, voice service + meetings, avatar) share that width as two, three or four columns, whichever fit without crowding -
-   never wider than before, just narrower columns as more of them appear. One column below 760px. Targets are 44px or more. */
+/* The Voice tab and the voice card of Settings > Voice. The tab fills the page like Chat does (no narrow cap); four coherent groups (who
+   answers, try it + last exchange, voice service + meetings, avatar) share that width as two, three or four columns, whichever fit at
+   320px or more each - wide columns on a wide window, never a sliver of them with the rest of the page empty. One column below 760px.
+   Targets are 44px or more. Settings > Voice (.vb-root) stays narrow: it sits in the single Settings column, not its own page. */
 #view-voice { overflow-y: auto; }
-.vt-root, .vb-root { max-width: 1100px; }
+.vb-root { max-width: 1100px; }
 .vt-root :focus-visible, .vb-root :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .vt-intro { margin: 0 0 14px; max-width: 880px; color: var(--fg-2); line-height: 1.55; overflow-wrap: anywhere; }
 .vt-grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); align-items: start; }
@@ -44,8 +45,9 @@
 .vt-ex dd { margin: 0; color: var(--fg); line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
 .vt-ex .vt-full { max-height: 40vh; overflow-y: auto; padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 6px; background: var(--panel); }
 @media (min-width: 760px) {
-  /* As many of the four groups side by side as fit at 240px or more each, within the tab's own width - two, three or four, never one wide column. */
-  .vt-grid { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  /* As many of the four groups side by side as fit at 320px or more each, stretched to fill the page - two, three or four, never a narrow
+     sliver of columns with the rest of the window empty. */
+  .vt-grid { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
 }
 @media (max-width: 520px) { .vt-card { padding: 12px; } .vt-root .btn { width: 100%; } .vt-chips .btn { width: auto; flex: 1 1 100%; } }
 @media (prefers-reduced-motion: reduce) { .vt-root *, .vb-root *, .vt-root *::before, .vb-root *::before { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }

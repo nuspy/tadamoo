@@ -351,7 +351,7 @@ mark { background: var(--hit); color: var(--fg); padding: 0 1px; border-radius: 
 body { padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
 .tab { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
 .sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
-.btn { min-height: var(--btn-h); min-width: var(--btn-h); padding: 4px 12px; border-radius: 6px; background: var(--raised); color: var(--fg); font: 500 var(--btn-fs)/1.2 var(--font-sans); border: 1px solid var(--line); }
+.btn { min-height: var(--btn-h); min-width: var(--btn-h); padding: 4px 12px; border-radius: 6px; background: var(--raised); color: var(--fg); font: 500 var(--btn-fs)/1.2 var(--font-sans); border: 1px solid var(--line); white-space: nowrap; }
 .btn:hover { background: #34404B; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--tadamoo-950); font-weight: 600; }
 .btn.primary:hover { background: var(--ember-hot); border-color: var(--ember-hot); }
