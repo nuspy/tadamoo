@@ -117,7 +117,7 @@ class VoiceTabPageTest(unittest.TestCase):
         self.assertIn(".vt-field input[type=\"text\"], .vt-field select { width: 100%; min-height: 44px;", CSS)
         self.assertIn(".vt-check { display: flex; align-items: center; gap: 12px; min-height: 44px;", CSS)
         self.assertIn("min-height: 72px", CSS)
-        self.assertIn("@media (min-width: 1000px)", CSS)
+        self.assertIn("@media (min-width: 760px)", CSS)
         self.assertIn("@media (max-width: 520px)", CSS)
         self.assertIn("prefers-reduced-motion", CSS)
         self.assertNotIn(":hover", CSS)                                                 # no hover-only anything

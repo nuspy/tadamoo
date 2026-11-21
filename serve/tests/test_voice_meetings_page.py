@@ -136,7 +136,7 @@ class PageTest(unittest.TestCase):
         self.assertEqual(HTML.count("web/voicemeet.js"), 1)
         self.assertLess(HTML.index("web/voicemeet.js"), HTML.index("web/voicetab.js"))
         self.assertIn("window.VoiceMeet = { mount, update, settingsCard }", JS)
-        for call in ("window.VoiceMeet.mount(parts.meetings.s", "window.VoiceMeet.update()", "window.VoiceMeet.settingsCard(api)", '["meetings", "vt.meetings"]'):
+        for call in ("window.VoiceMeet.mount(parts.meetings.s", "window.VoiceMeet.update()", "window.VoiceMeet.settingsCard(api)", 'meetings: "vt.meetings"'):
             self.assertIn(call, TAB)
 
     def test_every_request_is_on_the_proxys_list(self):
