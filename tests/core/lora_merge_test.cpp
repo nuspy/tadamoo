@@ -1,0 +1,396 @@
+// LoRA adapter reading (LoraAdapter::open) and merge (lora_merge_q8_0): no GPU, no real checkpoint.
+//
+// 1. open(): a well-formed synthetic adapter opens, alpha and the pairs read back exactly; a tensor outside the
+//    ten native families (native_dense.cpp's eligible()) is counted, not loaded; four malformed files are
+//    rejected, each error naming the thing that is wrong.
+// 2. lora_merge_q8_0(): for each of the dense types the real packs use (Q4_K, Q5_K, Q6_K, IQ4_XS, IQ3_S, Q3_K,
+//    Q2_0, Q8_0), at the real geometries (2560 -> 10240, 6144 -> 2560), with one or two adapters and varying
+//    rank, every merged value is within the Q8_0 block step (plus the scale's own fp16 rounding) of a
+//    double-precision reference.
+// 3. On a Q8_0 base specifically: a null delta reproduces the base bytes exactly (R1), even for a block whose
+//    code was 126 rather than 127 (re-quantizing such a block is not its own fixed point); the same adapter at
+//    scale +1 and -1 together gives a net-zero delta and the same base bytes; two runs of the same input give
+//    the same bytes.
+// 4. A microbench line: seconds to fuse one 2560 -> 10240 tensor (used to size E4's cost).
+#include "basalt/core/lora.hpp"
+#include "basalt/ggml/ggml.h"
+#include "gguf_fixture.hpp"
+
+#include <algorithm>
+#include <array>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <map>
+#include <random>
+#include <vector>
+
+namespace {
+
+int failures = 0;
+void check(bool ok, const std::string& what) {
+    if (!ok) {
+        std::fprintf(stderr, "FAIL: %s\n", what.c_str());
+        ++failures;
+    }
+}
+
+struct Pair {
+    std::vector<float> a, b;   // a[k * n_in + j], b[i * r + k] -- the checkpoint-order layout LoraAdapter reads
+    int64_t r = 0, n_in = 0, n_out = 0;
+};
+
+std::vector<uint8_t> f32_bytes(const std::vector<float>& v) {
+    std::vector<uint8_t> out(v.size() * 4);
+    std::memcpy(out.data(), v.data(), out.size());
+    return out;
+}
+
+fixture::Tensor lora_a_tensor(const std::string& base, const Pair& p) {
+    return {base + ".lora_a", {(uint64_t) p.n_in, (uint64_t) p.r}, 0 /* F32 */, 1, f32_bytes(p.a)};
+}
+fixture::Tensor lora_b_tensor(const std::string& base, const Pair& p) {
+    return {base + ".lora_b", {(uint64_t) p.r, (uint64_t) p.n_out}, 0 /* F32 */, 1, f32_bytes(p.b)};
+}
+
+std::filesystem::path write_adapter(const std::filesystem::path& dir, const std::string& name, float alpha,
+                                    const std::map<std::string, Pair>& pairs,
+                                    const std::vector<fixture::Kv>& extra_kv = {}) {
+    std::vector<fixture::Kv> kv = {fixture::str("general.type", "adapter"), fixture::str("adapter.type", "lora"),
+                                   fixture::str("general.architecture", "qwen4exp"),
+                                   fixture::f32("adapter.lora.alpha", alpha)};
+    kv.insert(kv.end(), extra_kv.begin(), extra_kv.end());
+    std::vector<fixture::Tensor> ts;
+    for (const auto& [base, p] : pairs) {
+        ts.push_back(lora_a_tensor(base, p));
+        ts.push_back(lora_b_tensor(base, p));
+    }
+    const auto path = dir / name;
+    fixture::write(path, kv, ts);
+    return path;
+}
+
+Pair random_pair(std::mt19937& rng, int64_t r, int64_t n_in, int64_t n_out, float sigma) {
+    std::normal_distribution<float> dist(0.0f, sigma);
+    Pair p;
+    p.r = r;
+    p.n_in = n_in;
+    p.n_out = n_out;
+    p.a.resize((size_t) (r * n_in));
+    p.b.resize((size_t) (n_out * r));
+    for (auto& v : p.a) v = dist(rng);
+    for (auto& v : p.b) v = dist(rng);
+    return p;
+}
+
+// `n_out` rows of `type`, each row re-rolled (bounded attempts) until to_float gives finite values -- the same
+// "every byte random, decode, check finite" pattern nvfp4_format_test.cpp uses, since these formats have no
+// simple reference quantizer to build controlled values with.
+std::vector<uint8_t> random_base(std::mt19937& rng, uint32_t type, int64_t n_in, int64_t n_out,
+                                 std::vector<std::vector<float>>& decoded) {
+    const auto* t = ggml_get_type_traits((enum ggml_type) type);
+    const size_t row_bytes = ggml_row_size((enum ggml_type) type, n_in);
+    std::vector<uint8_t> data((size_t) n_out * row_bytes);
+    decoded.assign((size_t) n_out, std::vector<float>((size_t) n_in));
+    std::uniform_int_distribution<int> byte_dist(0, 255);
+    for (int64_t i = 0; i < n_out; ++i) {
+        uint8_t* row = data.data() + (size_t) i * row_bytes;
+        for (int attempt = 0; attempt < 50; ++attempt) {
+            for (size_t b = 0; b < row_bytes; ++b) row[b] = (uint8_t) byte_dist(rng);
+            t->to_float(row, decoded[(size_t) i].data(), n_in);
+            bool finite = true;
+            for (float v : decoded[(size_t) i])
+                if (!std::isfinite(v)) { finite = false; break; }
+            if (finite) break;
+        }
+    }
+    return data;
+}
+
+// ------------------------------------------------------------------ 1. open()
+void test_open() {
+    const auto tmp = std::filesystem::temp_directory_path() / "lora_merge_test_open";
+    std::filesystem::create_directories(tmp);
+
+    Pair proj;   // r=2, n_in=8, n_out=4
+    proj.r = 2;
+    proj.n_in = 8;
+    proj.n_out = 4;
+    proj.a = {1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0};   // r=2 rows of n_in=8
+    proj.b = {1, 2, 3, 4, 5, 6, 7, 8};                            // n_out=4 rows of r=2
+
+    {
+        auto path = write_adapter(tmp, "ok.gguf", 16.0f, {{"blk.0.attn_q.weight", proj}});
+        basalt::core::LoraAdapter ad;
+        std::string err;
+        check(basalt::core::LoraAdapter::open(path.string(), ad, err), "a well-formed adapter opens: " + err);
+        check(ad.alpha() == 16.0f, "alpha read back");
+        check(ad.covered_count() == 1, "one covered tensor");
+        check(ad.other_tensor_count() == 0, "no other tensors");
+        const auto* p = ad.find("blk.0.attn_q.weight");
+        check(p != nullptr, "find() returns the pair");
+        if (p) {
+            check(p->r == 2 && p->n_in == 8 && p->n_out == 4, "pair geometry read back");
+            check(p->a == proj.a, "lora_a values read back exactly");
+            check(p->b == proj.b, "lora_b values read back exactly");
+        }
+    }
+    {   // a router tensor (not one of the ten native families) is counted, not loaded
+        std::map<std::string, Pair> pairs = {{"blk.0.attn_q.weight", proj}, {"blk.0.ffn_gate_inp.weight", proj}};
+        auto path = write_adapter(tmp, "router.gguf", 16.0f, pairs);
+        basalt::core::LoraAdapter ad;
+        std::string err;
+        check(basalt::core::LoraAdapter::open(path.string(), ad, err), "an adapter with a router tensor opens: " + err);
+        check(ad.covered_count() == 1, "the router tensor is not counted as covered");
+        check(ad.other_tensor_count() == 1, "the router tensor is counted as \"other\"");
+    }
+
+    auto expect_fail = [&](const std::vector<fixture::Kv>& kv, const Pair& ab, const std::string& needle) {
+        std::vector<fixture::Tensor> ts = {lora_a_tensor("blk.0.attn_q.weight", proj), lora_b_tensor("blk.0.attn_q.weight", ab)};
+        const auto path = tmp / "bad.gguf";
+        fixture::write(path, kv, ts);
+        basalt::core::LoraAdapter bad;
+        std::string e;
+        check(!basalt::core::LoraAdapter::open(path.string(), bad, e), "rejects (" + needle + ")");
+        check(e.find(needle) != std::string::npos, "error names \"" + needle + "\" (got: " + e + ")");
+    };
+    expect_fail({fixture::str("general.type", "model"), fixture::str("adapter.type", "lora"),
+                fixture::str("general.architecture", "qwen4exp"), fixture::f32("adapter.lora.alpha", 16.0f)},
+               proj, "general.type");
+    expect_fail({fixture::str("general.type", "adapter"), fixture::str("adapter.type", "lora"),
+                fixture::str("general.architecture", "qwen35moe"), fixture::f32("adapter.lora.alpha", 16.0f)},
+               proj, "architecture");
+    expect_fail({fixture::str("general.type", "adapter"), fixture::str("adapter.type", "lora"),
+                fixture::str("general.architecture", "qwen4exp")},
+               proj, "alpha");
+    Pair bad_rank = proj;
+    bad_rank.r = 3;
+    bad_rank.b.assign((size_t) (proj.n_out * 3), 0.0f);
+    expect_fail({fixture::str("general.type", "adapter"), fixture::str("adapter.type", "lora"),
+                fixture::str("general.architecture", "qwen4exp"), fixture::f32("adapter.lora.alpha", 16.0f)},
+               bad_rank, "rank");
+}
+
+// ------------------------------------------------------------------ 2. merge parity against a double reference
+void double_reference_row(const std::vector<float>& base_row, const std::vector<Pair>& pairs,
+                          const std::vector<float>& adapter_alpha, const std::vector<float>& user_scale,
+                          int64_t row, int64_t n_in, std::vector<double>& out) {
+    out.resize((size_t) n_in);
+    for (int64_t j = 0; j < n_in; ++j) out[j] = (double) base_row[j];
+    for (size_t ai = 0; ai < pairs.size(); ++ai) {
+        const Pair& p = pairs[ai];
+        const double coef0 = (double) user_scale[ai] * ((double) adapter_alpha[ai] / (double) p.r);
+        for (int64_t k = 0; k < p.r; ++k) {
+            const double coef = coef0 * (double) p.b[(size_t) row * p.r + k];
+            if (coef == 0.0) continue;
+            for (int64_t j = 0; j < n_in; ++j) out[j] += coef * (double) p.a[(size_t) k * n_in + j];
+        }
+    }
+}
+
+void check_parity_case(std::mt19937& rng, const std::filesystem::path& tmp, uint32_t type, const char* type_name,
+                       int64_t n_in, int64_t n_out, const std::vector<int64_t>& ranks) {
+    std::vector<std::vector<float>> base_f32;
+    const auto base_bytes = random_base(rng, type, n_in, n_out, base_f32);
+
+    const std::string gguf_name = "blk.0.attn_q.weight";
+    std::vector<basalt::core::LoraAdapter> adapters(ranks.size());
+    std::vector<Pair> pairs(ranks.size());
+    std::vector<float> alpha(ranks.size()), user_scale(ranks.size());
+    for (size_t ai = 0; ai < ranks.size(); ++ai) {
+        pairs[ai] = random_pair(rng, ranks[ai], n_in, n_out, 0.03f);
+        alpha[ai] = 8.0f + 4.0f * (float) ai;
+        user_scale[ai] = 0.5f + 0.4f * (float) ai;
+        const auto path = write_adapter(tmp, std::string(type_name) + "_a" + std::to_string(ai) + ".gguf", alpha[ai],
+                                        {{gguf_name, pairs[ai]}});
+        std::string err;
+        check(basalt::core::LoraAdapter::open(path.string(), adapters[ai], err), std::string(type_name) + ": adapter opens: " + err);
+    }
+    std::vector<basalt::core::LoraEntry> entries;
+    for (size_t ai = 0; ai < ranks.size(); ++ai) entries.push_back({&adapters[ai], user_scale[ai]});
+    basalt::core::LoraSet set(entries);
+
+    std::vector<uint8_t> out;
+    std::string err;
+    const bool ok = basalt::core::lora_merge_q8_0(type, base_bytes.data(), n_in, n_out, set, gguf_name, out, err);
+    check(ok, std::string("merge succeeds for ") + type_name + ": " + err);
+    if (!ok) return;
+
+    const auto* q8 = ggml_get_type_traits(GGML_TYPE_Q8_0);
+    const size_t row_bytes_q8 = (size_t) ggml_row_size(GGML_TYPE_Q8_0, n_in);
+    bool within_tol = true;
+    double worst_ratio = 0.0;
+    int64_t worst_i = -1, worst_j = -1;
+    double worst_got = 0, worst_ideal = 0, worst_tol = 0;
+    std::vector<double> ideal;
+    std::vector<float> got((size_t) n_in);
+    for (int64_t i = 0; i < n_out; ++i) {
+        double_reference_row(base_f32[(size_t) i], pairs, alpha, user_scale, i, n_in, ideal);
+        q8->to_float(out.data() + (size_t) i * row_bytes_q8, got.data(), n_in);
+        for (int64_t blk = 0; blk * 32 < n_in; ++blk) {
+            uint16_t d16;
+            std::memcpy(&d16, out.data() + (size_t) i * row_bytes_q8 + (size_t) blk * q8->type_size, 2);
+            const double step = (double) ggml_fp16_to_fp32(d16);
+            const int64_t hi = std::min(blk * 32 + 32, n_in);
+            for (int64_t j = blk * 32; j < hi; ++j) {
+                // 0.5 step for the code's own rounding, plus the scale's fp16 rounding (~2^-11 relative) amplified
+                // by the largest code it can multiply (127), plus a relative term for the delta's own f32 cast;
+                // x1.5 headroom since this is a test tolerance, not a claim about the format's exact error bound
+                const double tol = 1.5 * ((0.5 + 127.0 / 2048.0) * step + std::fabs(ideal[(size_t) j]) * 2e-3) + 1e-6;
+                const double diff = std::fabs((double) got[(size_t) j] - ideal[(size_t) j]);
+                if (diff > tol) within_tol = false;
+                const double ratio = diff / tol;
+                if (ratio > worst_ratio) {
+                    worst_ratio = ratio; worst_i = i; worst_j = j;
+                    worst_got = got[(size_t) j]; worst_ideal = ideal[(size_t) j]; worst_tol = tol;
+                }
+            }
+        }
+    }
+    if (!within_tol)
+        std::fprintf(stderr, "  %s worst: row %lld col %lld got=%.6g ideal=%.6g tol=%.6g ratio=%.3g\n", type_name,
+                     (long long) worst_i, (long long) worst_j, worst_got, worst_ideal, worst_tol, worst_ratio);
+    check(within_tol, std::string(type_name) + ": every merged value is within the Q8_0 step of the double reference");
+}
+
+// ------------------------------------------------------------------ 3. Q8_0-specific identity properties (R1)
+std::vector<uint8_t> make_q8_0_block(float d, const std::array<int8_t, 32>& codes) {
+    std::vector<uint8_t> blk(34);
+    const uint16_t d16 = ggml_fp32_to_fp16(d);
+    std::memcpy(blk.data(), &d16, 2);
+    for (int i = 0; i < 32; ++i) blk[2 + (size_t) i] = (uint8_t) codes[(size_t) i];
+    return blk;
+}
+
+void test_q8_0_identities(std::mt19937& rng) {
+    // block 0: codes in [-126, 126] with the max exactly 126 -- requantizing it (not copying it) gives 127, as
+    // the comment in lora.cpp explains; block 1: ordinary random Q8_0 bytes.
+    std::array<int8_t, 32> codes0{};
+    codes0[0] = -126;
+    for (int i = 1; i < 32; ++i) codes0[(size_t) i] = 100;
+    const auto block0 = make_q8_0_block(1.0f, codes0);
+    std::uniform_int_distribution<int> byte_dist(0, 255);
+    std::vector<uint8_t> block1(34);
+    for (auto& b : block1) b = (uint8_t) byte_dist(rng);
+    // make sure block1 decodes finitely (Q8_0 always does: d is fp16, codes are plain int8, no NaN encoding)
+    std::vector<uint8_t> base_bytes;
+    base_bytes.insert(base_bytes.end(), block0.begin(), block0.end());
+    base_bytes.insert(base_bytes.end(), block1.begin(), block1.end());
+    const int64_t n_in = 64, n_out = 1;
+
+    // sanity: re-quantizing block0's own dequantized values does NOT reproduce it (that is why R1 exists)
+    const auto* q8 = ggml_get_type_traits(GGML_TYPE_Q8_0);
+    std::vector<float> decoded(32);
+    q8->to_float(block0.data(), decoded.data(), 32);
+    std::vector<uint8_t> requantized(34);
+    q8->from_float_ref(decoded.data(), requantized.data(), 32);
+    check(requantized != block0, "requantizing a max-code-126 Q8_0 block changes its bytes (motivates R1)");
+
+    Pair zero_pair = random_pair(rng, 4, n_in, n_out, 0.02f);
+    std::fill(zero_pair.b.begin(), zero_pair.b.end(), 0.0f);   // B = 0: a null adapter
+
+    const auto tmp = std::filesystem::temp_directory_path() / "lora_merge_test_q8";
+    std::filesystem::create_directories(tmp);
+    const std::string gguf_name = "blk.0.attn_q.weight";
+    basalt::core::LoraAdapter zero_adapter;
+    {
+        std::string err;
+        const auto path = write_adapter(tmp, "zero.gguf", 16.0f, {{gguf_name, zero_pair}});
+        check(basalt::core::LoraAdapter::open(path.string(), zero_adapter, err), "null adapter opens: " + err);
+    }
+    {
+        basalt::core::LoraSet set({{&zero_adapter, 1.0f}});
+        std::vector<uint8_t> out;
+        std::string err;
+        check(basalt::core::lora_merge_q8_0(8 /* Q8_0 */, base_bytes.data(), n_in, n_out, set, gguf_name, out, err),
+             "merge with a null adapter succeeds: " + err);
+        check(out == base_bytes, "a null adapter reproduces the Q8_0 base exactly, max-code-126 block included");
+    }
+
+    Pair real_pair = random_pair(rng, 4, n_in, n_out, 0.05f);
+    basalt::core::LoraAdapter plus, minus;
+    {
+        std::string err;
+        auto path_p = write_adapter(tmp, "plusminus.gguf", 16.0f, {{gguf_name, real_pair}});
+        check(basalt::core::LoraAdapter::open(path_p.string(), plus, err), "+1 adapter opens: " + err);
+        check(basalt::core::LoraAdapter::open(path_p.string(), minus, err), "-1 adapter opens: " + err);
+    }
+    {
+        basalt::core::LoraSet set({{&plus, 1.0f}, {&minus, -1.0f}});
+        std::vector<uint8_t> out;
+        std::string err;
+        check(basalt::core::lora_merge_q8_0(8, base_bytes.data(), n_in, n_out, set, gguf_name, out, err),
+             "merge with +1/-1 of the same adapter succeeds: " + err);
+        check(out == base_bytes, "the same adapter at scale +1 and -1 cancels to the exact Q8_0 base");
+    }
+    {   // determinism: the same call twice gives the same bytes
+        basalt::core::LoraSet set({{&plus, 0.7f}});
+        std::vector<uint8_t> out1, out2;
+        std::string err;
+        basalt::core::lora_merge_q8_0(8, base_bytes.data(), n_in, n_out, set, gguf_name, out1, err);
+        basalt::core::lora_merge_q8_0(8, base_bytes.data(), n_in, n_out, set, gguf_name, out2, err);
+        check(out1 == out2, "merging the same input twice gives the same bytes");
+    }
+}
+
+// ------------------------------------------------------------------ 4. microbench
+void microbench(std::mt19937& rng, const std::filesystem::path& tmp) {
+    const int64_t n_in = 2560, n_out = 10240;
+    std::vector<std::vector<float>> decoded;
+    const auto base_bytes = random_base(rng, GGML_TYPE_Q6_K, n_in, n_out, decoded);
+    const Pair p = random_pair(rng, 8, n_in, n_out, 0.03f);
+    basalt::core::LoraAdapter ad;
+    std::string err;
+    const auto path = write_adapter(tmp, "bench.gguf", 16.0f, {{"blk.0.attn_qkv.weight", p}});
+    basalt::core::LoraAdapter::open(path.string(), ad, err);
+    basalt::core::LoraSet set({{&ad, 1.0f}});
+
+    std::vector<uint8_t> out;
+    const auto t0 = std::chrono::steady_clock::now();
+    const bool ok = basalt::core::lora_merge_q8_0(GGML_TYPE_Q6_K, base_bytes.data(), n_in, n_out, set,
+                                                  "blk.0.attn_qkv.weight", out, err);
+    const auto t1 = std::chrono::steady_clock::now();
+    check(ok, "microbench merge succeeds: " + err);
+    const double seconds = std::chrono::duration<double>(t1 - t0).count();
+    std::printf("lora_merge_test: fusing one %lld -> %lld tensor (Q6_K base, rank 8) took %.3f s\n",
+               (long long) n_in, (long long) n_out, seconds);
+}
+
+}  // namespace
+
+int run() {
+    std::mt19937 rng(7);
+    test_open();
+
+    const auto tmp = std::filesystem::temp_directory_path() / "lora_merge_test_parity";
+    std::filesystem::create_directories(tmp);
+    check_parity_case(rng, tmp, GGML_TYPE_Q4_K, "Q4_K", 2560, 10240, {8});
+    check_parity_case(rng, tmp, GGML_TYPE_Q5_K, "Q5_K", 6144, 2560, {5});
+    check_parity_case(rng, tmp, GGML_TYPE_Q6_K, "Q6_K", 2560, 10240, {8, 8});   // two adapters together
+    check_parity_case(rng, tmp, GGML_TYPE_IQ4_XS, "IQ4_XS", 6144, 2560, {8});
+    check_parity_case(rng, tmp, GGML_TYPE_IQ3_S, "IQ3_S", 2560, 10240, {5});
+    check_parity_case(rng, tmp, GGML_TYPE_Q3_K, "Q3_K", 6144, 2560, {8});
+    check_parity_case(rng, tmp, GGML_TYPE_Q2_0, "Q2_0", 2560, 10240, {8});
+    check_parity_case(rng, tmp, GGML_TYPE_Q8_0, "Q8_0", 6144, 2560, {5, 8});   // two adapters, different rank
+
+    test_q8_0_identities(rng);
+    microbench(rng, tmp);
+
+    if (failures) {
+        std::fprintf(stderr, "%d check(s) failed\n", failures);
+        return 1;
+    }
+    std::printf("lora_merge_test: ok\n");
+    return 0;
+}
+
+int main() {
+    try {
+        return run();
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "uncaught exception: %s\n", e.what());
+        return 1;
+    }
+}
